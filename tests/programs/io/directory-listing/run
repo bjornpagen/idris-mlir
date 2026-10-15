@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The program makes and removes directories where it runs: both
 # compilations' programs run in a directory of their own, made for the
 # test and removed with the rest of its work.

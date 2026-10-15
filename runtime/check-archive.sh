@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The runtime archive references no symbol of the C++ runtime, not even
 # weakly, and has no static constructors or destructors. The build runs it
 # after the link check (runtime/CMakeLists.txt), through the wrapper it

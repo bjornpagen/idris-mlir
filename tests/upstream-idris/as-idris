@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The compiler an upstream run script receives as $1, taking Idris 2's
 # command line. What upstream's tests ask of a compiler, this one does
 # with idris-mlir and its frontend:

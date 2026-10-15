@@ -4,6 +4,7 @@
 // natural small.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Worklist.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -20,47 +21,63 @@ namespace idr::narrow {
 
 namespace {
 
-// Whether `value` is `arg` or a predecessor of it, within one trip round the
-// loop: through predecessors, the condition's forwarding, and every region
-// of a merge. `again` decides on this path whether the loop goes round
-// again, none where it always does: a path on which it is false leaves the
-// loop, and what that path yields never comes back.
-bool descends(Value value, Value again, BlockArgument arg, scf::WhileOp loop,
-              unsigned depth = 0) {
-  if (depth > 64)
-    return false;
-  if (value == arg)
-    return true;
-  APInt goes;
-  if (again && matchPattern(again, m_ConstantInt(&goes)) && goes.isZero())
-    return true;
-  if (auto pred = value.getDefiningOp<BigPredOp>())
-    return descends(pred.getValue(), again, arg, loop, depth + 1);
-  if (auto forwarded = dyn_cast<BlockArgument>(value)) {
-    if (forwarded.getOwner() != &loop.getAfter().front())
+// Whether `yielded`, what `loop` yields round for its argument `arg`, is
+// `arg` or a predecessor of it within one trip round the loop: through
+// predecessors, the condition's forwarding, and every region of a merge.
+// Each goal is a value and what decides on its path whether the loop goes
+// round again, none in the region after the condition, which always does:
+// a path on which that is false leaves the loop, and what it yields never
+// comes back. Every goal must hold. Each step goes to a value defined
+// before the one it starts from (an operand, what the condition forwards
+// from the region before it, what a region of the merge yields), so no
+// goal waits on itself; the goals are pairs of the loop's values, each
+// asked once, so the asking ends.
+bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
+  using Goal = std::pair<Value, std::optional<Value>>;
+  scf::ConditionOp condition = loop.getConditionOp();
+  OnceWorklist<Goal> goals;
+  (void)goals.push({yielded, std::nullopt});
+  while (std::optional<Goal> goal = goals.pop()) {
+    auto [value, again] = *goal;
+    if (value == arg)
+      continue;
+    APInt goes;
+    if (again && matchPattern(*again, m_ConstantInt(&goes)) && goes.isZero())
+      continue;
+    if (auto pred = value.getDefiningOp<BigPredOp>()) {
+      (void)goals.push({pred.getValue(), again});
+      continue;
+    }
+    if (auto forwarded = dyn_cast<BlockArgument>(value)) {
+      if (forwarded.getOwner() != &loop.getAfter().front())
+        return false;
+      (void)goals.push(
+          {condition.getArgs()[forwarded.getArgNumber()], Value(condition.getCondition())});
+      continue;
+    }
+    auto result = cast<OpResult>(value);
+    Operation *merge = result.getOwner();
+    if (merge->getNumRegions() == 0 || !isa<RegionBranchOpInterface>(merge))
       return false;
-    scf::ConditionOp condition = loop.getConditionOp();
-    return descends(condition.getArgs()[forwarded.getArgNumber()], condition.getCondition(), arg,
-                    loop, depth + 1);
+    // A merge that gives the decision with the value decides in each region.
+    auto decided = again ? dyn_cast<OpResult>(*again) : OpResult();
+    bool together = decided && decided.getOwner() == merge;
+    for (Region &region : merge->getRegions()) {
+      if (region.empty())
+        continue;
+      Operation *terminator = region.front().getTerminator();
+      // A region that ends the program yields nothing.
+      if (terminator->getNumOperands() != merge->getNumResults()) {
+        if (isa<RegionBranchTerminatorOpInterface>(terminator))
+          return false;
+        continue;
+      }
+      std::optional<Value> decision =
+          together ? std::optional<Value>(terminator->getOperand(decided.getResultNumber())) : again;
+      (void)goals.push({terminator->getOperand(result.getResultNumber()), decision});
+    }
   }
-  auto result = cast<OpResult>(value);
-  Operation *merge = result.getOwner();
-  if (merge->getNumRegions() == 0 || !isa<RegionBranchOpInterface>(merge))
-    return false;
-  // A merge that gives the decision with the value decides in each region.
-  auto decided = dyn_cast_or_null<OpResult>(again);
-  bool together = decided && decided.getOwner() == merge;
-  return llvm::all_of(merge->getRegions(), [&](Region &region) {
-    if (region.empty())
-      return true;
-    Operation *terminator = region.front().getTerminator();
-    // A region that ends the program yields nothing.
-    if (terminator->getNumOperands() != merge->getNumResults())
-      return !isa<RegionBranchTerminatorOpInterface>(terminator);
-    Value decision = together ? terminator->getOperand(decided.getResultNumber()) : again;
-    return descends(terminator->getOperand(result.getResultNumber()), decision, arg, loop,
-                    depth + 1);
-  });
+  return true;
 }
 
 // The first natural argument of `loop` that only descends and that the
@@ -75,7 +92,7 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts
   auto yield = cast<scf::YieldOp>(loop.getAfter().front().getTerminator());
   for (BlockArgument arg : before.getArguments())
     if (isa<NatType>(arg.getType()) && !facts.fits(arg) &&
-        descends(yield.getOperand(arg.getArgNumber()), Value(), arg, loop))
+        descends(yield.getOperand(arg.getArgNumber()), arg, loop))
       return arg.getArgNumber();
   return std::nullopt;
 }

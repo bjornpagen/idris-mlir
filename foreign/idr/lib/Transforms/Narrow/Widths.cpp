@@ -3,6 +3,7 @@
 // What a vectorized loop computes on, what it reads from outside, and how
 // often it runs.
 
+#include "idr/Support/Worklist.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -15,6 +16,10 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Transforms/RegionUtils.h"
+
+#include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
 
 using namespace mlir;
 
@@ -67,30 +72,27 @@ bool fits32(const ConstantIntRanges &range) {
 
 // An op computes on integers wider than 32 bits when it is elementwise, no
 // cast, and has such an operand or result; on lanes of them when one is a
-// vector.
+// vector. The widest of its types says.
 Width widthOf(Operation *op) {
-  Width width;
   if (!op->hasTrait<OpTrait::Elementwise>() || isa<CastOpInterface>(op))
-    return width;
-  auto note = [&](Type type) {
+    return Width::Narrow;
+  auto of = [](Type type) {
     if (ConstantIntRanges::getStorageBitwidth(type) <= 32)
-      return;
-    width.wide = true;
-    width.lanes |= isa<VectorType>(type);
+      return Width::Narrow;
+    return isa<VectorType>(type) ? Width::WideLanes : Width::Wide;
   };
-  for (Type type : op->getOperandTypes())
-    note(type);
-  for (Type type : op->getResultTypes())
-    note(type);
+  Width width = Width::Narrow;
+  for (Type type : llvm::concat<const Type>(op->getOperandTypes(), op->getResultTypes()))
+    width = std::max(width, of(type));
   return width;
 }
 
 // The greatest set: an op reached from the argument stays while each use of
 // its results is the yield's operand that carries the argument round or an
-// op that stays. An op nothing reads is on no path to the yield. Every op
-// starts kept; one that does not feed only the set leaves it, and then the
-// kept ops that feed it are asked again. An op leaves once, so the asking
-// ends with the set.
+// op that stays. An op nothing reads is on no path to the yield. The ops
+// reached are found once each; every one starts kept, and one that does
+// not feed only the set leaves it, once, after which the kept ops that
+// feed it are asked again. The asking ends with the ops that leave.
 llvm::DenseSet<Operation *> accumulations(Operation *root) {
   llvm::DenseSet<Operation *> carried;
   root->walk([&](scf::ForOp loop) {
@@ -99,28 +101,35 @@ llvm::DenseSet<Operation *> accumulations(Operation *root) {
       if (!isa<VectorType>(arg.getType()))
         continue;
       OpOperand &next = yield->getOpOperand(static_cast<unsigned>(index));
-      SetVector<Operation *> reached;
-      SmallVector<Value> work{arg};
-      while (!work.empty())
-        for (Operation *user : work.pop_back_val().getUsers())
-          if (user->hasTrait<OpTrait::Elementwise>() && reached.insert(user))
-            llvm::append_range(work, user->getResults());
-      llvm::DenseSet<Operation *> kept(reached.begin(), reached.end());
+      OnceWorklist<Operation *> reached;
+      auto reach = [&](Value value) {
+        for (Operation *user : value.getUsers())
+          if (user->hasTrait<OpTrait::Elementwise>())
+            (void)reached.push(user);
+      };
+      reach(arg);
+      while (std::optional<Operation *> op = reached.pop())
+        for (Value result : (*op)->getResults())
+          reach(result);
+      llvm::DenseSet<Operation *> kept(reached.entered().begin(), reached.entered().end());
       auto feeds = [&](Operation *op) {
         return !op->use_empty() && llvm::all_of(op->getUses(), [&](OpOperand &use) {
           return &use == &next || kept.contains(use.getOwner());
         });
       };
-      SmallVector<Operation *> asked(reached.begin(), reached.end());
-      while (!asked.empty()) {
-        Operation *op = asked.pop_back_val();
-        if (!kept.contains(op) || feeds(op))
-          continue;
-        kept.erase(op);
-        for (Value operand : op->getOperands())
-          if (Operation *def = operand.getDefiningOp(); def && kept.contains(def))
-            asked.push_back(def);
-      }
+      OnceWorklist<Operation *> left;
+      auto ask = [&](Operation *op) {
+        if (kept.contains(op) && !feeds(op)) {
+          kept.erase(op);
+          (void)left.push(op);
+        }
+      };
+      for (Operation *op : reached.entered())
+        ask(op);
+      while (std::optional<Operation *> op = left.pop())
+        for (Value operand : (*op)->getOperands())
+          if (Operation *def = operand.getDefiningOp())
+            ask(def);
       carried.insert(kept.begin(), kept.end());
     }
   });
@@ -133,7 +142,8 @@ bool computesWideLanes(scf::ForOp loop) {
   llvm::DenseSet<Operation *> carried = accumulations(loop);
   return loop
       .walk([&](Operation *op) {
-        return widthOf(op).lanes && !carried.contains(op) ? WalkResult::interrupt() : WalkResult::advance();
+        return widthOf(op) == Width::WideLanes && !carried.contains(op) ? WalkResult::interrupt()
+                                                                        : WalkResult::advance();
       })
       .wasInterrupted();
 }

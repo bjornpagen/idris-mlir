@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='!idr.lazy' --implicit-check-not='{{(idr\.| )suspend }}' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // A Lazy value picked at runtime and forced later: its type's key becomes a
 // memo sum, a box, so that every reference sees one cell. It has a
 // constructor per label, named after the label's function, whose fields

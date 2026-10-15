@@ -37,7 +37,6 @@
 #include "idr/Transforms/Optimize.h"
 
 #include "idr/Analysis/Effects.h"
-#include "idr/Analysis/Holds.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
@@ -89,7 +88,7 @@ unsigned contify(idr::ProgramOp program, SymbolTable &symbols, const CallGraph &
       continue;
     auto call = dyn_cast<idr::CallOp>(uses.front());
     auto caller = call ? call->getParentOfType<idr::FuncOp>() : idr::FuncOp();
-    if (!caller || caller == fn || component.lookup(caller) != component.lookup(fn) ||
+    if (!caller || caller == fn || component.at(caller) != component.at(fn) ||
         !idr::inlining::fitsRegion(interface, call, fn))
       continue;
     if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
@@ -111,7 +110,7 @@ struct Contify : idr::impl::IdrContifyBase<Contify> {
     if (!contified)
       return markAllAnalysesPreserved();
     // No type changed, and every function erased went through the table.
-    markAnalysesPreserved<SymbolTable, idr::Holds, idr::TypeGraph, idr::Layouts>();
+    markAnalysesPreserved<SymbolTable, idr::TypeGraph, idr::Layouts>();
   }
 };
 

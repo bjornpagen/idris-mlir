@@ -19,7 +19,7 @@ int64_t writeBytes(int64_t handle, const char *p, size_t n) {
   }
   if (handle == 2) {
     idris_rt_flush();
-    writeAll(2, p, n);
+    rt::platform::writeAll(2, p, n);
     return static_cast<int64_t>(n);
   }
   rt::platform::File *file = fileOf(handle);

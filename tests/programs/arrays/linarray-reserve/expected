@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the port to the size-indexed vector, the pushes giving back their size, prints the same
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

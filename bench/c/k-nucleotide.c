@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* k-nucleotide on one core, as Main.idr here: the third sequence's
    fragments counted in an open-addressing hash table keyed by the
    fragment packed two bits a nucleotide. */

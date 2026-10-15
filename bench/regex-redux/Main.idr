@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- regex-redux (the Benchmarks Game): the DNA of a FASTA input with its

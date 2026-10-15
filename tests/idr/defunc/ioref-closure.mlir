@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // An IORef of functions is an array of rank 0, made with no size and
 // written with no index. What a read of it may give is every label that was
 // made into it or written over it, the one slot of its element type, which

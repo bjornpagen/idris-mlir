@@ -394,15 +394,11 @@ checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
            (scrtm_in, gscrty, caseRig) <- handle
               (do c <- runDelays (const True) $ check chrig elabinfo nest env scr (Just (gnf env scrtyv))
                   pure (fst c, snd c, chrig))
-            $ \case
-                e@(LinearMisuse _ _ r _)
-                  => branchOne
-                     (do c <- runDelays (const True) $ check linear elabinfo nest env scr
-                              (Just (gnf env scrtyv))
-                         pure (fst c, snd c, linear))
-                     (throw e)
-                     r
-                e => throw e
+            $ \e => if misusesLinear e
+                       then do c <- runDelays (const True) $ check linear elabinfo nest env scr
+                                        (Just (gnf env scrtyv))
+                               pure (fst c, snd c, linear)
+                       else throw e
 
            scrty <- getTerm gscrty
            logTermNF "elab.case" 5 "Scrutinee type" env scrty

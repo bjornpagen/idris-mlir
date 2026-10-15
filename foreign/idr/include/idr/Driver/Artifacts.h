@@ -11,7 +11,9 @@
 #include "llvm/Support/FileUtilities.h"
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace llvm {
@@ -24,35 +26,45 @@ class Triple;
 
 namespace idr::driver {
 
-// A module is MLIR's, text or bytecode, and goes straight to the pipeline.
-// Anything else is Idris source: the frontend decides, by Idris's own
+// Where the compilation's module comes from, by the input's extension. A
+// module is MLIR's, text or bytecode, and goes straight to the pipeline: it
+// is itself what the pipeline reads, and nothing writes a Core. Anything
+// else is Idris source, which the frontend reads into the Core and the
+// module, both named from the base: the frontend decides, by Idris's own
 // extensions, whether it reads it, so only MLIR's are named here.
-enum class Input { Idris, Module };
+struct FromIdris {
+  std::string source, corePath, modulePath;
+};
+struct FromModule {
+  std::string modulePath;
+};
+using Source = std::variant<FromIdris, FromModule>;
 
-Input inputKind(llvm::StringRef path);
+// What the compilation makes, at the path -o names: the executable, which
+// links the bins' objects, each written to a file of its own, with the
+// runtime; or with -c the archive of the bins' objects, unlinked.
+struct Executable {
+  std::string path;
+};
+struct Archive {
+  std::string path;
+};
+using Product = std::variant<Executable, Archive>;
 
-// What a compilation writes, each named from one base by appending to it:
-// without -c the base is -o, which is the executable, and each bin of the
-// program's code is the object <base>.<bin>.o; with -c the base is -o
-// without its extension, and -o is the archive of the bins' objects. Idris
-// source also leaves <base>.core and <base>.mlirbc, the module the pipeline
-// reads, as MLIR bytecode; a module input is itself that module, and
-// nothing writes a .core.
-// Once armed, every file written is removed unless the whole compilation
-// succeeds (keep), a stale one from an earlier success too where the name
-// is known before anything runs, so that nothing outlives a failure. The
-// bins are known only once the program is optimized, so a bin's object is
-// named and armed when it is about to be written; an object an earlier
-// success wrote for a bin this compilation does not make is not one of its
-// files.
-class Artifacts {
+// What a compilation reads and writes, each named from one base by
+// appending to it: for an executable the base is its path, and each bin of
+// the program's code is the object <base>.<bin>.o; for an archive the base
+// is its path without its extension. Idris source also leaves <base>.core
+// and <base>.mlirbc, the module the pipeline reads, as MLIR bytecode.
+//
+// The outputs of every plan are distinct from each other and from its
+// input, which would otherwise be overwritten, or removed as a stale output
+// when the compilation fails: `of` makes no other plan.
+class Plan {
 public:
-  Artifacts(llvm::StringRef input, Input kind, llvm::StringRef output, bool objectOnly);
-
-  // The files this compilation writes are distinct, and none of them is its
-  // input, which would otherwise be overwritten, or removed as a stale
-  // output when the compilation fails.
-  bool distinctFromInput(llvm::StringRef input) const;
+  // The plan for `input` and `product`, or none when two of its outputs
+  // are one file or one is the input.
+  static std::optional<Plan> of(llvm::StringRef input, Product product);
 
   // The directories of every file the compilation writes, made before
   // anything runs: the frontend, the pipeline and the link each write
@@ -60,30 +72,46 @@ public:
   // the steps before it have run.
   bool makeDirectories() const;
 
-  // From here on, a file the compilation writes is removed when it fails.
-  // Only once the paths are known to be distinct from the input: the input
-  // is never removed.
-  void arm();
+  // The module the pipeline reads.
+  const std::string &modulePath() const;
+
+  const std::string base;
+  const Source source;
+  const Product product;
+
+protected:
+  Plan(std::string base, Source source, Product product);
+
+  // The files the compilation writes whose names are known before anything
+  // runs: the Core and the module for Idris source, and the product.
+  std::vector<std::string> outputs() const;
+};
+
+// A plan under way: from its making, every file the compilation writes is
+// removed unless the whole compilation succeeds (keep), a stale one from
+// an earlier success too where the name is known before anything runs, so
+// that nothing outlives a failure. Nothing is removed before: a usage error
+// leaves every file as it was. The bins are known only once the program is
+// optimized, so a bin's object is named and armed when it is about to be
+// written; an object an earlier success wrote for a bin this compilation
+// does not make is not one of its files.
+class Artifacts : public Plan {
+public:
+  explicit Artifacts(Plan plan);
 
   // The compilation succeeded: what it wrote stays.
   void keep();
 
   // The object of the bin named `bin`, <base>.<bin>.o, appended to
-  // `objects` and, once armed, removed unless the compilation succeeds.
+  // `objects` and removed unless the compilation succeeds.
   const std::string &addObject(llvm::StringRef bin);
 
-  // With -c, the archive of the bins' objects is archivePath, the path -o
-  // names; without, archivePath is empty.
-  const std::string base, corePath, modulePath, archivePath, executablePath;
-
-  // Without -c, the bins' objects in the order of their names: what the
-  // link passes. writeObjects fills it.
+  // For an executable, the bins' objects in the order of their names: what
+  // the link passes. writeObjects fills it.
   std::vector<std::string> objects;
 
 private:
-  std::vector<std::string> paths;
   std::vector<std::unique_ptr<llvm::FileRemover>> removers;
-  bool armed = false;
 };
 
 // Makes the directory a file is to be written in, and those it is in, so
@@ -99,9 +127,9 @@ bool emit(llvm::Module &module, llvm::TargetMachine &machine, llvm::StringRef pa
 // The optimized program's object code, one object per bin of its partition:
 // the module written once as bitcode, each bin read lazily in a context of
 // its own and compiled for the target, CPU and features on a task of
-// `pool`, the largest first; without -c each object written whole at its
-// artifacts.addObject, with -c all of them as the archive at
-// artifacts.archivePath, in the order of their names. The objects are the
+// `pool`, the largest first; for an executable each object written whole at
+// its artifacts.addObject, for an archive all of them as the archive, in
+// the order of their names. The objects are the
 // same whatever the pool's size. Reports what fails, and returns false.
 bool writeObjects(llvm::Module &optimized, const llvm::Target &target, const llvm::Triple &triple,
                   llvm::StringRef cpu, llvm::StringRef features, llvm::ThreadPoolInterface &pool,

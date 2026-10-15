@@ -131,8 +131,8 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
     // this pass would hold the types it replaced.
     idr::TypeGraph graph(program);
     unsigned largest = 0;
-    for (unsigned at = 0, n = graph.size(); at < n; ++at)
-      if (idr::DataType data = graph.declaration(at); data && data.isClosures() && graph.boxed(at))
+    for (idr::DataType data : graph.declarations())
+      if (data.isClosures() && graph.boxed(data))
         largest = std::max(largest, static_cast<unsigned>(data.getCtors().size()));
     if (largest > largestBoxedSum)
       largestBoxedSum = largest;

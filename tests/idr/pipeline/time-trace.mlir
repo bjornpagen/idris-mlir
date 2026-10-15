@@ -2,7 +2,7 @@
 // RUN: idris-mlir-opt %s --idr-optimize > %t-plain.mlir
 // RUN: diff %t-traced.mlir %t-plain.mlir
 // RUN: FileCheck %s --check-prefix=TRACE < %t.json
-// NEEDS-ACCEPTANCE: the zone names of idr-optimize's nodes and of the inner pipeline's passes, as C07 writes them.
+// NEEDS-ACCEPTANCE: the zone names of idr-optimize's nodes and of the inner pipeline's passes.
 // A time trace (--time-trace) records the optimizer and every pass of the
 // pipeline it runs on each function, with what each ran on; writing one
 // changes no byte of the module (the diff above).

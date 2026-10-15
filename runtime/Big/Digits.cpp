@@ -35,15 +35,15 @@ extern "C" const idris_rt_str *idris_rt_big_show(idris_rt_big a) {
   using namespace rt::big;
   if (isSmall(a))
     return idris_rt_str_show_s(smallValue(a));
-  rt::alloc::gmpReady();
   Operand x(a);
   mpz_srcptr z = x.get();
+  // Room for the digits GMP may write, one too many at most, a sign and its
+  // NUL; the lengths are then its text's, all ASCII.
   size_t room = mpz_sizeinbase(z, 10) + 2;
-  idris_rt_str *s = rt::strings::newString(room, 0, true);
+  idris_rt_str *s = rt::strings::newString(room, room);
   char *text = rt::strings::mutableBytes(s);
   mpz_get_str(text, 10, z);
-  s->bytes = strlen(text);
-  s->scalars = s->bytes;
+  s->bytes = s->scalars = strlen(text);
   return s;
 }
 
@@ -61,6 +61,6 @@ extern "C" idris_rt_big idris_rt_big_from_str(const idris_rt_str *s) {
   if (!numeral.negative)
     return magnitude;
   idris_rt_big value = idris_rt_big_neg(magnitude);
-  idris_rt_big_release(magnitude);
+  release(magnitude);
   return value;
 }

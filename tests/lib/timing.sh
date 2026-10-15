@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Every compilation's wall time is recorded under tests/build/timing, one
 # file per test, with the module it emitted; tests/compile-times.sh compiles
 # each module again and breaks its time down by the pipeline's timing

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 Approach changed: the old patch added three inline poison loops at the three erase sites; now one helper, replaceUsesWithPoison, is the only way the pass removes a use, so no erased value can leave a null operand behind.
 
 # Submission

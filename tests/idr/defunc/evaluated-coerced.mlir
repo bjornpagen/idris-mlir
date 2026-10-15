@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not=ub.poison --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's printed form, as C01's printer writes it.
+// NEEDS-ACCEPTANCE: the memo sum's printed form.
 // An evaluated suspension holds its value and names no label: it is a cell
 // already forced. It shares the one memo sum of every cell that reaches
 // the slots it reaches, here @later's, since lazy sets are unified, and it

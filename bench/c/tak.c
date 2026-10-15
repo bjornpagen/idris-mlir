@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 #include <stdio.h>
 static long readInt(void) { long n = 0; int c; while ((c = getchar()) >= '0' && c <= '9') n = n * 10 + (c - '0'); return n; }
 static long tak(long x, long y, long z) { return y < x ? tak(tak(x - 1, y, z), tak(y - 1, z, x), tak(z - 1, x, y)) : z; }

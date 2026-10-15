@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 package syntax-samples
 version = 0.1.0
 brief = "One sample of every type and attribute of the dialects' generated syntax"

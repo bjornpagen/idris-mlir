@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-binding-times -o %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.err
-// NEEDS-ACCEPTANCE: the remark text of each binding time, as C09's nameOf gives it, after defunctionalization made each closure a constructor.
+// NEEDS-ACCEPTANCE: the remark text of each binding time, after defunctionalization made each closure a constructor.
 // The binding time of each parameter, as the specialization requests read
 // it. Defunctionalization runs first: binding times are read over the
 // calls between the members of a cycle, and a closure is then a

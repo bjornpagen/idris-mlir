@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The target, decided once: idr-target and what passes read of it (the
 # width of its vectors), the schedule library that vectorizes by it, what
 # LLVM says of it (its machine and the optimization pipeline) and the

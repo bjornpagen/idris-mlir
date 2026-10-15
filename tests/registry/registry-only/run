@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The compiler names Idris definitions only in its registry: outside
 # compiler/src/IdrisMLIR/Registry.idr
 # and compiler/src/IdrisMLIR/Registry/, no string literal in compiler/src or in

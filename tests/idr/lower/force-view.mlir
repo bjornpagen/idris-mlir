@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,crash-sites=@Thunk.force:1,calls=@Thunk.force:@one,calls=@Thunk.force:@plus,calls-only=@Thunk.force:[@one,@plus,@idris_rt_crash],aligned-access' -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle (R02) and the dispatch idr-defunctionalize makes of a memo sum (R06), and the header words R12 writes for them.
+// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle and the dispatch idr-defunctionalize makes of a memo sum, and the header words the lowering writes for them.
 // A force is a call of its memo sum's dispatch, `<sum>.force`, which
 // idr-defunctionalize makes: a match on the cell's state. A cell in a
 // label's state has its captures moved out to the dispatch, is marked

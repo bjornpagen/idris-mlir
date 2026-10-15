@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A bug in a pinned upstream is fixed by a patch carried in upstream/
 # (upstream/README.md), and the tree keeps that as data: every
 # upstream/<bug>/ has a README with an upstreaming plan, and either a patch

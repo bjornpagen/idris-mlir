@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A constructor without fields is its atom: it has no cell, so a take of
 // it hands out no token and a reuse cannot build it. Its laid-out size is
 // still the header alone, the size of a boxed constructor whose one field
@@ -40,8 +42,8 @@ idr.program @"atom-reuse" root(@root) stage(first) {
     return %r : !idr.box<!L>
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %u = idr.constant #idr.con<@MkU, []> : !U
-    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %u = idr.constant #idr.con<!U, @MkU, []> : !U
+    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %b = idr.call @ended(%n, %u) : (!idr.box<!L>, !U) -> !idr.box<!B>
     %l = idr.call @atom(%b) : (!idr.box<!B>) -> !idr.box<!L>
     %s = idr.match %l : !idr.box<!L> -> (i64) {

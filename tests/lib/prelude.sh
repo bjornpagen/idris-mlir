@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The prelude's coverage. A fixture marked `covers MODULE` is a program
 # that uses every definition MODULE of the stock prelude exports at run
 # time. Which definitions those are is the pinned Idris's: :browse lists

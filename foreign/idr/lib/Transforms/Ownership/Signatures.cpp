@@ -23,15 +23,21 @@ void writeOwnedGrades(ProgramOp program, const Borrows &borrows) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     SmallVector<Type> params(fn.getArgumentTypes());
     for (auto [index, param] : llvm::enumerate(borrows.params(fn))) {
-      if (param == Borrows::Param::Untracked)
+      switch (param) {
+      case Borrows::Param::Untracked:
         continue;
-      params[index] =
-          param == Borrows::Param::Owned ? owned(params[index]) : view(params[index]);
+      case Borrows::Param::Owned:
+        params[index] = owned(params[index]);
+        break;
+      case Borrows::Param::Borrowed:
+        params[index] = view(params[index]);
+        break;
+      }
       fn.getArgument(static_cast<unsigned>(index)).setType(params[index]);
     }
     SmallVector<Type> results(fn.getResultTypes());
-    for (auto [result, counted] : llvm::zip_equal(results, borrows.countedResults(fn)))
-      if (counted)
+    for (Type &result : results)
+      if (holdsReferences(result))
         result = owned(result);
     fn.setFunctionType(FunctionType::get(program.getContext(), params, results));
   }
@@ -40,7 +46,8 @@ void writeOwnedGrades(ProgramOp program, const Borrows &borrows) {
 // A parameter is exclusive when the solve proved its entry argument so: it
 // saw every caller and each passes an exclusive value. A result is when
 // every return the solve reached makes it so.
-void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved, SymbolTable &symbols) {
+void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved,
+                          const SymbolTable &symbols) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     for (BlockArgument arg : fn.getArguments())
       if (solved.proves(arg))
@@ -59,11 +66,11 @@ void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved, SymbolTa
     fn.setFunctionType(FunctionType::get(
         program.getContext(), llvm::to_vector(fn.getBody().getArgumentTypes()), results));
   }
-  // A call's results are its callee's.
+  // A call's results are its callee's, a function of the program.
   program.walk([&](CallOp call) {
-    if (auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()))
-      for (auto [result, type] : llvm::zip(call.getResults(), callee.getResultTypes()))
-        result.setType(type);
+    auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
+    for (auto [result, type] : llvm::zip_equal(call.getResults(), callee.getResultTypes()))
+      result.setType(type);
   });
 }
 

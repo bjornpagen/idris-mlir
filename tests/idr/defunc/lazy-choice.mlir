@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's printed form, as C01's printer writes it.
+// NEEDS-ACCEPTANCE: the memo sum's printed form.
 // A choice between two suspensions made at run time: the match's yields
 // reach its result through the region-branch edges upstream's interface
 // declares, so the forced value's cell may be either suspension, and both

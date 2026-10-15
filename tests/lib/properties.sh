@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # What holds of every compilation, checked on each e2e fixture's own
 # compilation (lib/e2e.sh): the fixture is compiled once, with every module
 # the pipeline passes through dumped, and the properties below read those

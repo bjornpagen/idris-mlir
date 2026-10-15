@@ -14,19 +14,40 @@
 ||| linear-time iterator would decode UTF-8 here, a second copy of the
 ||| runtime's strings, and one by character index takes quadratic time on
 ||| text that is not ASCII. Stock Idris's backends do not know them.
+|||
+||| A step moves past the character it read by the length of that
+||| character's UTF-8, a function of the character alone: every character
+||| is a Unicode scalar value and every string well-formed UTF-8, so that
+||| is where the next one starts. The length is at least one byte by its
+||| type, so a walk to the end takes fewer steps than the string has bytes,
+||| which is what ends `foldl` and `unpack`.
 module Linear.String.Iterator
 
+import Control.WellFounded
 import Data.Buffer
 import public Data.List.Lazy
+import Data.Nat
 
 %default total
 
--- The character that starts at a byte offset, the offset after it, and the
--- characters from an offset on. Every offset has a meaning (idris_rt.h);
--- this module passes only the boundaries it made, below the byte length.
+-- The character that starts at a byte offset, and the characters from an
+-- offset on. Every offset has a meaning (idris_rt.h); this module passes
+-- only the boundaries it made, below the byte length.
 %extern prim__scalarAt : String -> Int -> Char
-%extern prim__scalarEnd : String -> Int -> Int
 %extern prim__dropBytes : String -> Int -> String
+
+||| The bytes of a character's UTF-8 after its first: none for ASCII, up
+||| to three, by its scalar value.
+continuation : Char -> Nat
+continuation c =
+  let v = ord c in
+  if v < 0x80 then 0 else if v < 0x800 then 1 else if v < 0x10000 then 2 else 3
+
+||| What is left of a count once some of it is taken is no more than it.
+0 minusLeft : (l, k : Nat) -> LTE (minus l k) l
+minusLeft Z _ = LTEZero
+minusLeft (S l) Z = reflexive
+minusLeft (S l) (S k) = lteSuccRight (minusLeft l k)
 
 ||| An iterator over the string it is indexed by. The index exists at
 ||| compile time only.
@@ -57,30 +78,46 @@ export
 uncons : (str : String) -> (1 it : StringIterator str) -> UnconsResult str
 uncons str (MkStringIterator offset) =
   if offset < stringByteLength str
-     then Character (prim__scalarAt str offset) (MkStringIterator (prim__scalarEnd str offset))
+     then let c = prim__scalarAt str offset in
+          Character c (MkStringIterator (offset + 1 + cast (continuation c)))
      else EOF
 
 ||| The characters of a string folded from the left.
 export
 foldl : (accTy -> Char -> accTy) -> accTy -> String -> accTy
-foldl op acc0 str = withString str (go acc0)
+foldl op acc0 str = go acc0 bytes (wellFounded bytes)
   where
-    -- Each step moves the iterator strictly forward, toward the end.
-    go : accTy -> (1 it : StringIterator str) -> accTy
-    go acc it = case uncons str it of
-      EOF => acc
-      Character c next => go (op acc c) (assert_smaller it next)
+    end : Int
+    end = stringByteLength str
+
+    bytes : Nat
+    bytes = cast end
+
+    -- `left` bytes remain, so the character read starts `left` before the
+    -- end, and fewer remain after it.
+    go : accTy -> (left : Nat) -> (0 _ : Accessible LT left) -> accTy
+    go acc Z _ = acc
+    go acc (S l) (Access rec) =
+      let c = prim__scalarAt str (end - cast (S l)) in
+      go (op acc c) (minus l (continuation c)) (rec _ (LTESucc (minusLeft l (continuation c))))
 
 ||| The characters of a string, each read when the list reaches it.
 export
 unpack : String -> LazyList Char
-unpack str = from 0
+unpack str = from bytes (wellFounded bytes)
   where
-    -- A delayed tail holds the next offset, not an iterator: a suspension
-    -- may never be forced, and an iterator must be used once. Each step
-    -- moves the offset strictly forward, toward the end.
-    from : Int -> LazyList Char
-    from offset =
-      if offset < stringByteLength str
-         then prim__scalarAt str offset :: from (assert_smaller offset (prim__scalarEnd str offset))
-         else []
+    end : Int
+    end = stringByteLength str
+
+    bytes : Nat
+    bytes = cast end
+
+    -- A delayed tail holds the bytes left, not an iterator: a suspension
+    -- may never be forced, and an iterator must be used once. The
+    -- character read starts `left` before the end, and fewer remain after
+    -- it.
+    from : (left : Nat) -> (0 _ : Accessible LT left) -> LazyList Char
+    from Z _ = []
+    from (S l) (Access rec) =
+      let c = prim__scalarAt str (end - cast (S l)) in
+      c :: from (minus l (continuation c)) (rec _ (LTESucc (minusLeft l (continuation c))))

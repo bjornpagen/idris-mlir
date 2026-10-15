@@ -6,17 +6,20 @@ module Main
 -- stores and loads.
 
 import Prelude
+import Data.So
 import Linear.Notation
 import Array
 import Linear.Vec
 
-fill : (1 _ : Vec Int) -> Nat -> Nat -> Vec Int
-fill a n i = if i >= n then a else fill (Vec.write a i (cast i * 3)) n (S i)
+fill : {n : Nat} -> (1 _ : Vec n Int) -> Nat -> Vec n Int
+fill a i = case choose (i < n) of
+  Left inside => fill (Vec.write a (natToFinLt i @{inside}) (cast i * 3)) (S i)
+  Right _ => a
 
-sumTo : (1 _ : Vec Int) -> Nat -> Nat -> Int -> Res Int (const (Vec Int))
-sumTo a n i acc =
-  if i >= n then acc # a
-  else let v # a' = Vec.read a i in sumTo a' n (S i) (acc + v)
+sumTo : {n : Nat} -> (1 _ : Vec n Int) -> Nat -> Int -> Res Int (const (Vec n Int))
+sumTo a i acc = case choose (i < n) of
+  Left inside => let v # a' = Vec.read a (natToFinLt i @{inside}) in sumTo a' (S i) (acc + v)
+  Right _ => acc # a
 
 readInt : IO Int
 readInt = go 0
@@ -30,9 +33,9 @@ readInt = go 0
 -- after it is frozen.
 compute : Nat -> Int
 compute n = unrestricted $ withVec n (the Int 0) $ \a =>
-  let s # a' = sumTo (fill a n 0) n 0 0
-      MkBang (k ** frozen) = Vec.freeze a'
-  in MkBang (s + fromMaybe 0 (frozen !? [<0]) + cast k)
+  let s # a' = sumTo (fill a 0) 0 0
+      MkBang frozen = Vec.freeze a'
+  in MkBang (s + fromMaybe 0 (frozen !? [<0]) + cast (volume (shape frozen)))
 
 main : IO ()
 main = do

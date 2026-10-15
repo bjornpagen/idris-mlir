@@ -6,23 +6,27 @@
 // component on a cycle is interpreted over abstract values (a parameter, a
 // proper part of one, or anything), and so is every function of the
 // component that it reaches, once for each assignment of abstract values to
-// its parameters, so the interpretation ends. The calls between the
+// its parameters: an insert-once worklist over finitely many assignments. The calls between the
 // component's functions are the only edges: after defunctionalization a
 // closure's recursion is a direct call in a dispatch, and a force is a call
 // of its memo sum's dispatch function, which calls the label.
 #include "idr/Analysis/Specialize.h"
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Worklist.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/Support/ErrorHandling.h"
 
-#include <set>
+#include <map>
+#include <optional>
 #include <utility>
+#include <variant>
 
 using namespace mlir;
 
@@ -49,33 +53,55 @@ namespace {
 // The functions of a component, by name.
 using Members = llvm::DenseMap<StringAttr, idr::FuncOp>;
 
-// What a value is, in terms of the parameters of the function analyzed.
-struct Abstract {
-  enum class Kind : uint8_t { Top, Same, Smaller };
-  Kind kind = Kind::Top;
-  unsigned param = 0;
-
-  static Abstract same(unsigned param) { return {Kind::Same, param}; }
-
-  // One number per abstract value: anything is anything, whatever
-  // parameter it was last seen as.
-  unsigned code() const {
-    return kind == Kind::Top ? 0 : 2 * param + (kind == Kind::Same ? 1 : 2);
-  }
-
-  // A proper part of what `of` is.
-  static Abstract partOf(Abstract of) {
-    return of.kind == Kind::Top ? of : Abstract{Kind::Smaller, of.param};
-  }
+// What a value is, in terms of the parameters of the function analyzed:
+// one of them, a proper part of one, or anything.
+struct Same {
+  unsigned param;
 };
+struct Smaller {
+  unsigned param;
+};
+struct Anything {};
+using Abstract = std::variant<Anything, Same, Smaller>;
+
+// A proper part of what `of` is.
+Abstract partOf(Abstract of) {
+  return std::visit(llvm::makeVisitor([](Anything) -> Abstract { return Anything{}; },
+                                      [](Same same) -> Abstract { return Smaller{same.param}; },
+                                      [](Smaller smaller) -> Abstract { return smaller; }),
+                    of);
+}
+
+// One number per abstract value, two equal values one number.
+unsigned code(Abstract value) {
+  return std::visit(llvm::makeVisitor([](Anything) { return 0u; },
+                                      [](Same same) { return 2 * same.param + 1; },
+                                      [](Smaller smaller) { return 2 * smaller.param + 2; }),
+                    value);
+}
+
+// What the calls within the component pass at one parameter, joined with
+// what one more call passes there: itself is fixed, a proper part of it
+// decreasing, both bounded, and anything else other.
+BindingTime join(std::optional<BindingTime> seen, BindingTime passed) {
+  if (!seen || *seen == passed)
+    return passed;
+  if (*seen == BindingTime::Other || passed == BindingTime::Other)
+    return BindingTime::Other;
+  return BindingTime::Bounded;
+}
+
+// A tuple of abstract arguments, by its number among the tuples met.
+enum class Tuple : unsigned {};
+// A function of the component reached with a tuple of abstract arguments.
+using Reach = std::pair<Operation *, Tuple>;
 
 // The classes of the parameters of `main`, a function of the component
 // `members` on a cycle.
 class Interpreter {
 public:
   Interpreter(idr::FuncOp main, const Members &members)
-      : main(main), members(members), same(main.getNumArguments(), false),
-        smaller(main.getNumArguments(), false), other(main.getNumArguments(), false) {}
+      : main(main), members(members), seen(main.getNumArguments()) {}
 
   SmallVector<BindingTime> run();
 
@@ -88,38 +114,46 @@ private:
 
   idr::FuncOp main;
   const Members &members;
-  SmallVector<bool> same, smaller, other;
-  // Each function of the component with the arguments it was reached with.
-  std::set<std::pair<Operation *, SmallVector<unsigned>>> visited;
-  SmallVector<std::pair<idr::FuncOp, SmallVector<Abstract>>> work;
+  // What the calls of `main` read so far pass at each of its parameters;
+  // nothing where none passes it.
+  SmallVector<std::optional<BindingTime>> seen;
+  // The tuples met, numbered as met, found by their codes.
+  std::map<SmallVector<unsigned>, Tuple> numbers;
+  SmallVector<SmallVector<Abstract>> tuples;
+  // Each function of the component with each tuple it is reached with,
+  // once: finitely many, as a tuple holds one of finitely many abstract
+  // values per parameter.
+  OnceWorklist<Reach> work;
 };
 
 SmallVector<BindingTime> Interpreter::run() {
   SmallVector<Abstract> identity;
   for (unsigned i = 0; i < main.getNumArguments(); ++i)
-    identity.push_back(Abstract::same(i));
+    identity.push_back(Same{i});
   push(main, identity);
-  while (!work.empty() && !llvm::all_of(other, [](bool b) { return b; })) {
-    auto [fn, args] = work.pop_back_val();
-    visit(fn, args);
+  while (std::optional<Reach> reach = work.pop()) {
+    // Once every parameter is other, nothing read later changes the answer.
+    if (llvm::all_of(seen, [](std::optional<BindingTime> time) {
+          return time == BindingTime::Other;
+        }))
+      break;
+    // A copy: a push while the body is read may grow the tuples.
+    SmallVector<Abstract> args = tuples[llvm::to_underlying(reach->second)];
+    visit(cast<idr::FuncOp>(reach->first), args);
   }
-  SmallVector<BindingTime> out;
-  for (unsigned i = 0; i < main.getNumArguments(); ++i) {
-    if (other[i] || (!same[i] && !smaller[i]))
-      out.push_back(BindingTime::Other);
-    else if (same[i] && smaller[i])
-      out.push_back(BindingTime::Bounded);
-    else
-      out.push_back(same[i] ? BindingTime::Fixed : BindingTime::Decreasing);
-  }
-  return out;
+  // A parameter no call passes varies as anything may.
+  return llvm::map_to_vector(seen, [](std::optional<BindingTime> time) {
+    return time.value_or(BindingTime::Other);
+  });
 }
 
 void Interpreter::push(idr::FuncOp fn, ArrayRef<Abstract> args) {
-  SmallVector<unsigned> codes =
-      llvm::map_to_vector(args, [](const Abstract &arg) { return arg.code(); });
-  if (visited.emplace(fn.getOperation(), std::move(codes)).second)
-    work.emplace_back(fn, SmallVector<Abstract>(args));
+  SmallVector<unsigned> codes = llvm::map_to_vector(args, code);
+  auto [it, made] =
+      numbers.try_emplace(std::move(codes), Tuple(static_cast<unsigned>(tuples.size())));
+  if (made)
+    tuples.emplace_back(args);
+  work.push({fn.getOperation(), it->second});
 }
 
 void Interpreter::visit(idr::FuncOp fn, ArrayRef<Abstract> args) {
@@ -127,24 +161,27 @@ void Interpreter::visit(idr::FuncOp fn, ArrayRef<Abstract> args) {
   auto eval = [&](auto &self, Value value) -> Abstract {
     if (auto it = known.find(value); it != known.end())
       return it->second;
-    Abstract out;
+    Abstract out = Anything{};
     if (auto arg = dyn_cast<BlockArgument>(value)) {
       Operation *parent = arg.getOwner()->getParentOp();
+      // `args` came from a call of `fn` between the component's functions,
+      // one per operand, and the component's bodies are ones the verifier
+      // checked, whose calls pass one argument per parameter: a pass's
+      // input, which idr-optimize reads before a member's turns begin.
       if (parent == fn.getOperation() && arg.getOwner()->isEntryBlock()) {
-        if (arg.getArgNumber() < args.size())
-          out = args[arg.getArgNumber()];
+        out = args[arg.getArgNumber()];
       } else if (auto match = dyn_cast<MatchOp>(parent)) {
         // A case binds the fields of the scrutinee; the default region
         // takes the scrutinee itself back.
         Abstract scrutinee = self(self, match.getScrutinee());
         out = arg.getOwner()->getParent() == match.getDefaultRegion() ? scrutinee
-                                                                      : Abstract::partOf(scrutinee);
+                                                                      : partOf(scrutinee);
       }
     } else if (Operation *def = value.getDefiningOp()) {
       if (auto field = dyn_cast<FieldOp>(def))
-        out = Abstract::partOf(self(self, field.getValue()));
+        out = partOf(self(self, field.getValue()));
       else if (auto pred = dyn_cast<BigPredOp>(def))
-        out = Abstract::partOf(self(self, pred.getValue()));
+        out = partOf(self(self, pred.getValue()));
       // An integer counted down by a positive step. Unlike a Nat it may
       // pass zero; specialization unrolls only a counter that stays in a
       // small range of naturals, so its specializations stay few either
@@ -152,7 +189,7 @@ void Interpreter::visit(idr::FuncOp fn, ArrayRef<Abstract> args) {
       else if (IntegerAttr step; isa<arith::SubIOp>(def) &&
                                  matchPattern(def->getOperand(1), m_Constant(&step)) &&
                                  step.getValue().isStrictlyPositive())
-        out = Abstract::partOf(self(self, def->getOperand(0)));
+        out = partOf(self(self, def->getOperand(0)));
     }
     known[value] = out;
     return out;
@@ -161,23 +198,25 @@ void Interpreter::visit(idr::FuncOp fn, ArrayRef<Abstract> args) {
     idr::FuncOp target = members.lookup(call.getCalleeAttr().getAttr());
     if (!target)
       return;
-    SmallVector<Abstract> passed(target.getNumArguments());
-    for (auto [i, operand] : llvm::enumerate(call.getArgs()))
-      if (i < passed.size())
-        passed[i] = eval(eval, operand);
-    refer(target, passed);
+    refer(target, llvm::map_to_vector(call.getArgs(),
+                                      [&](Value operand) { return eval(eval, operand); }));
   });
 }
 
 void Interpreter::refer(idr::FuncOp target, ArrayRef<Abstract> args) {
   if (target == main)
     for (auto [i, arg] : llvm::enumerate(args)) {
-      if (arg.kind == Abstract::Kind::Same && arg.param == i)
-        same[i] = true;
-      else if (arg.kind == Abstract::Kind::Smaller && arg.param == i)
-        smaller[i] = true;
-      else
-        other[i] = true;
+      auto at = static_cast<unsigned>(i);
+      BindingTime passed = std::visit(
+          llvm::makeVisitor([](Anything) { return BindingTime::Other; },
+                            [&](Same s) {
+                              return s.param == at ? BindingTime::Fixed : BindingTime::Other;
+                            },
+                            [&](Smaller s) {
+                              return s.param == at ? BindingTime::Decreasing : BindingTime::Other;
+                            }),
+          arg);
+      seen[i] = join(seen[i], passed);
     }
   push(target, args);
 }

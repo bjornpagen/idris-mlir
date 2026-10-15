@@ -83,7 +83,7 @@ Value ConOp::getField(unsigned index) {
 }
 Value ConOp::getDest(unsigned index) { return idr::detail::holeDest(getDests(), getHoles(), index); }
 
-void ConOp::build(OpBuilder &builder, OperationState &state, Type type, unsigned tag,
+void ConOp::build(OpBuilder &builder, OperationState &state, Type type, Tag tag,
                   ValueRange fields, ArrayRef<int32_t> holes, bool stack) {
   const Ctor &ctor = dataTypeOf(type).getCtor(tag);
   SmallVector<Type> dests;
@@ -94,18 +94,16 @@ void ConOp::build(OpBuilder &builder, OperationState &state, Type type, unsigned
 
 // The parser and every builder give a tag of the type; a tag out of range
 // is a hand-built op's.
-const Ctor *idr::detail::ctorAt(Operation *op, Type type, unsigned tag) {
+FailureOr<std::reference_wrapper<const Ctor>> idr::detail::ctorAt(Operation *op, Type type,
+                                                                  Tag tag) {
   DataType data = dataTypeOf(type);
-  if (!data) {
-    op->emitOpError("names a constructor of ") << type << ", which is no data type";
-    return nullptr;
-  }
-  if (tag >= data.getCtors().size()) {
-    op->emitOpError("names constructor ") << tag << " of \"" << data.getName() << "\", which has "
-                                          << data.getCtors().size();
-    return nullptr;
-  }
-  return &data.getCtor(tag);
+  if (!data)
+    return op->emitOpError("names a constructor of ") << type << ", which is no data type";
+  if (static_cast<uint32_t>(tag) >= data.getCtors().size())
+    return op->emitOpError("names constructor ")
+           << static_cast<uint32_t>(tag) << " of \"" << data.getName() << "\", which has "
+           << data.getCtors().size();
+  return std::cref(data.getCtor(tag));
 }
 
 // The holes are distinct fields of `ctor`, ascending, of a box's cell, and
@@ -137,13 +135,16 @@ LogicalResult idr::detail::verifyHoles(Operation *op, const Ctor &ctor, ArrayRef
 LogicalResult ConOp::verify() {
   if (getStack() && !isa<BoxType>(unrestricted(getResult().getType())))
     return emitOpError("is kept on the stack, which only a box's cell is");
-  const Ctor *ctor = idr::detail::ctorAt(*this, getResult().getType(), getTag());
-  if (!ctor || failed(idr::detail::verifyHoles(*this, *ctor, getHoles(), getFields().size(),
-                                          getDests().getTypes())))
+  FailureOr<std::reference_wrapper<const Ctor>> found =
+      idr::detail::ctorAt(*this, getResult().getType(), getTag());
+  if (failed(found))
     return failure();
-  for (unsigned index = 0, n = static_cast<unsigned>(ctor->fields.size()); index < n; ++index) {
-    Value value = getField(index);
-    Type expected = ctor->fields[index];
+  const Ctor &ctor = *found;
+  if (failed(idr::detail::verifyHoles(*this, ctor, getHoles(), getFields().size(),
+                                      getDests().getTypes())))
+    return failure();
+  for (auto [index, expected] : llvm::enumerate(ctor.fields)) {
+    Value value = getField(static_cast<unsigned>(index));
     if (value && expected != value.getType() &&
         !(isOwned(value.getType()) && view(value.getType()) == expected))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
@@ -188,20 +189,22 @@ Speculation::Speculatability FieldOp::getSpeculatability() {
 
 DataType FieldOp::getDataType() { return dataTypeOf(getValue().getType()); }
 
-void FieldOp::build(OpBuilder &builder, OperationState &state, Value value, unsigned tag,
+void FieldOp::build(OpBuilder &builder, OperationState &state, Value value, Tag tag,
                     unsigned index) {
   Type field = dataTypeOf(value.getType()).getCtor(tag).fields[index];
   build(builder, state, fieldType(value.getType(), field), value, tag, uint64_t{index});
 }
 
 LogicalResult FieldOp::verify() {
-  const Ctor *ctor = idr::detail::ctorAt(*this, getValue().getType(), getTag());
-  if (!ctor)
+  FailureOr<std::reference_wrapper<const Ctor>> found =
+      idr::detail::ctorAt(*this, getValue().getType(), getTag());
+  if (failed(found))
     return failure();
-  if (getIndex() >= ctor->fields.size())
+  ArrayRef<Type> fields = found->get().fields;
+  if (getIndex() >= fields.size())
     return emitOpError("field index out of range");
   // A field is read at the value's grade times its own, as a match binds it.
-  Type expected = fieldType(getValue().getType(), ctor->fields[static_cast<unsigned>(getIndex())]);
+  Type expected = fieldType(getValue().getType(), fields[getIndex()]);
   if (expected != getType())
     return emitOpError("has result ") << getType() << ", but the field of a "
                                       << getValue().getType() << " is read as " << expected;
@@ -304,14 +307,14 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
 // idr.tag
 //===----------------------------------------------------------------------===//
 
-// The tag of a known constructor, built by idr.con or constant, or 0 for a
-// type of one constructor, read from the value's data type.
+// The tag of a known constructor, built by idr.con or constant, or the one
+// tag of a type of one constructor, read from the value's data type.
 OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   DataType data = dataTypeOf(getValue().getType());
   if (!data)
     return {};
   Value source = throughLinear(getValue());
-  std::optional<unsigned> tag;
+  std::optional<Tag> tag;
   if (auto con = source.getDefiningOp<ConOp>()) {
     tag = con.getTag();
   } else {
@@ -320,7 +323,7 @@ OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
       tag = constant.getTag();
   }
   if (!tag && data.getCtors().size() == 1)
-    tag = 0;
+    tag = *data.getTags().begin();
   if (!tag)
     return {};
   return IntegerAttr::get(getType(), static_cast<int64_t>(*tag));

@@ -5,6 +5,7 @@
 // use consumes a value, so they read the loads, stores and boundaries that
 // placement then counts.
 #include "idr/Analysis/Ownership.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Ownership.h"
 
@@ -30,7 +31,7 @@ LogicalResult loopCountedElements(RewriterBase &rewriter, FuncOp fn) {
   SmallVector<linalg::LinalgOp> loops;
   fn.walk([&](linalg::LinalgOp loop) {
     if (loop.hasPureBufferSemantics() &&
-        llvm::any_of(loop.getBlock()->getArgumentTypes(), [](Type type) { return counted(type); }))
+        llvm::any_of(loop.getBlock()->getArgumentTypes(), [](Type type) { return holdsReferences(type); }))
       loops.push_back(loop);
   });
   for (linalg::LinalgOp loop : loops) {
@@ -42,7 +43,7 @@ LogicalResult loopCountedElements(RewriterBase &rewriter, FuncOp fn) {
   }
   SmallVector<memref::LoadOp> unread;
   fn.walk([&](memref::LoadOp load) {
-    if (load->use_empty() && counted(load.getType()))
+    if (load->use_empty() && holdsReferences(load.getType()))
       unread.push_back(load);
   });
   for (memref::LoadOp load : unread)
@@ -63,7 +64,7 @@ void boundaries(RewriterBase &rewriter, FuncOp fn) {
     if (auto alloc = dyn_cast<memref::AllocOp>(op))
       allocs.push_back(alloc);
     else if (auto store = dyn_cast<memref::StoreOp>(op);
-             store && counted(store.getValueToStore().getType()))
+             store && holdsReferences(store.getValueToStore().getType()))
       stores.push_back(store);
   });
   for (memref::AllocOp alloc : allocs) {

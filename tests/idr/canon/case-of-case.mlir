@@ -4,7 +4,7 @@
 // RUN: builds-nothing=@match_of_match,matches=@match_of_match,builds-nothing=@uses_later,\
 // RUN: builds-nothing=@nested,reads-fields=@nested,builds-nothing=@never_yields,reads-no-fields=@never_yields,\
 // RUN: never-returns=@taken_never_completes,no-closures=@taken_never_completes -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // Case-of-case: the single consumer of a match's result moves into every
 // region that yields, when in some region it meets a value it folds or
 // canonicalizes against. Each function states what is left: no string

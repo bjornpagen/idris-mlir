@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # What any library may use and that names nothing of the dialect: the
 # components of a graph, the actions a pass performs, and the profile
 # instrumentation, which records nothing until a tool starts a trace.

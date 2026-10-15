@@ -9,7 +9,7 @@
 // iteration yields it unchanged (what idr-tail-loops makes of a tail
 // recursion, with poison where an exit value has none yet), and through
 // the recursive calls, whose result is the argument they pass by the
-// hypothesis the analysis refines to a fixpoint from the optimistic start.
+// hypothesis the analysis solves for from the optimistic start.
 // The result is then no information: the caller holds that value already,
 // live across the call.
 //
@@ -22,6 +22,8 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/Support/Worklist.h"
+
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -29,7 +31,9 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SCCIterator.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
@@ -38,6 +42,11 @@ namespace idr::tail {
 namespace {
 
 using Known = Returned::Known;
+// An eligible function's result, by the function's slot and the result's
+// position.
+using ResultOf = std::pair<unsigned, unsigned>;
+// What each eligible result is known to be, so far.
+using Results = MonotoneWorklist<ResultOf, Known>;
 
 // Which argument of a function a value is, under what is known of the
 // eligible callees, by name, and under the hypotheses on the loop
@@ -45,16 +54,32 @@ using Known = Returned::Known;
 // when its initial value is and what the loop yields for it is too, by
 // that hypothesis. A ub.poison is a value of the program, given where
 // nothing reads it (on the path of a loop that does not take it, after a
-// crash): it may be taken to be anything, so it agrees with anything.
+// crash): it may be taken to be anything, so it agrees with anything. Each
+// step goes to a value defined before (an operand, what a region yields,
+// what a loop carries in, which the hypothesis on its argument stops), so
+// the walk ends.
 class Solver {
 public:
-  Solver(const llvm::DenseMap<StringAttr, unsigned> &slots, ArrayRef<SmallVector<Known>> results)
+  Solver(const llvm::DenseMap<StringAttr, unsigned> &slots, const Results &results)
       : slots(slots), results(results) {}
 
   Known argumentOf(func::FuncOp fn, Value value) {
     if (auto arg = dyn_cast<BlockArgument>(value))
       return argumentOf(fn, arg);
-    auto result = cast<OpResult>(value);
+    // A result met again before it is known comes round through itself,
+    // which only unreachable code does: it is no one argument. A loop's
+    // argument met again is its hypothesis instead (`assumed`). The solve
+    // branches into every operand and region, no single chain of
+    // definitions, so it keeps its own guard.
+    if (!visiting.insert(value).second)
+      return Known::none();
+    Known known = resultOf(fn, cast<OpResult>(value));
+    visiting.erase(value);
+    return known;
+  }
+
+private:
+  Known resultOf(func::FuncOp fn, OpResult result) {
     Operation *op = result.getOwner();
     unsigned index = result.getResultNumber();
     if (isa<ub::PoisonOp>(op))
@@ -64,12 +89,15 @@ public:
       for (Region &region : op->getRegions()) {
         if (region.empty())
           return Known::none();
-        joined = joined.meet(argumentOf(fn, region.front().getTerminator()->getOperand(index)));
+        joined.join(argumentOf(fn, region.front().getTerminator()->getOperand(index)));
       }
       return joined;
     }
-    if (auto select = dyn_cast<arith::SelectOp>(op))
-      return argumentOf(fn, select.getTrueValue()).meet(argumentOf(fn, select.getFalseValue()));
+    if (auto select = dyn_cast<arith::SelectOp>(op)) {
+      Known joined = argumentOf(fn, select.getTrueValue());
+      joined.join(argumentOf(fn, select.getFalseValue()));
+      return joined;
+    }
     if (auto loop = dyn_cast<scf::WhileOp>(op))
       return argumentOf(fn, loop.getConditionOp().getArgs()[index]);
     if (auto loop = dyn_cast<scf::ForOp>(op))
@@ -78,15 +106,14 @@ public:
       auto it = slots.find(call.getCalleeAttr().getAttr());
       if (it == slots.end())
         return Known::none();
-      Known known = results[it->second][index];
-      if (known.kind == Known::Argument)
-        return argumentOf(fn, call.getOperand(known.argument));
+      Known known = results.value({it->second, index});
+      if (std::optional<unsigned> argument = known.argument())
+        return argumentOf(fn, call.getOperand(*argument));
       return known;
     }
     return Known::none();
   }
 
-private:
   Known argumentOf(func::FuncOp fn, BlockArgument arg) {
     Block *block = arg.getOwner();
     if (block == &fn.getBody().front())
@@ -102,7 +129,8 @@ private:
     if (auto loop = dyn_cast<scf::ForOp>(block->getParentOp())) {
       if (index == 0)
         return Known::none();
-      return carried(fn, arg, loop.getInitArgs()[index - 1], loop.getBody()->getTerminator()->getOperand(index - 1));
+      return carried(fn, arg, loop.getInitArgs()[index - 1],
+                     loop.getBody()->getTerminator()->getOperand(index - 1));
     }
     return Known::none();
   }
@@ -111,40 +139,37 @@ private:
   // must agree with, under the hypothesis that the argument is that value.
   Known carried(func::FuncOp fn, BlockArgument arg, Value init, Value yielded) {
     Known initial = argumentOf(fn, init);
-    if (initial.kind != Known::Argument)
+    if (!initial.argument())
       return initial;
     assumed[arg] = initial;
-    Known joined = initial.meet(argumentOf(fn, yielded));
+    Known joined = initial;
+    joined.join(argumentOf(fn, yielded));
     assumed.erase(arg);
     return joined;
   }
 
   const llvm::DenseMap<StringAttr, unsigned> &slots;
-  ArrayRef<SmallVector<Known>> results;
+  const Results &results;
   llvm::DenseMap<Value, Known> assumed;
+  llvm::DenseSet<Value> visiting;
 };
 
 } // namespace
 
-bool Returned::Function::drops() const {
-  return llvm::any_of(results, [](Known known) { return known.kind == Known::Argument; });
-}
-
 SmallVector<unsigned> Returned::Function::kept() const {
   SmallVector<unsigned> kept;
-  for (auto [i, known] : llvm::enumerate(results))
-    if (known.kind != Known::Argument)
+  for (auto [i, result] : llvm::enumerate(results))
+    if (!result.known.argument())
       kept.push_back(static_cast<unsigned>(i));
   return kept;
 }
 
 const Returned::Function *Returned::dropping(StringAttr name) const {
   auto it = functions.find(name);
-  return it != functions.end() && it->second.drops() ? &it->second : nullptr;
+  return it != functions.end() ? &it->second : nullptr;
 }
 
-Returned::Returned(Operation *op) {
-  auto module = cast<ModuleOp>(op);
+Returned::Returned(ModuleOp module) {
   // Eligible: every use is a direct call, so the calls are all the users.
   SymbolTableCollection tables;
   SymbolUserMap users(tables, module);
@@ -164,13 +189,12 @@ Returned::Returned(Operation *op) {
 
   // What a function returns depends on what its callees return, never on
   // its callers, so the cycles of the call graph are solved callees first,
-  // each once every function it calls outside it is final. Within one, a
-  // function is walked again only when a callee on it changed: a result
-  // only meets down from unconstrained, twice at most, so the walks end, and
-  // the greatest fixpoint does not depend on their order.
-  SmallVector<SmallVector<Known>> results;
-  for (func::FuncOp fn : eligible)
-    results.emplace_back(fn.getNumResults(), Known());
+  // each once every function it calls outside it is final. Within one,
+  // each function is walked once, and its callers on the cycle again each
+  // time one of its results moved: a result only joins up from
+  // unconstrained, twice at most, so the walks end, and the fixpoint does
+  // not depend on their order.
+  Results results;
   Solver solver(slots, results);
   const CallGraph graph(module);
   for (auto scc = llvm::scc_begin(&graph); !scc.isAtEnd(); ++scc) {
@@ -180,41 +204,43 @@ Returned::Returned(Operation *op) {
         if (auto fn = dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp()))
           if (auto it = slots.find(fn.getSymNameAttr()); it != slots.end())
             cycle.insert(it->second);
-    llvm::SetVector<unsigned> work;
-    for (unsigned i : llvm::reverse(cycle))
-      work.insert(i);
-    while (!work.empty()) {
-      unsigned i = work.pop_back_val();
+    // A func.return ends a block of the body, so the returns are the
+    // terminators of its blocks. What the walk finds of each result joins
+    // what was known of it.
+    auto walk = [&](unsigned i) {
       func::FuncOp fn = eligible[i];
-      // A func.return ends a block of the body, so the returns are the
-      // terminators of its blocks.
       SmallVector<Known> now(fn.getNumResults(), Known());
       for (Block &block : fn.getBody())
         if (auto ret = dyn_cast<func::ReturnOp>(block.getTerminator()))
           for (auto [r, operand] : llvm::enumerate(ret.getOperands()))
-            now[r] = now[r].meet(solver.argumentOf(fn, operand));
-      if (now == results[i])
-        continue;
-      results[i] = std::move(now);
-      for (Operation *call : calls[i])
+            now[r].join(solver.argumentOf(fn, operand));
+      for (auto [r, known] : llvm::enumerate(now))
+        (void)results.push({i, static_cast<unsigned>(r)}, known);
+    };
+    for (unsigned i : cycle)
+      walk(i);
+    while (std::optional<ResultOf> moved = results.pop())
+      for (Operation *call : calls[moved->first])
         if (auto caller = call->getParentOfType<func::FuncOp>())
           if (auto it = slots.find(caller.getSymNameAttr());
               it != slots.end() && cycle.contains(it->second))
-            work.insert(it->second);
-    }
+            walk(it->second);
   }
 
   for (auto [i, fn] : llvm::enumerate(eligible)) {
-    Function &function = functions[fn.getSymNameAttr()];
-    function.results = std::move(results[i]);
-    function.types.assign(fn.getResultTypes().begin(), fn.getResultTypes().end());
-    if (!function.drops())
+    Function function;
+    for (auto [r, type] : llvm::enumerate(fn.getResultTypes()))
+      function.results.push_back(
+          {type, results.value({static_cast<unsigned>(i), static_cast<unsigned>(r)})});
+    if (llvm::none_of(function.results,
+                      [](const Result &result) { return result.known.argument().has_value(); }))
       continue;
     numDropped += static_cast<unsigned>(function.results.size() - function.kept().size());
     changed.insert(fn.getSymNameAttr());
     for (Operation *call : calls[i])
       if (auto caller = call->getParentOfType<func::FuncOp>())
         changed.insert(caller.getSymNameAttr());
+    functions[fn.getSymNameAttr()] = std::move(function);
   }
 }
 

@@ -26,17 +26,18 @@
 ||| knowing the implementation. A pass that ends without such a site has
 ||| seen every construction site the program can reach: the first value of a
 ||| constructor is built on a path through no match on that constructor, and
-||| that path was translated. Each restart fixes one more field, so the
-||| passes are as few as the dictionary fields built after they were matched.
+||| that path was translated. Each void pass fixes one more field, so the
+||| passes are as few as the dictionary fields built after they were matched
+||| (`Finite`).
 module IdrisMLIR.Frontend.Translate.Dictionaries
 
 import Core.Context
 import Core.Core
 import Core.Env
-import Core.Normalise
 import Core.TT
 import Libraries.Data.WithDefault
 
+import IdrisMLIR.Frontend.Host
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
@@ -50,7 +51,7 @@ import Data.SortedMap
 import Data.SortedSet
 import Data.String
 
-%default covering
+%default total
 
 ||| The user definition the instance being translated serves: itself, or
 ||| the nearest one up the chain of requests through the library's
@@ -58,28 +59,32 @@ import Data.String
 ||| (`Data.SortedMap.empty`), and the terms Idris keeps carry no locations,
 ||| so this is where the program's choice of an implementation is reported.
 chooser : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core (Maybe (Name, FC))
-chooser = do
-  st <- get TState
-  go st.current
+chooser = go (!(get TState)).chain
   where
-    go : Maybe FnId -> Core (Maybe (Name, FC))
-    go Nothing = pure Nothing
-    go (Just inst) = do
-      st <- get TState
-      let Just r = lookup inst st.requesters
-        | Nothing => pure Nothing
+    go : List Request -> Core (Maybe (Name, FC))
+    go [] = pure Nothing
+    go (r :: rs) = do
       defs <- get Ctxt
       Just def <- lookupCtxtExact r.name (gamma defs)
-        | Nothing => go r.parent
+        | Nothing => go rs
       loc <- toLoc (location def)
       case loc.origin of
         User => pure (Just (fullname def, location def))
-        _ => go r.parent
+        _ => go rs
 
 ||| The definitions a type mentions.
 definitionsIn : TT vars -> List Name
 definitionsIn (Ref _ Func n) = [n]
-definitionsIn (Bind _ _ b sc) = definitionsIn (binderType b) ++ definitionsIn sc
+definitionsIn (Bind _ _ b sc) = binder b ++ definitionsIn sc
+  where
+    -- A binder's type.
+    binder : TTBinder (TT vs) -> List Name
+    binder (Lam _ _ _ ty) = definitionsIn ty
+    binder (Let _ _ _ ty) = definitionsIn ty
+    binder (Pi _ _ _ ty) = definitionsIn ty
+    binder (PVar _ _ _ ty) = definitionsIn ty
+    binder (PLet _ _ _ ty) = definitionsIn ty
+    binder (PVTy _ _ ty) = definitionsIn ty
 definitionsIn (App _ f a) = definitionsIn f ++ definitionsIn a
 definitionsIn (TDelayed _ _ t) = definitionsIn t
 definitionsIn _ = []
@@ -102,7 +107,7 @@ opaqueFor impl = case getFnArgs impl of
       | Nothing => pure Nothing
     -- What Idris itself does not reduce here, a definition public to the
     -- program aside, which is only stuck.
-    seen <- toFullNames !(normalise defs Env.Nil (type def))
+    seen <- toFullNames !(host.normalise defs Env.Nil (type def))
     opaque <- hidden (nub (definitionsIn seen))
     case opaque of
       [] => pure Nothing
@@ -150,8 +155,7 @@ recordDictionary fc owner cid ty i impl = do
               ": " ++ !(showTT d.impl) ++ ", chosen in " ++ d.chooser ++ ", and " ++ !(showTT impl') ++
               ", chosen in " ++ by ++ concatMap ("; " ++) why)
     Nothing =>
-      update TState { dicts $= insert (cid, i) (MkDictionary impl' by site)
-                    , restart $= (|| contains (cid, i) st.assumed) }
+      update TState { dicts $= insert (cid, i) (MkDictionary impl' by site) }
 
 ||| The implementation the dictionary field at argument `i` of a
 ||| constructor holds, where a match binds it; `Nothing` when no

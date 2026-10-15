@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the order of the copy's parameters, the holes of the key left to right (C09).
+// NEEDS-ACCEPTANCE: the order of the copy's parameters, the holes of the key left to right.
 // A copy's parameter for a runtime leaf of a static shape has the leaf's
 // type, so a leaf that fills a linear field stays linear: the pair's first
 // field is declared used once, its second any number of times, and the

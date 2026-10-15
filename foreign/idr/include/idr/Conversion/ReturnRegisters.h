@@ -8,12 +8,13 @@
 
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
-#include "llvm/IR/LLVMContext.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/DenseMap.h"
 
 #include <memory>
-#include <optional>
 
 namespace llvm {
+class LLVMContext;
 class MachineModuleInfo;
 class Module;
 class TargetMachine;
@@ -29,26 +30,30 @@ namespace idr::conversion {
 // target's lowering of calls decides (TargetLowering::CanLowerReturn), asked
 // through the code generator's view of a function that returns the type, of
 // a machine for the #llvm.target of the module or of the first module around
-// it that has one, the program's. A module with none (a test's) is asked of
-// this machine's triple and the generic CPU. The machine is made when the
-// first type is asked; each type is asked once.
+// it that has one, the program's. Each type is asked once.
 class ReturnRegisters {
 public:
-  explicit ReturnRegisters(mlir::Operation *module);
+  // The answers for the target `module` is in, or a failure, reported,
+  // when it has none or LLVM has no machine for it.
+  static mlir::FailureOr<ReturnRegisters> of(mlir::Operation *module);
+
+  ReturnRegisters(ReturnRegisters &&) noexcept;
+  ReturnRegisters &operator=(ReturnRegisters &&) noexcept;
   ~ReturnRegisters();
 
-  // None when there is no machine for the target, which is reported.
-  std::optional<bool> fit(mlir::Type type);
+  bool fit(mlir::Type type);
 
 private:
-  mlir::LogicalResult prepare();
+  ReturnRegisters(std::unique_ptr<llvm::LLVMContext> context,
+                  std::unique_ptr<llvm::TargetMachine> machine);
 
-  mlir::Operation *scope;
-  llvm::LLVMContext context;
+  // Declared first, so that what refers to it goes before it.
+  std::unique_ptr<llvm::LLVMContext> context;
   std::unique_ptr<llvm::TargetMachine> machine;
   std::unique_ptr<llvm::Module> probe;
   std::unique_ptr<llvm::MachineModuleInfo> info;
   std::unique_ptr<mlir::LLVM::TypeToLLVMIRTranslator> types;
+  llvm::DenseMap<mlir::Type, bool> answers;
 };
 
 } // namespace idr::conversion

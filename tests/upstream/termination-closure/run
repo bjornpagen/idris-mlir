@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The fork of Idris's compiler (compiler/idris) carries the change of
 # upstream/21-termination-closure/pull-request.diff: a termination check
 # closes the size-change graphs over the calls inside strongly connected

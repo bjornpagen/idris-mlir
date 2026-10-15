@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the port to the size-indexed vector, nodes checked against the size where they are read or written, prints the same and keeps its loops count-free and allocation-free
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

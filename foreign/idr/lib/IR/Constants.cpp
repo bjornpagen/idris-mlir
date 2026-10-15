@@ -6,6 +6,7 @@
 // module verify through the collection the symbol-use walk hands over.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Canon.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/IR/OpImplementation.h"
@@ -57,13 +58,10 @@ LogicalResult verifyConstants(Operation *op, SymbolTableCollection &symbols,
   return success();
 }
 
-// That `value`, a constant of `type` other than a constructor, names
-// functions that take its captures.
-LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Attribute value,
+// That `closure`, a constant of `type`, names a function that takes its
+// captures.
+LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, ClosureAttr closure,
                             Type type, Checked &checked) {
-  auto closure = dyn_cast<ClosureAttr>(value);
-  if (!closure)
-    return success();
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(op, closure.getCallee());
   if (!fn)
     return op->emitOpError("has a closure of an unknown function ") << closure.getCallee();
@@ -98,22 +96,24 @@ LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Attri
 }
 
 // That `value` is a constant of `type`, recursively through fields and
-// captures, with every symbol resolved. A run's tail is the next value of
-// the loop, after its cells: a list is checked a cell at a time however long
-// it is, and never through the suffix that reading the field along its spine
-// would build.
+// captures, with every symbol resolved. Each part is one the leaf rule of a
+// constant's fields and captures accepts (canon::buildable), which the
+// folders of constructors and closures ask too. A run's tail is the next
+// value of the loop, after its cells: a list is checked a cell at a time
+// however long it is, and never through the suffix that reading the field
+// along its spine would build. The loop ends: each tail is a part of the
+// attribute before it, and each (value, type) is checked once.
 LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attribute value,
                              Type type, Checked &checked) {
   while (checked.insert({value, type}).second) {
-    if (auto scalar = dyn_cast<TypedAttr>(value);
-        scalar && isa<IntegerAttr, FloatAttr>(value) && scalar.getType() == type &&
-        isFieldType(type))
-      return success();
-    if (!ConstantOp::isBuildableWith(value, type))
+    if (!canon::buildable(value, type))
       return op->emitOpError("has a constant ") << value << " where " << type << " is expected";
+    if (auto closure = dyn_cast<ClosureAttr>(value))
+      return verifyClosure(op, symbols, closure, type, checked);
+    // A scalar, a string or a big holds nothing more to check.
     auto con = dyn_cast<ConAttr>(value);
     if (!con)
-      return verifyClosure(op, symbols, value, type, checked);
+      return success();
     const Ctor &ctor = con.getCtor();
     SmallVector<Type> fields(ctor.fields);
     if (!con.isRun())

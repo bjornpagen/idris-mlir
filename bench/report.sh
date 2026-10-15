@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Turns a run record of bench/run.sh into its results: RUN/results.md (the
 # tables) and three charts, RUN/times.svg, RUN/vs-c.svg and RUN/vs-chez.svg.
 # Everything shown is computed here from the record's samples, so the

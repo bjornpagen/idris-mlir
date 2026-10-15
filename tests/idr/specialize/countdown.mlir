@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize --idr-expect=holds=one-clone=@loop -o /dev/null
-// NEEDS-ACCEPTANCE: R08's rule over recursive components: a call keys only the positions passed unchanged along the recursion, structurally, and a lone number is never a key position.
+// NEEDS-ACCEPTANCE: the rule over recursive components: a call keys only the positions passed unchanged along the recursion, structurally, and a lone number is never a key position.
 // loop n f x = if n == 0 then x else loop (n - 1) f (f x), called as
 // loop 5 f x with f a closure that captures a value read at run time. The
 // closure is passed unchanged along the recursion, so the copy is keyed on

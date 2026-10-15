@@ -21,6 +21,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 // The runtime's C ABI: the size of its words and the stack mark of a cell's
@@ -62,7 +63,8 @@ std::string crashMessage(Location loc, StringRef cause) {
 
 // Whether a function takes an operand of type `type` as `kind`: the kinds of
 // an operand of several kinds tell a double from an integer, and an
-// integer's signedness, which its op says.
+// integer's signedness, which its op says. An operand of one kind has one
+// function, which takes it.
 bool takes(idr::runtime::Kind kind, Type type, std::optional<bool> isSigned) {
   using idr::runtime::Kind;
   type = unrestricted(type);
@@ -73,13 +75,23 @@ bool takes(idr::runtime::Kind kind, Type type, std::optional<bool> isSigned) {
     return type.isInteger() && isSigned == true;
   case Kind::Unsigned:
     return type.isInteger() && isSigned == false;
-  default:
+  case Kind::World:
+  case Kind::Int32:
+  case Kind::Int64:
+  case Kind::Wrapped:
+  case Kind::Order:
+  case Kind::Str:
+  case Kind::Big:
+  case Kind::Buffer:
     return true;
+  case Kind::Void:
+    break;
   }
+  llvm_unreachable("the runtime's table takes no operand as Void");
 }
 
-// The C type of a function's result.
-Type resultType(MLIRContext *ctx, idr::runtime::Kind kind) {
+// The C type of a function's result, none for Void.
+std::optional<Type> resultType(MLIRContext *ctx, idr::runtime::Kind kind) {
   using idr::runtime::Kind;
   switch (kind) {
   case Kind::Int32:
@@ -93,9 +105,15 @@ Type resultType(MLIRContext *ctx, idr::runtime::Kind kind) {
     return Float64Type::get(ctx);
   case Kind::Str:
     return LLVM::LLVMPointerType::get(ctx);
-  default:
-    return {};
+  case Kind::Void:
+    return std::nullopt;
+  case Kind::World:
+  case Kind::Signed:
+  case Kind::Unsigned:
+  case Kind::Buffer:
+    break;
   }
+  llvm_unreachable("the runtime's table gives a result of one C value, or none");
 }
 
 } // namespace
@@ -117,12 +135,16 @@ Runtime::Runtime(Location at, const Layouts &l, const LowerToLLVMOptions &option
     : llvmTypes(at.getContext(), options, /*analysis=*/nullptr), statics(at, l) {}
 
 Value Runtime::call(OpBuilder &b, Location loc, StringRef name, Type result, ValueRange args) {
-  LLVM::CallOp op = callOp(b, loc, name, result, args, /*noreturn=*/false);
-  return result ? op.getResult() : Value();
+  return callOp(b, loc, name, result, args, /*noreturn=*/false).getResult();
 }
 
-Value Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Function &function,
-                    ArrayRef<ValueRange> operands) {
+void Runtime::perform(OpBuilder &b, Location loc, StringRef name, ValueRange args) {
+  callOp(b, loc, name, std::nullopt, args, /*noreturn=*/false);
+}
+
+std::optional<Value> Runtime::call(OpBuilder &b, Operation *op,
+                                   const idr::runtime::Function &function,
+                                   ArrayRef<ValueRange> operands) {
   using idr::runtime::Kind;
   Location loc = op->getLoc();
   Type i64 = b.getI64Type();
@@ -147,13 +169,24 @@ Value Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Function &f
       args.push_back(integer);
       break;
     }
-    default:
+    case Kind::Int32:
+    case Kind::Int64:
+    case Kind::Double:
+    case Kind::Wrapped:
+    case Kind::Order:
+    case Kind::Str:
+    case Kind::Big:
       args.push_back(components.front());
+      break;
+    case Kind::Void:
+      llvm_unreachable("the runtime's table takes no operand as Void");
     }
   }
-  Type result = resultType(b.getContext(), function.result);
+  std::optional<Type> result = resultType(b.getContext(), function.result);
   LLVM::CallOp call = callOp(b, loc, function.symbol, result, args, function.noreturn);
-  return result ? call.getResult() : Value();
+  if (!result)
+    return std::nullopt;
+  return call.getResult();
 }
 
 // The call names its callee, which no worker declares: two workers would
@@ -162,9 +195,9 @@ Value Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Function &f
 // is the first to name it. A function that does not return says so at
 // each call too, since linking the runtime replaces the declaration's
 // attributes by the definition's.
-LLVM::CallOp Runtime::callOp(OpBuilder &b, Location loc, StringRef name, Type result,
-                             ValueRange args, bool noreturn) {
-  Type returns = result ? result : LLVM::LLVMVoidType::get(b.getContext());
+LLVM::CallOp Runtime::callOp(OpBuilder &b, Location loc, StringRef name,
+                             std::optional<Type> result, ValueRange args, bool noreturn) {
+  Type returns = result ? *result : LLVM::LLVMVoidType::get(b.getContext());
   auto type = LLVM::LLVMFunctionType::get(returns, llvm::to_vector(args.getTypes()));
   auto [it, inserted] = called.try_emplace(name, Callee{type, noreturn});
   if (!inserted && (it->second.type != type || it->second.noreturn != noreturn)) {
@@ -174,7 +207,7 @@ LLVM::CallOp Runtime::callOp(OpBuilder &b, Location loc, StringRef name, Type re
   }
   SmallVector<Type, 1> results;
   if (result)
-    results.push_back(result);
+    results.push_back(*result);
   auto call = LLVM::CallOp::create(b, loc, results, name, args);
   if (noreturn)
     call.setNoreturn(true);
@@ -188,7 +221,7 @@ void Runtime::crash(OpBuilder &b, Location loc, StringRef cause) {
   // The call is cold, and what leads only to it: LLVM lays the crash
   // checks out of the way of the paths that run.
   LLVM::CallOp call =
-      callOp(b, loc, "idris_rt_crash", Type(), ValueRange{ptr, len}, /*noreturn=*/true);
+      callOp(b, loc, "idris_rt_crash", std::nullopt, ValueRange{ptr, len}, /*noreturn=*/true);
   call.setCold(true);
 }
 
@@ -218,8 +251,8 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
   return statics.constant(b, loc, value, type);
 }
 
-Value Runtime::constantArray(OpBuilder &b, Location loc, memref::GlobalOp global) {
-  return statics.constantArray(b, loc, global);
+Value Runtime::constantArray(OpBuilder &b, Location loc, const ConstantArray &array) {
+  return statics.constantArray(b, loc, array);
 }
 
 namespace {
@@ -341,7 +374,7 @@ void Runtime::countEach(OpBuilder &b, Location loc, StringRef name, ValueRange c
     Value pointer = component;
     if (!isa<LLVM::LLVMPointerType>(pointer.getType()))
       pointer = LLVM::IntToPtrOp::create(b, loc, ptrType(b.getContext()), pointer);
-    call(b, loc, name, Type(), pointer);
+    perform(b, loc, name, pointer);
   }
 }
 

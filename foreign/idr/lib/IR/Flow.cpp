@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The flow vocabulary's behaviour (FlowEdges.h) and the reading of it:
-// forwardedValues reads what upstream's branch and region branch
-// interfaces forward, flowEdgesOf joins that to what each op declares
-// (lib/IR/FlowOps.cpp), so a branch's edges are said once, by upstream. The
-// verifier refuses a closure or a suspension that no declaration moves.
-//
-// An edge carries what the value that moves carries, so a word or a world
-// moves along none. A value is followed whole, or into and out of a part of
-// another, which is how the label solve keeps one set per anchor and
-// ownership one state per value.
+// The reading of the flow vocabulary (FlowEdges.h, whose behaviour is
+// lib/IR/FlowEdges.cpp): forwardedValues reads what upstream's branch and
+// region branch interfaces forward, flowEdgesOf joins that to what each op
+// declares (lib/IR/FlowOps.cpp), so a branch's edges are said once, by
+// upstream. The verifier refuses a closure or a suspension that no
+// declaration moves.
 
 #include "idr/IR/Flow.h"
 
@@ -21,124 +17,13 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
+#include <utility>
+#include <variant>
+
 #include "idr/IR/IdrFlow.cpp.inc"
 
 using namespace mlir;
 using namespace idr;
-
-//===----------------------------------------------------------------------===//
-// The vocabulary
-//===----------------------------------------------------------------------===//
-
-Carriers Carriers::of(Type type) {
-  Carriers carriers;
-  if (isClosureType(type))
-    carriers = carriers | Carrier::Closure;
-  if (isLazyType(type))
-    carriers = carriers | Carrier::Suspension;
-  if (holdsReferences(type))
-    carriers = carriers | Carrier::Reference;
-  return carriers;
-}
-
-namespace {
-
-// What `anchor` holds, where its own type says: a field's type, the
-// element type, a suspension's value. A capture's is its label's
-// parameter's, a memo sum's forced state its forced constructor's field,
-// which only the label and the body say.
-std::optional<Type> slotOf(const FlowAnchor &anchor) {
-  switch (anchor.kind) {
-  case FlowAnchor::Kind::Field:
-    return unrestricted(cast<DataType>(anchor.type).getCtor(anchor.ctor).fields[anchor.field]);
-  case FlowAnchor::Kind::Elements:
-    return anchor.type;
-  case FlowAnchor::Kind::Forced:
-    if (auto lazy = dyn_cast<LazyType>(anchor.type))
-      return unrestricted(lazy.getValue());
-    return std::nullopt;
-  case FlowAnchor::Kind::Capture:
-    return std::nullopt;
-  case FlowAnchor::Kind::Hole:
-    return unrestricted(cast<DestType>(anchor.type).getValue());
-  }
-  llvm_unreachable("every kind of anchor is listed");
-}
-
-// The type of what is held at `point`, where the op alone says it: a use's
-// or a value's, a part's slot. A parameter's or a result's is the
-// function's, which the symbol user checks.
-std::optional<Type> typeAt(const FlowPoint &point) {
-  if (point.kind == FlowPoint::Kind::Operand || point.kind == FlowPoint::Kind::Value)
-    return unrestricted(point.getValue().getType());
-  if (point.kind == FlowPoint::Kind::Part)
-    return slotOf(point.anchor);
-  return std::nullopt;
-}
-
-// The type of what moves from `from` to `to`: the one end that says it.
-std::optional<Type> movedType(const FlowPoint &from, const FlowPoint &to) {
-  if (std::optional<Type> type = typeAt(from))
-    return type;
-  return typeAt(to);
-}
-
-} // namespace
-
-void FlowEdges::add(Edge::Kind kind, Carriers carriers, FlowPoint from, FlowPoint to) {
-  if (carriers.empty())
-    return;
-  Edge edge{kind, carriers, from, to, {}, {}, nullptr};
-  list.push_back(edge);
-}
-
-void FlowEdges::flow(FlowPoint from, FlowPoint to, Carriers only) {
-  std::optional<Type> type = movedType(from, to);
-  if (type)
-    add(Edge::Kind::Flow, Carriers::of(*type) & only, from, to);
-}
-
-void FlowEdges::unify(FlowPoint a, FlowPoint b) {
-  std::optional<Type> type = movedType(a, b);
-  if (type)
-    add(Edge::Kind::Unify, Carriers::of(*type) & Carriers::labels(), a, b);
-}
-
-void FlowEdges::source(FlatSymbolRefAttr label, Value to) {
-  size_t before = list.size();
-  add(Edge::Kind::Source, Carriers::of(to.getType()) & Carriers::labels(), {}, FlowPoint::of(to));
-  if (list.size() != before)
-    list.back().label = label;
-}
-
-void FlowEdges::fresh(Value to) {
-  add(Edge::Kind::Fresh, Carriers::of(to.getType()) & Carrier::Reference, {}, FlowPoint::of(to));
-}
-
-void FlowEdges::release(OpOperand &use) {
-  add(Edge::Kind::Release, Carriers::of(use.get().getType()) & Carrier::Reference,
-      FlowPoint::of(use), {});
-}
-
-void FlowEdges::constant(Attribute part, Value to) {
-  size_t before = list.size();
-  add(Edge::Kind::Constant, Carriers::of(to.getType()), {}, FlowPoint::of(to));
-  if (list.size() != before)
-    list.back().constant = part;
-}
-
-void FlowEdges::dispatch(CallOpInterface call) {
-  // The callee runs its labels; the arguments move into whatever runs.
-  Carriers carriers = Carriers::of(cast<Value>(call.getCallableForCallee()).getType()) &
-                      Carriers::labels();
-  if (llvm::any_of(call.getArgOperands(),
-                   [](Value arg) { return Carriers::of(arg.getType()).contains(Carrier::Reference); }))
-    carriers = carriers | Carrier::Reference;
-  size_t before = list.size();
-  add(Edge::Kind::Dispatch, carriers, {}, {});
-  if (list.size() != before)
-    list.back().call = call.getOperation();
-}
 
 //===----------------------------------------------------------------------===//
 // The reading
@@ -248,71 +133,81 @@ LogicalResult verifyEdges(Operation *op, FlowOpInterface flow) {
     return (result && result.getOwner() == parent) ||
            (parent && llvm::is_contained(parent->getOperands(), value));
   };
+  using End = std::variant<FlowPoint::Taken, FlowPoint::Whole>;
+  // A `from` names a use of the op, an operand's value or a part of either,
+  // or a parameter or a result.
+  auto fromEnd = [&](const End &end) {
+    return std::visit(
+        llvm::makeVisitor([&](FlowPoint::Taken taken) { return taken.use->getOwner() == op; },
+                          [&](FlowPoint::Whole whole) { return operandValue(whole.value); }),
+        end);
+  };
   auto from = [&](const FlowPoint &point) {
-    switch (point.kind) {
-    case FlowPoint::Kind::Operand:
-      return point.operand->getOwner() == op;
-    case FlowPoint::Kind::Value:
-      return operandValue(point.value);
-    case FlowPoint::Kind::Part:
-      return point.takes() ? point.operand->getOwner() == op : operandValue(point.value);
-    case FlowPoint::Kind::Parameter:
-    case FlowPoint::Kind::Result:
-      return true;
-    }
-    llvm_unreachable("every kind of point is listed");
+    return std::visit(
+        llvm::makeVisitor([&](FlowPoint::Taken taken) { return fromEnd(taken); },
+                          [&](FlowPoint::Whole whole) { return fromEnd(whole); },
+                          [&](const FlowPoint::Part &part) { return fromEnd(part.of); },
+                          [](FlowPoint::Parameter) { return true; },
+                          [](FlowPoint::Result) { return true; }),
+        point.at);
   };
+  // A `to` names a value the op makes, a part of one or of a value it or its
+  // parent holds, or a parameter or a result; never a use it takes.
   auto to = [&](const FlowPoint &point) {
-    switch (point.kind) {
-    case FlowPoint::Kind::Operand:
-      return false;
-    case FlowPoint::Kind::Value:
-      return ownValue(op, point.value);
-    case FlowPoint::Kind::Part:
-      return !point.takes() && (ownValue(op, point.value) || operandValue(point.value) ||
-                                parentValue(point.value));
-    case FlowPoint::Kind::Parameter:
-    case FlowPoint::Kind::Result:
-      return true;
-    }
-    llvm_unreachable("every kind of point is listed");
+    auto partOf = [&](const End &end) {
+      return std::visit(llvm::makeVisitor([](FlowPoint::Taken) { return false; },
+                                          [&](FlowPoint::Whole whole) {
+                                            return ownValue(op, whole.value) ||
+                                                   operandValue(whole.value) ||
+                                                   parentValue(whole.value);
+                                          }),
+                        end);
+    };
+    return std::visit(
+        llvm::makeVisitor([](FlowPoint::Taken) { return false; },
+                          [&](FlowPoint::Whole whole) { return ownValue(op, whole.value); },
+                          [&](const FlowPoint::Part &part) { return partOf(part.of); },
+                          [](FlowPoint::Parameter) { return true; },
+                          [](FlowPoint::Result) { return true; }),
+        point.at);
   };
-  auto made = [&](const FlowPoint &point) {
-    return point.kind == FlowPoint::Kind::Value && ownValue(op, point.value);
-  };
+  using Ends = std::pair<const FlowPoint *, const FlowPoint *>;
   FlowEdges edges;
   flow.getFlowEdges(edges);
   for (const FlowEdges::Edge &edge : edges.edges()) {
-    using Kind = FlowEdges::Edge::Kind;
-    bool ends = false;
-    switch (edge.kind) {
-    case Kind::Flow:
-      ends = from(edge.from) && to(edge.to);
-      break;
-    case Kind::Unify:
-      ends = edge.from.kind != FlowPoint::Kind::Operand && to(edge.from) && to(edge.to);
-      break;
-    case Kind::Source:
-    case Kind::Fresh:
-    case Kind::Constant:
-      ends = made(edge.to);
-      break;
-    case Kind::Release:
-      ends = edge.from.kind == FlowPoint::Kind::Operand && edge.from.operand->getOwner() == op;
-      break;
-    case Kind::Dispatch:
-      ends = edge.call == op;
-      break;
-    }
-    if (!ends)
+    bool named = std::visit(
+        llvm::makeVisitor(
+            [&](const FlowEdges::Flow &move) { return from(move.from) && to(move.to); },
+            [&](const FlowEdges::Unify &move) { return to(move.a) && to(move.b); },
+            [&](const FlowEdges::Source &move) { return ownValue(op, move.to); },
+            [&](const FlowEdges::Fresh &move) { return ownValue(op, move.to); },
+            [&](const FlowEdges::Release &move) { return move.use->getOwner() == op; },
+            [&](const FlowEdges::Constant &move) { return ownValue(op, move.to); },
+            [&](FlowEdges::Dispatch move) { return move.call.getOperation() == op; }),
+        edge.move);
+    if (!named)
       return op->emitOpError("declares a flow edge whose end is neither its own use, value or "
                              "part of one, nor a parameter or a result");
     // A reference may move between types (a natural becomes an Integer, a
-    // cell a token); labels move only between places of one carrier.
-    if ((edge.kind != Kind::Flow && edge.kind != Kind::Unify) ||
-        !edge.carriesAny(Carriers::labels()))
+    // cell a token); labels move only between places of one carrier, which
+    // a flow and a unification join.
+    std::optional<Ends> places = std::visit(
+        llvm::makeVisitor(
+            [](const FlowEdges::Flow &move) -> std::optional<Ends> {
+              return Ends{&move.from, &move.to};
+            },
+            [](const FlowEdges::Unify &move) -> std::optional<Ends> {
+              return Ends{&move.a, &move.b};
+            },
+            [](const FlowEdges::Source &) -> std::optional<Ends> { return std::nullopt; },
+            [](const FlowEdges::Fresh &) -> std::optional<Ends> { return std::nullopt; },
+            [](const FlowEdges::Release &) -> std::optional<Ends> { return std::nullopt; },
+            [](const FlowEdges::Constant &) -> std::optional<Ends> { return std::nullopt; },
+            [](const FlowEdges::Dispatch &) -> std::optional<Ends> { return std::nullopt; }),
+        edge.move);
+    if (!places || !edge.carriesAny(Carriers::labels()))
       continue;
-    std::optional<Type> source = typeAt(edge.from), target = typeAt(edge.to);
+    std::optional<Type> source = places->first->type(), target = places->second->type();
     if (source && target && *source != *target)
       return op->emitOpError("moves a value of carrier ")
              << *source << " into a place of carrier " << *target;
@@ -333,23 +228,44 @@ LogicalResult verifyOp(Operation *op) {
     return success();
   FlowEdges edges;
   flowEdgesOf(op, edges);
+  // The uses the edges take, the values they read, and the values they give:
+  // the uses and values each edge's `from` names, and the whole values its
+  // `to` does.
   llvm::SmallPtrSet<OpOperand *, 8> moved;
   llvm::SmallPtrSet<void *, 8> read;
-  for (const FlowEdges::Edge &edge : edges.edges()) {
-    if (edge.from.takes())
-      moved.insert(edge.from.operand);
-    else if (Value value = edge.from.getValue())
-      read.insert(value.getAsOpaquePointer());
-  }
+  llvm::SmallPtrSet<void *, 8> inputs = successorInputs(op);
+  auto note = [&](const FlowPoint &point) {
+    if (std::optional<OpOperand *> use = point.taken())
+      moved.insert(*use);
+    else if (std::optional<Value> value = point.value())
+      read.insert(value->getAsOpaquePointer());
+  };
+  auto give = [&](Value value) { inputs.insert(value.getAsOpaquePointer()); };
+  auto gives = [&](const FlowPoint &point) {
+    if (const auto *whole = std::get_if<FlowPoint::Whole>(&point.at))
+      give(whole->value);
+  };
+  for (const FlowEdges::Edge &edge : edges.edges())
+    std::visit(llvm::makeVisitor(
+                   [&](const FlowEdges::Flow &move) {
+                     note(move.from);
+                     gives(move.to);
+                   },
+                   [&](const FlowEdges::Unify &move) {
+                     note(move.a);
+                     gives(move.b);
+                   },
+                   [&](const FlowEdges::Source &move) { give(move.to); },
+                   [&](const FlowEdges::Fresh &move) { give(move.to); },
+                   [&](const FlowEdges::Release &move) { moved.insert(move.use); },
+                   [&](const FlowEdges::Constant &move) { give(move.to); },
+                   [](const FlowEdges::Dispatch &) {}),
+               edge.move);
   for (OpOperand &use : op->getOpOperands())
     if (holdsLabels(use.get()) && !moved.contains(&use) &&
         !read.contains(use.get().getAsOpaquePointer()))
       return op->emitOpError("takes a closure or a suspension as operand #")
              << use.getOperandNumber() << ", and declares no edge for it";
-  llvm::SmallPtrSet<void *, 8> inputs = successorInputs(op);
-  for (const FlowEdges::Edge &edge : edges.edges())
-    if (edge.to.kind == FlowPoint::Kind::Value)
-      inputs.insert(edge.to.value.getAsOpaquePointer());
   for (OpResult result : op->getResults())
     if (holdsLabels(result) && !inputs.contains(result.getAsOpaquePointer()))
       return op->emitOpError("gives a closure or a suspension as result #")

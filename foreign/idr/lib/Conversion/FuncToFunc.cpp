@@ -25,16 +25,15 @@ namespace {
 void lowerCallsAndReturns(func::FuncOp fn) {
   fn.walk([](Operation *op) {
     OpBuilder b(op);
-    Operation *lowered = nullptr;
-    if (auto call = dyn_cast<idr::CallOp>(op))
-      lowered = func::CallOp::create(b, call.getLoc(), mangle(call.getCallee()),
-                                     call.getResultTypes(), call.getArgs());
-    else if (isa<idr::ReturnOp>(op))
-      lowered = func::ReturnOp::create(b, op->getLoc(), op->getOperands());
-    if (!lowered)
-      return;
-    op->replaceAllUsesWith(lowered->getResults());
-    op->erase();
+    if (auto call = dyn_cast<idr::CallOp>(op)) {
+      auto lowered = func::CallOp::create(b, call.getLoc(), mangle(call.getCallee()),
+                                          call.getResultTypes(), call.getArgs());
+      call.replaceAllUsesWith(lowered.getResults());
+      call.erase();
+    } else if (auto ret = dyn_cast<idr::ReturnOp>(op)) {
+      func::ReturnOp::create(b, ret.getLoc(), ret->getOperands());
+      ret.erase();
+    }
   });
 }
 

@@ -105,7 +105,6 @@ record ElabDirectives where
   ambigLimit : Nat
   autoImplicitLimit : Nat
   nfThreshold : Nat
-  totalLimit : Nat
   --
   -- produce traditional (prefix) record projections,
   -- in addition to postfix (dot) projections
@@ -220,7 +219,7 @@ defaultSession = MkSessionOpts False CoveringOnly False False [] 1000 False Fals
 
 export
 defaultElab : ElabDirectives
-defaultElab = MkElabDirectives True True CoveringOnly 3 50 25 5 True
+defaultElab = MkElabDirectives True True CoveringOnly 3 50 25 True
 
 export
 defaults : Core Options

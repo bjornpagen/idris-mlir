@@ -46,10 +46,11 @@ idr::inlining::inlineCalls(FuncOp caller,
     const optimize::Node *callee = nodeOf(call.getCalleeAttr().getAttr());
     // A callee that is not final is a member of the caller's own
     // component: never inlined, and never read.
-    if (!callee || !callee->isFinal())
+    const optimize::Summary *summary = callee ? callee->summary() : nullptr;
+    if (!summary)
       continue;
     FuncOp fn = callee->fn;
-    const Facts &facts = callee->summary.facts;
+    const Facts &facts = summary->facts;
     if (!worthInlining(facts, fn.getNoInline()) || !fitsRegion(interface, call, fn))
       continue;
     if (!fitsCap(size, facts.size)) {

@@ -26,7 +26,7 @@ import Data.Fin
 import Data.List
 import Data.Maybe
 
-%default covering
+%default total
 
 ------------------------------------------------------------------------------
 -- Spines and forms
@@ -40,30 +40,30 @@ import Data.Maybe
 ||| a variable or a computation that is stuck.
 export
 shapeSpine : ClosedTerm -> Maybe (List ClosedTerm)
-shapeSpine tm = case getFnArgs tm of
-  (Ref _ (DataCon 0 _) _, [_]) => Just []
-  (Ref _ (DataCon 1 _) _, [_, rest, n]) => (++ [n]) <$> shapeSpine rest
-  _ => Nothing
+shapeSpine (App _ (Ref _ (DataCon 0 _) _) _) = Just []
+shapeSpine (App _ (App _ (App _ (Ref _ (DataCon 1 _) _) _) rest) n) = (++ [n]) <$> shapeSpine rest
+shapeSpine _ = Nothing
 
 ||| A shape's form: its spine with every extent erased, what keys an
 ||| instance whose types need the rank and not the sizes.
 export
 shapeForm : ClosedTerm -> Maybe ClosedTerm
-shapeForm tm = case getFnArgs tm of
-  (lin@(Ref _ (DataCon 0 _) _), [a]) => Just (App EmptyFC lin a)
-  (snoc@(Ref _ (DataCon 1 _) _), [a, rest, _]) =>
-    (\r => App EmptyFC (App EmptyFC (App EmptyFC snoc a) r) (Erased EmptyFC Placeholder)) <$> shapeForm rest
-  _ => Nothing
+shapeForm (App _ lin@(Ref _ (DataCon 0 _) _) a) = Just (App EmptyFC lin a)
+shapeForm (App _ (App _ (App _ snoc@(Ref _ (DataCon 1 _) _) a) rest) _) =
+  (\r => App EmptyFC (App EmptyFC (App EmptyFC snoc a) r) (Erased EmptyFC Placeholder)) <$> shapeForm rest
+shapeForm _ = Nothing
+
+||| Whether a type constructor is a value array's.
+valueArray : {auto c : Ref Ctxt Defs} -> Name -> Core Bool
+valueArray n = (\full => (hooksOf full).valueArray) <$> toFullNames n
 
 ||| The shape of a value array, when the term is one applied to its shape
 ||| and element: `Array s a` or `LArray s a`.
 export
 arrayShape : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe (ClosedTerm, ClosedTerm))
-arrayShape tm = case getFnArgs tm of
-  (Ref _ (TyCon _) n, [s, a]) => do
-    full <- toFullNames n
-    pure (if (hooksOf full).valueArray then Just (s, a) else Nothing)
-  _ => pure Nothing
+arrayShape (App _ (App _ (Ref _ (TyCon _) n) s) a) =
+  pure (if !(valueArray n) then Just (s, a) else Nothing)
+arrayShape _ = pure Nothing
 
 ||| A parameter put in a type to see whether a value array's shape mentions
 ||| it: a reference to a definition that does not exist, at which reduction
@@ -124,25 +124,23 @@ sourceOf _ = Nothing
 ||| A form with its axis `j` standing for itself, the shape parameter at
 ||| `i`'s.
 axes : Nat -> ClosedTerm -> ClosedTerm
-axes i tm = case getFnArgs tm of
-  (snoc@(Ref _ (DataCon 1 _) _), [a, rest, _]) =>
-    -- The axes are numbered outermost first, so the last is the count of
-    -- those before it.
-    let before = maybe 0 length (shapeSpine rest) in
-    App EmptyFC (App EmptyFC (App EmptyFC snoc a) (axes i rest)) (sourceRef (Axis i before))
-  _ => tm
+axes i (App _ (App _ (App _ snoc@(Ref _ (DataCon 1 _) _) a) rest) _) =
+  -- The axes are numbered outermost first, so the last is the count of
+  -- those before it.
+  let before = maybe 0 length (shapeSpine rest) in
+  App EmptyFC (App EmptyFC (App EmptyFC snoc a) (axes i rest)) (sourceRef (Axis i before))
+axes i tm = tm
 
 ||| The sources of an array type's dimensions, outermost first, the
 ||| element's after the shape's when it is an array too; `Nothing` for a
 ||| dimension no size variable fixes (a literal, a computed size).
 export
 dimensionSources : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (List (Maybe SizeVar))
-dimensionSources ty = do
-  Just (s, a) <- arrayShape ty
-    | Nothing => pure []
-  let extents = fromMaybe [] (shapeSpine s)
-  inner <- dimensionSources a
-  pure (map sourceOf extents ++ inner)
+dimensionSources (App _ (App _ (Ref _ (TyCon _) n) s) a) =
+  if !(valueArray n)
+    then (map sourceOf (fromMaybe [] (shapeSpine s)) ++) <$> dimensionSources a
+    else pure []
+dimensionSources _ = pure []
 
 ||| A definition's parameters as an instance has them, each with its
 ||| position, kind and Idris type with every size variable standing for
@@ -163,16 +161,19 @@ sizedTelescope arity ty kinds = go 0 arity ty kinds
     value i (ValueParam _ (Just s) _) = s
     value i _ = sourceRef (Size i)
 
+    -- A binder that is not yet a pi may become one once normalised: the
+    -- type is read through definitions that compute it.
     go : Nat -> Nat -> ClosedTerm -> List PKind -> Core (List (Nat, PKind, ClosedTerm), ClosedTerm)
     go i Z t _ = pure ([], !(normaliseClosed t))
-    go i (S k) (Bind _ _ (Pi _ _ _ a) sc) (kind :: ks) = do
-      a' <- normaliseClosed a
-      (rest, res) <- go (S i) k (subst (value i kind) sc) ks
-      pure ((i, kind, a') :: rest, res)
     go i (S k) t ks = do
-      t' <- normaliseClosed t
-      case t' of
-        Bind {} => go i (S k) t' ks
+      t' <- case t of
+              Bind _ _ (Pi {}) _ => pure t
+              _ => normaliseClosed t
+      case (t', ks) of
+        (Bind _ _ (Pi _ _ _ a) sc, kind :: ks') => do
+          a' <- normaliseClosed a
+          (rest, res) <- go (S i) k (subst (value i kind) sc) ks'
+          pure ((i, kind, a') :: rest, res)
         _ => pure ([], t')
 
 ||| The dimensions a tie can state of a value of this type: a value array's.
@@ -313,7 +314,13 @@ witnessTerm loc vs (AxisAt r k) = (\v => Tensor loc (Extent k) NatT [Var loc v])
 export
 bindAll : {0 m : Nat} -> Loc -> List (Quantity, Term m) ->
           ({0 p : Nat} -> (Fin m -> Fin p) -> List (Fin p) -> Term p) -> Term m
-bindAll loc [] k = k id []
-bindAll loc ((q, t) :: ts) k =
-  Let loc (shown "argument") q t
-      (bindAll loc (map (map (weakenUnder 1)) ts) (\ren, vs => k (ren . FS) (ren FZ :: vs)))
+bindAll loc ts k = go id ts k
+  where
+    -- Under the binders already made: `ren` takes the outer scope into the
+    -- current one, and each term is renamed once, where it is bound.
+    go : {0 p : Nat} -> (Fin m -> Fin p) -> List (Quantity, Term m) ->
+         ({0 r : Nat} -> (Fin p -> Fin r) -> List (Fin r) -> Term r) -> Term p
+    go ren [] k' = k' id []
+    go ren ((q, t) :: rest) k' =
+      Let loc (shown "argument") q (rename ren t)
+          (go (FS . ren) rest (\ren', vs => k' (ren' . FS) (ren' FZ :: vs)))

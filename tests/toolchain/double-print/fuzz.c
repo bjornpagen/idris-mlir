@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* The runtime's Double printer: `fuzz N` prints N doubles with
  * idris_rt_io_put_double, one per line. The patterns: any bits, exponents
  * near 1023, subnormals, and doubles whose decimal expansion ends in a 5,

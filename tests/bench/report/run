@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # bench/report.sh turns a run record into its results: the best of each
 # compiler's samples, clang's time over ours, the compile times, the
 # comparison with an earlier record by each run's own ratio to C, and three

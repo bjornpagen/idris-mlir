@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A file that is not named Main.idr is still the main module when it has no
 # module header, or when it says `module Main`. Its source is that file.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

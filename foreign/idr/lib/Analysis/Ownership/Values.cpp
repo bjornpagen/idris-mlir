@@ -23,9 +23,7 @@ bool followed(Value value) {
 
 // The type answers, a data type from its body, made once: asking again
 // costs nothing, so no pass keeps answers of its own.
-bool counted(Type type) { return holdsReferences(type); }
-
-bool tracked(Value value) { return counted(value.getType()) && !isStatic(value); }
+bool tracked(Value value) { return holdsReferences(value.getType()) && !isStatic(value); }
 
 bool isMemoCell(Type type) {
   auto box = dyn_cast<BoxType>(unrestricted(type));
@@ -34,7 +32,7 @@ bool isMemoCell(Type type) {
 
 bool isCountedElement(Value value) {
   auto load = value.getDefiningOp<memref::LoadOp>();
-  return load && counted(load.getType());
+  return load && holdsReferences(load.getType());
 }
 
 } // namespace idr::ownership

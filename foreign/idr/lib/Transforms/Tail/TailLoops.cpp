@@ -88,30 +88,30 @@ FailureOr<StringAttr> copyName(FuncOp fn, StringRef kind, SymbolTable &symbols) 
 
 namespace {
 
-// The decision that `fn`'s body is, or none.
+// The decision that `fn`'s body is, or none: a match of two regions, one
+// that ends in the self tail call and one that reaches none.
 std::optional<Decision> decisionOf(FuncOp fn) {
   Operation *ret = fn.getBody().front().getTerminator();
   Operation *match = tailMatch(ret);
-  if (!match || match->getNumRegions() != 2)
+  if (!match || match->getNumRegions() != 2 ||
+      llvm::any_of(match->getRegions(), [](Region &region) { return region.empty(); }))
     return std::nullopt;
-  Decision decision{match, nullptr, nullptr};
-  for (Region &region : match->getRegions()) {
-    if (region.empty())
-      return std::nullopt;
+  auto loops = [&](Region &region) {
     Operation *end = region.front().getTerminator();
-    if (isa<YieldOp>(end) && passesOnPrevious(end) && isSelfCall(end->getPrevNode(), fn))
-      decision.loops = &region;
-    else if (!reachesTailCall(region.front(), fn))
-      decision.exits = &region;
-  }
-  if (!decision.loops || !decision.exits)
+    return isa<YieldOp>(end) && passesOnPrevious(end) && isSelfCall(end->getPrevNode(), fn);
+  };
+  auto exits = [&](Region &region) { return !loops(region) && !reachesTailCall(region.front(), fn); };
+  MutableArrayRef<Region> regions = match->getRegions();
+  auto looping = llvm::find_if(regions, loops);
+  auto exiting = llvm::find_if(regions, exits);
+  if (looping == regions.end() || exiting == regions.end())
     return std::nullopt;
   // The loop tests an integer against the one key of its case, or the
   // constructor of a value.
   if (auto lit = dyn_cast<MatchLitOp>(match))
     if (!isa<IntegerType>(lit.getScrutinee().getType()) || lit.getCases().size() != 1)
       return std::nullopt;
-  return decision;
+  return Decision{*match, *looping, *exiting};
 }
 
 // Whether `op`, in a loop, may run once before it instead: it has no

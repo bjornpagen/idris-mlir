@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The constants a constructor, a closure or a suspension folds with: what a
-// constant holds in a field or capture of that type.
+// constant holds in a field or capture of that type. The one leaf rule of a
+// constant's parts: the folders ask it of each operand, and idr.constant's
+// verifier of each field and capture it holds.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"

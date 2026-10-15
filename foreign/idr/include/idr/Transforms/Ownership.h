@@ -22,7 +22,6 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/MapVector.h"
 
 #include <memory>
 
@@ -37,12 +36,19 @@ namespace mlir {
 class RewriterBase;
 } // namespace mlir
 
+namespace idr {
+struct CalleeEffects;
+} // namespace idr
+
 namespace idr::ownership {
 
-// The nested passes, which idr-rc builds and no registry knows: placement,
-// and the commit of the excl grades.
-std::unique_ptr<mlir::Pass> createRcPlace();
-std::unique_ptr<mlir::Pass> createRcCommit();
+// The nested passes, which idr-rc builds and no registry knows, each with
+// what it reads, which idr-rc holds for as long as the nested run lasts:
+// placement, on the reuses decided and the program's table, and the commit
+// of the excl grades `solved` proved.
+std::unique_ptr<mlir::Pass> createRcPlace(const Reuses &reuses, const CalleeEffects &callees);
+std::unique_ptr<mlir::Pass> createRcCommit(const Exclusivity &solved,
+                                           const mlir::SymbolTable &symbols);
 
 // The owned grades borrow inference decided, written into every signature:
 // an owned parameter and every result that holds references become
@@ -51,35 +57,25 @@ void writeOwnedGrades(ProgramOp program, const Borrows &borrows);
 
 // Before exclusivity's solve: a value some view of which takes a reference
 // of its own gets each of its consuming uses an idr.share.
-void shareTainted(ProgramOp program, mlir::SymbolTable &symbols);
+void shareTainted(ProgramOp program, const mlir::SymbolTable &symbols);
 
-// The copies grade specialization made, by their original, in the order
-// their keys were decided. A function has one key at most, its exclusive
-// context (every followed parameter exclusive), so one copy, made once.
-struct Copies {
-  llvm::MapVector<mlir::Operation *, FuncOp> of;
-};
-
-// Grade specialization, decided at once on what `solved` found of the
-// program as placement left it. The key set comes first: every function
-// some live call gives an exclusive value at each followed parameter while
-// another call shares one, and every function such a key calls that takes
-// a followed parameter shared, the copies' own callees. Then each key's
-// copy, made once, named from the key, right after its original; then
-// every such call goes to its callee's copy, and every call a copy makes
-// to a key goes to that key's copy, so the copies call one another as the
-// originals do. A copy whose name another function holds is an internal
-// error.
+// Grade specialization's keys and copies, decided at once on what
+// `solved` found of the program as placement left it. The key set comes
+// first: every function some live call gives an exclusive value at each
+// followed parameter while another call shares one, and every function
+// such a key calls that takes a followed parameter shared, the copies' own
+// callees. Then each key's copy, made once, named from the key, right
+// after its original, calling what the original calls. A copy whose name
+// another function holds is an internal error.
 mlir::FailureOr<Copies> specializeOnGrade(ProgramOp program, const Exclusivity &solved,
                                           mlir::SymbolTable &symbols);
 
-// On the solve of the program the copies are in: each live call of a key
-// or of its copy goes to the copy when it gives an exclusive value at every
-// followed parameter, and to the original when it does not, so that it
-// shares no copy's parameters. Whether any call moved, after which the
-// program is solved once more.
-bool redirectCalls(ProgramOp program, const Exclusivity &solved, mlir::SymbolTable &symbols,
-                   const Copies &copies);
+// Each call to where the solve of the program with its copies sent it: a
+// call of a key or of its copy to the copy when it gives an exclusive value
+// at every followed parameter, and to the original when it does not. The
+// solve already followed every call there, so it is the solve of the
+// program after the calls moved.
+void redirectCalls(ProgramOp program, const Exclusivity &solved);
 
 // Every copy and every original that nothing calls any more, once the
 // calls went where they go.
@@ -88,25 +84,24 @@ void eraseUnused(ProgramOp program, mlir::SymbolTable &symbols, const Copies &co
 // The excl grades the solve proved, written into every signature and entry
 // argument, and every call's results set from its callee's.
 void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved,
-                          mlir::SymbolTable &symbols);
+                          const mlir::SymbolTable &symbols);
 
 // The class of a value, as counting places it.
 enum class Class { Untracked, Static, Borrowed, Owned };
 
-// The class of each value of a function, computed once. A parameter that
-// holds references is borrowed unless its grade, which the signature gave
-// it, is owned. An element read from a buffer is owned: it takes a
-// reference of its own where it is read. A fresh allocation and the value
-// a give hands to a store are untracked: their boundary op moves their
-// reference.
+// The class of each value of a function as it stands, each computed once.
+// A class reads where a value's uses are and where what it was read from
+// is alive, so a Classes is built for one step and dropped with it: no
+// class outlives a change of the code it read. A parameter that holds
+// references is borrowed unless its grade, which the signature gave it, is
+// owned. An element read from a buffer is owned: it takes a reference of
+// its own where it is read. A fresh allocation and the value a give hands
+// to a store are untracked: their boundary op moves their reference.
 class Classes {
 public:
   explicit Classes(FuncOp fn) : fn(fn) {}
 
   Class classOf(mlir::Value value);
-
-  // Forgets the class of `value`, whose definition changed.
-  void erase(mlir::Value value) { classes.erase(value); }
 
 private:
   bool aliveAt(mlir::Value value, mlir::Operation *op);
@@ -123,10 +118,11 @@ bool endsInCrash(mlir::Block &block);
 
 // Takes the box `box`, built by the constructor `tag` of `data`, apart at
 // `at` in `block`: an idr.take whose fields replace the reads of the box's
-// fields from that point on (the arguments of `fields`, the case region
-// that bound them, when one did, and idr.field).
-TakeOp takeAt(mlir::RewriterBase &rewriter, mlir::Value box, DataType data, unsigned tag,
-              mlir::Block &block, mlir::Block::iterator at, mlir::Block *fields);
+// fields from that point on (`bound`, the arguments of the case region
+// that bound them, none when no case region did, and idr.field).
+TakeOp takeAt(mlir::RewriterBase &rewriter, mlir::Value box, DataType data, Tag tag,
+              mlir::Block &block, mlir::Block::iterator at,
+              llvm::ArrayRef<mlir::BlockArgument> bound);
 
 // Takes the scrutinee of `match` apart where its case region `index`
 // begins: an idr.take whose fields replace the region's arguments.
@@ -135,13 +131,13 @@ TakeOp takeAtEntry(mlir::RewriterBase &rewriter, MatchOp match, unsigned index);
 // Takes the unboxed sum `value`, built by the constructor `tag` whose
 // fields have `fieldTypes`, apart where it is defined, and gives each of
 // its field reads the field taken.
-TakeOp takeFields(mlir::RewriterBase &rewriter, mlir::Value value, unsigned tag,
+TakeOp takeFields(mlir::RewriterBase &rewriter, mlir::Value value, Tag tag,
                   llvm::ArrayRef<mlir::Type> fieldTypes);
 
 // Whether `box`, built by the constructor `tag`, keeps a field that holds
 // references past `at` in `block`, where it dies.
-bool keepsCountedField(mlir::Value box, unsigned tag, mlir::Block &block,
-                       mlir::Block::iterator at, mlir::Block *fields);
+bool keepsCountedField(mlir::Value box, Tag tag, mlir::Block &block, mlir::Block::iterator at,
+                       llvm::ArrayRef<mlir::BlockArgument> bound);
 
 // The reuse rewrite of one function: at each site, in order, the take and
 // the reuses of its cell.
@@ -159,13 +155,16 @@ mlir::LogicalResult bufferForms(FuncOp fn);
 // The code counting changes before it places a count, after it checked it
 // can count the function: selects, values taken apart where they die,
 // consumers moved past the reads that follow them, and fields and elements
-// that take a reference of their own.
-mlir::LogicalResult reshape(mlir::RewriterBase &rewriter, FuncOp fn, Classes &classes,
-                            mlir::SymbolTable &symbols);
+// that take a reference of their own. A call's operands take their
+// parameters' grades only once placed, so what a call takes over is read
+// from its callee's signature, through `callees`.
+mlir::LogicalResult reshape(mlir::RewriterBase &rewriter, FuncOp fn,
+                            const CalleeEffects &callees);
 
 // The counts of a function: the idr.dup, idr.drop and idr.borrow that make
-// every reference consumed exactly once on every path.
-void place(mlir::RewriterBase &rewriter, FuncOp fn, Classes &classes, mlir::SymbolTable &symbols);
+// every reference consumed exactly once on every path, what a call takes
+// over read through `callees` as `reshape` reads it.
+void place(mlir::RewriterBase &rewriter, FuncOp fn, const CalleeEffects &callees);
 
 } // namespace idr::ownership
 

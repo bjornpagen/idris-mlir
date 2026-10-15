@@ -9,6 +9,7 @@
 #include "llvm/ADT/StringRef.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace llvm {
@@ -52,8 +53,12 @@ std::unique_ptr<llvm::Module> readRuntime(llvm::LLVMContext &context, const llvm
 // its container keeps no section for it: the object's name with .bc.
 std::string besideObject(llvm::StringRef object);
 
-// Whether a runtime module is what --prepare-runtime wrote.
-bool isPrepared(const llvm::Module &module);
+// What a runtime module's native half is compiled for, as --prepare-runtime
+// records it in the module's flags; nothing for a runtime it did not write.
+struct PreparedFor {
+  llvm::StringRef cpu, features;
+};
+std::optional<PreparedFor> preparedFor(const llvm::Module &module);
 
 // Runtime code was compiled for the target's baseline, plus the features a
 // function asks for itself (a simdutf kernel's AVX2, say). It takes the

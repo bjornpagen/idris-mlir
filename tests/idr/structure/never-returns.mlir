@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-structure-loops)))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=structured-loops=@gen,crash-sites=@gen:1 -o /dev/null
-// NEEDS-ACCEPTANCE: a region ending in ub.unreachable lowered by idr-structure-loops (R10, B15).
+// NEEDS-ACCEPTANCE: a region ending in ub.unreachable, lowered by idr-structure-loops.
 // A tabulation whose region never returns ends in its crash, and its
 // region's terminator is ub.unreachable: no element is ever made, and no
 // value stands for one. The crash is the program's at the first index,

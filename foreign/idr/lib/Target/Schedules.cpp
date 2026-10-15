@@ -53,6 +53,7 @@
 #include "mlir/Parser/Parser.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Twine.h"
 
 #include <algorithm>
@@ -68,25 +69,46 @@ using namespace mlir;
 
 namespace {
 
-// The library, around its entry point's name, which Target.h holds once:
-// the loops over arrays computed on lanes, then the patterns that clean the
-// vectors (the unit dimensions dropped through shape casts, a read that
-// broadcasts along the lanes made a read and a broadcast, the last tile's
-// masked region made the masked transfer it holds). Canonicalization is the
-// pipeline's, after the group.
+// The rounds the greedy driver may take to clean the vectors of one
+// function: a size policy, which bounds the cleanup and never what is
+// lowered. A cleanup that spends it leaves unit dimensions the lowering
+// takes as they are, so the function is less optimized and nothing else.
+constexpr unsigned cleanupRounds = 10;
+
+// The library, around the names of its two sequences, which Target.h holds
+// once, and the cleanup's rounds. The cleanup: the unit dimensions dropped
+// through shape casts, within its rounds. The schedule: the loops over
+// arrays computed on lanes; then what the vector dialect's conversion
+// cannot take made what it can (the last tile's masked region made the
+// masked transfer it holds, a transfer that permutes or broadcasts made a
+// minor-identity one and a transpose or broadcast), which ends with no
+// budget, since each rewrite removes a mask region or a permutation and
+// none makes one, and must, since an op left would not lower; then the
+// cleanup, a spent budget suppressed. Canonicalization is the pipeline's,
+// after the group.
 constexpr llvm::StringLiteral libraryHead = R"mlir(
 module attributes {transform.with_named_sequence} {
   transform.named_sequence @)mlir";
-constexpr llvm::StringLiteral libraryBody = R"mlir((%root: !transform.any_op {transform.readonly}) {
+constexpr llvm::StringLiteral cleanupBody = R"mlir((%functions: !transform.any_op {transform.readonly}) {
+    transform.apply_patterns to %functions {
+      transform.apply_patterns.vector.drop_unit_dims_with_shape_cast
+    } max_iterations = )mlir";
+constexpr llvm::StringLiteral cleanupTail = R"mlir( : !transform.any_op
+    transform.yield
+  }
+  transform.named_sequence @)mlir";
+constexpr llvm::StringLiteral scheduleBody = R"mlir((%root: !transform.any_op {transform.readonly}) {
     %loops = transform.structured.match ops{["linalg.generic"]} in %root
         : (!transform.any_op) -> !transform.any_op
     %vectorized = transform.idr.vectorize_lanes %loops
         : (!transform.any_op) -> !transform.any_op
     transform.apply_patterns to %vectorized {
-      transform.apply_patterns.vector.drop_unit_dims_with_shape_cast
-      transform.apply_patterns.vector.transfer_permutation_patterns
       transform.apply_patterns.vector.lower_masked_transfers
+      transform.apply_patterns.vector.transfer_permutation_patterns
     } : !transform.any_op
+    transform.include @)mlir";
+constexpr llvm::StringLiteral scheduleTail = R"mlir( failures(suppress) (%vectorized)
+        : (!transform.any_op) -> ()
     transform.yield
   }
 }
@@ -238,7 +260,11 @@ struct ScheduleLibrary : DialectExtension<ScheduleLibrary, transform::TransformD
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ScheduleLibrary)
 
   void apply(MLIRContext *context, transform::TransformDialect *dialect) const final {
-    std::string text = (libraryHead + idr::target::vectorizeSchedule + libraryBody).str();
+    using namespace idr::target;
+    std::string text = (libraryHead + cleanupSchedule + cleanupBody + llvm::Twine(cleanupRounds) +
+                        cleanupTail + vectorizeSchedule + scheduleBody + cleanupSchedule +
+                        scheduleTail)
+                           .str();
     OwningOpRef<ModuleOp> library =
         parseSourceString<ModuleOp>(text, ParserConfig(context), "idr-schedules");
     if (!library || failed(dialect->loadIntoLibraryModule(std::move(library))))
@@ -257,7 +283,7 @@ idr::target::VectorizeLanesOp::apply(transform::TransformRewriter &rewriter,
                                      transform::TransformState &state) {
   // Each function that now computes on lanes, once, in the order first
   // met: what the script cleans.
-  SmallVector<Operation *> vectorized;
+  llvm::SetVector<Operation *> vectorized;
   SmallVector<Operation *> targets = llvm::to_vector(state.getPayloadOps(getTarget()));
   for (Operation *target : targets) {
     auto loop = dyn_cast<linalg::GenericOp>(target);
@@ -267,10 +293,10 @@ idr::target::VectorizeLanesOp::apply(transform::TransformRewriter &rewriter,
     FailureOr<bool> done = vectorizeLoop(rewriter, loop);
     if (failed(done))
       return DiagnosedSilenceableFailure::definiteFailure();
-    if (*done && function && !llvm::is_contained(vectorized, function.getOperation()))
-      vectorized.push_back(function.getOperation());
+    if (*done && function)
+      vectorized.insert(function.getOperation());
   }
-  results.set(cast<OpResult>(getVectorized()), vectorized);
+  results.set(cast<OpResult>(getVectorized()), vectorized.getArrayRef());
   return DiagnosedSilenceableFailure::success();
 }
 

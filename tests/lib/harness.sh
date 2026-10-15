@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The harness every run script stands on: the pinned tools, the work
 # directory, bounded commands, the test's output and the fixture files.
 
@@ -8,7 +10,12 @@
 . "$root/tools/toolchain.sh"
 runtests=$root/tests/build/exec/runtests
 compile_sh=$root/tools/compile.sh
-here=$(pwd)
+# The test's own directory, where its run script and fixture files are,
+# and where it runs: the runner runs `./run` there, and a run by hand names
+# the script by its path from wherever it is, so a fixture named by a path
+# from the test (`.`, `../name.mlir`) is found either way.
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here" || exit 1
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT

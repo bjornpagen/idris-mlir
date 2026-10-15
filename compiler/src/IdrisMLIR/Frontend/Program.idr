@@ -34,7 +34,7 @@ import Libraries.Data.ANameMap
 import Libraries.Data.WithDefault
 import Libraries.Utils.Path
 
-%default covering
+%default total
 
 ||| The directory a file of the compilation's is in, made first with those
 ||| it is in when it does not exist, as Idris's own -o makes its output's.
@@ -137,7 +137,7 @@ entryPoint = do
 ||| every rejected instance of what they did not refuse. An error that is
 ||| not a rejection (no main, a broken registry entry, the compiler's own)
 ||| is thrown.
-export
+export covering
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (timing : Maybe String) ->
           (corePath, mlirPath : String) -> Core (List Error)

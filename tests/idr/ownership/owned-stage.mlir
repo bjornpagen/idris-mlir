@@ -3,7 +3,8 @@
 // RUN: idris-mlir-opt %t.before.mlir --idr-rc --idr-expect=holds=stage=owned -o /dev/null
 // RUN: awk '/^\/\/ -----/ { n++; next } n == 2' %s > %t.reuse.mlir
 // RUN: idris-mlir-opt %t.reuse.mlir | idris-mlir-opt | FileCheck %s --check-prefix=REUSE
-// NEEDS-ACCEPTANCE: the printed form of idr.take and idr.reuse (R02).
+// NEEDS-ACCEPTANCE: the printed form of idr.take and idr.reuse.
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
 // The owned stage is the program's, said by its idr.program: idr-rc counts
 // a program of the first stage and sets the owned one, and the verifier
 // holds every function of the program to the stage's rules, whatever a

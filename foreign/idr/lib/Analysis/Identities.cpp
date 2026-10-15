@@ -8,9 +8,13 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Worklist.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
+
+#include <optional>
+#include <utility>
 
 using namespace mlir;
 
@@ -30,19 +34,8 @@ SmallVector<unsigned, 1> candidates(FuncOp fn) {
   return found;
 }
 
-Parts::Parts(Type argument) {
-  parts.push_back({0, std::nullopt, 0, 0, unrestricted(argument)});
-}
-
-unsigned Parts::step(unsigned parent, std::optional<unsigned> tag, unsigned index, Type type) {
-  auto [it, inserted] = steps.try_emplace(std::make_tuple(parent, tag, index),
-                                          static_cast<unsigned>(parts.size()));
-  if (inserted)
-    parts.push_back({parent, tag, index, parts[parent].depth + 1, unrestricted(type)});
-  return it->second;
-}
-
-SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Outside outside) {
+SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Outside outside,
+                                                 const CalleeEffects &effects) {
   Members members;
   for (FuncOp fn : component)
     members[fn.getSymNameAttr()] = fn;
@@ -68,21 +61,26 @@ SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Out
         assumed[callee] = {*given};
     });
 
-  // One walk of each member with candidates; the fixpoint reads the walks
-  // and does not walk a function again.
+  // One walk of each member with candidates, none for one that can give
+  // nothing back; the fixpoint reads the walks and does not walk a
+  // function again.
   struct Walked {
+    StringAttr name;
     std::optional<Record> record;
     // The members it calls, which an assumption about may decide its check.
     SmallVector<StringAttr> callees;
   };
-  SmallVector<Walked, 0> walked(walkable.size());
-  for (auto [slot, at] : llvm::enumerate(walkable)) {
+  SmallVector<Walked, 0> walked;
+  for (unsigned at : walkable) {
     FuncOp fn = component[at];
-    walked[slot].record.emplace(fn, assumed.find(fn.getSymNameAttr())->second, members, outside);
+    Walked &each = walked.emplace_back();
+    each.name = fn.getSymNameAttr();
+    each.record =
+        Record::walk(fn, assumed.find(each.name)->second, members, outside, effects);
     fn.walk([&](CallOp call) {
       StringAttr callee = call.getCalleeAttr().getAttr();
       if (members.contains(callee))
-        walked[slot].callees.push_back(callee);
+        each.callees.push_back(callee);
     });
   }
 
@@ -92,28 +90,35 @@ SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Out
       if (assumed.contains(callee))
         callers[callee].insert(static_cast<unsigned>(slot));
 
-  // Assumptions are only ever dropped, so the worklist ends at the greatest
-  // fixpoint.
-  llvm::SetVector<unsigned> work;
-  for (unsigned slot = 0, n = static_cast<unsigned>(walked.size()); slot < n; ++slot)
-    work.insert(slot);
-  while (!work.empty()) {
-    unsigned slot = work.pop_back_val();
-    StringAttr name = FuncOp(component[walkable[slot]]).getSymNameAttr();
-    auto it = assumed.find(name);
+  // An assumption dropped: the walked member that no longer gives back an
+  // argument. Each is dropped once and there are finitely many, so the
+  // worklist ends, at the greatest fixpoint; a drop checks again each
+  // member that calls the one it is about.
+  using Drop = std::pair<unsigned, unsigned>;
+  OnceWorklist<Drop> drops;
+  auto check = [&](unsigned slot) {
+    auto it = assumed.find(walked[slot].name);
     if (it == assumed.end())
-      continue;
-    SmallVector<unsigned, 1> kept = walked[slot].record->givesBack(it->second, assumed);
+      return;
+    const std::optional<Record> &record = walked[slot].record;
+    SmallVector<unsigned, 1> kept =
+        record ? record->givesBack(it->second, assumed) : SmallVector<unsigned, 1>();
     if (kept.size() == it->second.size())
-      continue;
+      return;
+    for (unsigned argument : it->second)
+      if (!llvm::is_contained(kept, argument))
+        drops.push({slot, argument});
     if (kept.empty())
       assumed.erase(it);
     else
       it->second = std::move(kept);
-    if (auto calling = callers.find(name); calling != callers.end())
+  };
+  for (unsigned slot = 0, n = static_cast<unsigned>(walked.size()); slot < n; ++slot)
+    check(slot);
+  while (std::optional<Drop> drop = drops.pop())
+    if (auto calling = callers.find(walked[drop->first].name); calling != callers.end())
       for (unsigned caller : calling->second)
-        work.insert(caller);
-  }
+        check(caller);
 
   SmallVector<std::optional<unsigned>> out(component.size());
   for (unsigned at : walkable)

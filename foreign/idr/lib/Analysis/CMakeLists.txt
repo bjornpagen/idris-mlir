@@ -1,8 +1,9 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The analyses the pass manager caches and invalidates: what the passes
 # ask of the whole module, each immutable once built.
 add_mlir_library(IdrAnalysis
 	Effects.cpp
-	Holds.cpp
 	Inline.cpp
 	Constants.cpp
 	BindingTimes.cpp
@@ -13,6 +14,7 @@ add_mlir_library(IdrAnalysis
 	Ownership/Borrows.cpp
 	Ownership/Reuses.cpp
 	Ownership/Exclusivity.cpp
+	Ownership/ExclusivityAnalyses.cpp
 	Tail.cpp
 	Ranges.cpp
 	Escapes.cpp

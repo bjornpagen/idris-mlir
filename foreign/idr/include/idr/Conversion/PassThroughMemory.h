@@ -7,8 +7,6 @@
 #ifndef IDR_CONVERSION_PASSTHROUGHMEMORY_H
 #define IDR_CONVERSION_PASSTHROUGHMEMORY_H
 
-#include "idr/Conversion/TailCallPlan.h"
-
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -20,17 +18,17 @@ namespace idr::conversion {
 // returns nothing; the pointer.
 mlir::Value takeResultPointer(mlir::LLVM::LLVMFuncOp fn, mlir::RewriterBase &rewriter);
 
+// Each of `tailCalls`, calls right before the return of their result in a
+// function that took `out` to write its result to, of functions that take
+// such a pointer too, passes on `out` instead, and the return after it
+// returns nothing. `tailCalls` follows the calls as they are made again.
+void passOnPointer(llvm::SmallVectorImpl<mlir::LLVM::CallOp> &tailCalls, mlir::Value out,
+                   mlir::RewriterBase &rewriter);
+
 // Each of `calls`, calls in `fn` of functions whose result goes through
-// memory, in the callee's new type. A call in `tailCalls`, right before the
-// return of its result, passes on `out`, the pointer `fn` itself got (it
-// returns the same type, so it goes through memory too), and the return
-// after it returns nothing; any other passes a slot of `fn`'s frame and
-// reads the result from it. `tailCalls` follows the calls as they are made
-// again.
-void callThroughMemory(mlir::LLVM::LLVMFuncOp fn,
-                       llvm::ArrayRef<TailCallPlan::ThroughMemory> calls,
-                       llvm::SmallVectorImpl<mlir::LLVM::CallOp> &tailCalls, mlir::Value out,
-                       mlir::RewriterBase &rewriter);
+// memory, passes a slot of `fn`'s frame and reads the result from it.
+void callThroughSlots(mlir::LLVM::LLVMFuncOp fn, llvm::ArrayRef<mlir::LLVM::CallOp> calls,
+                      mlir::RewriterBase &rewriter);
 
 // Every return of `fn` that still returns a value writes it through `out`
 // and returns nothing.

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- The longest Collatz sequence starting below n: integer division in loops.

@@ -9,11 +9,12 @@ import Core.Context
 import Core.Core
 import Core.TT
 
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 
 import Data.List
 
-%default covering
+%default total
 
 ||| A value known to be one constructor, with the environment positions of
 ||| the arguments it was built from. Positions are into the environment
@@ -130,28 +131,25 @@ mutual
         Nat -> TT vars -> View -> Core (Maybe (List (Nat, Nat)))
   fit arity tm view =
     if erased tm || decidesNothing view then pure (Just [])
-    else case tm of
-      Local _ _ i _ => pure (Just (localEq arity i view))
-      _ => case (getFnArgs tm, view) of
-        ((Ref _ _ n, as), VRef m bs) => do
-          same <- (==) <$> toFullNames n <*> toFullNames m
-          if same && length as == length bs
-            then fitArgs arity as bs
-            else pure Nothing
-        ((PrimVal _ c, []), VLit d) =>
-          pure (if c == d then Just [] else Nothing)
-        _ => pure Nothing
+    else case (tm, view) of
+      (Local _ _ i _, _) => pure (Just (localEq arity i view))
+      (PrimVal _ c, VLit d) => pure (if c == d then Just [] else Nothing)
+      (_, VRef m bs) => spine arity tm m (reverse bs)
+      _ => pure Nothing
 
-  fitArgs : {auto c : Ref Ctxt Defs} -> {0 vars : Scope} ->
-            Nat -> List (TT vars) -> List View -> Core (Maybe (List (Nat, Nat)))
-  fitArgs _ [] [] = pure (Just [])
-  fitArgs arity (a :: as) (b :: bs) = do
-    Just eqs <- fit arity a b
+  ||| An application against a reference applied to views, its last
+  ||| argument against the last view first, so that each argument is a
+  ||| subterm; the equations in argument order.
+  spine : {auto c : Ref Ctxt Defs} -> {0 vars : Scope} ->
+          Nat -> TT vars -> Name -> List View -> Core (Maybe (List (Nat, Nat)))
+  spine arity (App _ f a) m (b :: bs) = do
+    Just last <- fit arity a b
       | Nothing => pure Nothing
-    Just rest <- fitArgs arity as bs
+    Just before <- spine arity f m bs
       | Nothing => pure Nothing
-    pure (Just (eqs ++ rest))
-  fitArgs _ _ _ = pure Nothing
+    pure (Just (before ++ last))
+  spine arity (Ref _ _ n) m [] = pure (if !(sameName n m) then Just [] else Nothing)
+  spine _ _ _ _ = pure Nothing
 
 ||| Just (arity, equations). Equations are (env position, pattern-arg position).
 ||| Nothing if this constructor does not fit the view.

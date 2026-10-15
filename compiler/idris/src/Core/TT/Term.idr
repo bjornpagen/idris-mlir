@@ -133,30 +133,62 @@ ClosedTerm = Term []
 ------------------------------------------------------------------------
 -- Weakening
 
-export covering
-insertNames : GenWeakenable Term
-insertNames out ns (Local fc r idx prf)
-   = let MkNVar prf' = insertNVarNames out ns (MkNVar prf) in
-     Local fc r _ prf'
-insertNames out ns (Ref fc nt name) = Ref fc nt name
-insertNames out ns (Meta fc name idx args)
-    = Meta fc name idx (map (insertNames out ns) args)
-insertNames out ns (Bind fc x b scope)
-    = Bind fc x (assert_total (map (insertNames out ns) b))
-           (insertNames (suc out) ns scope)
-insertNames out ns (App fc fn arg)
-    = App fc (insertNames out ns fn) (insertNames out ns arg)
-insertNames out ns (As fc s as tm)
-    = As fc s (insertNames out ns as) (insertNames out ns tm)
-insertNames out ns (TDelayed fc r ty) = TDelayed fc r (insertNames out ns ty)
-insertNames out ns (TDelay fc r ty tm)
-    = TDelay fc r (insertNames out ns ty) (insertNames out ns tm)
-insertNames out ns (TForce fc r tm) = TForce fc r (insertNames out ns tm)
-insertNames out ns (PrimVal fc c) = PrimVal fc c
-insertNames out ns (Erased fc Impossible) = Erased fc Impossible
-insertNames out ns (Erased fc Placeholder) = Erased fc Placeholder
-insertNames out ns (Erased fc (Dotted t)) = Erased fc (Dotted (insertNames out ns t))
-insertNames out ns (TType fc u) = TType fc u
+-- Each kind of node a term holds terms in is traversed by a function of
+-- its own, so that every recursive call is on a part of its argument.
+mutual
+  insertNamesPi : {0 outer, ns, local : Scope} ->
+                  SizeOf local -> SizeOf ns ->
+                  PiInfo (Term (local ++ outer)) -> PiInfo (Term (local ++ (ns ++ outer)))
+  insertNamesPi out ns Implicit = Implicit
+  insertNamesPi out ns Explicit = Explicit
+  insertNamesPi out ns AutoImplicit = AutoImplicit
+  insertNamesPi out ns (DefImplicit t) = DefImplicit (insertNames out ns t)
+
+  insertNamesBinder : {0 outer, ns, local : Scope} ->
+                      SizeOf local -> SizeOf ns ->
+                      Binder (Term (local ++ outer)) -> Binder (Term (local ++ (ns ++ outer)))
+  insertNamesBinder out ns (Lam fc c p ty)
+      = Lam fc c (insertNamesPi out ns p) (insertNames out ns ty)
+  insertNamesBinder out ns (Let fc c val ty)
+      = Let fc c (insertNames out ns val) (insertNames out ns ty)
+  insertNamesBinder out ns (Pi fc c p ty)
+      = Pi fc c (insertNamesPi out ns p) (insertNames out ns ty)
+  insertNamesBinder out ns (PVar fc c p ty)
+      = PVar fc c (insertNamesPi out ns p) (insertNames out ns ty)
+  insertNamesBinder out ns (PLet fc c val ty)
+      = PLet fc c (insertNames out ns val) (insertNames out ns ty)
+  insertNamesBinder out ns (PVTy fc c ty) = PVTy fc c (insertNames out ns ty)
+
+  insertNamesTerms : {0 outer, ns, local : Scope} ->
+                     SizeOf local -> SizeOf ns ->
+                     List (Term (local ++ outer)) -> List (Term (local ++ (ns ++ outer)))
+  insertNamesTerms out ns [] = []
+  insertNamesTerms out ns (t :: ts) = insertNames out ns t :: insertNamesTerms out ns ts
+
+  export
+  insertNames : GenWeakenable Term
+  insertNames out ns (Local fc r idx prf)
+     = let MkNVar prf' = insertNVarNames out ns (MkNVar prf) in
+       Local fc r _ prf'
+  insertNames out ns (Ref fc nt name) = Ref fc nt name
+  insertNames out ns (Meta fc name idx args)
+      = Meta fc name idx (insertNamesTerms out ns args)
+  insertNames out ns (Bind fc x b scope)
+      = Bind fc x (insertNamesBinder out ns b)
+             (insertNames (suc out) ns scope)
+  insertNames out ns (App fc fn arg)
+      = App fc (insertNames out ns fn) (insertNames out ns arg)
+  insertNames out ns (As fc s as tm)
+      = As fc s (insertNames out ns as) (insertNames out ns tm)
+  insertNames out ns (TDelayed fc r ty) = TDelayed fc r (insertNames out ns ty)
+  insertNames out ns (TDelay fc r ty tm)
+      = TDelay fc r (insertNames out ns ty) (insertNames out ns tm)
+  insertNames out ns (TForce fc r tm) = TForce fc r (insertNames out ns tm)
+  insertNames out ns (PrimVal fc c) = PrimVal fc c
+  insertNames out ns (Erased fc Impossible) = Erased fc Impossible
+  insertNames out ns (Erased fc Placeholder) = Erased fc Placeholder
+  insertNames out ns (Erased fc (Dotted t)) = Erased fc (Dotted (insertNames out ns t))
+  insertNames out ns (TType fc u) = TType fc u
 
 -- Embedding a term in a larger scope adds the new variables at the far
 -- end, where no de Bruijn index reaches, so every node is rebuilt from the
@@ -240,21 +272,29 @@ mutual
 mutual
   export
   shrinkPi : Shrinkable (PiInfo . Term)
-  shrinkPi pinfo th
-    = assert_total
-    $ traverse (\ t => shrinkTerm t th) pinfo
+  shrinkPi Implicit th = Just Implicit
+  shrinkPi Explicit th = Just Explicit
+  shrinkPi AutoImplicit th = Just AutoImplicit
+  shrinkPi (DefImplicit t) th = DefImplicit <$> shrinkTerm t th
 
   export
   shrinkBinder : Shrinkable (Binder . Term)
-  shrinkBinder binder th
-    = assert_total
-    $ traverse (\ t => shrinkTerm t th) binder
+  shrinkBinder (Lam fc c p ty) th
+      = Just (Lam fc c !(shrinkPi p th) !(shrinkTerm ty th))
+  shrinkBinder (Let fc c val ty) th
+      = Just (Let fc c !(shrinkTerm val th) !(shrinkTerm ty th))
+  shrinkBinder (Pi fc c p ty) th
+      = Just (Pi fc c !(shrinkPi p th) !(shrinkTerm ty th))
+  shrinkBinder (PVar fc c p ty) th
+      = Just (PVar fc c !(shrinkPi p th) !(shrinkTerm ty th))
+  shrinkBinder (PLet fc c val ty) th
+      = Just (PLet fc c !(shrinkTerm val th) !(shrinkTerm ty th))
+  shrinkBinder (PVTy fc c ty) th = PVTy fc c <$> shrinkTerm ty th
 
   export
   shrinkTerms : Shrinkable (List . Term)
-  shrinkTerms ts th
-    = assert_total
-    $ traverse (\ t => shrinkTerm t th) ts
+  shrinkTerms [] th = Just []
+  shrinkTerms (t :: ts) th = Just (!(shrinkTerm t th) :: !(shrinkTerms ts th))
 
   shrinkTerm : Shrinkable Term
   shrinkTerm (Local fc r idx loc) prf
@@ -285,15 +325,24 @@ mutual
 mutual
   export
   thinPi : Thinnable (PiInfo . Term)
-  thinPi pinfo th = assert_total $ map (\ t => thinTerm t th) pinfo
+  thinPi Implicit th = Implicit
+  thinPi Explicit th = Explicit
+  thinPi AutoImplicit th = AutoImplicit
+  thinPi (DefImplicit t) th = DefImplicit (thinTerm t th)
 
   export
   thinBinder : Thinnable (Binder . Term)
-  thinBinder binder th = assert_total $ map (\ t => thinTerm t th) binder
+  thinBinder (Lam fc c p ty) th = Lam fc c (thinPi p th) (thinTerm ty th)
+  thinBinder (Let fc c val ty) th = Let fc c (thinTerm val th) (thinTerm ty th)
+  thinBinder (Pi fc c p ty) th = Pi fc c (thinPi p th) (thinTerm ty th)
+  thinBinder (PVar fc c p ty) th = PVar fc c (thinPi p th) (thinTerm ty th)
+  thinBinder (PLet fc c val ty) th = PLet fc c (thinTerm val th) (thinTerm ty th)
+  thinBinder (PVTy fc c ty) th = PVTy fc c (thinTerm ty th)
 
   export
   thinTerms : Thinnable (List . Term)
-  thinTerms ts th = assert_total $ map (\ t => thinTerm t th) ts
+  thinTerms [] th = []
+  thinTerms (t :: ts) th = thinTerm t th :: thinTerms ts th
 
   thinTerm : Thinnable Term
   thinTerm (Local fc x idx y) th
@@ -319,7 +368,7 @@ mutual
 
 export
 GenWeaken Term where
-  genWeakenNs = assert_total $ insertNames
+  genWeakenNs = insertNames
 
 export
 %hint
@@ -409,44 +458,42 @@ StripNamespace Name where
             else nm
   restoreNS ns nm = nm
 
-export covering
+-- The term with `f` applied to the name of every reference but those in a
+-- dotted pattern, each kind of node that holds terms traversed by a
+-- function of its own, so that every recursive call is on a part of its
+-- argument.
+mutual
+  onRefsPi : (Name -> Name) -> PiInfo (Term vars) -> PiInfo (Term vars)
+  onRefsPi f (DefImplicit t) = DefImplicit (onRefs f t)
+  onRefsPi f p = p
+
+  onRefsBinder : (Name -> Name) -> Binder (Term vars) -> Binder (Term vars)
+  onRefsBinder f (Lam fc c p ty) = Lam fc c (onRefsPi f p) (onRefs f ty)
+  onRefsBinder f (Let fc c val ty) = Let fc c (onRefs f val) (onRefs f ty)
+  onRefsBinder f (Pi fc c p ty) = Pi fc c (onRefsPi f p) (onRefs f ty)
+  onRefsBinder f (PVar fc c p ty) = PVar fc c (onRefsPi f p) (onRefs f ty)
+  onRefsBinder f (PLet fc c val ty) = PLet fc c (onRefs f val) (onRefs f ty)
+  onRefsBinder f (PVTy fc c ty) = PVTy fc c (onRefs f ty)
+
+  onRefsTerms : (Name -> Name) -> List (Term vars) -> List (Term vars)
+  onRefsTerms f [] = []
+  onRefsTerms f (t :: ts) = onRefs f t :: onRefsTerms f ts
+
+  onRefs : (Name -> Name) -> Term vars -> Term vars
+  onRefs f (Ref fc x nm) = Ref fc x (f nm)
+  onRefs f (Meta fc x y xs) = Meta fc x y (onRefsTerms f xs)
+  onRefs f (Bind fc x b scope) = Bind fc x (onRefsBinder f b) (onRefs f scope)
+  onRefs f (App fc fn arg) = App fc (onRefs f fn) (onRefs f arg)
+  onRefs f (As fc s p tm) = As fc s (onRefs f p) (onRefs f tm)
+  onRefs f (TDelayed fc x y) = TDelayed fc x (onRefs f y)
+  onRefs f (TDelay fc x t y) = TDelay fc x (onRefs f t) (onRefs f y)
+  onRefs f (TForce fc r y) = TForce fc r (onRefs f y)
+  onRefs f tm = tm
+
+export
 StripNamespace (Term vars) where
-  trimNS ns (Ref fc x nm)
-      = Ref fc x (trimNS ns nm)
-  trimNS ns (Meta fc x y xs)
-      = Meta fc x y (map (trimNS ns) xs)
-  trimNS ns (Bind fc x b scope)
-      = Bind fc x (map (trimNS ns) b) (trimNS ns scope)
-  trimNS ns (App fc fn arg)
-      = App fc (trimNS ns fn) (trimNS ns arg)
-  trimNS ns (As fc s p tm)
-      = As fc s (trimNS ns p) (trimNS ns tm)
-  trimNS ns (TDelayed fc x y)
-      = TDelayed fc x (trimNS ns y)
-  trimNS ns (TDelay fc x t y)
-      = TDelay fc x (trimNS ns t) (trimNS ns y)
-  trimNS ns (TForce fc r y)
-      = TForce fc r (trimNS ns y)
-  trimNS ns tm = tm
-
-  restoreNS ns (Ref fc x nm)
-      = Ref fc x (restoreNS ns nm)
-  restoreNS ns (Meta fc x y xs)
-      = Meta fc x y (map (restoreNS ns) xs)
-  restoreNS ns (Bind fc x b scope)
-      = Bind fc x (map (restoreNS ns) b) (restoreNS ns scope)
-  restoreNS ns (App fc fn arg)
-      = App fc (restoreNS ns fn) (restoreNS ns arg)
-  restoreNS ns (As fc s p tm)
-      = As fc s (restoreNS ns p) (restoreNS ns tm)
-  restoreNS ns (TDelayed fc x y)
-      = TDelayed fc x (restoreNS ns y)
-  restoreNS ns (TDelay fc x t y)
-      = TDelay fc x (restoreNS ns t) (restoreNS ns y)
-  restoreNS ns (TForce fc r y)
-      = TForce fc r (restoreNS ns y)
-  restoreNS ns tm = tm
-
+  trimNS ns = onRefs (trimNS ns)
+  restoreNS ns = onRefs (restoreNS ns)
 
 export
 isErased : Term vars -> Bool
@@ -570,46 +617,60 @@ withPiInfo Implicit tm = "{" ++ tm ++ "}"
 withPiInfo AutoImplicit tm = "{auto " ++ tm ++ "}"
 withPiInfo (DefImplicit t) tm = "{default " ++ show t ++ " " ++ tm ++ "}"
 
-export
-covering
-{vars : _} -> Show (Term vars) where
-  show tm = let (fn, args) = getFnArgs tm in showApp fn args
-    where
-      showApp : {vars : _} -> Term vars -> List (Term vars) -> String
-      showApp (Local _ c idx p) []
-         = show (nameAt p) ++ "[" ++ show idx ++ "]"
+-- A term is shown as an application of its head to its arguments; each
+-- kind of node that holds terms is shown by a function of its own, so that
+-- every recursive call is on a part of its argument.
+mutual
+  showPiInfo : {vars : _} -> PiInfo (Term vars) -> String -> String
+  showPiInfo Explicit tm = "(" ++ tm ++ ")"
+  showPiInfo Implicit tm = "{" ++ tm ++ "}"
+  showPiInfo AutoImplicit tm = "{auto " ++ tm ++ "}"
+  showPiInfo (DefImplicit t) tm = "{default " ++ showTerm t ++ " " ++ tm ++ "}"
 
-      showApp (Ref _ _ n) [] = show n
-      showApp (Meta _ n _ args) []
-          = "?" ++ show n ++ "_" ++ show args
-      showApp (Bind _ x (Lam _ c info ty) sc) []
-          = "\\" ++ withPiInfo info (showCount c ++ show x ++ " : " ++ show ty) ++
-            " => " ++ show sc
-      showApp (Bind _ x (Let _ c val ty) sc) []
-          = "let " ++ showCount c ++ show x ++ " : " ++ show ty ++
-            " = " ++ show val ++ " in " ++ show sc
-      showApp (Bind _ x (Pi _ c info ty) sc) []
-          = withPiInfo info (showCount c ++ show x ++ " : " ++ show ty) ++
-            " -> " ++ show sc
-      showApp (Bind _ x (PVar _ c info ty) sc) []
-          = withPiInfo info ("pat " ++ showCount c ++ show x ++ " : " ++ show ty) ++
-            " => " ++ show sc
-      showApp (Bind _ x (PLet _ c val ty) sc) []
-          = "plet " ++ showCount c ++ show x ++ " : " ++ show ty ++
-            " = " ++ show val ++ " in " ++ show sc
-      showApp (Bind _ x (PVTy _ c ty) sc) []
-          = "pty " ++ showCount c ++ show x ++ " : " ++ show ty ++
-            " => " ++ show sc
-      showApp (App {}) [] = "[can't happen]"
-      showApp (As _ _ n tm) [] = show n ++ "@" ++ show tm
-      showApp (TDelayed _ _ tm) [] = "%Delayed " ++ show tm
-      showApp (TDelay _ _ _ tm) [] = "%Delay " ++ show tm
-      showApp (TForce _ _ tm) [] = "%Force " ++ show tm
-      showApp (PrimVal _ c) [] = show c
-      showApp (Erased _ (Dotted t)) [] = ".(" ++ show t ++ ")"
-      showApp (Erased {}) [] = "[__]"
-      showApp (TType _ u) [] = "Type"
-      showApp _ [] = "???"
-      showApp f args = "(" ++ assert_total (show f) ++ " " ++
-                        assert_total (showSep " " (map show args))
-                     ++ ")"
+  showTerms : {vars : _} -> List (Term vars) -> List String
+  showTerms [] = []
+  showTerms (t :: ts) = showTerm t :: showTerms ts
+
+  -- An application but its last argument: its head and the arguments
+  -- before, separated by spaces.
+  showSpine : {vars : _} -> Term vars -> String
+  showSpine (App _ f a) = showSpine f ++ " " ++ showTerm a
+  showSpine t = showTerm t
+
+  export
+  showTerm : {vars : _} -> Term vars -> String
+  showTerm (App _ f a) = "(" ++ showSpine f ++ " " ++ showTerm a ++ ")"
+  showTerm (Local _ c idx p) = show (nameAt p) ++ "[" ++ show idx ++ "]"
+  showTerm (Ref _ _ n) = show n
+  showTerm (Meta _ n _ args)
+      = "?" ++ show n ++ "_" ++ "[" ++ concat (intersperse ", " (showTerms args)) ++ "]"
+  showTerm (Bind _ x (Lam _ c info ty) sc)
+      = "\\" ++ showPiInfo info (showCount c ++ show x ++ " : " ++ showTerm ty) ++
+        " => " ++ showTerm sc
+  showTerm (Bind _ x (Let _ c val ty) sc)
+      = "let " ++ showCount c ++ show x ++ " : " ++ showTerm ty ++
+        " = " ++ showTerm val ++ " in " ++ showTerm sc
+  showTerm (Bind _ x (Pi _ c info ty) sc)
+      = showPiInfo info (showCount c ++ show x ++ " : " ++ showTerm ty) ++
+        " -> " ++ showTerm sc
+  showTerm (Bind _ x (PVar _ c info ty) sc)
+      = showPiInfo info ("pat " ++ showCount c ++ show x ++ " : " ++ showTerm ty) ++
+        " => " ++ showTerm sc
+  showTerm (Bind _ x (PLet _ c val ty) sc)
+      = "plet " ++ showCount c ++ show x ++ " : " ++ showTerm ty ++
+        " = " ++ showTerm val ++ " in " ++ showTerm sc
+  showTerm (Bind _ x (PVTy _ c ty) sc)
+      = "pty " ++ showCount c ++ show x ++ " : " ++ showTerm ty ++
+        " => " ++ showTerm sc
+  showTerm (As _ _ n tm) = showTerm n ++ "@" ++ showTerm tm
+  showTerm (TDelayed _ _ tm) = "%Delayed " ++ showTerm tm
+  showTerm (TDelay _ _ _ tm) = "%Delay " ++ showTerm tm
+  showTerm (TForce _ _ tm) = "%Force " ++ showTerm tm
+  showTerm (PrimVal _ c) = show c
+  showTerm (Erased _ (Dotted t)) = ".(" ++ showTerm t ++ ")"
+  showTerm (Erased {}) = "[__]"
+  showTerm (TType _ u) = "Type"
+
+export
+{vars : _} -> Show (Term vars) where
+  show = showTerm

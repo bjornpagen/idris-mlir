@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # What the ODS says beside its ops for the rest of the tree, written by
 # idris-mlir-tblgen: the runtime's C functions the ops call, as C declares
 # them (idris_rt_ops.h, which runtime/idris_rt.h includes) and as the

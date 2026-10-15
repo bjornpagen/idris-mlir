@@ -9,7 +9,7 @@
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/IRMapping.h"
-#include "llvm/ADT/TypeSwitch.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 
 using namespace mlir;
 
@@ -17,16 +17,15 @@ namespace idr::structure {
 
 namespace {
 
-// What the terminator `end` gives: its values, or nothing for
+// What the terminator `end` gives, each value as `mapping` maps it (an
+// empty mapping keeps every value): its values, or nothing for
 // ub.unreachable.
-std::optional<SmallVector<Value>> givenBy(Operation *end, IRMapping *mapping) {
+std::optional<SmallVector<Value>> givenBy(Operation *end, const IRMapping &mapping) {
   auto yield = dyn_cast<ArrayYieldOp>(end);
   if (!yield)
     return std::nullopt;
-  SmallVector<Value> given;
-  for (Value value : yield.getValues())
-    given.push_back(mapping ? mapping->lookupOrDefault(value) : value);
-  return given;
+  return llvm::map_to_vector(yield.getValues(),
+                             [&](Value value) { return mapping.lookupOrDefault(value); });
 }
 
 // The offsets, sizes and strides of the cell of `cellSizes` at `indices`.
@@ -56,7 +55,7 @@ std::optional<SmallVector<Value>> inlineRegion(RewriterBase &rewriter, Operation
   Operation *end = body.getTerminator();
   rewriter.inlineBlockBefore(&body, rewriter.getInsertionBlock(), rewriter.getInsertionPoint(),
                              args);
-  std::optional<SmallVector<Value>> given = givenBy(end, nullptr);
+  std::optional<SmallVector<Value>> given = givenBy(end, IRMapping());
   rewriter.eraseOp(end);
   return given;
 }
@@ -67,18 +66,13 @@ std::optional<SmallVector<Value>> cloneRegion(OpBuilder &b, Operation *op, Value
   mapping.map(body.getArguments(), args);
   for (Operation &inner : body.without_terminator())
     b.clone(inner, mapping);
-  return givenBy(body.getTerminator(), &mapping);
+  return givenBy(body.getTerminator(), mapping);
 }
 
 SmallVector<OpFoldResult> extentsOf(OpBuilder &b, Operation *op, unsigned dims) {
-  SmallVector<OpFoldResult> extents;
-  for (unsigned d = 0; d < dims; ++d)
-    extents.push_back(TypeSwitch<Operation *, OpFoldResult>(op)
-                          .Case([&](TabulateOp t) { return t.getExtent(b, d); })
-                          .Case([&](TabulateIOOp t) { return t.getExtent(b, d); })
-                          .Case([&](FoldLastOp f) { return f.getExtent(b, d); })
-                          .Case([&](ScanLastOp s) { return s.getExtent(b, d); }));
-  return extents;
+  auto generating = cast<GeneratingOpInterface>(op);
+  return llvm::map_to_vector(llvm::seq(0u, dims),
+                             [&](unsigned d) { return generating.getExtent(b, d); });
 }
 
 SmallVector<Value> valuesOf(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes) {

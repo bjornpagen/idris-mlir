@@ -14,6 +14,7 @@
 #define IDR_TRANSFORMS_NARROW_H
 
 #include "idr/Analysis/Ranges.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
 
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -47,17 +48,18 @@ bool isBig(mlir::Type type);
 
 // The bounds of values: the analysis's, and those of the values the pass
 // makes, which stand for values it analysed. One per function rewritten
-// (one for the module while loops are versioned); nothing it learns
-// outlives the run.
+// (one for the program while loops are versioned); nothing it learns
+// outlives the run. The program's stage says whether counting ran.
 class Facts {
 public:
-  explicit Facts(const Ranges &analysis) : analysis(analysis) {}
+  Facts(const Ranges &analysis, ProgramOp program) : analysis(analysis), program(program) {}
 
   // Whether the big `value` holds a reference of its own, which a word
-  // taking its place in a consuming use leaves it to drop.
+  // taking its place in a consuming use leaves it to drop: its grade says,
+  // and before counting nothing is graded.
   bool owned(mlir::Value value) const;
-  // Whether `value` is borrowed once counting ran: it is counted, and holds
-  // no reference of its own.
+  // Whether `value` is a view once counting ran: it holds references, and
+  // none of its own.
   bool borrowed(mlir::Value value) const;
 
   ranges::Bounds of(mlir::Value value) const;
@@ -81,6 +83,7 @@ private:
   void convert(mlir::Operation *op) { conversions.insert(op); }
 
   const Ranges &analysis;
+  ProgramOp program;
   llvm::DenseMap<mlir::Value, ranges::Bounds> madeBounds;
   llvm::DenseSet<mlir::Operation *> conversions;
 };
@@ -105,12 +108,9 @@ bool testable(mlir::Value value);
 // Whether a word of `range` fits a signed 32-bit one.
 bool fits32(const mlir::ConstantIntRanges &range);
 
-// What an op computes on: whether on integers wider than 32 bits, and
-// whether on lanes of them.
-struct Width {
-  bool wide = false;
-  bool lanes = false;
-};
+// What an op computes on: integers of 32 bits or fewer (or none), wider
+// integers, or lanes of wider integers.
+enum class Width : uint8_t { Narrow, Wide, WideLanes };
 Width widthOf(mlir::Operation *op);
 // The ops of `root` that only combine into a vector a loop in it carries
 // round: each elementwise op the loop's iteration argument of vector type
@@ -130,28 +130,41 @@ bool runsAtMostOnce(mlir::scf::ForOp loop);
 // The copy of a loop in a scratch module: a function of the values the
 // loop reads from outside, each testable one behind arith.minui of itself
 // and the bound, a constant the trials set. The copy owns the scratch
-// module, which is under no op of the program.
+// module, which is under no op of the program, and is made whole.
 class Copy {
 public:
-  Copy(mlir::Location loc, mlir::scf::ForOp loop, const llvm::SetVector<mlir::Value> &inputs);
+  // The copy of `loop`, which reads `inputs` from outside.
+  static Copy of(mlir::Location loc, mlir::scf::ForOp loop,
+                 const llvm::SetVector<mlir::Value> &inputs);
 
-  // The analysis of the copy with the bound 2^exponent; none when the
-  // solver fails, which is an internal error.
-  std::unique_ptr<mlir::DataFlowSolver> analyse(unsigned exponent);
+  // Sets the bound to 2^exponent.
+  void bound(unsigned exponent);
+  // The analysis of the copy with the bound 2^exponent, which it sets;
+  // failure when the solver fails, which is an internal error.
+  mlir::FailureOr<std::unique_ptr<mlir::DataFlowSolver>> analyse(unsigned exponent);
   // Whether, under `solver`'s analysis, every op of the copied loop that
   // computes on integers wider than 32 bits fits 32 bits.
   bool fits(mlir::DataFlowSolver &solver);
   // Narrows the copy under `solver`'s analysis.
   void narrow(mlir::DataFlowSolver &solver);
-  // Clones the copy's body at `b`, its arguments standing for `inputs`
-  // again.
-  void cloneInto(mlir::OpBuilder &b, const llvm::SetVector<mlir::Value> &inputs);
+  // Clones the copy's body at `b`, its arguments standing for the inputs
+  // they copy again.
+  void cloneInto(mlir::OpBuilder &b);
 
 private:
+  Copy(mlir::OwningOpRef<mlir::ModuleOp> module, mlir::func::FuncOp function,
+       mlir::scf::ForOp copy, llvm::SmallVector<mlir::Value> arguments,
+       llvm::MapVector<mlir::Type, mlir::Value> bounds)
+      : module(std::move(module)), function(function), copy(copy),
+        arguments(std::move(arguments)), bounds(std::move(bounds)) {}
+
   mlir::OwningOpRef<mlir::ModuleOp> module;
   mlir::func::FuncOp function;
   // The copied loop, after the stand-ins.
-  mlir::Operation *copy = nullptr;
+  mlir::scf::ForOp copy;
+  // The inputs the function's arguments stand for, in order: every input
+  // but a constant, which the copy holds a copy of.
+  llvm::SmallVector<mlir::Value> arguments;
   // The bound: one constant per type of input tested.
   llvm::MapVector<mlir::Type, mlir::Value> bounds;
 };

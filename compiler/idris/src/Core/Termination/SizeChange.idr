@@ -10,8 +10,18 @@ import Libraries.Data.NameMap
 
 import Libraries.Data.SparseMatrix
 
+import Control.WellFounded
+
+import Data.Fin
+import Data.List
+import Data.List.Elem
 import Data.List1
 import Data.SortedSet
+import Data.Vect
+
+import Decidable.Equality
+
+import Libraries.Data.List.Finite
 
 %default covering
 
@@ -377,86 +387,195 @@ insideComponents work
           same = \f, g => lookup f st.component == lookup g st.component in
       fromList (filter (\(f, g, _) => same f g) (Prelude.toList work))
 
+||| The graph of a path of calls from the function `from` to the function
+||| `to`, over `n` arguments, dense: a row for each argument of `to`, a column
+||| for each of `from`, and in each place how that argument at the end
+||| relates to that one at the start (`Unknown`, nothing known). The ends are
+||| in the type, so that paths join only end to start (`andThen`). The
+||| graphs over `n` arguments are finitely many (`Finite`), which is why the
+||| searches below end: each keeps every graph it meets once (by its rows,
+||| `rows`), so it has room for fewer graphs at each step.
+data Dense : (n : Nat) -> (from, to : Fin m) -> Type where
+  MkDense : (rows : Vect n (Vect n SizeChange)) -> Dense n from to
+
+rows : Dense n from to -> Vect n (Vect n SizeChange)
+rows (MkDense r) = r
+
+Eq (Dense n from to) where
+  x == y = rows x == rows y
+
+Finite SizeChange where
+  values = [Smaller, Same, Unknown]
+  complete Smaller = Here
+  complete Same = There Here
+  complete Unknown = There (There Here)
+
+||| A call's sparse graph (a row for each of the callee's arguments, a
+||| column for each of the caller's), over `n` arguments.
+dense : {n : Nat} -> Change -> Dense n from to
+dense m = MkDense (map (\i => map (\j => entry (finToNat i) (finToNat j)) (Vect.allFins n))
+                       (Vect.allFins n))
+  where
+    entry : Nat -> Nat -> SizeChange
+    entry i j = fromMaybe Unknown (Vector.lookupOrd i m >>= Vector1.lookupOrd j)
+
+||| A path from `a` to `b`, then one from `b` to `c`: the path from `a` to `c`.
+||| How an argument of `c` relates to one of `a` is the strongest way through
+||| an argument of `b`, the semiring's matrix product of the later graph by
+||| the earlier, as `composeChange` is of sparse ones.
+andThen : {n : Nat} -> Dense n a b -> Dense n b c -> Dense n a c
+andThen (MkDense ab) (MkDense bc)
+    = MkDense (map (\row => map (\col => foldr (|+|) Unknown (zipWith (|*|) row col))
+                               (transpose ab))
+                   bc)
+
 ||| `weaker g h`: `h` says at least what `g` says of every argument: each
-||| arc of `g` is one of `h`'s, as strong or stronger (a missing entry is no
-||| arc, the weakest).
-weaker : Change -> Change -> Bool
-weaker g h = all row g
-  where
-    row : (Nat, Vector1 SizeChange) -> Bool
-    row (i, xs) = case Vector.lookupOrd i h of
-      Nothing => False
-      Just ys => all (\(j, x) => maybe False (x <=) (Vector1.lookupOrd j ys)) (forget xs)
+||| arc of `g` is one of `h`'s, as strong or stronger (`Unknown`, no arc, is
+||| the weakest).
+weaker : Dense n a b -> Dense n a b -> Bool
+weaker (MkDense g) (MkDense h) = all (\(gr, hr) => all (\(x, y) => x <= y) (zip gr hr)) (zip g h)
 
-||| The power of a graph that composing with itself leaves unchanged, when
-||| one is found within the fuel. Going round a loop with the graph any
-||| number of times is a power of it, and some power is idempotent: the
-||| loop decreases each time round exactly when that power takes some
-||| argument to a strictly smaller one of itself.
-idempotentPower : Change -> Maybe Change
-idempotentPower g = go 1024 g
-  where
-    go : Nat -> Change -> Maybe Change
-    go Z _ = Nothing
-    go (S k) p = if composeChange p p == p then Just p else go k (composeChange p g)
+||| Does a loop's graph take some argument to a strictly smaller one of
+||| itself?
+decreases : {n : Nat} -> Dense n f f -> Bool
+decreases (MkDense p) = any (\i => index i (index i p) == Smaller) (Vect.allFins n)
 
-||| Does a graph take some argument to a strictly smaller one of itself?
-decreases : Change -> Bool
-decreases p = any (\(i, xs) => Vector1.lookupOrd i xs == Just Smaller) p
+||| The powers of a loop's graph `g` from `p` on, each once, until one
+||| repeats: after a prefix the powers cycle, so these are all of them. Each
+||| is a graph over the same arguments, kept once, so the room for more goes
+||| down at each.
+total
+powers : {n : Nat} -> (g : Dense n f f) ->
+         (seen : List (Vect n (Vect n SizeChange))) -> (0 nd : NoDup seen) ->
+         (0 room : Nat) ->
+         (0 fits : length seen + room = length (values {a = Vect n (Vect n SizeChange)})) ->
+         (0 acc : Accessible LT room) -> (p : Dense n f f) -> List (Dense n f f)
+powers g seen nd room fits (Access rec) p
+    = case isElem (rows p) seen of
+           Yes _ => map MkDense seen
+           No notIn =>
+             let 0 next = roomAfter nd notIn room fits in
+             powers g (rows p :: seen) (notIn :: nd) (fst next) (snd (snd next))
+                    (rec (fst next) (rewrite fst (snd next) in reflexive))
+                    (andThen p g)
 
 ||| Does going round a loop with this graph, from a function to itself,
-||| fail to decrease? A power that is not found within the fuel counts as
-||| failing, so that the answer is never a decrease that was not shown.
-nonDescending : Change -> Bool
-nonDescending g = maybe True (not . decreases) (idempotentPower g)
+||| fail to decrease? Going round any number of times is a power of the
+||| graph, and some power is idempotent (going round it twice is going round
+||| it once): the powers are associative products in a finite set, so they
+||| cycle, and the cycle holds one. The loop decreases each time round
+||| exactly when that power takes some argument to a strictly smaller one of
+||| itself.
+total
+nonDescending : {n : Nat} -> Dense n f f -> Bool
+nonDescending g
+    = any (\e => andThen e e == e && not (decreases e))
+          (powers g [] [] (length (values {a = Vect n (Vect n SizeChange)})) Refl (wellFounded _) g)
+
+||| The calls of a component, each from the function it is listed under, to
+||| the function it names, with its graph. Only `callsFrom` reads it, so a
+||| call's graph is typed by its ends.
+record Calls (m, n : Nat) where
+  constructor MkCalls
+  table : Vect m (List (Fin m, Vect n (Vect n SizeChange)))
+
+callsFrom : (h : Fin m) -> Calls m n -> List (k : Fin m ** Dense n h k)
+callsFrom h cs = map (\(k, r) => (k ** MkDense r)) (index h (table cs))
+
+||| The weakest graphs of the walks from `f` found so far, by the function
+||| each walk ends at. Only `keptAt` and `keep` touch it, so a graph kept at
+||| `h` is a walk's to `h`.
+record Kept (m, n : Nat) (f : Fin m) where
+  constructor MkKept
+  table : Vect m (List (Vect n (Vect n SizeChange)))
+
+keptAt : (h : Fin m) -> Kept m n f -> List (Dense n f h)
+keptAt h k = map MkDense (index h (table k))
+
+||| `x` kept at `h`, and the graphs there it is weaker than dropped.
+keep : (h : Fin m) -> Dense n f h -> Kept m n f -> Kept m n f
+keep h x k = MkKept (replaceAt h (rows x :: map rows (filter (not . weaker x) (keptAt h k)))
+                               (table k))
+
+||| Has a walk from `f` to `h` come back to `f` without decreasing?
+loopsBack : {m, n : Nat} -> (f, h : Fin m) -> Dense n f h -> Bool
+loopsBack f h x = case decEq h f of
+                       Yes prf => nonDescending (replace {p = Dense n f} prf x)
+                       No _ => False
 
 ||| Whether every loop through `f` decreases some argument each time round,
-||| given the calls of its component by caller. The walks from `f` are
-||| extended one call at a time, breadth first, and each function they
-||| reach keeps only the weakest graphs of the walks to it, those no other
-||| walk's graph is weaker than: composition keeps the order (weaker parts
-||| make a weaker walk), so a walk no weaker than one kept extends only to
-||| walks no weaker than that one's, and what each function keeps in the
-||| end are the weakest graphs of every walk to it. A loop that fails to
+||| given the calls of its component. The walks from `f` are extended one
+||| call at a time, and each function they reach keeps only the weakest
+||| graphs of the walks to it, those no other walk's graph is weaker than:
+||| composition keeps the order (weaker parts make a weaker walk), so a walk
+||| no weaker than one kept extends only to walks no weaker than that one's,
+||| and what each function keeps in the end are the weakest graphs of every
+||| walk to it, whatever the order of the search. A loop that fails to
 ||| decrease still fails when its graph says less, since the powers of a
 ||| weaker graph are weaker and a strict arc of a weaker graph is one of the
 ||| stronger's; so a loop without decrease exists exactly when one of those
 ||| kept at `f` has none. A walk back to `f` whose idempotent power shows no
-||| decrease decides as soon as it is found: the weakest graph under it
-||| fails too, its own power found within the fuel or not. One that fails
-||| only for want of fuel decides nothing before the end, since a weaker
-||| one may still show a decrease. The loops through `f` are walks from it:
-||| the paths between the other pairs of its component are no part of its
-||| answer.
-loopsFrom : NameMap (List (Name, Change)) -> Name -> Bool
-loopsFrom out f = go (callsOf f) [] empty
-  where
-    callsOf : Name -> List (Name, Change)
-    callsOf g = fromMaybe [] (lookup g out)
+||| decrease decides as soon as it is found: the weakest graph under it fails
+||| too. The loops through `f` are walks from it: the paths between the other
+||| pairs of its component are no part of its answer.
+|||
+||| The search ends: a graph is kept at a function at most once (once kept,
+||| it or a weaker one stays kept, so it is never kept again), every pair of
+||| a function and a graph's rows it keeps is in `seen`, which holds each
+||| once, and there are finitely many such pairs. Each walk taken from
+||| `todo` is either dropped, leaving `todo` shorter, or kept, leaving less
+||| room.
+total
+search : {m, n : Nat} -> (f : Fin m) -> (out : Calls m n) ->
+         (seen : List (Fin m, Vect n (Vect n SizeChange))) -> (0 nd : NoDup seen) ->
+         (kept : Kept m n f) ->
+         (0 room : Nat) ->
+         (0 fits : length seen + room = length (values {a = (Fin m, Vect n (Vect n SizeChange))})) ->
+         (0 acc : Accessible LT room) ->
+         (todo : List (h : Fin m ** Dense n f h)) -> Bool
+search f out seen nd kept room fits acc [] = not (any nonDescending (keptAt f kept))
+search f out seen nd kept room fits (Access rec) ((h ** x) :: todo)
+    = if any (\y => weaker y x) (keptAt h kept)
+         then search f out seen nd kept room fits (Access rec) todo
+      else if loopsBack f h x then False
+      else case isElem (h, rows x) seen of
+             Yes _ => search f out seen nd kept room fits (Access rec) todo
+             No notIn =>
+               let 0 next = roomAfter nd notIn room fits in
+               search f out ((h, rows x) :: seen) (notIn :: nd) (keep h x kept)
+                      (fst next) (snd (snd next))
+                      (rec (fst next) (rewrite fst (snd next) in reflexive))
+                      (map (\(k ** z) => (k ** andThen x z)) (callsFrom h out) ++ todo)
 
-    -- The walks being extended and those one call longer (the last first),
-    -- each as the function it ends at and its graph.
-    go : List (Name, Change) -> List (Name, Change) -> NameMap (List Change) -> Bool
-    go [] [] kept = not (any nonDescending (fromMaybe [] (lookup f kept)))
-    go [] longer kept = go (reverse longer) [] kept
-    go ((h, x) :: walks) longer kept
-        = let old = fromMaybe [] (lookup h kept) in
-          if any (\y => weaker y x) old then go walks longer kept
-          else if h == f && maybe False (not . decreases) (idempotentPower x) then False
-          else go walks (foldl (\acc, (k, z) => (k, composeChange x z) :: acc) longer (callsOf h))
-                  (insert h (x :: filter (not . weaker x) old) kept)
+||| The arguments the graphs of a component's calls speak of: one past the
+||| largest position any of them names.
+argCount : List (Name, Name, Matrix SizeChange) -> Nat
+argCount calls = foldr (\(_, _, x), acc => max acc (width x)) 0 calls
+  where
+    width : Matrix SizeChange -> Nat
+    width x = foldr (\(i, row), acc => max acc (max (S i) (S (Vector1.maxIndex row)))) 0 x
 
 ||| For each function of a strongly connected component of the call graph,
 ||| given the calls between its functions (caller, callee, and how each
 ||| argument of the callee relates to the caller's), whether every loop
 ||| through it decreases some argument each time round. A loop never
 ||| leaves its component, so a call out of it is no part of the answer.
-export
+export total
 loopsTerminate : List (Name, Name, Matrix SizeChange) -> List Name -> List (Name, Bool)
 loopsTerminate calls members
-    = let out = foldr (\(f, h, x), m => insert f ((h, x) :: fromMaybe [] (lookup f m)) m)
-                      (the (NameMap (List (Name, Change))) empty) calls in
-      map (\f => (f, loopsFrom out f)) members
+    = let n = argCount calls
+          out = MkCalls (foldr (add {n}) (replicate (length members) []) calls) in
+      zip members (map (\f => search f out [] [] (MkKept (replicate (length members) [])) _ Refl
+                                      (wellFounded _) (callsFrom f out))
+                       (toList (Vect.allFins (length members))))
+  where
+    add : {n : Nat} -> (Name, Name, Matrix SizeChange) ->
+          Vect (length members) (List (Fin (length members), Vect n (Vect n SizeChange))) ->
+          Vect (length members) (List (Fin (length members), Vect n (Vect n SizeChange)))
+    add (f, h, x) out
+        = case (findIndex (== f) members, findIndex (== h) members) of
+               (Just i, Just j) => updateAt i ((j, rows (dense {from = i} {to = j} x)) ::) out
+               _ => out
 
 ||| The names a definition refers to, with those of its case blocks, which
 ||| are checked as part of it.

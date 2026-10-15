@@ -84,36 +84,37 @@ void EliminateDuplicateFunctionsPass::runOnOperation() {
     index.try_emplace(fn.getSymNameAttr(), static_cast<unsigned>(at));
 
   // What each function's body names, each once, in the order upstream's
-  // walk of its symbol uses meets them. A body whose uses that walk cannot
-  // see (an op that may be a symbol table it does not know) could not be
-  // renamed either.
-  std::vector<SmallVector<unsigned>> names(fns.size());
-  std::vector<char> seen(fns.size(), 1);
+  // walk of its symbol uses meets them; none for a body whose uses that
+  // walk cannot see (an op that may be a symbol table it does not know),
+  // which could not be renamed either.
+  std::vector<std::optional<SmallVector<unsigned>>> named(fns.size());
   parallelFor(context, 0, fns.size(), [&](size_t at) {
     std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&fns[at].getBody());
-    if (!uses) {
-      seen[at] = 0;
+    if (!uses)
       return;
-    }
-    llvm::SetVector<unsigned> named;
+    llvm::SetVector<unsigned> each;
     for (SymbolTable::SymbolUse use : *uses)
       if (auto found = index.find(use.getSymbolRef().getRootReference());
           found != index.end() && found->second != at)
-        named.insert(found->second);
-    names[at] = named.takeVector();
+        each.insert(found->second);
+    named[at] = each.takeVector();
   });
-  for (auto [fn, ok] : llvm::zip_equal(fns, seen))
-    if (!ok) {
+  SmallVector<SmallVector<unsigned>> names;
+  for (auto [fn, each] : llvm::zip_equal(fns, named)) {
+    if (!each) {
       fn.emitError("internal error: idr-deduplicate: an op that may be a symbol table hides "
                    "this function's symbol uses");
       return signalPassFailure();
     }
+    names.push_back(std::move(*each));
+  }
 
-  // Each function's height over the components, callees first, and
-  // whether it is on a cycle of two or more.
+  // Each function's height over the components, callees first. The
+  // candidates of each height are the functions on no cycle of two or
+  // more, in program order.
   SmallVector<unsigned> componentOf(fns.size()), height(fns.size());
-  SmallVector<bool> cyclic(fns.size(), false);
   SmallVector<SmallVector<unsigned>> components = idr::components(names);
+  unsigned tallest = 0;
   for (auto [c, members] : llvm::enumerate(components)) {
     for (unsigned member : members)
       componentOf[member] = static_cast<unsigned>(c);
@@ -122,17 +123,14 @@ void EliminateDuplicateFunctionsPass::runOnOperation() {
       for (unsigned callee : names[member])
         if (componentOf[callee] != c)
           top = std::max(top, height[callee] + 1);
-    for (unsigned member : members) {
+    for (unsigned member : members)
       height[member] = top;
-      cyclic[member] = members.size() > 1;
-    }
+    tallest = std::max(tallest, top);
   }
-  unsigned tallest = 0;
-  for (unsigned h : height)
-    tallest = std::max(tallest, h);
   SmallVector<SmallVector<unsigned>> byHeight(fns.empty() ? 0 : tallest + 1);
   for (auto [at, h] : llvm::enumerate(height))
-    byHeight[h].push_back(static_cast<unsigned>(at));
+    if (components[componentOf[at]].size() == 1)
+      byHeight[h].push_back(static_cast<unsigned>(at));
 
   // Each merged function's name to the lexicographically smallest symbol of
   // its class, and each class of two or more, its members in symbol order.
@@ -142,9 +140,8 @@ void EliminateDuplicateFunctionsPass::runOnOperation() {
   for (const SmallVector<unsigned> &level : byHeight) {
     SmallVector<unsigned> hashes(level.size());
     parallelFor(context, 0, level.size(), [&](size_t i) {
-      if (!cyclic[level[i]])
-        hashes[i] = static_cast<unsigned>(
-            static_cast<size_t>(idr::deduplicate::hashFunction(fns[level[i]], renames)));
+      hashes[i] = static_cast<unsigned>(
+          static_cast<size_t>(idr::deduplicate::hashFunction(fns[level[i]], renames)));
     });
 
     // Each candidate joins the class of the first one before it that is
@@ -152,8 +149,6 @@ void EliminateDuplicateFunctionsPass::runOnOperation() {
     std::unordered_map<unsigned, SmallVector<unsigned, 1>> byHash;
     SmallVector<SmallVector<idr::FuncOp>> formed;
     for (auto [at, hash] : llvm::zip_equal(level, hashes)) {
-      if (cyclic[at])
-        continue;
       idr::FuncOp fn = fns[at];
       SmallVector<unsigned, 1> &bucket = byHash[hash];
       auto same = llvm::find_if(bucket, [&](unsigned c) {
@@ -197,11 +192,13 @@ void EliminateDuplicateFunctionsPass::runOnOperation() {
   // program order, and the program's root, an attribute of the program
   // itself, names the one kept of its class.
   StringAttr root = renames.lookup(program.getRootAttr().getAttr());
-  idr::DataRemap remap(
+  FailureOr<std::unique_ptr<idr::DataRemap>> remap = idr::DataRemap::create(
       program, "dedup",
-      [](Type, idr::DataType, unsigned, unsigned) -> std::optional<Type> { return std::nullopt; },
+      [](Type, std::optional<idr::DataRemap::FieldPlace>) -> std::optional<Type> {
+        return std::nullopt;
+      },
       {}, renames);
-  if (failed(remap.status()))
+  if (failed(remap))
     return signalPassFailure();
   SymbolTable &symbols = getAnalysis<SymbolTable>();
   for (idr::FuncOp fn : fns) {
@@ -212,7 +209,7 @@ void EliminateDuplicateFunctionsPass::runOnOperation() {
   }
   if (root)
     program.setRootAttr(FlatSymbolRefAttr::get(root));
-  remap.retype(program);
+  (*remap)->retype(program);
   markAnalysesPreserved<SymbolTable>();
 }
 

@@ -9,8 +9,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <string.h>
 
 namespace rt::io {
 
@@ -33,7 +32,7 @@ namespace rt::io {
 int32_t peek() {
   if (inputPosition >= inputLength) {
     idris_rt_flush();
-    ssize_t got = read(0, input, bufferSize);
+    int64_t got = rt::platform::readSome(0, input, bufferSize);
     if (got < 0) {
       inputFailed = true;
       saveError();
@@ -53,7 +52,7 @@ size_t readInput(char *to, size_t count) {
     size_t available = inputLength - inputPosition;
     size_t wanted = count - got;
     size_t step = available < wanted ? available : wanted;
-    copyOut(to + got, input + inputPosition, step);
+    memcpy(to + got, input + inputPosition, step);
     inputPosition += step;
     got += step;
   }

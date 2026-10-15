@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The checks of the lint preset, which runs clang-tidy on every translation
 # unit and fails on any finding: bugs the compiler's warnings miss, and
 # needless copies.

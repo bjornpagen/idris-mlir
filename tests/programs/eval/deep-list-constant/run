@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The compilations run on an 8 MiB stack, the usual default, set here so
 # that a larger one cannot hide a step that takes a frame per element of
 # the constant.

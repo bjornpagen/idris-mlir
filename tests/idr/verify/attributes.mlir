@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the texts of the unknown-attribute errors and of the stack rule are C02's and C14's; the data types are C01's syntax.
+// NEEDS-ACCEPTANCE: the texts of the unknown-attribute errors and of the stack rule, and the data types' syntax.
 // The dialect declares no discardable attribute: every fact of an op is
 // its own property, so no pass can drop one. MLIR asks the dialect about
 // every name with its prefix, so an attribute with it is refused, not

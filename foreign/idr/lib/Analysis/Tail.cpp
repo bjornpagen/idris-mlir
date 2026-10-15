@@ -9,30 +9,33 @@
 
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 
 using namespace mlir;
 
 namespace idr::tail {
 namespace {
 
-// Whether `op` builds a box: an idr.con or idr.reuse of a boxed type.
-bool buildsBox(Operation *op) {
-  return isa_and_nonnull<ConOp, ReuseOp>(op) && isa<BoxType>(unrestricted(op->getResult(0).getType()));
+// The box `op` builds, when it is an idr.con or idr.reuse of a boxed type.
+std::optional<Built> builtBox(Operation *op) {
+  if (!op || op->getNumResults() == 0 || !isa<BoxType>(unrestricted(op->getResult(0).getType())))
+    return std::nullopt;
+  if (auto con = dyn_cast<ConOp>(op))
+    return Built(con);
+  if (auto reuse = dyn_cast<ReuseOp>(op))
+    return Built(reuse);
+  return std::nullopt;
 }
 
-// The value an idr.con or idr.reuse builds its field `index` of, or null
-// for a hole, and how many fields its constructor has.
-Value fieldOf(Operation *op, unsigned index) {
-  if (auto con = dyn_cast<ConOp>(op))
-    return con.getField(index);
-  return cast<ReuseOp>(op).getField(index);
+// The value `built` builds its field `index` of, or null for a hole, and
+// how many fields its constructor has.
+Value fieldOf(const Built &built, unsigned index) {
+  return std::visit([&](auto op) { return op.getField(index); }, built);
 }
 
-size_t fieldCount(Operation *op) {
-  if (auto con = dyn_cast<ConOp>(op))
-    return con.getDataType().getCtor(static_cast<unsigned>(con.getTag())).fields.size();
-  auto reuse = cast<ReuseOp>(op);
-  return reuse.getDataType().getCtor(static_cast<unsigned>(reuse.getTag())).fields.size();
+size_t fieldCount(const Built &built) {
+  return std::visit([](auto op) { return op.getDataType().getCtor(op.getTag()).fields.size(); },
+                    built);
 }
 
 } // namespace
@@ -66,32 +69,43 @@ bool isSelfCall(Operation *op, FuncOp fn) {
   return call && call.getCallee() == fn.getSymName();
 }
 
+Operation *opOf(const Built &built) {
+  return std::visit([](auto op) -> Operation * { return op.getOperation(); }, built);
+}
+
 std::optional<Modulo> moduloAt(Block &block, FuncOp fn) {
   Operation *terminator = block.getTerminator();
-  Operation *built = terminator->getPrevNode();
-  if (!passesOnPrevious(terminator) || !buildsBox(built))
+  if (!passesOnPrevious(terminator))
     return std::nullopt;
-  for (unsigned index = 0, e = static_cast<unsigned>(fieldCount(built)); index < e; ++index) {
-    Value source = fieldOf(built, index);
+  std::optional<Built> built = builtBox(terminator->getPrevNode());
+  if (!built)
+    return std::nullopt;
+  for (unsigned index : llvm::seq(static_cast<unsigned>(fieldCount(*built)))) {
+    Value source = fieldOf(*built, index);
     if (!source)
       continue;
+    // The grades on the way: the chain of definitions through ops that
+    // only change a grade and have no other use, the call at its end.
+    SmallVector<Value, 4> chain = definitionChain(source, [](Value value) -> std::optional<Value> {
+      Operation *def = value.getDefiningOp();
+      if (!def || !def->hasTrait<ResultCarriesOperand>() || !def->hasOneUse())
+        return std::nullopt;
+      return def->getOperand(0);
+    });
     SmallVector<Operation *, 2> grades;
-    while (Operation *def = source.getDefiningOp()) {
-      if (!def->hasTrait<ResultCarriesOperand>() || !def->hasOneUse())
-        break;
-      grades.push_back(def);
-      source = def->getOperand(0);
-    }
+    for (Value grade : llvm::drop_end(chain))
+      grades.push_back(grade.getDefiningOp());
+    source = chain.back();
     auto call = source.getDefiningOp<CallOp>();
     if (!call || !isSelfCall(call, fn) || call->getBlock() != &block || !call->hasOneUse() ||
         call->getNumResults() != 1)
       continue;
-    bool movable = true;
-    for (Operation *op = call->getNextNode(); op != built; op = op->getNextNode())
-      movable = movable &&
-                (llvm::is_contained(grades, op) || (isMemoryEffectFree(op) && isSpeculatable(op)));
-    if (movable)
-      return Modulo{call, built, index, std::move(grades)};
+    // The ops of the block between the call and the constructor.
+    auto between = llvm::make_range(std::next(call->getIterator()), opOf(*built)->getIterator());
+    if (llvm::all_of(between, [&](Operation &op) {
+          return llvm::is_contained(grades, &op) || (isMemoryEffectFree(&op) && isSpeculatable(&op));
+        }))
+      return Modulo{call, *built, index, std::move(grades)};
   }
   return std::nullopt;
 }

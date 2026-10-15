@@ -50,6 +50,8 @@ import Idris.REPL.Opts
 import Idris.SetOptions
 import Idris.Syntax
 
+import IdrisMLIR.Frontend.Host
+import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Program
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Registry.Libraries
@@ -59,7 +61,7 @@ import Data.String
 import System
 import System.File
 
-%default covering
+%default total
 
 ------------------------------------------------------------------------------
 -- The command line
@@ -151,16 +153,25 @@ parse a ("--check" :: f :: rest) = do
   c <- once "--check" a.check f
   parse ({ check := c } a) rest
 parse a ("--libdir" :: rest) = parse ({ libDir := True } a) rest
-parse a (flag :: rest) =
-  case (packageCommand flag, rest) of
-    (Just cmd, f :: rest') => do
+parse a (flag :: rest) = case packageCommand flag of
+    Just cmd => command cmd rest
+    Nothing => other rest
+  where
+    -- Anything but a package command with its file: an option missing its
+    -- value, an unknown option, or a source.
+    other : List String -> Either String Arguments
+    other more =
+      if elem flag valued
+        then Left (flag ++ " takes a value")
+        else if isPrefixOf "-" flag
+          then Left ("unknown option " ++ flag)
+          else parse ({ sources $= (++ [flag]) } a) more
+
+    command : PkgCommand -> List String -> Either String Arguments
+    command cmd (f :: rest') = do
       p <- once "a package command" a.package (cmd, f)
       parse ({ package := p } a) rest'
-    _ => if elem flag valued
-           then Left (flag ++ " takes a value")
-           else if isPrefixOf "-" flag
-             then Left ("unknown option " ++ flag)
-             else parse ({ sources $= (++ [flag]) } a) rest
+    command cmd [] = other []
 
 ||| One task, and only what that task reads.
 taskOf : Arguments -> Either String Task
@@ -241,14 +252,10 @@ built : {auto c : Ref Ctxt Defs} ->
         {auto o : Ref ROpts REPLOpts} ->
         String -> Core ModuleIdent
 built source = do
-  Right _ <- coreLift (readFile source)
+  Right _ <- readText source
     | Left err => throw (FileErr source err)
   mainModule <- ctxtPathToNS source
-  u <- newRef UST initUState
-  dl <- newRef DLY (the DelayedElabs [])
-  m <- newRef MD (initMetadata (PhysicalIdrSrc mainModule))
-  resetContext (PhysicalIdrSrc mainModule)
-  [] <- buildDeps source
+  [] <- host.buildMain source
     | errs => coreLift (exitWith (statusOfAll errs))
   pure mainModule
 
@@ -262,10 +269,11 @@ showingItsSource : {auto c : Ref Ctxt Defs} -> {auto o : Ref ROpts REPLOpts} ->
 showingItsSource err = case map fst (getErrorLoc err >>= isNonEmptyFC) of
   Just (PhysicalIdrSrc ident) => do
     path <- catch (moduleSource EmptyFC ident) (const (pure Nothing))
-    text <- maybe (pure "") (\p => either (const "") id <$> coreLift (readFile p)) path
+    text <- maybe (pure "") (\p => either (const "") id <$> readText p) path
     setCurrentElabSource text
   _ => setCurrentElabSource ""
 
+covering
 perform : {auto c : Ref Ctxt Defs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
@@ -286,11 +294,12 @@ perform (PackageCommand timing cmd file) = do
   -- the command's whole time is the file's.
   when (isJust timing) $ setSession ({ logTimings := Just 1 } !getSession)
   start <- now
-  ignore (processPackageOpts [Package cmd (Just file)])
+  ignore (host.processPackageOpts [Package cmd (Just file)])
   end <- now
   reportTimes timing [(pack (dropWhile (== '-') (unpack (show cmd))), end - start)]
 perform LibDir = coreLift (putStrLn !pkgGlobalDirectory)
 
+covering
 frontend : Run -> Core ()
 frontend r = do
   c <- newRef Ctxt !initDefs
@@ -313,6 +322,7 @@ frontend r = do
     emitError err
     coreLift (exitWith (statusOf err))
 
+covering
 main : IO ()
 main = do
   args <- getArgs

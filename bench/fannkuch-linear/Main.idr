@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- fannkuch-redux (the Benchmarks Game) in pure code over linear arrays

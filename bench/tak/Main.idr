@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- Takeuchi's function, a classic of the Gabriel benchmarks, iterated.

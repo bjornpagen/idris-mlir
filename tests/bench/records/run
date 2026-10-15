@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Every record kept in bench/runs holds what bench/report.sh makes from it,
 # compared with the record before it (records sort by name, which starts
 # with the date): its results.md and charts are current, never edited by

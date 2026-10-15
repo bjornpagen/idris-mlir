@@ -6,13 +6,15 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Support/Worklist.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
+
+#include <optional>
 
 using namespace mlir;
 
@@ -44,7 +46,7 @@ bool isShapeOp(Operation *op) {
 
 // The field types of constructor `tag` of the data type a value of `type`
 // is of.
-ArrayRef<Type> fieldTypes(Type type, unsigned tag) {
+ArrayRef<Type> fieldTypes(Type type, Tag tag) {
   return dataTypeOf(type).getCtor(tag).fields;
 }
 
@@ -72,7 +74,7 @@ Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
   if (constant(value, known))
     return {Constant{known}, value.getType()};
   if (ConOp con = builtBy(value))
-    return {Con{static_cast<unsigned>(con.getTag()), shapesOf(con.getFields())}, value.getType()};
+    return {Con{con.getTag(), shapesOf(con.getFields())}, value.getType()};
   if (auto enter = value.getDefiningOp<LinEnterOp>()) {
     Pattern inner = shapeOf(enter.getValue(), leaves);
     if (!inner.isHole())
@@ -86,12 +88,12 @@ Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
 
 // `pattern` with its holes numbered from `next`, which advances past them.
 void renumber(Pattern &pattern, unsigned &next) {
-  std::visit(Match{[&](Hole &hole) { hole.index = next++; }, [](Constant &) {},
-                   [&](Con &con) {
-                     for (Pattern &field : con.fields)
-                       renumber(field, next);
-                   },
-                   [&](Linear &linear) { renumber(linear.value.front(), next); }},
+  std::visit(llvm::makeVisitor([&](Hole &hole) { hole.index = next++; }, [](Constant &) {},
+                               [&](Con &con) {
+                                 for (Pattern &field : con.fields)
+                                   renumber(field, next);
+                               },
+                               [&](Linear &linear) { renumber(linear.value.front(), next); }),
              pattern.node);
 }
 
@@ -99,10 +101,10 @@ void renumber(Pattern &pattern, unsigned &next) {
 // constant. A lone scalar is none: a number specialized on would make a
 // node per value, where LLVM weighs constant arguments better.
 bool hasStructure(const Pattern &pattern) {
-  return std::visit(Match{[](const Hole &) { return false; },
-                          [](const Constant &c) { return isa<ConAttr>(c.value); },
-                          [](const Con &) { return true; },
-                          [](const Linear &l) { return hasStructure(l.value.front()); }},
+  return std::visit(llvm::makeVisitor([](const Hole &) { return false; },
+                                      [](const Constant &c) { return isa<ConAttr>(c.value); },
+                                      [](const Con &) { return true; },
+                                      [](const Linear &l) { return hasStructure(l.value.front()); }),
                     pattern.node);
 }
 
@@ -126,21 +128,21 @@ bool usedOnce(Value value) {
 
 // Erases the operations that built the shapes of `values` once nothing
 // uses them. They hold the leaves, which the node's call now takes itself:
-// a linear leaf used by both would be used twice. The set holds operations,
-// not values: a value passed twice names one operation, erased once.
+// a linear leaf used by both would be used twice. An operation enters the
+// worklist when it has no use left, which happens once, since erasing
+// only takes uses away; a value passed twice names one operation, erased
+// once.
 void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
-  llvm::SetVector<Operation *> candidates;
+  OnceWorklist<Operation *> dead;
   auto consider = [&](Value value) {
-    if (Operation *def = value.getDefiningOp(); isShapeOp(def))
-      candidates.insert(def);
+    if (Operation *def = value.getDefiningOp(); isShapeOp(def) && def->use_empty())
+      dead.push(def);
   };
   llvm::for_each(values, consider);
-  while (!candidates.empty()) {
-    Operation *op = candidates.pop_back_val();
-    if (!op->use_empty())
-      continue;
-    llvm::for_each(op->getOperands(), consider);
-    rewriter.eraseOp(op);
+  while (std::optional<Operation *> op = dead.pop()) {
+    SmallVector<Value> operands((*op)->getOperands());
+    rewriter.eraseOp(*op);
+    llvm::for_each(operands, consider);
   }
 }
 

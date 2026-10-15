@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-lower --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=in-llvm,lowered,direct-calls,calls=@Thunk.force:@add,calls=@Prog.main:@Thunk.force -o /dev/null
-// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle (R02) and the dispatch idr-defunctionalize makes (R06).
+// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle and the dispatch idr-defunctionalize makes.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // After idr-lower, upstream's conversions take the program to the LLVM
 // dialect alone, and no cast is left. No cell holds code: a force is a
 // call of its memo sum's dispatch, which calls the label's function by
@@ -31,7 +32,7 @@ idr.program @"to-llvm" root(@Prog.main) stage(owned) {
     return %r : i64
   }
   idr.func @Prog.main() -> i64 {
-    %c = idr.constant #idr.con<@add, [40, 2]> : !idr.box<!Thunk>
+    %c = idr.constant #idr.con<!Thunk, @add, [40, 2]> : !idr.box<!Thunk>
     %two = arith.constant 2 : i64
     %d = idr.con !idr.own<!idr.box<!Thunk>> @add(%two : i64, %two : i64)
     %e = idr.borrow %d : !idr.own<!idr.box<!Thunk>>

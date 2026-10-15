@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='{{(idr\.| )apply }}' --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A list of Lazy actions that no constructor ever builds: @first is called
 // with the empty list only, so the case for a cell forces a suspension no
 // label reaches, and applies the closure its value holds, which no label
@@ -8,7 +9,7 @@
 // no label, so that nothing lazy is left; the closure's key is the empty
 // set, so its apply never runs and gives poison: no closure is left for
 // the lowering.
-// NEEDS-ACCEPTANCE: the sums' printed forms, as C01's printer writes them; @Act and @List are remade with the converted field types (C01's DataRemap).
+// NEEDS-ACCEPTANCE: the sums' printed forms; @Act and @List are remade with the converted field types.
 // CHECK-DAG: ![[L:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@running(), @forced({{.*}})]
 // CHECK-DAG: = !idr.data<{{[^,]*}}, closures []
 // CHECK-LABEL: idr.func @first(
@@ -34,7 +35,7 @@ idr.program @"unreached-cell" root(@Prog.main) stage(higher) {
     return %r : i64
   }
   idr.func @Prog.main() -> i64 {
-    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+    %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
     %c = arith.constant 7 : i64
     %r = idr.call @first(%nil, %c) : (!idr.box<!List>, i64) -> i64
     return %r : i64

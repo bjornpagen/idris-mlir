@@ -92,7 +92,7 @@ StaticData::Named StaticData::boxName(Location loc, ConAttr con, Type type) {
 // The names of a run's cells, first to last, each from the cells after it.
 SmallVector<StaticData::Named> StaticData::runNames(Location loc, ConAttr con, Type type) {
   DataType data = con.getData();
-  unsigned tag = con.getTag();
+  Tag tag = con.getTag();
   const Ctor &ctor = con.getCtor();
   unsigned spine = con.getSpine();
   Type spineType = unrestricted(ctor.fields[spine]);
@@ -113,7 +113,7 @@ SmallVector<StaticData::Named> StaticData::runNames(Location loc, ConAttr con, T
 }
 
 // A static memo cell's kind, or a box's.
-StringRef StaticData::kindOf(DataType data, unsigned tag) const {
+StringRef StaticData::kindOf(DataType data, Tag tag) const {
   return isMemoCell(layouts.box(data, tag)) ? "caf" : "box";
 }
 

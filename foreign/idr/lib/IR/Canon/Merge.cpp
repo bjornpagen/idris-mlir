@@ -9,6 +9,9 @@
 
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -46,6 +49,30 @@ llvm::hash_code shape(Block &block) {
       })));
 }
 
+// The first case of `op` whose body another case repeats: compared only
+// with the cases of its shape, since a match with many cases would compare
+// each body with every other, and cases whose operations differ cannot be
+// that pair.
+template <typename Match>
+std::optional<unsigned> firstRepeated(Match op) {
+  unsigned count = static_cast<unsigned>(op.getCases().size());
+  llvm::DenseMap<llvm::hash_code, SmallVector<unsigned, 2>> buckets;
+  for (unsigned i = 0; i < count; ++i)
+    buckets[shape(op.getCaseRegion(i).front())].push_back(i);
+  std::optional<unsigned> first;
+  for (auto &bucket : buckets) {
+    ArrayRef<unsigned> ids = bucket.second;
+    for (unsigned a = 0; a < ids.size() && (!first || ids[a] < *first); ++a)
+      if (llvm::any_of(ids.drop_front(a + 1), [&](unsigned b) {
+            return sameBody(op.getCaseRegion(ids[a]), op.getCaseRegion(b));
+          })) {
+        first = ids[a];
+        break;
+      }
+  }
+  return first;
+}
+
 // A case that does what the default does is left to the default, and
 // without a default, cases that do the same become it.
 template <typename Match>
@@ -54,27 +81,12 @@ struct MergeIdenticalRegions : OpRewritePattern<Match> {
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
     unsigned count = static_cast<unsigned>(op.getCases().size());
     Region *fallback = op.getDefaultRegion();
-    // Every pair of cases, when nothing is a default yet. A match with many
-    // cases would compare each body with every other; cases whose operations
-    // differ cannot be that pair.
     if (!fallback) {
-      llvm::DenseMap<llvm::hash_code, SmallVector<unsigned, 2>> buckets;
-      for (unsigned i = 0; i < count; ++i)
-        buckets[shape(op.getCaseRegion(i).front())].push_back(i);
-      unsigned best = count;
-      for (auto &bucket : buckets) {
-        ArrayRef<unsigned> ids = bucket.second;
-        for (unsigned a = 0; a < ids.size() && ids[a] < best; ++a)
-          for (unsigned b = a + 1; b < ids.size(); ++b)
-            if (sameBody(op.getCaseRegion(ids[a]), op.getCaseRegion(ids[b]))) {
-              best = ids[a];
-              fallback = &op.getCaseRegion(ids[a]);
-              break;
-            }
-      }
+      std::optional<unsigned> first = firstRepeated(op);
+      if (!first)
+        return failure();
+      fallback = &op.getCaseRegion(*first);
     }
-    if (!fallback)
-      return failure();
     SmallVector<unsigned> cases;
     SmallVector<Region *> regions;
     for (unsigned i = 0; i < count; ++i)

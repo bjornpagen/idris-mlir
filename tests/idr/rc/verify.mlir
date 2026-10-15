@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // The owned stage's rule: every reference is consumed exactly once on every
 // path, and nothing is used once its last reference is gone. The grades say
 // what each value holds: `!idr.own<T>` one reference of its own, plain T
@@ -275,13 +276,13 @@ idr.program @verify root(@Prog.main) stage(owned) {
 !P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>
 idr.program @verify root(@Prog.main) stage(owned) {
   idr.func @empty() -> !idr.excl<!P> {
-    %c = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
+    %c = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @N, []>, #idr.con<!L, @N, []>]> : !P
     %p = idr.dup %c : !idr.q<many, borrow, !P> -> !idr.excl<!P>
     return %p : !idr.excl<!P>
   }
   idr.func @one() -> !idr.excl<!P> {
     // expected-note @+1 {{the value is defined here}}
-    %c = idr.constant #idr.con<@MkPair, [#idr.con<@C, [1 : i64, #idr.con<@N, []>]>, #idr.con<@N, []>]> : !P
+    %c = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @C, [1 : i64, #idr.con<!L, @N, []>]>, #idr.con<!L, @N, []>]> : !P
     // expected-error @+1 {{takes an exclusive reference to a value that reaches cells other than atoms, which it shares}}
     %p = idr.dup %c : !idr.q<many, borrow, !P> -> !idr.excl<!P>
     return %p : !idr.excl<!P>

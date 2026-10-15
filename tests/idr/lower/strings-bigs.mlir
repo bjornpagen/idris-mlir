@@ -2,10 +2,10 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,crash-sites=@strings:3,crash-sites=@bigs:3,crash-sites=@doubles:1' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=call-order=@strings:[@idris_rt_str_show_s,@idris_rt_str_show_u,@idris_rt_str_show_f64],call-order=@doubles:[@idris_rt_to_int,@idris_rt_double_head,@idris_rt_int_head_s]' -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
-// String and big ops call the runtime function their op declares; those
-// of bigs whose small case is inline (big-fast-path.mlir) call it only on
-// their cold path. Where a primitive may crash, its guard tests first and
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
+// String and big ops call the runtime function their op declares, a big
+// op's small case inline in the runtime's own function
+// (big-fast-path.mlir). Where a primitive may crash, its guard tests first and
 // crashes: an index out of range, the head or tail of "", a big divisor of
 // 0, a non-finite Double; the op it guards then tests nothing, so each
 // function may crash at its guards and nowhere else. show and the casts

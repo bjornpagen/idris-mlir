@@ -2,8 +2,8 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@alloc2:[@idris_rt_array_new],call-order=@alloc2:[@idris_rt_array_new],calls-only=@copyStrings:[@idris_rt_memref_copy],calls-only=@copyWords:[],calls-only=@copyStrided:[@idris_rt_memref_copy]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@loadString:[],calls-only=@storeString:[@idris_rt_dec],calls-only=@extent:[@idris_rt_crash],crash-sites=@extent:1,calls-only=@tied:[],lowered=@tied' -o /dev/null
 // RUN: FileCheck %s --implicit-check-not=3735928559 < %t.mlir
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
-// NEEDS-ACCEPTANCE: the lowered forms of value buffers as R12 lowers them, a memref in a function on a descriptor built at its use by upstream's patterns; check each function's calls.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the lowered forms of value buffers, a memref in a function on a descriptor built at its use by upstream's patterns; check each function's calls.
 // A buffer bufferization made is a cell of the runtime: an allocation of
 // any rank is one idris_rt_array_new of the saturating product of its
 // sizes, with no allocator of upstream's, so no function asks for any

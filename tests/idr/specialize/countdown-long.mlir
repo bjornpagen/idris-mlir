@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize --idr-expect=holds=one-clone=@loop -o /dev/null
-// NEEDS-ACCEPTANCE: R08's rule over recursive components: a call keys only the positions passed unchanged along the recursion, structurally, and a lone number is never a key position.
+// NEEDS-ACCEPTANCE: the rule over recursive components: a call keys only the positions passed unchanged along the recursion, structurally, and a lone number is never a key position.
 // countdown.mlir's loop, called as loop 1000000 f x: the count is no key
 // position however large it is, so the copies are as few as for 5: one,
 // keyed on the closure, calling itself.

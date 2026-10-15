@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The canonicalization patterns written in DRR, generated next to the
 # library that registers them (Canon/Output.cpp includes the file by name).
 set(LLVM_TARGET_DEFINITIONS Canon/Canonicalize.td)
@@ -35,11 +37,13 @@ add_mlir_dialect_library(IdrIR
 	Grades.cpp
 	Effects.cpp
 	Flow.cpp
+	FlowEdges.cpp
 	FlowOps.cpp
 	Crashes.cpp
 	Ranges.cpp
 	Asm.cpp
 	Symbols.cpp
+	DataRemap.cpp
 	ContentNames.cpp
 	Regions.cpp
 	Constants.cpp
@@ -66,6 +70,7 @@ add_mlir_dialect_library(IdrIR
 	Canon/Output.cpp
 	Canon/PutList.cpp
 	Canon/Captures.cpp
+	Canon/Callees.cpp
 	Fold/Scope.cpp
 	Fold/Values.cpp
 	Fold/Bigs.cpp

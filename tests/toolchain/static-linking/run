@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Nothing this repository builds links a shared library of its own or of a
 # third party: an ELF executable names no shared library and no interpreter
 # (a static PIE); a Mach-O executable names only the operating system's own
@@ -10,7 +12,7 @@
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 build=${idris_mlir%/foreign/idr/idris-mlir}
 program=$work/start
-if ! link_program -O1 -I"$root/runtime" "$root/tests/toolchain/page-size-mismatch/start.c" \
+if ! runtime_c link_program -O1 "$root/tests/toolchain/page-size-mismatch/start.c" \
     "$build/runtime/libidris_rt.a" -o "$program" > "$work/cc.log" 2>&1; then
   say "start: does not link"
   show "$work/cc.log"

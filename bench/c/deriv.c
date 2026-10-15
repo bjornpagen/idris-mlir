@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Symbolic differentiation, as Main.idr here (Perceus's deriv.kk), in C.
    Subterms are shared, so cells carry counts. Functions borrow their
    arguments and return a result the caller owns; there is no reuse. */

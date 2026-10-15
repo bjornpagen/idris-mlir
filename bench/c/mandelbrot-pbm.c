@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* mandelbrot on one core, as Main.idr here: a portable bitmap, eight
    pixels to a byte, fifty iterations, scalar. */
 #include <stdio.h>

@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-lower '--idr-expect=holds=lowered,direct-calls,writes-nothing=@Loud.force,call-order=@Loud.force:[@idris_rt_inc,@shout],crash-sites=@Loud.force:1' -o /dev/null
-// NEEDS-ACCEPTANCE: the dispatch idr-defunctionalize makes of a memo sum whose label is by name (R06): its label's case calls the function and neither enters nor settles the cell.
+// NEEDS-ACCEPTANCE: the dispatch idr-defunctionalize makes of a memo sum whose label is by name: its label's case calls the function and neither enters nor settles the cell.
 // A label that is `by_name` runs at every force, so the effect it reaches
 // happens wherever its value is demanded: its case of the dispatch calls
 // the label's function with the cell's captures and leaves the cell as it

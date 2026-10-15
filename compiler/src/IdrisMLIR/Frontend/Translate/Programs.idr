@@ -9,6 +9,7 @@ import Core.Core
 import Core.TT
 
 import IdrisMLIR.Facts
+import IdrisMLIR.Frontend.Finite
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Cases
 import IdrisMLIR.Frontend.Translate.Closed
@@ -33,15 +34,15 @@ import Data.SortedMap
 import Data.SortedSet
 import Data.Vect
 
-%default covering
+%default total
 
 ||| Translates one function instance. Its runtime parameters are its Core
 ||| parameters, numbered in order; a type, an implementation and a parameter
 ||| of quantity 0 are compile-time values of the case tree's scope, which has
 ||| one variable per parameter of the definition's type.
-translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Pending -> Core ()
+covering
+translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Core ()
 translateInstance p = do
-  update TState { current := Just p.inst }
   def <- lookupDef EmptyFC (show p.name) p.name
   let owner = show (fullname def)
   -- A definition the checks refused is left out, and so is what only it
@@ -122,43 +123,6 @@ translateInstance p = do
                   :: environment n (S i) ks
       Nothing => []
 
-||| Translates every instance requested, until none is left. A rejected
-||| instance is recorded and leaves the state as it was before it, the
-||| instances it requested included, but for the rejections and what they
-||| refused, and what it found of definitions: what it would have reached
-||| is reported once it is fixed, and every rejection the translation
-||| reports is independent. A pass that a construction site voids
-||| (`Dictionaries`) still goes on to the end: an assumption it made only
-||| left alternatives out, so all it translates is in the program, and
-||| every construction site it finds is one the next pass starts from, not
-||| only the first.
-drain : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
-drain = do
-  st <- get TState
-  case dequeue st.queue of
-    Nothing => pure ()
-    Just (p, rest) => do
-      let before = { queue := rest } st
-      put TState before
-      Nothing <- noting (translateInstance p)
-        | Just () => drain
-      after <- get TState
-      put TState ({ rejected := after.rejected, refused := after.refused, places := after.places
-                  , tyCons := after.tyCons, loops := after.loops, blockNames := after.blockNames } before)
-      drain
-
-||| The program's instances from its root, in as many passes as the
-||| dictionary fields matched before they were built need: each pass starts
-||| from the dictionaries the last one found.
-translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Core (Maybe FnId)
-translateFrom fc main = do
-  update TState nextPass
-  Just inst <- noting (request fc (show main) main [])
-    | Nothing => pure Nothing
-  drain
-  st <- get TState
-  if st.restart then translateFrom fc main else pure (Just inst)
-
 ||| The program: its data and function instances in the order they were
 ||| registered. Whether a value of a data instance is boxed is the
 ||| dialect's to decide, from the whole type graph, once.
@@ -177,11 +141,11 @@ assemble root = do
 ||| `IORes` of `main`'s result and the last world, so the world is used
 ||| exactly once. `%MkWorld` never appears. Nothing when an instance was
 ||| rejected (`rejections`).
-export
+export covering
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core (Maybe Source)
 translateIOProgram fc main = do
-  Just inst <- translateFrom fc main
+  Just inst <- translateFrom (noting (request fc (show main) main [])) translateInstance
     | Nothing => pure Nothing
   st <- get TState
   let [<] = st.rejected

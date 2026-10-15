@@ -11,7 +11,7 @@
 // language this compiler implements, as a collector finalizer is: no count
 // frees it. So the rule `cycle` is of the category OutsideLanguage, not a
 // megamorphic construct; its refusal rests on the type graph's cycles, a
-// total analysis, and no count or budget enters it.
+// total analysis, and no count bounds it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -24,6 +24,8 @@
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -68,7 +70,8 @@ LogicalResult idr::verify::knots(ProgramOp program, const TypeGraph &graph) {
   // is read through its own accessors.
   llvm::DenseMap<Type, std::pair<unsigned, unsigned>> knotOf;
   SmallVector<unsigned> named;
-  SmallVector<Operation *> made(knotted.size(), nullptr);
+  // Where each knot is reported, once the program's own code shows it.
+  SmallVector<std::optional<Location>> where(knotted.size());
   for (auto [knot, members] : llvm::enumerate(knotted)) {
     for (unsigned at : members)
       if (graph.isArray(at))
@@ -79,27 +82,27 @@ LogicalResult idr::verify::knots(ProgramOp program, const TypeGraph &graph) {
     if (!inSource(array.getLoc()))
       return;
     auto found = knotOf.find(unrestricted(array.getArray().getType()));
-    if (found == knotOf.end() || made[found->second.first])
+    if (found == knotOf.end() || where[found->second.first])
       return;
-    made[found->second.first] = array;
+    where[found->second.first] = array.getLoc();
     named[found->second.first] = found->second.second;
   });
   llvm::DenseMap<DataType, unsigned> knotOfData;
   for (auto [knot, members] : llvm::enumerate(knotted))
     for (unsigned at : members)
-      if (DataType data = graph.declaration(at))
+      if (auto data = dyn_cast<DataType>(graph.type(at)))
         knotOfData[data] = static_cast<unsigned>(knot);
   program.walk([&](ConOp con) {
     if (!inSource(con.getLoc()))
       return;
     auto found = knotOfData.find(con.getDataType());
-    if (found != knotOfData.end() && !made[found->second])
-      made[found->second] = con;
+    if (found != knotOfData.end() && !where[found->second])
+      where[found->second] = con.getLoc();
   });
 
-  for (auto [members, op, array] : llvm::zip_equal(knotted, made, named)) {
+  for (auto [members, shown, array] : llvm::zip_equal(knotted, where, named)) {
     SmallVector<unsigned> cycle = graph.cycle(array, members);
-    InFlightDiagnostic error = refuse(op ? op->getLoc() : program.getLoc(), Rule::Cycle);
+    InFlightDiagnostic error = refuse(shown.value_or(program.getLoc()), Rule::Cycle);
     // The lead names the array itself, by its rank: the path after it runs
     // from what the array holds, through any types between, to the array
     // and back.

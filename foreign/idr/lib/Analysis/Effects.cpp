@@ -9,14 +9,17 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Scc.h"
+#include "idr/Support/Worklist.h"
 
 #include "mlir/IR/Threading.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 
 #include <cassert>
+#include <optional>
 
 using namespace mlir;
 
@@ -67,7 +70,7 @@ idr::Effect sumOf(ArrayRef<idr::FuncOp> component, ArrayRef<Body> bodies) {
     sum = sum | body.own;
     for (idr::FuncOp callee : body.callees)
       if (!members.contains(callee.getOperation()))
-        sum = sum | idr::entryOf(callee);
+        sum = sum | callee.getEffects();
   }
   return sum;
 }
@@ -85,19 +88,31 @@ void idr::setEntry(FuncOp fn, Effect effect) {
     fn.setEffectsAttr(want);
 }
 
+// The graph's functions in its order, which is the program's, and the
+// calls between them, each once, in the order each body makes them: the
+// call graph's edges alone. Its external node is no part of it, so the
+// components do not rest on that node reaching every function.
 SmallVector<SmallVector<idr::FuncOp>> idr::callGraphComponents(const CallGraph &graph) {
-  SmallVector<SmallVector<FuncOp>> out;
-  // The walk starts at the external node, which reaches every function;
-  // it and the unknown callee are no function and are left out.
-  for (auto it = llvm::scc_begin(&graph); !it.isAtEnd(); ++it) {
-    SmallVector<FuncOp> members;
-    for (CallGraphNode *node : *it)
-      if (!node->isExternal())
-        if (auto fn = dyn_cast<FuncOp>(node->getCallableRegion()->getParentOp()))
-          members.push_back(fn);
-    if (!members.empty())
-      out.push_back(std::move(members));
+  SmallVector<FuncOp> fns;
+  llvm::DenseMap<const CallGraphNode *, unsigned> index;
+  for (CallGraphNode *node : graph)
+    if (auto fn = dyn_cast<FuncOp>(node->getCallableRegion()->getParentOp())) {
+      index.try_emplace(node, static_cast<unsigned>(fns.size()));
+      fns.push_back(fn);
+    }
+  SmallVector<SmallVector<unsigned>> calls(fns.size());
+  for (CallGraphNode *node : graph) {
+    auto from = index.find(node);
+    if (from == index.end())
+      continue;
+    for (const CallGraphNode::Edge &edge : *node)
+      if (edge.isCall())
+        if (auto to = index.find(edge.getTarget()); to != index.end())
+          calls[from->second].push_back(to->second);
   }
+  SmallVector<SmallVector<FuncOp>> out;
+  for (const SmallVector<unsigned> &component : components(calls))
+    out.push_back(llvm::map_to_vector(component, [&](unsigned at) { return fns[at]; }));
   return out;
 }
 
@@ -159,21 +174,24 @@ llvm::DenseSet<idr::FuncOp> idr::observableRuns(ProgramOp program, const SymbolT
   });
 
   // The reach runs backwards, from what observes to what runs it. Each
-  // function joins once, so the work ends with the set.
+  // target is a function of the program, so it has a position: a callee is
+  // what the program's table resolves, and a label the function the table
+  // gives for a label the solve read off the program.
   SmallVector<SmallVector<unsigned>> runners(fns.size());
   for (auto [at, slot] : llvm::enumerate(runs))
     for (FuncOp target : slot.targets)
-      runners[positions.lookup(target.getOperation())].push_back(static_cast<unsigned>(at));
-  llvm::DenseSet<FuncOp> observed;
-  SmallVector<unsigned> work;
+      runners[positions.at(target.getOperation())].push_back(static_cast<unsigned>(at));
+  // Each function enters the worklist once, when it is first found to
+  // observe, and joins the set when it leaves it.
+  OnceWorklist<unsigned> work;
   for (auto [at, slot] : llvm::enumerate(runs))
-    if (slot.observes && observed.insert(fns[at]).second)
-      work.push_back(static_cast<unsigned>(at));
-  while (!work.empty()) {
-    unsigned at = work.pop_back_val();
-    for (unsigned runner : runners[at])
-      if (observed.insert(fns[runner]).second)
-        work.push_back(runner);
+    if (slot.observes)
+      work.push(static_cast<unsigned>(at));
+  llvm::DenseSet<FuncOp> observed;
+  while (std::optional<unsigned> at = work.pop()) {
+    observed.insert(fns[*at]);
+    for (unsigned runner : runners[*at])
+      work.push(runner);
   }
   return observed;
 }

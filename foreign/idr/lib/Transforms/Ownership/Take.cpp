@@ -24,7 +24,7 @@ SmallVector<OpOperand *> usesOf(Value value) {
 
 // What a take gives for a field of type `field`: a reference of its own
 // when it holds references.
-Type taken(Type field) { return counted(field) ? owned(field) : field; }
+Type taken(Type field) { return holdsReferences(field) ? owned(field) : field; }
 
 } // namespace
 
@@ -32,8 +32,8 @@ Type taken(Type field) { return counted(field) ? owned(field) : field; }
 // taking one of its own where the box reads it, only for the box to drop
 // it again. Reads before the take are borrowed from the box, which is
 // still alive there.
-TakeOp takeAt(RewriterBase &rewriter, Value box, DataType data, unsigned tag, Block &block,
-              Block::iterator at, Block *fields) {
+TakeOp takeAt(RewriterBase &rewriter, Value box, DataType data, Tag tag, Block &block,
+              Block::iterator at, ArrayRef<BlockArgument> bound) {
   rewriter.setInsertionPoint(&block, at);
   Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
   const Ctor &ctor = data.getCtor(tag);
@@ -44,10 +44,9 @@ TakeOp takeAt(RewriterBase &rewriter, Value box, DataType data, unsigned tag, Bl
   for (Type field : ctor.fields)
     results.push_back(taken(fieldType(box.getType(), field)));
   auto take = TakeOp::create(rewriter, loc, results, box, tag);
-  eachField(usesOf(box), tag, fields, [&](Value field, unsigned index) {
-    rewriter.replaceUsesWithIf(field, take.getFields()[index],
-                               [&](OpOperand &use) { return fromPoint(block, at, use); });
-  });
+  for (Field field : fieldsOf(usesOf(box), tag, bound))
+    rewriter.replaceUsesWithIf(field.value, take.getFields()[field.index],
+                               [&](OpOperand &use) { return heldIn(block, use, at) != nullptr; });
   return take;
 }
 
@@ -66,7 +65,7 @@ TakeOp takeAtEntry(RewriterBase &rewriter, MatchOp match, unsigned index) {
   return take;
 }
 
-TakeOp takeFields(RewriterBase &rewriter, Value value, unsigned tag, ArrayRef<Type> fieldTypes) {
+TakeOp takeFields(RewriterBase &rewriter, Value value, Tag tag, ArrayRef<Type> fieldTypes) {
   rewriter.setInsertionPointAfterValue(value);
   SmallVector<Type> results;
   for (Type field : fieldTypes)
@@ -83,14 +82,13 @@ TakeOp takeFields(RewriterBase &rewriter, Value value, unsigned tag, ArrayRef<Ty
 // unshared cell instead of taking a reference of its own while the box
 // drops the cell's. A field that dies with the box is dropped either way,
 // and one that holds no reference has nothing to move.
-bool keepsCountedField(Value box, unsigned tag, Block &block, Block::iterator at, Block *fields) {
-  bool kept = false;
-  eachField(usesOf(box), tag, fields, [&](Value field, unsigned) {
-    kept = kept || (counted(field.getType()) &&
-                    llvm::any_of(field.getUses(),
-                                 [&](OpOperand &use) { return fromPoint(block, at, use); }));
+bool keepsCountedField(Value box, Tag tag, Block &block, Block::iterator at,
+                       ArrayRef<BlockArgument> bound) {
+  return llvm::any_of(fieldsOf(usesOf(box), tag, bound), [&](Field field) {
+    return holdsReferences(field.value.getType()) &&
+           llvm::any_of(field.value.getUses(),
+                        [&](OpOperand &use) { return heldIn(block, use, at) != nullptr; });
   });
-  return kept;
 }
 
 } // namespace idr::ownership

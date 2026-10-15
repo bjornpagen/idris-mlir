@@ -161,6 +161,25 @@ ambiguous (InRHS _ _ err) = ambiguous err
 ambiguous (WhenUnifying _ _ _ _ _ err) = ambiguous err
 ambiguous _ = False
 
+||| Whether an elaboration failed because a linear binder was used at a
+||| multiplicity it does not have, so that checking the term again at
+||| multiplicity one may succeed. A name with several candidates fails when
+||| all of them do, and checking again at one tries every candidate again,
+||| so that failure is such a failure when any candidate's is.
+export
+misusesLinear : Error -> Bool
+misusesLinear (LinearMisuse _ _ r _) = isLinear r
+misusesLinear (AllFailed alts) = candidates alts
+  where
+    candidates : List (Maybe Name, Error) -> Bool
+    candidates [] = False
+    candidates ((_, err) :: rest) = misusesLinear err || candidates rest
+misusesLinear (InType _ _ err) = misusesLinear err
+misusesLinear (InCon _ err) = misusesLinear err
+misusesLinear (InLHS _ _ err) = misusesLinear err
+misusesLinear (InRHS _ _ err) = misusesLinear err
+misusesLinear _ = False
+
 mutual
   mismatchNF : {auto c : Ref Ctxt Defs} ->
                {vars : _} ->

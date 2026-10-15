@@ -65,14 +65,10 @@ std::pair<Value, layout::Element> elementAt(OpT op,
                                             typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                             ConversionPatternRewriter &rewriter,
                                             const Layouts &layouts) {
-  Location loc = op.getLoc();
   MemRefType type = op.getMemRefType();
   layout::Element element = layouts.element(type.getElementType());
-  Descriptor d = unpack(rewriter, loc, type, adaptor.getMemref());
-  SmallVector<Value> indices;
-  for (ValueRange index : adaptor.getIndices())
-    indices.push_back(indexWord(rewriter, loc, index.front()));
-  Value address = elementAddress(rewriter, loc, d, indices, element.stride);
+  Value address = bufferElementAddress(rewriter, op.getLoc(), type, adaptor.getMemref(),
+                                       adaptor.getIndices(), element.stride);
   return {address, std::move(element)};
 }
 
@@ -129,8 +125,8 @@ struct LowerRuntimeCopy : IdrPattern<memref::CopyOp> {
     Value toSlot = inFrame(
         rewriter, loc, op,
         descriptorOf(rewriter, loc, descriptors.convertType(to), to, adaptor.getTarget()));
-    runtime.call(rewriter, loc, "idris_rt_memref_copy", Type(),
-                 ValueRange{i64Constant(rewriter, loc, from.getRank()), fromSlot, toSlot});
+    runtime.perform(rewriter, loc, "idris_rt_memref_copy",
+                    ValueRange{i64Constant(rewriter, loc, from.getRank()), fromSlot, toSlot});
     rewriter.eraseOp(op);
     return success();
   }

@@ -9,21 +9,26 @@
 // no crash, no divergence) is pure:
 //   - when nothing reads its results it goes;
 //   - a second call with the same callee and the same operands, where the
-//     first dominates it, is the first's results. The first dominates when
-//     it comes earlier in the same block, or in a block that encloses the
-//     second's region.
+//     first dominates it, is the first's results: the first comes earlier
+//     in the same block, in a block that dominates the second's, or in one
+//     that encloses the second's region, as DominanceInfo says.
 // A callee of the function's own component is not final, so its calls stay
 // as they are.
 //
-// A linear value is used once on every path. A call that takes one is that
-// use, so it stays even when nothing reads it; a call that gives one gives a
-// fresh value, so two such calls stay two values.
+// The verifier's one rule for a value of quantity one is that it is used at
+// most once on every path, and counting releases one that goes unused. So a
+// pure call nothing reads goes even when it takes a linear operand: the
+// operand loses its one use and is released like any other value left
+// unused. Two dominating calls never take one linear value, which would be
+// two uses on one path; a call that gives one gives a fresh value, so two
+// such calls stay two values.
 
 #include "idr/Transforms/Optimize.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMapInfo.h"
@@ -32,6 +37,11 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstddef>
+
+namespace idr {
+#define GEN_PASS_DEF_IDRPURECALLS
+#include "idr/Transforms/InnerPasses.h.inc"
+} // namespace idr
 
 using namespace mlir;
 
@@ -59,39 +69,21 @@ struct CallKey : llvm::DenseMapInfo<Operation *> {
 // those of its block before it and of every block that encloses it.
 using Known = llvm::ScopedHashTable<Operation *, Operation *, CallKey>;
 
-struct PureCalls : PassWrapper<PureCalls, OperationPass<idr::FuncOp>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(PureCalls)
-
-  PureCalls() = default;
-  // A copy for another pipeline: its statistics are its own.
-  PureCalls(const PureCalls &other) : PassWrapper(other) {}
-
-  StringRef getArgument() const override { return "idr-pure-calls"; }
-  StringRef getDescription() const override {
-    return "Erase each unread call of a pure final callee, and merge each identical one into "
-           "the call that dominates it";
-  }
-
-  Statistic numErased{this, "erased", "Calls of a pure callee whose results nothing read, erased"};
-  Statistic numMerged{this, "merged",
-                      "Calls of a pure callee given the results of an identical call before them"};
+struct PureCalls : idr::impl::IdrPureCallsBase<PureCalls> {
+  PureCalls(const idr::optimize::ReadySet &set, Pass::Statistic &numErased,
+            Pass::Statistic &numMerged)
+      : set(set), numErased(numErased), numMerged(numMerged) {}
 
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
-    auto set = getCachedParentAnalysis<idr::optimize::ReadySet>();
-    if (!set) {
-      fn.emitError("internal error: idr-pure-calls runs inside idr-optimize, whose ready set "
-                   "holds the summaries of its program");
-      return signalPassFailure();
-    }
-    const idr::optimize::ReadySet &ready = set->get();
     auto pure = [&](idr::CallOp call) {
-      const idr::optimize::Summary *summary = ready.summaryOf(call.getCalleeAttr().getAttr());
+      const idr::optimize::Summary *summary = set.summaryOf(call.getCalleeAttr().getAttr());
       return summary && summary->effects == idr::Effect::none;
     };
 
     Known known;
-    unsigned merged = merge(fn.getBody(), known, pure);
+    DominanceInfo &dominance = getAnalysis<DominanceInfo>();
+    unsigned merged = merge(fn.getBody(), known, pure, dominance);
 
     // Users before what they use, so that a call whose one reader was a
     // pure call erased here goes too.
@@ -99,8 +91,7 @@ struct PureCalls : PassWrapper<PureCalls, OperationPass<idr::FuncOp>> {
     fn.getBody().walk<WalkOrder::PreOrder>([&](idr::CallOp call) { calls.push_back(call); });
     unsigned erased = 0;
     for (idr::CallOp call : llvm::reverse(calls)) {
-      if (!call->use_empty() || !pure(call) ||
-          llvm::any_of(call.getArgs().getTypes(), idr::isLinear))
+      if (!call->use_empty() || !pure(call))
         continue;
       call.erase();
       ++erased;
@@ -113,34 +104,62 @@ struct PureCalls : PassWrapper<PureCalls, OperationPass<idr::FuncOp>> {
   }
 
   // Gives each pure call in `region` the results of an identical one that
-  // dominates it; how many. Each block opens a scope, so what a block
-  // records is seen by the rest of it and by the regions its ops hold, and
-  // by nothing after it.
+  // dominates it; how many. As upstream's CSE does, a block opens a scope
+  // and the walk goes down the region's dominator tree, so what a block
+  // records is seen by the rest of it, by the blocks it dominates and by
+  // the regions its ops hold, and by nothing else. A block no path reaches
+  // is in no tree, and keeps its calls.
   template <typename Pure>
-  unsigned merge(Region &region, Known &known, Pure &pure) {
-    unsigned merged = 0;
-    for (Block &block : region) {
+  unsigned merge(Region &region, Known &known, Pure &pure, DominanceInfo &dominance) {
+    if (region.empty())
+      return 0;
+    // A region of one block has no dominator tree.
+    if (region.hasOneBlock()) {
       Known::ScopeTy scope(known);
-      for (Operation &op : llvm::make_early_inc_range(block)) {
-        auto call = dyn_cast<idr::CallOp>(op);
-        if (call && pure(call) && llvm::none_of(call.getResultTypes(), idr::isLinear)) {
-          if (Operation *first = known.lookup(&op)) {
-            op.replaceAllUsesWith(first->getResults());
-            op.erase();
-            ++merged;
-          } else {
-            known.insert(&op, &op);
-          }
-          continue;
+      return mergeBlock(region.front(), known, pure, dominance);
+    }
+    unsigned merged = 0;
+    auto visit = [&](auto &self, DominanceInfoNode *node) -> void {
+      Known::ScopeTy scope(known);
+      merged += mergeBlock(*node->getBlock(), known, pure, dominance);
+      for (DominanceInfoNode *dominated : *node)
+        self(self, dominated);
+    };
+    visit(visit, dominance.getRootNode(&region));
+    return merged;
+  }
+
+  template <typename Pure>
+  unsigned mergeBlock(Block &block, Known &known, Pure &pure, DominanceInfo &dominance) {
+    unsigned merged = 0;
+    for (Operation &op : llvm::make_early_inc_range(block)) {
+      auto call = dyn_cast<idr::CallOp>(op);
+      if (call && pure(call) && llvm::none_of(call.getResultTypes(), idr::isLinear)) {
+        if (Operation *first = known.lookup(&op)) {
+          op.replaceAllUsesWith(first->getResults());
+          op.erase();
+          ++merged;
+        } else {
+          known.insert(&op, &op);
         }
-        for (Region &nested : op.getRegions())
-          merged += merge(nested, known, pure);
+        continue;
       }
+      for (Region &nested : op.getRegions())
+        merged += merge(nested, known, pure, dominance);
     }
     return merged;
   }
+
+  const idr::optimize::ReadySet &set;
+  Pass::Statistic &numErased;
+  Pass::Statistic &numMerged;
 };
 
 } // namespace
 
-std::unique_ptr<Pass> idr::optimize::createPureCallsPass() { return std::make_unique<PureCalls>(); }
+std::unique_ptr<Pass> idr::optimize::createPureCalls(const ReadySet &set, Pass::Statistic &erased,
+                                                     Pass::Statistic &merged) {
+  return std::make_unique<PureCalls>(set, erased, merged);
+}
+
+

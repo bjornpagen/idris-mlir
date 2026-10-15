@@ -2,12 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // effects: what idr-effects found a function may do, stated as the set the
 // function holds, the one copy every call reads, not as the ops of a pass
-// that happens to act on it. A function that holds none may do anything,
-// as the dialect reads it.
+// that happens to act on it. A function no pass has solved holds the
+// default, that it may do anything.
 
 #include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "llvm/ADT/StringExtras.h"
@@ -46,7 +45,7 @@ LogicalResult solvedEffects(ModuleOp module, AnalysisManager &, StringRef argume
       held = false;
       continue;
     }
-    Effect found = fn.getEffects().value_or(anyEffect);
+    Effect found = fn.getEffects();
     if (found == *wanted)
       continue;
     fail(fn.getLoc(), property) << where(fn) << " may do " << stringifyEffect(found) << ", not "

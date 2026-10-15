@@ -46,15 +46,32 @@ struct StructureLoops : idr::impl::IdrStructureLoopsBase<StructureLoops> {
       if (structurable(op))
         ops.push_back(op);
     });
-    SymbolTableCollection symbols;
+    if (ops.empty())
+      return;
+    // The program's table, built once per function that holds an array op.
+    SymbolTable symbols(getOperation()->getParentOp());
+    CalleeEffects callees{symbols};
     IRRewriter rewriter(&getContext());
     for (Operation *op : ops) {
-      Form form = formOf(op, symbols);
+      Form form = formOf(op, callees);
       lower(rewriter, op, form);
-      ++(form == Form::Reduction ? numReductions
-         : form == Form::Ordered ? numOrdered
-                                 : numParallel);
+      ++counterOf(form);
     }
+  }
+
+  // The statistic each form counts in: an interchange keeps its frame
+  // parallel, so it counts with the parallel forms.
+  Statistic &counterOf(Form form) {
+    switch (form) {
+    case Form::Parallel:
+    case Form::Interchange:
+      return numParallel;
+    case Form::Reduction:
+      return numReductions;
+    case Form::Ordered:
+      return numOrdered;
+    }
+    llvm_unreachable("every form counts in one statistic");
   }
 };
 

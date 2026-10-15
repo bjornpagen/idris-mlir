@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # What Idris proved lives in types the verifier checks, and the owned stage's
 # counts in its rule; they hold through the pipeline because the verifier
 # runs after every pass, so a pass that breaks one fails its own step, by

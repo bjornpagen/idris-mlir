@@ -2,6 +2,7 @@
 // RUN: %cc %t.o -o %t
 // RUN: %t > %t.out
 // RUN: FileCheck %s < %t.out
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Loops of every shape idr-tail-loops makes run as the recursion they
 // replace: a count up to a bound (an scf.for), a count down to zero, a
 // fold over a list, output before the decision, an IO fold whose
@@ -105,7 +106,7 @@ idr.program @loops root(@Prog.main) stage(higher) {
     return %r : !idr.world
   }
   idr.func @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes attributes {total} {
-    %unit = idr.constant #idr.con<@MkUnit, []> : !Unit
+    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
     %nl = arith.constant 10 : i32
     %r = idr.match %xs : !idr.box<!List> -> (!IORes) {
     case @Nil() {

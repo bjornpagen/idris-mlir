@@ -2,7 +2,9 @@
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@bump2 -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=SHARED < %t.err
-// NEEDS-ACCEPTANCE: the copy is named <owner>.excl.<16 hex digits> from its key (C21).
+// NEEDS-ACCEPTANCE: the copy is named <owner>.excl.<16 hex digits> from its key.
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // idr-rc proves which values hold the only reference to every cell they
 // reach, and writes it into their types: a list built of fresh cells is
 // exclusive, and so is what a function that only ever gets exclusive lists
@@ -35,7 +37,7 @@ idr.program @exclusive root(@root) stage(first) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
+      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
       idr.yield %e : !idr.box<!L>
     }
     default {
@@ -49,7 +51,7 @@ idr.program @exclusive root(@root) stage(first) {
     return %r : !idr.box<!L>
   }
   idr.func @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %n : !idr.box<!L>
@@ -65,7 +67,7 @@ idr.program @exclusive root(@root) stage(first) {
     return %r : !idr.box<!L>
   }
   idr.func @bump2(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %n : !idr.box<!L>

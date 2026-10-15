@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- fannkuch-redux (the Benchmarks Game): every permutation of 0..n-1, the

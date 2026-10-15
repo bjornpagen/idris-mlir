@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Facts live in types and in an op's inherent properties, never in a
 # discardable attribute, which a pass can drop without a word: so the
 # dialect declares no discardable attribute. And a data type is an

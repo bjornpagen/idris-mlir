@@ -16,9 +16,8 @@
 namespace idr::conversion {
 
 // The benefit of a pattern that lowers an op its own way where a more
-// general one also would: a big op whose small case is inline ahead of the
-// call of its runtime function, and an op on buffers whose meaning is the
-// runtime's ahead of upstream's lowering of the op.
+// general one also would: an op on buffers whose meaning is the runtime's
+// ahead of upstream's lowering of the op.
 inline constexpr unsigned ownLowering = 2;
 
 // Each pattern instantiates the template, so its body is here.

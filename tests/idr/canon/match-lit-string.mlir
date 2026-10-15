@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns=@nonempty:1/1/1,matches-nothing=@nonempty,\
 // RUN: returns-on-paths=@maybe_empty:0+1,returns-on-paths=@other_keys:0+1 -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // A string that cannot be empty never takes the case "".
 
 idr.program @"match-lit-string" root(@root) stage(first) {

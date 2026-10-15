@@ -4,7 +4,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@afterCon -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@sharedResult -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@constant -o /dev/null
-// NEEDS-ACCEPTANCE: R11's analysis of released buffers (B6) and of call results (B7): each function marked to copy writes a copy, and @fresh writes in place.
+// NEEDS-ACCEPTANCE: the analysis of released buffers and of call results: each function marked to copy writes a copy, and @fresh writes in place.
 // A buffer may be written in place only when nothing else holds it. A
 // fresh buffer written once is (@fresh). Two writes of one empty tensor,
 // which CSE made one, are not: the second writes a copy (@twoWrites). A

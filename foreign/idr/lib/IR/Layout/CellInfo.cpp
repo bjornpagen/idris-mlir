@@ -18,18 +18,17 @@ CellInfo::CellInfo(uint32_t word) noexcept : bits(word) {}
 // The header holds the tag within its group, the cell's group word the
 // rest; and the count of object slots, or the mark that the word after the
 // header holds it.
-CellInfo CellInfo::constructor(uint64_t tag, std::optional<unsigned> objs,
-                               uint32_t kind) noexcept {
+CellInfo CellInfo::constructor(Tag tag, std::optional<unsigned> objs, uint32_t kind) noexcept {
   assert((!objs || *objs <= mostObjects) && "a count the header's field holds");
   uint32_t field = objs ? *objs : IDRIS_RT_OBJS_WIDE;
-  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag & tagMask), field, kind));
+  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag) & tagMask, field, kind));
 }
 
-CellInfo CellInfo::box(uint64_t tag, std::optional<unsigned> objs) noexcept {
+CellInfo CellInfo::box(Tag tag, std::optional<unsigned> objs) noexcept {
   return constructor(tag, objs, IDRIS_RT_KIND_BOX);
 }
 
-CellInfo CellInfo::thunk(uint64_t tag, std::optional<unsigned> objs) noexcept {
+CellInfo CellInfo::thunk(Tag tag, std::optional<unsigned> objs) noexcept {
   return constructor(tag, objs, IDRIS_RT_KIND_THUNK);
 }
 
@@ -39,8 +38,8 @@ CellInfo CellInfo::array(unsigned stride, unsigned objs) noexcept {
   return CellInfo(idris_rt_info(stride, objs, IDRIS_RT_KIND_ARRAY));
 }
 
-CellInfo CellInfo::string(bool ascii) noexcept {
-  return CellInfo(idris_rt_info(ascii ? 1u : 0u, 0, IDRIS_RT_KIND_STRING));
+CellInfo CellInfo::string() noexcept {
+  return CellInfo(idris_rt_info(0, 0, IDRIS_RT_KIND_STRING));
 }
 
 CellInfo CellInfo::bignum() noexcept { return CellInfo(idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)); }

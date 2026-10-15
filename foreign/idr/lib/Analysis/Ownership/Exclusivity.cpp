@@ -30,225 +30,112 @@
 // into the types (`!idr.excl<T>`), which every later pass keeps and the
 // owned stage's verifier checks.
 //
+// It is context-sensitive where grade specialization made a context: a
+// call of a key or of its copy runs, within the solve, the copy when every
+// value it passes at a followed parameter is exclusive and the original
+// otherwise, and only the functions some call that runs goes to run
+// (ExclusivityAnalyses.cpp). The solve is that of the program after each
+// call went where the solve found it goes, and may be less precise than
+// one solved afresh, never unsound.
+//
 // The solver answers by program point and value, which the passes after
-// it ask of the function they rewrite; so its answers are copied into
-// tables and the solver is gone when the constructor returns.
-#include "idr/Analysis/Ownership.h"
+// it ask of the function they rewrite; so this unit runs it and copies its
+// answers into tables, and the solver is gone when the solve returns.
+#include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
+#include "idr/Analysis/Ownership.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Ownership.h"
+#include "idr/Support/Worklist.h"
 
-#include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
-#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <variant>
 
 using namespace mlir;
 using namespace mlir::dataflow;
-using Sharing = idr::Exclusivity::Sharing;
 
 namespace idr {
 
-namespace {
+namespace exclusivity = detail::exclusivity;
+using exclusivity::CellsLattice;
+using exclusivity::exclusive;
+using Sharing = Exclusivity::Sharing;
 
-// What is known of a value's cell graph, as the lattice holds it.
-struct Cells {
-  Sharing sharing = Sharing::Unknown;
-
-  static Cells of(Sharing sharing) { return {sharing}; }
-
-  static Cells join(const Cells &a, const Cells &b) { return of(std::max(a.sharing, b.sharing)); }
-
-  bool operator==(const Cells &) const = default;
-
-  void print(raw_ostream &os) const {
-    switch (sharing) {
-    case Sharing::Unknown:
-      os << "unknown";
-      return;
-    case Sharing::Exclusive:
-      os << "exclusive";
-      return;
-    case Sharing::Shared:
-      os << "shared";
-      return;
-    }
-  }
-};
-
-struct CellsLattice : Lattice<Cells> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(CellsLattice)
-  using Lattice::Lattice;
-};
-
-// Reachability alone. The dead-code analysis asks a constant lattice which
-// region a branch takes, and a region only a constant would skip is the
-// canonicalizer's to fold, not the solver's to leave ungraded: every value
-// is a constant it does not know, so every region can run.
-class NoConstants : public SparseForwardDataFlowAnalysis<Lattice<ConstantValue>> {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NoConstants)
-  using SparseForwardDataFlowAnalysis::SparseForwardDataFlowAnalysis;
-
-  LogicalResult visitOperation(Operation *, ArrayRef<const Lattice<ConstantValue> *>,
-                               ArrayRef<Lattice<ConstantValue> *> results) override {
-    for (Lattice<ConstantValue> *lattice : results)
-      setToEntryState(lattice);
-    return success();
-  }
-
-  void setToEntryState(Lattice<ConstantValue> *lattice) override {
-    propagateIfChanged(lattice, lattice->join(ConstantValue::getUnknownConstant()));
-  }
-};
-
-// The program is entered at its root, from outside: its callers are not
-// the program's to show. Every other function is private, entered only by
-// the calls the program makes.
-class Entry : public DataFlowAnalysis {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Entry)
-
-  Entry(DataFlowSolver &solver, FuncOp root) : DataFlowAnalysis(solver), root(root) {}
-
-  LogicalResult initialize(Operation *) override {
-    auto *callers = getOrCreate<PredecessorState>(getProgramPointAfter(root));
-    propagateIfChanged(callers, callers->setHasUnknownPredecessors());
-    return success();
-  }
-  LogicalResult visit(ProgramPoint *) override { return success(); }
-
-private:
-  FuncOp root;
-};
-
-class ExclusiveAnalysis : public SparseForwardDataFlowAnalysis<CellsLattice> {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ExclusiveAnalysis)
-
-  using SparseForwardDataFlowAnalysis::SparseForwardDataFlowAnalysis;
-
-  // Each followed result is what reaches it whole (new, a use of a value
-  // moved into it or out of a part of one, a copy, a constant), joined with
-  // the cells moved into its parts; a result nothing reaches whole is not
-  // new to anyone, and shared.
-  LogicalResult visitOperation(Operation *op, ArrayRef<const CellsLattice *> operands,
-                               ArrayRef<CellsLattice *> results) override {
-    FlowEdges edges;
-    if (declaresFlow(op))
-      flowEdgesOf(op, edges);
-    for (auto [result, lattice] : llvm::zip(op->getResults(), results)) {
-      if (!ownership::followed(result))
-        continue;
-      Sharing whole = Sharing::Unknown, parts = Sharing::Unknown;
-      for (const FlowEdges::Edge &edge : edges.edges()) {
-        if (!edge.carries(Carrier::Reference) || edge.to.getValue() != result)
-          continue;
-        if (edge.to.kind == FlowPoint::Kind::Part) {
-          parts = std::max(parts, intoPart(edge.from, operands));
-          continue;
-        }
-        whole = std::max(whole, reaching(edge, operands));
-      }
-      Sharing sharing = whole == Sharing::Unknown ? Sharing::Shared : std::max(whole, parts);
-      propagateIfChanged(lattice, lattice->join(Cells::of(sharing)));
-    }
-    return success();
-  }
-
-  // A value the program does not show every source of is shared.
-  void setToEntryState(CellsLattice *lattice) override {
-    propagateIfChanged(lattice, lattice->join(Cells::of(Sharing::Shared)));
-  }
-
-private:
-  // What an operand holds, optimistically: unknown counts as exclusive
-  // until a path shares it.
-  static Sharing held(const CellsLattice *lattice) {
-    return lattice->getValue().sharing == Sharing::Shared ? Sharing::Shared : Sharing::Exclusive;
-  }
-
-  // What reaches a result whole along `edge`: a new value is exclusive; a
-  // use moved into it, whole or out of a part, brings what that value
-  // holds; a copy of a value read shares its cells, unless it is static
-  // data that reaches no cell but atoms, which no take hands out; a part
-  // read and a constant are shared.
-  static Sharing reaching(const FlowEdges::Edge &edge, ArrayRef<const CellsLattice *> operands) {
-    using Kind = FlowEdges::Edge::Kind;
-    if (edge.kind == Kind::Fresh)
-      return Sharing::Exclusive;
-    if (edge.kind != Kind::Flow)
-      return Sharing::Shared;
-    const FlowPoint &from = edge.from;
-    if (from.takes())
-      return held(operands[from.operand->getOperandNumber()]);
-    if (from.kind == FlowPoint::Kind::Value && ownership::reachesOnlyAtoms(from.value))
-      return Sharing::Exclusive;
-    return Sharing::Shared;
-  }
-
-  // What a cell moved into a part of a result brings: a followed use what
-  // it holds; anything else no cell a take could hand out.
-  static Sharing intoPart(const FlowPoint &from, ArrayRef<const CellsLattice *> operands) {
-    if (!from.takes())
-      return Sharing::Shared;
-    if (!ownership::followed(from.operand->get()))
-      return Sharing::Unknown;
-    return held(operands[from.operand->getOperandNumber()]);
-  }
-};
-
-} // namespace
-
-Exclusivity::Exclusivity(Operation *op, AnalysisManager &) {
-  auto program = cast<ProgramOp>(op);
+FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Copies &copies) {
+  exclusivity::Calls calls(program, copies);
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
-  solver.load<Entry>(program.lookupRoot());
-  solver.load<DeadCodeAnalysis>();
-  solver.load<NoConstants>();
-  solver.load<ExclusiveAnalysis>();
-  if (mlir::failed(solver.initializeAndRun(program))) {
-    unsolved = true;
-    return;
-  }
+  exclusivity::loadAnalyses(solver, program, calls);
+  if (mlir::failed(solver.initializeAndRun(program)))
+    return failure();
+
+  Exclusivity out;
   auto record = [&](Value value) {
     if (auto *lattice = solver.lookupState<CellsLattice>(value);
         lattice && lattice->getValue().sharing != Sharing::Unknown)
-      sharing[value] = lattice->getValue().sharing;
+      out.sharing[value] = lattice->getValue().sharing;
   };
-  program->walk([&](Block *block) {
-    if (auto *state = solver.lookupState<Executable>(solver.getProgramPointBefore(block));
-        state && state->isLive())
-      liveBlocks.insert(block);
+  // A value the solve never reached is unknown, which counts as exclusive.
+  auto passesExclusive = [&](Value arg) {
+    const CellsLattice *lattice = solver.lookupState<CellsLattice>(arg);
+    return !lattice || exclusive(*lattice);
+  };
+  auto executable = [&](Block *block) {
+    const Executable *state = solver.lookupState<Executable>(solver.getProgramPointBefore(block));
+    return state && state->isLive();
+  };
+  // The functions that run once each call goes where the solve finally sent
+  // it: those whose callers the program does not all show, and each a live
+  // call of one goes to, each function once. A copy a call went to before
+  // an argument of it was found shared, and none went to after, the solve
+  // ran (a function only ever starts to run) but the program never does:
+  // nothing of it is live, and none of its calls is any function's caller.
+  OnceWorklist<FuncOp> reached;
+  for (FuncOp fn : program.getOps<FuncOp>())
+    if (const auto *callers = solver.lookupState<PredecessorState>(solver.getProgramPointAfter(fn));
+        callers && !callers->allPredecessorsKnown())
+      (void)reached.push(fn);
+  // The calls that run, by the function each runs.
+  DenseMap<Operation *, SmallVector<Operation *>> runsFrom;
+  while (std::optional<FuncOp> fn = reached.pop())
+    fn->walk([&](Block *block) {
+      if (!executable(block))
+        return;
+      out.liveBlocks.insert(block);
+      for (CallOp call : block->getOps<CallOp>()) {
+        FuncOp target = calls.target(call, passesExclusive);
+        if (std::holds_alternative<exclusivity::Calls::Pair>(calls.calleeOf(call)))
+          out.targets.try_emplace(call, target);
+        runsFrom[target].push_back(call);
+        (void)reached.push(target);
+      }
+    });
+  program.walk([&](Block *block) {
     for (BlockArgument arg : block->getArguments())
       record(arg);
     for (Operation &inner : *block)
       for (Value result : inner.getResults())
         record(result);
   });
-  // A call's results join the callee's returns the solver reached, which
-  // it records after the call; any one call of a function shows them.
-  DenseMap<StringAttr, CallOp> callOf;
-  program.walk([&](CallOp call) { callOf.try_emplace(call.getCalleeAttr().getAttr(), call); });
   for (FuncOp fn : program.getOps<FuncOp>()) {
-    if (auto *preds = solver.lookupState<PredecessorState>(solver.getProgramPointAfter(fn));
-        preds && preds->allPredecessorsKnown())
-      callersOf[fn].assign(preds->getKnownPredecessors().begin(),
-                           preds->getKnownPredecessors().end());
-    CallOp call = callOf.lookup(fn.getSymNameAttr());
-    if (!call)
+    auto from = runsFrom.find(fn);
+    if (llvm::all_of(calls.namesOf(fn), [&](FuncOp named) {
+          const auto *callers =
+              solver.lookupState<PredecessorState>(solver.getProgramPointAfter(named));
+          return callers && callers->allPredecessorsKnown();
+        }))
+      out.callersOf[fn] = from == runsFrom.end() ? SmallVector<Operation *>() : from->second;
+    if (from == runsFrom.end())
       continue;
-    if (auto *preds = solver.lookupState<PredecessorState>(solver.getProgramPointAfter(call));
-        preds && preds->allPredecessorsKnown())
-      returnsOf[fn].assign(preds->getKnownPredecessors().begin(),
-                           preds->getKnownPredecessors().end());
+    SmallVector<Operation *> &returns = out.returnsOf[fn];
+    for (ReturnOp ret : calls.returns(fn))
+      if (out.liveBlocks.contains(ret->getBlock()))
+        returns.push_back(ret);
   }
-}
-
-bool Exclusivity::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const {
-  return !pa.isPreserved<Exclusivity>() || !pa.isPreserved<SymbolTable>();
+  return out;
 }
 
 Sharing Exclusivity::of(Value value) const {
@@ -266,14 +153,24 @@ bool Exclusivity::proves(Value value) const {
   if (auto flow = dyn_cast_or_null<FlowOpInterface>(value.getDefiningOp())) {
     FlowEdges edges;
     flow.getFlowEdges(edges);
-    for (const FlowEdges::Edge &edge : edges.edges())
-      if (edge.kind == FlowEdges::Edge::Kind::Flow && edge.carries(Carrier::Reference) &&
-          edge.from.kind == FlowPoint::Kind::Operand && edge.to.kind == FlowPoint::Kind::Value &&
-          edge.to.value == value &&
-          unrestricted(edge.from.operand->get().getType()) == unrestricted(value.getType()))
-        return proves(edge.from.operand->get());
+    for (const FlowEdges::Edge &edge : edges.edges()) {
+      const auto *move = std::get_if<FlowEdges::Flow>(&edge.move);
+      if (!move || !edge.carries(Carrier::Reference))
+        continue;
+      const auto *use = std::get_if<FlowPoint::Taken>(&move->from.at);
+      if (use && move->to == FlowPoint::of(value) &&
+          unrestricted(use->use->get().getType()) == unrestricted(value.getType()))
+        return proves(use->use->get());
+    }
   }
   return of(value) == Sharing::Exclusive;
+}
+
+std::optional<FuncOp> Exclusivity::target(CallOp call) const {
+  auto it = targets.find(call);
+  if (it == targets.end())
+    return std::nullopt;
+  return it->second;
 }
 
 std::optional<ArrayRef<Operation *>> Exclusivity::callers(FuncOp fn) const {

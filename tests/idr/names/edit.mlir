@@ -6,7 +6,7 @@
 // RUN: sed -n 's/^ *idr\.func \(private \)\{0,1\}@\([^(]*\)(.*/\2/p' %t.edited.out.mlir | grep -v '^scale' | sort > %t.edited.names
 // RUN: grep -q '[.]spec[.]' %t.names
 // RUN: diff %t.names %t.edited.names
-// NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as C09's binding-time rule allows.
+// NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as the binding-time rule allows.
 // One definition edited leaves every other symbol where it was: the
 // first RUN line changes the body of @scale alone, and every function the
 // optimizer keeps or makes that is not @scale's, the specializations of

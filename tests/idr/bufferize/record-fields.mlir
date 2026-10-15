@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-bufferize | FileCheck %s
-// NEEDS-ACCEPTANCE: which step makes an array of a record one tensor per field (0003 D44) is in no contract yet; this fixture states the two tensors' bufferization only.
+// NEEDS-ACCEPTANCE: which step makes an array of a record one tensor per field is not decided yet; this fixture states the two tensors' bufferization only.
 // An array of a record is one array per field: here a record of an i64
 // and an f64, whose tabulation fills both fields' arrays in one loop.
 // Through bufferization each field's array is a buffer of its own, and no

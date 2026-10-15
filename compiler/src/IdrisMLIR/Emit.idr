@@ -60,7 +60,7 @@ each (x :: xs) f = do
 ||| the whole program is at the user's code. Every symbol is written once:
 ||| two functions on one symbol are an internal error. A failure leaves the
 ||| file unwritten or partly written; the caller discards it.
-export covering
+export
 emit : File -> Source -> IO (Either String ())
 emit h src = do
   let Just root = find (\f => f.id == src.root) src.fns

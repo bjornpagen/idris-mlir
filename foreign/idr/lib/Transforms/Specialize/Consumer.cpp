@@ -18,7 +18,7 @@
 // function of its key, whichever call asked for it.
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
-#include "idr/Analysis/Holds.h"
+#include "idr/IR/Grades.h"
 #include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Specialize.h"
 
@@ -32,23 +32,25 @@ using namespace mlir;
 
 namespace idr::specialize::detail {
 
-std::optional<Consumer> consumerOf(idr::CallOp call, idr::FuncOp callee, const Holds &holds) {
+std::optional<Consumer> consumerOf(idr::CallOp call, idr::FuncOp callee,
+                                   const CalleeEffects &effects) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse())
     return std::nullopt;
   // The operands have the callee's parameter types, so a world one of them
   // may hold is one the callee takes.
-  if (llvm::any_of(call.getArgs().getTypes(), [&](Type type) { return holds.mayHoldWorld(type); }))
+  if (llvm::any_of(call.getArgs().getTypes(), [](Type type) { return idr::holdsWorld(type); }))
     return std::nullopt;
   std::optional<Elimination> e = eliminationAt(*call->getResult(0).getUses().begin());
   if (!e || e->dispatch->getBlock() != call->getBlock())
     return std::nullopt;
   // A call that only computes may run later, after anything between it and
   // its consumer; any other only after ops that only compute. What a call
-  // does is its callee's entry, final here.
+  // does is its callee's entry, final here; what one between does is its
+  // own callee's.
   if (callee.getEffects() != idr::Effect::none)
     for (Operation *op = call->getNextNode(); op != e->dispatch.getOperation();
          op = op->getNextNode())
-      if (!idr::onlyAllocates(op))
+      if (!idr::onlyAllocates(op, &effects))
         return std::nullopt;
   return e;
 }
@@ -58,15 +60,7 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
   MLIRContext *ctx = call.getContext();
   // The steps from the call's result to the dispatch, each the one use of
   // the one before, in the order they run.
-  SmallVector<Operation *> steps;
-  if (consumer.enter) {
-    steps.push_back(consumer.enter);
-    steps.push_back(consumer.exit);
-  }
-  if (consumer.field)
-    steps.push_back(consumer.field);
-  if (consumer.use)
-    steps.push_back(consumer.use);
+  SmallVector<Operation *> steps = consumer.steps();
   MatchOp dispatch = consumer.dispatch;
 
   // The values the dispatch's regions read from outside it, in the order a
@@ -141,22 +135,22 @@ StringAttr Forms::formOf(OwningOpRef<idr::FuncOp> consumer) {
 
 std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp callee,
                            const Node *calleeNode, ArrayRef<BindingTime> seen,
-                           const Holds &holds, Forms &forms) {
+                           const CalleeEffects &effects, Forms &forms) {
   MLIRContext *ctx = call.getContext();
   StringAttr name = call.getCalleeAttr().getAttr();
 
   // A spec node raises nothing; a raise node only with its own consumer,
   // where its callee's tails meet it again; any other function freely. The
   // callee returns from its one block, where the consumer is pushed.
-  Attribute own = requester ? requester->key : Attribute();
+  const Key *own = requester ? &requester->key : nullptr;
   Region &body = callee.getBody();
-  if (!isa_and_nonnull<SpecKeyAttr>(own) && body.hasOneBlock() &&
+  if (!(own && std::holds_alternative<SpecKeyAttr>(*own)) && body.hasOneBlock() &&
       isa<idr::ReturnOp>(body.front().getTerminator()))
-    if (std::optional<Consumer> consumer = consumerOf(call, callee, holds)) {
+    if (std::optional<Consumer> consumer = consumerOf(call, callee, effects)) {
       SmallVector<Value> free;
       StringAttr form = forms.formOf(consumerFunction(call, *consumer, free));
-      auto ownRaise = dyn_cast_or_null<KeyRaiseAttr>(own);
-      if (!ownRaise || ownRaise.getConsumer() == form) {
+      const auto *ownRaise = own ? std::get_if<KeyRaiseAttr>(own) : nullptr;
+      if (!ownRaise || ownRaise->getConsumer() == form) {
         Want want;
         want.key = KeyRaiseAttr::get(ctx, name, form);
         want.owner = name;
@@ -168,7 +162,9 @@ std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp 
     }
 
   // A call of a spec node is keyed over the node's owner's parameters.
-  auto spec = calleeNode ? dyn_cast<SpecKeyAttr>(calleeNode->key) : SpecKeyAttr();
+  std::optional<SpecKeyAttr> spec;
+  if (const auto *calleeSpec = calleeNode ? std::get_if<SpecKeyAttr>(&calleeNode->key) : nullptr)
+    spec = *calleeSpec;
   std::optional<Composed> composed = composeKey(call, spec, seen);
   if (!composed)
     return std::nullopt;

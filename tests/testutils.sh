@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # What the golden tests' run scripts share. A run
 # script starts with
 #
@@ -57,6 +59,7 @@
 #     fuzz.sh          the fuzzer
 #     two-levels.sh    closed terms, compiled, against their recorded values
 #     idris-lex.sh     Idris source, code told from comments and strings
+#     cpp-lex.sh       C and C++ source, code told from comments and literals
 #     bench.sh         the benchmarks, built and run on small inputs
 
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
@@ -92,7 +95,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
 fi
 
 for lib_file in harness timing rules compile run heap mlir expect prelude properties e2e \
-                profile determinism lit fuzz two-levels idris-lex bench; do
+                profile determinism lit fuzz two-levels idris-lex cpp-lex bench; do
   . "$root/tests/lib/$lib_file.sh"
 done
 unset lib_file

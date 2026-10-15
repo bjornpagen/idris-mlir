@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Idris source, lexed well enough for the source rules the spec tests
 # check.
 

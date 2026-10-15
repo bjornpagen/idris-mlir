@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // Closures that a recursion on a runtime value makes larger: each level
 // captures a closure of its own type, so no unboxed sum over labels stands
 // for them: their keys become boxed sums. The unrelated closure type in the

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # idris-mlir's commands. GNU make.
 #
 #   make bootstrap         build the pinned toolchain into .toolchain/ (tools/bootstrap.sh all)

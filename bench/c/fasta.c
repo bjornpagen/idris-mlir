@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* fasta on one core, as Main.idr here: the repeated ALU and two random
    sequences from cumulative tables, 60 characters to a line. */
 #include <stdio.h>

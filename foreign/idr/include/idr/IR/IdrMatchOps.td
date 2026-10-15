@@ -57,12 +57,14 @@ def Idr_MatchOp : Idr_MatchOpBase<"match", [
     // A match on `scrutinee` with a region per tag of `tags`, and one more
     // for the default when `regions` says so.
     OpBuilder<(ins "::mlir::TypeRange":$results, "::mlir::Value":$scrutinee,
-                   "::llvm::ArrayRef<unsigned>":$tags, "unsigned":$regions)>
+                   "::llvm::ArrayRef<::idr::Tag>":$tags, "unsigned":$regions)>
   ];
   let extraClassDeclaration = matchClassDeclaration # [{
     // The data type of the scrutinee, and the tag case `index` takes.
     ::idr::DataType getDataType();
-    unsigned getCaseTag(unsigned index) { return static_cast<unsigned>(getCases()[index]); }
+    ::idr::Tag getCaseTag(unsigned index) {
+      return ::idr::Tag{static_cast<uint32_t>(getCases()[index])};
+    }
   }];
 }
 

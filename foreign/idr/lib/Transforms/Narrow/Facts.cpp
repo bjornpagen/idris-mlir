@@ -12,6 +12,7 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 
@@ -21,14 +22,30 @@ using ranges::Bounds;
 
 bool isBig(Type type) { return isa<BigType, NatType>(unrestricted(type)); }
 
-// Once counting ran, the grade says whether a big holds a reference of its
-// own, and a value that stands for one (a small big, poison) holds none.
+// The grade says whether a big holds a reference of its own, and a value
+// that stands for one (a small big, poison) holds none.
 bool Facts::owned(Value value) const {
-  return analysis.counted() && isOwned(value.getType()) && !ownership::isStatic(value);
+  return isOwned(value.getType()) && !ownership::isStatic(value);
+}
+
+// Whether counting ran on a program at `stage`: from the owned stage on,
+// every value that holds references and is no view is graded owned.
+static bool counted(Stage stage) {
+  switch (stage) {
+  case Stage::Higher:
+  case Stage::First:
+    return false;
+  case Stage::Owned:
+  case Stage::Lowered:
+    return true;
+  }
+  llvm_unreachable("a stage");
 }
 
 bool Facts::borrowed(Value value) const {
-  return analysis.counted() && !isOwned(value.getType()) && !ownership::isStatic(value);
+  Type type = value.getType();
+  return counted(ProgramOp(program).getStage()) && holdsReferences(type) && !isOwned(type) &&
+         !ownership::isStatic(value);
 }
 
 Bounds Facts::of(Value value) const {

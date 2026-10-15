@@ -8,6 +8,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Ranges.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
@@ -17,6 +18,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 
@@ -24,11 +26,11 @@ namespace idr::conversion {
 
 namespace {
 
-// The range an op states for its result whatever its operands are, as
-// LLVM's `range`: the runtime keeps the op's meaning, so the call's result
-// is in it too. An op whose range depends on its operands states nothing
+// The range an op states for its value whatever its operands are: the
+// runtime keeps the op's meaning, so what the call gives stands for a
+// value in it. An op whose range depends on its operands states nothing
 // here, since every operand is taken to be any value.
-std::optional<LLVM::ConstantRangeAttr> statedRange(Operation *op) {
+std::optional<ConstantIntRanges> statedRange(Operation *op) {
   auto ranged = dyn_cast<InferIntRangeInterface>(op);
   if (!ranged || op->getNumResults() != 1)
     return std::nullopt;
@@ -40,11 +42,46 @@ std::optional<LLVM::ConstantRangeAttr> statedRange(Operation *op) {
     if (!range.isUninitialized())
       stated = range.getValue();
   });
-  // LLVM's range is half-open, so a range up to the type's largest value
-  // is one LLVM cannot state, and says nothing worth stating.
-  if (!stated || stated->umax().isMaxValue())
+  return stated;
+}
+
+// The range, as LLVM's `range`, of what a function of result `kind` gives
+// for a value in `stated`. A word is its value. A big gives its word, which
+// is 2v+1 for a value v that fits a small and a cell's address for any
+// other: only a range of small values says where the words are. LLVM's
+// range is half-open, so a range up to the type's largest value is one it
+// cannot state, and says nothing worth stating.
+std::optional<LLVM::ConstantRangeAttr> givenRange(MLIRContext *ctx, idr::runtime::Kind kind,
+                                                  const ConstantIntRanges &stated) {
+  using idr::runtime::Kind;
+  switch (kind) {
+  case Kind::Int32:
+  case Kind::Int64:
+    if (stated.umax().isMaxValue())
+      return std::nullopt;
+    return LLVM::ConstantRangeAttr::get(ctx, stated.umin(), stated.umax() + 1);
+  case Kind::Big: {
+    ranges::Bounds bounds = ranges::boundsOf(stated);
+    if (!bounds.fits())
+      return std::nullopt;
+    // Modulo 2^64, as LLVM reads a range that wraps: the largest small
+    // value's word is the largest i64, and the end after it 2^63.
+    uint64_t lower = static_cast<uint64_t>(*bounds.lo) * 2 + 1;
+    uint64_t upper = static_cast<uint64_t>(*bounds.hi) * 2 + 2;
+    return LLVM::ConstantRangeAttr::get(ctx, APInt(64, lower), APInt(64, upper));
+  }
+  case Kind::World:
+  case Kind::Double:
+  case Kind::Signed:
+  case Kind::Unsigned:
+  case Kind::Wrapped:
+  case Kind::Order:
+  case Kind::Str:
+  case Kind::Buffer:
+  case Kind::Void:
     return std::nullopt;
-  return LLVM::ConstantRangeAttr::get(op->getContext(), stated->umin(), stated->umax() + 1);
+  }
+  llvm_unreachable("a runtime function's result is one of the table's kinds");
 }
 
 // The op's value from what its function gives. A wrapped integer is the
@@ -66,31 +103,35 @@ Value resultOf(OpT op, const idr::runtime::Function &function, Value given, Type
                                    given, zero);
     }
   }
-  if (std::optional<LLVM::ConstantRangeAttr> range = statedRange(op))
-    given.getDefiningOp<LLVM::CallOp>().setResAttrsAttr(rewriter.getArrayAttr(
-        rewriter.getDictionaryAttr(rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(),
-                                                         *range))));
+  if (std::optional<ConstantIntRanges> stated = statedRange(op))
+    if (std::optional<LLVM::ConstantRangeAttr> range =
+            givenRange(rewriter.getContext(), function.result, *stated))
+      given.getDefiningOp<LLVM::CallOp>().setResAttrsAttr(rewriter.getArrayAttr(
+          rewriter.getDictionaryAttr(rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(),
+                                                           *range))));
   return given;
 }
 
 // An op's precondition (a divisor that is not zero, an index within the
 // string) is its guard's, tested before the op: the call is all the op
 // lowers to. The op's results are the world, which is nothing, and at most
-// one value, the function's.
+// one value, the function's: the table gives the op a function of a Void
+// result exactly when it has no other.
 template <typename OpT>
 struct LowerRuntimeCall : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     const idr::runtime::Function &function = runtimeFunctionOf(op);
-    Value given = this->runtime.call(rewriter, op, function, adaptor.getOperands());
+    std::optional<Value> given =
+        this->runtime.call(rewriter, op, function, adaptor.getOperands());
     SmallVector<SmallVector<Value>> out;
     for (Type type : op->getResultTypes()) {
       SmallVector<Type> components = this->layouts.components(type);
       if (components.empty())
         out.emplace_back();
       else
-        out.push_back({resultOf(op, function, given, components.front(), rewriter)});
+        out.push_back({resultOf(op, function, *given, components.front(), rewriter)});
     }
     rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();
@@ -110,8 +151,8 @@ void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter
 } // namespace
 
 // The patterns of the ops that call the runtime: every op the table pairs
-// with a function. A big op whose small case is inline has a pattern of its
-// own, ahead of this one.
+// with a function, the big ops among them, whose small case the runtime
+// keeps inline.
 void populateRuntimeCallPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                                  const Layouts &layouts, Runtime &runtime) {
   addRuntimeCalls<

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// constant-stack: what idr-tail-loops and idr-tail-calls guarantee of a
-// function, stated as a property of the graph of references, not as the
-// ops that happen to show it. It is stated of a lowered module as well as
+// constant-stack and tail-calls: what idr-tail-loops and idr-tail-calls
+// guarantee of a function, stated as a property of the graph of references
+// and of each call, not as the ops that happen to show it. It is stated of a lowered module as well as
 // of an idr one, so it follows symbol uses, whatever ops make them.
 
 #include "idr/Transforms/Expect.h"
+
+#include "idr/Support/Worklist.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/ADT/DenseMap.h"
@@ -72,20 +74,21 @@ private:
 LogicalResult constantStack(ModuleOp module, AnalysisManager &analyses, StringRef function) {
   constexpr StringRef property = "constant-stack";
   SymbolTable &symbols = symbolsOf(module, analyses);
-  SmallVector<Operation *> reached = llvm::map_to_vector(
-      named(module, function, property),
-      [](FunctionOpInterface fn) -> Operation * { return fn; });
-  if (reached.empty())
+  SmallVector<FunctionOpInterface> starts = named(module, function, property);
+  if (starts.empty())
     return failure();
+  // Every function the named ones may call, themselves included, each
+  // taken once.
   Graph graph(symbols);
-  llvm::DenseSet<Operation *> seen(reached.begin(), reached.end());
-  for (size_t next = 0; next < reached.size(); ++next)
-    for (Reference ref : graph.of(reached[next]))
-      if (seen.insert(ref.target).second)
-        reached.push_back(ref.target);
+  OnceWorklist<Operation *> reached;
+  for (FunctionOpInterface fn : starts)
+    reached.push(fn);
+  while (std::optional<Operation *> next = reached.pop())
+    for (Reference ref : graph.of(*next))
+      reached.push(ref.target);
   auto edges = [&](Operation *fn) { return graph.targets(fn); };
   bool held = true;
-  for (const SmallVector<Operation *> &cycle : cycles(reached, edges)) {
+  for (const SmallVector<Operation *> &cycle : cycles(reached.entered(), edges)) {
     llvm::DenseSet<Operation *> members(cycle.begin(), cycle.end());
     bool grows = false;
     for (Operation *fn : cycle)
@@ -97,6 +100,43 @@ LogicalResult constantStack(ModuleOp module, AnalysisManager &analyses, StringRe
                                << "the stack grows with the recursion of";
     for (Operation *fn : cycle)
       error << " " << where(fn);
+    held = false;
+  }
+  return success(held);
+}
+
+// `@f:@g`: every copy of @f calls @g or a copy of it, and each such call
+// is a guaranteed tail call, which replaces the caller's frame: marked
+// musttail, and followed by the return, as LLVM's rule for one asks.
+LogicalResult tailCalls(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
+  constexpr StringRef property = "tail-calls";
+  auto [function, callee] = splitAt(module, argument, property);
+  if (function.empty())
+    return failure();
+  StringRef g = callee.ltrim('@');
+  if (g.empty())
+    return fail(module.getLoc(), property) << "name both functions, as tail-calls=@f:@g";
+  SmallVector<FunctionOpInterface> functions = named(module, function, property);
+  if (functions.empty())
+    return failure();
+  SymbolTable &symbols = symbolsOf(module, analyses);
+  bool held = true;
+  for (FunctionOpInterface fn : functions) {
+    bool some = false;
+    fn->walk([&](LLVM::CallOp call) {
+      if (!callsNamed(call, g, symbols))
+        return;
+      some = true;
+      if (call.getTailCallKind() == LLVM::tailcallkind::TailCallKind::MustTail &&
+          isa_and_nonnull<LLVM::ReturnOp>(call->getNextNode()))
+        return;
+      fail(call->getLoc(), property) << where(fn) << " calls " << callee
+                                     << " and keeps its frame";
+      held = false;
+    });
+    if (some)
+      continue;
+    fail(fn->getLoc(), property) << where(fn) << " makes no call of " << callee;
     held = false;
   }
   return success(held);

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The upstream bug upstream/16-remove-dead-values-unchanged-call still
 # reproduces with the pinned mlir-opt: remove-dead-values, on a module from
 # which it erases nothing, replaces the call of a private function with an

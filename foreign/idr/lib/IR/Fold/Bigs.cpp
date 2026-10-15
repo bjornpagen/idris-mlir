@@ -43,10 +43,11 @@ namespace {
 
 // Whether shifting the constant `value` by `amount` (left when `left`, the
 // other way when the amount is negative) makes a constant within
-// constantBytes. The runtime computes the fold here, in the compiler, so a
-// result past the budget is never made. A shift toward zero, or of 0,
-// shrinks or keeps its operand; one away from zero has at most the
-// operand's bits plus the amount. An amount past 2^64 is past every budget.
+// constantBytes, the size policy of a constant a fold makes. The runtime
+// computes the fold here, in the compiler, so a result past it is never
+// made, and the shift stays an op. A shift toward zero, or of 0, shrinks or
+// keeps its operand; one away from zero has at most the operand's bits
+// plus the amount. An amount past 2^64 is past any such size.
 bool foldable(BigAttr value, BigAttr amount, bool left) {
   const APInt &places = amount.getValue();
   if (left == places.isNegative() || value.getValue().isZero())

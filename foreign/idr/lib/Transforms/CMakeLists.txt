@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The passes: one library per area, and the pipeline that orders them.
 # LLVM's build checks that a directory's library lists every .cpp in it;
 # here the areas share the directory with the pipeline, whose library comes
@@ -112,6 +114,27 @@ add_mlir_library(IdrSmallPasses
 	MLIRLLVMDialect
 )
 
+# idr-canonicalize: upstream's pattern collection and greedy driver over
+# the ops' patterns, with the call-aware ones bound to a pipeline's table.
+add_mlir_library(IdrCanonicalize
+	Canonicalize/Canonicalizer.cpp
+
+	EXCLUDE_FROM_LIBMLIR
+	DISABLE_INSTALL
+	PARTIAL_SOURCES_INTENDED
+
+	DEPENDS
+	IdrOpsIncGen
+	IdrPassesIncGen
+
+	LINK_LIBS PUBLIC
+	IdrIR
+	MLIRIR
+	MLIRPass
+	MLIRRewrite
+	MLIRTransformUtils
+)
+
 # idr-optimize, the ready set over the call graph's components, and
 # idr-contify. It links the libraries whose steps a function's pipeline runs.
 add_mlir_library(IdrOptimize
@@ -134,6 +157,7 @@ add_mlir_library(IdrOptimize
 	IdrIR
 	IdrAnalysis
 	IdrSupport
+	IdrCanonicalize
 	IdrEffects
 	IdrSmallPasses
 	IdrInline
@@ -486,6 +510,7 @@ add_mlir_library(IdrPipeline
 
 	LINK_LIBS PUBLIC
 	IdrOptimize
+	IdrCanonicalize
 	IdrInline
 	IdrSpecialize
 	IdrDefunctionalize

@@ -2,7 +2,7 @@
 // RUN: FileCheck %s < %t.stats
 // RUN: idris-mlir -c %s -o %t.quiet.o 2> %t.quiet
 // RUN: FileCheck %s --check-prefix=QUIET --allow-empty < %t.quiet
-// NEEDS-ACCEPTANCE: the statistics' descriptions, as C12 declares them.
+// NEEDS-ACCEPTANCE: the statistics' descriptions.
 // --stats prints the statistics of every pass of the driver's manager: the
 // functions contified under IdrContify, the calls inlined and the nodes
 // made under IdrOptimize, the sums under IdrDefunctionalize. Without

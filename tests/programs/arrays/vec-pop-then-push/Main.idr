@@ -13,7 +13,7 @@ import Array
 import Linear.Vec
 
 -- The size and the capacity, with the vector given back.
-dims : (1 _ : Vec String) -> Res (Nat, Nat) (const (Vec String))
+dims : (1 _ : Vec n String) -> Res (Nat, Nat) (const (Vec n String))
 dims a = let s # a1 = size a
              c # a2 = capacity a1
          in (s, c) # a2
@@ -29,8 +29,8 @@ run w = unrestricted $ withVec 0 (the String "") (\v0 =>
       y # v4 = pop v3
       v5 = push (push v4 (w ++ "-5")) (w ++ "-6")
       d # v6 = dims v5
-      MkBang (n ** f) = Vec.freeze v6
-  in MkBang ([x, y], d, toList f))
+      MkBang f = Vec.freeze v6
+  in MkBang ([Just x, Just y], d, toList f))
 
 main : IO ()
 main = do

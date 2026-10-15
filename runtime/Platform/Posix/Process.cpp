@@ -50,6 +50,6 @@ int64_t secondsSinceEpoch() noexcept { return static_cast<int64_t>(time(nullptr)
 
 int64_t processId() noexcept { return static_cast<int64_t>(getpid()); }
 
-void exitProcess(int status) noexcept { _exit(status); }
+[[clang::annotate("idris-rt-baseline")]] void exitProcess(int status) noexcept { _exit(status); }
 
 } // namespace rt::platform

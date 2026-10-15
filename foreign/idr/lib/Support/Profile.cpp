@@ -36,7 +36,6 @@
 #include "mlir/Support/TypeID.h"
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Function.h"
@@ -69,14 +68,10 @@ llvm::cl::opt<unsigned> timeTraceGranularity(
     "time-trace-granularity", llvm::cl::value_desc("microseconds"), llvm::cl::init(0),
     llvm::cl::desc("With --time-trace, drop spans shorter than this many microseconds"));
 
-// What the process's Trace started, read by every thread that begins its
-// own profiler from it. It is written once, before any work that is
-// traced, and only read after.
-struct TraceState {
-  std::string proc;
-  bool started = false;
-};
-TraceState traceState;
+// The process name of the trace the process's Trace started, while it runs:
+// every thread that begins its own profiler names it. It is written once,
+// before any work that is traced, and only read after.
+std::optional<std::string> tracedProc;
 
 // What an MLIR pass zone ran on, as its detail: the operation's name and,
 // for a symbol, its name, which tells one function's run of a function
@@ -103,28 +98,29 @@ void beginLlvmZone(llvm::StringRef name, llvm::IRUnitRef ir) {
   llvm::timeTraceProfilerBegin(name, [ir] { return describe(ir); });
 }
 
-void endLlvmZone() {
-  if (llvm::getTimeTraceProfilerInstance())
-    llvm::timeTraceProfilerEnd();
-}
+// A zone's end. With no profiler on the thread there is no zone, and LLVM's
+// end does nothing.
+void endZone() { llvm::timeTraceProfilerEnd(); }
 
 class Zones final : public mlir::PassInstrumentation {
 public:
   void runBeforePipeline(std::optional<mlir::OperationName>, const PipelineParentInfo &) override {
-    if (!traceState.started)
+    if (!tracedProc)
       return;
     std::uint64_t thread = llvm::get_threadid();
     std::lock_guard<std::mutex> lock(mutex);
-    unsigned &depth = depths[thread];
-    if (depth == 0 && !llvm::getTimeTraceProfilerInstance()) {
-      llvm::timeTraceProfilerInitialize(timeTraceGranularity, traceState.proc);
-      owned.insert(thread);
+    // A thread enters the map at its outermost pipeline, and leaves it when
+    // that pipeline ends: a depth in the map is never 0.
+    auto [at, outermost] = threads.try_emplace(thread);
+    if (outermost && !llvm::getTimeTraceProfilerInstance()) {
+      llvm::timeTraceProfilerInitialize(timeTraceGranularity, *tracedProc);
+      at->second.owns = true;
     }
-    ++depth;
+    ++at->second.depth;
   }
 
   void runAfterPipeline(std::optional<mlir::OperationName>, const PipelineParentInfo &) override {
-    leavePipeline(false);
+    leave([](Pipelines &pipelines) { --pipelines.depth; });
   }
 
   void runBeforePass(mlir::Pass *pass, mlir::Operation *op) override {
@@ -132,83 +128,96 @@ public:
     llvm::timeTraceProfilerBegin(pass->getName(), [op] { return describe(op); });
   }
 
-  void runAfterPass(mlir::Pass *, mlir::Operation *) override {
-    if (llvm::getTimeTraceProfilerInstance())
-      llvm::timeTraceProfilerEnd();
-  }
+  void runAfterPass(mlir::Pass *, mlir::Operation *) override { endZone(); }
 
   void runAfterPassFailed(mlir::Pass *, mlir::Operation *) override {
-    if (llvm::getTimeTraceProfilerInstance())
-      llvm::timeTraceProfilerEnd();
+    endZone();
     // A failed pipeline skips its after-pipeline hook, so this thread's
     // pipelines are all unwinding: finish its profiler here.
-    leavePipeline(true);
+    leave([](Pipelines &pipelines) { pipelines.depth = 0; });
   }
 
   void runBeforeAnalysis(llvm::StringRef name, mlir::TypeID, mlir::Operation *op) override {
     llvm::timeTraceProfilerBegin(name, [op] { return describe(op); });
   }
 
-  void runAfterAnalysis(llvm::StringRef, mlir::TypeID, mlir::Operation *) override {
-    if (llvm::getTimeTraceProfilerInstance())
-      llvm::timeTraceProfilerEnd();
-  }
+  void runAfterAnalysis(llvm::StringRef, mlir::TypeID, mlir::Operation *) override { endZone(); }
 
 private:
-  void leavePipeline(bool failed) {
-    if (!traceState.started)
+  // The pipelines a thread is inside, and whether its outermost began the
+  // thread's profiler, which the thread then finishes when it leaves that
+  // pipeline.
+  struct Pipelines {
+    unsigned depth = 0;
+    bool owns = false;
+  };
+
+  // The calling thread leaves pipelines as `step` says.
+  template <typename Step>
+  void leave(Step step) {
+    if (!tracedProc)
       return;
     std::uint64_t thread = llvm::get_threadid();
     std::lock_guard<std::mutex> lock(mutex);
-    auto found = depths.find(thread);
-    if (found == depths.end())
+    auto found = threads.find(thread);
+    if (found == threads.end())
       return;
-    if (failed)
-      found->second = 0;
-    else if (found->second > 0)
-      --found->second;
-    if (found->second == 0) {
-      depths.erase(found);
-      if (owned.erase(thread))
-        llvm::timeTraceProfilerFinishThread();
-    }
+    step(found->second);
+    if (found->second.depth != 0)
+      return;
+    if (found->second.owns)
+      llvm::timeTraceProfilerFinishThread();
+    threads.erase(found);
   }
 
   std::mutex mutex;
-  llvm::DenseMap<std::uint64_t, unsigned> depths;
-  llvm::DenseSet<std::uint64_t> owned;
+  llvm::DenseMap<std::uint64_t, Pipelines> threads;
 };
 
-struct LlvmCallbacks {
+// The zones of an LLVM pipeline's passes and analyses, registered once.
+struct LlvmZones {
   llvm::PassInstrumentationCallbacks pic;
-  bool registered = false;
+
+  LlvmZones() {
+    pic.registerBeforeNonSkippedPassCallback(
+        [](llvm::StringRef name, llvm::IRUnitRef ir) { beginLlvmZone(name, ir); });
+    pic.registerAfterPassCallback(
+        [](llvm::StringRef, llvm::IRUnitRef, const llvm::PreservedAnalyses &) { endZone(); });
+    // The end of a pass whose IR unit it invalidated comes here instead.
+    pic.registerAfterPassInvalidatedCallback(
+        [](llvm::StringRef, const llvm::PreservedAnalyses &) { endZone(); });
+    pic.registerBeforeAnalysisCallback(
+        [](llvm::StringRef name, llvm::IRUnitRef ir) { beginLlvmZone(name, ir); });
+    pic.registerAfterAnalysisCallback([](llvm::StringRef, llvm::IRUnitRef) { endZone(); });
+  }
 };
-LlvmCallbacks llvmCallbacksState;
+
+// Made with the process, so no first use races to register the callbacks;
+// llvmCallbacks hands them out only while a trace runs.
+LlvmZones llvmZones;
 
 } // namespace
 
-idr::profile::Trace::Trace(llvm::StringRef proc) : procName(proc.str()) {
+idr::profile::Trace::Trace(llvm::StringRef proc) {
   if (timeTraceFile.empty())
     return;
-  traceState.proc = procName;
-  traceState.started = true;
-  llvm::timeTraceProfilerInitialize(timeTraceGranularity, procName);
-  active = true;
+  tracedProc = proc.str();
+  llvm::timeTraceProfilerInitialize(timeTraceGranularity, *tracedProc);
 }
 
 idr::profile::Trace::~Trace() {
-  if (!active)
+  if (!tracedProc)
     return;
   if (llvm::Error error = llvm::timeTraceProfilerWrite(timeTraceFile, ""))
-    llvm::errs() << procName << ": cannot write the time trace to " << timeTraceFile << ": "
+    llvm::errs() << *tracedProc << ": cannot write the time trace to " << timeTraceFile << ": "
                  << llvm::toString(std::move(error)) << "\n";
   llvm::timeTraceProfilerCleanup();
-  traceState.started = false;
+  tracedProc.reset();
 }
 
 idr::profile::ThreadTrace::ThreadTrace() {
-  if (traceState.started && !llvm::getTimeTraceProfilerInstance()) {
-    llvm::timeTraceProfilerInitialize(timeTraceGranularity, traceState.proc);
+  if (tracedProc && !llvm::getTimeTraceProfilerInstance()) {
+    llvm::timeTraceProfilerInitialize(timeTraceGranularity, *tracedProc);
     owns = true;
   }
 }
@@ -223,21 +232,7 @@ void idr::profile::addInstrumentation(mlir::PassManager &pm) {
 }
 
 llvm::PassInstrumentationCallbacks *idr::profile::llvmCallbacks() {
-  if (!traceState.started)
+  if (!tracedProc)
     return nullptr;
-  if (!llvmCallbacksState.registered) {
-    llvm::PassInstrumentationCallbacks &pic = llvmCallbacksState.pic;
-    pic.registerBeforeNonSkippedPassCallback(
-        [](llvm::StringRef name, llvm::IRUnitRef ir) { beginLlvmZone(name, ir); });
-    pic.registerAfterPassCallback(
-        [](llvm::StringRef, llvm::IRUnitRef, const llvm::PreservedAnalyses &) { endLlvmZone(); });
-    // The end of a pass whose IR unit it invalidated comes here instead.
-    pic.registerAfterPassInvalidatedCallback(
-        [](llvm::StringRef, const llvm::PreservedAnalyses &) { endLlvmZone(); });
-    pic.registerBeforeAnalysisCallback(
-        [](llvm::StringRef name, llvm::IRUnitRef ir) { beginLlvmZone(name, ir); });
-    pic.registerAfterAnalysisCallback([](llvm::StringRef, llvm::IRUnitRef) { endLlvmZone(); });
-    llvmCallbacksState.registered = true;
-  }
-  return &llvmCallbacksState.pic;
+  return &llvmZones.pic;
 }

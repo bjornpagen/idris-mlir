@@ -20,8 +20,7 @@ extern "C" void idris_rt_io_buffer_copy(idris_rt_array *, char *src, int64_t, in
 
 extern "C" void idris_rt_io_buffer_set_string(idris_rt_array *, char *bytes, int64_t,
                                               int64_t offset, const idris_rt_str *str) {
-  int64_t n = idris_rt_str_bytes_length(str);
-  memcpy(bytes + offset, idris_rt_str_bytes(str), static_cast<size_t>(n));
+  memcpy(bytes + offset, idris_rt_str_bytes(str), str->bytes);
 }
 
 extern "C" const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *, char *bytes,

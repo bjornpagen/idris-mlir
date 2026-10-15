@@ -31,7 +31,6 @@
 
 #include "idr/Transforms/Tail.h"
 
-#include "idr/Analysis/Holds.h"
 #include "idr/Analysis/Tail.h"
 #include "idr/IR/Canon.h"
 #include "idr/IR/Grades.h"
@@ -72,54 +71,56 @@ void endWithNothing(RewriterBase &rewriter, Block &block) {
   rewriter.eraseOp(terminator);
 }
 
-// The constructor `built` builds, again, with its field `index` a hole:
-// the same tag, the fields it was given but that one, and the hole's
-// destination.
-Operation *withHole(RewriterBase &rewriter, Operation *built, unsigned index) {
-  SmallVector<Value> fields;
-  SmallVector<int32_t> holes{static_cast<int32_t>(index)};
-  auto rebuild = [&](auto op) {
-    for (auto [at, given] : llvm::enumerate(op.getFields()))
-      if (at != index)
-        fields.push_back(given);
-    return static_cast<unsigned>(op.getTag());
-  };
-  rewriter.setInsertionPoint(built);
-  if (auto con = dyn_cast<ConOp>(built)) {
-    unsigned tag = rebuild(con);
-    return ConOp::create(rewriter, con.getLoc(), con.getResult().getType(), tag, fields, holes,
-                         con.getStack());
-  }
-  auto reuse = cast<ReuseOp>(built);
-  unsigned tag = rebuild(reuse);
+// The box `built` builds, again, with `fields` and the holes `holes`: a
+// constructor stays one, in its frame or not, and a reuse builds in the
+// same cell.
+Built rebuilt(RewriterBase &rewriter, ConOp con, ValueRange fields, ArrayRef<int32_t> holes) {
+  return ConOp::create(rewriter, con.getLoc(), con.getResult().getType(), con.getTag(), fields,
+                       holes, con.getStack());
+}
+Built rebuilt(RewriterBase &rewriter, ReuseOp reuse, ValueRange fields, ArrayRef<int32_t> holes) {
   return ReuseOp::create(rewriter, reuse.getLoc(), reuse.getResult().getType(), reuse.getToken(),
-                         tag, fields, holes);
+                         reuse.getTag(), fields, holes);
+}
+
+// The box `built` builds, again, with its field `index` a hole: the same
+// tag, the fields it was given but that one, and the hole's destination.
+Built withHole(RewriterBase &rewriter, const Built &built, unsigned index) {
+  rewriter.setInsertionPoint(opOf(built));
+  return std::visit(
+      [&](auto op) {
+        SmallVector<Value> fields;
+        for (auto [at, given] : llvm::enumerate(op.getFields()))
+          if (at != index)
+            fields.push_back(given);
+        return rebuilt(rewriter, op, fields, {static_cast<int32_t>(index)});
+      },
+      built);
 }
 
 // The destination-passing form of one tail: the constructor built with
-// the field a hole, the cell written to `hole` when there is one (in the
-// clone), and the hole's destination passed to the clone in the call's
+// the field a hole, the cell written to `hole`, the clone's own, when
+// there is one (the function's first level has none: it returns the
+// cell), and the hole's destination passed to the clone in the call's
 // place after it. The constructor gives the destination as it builds the
 // cell, whose reference then moves on: into the hole it fills, or out of
 // the function.
-void passDestination(RewriterBase &rewriter, const Modulo &tail, FuncOp clone, Value hole) {
+void passDestination(RewriterBase &rewriter, const Modulo &tail, FuncOp clone,
+                     std::optional<Value> hole) {
   CallOp call = tail.call;
   Location loc = call.getLoc();
-  Operation *rebuilt = withHole(rewriter, tail.built, tail.index);
-  Value cell = rebuilt->getResult(0);
-  Value dest;
-  if (auto con = dyn_cast<ConOp>(rebuilt))
-    dest = con.getDest(tail.index);
-  else
-    dest = cast<ReuseOp>(rebuilt).getDest(tail.index);
+  Built holed = withHole(rewriter, tail.built, tail.index);
+  Value cell = std::visit([](auto op) -> Value { return op.getResult(); }, holed);
+  Value dest = std::visit([&](auto op) -> Value { return op.getDest(tail.index); }, holed);
   // The tail returns the cell alone, so the constructor had no hole.
-  rewriter.replaceAllUsesWith(tail.built->getResult(0), cell);
-  rewriter.eraseOp(tail.built);
+  Operation *old = opOf(tail.built);
+  rewriter.replaceAllUsesWith(old->getResult(0), cell);
+  rewriter.eraseOp(old);
   for (Operation *grade : tail.grades)
     rewriter.eraseOp(grade);
-  rewriter.setInsertionPointAfter(rebuilt);
+  rewriter.setInsertionPointAfter(opOf(holed));
   if (hole)
-    DestWriteOp::create(rewriter, loc, hole, cell);
+    DestWriteOp::create(rewriter, loc, *hole, cell);
   SmallVector<Value> operands(call.getArgs());
   operands.push_back(dest);
   callClone(rewriter, call, clone, operands);
@@ -162,45 +163,66 @@ void rewriteClone(RewriterBase &rewriter, Block &block, FuncOp fn, FuncOp clone,
   endWithNothing(rewriter, block);
 }
 
+// A function whose result a tail builds around a self call: those tails,
+// and the name of the clone that writes them top down.
+struct Plan {
+  FuncOp fn;
+  SmallVector<Modulo> tails;
+  StringAttr name;
+};
+
+// The plan of `fn`; none when no tail of it builds a box around a self
+// call, failure when its clone's name is taken.
+FailureOr<std::optional<Plan>> planOf(FuncOp fn, SymbolTable &symbols) {
+  if (fn.getNumResults() != 1 || !isa<BoxType>(unrestricted(fn.getResultTypes()[0])))
+    return std::optional<Plan>();
+  SmallVector<Modulo> tails;
+  forTails(fn.getBody().front(), [&](Block &block) {
+    if (std::optional<Modulo> tail = moduloAt(block, fn))
+      tails.push_back(*tail);
+  });
+  if (tails.empty())
+    return std::optional<Plan>();
+  FailureOr<StringAttr> name = copyName(fn, "trmc", symbols);
+  if (failed(name))
+    return failure();
+  return std::optional<Plan>(Plan{fn, std::move(tails), *name});
+}
+
 struct Trmc : impl::IdrTrmcBase<Trmc> {
   void runOnOperation() override {
     ProgramOp program = getOperation();
     MLIRContext *ctx = program.getContext();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
-    IRRewriter rewriter(ctx);
-    bool changed = false;
-    for (FuncOp fn : llvm::make_early_inc_range(program.getOps<FuncOp>())) {
-      if (fn.getNumResults() != 1 || !isa<BoxType>(unrestricted(fn.getResultTypes()[0])))
-        continue;
-      SmallVector<Modulo> tails;
-      forTails(fn.getBody().front(), [&](Block &block) {
-        if (std::optional<Modulo> tail = moduloAt(block, fn))
-          tails.push_back(*tail);
-      });
-      if (tails.empty())
-        continue;
-      FailureOr<StringAttr> name = copyName(fn, "trmc", symbols);
-      if (failed(name))
+    // Every function is planned on the program as it stands, before any
+    // changes: a plan reads its own function alone.
+    SmallVector<Plan> plans;
+    for (FuncOp fn : program.getOps<FuncOp>()) {
+      FailureOr<std::optional<Plan>> plan = planOf(fn, symbols);
+      if (failed(plan))
         return signalPassFailure();
-      changed = true;
+      if (*plan)
+        plans.push_back(std::move(**plan));
+    }
+    if (plans.empty())
+      return markAllAnalysesPreserved();
+    IRRewriter rewriter(ctx);
+    for (const Plan &plan : plans) {
+      FuncOp fn = plan.fn;
       ++numFunctions;
-      numTails += tails.size();
-
+      numTails += plan.tails.size();
       FuncOp clone = fn.clone();
-      clone.setSymNameAttr(*name);
+      clone.setSymNameAttr(plan.name);
       symbols.insert(clone, std::next(fn->getIterator()));
       auto dest = DestType::get(ctx, unrestricted(fn.getResultTypes()[0]));
       unsigned arity = clone.getNumArguments();
       (void)clone.insertArgument(arity, dest, DictionaryAttr(), fn.getLoc());
       (void)clone.eraseResult(0);
       rewriteClone(rewriter, clone.getBody().front(), fn, clone, clone.getArgument(arity));
-
-      for (const Modulo &tail : tails)
-        passDestination(rewriter, tail, clone, Value());
+      for (const Modulo &tail : plan.tails)
+        passDestination(rewriter, tail, clone, std::nullopt);
     }
-    if (!changed)
-      return markAllAnalysesPreserved();
-    markAnalysesPreserved<SymbolTable, Holds, TypeGraph, Layouts>();
+    markAnalysesPreserved<SymbolTable, TypeGraph, Layouts>();
   }
 };
 

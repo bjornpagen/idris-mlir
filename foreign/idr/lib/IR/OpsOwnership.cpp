@@ -46,7 +46,7 @@ Value ReuseOp::getField(unsigned index) {
 Value ReuseOp::getDest(unsigned index) { return idr::detail::holeDest(getDests(), getHoles(), index); }
 
 void ReuseOp::build(OpBuilder &builder, OperationState &state, Type type, Value token,
-                    unsigned tag, ValueRange fields, ArrayRef<int32_t> holes) {
+                    Tag tag, ValueRange fields, ArrayRef<int32_t> holes) {
   const Ctor &ctor = dataTypeOf(type).getCtor(tag);
   SmallVector<Type> dests;
   for (int32_t hole : holes)
@@ -58,18 +58,20 @@ void ReuseOp::build(OpBuilder &builder, OperationState &state, Type type, Value 
 // references, the holes aside. That the cell fits is the owned stage's
 // rule, which knows the take the token comes from.
 LogicalResult ReuseOp::verify() {
-  const Ctor *ctor = idr::detail::ctorAt(*this, getResult().getType(), getTag());
-  if (!ctor)
+  FailureOr<std::reference_wrapper<const Ctor>> found =
+      idr::detail::ctorAt(*this, getResult().getType(), getTag());
+  if (failed(found))
     return failure();
-  if (ctor->fields.empty())
-    return emitOpError("builds constructor ")
-           << getTag() << ", which has no fields and is its atom";
-  if (failed(idr::detail::verifyHoles(*this, *ctor, getHoles(), getFields().size(),
-                                 getDests().getTypes())))
+  const Ctor &ctor = *found;
+  if (ctor.fields.empty())
+    return emitOpError("builds constructor @")
+           << ctor.name.getValue() << ", which has no fields and is its atom";
+  if (failed(idr::detail::verifyHoles(*this, ctor, getHoles(), getFields().size(),
+                                      getDests().getTypes())))
     return failure();
-  for (unsigned index = 0, n = static_cast<unsigned>(ctor->fields.size()); index < n; ++index)
-    if (Value value = getField(index))
-      if (Type expected = movedField(ctor->fields[index]); !movesAs(value.getType(), expected))
+  for (auto [index, field] : llvm::enumerate(ctor.fields))
+    if (Value value = getField(static_cast<unsigned>(index)))
+      if (Type expected = movedField(field); !movesAs(value.getType(), expected))
         return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   if (!isOwned(getResult().getType()))
     return emitOpError("builds a cell, which holds a reference: the result is owned");
@@ -91,21 +93,24 @@ ResultRange TakeOp::getFields() { return getResults().drop_front(getToken() ? 1 
 // A token for a box with fields, then the constructor's fields, owned where
 // they hold references.
 LogicalResult TakeOp::verify() {
-  const Ctor *ctor = idr::detail::ctorAt(*this, getValue().getType(), getTag());
-  if (!ctor)
+  FailureOr<std::reference_wrapper<const Ctor>> found =
+      idr::detail::ctorAt(*this, getValue().getType(), getTag());
+  if (failed(found))
     return failure();
+  const Ctor &ctor = *found;
   SmallVector<Type> expected;
-  if (isBoxed(getValue().getType()) && !ctor->fields.empty())
+  if (isBoxed(getValue().getType()) && !ctor.fields.empty())
     expected.push_back(owned(TokenType::get(getContext())));
   // A field comes out at the value's grade times its own, as a match
   // binds it.
-  for (Type field : ctor->fields)
+  for (Type field : ctor.fields)
     expected.push_back(movedField(fieldType(getValue().getType(), field)));
   if (expected.size() != getNumResults() ||
       !llvm::all_of(llvm::zip(getResultTypes(), expected),
                     [](auto pair) { return movesAs(std::get<0>(pair), std::get<1>(pair)); }))
-    return emitOpError("has results ") << getResultTypes() << ", but constructor " << getTag()
-                                       << " takes apart into " << TypeRange(expected);
+    return emitOpError("has results ")
+           << getResultTypes() << ", but constructor @" << ctor.name.getValue()
+           << " takes apart into " << TypeRange(expected);
   return success();
 }
 

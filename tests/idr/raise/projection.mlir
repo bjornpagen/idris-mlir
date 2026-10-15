@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@greet,not-called=@put,not-called=@done -o /dev/null
 // NEEDS-ACCEPTANCE: that the projection and dispatch fold in the root once @greet is inlined.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // An IO action is a closure in a constructor (MkIO). When the result of a
 // call is projected and applied at once, the projection and the dispatch
 // the apply became meet, once the root inlines @greet, the constant action
@@ -22,7 +23,7 @@ idr.program @projection root(@Main.main) stage(higher) {
     return %r : !IORes
   }
   idr.func @greet(%n: i64) -> !IO attributes {total} {
-    %done = idr.constant #idr.con<@MkIO, [#idr.closure<@done, []>]> : !IO
+    %done = idr.constant #idr.con<!IO, @MkIO, [#idr.closure<@done, []>]> : !IO
     %r = idr.match_lit %n : i64 -> (!IO) {
     case 0 {
       idr.yield %done : !IO

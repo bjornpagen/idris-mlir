@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Compiling 70,000 constructors takes longer than a program of its size
 # would, so each command and the test have more time than most.
 step_limit=600

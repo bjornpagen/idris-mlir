@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=stage=owned -o /dev/null
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)),idr-expect{holds=constant-stack=@walk})' -o /dev/null
-// NEEDS-ACCEPTANCE: idr-rc's counting of region ops and loops (R09: B5, B12, B21), which the owned verifier then holds after the pass.
+// NEEDS-ACCEPTANCE: idr-rc's counting of region ops and loops, which the owned verifier then holds after the pass.
 // idr-rc counts what flows through every region op, and the owned stage's
 // verifier, which runs after the pass, refuses a read through a view once
 // the reference it borrows is gone: so that the pass's output verifies is

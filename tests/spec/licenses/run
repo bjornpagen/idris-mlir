@@ -1,33 +1,17 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# Every source file names its licence (tools/licenses.sh is the one
-# place that knows the in-scope sets), the full texts are in LICENSES/,
-# and a ported file keeps its upstream copyright: an Apache-2.0 WITH
-# LLVM-exception file without a Copyright line, or one not recorded in
-# PINS.md, fails here.
+# Every file in scope names its licence, every licence text an identifier
+# in use names is in LICENSES/, and a port is one PINS.md names, with the
+# note of what changed and the attribution of the part it is a port of.
+# tools/licenses.sh is the one place that knows the scope, the parts and
+# the holders, and checks all of it; what it prints when all holds is the
+# number of ports and the identifiers in use, so a port or a licence the
+# tree gains shows here.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 if "$root/tools/licenses.sh" > "$work/licenses" 2>&1; then
-  say "licenses: every in-scope file names its licence"
+  cat "$work/licenses"
 else
-  say "licenses: files without their licence:"
+  say "licenses: not every file in scope names its licence:"
   cat "$work/licenses"
 fi
-ports=$(grep -rl 'SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception' \
-  "$root/foreign" "$root/compiler/src" "$root/runtime" 2> /dev/null | sort)
-if [ -z "$ports" ]; then
-  say "ports: none yet"
-else
-  say "ports: $(printf '%s\n' "$ports" | wc -l | tr -d ' ') ported files"
-  for f in $ports; do
-    grep -q 'Copyright' "$f" || say "port without upstream copyright: ${f#"$root"/}"
-    grep -q "${f#"$root"/}" "$root/PINS.md" || say "port not recorded in PINS.md: ${f#"$root"/}"
-  done
-fi
-for text in 0BSD Apache-2.0 LLVM-exception BSD-3-Clause; do
-  if [ -s "$root/LICENSES/$text.txt" ]; then
-    say "LICENSES/$text.txt"
-  else
-    say "LICENSES/$text.txt: missing"
-  fi
-done

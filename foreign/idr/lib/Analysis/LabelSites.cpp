@@ -14,12 +14,15 @@
 #include "mlir/IR/SymbolTable.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLForwardCompat.h"
 
 using namespace mlir;
 
 namespace idr::labels {
 
 namespace {
+
+unsigned at(Node node) { return llvm::to_underlying(node); }
 
 // The value a parameter of a function is: its entry block's argument. The
 // world is closed, so every function named has a body.
@@ -29,78 +32,74 @@ Value parameterValue(const SymbolTable &table, FlatSymbolRefAttr function, unsig
   return fn.getArgument(index);
 }
 
-std::tuple<unsigned, Type, unsigned, unsigned> anchorKey(const FlowAnchor &anchor) {
-  return {static_cast<unsigned>(anchor.kind), anchor.type, anchor.ctor, anchor.field};
-}
-
 } // namespace
 
 Node Graph::fresh() {
-  Node node = static_cast<Node>(parents.size());
+  Node node = Node(static_cast<unsigned>(parents.size()));
   parents.push_back(node);
   classes.emplace_back();
   return node;
 }
 
-std::optional<Node> Graph::lookup(const FlowAnchor &anchor) const {
-  if (auto it = anchors.find(anchorKey(anchor)); it != anchors.end())
+std::optional<Node> Solution::lookup(const FlowAnchor &anchor) const {
+  if (auto it = anchors.find(anchor); it != anchors.end())
     return it->second;
   return std::nullopt;
 }
 
-std::optional<Node> Graph::lookup(const FlowPoint &point) const {
-  switch (point.kind) {
-  case FlowPoint::Kind::Operand:
-  case FlowPoint::Kind::Value:
-    if (auto it = values.find(point.getValue()); it != values.end())
+std::optional<Node> Solution::lookup(const FlowPoint &point) const {
+  auto ofValue = [&](Value value) -> std::optional<Node> {
+    if (auto it = values.find(value); it != values.end())
       return it->second;
     return std::nullopt;
-  case FlowPoint::Kind::Part:
-    return lookup(point.anchor);
-  case FlowPoint::Kind::Parameter:
-    return lookup(FlowPoint::of(parameterValue(table, point.function, point.index)));
-  case FlowPoint::Kind::Result:
-    if (auto it = results.find({point.function.getAttr(), point.index}); it != results.end())
-      return it->second;
-    return std::nullopt;
-  }
-  llvm_unreachable("every kind of point is listed");
+  };
+  return std::visit(
+      llvm::makeVisitor(
+          [&](FlowPoint::Taken taken) { return ofValue(taken.use->get()); },
+          [&](FlowPoint::Whole whole) { return ofValue(whole.value); },
+          [&](const FlowPoint::Part &part) { return lookup(part.anchor); },
+          [&](FlowPoint::Parameter param) {
+            return lookup(FlowPoint::of(parameterValue(table, param.function, param.index)));
+          },
+          [&](FlowPoint::Result result) -> std::optional<Node> {
+            if (auto it = results.find({result.function.getAttr(), result.index});
+                it != results.end())
+              return it->second;
+            return std::nullopt;
+          }),
+      point.at);
 }
 
 Node Graph::nodeOf(const FlowAnchor &anchor) {
-  auto [it, made] = anchors.try_emplace(anchorKey(anchor), 0);
+  auto [it, made] = out.anchors.try_emplace(anchor, Node());
   if (made)
     it->second = fresh();
   return it->second;
 }
 
 Node Graph::nodeOf(const FlowPoint &point) {
-  switch (point.kind) {
-  case FlowPoint::Kind::Operand:
-  case FlowPoint::Kind::Value: {
-    auto [it, made] = values.try_emplace(point.getValue(), 0);
+  auto ofValue = [&](Value value) {
+    auto [it, made] = out.values.try_emplace(value, Node());
     if (made)
       it->second = fresh();
     return it->second;
-  }
-  case FlowPoint::Kind::Part:
-    return nodeOf(point.anchor);
-  case FlowPoint::Kind::Parameter:
-    return nodeOf(FlowPoint::of(parameterValue(table, point.function, point.index)));
-  case FlowPoint::Kind::Result: {
-    auto [it, made] = results.try_emplace({point.function.getAttr(), point.index}, 0);
-    if (made)
-      it->second = fresh();
-    return it->second;
-  }
-  }
-  llvm_unreachable("every kind of point is listed");
-}
-
-std::optional<FlowPoint> Graph::sinkOf(OpOperand &operand) const {
-  if (auto it = sinks.find(&operand); it != sinks.end())
-    return it->second;
-  return std::nullopt;
+  };
+  return std::visit(
+      llvm::makeVisitor(
+          [&](FlowPoint::Taken taken) { return ofValue(taken.use->get()); },
+          [&](FlowPoint::Whole whole) { return ofValue(whole.value); },
+          [&](const FlowPoint::Part &part) { return nodeOf(part.anchor); },
+          [&](FlowPoint::Parameter param) {
+            return nodeOf(FlowPoint::of(parameterValue(out.table, param.function, param.index)));
+          },
+          [&](FlowPoint::Result result) {
+            auto [it, made] =
+                out.results.try_emplace({result.function.getAttr(), result.index}, Node());
+            if (made)
+              it->second = fresh();
+            return it->second;
+          }),
+      point.at);
 }
 
 void Graph::walk(Operation *program) {
@@ -119,71 +118,60 @@ void Graph::walk(Operation *program) {
 // into whatever carrier holds it: a constructor of any data type may hold a
 // closure in a field.
 void Graph::add(Operation *op, const FlowEdges::Edge &edge) {
-  switch (edge.kind) {
-  case FlowEdges::Edge::Kind::Flow:
-    if (!edge.carriesAny(Carriers::labels()))
-      return;
-    return flow(op, edge.from, edge.to, edge.carries(Carrier::Suspension));
-  case FlowEdges::Edge::Kind::Unify:
-    return unify(nodeOf(edge.from), nodeOf(edge.to));
-  case FlowEdges::Edge::Kind::Source: {
-    Label id = labelId(edge.label);
-    return addLabels(nodeOf(edge.to), id);
-  }
-  case FlowEdges::Edge::Kind::Fresh:
-  case FlowEdges::Edge::Kind::Release:
-    return;
-  case FlowEdges::Edge::Kind::Constant: {
-    Value held = edge.to.getValue();
-    return expand(edge.constant, [&] { return nodeOf(edge.to); }, unrestricted(held.getType()));
-  }
-  case FlowEdges::Edge::Kind::Dispatch: {
-    auto call = cast<CallOpInterface>(edge.call);
-    Node callee = nodeOf(FlowPoint::of(cast<Value>(call.getCallableForCallee())));
-    unsigned index = static_cast<unsigned>(dispatches.size());
-    dispatches.push_back({call, {}});
-    classes[find(callee)].dispatches.push_back(index);
-    // The labels already there are run now; those that come later, as
-    // they come.
-    return fire(index, sets[classes[find(callee)].set]);
-  }
-  }
-  llvm_unreachable("every kind of edge is listed");
+  std::visit(
+      llvm::makeVisitor(
+          [&](const FlowEdges::Flow &move) {
+            if (!edge.carriesAny(Carriers::labels()))
+              return;
+            flow(op, move.from, move.to,
+                 edge.carries(Carrier::Suspension) ? Link::Unify : Link::Include);
+          },
+          [&](const FlowEdges::Unify &move) { unify(nodeOf(move.a), nodeOf(move.b)); },
+          [&](const FlowEdges::Source &move) {
+            reach(nodeOf(FlowPoint::of(move.to)), labelId(move.label));
+          },
+          [](const FlowEdges::Fresh &) {},
+          [](const FlowEdges::Release &) {},
+          [&](const FlowEdges::Constant &move) {
+            expand(move.part, [&] { return nodeOf(FlowPoint::of(move.to)); },
+                   unrestricted(move.to.getType()));
+          },
+          [&](FlowEdges::Dispatch move) {
+            CallOpInterface call = move.call;
+            Node callee = find(nodeOf(FlowPoint::of(cast<Value>(call.getCallableForCallee()))));
+            auto run = Dispatch(static_cast<unsigned>(dispatches.size()));
+            dispatches.push_back(call);
+            classes[at(callee)].dispatches.push_back(run);
+            // The labels already there are owed now; those that come later,
+            // as they arrive.
+            for (Label label : classes[at(callee)].labels)
+              work.push(Firing{run, label});
+          }),
+      edge.move);
 }
 
 // A flow of a whole value, which the op takes over or reads, moves it out
-// of the use that holds it; the flow of a part moves no use's value.
-void Graph::flow(Operation *op, const FlowPoint &from, const FlowPoint &to, bool lazy) {
-  if (from.kind == FlowPoint::Kind::Operand)
-    sink(*from.operand, to);
-  else if (from.kind == FlowPoint::Kind::Value)
-    for (OpOperand &use : op->getOpOperands())
-      if (use.get() == from.value)
-        sink(use, to);
-  link(nodeOf(from), nodeOf(to), lazy);
+// of the use that holds it; the flow of a part moves no use's value, and a
+// parameter or a result is no use's.
+void Graph::flow(Operation *op, const FlowPoint &from, const FlowPoint &to, Link how) {
+  std::visit(llvm::makeVisitor([&](FlowPoint::Taken taken) { sink(*taken.use, to); },
+                               [&](FlowPoint::Whole whole) {
+                                 for (OpOperand &use : op->getOpOperands())
+                                   if (use.get() == whole.value)
+                                     sink(use, to);
+                               },
+                               [](const FlowPoint::Part &) {}, [](FlowPoint::Parameter) {},
+                               [](FlowPoint::Result) {}),
+             from.at);
+  link(nodeOf(from), nodeOf(to), how);
 }
 
 // A use moves its value into one point: a second edge from it joins its
 // target to the first, so the use has one slot to be moved into.
 void Graph::sink(OpOperand &use, const FlowPoint &to) {
-  auto [it, first] = sinks.try_emplace(&use, to);
+  auto [it, first] = out.sinks.try_emplace(&use, to);
   if (!first)
     unify(nodeOf(it->second), nodeOf(to));
-}
-
-// Whether `part` of a constant holds a closure, each part answered once.
-bool Graph::holdsClosure(Attribute part) {
-  auto closure = dyn_cast<ClosureAttr>(part);
-  auto con = dyn_cast<ConAttr>(part);
-  if (!closure && !con)
-    return false;
-  if (auto it = holding.find(part); it != holding.end())
-    return it->second;
-  bool found = static_cast<bool>(closure);
-  if (con)
-    eachField(con, [&](Attribute field, unsigned) { found = holdsClosure(field) || found; });
-  holding[part] = found;
-  return found;
 }
 
 // A constant part held at the node `at` names, of carrier `carrier`: a
@@ -194,16 +182,15 @@ bool Graph::holdsClosure(Attribute part) {
 // node of where it is. A shared closure at one point, and a shared
 // constructor, is expanded once.
 void Graph::expand(Attribute part, function_ref<Node()> at, Type carrier) {
-  if (!holdsClosure(part))
+  if (!holding.holds(part))
     return;
   if (auto closure = dyn_cast<ClosureAttr>(part)) {
     Node node = at();
     if (!expanded.insert({part, node}).second)
       return;
     FlatSymbolRefAttr label = closure.getCallee();
-    Label id = labelId(label);
-    addLabels(node, id);
-    auto fn = table.lookup<FuncOp>(label.getAttr());
+    reach(node, labelId(label));
+    auto fn = out.table.lookup<FuncOp>(label.getAttr());
     for (auto [i, capture] : llvm::enumerate(closure.getCaptures())) {
       auto index = static_cast<unsigned>(i);
       expand(
@@ -218,7 +205,7 @@ void Graph::expand(Attribute part, function_ref<Node()> at, Type carrier) {
   if (!laid.insert(con).second)
     return;
   DataType data = con.getData();
-  unsigned tag = con.getTag();
+  Tag tag = con.getTag();
   ArrayRef<Type> fields = data.getCtor(tag).fields;
   eachField(con, [&](Attribute field, unsigned i) {
     expand(

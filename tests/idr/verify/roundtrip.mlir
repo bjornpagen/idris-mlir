@@ -1,12 +1,13 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
 // RUN: idris-mlir-opt %s --mlir-print-op-generic | idris-mlir-opt | FileCheck %s
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Every op, type and attribute of the contract
 // parses in its custom syntax and prints back the same, directly and from the
 // generic form. A symbol that does not start with a letter is quoted: the
 // contract's `@$58$$58$` is written `@"$58$$58$"`.
 
-// NEEDS-ACCEPTANCE: the aliases the printer gives the data types (C01 §4) and their spelling.
+// NEEDS-ACCEPTANCE: the aliases the printer gives the data types and their spelling.
 // CHECK-DAG: !Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]>
 // CHECK-DAG: !List = !idr.data<"List", list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!idr.data<"List">>) cons]>
 // CHECK-DAG: !Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !Shape, !idr.box<!List>)]>
@@ -37,10 +38,10 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
                             %s: !Main.Shape,
                             %l: !idr.box<!List>)
       -> (i64, f64, i64, i64) attributes {total} {
-    // CHECK: constant #idr.con<@Rect, [1.000000e+00, 2.000000e+00]> : !Shape
-    %c0 = idr.constant #idr.con<@Rect, [1.0 : f64, 2.0 : f64]> : !Main.Shape
-    // CHECK: constant #idr.con<@"$58$$58$", [7, #idr.con<@Nil, []>]> : !idr.box<!List>
-    %c1 = idr.constant #idr.con<@"$58$$58$", [7 : i64, #idr.con<@Nil, []>]> : !idr.box<!List>
+    // CHECK: constant #idr.con<!Shape, @Rect, [1.000000e+00, 2.000000e+00]> : !Shape
+    %c0 = idr.constant #idr.con<!Main.Shape, @Rect, [1.0 : f64, 2.0 : f64]> : !Main.Shape
+    // CHECK: constant #idr.con<!List, @"$58$$58$", [7, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
+    %c1 = idr.constant #idr.con<!List, @"$58$$58$", [7 : i64, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
     // CHECK: constant #idr.closure<@inc, [1]> : !idr.fn<(i64) -> i64>
     %c2 = idr.constant #idr.closure<@inc, [1 : i64]> : !idr.fn<(i64) -> (i64)>
     // CHECK: constant #idr.big<-123456789012345678901234567890> : !idr.big

@@ -10,18 +10,43 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+namespace {
+
+// The check's text, built inline into it so that nothing it calls leaves
+// the baseline.
+[[gnu::always_inline]] inline char *text(char *at, const char *part) {
+  while (*part != '\0')
+    *at++ = *part++;
+  return at;
+}
+
+[[gnu::always_inline]] inline char *number(char *at, size_t value) {
+  char digits[20];
+  size_t d = 0;
+  do {
+    digits[d++] = static_cast<char>('0' + value % 10);
+    value /= 10;
+  } while (value != 0);
+  while (d > 0)
+    *at++ = digits[--d];
+  return at;
+}
+
+} // namespace
+
 namespace rt::platform {
 
 // The target entry's page size must be the system's, or every region, guard
 // and alignment the runtime makes would use the wrong page, and so would
-// snmalloc, whose page is the same number (Alloc/Classes.cpp). The system's is
+// snmalloc, whose page is the same number (Alloc/Cells.cpp). The system's is
 // sysconf's: the page of the process's address space, which mmap and
 // mprotect round to (on Darwin, hw.pagesize and vm_page_size alike: 16 KiB
 // for an arm64 process). When the two disagree it names both and ends the
 // process, so a runtime built for another page size refuses to start. It
-// allocates nothing and writes with write(2), not rt::io, which is above it.
-// It runs before the processor test, so it stays compiled for the target's
-// baseline (idris-rt-baseline), with no call that idris-mlir could raise.
+// allocates nothing and writes with writeAll, not rt::io, which is above
+// it. It runs before the processor test, so it and what it calls stay
+// compiled for the target's baseline: its text is built inline, and
+// writeAll and exitProcess are marked as it is.
 [[clang::annotate("idris-rt-baseline")]] void checkPageSize() noexcept {
   size_t system = static_cast<size_t>(sysconf(_SC_PAGESIZE));
   if (system == pageSize())
@@ -30,30 +55,13 @@ namespace rt::platform {
   static constexpr char has[] = "-byte page, and this system has a ";
   static constexpr char page[] = "-byte page\n";
   char message[sizeof built + sizeof has + sizeof page + 2 * 20];
-  size_t n = 0;
-  const char *parts[] = {built, nullptr, has, nullptr, page};
-  size_t numbers[] = {pageSize(), system};
-  size_t next = 0;
-  for (const char *part : parts) {
-    if (part != nullptr) {
-      for (; *part != '\0'; ++part)
-        message[n++] = *part;
-      continue;
-    }
-    char digits[20];
-    size_t d = 0;
-    for (size_t value = numbers[next++]; d == 0 || value != 0; value /= 10)
-      digits[d++] = static_cast<char>('0' + value % 10);
-    while (d > 0)
-      message[n++] = digits[--d];
-  }
-  for (size_t written = 0; written < n;) {
-    ssize_t step = write(2, message + written, n - written);
-    if (step <= 0)
-      break;
-    written += static_cast<size_t>(step);
-  }
-  _exit(IDRIS_RT_CRASHED);
+  char *at = text(message, built);
+  at = number(at, pageSize());
+  at = text(at, has);
+  at = number(at, system);
+  at = text(at, page);
+  writeAll(2, message, static_cast<size_t>(at - message));
+  exitProcess(IDRIS_RT_CRASHED);
 }
 
 char *reserve(size_t size) noexcept {

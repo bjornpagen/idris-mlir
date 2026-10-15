@@ -1,7 +1,8 @@
 // RUN: idris-mlir-opt %s --idr-trmc -o %t.trmc.mlir
 // RUN: idris-mlir-opt %t.trmc.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)),idr-expect{holds=constant-stack=@copy,constant-stack=@copyLin})' -o %t.mlir
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@depth -o /dev/null 2> %t.err && FileCheck %s --check-prefix=DEPTH < %t.err
-// NEEDS-ACCEPTANCE: that idr-trmc's clone of @copy, which keeps its location, takes the destination of the constructor's hole (R02's con results) and idr-tail-loops makes it a loop.
+// NEEDS-ACCEPTANCE: that idr-trmc's clone of @copy, which keeps its location, takes the destination of the constructor's hole (the con's results) and idr-tail-loops makes it a loop.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // @copy returns a constructor around its own result: the constructor is
 // built first, with the field a hole, and its destination goes to a
 // clone that returns nothing and writes each cell to the destination it
@@ -17,7 +18,7 @@ idr.program @trmc root(@Main.main) stage(owned) {
   idr.func @copy(%xs: !idr.q<many, borrow, !idr.box<!List>>) -> !idr.own<!idr.box<!List>> attributes {total} {
     %r = idr.match %xs : !idr.q<many, borrow, !idr.box<!List>> -> (!idr.own<!idr.box<!List>>) {
     case @Nil() {
-      %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+      %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
       %o = idr.dup %nil : !idr.q<many, borrow, !idr.box<!List>>
       idr.yield %o : !idr.own<!idr.box<!List>>
     }
@@ -32,7 +33,7 @@ idr.program @trmc root(@Main.main) stage(owned) {
   idr.func @copyLin(%xs: !idr.q<many, borrow, !idr.box<!LList>>) -> !idr.own<!idr.box<!LList>> attributes {total} {
     %r = idr.match %xs : !idr.q<many, borrow, !idr.box<!LList>> -> (!idr.own<!idr.box<!LList>>) {
     case @LNil() {
-      %nil = idr.constant #idr.con<@LNil, []> : !idr.box<!LList>
+      %nil = idr.constant #idr.con<!LList, @LNil, []> : !idr.box<!LList>
       %o = idr.dup %nil : !idr.q<many, borrow, !idr.box<!LList>>
       idr.yield %o : !idr.own<!idr.box<!LList>>
     }
@@ -48,7 +49,7 @@ idr.program @trmc root(@Main.main) stage(owned) {
   idr.func @depth(%xs: !idr.q<many, borrow, !idr.box<!List>>) -> !idr.own<!idr.box<!List>> attributes {total} {
     %r = idr.match %xs : !idr.q<many, borrow, !idr.box<!List>> -> (!idr.own<!idr.box<!List>>) {
     case @Nil() {
-      %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+      %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
       %o = idr.dup %nil : !idr.q<many, borrow, !idr.box<!List>>
       idr.yield %o : !idr.own<!idr.box<!List>>
     }
@@ -71,13 +72,13 @@ idr.program @trmc root(@Main.main) stage(owned) {
     return %r : !idr.own<!idr.box<!List>>
   }
   idr.func @Main.main() -> i64 {
-    %xs = idr.constant #idr.con<@Cons, [1, #idr.con<@Nil, []>]> : !idr.box<!List>
+    %xs = idr.constant #idr.con<!List, @Cons, [1, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
     %a = idr.call @copy(%xs) : (!idr.q<many, borrow, !idr.box<!List>>) -> !idr.own<!idr.box<!List>>
     %va = idr.borrow %a : !idr.own<!idr.box<!List>>
     %b = idr.call @depth(%va) : (!idr.q<many, borrow, !idr.box<!List>>) -> !idr.own<!idr.box<!List>>
     idr.drop %a : !idr.own<!idr.box<!List>>
     idr.drop %b : !idr.own<!idr.box<!List>>
-    %ls = idr.constant #idr.con<@LNil, []> : !idr.box<!LList>
+    %ls = idr.constant #idr.con<!LList, @LNil, []> : !idr.box<!LList>
     %c = idr.call @copyLin(%ls) : (!idr.q<many, borrow, !idr.box<!LList>>) -> !idr.own<!idr.box<!LList>>
     idr.drop %c : !idr.own<!idr.box<!LList>>
     %zero = arith.constant 0 : i64

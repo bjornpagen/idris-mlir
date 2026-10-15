@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-expect=holds=no-closures,quantities-kept=%s -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the dispatch's printed form, as C06's conversion writes it.
+// NEEDS-ACCEPTANCE: the dispatch's printed form, as defunctionalization writes it.
 // A closure that takes a linear argument, kept in a constructor's field
 // and read back by a match: every edge it moves along joins two values of
 // one carrier, the type without its outermost grade, so its one label fits

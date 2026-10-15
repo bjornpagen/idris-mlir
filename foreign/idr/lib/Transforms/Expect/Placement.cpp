@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Where a function's work happens, on the paths through its matches: a
-// value is built only on the paths that use it, a value is tested once on
-// a path, a check runs on every path, and nothing is written before a
-// crash that may end the program. Each is a property of the paths, stated
-// of every copy of the function (`named`), however the ops that show it
-// are arranged.
+// value is built, or a call made, only on the paths that use it, a value
+// is tested once on a path, a check runs on every path, and nothing is
+// written before a crash that may end the program. Each is a property of
+// the paths, stated of every copy of the function (`named`), however the
+// ops that show it are arranged.
 
 #include "idr/Transforms/Expect.h"
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "mlir/IR/Builders.h"
+#include "llvm/ADT/Sequence.h"
+
+#include <variant>
 
 using namespace mlir;
 
@@ -20,16 +25,22 @@ namespace idr::expect {
 
 namespace {
 
-// The cases of a match, each an attribute: a literal's value, or a
-// constructor's tag.
-SmallVector<Attribute> casesOf(Operation *match) {
-  if (auto lit = dyn_cast<MatchLitOp>(match))
-    return llvm::to_vector(lit.getCases().getValue());
+// A case of a match: a literal's value, or a constructor's tag. Two matches
+// on one value are of one kind, so a key is only ever compared with one of
+// its own alternative.
+using Case = std::variant<Attribute, Tag>;
+
+// The cases of a match, in its regions' order.
+SmallVector<Case> casesOf(Operation *match) {
+  SmallVector<Case> out;
+  if (auto lit = dyn_cast<MatchLitOp>(match)) {
+    for (Attribute value : lit.getCases().getValue())
+      out.push_back(value);
+    return out;
+  }
   auto data = cast<MatchOp>(match);
-  Builder builder(data.getContext());
-  SmallVector<Attribute> out;
-  for (size_t index = 0, e = data.getCases().size(); index != e; ++index)
-    out.push_back(builder.getI64IntegerAttr(data.getCaseTag(static_cast<unsigned>(index))));
+  for (unsigned index : llvm::seq<unsigned>(0, static_cast<unsigned>(data.getCases().size())))
+    out.push_back(data.getCaseTag(index));
   return out;
 }
 
@@ -44,47 +55,39 @@ Value scrutineeOf(Operation *match) {
 // region and has no case it does not have. Null when there is none.
 Operation *decidedBy(Operation *inner) {
   Value value = scrutineeOf(inner);
-  SmallVector<Attribute> own = casesOf(inner);
+  SmallVector<Case> own = casesOf(inner);
   for (Operation *at = inner; Operation *outer = at->getParentOp(); at = outer) {
     if (!isa<MatchOp, MatchLitOp>(outer) || scrutineeOf(outer) != value)
       continue;
-    SmallVector<Attribute> theirs = casesOf(outer);
+    SmallVector<Case> theirs = casesOf(outer);
     unsigned region = at->getParentRegion()->getRegionNumber();
     if (region < theirs.size())
       return outer;
-    if (llvm::all_of(own, [&](Attribute key) { return llvm::is_contained(theirs, key); }))
+    if (llvm::all_of(own, [&](const Case &key) { return llvm::is_contained(theirs, key); }))
       return outer;
   }
   return nullptr;
 }
 
-// Whether `op` may end the program by a crash: it writes the crash
-// resource, on its own or through what it calls.
-bool mayCrash(Operation *op) {
-  auto effects = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!effects)
-    return false;
-  SmallVector<MemoryEffects::EffectInstance> all;
-  effects.getEffects(all);
-  return llvm::any_of(all, [](const MemoryEffects::EffectInstance &effect) {
-    return isa<CrashResource>(effect.getResource());
-  });
-}
+// What `op` may do of the two that order a program's output: perform IO,
+// and end the program by a crash. An op says so by its own effects on the
+// IO and the crash resources, a call by its callee's, which `callees`
+// finds. What MLIR knows nothing of states nothing here.
+struct Order {
+  bool io = false;
+  bool crash = false;
+};
 
-// Whether `op` writes output: it acts on the IO resource and cannot crash
-// (a crash acts on it too, as the end of the program's output).
-bool writesOutput(Operation *op) {
-  auto effects = dyn_cast<MemoryEffectOpInterface>(op);
+Order orderOf(Operation *op, const CalleeEffects &callees) {
+  Order out;
+  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = ownEffects(op, &callees);
   if (!effects)
-    return false;
-  SmallVector<MemoryEffects::EffectInstance> all;
-  effects.getEffects(all);
-  bool io = false, crash = false;
-  for (const MemoryEffects::EffectInstance &effect : all) {
-    io |= isa<IOResource>(effect.getResource());
-    crash |= isa<CrashResource>(effect.getResource());
+    return out;
+  for (const MemoryEffects::EffectInstance &effect : *effects) {
+    out.io |= isa<IOResource>(effect.getResource());
+    out.crash |= isa<CrashResource>(effect.getResource());
   }
-  return io && !crash;
+  return out;
 }
 
 // Whether some run of the function performs `first` before `second`: in
@@ -123,6 +126,37 @@ LogicalResult buildsWhereUsed(ModuleOp module, AnalysisManager &, StringRef func
   return success(held);
 }
 
+// Every call of @g or of a copy of it in every copy of @f whose results
+// something uses is used in the block that holds it: none runs on a path
+// that only a region of a later op takes.
+LogicalResult callsWhereUsed(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
+  constexpr StringRef property = "calls-where-used";
+  auto [function, callee] = splitAt(module, argument, property);
+  if (function.empty())
+    return failure();
+  StringRef g = callee.ltrim('@');
+  if (g.empty())
+    return fail(module.getLoc(), property) << "name both functions, as calls-where-used=@f:@g";
+  SmallVector<FunctionOpInterface> functions = named(module, function, property);
+  if (functions.empty())
+    return failure();
+  SymbolTable &symbols = symbolsOf(module, analyses);
+  bool held = true;
+  for (FunctionOpInterface fn : functions)
+    fn->walk([&](CallOpInterface call) {
+      Operation *op = call.getOperation();
+      if (op->use_empty() || !callsNamed(call, g, symbols))
+        return;
+      if (llvm::any_of(op->getUsers(),
+                       [&](Operation *user) { return user->getBlock() == op->getBlock(); }))
+        return;
+      fail(op->getLoc(), property) << "a call of " << callee << " in " << where(op)
+                                   << " runs where only the regions of a later op use it";
+      held = false;
+    });
+  return success(held);
+}
+
 // No match in @f tests what an enclosing match on the same value already
 // decided.
 LogicalResult matchesOnce(ModuleOp module, AnalysisManager &, StringRef function) {
@@ -144,20 +178,24 @@ LogicalResult matchesOnce(ModuleOp module, AnalysisManager &, StringRef function
 
 // Nothing @f writes may be written before something that may crash: the
 // output a crash cuts short is the output that came before it.
-LogicalResult crashesBeforeOutput(ModuleOp module, AnalysisManager &, StringRef function) {
+LogicalResult crashesBeforeOutput(ModuleOp module, AnalysisManager &analyses, StringRef function) {
   constexpr StringRef property = "crashes-before-output";
   SmallVector<FunctionOpInterface> functions = named(module, function, property);
   if (functions.empty())
     return failure();
+  const CalleeEffects callees{symbolsOf(module, analyses)};
   bool held = true;
   for (FunctionOpInterface fn : functions) {
+    // A crash acts on the IO resource too, as the end of the program's
+    // output, so what may crash is no write of output.
     SmallVector<Operation *> crashes, writes;
     fn->walk([&](Operation *op) {
       if (op->getNumRegions() != 0)
         return;
-      if (mayCrash(op))
+      Order order = orderOf(op, callees);
+      if (order.crash)
         crashes.push_back(op);
-      else if (writesOutput(op))
+      else if (order.io)
         writes.push_back(op);
     });
     for (Operation *write : writes)

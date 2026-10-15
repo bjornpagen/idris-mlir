@@ -23,9 +23,6 @@ record EvalOpts where
   tcInline : Bool -- inline for totality checking
   sharedPrimsOnly : Bool -- reduce only the primitives every backend computes
                          -- alike (Core.Primitives.sharedOp)
-  fuel : Maybe Nat -- Limit for recursion depth
-  reduceLimit : List (Name, Nat) -- reduction limits for given names. If not
-                     -- present, no limit
   strategy : EvalOrder
 
 export
@@ -38,8 +35,6 @@ defaultOpts = MkEvalOpts
     , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
-    , fuel = Nothing
-    , reduceLimit = []
     , strategy = CBN
     }
 
@@ -53,8 +48,6 @@ withHoles = MkEvalOpts
     , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
-    , fuel = Nothing
-    , reduceLimit = []
     , strategy = CBN
     }
 
@@ -68,8 +61,6 @@ withAll = MkEvalOpts
     , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
-    , fuel = Nothing
-    , reduceLimit = []
     , strategy = CBN
     }
 
@@ -90,8 +81,6 @@ withArgHoles = MkEvalOpts
     , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
-    , fuel = Nothing
-    , reduceLimit = []
     , strategy = CBN
     }
 

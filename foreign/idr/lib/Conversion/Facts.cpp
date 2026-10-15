@@ -17,6 +17,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <cassert>
+#include <optional>
 
 using namespace mlir;
 
@@ -24,17 +25,8 @@ namespace idr::conversion {
 
 namespace {
 
-// Whether a value of `type` is one pointer to a cell, never empty: a box or
-// a string. idr-lower reads these facts after idr-defunctionalize, where
-// every closure and suspension is already a box, so the box says it once.
-// Static data and live cells alike are 8-aligned and start with an 8-byte
-// header. A counted value is not enough: a big's word is a pointer only
-// when it is not small, a reuse token is null where its cell was shared,
-// and a sum held in place leaves the slots of the other constructors
-// empty.
-bool isCell(Type type) { return isa<BoxType, StrType>(unrestricted(type)); }
-
-// The attributes of a pointer to a cell.
+// The attributes of a pointer to a cell. Static data and live cells alike
+// are 8-aligned and start with an 8-byte header.
 SmallVector<NamedAttribute> cellFacts(Builder &b) {
   return {b.getNamedAttr(LLVM::LLVMDialect::getNonNullAttrName(), b.getUnitAttr()),
           b.getNamedAttr(LLVM::LLVMDialect::getAlignAttrName(), b.getI64IntegerAttr(8)),
@@ -47,7 +39,7 @@ SmallVector<NamedAttribute> cellFacts(Builder &b) {
 SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, bool mayBeNull,
                                                         const Layouts &layouts, Builder &b) {
   SmallVector<SmallVector<NamedAttribute>> facts(layouts.components(type).size());
-  if (isCell(type)) {
+  if (isCellPointer(type)) {
     if (!mayBeNull)
       facts.front() = cellFacts(b);
     return facts;
@@ -55,10 +47,10 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, bool mayBeNul
   auto data = dyn_cast<DataType>(unrestricted(type));
   if (!data)
     return facts;
-  const layout::SumLayout &layout = layouts.sum(data);
-  if (!layout.tag)
+  std::optional<IntegerType> tag = layouts.sum(data).tag;
+  if (!tag)
     return facts;
-  unsigned width = layout.tag.getIntOrFloatBitWidth();
+  unsigned width = tag->getWidth();
   uint64_t count = data.getCtors().size();
   // A tag type that the constructors fill has no range to state.
   if (count != 0 && count < (uint64_t{1} << width))
@@ -74,7 +66,7 @@ Facts::Facts(ProgramOp p) : program(p) {
   MLIRContext *ctx = program.getContext();
   auto mangled = [&](StringRef name) { return StringAttr::get(ctx, mangle(name)); };
   // A label's constructor names its function in the sum's body.
-  auto labelFunction = [](DataType data, unsigned tag) {
+  auto labelFunction = [](DataType data, Tag tag) {
     const Ctor &ctor = data.getCtor(tag);
     return ctor.role == CtorRole::Label ? ctor.fn : FlatSymbolRefAttr();
   };
@@ -121,7 +113,8 @@ void Facts::apply(const Layouts &layouts) {
     assert(at == fn.getNumArguments() && "the conversion made one parameter per component");
     // A result of several components becomes one struct in LLVM, which
     // takes no such facts.
-    if (before.getNumResults() == 1 && fn.getNumResults() == 1 && isCell(before.getResult(0)))
+    if (before.getNumResults() == 1 && fn.getNumResults() == 1 &&
+        isCellPointer(before.getResult(0)))
       for (const NamedAttribute &fact : cellFacts(b))
         fn.setResultAttr(0, fact.getName(), fact.getValue());
   }

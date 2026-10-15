@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
-// NEEDS-ACCEPTANCE: the texts of the stage errors, and the op each is reported at, as R04's program verifier writes them.
+// NEEDS-ACCEPTANCE: the texts of the stage errors, and the op each is reported at.
 // idr-defunctionalize makes every closure of the program a sum, and every
 // suspension a cell of a memo sum whose force is a call, and says so by
 // the stage it gives the program, `first`. So a closure, an application,

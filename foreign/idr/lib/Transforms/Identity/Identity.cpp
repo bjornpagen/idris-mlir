@@ -20,9 +20,11 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
+#include <cassert>
+
 namespace idr {
 #define GEN_PASS_DEF_IDRIDENTITY
-#include "idr/Transforms/Passes.h.inc"
+#include "idr/Transforms/InnerPasses.h.inc"
 } // namespace idr
 
 using namespace mlir;
@@ -50,23 +52,29 @@ struct GiveBack : OpRewritePattern<idr::CallOp> {
 };
 
 struct Identity : idr::impl::IdrIdentityBase<Identity> {
+  Identity(const idr::optimize::ReadySet &set, Pass::Statistic &numCalls)
+      : set(set), numCalls(numCalls) {}
+
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
-    auto set = getCachedParentAnalysis<idr::optimize::ReadySet>();
-    const idr::optimize::Node *reader = set ? set->get().nodeOf(fn.getSymNameAttr()) : nullptr;
-    if (!reader) {
-      fn.emitError("internal error: idr-identity runs inside idr-optimize, on a function of its "
-                   "ready set");
-      return signalPassFailure();
-    }
+    // The scheduler runs the pipeline on the functions of its ready set.
+    const idr::optimize::Node *reader = set.nodeOf(fn.getSymNameAttr());
+    assert(reader && "the inner pipeline runs on a function of the ready set");
     unsigned calls = 0;
     RewritePatternSet patterns(&getContext());
-    patterns.add<GiveBack>(&getContext(), set->get(), *reader, calls);
+    patterns.add<GiveBack>(&getContext(), set, *reader, calls);
     walkAndApplyPatterns(fn, std::move(patterns));
     numCalls += calls;
     if (calls == 0)
       markAllAnalysesPreserved();
   }
+
+  const idr::optimize::ReadySet &set;
+  Pass::Statistic &numCalls;
 };
 
 } // namespace
+
+std::unique_ptr<Pass> idr::optimize::createIdentity(const ReadySet &set, Pass::Statistic &calls) {
+  return std::make_unique<Identity>(set, calls);
+}

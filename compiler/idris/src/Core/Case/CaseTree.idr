@@ -71,30 +71,34 @@ isDefault : CaseAlt vars -> Bool
 isDefault (DefaultCase _) = True
 isDefault _ = False
 
+-- A case tree with `f` applied to each term it holds (each case's
+-- scrutinee type and each leaf's term), its alternatives in a list of
+-- their own, so that every recursive call is on a part of its argument.
 mutual
-  export
-  StripNamespace (CaseTree vars) where
-    trimNS ns (Case idx p scTy xs)
-        = Case idx p (trimNS ns scTy) (map (trimNS ns) xs)
-    trimNS ns (STerm x t) = STerm x (trimNS ns t)
-    trimNS ns c = c
+  onTreeTerms : (forall vs . Term vs -> Term vs) -> CaseTree vars -> CaseTree vars
+  onTreeTerms f (Case idx p scTy xs) = Case idx p (f scTy) (onAltsTerms f xs)
+  onTreeTerms f (STerm x t) = STerm x (f t)
+  onTreeTerms f c = c
 
-    restoreNS ns (Case idx p scTy xs)
-        = Case idx p (restoreNS ns scTy) (map (restoreNS ns) xs)
-    restoreNS ns (STerm x t) = STerm x (restoreNS ns t)
-    restoreNS ns c = c
+  onAltsTerms : (forall vs . Term vs -> Term vs) -> List (CaseAlt vars) -> List (CaseAlt vars)
+  onAltsTerms f [] = []
+  onAltsTerms f (alt :: alts) = onAltTerms f alt :: onAltsTerms f alts
 
-  export
-  StripNamespace (CaseAlt vars) where
-    trimNS ns (ConCase x tag args t) = ConCase x tag args (trimNS ns t)
-    trimNS ns (DelayCase ty arg t) = DelayCase ty arg (trimNS ns t)
-    trimNS ns (ConstCase x t) = ConstCase x (trimNS ns t)
-    trimNS ns (DefaultCase t) = DefaultCase (trimNS ns t)
+  onAltTerms : (forall vs . Term vs -> Term vs) -> CaseAlt vars -> CaseAlt vars
+  onAltTerms f (ConCase x tag args t) = ConCase x tag args (onTreeTerms f t)
+  onAltTerms f (DelayCase ty arg t) = DelayCase ty arg (onTreeTerms f t)
+  onAltTerms f (ConstCase x t) = ConstCase x (onTreeTerms f t)
+  onAltTerms f (DefaultCase t) = DefaultCase (onTreeTerms f t)
 
-    restoreNS ns (ConCase x tag args t) = ConCase x tag args (restoreNS ns t)
-    restoreNS ns (DelayCase ty arg t) = DelayCase ty arg (restoreNS ns t)
-    restoreNS ns (ConstCase x t) = ConstCase x (restoreNS ns t)
-    restoreNS ns (DefaultCase t) = DefaultCase (restoreNS ns t)
+export
+StripNamespace (CaseTree vars) where
+  trimNS ns = onTreeTerms (trimNS ns)
+  restoreNS ns = onTreeTerms (restoreNS ns)
+
+export
+StripNamespace (CaseAlt vars) where
+  trimNS ns = onAltTerms (trimNS ns)
+  restoreNS ns = onAltTerms (restoreNS ns)
 
 
 public export
@@ -129,14 +133,17 @@ public export
 0 IsConPat : Pat -> Type
 IsConPat = So . isConPat
 
+total
 showCT : {vars : _} -> (indent : String) -> CaseTree vars -> String
+total
 showCA : {vars : _} -> (indent : String) -> CaseAlt vars  -> String
+total
+showCAs : {vars : _} -> (indent : String) -> List (CaseAlt vars) -> List String
 
 showCT indent (Case {name} idx prf ty alts)
   = "case " ++ show name ++ "[" ++ show idx ++ "] : " ++ show ty ++ " of"
   ++ "\n" ++ indent ++ " { "
-  ++ showSep ("\n" ++ indent ++ " | ")
-             (assert_total (map (showCA ("  " ++ indent)) alts))
+  ++ showSep ("\n" ++ indent ++ " | ") (showCAs ("  " ++ indent) alts)
   ++ "\n" ++ indent ++ " }"
 showCT indent (STerm i tm) = "[" ++ show i ++ "] " ++ show tm
 showCT indent (Unmatched msg) = "Error: " ++ show msg
@@ -152,13 +159,14 @@ showCA indent (ConstCase c sc)
 showCA indent (DefaultCase sc)
         = "_ => " ++ showCT indent sc
 
+showCAs indent [] = []
+showCAs indent (alt :: alts) = showCA indent alt :: showCAs indent alts
+
 export
-covering
 {vars : _} -> Show (CaseTree vars) where
   show = showCT ""
 
 export
-covering
 {vars : _} -> Show (CaseAlt vars) where
   show = showCA ""
 
@@ -288,15 +296,15 @@ getNames add ns sc = getSet ns sc
       getSet ns (Unmatched msg) = ns
       getSet ns Impossible = ns
 
-export
+export total
 getRefs : (aTotal : Name) -> CaseTree vars -> NameMap Bool
 getRefs at = getNames (addRefs False at) empty
 
-export
+export total
 addRefs : (aTotal : Name) -> NameMap Bool -> CaseTree vars -> NameMap Bool
 addRefs at ns = getNames (addRefs False at) ns
 
-export
+export total
 getMetas : CaseTree vars -> NameMap Bool
 getMetas = getNames (addMetas False) empty
 

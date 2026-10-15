@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,crash-sites=@Main.name:1,crash-sites=@Main.never:1,never-returns=@Main.never,crash-sites=@Main.half:1,calls-only=@Main.half:[@idris_rt_crash]' -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // idr.crash calls the runtime's crash, which does not return, with its
 // message and location; a function that never returns ends after it, with
 // no return. The guard of a division by what may be zero is the same

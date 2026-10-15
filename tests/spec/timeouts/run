@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A command that never ends is killed after the step limit and exits 124,
 # and a run script that never ends is killed after the test limit and says
 # so: the harness itself, with small limits.

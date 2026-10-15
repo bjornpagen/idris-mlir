@@ -212,13 +212,11 @@ opNameNumber w name =
     s <- stringNumber w (pack (drop 1 (unpack rest)))
     pure (d, s)
 
-covering
 attrNumber : Writer -> MlirAttr -> W Nat
 attrNumber w a =
   let text = attrText a in
   number w.attrTable text ((\d => (d, text)) <$> dialectNumber w (attrDialect a))
 
-covering
 typeNumber : Writer -> MlirType -> W Nat
 typeNumber w t =
   let text = typeText t in
@@ -272,7 +270,6 @@ mutual
   ||| An op up to its regions: its name, the mask of its parts, its
   ||| location, its inherent and discardable attributes as one dictionary,
   ||| its result types and its operands' numbers.
-  covering
   encodeHead : Writer -> Bytes -> Scope -> Statement -> W ()
   encodeHead w out scope (MkStatement _ o at) = do
     let attributes = o.properties ++ o.attributes
@@ -290,7 +287,6 @@ mutual
       varint out (length o.operands)
       traverse_ (operand out scope) o.operands
 
-  covering
   operand : Bytes -> Scope -> Value -> W ()
   operand out scope v = case lookup v.name scope of
     Just n => varint out n
@@ -298,47 +294,57 @@ mutual
 
   ||| An op nested in a region, its regions inline, their values after
   ||| every value of the regions around them (`base`).
-  covering
   encodeNested : Writer -> Bytes -> Scope -> Nat -> Statement -> W ()
-  encodeNested w out scope base s = do
+  encodeNested w out scope base s@(MkStatement _ (MkOp _ _ _ regions _ _) _) = do
     encodeHead w out scope s
-    unless (null s.op.regions) $ do
-      varintFlag out (length s.op.regions) False
-      traverse_ (encodeRegion w out scope base) s.op.regions
+    unless (null regions) $ do
+      varintFlag out (length regions) False
+      encodeRegions w out scope base regions
+
+  ||| Regions, in order, each as `encodeRegion` writes it.
+  encodeRegions : Writer -> Bytes -> Scope -> Nat -> List Region -> W ()
+  encodeRegions w out scope base [] = pure ()
+  encodeRegions w out scope base (r :: rs) = do
+    encodeRegion w out scope base r
+    encodeRegions w out scope base rs
 
   ||| A region of one block, its values from `base`.
-  covering
   encodeRegion : Writer -> Bytes -> Scope -> Nat -> Region -> W ()
-  encodeRegion w out scope base r = do
+  encodeRegion w out scope base r@(MkRegion arguments statements) = do
     let n = definedIn r
         inner = bindRegion scope base r
     varint out 1
     varint out n
-    varintFlag out (length r.statements) (not (null r.arguments))
-    unless (null r.arguments) $ do
-      varint out (length r.arguments)
+    varintFlag out (length statements) (not (null arguments))
+    unless (null arguments) $ do
+      varint out (length arguments)
       traverse_ (\a => do varintFlag out !(typeNumber w a.value.type) True
-                          varint out !(locationNumber w a.at)) r.arguments
+                          varint out !(locationNumber w a.at)) arguments
       byte out 0
-    traverse_ (encodeNested w out inner (base + n)) r.statements
+    encodeStatements w out inner (base + n) statements
+
+  ||| A region's ops, in order, each as `encodeNested` writes it.
+  encodeStatements : Writer -> Bytes -> Scope -> Nat -> List Statement -> W ()
+  encodeStatements w out scope base [] = pure ()
+  encodeStatements w out scope base (s :: ss) = do
+    encodeNested w out scope base s
+    encodeStatements w out scope base ss
 
 ||| An op isolated from what holds it: its regions in a section of their
 ||| own, their values from 0, nothing outside in scope.
-covering
 encodeIsolated : Writer -> Bytes -> Statement -> W ()
-encodeIsolated w out s = do
+encodeIsolated w out s@(MkStatement _ (MkOp _ _ _ rs _ _) _) = do
   encodeHead w out SortedMap.empty s
-  unless (null s.op.regions) $ do
-    varintFlag out (length s.op.regions) True
+  unless (null rs) $ do
+    varintFlag out (length rs) True
     regions <- newBytes
-    traverse_ (encodeRegion w regions SortedMap.empty 0) s.op.regions
+    encodeRegions w regions SortedMap.empty 0 rs
     section out 4 regions
 
 ||| Encodes one op of the innermost container's block (`finish`), isolated,
 ||| after those before it. Its results, if any, are no value another of
 ||| those ops uses.
-export covering
-writeTopLevel : Writer -> Statement -> IO (Either String ())
+export writeTopLevel : Writer -> Statement -> IO (Either String ())
 writeTopLevel w s = runEitherT $ do
   encodeIsolated w w.body s
   modifyIORef w.count S
@@ -357,7 +363,6 @@ runs ((d, x) :: rest) = case runs rest of
 
 ||| The attribute or type entries: their texts, and the offset section's
 ||| groups of their sizes.
-covering
 entryTexts : Bytes -> Bytes -> List (Nat, String) -> W ()
 entryTexts texts offsets entries = do
   traverse_ (\(_, t) => string texts t) entries
@@ -386,7 +391,6 @@ mutual
   ||| rest, or, past the last container, the ops given to `writeTopLevel`.
   ||| A container is isolated, its region in a section of its own, whose
   ||| values are its block's: the next container's results, or those ops'.
-  covering
   block : Writer -> Bytes -> List Container -> W ()
   block w out [] = do
     varintFlag out !(readIORef w.count) False
@@ -411,8 +415,7 @@ mutual
 ||| given to `writeTopLevel`, in order; then the attributes and types, the
 ||| dialects and op names, the strings, and the properties, which no op
 ||| holds natively.
-export covering
-finish : Writer -> File -> List Container -> IO (Either String ())
+export finish : Writer -> File -> List Container -> IO (Either String ())
 finish w h containers = runEitherT $ do
   ir <- newBytes
   block w ir containers

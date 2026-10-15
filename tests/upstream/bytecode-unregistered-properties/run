@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The upstream bug upstream/25-bytecode-unregistered-properties still
 # reproduces with the pinned tools: an op mlir-opt writes to bytecode
 # without its dialect, its properties kept as an attribute, is read by

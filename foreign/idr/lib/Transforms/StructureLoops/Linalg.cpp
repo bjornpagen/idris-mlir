@@ -10,8 +10,9 @@
 #include "idr/Transforms/StructureLoops.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 
@@ -30,13 +31,12 @@ struct Inputs {
 
 Inputs inputsOf(ArrayRef<Read> reads) {
   Inputs inputs;
+  DenseMap<std::pair<Value, AffineMap>, unsigned> numbered;
   for (Read read : reads) {
-    auto at = static_cast<unsigned>(inputs.arrays.size());
-    for (unsigned i = 0, e = static_cast<unsigned>(inputs.arrays.size()); i < e; ++i)
-      if (inputs.arrays[i] == read.op.getTensor() && inputs.maps[i] == read.map)
-        at = i;
-    inputs.of.push_back(at);
-    if (at == inputs.arrays.size()) {
+    auto [at, fresh] = numbered.try_emplace({read.op.getTensor(), read.map},
+                                            static_cast<unsigned>(inputs.arrays.size()));
+    inputs.of.push_back(at->second);
+    if (fresh) {
       inputs.arrays.push_back(read.op.getTensor());
       inputs.maps.push_back(read.map);
     }
@@ -107,9 +107,8 @@ void lowerParallel(RewriterBase &rewriter, Operation *op) {
   Location loc = op->getLoc();
   rewriter.setInsertionPoint(op);
   if (auto transpose = dyn_cast<TransposeOp>(op)) {
-    SmallVector<OpFoldResult> dims;
-    for (int64_t from : transpose.getPermutation())
-      dims.push_back(tensor::getMixedSize(rewriter, loc, transpose.getInput(), from));
+    SmallVector<OpFoldResult> dims = applyPermutation(
+        tensor::getMixedSizes(rewriter, loc, transpose.getInput()), transpose.getPermutation());
     Value init = emptyOf(rewriter, loc, transpose.getType(), dims);
     auto made = linalg::TransposeOp::create(rewriter, loc, transpose.getInput(), init,
                                             transpose.getPermutation());

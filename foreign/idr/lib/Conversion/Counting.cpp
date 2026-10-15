@@ -44,7 +44,7 @@ struct LowerDrop : IdrPattern<DropOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Type type = op.getValue().getType();
     if (isa<TokenType>(unrestricted(type)))
-      runtime.call(rewriter, op.getLoc(), "idris_rt_free_cell", Type(), adaptor.getValue().front());
+      runtime.perform(rewriter, op.getLoc(), "idris_rt_free_cell", adaptor.getValue().front());
     else
       runtime.dec(rewriter, op.getLoc(), adaptor.getValue(), layouts.counted(type));
     rewriter.eraseOp(op);
@@ -65,16 +65,16 @@ struct LowerReuse : IdrPattern<ReuseOp> {
   LogicalResult matchAndRewrite(ReuseOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    unsigned tag = op.getTag();
+    Tag tag = op.getTag();
     const layout::Cell &layout = layouts.box(op.getDataType(), tag);
     layout::CellInfo info = layout.info;
-    ArrayRef<bool> kept = fields.kept(op);
+    std::optional<ArrayRef<bool>> kept = fields.kept(op);
     SmallVector<SmallVector<Value>> values =
         fieldsOf(rewriter, loc, layout, op.getHoles(), adaptor.getFields());
     // The fields `cell` holds already when `held`, the others otherwise.
     auto store = [&](OpBuilder &b, Value cell, bool held) {
       for (auto [index, slots, field] : llvm::enumerate(layout.fields, values))
-        if ((!kept.empty() && kept[index]) == held)
+        if ((kept && (*kept)[index]) == held)
           runtime.store(b, loc, cell, cellAlignment(), slots, field);
     };
     Value token = adaptor.getToken().front();
@@ -82,7 +82,7 @@ struct LowerReuse : IdrPattern<ReuseOp> {
     Value where;
     if (isExclusive(op.getToken().getType())) {
       // An exclusive token is the cell, certainly: no test.
-      if (kept.empty())
+      if (!kept)
         runtime.storeHeader(rewriter, loc, token, layout, tag, info);
       where = token;
     } else {
@@ -96,7 +96,7 @@ struct LowerReuse : IdrPattern<ReuseOp> {
       store(rewriter, fresh, /*held=*/true);
       scf::YieldOp::create(rewriter, loc, fresh);
       rewriter.setInsertionPointToStart(choose.elseBlock());
-      if (kept.empty())
+      if (!kept)
         runtime.storeHeader(rewriter, loc, token, layout, tag, info);
       scf::YieldOp::create(rewriter, loc, token);
       where = choose.getResult(0);
@@ -125,14 +125,12 @@ struct LowerTake : IdrPattern<TakeOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     DataType data = op.getDataType();
-    unsigned tag = op.getTag();
+    Tag tag = op.getTag();
     ValueRange value = adaptor.getValue();
     SmallVector<SmallVector<Value>> out;
     if (!isBoxed(op.getValue().getType())) {
-      const layout::SumLayout &layout = layouts.sum(data);
-      for (const auto &slots : layout.fields[tag])
-        out.push_back(llvm::map_to_vector(
-            slots, [&](unsigned slot) { return value[layout.offset() + slot]; }));
+      for (unsigned index = 0, e = static_cast<unsigned>(op.getFields().size()); index < e; ++index)
+        out.push_back(unboxedField(layouts.sum(data), value, tag, index));
       rewriter.replaceOpWithMultiple(op, std::move(out));
       return success();
     }

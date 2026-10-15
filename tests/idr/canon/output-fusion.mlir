@@ -3,7 +3,8 @@
 // RUN: no-heap-allocation=@lists,no-heap-allocation=@line,no-heap-allocation=@constant_list,\
 // RUN: returns-argument=@nil:0,builds-nothing=@cell,no-heap-allocation=@cell,\
 // RUN: no-heap-allocation=@cells_of_strings,builds=@cell_kept,no-heap-allocation=@packed_in_a_region -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A string built only to be written is written piece by piece, in the
 // same order, through the world: nothing is built for output alone, so a
 // function that only writes allocates nothing, and one whose string or
@@ -81,7 +82,7 @@ idr.program @"output-fusion" root(@constant_list) stage(first) {
   // what writing its pack wrote: compile-time evaluation can make the list a
   // constant after the output of its pack became a walk.
   idr.func @constant_list(%w: !idr.world) -> !idr.world {
-    %cs = idr.constant #idr.con<@Cons, [104 : i32, #idr.con<@Cons, [105 : i32, #idr.con<@Nil, []>]>]> : !idr.box<!Chars>
+    %cs = idr.constant #idr.con<!Chars, @Cons, [104 : i32, #idr.con<!Chars, @Cons, [105 : i32, #idr.con<!Chars, @Nil, []>]>]> : !idr.box<!Chars>
     %w1 = idr.io.put_list %cs, %w : !idr.box<!Chars>
     return %w1 : !idr.world
   }

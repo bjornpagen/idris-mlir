@@ -8,7 +8,6 @@
 
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 
 namespace idr::ownership {
@@ -22,9 +21,8 @@ enum class Use { Consume, Borrow };
 // idr op consume; everything else borrows, the closure an apply calls
 // included. A force is placement's: idr-rc gives it its cell owned where
 // the cell dies, and there it takes the cell over; anywhere else it reads a
-// view. `symbols` is for the passes that ask before the operands of a call
-// take their callee's grades.
-Use useOf(mlir::OpOperand &operand, mlir::SymbolTable *symbols = nullptr);
+// view.
+Use useOf(mlir::OpOperand &operand);
 
 // Whether `value` is static: a constant, poison, or a field read from one.
 bool isStatic(mlir::Value value);
@@ -42,10 +40,6 @@ mlir::Value viewRoot(mlir::Value value);
 // Whether `view` is static data that reaches no cell but atoms, which is in
 // every exclusive tree.
 bool reachesOnlyAtoms(mlir::Value view);
-
-// Whether `op`'s region is the body of a loop over indices, which runs once
-// per index it covers.
-bool isIndexLoop(mlir::Operation *op);
 
 } // namespace idr::ownership
 

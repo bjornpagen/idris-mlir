@@ -1,0 +1,2 @@
+NEEDS-ACCEPTANCE: that the fork's size-change decision judges each component of Loops.idr as expected-stdout says, run through this script against the installed fork
+loops-terminate: every component judged as expected-stdout says

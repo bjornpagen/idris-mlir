@@ -65,30 +65,38 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     // The data type named `identifier`, with the body `body` gives for it: the
     // type it is handed is the one being made, which the body may hold, as
     // may the body of a type `body` defines in turn. A type of that name
-    // with this body already is that type. Null, after an internal error at
-    // no location of the context, when the body is no well-formed sum or
+    // with this body already is that type. Failure, after an internal error
+    // at no location of the context, when the body is no well-formed sum or
     // the name has another body.
-    static DataType define(::mlir::MLIRContext *context, ::llvm::StringRef identifier,
-                           ::llvm::function_ref<Body(DataType self)> body);
+    static ::mlir::FailureOr<DataType> define(::mlir::MLIRContext *context,
+                                              ::llvm::StringRef identifier,
+                                              ::llvm::function_ref<Body(DataType self)> body);
 
     ::idr::SumKind getKind() const;
     // In tag order.
     ::llvm::ArrayRef<::idr::Ctor> getCtors() const;
-    const ::idr::Ctor &getCtor(unsigned tag) const;
+    const ::idr::Ctor &getCtor(::idr::Tag tag) const;
+    // Every tag of the body, in order, for a reader that goes through the
+    // constructors by their tags.
+    auto getTags() const {
+      return ::llvm::map_range(
+          ::llvm::seq<uint32_t>(0, static_cast<uint32_t>(getCtors().size())),
+          [](uint32_t tag) { return ::idr::Tag{tag}; });
+    }
     ::idr::InstanceAttr getInstance() const;
     // The tag of the constructor named `name`, or nothing: how the parsers
     // read a constructor written by its name. Every other reader holds the
     // tag.
-    std::optional<unsigned> getTag(::llvm::StringRef ctor) const;
+    std::optional<::idr::Tag> getTag(::llvm::StringRef ctor) const;
     bool isMemo() const { return getKind() == ::idr::SumKind::Memo; }
     bool isClosures() const { return getKind() == ::idr::SumKind::Closures; }
     // The constructor of each role a sum has exactly one of: a memo sum's
     // states, base list's nil and cons. Asked of a sum of another kind, it
     // is the caller's error.
-    unsigned getRunningTag() const { return roleTag(::idr::CtorRole::Running); }
-    unsigned getForcedTag() const { return roleTag(::idr::CtorRole::Forced); }
-    unsigned getNilTag() const { return roleTag(::idr::CtorRole::ListNil); }
-    unsigned getConsTag() const { return roleTag(::idr::CtorRole::ListCons); }
+    ::idr::Tag getRunningTag() const { return roleTag(::idr::CtorRole::Running); }
+    ::idr::Tag getForcedTag() const { return roleTag(::idr::CtorRole::Forced); }
+    ::idr::Tag getNilTag() const { return roleTag(::idr::CtorRole::ListNil); }
+    ::idr::Tag getConsTag() const { return roleTag(::idr::CtorRole::ListCons); }
     // Base list's element: cons's first field.
     ::mlir::Type getListElement() const { return getCtor(getConsTag()).fields[0]; }
 
@@ -116,7 +124,7 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     // one that is no well-formed sum, fails with `emitError`'s error.
     ::mlir::LogicalResult setBody(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                                   const Body &body);
-    unsigned roleTag(::idr::CtorRole role) const;
+    ::idr::Tag roleTag(::idr::CtorRole role) const;
     // The rules of a well-formed sum, which a body is checked by once, when
     // it is set (lib/IR/DataBody.cpp).
     static ::mlir::LogicalResult verifyBody(DataType type,
@@ -126,9 +134,9 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     // for every data type the answer depends on, and kept beside the body
     // (lib/IR/ValueFacts.cpp). They are read and kept under the context's
     // lock for the type, as the body is set; none until they are known.
-    unsigned facts() const;
-    uint8_t knownFacts() const;
-    void keepFacts(uint8_t bits) const;
+    ::idr::Held facts() const;
+    std::optional<::idr::Held> knownFacts() const;
+    void keepFacts(::idr::Held held) const;
     // Whether the body is set yet: false only while the parser or define
     // makes the type, when no fact of it is final.
     bool bodySet() const;

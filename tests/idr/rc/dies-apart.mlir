@@ -1,6 +1,8 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@sumAfterTag -o /dev/null
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower | FileCheck %s --check-prefix=LOWER
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A box that dies in the region of the match that saw its constructor is
 // taken apart where it dies even when no constructor is built in its cell
 // (Perceus's drop specialization): one test of its count, instead of a
@@ -60,7 +62,7 @@ idr.program @"dies-apart" root(@root) stage(first) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
+      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
       idr.yield %e : !idr.box<!L>
     }
     default {
@@ -166,7 +168,7 @@ idr.program @"dies-apart" root(@root) stage(first) {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %three = arith.constant 3 : i64
     %two = arith.constant 2 : i64
-    %nn = idr.constant #idr.con<@NN, []> : !idr.box<!LL>
+    %nn = idr.constant #idr.con<!LL, @NN, []> : !idr.box<!LL>
     %a = idr.call @build(%three) : (i64) -> !idr.box<!L>
     %r = idr.call @sumAfterTag(%a) : (!idr.box<!L>) -> !idr.box<!L>
     // Kept by its caller across the call: shared.

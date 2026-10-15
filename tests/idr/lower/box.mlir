@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,signature=@push:(i64,!llvm.ptr)->!llvm.ptr,signature=@first:(!llvm.ptr)->i64,calls-only=@push:[@idris_rt_cell],calls-only=@first:[],writes-nothing=@first,aligned-access' -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // A boxed constructor is a new cell: the runtime allocates it with its
 // header (count 1, the info word: tag 1, one object slot, kind box), and its
 // fields are stored at their offsets, the counted ones first: the header

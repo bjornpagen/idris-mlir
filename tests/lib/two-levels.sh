@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The two levels (tests/TwoLevels.idr): closed terms, compiled and run,
 # against the values their corpus's expected file records.
 

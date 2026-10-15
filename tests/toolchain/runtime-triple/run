@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # idris-mlir takes a runtime member compiled for the target's triple
 # however clang spells it, and refuses one compiled for another vendor or
 # environment: it compares what the triples name (clang writes a Darwin

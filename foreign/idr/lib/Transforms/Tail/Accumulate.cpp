@@ -20,7 +20,6 @@
 
 #include "idr/Transforms/Tail.h"
 
-#include "idr/Analysis/Holds.h"
 #include "idr/Analysis/Tail.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -30,6 +29,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+
+#include <optional>
+#include <variant>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRACCUMULATE
@@ -60,14 +62,15 @@ CallOp retarget(RewriterBase &rewriter, CallOp call, FuncOp clone, Value carried
 void rewriteClone(RewriterBase &rewriter, FuncOp clone, ArrayRef<Site> sites, const IRMapping &mapping, Value acc) {
   for (Site site : sites) {
     auto call = cast<CallOp>(mapping.lookup(site.call.getOperation()));
-    if (!site.add) {
+    if (!site.addition) {
       rewriter.setInsertionPoint(call);
       rewriter.replaceOp(call, retarget(rewriter, call, clone, acc).getOperation());
       continue;
     }
-    auto add = cast<BigAddOp>(mapping.lookup(site.add.getOperation()));
+    auto add = cast<BigAddOp>(mapping.lookup(site.addition->add.getOperation()));
     rewriter.setInsertionPoint(add);
-    auto sum = BigAddOp::create(rewriter, add.getLoc(), add.getResult().getType(), acc, mapping.lookup(site.addend));
+    auto sum = BigAddOp::create(rewriter, add.getLoc(), add.getResult().getType(), acc,
+                                mapping.lookup(site.addition->addend));
     rewriter.setInsertionPointAfter(sum);
     CallOp neu = retarget(rewriter, call, clone, sum.getResult());
     // The call's place was before the addition; its result had no other use.
@@ -96,53 +99,92 @@ void rewriteClone(RewriterBase &rewriter, FuncOp clone, ArrayRef<Site> sites, co
   }
 }
 
+// What becomes of one function: a countdown returns its argument; the
+// function of accumulator tails seeds its clone, named `name`, which adds
+// on the way down.
+struct Countdown {};
+struct Accumulator {
+  SmallVector<Site> sites;
+  StringAttr name;
+};
+using Plan = std::variant<Countdown, Accumulator>;
+
+// A visit of a plan with one case for each alternative, so that a missing
+// one does not compile.
+template <typename... Cases> struct Visit : Cases... {
+  using Cases::operator()...;
+};
+template <typename... Cases> Visit(Cases...) -> Visit<Cases...>;
+
+// The plan of `fn`; none when nothing becomes of it, failure when its
+// clone's name is taken.
+FailureOr<std::optional<Plan>> planOf(FuncOp fn, SymbolTable &symbols) {
+  if (isCountdown(fn))
+    return std::optional<Plan>(Countdown{});
+  SmallVector<Site> sites = accumulatorSites(fn);
+  if (sites.empty())
+    return std::optional<Plan>();
+  FailureOr<StringAttr> name = copyName(fn, "acc", symbols);
+  if (failed(name))
+    return failure();
+  return std::optional<Plan>(Accumulator{std::move(sites), *name});
+}
+
+// The clone of `fn` that carries the sum, named `name`, entered right after
+// it; `fn` calls it with zero.
+void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumulator &plan) {
+  MLIRContext *ctx = fn.getContext();
+  Type result = fn.getResultTypes()[0];
+  IRMapping mapping;
+  auto clone = cast<FuncOp>(fn->clone(mapping));
+  clone.setSymNameAttr(plan.name);
+  (void)clone.insertArgument(clone.getNumArguments(), result, DictionaryAttr(), fn.getLoc());
+  symbols.insert(clone, std::next(fn->getIterator()));
+  rewriteClone(rewriter, clone, plan.sites, mapping, clone.getArguments().back());
+
+  // The old body computed the sum on the way back; it goes now that the
+  // clone holds its copy.
+  Block &entry = fn.getBody().front();
+  clearBlock(rewriter, entry);
+  rewriter.setInsertionPointToStart(&entry);
+  Value zero = ConstantOp::create(rewriter, fn.getLoc(), result, BigAttr::get(ctx, APInt(1, 0)));
+  SmallVector<Value> args(entry.getArguments());
+  args.push_back(zero);
+  auto call = CallOp::create(rewriter, fn.getLoc(), clone, args);
+  ReturnOp::create(rewriter, fn.getLoc(), call.getResults());
+}
+
 struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
   void runOnOperation() override {
     ProgramOp program = getOperation();
-    MLIRContext *ctx = program.getContext();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
-    IRRewriter rewriter(ctx);
-    bool changed = false;
-    for (FuncOp fn : llvm::make_early_inc_range(program.getOps<FuncOp>())) {
-      if (isCountdown(fn)) {
-        returnArgument(fn, rewriter);
-        changed = true;
-        continue;
-      }
-      SmallVector<Site> sites = accumulatorSites(fn);
-      if (sites.empty())
-        continue;
-      FailureOr<StringAttr> name = copyName(fn, "acc", symbols);
-      if (failed(name))
+    // Every function is planned on the program as it stands, before any
+    // changes: a plan reads its own function alone.
+    SmallVector<std::pair<FuncOp, Plan>> plans;
+    for (FuncOp fn : program.getOps<FuncOp>()) {
+      FailureOr<std::optional<Plan>> plan = planOf(fn, symbols);
+      if (failed(plan))
         return signalPassFailure();
-      changed = true;
-      Type result = fn.getResultTypes()[0];
-      IRMapping mapping;
-      auto clone = cast<FuncOp>(fn->clone(mapping));
-      clone.setSymNameAttr(*name);
-      (void)clone.insertArgument(clone.getNumArguments(), result, DictionaryAttr(), fn.getLoc());
-      symbols.insert(clone, std::next(fn->getIterator()));
-      rewriteClone(rewriter, clone, sites, mapping, clone.getArguments().back());
-
-      ++numFunctions;
-      numTails +=
-          static_cast<uint64_t>(llvm::count_if(sites, [](const Site &site) { return static_cast<bool>(site.add); }));
-
-      // The old body computed the sum on the way back; it goes now that the
-      // clone holds its copy.
-      Block &entry = fn.getBody().front();
-      clearBlock(rewriter, entry);
-      rewriter.setInsertionPointToStart(&entry);
-      Value zero =
-          ConstantOp::create(rewriter, fn.getLoc(), result, BigAttr::get(ctx, APInt(1, 0)));
-      SmallVector<Value> args(entry.getArguments());
-      args.push_back(zero);
-      auto call = CallOp::create(rewriter, fn.getLoc(), clone, args);
-      ReturnOp::create(rewriter, fn.getLoc(), call.getResults());
+      if (*plan)
+        plans.emplace_back(fn, std::move(**plan));
     }
-    if (!changed)
+    if (plans.empty())
       return markAllAnalysesPreserved();
-    markAnalysesPreserved<SymbolTable, Holds, TypeGraph, Layouts>();
+    IRRewriter rewriter(program.getContext());
+    for (auto &[planned, plan] : plans) {
+      FuncOp fn = planned;
+      std::visit(Visit{[&](const Countdown &) { returnArgument(fn, rewriter); },
+                       [&](const Accumulator &accumulator) {
+                         seed(rewriter, symbols, fn, accumulator);
+                         ++numFunctions;
+                         numTails += static_cast<uint64_t>(
+                             llvm::count_if(accumulator.sites, [](const Site &site) {
+                               return site.addition.has_value();
+                             }));
+                       }},
+                 plan);
+    }
+    markAnalysesPreserved<SymbolTable, TypeGraph, Layouts>();
   }
 };
 

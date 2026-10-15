@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ops on arrays a world orders (new, get, set, update), with their
-// rules, their shapes, their effects and how an element moves; the extent
-// of an array to be made; and the tie of an array's dimensions to sizes,
-// with what value bounds and the folding of a dimension read from it.
+// The ops on arrays a world orders (new, get, set, update), and the update
+// of an element of a value array's buffer, with their rules, their shapes,
+// their effects and how an element moves; the extent of an array to be
+// made; and the tie of an array's dimensions to sizes, with what value
+// bounds and the folding of a dimension read from it.
 
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Canon.h"
@@ -35,6 +36,56 @@ LogicalResult verifyElement(Operation *op, StringRef what, Type type, MemRefType
     return op->emitOpError() << what << " has type " << type << ", but the array holds "
                              << array.getElementType();
   return success();
+}
+
+// What every update is, on an array a world orders or on a value array's
+// buffer alike (UpdateOpInterface), said once. One index per dimension of
+// the array, and a region that binds the element alone, at the array's
+// element type at any grade, and yields the element, at any grade, then
+// each result.
+LogicalResult verifyUpdate(UpdateOpInterface op) {
+  Operation *self = op.getOperation();
+  if (failed(verifyCount(self, op.getIndices().size(), "indices", op.getArrayType())))
+    return failure();
+  Block &body = self->getRegion(0).front();
+  if (body.getNumArguments() != 1)
+    return self->emitOpError("binds ")
+           << body.getNumArguments() << " values in its region, where it binds the element alone";
+  return verifyElement(self, "the element", body.getArgument(0).getType(), op.getArrayType());
+}
+LogicalResult verifyUpdateEnd(UpdateOpInterface op) {
+  SmallVector<Type> types{op.getArrayType().getElementType()};
+  llvm::append_range(types, op.getOuts().getTypes());
+  return verifyEnd(op.getOperation(), types, [](unsigned at) { return at == 0; });
+}
+
+// The region runs once, between the read and the write, and what it gives
+// after the element leaves the op.
+void updateSuccessors(UpdateOpInterface op, RegionBranchPoint point,
+                      SmallVectorImpl<RegionSuccessor> &regions) {
+  if (point.isParent())
+    regions.push_back(RegionSuccessor(&op->getRegion(0)));
+  else
+    regions.push_back(RegionSuccessor(op.getOperation()));
+}
+ValueRange updateSuccessorInputs(UpdateOpInterface op, RegionSuccessor successor) {
+  if (successor.isOperation())
+    return op.getOuts();
+  return ValueRange();
+}
+
+// It reads the element out of the array and writes the rebuilt one in, in
+// the default resource; the region's effects are its own.
+void updateEffects(OpOperand &array,
+                   SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &array, SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), &array, SideEffects::DefaultResource::get());
+}
+
+// The element moves out of its place into the region, whose yield moves the
+// rebuilt one back in.
+void updateEdges(UpdateOpInterface op, FlowEdges &edges) {
+  edges.flow(elementsOf(op.getArray()), FlowPoint::of(op.getElement()));
 }
 
 // An index as its access's guard was given it: the guard's result is the
@@ -93,37 +144,17 @@ void ArraySetOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRCon
   canon::addMoveOutPatterns(results, context);
 }
 
-// The region binds the element alone, at the array's element type at any
-// grade.
-LogicalResult ArrayUpdateOp::verify() {
-  if (failed(verifyCount(*this, getIndices().size(), "indices", getArrayType())))
-    return failure();
-  if (getBody()->getNumArguments() != 1)
-    return emitOpError("binds ") << getBody()->getNumArguments()
-                                 << " values in its region, where it binds the element alone";
-  return verifyElement(*this, "the element", getElement().getType(), getArrayType());
-}
+LogicalResult ArrayUpdateOp::verify() { return verifyUpdate(*this); }
 
-// The region yields the element, at any grade, then each result.
-LogicalResult ArrayUpdateOp::verifyRegions() {
-  SmallVector<Type> types{getArrayType().getElementType()};
-  llvm::append_range(types, getOuts().getTypes());
-  return verifyEnd(*this, types, [](unsigned at) { return at == 0; });
-}
+LogicalResult ArrayUpdateOp::verifyRegions() { return verifyUpdateEnd(*this); }
 
-// The region runs once, between the read and the write.
 void ArrayUpdateOp::getSuccessorRegions(RegionBranchPoint point,
                                         SmallVectorImpl<RegionSuccessor> &regions) {
-  if (point.isParent())
-    regions.push_back(RegionSuccessor(&getRegion()));
-  else
-    regions.push_back(RegionSuccessor(getOperation()));
+  updateSuccessors(*this, point, regions);
 }
 
 ValueRange ArrayUpdateOp::getSuccessorInputs(RegionSuccessor successor) {
-  if (successor.isOperation())
-    return getOuts();
-  return ValueRange();
+  return updateSuccessorInputs(*this, successor);
 }
 
 void ArrayUpdateOp::getRegionInvocationBounds(ArrayRef<Attribute>,
@@ -172,9 +203,7 @@ void ArraySetOp::getEffects(
 }
 void ArrayUpdateOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  OpOperand *array = &getArrayMutable();
-  effects.emplace_back(MemoryEffects::Read::get(), array, SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
+  updateEffects(getArrayMutable(), effects);
 }
 
 // An element moves in through the fill, which every element holds, and
@@ -190,9 +219,36 @@ void ArrayGetOp::getFlowEdges(FlowEdges &edges) {
 void ArraySetOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowPoint::of(getValueMutable()), elementsOf(getArray()));
 }
-void ArrayUpdateOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(elementsOf(getArray()), FlowPoint::of(getElement()));
+void ArrayUpdateOp::getFlowEdges(FlowEdges &edges) { updateEdges(*this, edges); }
+
+//===----------------------------------------------------------------------===//
+// The buffer of a value array
+//===----------------------------------------------------------------------===//
+
+LogicalResult ElementUpdateOp::verify() { return verifyUpdate(*this); }
+
+LogicalResult ElementUpdateOp::verifyRegions() { return verifyUpdateEnd(*this); }
+
+void ElementUpdateOp::getSuccessorRegions(RegionBranchPoint point,
+                                          SmallVectorImpl<RegionSuccessor> &regions) {
+  updateSuccessors(*this, point, regions);
 }
+
+ValueRange ElementUpdateOp::getSuccessorInputs(RegionSuccessor successor) {
+  return updateSuccessorInputs(*this, successor);
+}
+
+void ElementUpdateOp::getRegionInvocationBounds(ArrayRef<Attribute>,
+                                                SmallVectorImpl<InvocationBounds> &bounds) {
+  bounds.emplace_back(1, 1);
+}
+
+void ElementUpdateOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  updateEffects(getArrayMutable(), effects);
+}
+
+void ElementUpdateOp::getFlowEdges(FlowEdges &edges) { updateEdges(*this, edges); }
 
 //===----------------------------------------------------------------------===//
 // The extent of an array to be made
@@ -233,17 +289,13 @@ void NatToExtentOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 // Dimensions across calls
 //===----------------------------------------------------------------------===//
 
-// One size per dynamic dimension. A world-ordered array's length is its
-// own, so it is never tied.
+// One size per dynamic dimension.
 LogicalResult TieShapeOp::verify() {
   auto type = cast<ShapedType>(getType());
   if (getDims().size() != static_cast<size_t>(type.getNumDynamicDims()))
     return emitOpError("takes ") << getDims().size() << " sizes for " << type
                                  << ", which has " << type.getNumDynamicDims()
                                  << " dynamic dimensions";
-  if (auto memref = dyn_cast<MemRefType>(type);
-      memref && isa_and_present<WorldSpaceAttr>(memref.getMemorySpace()))
-    return emitOpError("ties ") << type << ", an array a world orders, whose length is its own";
   return success();
 }
 

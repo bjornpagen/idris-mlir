@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-stack,idr-rc,idr.func(idr-tail-loops)))' | FileCheck %s
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Counting runs on functional code, and idr-tail-loops turns what it
 // counted into loops, which keep the owned stage's rule (idris-mlir-opt
 // verifies it after each pass). A consumer that only reads its list borrows
@@ -42,11 +44,11 @@ idr.program @loops root(@root) stage(first) {
     return %r : !idr.str
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %l = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %l = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %z = arith.constant 0 : i64
     %n = idr.call @sumAcc(%z, %l) : (i64, !idr.box<!L>) -> i64
     %e = idr.constant "" : !idr.str
-    %m = idr.constant #idr.con<@C, [1, #idr.con<@N, []>]> : !idr.box<!L>
+    %m = idr.constant #idr.con<!L, @C, [1, #idr.con<!L, @N, []>]> : !idr.box<!L>
     %s = idr.call @drain(%m, %e) : (!idr.box<!L>, !idr.str) -> !idr.str
     %w2 = idr.io.put_int signed %n, %w : i64
     %w3 = idr.io.put_str %s, %w2

@@ -25,13 +25,15 @@ FailureOr<unsigned> fit(Operation *root) {
   SmallVector<DataType> boxes = TypeGraph(root).containsItself();
   if (boxes.empty())
     return 0u;
-  DataRemap remap(
+  FailureOr<std::unique_ptr<DataRemap>> remap = DataRemap::create(
       root, "box",
-      [](Type, DataType, unsigned, unsigned) -> std::optional<Type> { return std::nullopt; },
+      [](Type, std::optional<DataRemap::FieldPlace>) -> std::optional<Type> {
+        return std::nullopt;
+      },
       boxes);
-  if (failed(remap.status()))
+  if (failed(remap))
     return failure();
-  remap.retype(root);
+  (*remap)->retype(root);
   return static_cast<unsigned>(boxes.size());
 }
 

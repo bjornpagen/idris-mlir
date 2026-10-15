@@ -11,6 +11,7 @@
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/Support/Profile.h"
+#include "idr/Support/Stack.h"
 #include "idr/Transforms/Pipeline.h"
 
 // The runtime's C ABI: its reserved-stack runner.
@@ -26,11 +27,15 @@
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstddef>
+#include <optional>
 #include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 // What the stack's exhaustion handler may call: write and _exit.
@@ -40,13 +45,9 @@ using namespace idr::driver;
 
 namespace {
 
-// The compilation runs on the runtime's reserved-stack runner, on a stack
-// committed as it is touched: MLIR's parser, printer and walks recurse over
-// nested constants. The stack is 2^40 bytes, more than the memory of a
-// machine that compiles, so memory runs out first; no more, since reserving
-// costs time in proportion to the size, at the start and at the exit. The
-// frontend and the link are spawned from this thread, which posix_spawn
-// allows. PIN(mlir-recursion)
+// The compilation runs on the runtime's reserved-stack runner, on the
+// tools' stack. The frontend and the link are spawned from this thread,
+// which posix_spawn allows. PIN(mlir-recursion)
 struct Compilation {
   llvm::function_ref<int()> body;
   int status = failure;
@@ -72,15 +73,45 @@ static void enter(void *argument) {
 // Runs `body` on the runtime's reserved-stack runner; its exit status.
 static int runOnLargeStack(llvm::function_ref<int()> body) {
   Compilation compilation{body};
-  if (idris_rt_run_on_stack(enter, &compilation, size_t{1} << 40, size_t{1} << 20,
-                            compilationExhausted) != 0) {
+  if (idris_rt_run_on_stack(enter, &compilation, idr::support::toolStack,
+                            idr::support::toolStackGuard, compilationExhausted) != 0) {
     Report() << "no stack could be reserved for the compilation";
     return failure;
   }
   return compilation.status;
 }
 
+// The compilation of the input to what -o names: its plan read from the
+// command line, its directories made, and then, armed, the chain.
+static int compileInput(const char *argv0) {
+  if (inputPath.empty() || outputPath.empty()) {
+    Report() << "give an input file and -o (see --help)";
+    return usage;
+  }
+  Product product = objectOnly ? Product(Archive{outputPath}) : Product(Executable{outputPath});
+  std::optional<Plan> plan = Plan::of(inputPath, std::move(product));
+  if (!plan) {
+    Report() << "-o names outputs that collide with each other or with the input";
+    return usage;
+  }
+  bool frontendOptions = packages.getNumOccurrences() || packagePath.getNumOccurrences() ||
+                         idrisPrefix.getNumOccurrences() || noPrelude.getNumOccurrences();
+  if (frontendOptions && std::holds_alternative<FromModule>(plan->source)) {
+    Report() << "-p, --package-path, --prefix and --no-prelude are the frontend's, for Idris "
+                "source, not for a module";
+    return usage;
+  }
+  if (!plan->makeDirectories())
+    return failure;
+  Artifacts artifacts(std::move(*plan));
+  std::string frontendPath = frontendBeside(argv0);
+  return runOnLargeStack([&] { return compile(frontendPath, artifacts); });
+}
+
 int idr::driver::main(int argc, char **argv) {
+  // The folders run the runtime's big operations, whose GMP allocates where
+  // a program's does, set while no other thread exists.
+  idris_rt_gmp_init();
   llvm::InitLLVM init(argc, argv);
   // Every pass is registered before the options that name passes
   // (-mlir-print-ir-after and the like) are, which list the registered
@@ -120,24 +151,21 @@ int idr::driver::main(int argc, char **argv) {
   // --time-trace, when it named a file: written as this returns, by
   // whichever way out the compilation took.
   idr::profile::Trace trace("idris-mlir");
-  if (printTargetTriple) {
+  switch (action.getValue()) {
+  case Action::PrintTargetTriple:
     llvm::outs() << targetTriple << "\n";
     return ok;
-  }
-  if (printTargetCpu) {
+  case Action::PrintTargetCpu:
     llvm::outs() << targetCpu << "\n";
     return ok;
-  }
-  if (printRuntime) {
+  case Action::PrintRuntime:
     llvm::outs() << runtimePath << "\n";
     return ok;
-  }
-  if (printLinkFlags) {
+  case Action::PrintLinkFlags:
     for (llvm::StringRef flag : linkFlags)
       llvm::outs() << flag << "\n";
     return ok;
-  }
-  if (prepareRuntime) {
+  case Action::PrepareRuntime:
     if (!inputPath.empty()) {
       Report() << "--prepare-runtime takes no input file";
       return usage;
@@ -149,29 +177,8 @@ int idr::driver::main(int argc, char **argv) {
     if (!makeDirectoryOf(outputPath))
       return failure;
     return runOnLargeStack(prepare);
+  case Action::Compile:
+    return compileInput(argv[0]);
   }
-  if (inputPath.empty() || outputPath.empty()) {
-    Report() << "give an input file and -o (see --help)";
-    return usage;
-  }
-  Input kind = inputKind(inputPath);
-  bool frontendOptions = packages.getNumOccurrences() || packagePath.getNumOccurrences() ||
-                         idrisPrefix.getNumOccurrences() || noPrelude.getNumOccurrences();
-  if (kind == Input::Module && frontendOptions) {
-    Report() << "-p, --package-path, --prefix and --no-prelude are the frontend's, for Idris "
-                "source, not for a module";
-    return usage;
-  }
-  // Nothing is removed before the artifacts are armed: a usage error leaves
-  // every file as it was.
-  Artifacts artifacts(inputPath, kind, outputPath, objectOnly);
-  if (!artifacts.distinctFromInput(inputPath)) {
-    Report() << "-o names outputs that collide with each other or with the input";
-    return usage;
-  }
-  if (!artifacts.makeDirectories())
-    return failure;
-  artifacts.arm();
-  std::string frontendPath = frontendBeside(argv[0]);
-  return runOnLargeStack([&] { return compile(frontendPath, kind, artifacts); });
+  llvm_unreachable("every action is handled");
 }

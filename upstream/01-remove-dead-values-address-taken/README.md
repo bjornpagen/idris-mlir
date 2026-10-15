@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `remove-dead-values` leaves a null operand in a call of a function whose signature it keeps
 
 At `llvmorg-23.1.2`, `--remove-dead-values` leaves a `func.call` with a
@@ -107,6 +109,13 @@ request, which does not include it, and a second patch appending to
 reproducer.
 
 ## Upstreaming plan
+
+2026-10-15: #208881 merged on 2026-10-12 as 0edf6243, with a test of its
+own (`@unreachable_func_with_for_loops`) and without this one; main's
+`remove-dead-values.mlir` still has no case like `@address_taken_callee`.
+So the next step below is due: the test-only pull request
+`submission.md` describes, rebased onto then-current main (not yet
+redone).
 
 Status: posted 2026-10-08 as a comment on
 https://github.com/llvm/llvm-project/pull/208881

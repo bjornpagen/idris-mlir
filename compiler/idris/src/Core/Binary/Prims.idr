@@ -6,8 +6,10 @@ import Core.Context.Context
 import Core.Core
 
 import Data.Buffer
+import Data.DPair
 import Data.List.Elem
 import Data.List1
+import Data.Nat
 import Data.String
 import Data.Vect
 
@@ -87,6 +89,26 @@ getTag {b}
                  put Bin (incLoc 1 chunk)
                  pure $ cast val
               else throw (TTCError (EndOfBuffer "Bits8"))
+
+||| The bytes a decoder has left to read. A decoder of a value that holds
+||| others reads its tag before it decodes one of them, so the bytes left
+||| are fewer at each part it decodes: they are the measure its recursion
+||| descends.
+export total
+remaining : {auto b : Ref Bin Binary} -> Core Nat
+remaining = do chunk <- get Bin
+               pure (integerToNat (toRead chunk))
+
+||| The bytes left now, with the proof that they are fewer than `n`, those
+||| left when the asking decoder began. It asks once it has read its tag, so
+||| they are fewer for every buffer a decoder wrote.
+export total
+fewer : {auto b : Ref Bin Binary} -> (n : Nat) -> Core (Subset Nat (\m => LT m n))
+fewer n
+    = do m <- remaining
+         case isLT m n of
+              Yes lt => pure (Element m lt)
+              No _ => corrupt "TTC: a part that reads nothing"
 
 -- Primitives; these are the only things that have to deal with growing
 -- the buffer list

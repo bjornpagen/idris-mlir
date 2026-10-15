@@ -1,8 +1,8 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=builds=@Main.main,forces-nothing=@Main.main,no-closures -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's printed body as R01 prints an identified type with its roles (D1), and that the force became a call of the sum's dispatch (D2, R06), so no force is left.
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// NEEDS-ACCEPTANCE: the memo sum's printed body, an identified type with its roles, and that the force became a call of the sum's dispatch, so no force is left.
 // An evaluated suspension, `idr.delay %value`, is a cell already forced.
 // Its key has a memo sum like any lazy key, with no label of its own, and
 // the delay becomes the sum's forced constructor holding the value, built

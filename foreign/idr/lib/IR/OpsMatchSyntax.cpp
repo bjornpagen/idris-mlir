@@ -43,7 +43,8 @@ ParseResult parseAttrs(OpAsmParser &parser, OperationState &result,
 //===----------------------------------------------------------------------===//
 
 // Parses `{ case <key> <region> ... default[(<args>)] <region> }`;
-// `parseCase` parses a key and its region.
+// `parseCase` parses a key and its region. Each case consumes its keyword,
+// so the cases end with the text.
 ParseResult parseMatchBody(OpAsmParser &parser, OperationState &result,
                            function_ref<ParseResult(Region &)> parseCase) {
   if (parser.parseLBrace())
@@ -79,7 +80,7 @@ ParseResult parseMatchHead(OpAsmParser &parser, OperationState &result, Type &sc
 }
 
 // Prints a match, each case's key as `printKey` prints it.
-template <typename Match>
+template <idr::detail::MatchLike Match>
 void printMatch(Match op, OpAsmPrinter &printer, function_ref<void(unsigned)> printKey) {
   printer << ' ' << op.getScrutinee() << " : " << op.getScrutinee().getType() << " -> (";
   llvm::interleaveComma(op.getResultTypes(), printer);

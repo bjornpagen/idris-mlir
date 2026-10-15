@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `composite-fixed-point-pass` never converges with `sccp` in its pipeline
 
 At `llvmorg-23.1.2`, `composite-fixed-point-pass` runs a pipeline that has
@@ -180,19 +182,24 @@ ones included.
 
 ## Upstreaming plan
 
-Status: file upstream; not carried. Still broken on llvm main at 7208ba24 (2026-10-08):
-`SCCP.cpp`, `FoldUtils.cpp` and the composite pass's fingerprint check are
-unchanged from llvmorg-23.1.2, and no issue or pull request addresses it
-(searched llvm/llvm-project for sccp, insertKnownConstant and
-composite-fixed-point-pass; the nearest are #213933, which reverts
-in-place folds during the analysis, and #218394, which makes the composite
-pass's convergence failure configurable).
+Status: send next, ready to file, not filed; not carried. `submission.md`
+has the issue, the pull request and the checklist to run before posting.
+Still broken on llvm main at b43c0361 (2026-10-15): `SCCP.cpp`,
+`FoldUtils.cpp`, `CompositePass.cpp` and `sccp.mlir` are unchanged since
+the pin, 7208ba24, and `pull-request.diff` applies to main with no offset
+(`git apply --check`); the patched `SCCP.cpp` passes `-fsyntax-only` with
+the typecheck build's command for that unit. No issue or pull request
+addresses it (searched llvm/llvm-project for sccp and constants,
+insertKnownConstant and composite-fixed-point-pass, 2026-10-15; the
+nearest are #213933, which reverts in-place folds during the analysis,
+and #218394, merged, which makes the composite pass's convergence failure
+configurable).
 
 - Where: a GitHub issue and a pull request to llvm/llvm-project. Not
   Bugzilla. The text to paste is `submission.md`. The issue is the `sccp`
   bug only; the pull request is one commit, `pull-request.diff`, which applies
-  unchanged to main (the pin), and its body is the squash commit
-  message, ending `Fixes #<issue>`. Part 2 is not in the issue: with
+  unchanged to main (b43c0361) and to the pin, and its body is the squash
+  commit message, ending `Fixes #<issue>` and `Assisted-by: Claude Code`. Part 2 is not in the issue: with
   `sccp` fixed, nothing in the tree is known to need it, and it changes
   what a public utility promises; it would be its own RFC if a pass is
   found that remakes an operation in place.

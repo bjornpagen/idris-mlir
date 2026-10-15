@@ -28,7 +28,7 @@ namespace {
 bool splits(DataType data) {
   if (data.getKind() != SumKind::Plain || data.getCtors().size() != 1)
     return false;
-  const Ctor &ctor = data.getCtor(0);
+  const Ctor &ctor = data.getCtor(Record::tag);
   if (ctor.role != CtorRole::Plain || ctor.fields.empty())
     return false;
   return llvm::all_of(ctor.fields, [](Type field) {
@@ -52,18 +52,20 @@ RankedTensorType columnOf(ArrayRef<int64_t> dims, Type leaf) {
 
 } // namespace
 
-DataType recordOf(Type type) {
+std::optional<Record> recordOf(Type type) {
   auto data = dyn_cast<DataType>(type);
-  return data && splits(data) ? data : DataType();
+  if (!data || !splits(data))
+    return std::nullopt;
+  return Record{data};
 }
 
 void leavesOf(Type type, SmallVectorImpl<Type> &leaves) {
-  DataType record = recordOf(type);
+  std::optional<Record> record = recordOf(type);
   if (!record) {
     leaves.push_back(type);
     return;
   }
-  for (Type field : record.getCtor(0).fields)
+  for (Type field : record->fields())
     leavesOf(field, leaves);
 }
 
@@ -78,40 +80,39 @@ void columnsOf(RankedTensorType array, SmallVectorImpl<Type> &columns) {
     columns.push_back(columnOf(array.getShape(), leaf));
 }
 
-SmallVector<Value> takeApart(OpBuilder &b, Location loc, Value record) {
-  DataType data = recordOf(record.getType());
-  auto con = record.getDefiningOp<ConOp>();
+SmallVector<Value> takeApart(OpBuilder &b, Location loc, Value value, Record record) {
+  auto con = value.getDefiningOp<ConOp>();
   SmallVector<Value> leaves;
-  for (auto [index, field] : llvm::enumerate(data.getCtor(0).fields)) {
+  for (auto [index, field] : llvm::enumerate(record.fields())) {
     auto at = static_cast<unsigned>(index);
-    Value value = con ? con.getField(at) : Value();
-    if (!value)
-      value = FieldOp::create(b, loc, record, 0u, at).getResult();
-    if (recordOf(field))
-      llvm::append_range(leaves, takeApart(b, loc, value));
+    Value given = con ? con.getField(at) : Value();
+    if (!given)
+      given = FieldOp::create(b, loc, value, Record::tag, at).getResult();
+    if (std::optional<Record> inner = recordOf(field))
+      llvm::append_range(leaves, takeApart(b, loc, given, *inner));
     else
-      leaves.push_back(value);
+      leaves.push_back(given);
   }
   return leaves;
 }
 
-Value build(OpBuilder &b, Location loc, Type type, ValueRange &leaves) {
-  DataType data = recordOf(type);
+Value build(OpBuilder &b, Location loc, Record record, ValueRange &leaves) {
   SmallVector<Value> fields;
-  for (Type field : data.getCtor(0).fields) {
-    if (recordOf(field)) {
-      fields.push_back(build(b, loc, field, leaves));
+  for (Type field : record.fields()) {
+    if (std::optional<Record> inner = recordOf(field)) {
+      fields.push_back(build(b, loc, *inner, leaves));
       continue;
     }
     fields.push_back(leaves.front());
     leaves = leaves.drop_front();
   }
-  return ConOp::create(b, loc, type, 0u, fields).getResult();
+  return ConOp::create(b, loc, record.data, Record::tag, fields).getResult();
 }
 
-Value readRecord(OpBuilder &b, Location loc, Type element, ValueRange columns, ValueRange indices) {
+Value readRecord(OpBuilder &b, Location loc, Record element, ValueRange columns,
+                 ValueRange indices) {
   SmallVector<Type> leaves;
-  leavesOf(element, leaves);
+  leavesOf(element.data, leaves);
   SmallVector<Value> values;
   for (auto [column, leaf] : llvm::zip_equal(columns, leaves))
     values.push_back(structure::readCell(b, loc, column, indices, leaf));
@@ -119,10 +120,10 @@ Value readRecord(OpBuilder &b, Location loc, Type element, ValueRange columns, V
   return build(b, loc, element, rest);
 }
 
-SmallVector<Value> writeRecord(OpBuilder &b, Location loc, Value record, ValueRange columns,
-                               ValueRange indices) {
+SmallVector<Value> writeRecord(OpBuilder &b, Location loc, Value value, Record element,
+                               ValueRange columns, ValueRange indices) {
   SmallVector<Value> written;
-  for (auto [leaf, column] : llvm::zip_equal(takeApart(b, loc, record), columns))
+  for (auto [leaf, column] : llvm::zip_equal(takeApart(b, loc, value, element), columns))
     written.push_back(structure::writeCell(b, loc, leaf, column, indices));
   return written;
 }
@@ -149,17 +150,19 @@ TabulateOp tabulation(OpBuilder &b, Location loc, RankedTensorType shape, Value 
 
 } // namespace
 
-Value gather(OpBuilder &b, Location loc, RankedTensorType type, ValueRange columns) {
+Value gather(OpBuilder &b, Location loc, RankedTensorType type, Record element,
+             ValueRange columns) {
   TabulateOp made = tabulation(b, loc, type, columns.front(), TypeRange{type}, [&](ValueRange at) {
-    return SmallVector<Value>{readRecord(b, loc, type.getElementType(), columns, at)};
+    return SmallVector<Value>{readRecord(b, loc, element, columns, at)};
   });
   return made.getArrays().front();
 }
 
-SmallVector<Value> scatter(OpBuilder &b, Location loc, Value array, TypeRange types) {
+SmallVector<Value> scatter(OpBuilder &b, Location loc, Value array, Record element,
+                           TypeRange types) {
   auto type = cast<RankedTensorType>(array.getType());
   TabulateOp made = tabulation(b, loc, type, array, types, [&](ValueRange at) {
-    return takeApart(b, loc, tensor::ExtractOp::create(b, loc, array, at));
+    return takeApart(b, loc, tensor::ExtractOp::create(b, loc, array, at), element);
   });
   return SmallVector<Value>(made.getArrays());
 }
@@ -169,7 +172,7 @@ ColumnConverter::ColumnConverter() {
   // An array of records at any grade: its columns at that grade.
   addConversion([](Type type, SmallVectorImpl<Type> &columns) -> std::optional<LogicalResult> {
     auto array = dyn_cast<RankedTensorType>(unrestricted(type));
-    if (!array || !recordOf(array.getElementType()))
+    if (!array || !recordOf(array.getElementType()).has_value())
       return std::nullopt;
     SmallVector<Type> plain;
     columnsOf(array, plain);
@@ -180,17 +183,20 @@ ColumnConverter::ColumnConverter() {
   // Back to what an op the conversion does not take holds: an array of
   // records gathered from its columns, or a record built of its leaves.
   addSourceMaterialization([](OpBuilder &b, Type type, ValueRange inputs, Location loc) -> Value {
-    if (recordOf(type)) {
+    if (std::optional<Record> record = recordOf(type)) {
       ValueRange leaves = inputs;
-      return build(b, loc, type, leaves);
+      return build(b, loc, *record, leaves);
     }
     auto array = dyn_cast<RankedTensorType>(unrestricted(type));
-    if (!array || !recordOf(array.getElementType()))
+    if (!array)
+      return Value();
+    std::optional<Record> element = recordOf(array.getElementType());
+    if (!element)
       return Value();
     SmallVector<Value> plain;
     for (Value column : inputs)
       plain.push_back(heldAs(b, loc, column, unrestricted(column.getType())));
-    return heldAs(b, loc, gather(b, loc, array, plain), type);
+    return heldAs(b, loc, gather(b, loc, array, *element, plain), type);
   });
   // An array of records from an op the conversion does not take: its
   // columns taken apart from it.
@@ -200,12 +206,15 @@ ColumnConverter::ColumnConverter() {
       return {};
     Value whole = inputs.front();
     auto array = dyn_cast<RankedTensorType>(unrestricted(whole.getType()));
-    if (!array || !recordOf(array.getElementType()))
+    if (!array)
+      return {};
+    std::optional<Record> element = recordOf(array.getElementType());
+    if (!element)
       return {};
     SmallVector<Type> plain = llvm::map_to_vector(types, unrestricted);
     SmallVector<Value> columns;
     for (auto [column, type] :
-         llvm::zip_equal(scatter(b, loc, heldAs(b, loc, whole, array), plain), types))
+         llvm::zip_equal(scatter(b, loc, heldAs(b, loc, whole, array), *element, plain), types))
       columns.push_back(heldAs(b, loc, column, type));
     return columns;
   });

@@ -9,6 +9,7 @@
 #include "idr/Driver/Runtime.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/BinaryFormat/Magic.h"
@@ -34,7 +35,9 @@
 
 #include <memory>
 #include <string>
+#include <optional>
 #include <utility>
+#include <variant>
 #include <vector>
 
 using namespace idr::driver;
@@ -52,13 +55,14 @@ struct Member {
 // Every member of the runtime archive carries its bitcode as the target
 // entry's flags compile it (a fat LTO object's section, say), where LLVM's
 // object reader finds it whatever the object's format; this is the bitcode
-// of each.
-static bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Member> &members) {
+// of each, or nothing after a report.
+static std::optional<std::vector<Member>> readMembers(const llvm::MemoryBuffer &archiveBuffer) {
   auto archive = llvm::object::Archive::create(archiveBuffer.getMemBufferRef());
   if (!archive) {
     Report() << "runtime " << runtimePath << ": " << llvm::toString(archive.takeError());
-    return false;
+    return std::nullopt;
   }
+  std::vector<Member> members;
   llvm::Error error = llvm::Error::success();
   for (const llvm::object::Archive::Child &child : (*archive)->children(error)) {
     auto name = child.getName();
@@ -68,7 +72,7 @@ static bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Mem
       llvm::consumeError(name.takeError());
       llvm::consumeError(buffer.takeError());
       llvm::consumeError(std::move(error));
-      return false;
+      return std::nullopt;
     }
     auto bitcode = llvm::object::IRObjectFile::findBitcodeInMemBuffer(*buffer);
     if (!bitcode) {
@@ -76,15 +80,15 @@ static bool readMembers(const llvm::MemoryBuffer &archiveBuffer, std::vector<Mem
                << " carries no bitcode, which every member of the runtime's archive must: "
                << llvm::toString(bitcode.takeError());
       llvm::consumeError(std::move(error));
-      return false;
+      return std::nullopt;
     }
     members.push_back({name->str(), *bitcode});
   }
   if (error) {
     Report() << "runtime " << runtimePath << ": " << llvm::toString(std::move(error));
-    return false;
+    return std::nullopt;
   }
-  return true;
+  return members;
 }
 
 // Whether code compiled for one triple runs where code for the other does:
@@ -174,30 +178,35 @@ static llvm::Expected<llvm::MemoryBufferRef>
 preparedBitcode(llvm::MemoryBufferRef file, std::unique_ptr<llvm::MemoryBuffer> &beside) {
   if (llvm::identify_magic(file.getBuffer()) == llvm::file_magic::bitcode)
     return file;
-  if (runtimeBitcodeSection.empty()) {
-    std::string path = besideObject(runtimePath);
-    auto read = llvm::MemoryBuffer::getFile(path, /*IsText=*/false,
-                                            /*RequiresNullTerminator=*/false);
-    if (!read)
-      return llvm::createStringError(read.getError(), "cannot read " + path);
-    beside = std::move(*read);
-    return beside->getMemBufferRef();
-  }
-  auto object = llvm::object::ObjectFile::createObjectFile(file);
-  if (!object)
-    return object.takeError();
-  for (const llvm::object::SectionRef &section : (*object)->sections()) {
-    llvm::Expected<llvm::StringRef> name = section.getName();
-    if (!name)
-      return name.takeError();
-    if (*name != runtimeBitcodeSection)
-      continue;
-    llvm::Expected<llvm::StringRef> contents = section.getContents();
-    if (!contents)
-      return contents.takeError();
-    return llvm::MemoryBufferRef(*contents, file.getBufferIdentifier());
-  }
-  return llvm::createStringError("the object has no section " + runtimeBitcodeSection);
+  return std::visit(
+      llvm::makeVisitor(
+          [&](BesideObject) -> llvm::Expected<llvm::MemoryBufferRef> {
+            std::string path = besideObject(runtimePath);
+            auto read = llvm::MemoryBuffer::getFile(path, /*IsText=*/false,
+                                                    /*RequiresNullTerminator=*/false);
+            if (!read)
+              return llvm::createStringError(read.getError(), "cannot read " + path);
+            beside = std::move(*read);
+            return beside->getMemBufferRef();
+          },
+          [&](InSection home) -> llvm::Expected<llvm::MemoryBufferRef> {
+            auto object = llvm::object::ObjectFile::createObjectFile(file);
+            if (!object)
+              return object.takeError();
+            for (const llvm::object::SectionRef &section : (*object)->sections()) {
+              llvm::Expected<llvm::StringRef> name = section.getName();
+              if (!name)
+                return name.takeError();
+              if (*name != home.name)
+                continue;
+              llvm::Expected<llvm::StringRef> contents = section.getContents();
+              if (!contents)
+                return contents.takeError();
+              return llvm::MemoryBufferRef(*contents, file.getBufferIdentifier());
+            }
+            return llvm::createStringError("the object has no section " + home.name);
+          }),
+      runtimeBitcodeHome());
 }
 
 std::string idr::driver::besideObject(llvm::StringRef object) {
@@ -235,14 +244,14 @@ std::unique_ptr<llvm::Module> idr::driver::readRuntime(llvm::LLVMContext &contex
       return nullptr;
     runtime = std::move(*module);
   } else {
-    std::vector<Member> members;
-    if (!readMembers(**buffer, members))
+    std::optional<std::vector<Member>> members = readMembers(**buffer);
+    if (!members)
       return nullptr;
     runtime = std::make_unique<llvm::Module>("idris-mlir-runtime", context);
     runtime->setTargetTriple(triple);
     runtime->setDataLayout(layout);
     llvm::Linker runtimeLinker(*runtime);
-    for (const Member &member : members) {
+    for (const Member &member : *members) {
       auto module = llvm::parseBitcodeFile(member.bitcode, context);
       if (!module) {
         Report() << "runtime member " << member.name << ": " << llvm::toString(module.takeError());

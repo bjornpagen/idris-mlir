@@ -35,12 +35,11 @@ namespace idr {
 class Escapes {
 public:
   // Finds the cycles of calls of `program`, an idr.program, then solves the
-  // escapes of every value of its functions at once.
+  // escapes of every value of its functions at once. The solve runs until
+  // its worklist is empty, which a lattice of finite height over the
+  // program's values guarantees, and no visit of it fails.
   Escapes(mlir::Operation *program, mlir::AnalysisManager &am);
   bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
-
-  // Whether the solve reached its fixpoint; no answer below holds if not.
-  mlir::LogicalResult solved() const { return status; }
 
   // Whether the cell that `con`, a box's constructor, builds may outlive
   // its frame, or be live when `con` runs again in the same frame.
@@ -58,9 +57,10 @@ private:
   // Each function's component, and the functions on a cycle.
   void findCycles(mlir::AnalysisManager &am);
 
-  // The scf.while ops around `con`, innermost first, which may run it
-  // again in its frame; nothing when it is anywhere else than in regions of
-  // matches and loops of one block each, in a function of the program.
+  // The loops around `con`, innermost first: the region branches whose
+  // region holding it runs again, and may run it again in its frame.
+  // Nothing when it is anywhere else than in regions of one block each of
+  // region branches whose runs never overlap, in a function of the program.
   std::optional<llvm::SmallVector<mlir::Operation *, 2>> loopsAround(ConOp con) const;
 
   mlir::Operation *program;
@@ -70,7 +70,6 @@ private:
   // base never, so it stays empty.
   mlir::SymbolTableCollection unresolved;
   mlir::DataFlowSolver solver;
-  mlir::LogicalResult status = mlir::failure();
 };
 
 } // namespace idr

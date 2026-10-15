@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # FileCheck, and the module of a compilation an mlir.check reads.
 
 # filecheck CHECKS INPUT: the pinned FileCheck. A line

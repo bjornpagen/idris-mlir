@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # No primitive has a meaning in the compiler's Idris code: a primitive
 # means what the runtime computes, and the folders call the runtime's own
 # code, so nothing in compiler/src may compute a primitive's result. A

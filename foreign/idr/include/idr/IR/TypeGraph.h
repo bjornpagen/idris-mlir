@@ -15,6 +15,7 @@
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -48,21 +49,15 @@ public:
     return !pa.isPreserved<TypeGraph>();
   }
 
-  unsigned size() const { return static_cast<unsigned>(types.size()); }
-  // The node of a data type (in place or in a box) or of an array type,
-  // through its grade; none for a type no value, field or element is of.
-  std::optional<unsigned> node(mlir::Type type) const;
+  // The type of a node: a data type, or an array a world orders.
   mlir::Type type(unsigned at) const { return types[at]; }
-  bool isArray(unsigned at) const;
-  // The data type of a node, null for an array.
-  DataType declaration(unsigned at) const { return llvm::dyn_cast<DataType>(types[at]); }
-  // Whether some value or field holds the node's data type in a box, and
-  // whether some holds it in place.
-  bool boxed(unsigned at) const { return heldBoxed[at]; }
-  bool inlined(unsigned at) const { return heldInPlace[at]; }
-  llvm::ArrayRef<unsigned> successors(unsigned at) const { return successorsOf[at]; }
-  // The strongly connected components, callees first.
-  llvm::ArrayRef<llvm::SmallVector<unsigned>> components() const { return parts; }
+  bool isArray(unsigned at) const { return at >= dataTypes.size(); }
+  // The data types, which are the first nodes, in the order of their names.
+  llvm::ArrayRef<DataType> declarations() const { return dataTypes; }
+  // Whether some value or field holds `data` in a box, and whether some
+  // holds it in place.
+  bool boxed(DataType data) const { return heldBoxed.contains(data); }
+  bool inlined(DataType data) const { return heldInPlace.contains(data); }
 
   // The sets of types that reach one another through an array: each
   // component of two or more with an array in it.
@@ -79,12 +74,15 @@ private:
   // The edges from `from` to what a field or an element of `type` names.
   void edges(unsigned from, mlir::Type type);
 
+  llvm::SmallVector<DataType> dataTypes;
+  // Every node's type: the data types, then the arrays.
   llvm::SmallVector<mlir::Type> types;
-  llvm::SmallVector<bool> heldBoxed, heldInPlace;
+  llvm::DenseSet<DataType> heldBoxed, heldInPlace;
   llvm::SmallVector<llvm::SmallVector<unsigned>> successorsOf;
   // For each node, its successors held in place.
   llvm::SmallVector<llvm::SmallVector<unsigned>> inPlace;
   llvm::DenseMap<mlir::Type, unsigned> index;
+  // The strongly connected components, callees first.
   llvm::SmallVector<llvm::SmallVector<unsigned>> parts;
 };
 

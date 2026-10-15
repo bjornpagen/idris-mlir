@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-effects -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures,forces-nothing=@forcesBoom,forces-nothing=@echo,forces-nothing=@main,effects=@forcesBoom:crash,by-name=@shout,by-name=@echo,not-by-name=@boom -o /dev/null
-// NEEDS-ACCEPTANCE: that idr-defunctionalize turns each force into a call of its memo sum's dispatch (R06) and marks the labels by_name as the effects say (C10).
+// NEEDS-ACCEPTANCE: that idr-defunctionalize turns each force into a call of its memo sum's dispatch and marks the labels by_name as the effects say.
 // Making a suspension runs nothing: what its label may do counts where the
 // cell is forced, and after defunctionalization a force is a call of the
 // memo sum's dispatch, which calls the label: so a function that forces a

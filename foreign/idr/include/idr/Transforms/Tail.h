@@ -22,12 +22,17 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/Pass/AnalysisManager.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <cstddef>
+#include <optional>
+#include <utility>
+#include <variant>
 
 namespace idr {
 #define GEN_PASS_DECL_IDRACCUMULATE
@@ -69,9 +74,9 @@ mlir::FailureOr<mlir::StringAttr> copyName(FuncOp fn, llvm::StringRef kind, mlir
 // again: the match whose results it returns, the region of it that ends in
 // the self tail call, and the one that reaches none.
 struct Decision {
-  mlir::Operation *match;
-  mlir::Region *loops;
-  mlir::Region *exits;
+  mlir::Operation &match;
+  mlir::Region &loops;
+  mlir::Region &exits;
 };
 
 // The while-do loop of a function whose body is a decision, or failure,
@@ -101,13 +106,16 @@ bool isCountdown(FuncOp fn);
 void returnArgument(FuncOp fn, mlir::RewriterBase &rewriter);
 
 // A self call of `fn` as an accumulator tail: the call itself is the tail
-// (the sum passes on unchanged), or it is the one operand of the addition
-// `add` the tail returns, and `addend`, the other, does not depend on a
-// self call.
+// (the sum passes on unchanged, and there is no addition), or it is the
+// one operand of the addition `add` the tail returns, and `addend`, the
+// other, does not depend on a self call.
 struct Site {
+  struct Addition {
+    BigAddOp add;
+    mlir::Value addend;
+  };
   CallOp call;
-  BigAddOp add;
-  mlir::Value addend;
+  std::optional<Addition> addition;
 };
 
 // The accumulator tails of `fn`, or none when a self call is not one or
@@ -120,49 +128,73 @@ llvm::SmallVector<Site> accumulatorSites(FuncOp fn);
 
 // Which result of which lowered function is always one of its arguments.
 // Only a private func.func every use of which is a direct call is
-// eligible: its signature is the pass's to change. The greatest fixpoint
-// over every eligible function, computed once, callees first over the call
-// graph; a function's own rewrite and its callers' read only this, by name,
-// so none reads a sibling while that sibling may be changing.
+// eligible: its signature is the pass's to change. The fixpoint from the
+// optimistic start over every eligible function, computed once, callees
+// first over the call graph; a function's own rewrite and its callers'
+// read only this, by name, so none reads a sibling while that sibling may
+// be changing.
 class Returned {
 public:
   // What a result is known to be: unconstrained yet (what every result
-  // starts as), the argument at an index, or no one argument.
-  struct Known {
-    enum Kind : uint8_t { Unconstrained, Argument, None };
-    Kind kind = Unconstrained;
-    unsigned argument = 0;
+  // starts as, the bottom), the argument at an index, or no one argument
+  // (the top). What two paths give joins to what they agree on, and a
+  // result moves up at most twice.
+  class Known {
+  public:
+    static constexpr std::size_t kHeight = 2;
 
-    static Known arg(unsigned index) { return {Argument, index}; }
-    static Known none() { return {None, 0}; }
+    Known() = default;
+    static Known arg(unsigned index) { return Known(State(std::in_place_index<1>, index)); }
+    static Known none() { return Known(State(NoOne{})); }
+
+    // The argument the result is, when it is one.
+    std::optional<unsigned> argument() const {
+      if (const unsigned *index = std::get_if<unsigned>(&state))
+        return *index;
+      return std::nullopt;
+    }
+
+    // Joins what another path gives; whether this changed.
+    bool join(const Known &other) {
+      if (std::holds_alternative<Unconstrained>(other.state) || *this == other ||
+          std::holds_alternative<NoOne>(state))
+        return false;
+      state = std::holds_alternative<Unconstrained>(state) ? other.state : State(NoOne{});
+      return true;
+    }
+
     bool operator==(const Known &) const = default;
 
-    // What two paths agree on.
-    Known meet(Known other) const {
-      if (kind == Unconstrained)
-        return other;
-      if (other.kind == Unconstrained || *this == other)
-        return *this;
-      return none();
-    }
+  private:
+    struct Unconstrained {
+      bool operator==(const Unconstrained &) const = default;
+    };
+    struct NoOne {
+      bool operator==(const NoOne &) const = default;
+    };
+    using State = std::variant<Unconstrained, unsigned, NoOne>;
+
+    explicit Known(State state) : state(state) {}
+
+    State state;
   };
 
-  // An eligible function: what each result is, and its result types as
-  // they were before any was dropped.
-  struct Function {
-    llvm::SmallVector<Known> results;
-    llvm::SmallVector<mlir::Type> types;
+  // A result of a function, as it was before any was dropped: its type,
+  // and what it is known to be.
+  struct Result {
+    mlir::Type type;
+    Known known;
+  };
 
-    bool drops() const;
+  // A function that drops a result: its results.
+  struct Function {
+    llvm::SmallVector<Result> results;
+
     // The results that stay, by position.
     llvm::SmallVector<unsigned> kept() const;
   };
 
-  explicit Returned(mlir::Operation *module);
-
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<Returned>() || !pa.isPreserved<mlir::SymbolTable>();
-  }
+  explicit Returned(mlir::ModuleOp module);
 
   // The function named `name` when it drops a result, or null.
   const Function *dropping(mlir::StringAttr name) const;
@@ -173,6 +205,7 @@ public:
   unsigned dropped() const { return numDropped; }
 
 private:
+  // The functions that drop a result, and no other.
   llvm::DenseMap<mlir::StringAttr, Function> functions;
   llvm::DenseSet<mlir::StringAttr> changed;
   unsigned numDropped = 0;

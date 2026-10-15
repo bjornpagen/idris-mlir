@@ -28,10 +28,31 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 
+#include <optional>
 #include <string>
 #include <utility>
 
 namespace idr::conversion {
+
+// A memref.global read as the constant array idr-lower writes as a static
+// cell: constant, its initial value constant elements of words, and aligned
+// no further than a cell's element. Only `of` makes one, once per global,
+// so nothing that writes the cell checks the global again.
+class ConstantArray {
+public:
+  // `global` as a constant array, or an internal error at it.
+  static mlir::FailureOr<ConstantArray> of(mlir::memref::GlobalOp global);
+
+  mlir::MemRefType type() const { return arrayType; }
+  mlir::ElementsAttr elements() const { return values; }
+
+private:
+  ConstantArray(mlir::MemRefType type, mlir::ElementsAttr elements)
+      : arrayType(type), values(elements) {}
+
+  mlir::MemRefType arrayType;
+  mlir::ElementsAttr values;
+};
 
 class StaticData {
 public:
@@ -54,10 +75,8 @@ public:
   llvm::SmallVector<mlir::Value> constant(mlir::OpBuilder &b, mlir::Location loc,
                                           mlir::Attribute value, mlir::Type type);
 
-  // The static cell of the constant array `global`: its header, then its
-  // data.
-  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc,
-                            mlir::memref::GlobalOp global);
+  // The static cell of `array`: its header, then its data.
+  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc, const ConstantArray &array);
 
   // What Runtime::merge reads: the globals written, by name, each with the
   // digest of the content its name was made from; and the names of the
@@ -87,7 +106,7 @@ private:
   llvm::SmallVector<Named> runNames(mlir::Location loc, ConAttr con, mlir::Type type);
   // "caf" for a static memo cell of constructor `tag` of `data`, "box" for
   // any other.
-  llvm::StringRef kindOf(DataType data, unsigned tag) const;
+  llvm::StringRef kindOf(DataType data, Tag tag) const;
   // What a field of `type` holding `value` contributes to its cell's content:
   // a scalar as its canonical digest, an unboxed sum as its constructor and
   // fields, a reference as the name of what it points at.
@@ -99,8 +118,8 @@ private:
   mlir::LLVM::GlobalOp box(mlir::Location loc, ConAttr con, mlir::Type type);
   mlir::LLVM::GlobalOp run(mlir::Location loc, ConAttr con, mlir::Type type);
   static bool isMemoCell(const layout::Cell &cell);
-  // The global `name`, or null when it is not yet written.
-  mlir::LLVM::GlobalOp find(llvm::StringRef name) const;
+  // The global `name`, or none when it is not yet written.
+  std::optional<mlir::LLVM::GlobalOp> find(llvm::StringRef name) const;
   mlir::LLVM::GlobalOp global(llvm::StringRef name, Digest key, mlir::Type type, bool isConstant,
                               unsigned alignment,
                               llvm::function_ref<mlir::Value(mlir::OpBuilder &)> init);
@@ -109,7 +128,7 @@ private:
   // The static cell of the constructor `tag` laid out as `cell`, each
   // field's components given by `components`.
   mlir::LLVM::GlobalOp
-  staticCell(const Named &named, const layout::Cell &cell, unsigned tag,
+  staticCell(const Named &named, const layout::Cell &cell, Tag tag,
              llvm::function_ref<llvm::SmallVector<mlir::Value>(mlir::OpBuilder &, unsigned field)>
                  components);
   mlir::Value string(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef bytes);

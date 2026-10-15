@@ -15,25 +15,12 @@
 
 namespace rt::io {
 
-// Writing (Writing.cpp).
-
 // The size of the buffers of standard output and input: a buffer, not a
 // page. It bounds one write's worth of pending output and is never an
 // alignment or a region size (the target entry's page size is
 // IDRIS_MLIR_PAGE_SIZE, which rt::platform's startup check reads); 4096 is a
 // small write's worth on every target.
 inline constexpr size_t bufferSize = 4096;
-
-// Stores, which stay stores. A memcpy a compiler invents for the same copy
-// can be dropped or moved past the length that publishes the bytes.
-inline void copyOut(volatile char *to, const char *from, size_t n) {
-  for (size_t i = 0; i < n; ++i)
-    to[i] = from[i];
-}
-
-// Writes n bytes to fd, looping over partial writes; a failed write abandons
-// the rest.
-void writeAll(int fd, const char *p, size_t n);
 
 // Errors (Errors.cpp): the errno base reads after a call that failed.
 
@@ -52,7 +39,10 @@ inline constexpr int64_t nullHandle = -1;
 // The handle of slot 0, after the standard streams.
 inline constexpr int64_t firstHandle = 3;
 
-enum class Kind : uint8_t { Free, File, Directory, Times, String };
+// What a slot holds. A string is the program's, which freeing its handle
+// releases, or the runtime's (Kept), which only the next call of its kind
+// or the end of the program releases.
+enum class Kind : uint8_t { Free, File, Directory, Times, String, KeptString };
 
 // An open directory, and the handle of the string slot that holds its last
 // entry's name, null until it has one.
@@ -63,15 +53,13 @@ struct DirectoryPayload {
 
 struct Slot {
   Kind kind;
-  // A string the runtime keeps, which freeing its handle leaves alone.
-  bool kept;
   union {
     rt::platform::File *file;
     DirectoryPayload directory;
     // Seconds and nanoseconds of a file's access, modification and status
     // change times; -1 each when they could not be read.
     int64_t times[6];
-    // One reference, the slot's.
+    // A string of either kind: one reference, the slot's.
     const idris_rt_str *string;
     // The next free slot's handle, or null.
     int64_t nextFree;

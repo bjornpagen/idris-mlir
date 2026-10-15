@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Filing
 
 Status: file (new issue and pull request).

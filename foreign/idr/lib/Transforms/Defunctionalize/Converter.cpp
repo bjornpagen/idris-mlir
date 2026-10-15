@@ -29,7 +29,6 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Sequence.h"
 
 #include <optional>
 
@@ -50,11 +49,11 @@ Value rebuildIn(OpBuilder &b, Location loc, Type to, Value value) {
   DataType source = dataTypeOf(from), target = dataTypeOf(to);
   if (!source || !target || !source.isClosures() || !target.isClosures())
     return nullptr;
-  llvm::DenseMap<Attribute, unsigned> tagOf;
-  for (auto [tag, ctor] : llvm::enumerate(target.getCtors()))
-    tagOf.try_emplace(ctor.fn, static_cast<unsigned>(tag));
+  llvm::DenseMap<Attribute, Tag> tagOf;
+  for (auto [tag, ctor] : llvm::zip_equal(target.getTags(), target.getCtors()))
+    tagOf.try_emplace(ctor.fn, tag);
   ArrayRef<Ctor> ctors = source.getCtors();
-  SmallVector<unsigned> tags;
+  SmallVector<Tag> tags;
   for (const Ctor &ctor : ctors) {
     auto it = tagOf.find(ctor.fn);
     if (it == tagOf.end() || target.getCtor(it->second).fields.size() != ctor.fields.size())
@@ -62,8 +61,8 @@ Value rebuildIn(OpBuilder &b, Location loc, Type to, Value value) {
     tags.push_back(it->second);
   }
   OpBuilder::InsertionGuard guard(b);
-  auto cases = llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(ctors.size())));
-  auto made = MatchOp::create(b, loc, TypeRange{to}, value, ArrayRef<unsigned>(cases),
+  auto cases = llvm::to_vector(source.getTags());
+  auto made = MatchOp::create(b, loc, TypeRange{to}, value, ArrayRef<Tag>(cases),
                               static_cast<unsigned>(ctors.size()));
   for (auto [ctor, tag, region] : llvm::zip_equal(ctors, tags, made.getRegions())) {
     SmallVector<Type> bound;
@@ -122,13 +121,23 @@ Type SlotTypeConverter::typeOf(Value value) const {
   return it == own.types.end() ? value.getType() : it->second;
 }
 
+Slot SlotTypeConverter::keyOf(Value value) const {
+  auto it = own.keys.find(value);
+  return it == own.keys.end() ? Slot() : Slot(it->second);
+}
+
+Slot SlotTypeConverter::sinkKey(OpOperand &use) const {
+  auto it = own.sinks.find(&use);
+  return it == own.sinks.end() ? Slot() : Slot(it->second);
+}
+
 bool SlotTypeConverter::legal(Operation *op) const {
   // Only a use the function had has a slot to move into; a use the
   // conversion made was made with its value already moved.
   for (OpOperand &use : op->getOpOperands()) {
     if (!legal(use.get()))
       return false;
-    if (Slots::needsCoercion(keyOf(use.get()), sinkKey(use)))
+    if (needsCoercion(keyOf(use.get()), sinkKey(use)))
       return false;
   }
   if (!llvm::all_of(op->getResults(), [&](Value result) { return legal(result); }))
@@ -142,18 +151,18 @@ bool SlotTypeConverter::legal(Operation *op) const {
 
 // A value no slot ever holds, or one moving into a slot no label reaches,
 // is a move that never runs: the program's poison, as any poison is.
-Value SlotTypeConverter::coerce(OpBuilder &b, Location loc, Value value, const Key &from,
-                                const Key &to, Type sink) const {
-  if (!Slots::needsCoercion(from, to))
+Value SlotTypeConverter::coerce(OpBuilder &b, Location loc, Value value, const Slot &from,
+                                const Slot &to, Type sink) const {
+  if (!needsCoercion(from, to))
     return value;
-  if (Slots::isEmpty(from) || Slots::isEmpty(to))
+  if (from->isEmpty() || to->isEmpty())
     return ub::PoisonOp::create(b, loc, sink);
   return materializeTargetConversion(b, loc, sink, value);
 }
 
 Value SlotTypeConverter::coerceOperand(OpBuilder &b, OpOperand &use, Value remapped) const {
-  Key to = sinkKey(use);
-  if (!to.first)
+  Slot to = sinkKey(use);
+  if (!to)
     return remapped;
   return coerce(b, use.getOwner()->getLoc(), remapped, keyOf(use.get()), to,
                 decision.typeOf(use.get().getType(), to));

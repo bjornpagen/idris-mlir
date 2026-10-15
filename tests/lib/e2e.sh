@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The end-to-end programs: compiled, run, and held to their expected files.
 #
 # Each fixture is compiled once with every module of the pipeline dumped,

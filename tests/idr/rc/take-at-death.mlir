@@ -1,5 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@flip,resets-unshared -o /dev/null
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-every-cell=@keep -o /dev/null
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A box that is still used in the region of the match that saw its
 // constructor is taken apart where it dies, after that use: its fields move
 // out of its cell into the constructor built there. Before that point the
@@ -43,8 +45,8 @@ idr.program @"take-at-death" root(@root) stage(first) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
-    %leaf = idr.constant #idr.con<@L, []> : !idr.box<!T>
-    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+    %leaf = idr.constant #idr.con<!T, @L, []> : !idr.box<!T>
+    %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
     %t = idr.con !idr.box<!T> @N(%leaf : !idr.box<!T>, %x : i64, %leaf : !idr.box<!T>)
     %f = idr.call @flip(%t) : (!idr.box<!T>) -> !idr.box<!T>
     %l = idr.con !idr.box<!List> @Cons(%x : i64, %nil : !idr.box<!List>)

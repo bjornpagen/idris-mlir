@@ -393,7 +393,6 @@ iteratorPrimitive name result p =
 iterators : List Entry
 iterators =
   [ iteratorPrimitive "prim__scalarAt" (Prim CharP) StrScalarAt
-  , iteratorPrimitive "prim__scalarEnd" int StrScalarEnd
   , iteratorPrimitive "prim__dropBytes" str StrDropBytes ]
 
 ||| The table: Idris's backend contract as the compiler implements it.

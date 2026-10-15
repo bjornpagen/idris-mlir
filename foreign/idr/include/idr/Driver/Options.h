@@ -15,6 +15,7 @@
 #include "llvm/Support/CommandLine.h"
 
 #include <string>
+#include <variant>
 
 namespace idr::driver {
 
@@ -27,18 +28,36 @@ extern llvm::cl::opt<std::string> idrisPrefix;
 extern llvm::cl::opt<bool> noPrelude;
 extern llvm::cl::list<std::string> logActionsTags;
 extern llvm::cl::opt<std::string> runtimePath;
-extern llvm::cl::opt<std::string> runtimeBitcodeSection;
-extern llvm::cl::opt<bool> printRuntime;
-extern llvm::cl::opt<bool> prepareRuntime;
-extern llvm::cl::opt<bool> printTargetTriple;
-extern llvm::cl::opt<bool> printLinkFlags;
-extern llvm::cl::opt<bool> printTargetCpu;
-extern llvm::cl::opt<unsigned> numThreads;
 
-// The threads a compilation may use: --num-threads when given, else
-// every CPU. The default is maximal; a caller that wants headroom (our
-// build and test scripts do, through IDRIS_MLIR_NCPU) says so with the
-// flag. Output bytes do not depend on it.
+// What one invocation does: compile its input, or instead answer one
+// question about what the build decided, or prepare the runtime. Each but
+// Compile is a flag of its own; the command line names one, the last it
+// gives.
+enum class Action {
+  Compile,
+  PrintRuntime,
+  PrepareRuntime,
+  PrintTargetTriple,
+  PrintLinkFlags,
+  PrintTargetCpu,
+};
+extern llvm::cl::opt<Action> action;
+
+// Where the prepared runtime keeps the bitcode that joins every program, as
+// --runtime-bitcode-section says: in a section of its object that every
+// link leaves out, or in a file of its own beside the object, which no link
+// names (the section named '').
+struct InSection {
+  llvm::StringRef name;
+};
+struct BesideObject {};
+using BitcodeHome = std::variant<InSection, BesideObject>;
+BitcodeHome runtimeBitcodeHome();
+
+// The threads a compilation may use: --num-threads when given, which is at
+// least one, else every CPU. The default is maximal; a caller that wants
+// headroom (our build and test scripts do, through IDRIS_MLIR_NCPU) says so
+// with the flag. Output bytes do not depend on it.
 unsigned threadBudget();
 
 // Exit statuses, the frontend's too: an internal error or a contract

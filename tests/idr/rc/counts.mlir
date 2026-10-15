@@ -1,5 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-in-place=@map,counts-nothing=@sum,counts-nothing=@scalars -o /dev/null
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // idr-rc makes every reference explicit. That each is consumed exactly once
 // on every path is the owned stage's rule, which idris-mlir-opt verifies
 // after the pass; this test checks what the passes choose.
@@ -25,7 +27,7 @@
 !Two = !idr.data<"Two", plain [@Two(!idr.str, !idr.str)]>
 idr.program @counts root(@root) stage(first) {
   idr.func @map(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %n : !idr.box<!L>
@@ -64,7 +66,7 @@ idr.program @counts root(@root) stage(first) {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c = idr.constant "x" : !idr.str
     %p:2 = idr.call @both(%c, %c) : (!idr.str, !idr.str) -> (!Two, i64)
-    %l = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %l = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %m = idr.call @map(%l) : (!idr.box<!L>) -> !idr.box<!L>
     %z = arith.constant 0 : i64
     %s = idr.call @sum(%m, %z) : (!idr.box<!L>, i64) -> i64

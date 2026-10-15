@@ -3,7 +3,7 @@
 // RUN: FileCheck %s --check-prefix=COPIED < %t.copied.err
 // RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=in-place=@none -o /dev/null 2> %t.none.err
 // RUN: FileCheck %s --check-prefix=NONE < %t.none.err
-// NEEDS-ACCEPTANCE: that idr::bufferize::copies answers for this copy into a fresh memref.alloc, as C15 defines it.
+// NEEDS-ACCEPTANCE: that idr::bufferize::copies answers for this copy into a fresh memref.alloc.
 // After bufferization nothing copies a buffer: a write lands in the buffer
 // it was given (@written). A copy into a cell made for it is a write that
 // could not be in place (@copied); a copy into a view of a live buffer is

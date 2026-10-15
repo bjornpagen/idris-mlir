@@ -36,9 +36,6 @@ struct Trace {
   ~Trace();
   Trace(const Trace &) = delete;
   Trace &operator=(const Trace &) = delete;
-
-  std::string procName;
-  bool active = false;
 };
 
 // A worker thread's share of the trace, for a thread a tool spawns and

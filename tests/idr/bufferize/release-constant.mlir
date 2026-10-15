@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-bufferize -o %t.mlir
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@thawed -o /dev/null 2> %t.err
 // RUN: FileCheck %s < %t.err
-// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc (C15 section 2), the buffer idr-rc later adopts (C14); in-place is read right after idr-bufferize.
+// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc, the buffer idr-rc later adopts; in-place is read right after idr-bufferize.
 // Thawing a constant array writes a copy of it: the constant's buffer is
 // static data, never writable, so its release at the thread's head copies
 // under every reading of the program, and bufferization succeeds with the

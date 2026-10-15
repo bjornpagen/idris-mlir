@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Every run-time export of Prelude.Types is one program, so each
 # compilation instantiates over a hundred definitions: idris-mlir takes
 # most of a minute on it.

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- Binary trees (the Benchmarks Game, after Hans Boehm's GCBench), on one

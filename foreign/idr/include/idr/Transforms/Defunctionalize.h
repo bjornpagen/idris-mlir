@@ -51,16 +51,45 @@ namespace idr {
 
 namespace idr::defunctionalize {
 
-// The key of a slot: its carrier and the labels it may hold, the solve's
-// uniqued ArrayAttr. A null carrier means the slot holds neither a closure
-// nor a suspension.
-using Key = std::pair<mlir::Type, mlir::ArrayAttr>;
+// The key of a slot that holds a closure or a suspension: its carrier, at
+// no grade, and the labels it may hold, the solve's uniqued ArrayAttr.
+struct Key {
+  mlir::Type carrier;
+  mlir::ArrayAttr labels;
+
+  bool operator==(const Key &) const = default;
+  // A suspension's: its sum is a memo sum.
+  bool isLazy() const { return llvm::isa<LazyType>(carrier); }
+  // No label reaches it: no value is ever in it.
+  bool isEmpty() const { return labels.empty(); }
+};
+
+// The key of any slot: none where it holds neither a closure nor a
+// suspension.
+using Slot = std::optional<Key>;
+
+// Whether a value of `from`'s slot moved into `to`'s is rebuilt: both hold
+// closures or suspensions, of keys that differ.
+inline bool needsCoercion(const Slot &from, const Slot &to) { return from && to && *from != *to; }
+
+} // namespace idr::defunctionalize
+
+template <> struct llvm::DenseMapInfo<idr::defunctionalize::Key> {
+  using Key = idr::defunctionalize::Key;
+  static unsigned getHashValue(const Key &key) {
+    return llvm::DenseMapInfo<std::pair<mlir::Type, mlir::ArrayAttr>>::getHashValuePiecewise(
+        key.carrier, key.labels);
+  }
+  static bool isEqual(const Key &a, const Key &b) { return a == b; }
+};
+
+namespace idr::defunctionalize {
 
 // A function as the program declared it, and as its slots have it.
 struct Signature {
   mlir::FunctionType type;
   mlir::FunctionType converted;
-  llvm::SmallVector<Key> arguments, results;
+  llvm::SmallVector<Slot> arguments, results;
 };
 
 // What the conversion of one function reads of its own values, made from
@@ -93,31 +122,24 @@ public:
   // retyped.
   mlir::LogicalResult remake();
 
-  static bool isLazy(const Key &key) { return key.first && llvm::isa<LazyType>(key.first); }
-  // Whether no label reaches a slot of `key`: no value is ever in it.
-  static bool isEmpty(const Key &key) { return key.first && key.second.empty(); }
-  static bool needsCoercion(const Key &from, const Key &to) {
-    return from.first && to.first && from != to;
-  }
-
   // Keys (Keys.cpp).
-  Key keyAt(const FlowPoint &point) const;
-  Key anchorKey(const FlowAnchor &anchor) const;
-  Key keyOf(mlir::Value value) const;
-  Key argumentKey(mlir::StringAttr fn, unsigned index) const;
-  Key resultKey(mlir::StringAttr fn, unsigned index) const;
-  Key fieldKey(DataType data, unsigned tag, unsigned index) const;
-  Key elementKey(mlir::Type element) const;
-  Key forcedKey(mlir::Type lazy) const;
+  Slot keyAt(const FlowPoint &point) const;
+  Slot anchorKey(const FlowAnchor &anchor) const;
+  Slot keyOf(mlir::Value value) const;
+  Slot argumentKey(mlir::StringAttr fn, unsigned index) const;
+  Slot resultKey(mlir::StringAttr fn, unsigned index) const;
+  Slot fieldKey(DataType data, Tag tag, unsigned index) const;
+  Slot elementKey(mlir::Type element) const;
+  Slot forcedKey(mlir::Type lazy) const;
 
   // Types (Declare.cpp). The value type of `key`'s sum; the type of a slot
-  // of `key` whose type was `type`, which is `type` for a slot of no key.
+  // whose type was `type`: its key's sum, or `type` for a slot of no key.
   mlir::Type sumOf(const Key &key) const;
-  mlir::Type typeOf(mlir::Type type, const Key &key) const;
+  mlir::Type typeOf(mlir::Type type, const Slot &slot) const;
   const Signature &signature(mlir::StringAttr fn) const;
   // The tag of the constructor of `label` in the sum of `key`: a key's
   // labels, in name order, are its sum's first constructors, in tag order.
-  unsigned labelTag(const Key &key, mlir::FlatSymbolRefAttr label) const;
+  Tag labelTag(const Key &key, mlir::FlatSymbolRefAttr label) const;
   // The dispatch function of a lazy key's memo sum, by its symbol.
   mlir::FlatSymbolRefAttr forceOf(const Key &key) const;
 
@@ -139,30 +161,29 @@ private:
     DataType type;
   };
 
-  Key keyWith(mlir::Type carrier, const FlowPoint &point) const;
+  Slot keyWith(mlir::Type carrier, const FlowPoint &point) const;
 
   // Every key the program may ask for (Keys.cpp).
   void noteValue(mlir::Value value);
   void noteType(mlir::Type type);
   void noteData(DataType data);
-  void noteKey(const Key &key);
+  void noteSlot(const Slot &slot);
   unsigned captures(mlir::StringAttr label, mlir::Type carrier) const;
 
   // Widening (Moves.cpp).
   void widen();
-  Key sinkKey(mlir::OpOperand &use) const;
+  Slot sinkKey(mlir::OpOperand &use) const;
 
   // The names (Decide.cpp).
   mlir::LogicalResult name();
 
   // The bodies and the constants (Declare.cpp).
   DataType define(const Key &key, llvm::function_ref<bool(FuncOp)> byName);
-  mlir::Type slotType(mlir::Type type, const Key &key,
+  mlir::Type slotType(mlir::Type type, const Slot &slot,
                       llvm::function_ref<bool(FuncOp)> byName);
   DataType::Body body(const Key &key, llvm::function_ref<bool(FuncOp)> byName,
                       llvm::SmallVectorImpl<llvm::SmallVector<mlir::Type>> &fields);
-  mlir::Attribute convertConstant(mlir::Attribute attr, const Key &slot);
-  bool holdsClosure(mlir::Attribute attr);
+  mlir::Attribute convertConstant(mlir::Attribute attr, const Slot &slot);
 
   // The dispatch function of one memo sum (Forces.cpp).
   FuncOp defineForce(const Key &key, DataType sum);
@@ -188,8 +209,8 @@ private:
   // Each constant of the program converted to its slot, and the parts of
   // constants already converted or looked into.
   llvm::DenseMap<mlir::Operation *, mlir::Attribute> constants;
-  llvm::DenseMap<std::pair<mlir::Attribute, Key>, mlir::Attribute> convertedParts;
-  llvm::DenseMap<mlir::Attribute, bool> holding;
+  llvm::DenseMap<std::pair<mlir::Attribute, Slot>, mlir::Attribute> convertedParts;
+  ClosureParts holding;
 };
 
 // The types of one function's conversion: a value's is its plan's, and a
@@ -202,8 +223,8 @@ public:
   const Plan &plan() const { return own; }
 
   mlir::Type typeOf(mlir::Value value) const;
-  Key keyOf(mlir::Value value) const { return own.keys.lookup(value); }
-  Key sinkKey(mlir::OpOperand &use) const { return own.sinks.lookup(&use); }
+  Slot keyOf(mlir::Value value) const;
+  Slot sinkKey(mlir::OpOperand &use) const;
 
   // Whether `value` already has its slot's type, and whether `op`'s
   // operands, results and block arguments all do and no operand owes a
@@ -215,8 +236,8 @@ public:
   // itself when no move is owed, poison where the move never runs, else
   // the rebuild of every constructor of `from`'s sum in `to`'s; null when
   // `to`'s sum lacks one, a move the solve did not allow.
-  mlir::Value coerce(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, const Key &from,
-                     const Key &to, mlir::Type sink) const;
+  mlir::Value coerce(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, const Slot &from,
+                     const Slot &to, mlir::Type sink) const;
   // The remapped value of `use` moved into the use's slot.
   mlir::Value coerceOperand(mlir::OpBuilder &b, mlir::OpOperand &use, mlir::Value remapped) const;
   // Each operand of `op`, as the conversion remapped it, moved into its

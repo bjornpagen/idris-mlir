@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Where the pinned tools are, in one place: sourced, with $root
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen

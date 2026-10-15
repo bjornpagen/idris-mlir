@@ -14,14 +14,11 @@
 
 #include "idr/Transforms/StructureLoops.h"
 
-#include "idr/IR/Func.h"
-
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 
@@ -42,19 +39,13 @@ bool notWords(Type type) {
 // and crash. A call does what its callee's final effects say. A crash
 // writes the crash resource, and the IO resource to keep its order with
 // output, which is its own and no output.
-bool atMostCrashes(Operation *op, SymbolTableCollection &symbols) {
-  if (auto call = dyn_cast<CallOpInterface>(op))
-    return !bitEnumContainsAny(effectsOf(call, symbols), Effect::io | Effect::diverge);
-  if (isa<ub::UnreachableOp>(op))
-    return true;
-  auto iface = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!iface)
-    return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>();
+bool atMostCrashes(Operation *op, const CalleeEffects &callees) {
+  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = ownEffects(op, &callees);
+  if (!effects)
+    return false;
   auto crash = dyn_cast<MayCrashOpInterface>(op);
   bool crashes = crash && crash.getCrashCause().has_value();
-  SmallVector<MemoryEffects::EffectInstance> effects;
-  iface.getEffects(effects);
-  return llvm::all_of(effects, [&](const MemoryEffects::EffectInstance &effect) {
+  return llvm::all_of(*effects, [&](const MemoryEffects::EffectInstance &effect) {
     if (isa<MemoryEffects::Allocate>(effect.getEffect())) {
       auto made = dyn_cast_or_null<OpResult>(effect.getValue());
       return made && made.getOwner() == op;
@@ -68,13 +59,13 @@ bool atMostCrashes(Operation *op, SymbolTableCollection &symbols) {
 
 // Whether the region of `op` returns, and does no more than compute and
 // crash, its every op asked on its own.
-bool computes(Operation *op, SymbolTableCollection &symbols) {
+bool computes(Operation *op, const CalleeEffects &callees) {
   Region &region = op->getRegion(0);
   if (!isa<ArrayYieldOp>(region.front().getTerminator()))
     return false;
   return !region
               .walk([&](Operation *inner) {
-                return atMostCrashes(inner, symbols) ? WalkResult::advance()
+                return atMostCrashes(inner, callees) ? WalkResult::advance()
                                                      : WalkResult::interrupt();
               })
               .wasInterrupted();
@@ -123,31 +114,6 @@ bool reassociates(FoldLastOp fold) {
   return true;
 }
 
-// The size of dimension `dim` of `op`'s domain, as value bounds names it.
-ValueBoundsConstraintSet::Variable extentOf(Operation *op, unsigned dim) {
-  Builder b(op->getContext());
-  auto tabulated = [&](Value first, ValueRange sizes) -> ValueBoundsConstraintSet::Variable {
-    auto array = cast<RankedTensorType>(first.getType());
-    if (!array.isDynamicDim(dim))
-      return OpFoldResult(b.getIndexAttr(array.getDimSize(dim)));
-    auto before = llvm::count_if(array.getShape().take_front(dim), ShapedType::isDynamic);
-    return OpFoldResult(sizes[static_cast<size_t>(before)]);
-  };
-  return TypeSwitch<Operation *, ValueBoundsConstraintSet::Variable>(op)
-      .Case([&](TabulateOp t) { return tabulated(t.getArrays().front(), t.getSizes()); })
-      .Case([&](TabulateIOOp t) { return tabulated(t.getArrays().front(), t.getSizes()); })
-      .Case([&](FoldLastOp f) -> ValueBoundsConstraintSet::Variable {
-        if (dim == f.getFrameRank())
-          return OpFoldResult(f.getLength());
-        return {f.getInits().front(), static_cast<int64_t>(dim)};
-      })
-      .Case([&](ScanLastOp s) -> ValueBoundsConstraintSet::Variable {
-        if (dim == s.getFrameRank())
-          return OpFoldResult(s.getLength());
-        return {s.getInits().front(), static_cast<int64_t>(dim)};
-      });
-}
-
 // Whether two sizes are one, as value bounds proves it; what it cannot
 // prove is not.
 bool same(const ValueBoundsConstraintSet::Variable &a,
@@ -163,6 +129,7 @@ bool structurable(Operation *op) {
 }
 
 SmallVector<Read> readsOf(Operation *op, unsigned dims) {
+  auto generating = cast<GeneratingOpInterface>(op);
   Region &region = op->getRegion(0);
   Block &body = region.front();
   MLIRContext *ctx = op->getContext();
@@ -177,7 +144,8 @@ SmallVector<Read> readsOf(Operation *op, unsigned dims) {
       auto arg = dyn_cast<BlockArgument>(index);
       if (!arg || arg.getOwner() != &body || arg.getArgNumber() >= dims ||
           !seen.insert(arg.getArgNumber()).second ||
-          !same({read.getTensor(), static_cast<int64_t>(at)}, extentOf(op, arg.getArgNumber())))
+          !same({read.getTensor(), static_cast<int64_t>(at)},
+                generating.getExtentBound(arg.getArgNumber())))
         break;
       exprs.push_back(getAffineDimExpr(arg.getArgNumber(), ctx));
     }
@@ -187,25 +155,17 @@ SmallVector<Read> readsOf(Operation *op, unsigned dims) {
   return reads;
 }
 
-Form formOf(Operation *op, SymbolTableCollection &symbols) {
+Form formOf(Operation *op, const CalleeEffects &callees) {
   if (auto transpose = dyn_cast<TransposeOp>(op))
     return isWord(transpose.getType().getElementType()) ? Form::Parallel : Form::Ordered;
   // A world carried from step to step is an order no linalg op keeps.
   if (isa<TabulateIOOp>(op))
     return Form::Ordered;
   // The parallel dimensions lead; what follows them is ordered.
-  SmallVector<Iteration> iterations =
-      TypeSwitch<Operation *, SmallVector<Iteration>>(op)
-          .Case([](TabulateOp t) { return t.getIterations(); })
-          .Case([](FoldLastOp f) { return f.getIterations(); })
-          .Case([](ScanLastOp s) { return s.getIterations(); });
+  auto generating = cast<GeneratingOpInterface>(op);
+  SmallVector<Iteration> iterations = generating.getIterations();
   auto frame = static_cast<unsigned>(llvm::count(iterations, Iteration::Parallel));
-  // The arrays it makes or folds, each held at the frame's indices.
-  ValueRange held = TypeSwitch<Operation *, ValueRange>(op)
-                        .Case([](TabulateOp t) -> ValueRange { return t.getArrays(); })
-                        .Case([](FoldLastOp f) -> ValueRange { return f.getInits(); })
-                        .Case([](ScanLastOp s) -> ValueRange { return s.getInits(); });
-  if (!computes(op, symbols) || !overWords(op, held.getTypes(), frame))
+  if (!computes(op, callees) || !overWords(op, generating.getHeldArrays().getTypes(), frame))
     return Form::Ordered;
   if (frame == iterations.size())
     return Form::Parallel;

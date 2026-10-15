@@ -32,13 +32,16 @@ static llvm::TargetOptions targetOptions() {
   return options;
 }
 
-std::unique_ptr<llvm::TargetMachine> idr::target::machine(const llvm::Target &target,
-                                                          const llvm::Triple &triple,
-                                                          llvm::StringRef cpu,
-                                                          llvm::StringRef features) {
-  return std::unique_ptr<llvm::TargetMachine>(target.createTargetMachine(
+llvm::Expected<std::unique_ptr<llvm::TargetMachine>>
+idr::target::machine(const llvm::Target &target, const llvm::Triple &triple, llvm::StringRef cpu,
+                     llvm::StringRef features) {
+  std::unique_ptr<llvm::TargetMachine> made(target.createTargetMachine(
       triple, cpu, features, targetOptions(), llvm::Reloc::PIC_, std::nullopt,
       llvm::CodeGenOptLevel::Aggressive));
+  if (!made)
+    return llvm::createStringError("LLVM has no target machine for " + triple.str() + " (" +
+                                   cpu + ")");
+  return made;
 }
 
 void idr::target::optimize(llvm::Module &module, llvm::TargetMachine &machine) {

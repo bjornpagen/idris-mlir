@@ -8,7 +8,11 @@
 
 #include "idr/Transforms/Expect.h"
 
-#include "llvm/ADT/DenseSet.h"
+#include "idr/Support/Worklist.h"
+
+#include "llvm/ADT/STLExtras.h"
+
+#include <optional>
 
 using namespace mlir;
 
@@ -30,21 +34,19 @@ LogicalResult reaches(ModuleOp module, AnalysisManager &analyses, StringRef argu
   SymbolTable &symbols = symbolsOf(module, analyses);
   bool held = true;
   for (FunctionOpInterface start : starts) {
-    SmallVector<Operation *> pending;
-    llvm::DenseSet<Operation *> seen;
-    bool found = false;
+    // Every function reached from the body of `start`, each once.
+    OnceWorklist<Operation *> reached;
     for (Operation *callee : callees(symbols, start))
-      if (seen.insert(callee).second)
-        pending.push_back(callee);
-    while (!pending.empty() && !found) {
-      auto fn = cast<FunctionOpInterface>(pending.pop_back_val());
-      found = names(fn, target);
+      reached.push(callee);
+    while (std::optional<Operation *> next = reached.pop()) {
+      auto fn = cast<FunctionOpInterface>(*next);
       if (!fn.isExternal())
         for (Operation *callee : callees(symbols, fn))
-          if (seen.insert(callee).second)
-            pending.push_back(callee);
+          reached.push(callee);
     }
-    if (found)
+    if (llvm::any_of(reached.entered(), [&](Operation *fn) {
+          return names(cast<FunctionOpInterface>(fn), target);
+        }))
       continue;
     fail(start->getLoc(), property) << where(start) << " reaches no function made from " << to;
     held = false;

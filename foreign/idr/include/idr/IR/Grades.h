@@ -11,6 +11,12 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <concepts>
+#include <iterator>
+#include <optional>
 
 // A grade is a pair of two of the enums (IdrBase.td). The generated file has
 // no guard of its own, so this header is where the dialect includes it.
@@ -84,6 +90,15 @@ mlir::Type unrestricted(mlir::Type type);
 bool isClosureType(mlir::Type type);
 bool isLazyType(mlir::Type type);
 
+// The values from `start` along `step` until it gives nothing, `start`
+// first, each passed once. A step goes to an operand of the op that
+// defines a value, which dominates it in a reachable block; in an
+// unreachable one an op may use its own result, so a chain may close on
+// itself, and it ends where it would come back. Every walk up a chain of
+// definitions is one of these.
+llvm::SmallVector<mlir::Value, 4>
+definitionChain(mlir::Value start, llvm::function_ref<std::optional<mlir::Value>(mlir::Value)> step);
+
 // The value `value` was made from, seen through the linear positions it
 // passed: `lin.enter %x` and `lin.use (lin.enter %x)` are %x. What a value
 // is (its constructor, a field) does not change on the way; whether a read
@@ -133,7 +148,12 @@ mlir::Value heldAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, ml
 // An application compares a closure's declared types with the values it is
 // given. Reference counting grades what a value owns after the closure type
 // is fixed; the quantity Idris proved stays, and the carrier is the value.
-template <typename Expected, typename Actual>
+template <typename Types>
+concept TypeSequence = requires(Types types) {
+  { *std::begin(types) } -> std::convertible_to<mlir::Type>;
+  std::end(types);
+};
+template <TypeSequence Expected, TypeSequence Actual>
 bool sameCarriers(Expected &&expected, Actual &&actual) {
   return llvm::equal(expected, actual, [](mlir::Type a, mlir::Type b) {
     return gradeOf(a).quantity == gradeOf(b).quantity && unrestricted(a) == unrestricted(b);
@@ -148,6 +168,7 @@ bool holdsReferences(mlir::Type type);
 bool holdsWorld(mlir::Type type);
 bool holdsClosure(mlir::Type type);
 bool isCounted(mlir::Type type);
+bool isCellPointer(mlir::Type type);
 
 // The types a field of a constructor may have: the world, a word, a
 // runtime type of ours, an array a world orders, and a value array, a

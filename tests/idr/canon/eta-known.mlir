@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=builds-nothing=@in_case,builds=@swapped,\
 // RUN: builds=@wrong_case,reads-fields=@wrong_case,returns-argument=@singleton:0,builds-nothing=@singleton,\
 // RUN: builds=@two_sources -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // Record eta knows the constructor from the match that took the value
 // apart, and from a type of one constructor; rebuilt in another
 // constructor's case, from two values, or with its fields swapped, a

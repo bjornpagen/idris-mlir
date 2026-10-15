@@ -9,6 +9,7 @@
 #ifndef IDR_TRANSFORMS_SPECIALIZE_H
 #define IDR_TRANSFORMS_SPECIALIZE_H
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Analysis/Specialize.h"
@@ -16,7 +17,6 @@
 
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -33,11 +33,8 @@
 
 namespace idr {
 
-#define GEN_PASS_DECL_IDRREDIRECT
 #define GEN_PASS_DECL_IDRBINDINGTIMES
 #include "idr/Transforms/Passes.h.inc"
-
-class Holds;
 
 // idr-redirect calls a raise node: the call and its consumer become one
 // call. Performed on idr-optimize's workers, which run one after another
@@ -57,12 +54,22 @@ struct SpecializeCloneAction : support::TaggedAction<SpecializeCloneAction> {
 
 namespace idr::specialize {
 
-// A node: made once per key, by the first request of it. A SpecKeyAttr key
-// makes a specialization, a KeyRaiseAttr key a raise.
+// What a node is made from: a specialization's key, or a raise's.
+using Key = std::variant<SpecKeyAttr, KeyRaiseAttr>;
+
+// A key as the attribute it is, which uniques it.
+inline mlir::Attribute attributeOf(const Key &key) {
+  return std::visit([](auto attr) -> mlir::Attribute { return attr; }, key);
+}
+
+// A node: made once per key, by the first request of it.
 struct Node {
-  mlir::Attribute key;
+  Key key;
   // The function it is cloned from.
   mlir::StringAttr owner;
+  // The function the program held that it stands for: its owner's origin,
+  // back to a function the program held, fixed when it is made.
+  mlir::StringAttr origin;
   // From the key, known before the node is built.
   mlir::FlatSymbolRefAttr name;
   // Null until build.
@@ -84,32 +91,33 @@ public:
   // The function the program holds under `name`, or null: a node from the
   // insert that places it, between the wave that made it and the next.
   virtual idr::FuncOp lookup(mlir::StringAttr name) const = 0;
-  // Whether no pass writes `fn` again: its component is final.
-  virtual bool isFinal(idr::FuncOp fn) const = 0;
+  // The function the program holds under `name` once no pass writes it
+  // again, its component final; null before, and for a name it does not
+  // hold.
+  virtual idr::FuncOp finalFunction(mlir::StringAttr name) const = 0;
   // Whether the functions named `a` and `b`, both held by the program when
   // the run began, are one component of its call graph.
   virtual bool sameComponent(mlir::StringAttr a, mlir::StringAttr b) const = 0;
 };
 
-// The nodes of one run of idr-optimize, by key. The passes of the inner
-// pipeline reach the table through their parent's cache, which hands out a
-// const reference, so its state is behind a pointer that the const members
-// write under one lock.
+// The nodes of one run of idr-optimize, by key. Every worker's redirect
+// step and the scheduler share it, each through a const reference, so its
+// state is behind a pointer that the const members write under one lock.
 class Nodes {
 public:
-  // Empty; idr-optimize takes it with getAnalysis.
-  Nodes(mlir::Operation *program, mlir::AnalysisManager &am);
+  // Empty, for one run of idr-optimize, whose ready set is `schedule` and
+  // `times`; the three outlive the table. `effects` says what a call
+  // between a raised call and its consumer does.
+  Nodes(const Schedule &schedule, const BindingTimes &times, const CalleeEffects &effects);
   ~Nodes();
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
-
-  // Before the first task; the three outlive the run.
-  void start(const Schedule &schedule, const BindingTimes &times, const Holds &holds) const;
 
   // The node `fn` is, or null.
   const Node *find(mlir::StringAttr fn) const;
 
-  // The nodes `requester` asked for since the last take, each once, in the
-  // order first asked, never the requester itself.
+  // The nodes `requester` was given since the last take, in name order:
+  // each once ever, never the requester itself. Every request of the
+  // requester is judged against the keys it was given before, so it is
+  // given finitely many and its takes end.
   llvm::SmallVector<Node *> takeRequests(idr::FuncOp requester) const;
 
   // True for exactly one caller per node: the one to build it.
@@ -129,10 +137,9 @@ public:
   void insert(Node &node, idr::ProgramOp program) const;
 
   // The redirect step over `fn`: each call's key requested in walk order and
-  // the call made a call of the key's node. `redirected` counts the
-  // redirects, `changed` says whether anything changed. A failure is an
-  // internal error, emitted.
-  mlir::LogicalResult redirectCalls(idr::FuncOp fn, unsigned &redirected, bool &changed) const;
+  // the call made a call of the key's node; how many calls it redirected.
+  // A failure is an internal error, emitted.
+  mlir::FailureOr<unsigned> redirectCalls(idr::FuncOp fn) const;
 
   struct State;
 
@@ -141,6 +148,16 @@ private:
 };
 
 } // namespace idr::specialize
+
+namespace idr::optimize {
+
+// idr-redirect, a step of idr-optimize's inner pipeline (InnerPasses.td),
+// for one run: it requests each call's key from `nodes` and calls its node,
+// and counts the calls it redirects into `redirected`.
+std::unique_ptr<mlir::Pass> createRedirect(const specialize::Nodes &nodes,
+                                           mlir::Pass::Statistic &redirected);
+
+} // namespace idr::optimize
 
 namespace idr::specialize::detail {
 
@@ -166,7 +183,7 @@ struct Constant {
 
 // A constructor, by its tag in the data type of the pattern's type.
 struct Con {
-  unsigned tag;
+  Tag tag;
   std::vector<Pattern> fields;
 };
 
@@ -182,11 +199,6 @@ struct Pattern {
   mlir::Type type;
 
   bool isHole() const { return std::holds_alternative<Hole>(node); }
-};
-
-// The visitor of a pattern's node: one callable per case.
-template <typename... Cases> struct Match : Cases... {
-  using Cases::operator()...;
 };
 
 // One argument of a call: its pattern, whose holes are numbered from 0 and
@@ -216,7 +228,7 @@ using Consumer = idr::Elimination;
 // What one call wants: the key of its node, the function its key's
 // patterns describe, and what the redirect to it takes.
 struct Want {
-  mlir::Attribute key;
+  Key key;
   mlir::StringAttr owner;
   // The new call's operands: the leaves, or the call's operands and then
   // the consumer's free values.
@@ -263,17 +275,17 @@ unsigned countHoles(mlir::Attribute pattern);
 // within the recursion of the component its requester stands for, free for
 // each when it enters that component from outside.
 mlir::Attribute keyOf(const Pattern &pattern);
-std::optional<Composed> composeKey(idr::CallOp call, SpecKeyAttr own,
+std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
                                    llvm::ArrayRef<BindingTime> seen);
 
-// The order a key is compared by with the keys on its request chain. It
-// remembers the size of each constant it measured; one per run, under the
-// table's lock.
+// The order a key is compared by with the keys on its request chain and
+// the keys its requester was given. It remembers the size of each constant
+// it measured; one per run, under the table's lock.
 class Order {
 public:
   // Whether `key` grows `ancestor`: both are spec keys of one owner, and
   // `ancestor` embeds in `key` but `key` does not embed in `ancestor`.
-  bool grows(mlir::Attribute ancestor, mlir::Attribute key);
+  bool grows(const Key &ancestor, const Key &key);
 
 private:
   using Embeddings = llvm::DenseMap<std::pair<mlir::Attribute, mlir::Attribute>, bool>;
@@ -284,8 +296,31 @@ private:
   llvm::DenseMap<mlir::Attribute, llvm::APInt> sizes;
 };
 
-// Raising (Consumer.cpp). `callee` is the call's callee, final.
-std::optional<Consumer> consumerOf(idr::CallOp call, idr::FuncOp callee, const Holds &holds);
+// Where the operand of a hole of a lifted key comes from: the operand of a
+// hole of the key it was lifted from, or a scalar or run lifted out of that
+// key, built at the call at its hole's type.
+struct Kept {
+  unsigned hole;
+};
+struct Lifted {
+  mlir::Attribute constant;
+};
+using Source = std::variant<Kept, Lifted>;
+
+// Whether two spec keys of one owner are one shape: holes, constructors and
+// runs where the other has them, and scalars of one kind, whatever their
+// values.
+bool sameShape(SpecKeyAttr a, SpecKeyAttr b);
+// `key` with each scalar where it differs from `earlier`, a key of its
+// shape, lifted out into a hole: its holes renumbered in order, `sources`
+// saying for each where its operand comes from, a hole of `key` or a
+// constant lifted out.
+SpecKeyAttr lift(SpecKeyAttr earlier, SpecKeyAttr key, llvm::SmallVectorImpl<Source> &sources);
+
+// Raising (Consumer.cpp). `callee` is the call's callee, final; `effects`
+// says what a call between the call and its consumer does.
+std::optional<Consumer> consumerOf(idr::CallOp call, idr::FuncOp callee,
+                                   const CalleeEffects &effects);
 // The consumer as a detached function of the call's result and its free
 // values, which are appended to `free`.
 mlir::OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &consumer,
@@ -296,7 +331,7 @@ mlir::OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer
 // composeKey takes it.
 std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp callee,
                            const Node *calleeNode, llvm::ArrayRef<BindingTime> seen,
-                           const Holds &holds, Forms &forms);
+                           const CalleeEffects &effects, Forms &forms);
 
 // The nodes' bodies (Specialization.cpp, Raise.cpp), from the owner's final
 // function, detached.
@@ -304,8 +339,16 @@ mlir::FailureOr<idr::FuncOp> buildSpec(idr::FuncOp owner, SpecKeyAttr key, mlir:
 mlir::FailureOr<idr::FuncOp> buildRaise(idr::FuncOp owner, KeyRaiseAttr key,
                                         mlir::StringAttr name);
 
-// Calling a node (Redirect.cpp): `call`, and a raise's consumer, become a
-// call of `target` with `want`'s operands.
+// Calling a node (Redirect.cpp). The operands of a call of the node whose
+// key is `key`: for each of its holes, as `sources` says, the operand of
+// the hole of `want`'s key it kept, or the constant lifted out of it, built
+// before `call` at the hole's type, which is the node's parameter's.
+llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter, idr::CallOp call,
+                                          const Want &want, const Key &key,
+                                          llvm::ArrayRef<Source> sources,
+                                          const Schedule &schedule);
+// `call`, and a raise's consumer, become a call of `target` with `want`'s
+// operands.
 idr::CallOp redirect(mlir::RewriterBase &rewriter, idr::CallOp call,
                      mlir::FlatSymbolRefAttr target, const Want &want);
 

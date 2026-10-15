@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // A Lazy value picked at runtime, stored in a field and forced later: the
 // suspensions become constructors of a sum, the field's type follows, and
 // forcing is a match that calls the suspended function.

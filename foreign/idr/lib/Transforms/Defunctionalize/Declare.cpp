@@ -43,33 +43,28 @@ Type held(Type type, bool lazy, DataType sum) {
 
 } // namespace
 
-Type Slots::sumOf(const Key &key) const {
-  auto it = sums.find(key);
-  assert(it != sums.end() && it->second.type && "every key of the program has a sum");
-  return held(key.first, isLazy(key), it->second.type);
-}
+Type Slots::sumOf(const Key &key) const { return typeOf(key.carrier, key); }
 
-Type Slots::typeOf(Type type, const Key &key) const {
-  if (!key.first)
+Type Slots::typeOf(Type type, const Slot &slot) const {
+  if (!slot)
     return type;
-  auto it = sums.find(key);
+  auto it = sums.find(*slot);
   assert(it != sums.end() && it->second.type && "every key of the program has a sum");
-  return held(type, isLazy(key), it->second.type);
+  return held(type, slot->isLazy(), it->second.type);
 }
 
-unsigned Slots::labelTag(const Key &key, FlatSymbolRefAttr label) const {
-  ArrayRef<Attribute> labels = key.second.getValue();
+Tag Slots::labelTag(const Key &key, FlatSymbolRefAttr label) const {
+  ArrayRef<Attribute> labels = key.labels.getValue();
   const Attribute *at = llvm::partition_point(labels, [&](Attribute one) {
     return cast<FlatSymbolRefAttr>(one).getValue() < label.getValue();
   });
   assert(at != labels.end() && *at == label && "a label of a slot is a label of its key");
-  return static_cast<unsigned>(at - labels.begin());
+  return Tag{static_cast<uint32_t>(at - labels.begin())};
 }
 
 FlatSymbolRefAttr Slots::forceOf(const Key &key) const {
-  FlatSymbolRefAttr force = forces.lookup(key);
-  assert(force && "every lazy key of the program has a dispatch function");
-  return force;
+  // Every lazy key of the program has a dispatch function.
+  return forces.at(key);
 }
 
 LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
@@ -93,19 +88,19 @@ LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
   // made, and no Idris name holds the sum's `$`, so no function of the
   // program has it already.
   for (auto &[key, sum] : sums) {
-    if (!isLazy(key))
+    if (!key.isLazy())
       continue;
     auto name = StringAttr::get(ctx, sum.name.getValue() + ".force");
     if (signatures.count(name))
       return program.emitError("internal error: idr-defunctionalize: two dispatch functions "
                                "are named ")
              << name;
-    Key forced = forcedKey(key.first);
+    Slot forced = forcedKey(key.carrier);
     Type cell = sumOf(key);
-    Type value = typeOf(cast<LazyType>(key.first).getValue(), forced);
+    Type value = typeOf(cast<LazyType>(key.carrier).getValue(), forced);
     Signature &sig = signatures[name];
     sig.converted = sig.type = FunctionType::get(ctx, ArrayRef<Type>(cell), ArrayRef<Type>(value));
-    sig.arguments.push_back(Key());
+    sig.arguments.push_back(std::nullopt);
     sig.results.push_back(forced);
     forces[key] = FlatSymbolRefAttr::get(name);
   }
@@ -127,40 +122,40 @@ DataType Slots::define(const Key &key, function_ref<bool(FuncOp)> byName) {
     return sum.type;
   // The fields of the body, which outlive the callback that hands it over.
   SmallVector<SmallVector<Type>> fields;
-  DataType made = DataType::define(ctx, sum.name.getValue(), [&](DataType self) {
+  FailureOr<DataType> made = DataType::define(ctx, sum.name.getValue(), [&](DataType self) {
     sum.type = self;
     return body(key, byName, fields);
   });
-  if (!made)
+  if (failed(made))
     broken = true;
-  sum.type = made;
-  return made;
+  sum.type = succeeded(made) ? *made : DataType();
+  return sum.type;
 }
 
-// The type of a capture or forced value of type `type` held in a slot of
-// `key`: its key's sum, or, in a slot of no key, the type itself.
-Type Slots::slotType(Type type, const Key &key, function_ref<bool(FuncOp)> byName) {
-  if (!key.first)
+// The type of a capture or forced value of type `type` held in `slot`: its
+// key's sum, or, in a slot of no key, the type itself.
+Type Slots::slotType(Type type, const Slot &slot, function_ref<bool(FuncOp)> byName) {
+  if (!slot)
     return type;
-  return held(type, isLazy(key), define(key, byName));
+  return held(type, slot->isLazy(), define(*slot, byName));
 }
 
 // The body of `key`'s sum: its labels in name order, then a memo sum's
 // states; `fields` holds their field types.
 DataType::Body Slots::body(const Key &key, function_ref<bool(FuncOp)> byName,
                            SmallVectorImpl<SmallVector<Type>> &fields) {
-  bool lazy = isLazy(key);
-  ArrayRef<Attribute> labels = key.second.getValue();
+  bool lazy = key.isLazy();
+  ArrayRef<Attribute> labels = key.labels.getValue();
   fields.resize(labels.size() + (lazy ? 2 : 0));
   for (auto [at, attr] : llvm::enumerate(labels)) {
     StringAttr label = cast<FlatSymbolRefAttr>(attr).getAttr();
     const Signature &sig = signature(label);
-    for (unsigned i = 0, n = captures(label, key.first); i < n; ++i)
+    for (unsigned i = 0, n = captures(label, key.carrier); i < n; ++i)
       fields[at].push_back(slotType(sig.type.getInput(i), sig.arguments[i], byName));
   }
   if (lazy) {
-    Type value = cast<LazyType>(key.first).getValue();
-    fields[labels.size() + 1].push_back(slotType(value, forcedKey(key.first), byName));
+    Type value = cast<LazyType>(key.carrier).getValue();
+    fields[labels.size() + 1].push_back(slotType(value, forcedKey(key.carrier), byName));
   }
   DataType::Body made;
   made.kind = lazy ? SumKind::Memo : SumKind::Closures;
@@ -184,44 +179,31 @@ DataType::Body Slots::body(const Key &key, function_ref<bool(FuncOp)> byName,
 // element type's. Any other is a value's, which the conversion has given
 // its slot's type already.
 LogicalResult Slots::remake() {
-  DataRemap remap(
+  FailureOr<std::unique_ptr<DataRemap>> remap = DataRemap::create(
       program, "defun",
-      [this](Type type, DataType owner, unsigned tag, unsigned field) -> std::optional<Type> {
-        if (owner && carriesLabels(type))
-          return typeOf(type, fieldKey(owner, tag, field));
+      [this](Type type, std::optional<DataRemap::FieldPlace> place) -> std::optional<Type> {
+        if (place)
+          if (Slot slot = fieldKey(place->owner, place->tag, place->field))
+            return typeOf(type, slot);
         auto shaped = dyn_cast<ShapedType>(unrestricted(type));
         if (!shaped || !carriesLabels(shaped.getElementType()))
           return std::nullopt;
         Type element = shaped.getElementType();
         return graded(gradeOf(type), shaped.clone(typeOf(element, elementKey(element))));
       });
-  if (failed(remap.status()))
+  if (failed(remap))
     return failure();
-  remap.retype(program);
+  (*remap)->retype(program);
   return success();
 }
 
-// Whether a closure is inside `attr`, each part answered once.
-bool Slots::holdsClosure(Attribute attr) {
-  auto closure = dyn_cast<ClosureAttr>(attr);
-  auto con = dyn_cast<ConAttr>(attr);
-  if (!closure && !con)
-    return false;
-  if (auto it = holding.find(attr); it != holding.end())
-    return it->second;
-  bool found = static_cast<bool>(closure);
-  if (con)
-    eachField(con, [&](Attribute field, unsigned) { found = holdsClosure(field) || found; });
-  holding[attr] = found;
-  return found;
-}
-
-// The constant `attr`, held in a slot of `slot`, with each closure and
-// suspension in it the constructor of its label in its slot's sum. A
-// constructor of the program's types stays of its type, which the remap
-// makes anew with the rest. A shared part in one slot is converted once.
-Attribute Slots::convertConstant(Attribute attr, const Key &slot) {
-  if (!holdsClosure(attr))
+// The constant `attr`, held in `slot`, with each closure and suspension in
+// it the constructor of its label in its slot's sum: a closure is held in
+// a slot of a key. A constructor of the program's types stays of its type,
+// which the remap makes anew with the rest. A shared part in one slot is
+// converted once.
+Attribute Slots::convertConstant(Attribute attr, const Slot &slot) {
+  if (!holding.holds(attr))
     return attr;
   if (auto it = convertedParts.find({attr, slot}); it != convertedParts.end())
     return it->second;
@@ -232,15 +214,14 @@ Attribute Slots::convertConstant(Attribute attr, const Key &slot) {
     SmallVector<Attribute> captures;
     for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
       captures.push_back(convertConstant(capture, sig.arguments[i]));
-    result = ConAttr::get(ctx, sums.find(slot)->second.type, labelTag(slot, label),
+    result = ConAttr::get(ctx, sums.find(*slot)->second.type, labelTag(*slot, label),
                           ArrayAttr::get(ctx, captures));
   } else {
     auto con = cast<ConAttr>(attr);
     DataType data = con.getData();
-    unsigned tag = con.getTag();
-    ArrayRef<Type> declared = data.getCtor(tag).fields;
+    Tag tag = con.getTag();
     auto field = [&](Attribute value, unsigned i) {
-      return convertConstant(value, carriesLabels(declared[i]) ? fieldKey(data, tag, i) : Key());
+      return convertConstant(value, fieldKey(data, tag, i));
     };
     auto cell = [&](ArrayAttr fields, function_ref<unsigned(unsigned)> index) {
       SmallVector<Attribute> out;

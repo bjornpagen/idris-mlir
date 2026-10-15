@@ -111,13 +111,12 @@ unsigned narrowCarried(RewriterBase &rewriter, Facts &facts, Operation *op) {
 
 // A joint whose carried bigs all fit: the walk reaches it after everything
 // inside it, while every value it carries is still the one analysed.
-struct NarrowJoint : RewritePattern {
+struct NarrowJoint : OpInterfaceRewritePattern<RegionBranchOpInterface> {
   NarrowJoint(MLIRContext *ctx, Facts &facts, uint64_t &carried)
-      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), facts(facts), carried(carried) {}
+      : OpInterfaceRewritePattern(ctx), facts(facts), carried(carried) {}
 
-  LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
-    if (!isa<RegionBranchOpInterface>(op))
-      return failure();
+  LogicalResult matchAndRewrite(RegionBranchOpInterface op,
+                                PatternRewriter &rewriter) const override {
     unsigned count = narrowCarried(rewriter, facts, op);
     if (count == 0)
       return failure();

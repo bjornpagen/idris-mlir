@@ -34,7 +34,7 @@ struct IdrEffectsPass : idr::impl::IdrEffectsBase<IdrEffectsPass> {
     }
     idr::solveEffects(program);
     for (idr::FuncOp fn : program.getOps<idr::FuncOp>()) {
-      idr::Effect entry = idr::entryOf(fn);
+      idr::Effect entry = fn.getEffects();
       numIO += idr::bitEnumContainsAny(entry, idr::Effect::io);
       numCrash += idr::bitEnumContainsAny(entry, idr::Effect::crash);
       numDiverge += idr::bitEnumContainsAny(entry, idr::Effect::diverge);

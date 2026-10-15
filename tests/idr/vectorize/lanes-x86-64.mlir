@@ -1,6 +1,7 @@
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: idris-mlir -c %s -o %t.o --mlir-disable-threading -mlir-print-ir-module-scope -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.d
 // RUN: sh -c 'for f in squares eighth inexact rows; do cp %t.d/builtin_module_no-symbol-name/func_func_$f/*_idr-narrow-lanes.mlir %t.$f.mlir || exit 1; done'
+// RUN: sh -c 'for f in squares eighth inexact rows; do idris-mlir-opt %t.$f.mlir --transform-interpreter=entry-point=idr.vectorization.cleanup -o /dev/null || exit 1; done'
 // RUN: idris-mlir-opt %t.squares.mlir --idr-expect=holds=narrowed-lanes=@squares -o /dev/null
 // RUN: idris-mlir-opt %t.rows.mlir --idr-expect=holds=narrowed-lanes=@rows -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.eighth.mlir --idr-expect=holds=narrowed-lanes=@eighth -o /dev/null 2> %t.err
@@ -11,7 +12,8 @@
 // RUN: FileCheck %s --check-prefix=EIGHTH < %t.eighth.mlir
 // RUN: FileCheck %s --check-prefix=ROWS < %t.rows.mlir
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
-// NEEDS-ACCEPTANCE: the versioned loops' printed form after idr-narrow-lanes on the vectorization schedule's loops (C13 section 4, U09), and the tree printer's file names for a function.
+// NEEDS-ACCEPTANCE: the versioned loops' printed form after idr-narrow-lanes on the vectorization schedule's loops, and the tree printer's file names for a function.
+// NEEDS-ACCEPTANCE: that the schedule library's unit-dimension cleanup (@idr.vectorization.cleanup), run again with its failure not suppressed on each function as idr-narrow-lanes left it, after the schedule, converges within its budget.
 // After idr-narrow-lanes a vectorized loop whose body computes on the
 // 64-bit index has two versions: when the sizes it reads are at most a
 // bound (one test on entry), a copy whose integer lanes are i32, the

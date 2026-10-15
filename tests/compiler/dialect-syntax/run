@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # What the frontend writes of the dialects is what the dialects' C++
 # readers read: syntax-samples writes one module, MLIR bytecode as the
 # frontend hands the driver every program, that holds one of every type

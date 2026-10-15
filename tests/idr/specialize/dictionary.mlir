@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@sumTo,not-called=@plus -o /dev/null
 // RUN: FileCheck %s --implicit-check-not='call @sumTo(' < %t.mlir
-// NEEDS-ACCEPTANCE: that @sumTo is specialized on the whole record and @plus inlined into the copy, as C09 and C08 decide.
+// NEEDS-ACCEPTANCE: that @sumTo is specialized on the whole record and @plus inlined into the copy.
 // An interface dictionary: a record of closures without captures, built at
 // the call. After defunctionalization each closure is a constructor of its
 // sum, so the record is entirely static. @sumTo loops, so it is never

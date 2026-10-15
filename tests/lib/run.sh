@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Running a compiled program.
 
 # run_program NAME EXE INPUT [small]: runs EXE with stdin from INPUT, its

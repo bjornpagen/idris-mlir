@@ -21,7 +21,7 @@ namespace {
 // A constructor: a data type and its tag in it.
 struct Which {
   DataType data;
-  unsigned tag;
+  Tag tag;
   bool operator==(const Which &) const = default;
 };
 
@@ -130,14 +130,14 @@ LogicalResult verifyCells(function_ref<InFlightDiagnostic()> emitError, unsigned
 
 } // namespace
 
-ConAttr ConAttr::get(MLIRContext *context, DataType data, unsigned tag, ArrayAttr fields) {
+ConAttr ConAttr::get(MLIRContext *context, DataType data, Tag tag, ArrayAttr fields) {
   Parts parts = canonical({data, tag}, fields);
   return getStored(context, data, tag, parts.cells, parts.tail, parts.spine,
                    NoneType::get(context));
 }
 
 ConAttr ConAttr::getChecked(function_ref<InFlightDiagnostic()> emitError, MLIRContext *context,
-                            DataType data, unsigned tag, ArrayAttr fields) {
+                            DataType data, Tag tag, ArrayAttr fields) {
   Parts parts = canonical({data, tag}, fields);
   return getStoredChecked(emitError, context, data, tag, parts.cells, parts.tail, parts.spine,
                           NoneType::get(context));
@@ -147,7 +147,7 @@ ConAttr ConAttr::getChecked(function_ref<InFlightDiagnostic()> emitError, MLIRCo
 // follows them stay unbuilt, so that each cell costs its fields, not the
 // run's length, as a `get` per cell would. A cell that holds a constructor
 // of its own ends the run there, and `get` decides what it makes.
-ConAttr ConAttr::getRun(MLIRContext *context, DataType data, unsigned tag, unsigned spine,
+ConAttr ConAttr::getRun(MLIRContext *context, DataType data, Tag tag, unsigned spine,
                         ArrayRef<ArrayAttr> cells, Attribute tail) {
   Which which{data, tag};
   assert(!cells.empty() && tail && "a run is at least one cell and a tail");
@@ -217,11 +217,12 @@ ArrayAttr ConAttr::getFields() const {
 // from the replaced parameters without canonicalizing, and is caught here.
 // The constructor is one of its type's, and every cell holds its fields.
 LogicalResult ConAttr::verify(function_ref<InFlightDiagnostic()> emitError, DataType data,
-                              unsigned tag, ArrayRef<ArrayAttr> cells, Attribute tail,
+                              Tag tag, ArrayRef<ArrayAttr> cells, Attribute tail,
                               unsigned spine, Type) {
-  if (tag >= data.getCtors().size())
+  if (static_cast<uint32_t>(tag) >= data.getCtors().size())
     return emitError() << "expects a constructor of \"" << data.getName() << "\", which has "
-                       << data.getCtors().size() << ", got the tag " << tag;
+                       << data.getCtors().size() << ", got the tag "
+                       << static_cast<uint32_t>(tag);
   const Ctor &ctor = data.getCtor(tag);
   StringRef spelled = ctor.name.getValue();
   // A run's cells hold every field but the spine.
@@ -260,7 +261,7 @@ LogicalResult ConAttr::verify(function_ref<InFlightDiagnostic()> emitError, Data
 // written: nested plain constructors that form a run become one, and a run
 // that is one cell is a plain constructor.
 ConAttr ConAttr::getChecked(function_ref<InFlightDiagnostic()> emitError, MLIRContext *context,
-                            DataType data, unsigned tag, ArrayRef<ArrayAttr> cells,
+                            DataType data, Tag tag, ArrayRef<ArrayAttr> cells,
                             Attribute tail, unsigned spine, Type type) {
   ConAttr con;
   if (tail) {
@@ -296,15 +297,10 @@ Attribute ConAttr::parse(AsmParser &parser, Type type) {
     parser.emitError(loc) << "expects the data type of a constructor, got " << written;
     return {};
   }
-  if (parseCtorRef(parser, data, tag) || parser.parseComma())
-    return {};
   SmallVector<ArrayAttr> cells;
-  auto parseCell = [&]() { return parser.parseAttribute(cells.emplace_back()); };
-  if (parseCell())
+  if (parseCtorRef(parser, data, tag) || parser.parseComma() ||
+      parser.parseCommaSeparatedList([&]() { return parser.parseAttribute(cells.emplace_back()); }))
     return {};
-  while (succeeded(parser.parseOptionalComma()))
-    if (parseCell())
-      return {};
   Attribute tail;
   unsigned spine = 0;
   if (succeeded(parser.parseOptionalKeyword("tail")) && parser.parseAttribute(tail))
@@ -314,8 +310,8 @@ Attribute ConAttr::parse(AsmParser &parser, Type type) {
   if (parser.parseGreater())
     return {};
   return getChecked([&] { return parser.emitError(loc); }, parser.getContext(), data,
-                    static_cast<unsigned>(tag.getInt()), ArrayRef<ArrayAttr>(cells), tail, spine,
-                    type);
+                    Tag{static_cast<uint32_t>(tag.getInt())}, ArrayRef<ArrayAttr>(cells), tail,
+                    spine, type);
 }
 
 void ConAttr::print(AsmPrinter &printer) const {

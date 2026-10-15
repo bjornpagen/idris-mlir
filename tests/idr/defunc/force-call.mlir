@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-expect=holds=stage=first,no-closures,forces-nothing=@user,forces-nothing=@main,direct-calls,reaches=@user:@label,reaches=@main:@label -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's dispatch R06 makes, and the stage it sets.
+// NEEDS-ACCEPTANCE: the memo sum's dispatch idr-defunctionalize makes, and the stage it sets.
 // A force is a call: idr-defunctionalize makes each memo sum one dispatch
 // function, which a force of a cell of the sum becomes a call of, and
 // which calls the function of the label it finds in the cell. So no force

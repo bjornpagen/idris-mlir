@@ -37,7 +37,7 @@ FlowAnchor forcedOf(Type lazy) { return FlowAnchor::forcedOf(unrestricted(lazy))
 // A constructor built into `value`, its constructor `tag` of `data`: each
 // field given (`fields`, the fields that are not `holes`, in order) moves
 // into its field of the value, which takes it over.
-void builtEdges(Value value, DataType data, unsigned tag, MutableOperandRange fields,
+void builtEdges(Value value, DataType data, Tag tag, MutableOperandRange fields,
                 ArrayRef<int32_t> holes, FlowEdges &edges) {
   unsigned given = 0;
   for (unsigned i = 0, n = static_cast<unsigned>(data.getCtor(tag).fields.size()); i < n; ++i) {
@@ -61,8 +61,8 @@ void labelEdges(Op op, FlowEdges &edges) {
   MutableOperandRange captures = op.getCapturesMutable();
   for (unsigned i = 0, n = captures.size(); i < n; ++i) {
     edges.flow(FlowPoint::of(captures[i]), FlowPoint::parameter(label, i), Carriers::labels());
-    edges.flow(FlowPoint::of(captures[i]), FlowPoint::partOf(self, FlowAnchor::captureOf(carrier, i)),
-               Carrier::Reference);
+    edges.flow(FlowPoint::of(captures[i]),
+               FlowPoint::partOf(self, FlowAnchor::captureOf(carrier, i)), Carrier::Reference);
   }
   edges.fresh(self);
 }
@@ -101,18 +101,16 @@ void idr::ConstantOp::getFlowEdges(FlowEdges &edges) { edges.constant(getValue()
 // new to anyone, so it is not fresh.
 void idr::ConOp::getFlowEdges(FlowEdges &edges) {
   Value value = getResult();
-  builtEdges(value, getDataType(), static_cast<unsigned>(getTag()), getFieldsMutable(), getHoles(),
-             edges);
+  builtEdges(value, getDataType(), getTag(), getFieldsMutable(), getHoles(), edges);
   if (!getStack())
     edges.fresh(value);
 }
 
 // A read of a field gives what the field holds; the value is only read.
 void idr::FieldOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::partOf(getValue(),
-                               FlowAnchor::fieldOf(getDataType(), static_cast<unsigned>(getTag()),
-                                                   static_cast<unsigned>(getIndex()))),
-             FlowPoint::of(getResult()));
+  FlowAnchor field =
+      FlowAnchor::fieldOf(getDataType(), getTag(), static_cast<unsigned>(getIndex()));
+  edges.flow(FlowPoint::partOf(getValue(), field), FlowPoint::of(getResult()));
 }
 
 // The tag is read, and nothing moves.
@@ -133,7 +131,7 @@ void idr::MatchOp::getFlowEdges(FlowEdges &edges) {
   DataType data = getDataType();
   Value scrutinee = getScrutinee();
   for (unsigned r = 0, n = static_cast<unsigned>(getCases().size()); r < n; ++r) {
-    unsigned tag = getCaseTag(r);
+    Tag tag = getCaseTag(r);
     for (BlockArgument field : getCaseRegion(r).getArguments())
       edges.flow(FlowPoint::partOf(scrutinee, FlowAnchor::fieldOf(data, tag, field.getArgNumber())),
                  FlowPoint::of(Value(field)));
@@ -221,8 +219,7 @@ void idr::ShareOp::getFlowEdges(FlowEdges &edges) { edges.release(getValueMutabl
 void idr::ReuseOp::getFlowEdges(FlowEdges &edges) {
   edges.release(getTokenMutable());
   Value value = getResult();
-  builtEdges(value, getDataType(), static_cast<unsigned>(getTag()), getFieldsMutable(), getHoles(),
-             edges);
+  builtEdges(value, getDataType(), getTag(), getFieldsMutable(), getHoles(), edges);
   edges.fresh(value);
 }
 
@@ -231,7 +228,7 @@ void idr::ReuseOp::getFlowEdges(FlowEdges &edges) {
 void idr::TakeOp::getFlowEdges(FlowEdges &edges) {
   OpOperand &value = getValueMutable();
   DataType data = getDataType();
-  auto tag = static_cast<unsigned>(getTag());
+  Tag tag = getTag();
   if (Value token = getToken())
     edges.flow(FlowPoint::of(value), FlowPoint::of(token));
   for (auto [i, field] : llvm::enumerate(getFields()))

@@ -21,6 +21,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 using namespace mlir;
 using namespace mlir::bufferization;
 
@@ -79,8 +81,8 @@ struct HeapReadModel : BufferizableOpInterface::ExternalModel<HeapReadModel, idr
 
 // The regions of a match that end in idr.yield; a case that crashes ends in
 // ub.unreachable and gives no value.
-SmallVector<Operation *> yields(Operation *match) {
-  SmallVector<Operation *> found;
+SmallVector<idr::YieldOp> yields(Operation *match) {
+  SmallVector<idr::YieldOp> found;
   for (Region &region : match->getRegions())
     if (auto yield = dyn_cast<idr::YieldOp>(region.front().getTerminator()))
       found.push_back(yield);
@@ -97,9 +99,9 @@ struct MatchModel : BufferizableOpInterface::ExternalModel<MatchModel<Match>, Ma
     auto result = dyn_cast<OpResult>(value);
     if (!result)
       return {};
-    SmallVector<Operation *> ends = yields(op);
+    SmallVector<idr::YieldOp> ends = yields(op);
     AliasingOpOperandList aliases;
-    for (Operation *yield : ends)
+    for (idr::YieldOp yield : ends)
       aliases.addAlias({&yield->getOpOperand(result.getResultNumber()),
                         BufferRelation::Equivalent, /*isDefinite=*/ends.size() == 1});
     return aliases;
@@ -116,8 +118,8 @@ struct MatchModel : BufferizableOpInterface::ExternalModel<MatchModel<Match>, Ma
     auto result = dyn_cast<OpResult>(value);
     if (!result)
       return idr::bufferize::cellType(value);
-    BufferLikeType joined;
-    for (Operation *yield : yields(op)) {
+    std::optional<BufferLikeType> joined;
+    for (idr::YieldOp yield : yields(op)) {
       Value yielded = yield->getOperand(result.getResultNumber());
       FailureOr<BufferLikeType> type =
           isa<BufferLikeType>(yielded.getType())
@@ -125,12 +127,12 @@ struct MatchModel : BufferizableOpInterface::ExternalModel<MatchModel<Match>, Ma
               : bufferization::getBufferType(yielded, options, state, invocationStack);
       if (failed(type))
         return failure();
-      if (!joined || joined == *type) {
+      if (!joined || *joined == *type) {
         joined = *type;
         continue;
       }
       FailureOr<BufferLikeType> reconciled =
-          options.reconcileBufferTypeMismatchFn(joined, *type, options);
+          options.reconcileBufferTypeMismatchFn(*joined, *type, options);
       if (failed(reconciled))
         return op->emitError("internal error: idr-bufferize: the cases of a match yield arrays "
                              "of buffer types that do not reconcile");
@@ -139,7 +141,7 @@ struct MatchModel : BufferizableOpInterface::ExternalModel<MatchModel<Match>, Ma
     // No case yields (every one crashes): the result is never read.
     if (!joined)
       return idr::bufferize::cellType(value);
-    return joined;
+    return *joined;
   }
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,

@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the verifier's error texts are C11's (U01's idr.tie_shape verifier); check each against it.
+// NEEDS-ACCEPTANCE: the verifier's error texts, idr.tie_shape's; check each against it.
 // A tie names one size for each dynamic dimension of its array, an array
 // is a ranked tensor or a buffer, and an array a world orders is no value
 // to tie: its sizes are the runtime's record of its allocation, and no

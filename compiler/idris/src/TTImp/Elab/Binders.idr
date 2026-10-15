@@ -258,21 +258,14 @@ checkLet rigc_in elabinfo nest env fc lhsFC rigl n nTy nVal scope expty {vars}
                              ({ preciseInf := True } elabinfo)
                              nest env nVal (Just (gnf env tyv))
                   pure (fst c, snd c, rigl |*| rigc))
-              (\err => case linearErr err of
-                            Just r
-                              => do branchOne
-                                     (do c <- runDelays (==CaseBlock) $ check linear elabinfo
-                                                  nest env nVal (Just (gnf env tyv))
-                                         pure (fst c, snd c, linear))
-                                     (do c <- check (rigl |*| rigc)
-                                                  elabinfo -- without preciseInf
-                                                  nest env nVal (Just (gnf env tyv))
-                                         pure (fst c, snd c, rigMult rigl rigc))
-                                     r
-                            _ => do c <- check (rigl |*| rigc)
-                                               elabinfo -- without preciseInf
-                                               nest env nVal (Just (gnf env tyv))
-                                    pure (fst c, snd c, rigl |*| rigc))
+              (\err => if misusesLinear err
+                          then do c <- runDelays (==CaseBlock) $ check linear elabinfo
+                                           nest env nVal (Just (gnf env tyv))
+                                  pure (fst c, snd c, linear)
+                          else do c <- check (rigl |*| rigc)
+                                           elabinfo -- without preciseInf
+                                           nest env nVal (Just (gnf env tyv))
+                                  pure (fst c, snd c, rigl |*| rigc))
          let env' : Env Term (n :: _) = Lam fc rigb Explicit tyv :: env
          let nest' = weaken (dropName n nest)
          expScope <- weakenExp env' expty
@@ -291,11 +284,3 @@ checkLet rigc_in elabinfo nest env fc lhsFC rigl n nTy nVal scope expty {vars}
 
          pure (Bind fc n (Let fc rigb valv tyv) scopev,
                gnf env (Bind fc n (Let fc rigb valv tyv) scopet))
-  where
-    linearErr : Error -> Maybe RigCount
-    linearErr (LinearMisuse _ _ r _) = Just r
-    linearErr (InType _ _ e) = linearErr e
-    linearErr (InCon _ e) = linearErr e
-    linearErr (InLHS _ _ e) = linearErr e
-    linearErr (InRHS _ _ e) = linearErr e
-    linearErr _ = Nothing

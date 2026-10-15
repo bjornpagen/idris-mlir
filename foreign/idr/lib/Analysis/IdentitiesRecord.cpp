@@ -22,11 +22,12 @@
 // the owned stage has no candidates, so no value walked here holds or
 // borrows a reference.
 //
-// The walk leaves the part each value is of every candidate argument, and
-// the calls whose result is an operand while the callee is assumed to give
-// that operand back. It reads the function's own body, the data types its
-// values are of, the entries of the component's members and what `outside`
-// says of every other callee, and writes nothing outside the record.
+// The walk leaves how each value is built, what each match's regions
+// yield, the returns with the matches around them, and the calls that do
+// not only compute. It reads the function's own body, the data types its
+// values are of, the entries of the component's members, the callees'
+// effects and what `outside` says of every other callee, and writes
+// nothing outside the record.
 #include "idr/Analysis/Identities.h"
 
 #include "idr/Analysis/Effects.h"
@@ -50,57 +51,87 @@ bool isOne(Value value) {
   return matchPattern(value, m_Constant(&big)) && big.getValue().isOne();
 }
 
-} // namespace
-
-Record::Record(FuncOp fn, ArrayRef<unsigned> candidates, const Members &members, Outside outside)
-    : fn(fn), members(members), outside(outside) {
-  for (unsigned argument : candidates) {
-    index.try_emplace(argument, static_cast<unsigned>(arguments.size()));
-    arguments.push_back(argument);
-    parts.emplace_back(fn.getArgumentTypes()[argument]);
-  }
-  // Walk the body once. A terminator this question cannot keep, or an op
-  // that does not only allocate, ends it: nothing is given back, under any
-  // argument and any later assumptions, so the rest of the body is not
-  // needed and is not walked again.
-  if (arguments.empty() || !scan(fn.getBody())) {
-    possible = false;
-    nodes.clear();
-    memo.clear();
-    ids.clear();
-    rets.clear();
-    reliant.clear();
-    joins.clear();
-  }
-}
-
-bool Record::memoType(Type type) {
+bool memoType(Type type) {
   DataType data = dataTypeOf(type);
   return data && data.isMemo();
 }
 
 // The tag of the one constructor of the scrutinee's type that no case of
 // `match` names, which its default region therefore takes, if there is one.
-std::optional<unsigned> Record::remaining(MatchOp match) {
+std::optional<Tag> remaining(MatchOp match) {
   DataType data = match.getDataType();
   auto cases = static_cast<unsigned>(match.getCases().size());
   if (data.getCtors().size() != cases + 1)
     return std::nullopt;
-  SmallVector<bool> named(cases + 1, false);
+  SmallVector<Tag> named;
   for (unsigned index = 0; index < cases; ++index)
-    named[match.getCaseTag(index)] = true;
-  return static_cast<unsigned>(llvm::find(named, false) - named.begin());
+    named.push_back(match.getCaseTag(index));
+  for (Tag tag : data.getTags())
+    if (!llvm::is_contained(named, tag))
+      return tag;
+  return std::nullopt;
 }
 
-int Record::place(Value value, Node node) {
-  int id = static_cast<int>(nodes.size());
-  nodes.push_back(std::move(node));
-  memo.emplace_back();
+} // namespace
+
+// The one walk, into `out`. It reads the function's own body, the data
+// types its values are of, the entries of the component's members and what
+// `outside` says of every other callee.
+class Record::Walker {
+public:
+  Walker(FuncOp fn, const Members &members, Outside outside, const CalleeEffects &effects,
+         Record &out)
+      : fn(fn), members(members), outside(outside), effects(effects), out(out) {}
+
+  bool scan(Region &region);
+
+private:
+  Id place(Value value, Build build);
+  Id intern(Value value);
+  Id internArg(BlockArgument arg);
+  Id defineCall(CallOp call);
+  Id internJoin(Operation *op, unsigned number);
+  Id internResult(OpResult result);
+  SmallVector<Arm, 2> armsOf(Operation *op);
+  Frames framesAt(Operation *at);
+  bool record(ReturnOp ret);
+  bool accept(Operation &op);
+
+  FuncOp fn;
+  const Members &members;
+  Outside outside;
+  const CalleeEffects &effects;
+  Record &out;
+  llvm::DenseMap<Value, Id> ids;
+};
+
+std::optional<Record> Record::walk(FuncOp fn, ArrayRef<unsigned> candidates,
+                                   const Members &members, Outside outside,
+                                   const CalleeEffects &effects) {
+  if (candidates.empty())
+    return std::nullopt;
+  Record out;
+  for (unsigned argument : candidates) {
+    out.slots.try_emplace(argument, static_cast<unsigned>(out.arguments.size()));
+    out.arguments.push_back(argument);
+    out.types.push_back(unrestricted(fn.getArgumentTypes()[argument]));
+  }
+  // A terminator this question cannot keep, or an op that does not only
+  // compute, ends the walk: nothing is given back, under any argument and
+  // any later assumptions, so the rest of the body is not needed.
+  if (!Walker(fn, members, outside, effects, out).scan(fn.getBody()))
+    return std::nullopt;
+  return out;
+}
+
+Record::Id Record::Walker::place(Value value, Build build) {
+  auto id = Id(static_cast<unsigned>(out.nodes.size()));
+  out.nodes.push_back(std::move(build));
   ids[value] = id;
   return id;
 }
 
-int Record::intern(Value value) {
+Record::Id Record::Walker::intern(Value value) {
   if (auto it = ids.find(value); it != ids.end())
     return it->second;
   if (auto arg = dyn_cast<BlockArgument>(value))
@@ -108,186 +139,165 @@ int Record::intern(Value value) {
   return internResult(cast<OpResult>(value));
 }
 
-int Record::internArg(BlockArgument arg) {
-  Node node;
+// The entry block's arguments are the function's; a case's are the fields
+// of the scrutinee, and the default region's is the scrutinee itself.
+Record::Id Record::Walker::internArg(BlockArgument arg) {
   Block *block = arg.getOwner();
-  if (block == &fn.getBody().front()) {
-    node.kind = Node::Entry;
-    node.arg = arg.getArgNumber();
-  } else if (auto match = dyn_cast_or_null<MatchOp>(block->getParentOp())) {
-    node.kind = Node::MatchArg;
-    node.src = intern(match.getScrutinee());
-    node.arg = arg.getArgNumber();
-    node.type = arg.getType();
-    node.memo = memoType(match.getScrutinee().getType());
-    Region *region = block->getParent();
-    if (region == match.getDefaultRegion())
-      node.deflt = true;
-    else
-      node.tag = match.getCaseTag(region->getRegionNumber());
-  }
-  return place(arg, std::move(node));
+  if (block == &fn.getBody().front())
+    return place(arg, Entry{arg.getArgNumber()});
+  auto match = dyn_cast_or_null<MatchOp>(block->getParentOp());
+  if (!match || memoType(match.getScrutinee().getType()))
+    return place(arg, Opaque{});
+  Id scrutinee = intern(match.getScrutinee());
+  Region *region = block->getParent();
+  if (region == match.getDefaultRegion())
+    return place(arg, Same{scrutinee});
+  return place(arg, Field{scrutinee, match.getCaseTag(region->getRegionNumber()),
+                          arg.getArgNumber(), arg.getType()});
 }
 
-int Record::defineCall(CallOp call) {
+// A callee of the component is known by its own entry; any other by what
+// `outside` says of it.
+Record::Id Record::Walker::defineCall(CallOp call) {
   for (Value result : call.getResults())
     if (auto it = ids.find(result); it != ids.end())
       return it->second;
-  Node node;
-  node.kind = Node::Call;
-  node.callee = call.getCalleeAttr().getAttr();
-  // A callee of the component is known by its own entry; any other by what
-  // `outside` says of it.
-  if (FuncOp member = members.lookup(node.callee))
-    node.returns = !bitEnumContainsAny(entryOf(member), Effect::diverge);
+  Call made;
+  made.callee = call.getCalleeAttr().getAttr();
+  if (FuncOp member = members.lookup(made.callee))
+    made.returns = !bitEnumContainsAny(member.getEffects(), Effect::diverge);
   else
-    node.returns = outside(node.callee).returns;
-  node.allocates = onlyAllocates(call);
+    made.returns = outside(made.callee).returns;
   for (Value operand : call.getArgs())
-    node.ops.push_back(intern(operand));
-  int id = static_cast<int>(nodes.size());
-  nodes.push_back(std::move(node));
-  memo.emplace_back();
+    made.args.push_back(intern(operand));
+  auto id = Id(static_cast<unsigned>(out.nodes.size()));
+  out.nodes.push_back(std::move(made));
   for (Value result : call.getResults())
     ids[result] = id;
   return id;
 }
 
-void Record::encodeConst(Node &node, Value value, Attribute constant) {
-  node.kind = Node::Const;
-  node.attr = constant;
-  node.type = value.getType();
-  auto con = dyn_cast<ConAttr>(constant);
-  if (!con)
-    return;
-  node.isCon = true;
-  node.conRun = con.isRun();
-  if (node.conRun)
-    return;
-  node.tag = con.getTag();
-  node.fieldless = con.getData().getCtor(node.tag).fields.empty();
-}
-
-int Record::internJoin(Operation *op, unsigned number) {
-  unsigned side = static_cast<unsigned>(joins.size());
-  joins.push_back(armsOf(op));
-  int wanted = -1;
+// Every result of a match at once, after its arms: the arms are made
+// first, so a match inside one has its own side before this one takes its
+// own.
+Record::Id Record::Walker::internJoin(Operation *op, unsigned number) {
+  SmallVector<Arm, 2> arms = armsOf(op);
+  auto side = static_cast<unsigned>(out.joins.size());
+  out.joins.push_back(std::move(arms));
+  std::optional<Id> wanted;
   for (OpResult result : op->getResults()) {
-    Node node;
-    node.kind = Node::Join;
-    node.arg = result.getResultNumber();
-    node.side = side;
-    int id = place(result, std::move(node));
+    Id id = place(result, Join{side, result.getResultNumber()});
     if (result.getResultNumber() == number)
       wanted = id;
   }
-  return wanted;
+  return *wanted;
 }
 
-SmallVector<Record::Arm, 2> Record::armsOf(Operation *op) {
+SmallVector<Record::Arm, 2> Record::Walker::armsOf(Operation *op) {
   SmallVector<Arm, 2> arms;
   for (Region &region : op->getRegions()) {
-    Arm arm;
     if (region.empty()) {
-      arm.empty = true;
-      arms.push_back(std::move(arm));
+      arms.push_back(Fails{});
       continue;
     }
     Operation *end = region.front().getTerminator();
     if (isa<ub::UnreachableOp>(end)) {
-      arm.unreachable = true;
+      arms.push_back(Unreachable{});
     } else if (isa<YieldOp>(end)) {
-      arm.yield = true;
-      arm.frames = framesAt(end);
+      Yields yields;
+      yields.frames = framesAt(end);
       for (Value operand : end->getOperands())
-        arm.values.push_back(intern(operand));
+        yields.values.push_back(intern(operand));
+      arms.push_back(std::move(yields));
     } else {
-      arm.empty = true;
+      arms.push_back(Fails{});
     }
-    arms.push_back(std::move(arm));
   }
   return arms;
 }
 
-int Record::internResult(OpResult result) {
+Record::Id Record::Walker::internResult(OpResult result) {
   Operation *op = result.getOwner();
   if (isa<MatchOp, MatchLitOp>(op))
     return internJoin(op, result.getResultNumber());
   if (auto call = dyn_cast<CallOp>(op))
     return defineCall(call);
-  Node node;
-  if (op->hasTrait<ResultCarriesOperand>()) {
-    node.kind = Node::Copy;
-    node.src = intern(op->getOperand(0));
-  } else if (auto read = dyn_cast<FieldOp>(op)) {
-    node.kind = Node::Field;
-    node.src = intern(read.getValue());
-    node.tag = static_cast<unsigned>(read.getTag());
-    node.arg = static_cast<unsigned>(read.getIndex());
-    node.type = read.getType();
-    node.memo = memoType(read.getValue().getType());
-  } else if (auto pred = dyn_cast<BigPredOp>(op)) {
-    node.kind = Node::Pred;
-    node.src = intern(pred.getValue());
-  } else if (auto con = dyn_cast<ConOp>(op)) {
-    node.kind = Node::Con;
-    node.tag = static_cast<unsigned>(con.getTag());
-    node.type = con.getResult().getType();
-    node.memo = memoType(node.type);
+  if (op->hasTrait<ResultCarriesOperand>())
+    return place(result, Same{intern(op->getOperand(0))});
+  if (auto read = dyn_cast<FieldOp>(op)) {
+    if (memoType(read.getValue().getType()))
+      return place(result, Opaque{});
+    return place(result, Field{intern(read.getValue()), read.getTag(),
+                               static_cast<unsigned>(read.getIndex()), read.getType()});
+  }
+  if (auto pred = dyn_cast<BigPredOp>(op))
+    return place(result, Pred{intern(pred.getValue())});
+  if (auto con = dyn_cast<ConOp>(op)) {
+    Type type = con.getResult().getType();
+    if (memoType(type))
+      return place(result, Opaque{});
+    Con made{con.getTag(), type, {}, {}};
     for (Value field : con.getFields()) {
-      node.ops.push_back(intern(field));
-      node.types.push_back(field.getType());
+      made.fields.push_back(intern(field));
+      made.types.push_back(field.getType());
     }
-  } else if (auto add = dyn_cast<BigAddOp>(op)) {
-    node.kind = Node::Add;
+    return place(result, std::move(made));
+  }
+  if (auto add = dyn_cast<BigAddOp>(op)) {
     Value lhs = add.getLhs();
     Value rhs = add.getRhs();
     Value rest = isOne(rhs) ? lhs : isOne(lhs) ? rhs : Value();
-    node.src = rest ? intern(rest) : -1;
-  } else {
-    Attribute constant;
-    if (matchPattern(result, m_Constant(&constant)))
-      encodeConst(node, result, constant);
+    if (!rest)
+      return place(result, Opaque{});
+    return place(result, Successor{intern(rest)});
   }
-  return place(result, std::move(node));
+  Attribute constant;
+  if (!matchPattern(result, m_Constant(&constant)))
+    return place(result, Opaque{});
+  std::optional<Tag> fieldless;
+  if (auto con = dyn_cast<ConAttr>(constant);
+      con && !con.isRun() && con.getData().getCtor(con.getTag()).fields.empty())
+    fieldless = con.getTag();
+  return place(result, Constant{constant, result.getType(), fieldless});
 }
 
-SmallVector<Record::Frame, 2> Record::framesAt(Operation *at) {
-  SmallVector<Frame, 2> frames;
+// The matches around `at`, inner first, each where its region says what
+// its scrutinee is: a case its constructor's tag, a default region the
+// one constructor no case names, a literal case its literal.
+Record::Frames Record::Walker::framesAt(Operation *at) {
+  Frames frames;
   for (Region *region = at->getParentRegion(); region; region = region->getParentRegion()) {
     Operation *parent = region->getParentOp();
     if (parent == fn.getOperation())
       break;
     if (auto match = dyn_cast<MatchOp>(parent)) {
-      Frame frame;
-      frame.scrutinee = intern(match.getScrutinee());
-      frame.tag = region == match.getDefaultRegion()
-                      ? remaining(match)
-                      : std::optional<unsigned>(match.getCaseTag(region->getRegionNumber()));
-      frames.push_back(frame);
+      std::optional<Tag> tag =
+          region == match.getDefaultRegion()
+              ? remaining(match)
+              : std::optional<Tag>(match.getCaseTag(region->getRegionNumber()));
+      if (tag)
+        frames.push_back({intern(match.getScrutinee()), KnownTag{*tag}});
     } else if (auto literal = dyn_cast<MatchLitOp>(parent)) {
-      Frame frame;
-      frame.lit = true;
-      frame.scrutinee = intern(literal.getScrutinee());
       if (region != literal.getDefaultRegion())
-        frame.literal = literal.getCases()[region->getRegionNumber()];
-      frames.push_back(frame);
+        frames.push_back({intern(literal.getScrutinee()),
+                          KnownLiteral{literal.getCases()[region->getRegionNumber()]}});
     }
   }
   return frames;
 }
 
-bool Record::record(ReturnOp ret) {
+bool Record::Walker::record(ReturnOp ret) {
   if (ret.getNumOperands() != 1)
     return false;
-  rets.push_back({intern(ret.getOperand(0)), framesAt(ret.getOperation())});
+  Id value = intern(ret.getOperand(0));
+  out.rets.push_back({value, framesAt(ret.getOperation())});
   return true;
 }
 
 // The one descent. Match regions are part of what only computes; a call
-// that does not only allocate is kept to be justified from the record; any
-// other op must only allocate, and is not opened again.
-bool Record::scan(Region &region) {
+// that does not only compute is kept to be justified from the record; any
+// other op must only compute, and is not opened again.
+bool Record::Walker::scan(Region &region) {
   for (Block &block : region) {
     for (BlockArgument arg : block.getArguments())
       intern(arg);
@@ -298,7 +308,7 @@ bool Record::scan(Region &region) {
   return true;
 }
 
-bool Record::accept(Operation &op) {
+bool Record::Walker::accept(Operation &op) {
   if (op.hasTrait<OpTrait::IsTerminator>()) {
     if (auto ret = dyn_cast<ReturnOp>(op))
       return record(ret);
@@ -313,14 +323,14 @@ bool Record::accept(Operation &op) {
     return true;
   }
   if (auto call = dyn_cast<CallOp>(op)) {
-    int id = defineCall(call);
-    if (!nodes[static_cast<std::size_t>(id)].allocates)
-      reliant.push_back(id);
+    Id id = defineCall(call);
+    if (!onlyAllocates(call, &effects))
+      out.reliant.push_back(id);
     return true;
   }
-  // An op with regions that only allocates holds no return: idr.return is
+  // An op with regions that only computes holds no return: idr.return is
   // only ever in the function's own body.
-  if (!onlyAllocates(&op))
+  if (!onlyAllocates(&op, &effects))
     return false;
   for (Value result : op.getResults())
     intern(result);

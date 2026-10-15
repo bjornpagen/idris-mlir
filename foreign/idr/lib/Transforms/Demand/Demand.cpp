@@ -19,6 +19,8 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <optional>
+
 namespace idr {
 #define GEN_PASS_DEF_IDRDEMAND
 #include "idr/Transforms/Passes.h.inc"
@@ -28,25 +30,26 @@ using namespace mlir;
 
 namespace {
 
-// The value `value` is, seen through the positions that hand it on as
-// itself: an op that only changes its grade (a linear position, a view of
-// it, which a match reads), and the default region of a match on it, which
-// takes the scrutinee back at its type.
-Value itself(Value value) {
-  for (;;) {
-    if (Operation *def = value.getDefiningOp()) {
-      if (!def->hasTrait<idr::ResultCarriesOperand>())
-        return value;
-      value = def->getOperand(0);
-      continue;
-    }
-    auto arg = cast<BlockArgument>(value);
-    auto match = dyn_cast_or_null<idr::MatchOp>(arg.getOwner()->getParentOp());
-    if (!match || arg.getParentRegion() != match.getDefaultRegion())
-      return value;
-    value = match.getScrutinee();
+// The value a position hands on as itself, when `value` is one: the
+// operand of an op that only changes its grade (a linear position, a view
+// of it, which a match reads), and the scrutinee of a match whose default
+// region takes it back at its type.
+std::optional<Value> handedOn(Value value) {
+  if (Operation *def = value.getDefiningOp()) {
+    if (!def->hasTrait<idr::ResultCarriesOperand>())
+      return std::nullopt;
+    return def->getOperand(0);
   }
+  auto arg = cast<BlockArgument>(value);
+  auto match = dyn_cast_or_null<idr::MatchOp>(arg.getOwner()->getParentOp());
+  if (!match || arg.getParentRegion() != match.getDefaultRegion())
+    return std::nullopt;
+  return match.getScrutinee();
 }
+
+// The value `value` is, seen through the positions that hand it on as
+// itself: the last of its chain of definitions.
+Value itself(Value value) { return idr::definitionChain(value, handedOn).back(); }
 
 // Whether a value of `type` makes the promise: its data type's body is of
 // kind in_place.
@@ -63,7 +66,9 @@ SmallVector<unsigned> rebuilt(idr::FuncOp fn) {
   Block *entry = &fn.getBody().front();
   fn.walk([&](idr::ReuseOp reuse) {
     auto take = reuse.getToken().getDefiningOp<idr::TakeOp>();
-    auto param = take ? dyn_cast<BlockArgument>(itself(take.getValue())) : BlockArgument();
+    if (!take)
+      return;
+    auto param = dyn_cast<BlockArgument>(itself(take.getValue()));
     if (!param || param.getOwner() != entry || !idr::isLinear(param.getType()) ||
         !promises(param.getType()))
       return;
@@ -80,7 +85,7 @@ struct Broken {
   idr::FuncOp caller;
   idr::CallOp call;
   unsigned index;
-  idr::DupOp dup;
+  std::optional<idr::DupOp> dup;
 };
 
 void report(Broken broken) {
@@ -90,7 +95,7 @@ void report(Broken broken) {
         << idr::dataTypeOf(value.getType()).getName() << " to @" << broken.call.getCallee()
         << ", which rebuilds it in place";
   if (broken.dup)
-    error.attachNote(broken.dup.getLoc()) << "shared here";
+    error.attachNote(broken.dup->getLoc()) << "shared here";
 }
 
 // Every call of a function passes each parameter the function promises to
@@ -113,9 +118,12 @@ LogicalResult checkInPlace(idr::ProgramOp program) {
         return;
       for (unsigned index : found->second) {
         Value argument = call.getArgs()[index];
-        if (!idr::isExclusive(argument.getType()))
-          broken.push_back(
-              {caller, call, index, idr::throughLinear(argument).getDefiningOp<idr::DupOp>()});
+        if (idr::isExclusive(argument.getType()))
+          continue;
+        std::optional<idr::DupOp> dup;
+        if (auto shared = idr::throughLinear(argument).getDefiningOp<idr::DupOp>())
+          dup = shared;
+        broken.push_back({caller, call, index, dup});
       }
     });
   // A call that shares the value there is the cause: each other one passes
@@ -123,9 +131,9 @@ LogicalResult checkInPlace(idr::ProgramOp program) {
   // what it took apart), or one shared into the grade such a call set, and
   // is no error of its own. So the calls that share are reported, and the
   // others only when no call shares.
-  bool shares = llvm::any_of(broken, [](const Broken &each) { return bool(each.dup); });
+  bool shares = llvm::any_of(broken, [](const Broken &each) { return each.dup.has_value(); });
   for (const Broken &each : broken)
-    if (bool(each.dup) == shares)
+    if (each.dup.has_value() == shares)
       report(each);
   return success(broken.empty());
 }

@@ -14,18 +14,19 @@
 //      which read the grades of its own signature and its callees';
 //   4. exclusivity, which reads the dups placement made, is solved; the
 //      functions whose callers disagree on a grade, and the ones their
-//      copies call, are the keys, each copied once and the calls that agree
-//      sent to the copies; the program with its copies is solved, each call
-//      of a key or a copy goes to the copy if it gives exclusive values and
-//      to the original if not, and if one moved the program is solved once
-//      more; then the excl grades go into every signature;
+//      copies call, are the keys, each copied once; the program with its
+//      copies is solved, the solve sending each call of a key or a copy to
+//      the copy if it gives exclusive values and to the original if not,
+//      and each call goes where that solve sent it, which makes it the
+//      solve of the program as the calls now stand; then the excl grades
+//      it proved go into every signature;
 //   5. each function is committed, nested, and the copies and originals
 //      nothing calls any more are erased.
 // Steps 2 and 4 write signatures; steps 3 and 5 rewrite bodies, while no
 // signature changes. A nested run leaves no analysis of the program behind,
 // so each step takes what it reads afresh.
-#include "idr/Analysis/Holds.h"
 #include "idr/Analysis/Ownership.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -69,61 +70,58 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
     if (failed(failableParallelForEach(&getContext(), fns, own::bufferForms)))
       return signalPassFailure();
 
-    if (failed(getAnalysis<idr::Layouts>().valid()))
-      return signalPassFailure();
-    getAnalysis<idr::Reuses>();
-    idr::Borrows &borrows = getAnalysis<idr::Borrows>();
-    numBorrowed += borrows.borrowed();
-    own::writeOwnedGrades(program, borrows);
+    const idr::Reuses reuses(program, getAnalysis<idr::Layouts>());
+    {
+      const idr::Borrows borrows(program, getAnalysis<SymbolTable>(), reuses);
+      numBorrowed += borrows.borrowed();
+      own::writeOwnedGrades(program, borrows);
+    }
     // The grades are counted from here on, which is what the stage says
     // and the verifier of every nested run below checks.
     program.setStage(idr::Stage::Owned);
 
-    // What the nested placement reads is computed here, right before it.
-    getAnalysis<SymbolTable>();
-    if (failed(runNested(own::createRcPlace())))
-      return signalPassFailure();
+    // A nested run leaves no analysis of the program behind, so the table
+    // each one reads is taken right before it.
+    {
+      const idr::CalleeEffects callees{getAnalysis<SymbolTable>()};
+      if (failed(runNested(own::createRcPlace(reuses, callees))))
+        return signalPassFailure();
+    }
 
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     own::shareTainted(program, symbols);
-    // Each solve after the first sees calls and copies the one before did
-    // not; the table is kept, since the copies went in through it.
-    const idr::Exclusivity *solved = solve();
-    if (!solved)
+    // The solve of the program as placement left it decides the keys; the
+    // solve of the program with their copies, which sends each call where
+    // it gives, is the one the grades come from. With no copy the first is
+    // that solve too.
+    FailureOr<idr::Exclusivity> solved = solve(own::Copies());
+    if (failed(solved))
       return signalPassFailure();
     FailureOr<own::Copies> copies = own::specializeOnGrade(program, *solved, symbols);
     if (failed(copies))
       return signalPassFailure();
     if (!copies->of.empty()) {
-      if (!(solved = solveAgain()))
+      if (failed(solved = solve(*copies)))
         return signalPassFailure();
-      if (own::redirectCalls(program, *solved, symbols, *copies) && !(solved = solveAgain()))
-        return signalPassFailure();
+      own::redirectCalls(program, *solved);
     }
     own::writeExclusiveGrades(program, *solved, symbols);
 
-    if (failed(runNested(own::createRcCommit())))
+    if (failed(runNested(own::createRcCommit(*solved, symbols))))
       return signalPassFailure();
     own::eraseUnused(program, getAnalysis<SymbolTable>(), *copies);
     count(program);
     // No data type changed, and every symbol came and went through the table.
-    markAnalysesPreserved<idr::Holds, idr::TypeGraph, idr::Layouts, SymbolTable>();
+    markAnalysesPreserved<idr::TypeGraph, idr::Layouts, SymbolTable>();
   }
 
-  // The solve of the program as it stands, or null after an error.
-  const idr::Exclusivity *solve() {
-    const idr::Exclusivity &solved = getAnalysis<idr::Exclusivity>();
-    if (!solved.failed())
-      return &solved;
-    getOperation().emitError("idr-rc: internal error: the exclusivity solve failed");
-    return nullptr;
-  }
-
-  const idr::Exclusivity *solveAgain() {
-    AnalysisManager::PreservedAnalyses kept;
-    kept.preserve<SymbolTable>();
-    getAnalysisManager().invalidate(kept);
-    return solve();
+  // The solve of the program as it stands, with `copies`; failure, which
+  // is reported here, when MLIR's solver fails.
+  FailureOr<idr::Exclusivity> solve(const idr::ownership::Copies &copies) {
+    FailureOr<idr::Exclusivity> solved = idr::Exclusivity::solve(getOperation(), copies);
+    if (failed(solved))
+      getOperation().emitError("idr-rc: internal error: the exclusivity solve failed");
+    return solved;
   }
 
   // `pass` on every function of the program, under a nested manager, which

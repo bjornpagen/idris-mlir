@@ -33,12 +33,14 @@
 // placed after a call whose arguments it consumes, so a self tail call
 // stays one.
 //
-// Counting a function takes three steps: the classes of its values
-// (Classes), the reshaping of its code before any count is placed
-// (reshape), and the placement of the counts, here. A call's operand
+// Counting a function takes two steps: the reshaping of its code before
+// any count is placed (reshape), and the placement of the counts, here.
+// Each step reads the classes of the values (Classes) of the code as it
+// stands when the step runs. A call's operand
 // consumes what its callee's parameter grade says, read through the table:
 // the operands take their callees' grades only once placed.
 #include "idr/Analysis/Ownership.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
@@ -48,6 +50,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/MapVector.h"
+
+#include <cassert>
 
 using namespace mlir;
 
@@ -61,22 +65,20 @@ struct Changes {
 
 class Placement {
 public:
-  Placement(RewriterBase &rewriter, FuncOp fn, Classes &classes, SymbolTable &symbols)
-      : rewriter(rewriter), fn(fn), classes(classes), symbols(symbols) {}
+  Placement(RewriterBase &rewriter, FuncOp fn, const CalleeEffects &callees)
+      : rewriter(rewriter), fn(fn), classes(fn), callees(callees) {}
 
   // Places every value of the function, materializes the counts, and
   // grades the views that are left.
   void run() {
-    SmallVector<std::tuple<Value, Block *, Operation *>> values;
+    SmallVector<Value> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
-      for (BlockArgument arg : block->getArguments())
-        values.emplace_back(arg, block, nullptr);
+      llvm::append_range(values, block->getArguments());
       for (Operation &op : *block)
-        for (Value result : op.getResults())
-          values.emplace_back(result, block, &op);
+        llvm::append_range(values, op.getResults());
     });
-    for (auto [value, block, def] : values)
-      plan(value, *block, def);
+    for (Value value : values)
+      plan(value);
     materialize();
     gradeViews();
   }
@@ -89,7 +91,13 @@ private:
     return isa_and_nonnull<ub::PoisonOp, BigSmallOp>(def);
   }
 
-  void plan(Value value, Block &block, Operation *def) {
+  // Each value is placed from where it is defined, along the ops after it
+  // in its block.
+  void plan(Value value) {
+    Point defined = definedAt(value);
+    Block &block = blockOf(defined);
+    Block::iterator from = firstAt(defined);
+    Operation *def = value.getDefiningOp();
     switch (classes.classOf(value)) {
     case Class::Untracked:
       return;
@@ -104,10 +112,10 @@ private:
       }
       if (!readFrom(value) && def && !def->hasTrait<ResultCarriesOperand>())
         value.setType(view(value.getType()));
-      placeBorrowed(value, block, def);
+      placeBorrowed(value, block, from);
       return;
     case Class::Borrowed:
-      placeBorrowed(value, block, def);
+      placeBorrowed(value, block, from);
       return;
     case Class::Owned:
       break;
@@ -117,7 +125,7 @@ private:
     if (readFrom(value))
       return;
     value.setType(owned(value.getType()));
-    placeOwned(value, block, def, /*keep=*/false);
+    placeOwned(value, block, from, /*keep=*/false);
   }
 
   // How many operands of `op` are `value`, consuming and borrowing.
@@ -131,7 +139,7 @@ private:
 
   // Whether `operand` takes over the reference its value holds, as its op
   // declares.
-  bool takes(OpOperand &operand) { return consumes(operand, &symbols); }
+  bool takes(OpOperand &operand) { return consumes(operand, &callees); }
 
   // Whether `op` writes `value`, one of its own operands, and so holds it
   // until it is done: an update writes its element back into its array
@@ -148,39 +156,32 @@ private:
     });
   }
 
-  // The changes right after `def` in `block`, or at its start when null.
-  // Nothing follows a terminator, so that point is before an op too. A
-  // field that takes a reference of its own does so right there
-  // (ownFields), and the point is after it: the field takes its reference
-  // before the value it was read from drops its own.
-  Changes &at(Block &block, Operation *def) {
-    Operation *point = def ? def->getNextNode() : &block.front();
-    auto ownsField = [&](Operation *op) {
+  // The changes before the op at `from` in `block`. A field defined at
+  // the point before it that takes a reference of its own does so right
+  // there (ownFields), and the changes go after it: the field takes its
+  // reference before the value it was read from drops its own. A block
+  // ends in its terminator, which no such dup is, so an op is left.
+  Changes &at(Block &block, Block::iterator from) {
+    Point point = pointBefore(block, from);
+    auto ownsField = [&](Operation &op) {
       auto dup = dyn_cast<DupOp>(op);
-      if (!dup)
-        return false;
-      Value field = dup.getValue();
-      return def ? field.getDefiningOp() == def
-                 : isa<BlockArgument>(field) && cast<BlockArgument>(field).getOwner() == &block;
+      return dup && definedAt(dup.getValue()) == point;
     };
-    while (point && ownsField(point))
-      point = point->getNextNode();
-    return changes[point];
+    return changes[&*llvm::find_if_not(llvm::make_range(from, block.end()), ownsField)];
   }
 
   void incBeforeOp(Operation *op, Value value, unsigned times) {
-    for (unsigned i = 0; i < times; ++i)
-      changes[op].incs.push_back(value);
+    changes[op].incs.append(times, value);
   }
 
-  // `value` holds one reference from `after` on (from the block's start
-  // when null), which its last use in `block` consumes, or which it still
-  // holds at the block's end when `keep`.
-  void placeOwned(Value value, Block &block, Operation *after, bool keep) {
-    SmallVector<Operation *> users = usersIn(value, block, after);
+  // `value` holds one reference from the op at `from` on, which its last
+  // use in `block` consumes, or which it still holds at the block's end
+  // when `keep`.
+  void placeOwned(Value value, Block &block, Block::iterator from, bool keep) {
+    SmallVector<Operation *> users = usersIn(value, block, from);
     if (users.empty()) {
       if (!keep)
-        at(block, after).decs.push_back(value);
+        at(block, from).decs.push_back(value);
       return;
     }
     for (auto [i, user] : llvm::enumerate(users)) {
@@ -192,9 +193,9 @@ private:
             continue;
           Block &inner = region.front();
           if (usedIn(value, region))
-            placeOwned(value, inner, nullptr, /*keep=*/!last);
+            placeOwned(value, inner, inner.begin(), /*keep=*/!last);
           else if (last && !endsInCrash(inner))
-            at(inner, nullptr).decs.push_back(value);
+            at(inner, inner.begin()).decs.push_back(value);
         }
         if (last)
           return;
@@ -207,7 +208,7 @@ private:
       // reads the value for as long as it runs.
       for (Region &region : user->getRegions())
         if (!region.empty() && usedIn(value, region)) {
-          placeBorrowed(value, region.front(), nullptr);
+          placeBorrowed(value, region.front(), region.front().begin());
           ++borrows;
         }
       if (!last) {
@@ -216,10 +217,17 @@ private:
       }
       if (borrows == 0 && consumes > 0) {
         incBeforeOp(user, value, consumes - 1);
-      } else {
-        incBeforeOp(user, value, consumes);
-        at(block, user).decs.push_back(value);
+        return;
       }
+      incBeforeOp(user, value, consumes);
+      // A terminator takes over what it passes on, as its flow says, so in
+      // the owned stage no value's last use is a terminator that only reads
+      // it: nothing follows a terminator to drop the value before.
+      assert(!user->hasTrait<OpTrait::IsTerminator>() &&
+             "the last use of an owned value is a terminator that does not take it over");
+      if (user->hasTrait<OpTrait::IsTerminator>())
+        return;
+      at(block, std::next(user->getIterator())).decs.push_back(value);
       return;
     }
   }
@@ -228,11 +236,11 @@ private:
   // op that decides only reads what it decides on; any other op's operands
   // are placed as any op's, and the uses inside its regions as the uses in
   // the regions of one that decides.
-  void placeBorrowed(Value value, Block &block, Operation *after) {
-    for (Operation *user : usersIn(value, block, after)) {
+  void placeBorrowed(Value value, Block &block, Block::iterator from) {
+    for (Operation *user : usersIn(value, block, from)) {
       for (Region &region : user->getRegions())
         if (!region.empty() && usedIn(value, region))
-          placeBorrowed(value, region.front(), nullptr);
+          placeBorrowed(value, region.front(), region.front().begin());
       if (!decides(user))
         incBeforeOp(user, value, usesBy(value, user).first);
     }
@@ -298,7 +306,7 @@ private:
   void gradeViews() {
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (auto read = dyn_cast<FieldOp>(op)) {
-        const Ctor &ctor = read.getDataType().getCtor(static_cast<unsigned>(read.getTag()));
+        const Ctor &ctor = read.getDataType().getCtor(read.getTag());
         read.getResult().setType(fieldType(read.getValue().getType(),
                                            ctor.fields[static_cast<unsigned>(read.getIndex())]));
         return;
@@ -308,8 +316,7 @@ private:
         return;
       Type scrutinee = match.getScrutinee().getType();
       DataType data = match.getDataType();
-      for (unsigned index = 0, e = static_cast<unsigned>(match.getCases().size()); index < e;
-           ++index) {
+      for (unsigned index : llvm::seq(static_cast<unsigned>(match.getCases().size()))) {
         ArrayRef<Type> fields = data.getCtor(match.getCaseTag(index)).fields;
         for (BlockArgument arg : match.getCaseRegion(index).getArguments())
           arg.setType(fieldType(scrutinee, fields[arg.getArgNumber()]));
@@ -321,16 +328,18 @@ private:
 
   RewriterBase &rewriter;
   FuncOp fn;
-  Classes &classes;
-  SymbolTable &symbols;
+  // The classes of the function as reshaping left it, the last change they
+  // read: placement only grades values until it materializes the counts.
+  Classes classes;
+  const CalleeEffects &callees;
   // What goes right before each op.
   llvm::MapVector<Operation *, Changes> changes;
 };
 
 } // namespace
 
-void place(RewriterBase &rewriter, FuncOp fn, Classes &classes, SymbolTable &symbols) {
-  Placement(rewriter, fn, classes, symbols).run();
+void place(RewriterBase &rewriter, FuncOp fn, const CalleeEffects &callees) {
+  Placement(rewriter, fn, callees).run();
 }
 
 } // namespace idr::ownership

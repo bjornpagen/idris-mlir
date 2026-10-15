@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Determinism: the same program compiles to the same bytes whatever the
 # number of threads: one compilation at each of 1, 2 and 8 threads, byte
 # for byte; and one module through the pipeline under one thread and under

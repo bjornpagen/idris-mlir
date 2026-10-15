@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # make build builds C++ through the CMake presets alone, with the pinned
 # CMake, and never invokes Ninja or the compiler directly; it builds the
 # compiler with the pinned Idris.

@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='!idr.lazy' --implicit-check-not='!idr.fn' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // Two suspensions of one Lazy slot whose labels return closures of
 // different labels: the cell's one forced field holds what either label
 // returns, so both labels return into the one slot, the join of their

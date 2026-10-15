@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2026 Bjorn Pagen
 package idris-compiler
 version = 0.8.0
 brief = "Upstream Idris 2's compiler, forked and pruned for idris-mlir"
@@ -107,6 +109,7 @@ modules =
     Libraries.Data.IMaybe,
     Libraries.Data.IntMap,
     Libraries.Data.List.Extra,
+    Libraries.Data.List.Finite,
     Libraries.Data.List.HasLength,
     Libraries.Data.List.LengthMatch,
     Libraries.Data.List.Quantifiers.Extra,

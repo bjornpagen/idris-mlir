@@ -6,7 +6,7 @@
 // RUN: idris-mlir-opt %t.second.mlir --inline --idr-expect=holds=calls=@crash_inlined:@fail,\
 // RUN: never-returns=@crash_in_body,never-calls=@crash_in_body:@fail -o /dev/null
 // RUN: idris-mlir-opt %t.second.mlir --remove-dead-values --idr-expect=holds=parameters-used=@fail -o /dev/null
-// RUN: idris-mlir-opt %s -split-input-file --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s -split-input-file --idr-canonicalize=test-convergence=true -o /dev/null
 // Upstream's remove-dead-values and inline work on matches and closures. A
 // function whose body is a crash ends in ub.unreachable after it; the
 // inliner inlines it into a function body, the block after the call

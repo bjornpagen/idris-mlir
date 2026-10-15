@@ -215,7 +215,7 @@ ParseResult parseDests(OpAsmParser &, SmallVectorImpl<Type> &dests, Type type, I
   DataType data = dataTypeOf(type);
   if (!holes || !data || !tag || tag.getValue().getZExtValue() >= data.getCtors().size())
     return success();
-  const Ctor &ctor = data.getCtor(static_cast<unsigned>(tag.getValue().getZExtValue()));
+  const Ctor &ctor = data.getCtor(Tag{static_cast<uint32_t>(tag.getValue().getZExtValue())});
   for (int32_t hole : holes.asArrayRef())
     if (hole >= 0 && static_cast<size_t>(hole) < ctor.fields.size())
       dests.push_back(idr::detail::destOf(ctor, hole));
@@ -298,6 +298,14 @@ APInt idrisShift(const APInt &a, const APInt &amount, bool left, bool isSigned) 
 }
 
 template <typename Shift>
+concept ShiftOp = requires(Shift op) {
+  { Shift::left } -> std::convertible_to<bool>;
+  op.getLhs();
+  op.getRhs();
+  op.getIsSigned();
+};
+
+template <ShiftOp Shift>
 OpFoldResult foldShift(Shift op, typename Shift::FoldAdaptor adaptor) {
   auto rhs = dyn_cast_or_null<IntegerAttr>(adaptor.getRhs());
   if (rhs && rhs.getValue().isZero())

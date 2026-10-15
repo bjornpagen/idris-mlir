@@ -1,5 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=resets-unshared -o /dev/null
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-every-cell=@ins -o /dev/null
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A box whose last use in a region consumes it dies in that use: no cell of
 // it is left to reuse after the use. Here `ins` looks at the right subtree
 // and then gives it to the recursive call. A take after the call would
@@ -10,7 +12,7 @@
 !T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
 idr.program @consumed root(@root) stage(first) {
   idr.func @ins(%t: !idr.box<!T>, %k: i64) -> !idr.box<!T> {
-    %leaf = idr.constant #idr.con<@L, []> : !idr.box<!T>
+    %leaf = idr.constant #idr.con<!T, @L, []> : !idr.box<!T>
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!T>) {
     case @L() {
       %n = idr.con !idr.box<!T> @N(%leaf : !idr.box<!T>, %k : i64, %leaf : !idr.box<!T>)
@@ -35,7 +37,7 @@ idr.program @consumed root(@root) stage(first) {
     return %r : !idr.box<!T>
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %leaf = idr.constant #idr.con<@L, []> : !idr.box<!T>
+    %leaf = idr.constant #idr.con<!T, @L, []> : !idr.box<!T>
     %c1 = arith.constant 1 : i64
     %c2 = arith.constant 2 : i64
     %t1 = idr.call @ins(%leaf, %c1) : (!idr.box<!T>, i64) -> !idr.box<!T>

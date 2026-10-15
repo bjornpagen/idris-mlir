@@ -10,15 +10,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <string.h>
 
 namespace {
 
 // The live cells on standard error when IDRIS_RT_LIVE is "1", in one write:
 // how a test sees that a program frees every cell it allocates.
 void reportLiveCells() {
-  const char *setting = getenv("IDRIS_RT_LIVE");
+  const char *setting = rt::platform::environment("IDRIS_RT_LIVE");
   if (setting == nullptr || setting[0] != '1' || setting[1] != '\0')
     return;
   static constexpr char prefix[] = "idris-rt: live cells ";
@@ -27,8 +26,8 @@ void reportLiveCells() {
   char *end = line + sizeof line;
   end[-1] = '\n';
   char *start = rt::strings::formatUnsigned(idris_rt_live_cells(), end - 1) - prefixLength;
-  rt::io::copyOut(start, prefix, prefixLength);
-  rt::io::writeAll(2, start, static_cast<size_t>(end - start));
+  memcpy(start, prefix, prefixLength);
+  rt::platform::writeAll(2, start, static_cast<size_t>(end - start));
 }
 
 } // namespace
@@ -56,15 +55,15 @@ extern "C" void idris_rt_io_exit(int64_t status) {
 // Lowered code has this one crash entry.
 extern "C" void idris_rt_crash(const char *msg, size_t len) {
   idris_rt_flush();
-  rt::io::writeAll(2, msg, len);
-  _exit(IDRIS_RT_CRASHED);
+  rt::platform::writeAll(2, msg, len);
+  rt::platform::exitProcess(IDRIS_RT_CRASHED);
 }
 
 extern "C" void idris_rt_crash_str(const idris_rt_str *s) {
   idris_rt_flush();
   static constexpr char prefix[] = "idris-mlir: ";
-  rt::io::writeAll(2, prefix, sizeof prefix - 1);
-  rt::io::writeAll(2, idris_rt_str_bytes(s), static_cast<size_t>(idris_rt_str_bytes_length(s)));
-  rt::io::writeAll(2, "\n", 1);
-  _exit(IDRIS_RT_CRASHED);
+  rt::platform::writeAll(2, prefix, sizeof prefix - 1);
+  rt::platform::writeAll(2, idris_rt_str_bytes(s), s->bytes);
+  rt::platform::writeAll(2, "\n", 1);
+  rt::platform::exitProcess(IDRIS_RT_CRASHED);
 }

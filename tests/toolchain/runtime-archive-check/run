@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The runtime's archive check (runtime/check-archive.sh) passes the
 # runtime and fails an archive that references the C++ runtime, has a static
 # constructor, or that it cannot read as the target entry spells it: the

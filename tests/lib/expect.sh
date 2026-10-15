@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Properties of a module stated by name, as idr-expect checks them (each is
 # declared, with what it states, in idr/Transforms/Expect.h): what a test
 # says instead of matching the ops that happen to show a property.

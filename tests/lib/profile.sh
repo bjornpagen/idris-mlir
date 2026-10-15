@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The profile fixtures: programs the compiler accepts, and programs it
 # rejects with one explicit `unsupported (<reason>)` at the right line.
 
@@ -5,7 +7,7 @@
 # form that start a profile fixture; the status is 1 without one.
 header() {
   awk -v field="$2" '
-    !/^--[ \t]*(expect|message):/ { exit }
+    !/^--[ \t]*(expect|message|names):/ { exit }
     {
       key = $0; sub(/^--[ \t]*/, "", key); sub(/:.*$/, "", key)
       if (key == field) { value = $0; sub(/^--[ \t]*[a-z]+:[ \t]*/, "", value); found = 1 }
@@ -50,10 +52,13 @@ profile_compile() {
 # profile_reject FIXTURE: `tests/reject/<reason>-<desc>/`, a directory holding
 # Main.idr and its other modules, whose first
 # line is `-- expect: <reason>, line <n>` (and then, optionally,
-# `-- message: <text>`), <reason> being the phrase of one of the rules
-# (lib/rules.sh) and the name starting with it, words joined by dashes. It
-# is rejected with exit status 3 and exactly one `unsupported (<reason>)`,
-# reported on line n, and leaves no artifact.
+# `-- message: <text>`, text the refusal holds, and `-- names: <a>; <b>...`,
+# what the refusal names, each anywhere in it, whatever words surround
+# them), the name starting with <reason>, words joined by dashes. It is
+# rejected with exit status 3, reported on line n, and leaves no artifact.
+# Who refuses is the reason: the phrase of one of the rules (lib/rules.sh)
+# is this compiler's refusal, exactly one `unsupported (<reason>)`; `idris`
+# is Idris's own, its parser's or its checker's, and no rule of ours.
 profile_reject() {
   if [ -d "$1" ]; then reject_main=$1/Main.idr; else reject_main=$1; fi
   reject_name=$(fixture_name "$1")
@@ -64,13 +69,15 @@ profile_reject() {
     say "$reject_name: the first line must be '-- expect: <reason>, line <n>'"
     return
   fi
-  if [ ! -f "$rules_list" ]; then
-    say "$reject_name: no list of the rules (IdrRules.txt, which the build writes)"
-    return
-  fi
-  if ! rule_category "$reject_reason" > /dev/null; then
-    say "$reject_name: $reject_reason is no rule's phrase"
-    return
+  if [ "$reject_reason" != idris ]; then
+    if [ ! -f "$rules_list" ]; then
+      say "$reject_name: no list of the rules (IdrRules.txt, which the build writes)"
+      return
+    fi
+    if ! rule_category "$reject_reason" > /dev/null; then
+      say "$reject_name: $reject_reason is no rule's phrase"
+      return
+    fi
   fi
   reject_prefix=$(printf '%s' "$reject_reason" | tr ' ' '-')
   case $reject_name in
@@ -85,8 +92,15 @@ profile_reject() {
   # A rejection is the user's error. An internal error, which may quote a
   # diagnostic of idris-mlir's that reads the same, is the compiler's.
   if grep -qF 'internal error' "$work/compile.all"; then
-    say "unsupported ($reject_reason): an internal error, not a rejection"
+    say "$reject_reason: an internal error, not a rejection"
     show "$work/compile.all"
+  elif [ "$reject_reason" = idris ]; then
+    if [ "$reject_count" -eq 0 ] && [ -s "$work/compile.all" ]; then
+      say "idris: its own error, and no rule of ours"
+    else
+      say "idris: expected Idris's error alone, among $reject_count unsupported errors"
+      show "$work/compile.all"
+    fi
   elif grep -qF "unsupported ($reject_reason)" "$work/compile.all" && [ "$reject_count" -eq 1 ]; then
     say "unsupported ($reject_reason): the only error"
   else
@@ -104,6 +118,19 @@ profile_reject() {
       say "message: as the header says"
     else
       say "message: not in the output: $reject_message"
+    fi
+  fi
+  if reject_names=$(header "$reject_main" names); then
+    printf '%s\n' "$reject_names" | tr ';' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' |
+      while IFS= read -r reject_named; do
+        [ -z "$reject_named" ] || grep -qF -- "$reject_named" "$work/compile.all" ||
+          printf '%s\n' "$reject_named"
+      done > "$work/unnamed"
+    if [ -s "$work/unnamed" ]; then
+      say "names: not in the output:"
+      sed 's/^/  /' "$work/unnamed"
+    else
+      say "names: each as the header says"
     fi
   fi
   no_artifacts "$work/fixture"

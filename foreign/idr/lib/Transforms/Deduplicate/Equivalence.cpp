@@ -98,7 +98,7 @@ struct BodyHash {
     // A successor's operands are among the operands hashed above; which of
     // them go to which successor is an attribute of the op.
     for (Block *successor : op.getSuccessors())
-      hash = llvm::hash_combine(hash, blocks.lookup(successor));
+      hash = llvm::hash_combine(hash, blocks.at(successor));
     for (Region &region : op.getRegions())
       this->region(region);
   }
@@ -119,7 +119,9 @@ struct BodyHash {
   }
 
   Reading &read;
-  llvm::hash_code hash;
+  // llvm::hash_code's default leaves its value unset: every hash starts
+  // from the same seed, so that copies hash alike.
+  llvm::hash_code hash = 0;
   DenseMap<Value, unsigned> values;
   DenseMap<Block *, unsigned> blocks;
   unsigned nextValue = 0;
@@ -200,7 +202,7 @@ namespace idr::deduplicate {
 llvm::hash_code hashFunction(FuncOp fn, const Renames &renames) {
   // Every function's own name reads alike here, so copies hash alike.
   Reading read(fn.getSymNameAttr(), StringAttr::get(fn.getContext()), renames);
-  llvm::hash_code hash;
+  llvm::hash_code hash = 0;
   for (NamedAttribute fact : factsOf(fn))
     hash = llvm::hash_combine(hash, fact.getName(), read(fact.getValue()));
   BodyHash body(read);

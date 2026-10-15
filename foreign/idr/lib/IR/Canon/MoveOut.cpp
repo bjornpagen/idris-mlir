@@ -26,19 +26,25 @@
 // its order.
 //
 // A call does what its callee's effects say, the one copy, read through the
-// program's symbol table: idr-effects and idr-optimize write them between
-// waves, never while the patterns of a function run. The pattern rewrites
-// the read, another op than the write it is rooted at, which a folder of
-// the write could not.
+// program's symbol table where the canonicalizer has one (CalleePattern):
+// idr-effects and idr-optimize write them between waves, never while the
+// patterns of a function run. Without a table a call may do anything, and
+// keeps the read as it is. The pattern rewrites the read and the write, two
+// ops, which a folder of either could not.
+//
+// The pattern is tried at the write and at the read, each reached from the
+// other through the world: the driver tells a rewrite to the op it changes,
+// and whether the two name one element is a question of both. The read
+// leaves the ops between, and so do the rebuilding's ops, which move to the
+// write; those ops between whose own question spans the read or a moved op
+// are tried again.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
-#include "idr/IR/Func.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
@@ -47,63 +53,46 @@ using namespace idr;
 
 namespace {
 
-// What an op between the read and the write does, with everything in it.
-struct Does {
-  // It may read or write an array of the read's type.
-  bool touches = false;
-  // Its effects are at most the allocation of its own results.
-  bool computes = true;
-};
+// What an op between the read and the write does, with everything in it,
+// each a step past the one before: its effects are at most the allocation
+// of its own results; it has other effects; or it may read or write an
+// array of the read's type, which is an effect too.
+enum class Does : uint8_t { Computes, Effects, Touches };
 
 // What `root` does toward an array of type `array`: it reads the IO
 // resource (IO may reach any cell, a call through what it is given), it
 // reads or writes a value of the array's type, nothing says what it does
 // (an op without the interface), or it holds a force. A call's effects on
-// the IO, crash and divergence resources are its callee's; what it does to
-// its operands is its own. The ops in a region count where their op's
-// effects are its regions' (RecursiveMemoryEffects), as upstream gathers
-// them; an op that never runs (ub.unreachable) does nothing.
-Does doesOf(Operation *root, Type array, SymbolTableCollection &symbols) {
-  Does does;
-  auto note = [&](const MemoryEffects::EffectInstance &effect) {
+// the IO, crash and divergence resources are its callee's where `callees`
+// says them; what it does to its operands is its own. The ops in a region
+// count where their op's effects are its regions' (RecursiveMemoryEffects),
+// as upstream gathers them; an op that never runs (ub.unreachable) does
+// nothing.
+Does doesOf(Operation *root, Type array, const CalleeEffects *callees) {
+  auto of = [&](const MemoryEffects::EffectInstance &effect) {
     Value on = effect.getValue();
     if ((isa<MemoryEffects::Read>(effect.getEffect()) &&
          effect.getResource() == IOResource::get()) ||
         (isa<MemoryEffects::Read, MemoryEffects::Write>(effect.getEffect()) && on &&
          unrestricted(on.getType()) == unrestricted(array)))
-      does.touches = true;
+      return Does::Touches;
     if (!isa<MemoryEffects::Allocate>(effect.getEffect()) || !isa_and_present<OpResult>(on))
-      does.computes = false;
+      return Does::Effects;
+    return Does::Computes;
   };
+  Does does = Does::Computes;
   root->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (isa<ForceOp>(op)) {
-      does = {/*touches=*/true, /*computes=*/false};
+    std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = ownEffects(op, callees);
+    if (isa<ForceOp>(op) || !effects) {
+      does = Does::Touches;
       return WalkResult::interrupt();
     }
-    if (isa<ub::UnreachableOp>(op))
-      return WalkResult::advance();
-    auto call = dyn_cast<CallOpInterface>(op);
-    if (call) {
-      Effect callee = effectsOf(call, symbols);
-      does.touches |= bitEnumContainsAny(callee, Effect::io);
-      does.computes &= callee == Effect::none;
-    }
-    bool recursive = op->hasTrait<OpTrait::HasRecursiveMemoryEffects>();
-    auto iface = dyn_cast<MemoryEffectOpInterface>(op);
-    if (!iface) {
-      if (recursive || call)
-        return WalkResult::advance();
-      does = {/*touches=*/true, /*computes=*/false};
+    for (const MemoryEffects::EffectInstance &effect : *effects)
+      does = std::max(does, of(effect));
+    if (does == Does::Touches)
       return WalkResult::interrupt();
-    }
-    SmallVector<MemoryEffects::EffectInstance> effects;
-    iface.getEffects(effects);
-    for (const MemoryEffects::EffectInstance &effect : effects)
-      if (!call || (effect.getResource() != IOResource::get() &&
-                    effect.getResource() != CrashResource::get() &&
-                    effect.getResource() != DivergenceResource::get()))
-        note(effect);
-    return recursive ? WalkResult::advance() : WalkResult::skip();
+    return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ? WalkResult::advance()
+                                                             : WalkResult::skip();
   });
   return does;
 }
@@ -136,12 +125,32 @@ bool readsFrom(Operation *op, Value element, const llvm::SmallPtrSetImpl<Operati
       .wasInterrupted();
 }
 
+// The write a pattern rooted at `set` asks about: the write itself.
+ArraySetOp writeOf(ArraySetOp set) { return set; }
+
+// The write a pattern rooted at `get` asks about: the one use of its next
+// world, when that is a write.
+ArraySetOp writeOf(ArrayGetOp get) {
+  Value next = get.getNext();
+  return next.hasOneUse() ? dyn_cast<ArraySetOp>(*next.user_begin()) : ArraySetOp();
+}
+
 // The write whose world is the next of a read of the same element in its
 // block, with nothing between that may touch the array, becomes the
-// element's update.
-struct MoveOutBeforeSet : OpRewritePattern<ArraySetOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(ArraySetOp set, PatternRewriter &rewriter) const final {
+// element's update; tried at the write and at the read, `Root`.
+template <typename Root>
+struct MoveOut : canon::CalleePattern {
+  MoveOut(MLIRContext *context, const CalleeEffects *callees)
+      : CalleePattern(Root::getOperationName(), "idr-move-out", context, callees) {}
+
+  std::unique_ptr<CalleePattern> withCallees(const CalleeEffects *table) const final {
+    return std::make_unique<MoveOut>(getContext(), table);
+  }
+
+  LogicalResult matchAndRewrite(Operation *root, PatternRewriter &rewriter) const final {
+    ArraySetOp set = writeOf(cast<Root>(root));
+    if (!set)
+      return failure();
     auto get = set.getWorld().getDefiningOp<ArrayGetOp>();
     if (!get || !get.getNext().hasOneUse() || get->getBlock() != set->getBlock() ||
         !sameElement(get.getArray(), get.getIndices(), set.getArray(), set.getIndices()))
@@ -153,15 +162,14 @@ struct MoveOutBeforeSet : OpRewritePattern<ArraySetOp> {
     Type array = get.getArray().getType();
 
     // The rebuilding, in order, and what each op between does.
-    SymbolTableCollection symbols;
     llvm::SmallPtrSet<Operation *, 8> rebuilding;
     SmallVector<Operation *> moved;
     SmallVector<bool> computes;
     for (Operation *op = get->getNextNode(); op != set.getOperation(); op = op->getNextNode()) {
-      Does does = doesOf(op, array, symbols);
-      if (does.touches)
+      Does does = doesOf(op, array, callees);
+      if (does == Does::Touches)
         return failure();
-      computes.push_back(does.computes);
+      computes.push_back(does == Does::Computes);
       if (!readsFrom(op, element, rebuilding))
         continue;
       if (usesWorld(op))
@@ -198,6 +206,9 @@ struct MoveOutBeforeSet : OpRewritePattern<ArraySetOp> {
         if (usedAfter(result))
           leaving.push_back(result);
 
+    // The read did more than compute, and so may a moved op; each op
+    // between was walked above.
+    retryBetween(rewriter, {std::next(get->getIterator()), set->getIterator()});
     Location loc = rewriter.getFusedLoc({get.getLoc(), set.getLoc()});
     rewriter.setInsertionPoint(set);
     auto update = ArrayUpdateOp::create(rewriter, loc, ValueRange(leaving).getTypes(),
@@ -230,7 +241,7 @@ struct MoveOutBeforeSet : OpRewritePattern<ArraySetOp> {
 namespace idr::canon {
 
 void addMoveOutPatterns(RewritePatternSet &results, MLIRContext *context) {
-  results.add<MoveOutBeforeSet>(context);
+  results.add<MoveOut<ArraySetOp>, MoveOut<ArrayGetOp>>(context, /*callees=*/nullptr);
 }
 
 } // namespace idr::canon

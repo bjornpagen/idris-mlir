@@ -1,5 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@growLeft,reuses-in-place=@growLeft,tests-nothing=@growLeft,counts-nothing=@growLeft2,reuses-in-place=@growLeft2 -o /dev/null
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower | FileCheck %s
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A constructor rebuilt in the cell of the one taken apart, with one field
 // changed: the fields given back as the take gave them are in the cell
 // already, with the reference it held all along. In the owned stage they
@@ -44,7 +46,7 @@
 idr.program @"kept-fields" root(@root) stage(first) {
   // A cell of @Pair is as large as one of @Node.
   idr.func @wrap(%x: !idr.box<!T>) -> !idr.box<!T> {
-    %leaf = idr.constant #idr.con<@Leaf, []> : !idr.box<!T>
+    %leaf = idr.constant #idr.con<!T, @Leaf, []> : !idr.box<!T>
     %z = arith.constant 0 : i64
     %n = idr.con !idr.box<!T> @Node(%x : !idr.box<!T>, %z : i64, %leaf : !idr.box<!T>)
     return %n : !idr.box<!T>
@@ -81,7 +83,7 @@ idr.program @"kept-fields" root(@root) stage(first) {
   idr.func @swap(%t: !idr.box<!T>) -> !idr.box<!P> {
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!P>) {
     case @Leaf() {
-      %none = idr.constant #idr.con<@None, []> : !idr.box<!P>
+      %none = idr.constant #idr.con<!P, @None, []> : !idr.box<!P>
       idr.yield %none : !idr.box<!P>
     }
     case @Node(%l: !idr.box<!T>, %k: i64, %rt: !idr.box<!T>) {
@@ -93,7 +95,7 @@ idr.program @"kept-fields" root(@root) stage(first) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
-    %leaf = idr.constant #idr.con<@Leaf, []> : !idr.box<!T>
+    %leaf = idr.constant #idr.con<!T, @Leaf, []> : !idr.box<!T>
     %t = idr.con !idr.box<!T> @Node(%leaf : !idr.box<!T>, %x : i64, %leaf : !idr.box<!T>)
     %g = idr.call @growLeft(%t) : (!idr.box<!T>) -> !idr.box<!T>
     %m = idr.con !idr.box<!T> @Node(%leaf : !idr.box<!T>, %x : i64, %leaf : !idr.box<!T>)

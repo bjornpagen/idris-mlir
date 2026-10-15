@@ -1,0 +1,72 @@
+diff -ruN a/src/TTImp/WithClause.idr b/src/TTImp/WithClause.idr
+--- a/src/TTImp/WithClause.idr	2026-10-15 09:28:34
++++ b/src/TTImp/WithClause.idr	2026-10-15 09:28:34
+@@ -253,9 +253,9 @@
+       wrhs (ICase fc opts sc ty clauses)
+           = pure $ ICase fc opts !(wrhs sc) !(wrhs ty) !(traverse wrhsC clauses)
+       wrhs (ILocal fc decls sc)
+-          = pure $ ILocal fc decls !(wrhs sc) -- TODO!
++          = pure $ ILocal fc !(traverse wrhsD decls) !(wrhs sc)
+       wrhs (IUpdate fc upds tm)
+-          = pure $ IUpdate fc upds !(wrhs tm) -- TODO!
++          = pure $ IUpdate fc !(traverse wrhsU upds) !(wrhs tm)
+       wrhs (IApp fc f a)
+           = pure $ IApp fc !(wrhs f) !(wrhs a)
+       wrhs (IAutoApp fc f a)
+@@ -272,3 +272,13 @@
+       wrhsC : ImpClause -> Core ImpClause
+       wrhsC (PatClause fc lhs rhs) = pure $ PatClause fc lhs !(wrhs rhs)
+       wrhsC c = pure c
++
++      -- A local definition's clauses are terms of the with clause's
++      -- right-hand side, as a case block's are.
++      wrhsD : ImpDecl -> Core ImpDecl
++      wrhsD (IDef fc n cs) = pure $ IDef fc n !(traverse wrhsC cs)
++      wrhsD d = pure d
++
++      wrhsU : IFieldUpdate -> Core IFieldUpdate
++      wrhsU (ISetField path tm) = pure $ ISetField path !(wrhs tm)
++      wrhsU (ISetFieldApp path tm) = pure $ ISetFieldApp path !(wrhs tm)
+diff -ruN a/tests/idris2/with/with013/WithScope.idr b/tests/idris2/with/with013/WithScope.idr
+--- a/tests/idris2/with/with013/WithScope.idr	1969-12-31 18:00:00
++++ b/tests/idris2/with/with013/WithScope.idr	2026-10-15 09:28:40
+@@ -0,0 +1,27 @@
++module WithScope
++
++record Box where
++  constructor MkBox
++  size : Nat
++
++||| Calls its with block again, on a smaller value, from the right-hand side
++||| itself: accepted at the pin.
++direct : Nat -> Nat
++direct n with (n)
++  direct n | Z = Z
++  direct n | (S k) = direct n | k
++
++||| The same call from a local definition.
++local : Nat -> Nat
++local n with (n)
++  local n | Z = Z
++  local n | (S k) = go k
++    where
++      go : Nat -> Nat
++      go m = local n | m
++
++||| The same call in a record update's field.
++update : Nat -> Box -> Box
++update n b with (n)
++  update n b | Z = b
++  update n b | (S k) = { size := size (update n b | k) } b
+diff -ruN a/tests/idris2/with/with013/expected b/tests/idris2/with/with013/expected
+--- a/tests/idris2/with/with013/expected	1969-12-31 18:00:00
++++ b/tests/idris2/with/with013/expected	2026-10-15 09:28:40
+@@ -0,0 +1 @@
++1/1: Building WithScope (WithScope.idr)
+diff -ruN a/tests/idris2/with/with013/run b/tests/idris2/with/with013/run
+--- a/tests/idris2/with/with013/run	1969-12-31 18:00:00
++++ b/tests/idris2/with/with013/run	2026-10-15 09:28:40
+@@ -0,0 +1,3 @@
++. ../../../testutils.sh
++
++check WithScope.idr

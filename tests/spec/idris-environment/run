@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The commands run the pinned Idris and inherit no package path from another
 # installation: make's environment, with the caller's set to other values.
 # The variables are a set, printed in the C locale's order: the order make

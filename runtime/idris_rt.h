@@ -42,9 +42,8 @@ extern "C" {
  * kind and bit 31, and an array's tag and length when its elements hold
  * objects, so the runtime frees any cell without knowing its type.
  * - tag (bits 0-15): a box's constructor tag, a thunk's state (the
- *   constructor of its memo sum it holds), a string's ASCII flag in bit 0
- *   (set only when every byte is ASCII), an array's element size in bytes;
- *   0 for a bignum.
+ *   constructor of its memo sum it holds), an array's element size in
+ *   bytes; 0 for a string and a bignum.
  * - objs (bits 16-23): the number of object slots, one word
  *   (IDRIS_RT_WORD_BYTES) each. A box's and a thunk's are the first objs
  *   slots right after the header, unless objs is IDRIS_RT_OBJS_WIDE: then
@@ -126,16 +125,28 @@ IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_objs(uint32_t info) { return info 
 IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_kind(uint32_t info) { return info >> 24 & 0x7Fu; }
 #undef IDRIS_RT_INFO_FUNCTION
 
-/* A string: the header (kind IDRIS_RT_KIND_STRING, tag 1 only when every
- * byte is ASCII: a slice keeps the flag of the string it is cut from, so an
- * ASCII slice of another string may have 0, and the flag only picks a fast
- * path), the byte length, the number of scalar values, then the UTF-8
- * bytes, in the same allocation. */
+/* A string: the header (kind IDRIS_RT_KIND_STRING, tag 0), the byte
+ * length, the number of scalar values, then the UTF-8 bytes, in the same
+ * allocation. Every scalar takes at least one byte and only an ASCII one
+ * takes exactly one, so a string is ASCII exactly when its two lengths are
+ * equal: no flag says it again. */
 typedef struct idris_rt_str {
   idris_rt_header header;
   uint64_t bytes;
   uint64_t scalars;
 } idris_rt_str;
+
+/* The UTF-8 bytes of s, right after its lengths, valid as long as s is.
+ * Inline, since every string operation reads them. */
+#ifdef __cplusplus
+inline const char *idris_rt_str_bytes(const idris_rt_str *s) {
+  return reinterpret_cast<const char *>(s + 1);
+}
+#else
+static inline const char *idris_rt_str_bytes(const idris_rt_str *s) {
+  return (const char *)(s + 1);
+}
+#endif
 
 /* A big is one 64-bit word. An odd word holds a 63-bit integer
  * shifted left by one; an even word points to an idris_rt_bignum, which holds
@@ -204,30 +215,6 @@ typedef struct idris_rt_memref {
  * one's meaning is documented below with the runtime's other functions. */
 #include "idris_rt_ops.h"
 
-/* Allocation of raw memory, which is not a cell: nothing counts it. The size
- * classes with an allocate and a free entry
- * each: every snmalloc size class from 16 bytes to 1 KiB, with
- * SNMALLOC_MIN_ALLOC_STEP_SIZE=8, so a cell of an 8-byte header
- * and two fields takes exactly 24 bytes. rt.alloc checks that each is
- * exactly one snmalloc class. */
-#define IDRIS_RT_SIZE_CLASSES(X)                                               \
-  X(16) X(24) X(32) X(40) X(48) X(56) X(64) X(80) X(96) X(112) X(128)          \
-  X(160) X(192) X(224) X(256) X(320) X(384) X(448) X(512) X(640) X(768)        \
-  X(896) X(1024)
-
-/* idris_rt_alloc_S returns S uninitialized bytes from the calling thread's
- * heap, or NULL when memory is exhausted; idris_rt_free_S frees a block that
- * idris_rt_alloc_S returned, from any thread. */
-#define IDRIS_RT_DECLARE_SIZE_CLASS(S)                                          \
-  void *idris_rt_alloc_##S(void);                                              \
-  void idris_rt_free_##S(void *block);
-IDRIS_RT_SIZE_CLASSES(IDRIS_RT_DECLARE_SIZE_CLASS)
-#undef IDRIS_RT_DECLARE_SIZE_CLASS
-
-/* Any other size, known only at runtime. */
-void *idris_rt_alloc(size_t size);
-void idris_rt_free(void *block);
-
 /* Reference counting. Every entry point below takes NULL, an odd word and a
  * persistent object too, and then does nothing (idris_rt_is_unique returns
  * false): an object slot may hold any of them, so callers
@@ -236,7 +223,9 @@ void idris_rt_free(void *block);
 /* A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,
  * with the matching info, anything else the runtime frees): its header is
  * count 1 and `info`, and it counts as a live cell. Exhausted memory ends
- * the process with a crash. */
+ * the process with a crash. The size is a constant at every call idr-lower
+ * makes, so once the runtime's bitcode is inlined, snmalloc's size class
+ * folds to a constant and the allocation is a free-list pop. */
 void *idris_rt_cell(size_t size, uint32_t info);
 
 /* A new array cell of `count` elements with the header `info` (kind
@@ -322,16 +311,12 @@ void idris_rt_main_return(void);
  * idris_rt_str_show_f64 writes it. */
 /* A string built in place by idr.str.pack and idr.str.concat, which know
  * its size from a first pass: a new string of `bytes` bytes and `scalars`
- * scalar values (`ascii` nonzero when every byte is ASCII), whose bytes
- * the caller then writes in order, a character's UTF-8 or a string's
- * bytes at an offset, each giving the next offset. The empty string is
- * shared and never written. */
-idris_rt_str *idris_rt_str_alloc(int64_t bytes, int64_t scalars, int32_t ascii);
+ * scalar values, whose bytes the caller then writes in order, a
+ * character's UTF-8 or a string's bytes at an offset, each giving the next
+ * offset. The empty string is shared and never written. */
+idris_rt_str *idris_rt_str_alloc(int64_t bytes, int64_t scalars);
 int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c);
 int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part);
-/* idris_rt_str_bytes_length gives the byte length of a string, and
- * idris_rt_str_is_ascii whether every byte of it is ASCII. */
-int32_t idris_rt_str_is_ascii(const idris_rt_str *s);
 /* idris_rt_io_get_byte reads one byte, or gives 255 at the end of input.
  * idris_rt_io_get_line reads a line of input without its end, the Prelude's
  * getLine: the bytes up to the next '\n', which is consumed, without that
@@ -409,10 +394,12 @@ IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
  * it names both and ends the process with IDRIS_RT_CRASHED. When the
  * CPU lacks one of them, it names them and ends the process with
  * IDRIS_RT_CRASHED before the program runs; it is compiled for the target's baseline, and idris-mlir
- * keeps it there. Otherwise it runs body on a reserved stack
+ * keeps it there. Otherwise it points GMP at the runtime's allocator
+ * (idris_rt_gmp_init) and runs body on a reserved stack
  * (idris_rt_run_on_stack) of the number of bytes the environment variable
  * IDRIS_RT_STACK says, or else of a gibibyte, or of the stack limit when
- * that is larger; when that stack runs out, the output written so far is flushed,
+ * that is larger, up to 2^44 bytes (an unlimited one is that ceiling); when
+ * that stack runs out, the output written so far is flushed,
  * "idris-mlir: stack exhausted" is written to standard error, and the
  * process ends with IDRIS_RT_CRASHED. What body returns is the exit status:
  * it returns a status from 0 to 255, and ends the process as a crash that
@@ -475,7 +462,7 @@ int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t gua
  *   length at the end.
  * - idris_rt_str_drop_bytes: the scalars from there on: the string itself
  *   (one more reference) from 0, the persistent empty one at the end, and
- *   otherwise a new string, which keeps the ASCII flag of the string. */
+ *   otherwise a new string of those bytes. */
 /* idris_rt_str_cmp gives negative, zero or positive as its first string is
  * before, equal to or after its second in the order of their scalar values,
  * Unicode's code point order, which is the byte order of their UTF-8. */
@@ -504,8 +491,6 @@ const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
  * Unicode Standard recommends (chapter 3). A new string, or the persistent
  * empty one. */
 const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);
-/* The UTF-8 bytes of s, valid as long as s is. */
-const char *idris_rt_str_bytes(const idris_rt_str *s);
 
 /* Bigs: Integer, and the Nat-like types. Each operation borrows its
  * arguments and returns an owned result: a small word, or a new bignum.
@@ -547,17 +532,19 @@ const char *idris_rt_str_bytes(const idris_rt_str *s);
 void idris_rt_str_release(const idris_rt_str *s);
 void idris_rt_big_release(idris_rt_big a);
 
-/* Strings over simdutf. */
-/* The number of scalar values in n bytes of well-formed UTF-8. */
+/* The number of scalar values in n bytes of well-formed UTF-8, over
+ * simdutf: what a string's scalar count is, for a string idr-lower writes
+ * into static data. */
 size_t idris_rt_utf8_count(const char *p, size_t n);
-/* Whether the n bytes at p are all ASCII. */
-bool idris_rt_ascii(const char *p, size_t n);
 
-/* `cast` from String to Double over the n bytes at p (idris_rt_str_to_double). */
-double idris_rt_parse_double(const char *p, size_t n);
-
-/* Points GMP's memory functions at the runtime's allocator. The
- * big operations call it themselves before GMP first allocates. */
+/* Points GMP's memory functions at the runtime's allocator, so that GMP's
+ * scratch integers come from snmalloc and exhausted memory is the runtime's
+ * crash. idris_rt_start calls it before the program runs, while no other
+ * thread can use GMP. A process that runs big operations without
+ * idris_rt_start (idris-mlir, whose folders call them) may call it before
+ * it starts any thread that does; GMP otherwise allocates through the C
+ * library, which is as correct, since every integer GMP allocates is freed
+ * before the operation that made it returns. */
 void idris_rt_gmp_init(void);
 
 #ifdef __cplusplus

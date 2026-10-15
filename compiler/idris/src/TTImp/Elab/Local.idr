@@ -57,7 +57,6 @@ localHelper {vars} nest env nestdecls_in func
          let defNames = definedInBlock emptyNS nestdeclsMult
          names' <- traverse (applyEnv f) defNames
          let nest' = { names $= (names' ++) } nest
-         -- TODO is this comment still up-to-date?
          -- For the local definitions, don't allow access to linear things
          -- unless they're explicitly passed.
          -- This is because, at the moment, we don't have any mechanism of

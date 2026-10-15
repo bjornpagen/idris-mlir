@@ -123,16 +123,12 @@ LogicalResult TransposeOp::verify() {
 // first one's input.
 OpFoldResult TransposeOp::fold(FoldAdaptor) {
   ArrayRef<int64_t> permutation = getPermutation();
-  if (llvm::equal(permutation, llvm::seq<int64_t>(0, static_cast<int64_t>(permutation.size()))) &&
-      getInput().getType() == getType())
+  if (isIdentityPermutation(permutation) && getInput().getType() == getType())
     return getInput();
   auto inner = getInput().getDefiningOp<TransposeOp>();
-  if (!inner || inner.getInput().getType() != getType())
+  if (!inner || inner.getInput().getType() != getType() ||
+      !llvm::equal(invertPermutationVector(inner.getPermutation()), permutation))
     return {};
-  ArrayRef<int64_t> first = inner.getPermutation();
-  for (auto [d, p] : llvm::enumerate(permutation))
-    if (first[static_cast<size_t>(p)] != static_cast<int64_t>(d))
-      return {};
   return inner.getInput();
 }
 
@@ -143,10 +139,8 @@ void TransposeOp::getFlowEdges(FlowEdges &edges) {
 }
 
 LogicalResult TransposeOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
-  SmallVector<OpFoldResult> dims;
-  for (int64_t from : getPermutation())
-    dims.push_back(tensor::getMixedSize(b, getLoc(), getInput(), from));
-  shapes.push_back(std::move(dims));
+  shapes.push_back(applyPermutation(tensor::getMixedSizes(b, getLoc(), getInput()),
+                                    getPermutation()));
   return success();
 }
 
@@ -168,31 +162,30 @@ MutableOperandRange ArrayYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
   auto count = static_cast<unsigned>(getValues().size());
   if (count == 0)
     return MutableOperandRange(*this, 0, 0);
-  if (isa<TabulateIOOp>(parent))
-    return MutableOperandRange(*this, count - 1, 1);
-  if (isa<ArrayUpdateOp>(parent))
-    return MutableOperandRange(*this, 1, count - 1);
-  return MutableOperandRange(*this, 0, 0);
+  return TypeSwitch<Operation *, MutableOperandRange>(parent)
+      .Case<TabulateOp, FoldLastOp, ScanLastOp>(
+          [&](Operation *) { return MutableOperandRange(*this, 0, 0); })
+      .Case([&](TabulateIOOp) { return MutableOperandRange(*this, count - 1, 1); })
+      .Case([&](UpdateOpInterface) { return MutableOperandRange(*this, 1, count - 1); })
+      .DefaultUnreachable("idr.array.yield ends a region of no array op");
 }
 
 // Each element or cell moves in at its index of the array its position
 // names: the j-th array a tabulation or a scan makes, the j-th result of a
-// fold, an update's array. A world goes on, and what an update gives out
-// leaves it, each forwarded (RegionBranchOpInterface).
+// fold, the array or buffer an update writes, which takes the first value
+// alone. A world goes on, and what an update gives out leaves it, each
+// forwarded (RegionBranchOpInterface).
 void ArrayYieldOp::getFlowEdges(FlowEdges &edges) {
-  Operation *parent = (*this)->getParentOp();
-  if (auto update = dyn_cast<ArrayUpdateOp>(parent)) {
-    if (!getValues().empty())
-      edges.flow(atIndex(getValuesMutable()[0]), elementsOf(update.getArray()));
-    return;
-  }
-  ValueRange arrays = TypeSwitch<Operation *, ValueRange>(parent)
-                          .Case([](TabulateOp op) { return op.getArrays(); })
-                          .Case([](TabulateIOOp op) { return op.getArrays(); })
-                          .Case([](FoldLastOp op) { return op.getResults(); })
-                          .Case([](ScanLastOp op) { return op.getResults(); })
-                          .Default([](Operation *) { return ValueRange(); });
-  for (auto [at, array] : llvm::enumerate(arrays))
-    if (at < getValues().size())
-      edges.flow(atIndex(getValuesMutable()[static_cast<unsigned>(at)]), elementsOf(array));
+  auto into = [&](ValueRange arrays) {
+    for (auto [at, array] : llvm::enumerate(arrays))
+      if (at < getValues().size())
+        edges.flow(atIndex(getValuesMutable()[static_cast<unsigned>(at)]), elementsOf(array));
+  };
+  TypeSwitch<Operation *>((*this)->getParentOp())
+      .Case([&](TabulateOp op) { into(op.getArrays()); })
+      .Case([&](TabulateIOOp op) { into(op.getArrays()); })
+      .Case([&](FoldLastOp op) { into(op.getResults()); })
+      .Case([&](ScanLastOp op) { into(op.getResults()); })
+      .Case([&](UpdateOpInterface op) { into(op.getArray()); })
+      .DefaultUnreachable("idr.array.yield ends a region of no array op");
 }

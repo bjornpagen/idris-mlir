@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `-mlir-timing` times a dynamic pipeline outside the pass that runs it
 
 On llvm main at 7208ba24 (the pin), and on main at 626eeb8e (2026-10-09),

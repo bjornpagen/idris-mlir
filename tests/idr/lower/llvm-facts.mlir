@@ -2,7 +2,7 @@
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=lowered,aligned-access -o /dev/null
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-entry --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | mlir-translate --mlir-to-llvmir | FileCheck %s --check-prefix=LL
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // What the types say and the LLVM types no longer do goes to LLVM as
 // attributes of the parameters and results: a box, closure or string is a
 // pointer to a cell, never null, 8-aligned, with its 8-byte header to read;

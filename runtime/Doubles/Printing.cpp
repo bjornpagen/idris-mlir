@@ -13,8 +13,6 @@
 // point, else `d.ddde-x`. Every text reads back through `cast` from
 // String. A NaN is `nan` whatever its sign, which IEEE 754 gives no meaning
 // and which x86-64 and arm64 set differently for the same operation.
-// The text is written through a volatile pointer, so that LLVM makes no
-// memcpy or memset of its loops.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Doubles/Doubles.h"
 #include "Strings/Strings.h"
@@ -27,7 +25,7 @@
 
 namespace {
 
-template <size_t N> size_t put(volatile char *out, const char (&text)[N]) {
+template <size_t N> size_t put(char *out, const char (&text)[N]) {
   for (size_t i = 0; i + 1 < N; ++i)
     out[i] = text[i];
   return N - 1;
@@ -37,7 +35,7 @@ template <size_t N> size_t put(volatile char *out, const char (&text)[N]) {
 
 namespace rt::doubles {
 
-size_t formatDouble(double x, volatile char *out) {
+size_t formatDouble(double x, char *out) {
   uint64_t bits = bitsOf(x);
   bool negative = (bits >> 63) != 0;
   uint64_t mantissa = bits & mantissaMask;
@@ -115,5 +113,5 @@ extern "C" int32_t idris_rt_double_head(double x) {
 extern "C" const idris_rt_str *idris_rt_str_show_f64(double value) {
   char text[rt::doubles::doubleTextMax];
   size_t n = rt::doubles::formatDouble(value, text);
-  return rt::strings::stringOf(text, n);
+  return rt::strings::asciiOf(text, n);
 }

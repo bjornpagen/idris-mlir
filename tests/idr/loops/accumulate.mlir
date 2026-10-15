@@ -7,7 +7,7 @@
 // RUN: FileCheck %s --check-prefix=BOTH < %t.both.err
 // RUN: %status 1 idris-mlir-opt %t.acc.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)),idr-expect{holds=constant-stack=@depth})' -o /dev/null 2> %t.depth.err
 // RUN: FileCheck %s --check-prefix=DEPTH < %t.depth.err
-// NEEDS-ACCEPTANCE: the copies are named <owner>.acc.<16 hex digits> from their keys (C21); check that the patterns match them.
+// NEEDS-ACCEPTANCE: the copies are named <owner>.acc.<16 hex digits> from their keys; check that the patterns match them.
 // A tail that adds its own result carries the sum. @length adds one,
 // @steps adds an argument: each calls a clone with zero and the clone adds
 // before the call, which idr-tail-loops makes a loop. @count already adds

@@ -24,7 +24,8 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
   let cppNamespace = "::idr";
   let description = [{
     What a value of the type holds: a reference a count accounts for, the
-    world, a closure; and whether the owned stage counts the value.
+    world, a closure; whether the owned stage counts the value; and whether
+    the value is one pointer to a cell.
   }];
   let methods = [
     InterfaceMethod<[{
@@ -48,6 +49,15 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
         buffer's reference but is counted as that buffer, after
         bufferization.
       }], "bool", "isCounted">,
+    InterfaceMethod<[{
+        Whether every value of the type is one pointer, never null, to a
+        cell that is live or static, which starts with its header: a box, a
+        string, a closure or a suspension. A counted value is not enough: a
+        big's word is a pointer only when it is not small, a reuse token is
+        null where its cell was shared, a sum held in place leaves the slots
+        of the other constructors empty, and an array is a descriptor of
+        several words.
+      }], "bool", "isCellPointer">,
   ];
 }
 
@@ -100,6 +110,56 @@ def Idr_GuardOpInterface : OpInterface<"GuardOpInterface"> {
     InterfaceMethod<"The condition the guard checks.", "::idr::CheckKind", "getKind">,
     InterfaceMethod<"The operand whose value the guard's result passes on.",
                     "::mlir::Value", "getGuarded">,
+  ];
+}
+
+// What a pass asks of any op of the array language's generating set, so
+// that none lists them: a region that binds the indices of an iteration
+// domain first and runs once per index, how each dimension of the domain is
+// visited and how large it is, and the arrays held at the indices of its
+// parallel dimensions. The size is given twice, as code and as a term of
+// value bounds, because a term makes nothing and code needs a value: both
+// are read from the one place the op holds the size.
+def Idr_GeneratingOpInterface : OpInterface<"GeneratingOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "An op of the generating set: a region run once per index of a domain.";
+  let methods = [
+    InterfaceMethod<"The number of dimensions of the domain.", "unsigned", "getRank">,
+    InterfaceMethod<"How each dimension of the domain is visited, outermost first.",
+                    "::llvm::SmallVector<::idr::Iteration>", "getIterations">,
+    InterfaceMethod<"The indices the region binds, one per dimension of the domain.",
+                    "::mlir::Block::BlockArgListType", "getIndices">,
+    InterfaceMethod<[{The size of dimension `dim` of the domain, made with `b`
+                      where it is read from an operand's shape.}],
+                    "::mlir::OpFoldResult", "getExtent",
+                    (ins "::mlir::OpBuilder &":$b, "unsigned":$dim)>,
+    InterfaceMethod<"The same size as value bounds names it, making nothing.",
+                    "::mlir::ValueBoundsConstraintSet::Variable", "getExtentBound",
+                    (ins "unsigned":$dim)>,
+    InterfaceMethod<[{The arrays it makes or folds, each held at the indices of
+                      the domain's parallel dimensions.}],
+                    "::mlir::ValueRange", "getHeldArrays">,
+  ];
+}
+
+// What a pass asks of an element rebuilt in its place, so that none lists
+// the ops that rebuild one: the array a world orders or the value array's
+// buffer that holds it, its indices, one i64 per dimension, the element the
+// region binds, which moves out with the reference its place held, and the
+// values the region gives after the element, which leave the op. The
+// region's first value moves back in over the place the element left.
+def Idr_UpdateOpInterface : OpInterface<"UpdateOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "An element of an array or of a value array's buffer rebuilt in its place.";
+  let methods = [
+    InterfaceMethod<"The array or buffer that holds the element.", "::mlir::Value", "getArray">,
+    InterfaceMethod<"Its memref type, with no grade.", "::mlir::MemRefType", "getArrayType">,
+    InterfaceMethod<"The element's indices, one per dimension.", "::mlir::OperandRange",
+                    "getIndices">,
+    InterfaceMethod<"The element moved out, which the region rebuilds.", "::mlir::BlockArgument",
+                    "getElement">,
+    InterfaceMethod<"The values the region gives after the element.", "::mlir::ResultRange",
+                    "getOuts">,
   ];
 }
 

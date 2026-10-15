@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the texts of the program verifier's errors (R04) and the ops they are reported at.
+// NEEDS-ACCEPTANCE: the texts of the program verifier's errors and the ops they are reported at.
 // The rules of a whole program, which its idr.program holds: it names its
 // root, an idr.func of it of one of the two root types, and its stage, and
 // the program's rules run from the program's verifier: the data types it

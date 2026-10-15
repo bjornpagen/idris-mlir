@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@map,not-called=@add -o /dev/null
 // RUN: FileCheck %s --implicit-check-not='call @map(' < %t.mlir
-// NEEDS-ACCEPTANCE: that @map is specialized on the known constructor of @add with its capture a hole, as C09 decides.
+// NEEDS-ACCEPTANCE: that @map is specialized on the known constructor of @add with its capture a hole.
 // A closure passed to a recursive map, whose function is a fixed
 // parameter. After defunctionalization it is a constructor of its sum
 // whose label is static and whose capture is a runtime leaf: the copy of

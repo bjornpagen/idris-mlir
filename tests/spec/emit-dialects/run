@@ -1,12 +1,16 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Emit writes ops of the contract's dialects only, each through the builder
 # generated from the op's ODS (IdrisMLIR.Dialect.*, tools/dialects.sh):
 # idris-mlir parses with a registry of exactly idr, arith, math, ub,
 # memref, tensor and builtin. So
 #   - each generated module builds ops of one dialect of the contract, and
 #     the contract's dialects each have one;
-#   - no other module builds an op (`MkOp`), other than MLIR.idr, which
-#     defines and prints it;
+#   - no other module builds an op (`MkOp` where a value is made, after a
+#     clause's or an alternative's `=` or `=>`), other than MLIR.idr, which
+#     defines and prints it; a `MkOp` in a pattern, before them, takes an
+#     op apart and builds none;
 #   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or MLIR/Text.idr
 #     spells an op name, `<dialect>.<op>`, or a prefix `<dialect>.` or
 #     suffix `.<op>` that code completes into one.
@@ -50,8 +54,30 @@ done
 : > "$work/builders"
 find "$src" -path "$src/Dialect" -prune -o -name '*.idr' -print | sort | while IFS= read -r file; do
   [ "$file" = "$src/MLIR.idr" ] && continue
-  idris_lex code "$file" | grep -E '(^|[^A-Za-z0-9_.])MkOp([^A-Za-z0-9_]|$)' |
-    sed "s|^|$file:|" >> "$work/builders"
+  # A line builds when some MkOp on it comes after its first `=` or `=>`
+  # (not `==`, `<=`, `>=`, `/=`), or when it has neither: the rest of a
+  # right-hand side.
+  idris_lex code "$file" | awk '
+    {
+      text = $0; sub(/^[0-9]+:/, "", text)
+      if (text !~ /(^|[^A-Za-z0-9_.])MkOp([^A-Za-z0-9_]|$)/) next
+      bind = 0
+      for (j = 1; j <= length(text); j++) {
+        c = substr(text, j, 1)
+        if (c != "=") continue
+        before = j > 1 ? substr(text, j - 1, 1) : ""
+        after = substr(text, j + 1, 1)
+        if (before ~ /[=<>\/!:]/ || after == "=") continue
+        bind = j; break
+      }
+      rest = text; at = 0; builds = 0
+      while (match(rest, /(^|[^A-Za-z0-9_.])MkOp([^A-Za-z0-9_]|$)/)) {
+        at += RSTART
+        if (bind == 0 || at > bind) { builds = 1; break }
+        at += RLENGTH - 1; rest = substr(rest, RSTART + RLENGTH)
+      }
+      if (builds) print
+    }' | sed "s|^|$file:|" >> "$work/builders"
 done
 say "places that build an op by hand: $(wc -l < "$work/builders" | tr -d ' ')"
 cat "$work/builders"

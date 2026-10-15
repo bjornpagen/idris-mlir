@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # idris-mlir-front's own command line, which idris-mlir gives it: the
 # prefix is required, the program's Core and module are written where
 # --core and -o say and nowhere else, in directories made for them when

@@ -1,7 +1,9 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # upstream/
 
 Bugs this repository found in the upstreams it pins (LLVM/MLIR, clang,
-lld, Idris 2), the patches it carries for them, and what to send
+lld, Idris 2, and the runtime's simdutf and snmalloc), the patches it carries for them, and what to send
 upstream. If you
 are an agent pointed at this file with no other instructions, this file
 is your task: read it all, then follow **Sending** from the first
@@ -34,11 +36,14 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   its own code (its README). Nothing goes to Idris (**Idris** under
   **Rules for sending**).
 - `pull-request.diff`: for LLVM, the pull request for a change this
-  repository does not carry as a patch (08, 17, and since the pipeline
-  cutover 02, 16 and 22, **When nothing reaches the bug** below), which
-  the bootstrap therefore never applies; apply it with `git apply`, and take the commit
-  message from `submission.md`, never from the file's header. For Idris
-  (18, 20, 21), the change the fork carries as its own code, laid out
+  repository does not carry as a patch (08, 17, since the pipeline
+  cutover 02, 16 and 22, and 25 and 27, which nothing in the tree ever
+  reached, **When nothing reaches the bug** below), which the bootstrap
+  therefore never applies; apply it with `git apply`, and take the commit
+  message from `submission.md`, never from the file's header. For simdutf
+  and snmalloc (48, 49), the pull request to that project, which no patch
+  project applies. For Idris (18, 20, 21 and the six fork-* directories),
+  the change the fork carries as its own code, laid out
   against third_party/Idris2's pin with the test upstream's suite would
   hold: the record a re-sync of the fork reads, never sent.
 - `tests/upstream/<bug>/` (bug name without the number): this repository's
@@ -46,9 +51,9 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
   when it goes.
 
-## Status (2026-10-08)
+## Status (2026-10-15)
 
-All of 01-08 are still broken on llvm main at
+All of 01-08 (01 since fixed on main by #208881, 0edf6243) are still broken on llvm main at
 7208ba24ca2894729cd394475a00d2a7b605e642. With the seven code diffs of
 01-08 applied to that commit (02-07's `llvm.patch` and 08's
 `pull-request.diff`), a Release build with assertions
@@ -69,25 +74,35 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 
 | NN | bug | what goes out | status |
 | -- | --- | ------------- | ------ |
-| 01 | remove-dead-values-address-taken | a test, as a comment on #208881 (approved, unmerged) | posted 2026-10-08 (https://github.com/llvm/llvm-project/pull/208881#issuecomment-6073061698); wait for #208881 |
-| 02 | composite-fixed-point-sccp | issue + PR: SCCP keeps existing constants | send next; not carried since the pipeline cutover (nothing in the tree reaches it) |
+| 01 | remove-dead-values-address-taken | a test-only PR (submission.md): #208881 merged without this case | test-only PR due: #208881 merged 2026-10-12 (0edf6243) without this case |
+| 02 | composite-fixed-point-sccp | issue + PR: SCCP keeps existing constants | send next; ready: applies to main at b43c0361; submission.md has the checklist; not carried |
 | 03 | bytecode-deferred-quadratic | issue + PR: deferred entries resolved along a path; cycle is an error | ready; overlaps open #229910 |
 | 04 | vectorize-precondition-body | issue + PR: precondition checks every body op | ready |
 | 05 | forward-dataflow-callee-lookup | PR: solver owns one SymbolTableCollection per run | ready |
-| 06 | remove-dead-values-unreachable | issue + PR + comment on #208881: poison for every erased value | ready, but only after #208881 lands or its author answers 01's comment |
+| 06 | remove-dead-values-unreachable | issue + PR + comment on #208881: poison for every erased value | rebase first: #208881 merged; llvm.patch's function-argument hunk no longer applies to main; still applies to the pin |
 | 07 | inline-unreachable-terminator | issue + PR: the hook is asked of the terminator's dialect | ready |
 | 08 | execution-engine-process-symbols | PR: process symbols optional, one JITDylib | ready; the compiler no longer runs a JIT, so nothing here needs it |
 | 09 | int-range-narrowing-exactness | issue + PR: remsi and the unsigned ops keep their width when narrowing changes them | carried, the remainders only (the pin has 44a4dbf32, the shift); both still broken on main at 7208ba24; no submission.md text yet |
 | 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch; still reproduces at 7208ba24 (arm64 macOS) |
-| 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | not filed; not carried since the pipeline cutover (nothing in the tree reaches it); `check-mlir` not run on main |
+| 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | ready to file; applies to main at b43c0361; submission.md; test checked at the pin only; check-mlir not run |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
 | 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change and our test; still broken on main at 626eeb8e; the toolchain is not yet rebuilt with it |
 | 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | not filed; not carried since the pipeline cutover (nothing in the tree reaches it); `check-mlir` not run on main |
-| 24 | one-shot-module-function-interface | three PRs: One-Shot Module Bufferize on `FunctionOpInterface` with the models as public templates and a function that never returns (a reland of #110322, reverted by #113124); a call result writable only if its callee returns a writable buffer; the nearest symbol table, not ModuleOp, in empty tensor elimination and getGlobalFor | carried; not filed; not built; `check-mlir` not run |
-| 25 | bytecode-unregistered-properties | issue + PR: the reader tests the presence of the `wasRegistered` flag, not its value, so an op written unregistered has its properties attribute read as a properties index; the PR passes the writer's flag into `PropertiesSectionReader::read` and deletes the dead branch (`OpPropertiesTest.BytecodeWrittenUnregistered`) | not carried (nothing in the tree reaches it: the frontend writes inherent attributes in the attribute dictionary); not filed; `check-mlir` not run |
+| 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | ready to file; diff rebuilt on main after #208881; submission.md; test never run; check-mlir not run |
+| 23 | cse-statistic-assignment | PR: CSE accumulates its pass statistics over nested runs (cse-statistics.mlir) | ready, not sent; carried; applies to main at 7a83be39 |
+| 24 | one-shot-module-function-interface | four PRs: One-Shot Module Bufferize on `FunctionOpInterface` with the models as public templates and a function that never returns (a reland of #110322, reverted by #113124); cycles of calls analyzed to a fixpoint over the call graph's strongly connected components; a value that definitely aliases an operand writable on its own, with a call result writable only if its callee returns a writable buffer; the nearest symbol table, not ModuleOp, in empty tensor elimination and getGlobalFor | carried; not filed; not built; `check-mlir` not run |
+| 25 | bytecode-unregistered-properties | issue + PR: the reader tests the presence of the `wasRegistered` flag, not its value, so an op written unregistered has its properties attribute read as a properties index; the PR passes the writer's flag into `PropertiesSectionReader::read` and deletes the dead branch (`OpPropertiesTest.BytecodeWrittenUnregistered`) | ready to file; applies to main at b43c0361; submission.md; unit test never run; check-mlir not run |
+| 27 | one-shot-tensor-like-copy | issue + PR: an out-of-place operand of a custom tensor-like type gets no copy and its allocation reaches `llvm_unreachable`; `BufferizationOptions::tensorAllocationFn`, whose default fails naming the type | not carried (nothing in the tree reaches it); not filed; pull-request.diff |
+| 48 | simdutf-avx512vpopcntdq-bit | issue + PR to simdutf/simdutf: AVX512VPOPCNTDQ gets an instruction_set bit of its own (0x20000), not AVX512CD's | not carried (the runtime never runs simdutf's detection); not filed; simdutf's AI policy wants a human author who answers for it; pull-request.diff applies to the pin; distinct-bits.cpp fails at the pin and holds with the diff |
+| 49 | snmalloc-arm-yield-intrinsic | PR to microsoft/snmalloc: the Arm AAL's pause uses __builtin_arm_yield where the compiler has it, as prefetch uses __builtin_prefetch | not carried (snmalloc is no patch project; PINS.md snmalloc-arm-yield-asm); not filed; Microsoft CLA; pull-request.diff applies to the pin |
+| fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| fork | fork-with-application-scope | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| fork | fork-build-main | nothing: no bug of Idris's; the frontend's entry point (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| fork | fork-total-frontend-paths | nothing: no bug of Idris's; total code on the frontend's paths (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

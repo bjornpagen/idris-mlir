@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@greet,not-called=@put,not-called=@done -o /dev/null
-// NEEDS-ACCEPTANCE: that each region's dispatch meets the constructors @greet builds once it is inlined, as C07's inner pipeline folds them.
+// NEEDS-ACCEPTANCE: that each region's dispatch meets the constructors @greet builds once it is inlined, as the inner pipeline folds them.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // The result of a call used in each region of a match, applied there
 // through the field of MkIO. @greet is small and final when the root is
 // cleaned, so the root inlines it; each region's dispatch then meets the
@@ -23,7 +24,7 @@ idr.program @branches root(@Main.main) stage(higher) {
     return %r : !IORes
   }
   idr.func @greet(%n: i64) -> !IO attributes {total} {
-    %done = idr.constant #idr.con<@MkIO, [#idr.closure<@done, []>]> : !IO
+    %done = idr.constant #idr.con<!IO, @MkIO, [#idr.closure<@done, []>]> : !IO
     %r = idr.match_lit %n : i64 -> (!IO) {
     case 0 {
       idr.yield %done : !IO

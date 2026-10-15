@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The dialect tests' `// RUN:` lines, run without lit and without Python.
 
 # sed_escape TEXT: TEXT as the replacement of a `s|...|...|` command.

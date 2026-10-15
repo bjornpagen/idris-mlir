@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns-argument=@forced:0,forces-nothing=@forced,\
 // RUN: builds=@forced_built,forces-nothing=@forced_built,forces-nothing=@computed,calls=@computed:@square -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // An evaluated suspension holds its value: `idr.delay %x`, whose operand is
 // the value, with no region. Forcing it computes nothing, so a force of it
 // folds to the value, a plain one or a cell built from values above it. A

@@ -24,10 +24,15 @@
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 
+#include "idr/Support/Worklist.h"
+
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/Support/ErrorHandling.h"
+
+#include <optional>
 
 using namespace mlir;
 using namespace mlir::bufferization;
@@ -59,19 +64,20 @@ void writeOwn(RewriterBase &rewriter, OpOperand &use) {
 
 } // namespace
 
+// Each value enters once, and the values of the program are finitely many.
 llvm::SetVector<Value> idr::bufferize::sharers(Value value, const BufferizationOptions &options) {
   AnalysisState state(options);
-  llvm::SetVector<Value> found;
-  found.insert(value);
-  for (size_t at = 0; at < found.size(); ++at) {
-    Value sharer = found[at];
-    for (AliasingOpOperand alias : state.getAliasingOpOperands(sharer))
-      found.insert(alias.opOperand->get());
-    for (OpOperand &use : sharer.getUses())
+  OnceWorklist<Value> found;
+  found.push(value);
+  while (std::optional<Value> sharer = found.pop()) {
+    for (AliasingOpOperand alias : state.getAliasingOpOperands(*sharer))
+      found.push(alias.opOperand->get());
+    for (OpOperand &use : sharer->getUses())
       for (AliasingValue alias : state.getAliasingValues(use))
-        found.insert(alias.value);
+        found.push(alias.value);
   }
-  return found;
+  ArrayRef<Value> entered = found.entered();
+  return llvm::SetVector<Value>(entered.begin(), entered.end());
 }
 
 bool idr::bufferize::mayRunAfter(Operation *later, Operation *earlier, Value value,
@@ -85,10 +91,16 @@ bool idr::bufferize::mayRunAfter(Operation *later, Operation *earlier, Value val
     if (isRepetitive(region, options) && region->isAncestor(earlier->getParentRegion()))
       return true;
 
-  // Otherwise by position, in the closest region that holds both.
-  Region *common = earlier->getParentRegion();
-  while (!common->findAncestorOpInRegion(*later))
-    common = common->getParentRegion();
+  // Otherwise by position, in the closest region that holds both: one of
+  // the regions around `earlier`, which are finitely many, and the body of
+  // the function that holds both is one of them.
+  Region *common = nullptr;
+  for (Region *region = earlier->getParentRegion(); region && !common;
+       region = region->getParentRegion())
+    if (region->findAncestorOpInRegion(*later))
+      common = region;
+  if (!common)
+    llvm_unreachable("two ops of one function share no region");
   Operation *first = common->findAncestorOpInRegion(*earlier);
   Operation *second = common->findAncestorOpInRegion(*later);
   if (first == second) {

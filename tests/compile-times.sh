@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The compile times the golden tests recorded (tests/lib/timing.sh,
 # `record_time`), each compilation broken down by idris-mlir's timing
 # report into the parse, idr-optimize (the optimizer, its ready set and the

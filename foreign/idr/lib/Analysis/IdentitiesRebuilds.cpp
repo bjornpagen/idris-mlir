@@ -11,189 +11,219 @@
 // induction on the calls a call makes, every call that relies on an
 // assumption returns, does nothing else, and gives back what it was
 // passed.
+//
+// A reading is made afresh for each question and holds what it learns
+// while it answers: the part each value is, and the parts it meets. The
+// record it reads is never written.
 #include "idr/Analysis/Identities.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLForwardCompat.h"
+
+#include <cassert>
+#include <tuple>
 
 using namespace mlir;
 
 namespace idr::identities {
 
-bool Record::stable(const Assumed &assumed) const {
-  if (!cached)
-    return false;
-  for (const Snapshot &snap : saved) {
-    auto it = assumed.find(snap.name);
-    bool present = it != assumed.end();
-    if (present != snap.params.has_value())
-      return false;
-    if (present && *snap.params != it->second)
-      return false;
-  }
-  return true;
-}
+namespace {
 
-void Record::readCallee(StringAttr name) {
-  if (!consulted.insert(name).second)
-    return;
-  auto it = live->find(name);
-  if (it == live->end())
-    saved.push_back({name, std::nullopt});
-  else
-    saved.push_back({name, it->second});
-}
+// A part of an argument, by its number among the parts met: the argument
+// itself, and what the matches and reads of the function take out of it.
+// A part is a path from the argument, each step a field of a constructor
+// or the predecessor of a natural (the field of its successor, as Idris
+// shapes a natural). Two values that take the same path are the same part,
+// however each was read: values never change, so a constructor rebuilt
+// from the fields one match bound is as good as one rebuilt from another
+// read of the same part.
+enum class PartId : unsigned {};
+// The argument itself.
+constexpr PartId whole{0};
 
-void Record::fill(std::size_t node) {
-  if (memo[node].epoch == epoch)
-    return;
-  memo[node].epoch = epoch;
-  unsigned slots = static_cast<unsigned>(arguments.size());
-  memo[node].parts.assign(slots, std::nullopt);
-  switch (nodes[node].kind) {
-  case Node::Entry: {
-    auto it = index.find(nodes[node].arg);
-    if (it != index.end())
-      memo[node].parts[it->second] = Parts::whole;
-    break;
-  }
-  case Node::MatchArg: {
-    if (nodes[node].memo)
-      break;
-    auto src = static_cast<std::size_t>(nodes[node].src);
-    bool deflt = nodes[node].deflt;
-    unsigned tag = nodes[node].tag;
-    unsigned arg = nodes[node].arg;
-    Type type = nodes[node].type;
-    fill(src);
-    for (unsigned slot = 0; slot < slots; ++slot) {
-      std::optional<unsigned> scr = memo[src].parts[slot];
-      if (!scr)
-        continue;
-      memo[node].parts[slot] =
-          deflt ? scr : std::optional<unsigned>(parts[slot].field(*scr, tag, arg, type));
-    }
-    break;
-  }
-  case Node::Copy: {
-    auto src = static_cast<std::size_t>(nodes[node].src);
-    fill(src);
-    memo[node].parts = memo[src].parts;
-    break;
-  }
-  case Node::Field: {
-    if (nodes[node].memo)
-      break;
-    auto src = static_cast<std::size_t>(nodes[node].src);
-    unsigned tag = nodes[node].tag;
-    unsigned arg = nodes[node].arg;
-    Type type = nodes[node].type;
-    fill(src);
-    for (unsigned slot = 0; slot < slots; ++slot)
-      if (std::optional<unsigned> of = memo[src].parts[slot])
-        memo[node].parts[slot] = parts[slot].field(*of, tag, arg, type);
-    break;
-  }
-  case Node::Pred: {
-    auto src = static_cast<std::size_t>(nodes[node].src);
-    fill(src);
-    for (unsigned slot = 0; slot < slots; ++slot)
-      if (std::optional<unsigned> of = memo[src].parts[slot])
-        memo[node].parts[slot] = parts[slot].predecessor(*of);
-    break;
-  }
-  case Node::Call: {
-    // The nodes and the assumptions stay as they are while the record is
-    // read; only the memo and the parts grow.
-    const Node &call = nodes[node];
-    readCallee(call.callee);
-    auto entry = live->find(call.callee);
-    if (entry == live->end())
-      break;
-    ArrayRef<unsigned> params = entry->second;
-    auto operand = [&](unsigned param) { return static_cast<std::size_t>(call.ops[param]); };
-    for (unsigned param : params)
-      if (param < call.ops.size())
-        fill(operand(param));
-    for (unsigned slot = 0; slot < slots; ++slot) {
-      for (unsigned param : params) {
-        if (param >= call.ops.size())
-          continue;
-        std::optional<unsigned> part = memo[operand(param)].parts[slot];
-        if (part && (call.returns || parts[slot][*part].depth > 0)) {
-          memo[node].parts[slot] = part;
-          break;
-        }
-      }
-    }
-    break;
-  }
-  default:
-    break;
-  }
-}
+// A part's depth, its steps below the argument, is what makes a recursion
+// on parts end: each step is a strictly smaller value, and a value is
+// finite. Its type is at no grade.
+struct Part {
+  unsigned depth;
+  Type type;
+};
 
-std::optional<unsigned> Record::partOf(int node, unsigned slot) {
-  if (node < 0)
-    return std::nullopt;
-  auto id = static_cast<std::size_t>(node);
-  fill(id);
-  return memo[id].parts[slot];
-}
+// The parts of one argument met so far, each once.
+class Parts {
+public:
+  explicit Parts(Type argument) { parts.push_back({0, argument}); }
+  const Part &operator[](PartId part) const { return parts[llvm::to_underlying(part)]; }
+  // Field `index`, of type `type`, of the part `parent` built by the
+  // constructor of tag `tag`.
+  PartId field(PartId parent, Tag tag, unsigned index, Type type) {
+    return step(parent, tag, index, type);
+  }
+  // The predecessor of the natural `parent`, which is not zero.
+  PartId predecessor(PartId parent) {
+    return step(parent, std::nullopt, 0, (*this)[parent].type);
+  }
 
-std::optional<unsigned> Record::singleCtor(Type type) {
-  if (auto it = oneCtor.find(type); it != oneCtor.end())
+private:
+  // The field's constructor, by its tag in its data type; none for the
+  // predecessor of a natural.
+  PartId step(PartId parent, std::optional<Tag> tag, unsigned index, Type type) {
+    auto [it, made] = steps.try_emplace(std::make_tuple(parent, tag, index),
+                                        PartId(static_cast<unsigned>(parts.size())));
+    if (made)
+      parts.push_back(Part{(*this)[parent].depth + 1, unrestricted(type)});
     return it->second;
-  std::optional<unsigned> tag;
-  if (DataType data = dataTypeOf(type); data && data.getCtors().size() == 1)
-    tag = 0;
-  oneCtor[type] = tag;
-  return tag;
-}
-
-Record::Known Record::knownAt(unsigned part, ArrayRef<Frame> frames, unsigned slot) {
-  for (const Frame &frame : frames) {
-    std::optional<unsigned> scrutinee = partOf(frame.scrutinee, slot);
-    if (!scrutinee || *scrutinee != part)
-      continue;
-    if (frame.lit && frame.literal)
-      return {std::nullopt, frame.literal};
-    if (!frame.lit && frame.tag)
-      return {frame.tag, {}};
   }
-  return {singleCtor(parts[slot][part].type), {}};
+
+  SmallVector<Part> parts;
+  llvm::DenseMap<std::tuple<PartId, std::optional<Tag>, unsigned>, PartId> steps;
+};
+
+} // namespace
+
+class Record::Reading {
+public:
+  Reading(const Record &record, const Assumed &assumed)
+      : record(record), assumed(assumed), memo(record.nodes.size()) {
+    for (Type type : record.types)
+      parts.emplace_back(type);
+  }
+
+  // Whether the walk gives back the candidate of `slot`: every call it
+  // relies on gives back a part of it, and every return rebuilds it.
+  bool givesBack(unsigned slot) {
+    for (Id call : record.reliant)
+      if (!partOf(call, slot))
+        return false;
+    return llvm::all_of(record.rets, [&](const Ret &ret) {
+      return rebuilds(ret.value, whole, ret.frames, slot);
+    });
+  }
+
+private:
+  // The part each candidate's slot finds a value to be, if any.
+  using Held = SmallVector<std::optional<PartId>, 1>;
+
+  const Held &fill(Id node);
+  std::optional<PartId> partOf(Id node, unsigned slot) { return fill(node)[slot]; }
+  std::optional<Fact> knownAt(PartId part, ArrayRef<Frame> frames, unsigned slot);
+  bool rebuilds(Id node, PartId part, ArrayRef<Frame> frames, unsigned slot);
+  bool rebuildsCon(const Con &con, PartId part, ArrayRef<Frame> frames, unsigned slot);
+  bool rebuildsSuccessor(const Successor &successor, PartId part, ArrayRef<Frame> frames,
+                         unsigned slot);
+  bool rebuildsJoin(const Join &join, PartId part, unsigned slot);
+  bool rebuildsConstant(const Constant &constant, PartId part, ArrayRef<Frame> frames,
+                        unsigned slot);
+
+  const Record &record;
+  const Assumed &assumed;
+  SmallVector<Parts, 1> parts;
+  // Each value's parts, filled the first time it is asked for.
+  std::vector<std::optional<Held>> memo;
+};
+
+// The parts of every slot at once. A call gives back the part its callee is
+// assumed to give back when it may rely on the assumption: the part is
+// strictly below the argument, or the callee returns.
+const Record::Reading::Held &Record::Reading::fill(Id node) {
+  std::optional<Held> &slotOf = memo[llvm::to_underlying(node)];
+  if (slotOf)
+    return *slotOf;
+  auto width = static_cast<unsigned>(record.arguments.size());
+  Held held(width, std::nullopt);
+  auto each = [&](Id of, auto step) {
+    const Held &from = fill(of);
+    for (unsigned slot = 0; slot < width; ++slot)
+      if (std::optional<PartId> part = from[slot])
+        held[slot] = step(slot, *part);
+  };
+  std::visit(
+      llvm::makeVisitor(
+          [](const Opaque &) {}, [](const Con &) {}, [](const Successor &) {},
+          [](const Join &) {}, [](const Constant &) {},
+          [&](const Entry &entry) {
+            if (auto it = record.slots.find(entry.arg); it != record.slots.end())
+              held[it->second] = whole;
+          },
+          [&](const Same &same) { held = fill(same.of); },
+          [&](const Field &field) {
+            each(field.of, [&](unsigned slot, PartId part) {
+              return parts[slot].field(part, field.tag, field.index, field.type);
+            });
+          },
+          [&](const Pred &pred) {
+            each(pred.of,
+                 [&](unsigned slot, PartId part) { return parts[slot].predecessor(part); });
+          },
+          [&](const Call &call) {
+            auto entry = assumed.find(call.callee);
+            if (entry == assumed.end())
+              return;
+            // An assumption names a parameter of the callee, and every call
+            // passes one argument per parameter: the verifier's on the
+            // input, kept by inlining, building and redirect.
+            for (unsigned slot = 0; slot < width; ++slot)
+              for (unsigned param : entry->second) {
+                assert(param < call.args.size() && "a call passes every parameter");
+                std::optional<PartId> part = fill(call.args[param])[slot];
+                if (part && (call.returns || parts[slot][*part].depth > 0)) {
+                  held[slot] = part;
+                  break;
+                }
+              }
+          }),
+      record.build(node));
+  // The memo is sized once, so the recursion above moved no slot.
+  slotOf = std::move(held);
+  return *slotOf;
 }
 
-bool Record::rebuilds(int node, unsigned part, ArrayRef<Frame> frames, unsigned slot) {
-  if (std::optional<unsigned> is = partOf(node, slot); is && *is == part)
+// What the matches around a use say `part` is, inner first, or else the
+// one constructor its type has.
+std::optional<Record::Fact> Record::Reading::knownAt(PartId part, ArrayRef<Frame> frames,
+                                                     unsigned slot) {
+  for (const Frame &frame : frames)
+    if (partOf(frame.scrutinee, slot) == part)
+      return frame.fact;
+  DataType data = dataTypeOf(parts[slot][part].type);
+  if (data && data.getCtors().size() == 1)
+    return Fact{KnownTag{Tag{0}}};
+  return std::nullopt;
+}
+
+bool Record::Reading::rebuilds(Id node, PartId part, ArrayRef<Frame> frames, unsigned slot) {
+  if (partOf(node, slot) == part)
     return true;
-  auto id = static_cast<std::size_t>(node);
-  switch (nodes[id].kind) {
-  case Node::Copy:
-    return rebuilds(nodes[id].src, part, frames, slot);
-  case Node::Con:
-    return rebuildsCon(id, part, frames, slot);
-  case Node::Add:
-    return rebuildsSuccessor(id, part, frames, slot);
-  case Node::Join:
-    return rebuildsJoin(id, part, slot);
-  case Node::Const:
-    return rebuildsConstant(id, part, frames, slot);
-  default:
-    return false;
-  }
+  return std::visit(
+      llvm::makeVisitor(
+          [](const Opaque &) { return false; }, [](const Entry &) { return false; },
+          [](const Field &) { return false; }, [](const Pred &) { return false; },
+          [](const Call &) { return false; },
+          [&](const Same &same) { return rebuilds(same.of, part, frames, slot); },
+          [&](const Con &con) { return rebuildsCon(con, part, frames, slot); },
+          [&](const Successor &successor) {
+            return rebuildsSuccessor(successor, part, frames, slot);
+          },
+          [&](const Join &join) { return rebuildsJoin(join, part, slot); },
+          [&](const Constant &constant) {
+            return rebuildsConstant(constant, part, frames, slot);
+          }),
+      record.build(node));
 }
 
-bool Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<Frame> frames, unsigned slot) {
-  const Node &con = nodes[node];
-  if (con.memo || knownAt(part, frames, slot).tag != con.tag ||
-      unrestricted(con.type) != parts[slot][part].type)
+bool Record::Reading::rebuildsCon(const Con &con, PartId part, ArrayRef<Frame> frames,
+                                  unsigned slot) {
+  std::optional<Fact> known = knownAt(part, frames, slot);
+  const KnownTag *tag = known ? std::get_if<KnownTag>(&*known) : nullptr;
+  if (!tag || tag->tag != con.tag || unrestricted(con.type) != parts[slot][part].type)
     return false;
-  for (auto [at, field] : llvm::enumerate(con.ops)) {
-    unsigned sub = parts[slot].field(part, con.tag, static_cast<unsigned>(at), con.types[at]);
+  for (auto [at, field] : llvm::enumerate(con.fields)) {
+    PartId sub = parts[slot].field(part, con.tag, static_cast<unsigned>(at), con.types[at]);
     if (!rebuilds(field, sub, frames, slot))
       return false;
   }
@@ -202,77 +232,49 @@ bool Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<Frame> frames
 
 // `S k` is n where k is n's predecessor: n is not zero, as the predecessor
 // op that k was read through shows by running at all.
-bool Record::rebuildsSuccessor(std::size_t node, unsigned part, ArrayRef<Frame> frames,
-                               unsigned slot) {
-  if (!isa<NatType>(parts[slot][part].type) || nodes[node].src < 0)
+bool Record::Reading::rebuildsSuccessor(const Successor &successor, PartId part,
+                                        ArrayRef<Frame> frames, unsigned slot) {
+  if (!isa<NatType>(parts[slot][part].type))
     return false;
-  return rebuilds(nodes[node].src, parts[slot].predecessor(part), frames, slot);
+  return rebuilds(successor.of, parts[slot].predecessor(part), frames, slot);
 }
 
-bool Record::rebuildsJoin(std::size_t node, unsigned part, unsigned slot) {
-  unsigned side = nodes[node].side;
-  unsigned result = nodes[node].arg;
-  for (const Arm &arm : joins[side]) {
-    if (arm.empty)
-      return false;
-    if (arm.unreachable)
-      continue;
-    if (!arm.yield || !rebuilds(arm.values[result], part, arm.frames, slot))
-      return false;
-  }
-  return true;
+bool Record::Reading::rebuildsJoin(const Join &join, PartId part, unsigned slot) {
+  return llvm::all_of(record.joins[join.side], [&](const Arm &arm) {
+    return std::visit(llvm::makeVisitor([](const Fails &) { return false; },
+                                        [](const Unreachable &) { return true; },
+                                        [&](const Yields &yields) {
+                                          return rebuilds(yields.values[join.result], part,
+                                                          yields.frames, slot);
+                                        }),
+                      arm);
+  });
 }
 
-bool Record::rebuildsConstant(std::size_t node, unsigned part, ArrayRef<Frame> frames,
-                              unsigned slot) {
-  Known known = knownAt(part, frames, slot);
-  if (known.literal)
-    return nodes[node].attr == known.literal;
-  if (!nodes[node].isCon || nodes[node].conRun || known.tag != nodes[node].tag ||
-      unrestricted(nodes[node].type) != parts[slot][part].type)
+bool Record::Reading::rebuildsConstant(const Constant &constant, PartId part,
+                                       ArrayRef<Frame> frames, unsigned slot) {
+  std::optional<Fact> known = knownAt(part, frames, slot);
+  if (!known)
     return false;
-  return nodes[node].fieldless;
+  return std::visit(llvm::makeVisitor(
+                        [&](const KnownLiteral &literal) {
+                          return constant.value == literal.literal;
+                        },
+                        [&](const KnownTag &tag) {
+                          return constant.fieldless == tag.tag &&
+                                 unrestricted(constant.type) == parts[slot][part].type;
+                        }),
+                    *known);
 }
 
-void Record::evaluate(const Assumed &assumed) {
-  live = &assumed;
-  saved.clear();
-  consulted.clear();
-  if (++epoch == 0) {
-    for (Memo &item : memo)
-      item.epoch = 0;
-    epoch = 1;
-  }
-  answered.assign(arguments.size(), false);
-  if (possible) {
-    SmallVector<bool, 1> ok(arguments.size(), true);
-    for (int id : reliant) {
-      auto call = static_cast<std::size_t>(id);
-      fill(call);
-      for (unsigned slot = 0; slot < ok.size(); ++slot)
-        if (ok[slot] && !memo[call].parts[slot])
-          ok[slot] = false;
-    }
-    for (unsigned slot = 0; slot < ok.size(); ++slot) {
-      if (!ok[slot])
-        continue;
-      bool all = true;
-      for (const Ret &ret : rets)
-        all = all && rebuilds(ret.value, Parts::whole, ret.frames, slot);
-      answered[slot] = all;
-    }
-  }
-  cached = true;
-  live = nullptr;
-}
-
-SmallVector<unsigned, 1> Record::givesBack(ArrayRef<unsigned> asked, const Assumed &assumed) {
-  if (!cached || !stable(assumed))
-    evaluate(assumed);
+SmallVector<unsigned, 1> Record::givesBack(ArrayRef<unsigned> asked,
+                                           const Assumed &assumed) const {
+  Reading reading(*this, assumed);
   SmallVector<unsigned, 1> kept;
   for (unsigned argument : asked) {
-    auto it = index.find(argument);
-    if (it != index.end() && answered[it->second])
+    auto slot = slots.find(argument);
+    assert(slot != slots.end() && "an assumption is about one of the walk's candidates");
+    if (reading.givesBack(slot->second))
       kept.push_back(argument);
   }
   return kept;

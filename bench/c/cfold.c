@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Constant folding, as Main.idr here (Perceus's cfold.kk), in C. The
    expression is never shared, so reassociation and folding update the
    cells in place and free the ones they drop: what full reuse achieves.

@@ -96,8 +96,8 @@ struct ArrayYieldColumns : OpConversionPattern<ArrayYieldOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     SmallVector<Value> operands;
     for (auto [value, columns] : llvm::zip_equal(op.getValues(), adaptor.getValues())) {
-      if (recordOf(value.getType()))
-        llvm::append_range(operands, takeApart(rewriter, op.getLoc(), columns.front()));
+      if (std::optional<Record> record = recordOf(value.getType()))
+        llvm::append_range(operands, takeApart(rewriter, op.getLoc(), columns.front(), *record));
       else
         llvm::append_range(operands, columns);
     }

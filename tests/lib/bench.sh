@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The benchmarks of bench/ as a smoke test: each builds with this compiler
 # and, on a small input, prints the output recorded for it. Nothing is
 # timed; bench/run.sh times them, on inputs too large for a test.

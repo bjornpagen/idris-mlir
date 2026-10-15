@@ -11,6 +11,7 @@
 #include "idr/Target/Target.h"
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSet.h"
@@ -40,51 +41,57 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <variant>
 #include <vector>
 
 using namespace idr::driver;
 
-static std::string baseOf(llvm::StringRef output, bool objectOnly) {
-  llvm::SmallString<256> path(output);
-  if (objectOnly)
-    llvm::sys::path::replace_extension(path, "");
-  return path.str().str();
-}
+Plan::Plan(std::string base, Source source, Product product)
+    : base(std::move(base)), source(std::move(source)), product(std::move(product)) {}
 
-Input idr::driver::inputKind(llvm::StringRef path) {
-  llvm::StringRef extension = llvm::sys::path::extension(path);
-  return extension == ".mlir" || extension == ".mlirbc" ? Input::Module : Input::Idris;
-}
-
-Artifacts::Artifacts(llvm::StringRef input, Input kind, llvm::StringRef output, bool objectOnly)
-    : base(baseOf(output, objectOnly)), corePath(base + ".core"),
-      modulePath(kind == Input::Idris ? base + ".mlirbc" : input.str()),
-      archivePath(objectOnly ? output.str() : ""), executablePath(objectOnly ? "" : output.str()) {
-  if (kind == Input::Idris) {
-    paths.push_back(corePath);
-    paths.push_back(modulePath);
-  }
-  paths.push_back(objectOnly ? archivePath : executablePath);
-}
-
-bool Artifacts::distinctFromInput(llvm::StringRef input) const {
+std::optional<Plan> Plan::of(llvm::StringRef input, Product product) {
+  std::string base = std::visit(llvm::makeVisitor(
+                                    [](const Executable &executable) { return executable.path; },
+                                    [](const Archive &archive) {
+                                      llvm::SmallString<256> path(archive.path);
+                                      llvm::sys::path::replace_extension(path, "");
+                                      return path.str().str();
+                                    }),
+                                product);
+  llvm::StringRef extension = llvm::sys::path::extension(input);
+  Source source = extension == ".mlir" || extension == ".mlirbc"
+                      ? Source(FromModule{input.str()})
+                      : Source(FromIdris{input.str(), base + ".core", base + ".mlirbc"});
+  Plan plan(std::move(base), std::move(source), std::move(product));
   llvm::StringSet<> seen;
-  for (const std::string &path : paths)
+  for (const std::string &path : plan.outputs())
     if (!seen.insert(path).second || path == input || llvm::sys::fs::equivalent(path, input))
-      return false;
-  return true;
+      return std::nullopt;
+  return plan;
 }
 
-bool Artifacts::makeDirectories() const {
-  for (const std::string &path : paths)
+std::vector<std::string> Plan::outputs() const {
+  std::vector<std::string> paths;
+  if (const auto *idris = std::get_if<FromIdris>(&source))
+    paths = {idris->corePath, idris->modulePath};
+  paths.push_back(std::visit([](const auto &made) { return made.path; }, product));
+  return paths;
+}
+
+const std::string &Plan::modulePath() const {
+  return std::visit([](const auto &from) -> const std::string & { return from.modulePath; },
+                    source);
+}
+
+bool Plan::makeDirectories() const {
+  for (const std::string &path : outputs())
     if (!makeDirectoryOf(path))
       return false;
   return true;
 }
 
-void Artifacts::arm() {
-  armed = true;
-  for (const std::string &path : paths)
+Artifacts::Artifacts(Plan plan) : Plan(std::move(plan)) {
+  for (const std::string &path : outputs())
     removers.push_back(std::make_unique<llvm::FileRemover>(path));
 }
 
@@ -95,9 +102,7 @@ void Artifacts::keep() {
 
 const std::string &Artifacts::addObject(llvm::StringRef bin) {
   std::string path = base + "." + bin.str() + ".o";
-  if (armed)
-    removers.push_back(std::make_unique<llvm::FileRemover>(path));
-  paths.push_back(path);
+  removers.push_back(std::make_unique<llvm::FileRemover>(path));
   objects.push_back(std::move(path));
   return objects.back();
 }
@@ -143,10 +148,13 @@ namespace {
 
 // What one bin's task leaves in its own slot: its object, or why there is
 // none, which the calling thread reports.
-struct Compiled {
-  llvm::SmallVector<char, 0> object;
-  std::string failure;
+struct Object {
+  llvm::SmallVector<char, 0> bytes;
 };
+struct Failed {
+  std::string why;
+};
+using Compiled = std::variant<Object, Failed>;
 
 // One bin: the optimized module read lazily from its bitcode in a context of
 // its own, cut down to the bin, compiled by a machine of its own. Nothing is
@@ -157,23 +165,66 @@ Compiled compileBin(const idr::target::Partition &partition, unsigned bin, llvm:
   idr::profile::ThreadTrace thread;
   const std::string &name = partition.bins()[bin].name;
   IDR_ZONE_IN(name, LLVM);
-  Compiled compiled;
   llvm::LLVMContext context;
   llvm::Expected<std::unique_ptr<llvm::Module>> module =
       llvm::getLazyBitcodeModule(llvm::MemoryBufferRef(bitcode, "optimized"), context);
-  if (!module) {
-    compiled.failure = "internal error: bin " + name + ": " + llvm::toString(module.takeError());
-    return compiled;
+  if (!module)
+    return Failed{"internal error: bin " + name + ": " + llvm::toString(module.takeError())};
+  if (llvm::Error error = partition.extract(bin, **module))
+    return Failed{llvm::toString(std::move(error))};
+  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> machine =
+      idr::target::machine(target, triple, cpu, features);
+  if (!machine)
+    return Failed{"internal error: bin " + name + ": " + llvm::toString(machine.takeError())};
+  Object object;
+  llvm::raw_svector_ostream os(object.bytes);
+  if (!objectCode(**module, **machine, os))
+    return Failed{"internal error: bin " + name + ": the target cannot emit object files"};
+  return object;
+}
+
+llvm::StringRef bytesOf(const Object &object) {
+  return llvm::StringRef(object.bytes.data(), object.bytes.size());
+}
+
+// Each bin's object, in bin order, written whole at its artifacts.addObject.
+bool writeEach(llvm::ArrayRef<idr::target::Bin> bins, llvm::ArrayRef<Object> objects,
+               Artifacts &artifacts) {
+  IDR_ZONE_IN("objects", LLVM);
+  for (auto [bin, object] : llvm::zip_equal(bins, objects)) {
+    const std::string &path = artifacts.addObject(bin.name);
+    std::error_code error;
+    llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_None);
+    if (error) {
+      cannotWrite(path, error);
+      return false;
+    }
+    file.os() << bytesOf(object);
+    file.keep();
   }
-  if (llvm::Error error = partition.extract(bin, **module)) {
-    compiled.failure = llvm::toString(std::move(error));
-    return compiled;
+  return true;
+}
+
+// The objects as one archive, in the order of their names, which a link
+// takes whole: every definition is reached from main.
+bool writeAsArchive(llvm::ArrayRef<idr::target::Bin> bins, llvm::ArrayRef<Object> objects,
+                    const llvm::Triple &triple, const Archive &archive) {
+  IDR_ZONE_IN("archive", LLVM);
+  std::vector<std::string> names;
+  std::vector<llvm::NewArchiveMember> members;
+  names.reserve(bins.size());
+  for (auto [bin, object] : llvm::zip_equal(bins, objects)) {
+    names.push_back(bin.name + ".o");
+    members.emplace_back(llvm::MemoryBufferRef(bytesOf(object), names.back()));
   }
-  std::unique_ptr<llvm::TargetMachine> machine = idr::target::machine(target, triple, cpu, features);
-  llvm::raw_svector_ostream os(compiled.object);
-  if (!machine || !objectCode(**module, *machine, os))
-    compiled.failure = "internal error: bin " + name + ": the target cannot emit object files";
-  return compiled;
+  if (llvm::Error error = llvm::writeArchive(archive.path, members,
+                                             llvm::SymtabWritingMode::NormalSymtab,
+                                             llvm::object::Archive::getDefaultKindForTriple(triple),
+                                             /*Deterministic=*/true, /*Thin=*/false)) {
+    Report() << "cannot write " << archive.path << ": " << llvm::toString(std::move(error));
+    return false;
+  }
+  return true;
 }
 
 } // namespace
@@ -215,47 +266,22 @@ bool idr::driver::writeObjects(llvm::Module &optimized, const llvm::Target &targ
       });
     tasks.wait();
   }
-  bool written = true;
-  for (const Compiled &one : compiled)
-    if (!one.failure.empty()) {
-      Report() << one.failure;
-      written = false;
-    }
-  if (!written)
+  // Every failure is reported; the objects are written only when there is
+  // one for every bin.
+  std::vector<Object> objects;
+  bool whole = true;
+  for (Compiled &one : compiled)
+    std::visit(llvm::makeVisitor([&](Object &object) { objects.push_back(std::move(object)); },
+                                 [&](const Failed &failed) {
+                                   Report() << failed.why;
+                                   whole = false;
+                                 }),
+               one);
+  if (!whole)
     return false;
-
-  if (artifacts.archivePath.empty()) {
-    IDR_ZONE_IN("objects", LLVM);
-    for (unsigned bin = 0; bin < bins.size(); ++bin) {
-      const std::string &path = artifacts.addObject(bins[bin].name);
-      std::error_code error;
-      llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_None);
-      if (error) {
-        cannotWrite(path, error);
-        return false;
-      }
-      file.os() << llvm::StringRef(compiled[bin].object.data(), compiled[bin].object.size());
-      file.keep();
-    }
-    return true;
-  }
-  // With -c, the objects as one archive, in the order of their names, which
-  // a link takes whole: every definition is reached from main.
-  IDR_ZONE_IN("archive", LLVM);
-  std::vector<std::string> names;
-  std::vector<llvm::NewArchiveMember> members;
-  names.reserve(bins.size());
-  for (unsigned bin = 0; bin < bins.size(); ++bin) {
-    names.push_back(bins[bin].name + ".o");
-    members.emplace_back(llvm::MemoryBufferRef(
-        llvm::StringRef(compiled[bin].object.data(), compiled[bin].object.size()), names.back()));
-  }
-  if (llvm::Error error = llvm::writeArchive(artifacts.archivePath, members,
-                                             llvm::SymtabWritingMode::NormalSymtab,
-                                             llvm::object::Archive::getDefaultKindForTriple(triple),
-                                             /*Deterministic=*/true, /*Thin=*/false)) {
-    Report() << "cannot write " << artifacts.archivePath << ": " << llvm::toString(std::move(error));
-    return false;
-  }
-  return true;
+  return std::visit(
+      llvm::makeVisitor(
+          [&](const Executable &) { return writeEach(bins, objects, artifacts); },
+          [&](const Archive &archive) { return writeAsArchive(bins, objects, triple, archive); }),
+      artifacts.product);
 }

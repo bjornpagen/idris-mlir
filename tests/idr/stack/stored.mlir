@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-stack | FileCheck %s
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A cell stored in a constructor, boxed or not, goes wherever that value
 // goes and wherever what is read from it goes. So it may stay on the stack
 // when the value holding it does and nothing read from it escapes: a local
@@ -49,7 +50,7 @@ idr.program @stored root(@Prog.main) stage(higher) {
       idr.yield %t : !idr.box<!List>
     }
     default {
-      %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+      %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
       idr.yield %nil : !idr.box<!List>
     }
     }

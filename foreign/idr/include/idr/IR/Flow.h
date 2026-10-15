@@ -12,6 +12,11 @@
 // the upstream ops that move a value into or out of the elements of a
 // tensor, or make one from nothing, hold it as an external model, attached
 // by registerFlowInterfaceExternalModels.
+//
+// Then what an op does besides computing its results, which the passes
+// that move ops ask (lib/IR/Effects.cpp): whether it only computes, and
+// whether it may perform IO, a call counted as its callee's effects where
+// the asker has the program's symbol table.
 #ifndef IDR_IR_FLOW_H
 #define IDR_IR_FLOW_H
 
@@ -20,8 +25,13 @@
 
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <optional>
 
 namespace idr {
 
@@ -68,6 +78,37 @@ mlir::LogicalResult verifyFlow(FuncOp fn);
 // tensor.extract, tensor.from_elements, tensor.splat, tensor.yield,
 // ub.poison. Every registry a module is read with takes it.
 void registerFlowInterfaceExternalModels(mlir::DialectRegistry &registry);
+
+// What a call may do is its callee's effects, the `effects` its idr.func
+// holds: the one copy, which only the program's symbol table reaches. A
+// call declares every effect a function may have, so a reader without the
+// table, an upstream pass among them, never drops, merges or moves one. A
+// reader that has the table, built once for its run, gives it to the
+// queries below, which then count a call as its callee's effects; one
+// without gives none, and a call may then do anything. No function's
+// `effects` or the table may change while a query reads them.
+struct CalleeEffects {
+  const mlir::SymbolTable &symbols;
+};
+
+// The memory effects `op` has itself, its nested ops aside, as
+// MemoryEffectOpInterface declares them, except that a call whose callee
+// `callees` names as an idr.func has the effects on the IO, crash and
+// divergence resources its callee's `effects` say. Empty for an op whose
+// effects are its regions' (RecursiveMemoryEffects) and for ub.unreachable,
+// which never runs; none when MLIR knows nothing of what `op` does.
+std::optional<llvm::SmallVector<mlir::MemoryEffects::EffectInstance>>
+ownEffects(mlir::Operation *op, const CalleeEffects *callees);
+
+// Whether `op`, with everything in it, only computes: its effects are at
+// most the allocation of its own results, so it may move across any op,
+// run on fewer paths, or not at all.
+bool onlyAllocates(mlir::Operation *op, const CalleeEffects *callees);
+
+// Whether `op`, or something in it, may perform IO: an effect on the IO
+// resource. An op that does not may run later, past ops that only compute,
+// though it may crash or not return.
+bool performsIO(mlir::Operation *op, const CalleeEffects *callees);
 
 } // namespace idr
 

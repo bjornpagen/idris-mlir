@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: that the sixteen statements unfold into @Main.main, as C06 and C07 make it.
+// NEEDS-ACCEPTANCE: that the sixteen statements unfold into @Main.main.
 // A do block of 16 statements, in the shape Emit gives it: statement k is
 // @sk, the thunk `putStr "k" >> rest` that `>>` delays, whose action is
 // @bind of @put and of @seq, which forces the thunk of the next statement.

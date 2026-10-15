@@ -12,22 +12,33 @@
 
 using namespace rt::big;
 
-extern "C" idris_rt_big idris_rt_big_from_int_s(int64_t value) { return ofInt64(value); }
+// A machine integer as a big, and a big as one, are always inlined, their
+// small paths as Big/Big.h says. A narrower integer, extended to 64 bits,
+// is always small, which the inlined range test then shows.
+extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_s(int64_t value) {
+  return ofInt64(value);
+}
 
-extern "C" idris_rt_big idris_rt_big_from_int_u(uint64_t value) {
-  if (value <= static_cast<uint64_t>(smallMax))
-    return small(static_cast<int64_t>(value));
+[[gnu::noinline]] idris_rt_big rt::big::fromUnsignedLarge(uint64_t value) {
   Result r;
   mpz_set_ui(r.get(), value);
   return r.finish();
 }
 
-extern "C" int64_t idris_rt_big_to_int(idris_rt_big a) {
-  if (isSmall(a))
+extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_u(uint64_t value) {
+  if (value <= static_cast<uint64_t>(smallMax)) [[likely]]
+    return small(static_cast<int64_t>(value));
+  return fromUnsignedLarge(value);
+}
+
+// Inline whole: a large big's low 64 bits are one load from its cell.
+extern "C" [[gnu::always_inline]] int64_t idris_rt_big_to_int(idris_rt_big a) {
+  if (isSmall(a)) [[likely]]
     return smallValue(a);
-  Operand x(a);
-  uint64_t low = mpz_getlimbn(x.get(), 0);
-  return static_cast<int64_t>(mpz_sgn(x.get()) < 0 ? 0 - low : low);
+  // The low limb and the sign, read from the cell: a large big has a limb.
+  const idris_rt_bignum *b = bignum(a);
+  uint64_t low = limbsOf(b)[0];
+  return static_cast<int64_t>(b->size < 0 ? 0 - low : low);
 }
 
 extern "C" idris_rt_big idris_rt_big_from_double(double x) {

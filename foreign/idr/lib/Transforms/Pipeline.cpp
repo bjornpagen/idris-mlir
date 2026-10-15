@@ -27,7 +27,9 @@
 // its passes are a group on it, its functions' passes a group inside that,
 // and the passes after lowering, once idr-entry has moved the program's
 // functions into the module, groups on the module's func.func. LLVM's own
-// pipeline runs in idris-mlir, after it.
+// pipeline runs in idris-mlir, after it. The pipeline is built before any
+// program exists, so its canonicalizers have no symbol table to read a
+// callee's effects in, and to them a call may do anything.
 void idr::buildPipeline(mlir::OpPassManager &pm) {
   mlir::OpPassManager &program = pm.nest<idr::ProgramOp>();
   // Of each class of functions that are one function twice over, the rest
@@ -52,7 +54,7 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
   // elements only to be taken apart again, and a field read of it.
   {
     mlir::OpPassManager &functions = program.nest<idr::FuncOp>();
-    functions.addPass(idr::createCanonicalizerPass());
+    functions.addPass(idr::createCanonicalizerPass(nullptr));
     functions.addPass(mlir::createCSEPass());
   }
   // What only a liveness analysis of the whole program removes (a
@@ -64,7 +66,11 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
   // matches alone, and a field one of them folds leaves the constructor it
   // read dead but in place, still holding a world or a linear value that
   // the fold's user now holds too. symbol-dce then takes the functions
-  // nothing names any more.
+  // nothing names any more. With its canonicalization off the pass runs no
+  // greedy driver: its liveness is a solve to the fixed point of a
+  // two-valued lattice and its cleanup one walk. On, a rewrite not
+  // converged after ten rounds would fail the pass, and a count would
+  // refuse the program.
   mlir::RemoveDeadValuesPassOptions dead;
   dead.canonicalize = false;
   program.addPass(mlir::createRemoveDeadValuesPass(dead));
@@ -78,7 +84,7 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
   program.addPass(idr::createIdrBufferize());
   {
     mlir::OpPassManager &functions = program.nest<idr::FuncOp>();
-    functions.addPass(idr::createCanonicalizerPass());
+    functions.addPass(idr::createCanonicalizerPass(nullptr));
     functions.addPass(mlir::createCSEPass());
   }
   // A cell that never leaves its frame goes on the stack before counting,
@@ -115,8 +121,21 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
     schedule.entryPoint = idr::target::vectorizeSchedule.str();
     lowered.addPass(mlir::transform::createInterpreterPass(schedule));
     lowered.addPass(idr::createIdrNarrowLanes());
+    // Upstream's lowering passes here (convert-linalg-to-loops,
+    // convert-vector-to-scf, expand-strided-metadata and the pre-lowering
+    // of convert-vector-to-llvm) run the greedy driver at its default of
+    // ten rounds and ignore whether it converged. No program's acceptance
+    // rests on that count. Each of their patterns that removes an op a
+    // later conversion cannot take (a linalg op on buffers; a transfer of
+    // rank above one; a subview, expand_shape or collapse_shape; an n-D
+    // broadcast, shape cast, transpose, mask or strided slice) decides on
+    // that op alone, a transfer also on the buffer its own preparation
+    // made. The driver's first round visits every op there is, and every
+    // op a rewrite creates or modifies joins that round, so the first round
+    // lowers them all: a spent count leaves only later rounds' folds and
+    // clean-ups undone.
     lowered.addPass(mlir::createConvertLinalgToLoopsPass());
-    lowered.addPass(idr::createCanonicalizerPass());
+    lowered.addPass(idr::createCanonicalizerPass(nullptr));
     lowered.addPass(mlir::createCSEPass());
   }
   // On lowered code, where a threaded value given back is its argument
@@ -130,7 +149,7 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
   // parallel.
   {
     mlir::OpPassManager &lowered = pm.nest<mlir::func::FuncOp>();
-    lowered.addPass(idr::createCanonicalizerPass());
+    lowered.addPass(idr::createCanonicalizerPass(nullptr));
     lowered.addPass(mlir::createCSEPass());
     lowered.addPass(mlir::createConvertVectorToSCFPass());
     lowered.addPass(mlir::memref::createExpandStridedMetadataPass());

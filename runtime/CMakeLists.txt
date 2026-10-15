@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The runtime:
 # C++ with no exceptions, no RTTI and no C++ library at link time, built into
 # one archive of objects that carry their bitcode as the target entry says
@@ -30,21 +32,17 @@ endforeach()
 # entry's unit (IDRIS_MLIR_RUNTIME_CPU_TEST).
 set(IDRIS_RT_SOURCES
 	Alloc/Arrays.cpp
-	Alloc/Blocks.cpp
 	Alloc/Cells.cpp
-	Alloc/Classes.cpp
 	Alloc/Gmp.cpp
 	Rc/Counting.cpp
 	Rc/Freeing.cpp
 	Strings/Concat.cpp
-	Strings/Integers.cpp
 	Strings/Making.cpp
 	Strings/Order.cpp
 	Strings/Replacement.cpp
 	Strings/Scalars.cpp
 	Strings/Show.cpp
 	Strings/Simd.cpp
-	Strings/Utf8.cpp
 	Numerals/Machine.cpp
 	Numerals/Reading.cpp
 	Big/Arithmetic.cpp
@@ -73,7 +71,6 @@ set(IDRIS_RT_SOURCES
 	Io/Processors.cpp
 	Io/Scratch.cpp
 	Io/Terminal.cpp
-	Io/Writing.cpp
 	Start/Entry.cpp
 	Start/Runner.cpp
 	Platform/Posix/Clocks.cpp
@@ -94,11 +91,12 @@ set(IDRIS_RT_SOURCES
 # may be compiled to use, which cpu_features.h includes and idr-lower and
 # idris-mlir read too. idris_rt carries them, with SCOPE, to every library
 # that links it.
+set(IDRIS_RT_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}"
+	# idris_rt_ops.h: the C declarations of the functions the dialect's ops
+	# call, generated from their ODS (foreign/idr/include/idr/IR).
+	"${PROJECT_BINARY_DIR}/foreign/idr/include/idr/IR")
 function(idris_rt_headers scope)
-	target_include_directories(idris_rt ${scope} "${CMAKE_CURRENT_SOURCE_DIR}"
-		# idris_rt_ops.h: the C declarations of the functions the dialect's
-		# ops call, generated from their ODS (foreign/idr/include/idr/IR).
-		"${PROJECT_BINARY_DIR}/foreign/idr/include/idr/IR")
+	target_include_directories(idris_rt ${scope} ${IDRIS_RT_INCLUDE_DIRECTORIES})
 	target_compile_definitions(idris_rt ${scope}
 		"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
 	)
@@ -124,11 +122,15 @@ target_compile_options(idris_mlir_runtime_profile INTERFACE
 )
 target_compile_definitions(idris_mlir_runtime_profile INTERFACE NDEBUG)
 
-# simdutf builds without the C++ library, with the
-# encodings the runtime uses: UTF-8, UTF-32 and ASCII.
+# simdutf builds without the C++ library, with the one encoding the
+# runtime calls it for, UTF-8: every implementation's table of virtual
+# functions names each kernel it has, so a kernel left in would join every
+# program that reaches a string operation.
 set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
 	SIMDUTF_NO_LIBCXX=1
 	SIMDUTF_FEATURE_UTF16=0
+	SIMDUTF_FEATURE_UTF32=0
+	SIMDUTF_FEATURE_ASCII=0
 	SIMDUTF_FEATURE_LATIN1=0
 	SIMDUTF_FEATURE_BASE64=0
 	SIMDUTF_FEATURE_DETECT_ENCODING=0
@@ -150,13 +152,18 @@ function(idris_rt_compile target)
 		# destructor (pthread keys register one with [[gnu::destructor]]) or the
 		# C++ runtime: a thread's cached memory is returned only if the
 		# C library calls _malloc_thread_cleanup, which neither musl nor
-		# libSystem does, and programs are single-threaded; its own small STL;
-		# getentropy and waiting on an address, which every system of the target
+		# libSystem does. Programs are single-threaded. In idris-mlir, whose
+		# folders run on worker threads, a thread that ends keeps its cache,
+		# and frees other threads make to its memory wait in its queue: a cost
+		# bounded by the threads a compilation starts, not a leak per cell;
+		# its own small STL;
+		# getentropy, which also keeps snmalloc from including <random>, and
+		# waiting on an address, which every system of the target
 		# entries has (Apple's platform draws entropy from CommonCrypto and waits
 		# with __ulock_wait below a macOS 14.4 deployment target, both in
 		# libSystem); the target entry's page, which its POSIX platforms take
 		# from SNMALLOC_PAGESIZE (Apple's has the same number as a constant, and
-		# Alloc/Classes.cpp checks both); and what the entry says of the system.
+		# Alloc/Cells.cpp checks both); and what the entry says of the system.
 		# snmalloc maps no executable memory, so nothing of MAP_JIT concerns it.
 		SNMALLOC_MIN_ALLOC_STEP_SIZE=8
 		SNMALLOC_USE_THREAD_CLEANUP
@@ -230,6 +237,12 @@ target_link_libraries(idris_rt INTERFACE ${IDRIS_MLIR_GMP})
 # The same number for the tests, which build parts of the runtime for
 # another page size and must not assume this one (tests/toolchain).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/page-size" CONTENT "${IDRIS_MLIR_PAGE_SIZE}\n")
+# What a C program that includes idris_rt.h is compiled with, one flag a
+# line: the runtime's include directories, the generated one among them,
+# from the one list above (tests/toolchain compiles against the ABI).
+list(TRANSFORM IDRIS_RT_INCLUDE_DIRECTORIES PREPEND "-I" OUTPUT_VARIABLE IDRIS_RT_C_FLAGS)
+list(JOIN IDRIS_RT_C_FLAGS "\n" IDRIS_RT_C_FLAGS_TEXT)
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/c-flags" CONTENT "${IDRIS_RT_C_FLAGS_TEXT}\n")
 # The library calls code generation makes for the target, as C names (the
 # entry's symbol prefix is a separate fact): the copy and fill functions
 # every target calls, then the target entry's IDRIS_MLIR_CODEGEN_LIBRARY_CALLS

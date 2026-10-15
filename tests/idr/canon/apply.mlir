@@ -4,7 +4,8 @@
 // RUN: no-closures=@of_constant_linear,calls=@of_constant_linear:@once -o /dev/null
 // RUN: idris-mlir-opt %s --canonicalize --inline --canonicalize \
 // RUN: --idr-expect=holds=never-calls=@of_closure:@add,returns=@captures_first:5 -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Applying a known closure calls its function with the captures first, as
 // upstream's func.call_indirect of a constant becomes a direct call; the
 // inliner then removes the call. That the captures come first is what a
@@ -50,7 +51,7 @@ idr.program @apply root(@root) stage(higher) {
 
   // Captures of every kind of constant.
   idr.func @of_constant_data(%n: i64) -> i64 {
-    %c = idr.constant #idr.closure<@pick, [#idr.con<@MkS, [1 : i64, "a"]>, "b"]>
+    %c = idr.constant #idr.closure<@pick, [#idr.con<!S, @MkS, [1 : i64, "a"]>, "b"]>
        : !idr.fn<(i64) -> (i64)>
     %r = idr.apply %c(%n) : !idr.fn<(i64) -> (i64)>
     return %r : i64

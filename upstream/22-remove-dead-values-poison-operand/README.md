@@ -1,6 +1,9 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `remove-dead-values` replaces a poison operand with a new poison
 
-On llvm main at 7208ba24 (the pin), `--remove-dead-values` replaces every
+On llvm main at 7208ba24 (the pin), and at b43c0361 (main on 2026-10-15),
+`--remove-dead-values` replaces every
 operand it finds dead, of a region branch op or its terminator, with a new
 `ub.poison`, also when the operand already is one. The module prints the
 same, but the poison is a new operation, so `OperationFingerPrint`
@@ -35,11 +38,12 @@ poison-operand.mlir:1:1: error: Composite pass "CompositeFixedPointPass"+ didn't
 
 (With the pass's canonicalization the loop loses its dead iteration value,
 a real change.) `tests/upstream/remove-dead-values-poison-operand` checks
-the reproducer. Found by this compiler's simplify round
-(`foreign/idr/lib/Simplify/Round.cppm`), which runs the pass and `cse` in a
-fixed point: `tests/idr/vectorize/rows-aarch64` hit its round budget with
-26 ops in every round, an `idr.array.fold` whose result is dead feeding
-the same poison back each time.
+the reproducer. Found by this compiler's simplify round (the
+`foreign/idr/lib/Simplify/Round.cppm` of the time, which the pipeline
+cutover deleted), which ran the pass and `cse` in a fixed point:
+`tests/idr/vectorize/rows-aarch64` hit its round budget with 26 ops in
+every round, an `idr.array.fold` whose result is dead feeding the same
+poison back each time.
 
 ## Expected
 
@@ -74,25 +78,56 @@ repository does not apply.
 
 ## The fix
 
-`pull-request.diff` is the pull request, a `git diff` against 7208ba24, the pin.
-The first step keeps an operand defined by `ub.poison`, and the seventh
-keeps a `ub.poison` that operands still use, erasing it after the poison
-cleanup (step 8) only if its users are gone by then. Test: a new file,
+`pull-request.diff` is the pull request, a `git diff` against llvm main at
+b43c0361 (2026-10-15), after #208881 (0edf6243), which changed another
+step of the same cleanup. The first step keeps an operand defined by
+`ub.poison`, and the seventh keeps a `ub.poison` that operands still use,
+erasing it after the poison cleanup (step 8) only if its users are gone by
+then. Every use left on such a poison is in a position the liveness
+analysis found dead: the pass lists an op for erasure only when none of
+its results is live. Test: a new file,
 `mlir/test/Transforms/remove-dead-values-poison-operand.mlir`, the
 reproducer under `composite-fixed-point-pass{max-iterations=2}` with
 `-verify-diagnostics` (it fails on the non-convergence warning) and
-FileCheck on the loop as it was. It applies to the pinned source alone and
-after the other patches (06 and 16 touch the same file, other hunks).
+FileCheck on the loop as it was. With `max-iterations=2` the pass runs a
+second time only if the first changed the module, and warns only if the
+second did too; without the change both runs replace the two operands,
+so the test warns.
+
+## Testing
+
+On 2026-10-15: `pull-request.diff` applies with no offset to llvm main at
+b43c0361 and to the pin (7208ba24, where its second and third hunks sit 11
+lines earlier, before #208881). The patched `RemoveDeadValues.cpp` of main
+passes `-fsyntax-only` with the typecheck build's command for that unit.
+The new test's name is free on main.
+
+Not run: no `mlir-opt` with the change has been built, so the new test has
+not been seen to pass with it or fail without it, and `check-mlir` has not
+run. What it should print is read from the code: `processRegionBranchOp`
+marks the loop's init operand and its yield's operand dead (both are
+forwarded only to the dead iteration argument and result) for replacement
+by poison, whatever `canonicalize` is, and lists `%p` for erasure.
 
 ## Upstreaming plan
 
-Status: not filed; not carried (`pull-request.diff`).
+Status: ready to file, not filed; not carried. `submission.md` has the
+issue, the pull request title and body and the checklist to run before
+posting. No issue or pull request covers it: searched llvm/llvm-project
+for remove-dead-values and poison, and RemoveDeadValues, 2026-10-15. The
+open remove-dead-values reports and pull requests (#231868, #231846,
+#216652, #182711, #208742, #208940) are about other steps: the pull
+requests change how branch operands and block arguments are cleaned, not
+the region-branch operands or the operation cleanup this changes. If one
+of them lands first, the diff may need a textual rebase (#182711
+renumbers the cleanup's steps).
 
 - Where: an issue (the reproducer, the composite pass's error) and a pull
-  request against main, one commit, this patch.
-- Before filing: the patch applied to then-current main, `check-mlir` left
-  to LLVM's pre-merge CI; search the tracker for remove-dead-values and
-  fixed points (06's #208881 is near).
+  request against main, one commit, this diff. `check-mlir` is the pull
+  request's pre-merge CI's (upstream/README.md, **CI decides**).
+- Upstream test: `mlir/test/Transforms/remove-dead-values-poison-operand.mlir`.
+- Touches `RemoveDeadValues.cpp`, as 06 does, in other hunks; independent
+  of 16.
 - When it goes: when the pin has the fix,
   `tests/upstream/remove-dead-values-poison-operand` fails, and this
   report and that check go.

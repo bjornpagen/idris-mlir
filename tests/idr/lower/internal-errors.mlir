@@ -1,11 +1,14 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics --idr-lower -o /dev/null
 // RUN: not idris-mlir-opt %s -split-input-file --idr-lower -o /dev/null 2>&1 | FileCheck %s
-// NEEDS-ACCEPTANCE: the text of the alignment error is C16's (section 4.1); check it against idr-lower.
+// NEEDS-ACCEPTANCE: the text of the alignment error; check it against idr-lower.
 // What no Idris program reaches is the compiler's error, never a rejection
-// (`unsupported (<reason>)`, which idris-mlir reports as the user's): the
-// module's data layout is the target entry's, the one the runtime is
-// built for, and a buffer is a cell of the runtime, whose elements start
-// eight bytes aligned and no more, so bufferization never asks for more.
+// (`unsupported (<reason>)`, which idris-mlir reports as the user's),
+// whichever step finds it: the module's data layout is the target entry's,
+// the one the runtime is built for, so a module of another (its pointers
+// not the runtime's words) is refused at the module, by the program's own
+// verifier before any pass runs; and a buffer is a cell of the runtime,
+// whose elements start eight bytes aligned and no more, so bufferization
+// never asks for more, and the lowering refuses a buffer that does.
 // CHECK-NOT: unsupported (
 // CHECK: error: the module's target is not the runtime's
 // CHECK: error: {{.*}}alignment

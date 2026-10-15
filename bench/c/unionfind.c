@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Union-find with path compression and union by rank, as Main.idr here
    (Lean's unionfind.lean), in C: the records are stored in the array. */
 #include <stdio.h>

@@ -169,8 +169,8 @@ literal ix l (LInt t n) = value ix l (IntT t)
 literal ix l (LChar c) = value ix l CharT (Arith.constantOp (IntegerAttr c (IntegerType 32)))
 literal ix l (LDouble d) = value ix l DoubleT (Arith.constantOp (FloatAttr d F64Type))
 literal ix l (LStr s) = value ix l StrT (Idr.constantOp (StringAttr s))
-literal ix l (LBig n) = value ix l BigT (Idr.constantOp (Idr (BigAttr n)))
-literal ix l (LNat n) = value ix l NatT (Idr.constantOp (Idr (BigAttr (cast n))))
+literal ix l (LBig n) = value ix l BigT (Idr.constantOp (idr (BigAttr n)))
+literal ix l (LNat n) = value ix l NatT (Idr.constantOp (idr (BigAttr (cast n))))
 
 ------------------------------------------------------------------------------
 -- Primitives

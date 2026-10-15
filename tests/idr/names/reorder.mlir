@@ -5,7 +5,7 @@
 // RUN: sed -n 's/^ *idr\.func \(private \)\{0,1\}@\([^(]*\)(.*/\2/p' %t.reversed.out.mlir | sort > %t.reversed.names
 // RUN: grep -q '[.]spec[.]' %t.names
 // RUN: diff %t.names %t.reversed.names
-// NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as C09's binding-time rule allows.
+// NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as the binding-time rule allows.
 // A function the optimizer makes is named from its key, the owner and
 // the static pattern, never from a counter or from the order the work ran
 // in: the same module with its functions in reverse order (the first RUN

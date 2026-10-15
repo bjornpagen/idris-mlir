@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] Forward data-flow analyses resolve each callee by scanning the module
 
 At `llvmorg-23.1.2`, the sparse and dense forward data-flow analyses look

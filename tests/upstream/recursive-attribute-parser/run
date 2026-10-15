@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The upstream bug upstream/10-recursive-attribute-parser still reproduces with
 # the pinned mlir-opt: an array attribute nested 100,000 deep overflows an
 # 8 MiB stack, while the same attribute nested 1,000 deep parses under the

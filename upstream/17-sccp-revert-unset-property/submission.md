@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Submission
 
 Paste into GitHub, repository `llvm/llvm-project`. Not Bugzilla.

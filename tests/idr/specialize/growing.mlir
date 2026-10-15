@@ -5,7 +5,7 @@
 // entering call keys the closure it is given once, and the recursion keys
 // nothing of the closure it grows, so every call of @iter calls one copy;
 // specializing on each would make a copy per iteration.
-// NEEDS-ACCEPTANCE: one node for @iter, by R08's rule over recursive components.
+// NEEDS-ACCEPTANCE: one node for @iter, by the rule over recursive components.
 idr.program @growing root(@Main.main) stage(higher) {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

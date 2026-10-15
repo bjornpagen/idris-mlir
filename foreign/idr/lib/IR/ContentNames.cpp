@@ -34,13 +34,6 @@ Digest idr::digestOf(StringRef key) {
   return {hash.low64, hash.high64};
 }
 
-std::string idr::contentHash(StringRef key) {
-  std::string text;
-  llvm::raw_string_ostream os(text);
-  os << llvm::format_hex_no_prefix(digestOf(key).low, 16, /*Upper=*/false);
-  return text;
-}
-
 std::string idr::contentName(StringRef owner, StringRef kind, Digest key) {
   std::string name;
   llvm::raw_string_ostream os(name);
@@ -115,14 +108,6 @@ std::string idr::canonicalText(Operation *op) { return printed(op); }
 
 Digest idr::canonicalHash(Attribute attr) { return digestOf(canonicalText(attr)); }
 Digest idr::canonicalHash(Type type) { return digestOf(canonicalText(type)); }
-Digest idr::canonicalHash(Operation *op) { return digestOf(canonicalText(op)); }
-
-Digest ContentNames::digest(Attribute attr) {
-  auto [it, fresh] = digests.try_emplace(attr.getAsOpaquePointer());
-  if (fresh)
-    it->second = canonicalHash(attr);
-  return it->second;
-}
 
 Digest ContentNames::digest(Type type) {
   auto [it, fresh] = digests.try_emplace(type.getAsOpaquePointer());

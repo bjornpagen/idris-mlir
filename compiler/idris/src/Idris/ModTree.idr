@@ -274,6 +274,24 @@ buildDeps fname
                        pure []
               errs => pure errs -- Error happened, give up
 
+||| The main file and every module it imports, built in a session of their
+||| own: a unification state, delayed elaborators and metadata made here,
+||| and the context reset to the main module's origin, before `buildDeps`.
+||| A driver that only builds a program never holds the session's state.
+export
+buildMain : {auto c : Ref Ctxt Defs} ->
+            {auto s : Ref Syn SyntaxInfo} ->
+            {auto o : Ref ROpts REPLOpts} ->
+            (mainFile : String) ->
+            Core (List Error)
+buildMain mainFile
+    = do mainModule <- ctxtPathToNS mainFile
+         u <- newRef UST initUState
+         dl <- newRef DLY (the DelayedElabs [])
+         m <- newRef MD (initMetadata (PhysicalIdrSrc mainModule))
+         resetContext (PhysicalIdrSrc mainModule)
+         buildDeps mainFile
+
 getAllBuildMods : {auto c : Ref Ctxt Defs} ->
                   {auto o : Ref ROpts REPLOpts} ->
                   FC -> (done : List BuildMod) ->

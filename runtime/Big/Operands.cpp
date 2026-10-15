@@ -26,10 +26,7 @@ Operand::Operand(idris_rt_big a) {
   mpz_roinit_n(&view, &limb, v < 0 ? -1 : v > 0 ? 1 : 0);
 }
 
-Result::Result() {
-  rt::alloc::gmpReady();
-  mpz_init(&value);
-}
+Result::Result() { mpz_init(&value); }
 
 idris_rt_big Result::finish() {
   if (mpz_fits_slong_p(&value) && fits(mpz_get_si(&value))) {
@@ -47,9 +44,7 @@ idris_rt_big Result::finish() {
   return reinterpret_cast<idris_rt_big>(b);
 }
 
-idris_rt_big ofInt64(int64_t v) {
-  if (fits(v))
-    return small(v);
+[[gnu::noinline]] idris_rt_big largeOfInt64(int64_t v) {
   Result r;
   mpz_set_si(r.get(), v);
   return r.finish();

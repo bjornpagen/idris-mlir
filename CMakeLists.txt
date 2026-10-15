@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 cmake_minimum_required(VERSION 4.0)
 
 # The configure gate. The accepted toolchain series live in

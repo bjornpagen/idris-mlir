@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 Approach changed: the old patch swapped the deque for a stack with no duplicate check, which fixed the order but grew forever on a cycle; now the pending entries are a path where each waits on the one above and appears at most once, so a chain takes O(n) parses and a cycle is an error.
 
 # Submission

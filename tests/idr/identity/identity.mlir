@@ -3,7 +3,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@loops -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@drift -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@flip -o /dev/null
-// NEEDS-ACCEPTANCE: that idr-identity, the first step of each function's cleanup, rewrites the calls of each recursive function that gives back its argument, as C09's Identities solve it per component.
+// NEEDS-ACCEPTANCE: that idr-identity, the first step of each function's cleanup, rewrites the calls of each recursive function that gives back its argument, as the identities are solved per component.
 // A function that only rebuilds its argument gives it back, and every call
 // of it becomes the argument. The optimizer finds this per component of
 // the call graph, callee first, and its cleanup of each caller replaces

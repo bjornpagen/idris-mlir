@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Passes of the idr dialect. Each is built by its generated constructor;
-// none declares a constructor of its own, and only idr-expect, a test API,
-// has an option: nothing on a command line selects how a program is
-// compiled. The program is an op, `idr.program`, inside the builtin.module:
+// Passes of the idr dialect. Each is built by its generated constructor,
+// but idr-canonicalize, whose factory takes the symbol table a pipeline
+// made for one run over a program gives it. Only a test's checks are
+// options (idr-expect's properties, idr-canonicalize's convergence test):
+// nothing on a command line selects how a program is compiled. The program is an op, `idr.program`, inside the builtin.module:
 // a pass that reads it is anchored on ::idr::ProgramOp and sees only it,
 // and a pass anchored on ::idr::FuncOp runs under a nested pass manager
 // inside the program and touches nothing outside its function. A pass that
@@ -37,6 +38,42 @@ def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
     (CMakeLists.txt).
   }];
   let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::DLTIDialect"];
+}
+
+//===----------------------------------------------------------------------===//
+// The canonicalizer (lib/IR/Canon)
+//===----------------------------------------------------------------------===//
+
+// On any op: the pipeline runs it on idr.func and, after lowering, on
+// func.func. Built here with no symbol table; a pipeline made for one run
+// over a program gives that run's table instead.
+def IdrCanonicalize : Pass<"idr-canonicalize"> {
+  let summary = "Canonicalize under upstream's greedy driver, a call's effects its callee's where the program's symbol table was given";
+  let description = [{
+    The canonicalization patterns of every loaded dialect and registered
+    op, collected as upstream's canonicalizer collects them, under
+    upstream's greedy driver, top-down, with region simplification off: the
+    passes around it (CSE, remove-dead-values) remove what it would. The
+    patterns that move an op across others (sinking, case-of-case, an
+    element's update) read a call as its callee's effects through the
+    program's symbol table, when the pass was given one; without one, a
+    call may do anything. Convergence is an invariant: a function the
+    patterns have not converged on within the greedy driver's iteration
+    limit is left less canonical and counted, never refused, and with
+    `test-convergence`, which a test sets to state that the patterns
+    converge on its input, it is an error naming the op.
+  }];
+  let constructor = "::idr::createCanonicalizerPass(nullptr)";
+  let options = [
+    Option<"testConvergence", "test-convergence", "bool", /*default=*/"false",
+           "Fail on a function the patterns have not converged on within the greedy "
+           "driver's iteration limit, as a test states that they do">,
+  ];
+  let statistics = [
+    Statistic<"notConverged", "not-converged",
+              "Functions left less canonical: the greedy driver's iteration limit was spent "
+              "before the patterns converged on them">,
+  ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -178,10 +215,11 @@ def IdrOptimize : Pass<"idr-optimize", "::idr::ProgramOp"> {
         inlined in call-site order while the caller stays at or under
         10,000 ops; a call past that stays a call;
       - then one pipeline runs on the function, once: idr-identity,
-        canonicalize, cse, idr-redirect and idr-constants, which solves the
-        function's constants with its callees' summaries. A call into a
-        final callee that this exposed is inlined under the same decisions,
-        and the pipeline runs on the function again, up to its size;
+        canonicalize, idr-pure-calls, cse, idr-redirect and idr-constants,
+        which solves the function's constants with its callees' summaries.
+        A call into a final callee that this exposed is inlined under the
+        same decisions, and the pipeline runs on the function again, up to
+        its size;
       - a call whose argument is a known constructor of a sum asks for its
         callee specialized on it: a function keyed by the callee and the
         static pattern, made once, named from its key's canonical hash, and
@@ -195,81 +233,28 @@ def IdrOptimize : Pass<"idr-optimize", "::idr::ProgramOp"> {
     symbol use reaches from the program's root is erased after the run, in
     program order. A budget only stops optimizing: no count rejects a
     program. Each body is a function of its own body and its callees' final
-    bodies, so the program is the same at every thread count.
+    bodies, so the program is the same at every thread count. The inner
+    pipeline's own steps are made for each run, holding the summaries and
+    the node table they read, so no other pipeline can hold one, and none
+    is registered; each counts into a statistic of this pass named for the
+    step.
   }];
   let statistics = [
     Statistic<"numInlined", "inlined", "Calls inlined">,
     Statistic<"numCapped", "capped", "Calls left calls because the caller reached its size">,
     Statistic<"numErased", "erased", "Functions no symbol use reaches from the root, erased">,
     Statistic<"numNodes", "nodes", "Functions made for a specialization key">,
+    Statistic<"numIdentityCalls", "idr-identity.calls",
+              "Calls made the argument they give back">,
+    Statistic<"numPureErased", "idr-pure-calls.erased",
+              "Calls of a pure callee whose results nothing read, erased">,
+    Statistic<"numPureMerged", "idr-pure-calls.merged",
+              "Calls of a pure callee given the results of an identical call before them">,
+    Statistic<"numRedirected", "idr-redirect.redirected",
+              "Calls redirected to the specialization or raise node their key names">,
+    Statistic<"numConstants", "idr-constants.constants", "Values replaced by a constant">,
   ];
   let dependentDialects = ["::idr::IdrDialect", "::mlir::arith::ArithDialect"];
-}
-
-def IdrIdentity : Pass<"idr-identity", "::idr::FuncOp"> {
-  let summary = "Make every call of a function that gives back one of its arguments that argument";
-  let description = [{
-    Once Idris's indices are erased, a function may only rebuild its
-    argument: Data.Fin's weaken, finToNat and last, a term's weakening to a
-    larger scope. Such a function gives back an argument x when every
-    return is x rebuilt: x itself; a constructor where x is known to be
-    that constructor (by the case of a match around the return, or as the
-    one constructor of its type), each field the same field of x rebuilt;
-    a constant where x is known to be that literal; the successor of x's
-    predecessor; a match whose every region that returns yields x rebuilt;
-    or a call assumed to give back what it is passed, passed x itself (a
-    rebuilt x is a new value, not a part of x). The function must also
-    only compute: every other op only allocates its results (a call as its
-    callee's `effects` say), a region that does not return ends in
-    ub.unreachable, which Idris proved is never taken, and every call
-    assumed to give back what it is passed either passes a part strictly
-    below the function's argument (a field of a constructor of it, or the
-    predecessor of a natural) or calls a function whose `effects` say it
-    returns, so that every chain of such calls ends: values are finite.
-    Its other arguments may be anything. The assumptions are the greatest
-    fixpoint over each strongly connected component of the call graph, so
-    the functions of a mutual recursion are found together, its callees'
-    read as final: the function's summary, which idr-optimize computes for
-    each component when it is ready. In each function, every call of such
-    a function becomes its argument, at the quantity of the call's result,
-    and symbol-dce erases the function once nothing names it. A function of
-    a program in the `owned` stage, or one that takes a world, gives back
-    nothing.
-  }];
-  let statistics = [
-    Statistic<"numCalls", "calls", "Calls made the argument they give back">,
-  ];
-  let dependentDialects = ["::idr::IdrDialect"];
-}
-
-def IdrConstants : Pass<"idr-constants", "::idr::FuncOp"> {
-  let summary = "Propagate constants through one function, calls through their callees' summaries";
-  let description = [{
-    Sparse conditional constant propagation through one function, a call's
-    results taken from its callee's summary: what the callee returns, read
-    from its final body once its component is final. A step of
-    idr-optimize's inner pipeline, the last, after idr-redirect, so that a
-    function's final body states its summary; it reads the summaries
-    idr-optimize holds and runs nowhere else.
-  }];
-  let statistics = [
-    Statistic<"numConstants", "constants", "Values replaced by a constant">,
-  ];
-  let dependentDialects = ["::mlir::arith::ArithDialect"];
-}
-
-def IdrRedirect : Pass<"idr-redirect", "::idr::FuncOp"> {
-  let summary = "Call the specialization a call's key already has";
-  let description = [{
-    A call whose key, its callee and the static pattern of its arguments,
-    names a specialization the program already holds calls that
-    specialization. The per-function half of specialization, a step of
-    the pipeline idr-optimize runs on each function. It makes no function.
-  }];
-  let statistics = [
-    Statistic<"numRedirected", "redirected", "Calls redirected to a specialization made before">,
-  ];
-  let dependentDialects = ["::mlir::arith::ArithDialect", "::idr::IdrDialect"];
 }
 
 def IdrBindingTimes : Pass<"idr-binding-times", "::idr::ProgramOp"> {
@@ -379,10 +364,12 @@ def IdrBufferize : Pass<"idr-bufferize", "::idr::ProgramOp"> {
     thread at `idr.lin.enter`, a release, after which its buffer is the
     thread's; each link of a thread is bufferized in place, always, so a
     copy there is an internal error that names the write and the read,
-    never a rejection. A copy made at a call is a `missed` remark with its
-    conflict. `!idr.lin<T>` is a tensor-like type whose buffer type is
-    `!idr.lin<B>`, B the buffer type of T, so the grade is carried through
-    the analysis and the rewrite, and no conversion follows them.
+    never a rejection. A function on a cycle of calls is analyzed with the
+    others of its cycle until their boundaries are a fixpoint. After
+    bufferization, a read of an element that holds references followed by
+    the write of the same place becomes `idr.element.update`.
+    `!idr.lin<T>` is no tensor to One-Shot; one retyping after it turns
+    every tensor left inside another type into its cell's buffer.
   }];
   let statistics = [
     Statistic<"numAllocs", "allocs", "Buffers allocated">,
@@ -454,13 +441,17 @@ def IdrRc : Pass<"idr-rc", "::idr::ProgramOp"> {
     stage, which it sets on the program. In order, it writes the owned
     grades borrow inference finds into signatures; runs idr-rc-place on
     each function, nested (reset/reuse and explicit counting); decides the
-    exclusive grades: first, for each function, the set of grade contexts
-    its callers need, then one copy of it for each context but the one it
-    has, each copy made once and named from its key, and the grades written
-    into signatures and call results; runs idr-rc-commit on each function,
-    nested (the exclusive grades into bodies, shared into each owned
-    position); and erases every original that a copy replaced and nothing
-    uses. What each does:
+    exclusive grades: the keys (every function some live call gives
+    exclusive values while another shares one, and every function such a
+    key calls that takes a followed parameter shared), one copy of each,
+    made once and named from its key; then one solve of the program with
+    its copies, which sends each call of a key or of its copy to the copy
+    when it gives an exclusive value at every followed parameter and to the
+    original otherwise; each call goes where that solve sent it, and the
+    grades it proved go into signatures and call results; runs
+    idr-rc-commit on each function, nested (the exclusive grades into
+    bodies, shared into each owned position); and erases every original
+    that a copy replaced and nothing uses. What each does:
       - reset/reuse: in a case region of a match on a box that dies there,
         the box is taken apart where it dies (`idr.take`), and the first
         constructor on each path after that with a cell of the same size
@@ -711,11 +702,15 @@ def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
   let description = [{
     Runs on the LLVM dialect, last. The plan is the module's (which calls
     become guaranteed tail calls, which functions change convention or
-    return through memory); the rewrite then runs on each `llvm.func`
-    nested. A call is in tail position when the path from it returns its
+    return through memory); the rewrite then runs on every `llvm.func` at
+    once, and drops the blocks its entry does not reach. A call is in tail
+    position when the path from it returns its
     result unchanged: through extractvalue and insertvalue, through
     branches that carry it, past conditions the path itself decides and ops
-    that only compute. When such a call's caller and
+    that only compute. The path enters a block with the same decided
+    argument values once at most, however long it is: one that comes back
+    to a block with the values it came with before loops, and its call is
+    not in tail position; with other values it may decide another branch. When such a call's caller and
     callee are on one cycle of direct calls, and only the module's calls
     reach both (private, their address never taken), the two take the
     `tailcc` calling convention, as do all their calls, and every call in

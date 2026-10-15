@@ -1,13 +1,15 @@
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: idris-mlir -c %s -o %t.o --mlir-disable-threading -mlir-print-ir-module-scope -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.d
 // RUN: sh -c 'cp %t.d/builtin_module_no-symbol-name/func_func_squares/*_transform-interpreter.mlir %t.squares.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_rows/*_transform-interpreter.mlir %t.rows.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_sumf/*_transform-interpreter.mlir %t.sumf.mlir'
+// RUN: sh -c 'for f in squares rows sumf; do idris-mlir-opt %t.$f.mlir --transform-interpreter=entry-point=idr.vectorization.cleanup -o /dev/null || exit 1; done'
 // RUN: idris-mlir-opt %t.squares.mlir --idr-expect=holds=vectorized=@squares -o /dev/null
 // RUN: idris-mlir-opt %t.rows.mlir --idr-expect=holds=vectorized=@rows -o /dev/null
 // RUN: FileCheck %s --check-prefix=SQUARES < %t.squares.mlir
 // RUN: FileCheck %s --check-prefix=ROWS < %t.rows.mlir
 // RUN: FileCheck %s --check-prefix=SUMF < %t.sumf.mlir
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
-// NEEDS-ACCEPTANCE: the vectorized loops' printed form after the vectorization schedule (C13 section 4) and the tree printer's file names for a function (func_func_<symbol>/<n>_<m>_<pass>.mlir).
+// NEEDS-ACCEPTANCE: the vectorized loops' printed form after the vectorization schedule and the tree printer's file names for a function (func_func_<symbol>/<n>_<m>_<pass>.mlir).
+// NEEDS-ACCEPTANCE: that the schedule library's unit-dimension cleanup (@idr.vectorization.cleanup), run again on what the schedule left with its failure not suppressed, converges within its budget on every function here.
 // A loop over an array with a parallel dimension computes on the target's
 // lanes after the vectorization schedule: four 64-bit words on x86-64-v3,
 // the x86-64 target entry's CPU, whose vector registers LLVM says are 256

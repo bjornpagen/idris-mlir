@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Investigation: Is the Idris → `idr` MLIR handoff too low level?
 
 **Status:** answered. Proposal 0001 took up its questions and the cutover

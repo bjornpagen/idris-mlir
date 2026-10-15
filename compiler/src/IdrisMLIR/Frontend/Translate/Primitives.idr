@@ -12,7 +12,7 @@ import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
-%default covering
+%default total
 
 scalar : PrimType -> Maybe Scalar
 scalar CharType = Just SChar

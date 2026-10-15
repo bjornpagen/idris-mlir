@@ -9,9 +9,9 @@
 // return's operands among them, and the ready set reads the summary from
 // there when the component finishes.
 //
-// The summaries are on the nodes of idr-optimize's ready set, cached on the
-// program for the length of its run, and read here through the parent; a
-// function never reads another function's body.
+// The summaries are on the nodes of idr-optimize's ready set for the run,
+// which the step is given when it is made; a function never reads another
+// function's body.
 #include "idr/Transforms/Effects.h"
 
 #include "idr/Analysis/Constants.h"
@@ -29,7 +29,7 @@
 
 namespace idr {
 #define GEN_PASS_DEF_IDRCONSTANTS
-#include "idr/Transforms/Passes.h.inc"
+#include "idr/Transforms/InnerPasses.h.inc"
 } // namespace idr
 
 using namespace mlir;
@@ -67,27 +67,36 @@ struct Rewritten {
   bool changed = false;
 };
 
-// The rewrite of the solve over the body of `fn`, blocks before the regions
-// they hold, so that a constant met first is the one the folder hands out
+// The rewrite of the solve over a body, each block before the regions its
+// ops hold, so that a constant met first is the one the folder hands out
 // for its value. An op every result of which became a constant goes when
-// nothing else keeps it, its regions with it.
-Rewritten rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
-  OperationFolder folder(fn.getContext());
-  OpBuilder builder(fn.getContext());
-  Rewritten out;
-  SmallVector<Block *> blocks;
-  auto enqueue = [&](MutableArrayRef<Region> regions) {
-    for (Region &region : regions)
-      for (Block &block : llvm::reverse(region))
-        blocks.push_back(&block);
-  };
-  enqueue(fn->getRegions());
-  while (!blocks.empty()) {
-    Block *block = blocks.pop_back_val();
-    builder.setInsertionPointToStart(block);
-    for (BlockArgument argument : block->getArguments())
+// nothing else keeps it, its regions with it. The walk recurses on the
+// regions, each smaller than the block that holds it.
+class Rewrite {
+public:
+  Rewrite(DataFlowSolver &solver, MLIRContext *context)
+      : solver(solver), folder(context), builder(context) {}
+
+  // The regions of the last op first, each region's blocks in order, as
+  // the solve's own walk would leave them to the folder.
+  void regions(MutableArrayRef<Region> held) {
+    for (Region &region : llvm::reverse(held))
+      for (Block &block : region)
+        visit(block);
+  }
+
+  Rewritten done() {
+    out.changed = out.changed || out.replaced != 0;
+    return out;
+  }
+
+private:
+  void visit(Block &block) {
+    builder.setInsertionPointToStart(&block);
+    for (BlockArgument argument : block.getArguments())
       out.replaced += replaceWithConstant(solver, folder, builder, argument);
-    for (Operation &op : llvm::make_early_inc_range(*block)) {
+    SmallVector<Operation *> holding;
+    for (Operation &op : llvm::make_early_inc_range(block)) {
       Attribute held;
       if (matchPattern(&op, m_Constant(&held))) {
         Block *in = op.getBlock();
@@ -106,25 +115,33 @@ Rewritten rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
         op.erase();
         continue;
       }
-      enqueue(op.getRegions());
+      if (op.getNumRegions() != 0)
+        holding.push_back(&op);
     }
+    for (Operation *op : llvm::reverse(holding))
+      regions(op->getRegions());
   }
-  out.changed = out.changed || out.replaced != 0;
-  return out;
+
+  DataFlowSolver &solver;
+  OperationFolder folder;
+  OpBuilder builder;
+  Rewritten out;
+};
+
+Rewritten rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
+  Rewrite walk(solver, fn.getContext());
+  walk.regions(fn->getRegions());
+  return walk.done();
 }
 
 struct IdrConstantsPass : idr::impl::IdrConstantsBase<IdrConstantsPass> {
+  IdrConstantsPass(const idr::optimize::ReadySet &set, Pass::Statistic &numConstants)
+      : set(set), numConstants(numConstants) {}
+
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
-    auto set = getCachedParentAnalysis<idr::optimize::ReadySet>();
-    if (!set) {
-      fn.emitError("internal error: idr-constants runs inside idr-optimize, whose ready set "
-                   "holds the summaries of its program");
-      return signalPassFailure();
-    }
-    const idr::optimize::ReadySet &ready = set->get();
     auto constantsOf = [&](StringAttr callee) -> const idr::ConstantResults * {
-      const idr::optimize::Summary *summary = ready.summaryOf(callee);
+      const idr::optimize::Summary *summary = set.summaryOf(callee);
       return summary ? &summary->constants : nullptr;
     };
     // A function holds no symbol table, so the solve resolves no callee:
@@ -139,6 +156,15 @@ struct IdrConstantsPass : idr::impl::IdrConstantsBase<IdrConstantsPass> {
     if (!done.changed)
       markAllAnalysesPreserved();
   }
+
+  const idr::optimize::ReadySet &set;
+  Pass::Statistic &numConstants;
 };
 
 } // namespace
+
+std::unique_ptr<Pass> idr::optimize::createConstants(const ReadySet &set,
+                                                     Pass::Statistic &constants) {
+  return std::make_unique<IdrConstantsPass>(set, constants);
+}
+

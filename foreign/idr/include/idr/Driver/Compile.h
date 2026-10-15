@@ -42,7 +42,7 @@ std::string frontendBeside(const char *argv0);
 
 // The chain, from the input to the artifacts, which are kept only once
 // every step succeeded; an exit status.
-int compile(llvm::StringRef frontendPath, Input kind, Artifacts &artifacts);
+int compile(llvm::StringRef frontendPath, Artifacts &artifacts);
 
 // The module the artifacts name through the pipeline and LLVM into the
 // objects of its bins, written where the artifacts say, each pass and

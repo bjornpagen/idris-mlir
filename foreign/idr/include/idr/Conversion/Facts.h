@@ -31,9 +31,10 @@ public:
   explicit Facts(ProgramOp program);
 
   // After the conversion, marks each function's parameters and result:
-  //   - a box, a closure or a string is a pointer to a cell, never null,
-  //     8-aligned, with at least its 8-byte header to read (`nonnull`,
-  //     `align 8`, `dereferenceable(8)`);
+  //   - a value whose type is a cell pointer (a box, a string; after
+  //     idr-defunctionalize every closure and suspension is a box) points to
+  //     a cell, never null, 8-aligned, with at least its 8-byte header to
+  //     read (`nonnull`, `align 8`, `dereferenceable(8)`);
   //   - an unboxed sum's tag is in [0, n) for n constructors (`range`).
   // A parameter some call passes poison gets no pointer facts: its poison
   // is lowered to null, which the callee may drop, and a null that is

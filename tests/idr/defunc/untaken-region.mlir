@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='{{(idr\.| )closure }}' --implicit-check-not=ub.poison < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the dispatch's printed form, as C06's conversion writes it.
+// NEEDS-ACCEPTANCE: the dispatch's printed form, as defunctionalization writes it.
 // The solve follows every edge the ops declare, whether or not the path
 // runs: here the one call of @g is in the region a match on a constant
 // never takes, and the closure it passes still reaches @g's parameter.

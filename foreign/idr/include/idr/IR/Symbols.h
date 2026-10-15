@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -55,12 +56,17 @@ void printCtorRef(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::Type t
 // is.
 struct Elimination {
   // The pair that only moves the value into a linear position and out
-  // again before it is read, or null.
-  LinEnterOp enter;
-  LinUseOp exit;
-  FieldOp field; // null: the value itself is dispatched on
-  LinUseOp use;  // null: what is dispatched on is not linear
+  // again before it is read, when there is one.
+  std::optional<std::pair<LinEnterOp, LinUseOp>> passed;
+  // The field dispatched on, when it is not the value itself.
+  std::optional<FieldOp> field;
+  // The one use of what is dispatched on, when it is linear.
+  std::optional<LinUseOp> use;
   MatchOp dispatch;
+
+  // The ops from the use to the dispatch, each the one use of the one
+  // before, in the order they run.
+  llvm::SmallVector<mlir::Operation *> steps() const;
 };
 std::optional<Elimination> eliminationAt(mlir::OpOperand &use);
 
@@ -78,64 +84,72 @@ std::optional<Elimination> eliminationAt(mlir::OpOperand &use);
 // when the remap is.
 class DataRemap {
 public:
+  // Where a type is held in a body: field `field` of the constructor `tag`
+  // of `owner`.
+  struct FieldPlace {
+    DataType owner;
+    Tag tag;
+    unsigned field;
+  };
   // The replacement of `type`, a type that is neither a data type nor a box
   // (a closure, a suspension, a tensor), or nothing to look inside it.
-  // `owner` is the data type whose field `field` of constructor `tag` holds
-  // `type` (a field's replacement may be keyed by where it is held, not by
-  // its type), or null where `type` is met anywhere but in a body. It may
-  // give a data type a remap made, and what it gives is looked inside in
-  // turn.
-  using Leaf = std::function<std::optional<mlir::Type>(mlir::Type type, DataType owner,
-                                                       unsigned tag, unsigned field)>;
+  // `place` is the field of a body that holds `type` (a field's replacement
+  // may be keyed by where it is held, not by its type), or nothing where
+  // `type` is met anywhere but in a body. It may give a data type a remap
+  // made, and what it gives is looked inside in turn.
+  using Leaf =
+      std::function<std::optional<mlir::Type>(mlir::Type type, std::optional<FieldPlace> place)>;
   // Functions renamed, each old symbol to its new one.
   using Renames = llvm::DenseMap<mlir::StringAttr, mlir::StringAttr>;
 
-  // The remap of what `root` (a module or a program) holds. It keeps `leaf`,
+  // The remap of what `root` (a module or a program) holds, with every new
+  // body made; failure, after an internal error at the root, when a name is
+  // made from two keys or a body is no well-formed sum. It keeps `leaf`,
   // and asks it once per type and place. Every occurrence of a type of
   // `boxed` outside a box becomes a box of it. A label whose function
   // `renames` renames names the new function, and retype renames every
-  // reference to one, so a renamed function needs no other rename.
-  DataRemap(mlir::Operation *root, llvm::StringRef kind, Leaf leaf,
-            llvm::ArrayRef<DataType> boxed = {}, Renames renames = {});
+  // reference to one, so a renamed function needs no other rename. The
+  // remap's replacements refer to it, so it stays where it is made.
+  static mlir::FailureOr<std::unique_ptr<DataRemap>>
+  create(mlir::Operation *root, llvm::StringRef kind, Leaf leaf,
+         llvm::ArrayRef<DataType> boxed = {}, Renames renames = {});
 
-  // The type `type`, met anywhere but in a body, becomes.
-  mlir::Type map(mlir::Type type);
+  DataRemap(const DataRemap &) = delete;
+  DataRemap &operator=(const DataRemap &) = delete;
+
   // Every attribute, result type and block argument type under `root`,
   // mapped.
   void retype(mlir::Operation *root);
-  // The data types remade, old to new, in the order of the old names.
-  llvm::ArrayRef<std::pair<DataType, DataType>> remade() const { return pairs; }
-  // Whether every body was made: a name made from two keys, or a body that
-  // is no well-formed sum, is an internal error at the root.
-  mlir::LogicalResult status() const { return mlir::success(!broken); }
 
 private:
-  // Where a type is held: a field of a body, or anywhere else (no owner).
-  struct Place {
-    DataType owner;
-    unsigned tag = 0;
-    unsigned field = 0;
-  };
+  DataRemap(mlir::Operation *root, Leaf leaf, llvm::ArrayRef<DataType> boxed, Renames renames);
 
+  // Decides the types to remake and their names, and makes each.
+  void remakeAll(mlir::Operation *root, llvm::StringRef kind);
   DataType mapData(DataType type);
-  std::optional<mlir::Type> leafAt(mlir::Type type, Place place);
-  void addReplacements(mlir::AttrTypeReplacer &into, Place place);
-  // The new type of `old`, made the first time it is asked for.
-  DataType make(DataType old);
+  std::optional<mlir::Type> leafAt(mlir::Type type, std::optional<FieldPlace> place);
+  void addReplacements(mlir::AttrTypeReplacer &into, std::optional<FieldPlace> place);
+  // The new type of `old`, made the first time it is asked for, from inside
+  // the replacements of another's body too.
+  DataType remake(DataType old);
 
   mlir::MLIRContext *context;
   Leaf leaf;
   Renames renames;
-  llvm::DenseMap<std::tuple<mlir::Type, DataType, unsigned, unsigned>, std::optional<mlir::Type>>
-      leaves;
+  // What `leaf` gave for each type at each field of a body, and anywhere
+  // else.
+  llvm::DenseMap<std::tuple<mlir::Type, DataType, uint32_t, unsigned>, std::optional<mlir::Type>>
+      leavesInBodies;
+  llvm::DenseMap<mlir::Type, std::optional<mlir::Type>> leavesElsewhere;
   llvm::DenseSet<DataType> boxed;
   // The name of each type to remake, and the type once it is made.
   llvm::DenseMap<DataType, std::string> names;
   llvm::DenseMap<DataType, DataType> next;
-  llvm::SmallVector<std::pair<DataType, DataType>> pairs;
   mlir::AttrTypeReplacer replacer;
   mlir::Location at;
-  bool broken = false;
+  // Whether every body was made, which create reads: a body is made inside
+  // the replacements of another, which return a type whatever happens.
+  mlir::LogicalResult made = mlir::success();
 };
 
 //===----------------------------------------------------------------------===//
@@ -155,9 +169,6 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, Digest digest);
 
 Digest digestOf(llvm::StringRef key);
 
-// The low 64 bits of XXH3-128 of `key`'s bytes, as 16 lower-case hex digits.
-std::string contentHash(llvm::StringRef key);
-
 // The text a content key is made of: printed with every printing option
 // chosen here, so no command-line flag reaches it. Generic op form, no
 // locations, nothing elided, large elements in hex, no name from a
@@ -174,11 +185,10 @@ std::string canonicalText(mlir::Operation *op);
 // times keeps its digests with its names (ContentNames::digest).
 Digest canonicalHash(mlir::Attribute attr);
 Digest canonicalHash(mlir::Type type);
-Digest canonicalHash(mlir::Operation *op);
 
 // A generated name: `<owner>.<kind>.<16 hex digits>`, the low half of the
 // key's digest, a function of what it names alone. A text key is its
-// digestOf; an attribute, a type or an op its canonicalHash.
+// digestOf; an attribute or a type its canonicalHash.
 std::string contentName(llvm::StringRef owner, llvm::StringRef kind, Digest key);
 std::string contentName(llvm::StringRef owner, llvm::StringRef kind, llvm::StringRef key);
 
@@ -197,9 +207,8 @@ public:
     return intern(at, owner, kind, digestOf(key));
   }
 
-  // The canonicalHash of a uniqued attribute or type, kept with these
-  // names, so each is printed once however many keys hold it.
-  Digest digest(mlir::Attribute attr);
+  // The canonicalHash of a uniqued type, kept with these names, so each is
+  // printed once however many keys hold it.
   Digest digest(mlir::Type type);
 
 private:

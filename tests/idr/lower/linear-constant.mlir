@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-lower '--idr-expect=holds=lowered,signature=@action:()->(i8,i64,i64),returns=@action:1/2/3,calls-only=@action:[]' -o /dev/null
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A constant with a linear field is laid out as the constant with the
 // value itself there: linearity has no runtime form, in static data too.
 // So the constant IO action is the Step it holds, Bind (tag 1) of 2 and 3.
@@ -6,7 +7,7 @@
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!Step>)]>
 idr.program @"linear-constant" root(@Prog.main) stage(owned) {
   idr.func @action() -> !IO {
-    %c = idr.constant #idr.con<@MkIO, [#idr.con<@Bind, [2, 3]>]> : !IO
+    %c = idr.constant #idr.con<!IO, @MkIO, [#idr.con<!Step, @Bind, [2, 3]>]> : !IO
     return %c : !IO
   }
   idr.func @Prog.main() -> i64 {

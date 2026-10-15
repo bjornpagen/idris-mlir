@@ -1,0 +1,128 @@
+diff --git a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
+index ffbe870..b32998d 100644
+--- a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
++++ b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
+@@ -285,6 +285,13 @@ struct BufferizationOptions {
+   using ReconcileBufferTypeMismatchFn = std::function<FailureOr<BufferLikeType>(
+       BufferLikeType, BufferLikeType, const BufferizationOptions &)>;
+ 
++  /// Tensor-like allocation, for a value of a tensor-like type that is not a
++  /// builtin tensor: a new value of the value's type, a copy of it if `copy`
++  /// is set, otherwise one whose contents are undefined.
++  /// Parameters: builder, location, value, copy, bufferization options
++  using TensorAllocationFn = std::function<FailureOr<Value>(
++      OpBuilder &, Location, Value, bool, const BufferizationOptions &)>;
++
+   BufferizationOptions();
+ 
+   /// Try to cast the given op to BufferizableOpInterface if the op is allow
+@@ -384,6 +391,14 @@ struct BufferizationOptions {
+   /// memory-space mismatch.
+   ReconcileBufferTypeMismatchFn reconcileBufferTypeMismatchFn = nullptr;
+ 
++  /// Hook to allocate a value of a tensor-like type that is not a builtin
++  /// tensor, where an OpOperand of that type, or the one alias of an OpOperand
++  /// that the op does not write, bufferizes out-of-place: the copy that is
++  /// used instead, or a new tensor where the copy can be omitted. A builtin
++  /// tensor is allocated with `bufferization.alloc_tensor`. The default fails
++  /// with an error that names the type.
++  TensorAllocationFn tensorAllocationFn = nullptr;
++
+   /// If set to `true`, the analysis is skipped. A buffer is copied before every
+   /// write. This flag cannot be used together with `testAnalysisOnly = true`.
+   bool copyBeforeWrite = false;
+diff --git a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
+index 1acc98f..5f478ef 100644
+--- a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
++++ b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
+@@ -161,11 +161,10 @@ Operation *bufferization::getOwnerOfValue(Value value) {
+   return llvm::cast<BlockArgument>(value).getOwner()->getParentOp();
+ }
+ 
+-// TODO: Properly support with options, for now it is hardcoded to builtin
+-// Tensor/MemRef types based approach
+ /// Create an AllocTensorOp for the given shaped value. If `copy` is set, the
+ /// shaped value is copied. Otherwise, a tensor with undefined contents is
+-/// allocated.
++/// allocated. A value of a tensor-like type that is not a builtin tensor is
++/// allocated by `options.tensorAllocationFn`.
+ FailureOr<Value> bufferization::allocateTensorForShapedValue(
+     OpBuilder &b, Location loc, Value shapedValue,
+     const BufferizationOptions &options, const BufferizationState &state,
+@@ -181,8 +180,10 @@ FailureOr<Value> bufferization::allocateTensorForShapedValue(
+              llvm::isa<UnrankedMemRefType>(shapedValue.getType())) {
+     return getOwnerOfValue(shapedValue)
+         ->emitError("copying of unranked tensors is not implemented");
++  } else if (llvm::isa<TensorLikeType>(shapedValue.getType())) {
++    return options.tensorAllocationFn(b, loc, shapedValue, copy, options);
+   } else {
+-    llvm_unreachable("expected RankedTensorType or MemRefType");
++    llvm_unreachable("expected a tensor-like value or a MemRefType value");
+   }
+   RankedTensorType tensorType = llvm::cast<RankedTensorType>(tensor.getType());
+   SmallVector<Value> dynamicSizes;
+@@ -232,8 +233,6 @@ FailureOr<Value> bufferization::allocateTensorForShapedValue(
+   return allocTensorOp.getResult();
+ }
+ 
+-// TODO: Properly support with options, for now it is hardcoded to builtin
+-// Tensor/MemRef types based approach
+ LogicalResult BufferizableOpInterface::resolveTensorOpOperandConflicts(
+     RewriterBase &rewriter, const AnalysisState &analysisState,
+     const BufferizationState &bufferizationState) {
+@@ -247,7 +246,7 @@ LogicalResult BufferizableOpInterface::resolveTensorOpOperandConflicts(
+   // Find all out-of-place OpOperands.
+   for (OpOperand &opOperand : op->getOpOperands()) {
+     Type operandType = opOperand.get().getType();
+-    if (!llvm::isa<TensorType>(operandType))
++    if (!llvm::isa<TensorLikeType>(operandType))
+       continue;
+     if (analysisState.isInPlace(opOperand))
+       continue;
+@@ -429,6 +428,16 @@ defaultReconcileBufferTypeMismatch(BufferLikeType x, BufferLikeType y,
+       xMemRef.getShape(), xMemRef.getElementType(), xMemRef.getMemorySpace()));
+ }
+ 
++/// Default tensor-like allocation: a value of a tensor-like type that is not a
++/// builtin tensor cannot be allocated without knowing its dialect.
++FailureOr<Value> defaultTensorAllocation(OpBuilder &, Location loc,
++                                         Value value, bool,
++                                         const BufferizationOptions &) {
++  return emitError(loc) << "allocating a tensor of type " << value.getType()
++                        << " is not supported: "
++                           "BufferizationOptions::tensorAllocationFn is not set";
++}
++
+ } // namespace
+ 
+ // Default constructor for BufferizationOptions.
+@@ -437,7 +446,8 @@ BufferizationOptions::BufferizationOptions()
+       castFn(defaultCreateCast),
+       functionArgTypeConverterFn(defaultFunctionArgTypeConverter),
+       unknownTypeConverterFn(defaultUnknownTypeConverter),
+-      reconcileBufferTypeMismatchFn(defaultReconcileBufferTypeMismatch) {}
++      reconcileBufferTypeMismatchFn(defaultReconcileBufferTypeMismatch),
++      tensorAllocationFn(defaultTensorAllocation) {}
+ 
+ bool BufferizationOptions::isOpAllowed(Operation *op) const {
+   // Special case: If function boundary bufferization is deactivated, do not
+diff --git a/mlir/test/Dialect/Bufferization/Transforms/one-shot-bufferize-tensor-like-copy.mlir b/mlir/test/Dialect/Bufferization/Transforms/one-shot-bufferize-tensor-like-copy.mlir
+new file mode 100644
+index 0000000..8043e0e
+--- /dev/null
++++ b/mlir/test/Dialect/Bufferization/Transforms/one-shot-bufferize-tensor-like-copy.mlir
+@@ -0,0 +1,14 @@
++// RUN: mlir-opt %s -test-one-shot-module-bufferize -split-input-file -verify-diagnostics
++
++// An OpOperand of a tensor-like type that is not a builtin tensor bufferizes
++// out-of-place: %arg is read after the op writes it. Such a value is copied
++// by BufferizationOptions::tensorAllocationFn, which the test pass does not
++// set, so the copy is an error. The OpOperand used to be given no copy, and
++// the op wrote the buffer that is read after it.
++func.func @custom_type_read_after_write(%arg: !test.test_tensor<[4], f64>)
++    -> (!test.test_tensor<[4], f64>, !test.test_tensor<[4], f64>) {
++  // expected-error @below {{allocating a tensor of type '!test.test_tensor<[4], f64>' is not supported}}
++  %out = "test.dummy_tensor_op"(%arg) : (!test.test_tensor<[4], f64>)
++    -> !test.test_tensor<[4], f64>
++  return %out, %arg : !test.test_tensor<[4], f64>, !test.test_tensor<[4], f64>
++}

@@ -3,9 +3,9 @@
 // idr-optimize, the first-order optimizer: one bottom-up ready set over the
 // components of the call graph, run in waves. A function is taken up once
 // every component it calls into is final; it inlines its calls into final
-// callees, runs the inner pipeline once, and runs both again only for
-// what its cleanup and its specialization requests exposed. What a final
-// function tells its callers is one Summary on its node. And idr-contify,
+// callees, runs the inner pipeline once, and runs both again for each
+// batch of specialization nodes its pipeline requested. What a final
+// function tells its callers is one Summary on its node, written once. And idr-contify,
 // which runs before it. (The ready set is Mojo's AutomaticInline design
 // rebuilt on upstream's call graph and MLIR's thread pool.)
 #ifndef IDR_TRANSFORMS_OPTIMIZE_H
@@ -16,6 +16,7 @@
 #include "idr/Analysis/Inline.h"
 #include "idr/Analysis/Specialize.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Worklist.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "mlir/IR/SymbolTable.h"
@@ -24,6 +25,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseMapInfoVariant.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -32,6 +34,7 @@
 #include <mutex>
 #include <optional>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace idr {
@@ -52,109 +55,165 @@ struct NodeAction : support::TaggedAction<NodeAction> {
   static constexpr llvm::StringLiteral tag = "idr-optimize-node";
 };
 
-// What a function tells its callers, one record per function on its node.
-// Each part is written once, by the turn of the function's own component
-// (or, for a made node, between waves), and read by another component only
-// once the component is final: final is set between waves, so the wave
-// barrier orders every read after its write, and no part needs a lock.
-struct Summary {
-  // What a run may do: the component's entry from its final bodies,
-  // written on the function as its `effects` when the component becomes
-  // final.
-  idr::Effect effects = idr::Effect::none;
-  // The argument it gives back, solved over its component when the
-  // component is taken up.
+// What a component's turn solves for a function when it takes it up: the
+// argument it gives back, solved over the members taken up with it, and
+// the binding time of each parameter, from the component's bodies or, for
+// a made node, its owner's by its key. Written once, by that turn.
+struct Solved {
   std::optional<unsigned> givesBack;
-  // The binding time of each parameter: from the component's bodies when
-  // it is taken up, or for a made node its owner's by its key.
+  llvm::SmallVector<BindingTime> times;
+};
+
+// What a function tells its callers: written once, whole, when its
+// component becomes final, and never again. Final is set between waves, so
+// the wave barrier orders every read after the write, and nothing needs a
+// lock.
+struct Summary {
+  // What a run may do: the component's entry from its final bodies, also
+  // written on the function as its `effects`.
+  idr::Effect effects;
+  // What it solved when its component took it up.
+  std::optional<unsigned> givesBack;
   llvm::SmallVector<BindingTime> times;
   // What a call returns, read from the final body.
   ConstantResults constants;
-  // What the inline rule reads: `calls` when the node is made, the rest
-  // when its component is final.
+  // What the inline rule reads.
   inlining::Facts facts;
+};
+
+// What a finished component's final bodies say, read by its own turn and
+// published between waves: its entry, and each member's constants and
+// facts, in member order.
+struct Finished {
+  struct Member {
+    ConstantResults constants;
+    inlining::Facts facts;
+  };
+  idr::Effect effects;
+  llvm::SmallVector<Member> members;
 };
 
 // One function of the ready set: a function the program held when
 // idr-optimize began, or a specialization node it made.
 class Node {
-public:
-  // The function; for a made node, null until the node table builds it.
-  idr::FuncOp fn;
-  // The node table's node this one is; null for a function the program
-  // held.
-  specialize::Node *made = nullptr;
-  Summary summary;
+  // Where it comes from: a function the program held, with the program's
+  // idr.call sites naming it when idr-optimize began; or a node the table
+  // built, called from the one request that made it, with the binding
+  // times its build inherited from its owner by its key until its
+  // component's turn takes them up.
+  struct Held {
+    unsigned calls;
+  };
+  struct Made {
+    llvm::SmallVector<BindingTime> times;
+  };
 
-  // Whether its component is final: its summary is written and nothing
-  // writes the function again. Set between waves only, so it is the same
-  // for every reader of a wave.
-  bool isFinal() const { return final; }
+public:
+  using Origin = std::variant<Held, Made>;
+
+  // Only the ready set and its scheduler can name an origin.
+  Node(idr::FuncOp fn, Origin origin, Scc &scc) : fn(fn), origin(std::move(origin)), scc(&scc) {}
+
+  // The function, which a node keeps from when it is made. A made node is
+  // in the ready set only once the node table built it.
+  idr::FuncOp fn;
+
+  // Whether its component is final: its summary is published and nothing
+  // writes the function again. Published between waves only, so it is the
+  // same for every reader of a wave.
+  bool isFinal() const { return published.has_value(); }
+  // Its summary once final; null before.
+  const Summary *summary() const { return published ? &*published : nullptr; }
   // Whether it and `other` are one component. Every node holds its
-  // component's leader, and merges happen between waves only, so a worker
-  // may ask.
+  // component, and merges happen between waves only, so a worker may ask.
   bool sharesComponentWith(const Node &other) const { return scc == other.scc; }
 
 private:
   friend class ReadySet;
   friend class Scheduler;
 
-  // A made node not yet built, then (as every node starts) one not taken
-  // up, one parked on the nodes in `waitsOn`, or one done. A member's turn
-  // writes its state; the rest changes between waves.
-  enum class State : uint8_t { Unbuilt, Waiting, Parked, Done };
+  // One not taken up, one parked after asking for a batch of nodes, the
+  // first of which names the park, or one done. A member's turn writes its
+  // state; the rest changes between waves.
+  struct Waiting {};
+  struct Parked {
+    specialize::Node *on;
+  };
+  struct Done {};
+  using State = std::variant<Waiting, Parked, Done>;
 
-  bool final = false;
-  Scc *scc = nullptr;
-  State state = State::Waiting;
-  bool inProgram = true;
-  llvm::SmallVector<Node *> waitsOn, waiters;
-  // What its last turn requested and could not have yet, resolved between
-  // waves.
-  llvm::SmallVector<specialize::Node *> asked;
+  // Whether it still waits: on a node that is neither final nor of its own
+  // component. A wait is met by what happens to its target, so nothing
+  // takes it away.
+  bool waiting() const {
+    return llvm::any_of(waitsOn, [&](const Node *target) {
+      return !target->isFinal() && target->scc != scc;
+    });
+  }
+
+  // The call sites the inline rule weighs.
+  unsigned calls() const {
+    return std::visit(llvm::makeVisitor([](const Held &held) { return held.calls; },
+                                        [](const Made &) { return 1u; }),
+                      origin);
+  }
+
+  Origin origin;
+  State state = Waiting{};
+  // What its component's turn solved when it took it up, until its
+  // summary takes it over: written by that turn and read only by the turns
+  // of its own component, each on one worker and in waves that the barrier
+  // between them orders.
+  std::optional<Solved> solved;
+  // Its summary: written once, between waves, when its component becomes
+  // final, and read by every worker of the waves after. No worker writes it
+  // while another reads it.
+  std::optional<Summary> published;
+  // Its component; a merge moves it into the one merged into.
+  Scc *scc;
+  // What it asked for or calls, each once, met or not.
+  llvm::SmallVector<Node *> waitsOn;
 };
 
 // A component of the ready set's graph, callees first. A component grows
 // when a node would wait on one that waits, through requests and calls, on
-// it.
+// it; the one merged into keeps the members, and the other is left empty.
 struct Scc {
+  // Its place among the ready set's components, the order of a wave's
+  // turns.
+  unsigned order = 0;
   // Program order; a merge appends the merged members.
   llvm::SmallVector<Node *> members;
-  // The components with a call into this one, once per call graph edge
-  // between components; a merge appends the merged one's.
-  llvm::SmallVector<Scc *> callers;
+  // A member of each component with a call into this one, once per call
+  // graph edge between components; a merge appends the merged one's. A
+  // member always holds its component, so a caller's is found through it.
+  llvm::SmallVector<Node *> callers;
   unsigned unfinishedCallees = 0;
-  Scc *mergedInto = nullptr;
-  // What this component is after every merge.
-  Scc &leader();
 };
 
-// The ready set of a program as idr-optimize drives it, the node table's
-// view of the schedule, and where the passes of the inner pipeline read the
+// The ready set of one run of idr-optimize over `program`, the node table's
+// view of the schedule, and where the steps of the inner pipeline read the
 // summaries. Its maps change only between waves, so every reader may be
 // called from any worker of a wave.
 class ReadySet final : public specialize::Schedule, public BindingTimes {
 public:
-  ReadySet(mlir::Operation *program, mlir::AnalysisManager &am);
+  explicit ReadySet(idr::ProgramOp program);
   ~ReadySet() override;
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<ReadySet>();
-  }
 
   // The node of the function named `name` the program holds; null for none.
   Node *nodeOf(mlir::StringAttr name) const { return byName.lookup(name); }
   // How many nodes it holds: the program's functions and the made nodes.
   size_t nodeCount() const { return all.size(); }
   idr::FuncOp lookup(mlir::StringAttr name) const override;
-  bool isFinal(idr::FuncOp fn) const override;
+  idr::FuncOp finalFunction(mlir::StringAttr name) const override;
   bool sameComponent(mlir::StringAttr a, mlir::StringAttr b) const override;
 
   // The summary of the function named `name`, once its component is final;
   // null before.
   const Summary *summaryOf(mlir::StringAttr name) const;
-  // The binding times of the function named `fn`, once its component is
-  // final; empty before.
-  llvm::SmallVector<BindingTime> of(mlir::StringAttr fn) const override;
+  // The binding times of the function named `fn`, whose component is
+  // final.
+  llvm::ArrayRef<BindingTime> of(mlir::StringAttr fn) const override;
   // The argument the function named `callee` gives back, as a function of
   // `reader`'s component sees it: once its component is final, or within
   // the component itself, which solved it when it was taken up.
@@ -168,47 +227,84 @@ private:
   llvm::DenseMap<specialize::Node *, Node *> byMade;
 };
 
-// The inner per-function pipeline, run once per node and again by the
-// node's loop, into `pm`, a manager on idr.func.
-void buildInnerPipeline(mlir::OpPassManager &pm);
+// The statistics of idr-optimize its inner pipeline's steps count into:
+// every copy of the pipeline counts into these, so a count is the run's
+// whichever worker made it.
+struct InnerCounts {
+  mlir::Pass::Statistic &identityCalls;
+  mlir::Pass::Statistic &pureErased;
+  mlir::Pass::Statistic &pureMerged;
+  mlir::Pass::Statistic &redirected;
+  mlir::Pass::Statistic &constants;
+};
 
-// idr-pure-calls, the inner pipeline's step after canonicalize: each call of
-// a final callee whose summary says it only computes is erased when nothing
-// reads it, and given the results of an identical call that dominates it
-// (PureCalls.cpp). It runs nowhere else, reading the ready set through its
-// parent's cache.
-std::unique_ptr<mlir::Pass> createPureCallsPass();
+// What the inner pipeline's steps read of one run of idr-optimize, and where
+// they count. Each step is given its part when it is made, so a step exists
+// only within a run.
+struct InnerRun {
+  const ReadySet &set;
+  const specialize::Nodes &nodes;
+  // What a call does, through the program's table, for the canonicalizer.
+  const CalleeEffects &effects;
+  const InnerCounts &counts;
+};
 
-// What the scheduler reads and writes besides the ready set: the program's
-// symbol table and the analyses the pass took before any task, so that
-// the inner pipeline's passes find them cached.
+// The inner per-function pipeline of one run, run once per node and again
+// by the node's loop, into `pm`, a manager on idr.func.
+void buildInnerPipeline(mlir::OpPassManager &pm, const InnerRun &run);
+
+// idr-pure-calls, a step of the inner pipeline (InnerPasses.td), for one
+// run: it reads the summaries `set` publishes, and counts into `erased` and
+// `merged`.
+std::unique_ptr<mlir::Pass> createPureCalls(const ReadySet &set, mlir::Pass::Statistic &erased,
+                                            mlir::Pass::Statistic &merged);
+
+// What the scheduler reads and writes besides the ready set: the program,
+// its symbol table, the node table, the inner pipeline's run, and the pass's
+// analysis manager, which nests each function's.
 struct Analyses {
   idr::ProgramOp program;
   ReadySet &set;
   mlir::SymbolTable &symbols;
   const specialize::Nodes &nodes;
+  const InnerRun &inner;
   mlir::AnalysisManager am;
 };
 
 // One component's turn in a wave: the members it takes up and those it
 // resumes, and what the turn left for the pass thread to settle.
 struct Turn {
-  Scc *scc = nullptr;
+  explicit Turn(Scc &scc) : scc(scc) {}
+
+  Scc &scc;
   llvm::SmallVector<Node *> starters, resumed;
   // The nodes of the table this turn built.
   llvm::SmallVector<specialize::Node *> built;
-  bool finished = false;
+  // Each member it parked, with the batch it asked for and could not have
+  // yet, resolved between waves.
+  llvm::SmallVector<std::pair<Node *, llvm::SmallVector<specialize::Node *>>> parked;
+  // What the component's final bodies say, once every member is done.
+  std::optional<Finished> finished;
   uint64_t inlined = 0, capped = 0;
 };
 
-// The ready set's scheduler, which idr-optimize alone runs. A wave is the
-// turn of every component that can go on: its callees final, its members
-// in the program and parked on nothing, run in parallel. Between waves, on
-// the pass thread with no turn running, made nodes go into the program,
-// finished components become final and publish their summaries, requests
-// and the calls of made nodes are recorded as waits or merged, and the
-// next wave is read off what is final. So every turn reads a fixed set of
-// final functions, and the output is the same at any thread count.
+// One start or resume of a member: what a wave runs. A member starts once,
+// and resumes once per park, a park being named by the first node of the
+// batch it waits for, which no later batch holds: a requester asks for
+// each node once. So each step enters the worklist of steps once, and they
+// are finitely many, as the nodes and their requests are.
+using Start = Node *;
+using Resume = std::pair<Node *, specialize::Node *>;
+using Step = std::variant<Start, Resume>;
+
+// The ready set's scheduler, which idr-optimize alone runs. A wave is every
+// step queued: the turn of every component that can go on, its callees
+// final and its members waiting on nothing, run in parallel. Between waves, on the pass thread with no turn running, made
+// nodes go into the program, finished components become final and publish
+// their summaries, requests and the calls of made nodes are recorded as
+// waits or merged, and the steps that can go on now are queued. So every
+// turn reads a fixed set of final functions, and the output is the same at
+// any thread count.
 class Scheduler {
 public:
   using RunPipeline = std::function<mlir::LogicalResult(mlir::OpPassManager &, mlir::Operation *)>;
@@ -226,21 +322,29 @@ public:
 private:
   // A turn, on a worker (Component.cpp).
   mlir::LogicalResult turn(Turn &turn);
-  // The summary parts of the members a turn takes up.
+  // What the members a turn takes up solve.
   void takeUp(llvm::ArrayRef<Node *> starters);
-  // One member's loop from its next inline step: whether it was parked.
-  mlir::FailureOr<bool> runMember(Node *node, bool resumed, Turn &turn);
+  // One member's loop, which leaves it done or parked.
+  mlir::LogicalResult runMember(Node *node, Turn &turn);
+  // One inline step, whether it inlined anything; and a round, an inline
+  // step and the inner pipeline.
+  bool inlineStep(Node *node, Turn &turn);
+  mlir::LogicalResult round(Node *node, Turn &turn);
+  // Builds the batch a member was given and parks the member when a node of
+  // it is not final; whether it parked.
+  mlir::FailureOr<bool> parks(Node *node, llvm::SmallVector<specialize::Node *> asked,
+                              Turn &turn);
   mlir::LogicalResult runInner(idr::FuncOp fn);
   // Builds each requested node this worker claims.
   mlir::LogicalResult build(llvm::ArrayRef<specialize::Node *> requests, Turn &turn);
-  void finish(Scc &scc);
+  Finished finish(const Scc &scc);
 
   // Between waves, on the pass thread (Waves.cpp).
-  llvm::SmallVector<Turn> nextWave();
-  mlir::LogicalResult settle(llvm::MutableArrayRef<Turn> wave);
-  mlir::LogicalResult insert(Node *node);
-  void finalize(Scc &scc);
-  Node *nodeOfMade(specialize::Node *made);
+  void enable(OnceWorklist<Step> &ready);
+  llvm::SmallVector<Turn, 0> gather(const Step &first, OnceWorklist<Step> &ready);
+  void settle(llvm::MutableArrayRef<Turn> wave);
+  void insert(specialize::Node *made);
+  void finalize(Scc &scc, Finished done);
   void want(Node *requester, Node *node);
   void waitOnCalls(Node *node);
   bool reaches(Scc &from, Scc &to);

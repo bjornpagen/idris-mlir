@@ -3,8 +3,10 @@
 // moves-out: an element of an array read only to be rebuilt and written
 // back is rebuilt in its place, stated as the property a test wants of it:
 // the element moves out of the array into the rebuilding, with the
-// reference the array held (idr.array.update), so the value it rebuilds
-// holds the one reference to its cell.
+// reference the array held, so the value it rebuilds holds the one
+// reference to its cell. Every op that makes that move says so by its
+// interface (UpdateOpInterface): idr.array.update on an array a world
+// orders, and idr.element.update on the buffer of a value array.
 
 #include "idr/Transforms/Expect.h"
 
@@ -23,7 +25,7 @@ LogicalResult movesOut(ModuleOp module, AnalysisManager &, StringRef function) {
     return failure();
   bool moved = false;
   for (Operation *root : roots)
-    root->walk([&](ArrayUpdateOp) { moved = true; });
+    root->walk([&](UpdateOpInterface) { moved = true; });
   if (!moved)
     fail(roots.front()->getLoc(), property) << "no element of an array is rebuilt in its place"
                                             << (function.empty() ? "" : " in ") << function;

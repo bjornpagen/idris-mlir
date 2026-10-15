@@ -23,7 +23,7 @@ using namespace mlir;
 
 namespace idr::conversion {
 
-Value Runtime::allocate(OpBuilder &b, Location loc, const layout::Cell &cell, unsigned tag) {
+Value Runtime::allocate(OpBuilder &b, Location loc, const layout::Cell &cell, Tag tag) {
   Value size = i64Constant(b, loc, cell.size), info = i32Constant(b, loc, cell.info.word());
   Value address = call(b, loc, "idris_rt_cell", ptrType(b.getContext()), ValueRange{size, info});
   storeCellWords(b, loc, address, cell, tag);
@@ -31,22 +31,21 @@ Value Runtime::allocate(OpBuilder &b, Location loc, const layout::Cell &cell, un
 }
 
 void Runtime::storeHeader(OpBuilder &b, Location loc, Value address, const layout::Cell &cell,
-                          unsigned tag, layout::CellInfo info) {
+                          Tag tag, layout::CellInfo info) {
   LLVM::StoreOp::create(b, loc, i32Constant(b, loc, 1), address, alignAt(cellAlignment(), 0));
   storeInfo(b, loc, address, i32Constant(b, loc, info.word()));
   storeCellWords(b, loc, address, cell, tag);
 }
 
 void Runtime::storeCellWords(OpBuilder &b, Location loc, Value address, const layout::Cell &cell,
-                             unsigned tag) {
+                             Tag tag) {
   constexpr unsigned after = sizeof(idris_rt_header);
-  if (cell.countWord)
+  if (cell.countWord())
     LLVM::StoreOp::create(b, loc, i64Constant(b, loc, cell.objs), at(b, loc, address, after),
                           alignAt(cellAlignment(), after));
   if (cell.group)
     LLVM::StoreOp::create(b, loc,
-                          LLVM::ConstantOp::create(b, loc, cell.group->type,
-                                                   static_cast<int64_t>(tag / IDRIS_RT_TAG_LIMIT)),
+                          LLVM::ConstantOp::create(b, loc, cell.group->type, groupWord(tag)),
                           at(b, loc, address, cell.group->offset),
                           alignAt(cellAlignment(), cell.group->offset));
 }
@@ -60,14 +59,12 @@ Value Runtime::loadTag(OpBuilder &b, Location loc, Value cell, DataType data,
   // Every cell of a sum with groups has the group word at one offset, so it
   // is read before the constructor is known.
   std::optional<layout::Slot> group =
-      data.getCtors().empty() ? std::nullopt : layouts.box(data, 0).group;
+      data.getCtors().empty() ? std::nullopt : layouts.box(data, Tag{0}).group;
   if (!group)
     return tag;
   Value word = LLVM::LoadOp::create(b, loc, group->type, at(b, loc, cell, group->offset),
                                     alignAt(cellAlignment(), group->offset));
-  Value groups = LLVM::MulOp::create(b, loc, LLVM::ZExtOp::create(b, loc, i64, word),
-                                     i64Constant(b, loc, IDRIS_RT_TAG_LIMIT));
-  return LLVM::AddOp::create(b, loc, groups, tag);
+  return LLVM::AddOp::create(b, loc, groupBase(b, loc, word), tag);
 }
 
 Value Runtime::loadInfo(OpBuilder &b, Location loc, Value cell) {

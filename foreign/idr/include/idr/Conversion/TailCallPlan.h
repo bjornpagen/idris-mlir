@@ -7,16 +7,19 @@
 #ifndef IDR_CONVERSION_TAILCALLPLAN_H
 #define IDR_CONVERSION_TAILCALLPLAN_H
 
+#include "mlir/Analysis/CallGraph.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Pass/AnalysisManager.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <cstdint>
 
 namespace idr::conversion {
 
 // The plan of idr-tail-calls, computed once over the lowered module and
 // read by the rewrite of each function, which reads nothing of another
-// function but this. None of it mutates the module.
+// function but this. Making it mutates nothing.
 //
 //   - The internal functions: defined, private, not variadic, every user an
 //     llvm.call naming it as callee. Only these take `tailcc`: a function
@@ -34,42 +37,34 @@ namespace idr::conversion {
 //     tail calls, those whose result does not fit the return registers.
 class TailCallPlan {
 public:
-  // A call of a function whose result goes through memory: the result it
-  // returned, and the callee's type once it takes the pointer.
-  struct ThroughMemory {
-    mlir::LLVM::CallOp call;
-    mlir::Type result;
-    mlir::LLVM::LLVMFunctionType type;
-  };
-
-  // What the rewrite of one function does.
+  // What the rewrite of one function does; nothing, for one the plan does
+  // not name.
   struct Function {
-    // Whether it takes `tailcc`, and whether its result goes through
-    // memory.
+    // Whether it takes `tailcc`.
     bool tail = false;
-    bool inMemory = false;
     // Its planned tail calls, each in a block the entry still reaches once
     // the return follows each of them.
     llvm::SmallVector<mlir::LLVM::CallOp> tailCalls;
     // Its calls of a function that takes `tailcc`.
     llvm::SmallVector<mlir::LLVM::CallOp> tailccCalls;
-    // Its calls, in what the entry still reaches, of a function whose
-    // result goes through memory.
-    llvm::SmallVector<ThroughMemory> throughMemory;
+    // Whether its result goes through memory. Each of its planned tail
+    // calls then passes on the pointer it got: a tail call returns its
+    // callee's result as its caller's, of one type, so the callee's result
+    // goes through memory too, and a caller whose result does not makes no
+    // such call.
+    bool resultInMemory = false;
+    // Its other calls, in what the entry still reaches, of a function whose
+    // result goes through memory: each passes a slot of its frame.
+    llvm::SmallVector<mlir::LLVM::CallOp> throughSlot;
   };
 
-  TailCallPlan(mlir::Operation *module, mlir::AnalysisManager &am);
+  // The plan of `module`, whose cycles of direct calls are `graph`'s. A
+  // failure, reported, when a result had to be measured and there is no
+  // machine for the module's target to ask.
+  static mlir::FailureOr<TailCallPlan> make(mlir::ModuleOp module, const mlir::CallGraph &graph);
 
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<TailCallPlan>();
-  }
-
-  // A failure when a result had to be measured and there is no machine for
-  // the module's target to ask, which has been reported.
-  mlir::LogicalResult target() const { return mlir::success(machine); }
-
-  // What the rewrite of `fn` does, or null when it does nothing.
-  const Function *of(mlir::LLVM::LLVMFuncOp fn) const;
+  // What the rewrite of `fn` does.
+  const Function &of(mlir::LLVM::LLVMFuncOp fn) const;
 
   // The calls in tail position that stay calls since they may reach their
   // caller's frame, and the functions whose result goes through memory.
@@ -77,8 +72,9 @@ public:
   uint64_t inMemory() const { return memory; }
 
 private:
+  TailCallPlan() = default;
+
   llvm::DenseMap<mlir::Operation *, Function> functions;
-  bool machine = true;
   uint64_t bound = 0;
   uint64_t memory = 0;
 };

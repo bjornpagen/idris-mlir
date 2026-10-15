@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-effects,idr.func(idr-structure-loops)))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=structured-loops=@sumi,structured-loops=@pureCall,structured-loops=@crashes -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=counted-loop=@world,counted-loop=@calls,counted-loop=@sumf -o /dev/null
-// NEEDS-ACCEPTANCE: the forms idr-structure-loops gives each op (R10) from the effects idr-effects finds.
+// NEEDS-ACCEPTANCE: the forms idr-structure-loops gives each op from the effects idr-effects finds.
 // An array op's form is its region's effects: a region that does nothing
 // beyond compute and crash is a structured op, whose crash is the program's
 // end wherever it happens; one that performs output in the world's order,

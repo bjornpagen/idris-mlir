@@ -39,6 +39,8 @@
 #include "mlir/IR/Threading.h"
 #include "llvm/ADT/Sequence.h"
 
+#include <variant>
+
 using namespace mlir;
 using namespace idr::ownership;
 
@@ -48,12 +50,15 @@ namespace {
 
 using Site = Reuses::Site;
 
-// A value as the rewrite will find it: an original value, or, when `value`
-// is null, the field `virt` names of an earlier site's take.
-struct Held {
-  Value value;
-  unsigned virt = 0;
+// A field of an earlier site's take, by its position among the fields the
+// takes gave.
+struct VirtualField {
+  unsigned index;
 };
+
+// A box as the rewrite will find it: a value of the function, or a field
+// of an earlier site's take.
+using Held = std::variant<Value, VirtualField>;
 
 // A field of a site's take: its type, and the uses the take gives it.
 struct Virtual {
@@ -71,15 +76,13 @@ public:
     fn.walk([&](MatchOp match) { matches.push_back(match); });
     for (MatchOp match : matches) {
       Value box = match.getScrutinee();
-      if (!isa<BoxType>(unrestricted(box.getType())) || !reusable(Held{box}) ||
-          usedAfter(box, match))
+      if (!isa<BoxType>(unrestricted(box.getType())) || !reusable(box) || usedAfter(box, match))
         continue;
       DataType data = dataTypeOf(box.getType());
-      for (unsigned index = 0, e = static_cast<unsigned>(match.getCases().size()); index < e;
-           ++index) {
+      for (unsigned index : llvm::seq(static_cast<unsigned>(match.getCases().size()))) {
         Region &region = match.getCaseRegion(index);
         if (!region.empty())
-          dies(Held{box}, data, match.getCaseTag(index), region.front(), &region.front());
+          dies(box, data, match.getCaseTag(index), region.front(), region.front().getArguments());
       }
     }
     readBoxes();
@@ -93,22 +96,19 @@ private:
   // boxes are found once the matched boxes are decided, the fields their
   // takes give among them, in the order a walk would meet them.
   void readBoxes() {
-    unsigned matched = static_cast<unsigned>(sites.size());
-    for (unsigned index = 0; index < matched; ++index)
-      (sites[index].after ? takesAfter[sites[index].after] : takesAtStart[sites[index].block])
-          .push_back(index);
+    for (auto [index, site] : llvm::enumerate(sites))
+      takesAt[site.point].push_back(static_cast<unsigned>(index));
     for (Block &block : fn.getBody())
       visit(block);
     for (auto [box, first] : boxes)
-      dies(box, first.getDataType(), static_cast<unsigned>(first.getTag()), *first->getBlock(),
-           nullptr);
+      dies(box, first.getDataType(), first.getTag(), *first->getBlock(), {});
   }
 
   // Each value of `block` as a post-order walk meets it, a take's fields
   // where the take will go. Takes at one point come last-made first, as
   // each is made right at the point.
   void visit(Block &block) {
-    SmallVector<unsigned> atStart = takesAtStart.lookup(&block);
+    SmallVector<unsigned> atStart = takesAt.lookup(BlockStart{&block});
     for (unsigned site : llvm::reverse(atStart))
       considerTake(site);
     for (Operation &op : block) {
@@ -117,8 +117,8 @@ private:
           visit(inner);
       for (Value result : op.getResults())
         if (isa<BoxType>(unrestricted(result.getType())))
-          consider(Held{result});
-      SmallVector<unsigned> after = takesAfter.lookup(&op);
+          consider(result);
+      SmallVector<unsigned> after = takesAt.lookup(After{&op});
       for (unsigned site : llvm::reverse(after))
         considerTake(site);
     }
@@ -126,10 +126,9 @@ private:
 
   void considerTake(unsigned site) {
     const Site &taken = sites[site];
-    for (unsigned field = 0, e = static_cast<unsigned>(taken.data.getCtor(taken.tag).fields.size());
-         field < e; ++field)
+    for (unsigned field : llvm::seq(static_cast<unsigned>(taken.data.getCtor(taken.tag).fields.size())))
       if (auto it = virtualOf.find({site, field}); it != virtualOf.end())
-        consider(Held{nullptr, it->second});
+        consider(VirtualField{it->second});
   }
 
   void consider(Held box) {
@@ -138,49 +137,62 @@ private:
   }
 
   Type typeOf(const Held &box) const {
-    return box.value ? box.value.getType() : virtuals[box.virt].type;
+    if (const Value *value = std::get_if<Value>(&box))
+      return value->getType();
+    return virtuals[std::get<VirtualField>(box).index].type;
   }
 
   SmallVector<OpOperand *> usesOf(const Held &box) const {
-    if (!box.value)
-      return virtuals[box.virt].uses;
+    const Value *value = std::get_if<Value>(&box);
+    if (!value)
+      return virtuals[std::get<VirtualField>(box).index].uses;
     SmallVector<OpOperand *> uses;
-    for (OpOperand &use : box.value.getUses())
+    for (OpOperand &use : value->getUses())
       if (!moved.contains(&use))
         uses.push_back(&use);
     return uses;
   }
 
-  // Whether `box` holds its own reference: not static, not a stack cell.
-  // A take's field always does. Borrow inference keeps a parameter that is
-  // taken apart owned. A memo cell is no one's to reuse: a force writes it.
+  // Whether `box` holds its own reference: not static, not a stack cell,
+  // nor read from one. A take's field always does. Borrow inference keeps
+  // a parameter that is taken apart owned. A memo cell is no one's to
+  // reuse: a force writes it.
   bool reusable(const Held &box) {
     if (isMemoCell(typeOf(box)))
       return false;
-    for (Value value = box.value; value; value = readFrom(value)) {
-      if (isStatic(value))
-        return false;
-      if (auto con = value.getDefiningOp<ConOp>(); con && con.getStack())
-        return false;
-    }
-    return true;
+    const Value *held = std::get_if<Value>(&box);
+    if (!held)
+      return true;
+    // Up the chain of what each was read from.
+    auto readThrough = [](Value value) -> std::optional<Value> {
+      if (Value from = readFrom(value))
+        return from;
+      return std::nullopt;
+    };
+    return llvm::none_of(definitionChain(*held, readThrough), [](Value value) {
+      auto con = value.getDefiningOp<ConOp>();
+      return isStatic(value) || (con && con.getStack());
+    });
   }
 
   // Where `box`, built by the constructor `tag` of `data`, whose fields
-  // `fields` binds (when a match region does), dies on each path of
+  // `bound` binds (when a match region does), dies on each path of
   // `block`, the first constructor after that point whose cell fits gets
   // the box's cell.
-  void dies(Held box, DataType data, unsigned tag, Block &block, Block *fields) {
+  void dies(Held box, DataType data, Tag tag, Block &block, ArrayRef<BlockArgument> bound) {
     // A constructor without fields is its atom: it has no cell, so its
     // take would hand out no token for a reuse to build in.
     if (data.getCtor(tag).fields.empty())
       return;
     SmallVector<OpOperand *> uses = usesOf(box);
     unsigned size = layouts.box(data, tag).size;
-    whereDies(uses, block, /*graded=*/nullptr, [&](Block &where, Block::iterator at) {
+    // Reuses are decided before borrow inference grades the signatures,
+    // so any call may take its arguments over.
+    auto takesOver = [](OpOperand &use) { return isa<CallOp>(use.getOwner()) || consumes(use); };
+    whereDies(uses, block, takesOver, [&](Block &where, Block::iterator at) {
       SmallVector<ConOp> found;
       if (fits(size, where, at, found))
-        record(box, data, tag, where, at, fields, std::move(found), uses);
+        record(box, data, tag, where, at, bound, std::move(found), uses);
     });
   }
 
@@ -192,7 +204,7 @@ private:
   bool fits(unsigned size, Block &block, Block::iterator at, SmallVectorImpl<ConOp> &found) {
     for (Operation &op : llvm::make_range(at, block.end())) {
       if (auto con = dyn_cast<ConOp>(op)) {
-        auto tag = static_cast<unsigned>(con.getTag());
+        Tag tag = con.getTag();
         if (!claimed.contains(con) && isa<BoxType>(unrestricted(con.getResult().getType())) &&
             !con.getStack() && !con.getDataType().getCtor(tag).fields.empty() &&
             layouts.box(con.getDataType(), tag).size == size) {
@@ -203,11 +215,10 @@ private:
       }
       if (!decides(&op))
         continue;
-      bool any = false;
-      for (Region &region : op.getRegions())
-        if (!region.empty() && fits(size, region.front(), region.front().begin(), found))
-          any = true;
-      if (any)
+      // Every region is searched, each path finding its own constructor.
+      if (llvm::count_if(op.getRegions(), [&](Region &region) {
+            return !region.empty() && fits(size, region.front(), region.front().begin(), found);
+          }) != 0)
         return true;
     }
     return false;
@@ -215,33 +226,29 @@ private:
 
   // A take of `box` at `at`, for the constructors `found`: the site, and
   // the uses of its fields from that point on, which it will move.
-  void record(Held box, DataType data, unsigned tag, Block &where, Block::iterator at,
-              Block *fields, SmallVector<ConOp> found, ArrayRef<OpOperand *> uses) {
+  void record(Held box, DataType data, Tag tag, Block &where, Block::iterator at,
+              ArrayRef<BlockArgument> bound, SmallVector<ConOp> found, ArrayRef<OpOperand *> uses) {
     auto index = static_cast<unsigned>(sites.size());
-    Site site;
-    site.box = box.value;
-    if (!box.value) {
-      site.from = virtuals[box.virt].site;
-      site.field = virtuals[box.virt].field;
+    std::variant<Value, Reuses::TakenField> taken;
+    if (const Value *value = std::get_if<Value>(&box)) {
+      taken = *value;
+    } else {
+      const Virtual &field = virtuals[std::get<VirtualField>(box).index];
+      taken = Reuses::TakenField{field.site, field.field};
     }
-    site.data = data;
-    site.tag = tag;
-    site.block = &where;
-    site.after = at == where.begin() ? nullptr : &*std::prev(at);
-    site.fields = fields;
     claimed.insert(found.begin(), found.end());
-    site.cons = std::move(found);
-    sites.push_back(std::move(site));
+    sites.push_back(Site{taken, data, tag, pointBefore(where, at),
+                         SmallVector<BlockArgument>(bound.begin(), bound.end()), std::move(found)});
     Type boxType = typeOf(box);
     ArrayRef<Type> fieldTypes = data.getCtor(tag).fields;
-    eachField(uses, tag, fields, [&](Value field, unsigned number) {
-      unsigned virt = virtualFor(index, number, fieldType(boxType, fieldTypes[number]));
-      for (OpOperand &use : field.getUses())
-        if (!moved.contains(&use) && fromPoint(where, at, use)) {
+    for (Field field : fieldsOf(uses, tag, bound)) {
+      unsigned virt = virtualFor(index, field.index, fieldType(boxType, fieldTypes[field.index]));
+      for (OpOperand &use : field.value.getUses())
+        if (!moved.contains(&use) && heldIn(where, use, at)) {
           moved[&use] = virt;
           virtuals[virt].uses.push_back(&use);
         }
-    });
+    }
   }
 
   unsigned virtualFor(unsigned site, unsigned field, Type type) {
@@ -260,8 +267,8 @@ private:
   DenseMap<OpOperand *, unsigned> moved;
   SmallVector<Virtual> virtuals;
   DenseMap<std::pair<unsigned, unsigned>, unsigned> virtualOf;
-  DenseMap<Operation *, SmallVector<unsigned>> takesAfter;
-  DenseMap<Block *, SmallVector<unsigned>> takesAtStart;
+  // The matched sites, by where each take will go.
+  DenseMap<Point, SmallVector<unsigned>> takesAt;
   SmallVector<std::pair<Held, FieldOp>> boxes;
 };
 
@@ -269,27 +276,14 @@ private:
 
 // Each function's sites depend on its body, the data types and the
 // layouts alone, so they are found in parallel, one slot per function.
-Reuses::Reuses(Operation *program, AnalysisManager &am) {
-  const Layouts &layouts = am.getAnalysis<Layouts>();
-  if (failed(layouts.valid()))
-    return;
-  SmallVector<FuncOp> functions(cast<ProgramOp>(program).getOps<FuncOp>());
+Reuses::Reuses(ProgramOp program, const Layouts &layouts) {
+  SmallVector<FuncOp> functions(program.getOps<FuncOp>());
   SmallVector<SmallVector<Site>> slots(functions.size());
   parallelForEach(program->getContext(), llvm::seq<size_t>(0, functions.size()), [&](size_t index) {
     slots[index] = Decider(functions[index], layouts).run();
   });
   for (auto [fn, found] : llvm::zip_equal(functions, slots))
-    if (!found.empty())
-      sitesOf[fn] = std::move(found);
-}
-
-bool Reuses::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const {
-  return !pa.isPreserved<Reuses>() || !pa.isPreserved<SymbolTable>() || !pa.isPreserved<Layouts>();
-}
-
-ArrayRef<Reuses::Site> Reuses::sites(FuncOp fn) const {
-  auto it = sitesOf.find(fn);
-  return it == sitesOf.end() ? ArrayRef<Site>() : ArrayRef<Site>(it->second);
+    sitesOf[fn] = std::move(found);
 }
 
 } // namespace idr

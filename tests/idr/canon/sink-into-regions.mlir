@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@write_in_both,\
 // RUN: checks-every-path=@may_crash -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // A value free of effects (an allocation aside) that only a match's regions
 // use moves into each region that uses it; there it meets its consumer. A
 // value the match itself or code after it uses cannot move, which the

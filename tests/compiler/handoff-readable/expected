@@ -1,4 +1,4 @@
-NEEDS-ACCEPTANCE: how C01 prints an identified data type (an alias at the head of the module, whose body holds `instance`), which the instance check reads; and how R02 prints idr.program (`idr.program @<name> root(@<root>) stage(higher) {`), which the program check reads
+NEEDS-ACCEPTANCE: how the printer writes an identified data type (an alias at the head of the module, whose body holds `instance`), which the instance check reads; and how it writes idr.program (`idr.program @<name> root(@<root>) stage(higher) {`), which the program check reads
 compile: exit 0
 symbols: no code-point escape, and no name Idris made up for a block
 symbols: a case block is <parent>.case<k>, a with block <parent>.with<k>

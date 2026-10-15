@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Acceptance is a property of the program, never of the optimizer, and the
 # compiler terminates by structure, never by a count: a structurally
 # smaller argument, a set of unvisited items that shrinks, a bottom-up order,

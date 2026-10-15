@@ -31,7 +31,8 @@
 // The cell an idr.con builds lives in one stack slot per con, in its
 // function's entry block. So it also escapes when the con may run again in
 // the same frame while the cell is live: the cell must not be forwarded by
-// a terminator of a loop around the con, which carries values to the next
+// a terminator of a loop around the con, a region branch whose region
+// holding the terminator runs again, which carries values to the next
 // iteration or out of the loop. Nor may it be passed to a call in tail
 // position of a function on the same cycle of calls: such a call must be a
 // tail call (idr-tail-calls) for the cycle to run in constant stack, or the
@@ -39,10 +40,11 @@
 // either way the frame is gone when the callee runs. A function off the
 // cycle never calls back round to this frame's function, so a call of it in
 // tail position may stay a call that keeps the frame. A con counts only in
-// a function body of one block whose regions on the way are those of
-// matches (at most one runs, once) and of scf.while (one iteration at a
-// time); anywhere else it escapes.
-#include "idr/Analysis/Escapes.h"
+// a function body of one block whose regions on the way are of one block
+// each and belong to region branches whose runs never overlap (none holds
+// its region as parallel): a match's case runs at most once, a loop's body
+// one iteration at a time. Anywhere else it escapes.
+#include "idr/Analysis/EscapesDetail.h"
 
 #include "idr/Analysis/Tail.h"
 #include "idr/IR/Flow.h"
@@ -51,96 +53,22 @@
 
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Iterators.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <optional>
+#include <variant>
 
 using namespace mlir;
 using namespace mlir::dataflow;
 
 namespace idr {
 
+using namespace detail::escapes;
+
 namespace {
-
-// Where the uses one way of standing for a value reach. `escapes`: a use
-// that lets it go. `tailCalled`: a call in tail position of a function on
-// its function's cycle, which ends the frame. `loops`: the scf.while ops
-// whose terminators forward it to the next iteration or out. The last two
-// are about the frame of the value's own function, so they never cross a
-// call: a cell passed to a callee is in the caller's frame, which outlives
-// whatever the callee does with its own frame and loops. Only `escapes`
-// does.
-struct Reach {
-  bool escapes = false;
-  bool tailCalled = false;
-  // Sorted, each once: two states compare by what they hold.
-  SmallVector<Operation *, 1> loops;
-
-  void add(const Reach &other) {
-    escapes |= other.escapes;
-    tailCalled |= other.tailCalled;
-    for (Operation *loop : other.loops)
-      if (auto at = llvm::lower_bound(loops, loop); at == loops.end() || *at != loop)
-        loops.insert(at, loop);
-  }
-  bool operator==(const Reach &) const = default;
-};
-
-// The state of a value: how its own reference reaches (shallow) and how
-// everything reachable from it does (deep). Nothing reaches anywhere until
-// a use says so, and the solve only adds, so it ends with the least
-// solution.
-struct Escape {
-  Reach shallow;
-  Reach deep;
-
-  static Escape join(const Escape &lhs, const Escape &rhs) {
-    Escape out = lhs;
-    out.shallow.add(rhs.shallow);
-    out.deep.add(rhs.deep);
-    // Everything reachable from a value includes its own reference.
-    out.deep.add(out.shallow);
-    return out;
-  }
-  // A backward analysis meets what each use says; here that is the union.
-  static Escape meet(const Escape &lhs, const Escape &rhs) { return join(lhs, rhs); }
-  bool operator==(const Escape &) const = default;
-
-  void print(raw_ostream &os) const {
-    auto reach = [&](const Reach &r) {
-      os << (r.escapes ? "escapes" : "-") << (r.tailCalled ? " tail" : "") << " loops "
-         << r.loops.size();
-    };
-    os << "shallow ";
-    reach(shallow);
-    os << ", deep ";
-    reach(deep);
-  }
-};
-
-class EscapeLattice : public Lattice<Escape> {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(EscapeLattice)
-  using Lattice::Lattice;
-};
-
-enum class Mode : uint8_t { Shallow, Deep };
-
-bool isBox(Type type) { return isa<BoxType>(unrestricted(type)); }
-
-// The values whose references the analysis follows: boxes, and unboxed
-// sums, whose fields may hold boxes. A type as it is at runtime: linearity
-// has no runtime form.
-bool holdsCells(Type type) { return isa<BoxType, DataType>(unrestricted(type)); }
-
-// The part of `state` that stands for `value` in `mode`: a sum's only part
-// is deep.
-const Reach &part(Value value, const Escape &state, Mode mode) {
-  return mode == Mode::Shallow && isBox(value.getType()) ? state.shallow : state.deep;
-}
 
 Escape lost() {
   Escape all;
@@ -193,6 +121,7 @@ private:
     propagateIfChanged(lattice, lattice->meet(update));
   }
   void follow(Operation *op, const FlowEdges::Edge &edge);
+  void flow(Operation *op, const FlowEdges::Flow &move);
   void visitCall(CallOp call);
 
   SymbolTable &symbols;
@@ -227,14 +156,16 @@ LogicalResult Solve::visit(ProgramPoint *point) {
   }
   if (failed(AbstractSparseBackwardDataFlowAnalysis::visit(point)))
     return failure();
-  // A terminator of a loop carries what it forwards into the loop's next
-  // iteration, where a con in the loop writes its slot again, or out of it.
-  auto loop = dyn_cast_or_null<scf::WhileOp>(op->getParentOp());
-  if (!loop || !op->hasTrait<OpTrait::IsTerminator>())
+  // A terminator of a region that runs again carries what it forwards into
+  // its loop's next iteration, where a con in the loop writes its slot
+  // again, or out of the loop.
+  auto loop = dyn_cast_or_null<RegionBranchOpInterface>(op->getParentOp());
+  if (!loop || !op->hasTrait<OpTrait::IsTerminator>() ||
+      !loop.isRepetitiveRegion(op->getParentRegion()->getRegionNumber()))
     return success();
   Escape update;
-  update.shallow.loops.push_back(loop);
-  update.deep.loops.push_back(loop);
+  update.shallow.loops.push_back(loop.getOperation());
+  update.deep.loops.push_back(loop.getOperation());
   forwardedValues(op, [&](OpOperand &use, Value) {
     if (holdsCells(use.get().getType()))
       reach(getLatticeElement(use.get()), update);
@@ -242,41 +173,59 @@ LogicalResult Solve::visit(ProgramPoint *point) {
   return success();
 }
 
-// What one reference edge of `op` makes of the value it moves or reads, from
-// the state of where it goes. A value goes whole into another (what reaches
-// that one reaches it, its own reference as that one's own), into a part of
-// another (all of it is reachable from that one), or out of a part of it
-// (only what is reachable from it reaches what the read gives).
+// What one reference edge of `op` makes of the value it moves or reads: a
+// flow below; a use given up lets its cell go; a dispatch lets every
+// argument go, to whatever runs. A unification, a source and a constant
+// are of labels, and a fresh value is reached by its own uses.
 void Solve::follow(Operation *op, const FlowEdges::Edge &edge) {
-  using Kind = FlowEdges::Edge::Kind;
-  if (edge.kind == Kind::Dispatch) {
-    for (Value arg : cast<CallOpInterface>(edge.call).getArgOperands())
-      if (holdsCells(arg.getType()))
-        setToExitState(getLatticeElement(arg));
+  std::visit(llvm::makeVisitor([&](const FlowEdges::Flow &move) { flow(op, move); },
+                               [](const FlowEdges::Unify &) {},
+                               [](const FlowEdges::Source &) {},
+                               [](const FlowEdges::Fresh &) {},
+                               [&](const FlowEdges::Release &move) {
+                                 Value given = move.use->get();
+                                 if (holdsCells(given.getType()))
+                                   setToExitState(getLatticeElement(given));
+                               },
+                               [](const FlowEdges::Constant &) {},
+                               [&](FlowEdges::Dispatch move) {
+                                 for (Value arg : move.call.getArgOperands())
+                                   if (holdsCells(arg.getType()))
+                                     setToExitState(getLatticeElement(arg));
+                               }),
+             edge.move);
+}
+
+// What a flow makes of the value it moves or reads, from the state of where
+// it goes. A value goes whole into another (what reaches that one reaches
+// it, its own reference as that one's own), into a part of another (all of
+// it is reachable from that one), or out of a part of it (only what is
+// reachable from it reaches what the read gives). Into a parameter or a
+// result it goes where this frame does not follow.
+void Solve::flow(Operation *op, const FlowEdges::Flow &move) {
+  std::optional<Value> source = move.from.value();
+  if (!source || !holdsCells(source->getType()))
     return;
-  }
-  Value source = edge.from.getValue();
-  if ((edge.kind != Kind::Flow && edge.kind != Kind::Release) || !source ||
-      !holdsCells(source.getType()))
-    return;
-  EscapeLattice *lattice = getLatticeElement(source);
-  bool outOfPart = edge.from.kind == FlowPoint::Kind::Part;
-  Value target = edge.to.getValue();
-  if (edge.kind == Kind::Release || !target)
+  EscapeLattice *lattice = getLatticeElement(*source);
+  bool outOfPart = std::holds_alternative<FlowPoint::Part>(move.from.at);
+  std::optional<Value> target = move.to.value();
+  if (!target)
     return setToExitState(lattice);
-  if (!holdsCells(target.getType())) {
+  if (!holdsCells(target->getType())) {
     // A word, a string, read out of a part holds no cell; anything moved
     // into what this analysis does not follow is memory it cannot see.
     if (!outOfPart)
       setToExitState(lattice);
     return;
   }
-  const Escape &there = getOrCreateFor<EscapeLattice>(getProgramPointAfter(op), target)->getValue();
+  const Escape &there =
+      getOrCreateFor<EscapeLattice>(getProgramPointAfter(op), *target)->getValue();
   Escape update;
   update.deep = there.deep;
   if (!outOfPart)
-    update.shallow = edge.to.kind == FlowPoint::Kind::Part ? there.deep
-                                                           : part(target, there, Mode::Shallow);
+    update.shallow = std::holds_alternative<FlowPoint::Part>(move.to.at)
+                         ? there.deep
+                         : part(*target, there, Mode::Shallow);
   reach(lattice, update);
 }
 
@@ -308,10 +257,24 @@ void Solve::visitBranchOperand(OpOperand &operand) {
   auto flow = dyn_cast<FlowOpInterface>(op);
   if (!flow)
     return setToExitState(getLatticeElement(value));
+  // Whether `edge` moves or reads `value`: a flow from it, or its use
+  // given up. The other edges move no operand's value.
+  auto from = [&](const FlowEdges::Edge &edge) {
+    return std::visit(
+        llvm::makeVisitor(
+            [&](const FlowEdges::Flow &move) { return move.from.value() == value; },
+            [](const FlowEdges::Unify &) { return false; },
+            [](const FlowEdges::Source &) { return false; },
+            [](const FlowEdges::Fresh &) { return false; },
+            [&](const FlowEdges::Release &move) { return move.use->get() == value; },
+            [](const FlowEdges::Constant &) { return false; },
+            [](const FlowEdges::Dispatch &) { return false; }),
+        edge.move);
+  };
   FlowEdges edges;
   flow.getFlowEdges(edges);
   for (const FlowEdges::Edge &edge : edges.edges())
-    if (edge.carries(Carrier::Reference) && edge.from.getValue() == value)
+    if (edge.carries(Carrier::Reference) && from(edge))
       follow(op, edge);
   if (isa<RegionBranchOpInterface>(op) && isBox(value.getType()) &&
       quantityOf(value.getType()) == Quantity::One) {
@@ -357,24 +320,10 @@ Escapes::Escapes(Operation *op, AnalysisManager &am) : program(op) {
   // One solve over the program: the parameters' summaries, the cons and the
   // loops are one fixpoint, so nothing is solved twice.
   solver.load<Solve>(unresolved, am.getAnalysis<SymbolTable>(), component);
-  status = solver.initializeAndRun(op);
-}
-
-bool Escapes::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const {
-  return !pa.isPreserved<Escapes>() || !pa.isPreserved<SymbolTable>();
-}
-
-bool Escapes::mayEscape(ConOp con) const {
-  std::optional<SmallVector<Operation *, 2>> loops = loopsAround(con);
-  if (!loops)
-    return true;
-  Value cell = con.getResult();
-  const EscapeLattice *state = solver.lookupState<EscapeLattice>(cell);
-  if (!state)
-    return true;
-  const Reach &self = part(cell, state->getValue(), Mode::Shallow);
-  return self.escapes || self.tailCalled ||
-         llvm::any_of(self.loops, [&](Operation *loop) { return llvm::is_contained(*loops, loop); });
+  // MLIR's solver fails only where an analysis's visit does, and every
+  // visit of Solve succeeds.
+  [[maybe_unused]] LogicalResult ran = solver.initializeAndRun(op);
+  assert(succeeded(ran) && "every visit of the escape solve succeeds");
 }
 
 } // namespace idr

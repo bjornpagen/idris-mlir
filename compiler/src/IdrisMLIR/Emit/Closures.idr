@@ -100,7 +100,7 @@ functionOp sym type body = Idr.funcOp {total' = True} sym type body
 ||| Its symbol is the owner's with `kind` and the hash of the function's
 ||| text without its name and locations; a symbol written already with that
 ||| text is the same function, and with another text an internal error.
-export covering
+export
 lift : Loc -> (kind : String) -> List Argument -> List Statement -> List MlirType
     -> E (String, List Value)
 lift l kind params body results = do

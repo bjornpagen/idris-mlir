@@ -14,6 +14,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Verify.h"
+#include "idr/Support/Worklist.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/MapVector.h"
@@ -81,20 +82,20 @@ void idr::verify::OwnedWalk::Forwarding::add(Operation *from) {
   });
 }
 
-FailureOr<bool> idr::verify::OwnedWalk::walk(Block &block) {
+FailureOr<idr::verify::OwnedWalk::Reach> idr::verify::OwnedWalk::walk(Block &block) {
   for (Operation &op : block) {
     if (endsPath(op))
-      return false;
+      return Reach::Ends;
     if (op.getNumRegions() != 0) {
-      FailureOr<bool> reached = walkRegions(op);
-      if (failed(reached) || !*reached)
+      FailureOr<Reach> reached = walkRegions(op);
+      if (failed(reached) || *reached == Reach::Ends)
         return reached;
       continue;
     }
     if (failed(visit(op)))
       return failure();
   }
-  return true;
+  return Reach::End;
 }
 
 // The op's own operands first: what it forwards moves into its regions or
@@ -105,7 +106,7 @@ FailureOr<bool> idr::verify::OwnedWalk::walk(Block &block) {
 // same references, which it then holds after the op; where they are not,
 // each must leave those values as it found them, since it may run again
 // from where it ends, or after another.
-FailureOr<bool> idr::verify::OwnedWalk::walkRegions(Operation &op) {
+FailureOr<idr::verify::OwnedWalk::Reach> idr::verify::OwnedWalk::walkRegions(Operation &op) {
   Forwarding forwarding;
   forwarding.add(&op);
   for (Region &region : op.getRegions())
@@ -152,10 +153,10 @@ FailureOr<bool> idr::verify::OwnedWalk::walkRegions(Operation &op) {
     for (BlockArgument arg : block.getArguments())
       if (failed(enter(op, forwarding, arg, reads, given)))
         return failure();
-    FailureOr<bool> end = walk(block);
+    FailureOr<Reach> end = walk(block);
     if (failed(end))
       return failure();
-    if (*end) {
+    if (*end == Reach::End) {
       if (failed(settled(block, block.back())))
         return failure();
       llvm::MapVector<Value, int> changes = changesSince(mark);
@@ -178,7 +179,7 @@ FailureOr<bool> idr::verify::OwnedWalk::walkRegions(Operation &op) {
 
   if (choice) {
     if (ends.empty())
-      return false;
+      return Reach::Ends;
     llvm::MapVector<Value, int> after;
     for (auto &end : ends)
       for (auto &[value, references] : end)
@@ -197,12 +198,12 @@ FailureOr<bool> idr::verify::OwnedWalk::walkRegions(Operation &op) {
     return failure();
   }
   if (!exits)
-    return false;
+    return Reach::Ends;
   auto given = [&](Operation *from) { return from == &op || reached.contains(from); };
   for (Value result : op.getResults())
     if (failed(enter(op, forwarding, result, reads, given)))
       return failure();
-  return true;
+  return Reach::End;
 }
 
 // A value of `op`, a region argument or a result. One no branch point
@@ -249,13 +250,13 @@ LogicalResult idr::verify::OwnedWalk::enter(Operation &op, const Forwarding &for
 // where it is. One inside that does not move on with the view holds its
 // reference only in the region the view leaves. A chain that reaches no
 // owned value is of static data or a borrowed parameter, alive throughout.
-// Each step is to a value defined before it, so the walk ends.
+// The walk meets each value once, so it ends with the values in scope.
 FailureOr<SmallVector<Value>> idr::verify::OwnedWalk::ownersAcross(Operation &op,
                                                                    const Forwarding &forwarding,
                                                                    OpOperand &operand,
                                                                    Value input) {
   Operation *from = operand.getOwner();
-  auto movedTo = [&](Value value) -> Value {
+  auto movedTo = [&](Value value) -> std::optional<Value> {
     for (OpOperand &other : from->getOpOperands()) {
       if (other.get() != value)
         continue;
@@ -266,7 +267,7 @@ FailureOr<SmallVector<Value>> idr::verify::OwnedWalk::ownersAcross(Operation &op
         if (samePlace(to, input))
           return to;
     }
-    return Value();
+    return std::nullopt;
   };
   Value start = operand.get();
   SmallVector<Value> out;
@@ -274,15 +275,13 @@ FailureOr<SmallVector<Value>> idr::verify::OwnedWalk::ownersAcross(Operation &op
     if (!llvm::is_contained(out, owner))
       out.push_back(owner);
   };
-  SmallVector<Value> work{start};
-  llvm::DenseSet<Value> seen;
-  while (!work.empty()) {
-    Value value = work.pop_back_val();
-    if (!seen.insert(value).second)
-      continue;
+  OnceWorklist<Value> work;
+  work.push(start);
+  while (std::optional<Value> next = work.pop()) {
+    Value value = *next;
     if (value != start)
-      if (Value to = movedTo(value)) {
-        add(to);
+      if (std::optional<Value> to = movedTo(value)) {
+        add(*to);
         continue;
       }
     if (tracked(value) || carried(value)) {
@@ -301,7 +300,8 @@ FailureOr<SmallVector<Value>> idr::verify::OwnedWalk::ownersAcross(Operation &op
       (void)fail(*from, value, "passes on a view the walk never saw made");
       return failure();
     }
-    work.append(it->second.begin(), it->second.end());
+    for (Value owner : it->second)
+      work.push(owner);
   }
   return out;
 }

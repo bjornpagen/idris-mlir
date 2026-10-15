@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)))' | FileCheck %s
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // What a loop does not change runs once, before it, where it may run
 // whatever the loop then does. A loop that decides on a box goes round on
 // one constructor, and reads its fields: a read of a box's field is a load
@@ -50,9 +51,9 @@ idr.program @"invariant-fields" root(@root) stage(first) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %small = idr.constant #idr.con<@Small, []> : !idr.box<!T>
+    %small = idr.constant #idr.con<!T, @Small, []> : !idr.box<!T>
     %s = idr.call @spin(%small, %z) : (!idr.box<!T>, i64) -> i64
-    %nop = idr.constant #idr.con<@NoP, []> : !P
+    %nop = idr.constant #idr.con<!P, @NoP, []> : !P
     %q = idr.call @spinPair(%nop, %z) : (!P, i64) -> i64
     %sq = arith.addi %s, %q : i64
     %w1 = idr.io.put_int signed %sq, %w : i64

@@ -119,8 +119,8 @@ void WhileDo::rescope(Operation *root, Scope scope) {
 }
 
 Value WhileDo::continues() {
-  Operation *match = decision.match;
-  bool loopsFirst = decision.loops->getRegionNumber() == 0;
+  Operation *match = &decision.match;
+  bool loopsFirst = decision.loops.getRegionNumber() == 0;
   Location loc = match->getLoc();
   rewriter.setInsertionPointToEnd(loop.getBeforeBody());
   // `(x == k) == loopsFirst`: region 0 is the case k, region 1 the default.
@@ -151,7 +151,8 @@ Value WhileDo::continues() {
   // impossible. The tag is the case's position in the scrutinee's type.
   auto sum = cast<MatchOp>(match);
   Value scrutinee = in(sum.getScrutinee(), Scope::Before);
-  return test(TagOp::create(rewriter, loc, scrutinee), rewriter.getI64IntegerAttr(sum.getCaseTag(0)));
+  return test(TagOp::create(rewriter, loc, scrutinee),
+              rewriter.getI64IntegerAttr(static_cast<uint32_t>(sum.getCaseTag(0))));
 }
 
 Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
@@ -163,7 +164,7 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
   // A case's fields are read from the scrutinee, and the default region
   // has the scrutinee itself back. A field nothing reads has no value.
   SmallVector<Value> fields(from.getNumArguments());
-  if (auto sum = dyn_cast<MatchOp>(decision.match); sum && !fields.empty()) {
+  if (auto sum = dyn_cast<MatchOp>(&decision.match); sum && !fields.empty()) {
     Value scrutinee = in(sum.getScrutinee(), scope);
     rewriter.setInsertionPointToEnd(to);
     unsigned index = region.getRegionNumber();
@@ -184,11 +185,11 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
 
 FailureOr<scf::WhileOp> WhileDo::build() {
   Block &entry = fn.getBody().front();
-  Operation *match = decision.match;
+  Operation *match = &decision.match;
   // An argument the call passes unchanged is not carried, unless the call
   // consumes a reference of it: then each iteration takes one, which the
   // yield to the next must consume as the call did.
-  auto call = cast<CallOp>(decision.loops->front().getTerminator()->getPrevNode());
+  auto call = cast<CallOp>(decision.loops.front().getTerminator()->getPrevNode());
   for (BlockArgument arg : entry.getArguments()) {
     unsigned index = arg.getArgNumber();
     if (call.getArgs()[index] != arg || isOwned(arg.getType()))
@@ -219,7 +220,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   // scrutinee of a match on a constructor too, whose fields the regions
   // read.
   llvm::SetVector<Value> needed;
-  for (Region *region : {decision.loops, decision.exits})
+  for (Region *region : {&decision.loops, &decision.exits})
     region->walk([&](Operation *op) {
       for (Value operand : op->getOperands())
         if (Operation *def = operand.getDefiningOp(); def && def->getBlock() == &entry && !outside.contains(def))
@@ -270,7 +271,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   scf::ConditionOp::create(rewriter, match->getLoc(), go, forwarded);
 
   // The region that loops: its call's arguments are the next iteration's.
-  Operation *yield = inlineRegion(*decision.loops, Scope::After);
+  Operation *yield = inlineRegion(decision.loops, Scope::After);
   auto next = cast<CallOp>(yield->getPrevNode());
   rewriter.setInsertionPoint(yield);
   SmallVector<Value> values;
@@ -288,7 +289,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   // it yields. The region's ops go after the return, which then makes way
   // for them.
   Operation *ret = entry.getTerminator();
-  Operation *exit = inlineRegion(*decision.exits, Scope::Exit);
+  Operation *exit = inlineRegion(decision.exits, Scope::Exit);
   rewriter.eraseOp(ret);
   rewriter.setInsertionPoint(exit);
   if (auto result = dyn_cast<YieldOp>(exit))

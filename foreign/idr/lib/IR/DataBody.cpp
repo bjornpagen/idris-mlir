@@ -176,7 +176,12 @@ Type DataType::parse(AsmParser &parser) {
   // The constructors' fields, which the body views until it is set.
   std::vector<SmallVector<Type>> fields;
   SmallVector<Ctor> ctors;
-  static constexpr StringRef roles[] = {"nil", "cons", "label", "running", "forced"};
+  // The roles a constructor writes, every one but plain, which it leaves
+  // out: their spellings are the enum's.
+  SmallVector<StringRef> roles;
+  for (uint32_t value = 0; value <= getMaxEnumValForCtorRole(); ++value)
+    if (std::optional<CtorRole> role = symbolizeCtorRole(value); role && *role != CtorRole::Plain)
+      roles.push_back(stringifyCtorRole(*role));
   auto parseCtor = [&]() -> ParseResult {
     Ctor ctor;
     SmallVector<Type> &ctorFields = fields.emplace_back();

@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@actions -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: that the effects summary gives @actions no effect, so its call is raised across the output, as C10 and C09 decide.
+// NEEDS-ACCEPTANCE: that the effects summary gives @actions no effect, so its call is raised across the output.
 // A callee that only builds an IO action performs no IO when it runs: it
 // makes constructors of @put's closure, which writes, and calls nothing
 // that writes, so its effects summary is none. @actions builds

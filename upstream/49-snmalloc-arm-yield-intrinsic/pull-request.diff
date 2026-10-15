@@ -1,0 +1,12 @@
+diff --git a/src/snmalloc/aal/aal_arm.h b/src/snmalloc/aal/aal_arm.h
+--- a/src/snmalloc/aal/aal_arm.h
++++ b/src/snmalloc/aal/aal_arm.h
+@@ -54,6 +54,8 @@
+     {
+ #ifdef _MSC_VER
+       __yield();
++#elif __has_builtin(__builtin_arm_yield) && !defined(SNMALLOC_NO_AAL_BUILTINS)
++      __builtin_arm_yield();
+ #else
+       __asm__ volatile("yield");
+ #endif

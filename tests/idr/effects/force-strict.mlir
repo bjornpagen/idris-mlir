@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=facts-as-marked -o /dev/null
-// NEEDS-ACCEPTANCE: the effects R02 declares on idr.force before defunctionalization (M12).
+// NEEDS-ACCEPTANCE: the effects idr.force declares before defunctionalization.
 // Before defunctionalization a force is strict like a call: it runs its
 // suspension's code, which may crash or not return, so it may be delayed
 // but neither moved, dropped nor merged with another force of the same

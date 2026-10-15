@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// tests-nothing: a function tests no count and no null.
+// tests-nothing and exclusive-copy: a function tests no count and no null,
+// and a function was given an exclusive copy, which idr-rc makes where
+// every reference it is passed is the only one to its cells.
 
 #include "idr/Transforms/Expect.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
@@ -41,6 +45,23 @@ LogicalResult testsNothing(ModuleOp module, AnalysisManager &, StringRef functio
     held = false;
   }
   return success(held);
+}
+
+// Some copy of @f takes every parameter that holds references at the
+// exclusive grade, and takes one.
+LogicalResult exclusiveCopy(ModuleOp module, AnalysisManager &, StringRef function) {
+  constexpr StringRef property = "exclusive-copy";
+  SmallVector<FunctionOpInterface> functions = named(module, function, property);
+  if (functions.empty())
+    return failure();
+  auto exclusiveOnly = [](FunctionOpInterface fn) {
+    auto references = llvm::make_filter_range(fn.getArgumentTypes(), holdsReferences);
+    return !references.empty() && llvm::all_of(references, isExclusive);
+  };
+  if (llvm::any_of(functions, exclusiveOnly))
+    return success();
+  return fail(module.getLoc(), property)
+         << "no copy of " << function << " takes its references exclusive";
 }
 
 } // namespace idr::expect

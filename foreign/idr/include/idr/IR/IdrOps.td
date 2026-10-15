@@ -99,9 +99,11 @@ def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlo
 // keep the root and may drop any other function without uses. Its region
 // verifier owns the rules of one function at its program's stage: the
 // flow of closures before idr-defunctionalize, every linear value used
-// once on every path, and the owned stage's counting. effects absent means
-// the function may do anything; no writer stores the full set io, crash,
-// diverge: it removes the attribute.
+// once on every path, and the owned stage's counting. effects is the
+// function's own, by default everything (idr::anyEffect): a function no
+// pass has solved may do anything, which its accessor says. The default's
+// one form is the attribute's absence, which the verifier holds, so that
+// equal functions have equal attributes.
 def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
     SymbolName, FunctionOpInterface, IsolatedFromAbove,
     HasParent<"ProgramOp">, OpAsmOpInterface]> {
@@ -111,7 +113,7 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
                        OptionalAttr<DictArrayAttr>:$res_attrs,
                        UnitAttr:$total, UnitAttr:$no_inline,
-                       OptionalAttr<Idr_EffectAttr>:$effects,
+                       DefaultValuedOptionalAttr<Idr_EffectAttr, "::idr::anyEffect">:$effects,
                        OptionalAttr<Idr_InstanceAttr>:$instance);
   let regions = (region AnyRegion:$body);
   let hasCustomAssemblyFormat = 1;
@@ -147,8 +149,8 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
 }
 
 // A call of a function by name. What it may do is its callee's effects,
-// which only a symbol table reaches (idr::effectsOf): to a query without
-// one, such as an upstream pass's, a call may do anything a function may,
+// which only a symbol table reaches (a CalleeEffects, idr::ownEffects): to
+// a query without one, such as an upstream pass's, a call may do anything a function may,
 // so none drops, merges or moves one past another effect. Its arguments
 // move into its callee's parameters (its flow), each taken over where the
 // parameter owns it.
@@ -236,7 +238,7 @@ def Idr_ConOp : Idr_Op<"con", [
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "builds a constructor value";
-  let arguments = (ins I32Attr:$tag, Variadic<AnyType>:$fields,
+  let arguments = (ins Idr_TagAttr:$tag, Variadic<AnyType>:$fields,
                        DefaultValuedAttr<DenseI32ArrayAttr, "{}">:$holes, UnitAttr:$stack);
   let results = (outs Idr_SumValue:$result, Variadic<Idr_DestType>:$dests);
   // `idr.con !T @Cons(%x : i64, dest)`: the value's type, then the
@@ -252,7 +254,7 @@ def Idr_ConOp : Idr_Op<"con", [
   let builders = [
     // The constructor `tag` of `type` with `fields`, and a destination for
     // each of `holes`.
-    OpBuilder<(ins "::mlir::Type":$type, "unsigned":$tag, "::mlir::ValueRange":$fields,
+    OpBuilder<(ins "::mlir::Type":$type, "::idr::Tag":$tag, "::mlir::ValueRange":$fields,
                    CArg<"::llvm::ArrayRef<int32_t>", "{}">:$holes,
                    CArg<"bool", "false">:$stack)>
   ];
@@ -286,7 +288,7 @@ def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "reads a field of a constructor value";
-  let arguments = (ins Idr_SumRead:$value, I32Attr:$tag, I64Attr:$index);
+  let arguments = (ins Idr_SumRead:$value, Idr_TagAttr:$tag, I64Attr:$index);
   let results = (outs AnyType:$result);
   // `idr.field %v : !T @Cons[1] -> i64`
   let assemblyFormat = [{
@@ -299,7 +301,7 @@ def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
   let builders = [
     // Field `index` of the constructor `tag` of `value`, read at the
     // value's grade times the field's.
-    OpBuilder<(ins "::mlir::Value":$value, "unsigned":$tag, "unsigned":$index)>
+    OpBuilder<(ins "::mlir::Value":$value, "::idr::Tag":$tag, "unsigned":$index)>
   ];
   let extraClassDeclaration = [{
     // The data type of the value read.

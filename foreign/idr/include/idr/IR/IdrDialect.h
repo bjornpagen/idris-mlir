@@ -23,12 +23,18 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
+#include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
+#include "llvm/ADT/BitmaskEnum.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 
 #include <algorithm>
 #include <atomic>
+#include <concepts>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -37,6 +43,11 @@
 #include "idr/IR/Grades.h"
 
 namespace idr {
+
+// What a function may do when nothing says less: perform IO, crash and not
+// return. It is idr.func's `effects` by default, so a function no pass has
+// solved says so through its own accessor.
+inline constexpr Effect anyEffect = Effect::io | Effect::crash | Effect::diverge;
 
 // The resource that a possible crash writes to.
 struct CrashResource : mlir::SideEffects::Resource::Base<CrashResource> {
@@ -70,24 +81,16 @@ struct ReferenceResource : mlir::SideEffects::Resource::Base<ReferenceResource> 
 // Whether `operand`'s position takes over the reference its value holds,
 // as the edges of its op's flow say (lib/IR/Effects.cpp): a use the op
 // moves on or ends, a forwarded value, or an argument whose parameter owns
-// it, which the program's stage says how to read. Given `symbols`, a call's
-// callee is found through that table.
-bool consumes(mlir::OpOperand &operand, mlir::SymbolTable *symbols = nullptr);
+// it, which the program's stage says how to read. Given `callees`, a call's
+// parameter is read from its callee's signature, as placement asks before the
+// operands take their parameters' grades; without, from the operand's grade.
+struct CalleeEffects;
+bool consumes(mlir::OpOperand &operand, const CalleeEffects *callees = nullptr);
 
 // A Free of ReferenceResource on each operand of `op` that `consumes`
 // names and whose grade is own or excl; nothing before idr-rc.
 void consumedEffects(mlir::Operation *op,
     llvm::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects);
-
-// Whether `op`, with everything in it, only computes: its effects are at
-// most the allocation of its own results, so it may move across any op,
-// run on fewer paths, or not at all.
-bool onlyAllocates(mlir::Operation *op);
-
-// Whether `op`, or something in it, may perform IO: an effect on the IO
-// resource. An op that does not may run later, past ops that only compute,
-// though it may crash or not return.
-bool performsIO(mlir::Operation *op);
 
 // The traits below carry what the ODS declares about an op, so that each
 // fact is written once, next to the op, and every pass derives from it. A
@@ -229,6 +232,31 @@ struct DataTypeStorage;
 // declared (IdrTypes.td).
 class DataType;
 
+// What a value of a data type holds, the facts ValueFactsTypeInterface asks
+// of the type that its body decides: a reference held in place, a world or
+// a closure anywhere a value reaches. The type computes them once and keeps
+// them beside its body (lib/IR/ValueFacts.cpp).
+enum class Held : uint8_t {
+  Nothing = 0,
+  References = 1,
+  World = 2,
+  Closure = 4,
+  LLVM_MARK_AS_BITMASK_ENUM(Closure)
+};
+LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
+
+// A constructor's tag: its position in its data type's body, the number a
+// cell's header and a match's case hold. A type of its own, so that no
+// field's index, case's position or count stands in for a tag, nor a tag
+// for them: `Tag{n}` makes one where a position is read as a tag (a body's
+// order, a parser, a stored attribute), and a cast reads the number back
+// where it is stored or emitted.
+enum class Tag : uint32_t {};
+
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, Tag tag) {
+  return os << static_cast<uint32_t>(tag);
+}
+
 // One constructor of a data type's body (DataType). Its tag is its
 // position in the body, and its name is unique there. `role` is what the
 // constructor is to the passes that read it: base's nil or cons, a label of
@@ -288,6 +316,11 @@ guardedSpeculatability(mlir::Value guarded, mlir::ValueRange against,
                        llvm::function_ref<bool(mlir::Operation *)> isGuard,
                        llvm::function_ref<bool(llvm::ArrayRef<mlir::Attribute>)> holds);
 template <typename Guard>
+concept GuardOp = requires(mlir::Operation *op, llvm::ArrayRef<mlir::Attribute> constants) {
+  { mlir::isa<Guard>(op) } -> std::convertible_to<bool>;
+  { Guard::holds(constants) } -> std::convertible_to<bool>;
+};
+template <GuardOp Guard>
 mlir::Speculation::Speculatability guardedSpeculatability(mlir::Value guarded,
                                                           mlir::ValueRange against = {}) {
   return guardedSpeculatability(
@@ -323,14 +356,26 @@ namespace detail {
 // its large constants.
 void addAsmInterface(IdrDialect &dialect);
 
+// What idr.match and idr.match_lit share, which their rules and their
+// syntax are written once over: a scrutinee, a key per case region, and a
+// default region or none.
+template <typename Match>
+concept MatchLike = requires(Match op, unsigned index) {
+  op.getScrutinee();
+  op.getCases();
+  { op.getCaseRegion(index) } -> std::same_as<mlir::Region &>;
+  { op.getDefaultRegion() } -> std::same_as<mlir::Region *>;
+};
+
 // What the ops that hold a constructor's tag share (lib/IR/OpsCon.cpp): the
-// constructor `tag` of the data type of a value of `type`, or null after an
-// error at `op`; the rule of the holes of a constructor built with `fields`
+// constructor `tag` of the data type of a value of `type`, or failure after
+// an error at `op`; the rule of the holes of a constructor built with `fields`
 // values given and `dests` destinations given back; and, for a constructor
 // built with `fields` and `holes`, the value given for field `index`, or
 // null for a hole, and the destination of a hole, or null for a field
 // given.
-const Ctor *ctorAt(mlir::Operation *op, mlir::Type type, unsigned tag);
+mlir::FailureOr<std::reference_wrapper<const Ctor>> ctorAt(mlir::Operation *op, mlir::Type type,
+                                                           Tag tag);
 mlir::LogicalResult verifyHoles(mlir::Operation *op, const Ctor &ctor,
                                 llvm::ArrayRef<int32_t> holes, size_t fields,
                                 mlir::TypeRange dests);

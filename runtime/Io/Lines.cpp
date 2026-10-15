@@ -128,6 +128,6 @@ extern "C" int64_t idris_rt_io_file_seek_line(int64_t file) {
 // Writes all of a string's bytes to a file, as fPutStr asks: 1 when they were
 // written, 0 when the write failed or the handle is no stream to write to.
 extern "C" int64_t idris_rt_io_file_write_line(int64_t file, const idris_rt_str *line) {
-  int64_t n = idris_rt_str_bytes_length(line);
-  return rt::io::writeBytes(file, idris_rt_str_bytes(line), static_cast<size_t>(n)) == n ? 1 : 0;
+  auto n = static_cast<int64_t>(line->bytes);
+  return rt::io::writeBytes(file, idris_rt_str_bytes(line), line->bytes) == n ? 1 : 0;
 }

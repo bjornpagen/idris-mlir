@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the port to the size-indexed vector, the stack's size carried with it and a pop on an empty one Nothing, prints the same
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

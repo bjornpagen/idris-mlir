@@ -4,6 +4,7 @@
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "xy" | %t > %t.out
 // RUN: FileCheck %s < %t.out
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // An IO root: output through the runtime's buffer, flushed before reading
 // and when main returns; input as bytes, then 255 at the end. The object
 // needs nothing the runtime does not define or need itself: the runtime's
@@ -44,7 +45,7 @@ idr.program @hello root(@Prog.main) stage(higher) {
     %inf = arith.constant 0x7FF0000000000000 : f64
     %w19 = idr.io.put_double %inf, %w18
     %w20 = idr.io.put_char %nl, %w19
-    %unit = idr.constant #idr.con<@MkUnit, []> : !Unit
+    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
     return %unit, %w20 : !Unit, !idr.world
   }
 }

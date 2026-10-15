@@ -23,17 +23,18 @@ void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
                               Runtime &runtime, const Fields &fields);
 
-// Bigs and naturals, whose small case is inline.
+// The big ops that have no runtime function: a natural made a big, a small
+// big made of a word, a natural made an extent.
 void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                          const Layouts &layouts, Runtime &runtime);
 
 // The cells memrefs live in, allocated or constant, and the arrays a world
-// orders: their reads, writes and updates in place. `globals` holds every
-// memref.global of the program by name.
-void populateArrayPatterns(
-    mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
-    const Layouts &layouts, Runtime &runtime,
-    const llvm::DenseMap<mlir::StringAttr, mlir::memref::GlobalOp> &globals);
+// orders: their reads, writes and updates in place. `arrays` holds every
+// memref.global of the program by name, read as a constant array.
+void populateArrayPatterns(mlir::RewritePatternSet &patterns,
+                           const mlir::TypeConverter &converter, const Layouts &layouts,
+                           Runtime &runtime,
+                           const llvm::DenseMap<mlir::StringAttr, ConstantArray> &arrays);
 
 // The ops on buffers whose meaning is the runtime's: the elements of ours
 // they hold, and the copies upstream's memcpy does not cover.

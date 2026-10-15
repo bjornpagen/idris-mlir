@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The runtime's entry, idris_rt_start: the program runs on a reserved stack
 # far deeper than the process's own; running out of it writes the output so
 # far, names the cause and exits as a crash; main's value is the exit status
@@ -7,7 +9,7 @@
 # before the program runs.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 runtime=$dev_prefix/runtime/libidris_rt.a
-if ! link_program -O1 -I"$root/runtime" "$here/start.c" "$runtime" -o "$work/start" \
+if ! runtime_c link_program -O1 "$here/start.c" "$runtime" -o "$work/start" \
     > "$work/cc.log" 2>&1; then
   say "start: does not build"
   show "$work/cc.log"

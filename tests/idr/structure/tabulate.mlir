@@ -1,7 +1,7 @@
 // RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=structured-loops=@squares -o /dev/null
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-structure-loops)))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=structured-loops=@squares,structured-loops=@table,structured-loops=@guarded -o /dev/null
-// NEEDS-ACCEPTANCE: the lowering of idr.tabulate (R10): a region over words that does nothing beyond compute and crash is one linalg.generic.
+// NEEDS-ACCEPTANCE: the lowering of idr.tabulate: a region over words that does nothing beyond compute and crash is one linalg.generic.
 // A tabulation is its domain and a region from the indices to an element,
 // which Emit writes as the op, never as a loop nest, and idr-structure-loops
 // lowers one to one: a region over words that only computes, or computes

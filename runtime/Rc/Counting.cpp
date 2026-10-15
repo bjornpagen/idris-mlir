@@ -1,24 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The C ABI's reference counting. A saturated count is not counted, so an
-// increment reaches UINT32_MAX at most and stays there.
+// The C ABI's reference counting, over rt::rc's inline counting. A
+// saturated count is not counted, so an increment reaches UINT32_MAX at most
+// and stays there.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Rc/Rc.h"
 #include "idris_rt.h"
 
-extern "C" void idris_rt_inc(void *o) {
-  if (!rt::rc::isObject(o))
-    return;
-  idris_rt_header *cell = rt::rc::headerOf(o);
-  if (rt::rc::isCounted(cell->count))
-    ++cell->count;
-}
+extern "C" void idris_rt_inc(void *o) { rt::rc::inc(o); }
 
-extern "C" void idris_rt_dec(void *o) {
-  if (idris_rt_header *dead = rt::rc::lastReference(o))
-    rt::rc::release(dead);
-}
+extern "C" void idris_rt_dec(void *o) { rt::rc::dec(o); }
 
 extern "C" bool idris_rt_is_unique(const void *o) {
   return rt::rc::isObject(o) && rt::rc::isExclusive(static_cast<const idris_rt_header *>(o));

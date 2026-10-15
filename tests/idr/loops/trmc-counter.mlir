@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr-trmc,idr.func(idr-tail-loops)),idr-expect{holds=constant-stack=@replicate,constant-stack=@take})' -o /dev/null
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Data.List's replicate and take: a constructor around a call of the
 // function itself on the predecessor of a natural, which the function then
 // no longer needs. Were the parameter borrowed, the predecessor would be
@@ -9,7 +11,7 @@
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
 idr.program @"trmc-counter" root(@Prog.main) stage(first) {
   idr.func @replicate(%n: !idr.nat, %x: i64) -> !idr.box<!List> {
-    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+    %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
     %r = idr.match_lit %n : !idr.nat -> (!idr.box<!List>) {
     case #idr.big<0> {
       idr.yield %nil : !idr.box<!List>
@@ -24,7 +26,7 @@ idr.program @"trmc-counter" root(@Prog.main) stage(first) {
     return %r : !idr.box<!List>
   }
   idr.func @take(%n: !idr.nat, %l: !idr.box<!List>) -> !idr.box<!List> {
-    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+    %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
     %r = idr.match_lit %n : !idr.nat -> (!idr.box<!List>) {
     case #idr.big<0> {
       idr.yield %nil : !idr.box<!List>

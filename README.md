@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # idris-mlir
 
 A whole-program compiler from Idris 2 to native code through MLIR, where

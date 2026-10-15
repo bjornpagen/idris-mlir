@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The rules a refusal names, read from the one list of them the tests
 # have: IdrRules.txt, which idris-mlir-tblgen -gen-rule-list writes from the
 # dialect's ODS into the build, beside the dialect's other generated

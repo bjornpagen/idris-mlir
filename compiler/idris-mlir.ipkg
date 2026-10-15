@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 package idris-mlir
 version = 0.1.0
 brief = "Compiler from checked Idris 2 TT to MLIR"
@@ -41,10 +43,18 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Emit.Bodies
         , IdrisMLIR.Emit.Declarations
         , IdrisMLIR.Emit
+        , IdrisMLIR.Frontend.Host
+        , IdrisMLIR.Frontend.Walk
         , IdrisMLIR.Frontend.Resolve
         , IdrisMLIR.Frontend.Translate.State
+        , IdrisMLIR.Frontend.Translate.Given
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed
+        , IdrisMLIR.Proof.AlmostFull
+        , IdrisMLIR.Proof.Generations
+        , IdrisMLIR.Proof.Forms
+        , IdrisMLIR.Proof.Requests
+        , IdrisMLIR.Frontend.Finite
         , IdrisMLIR.Frontend.Translate.Shapes
         , IdrisMLIR.Frontend.Translate.Keys
         , IdrisMLIR.Frontend.Translate.Dictionaries

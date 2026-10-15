@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Base's surface is in the registry, each kind of its entries validated
 # against the module that defines it whenever a program loads that module:
 # a runtime primitive by its C spec (a file's open, a directory's entry,

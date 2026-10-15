@@ -4,10 +4,12 @@
 // language (a new array from its indices, the folds and scans along the
 // last axis, a new array made in the world's order, a transpose), each a
 // region from indices to an element, kept as such until idr-structure-loops
-// lowers it once, by what its region does; the arrays a world orders; the
-// extent of an array to be made; and the tie of an array's dimensions to
-// the sizes Idris proved them equal to. An array the program computes as a
-// value is a builtin tensor, and a read or a slice of one is upstream's.
+// lowers it once, by what its region does; the arrays a world orders; an
+// element moved out of a value array's buffer and back; the extent of an
+// array to be made; and the tie of an array's dimensions to the sizes Idris
+// proved them equal to. An array the program computes as a value is a
+// builtin tensor, and a read or a slice of one is upstream's, as are the
+// reads and writes of its buffer but that move.
 
 #ifndef IDR_ARRAY_OPS
 #define IDR_ARRAY_OPS
@@ -18,6 +20,7 @@ include "idr/IR/IdrBigOps.td"
 include "idr/IR/IdrFlow.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
+include "mlir/Interfaces/LoopLikeInterface.td"
 include "mlir/Interfaces/ValueBoundsOpInterface.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 
@@ -43,13 +46,14 @@ def Idr_Iteration : I32EnumAttr<"Iteration", "how a dimension of an array op is 
 // first, and which ends in idr.array.yield, or in ub.unreachable when it
 // never returns. The region runs once per index of the domain, never when
 // the domain is empty, and what it does is the op's: its effects are its
-// region's. Each op answers `getIterations()`, the visit of each dimension
-// of its domain, from its kind alone. What the region yields moves into
-// the elements of the array it makes or folds, and an accumulator comes out
-// of them (the flow interface, lib/IR/OpsArrays.cpp).
+// region's. Each op answers what GeneratingOpInterface asks: the visit of
+// each dimension of its domain, from its kind alone, and each dimension's
+// size. What the region yields moves into the elements of the array it
+// makes or folds, and an accumulator comes out of them (the flow interface,
+// lib/IR/OpsArrays.cpp).
 class Idr_GeneratingOp<string mnemonic, list<Trait> traits = []>
     : Idr_Op<mnemonic, !listconcat(traits, [RecursiveMemoryEffects, RecursivelySpeculatable,
-        SingleBlock,
+        SingleBlock, Idr_GeneratingOpInterface,
         DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
         DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface,
                                   ["reifyResultShapes", "reifyDimOfResult"]>,
@@ -59,12 +63,15 @@ class Idr_GeneratingOp<string mnemonic, list<Trait> traits = []>
   let regions = (region SizedRegion<1>:$region);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
+  // What GeneratingOpInterface asks, each op answering for itself.
   code generatingDeclarations = [{
     // How each dimension of the domain is visited, outermost first.
     ::llvm::SmallVector<::idr::Iteration> getIterations();
     // The size of dimension `dim` of the domain, made with `b` where it is
-    // read from an operand's shape.
+    // read from an operand's shape; and the same size as value bounds names
+    // it, making nothing.
     ::mlir::OpFoldResult getExtent(::mlir::OpBuilder &b, unsigned dim);
+    ::mlir::ValueBoundsConstraintSet::Variable getExtentBound(unsigned dim);
     // The indices the region binds, one per dimension of the domain.
     ::mlir::Block::BlockArgListType getIndices() {
       return getBody()->getArguments().take_front(getRank());
@@ -84,7 +91,12 @@ class Idr_GeneratingOp<string mnemonic, list<Trait> traits = []>
 //     %x = arith.index_cast %i : index to i64
 //     idr.array.yield %x : i64
 //   } : tensor<?xi64>
-def Idr_TabulateOp : Idr_GeneratingOp<"tabulate", [
+// That a variadic is not empty is a predicate on the op, which ODS checks
+// with the op's other invariants.
+def Idr_MakesAnArray : PredOpTrait<"it makes an array", CPred<"!$arrays.empty()">>;
+def Idr_FoldsAnAccumulator : PredOpTrait<"it folds an accumulator", CPred<"!$inits.empty()">>;
+
+def Idr_TabulateOp : Idr_GeneratingOp<"tabulate", [HasParallelRegion, Idr_MakesAnArray,
     DeclareOpInterfaceMethods<RegionBranchOpInterface>]> {
   let summary = "a new array, each element what the region gives at its index";
   let arguments = (ins Variadic<Index>:$sizes);
@@ -92,6 +104,7 @@ def Idr_TabulateOp : Idr_GeneratingOp<"tabulate", [
   let assemblyFormat = "`[` $sizes `]` $region attr-dict `:` type($arrays)";
   let extraClassDeclaration = generatingDeclarations # [{
     unsigned getRank() { return getBody()->getNumArguments(); }
+    ::mlir::ValueRange getHeldArrays() { return getArrays(); }
     // What the region yields for each array: its element, or its cell.
     ::llvm::SmallVector<::mlir::Type> getCellTypes();
   }];
@@ -102,7 +115,7 @@ def Idr_TabulateOp : Idr_GeneratingOp<"tabulate", [
 // once per index in row-major order. The results are the arrays and the
 // last world; the world goes from the op into the region, from one step to
 // the next, and out (RegionBranchOpInterface).
-def Idr_TabulateIOOp : Idr_GeneratingOp<"tabulate_io", [Idr_PerformsIO,
+def Idr_TabulateIOOp : Idr_GeneratingOp<"tabulate_io", [Idr_PerformsIO, Idr_MakesAnArray,
     DeclareOpInterfaceMethods<RegionBranchOpInterface,
                               ["getEntrySuccessorOperands", "getSuccessorInputs"]>]> {
   let summary = "a new array made in the world's order, each element an action's result";
@@ -112,6 +125,7 @@ def Idr_TabulateIOOp : Idr_GeneratingOp<"tabulate_io", [Idr_PerformsIO,
   let hasCanonicalizer = 1;
   let extraClassDeclaration = generatingDeclarations # [{
     unsigned getRank() { return getBody()->getNumArguments() - 1; }
+    ::mlir::ValueRange getHeldArrays() { return getArrays(); }
     // What the region yields for each array, before the world.
     ::llvm::SmallVector<::mlir::Type> getCellTypes();
     ::mlir::BlockArgument getWorldArgument() { return getBody()->getArguments().back(); }
@@ -124,7 +138,7 @@ def Idr_TabulateIOOp : Idr_GeneratingOp<"tabulate_io", [Idr_PerformsIO,
 // accumulators, and yields the next accumulators. The frame is each init's
 // leading dimensions; the results have the inits' types. A rank-0 init is
 // an accumulator of no frame.
-def Idr_FoldLastOp : Idr_GeneratingOp<"fold_last", [
+def Idr_FoldLastOp : Idr_GeneratingOp<"fold_last", [HasParallelRegion, Idr_FoldsAnAccumulator,
     DeclareOpInterfaceMethods<RegionBranchOpInterface>]> {
   let summary = "for each index of a frame, a left fold along one more dimension";
   let arguments = (ins Variadic<AnyRankedTensor>:$inits, Index:$length);
@@ -137,6 +151,7 @@ def Idr_FoldLastOp : Idr_GeneratingOp<"fold_last", [
       return getBody()->getNumArguments() - static_cast<unsigned>(getInits().size());
     }
     unsigned getFrameRank() { return getRank() - 1; }
+    ::mlir::ValueRange getHeldArrays() { return getInits(); }
     ::mlir::Block::BlockArgListType getAccumulators() {
       return getBody()->getArguments().drop_front(getRank());
     }
@@ -147,7 +162,7 @@ def Idr_FoldLastOp : Idr_GeneratingOp<"fold_last", [
 // element (or cell) at a frame index and a step is the accumulator after
 // that step. The result's dimensions are the frame's, then `length`, then
 // the init's cell's.
-def Idr_ScanLastOp : Idr_GeneratingOp<"scan_last", [
+def Idr_ScanLastOp : Idr_GeneratingOp<"scan_last", [HasParallelRegion, Idr_FoldsAnAccumulator,
     DeclareOpInterfaceMethods<RegionBranchOpInterface>]> {
   let summary = "for each index of a frame, every accumulator of a left fold";
   let arguments = (ins Variadic<AnyRankedTensor>:$inits, Index:$length);
@@ -160,6 +175,7 @@ def Idr_ScanLastOp : Idr_GeneratingOp<"scan_last", [
       return getBody()->getNumArguments() - static_cast<unsigned>(getInits().size());
     }
     unsigned getFrameRank() { return getRank() - 1; }
+    ::mlir::ValueRange getHeldArrays() { return getInits(); }
     ::mlir::Block::BlockArgListType getAccumulators() {
       return getBody()->getArguments().drop_front(getRank());
     }
@@ -191,7 +207,8 @@ def Idr_TransposeOp : Idr_Op<"transpose", [Pure,
 // update, the values after the element leave the op as its results (the
 // forwarding). Nothing else goes on.
 def Idr_ArrayYieldOp : Idr_Op<"array.yield", [Pure, Terminator,
-    ParentOneOf<["TabulateOp", "TabulateIOOp", "FoldLastOp", "ScanLastOp", "ArrayUpdateOp"]>,
+    ParentOneOf<["TabulateOp", "TabulateIOOp", "FoldLastOp", "ScanLastOp", "ArrayUpdateOp",
+                 "ElementUpdateOp"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface,
                               ["getMutableSuccessorOperands"]>]> {
@@ -229,6 +246,13 @@ def Idr_ArrayType : Type<CPred<"::idr::isArray($_self)">,
                          "an array a world orders, memref<?xE, #idr.world> or "
                          "memref<E, #idr.world> of a field type E",
                          "::mlir::MemRefType">;
+// The buffer bufferization makes of a value array, a tensor: a memref in
+// the default memory space, which no array a world orders is in.
+def Idr_ValueBuffer : Type<And<[AnyMemRef.predicate,
+                                CPred<"!::llvm::cast<::mlir::MemRefType>($_self).getMemorySpace()">]>,
+                           "a value array's buffer, a memref in the default memory space",
+                           "::mlir::MemRefType">;
+
 // The array ops are IO: each takes the world and gives the next, and reads
 // or writes the array's cell in that order. Their effects are on the array
 // they touch, not on the IO resource: the world operand already orders them
@@ -327,6 +351,7 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set", [Idr_Primitive,
 // the op's own effects, on the array; the region's are its own
 // (RecursiveMemoryEffects).
 def Idr_ArrayUpdateOp : Idr_ArrayOp<"update", [RecursiveMemoryEffects, SingleBlock,
+    Idr_UpdateOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface,
                               ["getSuccessorInputs", "getRegionInvocationBounds"]>]> {
   let summary = "an element of an array rebuilt in its place";
@@ -342,6 +367,44 @@ def Idr_ArrayUpdateOp : Idr_ArrayOp<"update", [RecursiveMemoryEffects, SingleBlo
     ::mlir::MemRefType getArrayType() {
       return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
     }
+    // The element moved out, which the region rebuilds.
+    ::mlir::BlockArgument getElement() { return getBody()->getArgument(0); }
+  }];
+}
+
+// The same move on the buffer of a value array, which bufferization made of
+// a tensor: an element of a memref in the default memory space, at i64
+// indices within it, as an array a world orders takes its own, rebuilt in
+// its place. No world orders a value array's
+// buffer, whose writes are its tensors' in-place decisions, so the op takes
+// none and performs no IO. The element moves out into the region's one
+// argument with the reference the buffer held, and the first value the
+// region yields moves back in over the place it left, which holds nothing
+// to release; the values it yields after that are the op's results. A read
+// of an element that holds references, whose place the next write to the
+// buffer overwrites, is one: a vector's pop reads its last element and
+// writes the fill behind it, and the element leaves with the buffer's
+// reference, where a read would take one of its own and the write would
+// release the buffer's.
+def Idr_ElementUpdateOp : Idr_Op<"element.update", [RecursiveMemoryEffects, SingleBlock,
+    Idr_UpdateOpInterface,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
+    DeclareOpInterfaceMethods<RegionBranchOpInterface,
+                              ["getSuccessorInputs", "getRegionInvocationBounds"]>]> {
+  let summary = "an element of a value array's buffer rebuilt in its place";
+  // The buffer is named as an array a world orders is, so that an update's
+  // array is one name of both (UpdateOpInterface).
+  let arguments = (ins Idr_ValueBuffer:$array, Variadic<I64>:$indices);
+  let results = (outs Variadic<AnyType>:$outs);
+  let regions = (region SizedRegion<1>:$region);
+  let assemblyFormat = [{
+    $array `[` $indices `]` $region attr-dict `:` type($array) (`->` type($outs)^)?
+  }];
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::MemRefType getArrayType() { return getArray().getType(); }
     // The element moved out, which the region rebuilds.
     ::mlir::BlockArgument getElement() { return getBody()->getArgument(0); }
   }];
@@ -386,8 +449,8 @@ def Idr_TieShapeOp : Idr_Op<"tie_shape", [Pure, AllTypesMatch<["value", "result"
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>]> {
   let summary = "an array whose dynamic dimensions are the given sizes";
-  let arguments = (ins AnyTypeOf<[AnyRankedTensor, AnyMemRef]>:$value, Variadic<Index>:$dims);
-  let results = (outs AnyTypeOf<[AnyRankedTensor, AnyMemRef]>:$result);
+  let arguments = (ins AnyTypeOf<[AnyRankedTensor, Idr_ValueBuffer]>:$value, Variadic<Index>:$dims);
+  let results = (outs AnyTypeOf<[AnyRankedTensor, Idr_ValueBuffer]>:$result);
   let assemblyFormat = "$value `dims` `(` $dims `)` attr-dict `:` type($value)";
   let hasVerifier = 1;
   let hasFolder = 1;

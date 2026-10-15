@@ -15,12 +15,11 @@ using namespace idr::arrays;
 
 namespace {
 
-// A fold's or a scan's inits: at least one, all sharing their `frame`
-// leading dimensions, and an accumulator each, its element or cell there.
+// A fold's or a scan's inits, of which ODS has checked there is one: all
+// sharing their `frame` leading dimensions, and an accumulator each, its
+// element or cell there.
 LogicalResult verifyInits(Operation *op, TypeRange inits, unsigned frame,
                           Block::BlockArgListType accumulators) {
-  if (inits.empty())
-    return op->emitOpError("folds no accumulator");
   if (accumulators.size() != inits.size())
     return op->emitOpError("binds ") << accumulators.size() << " accumulators for "
                                      << inits.size() << " inits";
@@ -46,6 +45,23 @@ void accumulatorEdges(ValueRange inits, ValueRange results, Block::BlockArgListT
     edges.flow(elementsOf(init), atIndex(accumulator));
     edges.flow(elementsOf(result), atIndex(accumulator));
   }
+}
+
+// The size of dimension `dim` of a fold's or a scan's domain: the length
+// along its last dimension, else the inits' own dimension there. Both are
+// read from where the op holds them, made with `b`, or named for value
+// bounds.
+template <typename OpT>
+OpFoldResult foldExtent(OpT op, OpBuilder &b, unsigned dim) {
+  if (dim == op.getFrameRank())
+    return op.getLength();
+  return tensor::getMixedSize(b, op.getLoc(), op.getInits().front(), dim);
+}
+template <typename OpT>
+ValueBoundsConstraintSet::Variable foldExtentBound(OpT op, unsigned dim) {
+  if (dim == op.getFrameRank())
+    return op.getLength();
+  return {op.getInits().front(), static_cast<int64_t>(dim)};
 }
 
 } // namespace
@@ -77,9 +93,11 @@ SmallVector<Iteration> FoldLastOp::getIterations() {
 }
 
 OpFoldResult FoldLastOp::getExtent(OpBuilder &b, unsigned dim) {
-  if (dim == getFrameRank())
-    return getLength();
-  return tensor::getMixedSize(b, getLoc(), getInits().front(), dim);
+  return foldExtent(*this, b, dim);
+}
+
+ValueBoundsConstraintSet::Variable FoldLastOp::getExtentBound(unsigned dim) {
+  return foldExtentBound(*this, dim);
 }
 
 void FoldLastOp::getSuccessorRegions(RegionBranchPoint, SmallVectorImpl<RegionSuccessor> &regions) {
@@ -162,9 +180,11 @@ SmallVector<Iteration> ScanLastOp::getIterations() {
 }
 
 OpFoldResult ScanLastOp::getExtent(OpBuilder &b, unsigned dim) {
-  if (dim == getFrameRank())
-    return getLength();
-  return tensor::getMixedSize(b, getLoc(), getInits().front(), dim);
+  return foldExtent(*this, b, dim);
+}
+
+ValueBoundsConstraintSet::Variable ScanLastOp::getExtentBound(unsigned dim) {
+  return foldExtentBound(*this, dim);
 }
 
 void ScanLastOp::getSuccessorRegions(RegionBranchPoint, SmallVectorImpl<RegionSuccessor> &regions) {

@@ -101,10 +101,16 @@ void idr::FuncOp::print(OpAsmPrinter &printer) {
                                            getResAttrsAttrName());
 }
 
-// Every function of the program is defined in it. Only the op is read.
+// Every function of the program is defined in it, and its effects have one
+// form: everything, the default, is the attribute's absence, so that two
+// functions that may do the same compare equal whoever wrote them. Only the
+// op is read.
 LogicalResult idr::FuncOp::verify() {
   if (getBody().empty())
     return emitOpError("expects a body: every function of the program is defined in it");
+  if (EffectAttr effects = getEffectsAttr(); effects && effects.getValue() == anyEffect)
+    return emitOpError("stores its effects at the default, everything, whose one form is "
+                       "the attribute's absence");
   return success();
 }
 

@@ -6,6 +6,11 @@
 // each processor has its own file for its features (Platform/X86_64,
 // Platform/Aarch64). Where Linux and macOS differ, one function of
 // Platform/Posix holds the difference, chosen by the target's macros.
+//
+// What runs before the processor test (the page-size check, the test, and
+// what they write and how they end the process) is marked
+// idris-rt-baseline: idris-mlir keeps such a function compiled for the
+// target's baseline, where it raises every other to the program's CPU.
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
@@ -13,6 +18,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#include <string_view>
 
 namespace rt::platform {
 
@@ -33,6 +40,14 @@ bool readClock(Clock clock, int64_t &seconds, int64_t &nanoseconds) noexcept;
 // and kept there (the annotation idris-rt-baseline), since it runs before
 // anything shows that the processor has more.
 uint64_t cpuFeatures() noexcept;
+
+// Whether this processor runs simdutf's implementation `name`: whether it
+// has every feature that implementation's kernels are compiled with (their
+// target attribute), tested as cpuFeatures tests the program's. This is the
+// one decision of which kernels may run: simdutf's own detection, which
+// tests fewer features than its kernels use, is never asked
+// (Strings/Simd.cpp). False for a name the processor has no test for.
+bool runsSimdutf(std::string_view name) noexcept;
 
 // Directories (Posix/Directories.cpp).
 
@@ -120,6 +135,16 @@ int64_t waitForInput(int fd) noexcept;
 
 bool isTerminal(int fd) noexcept;
 
+// Writes the n bytes at p to the descriptor, looping over partial writes; a
+// failed write abandons the rest. Standard output's buffer, standard error,
+// and every message before the program runs go through it.
+[[clang::annotate("idris-rt-baseline")]] void writeAll(int fd, const char *p, size_t n) noexcept;
+
+// Up to n bytes from the descriptor into p, as one read gives them: their
+// count, 0 at the end of its input, or -1 when the read failed (lastError
+// says why).
+int64_t readSome(int fd, char *p, size_t n) noexcept;
+
 // Memory (Posix/Memory.cpp).
 
 // The size of a page, which a guard and a region are multiples of: the
@@ -178,7 +203,7 @@ int64_t processId() noexcept;
 
 // Ends the process with the status at once: no handler runs and no stream of
 // the C library is written.
-[[noreturn]] void exitProcess(int status) noexcept;
+[[noreturn, clang::annotate("idris-rt-baseline")]] void exitProcess(int status) noexcept;
 
 // Processors (Posix/Processors.cpp).
 
@@ -196,8 +221,8 @@ bool runThread(void (*fn)(void *), void *arg, char *stack, size_t size) noexcept
 // Makes the n bytes at p the calling thread's stack for signal handlers.
 void useSignalStack(char *p, size_t n) noexcept;
 
-// The process's stack limit in bytes: SIZE_MAX when it has none, 0 when it
-// cannot be read.
+// The process's stack limit in bytes: SIZE_MAX when it has none, which is
+// larger than any, and 0 when it cannot be read, which raises nothing.
 size_t stackLimit() noexcept;
 
 // The terminal (Posix/Terminal.cpp).

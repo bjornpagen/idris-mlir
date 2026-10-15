@@ -103,18 +103,6 @@ sha256() {
   esac
 }
 
-# memory_kib: the machine's memory in KiB, from /proc/meminfo on Linux and
-# sysctl's hw.memsize (bytes) on macOS; 0 when neither says.
-memory_kib() {
-  if [ -r /proc/meminfo ]; then
-    awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo
-  elif memory_bytes=$(sysctl -n hw.memsize 2> /dev/null); then
-    echo $((memory_bytes / 1024))
-  else
-    echo 0
-  fi
-}
-
 # memory_used_kib: the memory in use on the machine, in KiB: what is not
 # available (/proc/meminfo) on Linux; on macOS, vm_stat's active, wired and
 # compressed pages, in the page size it states. 0 when neither says.

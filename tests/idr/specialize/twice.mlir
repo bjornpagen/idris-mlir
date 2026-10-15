@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: that the call is specialized on both shapes, as C09 composes the key.
+// NEEDS-ACCEPTANCE: that the call is specialized on both shapes, as the key composes them.
 // One pair passed as both arguments of @sumN, which loops and so is never
 // inlined: the copy takes the pair's leaves once per parameter, and the
 // pair, which nothing else reads, goes with the call it fed, once.

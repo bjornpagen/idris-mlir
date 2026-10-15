@@ -1,3 +1,4 @@
 the fork's module roots include Core
-only IdrisMLIR.Frontend imports the fork
+compiler/src: only IdrisMLIR.Frontend imports the fork
+tests: one that imports the fork imports nothing of IdrisMLIR outside Frontend
 the fork imports nothing of IdrisMLIR

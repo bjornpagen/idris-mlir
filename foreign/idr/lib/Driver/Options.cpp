@@ -58,57 +58,74 @@ cl::opt<std::string> runtimePath("runtime",
                                           "wrote, or the archive it reads"),
                                  cl::init(IDRIS_MLIR_RUNTIME));
 // Where the prepared runtime keeps the bitcode that joins every program, as
-// the target entry's container says (CMakeLists.txt): in a section of its
-// object that every link leaves out, or, with no section, in a file of its
-// own beside the object, which no link names.
+// the target entry's container says (CMakeLists.txt). Read once, by
+// runtimeBitcodeHome.
 cl::opt<std::string> runtimeBitcodeSection(
     "runtime-bitcode-section",
     cl::desc("The section of the prepared runtime's object that holds its bitcode (by default "
              "the target entry's), or '' for a file beside the object, named as it is with .bc"),
     cl::init(IDRIS_MLIR_RUNTIME_BITCODE_SECTION));
-cl::opt<bool> printRuntime("print-runtime",
-                           cl::desc("Print the path of the runtime --runtime names, which "
-                                    "every executable links, and exit"),
-                           cl::init(false));
-// The runtime is the same for every program, so it is optimized and
-// compiled once, at build time, and each compilation links the result: what
-// it then optimizes again is the program, and the runtime code it inlines.
-cl::opt<bool> prepareRuntime("prepare-runtime",
-                             cl::desc("Optimize the runtime archive --runtime names once, for "
-                                      "the target's CPU, into the object -o: native code for "
-                                      "the link line with its bitcode for inlining, which "
-                                      "every compilation then links (no input file)"),
-                             cl::init(false));
-cl::opt<bool> printTargetTriple("print-target-triple",
-                                cl::desc("Print the target triple executables are linked for, "
-                                         "and exit"),
-                                cl::init(false));
-// What links a program for the target entry, after its objects, the
-// runtime and -o, one argument of the pinned C compiler per line: --target with the
-// triple, then the entry's executable and program link flags and GMP. The
-// link and the tests that link by hand use these.
-cl::opt<bool> printLinkFlags("print-link-flags",
-                             cl::desc("Print the arguments that link a program for the target, "
-                                      "after its objects, the runtime and -o, one per line, and "
-                                      "exit"),
-                             cl::init(false));
-// What other compilers need to compile for the same machine, bench/run.sh's
-// C versions among them.
-cl::opt<bool> printTargetCpu("print-target-cpu",
-                             cl::desc("Print the CPU code is compiled for, and exit"),
-                             cl::init(false));
+// The other actions, each its flag. The runtime is the same for every
+// program, so it is optimized and compiled once, at build time, and each
+// compilation links the result: what it then optimizes again is the
+// program, and the runtime code it inlines. What links a program for the
+// target entry, after its objects, the runtime and -o, is one argument of
+// the pinned C compiler per line: --target with the triple, then the
+// entry's executable and program link flags and GMP; the link and the tests
+// that link by hand use these. The CPU is what other compilers need to
+// compile for the same machine, bench/run.sh's C versions among them.
+cl::opt<Action> action(
+    cl::values(clEnumValN(Action::PrintRuntime, "print-runtime",
+                          "Print the path of the runtime --runtime names, which every "
+                          "executable links, and exit"),
+               clEnumValN(Action::PrepareRuntime, "prepare-runtime",
+                          "Optimize the runtime archive --runtime names once, for the target's "
+                          "CPU, into the object -o: native code for the link line with its "
+                          "bitcode for inlining, which every compilation then links (no input "
+                          "file)"),
+               clEnumValN(Action::PrintTargetTriple, "print-target-triple",
+                          "Print the target triple executables are linked for, and exit"),
+               clEnumValN(Action::PrintLinkFlags, "print-link-flags",
+                          "Print the arguments that link a program for the target, after its "
+                          "objects, the runtime and -o, one per line, and exit"),
+               clEnumValN(Action::PrintTargetCpu, "print-target-cpu",
+                          "Print the CPU code is compiled for, and exit")),
+    cl::desc("Instead of compiling the input"), cl::init(Action::Compile));
+
+namespace {
+
+// A count of threads, which is at least one: no thread runs no compilation.
+struct ThreadCount : cl::parser<unsigned> {
+  using cl::parser<unsigned>::parser;
+
+  bool parse(cl::Option &option, llvm::StringRef name, llvm::StringRef arg, unsigned &value) {
+    if (cl::parser<unsigned>::parse(option, name, arg, value))
+      return true;
+    if (value != 0)
+      return false;
+    return option.error("a compilation runs on one thread at least, not 0");
+  }
+};
+
 // The size of the thread pool a compilation runs its function passes and
-// its bins' code generation on. Output bytes do not depend on it; it exists so a compile
-// leaves the machine usable, and so a caller running compilations in
-// parallel can divide its own budget among them.
-cl::opt<unsigned> numThreads(
+// its bins' code generation on, when given. Output bytes do not depend on
+// it; it exists so a compile leaves the machine usable, and so a caller
+// running compilations in parallel can divide its own budget among them.
+cl::opt<unsigned, false, ThreadCount> numThreads(
     "num-threads",
     cl::desc("Threads for the pipeline's parallel function passes and the bins' code "
-             "generation (default: every CPU); output bytes do not depend on it"),
-    cl::init(0));
+             "generation, one at least (default: every CPU); output bytes do not depend on it"));
+
+} // namespace
+
+BitcodeHome runtimeBitcodeHome() {
+  if (runtimeBitcodeSection.empty())
+    return BesideObject{};
+  return InSection{runtimeBitcodeSection};
+}
 
 unsigned threadBudget() {
-  if (numThreads > 0)
+  if (numThreads.getNumOccurrences() != 0)
     return numThreads;
   return std::max(1u, llvm::hardware_concurrency().compute_thread_count());
 }

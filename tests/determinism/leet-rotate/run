@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # tests/programs/linear/leet-rotate, an IO program over the linear library's lists
 # (packages: linear), compiled at 1, 2 and 8 threads.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

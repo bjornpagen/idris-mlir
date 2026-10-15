@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Quicksort of arrays of 32-bit words, as Main.idr here (Lean's
    qsort.lean), in C. */
 #include <stdint.h>

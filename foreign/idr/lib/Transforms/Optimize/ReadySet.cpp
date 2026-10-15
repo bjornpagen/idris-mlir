@@ -19,24 +19,14 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
 #include <utility>
 
 using namespace mlir;
 
 namespace idr::optimize {
 
-Scc &Scc::leader() {
-  Scc *at = this;
-  while (at->mergedInto) {
-    if (at->mergedInto->mergedInto)
-      at->mergedInto = at->mergedInto->mergedInto;
-    at = at->mergedInto;
-  }
-  return *at;
-}
-
-ReadySet::ReadySet(Operation *op, AnalysisManager &) {
-  auto program = cast<ProgramOp>(op);
+ReadySet::ReadySet(ProgramOp program) {
   SmallVector<FuncOp> fns(program.getOps<FuncOp>());
   unsigned n = static_cast<unsigned>(fns.size());
   llvm::DenseMap<Operation *, unsigned> index;
@@ -54,28 +44,23 @@ ReadySet::ReadySet(Operation *op, AnalysisManager &) {
   for (const SmallVector<StringAttr> &slot : callees)
     for (StringAttr callee : slot)
       ++calls[callee];
-  for (FuncOp fn : fns) {
-    auto node = std::make_unique<Node>();
-    node->fn = fn;
-    node->summary.facts.calls = calls.lookup(fn.getSymNameAttr());
-    byName.try_emplace(fn.getSymNameAttr(), node.get());
-    all.push_back(std::move(node));
-  }
 
+  // The components first, so that each node is made in its own; its
+  // members come in program order.
   mlir::CallGraph graph(program);
-  SmallVector<Scc *> sccOf(n, nullptr);
+  SmallVector<Scc *> sccOf(n);
   for (const SmallVector<FuncOp> &part : callGraphComponents(graph)) {
     auto scc = std::make_unique<Scc>();
-    SmallVector<unsigned> members;
+    scc->order = static_cast<unsigned>(sccs.size());
     for (FuncOp fn : part)
-      members.push_back(index.lookup(fn));
-    llvm::sort(members);
-    for (unsigned at : members) {
-      scc->members.push_back(all[at].get());
-      all[at]->scc = scc.get();
-      sccOf[at] = scc.get();
-    }
+      sccOf[index.at(fn)] = scc.get();
     sccs.push_back(std::move(scc));
+  }
+  for (auto [fn, scc] : llvm::zip_equal(fns, sccOf)) {
+    auto node = std::make_unique<Node>(fn, Node::Held{calls.lookup(fn.getSymNameAttr())}, *scc);
+    scc->members.push_back(node.get());
+    byName.try_emplace(fn.getSymNameAttr(), node.get());
+    all.push_back(std::move(node));
   }
   llvm::DenseSet<std::pair<Scc *, Scc *>> linked;
   for (unsigned at = 0; at < n; ++at) {
@@ -84,10 +69,10 @@ ReadySet::ReadySet(Operation *op, AnalysisManager &) {
       if (!out.isCall() || out.getTarget()->isExternal())
         continue;
       Scc *from = sccOf[at];
-      Scc *into = sccOf[index.lookup(out.getTarget()->getCallableRegion()->getParentOp())];
+      Scc *into = sccOf[index.at(out.getTarget()->getCallableRegion()->getParentOp())];
       if (from == into || !linked.insert({from, into}).second)
         continue;
-      into->callers.push_back(from);
+      into->callers.push_back(from->members.front());
       ++from->unfinishedCallees;
     }
   }
@@ -100,9 +85,9 @@ FuncOp ReadySet::lookup(StringAttr name) const {
   return node ? node->fn : FuncOp();
 }
 
-bool ReadySet::isFinal(FuncOp fn) const {
-  Node *node = byName.lookup(fn.getSymNameAttr());
-  return node && node->fn == fn && node->isFinal();
+FuncOp ReadySet::finalFunction(StringAttr name) const {
+  Node *node = byName.lookup(name);
+  return node && node->isFinal() ? node->fn : FuncOp();
 }
 
 bool ReadySet::sameComponent(StringAttr a, StringAttr b) const {
@@ -112,19 +97,26 @@ bool ReadySet::sameComponent(StringAttr a, StringAttr b) const {
 
 const Summary *ReadySet::summaryOf(StringAttr name) const {
   Node *node = byName.lookup(name);
-  return node && node->isFinal() ? &node->summary : nullptr;
+  return node ? node->summary() : nullptr;
 }
 
-SmallVector<BindingTime> ReadySet::of(StringAttr fn) const {
+ArrayRef<BindingTime> ReadySet::of(StringAttr fn) const {
   const Summary *summary = summaryOf(fn);
-  return summary ? summary->times : SmallVector<BindingTime>();
+  assert(summary && "binding times are read of a final function");
+  return summary->times;
 }
 
+// A final callee's is its summary's; one of the reader's own component's,
+// what the component solved when it took the callee up.
 std::optional<unsigned> ReadySet::givesBack(const Node &reader, StringAttr callee) const {
   Node *node = byName.lookup(callee);
-  if (!node || !(node->isFinal() || node->sharesComponentWith(reader)))
+  if (!node)
     return std::nullopt;
-  return node->summary.givesBack;
+  if (const Summary *summary = node->summary())
+    return summary->givesBack;
+  if (!node->sharesComponentWith(reader))
+    return std::nullopt;
+  return node->solved ? node->solved->givesBack : std::nullopt;
 }
 
 } // namespace idr::optimize

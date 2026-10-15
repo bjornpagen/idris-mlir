@@ -7,10 +7,10 @@
 #include "idr/Transforms/Expect.h"
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Worklist.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "llvm/ADT/DenseSet.h"
 
 #include <optional>
 
@@ -48,23 +48,24 @@ std::optional<std::string> allocation(Operation *op) {
 } // namespace
 
 // In one function's scope, what it may call is in scope too: every
-// function its body names, by a call or a closure.
+// function its body names, by a call or a closure, each taken once.
 LogicalResult noHeapAllocation(ModuleOp module, AnalysisManager &analyses, StringRef function) {
-  SmallVector<FunctionOpInterface> reached;
-  llvm::DenseSet<Operation *> seen;
+  OnceWorklist<Operation *> reached;
   SymbolTable *symbols = nullptr;
   if (function.empty()) {
-    reached = functionsOf(module);
+    for (FunctionOpInterface fn : functionsOf(module))
+      reached.push(fn);
   } else {
-    reached = named(module, function, property);
-    if (reached.empty())
+    SmallVector<FunctionOpInterface> starts = named(module, function, property);
+    if (starts.empty())
       return failure();
-    seen.insert(reached.begin(), reached.end());
+    for (FunctionOpInterface fn : starts)
+      reached.push(fn);
     symbols = &symbolsOf(module, analyses);
   }
   bool held = true;
-  for (size_t next = 0; next < reached.size(); ++next) {
-    FunctionOpInterface fn = reached[next];
+  while (std::optional<Operation *> next = reached.pop()) {
+    auto fn = cast<FunctionOpInterface>(*next);
     if (fn.isExternal()) {
       if (symbols) {
         fail(fn->getLoc(), property) << where(fn) << " may be called, and its body is not in the module";
@@ -88,8 +89,7 @@ LogicalResult noHeapAllocation(ModuleOp module, AnalysisManager &analyses, Strin
     if (!symbols || !isa<FuncOp>(fn.getOperation()))
       continue;
     for (Operation *callee : callees(*symbols, fn))
-      if (seen.insert(callee).second)
-        reached.push_back(cast<FunctionOpInterface>(callee));
+      reached.push(callee);
   }
   return success(held);
 }

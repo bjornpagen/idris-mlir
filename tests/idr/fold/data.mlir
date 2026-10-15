@@ -1,5 +1,6 @@
-// RUN: idris-mlir-opt %s --canonicalize '--idr-expect=holds=returns=@constant_con:(#idr.con<@B,[1,"x"]>)/(#idr.con<@Cons,[2,#idr.con<@Nil,[]>]>),returns=@known:1/_/"y",returns=@of_constant:7/1/(#idr.con<@Nil,[]>),returns=@unknown:_/_/0,returns=@cse:#idr.big<12345678901234567890>/#idr.big<12345678901234567890>' -o /dev/null
-// NEEDS-ACCEPTANCE: how R01 prints a constructor constant (#idr.con), which the property reads back at the constant's type
+// RUN: idris-mlir-opt %s --canonicalize '--idr-expect=holds=returns=@constant_con:(#idr.con<!idr.data<"S", plain [@A(), @B(i64, !idr.str)]>, @B, [1, "x"]>)/(#idr.con<!idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>, @Cons, [2, #idr.con<!idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>, @Nil, []>]>),returns=@known:1/_/"y",returns=@of_constant:7/1/(#idr.con<!idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>, @Nil, []>),returns=@unknown:_/_/0,returns=@cse:#idr.big<12345678901234567890>/#idr.big<12345678901234567890>' -o /dev/null
+// NEEDS-ACCEPTANCE: how the printer writes a constructor constant (#idr.con), which the property reads back alone, its data type written with its body
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Constructors of constants fold to constants; fields and tags of known
 // constructors fold.
 
@@ -30,7 +31,7 @@ idr.program @data root(@root) stage(first) {
 
   // Fields and tags of a constant fold, nested ones included.
   idr.func @of_constant() -> (i64, i64, !idr.box<!L>) {
-    %l = idr.constant #idr.con<@Cons, [7 : i64, #idr.con<@Nil, []>]> : !idr.box<!L>
+    %l = idr.constant #idr.con<!L, @Cons, [7 : i64, #idr.con<!L, @Nil, []>]> : !idr.box<!L>
     %h = idr.field %l : !idr.box<!L> @Cons[0] -> i64
     %t = idr.tag %l : !idr.box<!L>
     %n = idr.field %l : !idr.box<!L> @Cons[1] -> !idr.box<!L>

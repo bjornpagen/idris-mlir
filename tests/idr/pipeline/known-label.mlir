@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures,not-called=@inc,one-clone=@pow -o /dev/null
-// NEEDS-ACCEPTANCE: that the specialization on the known constructor is made and @inc inlined into it, as C09 and C08 decide.
+// NEEDS-ACCEPTANCE: that the specialization on the known constructor is made and @inc inlined into it.
 // The closure passed to the recursive @pow, a static parameter, is one
 // label after defunctionalization, a known constructor of its dispatch
 // sum. The optimizer specializes @pow on it, so the copy's dispatch has

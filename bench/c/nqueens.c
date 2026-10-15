@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* All solutions of the n-queens problem, as Main.idr here (Perceus's
    nqueens.kk), in C. Solutions share their tails, so cons cells carry
    counts. */

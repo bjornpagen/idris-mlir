@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # compiler/idris
 
 Upstream Idris 2's compiler, forked at the commit third_party/Idris2's
@@ -105,7 +107,9 @@ This compiler compiles the fork, and refuses `believe_me`, `%unsafe`
 definitions and `%foreign` without a primitive, so the fork has none of
 them, and no `idris_crash`. Where upstream coerced, the fork does what the
 coercion claimed, with the same results (but for one upstream crash,
-below); `assert_total` and `assert_smaller` stay.
+below). `assert_total` and `assert_smaller` stay where nothing of the
+frontend's reaches them; where it does, the next section says what replaced
+them.
 
 - A scope coercion is a traversal that rebuilds every node from the same
   fields, an identity once scopes are erased: `FreelyEmbeddable` has no
@@ -157,6 +161,73 @@ below); `assert_total` and `assert_smaller` stay.
   `trimStart`, `trimSpace`, `parseNatural` and `parseSigned`
   (`Libraries.Utils.String`), which see the characters and give base's
   results.
+
+### Total where the frontend calls it
+
+The frontend is total, and calls the fork; what it calls and Idris's
+checker can follow is total here, by a structural or well-founded argument
+the checker accepts, with no `assert_total` and no count that makes a
+recursion stop. Upstream traversed a term's binders, a metavariable's
+arguments and a case's alternatives through `map`, `traverse` or an
+interface's own method, which the checker cannot follow; here each kind of
+node that holds terms has a function of its own, so that every recursive
+call is on a part of its argument:
+
+- weakening, thinning and shrinking a term (`Core.TT.Term`: `insertNames`,
+  `thinTerm`, `shrinkTerm`), stripping and restoring a namespace (`onRefs`,
+  `onTreeTerms`), `substName`, `refsToLocals`, `getRefs`, `getMetas` and
+  `addRefs` of a term and of a case tree, showing a term (`showTerm`), a
+  case tree and an error (`showError`, which shows each error a list holds
+  by a function of its own), and a term's hash (`hashTerm`), all with the
+  output upstream's gave;
+- a term's names made full or resolved (`HasNames` of a term, a case tree
+  and an alternative, in `Core.Context`): one traversal each
+  (`onNamesTerm`, `onNamesTree`), given what becomes of a name and of a
+  metavariable (`OnNames`), where upstream wrote each twice. Resolving a
+  type's definition leaves its constructors as a TTC holds them, by their
+  full names, which is what upstream's `full` gave there; upstream's lookup
+  there made decoding a definition able to look up, and so decode, another;
+- decoding a TTC (`Core.TTC`): a name, a term and its parts, and a case
+  tree and its alternatives are decoded by functions given the bytes left
+  to read and their accessibility (`Control.WellFounded`), which each passes
+  on to its parts once it has read its tag (`fewer`, `Core.Binary.Prims`):
+  the bytes of the buffer are the measure. Every other instance a
+  definition is decoded through holds none of its own type, but an
+  environment, decoded along its scope. A term and a case tree are also
+  written by functions of their own (`encodeTerm`, `encodeTree`), since a
+  decoder that names an instance reaches its writer too; the bytes are
+  upstream's. (An `Integer`'s writer, reached that way and never run by a
+  decoder, still splits it into limbs under upstream's `assert_total`.) A
+  decoded
+  definition is resolved by `resolveGlobalDef`, which the instances'
+  `resolved` are and which looks up no definition, and a name is looked up
+  by turning it into its index once (`lookupContextEntry`), where upstream's
+  `lookupCtxtExactI` called itself on the index it found and
+  `lookupCtxtExact` repeated it. So `decode` and `lookupCtxtExact` are
+  total, and so are `lookupCtxtName`, `toFullNames` at a name and a term,
+  and `isPairType`;
+- `mkdirAll` (`Core.Directory`) is done at once when the directory exists,
+  and otherwise creates the path's prefixes, outermost first, as a walk
+  over its body, passing those that exist already;
+- the fork's size-change decision (`loopsTerminate`, which the frontend
+  asks of each component of its program): a graph is dense and typed by
+  the functions its path starts and ends at (`Dense n from to`), so paths
+  join only in path order (`andThen : Dense n a b -> Dense n b c -> Dense n
+  a c`, the later graph times the earlier, since a call's rows are the
+  callee's arguments); its rows are a finite type
+  (`Libraries.Data.List.Finite`), and each search keeps every graph, or
+  pair of a function and a graph, it meets once, in a list without
+  duplicates that the pigeonhole principle bounds by the type's values; the
+  room left is the measure (`Control.WellFounded`).
+  The repository's `tests/compiler/fork-loops-terminate` runs it on
+  components whose verdicts flip if paths are joined the wrong way round.
+
+The evaluator (`Core.Normalise`) and the elaborator are not total, and
+cannot be: Idris's type theory is not strongly normalising, and checking a
+program evaluates whatever its types compute. The frontend reaches them
+through `normalise`, `normaliseTypes`, `normaliseHoles` and `buildMain`
+(below), building packages, and the termination checker
+(`checkTerminating`), which reads each definition through the evaluator.
 
 ### Rewritten so that this compiler can compile it
 
@@ -310,15 +381,18 @@ merge; each says what changed in its interface.
   `readArray` did. `getContent` and `setNextEntry`, which nothing called,
   are gone (the latter was the one way to raise `nextEntry` past the
   table). Decoding a definition from its TTC writes it into the table as
-  it is after resolving the definition's names, which may grow it;
-  upstream wrote it into the array it had read before, where a write
-  after a growth was lost and the definition decoded again on the next
-  lookup.
+  it is when written; upstream wrote it into the array it had read before,
+  where a write after a growth was lost and the definition decoded again
+  on the next lookup. Resolving a decoded definition's names looks up no
+  other definition (`resolveGlobalDef`), so decoding one never decodes
+  another.
 - `normaliseTypes` (`Core.Normalise`, the evaluator's `evalTypes`) is the
   normal form this compiler's translator gives a type. It unfolds, besides
   what Idris's own normalisation unfolds, any definition that computes a
   type (its type is a universe after its arguments, seen through the names
-  that type is written with: `VarSet : Scoped`), whatever its visibility,
+  that type is written with, `VarSet : Scoped`, each followed once, so that
+  an alias that leads back to itself computes no type), whatever its
+  visibility,
   so that a private type-level function of another module reduces. It
   keeps an implementation as it is written, which is the value a type
   holds: unfolded, an implementation is a record of its methods, each
@@ -400,6 +474,21 @@ merge; each says what changed in its interface.
   where it runs once, at load time.
 - `ttcVersion` (`Core.Binary`) has eleven digits where stock Idris's have
   ten, so a TTC either one writes is refused by the other when read.
+- `buildMain` (`Idris.ModTree`) builds a main file in a session of its
+  own: it makes the unification state, the delayed elaborators and the
+  metadata, resets the context to the main module's origin and runs
+  `buildDeps`. A driver that only builds a program, as the frontend's,
+  never holds the session's state, which holds the evaluator's values
+  (upstream/fork-build-main).
+- No count bounds a recursion of the fork's own: the evaluator's `fuel`
+  and per-name `reduceLimit` options, which nothing set, are gone; the
+  size-change decision collects a loop graph's powers until one repeats and
+  looks among them for the idempotent one, where it searched for it for at
+  most 1024 powers; and `normaliseTypes` follows each name once (above),
+  where it stopped at a depth of 8.
+- `processDecls` and `processTTImpDecls` (`TTImp.ProcessDecls`) return
+  nothing: upstream's returned `True` whatever happened, an error being
+  thrown.
 
 ## tools/extract-idris.sh
 
@@ -440,7 +529,15 @@ fork must build standalone again before the pin moves.
 ## Bugs in upstream code found here
 
 The code here is ours, so a bug found in it is fixed here, in the fork,
-where the fix is needed. It is also reported to Idris 2 upstream, and
-recorded in PINS.md (what the bug is, where the report is, and when the
-fix goes: when a re-sync brings upstream's own fix). The pinned checkout
-third_party/Idris2 stays unmodified.
+where the fix is needed. It is recorded in PINS.md (what the bug is and
+when the fix goes: when a re-sync brings upstream's own fix), with the
+change laid out against the pin in `upstream/<bug>/pull-request.diff`,
+which the re-sync reads. Nothing is sent to Idris (upstream/README.md,
+**Idris**). The pinned checkout third_party/Idris2 stays unmodified. The
+fixes carried: upstream/18-elaboration-primitive-folding,
+20-evaluator-char-text, 21-termination-closure, and fork-linear-ambiguous-let
+(an ambiguous name in a linear `let`'s value), fork-totality-depth (no count
+decides whether a recursion is total; `%totality_depth` is refused),
+fork-interface-body (a declaration an interface body cannot hold is
+refused, not dropped) and fork-with-application-scope (a with application
+in a local definition or a record update).

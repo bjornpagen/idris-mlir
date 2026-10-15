@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Every name the compiler makes is derived from content, the owner's name
 # and a hash of the structural key, never from a counter or the order in
 # which things were made: creation order must not reach output, and a name

@@ -1,0 +1,34 @@
+sources: the C++ of foreign/idr and runtime searched
+counted loops: none, no loop is bounded by a counter
+iteration limits: none, no rewrite stops at a count of iterations
+limit constants: none but the policies
+fixpoint loops: none, no loop runs until nothing changed
+endless loops: none, every loop states when it ends
+policies: each with its reason, and each still in its file
+idris sources: compiler/src and libs searched
+covering: only the definitions a policy names, below; every other module and definition is total
+not yet total: the translation of applications:
+  IdrisMLIR.Frontend.Driver.frontend
+  IdrisMLIR.Frontend.Driver.main
+  IdrisMLIR.Frontend.Driver.perform
+  IdrisMLIR.Frontend.Program.program
+  IdrisMLIR.Frontend.Translate.Cases.conAlternatives
+  IdrisMLIR.Frontend.Translate.Cases.litAlternatives
+  IdrisMLIR.Frontend.Translate.Cases.natAlternatives
+  IdrisMLIR.Frontend.Translate.Cases.natCase
+  IdrisMLIR.Frontend.Translate.Cases.newtypeCase
+  IdrisMLIR.Frontend.Translate.Cases.staticCase
+  IdrisMLIR.Frontend.Translate.Cases.tree
+  IdrisMLIR.Frontend.Translate.Programs.translateIOProgram
+  IdrisMLIR.Frontend.Translate.Programs.translateInstance
+  IdrisMLIR.Frontend.Translate.Terms.application
+  IdrisMLIR.Frontend.Translate.Terms.applyOver
+  IdrisMLIR.Frontend.Translate.Terms.bindHeld
+  IdrisMLIR.Frontend.Translate.Terms.delayed
+  IdrisMLIR.Frontend.Translate.Terms.headStep
+  IdrisMLIR.Frontend.Translate.Terms.letIn
+  IdrisMLIR.Frontend.Translate.Terms.suspend
+  IdrisMLIR.Frontend.Translate.Terms.term
+trusted: IdrisMLIR.Frontend.Finite
+trusted: IdrisMLIR.Frontend.Host
+assertions: none outside the trusted, nothing else asserts its own totality

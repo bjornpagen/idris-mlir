@@ -10,39 +10,47 @@
 #include "idr/IR/Symbols.h"
 #include "idr/IR/Verify.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <optional>
+
 using namespace mlir;
 using namespace idr;
 
-ownership::Use idr::ownership::useOf(OpOperand &operand, SymbolTable *symbols) {
-  return consumes(operand, symbols) ? Use::Consume : Use::Borrow;
+ownership::Use idr::ownership::useOf(OpOperand &operand) {
+  return consumes(operand) ? Use::Consume : Use::Borrow;
 }
+
+namespace {
+
+// One step up a view's chain: what `value` was read from, or the operand of
+// an op that only changes its grade (a borrow, a linear position).
+std::optional<Value> viewedFrom(Value value) {
+  if (Value from = ownership::readFrom(value))
+    return from;
+  Operation *def = value.getDefiningOp();
+  if (def && def->hasTrait<ResultCarriesOperand>())
+    return def->getOperand(0);
+  return std::nullopt;
+}
+
+} // namespace
 
 // An op that allocates nothing and reads no reference makes its value from
 // nothing a count reaches: a constant, poison, a small big, a pending
 // field, a global's buffer. What is read from such a value, or is such a
 // value at another grade, is no more counted than it.
 bool idr::ownership::isStatic(Value value) {
-  while (value) {
-    Operation *def = value.getDefiningOp();
-    if (def && isPure(def) &&
-        llvm::none_of(def->getOperandTypes(), [](Type type) { return holdsReferences(type); }))
-      return true;
-    if (Value from = readFrom(value)) {
-      value = from;
-      continue;
-    }
-    value = def && def->hasTrait<ResultCarriesOperand>() ? def->getOperand(0) : Value();
-  }
-  return false;
+  return llvm::any_of(definitionChain(value, viewedFrom), [](Value at) {
+    Operation *def = at.getDefiningOp();
+    return def && isPure(def) &&
+           llvm::none_of(def->getOperandTypes(), [](Type type) { return holdsReferences(type); });
+  });
 }
 
 Value idr::ownership::readFrom(Value value) {
@@ -64,21 +72,8 @@ Value idr::ownership::readFrom(Value value) {
 }
 
 // A view's chain goes up through what each step was read from and through
-// the ops that only change a grade (a borrow, a linear position), to the
-// value as it was made. Each step is to a value defined before it, so the
-// chain ends.
-Value idr::ownership::viewRoot(Value value) {
-  for (;;) {
-    if (Value from = readFrom(value)) {
-      value = from;
-      continue;
-    }
-    Operation *def = value.getDefiningOp();
-    if (!def || !def->hasTrait<ResultCarriesOperand>())
-      return value;
-    value = def->getOperand(0);
-  }
-}
+// the ops that only change a grade, to the value as it was made.
+Value idr::ownership::viewRoot(Value value) { return definitionChain(value, viewedFrom).back(); }
 
 namespace {
 
@@ -102,7 +97,7 @@ bool onlyAtoms(Attribute attr, Type type) {
   // state without fields.
   if (isBoxed(type))
     return !data.isMemo() && !con.isRun() && con.getFields().empty();
-  SmallVector<Type> fields(data.getCtor(con.getTag()).fields);
+  SmallVector<Type> fields(con.getCtor().fields);
   if (con.isRun())
     fields.erase(fields.begin() + con.getSpine());
   auto atoms = [&](ArrayAttr cell) {
@@ -125,13 +120,4 @@ bool onlyAtoms(Attribute attr, Type type) {
 bool idr::ownership::reachesOnlyAtoms(Value view) {
   Attribute attr;
   return matchPattern(view, m_Constant(&attr)) && onlyAtoms(attr, unrestricted(view.getType()));
-}
-
-// A loop over indices runs its body once per index: an scf.for, and a
-// structured op on buffers.
-bool idr::ownership::isIndexLoop(Operation *op) {
-  if (isa<scf::ForOp>(op))
-    return true;
-  auto structured = dyn_cast<linalg::LinalgOp>(op);
-  return structured && structured.hasPureBufferSemantics();
 }

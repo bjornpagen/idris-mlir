@@ -11,7 +11,7 @@
 // observes is the trait on their class, said once beside each op: a
 // clock reading is one, and an error's text, the same at every call, is
 // none, though both are IO in the world's order.
-// NEEDS-ACCEPTANCE: the memo sum's printed constructors, as C01's printer writes them.
+// NEEDS-ACCEPTANCE: the memo sum's printed constructors.
 // CHECK-DAG: @traced(i64) label @traced by_name
 // CHECK-DAG: @sized(i64){{[],]}}
 // CHECK-DAG: @shout(){{[],]}}

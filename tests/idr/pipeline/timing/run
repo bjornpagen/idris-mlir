@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # idris-mlir --mlir-timing reports where a compilation spent its time: the
 # parse, with the verification that follows it, has a row of its own
 # before the passes; each module pass the driver's one manager ran, from

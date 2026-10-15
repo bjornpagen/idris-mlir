@@ -64,9 +64,9 @@ bindingTimesOf(llvm::ArrayRef<idr::FuncOp> component);
 class BindingTimes {
 public:
   virtual ~BindingTimes() = default;
-  // One per parameter of the final function named `fn`; empty while its
-  // component is not final.
-  virtual llvm::SmallVector<BindingTime> of(mlir::StringAttr fn) const = 0;
+  // One per parameter of the function named `fn`, whose component is
+  // final: what a specialization reads it for.
+  virtual llvm::ArrayRef<BindingTime> of(mlir::StringAttr fn) const = 0;
 };
 
 } // namespace idr

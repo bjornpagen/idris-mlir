@@ -50,7 +50,7 @@ LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand 
   return success();
 }
 
-LogicalResult commit(FuncOp fn, const Exclusivity &solved, SymbolTable &symbols) {
+LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &symbols) {
   // A call's results are its callee's, which idr-rc set from the signature
   // already: on a path the solver never reached, a call has no lattice of
   // its own.
@@ -72,9 +72,10 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, SymbolTable &symbols)
       positions.emplace_back(&operand, type);
   };
   fn.walk([&](Operation *op) {
+    // A verified call names a function of the program.
     if (auto call = dyn_cast<CallOp>(op)) {
-      if (auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()))
-        take(call.getArgOperandsMutable(), callee.getArgumentTypes());
+      take(call.getArgOperandsMutable(),
+           symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()).getArgumentTypes());
     } else if (auto ret = dyn_cast<ReturnOp>(op)) {
       take(ret->getOpOperands(), fn.getResultTypes());
     }
@@ -97,8 +98,13 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, SymbolTable &symbols)
   return success();
 }
 
+// The solve and the table idr-rc holds for the nested run, which reads
+// them from every thread and writes nothing of them.
 struct RcCommit : PassWrapper<RcCommit, OperationPass<FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RcCommit)
+
+  RcCommit(const Exclusivity &solved, const SymbolTable &symbols)
+      : solved(solved), symbols(symbols) {}
 
   StringRef getArgument() const override { return "idr-rc-commit"; }
   StringRef getDescription() const override {
@@ -107,21 +113,18 @@ struct RcCommit : PassWrapper<RcCommit, OperationPass<FuncOp>> {
   }
 
   void runOnOperation() override {
-    FuncOp fn = getOperation();
-    auto solved = getCachedParentAnalysis<Exclusivity>();
-    auto symbols = getCachedParentAnalysis<SymbolTable>();
-    if (!solved || !symbols) {
-      fn.emitError("idr-rc-commit: internal error: the module's Exclusivity or SymbolTable was "
-                   "not computed");
-      return signalPassFailure();
-    }
-    if (failed(commit(fn, solved->get(), symbols->get())))
+    if (failed(commit(getOperation(), solved, symbols)))
       signalPassFailure();
   }
+
+  const Exclusivity &solved;
+  const SymbolTable &symbols;
 };
 
 } // namespace
 
-std::unique_ptr<Pass> createRcCommit() { return std::make_unique<RcCommit>(); }
+std::unique_ptr<Pass> createRcCommit(const Exclusivity &solved, const SymbolTable &symbols) {
+  return std::make_unique<RcCommit>(solved, symbols);
+}
 
 } // namespace idr::ownership

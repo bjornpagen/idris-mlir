@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The reserved-stack runner rounds the stack and the guard up to whole pages
 # of the target's page size, and the guard is never less than one: a
 # recursion runs into it after at least the stack it asked for and at most
@@ -17,7 +19,7 @@ case $page in
     say "the build records no page size ($build/runtime/page-size)"
     exit 0 ;;
 esac
-if ! link_program -O1 -I"$root/runtime" "-DTEST_PAGE_SIZE=$page" "$here/guard.c" "$runtime" \
+if ! runtime_c link_program -O1 "-DTEST_PAGE_SIZE=$page" "$here/guard.c" "$runtime" \
     -o "$work/guard" > "$work/cc.log" 2>&1; then
   say "guard: does not build"
   show "$work/cc.log"

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # idris-mlir runs the frontend beside its own real path, idris-mlir-front,
 # and no other: a copy of idris-mlir alone compiles no Idris source, says
 # which frontend it could not run, and leaves no artifact. A module needs

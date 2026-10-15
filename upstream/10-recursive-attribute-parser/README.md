@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] The textual parser and printer recurse once per level of attribute nesting, and overflow the stack
 
 At `llvmorg-23.1.2`, `mlir-opt` crashes with SIGSEGV on a module whose

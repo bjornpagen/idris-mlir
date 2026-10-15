@@ -1,6 +1,9 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `remove-dead-values` replaces a call it erases no result of with an identical one
 
-On llvm main at 7208ba24 (the pin), `--remove-dead-values` replaces every
+On llvm main at 7208ba24 (the pin), and at b43c0361 (main on 2026-10-15),
+`--remove-dead-values` replaces every
 call of a private function that returns a value with a new, identical
 call, whether or not it erases a result from it. The module prints the
 same, but the call is a new operation, so `OperationFingerPrint` changes:
@@ -137,9 +140,8 @@ must leave as it is. The test is a file of its own because a RUN line
 covers every case of its file, and those of `remove-dead-values.mlir` were
 not written to be fixed points of the pass. It uses func and arith only.
 
-The patch touches no file the other patches touch, so it applies to the
-pinned source alone and after 02-07 and 09
-(`tests/spec/upstream-patches`).
+The diff touches no file a patch the bootstrap applies touches, so it
+applies to the pinned source alone and after them.
 
 ## Testing at the pin
 
@@ -176,25 +178,38 @@ the module when the copy hashed the same up to operation identity. The
 patch let the simplify round run `remove-dead-values{canonicalize=false}`
 itself; the rounds are gone, and so is the need.
 
+## Testing on main
+
+On 2026-10-15, against llvm main at b43c0361: `pull-request.diff` applies
+with no offset (`git apply --check`), as it does to the pin.
+`PatternMatch.h` and `PatternMatch.cpp` are unchanged since the pin, and so
+is the path of `remove-dead-values` that lists a call with an empty set of
+results to erase (`processFuncOp`); main's one change to the pass since the
+pin, #208881, replaces the uses of dead function arguments and does not
+touch it. The patched `PatternMatch.cpp` passes `-fsyntax-only` with the
+typecheck build's command for that unit, the patched header first on the
+include path. The new test's name is free on main. Not run on main: the
+test (no `mlir-opt` is built for this) and `check-mlir`.
+
 ## Upstreaming plan
 
-Status: not filed; not carried. `check-mlir` not run on main. Whether main past
-7208ba24 fixes it is not known: it was read at the pin only, from a host
-without network access.
+Status: ready to file, not filed; not carried. `submission.md` has the
+issue, the pull request title and body and the checklist to run before
+posting. No issue or pull request covers it: searched llvm/llvm-project
+for `eraseOpResults` and for remove-dead-values fixed-point reports,
+2026-10-15. The nearest are #174152 (merged, which added
+`eraseOpResults`) and #187992 (open, new rewriter helpers for operands and
+block arguments; it does not touch `eraseOpResults`).
 
 - Where: a GitHub issue (the reproducer: `remove-dead-values` replaces a
   call it erases nothing from, and `composite-fixed-point-pass` over it does
   not converge) and a pull request against llvm main, one commit,
-  `pull-request.diff`. Before filing: search llvm/llvm-project for
-  `eraseOpResults` and `remove-dead-values` fixed-point issues; check that
-  the diff applies to then-current main and is clang-format clean, and that
-  the new test fails with the `PatternMatch.cpp` change reverted (shown at
-  the pin, against the toolchain's libraries); `check-mlir` is the pull
-  request's pre-merge CI's (upstream/README.md, **CI decides**). There is
-  no `submission.md` yet.
+  `pull-request.diff`. `check-mlir` is the pull request's pre-merge CI's
+  (upstream/README.md, **CI decides**).
 - Upstream test: `mlir/test/Transforms/remove-dead-values-fixed-point.mlir`.
-- Independent of 06 (`remove-dead-values-unreachable`): neither changes a
-  file the other changes, and either can land first.
+- Independent of 06 (`remove-dead-values-unreachable`) and 22
+  (`remove-dead-values-poison-operand`): neither changes a file this one
+  changes, and any of them can land first.
 - When the pin includes the fix (or an equivalent one in the pass),
   `tests/upstream/remove-dead-values-unchanged-call` fails, and this
   directory and that check go.

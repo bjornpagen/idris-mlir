@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A failed bootstrap cannot look like an installed toolchain: without its
 # stamp, an Idris 2 or an LLVM that is there is refused.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

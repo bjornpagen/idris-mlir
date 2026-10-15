@@ -22,7 +22,6 @@
 #include "idr/Transforms/Stack.h"
 
 #include "idr/Analysis/Escapes.h"
-#include "idr/Analysis/Holds.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
@@ -41,41 +40,42 @@ using namespace mlir;
 
 namespace {
 
-constexpr unsigned cellLimit = 256;
-constexpr unsigned frameLimit = 1024;
-constexpr unsigned recursiveFrameLimit = 64;
+// The size policies of the stack, in bytes: the largest cell a frame
+// holds, and how much of a frame a function's cells take, much less for a
+// function on a cycle of calls, which may have many frames live at once.
+// They bound how far a frame grows, never what compiles: a cell they leave
+// on the heap is the same cell there.
+constexpr unsigned stackCellLimit = 256;
+constexpr unsigned stackFrameLimit = 1024;
+constexpr unsigned recursiveStackFrameLimit = 64;
 
 struct Stack : idr::impl::IdrStackBase<Stack> {
   void runOnOperation() override {
     idr::ProgramOp program = getOperation();
     const idr::Layouts &layouts = getAnalysis<idr::Layouts>();
-    if (failed(layouts.valid()))
-      return signalPassFailure();
     const idr::Escapes &escapes = getAnalysis<idr::Escapes>();
-    if (failed(escapes.solved())) {
-      program.emitError("internal error: idr-stack's escape analysis failed");
-      return signalPassFailure();
-    }
     // The decision, on the program as it stands: the cons whose property
     // is to change.
     SmallVector<std::pair<idr::ConOp, bool>> changes;
     for (idr::FuncOp fn : program.getOps<idr::FuncOp>()) {
-      unsigned left = escapes.recursive(fn) ? recursiveFrameLimit : frameLimit;
+      unsigned left = escapes.recursive(fn) ? recursiveStackFrameLimit : stackFrameLimit;
+      // Whether `con` goes on the stack, which takes its size from what is
+      // left of the frame.
+      auto onStack = [&](idr::ConOp con) {
+        if (!isa<idr::BoxType>(con.getResult().getType()))
+          return false;
+        ++numBoxes;
+        if (escapes.mayEscape(con))
+          return false;
+        unsigned size = layouts.box(con.getDataType(), con.getTag()).size;
+        if (size > stackCellLimit || size > left)
+          return false;
+        left -= size;
+        ++numCells;
+        return true;
+      };
       fn.walk<WalkOrder::PreOrder>([&](idr::ConOp con) {
-        bool marked = false;
-        if (isa<idr::BoxType>(con.getResult().getType())) {
-          ++numBoxes;
-          if (!escapes.mayEscape(con)) {
-            unsigned size =
-                layouts.box(con.getDataType(), static_cast<unsigned>(con.getTag())).size;
-            if (size <= cellLimit && size <= left) {
-              left -= size;
-              marked = true;
-              ++numCells;
-            }
-          }
-        }
-        if (marked != con.getStack())
+        if (bool marked = onStack(con); marked != con.getStack())
           changes.emplace_back(con, marked);
       });
     }
@@ -87,7 +87,7 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
       rewriter.modifyOpInPlace(con, [&] { con.setStack(marked); });
     // The property changes what a con does to memory, which the ownership
     // analyses read, and nothing a data type or a symbol says.
-    markAnalysesPreserved<idr::Holds, idr::TypeGraph, idr::Layouts, SymbolTable>();
+    markAnalysesPreserved<idr::TypeGraph, idr::Layouts, SymbolTable>();
   }
 };
 

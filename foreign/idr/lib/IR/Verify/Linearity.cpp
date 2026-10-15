@@ -89,15 +89,18 @@ public:
     });
   }
 
-  // The first op after which the value has been used twice, if any.
-  Operation *secondUse() {
+  // That the value is used at most once on every path; else an error at
+  // the first op after which it has been used twice.
+  LogicalResult usedOnce() {
     unsigned total = 0;
     for (Operation *op : top) {
       total += count(op);
       if (total > 1)
-        return op;
+        return op->emitOpError(isWorld(value.getType())
+                                   ? "uses a world that is already used on the same path"
+                                   : "uses a linear value that is already used on the same path");
     }
-    return nullptr;
+    return success();
   }
 
 private:
@@ -147,10 +150,8 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
     // callee never reads.
     if (matchPattern(value, m_Constant()))
       continue;
-    if (Operation *op = LinearUses(value, numbering).secondUse())
-      return op->emitOpError(isWorld(value.getType())
-                                 ? "uses a world that is already used on the same path"
-                                 : "uses a linear value that is already used on the same path");
+    if (failed(LinearUses(value, numbering).usedOnce()))
+      return failure();
   }
   return success();
 }

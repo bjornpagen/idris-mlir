@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
+// NEEDS-ACCEPTANCE: the unknown-constructor errors as the constructor reference parser writes them
 
 !T = !idr.data<"T", plain [@A(i64)]>
 idr.program @values root(@root) stage(first) {
@@ -19,7 +21,7 @@ idr.program @values root(@root) stage(first) {
 !T = !idr.data<"T", plain [@A(i64)]>
 idr.program @values root(@root) stage(first) {
   idr.func @f(%x: i64) -> !T {
-    // expected-error @+1 {{refers to an unknown constructor @B}}
+    // expected-error @+1 {{the data type "T" has no constructor @B}}
     %v = idr.con !T @B(%x : i64)
     return %v : !T
   }
@@ -117,7 +119,7 @@ idr.program @values root(@root) stage(first) {
 !T = !idr.data<"T", plain [@A(i64)]>
 idr.program @values root(@root) stage(first) {
   idr.func @f(%v: !T) -> i64 {
-    // expected-error @+1 {{refers to an unknown constructor @B}}
+    // expected-error @+1 {{the data type "T" has no constructor @B}}
     %x = idr.field %v : !T @B[0] -> i64
     return %x : i64
   }
@@ -224,7 +226,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{has a constant 1 : i32 where 'i64' is expected}}
-    %c = idr.constant #idr.con<@A, [1 : i32, "x"]> : !T
+    %c = idr.constant #idr.con<!T, @A, [1 : i32, "x"]> : !T
     return
   }
   // The program's root, which the functions above are no part of.
@@ -240,7 +242,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{has a constant with 1 fields or captures where 2 are expected}}
-    %c = idr.constant #idr.con<@A, [1 : i64]> : !T
+    %c = idr.constant #idr.con<!T, @A, [1 : i64]> : !T
     return
   }
   // The program's root, which the functions above are no part of.
@@ -258,7 +260,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{has a constant "x" : !idr.str where '!idr.str' is expected}}
-    %c = idr.constant #idr.con<@A, ["x" : !idr.str]> : !T
+    %c = idr.constant #idr.con<!T, @A, ["x" : !idr.str]> : !T
     return
   }
   // The program's root, which the functions above are no part of.
@@ -273,8 +275,8 @@ idr.program @values root(@root) stage(first) {
 !T = !idr.data<"T", plain [@A()]>
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
-    // expected-error @+1 {{has a constant of an unknown constructor @B}}
-    %c = idr.constant #idr.con<@B, []> : !T
+    // expected-error @+1 {{the data type "T" has no constructor @B}}
+    %c = idr.constant #idr.con<!T, @B, []> : !T
     return
   }
   // The program's root, which the functions above are no part of.

@@ -3,7 +3,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-rc --idr-expect=holds=stage=owned -o /dev/null
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-rc --idr-lower --idr-expect=holds=stage=lowered,lowered -o /dev/null
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-rc --idr-lower --idr-entry --idr-expect=holds=entry -o /dev/null
-// NEEDS-ACCEPTANCE: the stages each pass sets (R06, R09, R12) and idr-entry taking the program apart (R12).
+// NEEDS-ACCEPTANCE: the stages each pass sets and idr-entry taking the program apart.
 // The stage is the program's, said once: idr-defunctionalize brings it
 // from higher to first, idr-rc from first to owned, idr-lower from owned
 // to lowered, its functions upstream's in place, and idr-entry takes the

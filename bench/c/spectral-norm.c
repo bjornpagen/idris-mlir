@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* spectral-norm on one core, as Main.idr here: ten rounds of the power
    method, each sum in index order. */
 #include <math.h>

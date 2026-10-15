@@ -24,7 +24,9 @@ double fromChars(const char *p, size_t n) {
 
 } // namespace
 
-extern "C" double idris_rt_parse_double(const char *p, size_t n) {
+extern "C" double idris_rt_str_to_double(const idris_rt_str *s) {
+  const char *p = idris_rt_str_bytes(s);
+  size_t n = s->bytes;
   rt::numerals::Numeral numeral = rt::numerals::readNumeral(p, n);
   switch (numeral.kind) {
   case rt::numerals::Numeral::Infinity:
@@ -39,15 +41,11 @@ extern "C" double idris_rt_parse_double(const char *p, size_t n) {
     idris_rt_big magnitude =
         rt::big::bigOfDigits(p + numeral.digits, n - numeral.digits, numeral.base);
     double value = idris_rt_big_to_double(magnitude);
-    idris_rt_big_release(magnitude);
+    rt::big::release(magnitude);
     return numeral.negative ? -value : value;
   }
   case rt::numerals::Numeral::None:
     break;
   }
   return 0.0;
-}
-
-extern "C" double idris_rt_str_to_double(const idris_rt_str *s) {
-  return idris_rt_parse_double(idris_rt_str_bytes(s), s->bytes);
 }

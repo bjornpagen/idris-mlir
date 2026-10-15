@@ -6,7 +6,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
-#include "idr/Analysis/Holds.h"
 #include "idr/Conversion/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -171,7 +170,7 @@ struct Entry : idr::impl::IdrEntryBase<Entry> {
         return signalPassFailure();
     // Every symbol it adds goes through the table, and no declaration
     // changes.
-    markAnalysesPreserved<SymbolTable, Layouts, TypeGraph, Holds>();
+    markAnalysesPreserved<SymbolTable, Layouts, TypeGraph>();
   }
 };
 

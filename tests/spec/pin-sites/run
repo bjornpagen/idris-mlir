@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Every PIN(<name>) site outside the docs names a `## <name>` entry in
 # PINS.md or an upstream bug, upstream/<name>/ (what golden tests printed,
 # their `output`, is not a site, nor is a patch carried for upstream).

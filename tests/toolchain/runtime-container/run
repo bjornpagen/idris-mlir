@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The prepared runtime keeps the bitcode that joins every program where the
 # target entry's container says (CMakeLists.txt): in a section of its object
 # that every link leaves out, or in a file beside the object

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] Inlining a single-block callee that does not return aborts
 
 At `llvmorg-23.1.2`, `--inline` aborts when it inlines a single-block

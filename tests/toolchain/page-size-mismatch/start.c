@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* A program as @main is: idris_rt_start with a body that writes one line.
  * Whether the line reaches stdout says whether the program ran at all. */
 #include "idris_rt.h"

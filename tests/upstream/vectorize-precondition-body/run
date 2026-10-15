@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pinned mlir-opt, with upstream/04-vectorize-precondition-body/llvm.patch,
 # no longer shows the bug: the vectorizer's precondition refuses the
 # reduction whose body holds a crash check, as it refuses the same body

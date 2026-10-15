@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # No C++ unit of ours (a .cpp or .h under foreign/idr or of the runtime) is over 400 lines: a unit holds one concept, one
 # function or the members of one type, and one that grows past a screenful
 # is two. The runtime's C ABI, idris_rt.h, is no unit: it is the list of

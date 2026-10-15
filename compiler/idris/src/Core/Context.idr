@@ -41,7 +41,7 @@ namesResolvedAs ctxt = map Resolved ctxt.resolvedAs
 
 -- Implemented later, once we can convert to and from full names
 -- Defined in Core.TTC
-export
+export total
 decode : Context -> Int -> (update : Bool) -> ContextEntry -> Core GlobalDef
 
 initSize : Int
@@ -169,53 +169,30 @@ returnDef True idx def
                     else Nothing
            _ => Nothing
 
+-- A name's entry: the name is turned into its index once (`getNameID`),
+-- and the entry at the index is a staged one if there is one.
+export
+lookupContextEntry : Name -> Context -> Core (Maybe (Int, ContextEntry))
+lookupContextEntry n ctxt
+    = do let Just idx = getNameID n ctxt
+               | Nothing => pure Nothing
+         case lookup idx (staging ctxt) of
+              Just entry => pure (Just (idx, entry))
+              Nothing =>
+                 do Just entry <- entryAt ctxt idx
+                         | Nothing => pure Nothing
+                    pure (Just (idx, entry))
+
 export
 lookupCtxtExactI : Name -> Context -> Core (Maybe (Int, GlobalDef))
-lookupCtxtExactI (Resolved idx) ctxt
-    = case lookup idx (staging ctxt) of
-           Just val =>
-                 pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True val)
-           Nothing =>
-              do Just def <- entryAt ctxt idx
-                      | Nothing => pure Nothing
-                 pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True def)
 lookupCtxtExactI n ctxt
-    = do let Just idx = lookup n (resolvedAs ctxt)
-                  | Nothing => pure Nothing
-         lookupCtxtExactI (Resolved idx) ctxt
+    = do Just (idx, entry) <- lookupContextEntry n ctxt
+              | Nothing => pure Nothing
+         pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True entry)
 
 export
 lookupCtxtExact : Name -> Context -> Core (Maybe GlobalDef)
-lookupCtxtExact (Resolved idx) ctxt
-    = case lookup idx (staging ctxt) of
-           Just res =>
-                do def <- decode ctxt idx True res
-                   pure $ map (\(_, def) => def) $
-                     returnDef (inlineOnly ctxt) idx def
-           Nothing =>
-              do Just res <- entryAt ctxt idx
-                      | Nothing => pure Nothing
-                 def <- decode ctxt idx True res
-                 pure $ map (\(_, def) => def) $
-                   returnDef (inlineOnly ctxt) idx def
-lookupCtxtExact n ctxt
-    = do Just (i, def) <- lookupCtxtExactI n ctxt
-              | Nothing => pure Nothing
-         pure (Just def)
-
-export
-lookupContextEntry : Name -> Context -> Core (Maybe (Int, ContextEntry))
-lookupContextEntry (Resolved idx) ctxt
-    = case lookup idx (staging ctxt) of
-           Just res => pure (Just (idx, res))
-           Nothing =>
-              do Just res <- entryAt ctxt idx
-                      | Nothing => pure Nothing
-                 pure (Just (idx, res))
-lookupContextEntry n ctxt
-    = do let Just idx = lookup n (resolvedAs ctxt)
-                  | Nothing => pure Nothing
-         lookupContextEntry (Resolved idx) ctxt
+lookupCtxtExact n ctxt = map snd <$> lookupCtxtExactI n ctxt
 
 ||| Check if the given name has been hidden by the `%hide` directive.
 export
@@ -377,6 +354,14 @@ interface HasNames a where
   full : Context -> a -> Core a
   resolved : Context -> a -> Core a
 
+-- Resolving a name is a lookup of its index, and looks up no definition.
+-- Resolving a definition decoded from a TTC is the functions named
+-- `resolve...` below, which the instances' `resolved` are: decoding
+-- resolves through them, never through an instance, whose `full` looks up
+-- definitions and so may decode another.
+indexedName : Context -> Name -> Name
+indexedName gam n = maybe n Resolved (getNameID n gam)
+
 export
 HasNames Name where
   full gam (Resolved i)
@@ -387,12 +372,7 @@ HasNames Name where
            pure (fullname gdef)
   full gam n = pure n
 
-  resolved gam (Resolved i)
-      = pure (Resolved i)
-  resolved gam n
-      = do let Just i = getNameID n gam
-                    | Nothing => pure n
-           pure (Resolved i)
+  resolved gam n = pure (indexedName gam n)
 
 export
 HasNames UConstraint where
@@ -410,65 +390,104 @@ HasNames UConstraint where
       = do x' <- resolved gam x; y' <- resolved gam y
            pure (ULE x' y')
 
+-- Making a term's names full and resolving them are one traversal, given
+-- what becomes of a name (`full` or `resolved` of the name) and of a
+-- metavariable's name and index: making it full names it after its index,
+-- resolving it indexes it by its name. Each kind of node that holds terms
+-- is traversed by a function of its own, so that every recursive call is
+-- on a part of its argument.
+record OnNames where
+  constructor MkOnNames
+  onName : Name -> Core Name
+  onMeta : Name -> Int -> Core (Name, Int)
+
+mutual
+  onNamesPi : OnNames -> PiInfo (Term vars) -> Core (PiInfo (Term vars))
+  onNamesPi f (DefImplicit t) = DefImplicit <$> onNamesTerm f t
+  onNamesPi f p = pure p
+
+  onNamesBinder : OnNames -> Binder (Term vars) -> Core (Binder (Term vars))
+  onNamesBinder f (Lam fc c p ty) = pure (Lam fc c !(onNamesPi f p) !(onNamesTerm f ty))
+  onNamesBinder f (Let fc c val ty) = pure (Let fc c !(onNamesTerm f val) !(onNamesTerm f ty))
+  onNamesBinder f (Pi fc c p ty) = pure (Pi fc c !(onNamesPi f p) !(onNamesTerm f ty))
+  onNamesBinder f (PVar fc c p ty) = pure (PVar fc c !(onNamesPi f p) !(onNamesTerm f ty))
+  onNamesBinder f (PLet fc c val ty) = pure (PLet fc c !(onNamesTerm f val) !(onNamesTerm f ty))
+  onNamesBinder f (PVTy fc c ty) = PVTy fc c <$> onNamesTerm f ty
+
+  onNamesTerms : OnNames -> List (Term vars) -> Core (List (Term vars))
+  onNamesTerms f [] = pure []
+  onNamesTerms f (t :: ts) = pure (!(onNamesTerm f t) :: !(onNamesTerms f ts))
+
+  onNamesTerm : OnNames -> Term vars -> Core (Term vars)
+  onNamesTerm f (Ref fc x n) = Ref fc x <$> f.onName n
+  onNamesTerm f (Meta fc x i xs)
+      = do xs' <- onNamesTerms f xs
+           (x', i') <- f.onMeta x i
+           pure (Meta fc x' i' xs')
+  onNamesTerm f (Bind fc x b scope)
+      = pure (Bind fc x !(onNamesBinder f b) !(onNamesTerm f scope))
+  onNamesTerm f (App fc fn arg)
+      = pure (App fc !(onNamesTerm f fn) !(onNamesTerm f arg))
+  onNamesTerm f (As fc s p tm)
+      = pure (As fc s !(onNamesTerm f p) !(onNamesTerm f tm))
+  onNamesTerm f (TDelayed fc x y)
+      = pure (TDelayed fc x !(onNamesTerm f y))
+  onNamesTerm f (TDelay fc x t y)
+      = pure (TDelay fc x !(onNamesTerm f t) !(onNamesTerm f y))
+  onNamesTerm f (TForce fc r y)
+      = pure (TForce fc r !(onNamesTerm f y))
+  onNamesTerm f (TType fc u) = TType fc <$> f.onName u
+  onNamesTerm f (Erased fc (Dotted t))
+      = pure (Erased fc (Dotted !(onNamesTerm f t)))
+  onNamesTerm f tm = pure tm
+
+-- A case tree's names: each case's scrutinee type and each leaf's term,
+-- and each alternative's constructor; its alternatives are in a list of
+-- their own.
+mutual
+  onNamesTree : OnNames -> CaseTree vars -> Core (CaseTree vars)
+  onNamesTree f (Case i v ty alts)
+      = pure $ Case i v !(onNamesTerm f ty) !(onNamesAlts f alts)
+  onNamesTree f (STerm i tm) = STerm i <$> onNamesTerm f tm
+  onNamesTree f t = pure t
+
+  onNamesAlts : OnNames -> List (CaseAlt vars) -> Core (List (CaseAlt vars))
+  onNamesAlts f [] = pure []
+  onNamesAlts f (alt :: alts) = pure (!(onNamesAlt f alt) :: !(onNamesAlts f alts))
+
+  onNamesAlt : OnNames -> CaseAlt vars -> Core (CaseAlt vars)
+  onNamesAlt f (ConCase n t args sc)
+      = do sc' <- onNamesTree f sc
+           pure $ ConCase !(f.onName n) t args sc'
+  onNamesAlt f (DelayCase ty arg sc) = DelayCase ty arg <$> onNamesTree f sc
+  onNamesAlt f (ConstCase c sc) = ConstCase c <$> onNamesTree f sc
+  onNamesAlt f (DefaultCase sc) = DefaultCase <$> onNamesTree f sc
+
+fullNames : Context -> OnNames
+fullNames gam = MkOnNames (full gam) fullMeta
+  where
+    fullMeta : Name -> Int -> Core (Name, Int)
+    fullMeta x i = pure $ case !(lookupCtxtExact (Resolved i) gam) of
+                               Nothing => (x, i)
+                               Just gdef => (fullname gdef, i)
+
+resolvedNames : Context -> OnNames
+resolvedNames gam = MkOnNames (pure . indexedName gam) (\x, i => pure (x, fromMaybe i (getNameID x gam)))
+
 export
 HasNames (Term vars) where
-  full gam (Ref fc x (Resolved i))
-      = do Just gdef <- lookupCtxtExact (Resolved i) gam
-                | Nothing => pure (Ref fc x (Resolved i))
-           pure (Ref fc x (fullname gdef))
-  full gam (Meta fc x i xs)
-      = do xs <- traverse (full gam) xs
-           pure $ case !(lookupCtxtExact (Resolved i) gam) of
-             Nothing => Meta fc x i xs
-             Just gdef => Meta fc (fullname gdef) i xs
-  full gam (Bind fc x b scope)
-      = pure (Bind fc x !(traverse (full gam) b) !(full gam scope))
-  full gam (App fc fn arg)
-      = pure (App fc !(full gam fn) !(full gam arg))
-  full gam (As fc s p tm)
-      = pure (As fc s !(full gam p) !(full gam tm))
-  full gam (TDelayed fc x y)
-      = pure (TDelayed fc x !(full gam y))
-  full gam (TDelay fc x t y)
-      = pure (TDelay fc x !(full gam t) !(full gam y))
-  full gam (TForce fc r y)
-      = pure (TForce fc r !(full gam y))
-  full gam (TType fc (Resolved i))
-      = do Just gdef <- lookupCtxtExact (Resolved i) gam
-                | Nothing => pure (TType fc (Resolved i))
-           pure (TType fc (fullname gdef))
-  full gam (Erased fc (Dotted t))
-      = pure (Erased fc (Dotted !(full gam t)))
-  full gam tm = pure tm
+  full gam = onNamesTerm (fullNames gam)
+  resolved gam = onNamesTerm (resolvedNames gam)
 
-  resolved gam (Ref fc x n)
-      = do let Just i = getNameID n gam
-                | Nothing => pure (Ref fc x n)
-           pure (Ref fc x (Resolved i))
-  resolved gam (Meta fc x y xs)
-      = do xs' <- traverse (resolved gam) xs
-           let Just i = getNameID x gam
-               | Nothing => pure (Meta fc x y xs')
-           pure (Meta fc x i xs')
-  resolved gam (Bind fc x b scope)
-      = pure (Bind fc x !(traverse (resolved gam) b) !(resolved gam scope))
-  resolved gam (App fc fn arg)
-      = pure (App fc !(resolved gam fn) !(resolved gam arg))
-  resolved gam (As fc s p tm)
-      = pure (As fc s !(resolved gam p) !(resolved gam tm))
-  resolved gam (TDelayed fc x y)
-      = pure (TDelayed fc x !(resolved gam y))
-  resolved gam (TDelay fc x t y)
-      = pure (TDelay fc x !(resolved gam t) !(resolved gam y))
-  resolved gam (TForce fc r y)
-      = pure (TForce fc r !(resolved gam y))
-  resolved gam (TType fc n)
-      = do let Just i = getNameID n gam
-                | Nothing => pure (TType fc n)
-           pure (TType fc (Resolved i))
-  resolved gam (Erased fc (Dotted t))
-      = pure (Erased fc (Dotted !(resolved gam t)))
-  resolved gam tm = pure tm
+export
+HasNames (CaseTree vars) where
+  full gam = onNamesTree (fullNames gam)
+  resolved gam = onNamesTree (resolvedNames gam)
+
+export
+HasNames (CaseAlt vars) where
+  full gam = onNamesAlt (fullNames gam)
+  resolved gam = onNamesAlt (resolvedNames gam)
 
 export
 HasNames Pat where
@@ -500,46 +519,76 @@ HasNames Pat where
   resolved gam (PLoc fc n) = PLoc fc <$> resolved gam n
   resolved gam (PUnmatchable fc t) = PUnmatchable fc <$> resolved gam t
 
-mutual
-  export
-  HasNames (CaseTree vars) where
-    full gam (Case i v ty alts)
-        = pure $ Case i v !(full gam ty) !(traverse (full gam) alts)
-    full gam (STerm i tm)
-        = pure $ STerm i !(full gam tm)
-    full gam t = pure t
 
-    resolved gam (Case i v ty alts)
-        = pure $ Case i v !(resolved gam ty) !(traverse (resolved gam) alts)
-    resolved gam (STerm i tm)
-        = pure $ STerm i !(resolved gam tm)
-    resolved gam t = pure t
+-- Resolving each part of a definition decoded from a TTC.
+resolveEnv : Context -> Env Term vars -> Core (Env Term vars)
+resolveEnv gam [] = pure Env.empty
+resolveEnv gam (b :: bs)
+    = pure $ !(onNamesBinder (resolvedNames gam) b) :: !(resolveEnv gam bs)
 
-  export
-  HasNames (CaseAlt vars) where
-    full gam (ConCase n t args sc)
-        = do sc' <- full gam sc
-             Just gdef <- lookupCtxtExact n gam
-                | Nothing => pure (ConCase n t args sc')
-             pure $ ConCase (fullname gdef) t args sc'
-    full gam (DelayCase ty arg sc)
-        = pure $ DelayCase ty arg !(full gam sc)
-    full gam (ConstCase c sc)
-        = pure $ ConstCase c !(full gam sc)
-    full gam (DefaultCase sc)
-        = pure $ DefaultCase !(full gam sc)
+resolveDef : Context -> Def -> Core Def
+resolveDef gam (PMDef r args ct rt pats)
+    = pure $ PMDef r args !(onNamesTree (resolvedNames gam) ct)
+                          !(onNamesTree (resolvedNames gam) rt)
+                          !(traverse resolvePat pats)
+  where
+    resolvePat : (vs ** (Env Term vs, Term vs, Term vs)) ->
+                 Core (vs ** (Env Term vs, Term vs, Term vs))
+    resolvePat (_ ** (env, lhs, rhs))
+        = pure (_ ** (!(resolveEnv gam env),
+                      !(onNamesTerm (resolvedNames gam) lhs),
+                      !(onNamesTerm (resolvedNames gam) rhs)))
+-- A type's constructors are kept by their full names, which is how a TTC
+-- holds them: resolving leaves them as they are.
+resolveDef gam (TCon a ps ds u ms mcs det)
+    = pure $ TCon a ps ds u (map (indexedName gam) ms) mcs det
+resolveDef gam (BySearch c d def) = pure $ BySearch c d (indexedName gam def)
+resolveDef gam (Guess tm b cs)
+    = pure $ Guess !(onNamesTerm (resolvedNames gam) tm) b cs
+resolveDef gam t = pure t
 
-    resolved gam (ConCase n t args sc)
-        = do sc' <- resolved gam sc
-             let Just i = getNameID n gam
-                | Nothing => pure (ConCase n t args sc')
-             pure $ ConCase (Resolved i) t args sc'
-    resolved gam (DelayCase ty arg sc)
-        = pure $ DelayCase ty arg !(resolved gam sc)
-    resolved gam (ConstCase c sc)
-        = pure $ ConstCase c !(resolved gam sc)
-    resolved gam (DefaultCase sc)
-        = pure $ DefaultCase !(resolved gam sc)
+-- Later keys overwrite earlier ones that resolve to the same name, as
+-- inserting them in order does.
+resolveNameMap : Context -> NameMap Bool -> NameMap Bool
+resolveNameMap gam nmap
+    = foldl (\m, (k, v) => insert (indexedName gam k) v m) empty (NameMap.toList nmap)
+
+resolvePartial : Context -> PartialReason -> PartialReason
+resolvePartial gam NotStrictlyPositive = NotStrictlyPositive
+resolvePartial gam (BadCall ns) = BadCall (map (indexedName gam) ns)
+resolvePartial gam (BadPath init n)
+    = BadPath (map (\(fc, x) => (fc, indexedName gam x)) init) (indexedName gam n)
+resolvePartial gam (RecPath loop)
+    = RecPath (map (\(fc, x) => (fc, indexedName gam x)) loop)
+
+resolveTerminating : Context -> Terminating -> Terminating
+resolveTerminating gam (NotTerminating p) = NotTerminating (resolvePartial gam p)
+resolveTerminating gam t = t
+
+resolveCovering : Context -> Covering -> Core Covering
+resolveCovering gam IsCovering = pure IsCovering
+resolveCovering gam (MissingCases ts)
+    = MissingCases <$> traverse (onNamesTerm (resolvedNames gam)) ts
+resolveCovering gam (NonCoveringCall ns)
+    = pure $ NonCoveringCall (map (indexedName gam) ns)
+
+resolveTotality : Context -> Totality -> Core Totality
+resolveTotality gam (MkTotality t c)
+    = MkTotality (resolveTerminating gam t) <$> resolveCovering gam c
+
+resolveSCCall : Context -> SCCall -> SCCall
+resolveSCCall gam sc = { fnCall := indexedName gam (fnCall sc) } sc
+
+export
+resolveGlobalDef : Context -> GlobalDef -> Core GlobalDef
+resolveGlobalDef gam def
+    = pure $ { type := !(onNamesTerm (resolvedNames gam) (type def)),
+               definition := !(resolveDef gam (definition def)),
+               totality := !(resolveTotality gam (totality def)),
+               refersToM := map (resolveNameMap gam) (refersToM def),
+               refersToRuntimeM := map (resolveNameMap gam) (refersToRuntimeM def),
+               sizeChange := map (resolveSCCall gam) (sizeChange def)
+             } def
 
 export
 HasNames (Env Term vars) where
@@ -547,9 +596,7 @@ HasNames (Env Term vars) where
   full gam (b :: bs)
       = pure $ !(traverse (full gam) b) :: !(full gam bs)
 
-  resolved gam [] = pure Env.empty
-  resolved gam (b :: bs)
-      = pure $ !(traverse (resolved gam) b) :: !(resolved gam bs)
+  resolved = resolveEnv
 
 export
 HasNames Clause where
@@ -580,23 +627,7 @@ HasNames Def where
       = pure $ Guess !(full gam tm) b cs
   full gam t = pure t
 
-  resolved gam (PMDef r args ct rt pats)
-      = pure $ PMDef r args !(resolved gam ct) !(resolved gam rt)
-                     !(traverse resolvedNamesPat pats)
-    where
-      resolvedNamesPat : (vs ** (Env Term vs, Term vs, Term vs)) ->
-                         Core (vs ** (Env Term vs, Term vs, Term vs))
-      resolvedNamesPat (_ ** (env, lhs, rhs))
-          = pure $ (_ ** (!(resolved gam env),
-                          !(resolved gam lhs), !(resolved gam rhs)))
-  resolved gam (TCon a ps ds u ms mcs det)
-      = pure $ TCon a ps ds u !(traverse (resolved gam) ms)
-                                !(traverseOpt (traverse (full gam)) mcs) det
-  resolved gam (BySearch c d def)
-      = pure $ BySearch c d !(resolved gam def)
-  resolved gam (Guess tm b cs)
-      = pure $ Guess !(resolved gam tm) b cs
-  resolved gam t = pure t
+  resolved = resolveDef
 
 export
 StripNamespace Def where
@@ -623,10 +654,8 @@ StripNamespace GlobalDef where
   trimNS ns def = { definition $= trimNS ns } def
   restoreNS ns def = { definition $= restoreNS ns } def
 
--- The one map whose names are resolved is a definition's references
--- (`refersToM`), and resolving a name may decode a definition and resolve
--- its names in turn: the instance is used inside that cycle, so it is at
--- that map's type rather than at whatever type the cycle passes along.
+-- A definition's references (`refersToM`) are the one map whose names are
+-- made full or resolved, so the instance is at that map's type.
 HasNames (NameMap Bool) where
   full gam nmap
       = insertAll empty (toList nmap)
@@ -636,13 +665,7 @@ HasNames (NameMap Bool) where
       insertAll ms ((k, v) :: ns)
           = insertAll (insert !(full gam k) v ms) ns
 
-  resolved gam nmap
-      = insertAll empty (toList nmap)
-    where
-      insertAll : NameMap Bool -> List (Name, Bool) -> Core (NameMap Bool)
-      insertAll ms [] = pure ms
-      insertAll ms ((k, v) :: ns)
-          = insertAll (insert !(resolved gam k) v ms) ns
+  resolved gam nmap = pure (resolveNameMap gam nmap)
 
 export
 HasNames PartialReason where
@@ -651,18 +674,14 @@ HasNames PartialReason where
   full gam (BadPath init n) = pure $ BadPath !(traverse (traversePair (full gam)) init) !(full gam n)
   full gam (RecPath loop) = pure $ RecPath !(traverse (traversePair (full gam)) loop)
 
-  resolved gam NotStrictlyPositive = pure NotStrictlyPositive
-  resolved gam (BadCall ns) = pure $ BadCall !(traverse (resolved gam) ns)
-  resolved gam (BadPath init n) = pure $ BadPath !(traverse (traversePair (resolved gam)) init) !(resolved gam n)
-  resolved gam (RecPath loop) = pure $ RecPath !(traverse (traversePair (resolved gam)) loop)
+  resolved gam p = pure (resolvePartial gam p)
 
 export
 HasNames Terminating where
   full gam (NotTerminating p) = pure $ NotTerminating !(full gam p)
   full gam t = pure t
 
-  resolved gam (NotTerminating p) = pure $ NotTerminating !(resolved gam p)
-  resolved gam t = pure t
+  resolved gam t = pure (resolveTerminating gam t)
 
 export
 HasNames Covering where
@@ -672,11 +691,7 @@ HasNames Covering where
   full gam (NonCoveringCall ns)
       = pure $ NonCoveringCall !(traverse (full gam) ns)
 
-  resolved gam IsCovering = pure IsCovering
-  resolved gam (MissingCases ts)
-      = pure $ MissingCases !(traverse (resolved gam) ts)
-  resolved gam (NonCoveringCall ns)
-      = pure $ NonCoveringCall !(traverse (resolved gam) ns)
+  resolved = resolveCovering
 
 export
 HasNames CaseError where
@@ -922,12 +937,12 @@ HasNames Error where
 export
 HasNames Totality where
   full gam (MkTotality t c) = pure $ MkTotality !(full gam t) !(full gam c)
-  resolved gam (MkTotality t c) = pure $ MkTotality !(resolved gam t) !(resolved gam c)
+  resolved = resolveTotality
 
 export
 HasNames SCCall where
   full gam sc = pure $ { fnCall := !(full gam (fnCall sc)) } sc
-  resolved gam sc = pure $ { fnCall := !(resolved gam (fnCall sc)) } sc
+  resolved gam sc = pure (resolveSCCall gam sc)
 
 export
 HasNames a => HasNames (Maybe a) where
@@ -951,14 +966,7 @@ HasNames GlobalDef where
                     refersToRuntimeM := !(full gam (refersToRuntimeM def)),
                     sizeChange := !(traverse (full gam) (sizeChange def))
                   } def
-  resolved gam def
-      = pure $ { type := !(resolved gam (type def)),
-                 definition := !(resolved gam (definition def)),
-                 totality := !(resolved gam (totality def)),
-                 refersToM := !(resolved gam (refersToM def)),
-                 refersToRuntimeM := !(resolved gam (refersToRuntimeM def)),
-                 sizeChange := !(traverse (resolved gam) (sizeChange def))
-               } def
+  resolved = resolveGlobalDef
 
 export
 HasNames Transform where
@@ -2212,11 +2220,6 @@ export
 setAmbigLimit : {auto c : Ref Ctxt Defs} ->
                 Nat -> Core ()
 setAmbigLimit max = update Ctxt { options->elabDirectives->ambigLimit := max }
-
-export
-setTotalLimit : {auto c : Ref Ctxt Defs} ->
-                Nat -> Core ()
-setTotalLimit max = update Ctxt { options->elabDirectives->totalLimit := max }
 
 export
 setAutoImplicitLimit : {auto c : Ref Ctxt Defs} ->

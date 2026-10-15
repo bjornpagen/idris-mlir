@@ -91,25 +91,11 @@ functionAndResults(ModuleOp module, StringRef argument, StringRef property, Stri
   return std::make_pair(function, items);
 }
 
-// The attribute `text` writes, read as the constant `attr` of the same
-// kind is read: alone, or, for one whose syntax needs its type (a
-// constructor, named in its data type), at the constant's type. The first
-// reading's errors are no failure of the property's, so they are not shown.
-Attribute want(StringRef text, Attribute attr) {
-  MLIRContext *context = attr.getContext();
-  {
-    ScopedDiagnosticHandler quiet(context, [](Diagnostic &) { return success(); });
-    if (Attribute alone = parseAttribute(text, context))
-      return alone;
-  }
-  auto typed = dyn_cast<TypedAttr>(attr);
-  return typed ? parseAttribute(text, context, typed.getType()) : Attribute();
-}
-
 // Whether `value` is what the item spells: `_`, a value computed at run
 // time, no constant; a number, an integer of any width or a float, by its
 // value; anything else an attribute as MLIR writes it (a big, a string, a
-// constructor), read in the value's context and the constant's own.
+// constructor, which names its data type), read alone, as a constant is
+// stored.
 bool isConstant(Value value, StringRef item) {
   StringRef text = unwrapped(item);
   Attribute attr;
@@ -125,7 +111,7 @@ bool isConstant(Value value, StringRef item) {
   double real;
   if (auto have = dyn_cast<FloatAttr>(attr); have && !text.getAsDouble(real))
     return have.getValueAsDouble() == real;
-  return want(text, attr) == attr;
+  return parseAttribute(text, attr.getContext()) == attr;
 }
 
 // Each return of each copy, its results against `items`, by `matches`.

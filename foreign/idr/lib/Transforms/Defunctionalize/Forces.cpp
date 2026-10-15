@@ -21,7 +21,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Sequence.h"
 
 using namespace mlir;
 
@@ -29,7 +28,7 @@ namespace idr::defunctionalize {
 
 void Slots::defineForces() {
   for (auto &[key, sum] : sums)
-    if (isLazy(key))
+    if (key.isLazy())
       table.insert(defineForce(key, sum.type));
 }
 
@@ -51,8 +50,8 @@ FuncOp Slots::defineForce(const Key &key, DataType sum) {
   Value cell = entry->getArgument(0);
 
   ArrayRef<Ctor> ctors = sum.getCtors();
-  auto tags = llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(ctors.size())));
-  auto match = MatchOp::create(b, loc, TypeRange(valueType), cell, ArrayRef<unsigned>(tags),
+  auto tags = llvm::to_vector(sum.getTags());
+  auto match = MatchOp::create(b, loc, TypeRange(valueType), cell, ArrayRef<Tag>(tags),
                                static_cast<unsigned>(ctors.size()));
   for (auto [ctor, region] : llvm::zip_equal(ctors, match.getRegions())) {
     SmallVector<Type> bound;
@@ -84,7 +83,9 @@ FuncOp Slots::defineForce(const Key &key, DataType sum) {
     case CtorRole::Forced:
       YieldOp::create(b, loc, heldAs(b, loc, state->getArgument(0), valueType));
       break;
-    default:
+    case CtorRole::Plain:
+    case CtorRole::ListNil:
+    case CtorRole::ListCons:
       llvm_unreachable("a memo sum holds its labels and its two states");
     }
   }

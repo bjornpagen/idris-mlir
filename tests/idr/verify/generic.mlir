@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the text of a constant naming no constructor of its type, as C02 writes it.
+// NEEDS-ACCEPTANCE: the text of a constant naming no constructor of its type.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // The verifier errors that the custom syntax cannot produce, in the generic
 // form.
 
@@ -127,7 +128,7 @@ idr.program @generic root(@root) stage(first) {
 idr.program @generic root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{@D}}
-    %c = idr.constant #idr.con<@D, []> : !T
+    %c = idr.constant #idr.con<!T, @D, []> : !T
     return
   }
   // The program's root, which the functions above are no part of.

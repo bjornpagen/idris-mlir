@@ -7,13 +7,18 @@
 # a module whose top holds a transform.named_sequence beside the payload
 # still bufferizes (the case that reverted upstream's own generalization); a
 # function that never returns bufferizes with its caller (the pin refuses
-# it); a caller writes a copy of the constant a callee returns (the pin
-# writes the constant's global); empty tensor elimination on a gpu.module
+# it); a recursive function that reads its argument after calling itself
+# passes it without a copy (the pin copies it), and each level of a
+# recursion writes what the level below returns in place; a caller writes
+# a copy of the constant a callee returns (the pin writes the constant's
+# global), but writes in place a call result that is its own operand's
+# buffer; empty tensor elimination on a gpu.module
 # sees function boundaries (the pin's sees them on a builtin.module alone);
 # and idr.func's boundaries are analyzed by upstream's own models, so a
 # callee writes the tensor it is given in place and neither it nor its
-# caller copies, a returned constant is copied before it is written, and the
-# constant's global is a symbol of the program. When the pin has all of it,
+# caller copies, a returned constant is copied before it is written, the
+# constant's global is a symbol of the program, and a recursive idr.func
+# writes the array its own call returns in place. When the pin has all of it,
 # the patch goes, and with it the PINS.md entry
 # one-shot-module-function-interface, the report and this test
 # (upstream/README.md).
@@ -44,17 +49,58 @@ else
   show "$work/err"
 fi
 
+bounded "$llvm_bin/mlir-opt" "$bug/recursive-read.mlir" \
+  --one-shot-bufferize=bufferize-function-boundaries > "$work/recursive-read.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -ne 0 ]; then
+  say "recursive-read: refused (exit $status)"
+  show "$work/err"
+elif grep -q 'memref.copy' "$work/recursive-read.mlir"; then
+  say "recursive-read: the recursive call is given a copy, as at the unpatched pin"
+  show "$work/recursive-read.mlir"
+else
+  say "recursive-read: the recursive call is given the argument itself"
+fi
+
+bounded "$llvm_bin/mlir-opt" "$bug/recursive-result.mlir" \
+  --one-shot-bufferize=bufferize-function-boundaries > "$work/recursive-result.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -ne 0 ]; then
+  say "recursive-result: refused (exit $status)"
+  show "$work/err"
+elif grep -q 'memref.copy' "$work/recursive-result.mlir"; then
+  say "recursive-result: each level copies what the level below returns"
+  show "$work/recursive-result.mlir"
+else
+  say "recursive-result: each level writes what the level below returns in place"
+fi
+
 bounded "$llvm_bin/mlir-opt" "$bug/non-writable-result.mlir" \
   --one-shot-bufferize=bufferize-function-boundaries > "$work/non-writable.mlir" 2> "$work/err"
 status=$?
 if [ "$status" -ne 0 ]; then
   say "non-writable-result: refused (exit $status)"
   show "$work/err"
-elif grep -q 'memref.copy' "$work/non-writable.mlir"; then
+elif awk '/func.func @writes_constant/ { caller = 1 } caller && /memref.copy/ { found = 1 }
+          END { exit !found }' "$work/non-writable.mlir"; then
   say "non-writable-result: the caller writes a copy of the constant the callee returns"
 else
   say "non-writable-result: the caller writes the constant's global, as at the unpatched pin"
   show "$work/non-writable.mlir"
+fi
+
+bounded "$llvm_bin/mlir-opt" "$bug/definite-alias.mlir" \
+  --one-shot-bufferize=bufferize-function-boundaries > "$work/definite-alias.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -ne 0 ]; then
+  say "definite-alias: refused (exit $status)"
+  show "$work/err"
+elif awk '/func.func @writes_picked/ { caller = 1 } caller && /memref.copy/ { found = 1 }
+          END { exit !found }' "$work/definite-alias.mlir"; then
+  say "definite-alias: the caller copies the call result before writing it"
+  show "$work/definite-alias.mlir"
+else
+  say "definite-alias: the caller writes the call result in place"
 fi
 
 bounded "$llvm_bin/mlir-opt" "$bug/symbol-table.mlir" \
@@ -95,4 +141,16 @@ else
     say "idr-call: the constant's global is outside the program"
     show "$work/idr-call.mlir"
   fi
+fi
+
+bounded "$idris_mlir_opt" "$bug/idr-cycle.mlir" --idr-bufferize -o "$work/idr-cycle.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -ne 0 ]; then
+  say "idr-cycle: idr-bufferize fails (exit $status)"
+  show "$work/err"
+elif expect_holds "$work/idr-cycle.mlir" in-place=@build; then
+  say "idr-cycle: each level of the recursion writes in place"
+else
+  say "idr-cycle: a level of the recursion copies"
+  show "$work/expect.log"
 fi

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* fannkuch-redux on one core, as Main.idr here: the permutations in the
    game's order, flips counted on a small array. */
 #include <stdio.h>

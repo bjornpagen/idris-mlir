@@ -2,7 +2,7 @@
 // RUN: idris-mlir-opt %t.budgets.mlir --idr-optimize -o %t.mlir 2> %t.err
 // RUN: not grep -q unsupported %t.err
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=largest-function=10000 -o /dev/null
-// NEEDS-ACCEPTANCE: the run time of the module, whose 1,025 requests make as many copies as R08's rule over recursive components keys.
+// NEEDS-ACCEPTANCE: the run time of the module, whose 1,025 requests make as many copies as the rule over recursive components keys.
 // No count refuses a program: a size policy only stops optimizing, and
 // specialization stops by the request chain, never by a count of keys.
 // The root asks @apply for 1,025 specializations, one per constant (the

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* reverse-complement on one core, as Main.idr here: the whole input read,
    each record's sequence reversed and complemented, 60 characters to a
    line. */

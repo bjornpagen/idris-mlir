@@ -114,31 +114,37 @@ bool narrowBig(RewriterBase &rewriter, Facts &facts, OpT big, bool nonNegative) 
   return true;
 }
 
+// Whether every big `op` takes and gives fits.
+bool allFit(const Facts &facts, Operation *op) {
+  auto fit = [&](Value v) { return !isBig(v.getType()) || facts.fits(v); };
+  return llvm::all_of(op->getOperands(), fit) && llvm::all_of(op->getResults(), fit);
+}
+
 // Rewrites one op whose bigs all fit; false, having changed nothing, when
-// they do not all fit.
+// they do not all fit or the op has no word form. The one dispatch on the
+// ops that have one.
 bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
-  if (auto match = dyn_cast<MatchLitOp>(op))
-    return narrowMatch(rewriter, facts, match);
-  auto allFit = [&](ValueRange values) {
-    return llvm::all_of(values, [&](Value v) { return !isBig(v.getType()) || facts.fits(v); });
-  };
-  if (!allFit(op->getOperands()) || !allFit(op->getResults()))
-    return false;
   rewriter.setInsertionPoint(op);
   Location loc = op->getLoc();
-  bool nonNegative = facts.nonNegative(op->getOperands()) && facts.nonNegative(op->getResults());
   return llvm::TypeSwitch<Operation *, bool>(op)
+      .Case([&](MatchLitOp match) { return narrowMatch(rewriter, facts, match); })
       .Case<
 #define GET_BIG_TO_WORD_LIST
 #include "idr/IR/IdrBigToWord.inc"
-          >([&](auto big) { return narrowBig(rewriter, facts, big, nonNegative); })
+          >([&](auto big) {
+            if (!allFit(facts, op))
+              return false;
+            bool nonNegative =
+                facts.nonNegative(op->getOperands()) && facts.nonNegative(op->getResults());
+            return narrowBig(rewriter, facts, big, nonNegative);
+          })
       // A guard's result is its operand, so the guard of a big divisor that
       // fits guards its word, and the divisor is the big of the checked
       // word. The guard took the big's reference; the word takes none, so
       // the big drops it.
       .Case([&](CheckNonzeroOp check) {
         Value divisor = check.getValue();
-        if (!isBig(divisor.getType()))
+        if (!isBig(divisor.getType()) || !allFit(facts, op))
           return false;
         Value value = facts.word(rewriter, loc, divisor);
         Value checked = CheckNonzeroOp::create(rewriter, loc, value.getType(), value,
@@ -153,11 +159,12 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
       // result, a parameter), and on a small they do nothing at runtime.
       .Case<DupOp, DropOp>([&](Operation *) {
         Value value = op->getOperand(0);
-        if (!isBig(value.getType()) || !value.getDefiningOp<BigSmallOp>())
+        if (!isBig(value.getType()) || !value.getDefiningOp<BigSmallOp>() || !allFit(facts, op))
           return false;
         rewriter.eraseOp(op);
         return true;
       })
+      // Any other op has no word form.
       .Default([](Operation *) { return false; });
 }
 
@@ -169,11 +176,7 @@ struct NarrowWord : RewritePattern {
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), facts(facts), narrowed(narrowed) {}
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
-    if (!isa<MatchLitOp, CheckNonzeroOp, DupOp, DropOp,
-#define GET_BIG_TO_WORD_LIST
-#include "idr/IR/IdrBigToWord.inc"
-             >(op) ||
-        facts.made(op) || !narrowOp(rewriter, facts, op))
+    if (facts.made(op) || !narrowOp(rewriter, facts, op))
       return failure();
     ++narrowed;
     return success();

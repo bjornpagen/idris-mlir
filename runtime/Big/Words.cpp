@@ -21,6 +21,4 @@ static_assert(sizeof(idris_rt_bignum) == 2 * IDRIS_RT_WORD_BYTES &&
 static_assert(sizeof(idris_rt_big) == sizeof(void *) && alignof(idris_rt_header) % 2 == 0,
               "an even big word is exactly a cell address");
 
-extern "C" void idris_rt_big_release(idris_rt_big a) {
-  idris_rt_dec(reinterpret_cast<void *>(a));
-}
+extern "C" void idris_rt_big_release(idris_rt_big a) { rt::big::release(a); }

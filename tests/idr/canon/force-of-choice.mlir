@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=forces-nothing=@choose,builds-nothing=@choose,\
 // RUN: calls=@choose:@else,calls=@choose:@then,forces=@constant,calls=@constant:@then,\
 // RUN: forces=@shared,builds=@shared,calls=@shared:@then -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // `if b then f x else g x` takes its branches as suspensions: the match
 // chooses one, and it is forced after the match. The force moves into the
 // match's regions, where it meets the suspension its region built, built

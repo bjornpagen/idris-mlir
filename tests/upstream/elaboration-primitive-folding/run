@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The fork of Idris's compiler (compiler/idris), which carries the change of
 # upstream/18-elaboration-primitive-folding/pull-request.diff, does not show
 # the bug: a definition that applies a primitive to constants keeps the call

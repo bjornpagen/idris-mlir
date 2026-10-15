@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-optimize | FileCheck %s
-// NEEDS-ACCEPTANCE: that the constants summary of the recursive @seven reaches @main, as C10 makes it.
+// NEEDS-ACCEPTANCE: that the constants summary of the recursive @seven reaches @main.
 // What a callee returns is part of its summary, computed callee first, so
 // a caller folds with it: @seven is on a cycle and never inlined, yet
 // every run of it returns 7, so the root adds 1 to 7 at compile time, and

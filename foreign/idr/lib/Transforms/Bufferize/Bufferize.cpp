@@ -4,15 +4,21 @@
 //
 // Which buffer a call may write in place is a fact across calls, so the
 // analysis is the program's: upstream's module driver orders the functions
-// callee first and analyzes each, upstream's own function-boundary models
-// read idr.func, idr.call and idr.return through FunctionOpInterface,
-// CallOpInterface and ReturnLike, as they read func's, and the models of
-// this directory tell it what every other idr op does with a tensor. The
-// driver's steps are written out (empty tensor elimination, analysis,
-// copies, rewrite) so that every analysis of the program is this pass's,
-// with its options, and a failed one is reported here: a copy forced at a
-// call on a cycle of calls is a remark, and an analysis that fails is the
-// compiler's broken invariant.
+// callee first, analyzes the functions of a cycle of calls together until
+// their boundaries are a fixpoint, and analyzes every other function once;
+// upstream's own function-boundary models read idr.func, idr.call and
+// idr.return through FunctionOpInterface, CallOpInterface and ReturnLike,
+// as they read func's, and the models of this directory tell it what every
+// other idr op does with a tensor. The driver's steps are written out
+// (empty tensor elimination, analysis, copies, rewrite) so that every
+// analysis of the program is this pass's, with its options, and a failed
+// one is reported here: an analysis that fails is the compiler's broken
+// invariant.
+//
+// On the buffers, a read of an element that holds references, whose place
+// the next write to the buffer overwrites, is the element's update
+// (idr.element.update): the element moves out with the buffer's reference
+// and the written value moves in, so a vector's pop counts nothing twice.
 //
 // A buffer is a cell of the runtime: an allocation is memref.alloc, which
 // idr-lower makes the runtime's cell, and a copy is memref.copy, the
@@ -30,9 +36,12 @@
 
 #include "idr/Transforms/BufferizeModels.h"
 
+#include "idr/IR/Flow.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
@@ -45,12 +54,12 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Remarks.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -134,42 +143,112 @@ auto keepErrors(SmallVectorImpl<Kept> &kept) {
 // No program reaches a failure of One-Shot: a link is an entry nothing
 // touches after, a release whose buffer a later write would overwrite was
 // given a buffer of its own, and every op that holds a tensor has a model.
-// So each is the compiler's broken invariant, reported with One-Shot's own
-// words.
-void reportInternal(idr::ProgramOp program, ArrayRef<Kept> kept) {
-  if (kept.empty()) {
+// So a step of One-Shot that fails is the compiler's broken invariant,
+// reported with One-Shot's own words, which the step's handler keeps.
+LogicalResult underOneShot(idr::ProgramOp program, function_ref<LogicalResult()> step) {
+  SmallVector<Kept> kept;
+  LogicalResult result = failure();
+  {
+    ScopedDiagnosticHandler keep(program->getContext(), keepErrors(kept));
+    result = step();
+  }
+  if (succeeded(result))
+    return success();
+  if (kept.empty())
     program.emitError("internal error: idr-bufferize: One-Shot Bufferize failed without a "
                       "diagnostic");
-    return;
-  }
   for (const Kept &error : kept) {
     InFlightDiagnostic out = emitError(error.loc)
                              << "internal error: idr-bufferize: " << error.message;
     for (const auto &[loc, text] : error.notes)
       out.attachNote(loc) << text;
   }
+  return failure();
 }
 
-// Upstream's module analysis does not summarize a function on a cycle of
-// calls, and assumes that a call of one reads and writes every operand.
-// Each copy that assumption makes is a remark, for the program whose hot
-// path would want the analysis to reach a cycle's fixpoint.
-void remarkCopiesAtCycles(idr::ProgramOp program, const OneShotAnalysisState &state) {
-  if (!program->getContext()->getRemarkEngine())
-    return;
-  program.walk([&](idr::CallOp call) {
-    FunctionOpInterface callee =
-        calls::getCalledFunction(cast<CallOpInterface>(call.getOperation()), state);
-    if (callee &&
-        calls::getFuncOpAnalysisState(state, callee) == calls::FuncOpAnalysisState::Analyzed)
-      return;
-    for (OpOperand &arg : call->getOpOperands())
-      if (isa<TensorLikeType>(arg.get().getType()) && !state.isInPlace(arg))
-        remark::missed(call.getLoc(), remark::RemarkOpts::name("Copy").category("idr-bufferize"))
-            << StringRef("the array is copied before this call: the callee is on a cycle of "
-                         "calls, whose analysis assumes it reads and writes every array it is "
-                         "given");
+// Whether `op`, or an op in it, takes a buffer, at any grade. A call's
+// effects say nothing of the buffers it is given, which its callee may write,
+// and a view or a grade change of a buffer is that buffer again, so no op
+// that takes one lies between a read of an element and the write of it.
+bool takesBuffer(Operation *op) {
+  return op
+      ->walk([](Operation *inner) {
+        return llvm::any_of(inner->getOperandTypes(),
+                            [](Type type) { return isa<BaseMemRefType>(idr::unrestricted(type)); })
+                   ? WalkResult::interrupt()
+                   : WalkResult::advance();
+      })
+      .wasInterrupted();
+}
+
+// The read of the element `store` overwrites: the load of the same element
+// that is the nearest op before the store, in its block, that takes a buffer
+// or does more than compute, when no op between uses what it read. What lies
+// between is judged by itself alone, never by what a callee is known to do,
+// so the rule holds whatever bufferization made of the calls. The ops before
+// the store in its block are finitely many.
+std::optional<memref::LoadOp> readBefore(memref::StoreOp store) {
+  for (Operation *op = store->getPrevNode(); op; op = op->getPrevNode()) {
+    if (!takesBuffer(op) && idr::onlyAllocates(op, nullptr))
+      continue;
+    auto load = dyn_cast<memref::LoadOp>(op);
+    if (!load || !idr::sameElement(load.getMemref(), load.getIndices(), store.getMemref(),
+                                   store.getIndices()))
+      return std::nullopt;
+    Block *block = store->getBlock();
+    bool usedBetween = llvm::any_of(load.getResult().getUses(), [&](OpOperand &use) {
+      Operation *ancestor = block->findAncestorOpInBlock(*use.getOwner());
+      return ancestor && ancestor->isBeforeInBlock(store);
+    });
+    if (usedBetween)
+      return std::nullopt;
+    return load;
+  }
+  return std::nullopt;
+}
+
+// Each write of an element that holds references into a value array's
+// buffer, read just before it, becomes the element's update, where the
+// write was: the element leaves the op when anything after the write uses
+// it, and the written value, the element itself when the write gives it
+// back, is the first value the region yields.
+void moveElementsOut(idr::ProgramOp program) {
+  SmallVector<memref::StoreOp> stores;
+  program.walk([&](memref::StoreOp store) {
+    MemRefType buffer = store.getMemRefType();
+    if (!buffer.getMemorySpace() && idr::holdsReferences(buffer.getElementType()))
+      stores.push_back(store);
   });
+  IRRewriter rewriter(program->getContext());
+  for (memref::StoreOp store : stores) {
+    std::optional<memref::LoadOp> load = readBefore(store);
+    if (!load)
+      continue;
+    Value element = load->getResult();
+    bool leaves = llvm::any_of(element.getUsers(),
+                               [&](Operation *user) { return user != store.getOperation(); });
+    SmallVector<Type> outs;
+    if (leaves)
+      outs.push_back(element.getType());
+    Location loc = rewriter.getFusedLoc({load->getLoc(), store.getLoc()});
+    rewriter.setInsertionPoint(store);
+    // An update takes its indices as words, as an array a world orders does.
+    SmallVector<Value> indices = llvm::map_to_vector(store.getIndices(), [&](Value index) -> Value {
+      return arith::IndexCastOp::create(rewriter, loc, rewriter.getI64Type(), index);
+    });
+    auto update = idr::ElementUpdateOp::create(rewriter, loc, outs, store.getMemref(), indices);
+    rewriter.createBlock(&update.getRegion(), {}, {element.getType()}, {load->getLoc()});
+    Value moving = update.getElement();
+    SmallVector<Value> yielded{store.getValueToStore() == element ? moving
+                                                                  : store.getValueToStore()};
+    if (leaves)
+      yielded.push_back(moving);
+    idr::ArrayYieldOp::create(rewriter, loc, yielded);
+    rewriter.eraseOp(store);
+    if (leaves)
+      rewriter.replaceAllUsesWith(element, update.getOuts().front());
+    rewriter.eraseOp(*load);
+  }
 }
 
 struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
@@ -177,8 +256,10 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
   // creates ops of; the pass manager appends every pass's registry before
   // the pipeline runs, so a pass before this one that analyzes for
   // bufferization sees them too.
+  // The indices of an element's update are words, cast from the store's.
   void getDependentDialects(DialectRegistry &registry) const override {
     Base::getDependentDialects(registry);
+    registry.insert<arith::ArithDialect>();
     idr::bufferize::registerModels(registry);
   }
 
@@ -205,65 +286,48 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
 
     idr::bufferize::prepare(program, options);
 
-    SmallVector<Kept> kept;
     // A tensor.empty whose array is inserted into a slice of another becomes
     // that slice, decided on an analysis of its own, since the elimination
     // changes the program the analysis below must see.
     {
       OneShotAnalysisState elimination(program, options);
-      bool eliminated;
-      {
-        ScopedDiagnosticHandler keep(ctx, keepErrors(kept));
-        IRRewriter rewriter(ctx);
-        eliminated = succeeded(analyzeModuleOp(program, elimination)) &&
-                     succeeded(eliminateEmptyTensors(rewriter, program, elimination));
-      }
-      if (!eliminated) {
-        reportInternal(program, kept);
+      if (failed(underOneShot(program, [&] {
+            IRRewriter rewriter(ctx);
+            return success(succeeded(analyzeModuleOp(program, elimination)) &&
+                           succeeded(eliminateEmptyTensors(rewriter, program, elimination)));
+          })))
         return signalPassFailure();
-      }
     }
 
     OneShotAnalysisState analysis(program, options);
     BufferizationStatistics statistics;
-    bool analyzed;
-    {
-      ScopedDiagnosticHandler keep(ctx, keepErrors(kept));
-      analyzed = succeeded(analyzeModuleOp(program, analysis, &statistics));
-    }
-    if (!analyzed) {
-      reportInternal(program, kept);
-      return signalPassFailure();
-    }
-    remarkCopiesAtCycles(program, analysis);
-
     BufferizationState rewrite;
-    bool rewritten;
-    {
-      ScopedDiagnosticHandler keep(ctx, keepErrors(kept));
-      rewritten = succeeded(insertTensorCopies(program, analysis, rewrite)) &&
-                  succeeded(bufferizeModuleOp(program, options, rewrite, &statistics));
-    }
-    if (!rewritten) {
-      reportInternal(program, kept);
+    if (failed(underOneShot(program,
+                            [&] { return analyzeModuleOp(program, analysis, &statistics); })) ||
+        failed(underOneShot(program, [&] {
+          return success(succeeded(insertTensorCopies(program, analysis, rewrite)) &&
+                         succeeded(bufferizeModuleOp(program, options, rewrite, &statistics)));
+        })))
       return signalPassFailure();
-    }
+    moveElementsOut(program);
 
     // Every tensor left in a function is inside another type: a wrapper, a
     // body, a signature. Each becomes its cell's buffer, and a data type
     // whose body held one becomes a new type of its own. The values are the
     // functions'; the initial value of a constant's global, beside them in
     // the program, is a constant of tensor type, whatever buffer holds it.
-    auto toBuffer = [](Type type, idr::DataType, unsigned, unsigned) -> std::optional<Type> {
+    auto toBuffer = [](Type type,
+                       std::optional<idr::DataRemap::FieldPlace>) -> std::optional<Type> {
       if (auto tensor = dyn_cast<RankedTensorType>(type))
         return idr::bufferize::bufferType(tensor);
       return std::nullopt;
     };
-    idr::DataRemap buffers(program, "buffers", toBuffer);
-    for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
-      buffers.retype(fn);
-    if (failed(buffers.status()))
+    FailureOr<std::unique_ptr<idr::DataRemap>> buffers =
+        idr::DataRemap::create(program, "buffers", toBuffer);
+    if (failed(buffers))
       return signalPassFailure();
+    for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
+      (*buffers)->retype(fn);
 
     numAllocs += static_cast<uint64_t>(statistics.numBufferAlloc);
     numInPlace += static_cast<uint64_t>(statistics.numTensorInPlace);

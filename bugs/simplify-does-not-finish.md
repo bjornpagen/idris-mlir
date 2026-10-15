@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # `idr-simplify` does not finish on the frontend module
 
 **Status:** open until it is measured again on the cutover (proposal

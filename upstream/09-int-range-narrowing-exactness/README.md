@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir][arith] `arith-int-range-narrowing` makes remainders compute something else
 
 At `llvmorg-23.1.2`, the narrowing patterns (`arith-int-range-narrowing`,

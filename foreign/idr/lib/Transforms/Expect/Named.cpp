@@ -16,6 +16,7 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Location.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
@@ -41,25 +42,26 @@ SymbolTable &symbolsOf(ModuleOp module, AnalysisManager &analyses) {
   return analyses.nest(program).getAnalysis<SymbolTable>();
 }
 
+namespace {
+
 // A location names `f` where a NameLoc called `f` is reached through the
 // names and the fusions that wrap it: Emit's library wrapper is a fusion,
 // and so is what deduplication made. A call site is no part of a
-// function's own location.
-bool names(FunctionOpInterface fn, StringRef f) {
-  if (SymbolTable::getSymbolName(fn).getValue() == f)
-    return true;
-  SmallVector<Location> pending{fn->getLoc()};
-  while (!pending.empty()) {
-    Location loc = pending.pop_back_val();
-    if (auto named = dyn_cast<NameLoc>(loc)) {
-      if (named.getName().getValue() == f)
-        return true;
-      pending.push_back(named.getChildLoc());
-    } else if (auto fused = dyn_cast<FusedLoc>(loc)) {
-      llvm::append_range(pending, fused.getLocations());
-    }
-  }
+// function's own location. Each step is into a part of the location, which
+// is built before it, so the descent ends.
+bool locationNames(Location loc, StringRef f) {
+  if (auto named = dyn_cast<NameLoc>(loc))
+    return named.getName().getValue() == f || locationNames(named.getChildLoc(), f);
+  if (auto fused = dyn_cast<FusedLoc>(loc))
+    return llvm::any_of(fused.getLocations(),
+                        [&](Location part) { return locationNames(part, f); });
   return false;
+}
+
+} // namespace
+
+bool names(FunctionOpInterface fn, StringRef f) {
+  return SymbolTable::getSymbolName(fn).getValue() == f || locationNames(fn->getLoc(), f);
 }
 
 SmallVector<FunctionOpInterface> named(ModuleOp module, StringRef function, StringRef property) {

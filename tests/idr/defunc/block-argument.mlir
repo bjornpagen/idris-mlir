@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sum's printed form and the dispatch, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sum's printed form and the dispatch.
 // A function of several blocks, as inlining a callee that ends in
 // ub.unreachable leaves one: a closure reaches the second block through
 // a block argument of a branch. The branch declares what it forwards

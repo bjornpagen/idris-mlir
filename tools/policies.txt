@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The named bounds the code keeps, each with why it bounds no termination
+# and no acceptance, one per line as `path: text -- reason`, where `text`
+# is code on a line of `path`. These are the only exceptions
+# tests/spec/no-fuel allows; each must still be in its file.
+#
+# The size policies. Each bounds how much a step makes or prints, or how
+# long an optimization runs; a spent one leaves the program less
+# optimized, or its text longer, and never makes a program wrong or
+# refuses one. A pass that only makes code better may so stop at its
+# budget; whether its rewrites converge is a test's to state.
+foreign/idr/include/idr/Analysis/Inline.h: inline constexpr int64_t kCallerCap = 10000; -- the inliner's caller cap: the most ops a caller holds with a callee's body in it, which bounds the one body the greedy patterns run over on one worker; a callee that would exceed it stays a call
+foreign/idr/lib/IR/Canon/Sink.cpp: constexpr int64_t kSinkDuplicationLimit = 64; -- the sink's duplication limit: how many ops sinking a value into every region of a match may copy; past it the value stays where it is
+foreign/idr/lib/Transforms/Stack/Stack.cpp: constexpr unsigned stackCellLimit = 256; -- idr-stack's frame limit for one cell: the bytes of the largest cell a frame holds; a larger cell stays on the heap, so it bounds how far a frame grows
+foreign/idr/lib/Transforms/Stack/Stack.cpp: constexpr unsigned stackFrameLimit = 1024; -- idr-stack's frame limit: the bytes of stack cells one function's frame takes; a cell past it stays on the heap
+foreign/idr/lib/Transforms/Stack/Stack.cpp: constexpr unsigned recursiveStackFrameLimit = 64; -- idr-stack's frame limit for a function on a cycle of calls, whose frames may be live many at once; a cell past it stays on the heap
+foreign/idr/lib/Transforms/Narrow/Lanes.cpp: constexpr unsigned minExponent = 8; -- the least bound, 2^8 elements, a loop's 32-bit version is made for: below it a version runs on too few elements to pay for its code, and the loop keeps its one version
+foreign/idr/lib/Target/Schedules.cpp: constexpr unsigned cleanupRounds = 10; -- the vector schedule's unit-dimension cleanup: the most rounds of upstream's patterns the transform interpreter runs; a spent budget is a suppressed failure that leaves those unit dimensions in place, so a program is less optimized, never refused
+foreign/idr/lib/IR/Asm.cpp: constexpr unsigned aliasFrom = 256; -- the printer's alias cutoff: a constant whose tree holds more constructors and closures than this prints as an alias, a smaller one in place; it bounds only how far the tree is counted and how the text reads
+foreign/idr/include/idr/IR/IdrDialect.h: inline constexpr uint64_t constantBytes = uint64_t{1} << 20; -- the largest static datum a folded constant may take: a fold whose result would outgrow it stays an op, run at runtime, so it bounds the executable's size and the compilation's time, never a value
+#
+# The widths of the runtime's representation. Each is how much one field of
+# a cell or one encoding holds; a value past it takes the wider form the
+# compiler chooses (a grouped sum, a counted word), and none is a count of
+# work.
+runtime/idris_rt.h: #define IDRIS_RT_TAG_LIMIT 0x10000u -- the tag field of a cell's header, 16 bits: a sum of more constructors is grouped
+runtime/idris_rt.h: #define IDRIS_RT_OBJS_LIMIT 0x100u -- the object count field of a cell's header, 8 bits: a cell of more object slots counts them in a word after the header
+runtime/Io/Clock.cpp: constexpr int64_t secondsLimit = int64_t{1} << 33; -- the seconds an OSClock holds beside its 30 bits of nanoseconds, so that the immediate value stays positive; a reading past it is the invalid clock
+#
+# The frontend's two trust points, each with its theorem: what the frontend
+# relies on and Idris's totality checker cannot see.
+compiler/src/IdrisMLIR/Frontend/Host.idr: host = assert_total -- every operation of Idris's compiler the frontend calls and the checker cannot follow returns, TT's normalization last among them: Idris's theory is not strongly normalizing, so this one is irreducible
+compiler/src/IdrisMLIR/Frontend/Finite.idr: assert_total (passes (union known (keySet st.dicts))) -- the dictionary passes end: each pass learns a field the last took as never built, and known only grows; that finitely many fields are learnable rests on instance finiteness over every dictionary assignment, which no type here states
+#
+# The definitions Idris checks only for coverage, each by its name: a
+# translation that is not yet total, which the spec lists under its reason.
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering term : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering suspend : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering delayed : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering letIn : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering applyOver : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering bindHeld : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering application : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering headStep : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr: covering translateInstance : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr: covering translateIOProgram : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering tree : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering natCase : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering natAlternatives : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering staticCase : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering newtypeCase : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering conAlternatives : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering litAlternatives : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Program.idr: covering program : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Driver.idr: covering perform : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Driver.idr: covering frontend : -- not yet total: the translation of applications
+compiler/src/IdrisMLIR/Frontend/Driver.idr: covering main : -- not yet total: the translation of applications

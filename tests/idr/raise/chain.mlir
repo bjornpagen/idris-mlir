@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@mk,not-called=@curry,not-called=@add -o /dev/null
-// NEEDS-ACCEPTANCE: that the chain folds in the root, as C07's inlining and case of known constructor make it.
+// NEEDS-ACCEPTANCE: that the chain folds in the root, by inlining and the case of a known constructor.
 // A call whose result is applied, and that result applied again. After
 // defunctionalization both applies are dispatches. The optimizer works
 // callee first, so @curry and @mk are final, and small, when the root

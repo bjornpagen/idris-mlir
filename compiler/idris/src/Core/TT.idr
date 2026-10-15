@@ -422,40 +422,69 @@ resolveRef {outer} {vars} {done} p q (Add {xs} new old bs) fc n
          then Just (weakenNs p (mkVarChiply q))
          else resolveRef p (q :< new) bs fc n
 
-mkLocals : SizeOf outer -> Bounds bound ->
-           Term (outer ++ vars) -> Term (outer ++ (bound ++ vars))
-mkLocals outer bs (Local fc r idx p)
-    = let MkNVar p' = addVars outer bs (MkNVar p) in Local fc r _ p'
-mkLocals outer bs (Ref fc Bound name)
-    = fromMaybe (Ref fc Bound name) $ do
-        MkVar p <- resolveRef outer [<] bs fc name
-        pure (Local fc Nothing _ p)
-mkLocals outer bs (Ref fc nt name)
-    = Ref fc nt name
-mkLocals outer bs (Meta fc name y xs)
-    = fromMaybe (Meta fc name y (map (mkLocals outer bs) xs)) $ do
-        MkVar p <- resolveRef outer [<] bs fc name
-        pure (Local fc Nothing _ p)
-mkLocals outer bs (Bind fc x b scope)
-    = Bind fc x (map (mkLocals outer bs) b)
-           (mkLocals (suc outer) bs scope)
-mkLocals outer bs (App fc fn arg)
-    = App fc (mkLocals outer bs fn) (mkLocals outer bs arg)
-mkLocals outer bs (As fc s as tm)
-    = As fc s (mkLocals outer bs as) (mkLocals outer bs tm)
-mkLocals outer bs (TDelayed fc x y)
-    = TDelayed fc x (mkLocals outer bs y)
-mkLocals outer bs (TDelay fc x t y)
-    = TDelay fc x (mkLocals outer bs t) (mkLocals outer bs y)
-mkLocals outer bs (TForce fc r x)
-    = TForce fc r (mkLocals outer bs x)
-mkLocals outer bs (PrimVal fc c) = PrimVal fc c
-mkLocals outer bs (Erased fc Impossible) = Erased fc Impossible
-mkLocals outer bs (Erased fc Placeholder) = Erased fc Placeholder
-mkLocals outer bs (Erased fc (Dotted t)) = Erased fc (Dotted (mkLocals outer bs t))
-mkLocals outer bs (TType fc u) = TType fc u
+-- Each kind of node that holds terms is traversed by a function of its
+-- own, so that every recursive call is on a part of its argument.
+mutual
+  mkLocalsPi : SizeOf outer -> Bounds bound ->
+               PiInfo (Term (outer ++ vars)) -> PiInfo (Term (outer ++ (bound ++ vars)))
+  mkLocalsPi outer bs Implicit = Implicit
+  mkLocalsPi outer bs Explicit = Explicit
+  mkLocalsPi outer bs AutoImplicit = AutoImplicit
+  mkLocalsPi outer bs (DefImplicit t) = DefImplicit (mkLocals outer bs t)
 
-export
+  mkLocalsBinder : SizeOf outer -> Bounds bound ->
+                   Binder (Term (outer ++ vars)) -> Binder (Term (outer ++ (bound ++ vars)))
+  mkLocalsBinder outer bs (Lam fc c p ty)
+      = Lam fc c (mkLocalsPi outer bs p) (mkLocals outer bs ty)
+  mkLocalsBinder outer bs (Let fc c val ty)
+      = Let fc c (mkLocals outer bs val) (mkLocals outer bs ty)
+  mkLocalsBinder outer bs (Pi fc c p ty)
+      = Pi fc c (mkLocalsPi outer bs p) (mkLocals outer bs ty)
+  mkLocalsBinder outer bs (PVar fc c p ty)
+      = PVar fc c (mkLocalsPi outer bs p) (mkLocals outer bs ty)
+  mkLocalsBinder outer bs (PLet fc c val ty)
+      = PLet fc c (mkLocals outer bs val) (mkLocals outer bs ty)
+  mkLocalsBinder outer bs (PVTy fc c ty) = PVTy fc c (mkLocals outer bs ty)
+
+  mkLocalsTerms : SizeOf outer -> Bounds bound ->
+                  List (Term (outer ++ vars)) -> List (Term (outer ++ (bound ++ vars)))
+  mkLocalsTerms outer bs [] = []
+  mkLocalsTerms outer bs (t :: ts) = mkLocals outer bs t :: mkLocalsTerms outer bs ts
+
+  mkLocals : SizeOf outer -> Bounds bound ->
+             Term (outer ++ vars) -> Term (outer ++ (bound ++ vars))
+  mkLocals outer bs (Local fc r idx p)
+      = let MkNVar p' = addVars outer bs (MkNVar p) in Local fc r _ p'
+  mkLocals outer bs (Ref fc Bound name)
+      = fromMaybe (Ref fc Bound name) $ do
+          MkVar p <- resolveRef outer [<] bs fc name
+          pure (Local fc Nothing _ p)
+  mkLocals outer bs (Ref fc nt name)
+      = Ref fc nt name
+  mkLocals outer bs (Meta fc name y xs)
+      = fromMaybe (Meta fc name y (mkLocalsTerms outer bs xs)) $ do
+          MkVar p <- resolveRef outer [<] bs fc name
+          pure (Local fc Nothing _ p)
+  mkLocals outer bs (Bind fc x b scope)
+      = Bind fc x (mkLocalsBinder outer bs b)
+             (mkLocals (suc outer) bs scope)
+  mkLocals outer bs (App fc fn arg)
+      = App fc (mkLocals outer bs fn) (mkLocals outer bs arg)
+  mkLocals outer bs (As fc s as tm)
+      = As fc s (mkLocals outer bs as) (mkLocals outer bs tm)
+  mkLocals outer bs (TDelayed fc x y)
+      = TDelayed fc x (mkLocals outer bs y)
+  mkLocals outer bs (TDelay fc x t y)
+      = TDelay fc x (mkLocals outer bs t) (mkLocals outer bs y)
+  mkLocals outer bs (TForce fc r x)
+      = TForce fc r (mkLocals outer bs x)
+  mkLocals outer bs (PrimVal fc c) = PrimVal fc c
+  mkLocals outer bs (Erased fc Impossible) = Erased fc Impossible
+  mkLocals outer bs (Erased fc Placeholder) = Erased fc Placeholder
+  mkLocals outer bs (Erased fc (Dotted t)) = Erased fc (Dotted (mkLocals outer bs t))
+  mkLocals outer bs (TType fc u) = TType fc u
+
+export total
 refsToLocals : Bounds bound -> Term vars -> Term (bound ++ vars)
 refsToLocals None y = y
 refsToLocals bs y = mkLocals zero  bs y
@@ -466,91 +495,134 @@ refToLocal : (x : Name) -> (new : Name) -> Term vars -> Term (new :: vars)
 refToLocal x new tm = refsToLocals (Add new x None) tm
 
 -- Replace an explicit name with a term
-export
-substName : Name -> Term vars -> Term vars -> Term vars
-substName x new (Ref fc nt name)
-    = if x == name then new else Ref fc nt name
-substName x new (Meta fc n i xs)
-    = Meta fc n i (map (substName x new) xs)
 -- ASSUMPTION: When we substitute under binders, the name has always been
 -- resolved to a Local, so no need to check that x isn't shadowing
-substName x new (Bind fc y b scope)
-    = Bind fc y (map (substName x new) b) (substName x (weaken new) scope)
-substName x new (App fc fn arg)
-    = App fc (substName x new fn) (substName x new arg)
-substName x new (As fc s as pat)
-    = As fc s as (substName x new pat)
-substName x new (TDelayed fc y z)
-    = TDelayed fc y (substName x new z)
-substName x new (TDelay fc y t z)
-    = TDelay fc y (substName x new t) (substName x new z)
-substName x new (TForce fc r y)
-    = TForce fc r (substName x new y)
-substName x new tm = tm
+mutual
+  substNamePi : Name -> Term vars -> PiInfo (Term vars) -> PiInfo (Term vars)
+  substNamePi x new (DefImplicit t) = DefImplicit (substName x new t)
+  substNamePi x new p = p
 
-export
-addMetas : (usingResolved : Bool) -> NameMap Bool -> Term vars -> NameMap Bool
-addMetas res ns (Local fc x idx y) = ns
-addMetas res ns (Ref fc x name) = ns
-addMetas res ns (Meta fc n i xs)
-  = addMetaArgs (insert (ifThenElse res (Resolved i) n) False ns) xs
-  where
-    addMetaArgs : NameMap Bool -> List (Term vars) -> NameMap Bool
-    addMetaArgs ns [] = ns
-    addMetaArgs ns (t :: ts) = addMetaArgs (addMetas res ns t) ts
-addMetas res ns (Bind fc x (Let _ c val ty) scope)
-    = addMetas res (addMetas res (addMetas res ns val) ty) scope
-addMetas res ns (Bind fc x b scope)
-    = addMetas res (addMetas res ns (binderType b)) scope
-addMetas res ns (App fc fn arg)
-    = addMetas res (addMetas res ns fn) arg
-addMetas res ns (As fc s as tm) = addMetas res ns tm
-addMetas res ns (TDelayed fc x y) = addMetas res ns y
-addMetas res ns (TDelay fc x t y)
-    = addMetas res (addMetas res ns t) y
-addMetas res ns (TForce fc r x) = addMetas res ns x
-addMetas res ns (PrimVal fc c) = ns
-addMetas res ns (Erased fc i) = foldr (flip $ addMetas res) ns i
-addMetas res ns (TType fc u) = ns
+  substNameBinder : Name -> Term vars -> Binder (Term vars) -> Binder (Term vars)
+  substNameBinder x new (Lam fc c p ty)
+      = Lam fc c (substNamePi x new p) (substName x new ty)
+  substNameBinder x new (Let fc c val ty)
+      = Let fc c (substName x new val) (substName x new ty)
+  substNameBinder x new (Pi fc c p ty)
+      = Pi fc c (substNamePi x new p) (substName x new ty)
+  substNameBinder x new (PVar fc c p ty)
+      = PVar fc c (substNamePi x new p) (substName x new ty)
+  substNameBinder x new (PLet fc c val ty)
+      = PLet fc c (substName x new val) (substName x new ty)
+  substNameBinder x new (PVTy fc c ty) = PVTy fc c (substName x new ty)
+
+  substNameTerms : Name -> Term vars -> List (Term vars) -> List (Term vars)
+  substNameTerms x new [] = []
+  substNameTerms x new (t :: ts) = substName x new t :: substNameTerms x new ts
+
+  export total
+  substName : Name -> Term vars -> Term vars -> Term vars
+  substName x new (Ref fc nt name)
+      = if x == name then new else Ref fc nt name
+  substName x new (Meta fc n i xs)
+      = Meta fc n i (substNameTerms x new xs)
+  substName x new (Bind fc y b scope)
+      = Bind fc y (substNameBinder x new b) (substName x (weaken new) scope)
+  substName x new (App fc fn arg)
+      = App fc (substName x new fn) (substName x new arg)
+  substName x new (As fc s as pat)
+      = As fc s as (substName x new pat)
+  substName x new (TDelayed fc y z)
+      = TDelayed fc y (substName x new z)
+  substName x new (TDelay fc y t z)
+      = TDelay fc y (substName x new t) (substName x new z)
+  substName x new (TForce fc r y)
+      = TForce fc r (substName x new y)
+  substName x new tm = tm
+
+-- A binder is visited by its type, and a let's by its value too.
+mutual
+  addMetasArgs : (usingResolved : Bool) -> NameMap Bool -> List (Term vars) -> NameMap Bool
+  addMetasArgs res ns [] = ns
+  addMetasArgs res ns (t :: ts) = addMetasArgs res (addMetas res ns t) ts
+
+  export total
+  addMetas : (usingResolved : Bool) -> NameMap Bool -> Term vars -> NameMap Bool
+  addMetas res ns (Local fc x idx y) = ns
+  addMetas res ns (Ref fc x name) = ns
+  addMetas res ns (Meta fc n i xs)
+    = addMetasArgs res (insert (ifThenElse res (Resolved i) n) False ns) xs
+  addMetas res ns (Bind fc x (Let _ c val ty) scope)
+      = addMetas res (addMetas res (addMetas res ns val) ty) scope
+  addMetas res ns (Bind fc x (Lam _ _ _ ty) scope)
+      = addMetas res (addMetas res ns ty) scope
+  addMetas res ns (Bind fc x (Pi _ _ _ ty) scope)
+      = addMetas res (addMetas res ns ty) scope
+  addMetas res ns (Bind fc x (PVar _ _ _ ty) scope)
+      = addMetas res (addMetas res ns ty) scope
+  addMetas res ns (Bind fc x (PLet _ _ _ ty) scope)
+      = addMetas res (addMetas res ns ty) scope
+  addMetas res ns (Bind fc x (PVTy _ _ ty) scope)
+      = addMetas res (addMetas res ns ty) scope
+  addMetas res ns (App fc fn arg)
+      = addMetas res (addMetas res ns fn) arg
+  addMetas res ns (As fc s as tm) = addMetas res ns tm
+  addMetas res ns (TDelayed fc x y) = addMetas res ns y
+  addMetas res ns (TDelay fc x t y)
+      = addMetas res (addMetas res ns t) y
+  addMetas res ns (TForce fc r x) = addMetas res ns x
+  addMetas res ns (PrimVal fc c) = ns
+  addMetas res ns (Erased fc (Dotted t)) = addMetas res ns t
+  addMetas res ns (Erased fc _) = ns
+  addMetas res ns (TType fc u) = ns
 
 -- Get the metavariable names in a term
-export
+export total
 getMetas : Term vars -> NameMap Bool
 getMetas tm = addMetas False empty tm
 
-export
-addRefs : (underAssert : Bool) -> (aTotal : Name) ->
-          NameMap Bool -> Term vars -> NameMap Bool
-addRefs ua at ns (Local fc x idx y) = ns
-addRefs ua at ns (Ref fc x name) = insert name ua ns
-addRefs ua at ns (Meta fc n i xs)
-    = addRefsArgs ns xs
-  where
-    addRefsArgs : NameMap Bool -> List (Term vars) -> NameMap Bool
-    addRefsArgs ns [] = ns
-    addRefsArgs ns (t :: ts) = addRefsArgs (addRefs ua at ns t) ts
-addRefs ua at ns (Bind fc x (Let _ c val ty) scope)
-    = addRefs ua at (addRefs ua at (addRefs ua at ns val) ty) scope
-addRefs ua at ns (Bind fc x b scope)
-    = addRefs ua at (addRefs ua at ns (binderType b)) scope
-addRefs ua at ns (App _ (App _ (Ref fc _ name) x) y)
-    = if name == at
-         then addRefs True at (insert name True ns) y
-         else addRefs ua at (addRefs ua at (insert name ua ns) x) y
-addRefs ua at ns (App fc fn arg)
-    = addRefs ua at (addRefs ua at ns fn) arg
-addRefs ua at ns (As fc s as tm) = addRefs ua at ns tm
-addRefs ua at ns (TDelayed fc x y) = addRefs ua at ns y
-addRefs ua at ns (TDelay fc x t y)
-    = addRefs ua at (addRefs ua at ns t) y
-addRefs ua at ns (TForce fc r x) = addRefs ua at ns x
-addRefs ua at ns (PrimVal fc c) = ns
-addRefs ua at ns (Erased fc i) = foldr (flip $ addRefs ua at) ns i
-addRefs ua at ns (TType fc u) = ns
+mutual
+  addRefsArgs : (underAssert : Bool) -> (aTotal : Name) ->
+                NameMap Bool -> List (Term vars) -> NameMap Bool
+  addRefsArgs ua at ns [] = ns
+  addRefsArgs ua at ns (t :: ts) = addRefsArgs ua at (addRefs ua at ns t) ts
+
+  export total
+  addRefs : (underAssert : Bool) -> (aTotal : Name) ->
+            NameMap Bool -> Term vars -> NameMap Bool
+  addRefs ua at ns (Local fc x idx y) = ns
+  addRefs ua at ns (Ref fc x name) = insert name ua ns
+  addRefs ua at ns (Meta fc n i xs) = addRefsArgs ua at ns xs
+  addRefs ua at ns (Bind fc x (Let _ c val ty) scope)
+      = addRefs ua at (addRefs ua at (addRefs ua at ns val) ty) scope
+  addRefs ua at ns (Bind fc x (Lam _ _ _ ty) scope)
+      = addRefs ua at (addRefs ua at ns ty) scope
+  addRefs ua at ns (Bind fc x (Pi _ _ _ ty) scope)
+      = addRefs ua at (addRefs ua at ns ty) scope
+  addRefs ua at ns (Bind fc x (PVar _ _ _ ty) scope)
+      = addRefs ua at (addRefs ua at ns ty) scope
+  addRefs ua at ns (Bind fc x (PLet _ _ _ ty) scope)
+      = addRefs ua at (addRefs ua at ns ty) scope
+  addRefs ua at ns (Bind fc x (PVTy _ _ ty) scope)
+      = addRefs ua at (addRefs ua at ns ty) scope
+  addRefs ua at ns (App _ (App _ (Ref fc _ name) x) y)
+      = if name == at
+           then addRefs True at (insert name True ns) y
+           else addRefs ua at (addRefs ua at (insert name ua ns) x) y
+  addRefs ua at ns (App fc fn arg)
+      = addRefs ua at (addRefs ua at ns fn) arg
+  addRefs ua at ns (As fc s as tm) = addRefs ua at ns tm
+  addRefs ua at ns (TDelayed fc x y) = addRefs ua at ns y
+  addRefs ua at ns (TDelay fc x t y)
+      = addRefs ua at (addRefs ua at ns t) y
+  addRefs ua at ns (TForce fc r x) = addRefs ua at ns x
+  addRefs ua at ns (PrimVal fc c) = ns
+  addRefs ua at ns (Erased fc (Dotted t)) = addRefs ua at ns t
+  addRefs ua at ns (Erased fc _) = ns
+  addRefs ua at ns (TType fc u) = ns
 
 -- As above, but for references. Also flag whether a name is under an
 -- 'assert_total' because we may need to know that in coverage/totality
 -- checking
-export
+export total
 getRefs : (aTotal : Name) -> Term vars -> NameMap Bool
 getRefs at tm = addRefs False at empty tm

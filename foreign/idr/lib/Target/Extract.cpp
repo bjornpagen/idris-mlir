@@ -6,10 +6,10 @@
 // bodies are materialized. It reads the partition and nothing of how the
 // partition was made.
 
+#include "idr/Support/Worklist.h"
 #include "idr/Target/Target.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -18,7 +18,9 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Error.h"
 
+#include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 using namespace llvm;
@@ -33,16 +35,21 @@ Error Partition::extract(unsigned bin, Module &module) const {
   // What the bin defines, the constants it holds a copy of, and what they
   // name of everything else, which it declares; the rest it drops.
   enum class Role : unsigned char { Drop, Own, Hold, Declare };
+  // A symbol's role leaves Drop once, and only then does a held one enter
+  // the worklist, so each enters once.
   std::vector<Role> role(at.size(), Role::Drop);
-  SmallVector<unsigned> work = to_vector(members[bin]);
-  for (unsigned symbol : work)
+  idr::OnceWorklist<unsigned> work;
+  for (unsigned symbol : members[bin]) {
     role[symbol] = Role::Own;
-  while (!work.empty())
-    for (unsigned named : symbols[work.pop_back_val()].refs)
+    work.push(symbol);
+  }
+  while (std::optional<unsigned> symbol = work.pop())
+    for (unsigned named : symbols[*symbol].refs)
       if (role[named] == Role::Drop) {
-        role[named] = symbols[named].copied ? Role::Hold : Role::Declare;
+        role[named] =
+            std::holds_alternative<Copied>(symbols[named].home) ? Role::Hold : Role::Declare;
         if (role[named] == Role::Hold)
-          work.push_back(named);
+          work.push(named);
       }
   // Bodies first: what the bin does not define becomes a declaration, so
   // that materializing reads only the bin's own bodies. An alias or an ifunc

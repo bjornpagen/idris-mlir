@@ -27,11 +27,13 @@ struct ScalarFacts : ValueFactsTypeInterface::ExternalModel<ScalarFacts<T>, T> {
   bool holdsWorld(Type) const { return false; }
   bool holdsClosure(Type) const { return false; }
   bool isCounted(Type) const { return false; }
+  bool isCellPointer(Type) const { return false; }
 };
 
 // An array's cell is a reference, and its elements hold what their type
 // holds. A buffer is counted; a value array is counted as its buffer, after
-// bufferization.
+// bufferization. Its value is a descriptor, the cell with what of its shape
+// the type leaves open, not one pointer.
 template <typename T, bool counted>
 struct ArrayFacts : ValueFactsTypeInterface::ExternalModel<ArrayFacts<T, counted>, T> {
   bool holdsReferences(Type) const { return true; }
@@ -40,6 +42,7 @@ struct ArrayFacts : ValueFactsTypeInterface::ExternalModel<ArrayFacts<T, counted
     return idr::holdsClosure(cast<T>(type).getElementType());
   }
   bool isCounted(Type) const { return counted; }
+  bool isCellPointer(Type) const { return false; }
 };
 
 } // namespace
@@ -81,24 +84,32 @@ bool idr::isCounted(Type type) {
   return facts && facts.isCounted();
 }
 
+bool idr::isCellPointer(Type type) {
+  auto facts = dyn_cast<ValueFactsTypeInterface>(type);
+  return facts && facts.isCellPointer();
+}
+
 // A grade is a fact of how the value is used, not of what it holds.
 bool QType::holdsReferences() const { return idr::holdsReferences(getValue()); }
 bool QType::holdsWorld() const { return idr::holdsWorld(getValue()); }
 bool QType::holdsClosure() const { return idr::holdsClosure(getValue()); }
 bool QType::isCounted() const { return idr::isCounted(getValue()); }
+bool QType::isCellPointer() const { return idr::isCellPointer(getValue()); }
 
 // A box is a reference to a cell, which holds what its data type holds.
 bool BoxType::holdsReferences() const { return true; }
 bool BoxType::holdsWorld() const { return getData().holdsWorld(); }
 bool BoxType::holdsClosure() const { return getData().holdsClosure(); }
 bool BoxType::isCounted() const { return true; }
+bool BoxType::isCellPointer() const { return true; }
 
-// A closure's captures are no types until idr-defunctionalize makes its
-// sum, and none is a world.
+// A closure's cell, whose captures are no types until idr-defunctionalize
+// makes its sum, and none is a world.
 bool FnType::holdsReferences() const { return true; }
 bool FnType::holdsWorld() const { return false; }
 bool FnType::holdsClosure() const { return true; }
 bool FnType::isCounted() const { return true; }
+bool FnType::isCellPointer() const { return true; }
 
 // A suspension's cell, whose captures are no types until
 // idr-defunctionalize makes its memo sum.
@@ -106,48 +117,49 @@ bool LazyType::holdsReferences() const { return true; }
 bool LazyType::holdsWorld() const { return false; }
 bool LazyType::holdsClosure() const { return false; }
 bool LazyType::isCounted() const { return true; }
+bool LazyType::isCellPointer() const { return true; }
 
 bool StrType::holdsReferences() const { return true; }
 bool StrType::holdsWorld() const { return false; }
 bool StrType::holdsClosure() const { return false; }
 bool StrType::isCounted() const { return true; }
+bool StrType::isCellPointer() const { return true; }
 
 // A big's word is a small integer or a cell's address.
 bool BigType::holdsReferences() const { return true; }
 bool BigType::holdsWorld() const { return false; }
 bool BigType::holdsClosure() const { return false; }
 bool BigType::isCounted() const { return true; }
+bool BigType::isCellPointer() const { return false; }
 
 bool NatType::holdsReferences() const { return true; }
 bool NatType::holdsWorld() const { return false; }
 bool NatType::holdsClosure() const { return false; }
 bool NatType::isCounted() const { return true; }
+bool NatType::isCellPointer() const { return false; }
 
 // The world has no runtime form at all.
 bool WorldType::holdsReferences() const { return false; }
 bool WorldType::holdsWorld() const { return true; }
 bool WorldType::holdsClosure() const { return false; }
 bool WorldType::isCounted() const { return false; }
+bool WorldType::isCellPointer() const { return false; }
 
 // A destination is the address of a word a later write fills: it holds
-// nothing until then.
+// nothing until then, and the word is inside a cell, not its start.
 bool DestType::holdsReferences() const { return false; }
 bool DestType::holdsWorld() const { return false; }
 bool DestType::holdsClosure() const { return false; }
 bool DestType::isCounted() const { return false; }
+bool DestType::isCellPointer() const { return false; }
 
-// A cell's memory, owned until it is built again.
+// A cell's memory, owned until it is built again, or null where the cell
+// was shared.
 bool idr::TokenType::holdsReferences() const { return true; }
 bool idr::TokenType::holdsWorld() const { return false; }
 bool idr::TokenType::holdsClosure() const { return false; }
 bool idr::TokenType::isCounted() const { return true; }
-
-namespace {
-
-// The bits of what a value of a data type holds, and that they are known.
-constexpr uint8_t holdsRefsBit = 1, holdsWorldBit = 2, holdsClosureBit = 4, knownBit = 8;
-
-} // namespace
+bool idr::TokenType::isCellPointer() const { return false; }
 
 // A data type's values hold what its constructors' fields hold, and a sum
 // of closures holds closures. A reference is held in place, through the
@@ -161,29 +173,28 @@ constexpr uint8_t holdsRefsBit = 1, holdsWorldBit = 2, holdsClosureBit = 4, know
 // may name types whose bodies come after it, so no setting of one body sees
 // the answer whole. Two threads that ask at once may each compute it, and
 // keep the same.
-unsigned DataType::facts() const {
-  uint8_t known = knownFacts();
-  if (known & knownBit)
-    return known;
-  // The data types without an answer, from this one, each with what its
-  // fields are themselves and the data types they name.
+Held DataType::facts() const {
+  if (std::optional<Held> known = knownFacts())
+    return *known;
+  // The data types without an answer, from this one, each numbered once as
+  // it is met, so the table ends with the types this one reaches; each with
+  // what its fields are themselves and the data types they name.
   SmallVector<DataType> nodes{*this};
   llvm::DenseMap<DataType, unsigned> indexOf{{*this, 0u}};
-  SmallVector<uint8_t> local;
+  SmallVector<Held> local;
   SmallVector<SmallVector<unsigned>> named, inPlace;
   bool complete = true;
   for (size_t at = 0; at < nodes.size(); ++at) {
     DataType node = nodes[at];
     complete &= node.bodySet();
-    uint8_t own = node.isClosures() ? holdsClosureBit : 0;
-    uint8_t reached = 0;
+    Held own = node.isClosures() ? Held::Closure : Held::Nothing;
+    Held reached = Held::Nothing;
     SmallVector<unsigned> successors, inPlaceSuccessors;
     auto onData = [&](DataType data, bool heldInPlace) {
-      uint8_t answer = data.knownFacts();
-      if (answer & knownBit) {
-        reached |= answer & (holdsWorldBit | holdsClosureBit);
+      if (std::optional<Held> answer = data.knownFacts()) {
+        reached |= *answer & (Held::World | Held::Closure);
         if (heldInPlace)
-          own |= answer & holdsRefsBit;
+          own |= *answer & Held::References;
         return;
       }
       auto [it, fresh] = indexOf.try_emplace(data, static_cast<unsigned>(nodes.size()));
@@ -195,15 +206,16 @@ unsigned DataType::facts() const {
         inPlaceSuccessors.push_back(index);
     };
     // What a field names, through the arrays a world orders, whose
-    // elements a value holds through their cell.
+    // elements a value holds through their cell: each array's element is a
+    // part of the array's type, so the recursion ends.
     std::function<void(Type)> reach = [&](Type field) {
       forEachNamed(
           field, onData, [&](MemRefType array) { reach(array.getElementType()); },
           [&](Type leaf) {
             if (idr::holdsWorld(leaf))
-              reached |= holdsWorldBit;
+              reached |= Held::World;
             if (idr::holdsClosure(leaf))
-              reached |= holdsClosureBit;
+              reached |= Held::Closure;
           });
     };
     for (const Ctor &ctor : node.getCtors())
@@ -213,7 +225,7 @@ unsigned DataType::facts() const {
         // field's own: a box, a string, an array's cell.
         Type value = unrestricted(field);
         if (!isa<DataType>(value) && idr::holdsReferences(value))
-          own |= holdsRefsBit;
+          own |= Held::References;
       }
     local.push_back(own | reached);
     named.push_back(std::move(successors));
@@ -221,29 +233,31 @@ unsigned DataType::facts() const {
   }
   // A world or a closure along every edge; a reference along the edges in
   // place.
-  SmallVector<uint8_t> bits(local);
-  auto solve = [&](ArrayRef<SmallVector<unsigned>> edges, uint8_t mask) {
+  SmallVector<Held> held(local);
+  auto solve = [&](ArrayRef<SmallVector<unsigned>> edges, Held mask) {
     for (const SmallVector<unsigned> &component : idr::components(edges)) {
-      uint8_t held = 0;
+      Held inComponent = Held::Nothing;
       for (unsigned vertex : component) {
-        held |= local[vertex] & mask;
+        inComponent |= local[vertex] & mask;
         for (unsigned next : edges[vertex])
-          held |= bits[next] & mask;
+          inComponent |= held[next] & mask;
       }
       for (unsigned vertex : component)
-        bits[vertex] = static_cast<uint8_t>((bits[vertex] & ~mask) | held);
+        held[vertex] = (held[vertex] & ~mask) | inComponent;
     }
   };
-  solve(named, holdsWorldBit | holdsClosureBit);
-  solve(inPlace, holdsRefsBit);
-  if (!complete)
-    return bits.front() | knownBit;
-  for (auto [node, answer] : llvm::zip_equal(nodes, bits))
-    node.keepFacts(answer | knownBit);
-  return bits.front() | knownBit;
+  solve(named, Held::World | Held::Closure);
+  solve(inPlace, Held::References);
+  if (complete)
+    for (auto [node, answer] : llvm::zip_equal(nodes, held))
+      node.keepFacts(answer);
+  return held.front();
 }
 
-bool DataType::holdsReferences() const { return facts() & holdsRefsBit; }
-bool DataType::holdsWorld() const { return facts() & holdsWorldBit; }
-bool DataType::holdsClosure() const { return facts() & holdsClosureBit; }
+bool DataType::holdsReferences() const { return any(facts() & Held::References); }
+bool DataType::holdsWorld() const { return any(facts() & Held::World); }
+bool DataType::holdsClosure() const { return any(facts() & Held::Closure); }
 bool DataType::isCounted() const { return holdsReferences(); }
+// A sum held in place is its slots: the slots of the constructors it is not
+// are empty.
+bool DataType::isCellPointer() const { return false; }

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Submission texts
 
 One pull request to llvm/llvm-project. Its diff is `llvm.patch`.

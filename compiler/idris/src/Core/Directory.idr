@@ -254,20 +254,27 @@ dirExists dir = do Right d <- openDir dir
                    closeDir d
                    pure True
 
--- Create subdirectories, if they don't exist
+-- Create a directory and each one it is in that does not exist. A
+-- directory that exists is done at once. Otherwise each prefix of the
+-- path's body is created, outermost first, and one that exists already
+-- (`FileExists`) is passed: creating asks nothing of a directory but that
+-- it can be searched, where testing that one exists would need it to be
+-- readable. The walk is over the body.
 export
-covering
 mkdirAll : String -> IO (Either FileError ())
-mkdirAll dir = if parse dir == emptyPath
-                  then pure (Right ())
-                  else do exist <- dirExists dir
-                          if exist
-                             then pure (Right ())
-                             else do Right () <- case parent dir of
-                                          Just parent => mkdirAll parent
-                                          Nothing => pure (Right ())
-                                        | err => pure err
-                                     createDir dir
+mkdirAll dir = if !(dirExists dir) then pure (Right ()) else createFrom [] path.body
+  where
+    path : Path
+    path = parse dir
+
+    createFrom : List Body -> List Body -> IO (Either FileError ())
+    createFrom done [] = pure (Right ())
+    createFrom done (b :: bs)
+        = do let here = done ++ [b]
+             Right () <- createDir (show (MkPath path.volume path.hasRoot here False))
+               | Left FileExists => createFrom here bs
+               | Left err => pure (Left err)
+             createFrom here bs
 
 -- Given a namespace (i.e. a module name), make the build directory for the
 -- corresponding ttc file

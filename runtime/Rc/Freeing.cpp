@@ -92,13 +92,17 @@ void releaseSlots(void **slots, uint64_t objs, Dying &dying) {
 // Releases what a cell owns besides its memory: its object slots, which an
 // array has per element. A box's or a thunk's are right after the header,
 // one word each, or, when the header's objs is IDRIS_RT_OBJS_WIDE, after the
-// word that counts them. Strings and bignums have none, and a bignum's
-// digits are in its cell. Dying keeps objs, so a dying cell is read alike.
+// word that counts them: this is the one place the runtime reads a box's
+// slots, for a death and for a static memo cell's release alike. Strings
+// and bignums have none (objs 0), and a bignum's digits are in its cell. An
+// array's objs is always the count, never the mark: an element with that
+// many slots is held boxed. Dying keeps objs and the count word, so a dying
+// cell is read alike.
 void releaseOwned(idris_rt_header *cell, Dying &dying) {
   uint32_t objs = idris_rt_info_objs(cell->info);
   if (idris_rt_info_kind(cell->info) != IDRIS_RT_KIND_ARRAY) {
     auto *after = static_cast<uint64_t *>(static_cast<void *>(cell + 1));
-    if (objs == IDRIS_RT_OBJS_WIDE)
+    if (objs == IDRIS_RT_OBJS_WIDE) [[unlikely]]
       releaseSlots(static_cast<void **>(static_cast<void *>(after + 1)), *after, dying);
     else
       releaseSlots(static_cast<void **>(static_cast<void *>(after)), objs, dying);
@@ -122,7 +126,9 @@ void freeDead(idris_rt_header *cell) {
     rt::alloc::freeCell(cell);
 }
 
-void releaseAll(Dying &dying) {
+// The cells that died while others were released, each released and freed
+// in turn. Each enters once, when its count reaches 0, so the list ends.
+void releaseDying(Dying &dying) {
   while (!dying.empty()) {
     idris_rt_header *cell = dying.pop();
     releaseOwned(cell, dying);
@@ -134,17 +140,20 @@ void releaseAll(Dying &dying) {
 
 namespace rt::rc {
 
-// Out of line, so that the inlined decrement stays a test and a store.
+// Out of line, so that the inlined decrement stays a test and a store. The
+// cell that died first is released directly, not pushed and popped: most
+// deaths free one cell, and that cell's header is then written once less.
 [[gnu::noinline]] void release(idris_rt_header *cell) {
   Dying dying;
-  dying.push(cell);
-  releaseAll(dying);
+  releaseOwned(cell, dying);
+  freeDead(cell);
+  releaseDying(dying);
 }
 
 void releaseHeld(idris_rt_header *cell) {
   Dying dying;
   releaseOwned(cell, dying);
-  releaseAll(dying);
+  releaseDying(dying);
 }
 
 } // namespace rt::rc

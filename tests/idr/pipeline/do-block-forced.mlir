@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: that the whole chain unfolds in @Main.main, as C06's memo sums and C07's local loop make it.
+// NEEDS-ACCEPTANCE: that the whole chain unfolds in @Main.main, by the memo sums and the optimizer's local loop.
 // A chain of statements linked the way `>>` links them once their thunks
 // are constants: each statement forces the next statement's constant
 // suspension. Defunctionalization makes each suspension a constructor of

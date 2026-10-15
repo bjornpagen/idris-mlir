@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Benchmarks
 
 `make bench` runs `bench/run.sh`, which builds each program three ways and

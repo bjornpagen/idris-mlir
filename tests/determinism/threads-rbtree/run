@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # tests/programs/data/rbtree's module through idr-pipeline under one
 # thread and under the pool, byte for byte.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

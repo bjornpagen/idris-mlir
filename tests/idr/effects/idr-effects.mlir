@@ -40,6 +40,7 @@
 // RUN: effects=@method:diverge,\
 // RUN: effects=@method_user:diverge,\
 // RUN: effects=@proved_cycle:none -o /dev/null
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // idr-effects: what each function of a defunctionalized program may do,
 // held by the function alone; a call's are its callee's. `io` when the
 // function takes a world, as a parameter or in data one holds, or forges
@@ -141,7 +142,7 @@ idr.program @"idr-effects" root(@passes_world) stage(first) {
     return %c : !fn$0
   }
   idr.func @has_sum_divider() -> !fn$0 attributes {total} {
-    %c = idr.constant #idr.con<@divides, []> : !fn$0
+    %c = idr.constant #idr.con<!fn$0, @divides, []> : !fn$0
     return %c : !fn$0
   }
 

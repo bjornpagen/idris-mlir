@@ -1,0 +1,12 @@
+diff --git a/include/simdutf/internal/isadetection.h b/include/simdutf/internal/isadetection.h
+--- a/include/simdutf/internal/isadetection.h
++++ b/include/simdutf/internal/isadetection.h
+@@ -114,7 +114,7 @@ enum instruction_set {
+   AVX512BW = 0x4000,
+   AVX512VL = 0x8000,
+   AVX512VBMI2 = 0x10000,
+-  AVX512VPOPCNTDQ = 0x2000,
++  AVX512VPOPCNTDQ = 0x20000,
+   RVV = 0x4000,
+   ZVBB = 0x8000,
+   LSX = 0x40000,

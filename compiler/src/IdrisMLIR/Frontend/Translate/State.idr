@@ -10,15 +10,19 @@ import Core.TT
 
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Proof.Forms
+import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
+import Data.Fin
+import Data.List1
 import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
 
-%default covering
+%default total
 
 ||| The runtime values an implementation closes over (`DictParam`,
 ||| `Closed.Static`): their types, in the order of the markers that stand
@@ -28,7 +32,7 @@ import Data.SortedSet
 public export
 record Holes where
   constructor MkHoles
-  types : List ClosedTerm
+  types : List1 ClosedTerm
   binder : Binder
 
 ||| Parameter classification after instantiation (`Instances.classify`). A
@@ -82,18 +86,23 @@ nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
 nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
 nameKey n = show n
 
-||| How a function instance came to be: its definition (with the full name
-||| as `nameKey` prints it), the instance whose translation requested it
-||| first, its parameters as that call classified them, and its key, which
-||| a refusal of the chain names.
+||| A function instance requested: its identity, its definition (with the
+||| full name as `nameKey` prints it), its parameters as the call that
+||| requested it classified them, so that it is translated at the same
+||| values, its key, the call that requested it, where and in whose
+||| definition, which a refusal of its chain names, and its link, which is
+||| its identity and what its chain compares (`Finite`).
 public export
 record Request where
   constructor MkRequest
+  inst : FnId
   name : Name
   base : String
-  parent : Maybe FnId
   kinds : List PKind
   key : InstanceKey
+  site : FC
+  owner : String
+  link : Link Form
 
 ||| Instances waiting to be translated, first in first out: the front in
 ||| order and the back as requested. Requesting is constant time, and
@@ -106,32 +115,26 @@ record Queue a where
   front : List a
   back : SnocList a
 
-export
+public export
 emptyQueue : Queue a
 emptyQueue = MkQueue [] [<]
 
-export
+public export
 enqueue : a -> Queue a -> Queue a
 enqueue x q = { back $= (:< x) } q
 
-export
+||| Each of the list, in order, at the back.
+public export
+enqueueAll : List a -> Queue a -> Queue a
+enqueueAll [] q = q
+enqueueAll (x :: xs) q = enqueueAll xs (enqueue x q)
+
+public export
 dequeue : Queue a -> Maybe (a, Queue a)
 dequeue (MkQueue (x :: xs) b) = Just (x, MkQueue xs b)
 dequeue (MkQueue [] b) = case b <>> [] of
   [] => Nothing
   (x :: xs) => Just (x, MkQueue xs [<])
-
-||| A function instance waiting to be translated.
-public export
-record Pending where
-  constructor MkPending
-  name : Name
-  inst : FnId
-  ||| What the instance is an instance of, as the request found it.
-  key : InstanceKey
-  ||| The parameters as the call that requested the instance classified
-  ||| them, so that the instance is translated at the same values.
-  kinds : List PKind
 
 ||| One argument of a constructor, as a data instance has it. Idris does not
 ||| put the data type's parameters first (`(::) : {0 len} -> {0 elem} ->
@@ -191,8 +194,6 @@ record TS where
   constructor MkTS
   datas : SortedMap DataId IdrisMLIR.Term.Data
   dataOrder : SnocList DataId
-  ||| The instances being registered, which a field may refer to.
-  building : SortedSet DataId
   ||| The instances a field referred to while they were being registered:
   ||| each is declared, whatever its shape, since its values contain
   ||| themselves.
@@ -207,20 +208,21 @@ record TS where
   fns : SortedMap FnId TFn
   fnOrder : SnocList FnId
   seen : SortedSet FnId
-  queue : Queue Pending
+  ||| The instances requested since the worklist last took them, in the
+  ||| order requested (`Finite.translateFrom`).
+  requested : SnocList Request
   moduleFC : FC
   ||| The definitions whose component of the call graph has been checked
   ||| (`Recursion`), by `nameKey`, each with whether every loop through it
   ||| terminates.
   loops : SortedMap String Bool
-  ||| The instances of each definition by their arguments, up to the names
-  ||| of binders (`(x : a) -> b` and `a -> b` are one type), bucketed by a
-  ||| hash of the arguments: each with its identity and its key.
-  named : SortedMap String (List (List (Maybe ClosedTerm), (String, InstanceKey)))
-  ||| Each symbol made, with the identity it names: the definition, by
-  ||| `nameKey`, and its arguments. A symbol is a function of its key, so
-  ||| two identities on one are a broken invariant, found here.
-  symbols : SortedMap String (String, List (Maybe ClosedTerm))
+  ||| The instances made, by their identity, the link (`Keys.instanceKey`):
+  ||| each with its symbol and its key.
+  named : SortedMap (Link Form) (String, InstanceKey)
+  ||| Each symbol made, with the identity it names. A symbol is a function
+  ||| of its key, so two identities on one are a broken invariant, found
+  ||| here.
+  symbols : SortedMap String (Link Form)
   ||| What each case, with and nested block is called, `<parent>.case<k>`,
   ||| by `nameKey`, and every definition whose blocks are named, by its own
   ||| origin (`Keys`). A block's name depends only on the definitions, so
@@ -232,16 +234,14 @@ record TS where
   dicts : SortedMap (ConId, Nat) Dictionary
   ||| The dictionary fields matched in this pass before any construction
   ||| site gave their implementation: their alternatives were translated as
-  ||| unreachable, which a construction site seen later contradicts.
+  ||| unreachable, which a construction site seen later in the pass
+  ||| contradicts (`Finite.voidedBy`).
   assumed : SortedSet (ConId, Nat)
-  ||| A construction site contradicted an assumption: the pass is void, and
-  ||| the translation starts over with what it learnt.
-  restart : Bool
-  ||| The instance being translated.
-  current : Maybe FnId
-  ||| How each instance came to be: the chain back to the user definition
-  ||| it serves, and to the instances of its own definition it comes from.
-  requesters : SortedMap FnId Request
+  ||| The request chain of the instance being translated: its own request,
+  ||| the one that requested it, back to the root. It leads back to the user
+  ||| definition a library instance serves (`Dictionaries.chooser`); the
+  ||| worklist sets it (`Finite.translateFrom`).
+  chain : List Request
   ||| The type constructors of the interfaces the program loaded, by full
   ||| name: Idris's own table of them, read once, since nothing the
   ||| translation does declares one. An implementation is a value of one
@@ -270,7 +270,12 @@ record TS where
 
 export
 initState : SortedSet Name -> FC -> TS
-initState ifaces fc = MkTS empty [<] empty empty empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty empty empty
+initState ifaces fc = MkTS
+  { datas = empty, dataOrder = [<], reentered = empty, newtypes = empty
+  , cons = empty, fns = empty, fnOrder = [<], seen = empty, requested = [<], moduleFC = fc
+  , loops = empty, named = empty, symbols = empty, blockNames = empty, dicts = empty
+  , assumed = empty, chain = [], interfaces = ifaces, rejected = [<], refused = empty
+  , spelled = empty, places = empty, tyCons = empty }
 
 ||| The state a pass of the translation starts from: nothing of the last
 ||| pass but the dictionaries it found, the interfaces, the rejections and

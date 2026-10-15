@@ -83,15 +83,15 @@ struct PerColumn : ConversionPattern {
       return failure();
     SmallVector<SmallVector<Value>> replaced(op->getNumResults());
     ArrayRef<Type> types = results;
+    // The ops it takes have no region, so each column's op is the op made
+    // again on that column.
     for (unsigned j = 0; j < columns; ++j) {
-      OperationState state(op->getLoc(), op->getName());
-      for (ValueRange range : operands)
-        state.addOperands(range.size() == 1 ? range.front() : range[j]);
+      SmallVector<Value> columnOperands = llvm::map_to_vector(
+          operands, [&](ValueRange range) { return range.size() == 1 ? range.front() : range[j]; });
+      SmallVector<Type> columnTypes;
       for (unsigned r = 0, e = op->getNumResults(); r < e; ++r)
-        state.addTypes(types[r * columns + j]);
-      state.addAttributes(op->getDiscardableAttrDictionary().getValue());
-      state.propertiesAttr = op->getPropertiesAsAttribute();
-      Operation *made = rewriter.create(state);
+        columnTypes.push_back(types[r * columns + j]);
+      Operation *made = remake(rewriter, op, columnOperands, columnTypes);
       for (unsigned r = 0, e = op->getNumResults(); r < e; ++r)
         replaced[r].push_back(made->getResult(r));
     }
@@ -204,7 +204,10 @@ struct ExtractColumns : OpConversionPattern<tensor::ExtractOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult matchAndRewrite(tensor::ExtractOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOp(op, readRecord(rewriter, op.getLoc(), op.getType(), adaptor.getTensor(),
+    std::optional<Record> element = recordOf(op.getType());
+    if (!element)
+      return rewriter.notifyMatchFailure(op, "reads no record");
+    rewriter.replaceOp(op, readRecord(rewriter, op.getLoc(), *element, adaptor.getTensor(),
                                       flatten(adaptor.getIndices())));
     return success();
   }
@@ -214,8 +217,12 @@ struct InsertColumns : OpConversionPattern<tensor::InsertOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult matchAndRewrite(tensor::InsertOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    std::optional<Record> element = recordOf(op.getScalar().getType());
+    if (!element)
+      return rewriter.notifyMatchFailure(op, "writes no record");
     SmallVector<Value> made = writeRecord(rewriter, op.getLoc(), adaptor.getScalar().front(),
-                                          adaptor.getDest(), flatten(adaptor.getIndices()));
+                                          *element, adaptor.getDest(),
+                                          flatten(adaptor.getIndices()));
     rewriter.replaceOpWithMultiple(op, {made});
     return success();
   }

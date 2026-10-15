@@ -2,6 +2,7 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@values:[],signature=@values:()->(!llvm.ptr,!llvm.ptr,i64,i64,!llvm.ptr,i8,i64,f64)' -o /dev/null
 // RUN: FileCheck %s < %t.mlir
 // NEEDS-ACCEPTANCE: the lowered type of @values, Num as its tag and one slot for each constructor's field, as data-layout.mlir lays a sum out.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Every constant of a string, a big outside the small range or a box is a
 // private constant global with count 0, shared when equal. A string's
 // header holds the ASCII flag, the byte length and the scalar count (the
@@ -38,8 +39,8 @@ idr.program @constants root(@Prog.main) stage(owned) {
     %s2 = idr.constant "h\C3\A9!" : !idr.str
     %small = idr.constant #idr.big<-43> : !idr.big
     %large = idr.constant #idr.big<-36893488147419103231> : !idr.big
-    %l = idr.constant #idr.con<@Cons, [7, #idr.con<@Nil, []>]> : !idr.box<!List>
-    %n = idr.constant #idr.con<@D, [2.5 : f64]> : !Num
+    %l = idr.constant #idr.con<!List, @Cons, [7, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
+    %n = idr.constant #idr.con<!Num, @D, [2.5 : f64]> : !Num
     return %s1, %s2, %small, %large, %l, %n
         : !idr.str, !idr.str, !idr.big, !idr.big, !idr.box<!List>, !Num
   }

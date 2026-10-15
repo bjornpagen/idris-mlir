@@ -28,15 +28,19 @@
 // key holds none.
 //
 // The binding times keep each recursion to the keys of its entries. What
-// ends specialization whatever else a program does is the order keys are
-// compared by on a request chain (Order): a key that grows one on its
-// chain is not made.
+// ends specialization whatever else a program does is the table's rule
+// (request), over the order keys are compared by (Order) and lifting: a
+// key that grows an earlier one is refused, and one that differs from an
+// earlier one of its shape only in scalars is lifted to the key that keeps
+// what the two share.
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
 
 using namespace mlir;
 
@@ -88,7 +92,8 @@ Attribute fill(Attribute part, Composed &out) {
   return part;
 }
 
-// An unsigned sum wide enough for both: a magnitude has no bound.
+// An unsigned sum wide enough for both: a shared part counts once per use,
+// so a size has no bound.
 APInt plus(const APInt &lhs, const APInt &rhs) {
   unsigned width = std::max(lhs.getActiveBits(), rhs.getActiveBits()) + 1;
   return lhs.zextOrTrunc(width) + rhs.zextOrTrunc(width);
@@ -99,36 +104,89 @@ bool unsignedAtMost(const APInt &lhs, const APInt &rhs) {
   return lhs.zext(width).ule(rhs.zext(width));
 }
 
-// What a constant other than a constructor is compared by besides its
-// magnitude: an integer or a float by its kind and type, a big and a
-// string by their kind, any other constant as itself.
+// What a constant is compared by besides its shape: a scalar by its kind
+// and, when typed, its type; a big and a string by their kind; a constant
+// constructor by its data type.
 std::pair<TypeID, const void *> kindOf(Attribute value) {
-  if (auto integer = dyn_cast<IntegerAttr>(value))
-    return {value.getTypeID(), integer.getType().getAsOpaquePointer()};
-  if (auto real = dyn_cast<FloatAttr>(value))
-    return {value.getTypeID(), real.getType().getAsOpaquePointer()};
   if (isa<BigAttr, StringAttr>(value))
     return {value.getTypeID(), nullptr};
   if (auto con = dyn_cast<ConAttr>(value))
     return {value.getTypeID(), con.getData().getAsOpaquePointer()};
-  return {value.getTypeID(), value.getAsOpaquePointer()};
+  if (auto typed = dyn_cast<TypedAttr>(value))
+    return {value.getTypeID(), typed.getType().getAsOpaquePointer()};
+  return {value.getTypeID(), nullptr};
 }
 
-// The magnitude of a scalar constant: an integer of any kind and a big by
-// their absolute value (an unsigned one by its value), a string by its
-// length. Finitely many constants of one kind share one, so a chain of
-// distinct keys whose constants never grow is finite. A float, finitely
-// many of each type, and a constant compared as itself measure nothing.
-APInt magnitudeOf(Attribute value) {
-  if (auto integer = dyn_cast<IntegerAttr>(value)) {
-    const APInt &n = integer.getValue();
-    return integer.getType().isUnsignedInteger() ? n : n.abs();
+// A scalar of a key: a constant that is neither a constructor nor a part of
+// a key's own.
+bool isScalar(Attribute pattern) {
+  return !isa<ConAttr, KeyHoleAttr, KeyConAttr>(pattern);
+}
+
+// Whether `a` and `b` are one shape: holes where holes are, one constructor
+// where one is over fields of one shape, one run of one length, and a
+// scalar of one kind where one is, whatever its value.
+bool oneShape(Attribute a, Attribute b) {
+  if (a == b)
+    return true;
+  if (auto x = dyn_cast<KeyHoleAttr>(a)) {
+    auto y = dyn_cast<KeyHoleAttr>(b);
+    return y && x.getIndex() == y.getIndex();
   }
-  if (auto big = dyn_cast<BigAttr>(value))
-    return big.getValue().abs();
-  if (auto text = dyn_cast<StringAttr>(value))
-    return APInt(64, text.size());
-  return APInt(1, 0);
+  auto fields = [](ArrayAttr xs, ArrayAttr ys) {
+    return xs.size() == ys.size() && llvm::all_of_zip(xs, ys, [](Attribute x, Attribute y) {
+             return oneShape(x, y);
+           });
+  };
+  if (auto x = dyn_cast<KeyConAttr>(a)) {
+    auto y = dyn_cast<KeyConAttr>(b);
+    return y && x.getTag() == y.getTag() && fields(x.getFields(), y.getFields());
+  }
+  if (auto x = dyn_cast<ConAttr>(a)) {
+    auto y = dyn_cast<ConAttr>(b);
+    if (!y || x.getData() != y.getData() || x.getTag() != y.getTag() ||
+        x.getSpine() != y.getSpine() || x.getRunLength() != y.getRunLength() ||
+        x.isRun() != y.isRun())
+      return false;
+    if (x.isRun() && !oneShape(x.getTail(), y.getTail()))
+      return false;
+    return llvm::all_of_zip(x.getCells(), y.getCells(),
+                            [&](ArrayAttr xs, ArrayAttr ys) { return fields(xs, ys); });
+  }
+  return isScalar(b) && kindOf(a) == kindOf(b);
+}
+
+// `part` of a key with each scalar where it differs from `earlier`, of its
+// shape, lifted out into a hole; the holes are numbered anew from the size
+// of `sources`, each with where its operand comes from. A constant
+// constructor that differs is taken apart into its constructor over its
+// fields; a run is one constant, lifted whole, so that a key never unrolls
+// a run.
+Attribute liftPart(Attribute earlier, Attribute part, SmallVectorImpl<Source> &sources) {
+  MLIRContext *ctx = part.getContext();
+  auto hole = [&](Source source) {
+    sources.push_back(source);
+    return KeyHoleAttr::get(ctx, static_cast<unsigned>(sources.size() - 1));
+  };
+  auto fields = [&](ArrayAttr before, ArrayAttr after) {
+    return ArrayAttr::get(ctx, llvm::map_to_vector(llvm::zip_equal(before, after), [&](auto pair) {
+                            return liftPart(std::get<0>(pair), std::get<1>(pair), sources);
+                          }));
+  };
+  if (auto at = dyn_cast<KeyHoleAttr>(part))
+    return hole(Kept{at.getIndex()});
+  if (auto con = dyn_cast<KeyConAttr>(part))
+    return KeyConAttr::get(ctx, con.getTag(),
+                           fields(cast<KeyConAttr>(earlier).getFields(), con.getFields()));
+  if (part == earlier)
+    return part;
+  if (auto con = dyn_cast<ConAttr>(part)) {
+    if (con.isRun())
+      return hole(Lifted{con});
+    return KeyConAttr::get(ctx, con.getTag(),
+                           fields(cast<ConAttr>(earlier).getFields(), con.getFields()));
+  }
+  return hole(Lifted{part});
 }
 
 } // namespace
@@ -141,31 +199,32 @@ APInt magnitudeOf(Attribute value) {
 Attribute keyOf(const Pattern &pattern) {
   MLIRContext *ctx = pattern.type.getContext();
   return std::visit(
-      Match{[&](const Hole &hole) -> Attribute { return KeyHoleAttr::get(ctx, hole.index); },
-            [](const Constant &c) { return c.value; },
-            [&](const Con &con) -> Attribute {
-              SmallVector<Attribute> fields =
-                  llvm::map_to_vector(con.fields, [](const Pattern &part) { return keyOf(part); });
-              return KeyConAttr::get(ctx, con.tag, ArrayAttr::get(ctx, fields));
-            },
-            [](const Linear &linear) { return keyOf(linear.value.front()); }},
+      llvm::makeVisitor(
+          [&](const Hole &hole) -> Attribute { return KeyHoleAttr::get(ctx, hole.index); },
+          [](const Constant &c) { return c.value; },
+          [&](const Con &con) -> Attribute {
+            SmallVector<Attribute> fields =
+                llvm::map_to_vector(con.fields, [](const Pattern &part) { return keyOf(part); });
+            return KeyConAttr::get(ctx, con.tag, ArrayAttr::get(ctx, fields));
+          },
+          [](const Linear &linear) { return keyOf(linear.value.front()); }),
       pattern.node);
 }
 
-std::optional<Composed> composeKey(idr::CallOp call, SpecKeyAttr own, ArrayRef<BindingTime> seen) {
+std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
+                                   ArrayRef<BindingTime> seen) {
   // A closed call is left to run at run time.
   if (llvm::all_of(call.getArgs(), [](Value v) { return isWorld(v.getType()) || isClosed(v); }))
     return std::nullopt;
-  // A final callee has its binding times; one without them is no final one.
-  if (seen.size() != call.getArgs().size())
-    return std::nullopt;
+  assert(seen.size() == call.getArgs().size() &&
+         "a final callee has one binding time per parameter");
 
   Composed composed;
   bool any = false;
   for (auto [i, operand] : llvm::enumerate(call.getArgs())) {
     BindingTime time = seen[i];
     Argument &arg = composed.args.emplace_back(Argument{leafOf(operand, 0), {operand}, time});
-    if (!specializesOn(time, static_cast<bool>(own), operand.getType()))
+    if (!specializesOn(time, own.has_value(), operand.getType()))
       continue;
     SmallVector<Value> leaves;
     Pattern shape = shapeOf(operand, leaves);
@@ -187,13 +246,13 @@ std::optional<Composed> composeKey(idr::CallOp call, SpecKeyAttr own, ArrayRef<B
   composed.held.resize(composed.args.size());
   SmallVector<Attribute> patterns;
   if (own) {
-    for (Attribute part : own.getPatterns())
+    for (Attribute part : own->getPatterns())
       patterns.push_back(fill(part, composed));
   } else {
     for (unsigned p = 0; p < composed.args.size(); ++p)
       patterns.push_back(append(composed.args[p], composed.held[p], composed));
   }
-  StringAttr owner = own ? own.getOrigin() : call.getCalleeAttr().getAttr();
+  StringAttr owner = own ? own->getOrigin() : call.getCalleeAttr().getAttr();
   composed.key = SpecKeyAttr::get(ctx, owner, ArrayAttr::get(ctx, patterns));
   return composed;
 }
@@ -202,23 +261,24 @@ std::optional<Composed> composeKey(idr::CallOp call, SpecKeyAttr own, ArrayRef<B
 // supercompilation, over the patterns of one owner's parameters, position
 // by position. A pattern embeds in another when it is the other with parts
 // taken away: a constructor in a constructor of its tag, field by field,
-// or in any field of a larger one; a hole in a hole; a constant in a
-// constant of its kind no smaller. A constant constructor is one constant,
-// measured by its size (each cell one, each scalar one more than its
-// magnitude), so that a run stays a run here too and is measured once.
-//
-// On one request chain the keys of one owner are distinct, and finitely
-// many keys of one owner embed both ways in one key. By Kruskal's tree
-// theorem any infinite sequence of them has an earlier key embedded in a
-// later one, and then one that does not embed back: there the chain grows,
-// and the key is not made. So every chain is finite. A raise key grows
-// nothing: its form is a function's that is no node, or its requesting
-// raise node's own, and its callee one of the finitely many below a final
-// function.
-bool Order::grows(Attribute ancestor, Attribute key) {
-  auto before = dyn_cast<SpecKeyAttr>(ancestor);
-  auto after = dyn_cast<SpecKeyAttr>(key);
-  if (!before || !after || before == after || before.getOrigin() != after.getOrigin())
+// or in any field of a larger one; a hole in a hole; a scalar in any
+// scalar of its kind, its value an equality domain that lifting answers
+// and the order does not measure; a constant constructor, one constant, in
+// one of its data type no smaller, measured by its cells and scalars, so
+// that a run stays a run here too and is measured once. What a pattern
+// embeds in is a function of its shape alone. A key grows an earlier one of
+// its owner that embeds in it when it does not embed back: it is the
+// earlier key with more structure, which the table refuses. A raise key
+// grows nothing: its form is a function's that is no node, or its
+// requesting raise node's own, and its callee one of the finitely many
+// below a final function.
+bool Order::grows(const Key &ancestor, const Key &key) {
+  const auto *beforeKey = std::get_if<SpecKeyAttr>(&ancestor);
+  const auto *afterKey = std::get_if<SpecKeyAttr>(&key);
+  if (!beforeKey || !afterKey)
+    return false;
+  SpecKeyAttr before = *beforeKey, after = *afterKey;
+  if (before == after || before.getOrigin() != after.getOrigin())
     return false;
   Embeddings known;
   auto all = [&](ArrayAttr small, ArrayAttr big) {
@@ -254,19 +314,18 @@ bool Order::embeds(Attribute small, Attribute big, Embeddings &known) {
   return out;
 }
 
-// Whether the constant `small` is of the kind of `big` and no larger.
+// Whether the constant `small` is of the kind of `big` and, for a constant
+// constructor, no larger.
 bool Order::atMost(Attribute small, Attribute big) {
   if (kindOf(small) != kindOf(big))
     return false;
-  if (isa<ConAttr>(small))
-    return unsignedAtMost(size(small), size(big));
-  return unsignedAtMost(magnitudeOf(small), magnitudeOf(big));
+  return !isa<ConAttr>(small) || unsignedAtMost(size(small), size(big));
 }
 
-// The size of a constant: one more than its magnitude for a scalar, and for
-// a constructor its cells, each one more than its fields, then its tail.
-// Each part is measured once however often it is shared, from its last
-// part back, with no recursion, however deep the constant.
+// The size of a constant: one for a scalar, and for a constructor its
+// cells, each one more than its fields, then its tail. Each part is
+// measured once however often it is shared, from its last part back, with
+// no recursion, however deep the constant.
 APInt Order::size(Attribute constant) {
   SmallVector<std::pair<Attribute, bool>> work{{constant, false}};
   while (!work.empty()) {
@@ -277,7 +336,7 @@ APInt Order::size(Attribute constant) {
     }
     auto con = dyn_cast<ConAttr>(at);
     if (!con) {
-      sizes[at] = plus(APInt(1, 1), magnitudeOf(at));
+      sizes[at] = APInt(1, 1);
       work.pop_back();
       continue;
     }
@@ -297,11 +356,24 @@ APInt Order::size(Attribute constant) {
       continue;
     }
     APInt total(64, con.getCells().size());
-    parts([&](Attribute part) { total = plus(total, sizes.lookup(part)); });
+    parts([&](Attribute part) { total = plus(total, sizes.at(part)); });
     sizes[at] = total;
     work.pop_back();
   }
-  return sizes.lookup(constant);
+  return sizes.at(constant);
+}
+
+bool sameShape(SpecKeyAttr a, SpecKeyAttr b) {
+  return a.getOrigin() == b.getOrigin() &&
+         llvm::all_of_zip(a.getPatterns(), b.getPatterns(), oneShape);
+}
+
+SpecKeyAttr lift(SpecKeyAttr earlier, SpecKeyAttr key, SmallVectorImpl<Source> &sources) {
+  MLIRContext *ctx = key.getContext();
+  SmallVector<Attribute> patterns;
+  for (auto [before, after] : llvm::zip_equal(earlier.getPatterns(), key.getPatterns()))
+    patterns.push_back(liftPart(before, after, sources));
+  return SpecKeyAttr::get(ctx, key.getOrigin(), ArrayAttr::get(ctx, patterns));
 }
 
 } // namespace idr::specialize::detail

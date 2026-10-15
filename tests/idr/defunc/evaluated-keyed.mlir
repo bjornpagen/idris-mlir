@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir -split-input-file --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the printed dispatches, as C06 makes them.
+// NEEDS-ACCEPTANCE: the printed dispatches.
 // An evaluated suspension holds its value in the forced state of its cell,
 // which every cell of its lazy type shares: the value's labels flow into
 // that anchor, and every force of the type reads them back. So a closure

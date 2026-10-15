@@ -23,9 +23,10 @@
 // in the copy each such input stands behind arith.minui of itself and B,
 // which equals it under the guard and which the analysis bounds to [0, B].
 // B is found, not guessed: the copy is built in a scratch module with the
-// inputs as arguments and tried at powers of two from 2^31 down (a binary
-// search over the exponent: a smaller bound fits whatever a larger one
-// does), the analysis run on it each time, and the largest B kept at which
+// inputs as arguments and tried at powers of two between 2^8 and 2^31 (a
+// binary search over the exponent, one try per bit of the span, since a
+// smaller bound fits whatever a larger one does), the analysis run on it
+// each time, and the largest B kept at which
 // every elementwise integer op in it wider than 32 bits, but an
 // accumulation, fits. Interval arithmetic over the body is what the
 // analysis computes, so the body's own arithmetic decides the bound. The
@@ -46,11 +47,13 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Remarks.h"
-#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
+
+#include <bit>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRNARROWLANES
@@ -64,9 +67,11 @@ namespace idr::narrow {
 namespace {
 
 // The exponents of the bounds tried: below 2^31 every index fits i32, and
-// below 2^8 a version runs on too few elements to matter.
+// below 2^8 a version runs on too few elements to matter. The search tries
+// each bit of the span between them once, the largest first.
 constexpr unsigned minExponent = 8;
 constexpr unsigned maxExponent = 31;
+constexpr auto spanBits = static_cast<unsigned>(std::bit_width(maxExponent - minExponent));
 
 // A remark of the category idr-narrow-lanes at `loc`, when the context's
 // remark engine has it on, written as the engine writes a remark it
@@ -88,117 +93,134 @@ void remarkAt(Location loc, StringRef name, const Twine &text) {
 }
 
 // What the pass did with the vectorized loops that compute on wide lanes:
-// the loops versioned with 32-bit lanes, the ones left wide, and whether an
-// internal error stopped one.
+// the loops versioned with 32-bit lanes, and the ones left wide.
 struct LaneCounts {
   uint64_t narrowed = 0;
   uint64_t wide = 0;
-  bool failed = false;
 };
 
-// An outermost vectorized loop on wide integer lanes, versioned with 32-bit
-// lanes under a bound on its sizes, or left as it is with a remark. The
-// walk reaches inner loops first; a loop inside a vectorized one is part of
-// it, and is left to it.
-struct VersionLanes : OpRewritePattern<scf::ForOp> {
-  VersionLanes(MLIRContext *ctx, LaneCounts &counts) : OpRewritePattern(ctx), counts(counts) {}
+// Whether `loop` is an outermost vectorized loop on wide integer lanes: a
+// loop inside a vectorized one is part of it, and is left to it.
+bool outermostOnWideLanes(scf::ForOp loop) {
+  if (!isVectorized(loop) || !computesWideLanes(loop))
+    return false;
+  for (auto outer = loop->getParentOfType<scf::ForOp>(); outer;
+       outer = outer->getParentOfType<scf::ForOp>())
+    if (isVectorized(outer))
+      return false;
+  return true;
+}
 
-  LogicalResult matchAndRewrite(scf::ForOp loop, PatternRewriter &rewriter) const override {
-    if (!isVectorized(loop) || !computesWideLanes(loop))
-      return failure();
-    for (auto outer = loop->getParentOfType<scf::ForOp>(); outer;
-         outer = outer->getParentOfType<scf::ForOp>())
-      if (isVectorized(outer))
-        return failure();
+// A bound under which the copy's integer ops fit, 2^exponent, and the
+// analysis of the copy under it.
+struct Fitting {
+  unsigned exponent;
+  std::unique_ptr<DataFlowSolver> solver;
+};
 
-    Location loc = loop.getLoc();
-    auto wide = [&](const Twine &why) {
-      remarkAt<remark::detail::OptRemarkMissed>(loc, "Wide", "the lanes stay 64-bit: " + why);
-      ++counts.wide;
+// The largest bound under which the copy's integer ops fit, with its
+// analysis, the copy set to it; none when they fit under none, failure
+// when an analysis fails. A smaller bound fits whatever a larger one does,
+// so the search tries the least exponent, then adds each bit of the span,
+// the largest first, that keeps the copy fitting.
+FailureOr<std::optional<Fitting>> largestFitting(Copy &copy) {
+  std::optional<Fitting> best;
+  auto tryAt = [&](unsigned exponent) -> LogicalResult {
+    FailureOr<std::unique_ptr<DataFlowSolver>> solver = copy.analyse(exponent);
+    if (failed(solver))
       return failure();
-    };
-    auto internal = [&](const Twine &what) {
-      emitError(loc) << "internal error: idr-narrow-lanes: " << what;
-      counts.failed = true;
-      return failure();
-    };
-    if (runsAtMostOnce(loop))
-      return wide("the loop runs at most once, which no version pays for");
-    SetVector<Value> inputs = inputsOf(loop);
-    if (llvm::none_of(inputs, testable))
-      return wide("the loop reads no size from outside");
-    // The scratch module goes with `copy` on every path out of here.
-    Copy copy(loc, loop, inputs);
-    // Whether the copy's integer ops fit under the bound 2^exponent.
-    auto fitsAt = [&](unsigned exponent) -> FailureOr<bool> {
-      std::unique_ptr<DataFlowSolver> solver = copy.analyse(exponent);
-      if (!solver)
-        return failure();
-      return copy.fits(*solver);
-    };
-    FailureOr<bool> least = fitsAt(minExponent);
-    if (failed(least))
-      return internal("the analysis of a copy failed");
-    if (!*least)
-      return wide("its integer ops do not all fit 32 bits under any bound on the sizes");
-    unsigned low = minExponent, high = maxExponent;
-    while (low < high) {
-      unsigned mid = (low + high + 1) / 2;
-      FailureOr<bool> at = fitsAt(mid);
-      if (failed(at))
-        return internal("the analysis of a copy failed");
-      if (*at)
-        low = mid;
-      else
-        high = mid - 1;
-    }
-    std::unique_ptr<DataFlowSolver> solver = copy.analyse(low);
-    if (!solver)
-      return internal("the analysis of a copy failed");
-    copy.narrow(*solver);
-
-    // if (every tested input <= 2^low) { the copy } else { the loop }.
-    rewriter.setInsertionPoint(loop);
-    llvm::MapVector<Type, Value> bounds;
-    Value guard;
-    for (Value input : inputs) {
-      if (!testable(input))
-        continue;
-      Value &bound = bounds[input.getType()];
-      if (!bound)
-        bound = arith::ConstantOp::create(rewriter, loc,
-                                          IntegerAttr::get(input.getType(), int64_t{1} << low));
-      Value test = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ule, input, bound);
-      guard = guard ? Value(arith::AndIOp::create(rewriter, loc, guard, test)) : test;
-    }
-    auto branch = scf::IfOp::create(rewriter, loc, TypeRange{}, guard, /*withElseRegion=*/true);
-    rewriter.setInsertionPointToStart(branch.thenBlock());
-    copy.cloneInto(rewriter, inputs);
-    // The loop as it was is a copy too, which the walk does not visit; the
-    // matched loop, which has no results, goes.
-    rewriter.setInsertionPoint(branch.elseBlock()->getTerminator());
-    rewriter.clone(*loop);
-    rewriter.eraseOp(loop);
-    remarkAt<remark::detail::OptRemarkPass>(
-        loc, "Narrowed", "the integer lanes compute in 32 bits for sizes up to 2^" + Twine(low));
-    ++counts.narrowed;
+    if (copy.fits(**solver))
+      best = Fitting{exponent, std::move(*solver)};
     return success();
+  };
+  if (failed(tryAt(minExponent)))
+    return failure();
+  if (!best)
+    return std::optional<Fitting>();
+  for (unsigned bit : llvm::reverse(llvm::seq(0u, spanBits))) {
+    unsigned candidate = best->exponent + (1u << bit);
+    if (candidate > maxExponent)
+      continue;
+    if (failed(tryAt(candidate)))
+      return failure();
   }
+  // The copy holds the bound tried last; the analysis kept is the best's.
+  copy.bound(best->exponent);
+  return best;
+}
 
-  LaneCounts &counts;
-};
+// `loop` versioned with 32-bit lanes under a bound on its sizes, or left as
+// it is with a remark; failure, reported at the loop, when an analysis of
+// its copy fails, an internal error.
+LogicalResult versionLanes(RewriterBase &rewriter, scf::ForOp loop, LaneCounts &counts) {
+  Location loc = loop.getLoc();
+  auto wide = [&](const Twine &why) {
+    remarkAt<remark::detail::OptRemarkMissed>(loc, "Wide", "the lanes stay 64-bit: " + why);
+    ++counts.wide;
+    return success();
+  };
+  if (runsAtMostOnce(loop))
+    return wide("the loop runs at most once, which no version pays for");
+  SetVector<Value> inputs = inputsOf(loop);
+  if (llvm::none_of(inputs, testable))
+    return wide("the loop reads no size from outside");
+  // The scratch module goes with `copy` on every path out of here.
+  Copy copy = Copy::of(loc, loop, inputs);
+  FailureOr<std::optional<Fitting>> fitting = largestFitting(copy);
+  if (failed(fitting))
+    return emitError(loc) << "internal error: idr-narrow-lanes: the analysis of a copy failed";
+  if (!*fitting)
+    return wide("its integer ops do not all fit 32 bits under any bound on the sizes");
+  unsigned low = (*fitting)->exponent;
+  copy.narrow(*(*fitting)->solver);
+
+  // if (every tested input <= 2^low) { the copy } else { the loop }: one
+  // test of each, one bound of each type, and some input is tested.
+  rewriter.setInsertionPoint(loop);
+  llvm::MapVector<Type, Value> bounds;
+  SmallVector<Value> tests;
+  for (Value input : inputs) {
+    if (!testable(input))
+      continue;
+    Value &bound = bounds[input.getType()];
+    if (!bound)
+      bound = arith::ConstantOp::create(rewriter, loc,
+                                        IntegerAttr::get(input.getType(), int64_t{1} << low));
+    tests.push_back(arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ule, input, bound));
+  }
+  Value guard = tests.front();
+  for (Value test : llvm::drop_begin(tests))
+    guard = arith::AndIOp::create(rewriter, loc, guard, test);
+  auto branch = scf::IfOp::create(rewriter, loc, TypeRange{}, guard, /*withElseRegion=*/true);
+  rewriter.setInsertionPointToStart(branch.thenBlock());
+  copy.cloneInto(rewriter);
+  // The loop as it was is a copy too; the loop, which has no results, goes.
+  rewriter.setInsertionPoint(branch.elseBlock()->getTerminator());
+  rewriter.clone(*loop);
+  rewriter.eraseOp(loop);
+  remarkAt<remark::detail::OptRemarkPass>(
+      loc, "Narrowed", "the integer lanes compute in 32 bits for sizes up to 2^" + Twine(low));
+  ++counts.narrowed;
+  return success();
+}
 
 struct NarrowLanes : idr::impl::IdrNarrowLanesBase<NarrowLanes> {
   using IdrNarrowLanesBase::IdrNarrowLanesBase;
 
   void runOnOperation() override {
+    // The loops are found first, inner ones first, and versioned after:
+    // each is outermost, so none holds another, and a version's copies
+    // are no loops of the list.
+    SmallVector<scf::ForOp> loops;
+    getOperation()->walk([&](scf::ForOp loop) {
+      if (outermostOnWideLanes(loop))
+        loops.push_back(loop);
+    });
     LaneCounts counts;
-    RewritePatternSet patterns(&getContext());
-    patterns.add<VersionLanes>(&getContext(), counts);
-    walkAndApplyPatterns(getOperation(), std::move(patterns));
-    // The pattern reported the error at its loop.
-    if (counts.failed)
-      return signalPassFailure();
+    IRRewriter rewriter(&getContext());
+    for (scf::ForOp loop : loops)
+      if (failed(versionLanes(rewriter, loop, counts)))
+        return signalPassFailure();
     numNarrowed += counts.narrowed;
     numWide += counts.wide;
     if (counts.narrowed == 0)

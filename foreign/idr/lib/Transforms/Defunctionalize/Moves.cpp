@@ -22,18 +22,18 @@ namespace idr::defunctionalize {
 
 namespace {
 
-// Whether every label of `a` is one of `b`'s; both are sorted by name.
+// Whether `a` is of `b`'s carrier and every label of `a` is one of `b`'s.
 bool within(const Key &a, const Key &b) {
-  return a.first == b.first && llvm::all_of(a.second, [&](Attribute label) {
-           return llvm::is_contained(b.second, label);
+  return a.carrier == b.carrier && llvm::all_of(a.labels, [&](Attribute label) {
+           return llvm::is_contained(b.labels, label);
          });
 }
 
 } // namespace
 
-Key Slots::sinkKey(OpOperand &use) const {
+Slot Slots::sinkKey(OpOperand &use) const {
   std::optional<FlowPoint> sink = analysis.sinkOf(use);
-  return sink ? keyAt(*sink) : Key();
+  return sink ? keyAt(*sink) : std::nullopt;
 }
 
 // A closure, suspension or constant whose every use moves it into slots of
@@ -43,14 +43,14 @@ void Slots::widen() {
     if (!isa<ClosureOp, SuspendOp, ConstantOp>(op) || !carriesLabels(op->getResultTypes()[0]))
       return;
     Value value = op->getResult(0);
-    std::optional<Key> common;
+    Slot common;
     for (OpOperand &use : value.getUses()) {
-      Key to = sinkKey(use);
-      if (!to.first || (common && *common != to))
+      Slot to = sinkKey(use);
+      if (!to || (common && *common != *to))
         return;
       common = to;
     }
-    if (common && within(keyOf(value), *common))
+    if (common && within(*keyOf(value), *common))
       widened[value] = *common;
   });
 }

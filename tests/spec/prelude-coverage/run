@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Every module of the stock prelude has a program that uses each of its
 # run-time exports: a fixture under tests/programs marked `covers MODULE`
 # (tests/lib/prelude.sh), whose check, in make test, reads the module's

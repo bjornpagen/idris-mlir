@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
 // RUN: awk '/^\/\/ -----$/ { n = 0; next } { line[++n] = $0 } END { for (i = 1; i <= n; i++) print line[i] }' %s > %t.knot.mlir
 // RUN: not idris-mlir-opt %t.knot.mlir --idr-defunctionalize -o /dev/null 2>&1 | FileCheck %s
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Idris is strict and its data immutable, so the heap is acyclic, which is
 // what lets counting free everything: an object only points at objects
 // older than it. An array is the one cell written after it is made, so a
@@ -89,7 +90,7 @@ idr.program @cycle root(@Prog.main) stage(first) {
     %row, %w1 = idr.array.new [%two], %zero, %w : i64 -> memref<?xi64, #idr.world>
     %rows, %w2 = idr.array.new [%two], %row, %w1 : memref<?xi64, #idr.world> -> memref<?xmemref<?xi64, #idr.world>, #idr.world>
     %g = idr.con !idr.box<!Grid> @MkGrid(%rows : memref<?xmemref<?xi64, #idr.world>, #idr.world>)
-    %l = idr.constant #idr.con<@Cons, [1, #idr.con<@Nil, []>]> : !idr.box<!List>
+    %l = idr.constant #idr.con<!List, @Cons, [1, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
     return %w2 : !idr.world
   }
 }
@@ -100,7 +101,7 @@ idr.program @cycle root(@Prog.main) stage(first) {
 !Stream = !idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream">>) forced]>>)]>
 idr.program @cycle root(@Prog.main) stage(first) {
   idr.func @ones() -> !idr.box<!Stream> attributes {total} {
-    %s = idr.constant #idr.con<@Cons, [1, #idr.con<@ones, []>]> : !idr.box<!Stream>
+    %s = idr.constant #idr.con<!Stream, @Cons, [1, #idr.con<!lazy$0, @ones, []>]> : !idr.box<!Stream>
     return %s : !idr.box<!Stream>
   }
   idr.func @Prog.main() -> i64 {

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The Idris side's modules of the dialects, their syntax and their ops
 # (compiler/src/IdrisMLIR/Syntax/ and Dialect/), are what idris-mlir-tblgen
 # writes from the dialects' ODS and its own source now: tools/dialects.sh

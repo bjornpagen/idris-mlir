@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's printed form, as C01's printer writes it.
+// NEEDS-ACCEPTANCE: the memo sum's printed form.
 // A memo cell is shared, so the cells that may reach one slot share one
 // memo sum: lazy sets are unified, never coerced. Here the cell of @one is
 // forced before it is passed where @two's cell goes too: both are built in

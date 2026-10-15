@@ -65,18 +65,24 @@ public:
   mlir::LLVMTypeConverter &llvmTypeConverter() { return llvmTypes; }
   const mlir::LLVMTypeConverter &llvmTypeConverter() const { return llvmTypes; }
 
-  // Calls the runtime function `name` with `args`, returning `result` (or
-  // nothing when it is null). The call names its callee; merge declares it.
+  // Calls the runtime function `name`, which gives a `result`, with `args`.
+  // The call names its callee; merge declares it.
   mlir::Value call(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name, mlir::Type result,
                    mlir::ValueRange args);
+
+  // Calls the runtime function `name`, which gives nothing, with `args`.
+  void perform(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
+               mlir::ValueRange args);
 
   // Calls `function`, a runtime function of `op`, with `operands`, the
   // components of the op's operands in order, each passed as the function
   // takes it (runtime::Kind): an integer of the op's width widened as its
   // kind says, a buffer as its cell, its first byte and its size, a world as
-  // nothing. Gives the result as the function gives it, null for none.
-  mlir::Value call(mlir::OpBuilder &b, mlir::Operation *op, const idr::runtime::Function &function,
-                   llvm::ArrayRef<mlir::ValueRange> operands);
+  // nothing. Gives the result as the function gives it, none when its
+  // result is Void.
+  std::optional<mlir::Value> call(mlir::OpBuilder &b, mlir::Operation *op,
+                                  const idr::runtime::Function &function,
+                                  llvm::ArrayRef<mlir::ValueRange> operands);
 
   // A crash at `loc` reporting `cause`: idris_rt_crash, which does not
   // return.
@@ -94,20 +100,20 @@ public:
   // its info (idris_rt_cell), then the words after the header the layout
   // has.
   mlir::Value allocate(mlir::OpBuilder &b, mlir::Location loc, const layout::Cell &cell,
-                       unsigned tag);
+                       Tag tag);
 
   // Writes the header of the cell at `address`, of the constructor `tag`
   // laid out as `cell`: count 1, `info` (the cell's own, or the same cell in
   // a stack frame), and the words after the header the layout has.
   void storeHeader(mlir::OpBuilder &b, mlir::Location loc, mlir::Value address,
-                   const layout::Cell &cell, unsigned tag, layout::CellInfo info);
+                   const layout::Cell &cell, Tag tag, layout::CellInfo info);
 
   // Writes the words after the header a cell of the constructor `tag` laid
   // out as `cell` has: the count of its object slots, where the header
   // cannot hold it, and its constructor's group, for a sum of more
   // constructors than a header's tag holds.
   void storeCellWords(mlir::OpBuilder &b, mlir::Location loc, mlir::Value address,
-                      const layout::Cell &cell, unsigned tag);
+                      const layout::Cell &cell, Tag tag);
 
   // The tag of a box of `data`: its header's, and its group's where the sum
   // has more constructors than a header's tag holds; an i64.
@@ -152,8 +158,7 @@ public:
                                           mlir::Attribute value, mlir::Type type);
 
   // The static cell of the constant array `global`.
-  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc,
-                            mlir::memref::GlobalOp global);
+  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc, const ConstantArray &array);
 
   // What every worker wrote, into `program` through `symbols`, its table,
   // once every function is lowered: one declaration per runtime function
@@ -175,9 +180,11 @@ private:
     bool noreturn = false;
   };
 
-  // The call of the runtime function `name`, by name.
+  // The call of the runtime function `name`, by name, which gives `result`
+  // or nothing.
   mlir::LLVM::CallOp callOp(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
-                            mlir::Type result, mlir::ValueRange args, bool noreturn);
+                            std::optional<mlir::Type> result, mlir::ValueRange args,
+                            bool noreturn);
 
   // Calls `name` on the pointer of each counted component.
   void countEach(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,

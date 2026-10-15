@@ -44,7 +44,7 @@ indexConst l n = mlirValue l IndexType (Arith.constantOp (IntegerAttr n IndexTyp
 ||| Size arithmetic on `index`, which no size overflows: a sum of two sizes
 ||| of arrays that exist is below 2^63.
 noWrap : Maybe MlirAttr
-noWrap = Just (Arith (IntegerOverflowFlagsAttr [Nsw, Nuw]))
+noWrap = Just (arith (IntegerOverflowFlagsAttr [Nsw, Nuw]))
 
 ||| A natural as a coordinate: exact, unguarded, since its type bounds it
 ||| by an extent.
@@ -58,7 +58,7 @@ coordinate ix l n = do
 natural : Loc -> Value -> E Val
 natural l i = do
   w <- mlirValue l (IntegerType 64) (Arith.indexCastuiOp i)
-  r <- mlirValue l (Idr NatType) (Idr.bigSmallOp w)
+  r <- mlirValue l (idr NatType) (Idr.bigSmallOp w)
   pure (val r.name NatT Many)
 
 ||| A natural as the extent of an array to be made: past every allocation

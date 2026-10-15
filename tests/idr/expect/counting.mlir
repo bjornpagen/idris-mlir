@@ -3,7 +3,9 @@
 // RUN: FileCheck %s --check-prefix=FRESH < %t.fresh.err
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@both,reuses-in-place=@both -o /dev/null 2> %t.both.err
 // RUN: FileCheck %s --check-prefix=BOTH < %t.both.err
-// NEEDS-ACCEPTANCE: how the error names the constructor, by C01's flat name within its type.
+// NEEDS-ACCEPTANCE: how the error names the constructor, by its flat name within its type.
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // What reference counting leaves in a function, as properties. A map over
 // a list builds each cell in the one it took apart, and a sum that only
 // reads its list counts nothing. A function that builds a list takes
@@ -17,7 +19,7 @@
 !Two = !idr.data<"Two", plain [@Two(!idr.str, !idr.str)]>
 idr.program @counting root(@root) stage(first) {
   idr.func @map(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %n : !idr.box<!L>
@@ -34,7 +36,7 @@ idr.program @counting root(@root) stage(first) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
+      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
       idr.yield %e : !idr.box<!L>
     }
     default {

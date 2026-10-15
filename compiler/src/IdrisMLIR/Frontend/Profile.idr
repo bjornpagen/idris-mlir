@@ -19,6 +19,7 @@ import Parser.Lexer.Source
 
 import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Ids
@@ -28,15 +29,20 @@ import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
+import Control.WellFounded
+import Data.DPair
 import Data.List
+import Data.Buffer
 import Data.Maybe
+import Data.Nat
 import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
 import Data.String
 import System.File
+import System.File.Buffer
 
-%default covering
+%default total
 
 ------------------------------------------------------------------------------
 -- Hooks and definitions
@@ -75,12 +81,23 @@ firstForbidden (r :: rs) = case (hooksOf r).forbidden of
 -- Imports
 ------------------------------------------------------------------------------
 
+||| A text file's contents, read at once as the bytes its size gives: a
+||| source file is what it holds when it is read. Reading line by line until
+||| the end would not end on a file that has none.
+export
+readText : String -> Core (Either FileError String)
+readText path = coreLift $ do
+  Right buf <- createBufferFromFile path
+    | Left err => pure (Left err)
+  size <- rawSize buf
+  Right <$> getString buf 0 size
+
 ||| The modules a user module's source imports, with the location of each
 ||| `import`, where an error about it is reported.
 export
 imports : ModuleIdent -> String -> Core (List (String, FC))
 imports ident path = do
-  Right text <- coreLift (readFile path)
+  Right text <- readText path
     | Left _ => pure []
   pure (go 0 (lines text))
   where
@@ -114,7 +131,7 @@ export
 checkPragmas : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                ModuleIdent -> String -> Core ()
 checkPragmas ident path = do
-  Right text <- coreLift (readFile path)
+  Right text <- readText path
     | Left err => throw (FileErr path err)
   case lex text of
     Left (_, l, col, _) =>
@@ -156,38 +173,67 @@ checkPragmas ident path = do
 ||| Does a term contain the `%MkWorld` literal?
 mentionsWorld : Term vars -> Bool
 mentionsWorld (PrimVal _ WorldVal) = True
-mentionsWorld (Bind _ _ b sc) = mentionsWorld (binderType b) || mentionsWorld sc ||
-                                (case b of
-                                   Let _ _ v _ => mentionsWorld v
-                                   _ => False)
+mentionsWorld (Bind _ _ b sc) = binder b || mentionsWorld sc
+  where
+    -- A binder's type, and a `let`'s value after it.
+    binder : Binder (Term vs) -> Bool
+    binder (Lam _ _ _ ty) = mentionsWorld ty
+    binder (Let _ _ v ty) = mentionsWorld ty || mentionsWorld v
+    binder (Pi _ _ _ ty) = mentionsWorld ty
+    binder (PVar _ _ _ ty) = mentionsWorld ty
+    binder (PLet _ _ _ ty) = mentionsWorld ty
+    binder (PVTy _ _ ty) = mentionsWorld ty
 mentionsWorld (App _ f a) = mentionsWorld f || mentionsWorld a
 mentionsWorld (TDelay _ _ t a) = mentionsWorld a
 mentionsWorld (TForce _ _ t) = mentionsWorld t
 mentionsWorld _ = False
 
-treeMentionsWorld : CaseTree vars -> Bool
-treeMentionsWorld (Case _ _ _ alts) = any alt alts
-  where
-    alt : CaseAlt vs -> Bool
-    alt (ConCase _ _ _ t) = treeMentionsWorld t
-    alt (DelayCase _ _ t) = treeMentionsWorld t
-    alt (ConstCase _ t) = treeMentionsWorld t
-    alt (DefaultCase t) = treeMentionsWorld t
-treeMentionsWorld (STerm _ t) = mentionsWorld t
-treeMentionsWorld _ = False
+mutual
+  treeMentionsWorld : CaseTree vars -> Bool
+  treeMentionsWorld (Case _ _ _ alts) = altsMentionWorld alts
+  treeMentionsWorld (STerm _ t) = mentionsWorld t
+  treeMentionsWorld _ = False
+
+  altsMentionWorld : List (CaseAlt vars) -> Bool
+  altsMentionWorld [] = False
+  altsMentionWorld (ConCase _ _ _ t :: alts) = treeMentionsWorld t || altsMentionWorld alts
+  altsMentionWorld (DelayCase _ _ t :: alts) = treeMentionsWorld t || altsMentionWorld alts
+  altsMentionWorld (ConstCase _ t :: alts) = treeMentionsWorld t || altsMentionWorld alts
+  altsMentionWorld (DefaultCase t :: alts) = treeMentionsWorld t || altsMentionWorld alts
 
 ||| What a definition refers to, with the metavariables its body mentions:
 ||| the translation follows a solved one to its solution. Of a definition
 ||| whose hook answers for its body, only the type.
 refsOf : Hooks -> GlobalDef -> List Name
 refsOf hs def =
-  let fromType = keys (getRefs (UN (Basic "")) (type def)) in
+  let fromType = keys (Core.TT.getRefs (UN (Basic "")) (type def)) in
   case definition def of
     PMDef _ _ tree _ _ =>
       if answersForBody hs then fromType
-      else fromType ++ keys (getRefs (UN (Basic "")) tree) ++ keys (getMetas tree)
+      else fromType ++ keys (Core.Case.CaseTree.getRefs (UN (Basic "")) tree) ++ keys (Core.Case.CaseTree.getMetas tree)
     TCon _ _ _ _ _ cons _ => fromType ++ fromMaybe [] cons
     _ => fromType
+
+||| A definition the walk of what the roots reach is to check: its name, the
+||| path from the user definition that reaches it, the nearest first, and
+||| whether a trusted definition refers to it.
+record Reach where
+  constructor MkReach
+  name : Name
+  path : List (Name, FC)
+  fromTrusted : Bool
+
+||| What a level of the walk has found for the next: nothing yet, or the
+||| definitions found, once one was entered into the walk since the level
+||| began (`w0`), which leaves fewer to enter.
+data Pending : (w0, w : Walked) -> Type where
+  Idle : Pending w0 w
+  Queued : (0 _ : Smaller w w0) -> SnocList Reach -> Pending w0 w
+
+||| The definitions found for the next level so far.
+queued : Pending w0 w -> SnocList Reach
+queued Idle = [<]
+queued (Queued _ next) = next
 
 ||| Walks everything reachable from the roots, at runtime or compile time, and
 ||| checks escape hatches, what trusted modules admit and what the user may
@@ -204,7 +250,8 @@ refsOf hs def =
 export
 checkReachable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> List Name -> Core ()
-checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
+checkReachable fc roots =
+  level start (sizeAccessible start) start (noMore start) empty (map (\r => MkReach r [] False) roots) Idle
   where
     userFC : List (Name, FC) -> FC
     userFC [] = fc
@@ -225,7 +272,7 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
     -- that reaches it, or the definition's rejection.
     visit : GlobalDef -> Loc -> (here : List (Name, FC)) -> (owner : String) ->
             (path : List (Name, FC)) -> (fromTrusted : Bool) ->
-            Core (List (Name, List (Name, FC), Bool))
+            Core (List Reach)
     visit def loc here owner path fromTrusted = do
       let full = fullname def
       let key = show full
@@ -299,21 +346,25 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
           _ => pure ()
       -- A library's own totality assertions are trusted.
       let refs' = if trusted then filter (not . assertion . qname) refs else refs
-      pure (map (\r => (r, here, trusted)) refs')
+      pure (map (\r => MkReach r here trusted) refs')
 
     -- The definitions to visit, breadth first, so that a path in a message
-    -- is a shortest one: a queue, the next ones first and those found
-    -- since at the back, which become the front when the front runs out.
-    -- `seen` holds the definitions checked and found good, `reported` each
-    -- rejected one with each owner it has been reported for.
-    go : (seen : SortedSet String) -> (reported : SortedSet (String, String)) ->
-         List (Name, List (Name, FC), Bool) -> SnocList (Name, List (Name, FC), Bool) -> Core ()
-    go seen reported [] [<] = pure ()
-    go seen reported [] back = go seen reported (back <>> []) [<]
-    go seen reported ((n, path, fromTrusted) :: rest) back = do
+    -- is a shortest one: a level of the walk, and what its definitions
+    -- refer to, the next level, once the level is done. A definition is
+    -- entered into the walk (`Walk`) once it is checked and found good, so
+    -- the walk is the set of those, and the next level is not empty only
+    -- if one was entered in this one: each level starts with fewer
+    -- definitions left to enter than the last. A rejected one is not
+    -- entered, and is reported for each owner once (`reported`).
+    level : (w0 : Walked) -> (0 acc : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
+            (reported : SortedSet (String, String)) -> List Reach -> Pending w0 w -> Core ()
+    level w0 acc@(Access rec) w p reported [] Idle = pure ()
+    level w0 acc@(Access rec) w p reported [] (Queued lt next) =
+      level w (rec w lt) w (noMore w) reported (next <>> []) Idle
+    level w0 acc@(Access rec) w p reported (r :: rest) pending = do
       defs <- get Ctxt
-      Just def <- lookupCtxtExact n (gamma defs)
-        | Nothing => go seen reported rest back
+      Just def <- lookupCtxtExact r.name (gamma defs)
+        | Nothing => level w0 acc w p reported rest pending
       let full = fullname def
       -- What tells definitions apart: `show` leaves out the index of a
       -- case block, so that two case blocks of one definition would be
@@ -323,19 +374,22 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
       loc <- toLoc (location def)
       -- Primitives have no location; errors name the user definition.
       let here = if covers Trusted loc.origin || isNothing (isNonEmptyFC (location def))
-                   then path else (full, location def) :: path
+                   then r.path else (full, location def) :: r.path
       let owner = maybe full fst (head' here)
       let refuse = update TState { refused $= (insert key . insert (nameKey owner) .
-                                                maybe id (insert . nameKey . fst) (head' path)) }
-      if contains key seen then go seen reported rest back else do
-        st <- get TState
-        let reach = (key, nameKey owner)
-        if contains reach reported || contains (moduleOf (userFC here), nameRoot full) st.spelled
-          then do
-            refuse
-            go seen (insert reach reported) rest back
-          else do
-            Nothing <- noting (visit def loc here (show owner) path fromTrusted)
-              | Just next => go (insert key seen) reported rest (back <>< next)
-            refuse
-            go seen (insert reach reported) rest back
+                                                maybe id (insert . nameKey . fst) (head' r.path)) }
+      -- Checked and found good already: entered into the walk.
+      let Just (Element w1 q) = enter (gamma defs) full w
+        | Nothing => level w0 acc w p reported rest pending
+      st <- get TState
+      let reach = (key, nameKey owner)
+      if contains reach reported || contains (moduleOf (userFC here), nameRoot full) st.spelled
+        then do
+          refuse
+          level w0 acc w p (insert reach reported) rest pending
+        else do
+          Nothing <- noting (visit def loc here (show owner) r.path r.fromTrusted)
+            | Just next => level w0 acc w1 (thenNoMore (fewer q) p) reported rest
+                                 (Queued (fewerThen q p) (queued pending <>< next))
+          refuse
+          level w0 acc w p (insert reach reported) rest pending

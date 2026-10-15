@@ -29,10 +29,8 @@
 using namespace mlir;
 using namespace mlir::bufferization;
 
-bool idr::bufferize::isLink(idr::LinEnterOp enter, const BufferizationOptions &options) {
-  OpOperand &released = enter->getOpOperand(0);
-  if (!isa<TensorLikeType>(released.get().getType()))
-    return false;
+bool idr::bufferize::isLink(OpOperand &released, const BufferizationOptions &options) {
+  Operation *enter = released.getOwner();
   AnalysisState state(options);
 
   // Through the destinations of the writes, which are the same buffer, and
@@ -65,8 +63,9 @@ struct EnterModel : BufferizableOpInterface::ExternalModel<EnterModel, idr::LinE
     return {};
   }
 
-  bool mustBufferizeInPlace(Operation *op, OpOperand &, const AnalysisState &state) const {
-    return idr::bufferize::isLink(cast<idr::LinEnterOp>(op), state.getOptions());
+  // One-Shot asks of a tensor operand alone.
+  bool mustBufferizeInPlace(Operation *, OpOperand &released, const AnalysisState &state) const {
+    return idr::bufferize::isLink(released, state.getOptions());
   }
 
   // A thread's buffer is a whole cell, so a link never reallocates; a head

@@ -39,11 +39,7 @@ unsigned arity(Type carrier) {
 Slots::Slots(ProgramOp top, Labels &labels, SymbolTable &symbols)
     : program(top), analysis(labels), table(symbols), ctx(top.getContext()) {
   types.addWalk([this](DataType data) { noteData(data); });
-  types.addWalk([this](ShapedType shaped) {
-    Type element = shaped.getElementType();
-    if (carriesLabels(element))
-      noteKey(elementKey(element));
-  });
+  types.addWalk([this](ShapedType shaped) { noteSlot(elementKey(shaped.getElementType())); });
   for (FuncOp fn : program.getOps<FuncOp>()) {
     Signature &sig = signatures[fn.getSymNameAttr()];
     sig.type = fn.getFunctionType();
@@ -56,8 +52,8 @@ Slots::Slots(ProgramOp top, Labels &labels, SymbolTable &symbols)
   widen();
   for (FuncOp fn : program.getOps<FuncOp>()) {
     const Signature &sig = signatures.find(fn.getSymNameAttr())->second;
-    for (const Key &key : llvm::concat<const Key>(sig.arguments, sig.results))
-      noteKey(key);
+    for (const Slot &slot : llvm::concat<const Slot>(sig.arguments, sig.results))
+      noteSlot(slot);
     // The function itself is walked too: its type is an attribute of it.
     fn.walk([&](Operation *op) {
       types.walk(op->getAttrDictionary());
@@ -73,75 +69,73 @@ Slots::Slots(ProgramOp top, Labels &labels, SymbolTable &symbols)
 
 // The key of a slot of `carrier` at `point`: none for a carrier that holds
 // no label.
-Key Slots::keyWith(Type carrier, const FlowPoint &point) const {
+Slot Slots::keyWith(Type carrier, const FlowPoint &point) const {
   if (!carriesLabels(carrier))
-    return {};
-  return {unrestricted(carrier), analysis.labelsOf(point)};
+    return std::nullopt;
+  return Key{unrestricted(carrier), analysis.labelsOf(point)};
 }
 
 // The key of what is held at `point`. A parameter's and a result's are
 // their function's, keyed once before anything else, so that no function
 // is read while another converts; a part's is its anchor's.
-Key Slots::keyAt(const FlowPoint &point) const {
-  switch (point.kind) {
-  case FlowPoint::Kind::Operand:
-    return keyOf(point.operand->get());
-  case FlowPoint::Kind::Value:
-    return keyWith(point.value.getType(), point);
-  case FlowPoint::Kind::Part:
-    return anchorKey(point.anchor);
-  case FlowPoint::Kind::Parameter:
-    return argumentKey(point.function.getAttr(), point.index);
-  case FlowPoint::Kind::Result:
-    return resultKey(point.function.getAttr(), point.index);
-  }
-  llvm_unreachable("every kind of point is listed");
+Slot Slots::keyAt(const FlowPoint &point) const {
+  return std::visit(
+      llvm::makeVisitor(
+          [&](FlowPoint::Taken taken) { return keyOf(taken.use->get()); },
+          [&](FlowPoint::Whole whole) { return keyWith(whole.value.getType(), point); },
+          [&](const FlowPoint::Part &part) { return anchorKey(part.anchor); },
+          [&](FlowPoint::Parameter param) {
+            return argumentKey(param.function.getAttr(), param.index);
+          },
+          [&](FlowPoint::Result result) {
+            return resultKey(result.function.getAttr(), result.index);
+          }),
+      point.at);
 }
 
 // The key of what every value of a kind holds at `anchor`. What a closure
 // or a suspension holds as a capture, and what a hole is written with, is
 // moved as a reference alone: a capture's labels are its label's
 // parameter's, and a hole is made after this pass.
-Key Slots::anchorKey(const FlowAnchor &anchor) const {
-  Type carrier;
-  switch (anchor.kind) {
-  case FlowAnchor::Kind::Field:
-    carrier = cast<DataType>(anchor.type).getCtor(anchor.ctor).fields[anchor.field];
-    break;
-  case FlowAnchor::Kind::Elements:
-    carrier = anchor.type;
-    break;
-  case FlowAnchor::Kind::Forced:
-    carrier = cast<LazyType>(anchor.type).getValue();
-    break;
-  case FlowAnchor::Kind::Capture:
-  case FlowAnchor::Kind::Hole:
-    return {};
-  }
-  if (!carriesLabels(carrier))
-    return {};
-  return {unrestricted(carrier), analysis.labelsOf(anchor)};
+Slot Slots::anchorKey(const FlowAnchor &anchor) const {
+  std::optional<Type> carrier = std::visit(
+      llvm::makeVisitor(
+          [](const FlowAnchor::Field &field) -> std::optional<Type> {
+            return cast<DataType>(field.data).getCtor(field.ctor).fields[field.index];
+          },
+          [](const FlowAnchor::Elements &elements) -> std::optional<Type> {
+            return elements.element;
+          },
+          [](const FlowAnchor::Forced &forced) -> std::optional<Type> {
+            return cast<LazyType>(forced.lazy).getValue();
+          },
+          [](const FlowAnchor::Capture &) -> std::optional<Type> { return std::nullopt; },
+          [](const FlowAnchor::Hole &) -> std::optional<Type> { return std::nullopt; }),
+      anchor.place);
+  if (!carrier || !carriesLabels(*carrier))
+    return std::nullopt;
+  return Key{unrestricted(*carrier), analysis.labelsOf(anchor)};
 }
 
-Key Slots::keyOf(Value value) const {
+Slot Slots::keyOf(Value value) const {
   if (auto it = widened.find(value); it != widened.end())
     return it->second;
   return keyAt(FlowPoint::of(value));
 }
 
-Key Slots::argumentKey(StringAttr fn, unsigned index) const {
+Slot Slots::argumentKey(StringAttr fn, unsigned index) const {
   return signature(fn).arguments[index];
 }
 
-Key Slots::resultKey(StringAttr fn, unsigned index) const { return signature(fn).results[index]; }
+Slot Slots::resultKey(StringAttr fn, unsigned index) const { return signature(fn).results[index]; }
 
-Key Slots::fieldKey(DataType data, unsigned tag, unsigned index) const {
+Slot Slots::fieldKey(DataType data, Tag tag, unsigned index) const {
   return anchorKey(FlowAnchor::fieldOf(data, tag, index));
 }
 
-Key Slots::elementKey(Type element) const { return anchorKey(FlowAnchor::elementsOf(element)); }
+Slot Slots::elementKey(Type element) const { return anchorKey(FlowAnchor::elementsOf(element)); }
 
-Key Slots::forcedKey(Type lazy) const {
+Slot Slots::forcedKey(Type lazy) const {
   return anchorKey(FlowAnchor::forcedOf(unrestricted(lazy)));
 }
 
@@ -162,8 +156,7 @@ unsigned Slots::captures(StringAttr label, Type carrier) const {
 //===----------------------------------------------------------------------===//
 
 void Slots::noteValue(Value value) {
-  if (carriesLabels(value.getType()))
-    noteKey(keyOf(value));
+  noteSlot(keyOf(value));
   noteType(value.getType());
 }
 
@@ -178,26 +171,23 @@ void Slots::noteType(Type type) { types.walk(type); }
 // A data type's body is not a part of the type to the walker, so its
 // fields are walked from here.
 void Slots::noteData(DataType data) {
-  for (auto [tag, ctor] : llvm::enumerate(data.getCtors()))
+  for (auto [tag, ctor] : llvm::zip_equal(data.getTags(), data.getCtors()))
     for (auto [i, field] : llvm::enumerate(ctor.fields)) {
-      if (carriesLabels(field))
-        noteKey(fieldKey(data, static_cast<unsigned>(tag), static_cast<unsigned>(i)));
+      noteSlot(fieldKey(data, tag, static_cast<unsigned>(i)));
       noteType(field);
     }
 }
 
-// A key, and the forced state a lazy key's cell holds once forced. A
-// closure's captures are its label's parameters, whose keys every
+// A slot's key, and the forced state a lazy key's cell holds once forced.
+// A closure's captures are its label's parameters, whose keys every
 // signature has noted.
-void Slots::noteKey(const Key &key) {
-  if (!key.first || !sums.insert({key, Sum()}).second)
+void Slots::noteSlot(const Slot &slot) {
+  if (!slot || !sums.insert({*slot, Sum()}).second)
     return;
-  if (!isLazy(key))
+  if (!slot->isLazy())
     return;
-  Type value = cast<LazyType>(key.first).getValue();
-  if (carriesLabels(value))
-    noteKey(forcedKey(key.first));
-  noteType(value);
+  noteSlot(forcedKey(slot->carrier));
+  noteType(cast<LazyType>(slot->carrier).getValue());
 }
 
 //===----------------------------------------------------------------------===//
@@ -211,11 +201,11 @@ void Slots::noteKey(const Key &key) {
 Plan Slots::plan(FuncOp fn) const {
   Plan out;
   auto add = [&](Value value) {
-    if (!carriesLabels(value.getType()))
+    Slot slot = keyOf(value);
+    if (!slot)
       return;
-    Key key = keyOf(value);
-    out.keys[value] = key;
-    out.types[value] = typeOf(value.getType(), key);
+    out.keys[value] = *slot;
+    out.types[value] = typeOf(value.getType(), slot);
   };
   fn.walk([&](Operation *op) {
     for (Value result : op->getResults())
@@ -225,9 +215,9 @@ Plan Slots::plan(FuncOp fn) const {
         for (Value arg : block.getArguments())
           add(arg);
     for (OpOperand &use : op->getOpOperands())
-      if (carriesLabels(use.get().getType()))
-        if (std::optional<FlowPoint> sink = analysis.sinkOf(use))
-          out.sinks[&use] = keyAt(*sink);
+      if (std::optional<FlowPoint> sink = analysis.sinkOf(use))
+        if (Slot slot = keyAt(*sink))
+          out.sinks[&use] = *slot;
   });
   return out;
 }

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pinned mlir-opt, with upstream/05-forward-dataflow-callee-lookup/llvm.patch,
 # no longer shows the bug: sccp over a module of 4 times as many functions,
 # each calling the next, takes about 4 times as long, where an unpatched

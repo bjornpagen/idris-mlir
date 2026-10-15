@@ -45,6 +45,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ThreadPool.h"
@@ -52,6 +53,8 @@
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -59,18 +62,28 @@ using namespace idr::driver;
 
 namespace {
 
-// Which errors were reported. Any error fails the compilation, whether or
-// not what reported it failed: an error from a pass that then goes on is an
-// error all the same. A refusal carries the rule it names as data, and is
-// the user's, printed at the location of the user's code the module
-// carries (MLIR's diagnostic handler, which shows the source line); any
-// other error is internal.
-struct Verdict {
-  bool errors = false;
-  bool rejected = false;
-};
+// What the errors reported so far make of the compilation, each worse than
+// the one before. Any error fails it, whether or not what reported it
+// failed: an error from a pass that then goes on is an error all the same.
+// A refusal carries the rule it names as data, and is the user's, printed
+// at the location of the user's code the module carries (MLIR's diagnostic
+// handler, which shows the source line); any other error is internal. A
+// refusal decides the verdict whatever else was reported: the program is
+// what the compiler does not take.
+enum class Verdict : std::uint8_t { Clean, Internal, Rejected };
 
-int status(const Verdict &verdict) { return verdict.rejected ? rejected : failure; }
+// The exit status of a compilation that stopped: a step that failed with
+// no error reported is internal too.
+int status(Verdict verdict) {
+  switch (verdict) {
+  case Verdict::Clean:
+  case Verdict::Internal:
+    return failure;
+  case Verdict::Rejected:
+    return rejected;
+  }
+  llvm_unreachable("every verdict has its status");
+}
 
 // The pipeline, idr-target first, in one manager, so that what a pass
 // preserves the next one finds. --stats, LLVM's own option, prints its
@@ -94,8 +107,8 @@ int runPipeline(mlir::ModuleOp module, const Verdict &verdict, mlir::TimingScope
   pm.addPass(idr::createIdrTarget());
   idr::buildPipeline(pm);
   bool ran = mlir::succeeded(pm.run(module));
-  if (!ran || verdict.errors) {
-    if (!verdict.rejected)
+  if (!ran || verdict != Verdict::Clean) {
+    if (verdict != Verdict::Rejected)
       Report() << "internal error: the pipeline " << (ran ? "reported an error" : "failed");
     return status(verdict);
   }
@@ -120,24 +133,26 @@ int toObjects(mlir::ModuleOp module, Artifacts &artifacts, const llvm::Target &t
   std::string features =
       moduleTarget.getFeatures() ? moduleTarget.getFeatures().getFeaturesString() : "";
   llvm::StringRef cpu = moduleTarget.getChip().getValue();
-  std::unique_ptr<llvm::TargetMachine> machine = idr::target::machine(target, triple, cpu, features);
-  if (!machine) {
-    Report() << "internal error: no target machine for " << targetTriple;
+  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> made =
+      idr::target::machine(target, triple, cpu, features);
+  if (!made) {
+    Report() << "internal error: " << llvm::toString(made.takeError());
     return failure;
   }
+  llvm::TargetMachine &machine = **made;
   llvm::LLVMContext llvmContext;
   std::unique_ptr<llvm::Module> llvmModule;
   {
     IDR_ZONE_IN("translate", LLVM);
     mlir::TimingScope stage = llvmTiming.nest("translate");
     llvmModule = mlir::translateModuleToLLVMIR(module, llvmContext);
-    if (!llvmModule || verdict.errors) {
-      if (!verdict.rejected)
+    if (!llvmModule || verdict != Verdict::Clean) {
+      if (verdict != Verdict::Rejected)
         Report() << "internal error: translation to LLVM IR failed";
       return status(verdict);
     }
     llvmModule->setTargetTriple(triple);
-    llvmModule->setDataLayout(machine->createDataLayout());
+    llvmModule->setDataLayout(machine.createDataLayout());
     // Every target's executables are position-independent.
     llvmModule->setPICLevel(llvm::PICLevel::BigPIC);
     llvmModule->setPIELevel(llvm::PIELevel::Large);
@@ -145,9 +160,9 @@ int toObjects(mlir::ModuleOp module, Artifacts &artifacts, const llvm::Target &t
   {
     IDR_ZONE_IN("link runtime", LLVM);
     mlir::TimingScope stage = llvmTiming.nest("link runtime");
-    if (!linkRuntime(*llvmModule, target, triple, *machine))
+    if (!linkRuntime(*llvmModule, target, triple, machine))
       return failure;
-    retarget(*llvmModule, *machine);
+    retarget(*llvmModule, machine);
     // The program is whole, so nothing but the process entry is visible
     // outside it; O3 then removes what main does not reach. The runtime's
     // available_externally bodies stay as they are: a declaration with a
@@ -158,7 +173,7 @@ int toObjects(mlir::ModuleOp module, Artifacts &artifacts, const llvm::Target &t
   {
     IDR_ZONE_IN("optimize", LLVM);
     mlir::TimingScope stage = llvmTiming.nest("optimize");
-    idr::target::optimize(*llvmModule, *machine);
+    idr::target::optimize(*llvmModule, machine);
   }
   // After O3 code generation is local to each function, so the bins are
   // compiled at once; how many there are follows from the module's size,
@@ -216,13 +231,11 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
 
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
-  Verdict verdict;
+  Verdict verdict = Verdict::Clean;
   context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
-    if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error) {
-      verdict.errors = true;
-      if (idr::refusalRule(diagnostic))
-        verdict.rejected = true;
-    }
+    if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error)
+      verdict = std::max(verdict,
+                         idr::refusalRule(diagnostic) ? Verdict::Rejected : Verdict::Internal);
     return mlir::failure();
   });
   // -mlir-timing, MLIR's own option, times the parse (with the verification
@@ -232,11 +245,11 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
   {
     IDR_ZONE_IN("parse", Parse);
     mlir::TimingScope parseTiming = rootTiming.nest("parse");
-    module = mlir::parseSourceFile<mlir::ModuleOp>(artifacts.modulePath, sources, &context);
+    module = mlir::parseSourceFile<mlir::ModuleOp>(artifacts.modulePath(), sources, &context);
   }
   // The parsed module is verified, and some of the verifier's rules are the
   // user's (a type that can reach itself through an array).
-  if (!module || verdict.errors)
+  if (!module || verdict != Verdict::Clean)
     return status(verdict);
   mlir::DialectRegistry everything;
   mlir::registerAllDialects(everything);
@@ -260,7 +273,7 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
   mlir::tracing::InstallDebugHandler debugHandler(context, debugConfig);
   // MLIR reports what it cannot set up as asked (a file --log-actions-to
   // cannot open) as an error and goes on without it.
-  if (verdict.errors)
+  if (verdict != Verdict::Clean)
     return usage;
 
   if (int code = runPipeline(*module, verdict, rootTiming))

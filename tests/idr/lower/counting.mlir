@@ -2,6 +2,7 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,signature=@counts:(!llvm.ptr,i8,!llvm.ptr,i64,i64)->!llvm.ptr,call-order=@counts:[@idris_rt_inc,@idris_rt_dec,@idris_rt_dec]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=call-order=@drop:[@idris_rt_dec,@idris_rt_dec,@idris_rt_free_cell],never-calls=@drop:@idris_rt_inc,never-calls=@static:@idris_rt_inc,calls=@rebuild:@idris_rt_cell,never-calls=@rebuild:@idris_rt_free_cell' -o /dev/null
 // RUN: FileCheck %s < %t.mlir
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // The counting ops call the runtime on each counted component: a string's
 // pointer, a big's word (as a pointer), each counted slot of a sum, in the
 // order the program counts. A take of a box yields its cell when it is
@@ -46,7 +47,7 @@ idr.program @counting root(@Prog.main) stage(owned) {
     return %r : i64
   }
   idr.func @static(%x: i64) -> (!idr.own<!idr.box<!L>>, !idr.own<!idr.str>) {
-    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %s = idr.constant "static" : !idr.str
     %r = idr.match_lit %x : i64 -> (!idr.own<!idr.box<!L>>) {
     case 0 {

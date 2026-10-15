@@ -3,7 +3,7 @@
 // RUN: idris-mlir-opt %t.wide.mlir --idr-defunctionalize --idr-rc --idr-lower '--idr-expect=holds=lowered,calls=@build:@idris_rt_cell' -o /dev/null
 // RUN: awk 'BEGIN { printf "!Many = !idr.data<\"Many\", plain ["; for (i = 0; i < 65537; i++) printf (i ? ", " : "") "@C" i "()"; print "]>"; print "idr.program @many root(@last) stage(higher) {"; print "  idr.func @last() -> !idr.box<!Many> {"; print "    %v = idr.con !idr.box<!Many>"; print "    return %v : !idr.box<!Many>"; print "  }"; print "}" }' > %t.many.mlir @C65536()
 // RUN: idris-mlir-opt %t.many.mlir --idr-defunctionalize --idr-rc --idr-lower --idr-expect=holds=lowered -o /dev/null
-// NEEDS-ACCEPTANCE: that each program lowers, as R01's layout lifts the limits: a cell of more counted references than its header counts holds a count word after the header, and a sum of more constructors than a tag counts is a two-level sum.
+// NEEDS-ACCEPTANCE: that each program lowers, as the layout lifts the limits: a cell of more counted references than its header counts holds a count word after the header, and a sum of more constructors than a tag counts is a two-level sum.
 // A cell's header holds its tag in 16 bits and its number of object slots
 // (counted references) in 8, and no program is refused for outgrowing
 // either: a cell with more counted references than the header counts

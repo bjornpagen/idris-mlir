@@ -127,7 +127,7 @@ def Idr_OwnedToken : Type<And<[CPred<"::idr::isOwned($_self)">,
 // so are its holes and their destinations.
 def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "builds a boxed constructor in a token's cell, or in a new one when it is null";
-  let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, I32Attr:$tag,
+  let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, Idr_TagAttr:$tag,
                        Variadic<AnyType>:$fields, DefaultValuedAttr<DenseI32ArrayAttr, "{}">:$holes);
   let results = (outs Res<Idr_BoxValue, "", [MemAlloc]>:$result, Variadic<Idr_DestType>:$dests);
   // `idr.reuse %tok !T @Cons(%x : i64, dest)`, as idr.con, in the token's
@@ -140,7 +140,7 @@ def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<Idr_FlowOpInte
   let builders = [
     // The constructor `tag` of `type` built in `token`'s cell with
     // `fields`, and a destination for each of `holes`.
-    OpBuilder<(ins "::mlir::Type":$type, "::mlir::Value":$token, "unsigned":$tag,
+    OpBuilder<(ins "::mlir::Type":$type, "::mlir::Value":$token, "::idr::Tag":$tag,
                    "::mlir::ValueRange":$fields, CArg<"::llvm::ArrayRef<int32_t>", "{}">:$holes)>
   ];
   let extraClassDeclaration = [{
@@ -168,7 +168,7 @@ def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<Idr_FlowOpInterf
     already, so taking it apart changes no count.
   }];
   let arguments = (ins Arg<Idr_OwnType, "", [MemRead, MemWrite, MemFree]>:$value,
-                       I32Attr:$tag);
+                       Idr_TagAttr:$tag);
   let results = (outs Variadic<AnyType>:$results);
   // `idr.take %v : !idr.own<!T> @Cons -> (!idr.own<!idr.token>, i64)`
   let assemblyFormat = [{

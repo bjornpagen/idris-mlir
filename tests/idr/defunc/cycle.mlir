@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // ping 0 = zero; ping n = p (pong (n - 1)); pong n = q (ping (n - 1)):
 // @Main.p captures only closures of @Main.q, and @Main.q only closures of
 // @Main.p or @Main.zero, so the two keys of the type have different labels,

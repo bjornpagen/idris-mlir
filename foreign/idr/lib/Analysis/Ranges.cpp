@@ -52,14 +52,17 @@ public:
 
 namespace idr {
 
-Ranges::Ranges(Operation *op) : dataflow(DataFlowConfig().setInterprocedural(true)) {
-  auto program = cast<ProgramOp>(op);
+Ranges::Ranges() : dataflow(DataFlowConfig().setInterprocedural(true)) {}
+
+FailureOr<std::unique_ptr<const Ranges>> Ranges::solve(ProgramOp program) {
+  std::unique_ptr<Ranges> ranges(new Ranges());
   // The integer range analysis is silent without dead code analysis, and
   // reads constants through constant propagation.
-  loadBaselineAnalyses(dataflow);
-  dataflow.load<NaturalRanges>();
-  solved = succeeded(dataflow.initializeAndRun(program));
-  owned = program.getStage() == Stage::Owned;
+  loadBaselineAnalyses(ranges->dataflow);
+  ranges->dataflow.load<NaturalRanges>();
+  if (failed(ranges->dataflow.initializeAndRun(program)))
+    return failure();
+  return std::unique_ptr<const Ranges>(std::move(ranges));
 }
 
 std::optional<ConstantIntRanges> Ranges::rangeOf(const DataFlowSolver &solver, Value value) {

@@ -25,16 +25,11 @@
 #include "llvm/TargetParser/Triple.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
 using namespace idr::driver;
-
-// The string a module flag holds, or nothing.
-static llvm::StringRef moduleFlagString(const llvm::Module &module, llvm::StringRef flag) {
-  auto *text = llvm::dyn_cast_or_null<llvm::MDString>(module.getModuleFlag(flag));
-  return text ? text->getString() : llvm::StringRef();
-}
 
 // Whether the prepared runtime's native half runs wherever the program does:
 // the program's CPU has every feature of the CPU that half was compiled for
@@ -45,11 +40,11 @@ static llvm::StringRef moduleFlagString(const llvm::Module &module, llvm::String
 // then compiles itself.
 static bool nativeRuns(const llvm::Module &runtime, const llvm::Target &target,
                        const llvm::Triple &triple, const llvm::TargetMachine &machine) {
-  if (!isPrepared(runtime))
+  std::optional<PreparedFor> compiledFor = preparedFor(runtime);
+  if (!compiledFor)
     return false;
-  std::unique_ptr<llvm::MCSubtargetInfo> prepared(target.createMCSubtargetInfo(
-      triple, moduleFlagString(runtime, preparedCpuFlag),
-      moduleFlagString(runtime, preparedFeaturesFlag)));
+  std::unique_ptr<llvm::MCSubtargetInfo> prepared(
+      target.createMCSubtargetInfo(triple, compiledFor->cpu, compiledFor->features));
   const llvm::MCSubtargetInfo &program = machine.getMCSubtargetInfo();
 #define IDR_FEATURE(bit, test, name)                                                             \
   if (prepared->checkFeatures("+" name) && !program.checkFeatures("+" name))                     \
@@ -98,8 +93,13 @@ static bool namesApart(const llvm::Module &program, const llvm::Module &runtime)
   return true;
 }
 
-bool idr::driver::isPrepared(const llvm::Module &module) {
-  return module.getModuleFlag(preparedCpuFlag) && module.getModuleFlag(preparedFeaturesFlag);
+std::optional<PreparedFor> idr::driver::preparedFor(const llvm::Module &module) {
+  auto *cpu = llvm::dyn_cast_or_null<llvm::MDString>(module.getModuleFlag(preparedCpuFlag));
+  auto *features =
+      llvm::dyn_cast_or_null<llvm::MDString>(module.getModuleFlag(preparedFeaturesFlag));
+  if (!cpu || !features)
+    return std::nullopt;
+  return PreparedFor{cpu->getString(), features->getString()};
 }
 
 void idr::driver::retarget(llvm::Module &module, const llvm::TargetMachine &machine) {

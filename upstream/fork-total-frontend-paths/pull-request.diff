@@ -1,0 +1,2639 @@
+diff -ruN a/src/Algebra/SizeChange.idr b/src/Algebra/SizeChange.idr
+--- a/src/Algebra/SizeChange.idr	2026-10-15 11:02:48
++++ b/src/Algebra/SizeChange.idr	2026-10-15 11:02:48
+@@ -2,6 +2,8 @@
+ 
+ import Algebra.Semiring
+ 
++import Decidable.Equality
++
+ import Libraries.Text.PrettyPrint.Prettyprinter
+ 
+ public export
+@@ -31,6 +33,18 @@
+   Same == Same = True
+   Unknown == Unknown = True
+   _ == _ = False
++
++export
++DecEq SizeChange where
++  decEq Smaller Smaller = Yes Refl
++  decEq Same Same = Yes Refl
++  decEq Unknown Unknown = Yes Refl
++  decEq Smaller Same = No (\case Refl impossible)
++  decEq Smaller Unknown = No (\case Refl impossible)
++  decEq Same Smaller = No (\case Refl impossible)
++  decEq Same Unknown = No (\case Refl impossible)
++  decEq Unknown Smaller = No (\case Refl impossible)
++  decEq Unknown Same = No (\case Refl impossible)
+ 
+ -- information order
+ export
+diff -ruN a/src/Core/Binary/Prims.idr b/src/Core/Binary/Prims.idr
+--- a/src/Core/Binary/Prims.idr	2026-10-15 11:02:48
++++ b/src/Core/Binary/Prims.idr	2026-10-15 11:02:48
+@@ -4,8 +4,10 @@
+ import Core.Core
+ 
+ import Data.Buffer
++import Data.DPair
+ import Data.List.Elem
+ import Data.List1
++import Data.Nat
+ import Data.String
+ import Data.Vect
+ 
+@@ -87,6 +89,26 @@
+                  put Bin (incLoc 1 chunk)
+                  pure $ cast val
+               else throw (TTCError (EndOfBuffer "Bits8"))
++
++||| The bytes a decoder has left to read. A decoder of a value that holds
++||| others reads its tag before it decodes one of them, so the bytes left
++||| are fewer at each part it decodes: they are the measure its recursion
++||| descends.
++export total
++remaining : {auto b : Ref Bin Binary} -> Core Nat
++remaining = do chunk <- get Bin
++               pure (integerToNat (toRead chunk))
++
++||| The bytes left now, with the proof that they are fewer than `n`, those
++||| left when the asking decoder began. It asks once it has read its tag, so
++||| they are fewer for every buffer a decoder wrote.
++export total
++fewer : {auto b : Ref Bin Binary} -> (n : Nat) -> Core (Subset Nat (\m => LT m n))
++fewer n
++    = do m <- remaining
++         case isLT m n of
++              Yes lt => pure (Element m lt)
++              No _ => corrupt "TTC: a part that reads nothing"
+ 
+ -- Primitives; these are the only things that have to deal with growing
+ -- the buffer list
+diff -ruN a/src/Core/Case/CaseTree.idr b/src/Core/Case/CaseTree.idr
+--- a/src/Core/Case/CaseTree.idr	2026-10-15 11:02:48
++++ b/src/Core/Case/CaseTree.idr	2026-10-15 11:02:48
+@@ -71,32 +71,36 @@
+ isDefault (DefaultCase _) = True
+ isDefault _ = False
+ 
++-- A case tree with `f` applied to each term it holds (each case's
++-- scrutinee type and each leaf's term), its alternatives in a list of
++-- their own, so that every recursive call is on a part of its argument.
+ mutual
+-  export
+-  StripNamespace (CaseTree vars) where
+-    trimNS ns (Case idx p scTy xs)
+-        = Case idx p (trimNS ns scTy) (map (trimNS ns) xs)
+-    trimNS ns (STerm x t) = STerm x (trimNS ns t)
+-    trimNS ns c = c
++  onTreeTerms : (forall vs . Term vs -> Term vs) -> CaseTree vars -> CaseTree vars
++  onTreeTerms f (Case idx p scTy xs) = Case idx p (f scTy) (onAltsTerms f xs)
++  onTreeTerms f (STerm x t) = STerm x (f t)
++  onTreeTerms f c = c
+ 
+-    restoreNS ns (Case idx p scTy xs)
+-        = Case idx p (restoreNS ns scTy) (map (restoreNS ns) xs)
+-    restoreNS ns (STerm x t) = STerm x (restoreNS ns t)
+-    restoreNS ns c = c
++  onAltsTerms : (forall vs . Term vs -> Term vs) -> List (CaseAlt vars) -> List (CaseAlt vars)
++  onAltsTerms f [] = []
++  onAltsTerms f (alt :: alts) = onAltTerms f alt :: onAltsTerms f alts
+ 
+-  export
+-  StripNamespace (CaseAlt vars) where
+-    trimNS ns (ConCase x tag args t) = ConCase x tag args (trimNS ns t)
+-    trimNS ns (DelayCase ty arg t) = DelayCase ty arg (trimNS ns t)
+-    trimNS ns (ConstCase x t) = ConstCase x (trimNS ns t)
+-    trimNS ns (DefaultCase t) = DefaultCase (trimNS ns t)
++  onAltTerms : (forall vs . Term vs -> Term vs) -> CaseAlt vars -> CaseAlt vars
++  onAltTerms f (ConCase x tag args t) = ConCase x tag args (onTreeTerms f t)
++  onAltTerms f (DelayCase ty arg t) = DelayCase ty arg (onTreeTerms f t)
++  onAltTerms f (ConstCase x t) = ConstCase x (onTreeTerms f t)
++  onAltTerms f (DefaultCase t) = DefaultCase (onTreeTerms f t)
+ 
+-    restoreNS ns (ConCase x tag args t) = ConCase x tag args (restoreNS ns t)
+-    restoreNS ns (DelayCase ty arg t) = DelayCase ty arg (restoreNS ns t)
+-    restoreNS ns (ConstCase x t) = ConstCase x (restoreNS ns t)
+-    restoreNS ns (DefaultCase t) = DefaultCase (restoreNS ns t)
++export
++StripNamespace (CaseTree vars) where
++  trimNS ns = onTreeTerms (trimNS ns)
++  restoreNS ns = onTreeTerms (restoreNS ns)
+ 
++export
++StripNamespace (CaseAlt vars) where
++  trimNS ns = onAltTerms (trimNS ns)
++  restoreNS ns = onAltTerms (restoreNS ns)
+ 
++
+ public export
+ data Pat : Type where
+      PAs : FC -> Name -> Pat -> Pat
+@@ -129,14 +133,17 @@
+ 0 IsConPat : Pat -> Type
+ IsConPat = So . isConPat
+ 
++total
+ showCT : {vars : _} -> (indent : String) -> CaseTree vars -> String
++total
+ showCA : {vars : _} -> (indent : String) -> CaseAlt vars  -> String
++total
++showCAs : {vars : _} -> (indent : String) -> List (CaseAlt vars) -> List String
+ 
+ showCT indent (Case {name} idx prf ty alts)
+   = "case " ++ show name ++ "[" ++ show idx ++ "] : " ++ show ty ++ " of"
+   ++ "\n" ++ indent ++ " { "
+-  ++ showSep ("\n" ++ indent ++ " | ")
+-             (assert_total (map (showCA ("  " ++ indent)) alts))
++  ++ showSep ("\n" ++ indent ++ " | ") (showCAs ("  " ++ indent) alts)
+   ++ "\n" ++ indent ++ " }"
+ showCT indent (STerm i tm) = "[" ++ show i ++ "] " ++ show tm
+ showCT indent (Unmatched msg) = "Error: " ++ show msg
+@@ -152,13 +159,14 @@
+ showCA indent (DefaultCase sc)
+         = "_ => " ++ showCT indent sc
+ 
++showCAs indent [] = []
++showCAs indent (alt :: alts) = showCA indent alt :: showCAs indent alts
++
+ export
+-covering
+ {vars : _} -> Show (CaseTree vars) where
+   show = showCT ""
+ 
+ export
+-covering
+ {vars : _} -> Show (CaseAlt vars) where
+   show = showCA ""
+ 
+@@ -268,15 +276,15 @@
+       getSet ns (Unmatched msg) = ns
+       getSet ns Impossible = ns
+ 
+-export
++export total
+ getRefs : (aTotal : Name) -> CaseTree vars -> NameMap Bool
+ getRefs at = getNames (addRefs False at) empty
+ 
+-export
++export total
+ addRefs : (aTotal : Name) -> NameMap Bool -> CaseTree vars -> NameMap Bool
+ addRefs at ns = getNames (addRefs False at) ns
+ 
+-export
++export total
+ getMetas : CaseTree vars -> NameMap Bool
+ getMetas = getNames (addMetas False) empty
+ 
+diff -ruN a/src/Core/Context.idr b/src/Core/Context.idr
+--- a/src/Core/Context.idr	2026-10-15 11:02:48
++++ b/src/Core/Context.idr	2026-10-15 11:02:49
+@@ -45,7 +45,7 @@
+ 
+ -- Implemented later, once we can convert to and from full names
+ -- Defined in Core.TTC
+-export
++export total
+ decode : Context -> Int -> (update : Bool) -> ContextEntry -> Core GlobalDef
+ 
+ initSize : Int
+@@ -171,58 +171,32 @@
+                     else Nothing
+            _ => Nothing
+ 
++-- A name's entry: the name is turned into its index once (`getNameID`),
++-- and the entry at the index is a staged one if there is one.
+ export
++lookupContextEntry : Name -> Context -> Core (Maybe (Int, ContextEntry))
++lookupContextEntry n ctxt
++    = do let Just idx = getNameID n ctxt
++               | Nothing => pure Nothing
++         case lookup idx (staging ctxt) of
++              Just entry => pure (Just (idx, entry))
++              Nothing =>
++                 do arr <- get Arr @{content ctxt}
++                    Just entry <- coreLift (readArray arr idx)
++                         | Nothing => pure Nothing
++                    pure (Just (idx, entry))
++
++export
+ lookupCtxtExactI : Name -> Context -> Core (Maybe (Int, GlobalDef))
+-lookupCtxtExactI (Resolved idx) ctxt
+-    = case lookup idx (staging ctxt) of
+-           Just val =>
+-                 pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True val)
+-           Nothing =>
+-              do arr <- get Arr @{content ctxt}
+-                 Just def <- coreLift (readArray arr idx)
+-                      | Nothing => pure Nothing
+-                 pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True def)
+ lookupCtxtExactI n ctxt
+-    = do let Just idx = lookup n (resolvedAs ctxt)
+-                  | Nothing => pure Nothing
+-         lookupCtxtExactI (Resolved idx) ctxt
++    = do Just (idx, entry) <- lookupContextEntry n ctxt
++              | Nothing => pure Nothing
++         pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True entry)
+ 
+ export
+ lookupCtxtExact : Name -> Context -> Core (Maybe GlobalDef)
+-lookupCtxtExact (Resolved idx) ctxt
+-    = case lookup idx (staging ctxt) of
+-           Just res =>
+-                do def <- decode ctxt idx True res
+-                   pure $ map (\(_, def) => def) $
+-                     returnDef (inlineOnly ctxt) idx def
+-           Nothing =>
+-              do arr <- get Arr @{content ctxt}
+-                 Just res <- coreLift (readArray arr idx)
+-                      | Nothing => pure Nothing
+-                 def <- decode ctxt idx True res
+-                 pure $ map (\(_, def) => def) $
+-                   returnDef (inlineOnly ctxt) idx def
+-lookupCtxtExact n ctxt
+-    = do Just (i, def) <- lookupCtxtExactI n ctxt
+-              | Nothing => pure Nothing
+-         pure (Just def)
++lookupCtxtExact n ctxt = map snd <$> lookupCtxtExactI n ctxt
+ 
+-export
+-lookupContextEntry : Name -> Context -> Core (Maybe (Int, ContextEntry))
+-lookupContextEntry (Resolved idx) ctxt
+-    = case lookup idx (staging ctxt) of
+-           Just res => pure (Just (idx, res))
+-           Nothing =>
+-              do let a = content ctxt
+-                 arr <- get Arr
+-                 Just res <- coreLift (readArray arr idx)
+-                      | Nothing => pure Nothing
+-                 pure (Just (idx, res))
+-lookupContextEntry n ctxt
+-    = do let Just idx = lookup n (resolvedAs ctxt)
+-                  | Nothing => pure Nothing
+-         lookupContextEntry (Resolved idx) ctxt
+-
+ ||| Check if the given name has been hidden by the `%hide` directive.
+ export
+ isHidden : Name -> Context -> Bool
+@@ -393,6 +367,14 @@
+   full : Context -> a -> Core a
+   resolved : Context -> a -> Core a
+ 
++-- Resolving a name is a lookup of its index, and looks up no definition.
++-- Resolving a definition decoded from a TTC is the functions named
++-- `resolve...` below, which the instances' `resolved` are: decoding
++-- resolves through them, never through an instance, whose `full` looks up
++-- definitions and so may decode another.
++indexedName : Context -> Name -> Name
++indexedName gam n = maybe n Resolved (getNameID n gam)
++
+ export
+ HasNames Name where
+   full gam (Resolved i)
+@@ -403,12 +385,7 @@
+            pure (fullname gdef)
+   full gam n = pure n
+ 
+-  resolved gam (Resolved i)
+-      = pure (Resolved i)
+-  resolved gam n
+-      = do let Just i = getNameID n gam
+-                    | Nothing => pure n
+-           pure (Resolved i)
++  resolved gam n = pure (indexedName gam n)
+ 
+ export
+ HasNames UConstraint where
+@@ -426,67 +403,106 @@
+       = do x' <- resolved gam x; y' <- resolved gam y
+            pure (ULE x' y')
+ 
++-- Making a term's names full and resolving them are one traversal, given
++-- what becomes of a name (`full` or `resolved` of the name) and of a
++-- metavariable's name and index: making it full names it after its index,
++-- resolving it indexes it by its name. Each kind of node that holds terms
++-- is traversed by a function of its own, so that every recursive call is
++-- on a part of its argument.
++record OnNames where
++  constructor MkOnNames
++  onName : Name -> Core Name
++  onMeta : Name -> Int -> Core (Name, Int)
++
++mutual
++  onNamesPi : OnNames -> PiInfo (Term vars) -> Core (PiInfo (Term vars))
++  onNamesPi f (DefImplicit t) = DefImplicit <$> onNamesTerm f t
++  onNamesPi f p = pure p
++
++  onNamesBinder : OnNames -> Binder (Term vars) -> Core (Binder (Term vars))
++  onNamesBinder f (Lam fc c p ty) = pure (Lam fc c !(onNamesPi f p) !(onNamesTerm f ty))
++  onNamesBinder f (Let fc c val ty) = pure (Let fc c !(onNamesTerm f val) !(onNamesTerm f ty))
++  onNamesBinder f (Pi fc c p ty) = pure (Pi fc c !(onNamesPi f p) !(onNamesTerm f ty))
++  onNamesBinder f (PVar fc c p ty) = pure (PVar fc c !(onNamesPi f p) !(onNamesTerm f ty))
++  onNamesBinder f (PLet fc c val ty) = pure (PLet fc c !(onNamesTerm f val) !(onNamesTerm f ty))
++  onNamesBinder f (PVTy fc c ty) = PVTy fc c <$> onNamesTerm f ty
++
++  onNamesTerms : OnNames -> List (Term vars) -> Core (List (Term vars))
++  onNamesTerms f [] = pure []
++  onNamesTerms f (t :: ts) = pure (!(onNamesTerm f t) :: !(onNamesTerms f ts))
++
++  onNamesTerm : OnNames -> Term vars -> Core (Term vars)
++  onNamesTerm f (Ref fc x n) = Ref fc x <$> f.onName n
++  onNamesTerm f (Meta fc x i xs)
++      = do xs' <- onNamesTerms f xs
++           (x', i') <- f.onMeta x i
++           pure (Meta fc x' i' xs')
++  onNamesTerm f (Bind fc x b scope)
++      = pure (Bind fc x !(onNamesBinder f b) !(onNamesTerm f scope))
++  onNamesTerm f (App fc fn arg)
++      = pure (App fc !(onNamesTerm f fn) !(onNamesTerm f arg))
++  onNamesTerm f (As fc s p tm)
++      = pure (As fc s !(onNamesTerm f p) !(onNamesTerm f tm))
++  onNamesTerm f (TDelayed fc x y)
++      = pure (TDelayed fc x !(onNamesTerm f y))
++  onNamesTerm f (TDelay fc x t y)
++      = pure (TDelay fc x !(onNamesTerm f t) !(onNamesTerm f y))
++  onNamesTerm f (TForce fc r y)
++      = pure (TForce fc r !(onNamesTerm f y))
++  onNamesTerm f (TType fc u) = TType fc <$> f.onName u
++  onNamesTerm f (Erased fc (Dotted t))
++      = pure (Erased fc (Dotted !(onNamesTerm f t)))
++  onNamesTerm f tm = pure tm
++
++-- A case tree's names: each case's scrutinee type and each leaf's term,
++-- and each alternative's constructor; its alternatives are in a list of
++-- their own.
++mutual
++  onNamesTree : OnNames -> CaseTree vars -> Core (CaseTree vars)
++  onNamesTree f (Case i v ty alts)
++      = pure $ Case i v !(onNamesTerm f ty) !(onNamesAlts f alts)
++  onNamesTree f (STerm i tm) = STerm i <$> onNamesTerm f tm
++  onNamesTree f t = pure t
++
++  onNamesAlts : OnNames -> List (CaseAlt vars) -> Core (List (CaseAlt vars))
++  onNamesAlts f [] = pure []
++  onNamesAlts f (alt :: alts) = pure (!(onNamesAlt f alt) :: !(onNamesAlts f alts))
++
++  onNamesAlt : OnNames -> CaseAlt vars -> Core (CaseAlt vars)
++  onNamesAlt f (ConCase n t args sc)
++      = do sc' <- onNamesTree f sc
++           pure $ ConCase !(f.onName n) t args sc'
++  onNamesAlt f (DelayCase ty arg sc) = DelayCase ty arg <$> onNamesTree f sc
++  onNamesAlt f (ConstCase c sc) = ConstCase c <$> onNamesTree f sc
++  onNamesAlt f (DefaultCase sc) = DefaultCase <$> onNamesTree f sc
++
++fullNames : Context -> OnNames
++fullNames gam = MkOnNames (full gam) fullMeta
++  where
++    fullMeta : Name -> Int -> Core (Name, Int)
++    fullMeta x i = pure $ case !(lookupCtxtExact (Resolved i) gam) of
++                               Nothing => (x, i)
++                               Just gdef => (fullname gdef, i)
++
++resolvedNames : Context -> OnNames
++resolvedNames gam = MkOnNames (pure . indexedName gam) (\x, i => pure (x, fromMaybe i (getNameID x gam)))
++
+ export
+ HasNames (Term vars) where
+-  full gam (Ref fc x (Resolved i))
+-      = do Just gdef <- lookupCtxtExact (Resolved i) gam
+-                | Nothing => pure (Ref fc x (Resolved i))
+-           pure (Ref fc x (fullname gdef))
+-  full gam (Meta fc x i xs)
+-      = do xs <- traverse (full gam) xs
+-           pure $ case !(lookupCtxtExact (Resolved i) gam) of
+-             Nothing => Meta fc x i xs
+-             Just gdef => Meta fc (fullname gdef) i xs
+-  full gam (Bind fc x b scope)
+-      = pure (Bind fc x !(traverse (full gam) b) !(full gam scope))
+-  full gam (App fc fn arg)
+-      = pure (App fc !(full gam fn) !(full gam arg))
+-  full gam (As fc s p tm)
+-      = pure (As fc s !(full gam p) !(full gam tm))
+-  full gam (TDelayed fc x y)
+-      = pure (TDelayed fc x !(full gam y))
+-  full gam (TDelay fc x t y)
+-      = pure (TDelay fc x !(full gam t) !(full gam y))
+-  full gam (TForce fc r y)
+-      = pure (TForce fc r !(full gam y))
+-  full gam (TType fc (Resolved i))
+-      = do Just gdef <- lookupCtxtExact (Resolved i) gam
+-                | Nothing => pure (TType fc (Resolved i))
+-           pure (TType fc (fullname gdef))
+-  full gam (Erased fc (Dotted t))
+-      = pure (Erased fc (Dotted !(full gam t)))
+-  full gam tm = pure tm
++  full gam = onNamesTerm (fullNames gam)
++  resolved gam = onNamesTerm (resolvedNames gam)
+ 
+-  resolved gam (Ref fc x n)
+-      = do let Just i = getNameID n gam
+-                | Nothing => pure (Ref fc x n)
+-           pure (Ref fc x (Resolved i))
+-  resolved gam (Meta fc x y xs)
+-      = do xs' <- traverse (resolved gam) xs
+-           let Just i = getNameID x gam
+-               | Nothing => pure (Meta fc x y xs')
+-           pure (Meta fc x i xs')
+-  resolved gam (Bind fc x b scope)
+-      = pure (Bind fc x !(traverse (resolved gam) b) !(resolved gam scope))
+-  resolved gam (App fc fn arg)
+-      = pure (App fc !(resolved gam fn) !(resolved gam arg))
+-  resolved gam (As fc s p tm)
+-      = pure (As fc s !(resolved gam p) !(resolved gam tm))
+-  resolved gam (TDelayed fc x y)
+-      = pure (TDelayed fc x !(resolved gam y))
+-  resolved gam (TDelay fc x t y)
+-      = pure (TDelay fc x !(resolved gam t) !(resolved gam y))
+-  resolved gam (TForce fc r y)
+-      = pure (TForce fc r !(resolved gam y))
+-  resolved gam (TType fc n)
+-      = do let Just i = getNameID n gam
+-                | Nothing => pure (TType fc n)
+-           pure (TType fc (Resolved i))
+-  resolved gam (Erased fc (Dotted t))
+-      = pure (Erased fc (Dotted !(resolved gam t)))
+-  resolved gam tm = pure tm
++export
++HasNames (CaseTree vars) where
++  full gam = onNamesTree (fullNames gam)
++  resolved gam = onNamesTree (resolvedNames gam)
+ 
+ export
++HasNames (CaseAlt vars) where
++  full gam = onNamesAlt (fullNames gam)
++  resolved gam = onNamesAlt (resolvedNames gam)
++
++export
+ HasNames Pat where
+   full gam (PAs fc n p)
+      = [| PAs (pure fc) (full gam n) (full gam p) |]
+@@ -516,56 +532,84 @@
+   resolved gam (PLoc fc n) = PLoc fc <$> resolved gam n
+   resolved gam (PUnmatchable fc t) = PUnmatchable fc <$> resolved gam t
+ 
+-mutual
+-  export
+-  HasNames (CaseTree vars) where
+-    full gam (Case i v ty alts)
+-        = pure $ Case i v !(full gam ty) !(traverse (full gam) alts)
+-    full gam (STerm i tm)
+-        = pure $ STerm i !(full gam tm)
+-    full gam t = pure t
+ 
+-    resolved gam (Case i v ty alts)
+-        = pure $ Case i v !(resolved gam ty) !(traverse (resolved gam) alts)
+-    resolved gam (STerm i tm)
+-        = pure $ STerm i !(resolved gam tm)
+-    resolved gam t = pure t
++-- Resolving each part of a definition decoded from a TTC.
++resolveEnv : Context -> Env Term vars -> Core (Env Term vars)
++resolveEnv gam [] = pure Env.empty
++resolveEnv gam (b :: bs)
++    = pure $ !(onNamesBinder (resolvedNames gam) b) :: !(resolveEnv gam bs)
+ 
+-  export
+-  HasNames (CaseAlt vars) where
+-    full gam (ConCase n t args sc)
+-        = do sc' <- full gam sc
+-             Just gdef <- lookupCtxtExact n gam
+-                | Nothing => pure (ConCase n t args sc')
+-             pure $ ConCase (fullname gdef) t args sc'
+-    full gam (DelayCase ty arg sc)
+-        = pure $ DelayCase ty arg !(full gam sc)
+-    full gam (ConstCase c sc)
+-        = pure $ ConstCase c !(full gam sc)
+-    full gam (DefaultCase sc)
+-        = pure $ DefaultCase !(full gam sc)
++resolveDef : Context -> Def -> Core Def
++resolveDef gam (PMDef r args ct rt pats)
++    = pure $ PMDef r args !(onNamesTree (resolvedNames gam) ct)
++                          !(onNamesTree (resolvedNames gam) rt)
++                          !(traverse resolvePat pats)
++  where
++    resolvePat : (vs ** (Env Term vs, Term vs, Term vs)) ->
++                 Core (vs ** (Env Term vs, Term vs, Term vs))
++    resolvePat (_ ** (env, lhs, rhs))
++        = pure (_ ** (!(resolveEnv gam env),
++                      !(onNamesTerm (resolvedNames gam) lhs),
++                      !(onNamesTerm (resolvedNames gam) rhs)))
++-- A type's constructors are kept by their full names, which is how a TTC
++-- holds them: resolving leaves them as they are.
++resolveDef gam (TCon a ps ds u ms mcs det)
++    = pure $ TCon a ps ds u (map (indexedName gam) ms) mcs det
++resolveDef gam (BySearch c d def) = pure $ BySearch c d (indexedName gam def)
++resolveDef gam (Guess tm b cs)
++    = pure $ Guess !(onNamesTerm (resolvedNames gam) tm) b cs
++resolveDef gam t = pure t
+ 
+-    resolved gam (ConCase n t args sc)
+-        = do sc' <- resolved gam sc
+-             let Just i = getNameID n gam
+-                | Nothing => pure (ConCase n t args sc')
+-             pure $ ConCase (Resolved i) t args sc'
+-    resolved gam (DelayCase ty arg sc)
+-        = pure $ DelayCase ty arg !(resolved gam sc)
+-    resolved gam (ConstCase c sc)
+-        = pure $ ConstCase c !(resolved gam sc)
+-    resolved gam (DefaultCase sc)
+-        = pure $ DefaultCase !(resolved gam sc)
++-- Later keys overwrite earlier ones that resolve to the same name, as
++-- inserting them in order does.
++resolveNameMap : Context -> NameMap a -> NameMap a
++resolveNameMap gam nmap
++    = foldl (\m, (k, v) => insert (indexedName gam k) v m) empty (NameMap.toList nmap)
+ 
++resolvePartial : Context -> PartialReason -> PartialReason
++resolvePartial gam NotStrictlyPositive = NotStrictlyPositive
++resolvePartial gam (BadCall ns) = BadCall (map (indexedName gam) ns)
++resolvePartial gam (BadPath init n)
++    = BadPath (map (\(fc, x) => (fc, indexedName gam x)) init) (indexedName gam n)
++resolvePartial gam (RecPath loop)
++    = RecPath (map (\(fc, x) => (fc, indexedName gam x)) loop)
++
++resolveTerminating : Context -> Terminating -> Terminating
++resolveTerminating gam (NotTerminating p) = NotTerminating (resolvePartial gam p)
++resolveTerminating gam t = t
++
++resolveCovering : Context -> Covering -> Core Covering
++resolveCovering gam IsCovering = pure IsCovering
++resolveCovering gam (MissingCases ts)
++    = MissingCases <$> traverse (onNamesTerm (resolvedNames gam)) ts
++resolveCovering gam (NonCoveringCall ns)
++    = pure $ NonCoveringCall (map (indexedName gam) ns)
++
++resolveTotality : Context -> Totality -> Core Totality
++resolveTotality gam (MkTotality t c)
++    = MkTotality (resolveTerminating gam t) <$> resolveCovering gam c
++
++resolveSCCall : Context -> SCCall -> SCCall
++resolveSCCall gam sc = { fnCall := indexedName gam (fnCall sc) } sc
++
+ export
++resolveGlobalDef : Context -> GlobalDef -> Core GlobalDef
++resolveGlobalDef gam def
++    = pure $ { type := !(onNamesTerm (resolvedNames gam) (type def)),
++               definition := !(resolveDef gam (definition def)),
++               totality := !(resolveTotality gam (totality def)),
++               refersToM := map (resolveNameMap gam) (refersToM def),
++               refersToRuntimeM := map (resolveNameMap gam) (refersToRuntimeM def),
++               sizeChange := map (resolveSCCall gam) (sizeChange def)
++             } def
++
++export
+ HasNames (Env Term vars) where
+   full gam [] = pure Env.empty
+   full gam (b :: bs)
+       = pure $ !(traverse (full gam) b) :: !(full gam bs)
+ 
+-  resolved gam [] = pure Env.empty
+-  resolved gam (b :: bs)
+-      = pure $ !(traverse (resolved gam) b) :: !(resolved gam bs)
++  resolved = resolveEnv
+ 
+ export
+ HasNames Clause where
+@@ -596,23 +640,7 @@
+       = pure $ Guess !(full gam tm) b cs
+   full gam t = pure t
+ 
+-  resolved gam (PMDef r args ct rt pats)
+-      = pure $ PMDef r args !(resolved gam ct) !(resolved gam rt)
+-                     !(traverse resolvedNamesPat pats)
+-    where
+-      resolvedNamesPat : (vs ** (Env Term vs, Term vs, Term vs)) ->
+-                         Core (vs ** (Env Term vs, Term vs, Term vs))
+-      resolvedNamesPat (_ ** (env, lhs, rhs))
+-          = pure $ (_ ** (!(resolved gam env),
+-                          !(resolved gam lhs), !(resolved gam rhs)))
+-  resolved gam (TCon a ps ds u ms mcs det)
+-      = pure $ TCon a ps ds u !(traverse (resolved gam) ms)
+-                                !(traverseOpt (traverse (full gam)) mcs) det
+-  resolved gam (BySearch c d def)
+-      = pure $ BySearch c d !(resolved gam def)
+-  resolved gam (Guess tm b cs)
+-      = pure $ Guess !(resolved gam tm) b cs
+-  resolved gam t = pure t
++  resolved = resolveDef
+ 
+ export
+ StripNamespace Def where
+@@ -648,13 +676,7 @@
+       insertAll ms ((k, v) :: ns)
+           = insertAll (insert !(full gam k) v ms) ns
+ 
+-  resolved gam nmap
+-      = insertAll empty (toList nmap)
+-    where
+-      insertAll : NameMap a -> List (Name, a) -> Core (NameMap a)
+-      insertAll ms [] = pure ms
+-      insertAll ms ((k, v) :: ns)
+-          = insertAll (insert !(resolved gam k) v ms) ns
++  resolved gam nmap = pure (resolveNameMap gam nmap)
+ 
+ export
+ HasNames PartialReason where
+@@ -663,18 +685,14 @@
+   full gam (BadPath init n) = pure $ BadPath !(traverse (traversePair (full gam)) init) !(full gam n)
+   full gam (RecPath loop) = pure $ RecPath !(traverse (traversePair (full gam)) loop)
+ 
+-  resolved gam NotStrictlyPositive = pure NotStrictlyPositive
+-  resolved gam (BadCall ns) = pure $ BadCall !(traverse (resolved gam) ns)
+-  resolved gam (BadPath init n) = pure $ BadPath !(traverse (traversePair (resolved gam)) init) !(resolved gam n)
+-  resolved gam (RecPath loop) = pure $ RecPath !(traverse (traversePair (resolved gam)) loop)
++  resolved gam p = pure (resolvePartial gam p)
+ 
+ export
+ HasNames Terminating where
+   full gam (NotTerminating p) = pure $ NotTerminating !(full gam p)
+   full gam t = pure t
+ 
+-  resolved gam (NotTerminating p) = pure $ NotTerminating !(resolved gam p)
+-  resolved gam t = pure t
++  resolved gam t = pure (resolveTerminating gam t)
+ 
+ export
+ HasNames Covering where
+@@ -684,11 +702,7 @@
+   full gam (NonCoveringCall ns)
+       = pure $ NonCoveringCall !(traverse (full gam) ns)
+ 
+-  resolved gam IsCovering = pure IsCovering
+-  resolved gam (MissingCases ts)
+-      = pure $ MissingCases !(traverse (resolved gam) ts)
+-  resolved gam (NonCoveringCall ns)
+-      = pure $ NonCoveringCall !(traverse (resolved gam) ns)
++  resolved = resolveCovering
+ 
+ export
+ HasNames CaseError where
+@@ -934,12 +948,12 @@
+ export
+ HasNames Totality where
+   full gam (MkTotality t c) = pure $ MkTotality !(full gam t) !(full gam c)
+-  resolved gam (MkTotality t c) = pure $ MkTotality !(resolved gam t) !(resolved gam c)
++  resolved = resolveTotality
+ 
+ export
+ HasNames SCCall where
+   full gam sc = pure $ { fnCall := !(full gam (fnCall sc)) } sc
+-  resolved gam sc = pure $ { fnCall := !(resolved gam (fnCall sc)) } sc
++  resolved gam sc = pure (resolveSCCall gam sc)
+ 
+ export
+ HasNames a => HasNames (Maybe a) where
+@@ -963,14 +977,7 @@
+                     refersToRuntimeM := !(full gam (refersToRuntimeM def)),
+                     sizeChange := !(traverse (full gam) (sizeChange def))
+                   } def
+-  resolved gam def
+-      = pure $ { type := !(resolved gam (type def)),
+-                 definition := !(resolved gam (definition def)),
+-                 totality := !(resolved gam (totality def)),
+-                 refersToM := !(resolved gam (refersToM def)),
+-                 refersToRuntimeM := !(resolved gam (refersToRuntimeM def)),
+-                 sizeChange := !(traverse (resolved gam) (sizeChange def))
+-               } def
++  resolved = resolveGlobalDef
+ 
+ export
+ HasNames Transform where
+diff -ruN a/src/Core/Core.idr b/src/Core/Core.idr
+--- a/src/Core/Core.idr	2026-10-15 11:02:48
++++ b/src/Core/Core.idr	2026-10-15 11:02:48
+@@ -4,6 +4,7 @@
+ import Core.Env
+ import public Core.WithData
+ 
++import Data.List
+ import Data.List1
+ import Data.SnocList
+ import Data.Vect
+@@ -230,37 +231,52 @@
+     show (GenericWarn fc msg) = show fc ++ msg
+ 
+ 
+-export
+-covering
+-Show Error where
+-  show (Fatal err) = show err
+-  show (CantConvert fc _ env x y)
++-- An error is shown by a function of its own, with the lists of errors it
++-- holds shown by functions of their own, so that every recursive call is on
++-- a part of its argument; each shows what the instances of the parts would.
++mutual
++  -- A list as its instance shows one, from its elements' texts.
++  showListOf : List String -> String
++  showListOf xs = "[" ++ concat (intersperse ", " xs) ++ "]"
++
++  showAlts : List (Maybe Name, Error) -> List String
++  showAlts [] = []
++  showAlts ((n, err) :: rest) = ("(" ++ show n ++ ", " ++ showError err ++ ")") :: showAlts rest
++
++  showErrors : List Error -> List String
++  showErrors [] = []
++  showErrors (err :: errs) = showError err :: showErrors errs
++
++  total
++  showError : Error -> String
++  showError (Fatal err) = showError err
++  showError (CantConvert fc _ env x y)
+       = show fc ++ ":Type mismatch: " ++ show x ++ " and " ++ show y
+-  show (CantSolveEq fc _ env x y)
++  showError (CantSolveEq fc _ env x y)
+       = show fc ++ ":" ++ show x ++ " and " ++ show y ++ " are not equal"
+-  show (PatternVariableUnifies fc fct env n x)
++  showError (PatternVariableUnifies fc fct env n x)
+       = show fc ++ ":Pattern variable " ++ show n ++ " unifies with " ++ show x
+-  show (CyclicMeta fc env n tm)
++  showError (CyclicMeta fc env n tm)
+       = show fc ++ ":Cycle detected in metavariable solution " ++ show n
+              ++ " = " ++ show tm
+-  show (WhenUnifying fc _ _ x y err)
+-      = show fc ++ ":When unifying: " ++ show x ++ " and " ++ show y ++ "\n\t" ++ show err
+-  show (ValidCase fc _ prob)
++  showError (WhenUnifying fc _ _ x y err)
++      = show fc ++ ":When unifying: " ++ show x ++ " and " ++ show y ++ "\n\t" ++ showError err
++  showError (ValidCase fc _ prob)
+       = show fc ++ ":" ++
+            case prob of
+-             Left tm => assert_total (show tm) ++ " is not a valid impossible pattern because it typechecks"
+-             Right err => "Not a valid impossible pattern:\n\t" ++ assert_total (show err)
+-  show (UndefinedName fc x)
++             Left tm => show tm ++ " is not a valid impossible pattern because it typechecks"
++             Right err => "Not a valid impossible pattern:\n\t" ++ showError err
++  showError (UndefinedName fc x)
+     = show fc ++ ":Undefined name " ++ show x
+-  show (InvisibleName fc x (Just ns))
++  showError (InvisibleName fc x (Just ns))
+        = show fc ++ ":Name " ++ show x ++ " is inaccessible since " ++
+          show ns ++ " is not explicitly imported"
+-  show (InvisibleName fc x _) = show fc ++ ":Name " ++ show x ++ " is private"
+-  show (BadTypeConType fc n)
++  showError (InvisibleName fc x _) = show fc ++ ":Name " ++ show x ++ " is private"
++  showError (BadTypeConType fc n)
+        = show fc ++ ":Return type of " ++ show n ++ " must be Type"
+-  show (BadDataConType fc n fam)
++  showError (BadDataConType fc n fam)
+        = show fc ++ ":Return type of " ++ show n ++ " must be in " ++ show fam
+-  show (NotCovering fc n cov)
++  showError (NotCovering fc n cov)
+        = show fc ++ ":" ++ show n ++ " is not covering:\n\t" ++
+             case cov of
+                  IsCovering => "Oh yes it is (Internal error!)"
+@@ -271,13 +287,13 @@
+                                                    [fn] => " " ++ show fn
+                                                    _ => "s: " ++ showSep ", " (map show ns))
+ 
+-  show (NotTotal fc n r)
++  showError (NotTotal fc n r)
+        = show fc ++ ":" ++ show n ++ " is not total"
+-  show ImpossibleCase
++  showError ImpossibleCase
+        = "Case is impossible (not an error)"
+-  show (LinearUsed fc count n)
++  showError (LinearUsed fc count n)
+       = show fc ++ ":There are " ++ show count ++ " uses of linear name " ++ show n
+-  show (LinearMisuse fc n exp ctx)
++  showError (LinearMisuse fc n exp ctx)
+       = show fc ++ ":Trying to use " ++ showRig exp ++ " name " ++ show n ++
+                    " in " ++ showRel ctx ++ " context"
+      where
+@@ -292,133 +308,138 @@
+          "irrelevant"
+          "relevant"
+          (const "non-linear")
+-  show (BorrowPartial fc env t arg)
++  showError (BorrowPartial fc env t arg)
+       = show fc ++ ":" ++ show t ++ " borrows argument " ++ show arg ++
+                    " so must be fully applied"
+-  show (BorrowPartialType fc env t)
++  showError (BorrowPartialType fc env t)
+       = show fc ++ ":" ++ show t ++ " borrows, so must return a concrete type"
+ 
+-  show (AmbiguousName fc ns) = show fc ++ ":Ambiguous name " ++ show ns
+-  show (AmbiguousElab fc env ts) = show fc ++ ":Ambiguous elaboration " ++ show (map snd ts)
+-  show (AmbiguousSearch fc env tgt ts) = show fc ++ ":Ambiguous search " ++ show ts
+-  show (AmbiguityTooDeep fc n ns)
++  showError (AmbiguousName fc ns) = show fc ++ ":Ambiguous name " ++ show ns
++  showError (AmbiguousElab fc env ts) = show fc ++ ":Ambiguous elaboration " ++ show (map snd ts)
++  showError (AmbiguousSearch fc env tgt ts) = show fc ++ ":Ambiguous search " ++ show ts
++  showError (AmbiguityTooDeep fc n ns)
+       = show fc ++ ":Ambiguity too deep in " ++ show n ++ " " ++ show ns
+-  show (AllFailed ts) = "No successful elaboration: " ++ assert_total (show ts)
+-  show (RecordTypeNeeded fc env)
++  showError (AllFailed ts) = "No successful elaboration: " ++ showListOf (showAlts ts)
++  showError (RecordTypeNeeded fc env)
+       = show fc ++ ":Can't infer type of record to update"
+-  show (DuplicatedRecordUpdatePath fc ps)
++  showError (DuplicatedRecordUpdatePath fc ps)
+       = show fc ++ ":Duplicated record update paths: " ++ show ps
+-  show (NotRecordField fc fld Nothing)
++  showError (NotRecordField fc fld Nothing)
+       = show fc ++ ":" ++ fld ++ " is not part of a record type"
+-  show (NotRecordField fc fld (Just ty))
++  showError (NotRecordField fc fld (Just ty))
+       = show fc ++ ":Record type " ++ show ty ++ " has no field " ++ fld
+-  show (NotRecordType fc ty)
++  showError (NotRecordType fc ty)
+       = show fc ++ ":" ++ show ty ++ " is not a record type"
+-  show (IncompatibleFieldUpdate fc flds)
++  showError (IncompatibleFieldUpdate fc flds)
+       = show fc ++ ":Field update " ++ showSep "->" flds ++ " not compatible with other updates"
+-  show (InvalidArgs fc env ns tm)
++  showError (InvalidArgs fc env ns tm)
+      = show fc ++ ":" ++ show ns ++ " are not valid arguments in " ++ show tm
+-  show (TryWithImplicits fc env imps)
++  showError (TryWithImplicits fc env imps)
+      = show fc ++ ":Need to bind implicits "
+           ++ showSep "," (map (\x => show (fst x) ++ " : " ++ show (snd x)) imps)
+           ++ "\n(The front end should probably have done this for you. Please report!)"
+-  show (BadUnboundImplicit fc env n ty)
++  showError (BadUnboundImplicit fc env n ty)
+       = show fc ++ ":Can't bind name " ++ nameRoot n ++
+                    " with type " ++ show ty
+-  show (CantSolveGoal fc gam env g cause)
+-      = show fc ++ ":Can't solve goal " ++ assert_total (show g)
+-  show (DeterminingArg fc n i env g)
+-      = show fc ++ ":Can't solve goal " ++ assert_total (show g) ++
++  showError (CantSolveGoal fc gam env g cause)
++      = show fc ++ ":Can't solve goal " ++ show g
++  showError (DeterminingArg fc n i env g)
++      = show fc ++ ":Can't solve goal " ++ show g ++
+                 " since argument " ++ show n ++ " can't be inferred"
+-  show (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
+-  show (CantInferArgType fc env n h ty)
++  showError (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
++  showError (CantInferArgType fc env n h ty)
+       = show fc ++ ":Can't infer type for " ++ show n ++
+                    " (got " ++ show ty ++ " with hole " ++ show h ++ ")"
+-  show (SolvedNamedHole fc _ h _) = show fc ++ ":Named hole " ++ show h ++ " is solved by unification"
+-  show (VisibilityError fc vx x vy y)
++  showError (SolvedNamedHole fc _ h _) = show fc ++ ":Named hole " ++ show h ++ " is solved by unification"
++  showError (VisibilityError fc vx x vy y)
+       = show fc ++ ":" ++ show vx ++ " " ++ show x ++ " cannot refer to "
+                        ++ show vy ++ " " ++ show y
+-  show (NonLinearPattern fc n) = show fc ++ ":Non linear pattern variable " ++ show n
+-  show (BadPattern fc n) = show fc ++ ":Pattern not allowed here: " ++ show n
+-  show (NoDeclaration fc x) = show fc ++ ":No type declaration for " ++ show x
+-  show (AlreadyDefined fc x) = show fc ++ ":" ++ show x ++ " is already defined"
+-  show (NotFunctionType fc env tm) = show fc ++ ":Not a function type: " ++ show tm
+-  show (RewriteNoChange fc env rule ty)
++  showError (NonLinearPattern fc n) = show fc ++ ":Non linear pattern variable " ++ show n
++  showError (BadPattern fc n) = show fc ++ ":Pattern not allowed here: " ++ show n
++  showError (NoDeclaration fc x) = show fc ++ ":No type declaration for " ++ show x
++  showError (AlreadyDefined fc x) = show fc ++ ":" ++ show x ++ " is already defined"
++  showError (NotFunctionType fc env tm) = show fc ++ ":Not a function type: " ++ show tm
++  showError (RewriteNoChange fc env rule ty)
+       = show fc ++ ":Rewriting by " ++ show rule ++ " did not change type " ++ show ty
+-  show (NotRewriteRule fc env rule)
++  showError (NotRewriteRule fc env rule)
+       = show fc ++ ":" ++ show rule ++ " is not a rewrite rule type"
+-  show (CaseCompile fc n DifferingArgNumbers)
++  showError (CaseCompile fc n DifferingArgNumbers)
+       = show fc ++ ":Patterns for " ++ show n ++ " have different numbers of arguments"
+-  show (CaseCompile fc n DifferingTypes)
++  showError (CaseCompile fc n DifferingTypes)
+       = show fc ++ ":Patterns for " ++ show n ++ " require matching on different types"
+-  show (CaseCompile fc n UnknownType)
++  showError (CaseCompile fc n UnknownType)
+       = show fc ++ ":Can't infer type to match in " ++ show n
+-  show (CaseCompile fc n (MatchErased (_ ** (env, tm))))
++  showError (CaseCompile fc n (MatchErased (_ ** (env, tm))))
+       = show fc ++ ":Attempt to match on erased argument " ++ show tm ++
+                    " in " ++ show n
+-  show (CaseCompile fc n (NotFullyApplied c))
++  showError (CaseCompile fc n (NotFullyApplied c))
+       = show fc ++ ":Constructor " ++ show c ++ " is not fully applied"
+-  show (MatchTooSpecific fc env tm)
++  showError (MatchTooSpecific fc env tm)
+       = show fc ++ ":Can't match on " ++ show tm ++ " as it is has a polymorphic type"
+-  show (BadDotPattern fc env reason x y)
++  showError (BadDotPattern fc env reason x y)
+       = show fc ++ ":Can't match on " ++ show x ++
+            " (" ++ show reason ++ ")" ++
+            " - it elaborates to " ++ show y
+-  show (BadImplicit fc str) = show fc ++ ":" ++ str ++ " can't be bound here"
+-  show (BadRunElab fc env script desc) = show fc ++ ":Bad elaborator script " ++ show script ++ " (" ++ desc ++ ")"
+-  show (RunElabFail e) = "Error during reflection: " ++ show e
+-  show (GenericMsg fc str) = show fc ++ ":" ++ str
+-  show (GenericMsgSol fc msg solutionHeader sols) = show fc ++ ":" ++ msg ++ " \{solutionHeader}: " ++ show sols
+-  show (TTCError msg) = "Error in TTC file: " ++ show msg
+-  show (FileErr fname err) = "File error (" ++ fname ++ "): " ++ show err
+-  show (CantFindPackage fname) = "Can't find package " ++ fname
+-  show (LazyImplicitFunction fc) = "Implicit lazy functions are not yet supported"
+-  show (LazyPatternVar fc) = "Defining lazy functions via pattern matching is not yet supported"
+-  show (LitFail fc) = show fc ++ ":Can't parse literate"
+-  show (LexFail fc err) = show fc ++ ":Lexer error (" ++ show err ++ ")"
+-  show (ParseFail errs) = "Parse errors (" ++ show errs ++ ")"
+-  show (ModuleNotFound fc ns)
++  showError (BadImplicit fc str) = show fc ++ ":" ++ str ++ " can't be bound here"
++  showError (BadRunElab fc env script desc) = show fc ++ ":Bad elaborator script " ++ show script ++ " (" ++ desc ++ ")"
++  showError (RunElabFail e) = "Error during reflection: " ++ showError e
++  showError (GenericMsg fc str) = show fc ++ ":" ++ str
++  showError (GenericMsgSol fc msg solutionHeader sols) = show fc ++ ":" ++ msg ++ " \{solutionHeader}: " ++ show sols
++  showError (TTCError msg) = "Error in TTC file: " ++ show msg
++  showError (FileErr fname err) = "File error (" ++ fname ++ "): " ++ show err
++  showError (CantFindPackage fname) = "Can't find package " ++ fname
++  showError (LazyImplicitFunction fc) = "Implicit lazy functions are not yet supported"
++  showError (LazyPatternVar fc) = "Defining lazy functions via pattern matching is not yet supported"
++  showError (LitFail fc) = show fc ++ ":Can't parse literate"
++  showError (LexFail fc err) = show fc ++ ":Lexer error (" ++ show err ++ ")"
++  showError (ParseFail errs) = "Parse errors (" ++ show errs ++ ")"
++  showError (ModuleNotFound fc ns)
+       = show fc ++ ":" ++ show ns ++ " not found"
+-  show (CyclicImports ns)
++  showError (CyclicImports ns)
+       = "Module imports form a cycle: " ++ showSep " -> " (map show ns)
+-  show ForceNeeded = "Internal error when resolving implicit laziness"
+-  show (InternalError str) = "INTERNAL ERROR: " ++ str
+-  show (UserError str) = "Error: " ++ str
+-  show (NoForeignCC fc specs) = show fc ++
++  showError ForceNeeded = "Internal error when resolving implicit laziness"
++  showError (InternalError str) = "INTERNAL ERROR: " ++ str
++  showError (UserError str) = "Error: " ++ str
++  showError (NoForeignCC fc specs) = show fc ++
+        ":The given specifier " ++ show specs ++ " was not accepted by any available backend."
+-  show (BadMultiline fc str) = "Invalid multiline string: " ++ str
+-  show (Timeout str) = "Timeout in " ++ str
++  showError (BadMultiline fc str) = "Invalid multiline string: " ++ str
++  showError (Timeout str) = "Timeout in " ++ str
+ 
+-  show (FailingDidNotFail _) = "Failing block did not fail"
+-  show (FailingWrongError fc msg err)
++  showError (FailingDidNotFail _) = "Failing block did not fail"
++  showError (FailingWrongError fc msg (err ::: errs))
+        = show fc ++ ":Failing block failed with the wrong error:\n" ++
+          "Expected: " ++ msg ++ "\n" ++
+-         "but got: " ++ show err
++         "but got: " ++ showListOf (showError err :: showErrors errs)
+ 
+-  show (InType fc n err)
++  showError (InType fc n err)
+        = show fc ++ ":When elaborating type of " ++ show n ++ ":\n" ++
+-         show err
+-  show (InCon n err)
++         showError err
++  showError (InCon n err)
+        = show n.fc ++ ":When elaborating type of constructor " ++ show n.val ++ ":\n" ++
+-         show err
+-  show (InLHS fc n err)
++         showError err
++  showError (InLHS fc n err)
+        = show fc ++ ":When elaborating left hand side of " ++ show n ++ ":\n" ++
+-         show err
+-  show (InRHS fc n err)
++         showError err
++  showError (InRHS fc n err)
+        = show fc ++ ":When elaborating right hand side of " ++ show n ++ ":\n" ++
+-         show err
++         showError err
+ 
+-  show (MaybeMisspelling err ns)
+-       = show err ++ "\nDid you mean" ++ case ns of
++  showError (MaybeMisspelling err ns)
++       = showError err ++ "\nDid you mean" ++ case ns of
+            (n ::: []) => ": " ++ n ++ "?"
+            _ => " any of: " ++ showSep ", " (map show (forget ns)) ++ "?"
+-  show (WarningAsError w) = show w
+-  show (OperatorBindingMismatch fc (DeclaredFixity expected) actual opName rhs _)
++  showError (WarningAsError w) = show w
++  showError (OperatorBindingMismatch fc (DeclaredFixity expected) actual opName rhs _)
+        = show fc ++ ": Operator " ++ show opName ++ " is " ++ show expected
+        ++ " but used as a " ++ show actual ++ " operator"
+-  show (OperatorBindingMismatch fc UndeclaredFixity actual opName rhs _)
++  showError (OperatorBindingMismatch fc UndeclaredFixity actual opName rhs _)
+        = show fc ++ ": Operator " ++ show opName ++ " has no declared fixity"
+        ++ " but used as a " ++ show actual ++ " operator"
++
++
++export
++Show Error where
++  show = showError
+ 
+ export
+ getWarningLoc : Warning -> FC
+diff -ruN a/src/Core/Directory.idr b/src/Core/Directory.idr
+--- a/src/Core/Directory.idr	2026-10-15 11:02:48
++++ b/src/Core/Directory.idr	2026-10-15 11:02:48
+@@ -252,20 +252,27 @@
+                    closeDir d
+                    pure True
+ 
+--- Create subdirectories, if they don't exist
++-- Create a directory and each one it is in that does not exist. A
++-- directory that exists is done at once. Otherwise each prefix of the
++-- path's body is created, outermost first, and one that exists already
++-- (`FileExists`) is passed: creating asks nothing of a directory but that
++-- it can be searched, where testing that one exists would need it to be
++-- readable. The walk is over the body.
+ export
+-covering
+ mkdirAll : String -> IO (Either FileError ())
+-mkdirAll dir = if parse dir == emptyPath
+-                  then pure (Right ())
+-                  else do exist <- dirExists dir
+-                          if exist
+-                             then pure (Right ())
+-                             else do Right () <- case parent dir of
+-                                          Just parent => mkdirAll parent
+-                                          Nothing => pure (Right ())
+-                                        | err => pure err
+-                                     createDir dir
++mkdirAll dir = if !(dirExists dir) then pure (Right ()) else createFrom [] path.body
++  where
++    path : Path
++    path = parse dir
++
++    createFrom : List Body -> List Body -> IO (Either FileError ())
++    createFrom done [] = pure (Right ())
++    createFrom done (b :: bs)
++        = do let here = done ++ [b]
++             Right () <- createDir (show (MkPath path.volume path.hasRoot here False))
++               | Left FileExists => createFrom here bs
++               | Left err => pure (Left err)
++             createFrom here bs
+ 
+ -- Given a namespace (i.e. a module name), make the build directory for the
+ -- corresponding ttc file
+diff -ruN a/src/Core/Hash.idr b/src/Core/Hash.idr
+--- a/src/Core/Hash.idr	2026-10-15 11:02:48
++++ b/src/Core/Hash.idr	2026-10-15 11:02:48
+@@ -153,34 +153,67 @@
+ Hashable (Var vars) where
+   hashWithSalt h (MkVar {varIdx = i} _) = hashWithSalt h i
+ 
++-- A term's hash is the one its nodes' instances would give, each kind of
++-- node that holds terms hashed by a function of its own, so that every
++-- recursive call is on a part of its argument.
+ mutual
+-  export
+-  Hashable (Term vars) where
+-    hashWithSalt h (Local fc x idx y)
+-        = h `hashWithSalt` 0 `hashWithSalt` idx
+-    hashWithSalt h (Ref fc x name)
+-        = h `hashWithSalt` 1 `hashWithSalt` name
+-    hashWithSalt h (Meta fc x y xs)
+-        = h `hashWithSalt` 2 `hashWithSalt` y `hashWithSalt` xs
+-    hashWithSalt h (Bind fc x b scope)
+-        = h `hashWithSalt` 3 `hashWithSalt` b `hashWithSalt` scope
+-    hashWithSalt h (App fc fn arg)
+-        = h `hashWithSalt` 4 `hashWithSalt` fn `hashWithSalt` arg
+-    hashWithSalt h (As fc _ nm pat)
+-        = h `hashWithSalt` 5 `hashWithSalt` nm `hashWithSalt` pat
+-    hashWithSalt h (TDelayed fc x y)
+-        = h `hashWithSalt` 6 `hashWithSalt` y
+-    hashWithSalt h (TDelay fc x t y)
+-        = h `hashWithSalt` 7 `hashWithSalt` t `hashWithSalt` y
+-    hashWithSalt h (TForce fc r x)
+-        = h `hashWithSalt` 8 `hashWithSalt` x
+-    hashWithSalt h (PrimVal fc c)
+-        = h `hashWithSalt` 9 `hashWithSalt` (show c)
+-    hashWithSalt h (Erased fc _)
+-        = hashWithSalt h 10
+-    hashWithSalt h (TType fc u)
+-        = hashWithSalt h 11 `hashWithSalt` u
++  hashPi : Int -> PiInfo (Term vars) -> Int
++  hashPi h Implicit = hashWithSalt h 0
++  hashPi h Explicit = hashWithSalt h 1
++  hashPi h AutoImplicit = hashWithSalt h 2
++  hashPi h (DefImplicit t) = hashTerm (h `hashWithSalt` 3) t
+ 
++  hashBinder : Int -> Binder (Term vars) -> Int
++  hashBinder h (Lam _ c p ty)
++      = hashTerm (hashPi (h `hashWithSalt` 0 `hashWithSalt` c) p) ty
++  hashBinder h (Let _ c val ty)
++      = hashTerm (hashTerm (h `hashWithSalt` 1 `hashWithSalt` c) val) ty
++  hashBinder h (Pi _ c p ty)
++      = hashTerm (hashPi (h `hashWithSalt` 2 `hashWithSalt` c) p) ty
++  hashBinder h (PVar _ c p ty)
++      = hashTerm (hashPi (h `hashWithSalt` 3 `hashWithSalt` c) p) ty
++  hashBinder h (PLet _ c val ty)
++      = hashTerm (hashTerm (h `hashWithSalt` 4 `hashWithSalt` c) val) ty
++  hashBinder h (PVTy _ c ty)
++      = hashTerm (h `hashWithSalt` 5 `hashWithSalt` c) ty
++
++  -- As a list hashes: each element's own hash in turn.
++  hashTerms : Int -> List (Term vars) -> Int
++  hashTerms h [] = abs h
++  hashTerms h (t :: ts) = hashTerms (h * 33 + hashTerm 5381 t) ts
++
++  total
++  hashTerm : Int -> Term vars -> Int
++  hashTerm h (Local fc x idx y)
++      = h `hashWithSalt` 0 `hashWithSalt` idx
++  hashTerm h (Ref fc x name)
++      = h `hashWithSalt` 1 `hashWithSalt` name
++  hashTerm h (Meta fc x y xs)
++      = hashTerms (h `hashWithSalt` 2 `hashWithSalt` y) xs
++  hashTerm h (Bind fc x b scope)
++      = hashTerm (hashBinder (h `hashWithSalt` 3) b) scope
++  hashTerm h (App fc fn arg)
++      = hashTerm (hashTerm (h `hashWithSalt` 4) fn) arg
++  hashTerm h (As fc _ nm pat)
++      = hashTerm (hashTerm (h `hashWithSalt` 5) nm) pat
++  hashTerm h (TDelayed fc x y)
++      = hashTerm (h `hashWithSalt` 6) y
++  hashTerm h (TDelay fc x t y)
++      = hashTerm (hashTerm (h `hashWithSalt` 7) t) y
++  hashTerm h (TForce fc r x)
++      = hashTerm (h `hashWithSalt` 8) x
++  hashTerm h (PrimVal fc c)
++      = h `hashWithSalt` 9 `hashWithSalt` (show c)
++  hashTerm h (Erased fc _)
++      = hashWithSalt h 10
++  hashTerm h (TType fc u)
++      = hashWithSalt h 11 `hashWithSalt` u
++
++export
++Hashable (Term vars) where
++  hashWithSalt = hashTerm
++
++mutual
+   export
+   Hashable Pat where
+     hashWithSalt h (PAs fc nm pat)
+diff -ruN a/src/Core/Normalise/Eval.idr b/src/Core/Normalise/Eval.idr
+--- a/src/Core/Normalise/Eval.idr	2026-10-15 11:02:48
++++ b/src/Core/Normalise/Eval.idr	2026-10-15 11:02:49
+@@ -71,24 +71,6 @@
+     getLocal (S idx) (Later p) (_ :: locs) = getLocal idx p locs
+ mkClosure opts locs env tm = MkClosure opts locs env tm
+ 
+-updateLimit : NameType -> Name -> EvalOpts -> Core (Maybe EvalOpts)
+-updateLimit Func n opts
+-    = pure $ if isNil (reduceLimit opts)
+-         then Just opts
+-         else case lookup n (reduceLimit opts) of
+-                   Nothing => Nothing
+-                   Just Z => Nothing
+-                   Just (S k) =>
+-                      Just ({ reduceLimit $= set n k } opts)
+-  where
+-    set : Name -> Nat -> List (Name, Nat) -> List (Name, Nat)
+-    set n v [] = []
+-    set n v ((x, l) :: xs)
+-        = if x == n
+-             then (x, v) :: xs
+-             else (x, l) :: set n v xs
+-updateLimit t n opts = pure (Just opts)
+-
+ data CaseResult a
+      = Result a
+      | NoMatch -- case alternative didn't match anything
+@@ -291,7 +273,7 @@
+         = do -- logC "eval.ref.bound" 50 $ do fn' <- toFullNames fn
+              --                              pure $ "Found bound variable: " ++ show fn'
+              pure def
+-    evalRef env meta fc nt@Func n stk def
++    evalRef env meta fc Func n stk def
+         = do -- logC "eval.ref" 50 $ do n' <- toFullNames n
+              --                        pure $ "Found function: " ++ show n'
+              Just res <- lookupCtxtExact n (gamma defs)
+@@ -312,10 +294,7 @@
+                                                       pure $ "Stuck function: \{show n'}"
+              if redok
+                 then do
+-                   Just opts' <- updateLimit nt n topopts
+-                        | Nothing => do log "eval.stuck" 10 $ "Function \{show n} past reduction limit"
+-                                        pure def -- name is past reduction limit
+-                   nf <- evalDef env opts' meta fc
++                   nf <- evalDef env topopts meta fc
+                            (multiplicity res) (definition res) (flags res) stk def
+                    -- logC "eval.ref" 50 $ do n' <- toFullNames n
+                    --                         nf <- toFullNames nf
+@@ -528,13 +507,7 @@
+                                                 def <- toFullNames def
+                                                 pure "evalTree failed on \{show def}"
+                                               pure def
+-                               case fuel opts of
+-                                    Nothing => evalWithOpts defs opts env newLoc res stk'
+-                                    Just Z => log "eval.def.stuck" 50 "Recursion depth limit exceeded"
+-                                              >> pure def
+-                                    Just (S k) =>
+-                                        do let opts' = { fuel := Just k } opts
+-                                           evalWithOpts defs opts' env newLoc res stk'
++                               evalWithOpts defs opts env newLoc res stk'
+              else do -- logC "eval.def.stuck" 50 $ do
+                      --   def <- toFullNames def
+                      --   pure $ unlines [ "Refusing to reduce \{show def}:"
+diff -ruN a/src/Core/TT/Term.idr b/src/Core/TT/Term.idr
+--- a/src/Core/TT/Term.idr	2026-10-15 11:02:48
++++ b/src/Core/TT/Term.idr	2026-10-15 11:02:48
+@@ -130,31 +130,63 @@
+ ------------------------------------------------------------------------
+ -- Weakening
+ 
+-export covering
+-insertNames : GenWeakenable Term
+-insertNames out ns (Local fc r idx prf)
+-   = let MkNVar prf' = insertNVarNames out ns (MkNVar prf) in
+-     Local fc r _ prf'
+-insertNames out ns (Ref fc nt name) = Ref fc nt name
+-insertNames out ns (Meta fc name idx args)
+-    = Meta fc name idx (map (insertNames out ns) args)
+-insertNames out ns (Bind fc x b scope)
+-    = Bind fc x (assert_total (map (insertNames out ns) b))
+-           (insertNames (suc out) ns scope)
+-insertNames out ns (App fc fn arg)
+-    = App fc (insertNames out ns fn) (insertNames out ns arg)
+-insertNames out ns (As fc s as tm)
+-    = As fc s (insertNames out ns as) (insertNames out ns tm)
+-insertNames out ns (TDelayed fc r ty) = TDelayed fc r (insertNames out ns ty)
+-insertNames out ns (TDelay fc r ty tm)
+-    = TDelay fc r (insertNames out ns ty) (insertNames out ns tm)
+-insertNames out ns (TForce fc r tm) = TForce fc r (insertNames out ns tm)
+-insertNames out ns (PrimVal fc c) = PrimVal fc c
+-insertNames out ns (Erased fc Impossible) = Erased fc Impossible
+-insertNames out ns (Erased fc Placeholder) = Erased fc Placeholder
+-insertNames out ns (Erased fc (Dotted t)) = Erased fc (Dotted (insertNames out ns t))
+-insertNames out ns (TType fc u) = TType fc u
++-- Each kind of node a term holds terms in is traversed by a function of
++-- its own, so that every recursive call is on a part of its argument.
++mutual
++  insertNamesPi : {0 outer, ns, local : Scope} ->
++                  SizeOf local -> SizeOf ns ->
++                  PiInfo (Term (local ++ outer)) -> PiInfo (Term (local ++ (ns ++ outer)))
++  insertNamesPi out ns Implicit = Implicit
++  insertNamesPi out ns Explicit = Explicit
++  insertNamesPi out ns AutoImplicit = AutoImplicit
++  insertNamesPi out ns (DefImplicit t) = DefImplicit (insertNames out ns t)
+ 
++  insertNamesBinder : {0 outer, ns, local : Scope} ->
++                      SizeOf local -> SizeOf ns ->
++                      Binder (Term (local ++ outer)) -> Binder (Term (local ++ (ns ++ outer)))
++  insertNamesBinder out ns (Lam fc c p ty)
++      = Lam fc c (insertNamesPi out ns p) (insertNames out ns ty)
++  insertNamesBinder out ns (Let fc c val ty)
++      = Let fc c (insertNames out ns val) (insertNames out ns ty)
++  insertNamesBinder out ns (Pi fc c p ty)
++      = Pi fc c (insertNamesPi out ns p) (insertNames out ns ty)
++  insertNamesBinder out ns (PVar fc c p ty)
++      = PVar fc c (insertNamesPi out ns p) (insertNames out ns ty)
++  insertNamesBinder out ns (PLet fc c val ty)
++      = PLet fc c (insertNames out ns val) (insertNames out ns ty)
++  insertNamesBinder out ns (PVTy fc c ty) = PVTy fc c (insertNames out ns ty)
++
++  insertNamesTerms : {0 outer, ns, local : Scope} ->
++                     SizeOf local -> SizeOf ns ->
++                     List (Term (local ++ outer)) -> List (Term (local ++ (ns ++ outer)))
++  insertNamesTerms out ns [] = []
++  insertNamesTerms out ns (t :: ts) = insertNames out ns t :: insertNamesTerms out ns ts
++
++  export
++  insertNames : GenWeakenable Term
++  insertNames out ns (Local fc r idx prf)
++     = let MkNVar prf' = insertNVarNames out ns (MkNVar prf) in
++       Local fc r _ prf'
++  insertNames out ns (Ref fc nt name) = Ref fc nt name
++  insertNames out ns (Meta fc name idx args)
++      = Meta fc name idx (insertNamesTerms out ns args)
++  insertNames out ns (Bind fc x b scope)
++      = Bind fc x (insertNamesBinder out ns b)
++             (insertNames (suc out) ns scope)
++  insertNames out ns (App fc fn arg)
++      = App fc (insertNames out ns fn) (insertNames out ns arg)
++  insertNames out ns (As fc s as tm)
++      = As fc s (insertNames out ns as) (insertNames out ns tm)
++  insertNames out ns (TDelayed fc r ty) = TDelayed fc r (insertNames out ns ty)
++  insertNames out ns (TDelay fc r ty tm)
++      = TDelay fc r (insertNames out ns ty) (insertNames out ns tm)
++  insertNames out ns (TForce fc r tm) = TForce fc r (insertNames out ns tm)
++  insertNames out ns (PrimVal fc c) = PrimVal fc c
++  insertNames out ns (Erased fc Impossible) = Erased fc Impossible
++  insertNames out ns (Erased fc Placeholder) = Erased fc Placeholder
++  insertNames out ns (Erased fc (Dotted t)) = Erased fc (Dotted (insertNames out ns t))
++  insertNames out ns (TType fc u) = TType fc u
++
+ export
+ compatTerm : CompatibleVars xs ys -> Term xs -> Term ys
+ compatTerm compat tm = believe_me tm -- no names in term, so it's identity
+@@ -184,21 +216,29 @@
+ mutual
+   export
+   shrinkPi : Shrinkable (PiInfo . Term)
+-  shrinkPi pinfo th
+-    = assert_total
+-    $ traverse (\ t => shrinkTerm t th) pinfo
++  shrinkPi Implicit th = Just Implicit
++  shrinkPi Explicit th = Just Explicit
++  shrinkPi AutoImplicit th = Just AutoImplicit
++  shrinkPi (DefImplicit t) th = DefImplicit <$> shrinkTerm t th
+ 
+   export
+   shrinkBinder : Shrinkable (Binder . Term)
+-  shrinkBinder binder th
+-    = assert_total
+-    $ traverse (\ t => shrinkTerm t th) binder
++  shrinkBinder (Lam fc c p ty) th
++      = Just (Lam fc c !(shrinkPi p th) !(shrinkTerm ty th))
++  shrinkBinder (Let fc c val ty) th
++      = Just (Let fc c !(shrinkTerm val th) !(shrinkTerm ty th))
++  shrinkBinder (Pi fc c p ty) th
++      = Just (Pi fc c !(shrinkPi p th) !(shrinkTerm ty th))
++  shrinkBinder (PVar fc c p ty) th
++      = Just (PVar fc c !(shrinkPi p th) !(shrinkTerm ty th))
++  shrinkBinder (PLet fc c val ty) th
++      = Just (PLet fc c !(shrinkTerm val th) !(shrinkTerm ty th))
++  shrinkBinder (PVTy fc c ty) th = PVTy fc c <$> shrinkTerm ty th
+ 
+   export
+   shrinkTerms : Shrinkable (List . Term)
+-  shrinkTerms ts th
+-    = assert_total
+-    $ traverse (\ t => shrinkTerm t th) ts
++  shrinkTerms [] th = Just []
++  shrinkTerms (t :: ts) th = Just (!(shrinkTerm t th) :: !(shrinkTerms ts th))
+ 
+   shrinkTerm : Shrinkable Term
+   shrinkTerm (Local fc r idx loc) prf
+@@ -229,15 +269,24 @@
+ mutual
+   export
+   thinPi : Thinnable (PiInfo . Term)
+-  thinPi pinfo th = assert_total $ map (\ t => thinTerm t th) pinfo
++  thinPi Implicit th = Implicit
++  thinPi Explicit th = Explicit
++  thinPi AutoImplicit th = AutoImplicit
++  thinPi (DefImplicit t) th = DefImplicit (thinTerm t th)
+ 
+   export
+   thinBinder : Thinnable (Binder . Term)
+-  thinBinder binder th = assert_total $ map (\ t => thinTerm t th) binder
++  thinBinder (Lam fc c p ty) th = Lam fc c (thinPi p th) (thinTerm ty th)
++  thinBinder (Let fc c val ty) th = Let fc c (thinTerm val th) (thinTerm ty th)
++  thinBinder (Pi fc c p ty) th = Pi fc c (thinPi p th) (thinTerm ty th)
++  thinBinder (PVar fc c p ty) th = PVar fc c (thinPi p th) (thinTerm ty th)
++  thinBinder (PLet fc c val ty) th = PLet fc c (thinTerm val th) (thinTerm ty th)
++  thinBinder (PVTy fc c ty) th = PVTy fc c (thinTerm ty th)
+ 
+   export
+   thinTerms : Thinnable (List . Term)
+-  thinTerms ts th = assert_total $ map (\ t => thinTerm t th) ts
++  thinTerms [] th = []
++  thinTerms (t :: ts) th = thinTerm t th :: thinTerms ts th
+ 
+   thinTerm : Thinnable Term
+   thinTerm (Local fc x idx y) th
+@@ -263,7 +312,7 @@
+ 
+ export
+ GenWeaken Term where
+-  genWeakenNs = assert_total $ insertNames
++  genWeakenNs = insertNames
+ 
+ export
+ %hint
+@@ -352,46 +401,44 @@
+             else nm
+   restoreNS ns nm = nm
+ 
+-export covering
+-StripNamespace (Term vars) where
+-  trimNS ns (Ref fc x nm)
+-      = Ref fc x (trimNS ns nm)
+-  trimNS ns (Meta fc x y xs)
+-      = Meta fc x y (map (trimNS ns) xs)
+-  trimNS ns (Bind fc x b scope)
+-      = Bind fc x (map (trimNS ns) b) (trimNS ns scope)
+-  trimNS ns (App fc fn arg)
+-      = App fc (trimNS ns fn) (trimNS ns arg)
+-  trimNS ns (As fc s p tm)
+-      = As fc s (trimNS ns p) (trimNS ns tm)
+-  trimNS ns (TDelayed fc x y)
+-      = TDelayed fc x (trimNS ns y)
+-  trimNS ns (TDelay fc x t y)
+-      = TDelay fc x (trimNS ns t) (trimNS ns y)
+-  trimNS ns (TForce fc r y)
+-      = TForce fc r (trimNS ns y)
+-  trimNS ns tm = tm
++-- The term with `f` applied to the name of every reference but those in a
++-- dotted pattern, each kind of node that holds terms traversed by a
++-- function of its own, so that every recursive call is on a part of its
++-- argument.
++mutual
++  onRefsPi : (Name -> Name) -> PiInfo (Term vars) -> PiInfo (Term vars)
++  onRefsPi f (DefImplicit t) = DefImplicit (onRefs f t)
++  onRefsPi f p = p
+ 
+-  restoreNS ns (Ref fc x nm)
+-      = Ref fc x (restoreNS ns nm)
+-  restoreNS ns (Meta fc x y xs)
+-      = Meta fc x y (map (restoreNS ns) xs)
+-  restoreNS ns (Bind fc x b scope)
+-      = Bind fc x (map (restoreNS ns) b) (restoreNS ns scope)
+-  restoreNS ns (App fc fn arg)
+-      = App fc (restoreNS ns fn) (restoreNS ns arg)
+-  restoreNS ns (As fc s p tm)
+-      = As fc s (restoreNS ns p) (restoreNS ns tm)
+-  restoreNS ns (TDelayed fc x y)
+-      = TDelayed fc x (restoreNS ns y)
+-  restoreNS ns (TDelay fc x t y)
+-      = TDelay fc x (restoreNS ns t) (restoreNS ns y)
+-  restoreNS ns (TForce fc r y)
+-      = TForce fc r (restoreNS ns y)
+-  restoreNS ns tm = tm
++  onRefsBinder : (Name -> Name) -> Binder (Term vars) -> Binder (Term vars)
++  onRefsBinder f (Lam fc c p ty) = Lam fc c (onRefsPi f p) (onRefs f ty)
++  onRefsBinder f (Let fc c val ty) = Let fc c (onRefs f val) (onRefs f ty)
++  onRefsBinder f (Pi fc c p ty) = Pi fc c (onRefsPi f p) (onRefs f ty)
++  onRefsBinder f (PVar fc c p ty) = PVar fc c (onRefsPi f p) (onRefs f ty)
++  onRefsBinder f (PLet fc c val ty) = PLet fc c (onRefs f val) (onRefs f ty)
++  onRefsBinder f (PVTy fc c ty) = PVTy fc c (onRefs f ty)
+ 
++  onRefsTerms : (Name -> Name) -> List (Term vars) -> List (Term vars)
++  onRefsTerms f [] = []
++  onRefsTerms f (t :: ts) = onRefs f t :: onRefsTerms f ts
+ 
++  onRefs : (Name -> Name) -> Term vars -> Term vars
++  onRefs f (Ref fc x nm) = Ref fc x (f nm)
++  onRefs f (Meta fc x y xs) = Meta fc x y (onRefsTerms f xs)
++  onRefs f (Bind fc x b scope) = Bind fc x (onRefsBinder f b) (onRefs f scope)
++  onRefs f (App fc fn arg) = App fc (onRefs f fn) (onRefs f arg)
++  onRefs f (As fc s p tm) = As fc s (onRefs f p) (onRefs f tm)
++  onRefs f (TDelayed fc x y) = TDelayed fc x (onRefs f y)
++  onRefs f (TDelay fc x t y) = TDelay fc x (onRefs f t) (onRefs f y)
++  onRefs f (TForce fc r y) = TForce fc r (onRefs f y)
++  onRefs f tm = tm
++
+ export
++StripNamespace (Term vars) where
++  trimNS ns = onRefs (trimNS ns)
++  restoreNS ns = onRefs (restoreNS ns)
++
++export
+ isErased : Term vars -> Bool
+ isErased (Erased {}) = True
+ isErased _ = False
+@@ -513,46 +560,60 @@
+ withPiInfo AutoImplicit tm = "{auto " ++ tm ++ "}"
+ withPiInfo (DefImplicit t) tm = "{default " ++ show t ++ " " ++ tm ++ "}"
+ 
++-- A term is shown as an application of its head to its arguments; each
++-- kind of node that holds terms is shown by a function of its own, so that
++-- every recursive call is on a part of its argument.
++mutual
++  showPiInfo : {vars : _} -> PiInfo (Term vars) -> String -> String
++  showPiInfo Explicit tm = "(" ++ tm ++ ")"
++  showPiInfo Implicit tm = "{" ++ tm ++ "}"
++  showPiInfo AutoImplicit tm = "{auto " ++ tm ++ "}"
++  showPiInfo (DefImplicit t) tm = "{default " ++ showTerm t ++ " " ++ tm ++ "}"
++
++  showTerms : {vars : _} -> List (Term vars) -> List String
++  showTerms [] = []
++  showTerms (t :: ts) = showTerm t :: showTerms ts
++
++  -- An application but its last argument: its head and the arguments
++  -- before, separated by spaces.
++  showSpine : {vars : _} -> Term vars -> String
++  showSpine (App _ f a) = showSpine f ++ " " ++ showTerm a
++  showSpine t = showTerm t
++
++  export
++  showTerm : {vars : _} -> Term vars -> String
++  showTerm (App _ f a) = "(" ++ showSpine f ++ " " ++ showTerm a ++ ")"
++  showTerm (Local _ c idx p) = show (nameAt p) ++ "[" ++ show idx ++ "]"
++  showTerm (Ref _ _ n) = show n
++  showTerm (Meta _ n _ args)
++      = "?" ++ show n ++ "_" ++ "[" ++ concat (intersperse ", " (showTerms args)) ++ "]"
++  showTerm (Bind _ x (Lam _ c info ty) sc)
++      = "\\" ++ showPiInfo info (showCount c ++ show x ++ " : " ++ showTerm ty) ++
++        " => " ++ showTerm sc
++  showTerm (Bind _ x (Let _ c val ty) sc)
++      = "let " ++ showCount c ++ show x ++ " : " ++ showTerm ty ++
++        " = " ++ showTerm val ++ " in " ++ showTerm sc
++  showTerm (Bind _ x (Pi _ c info ty) sc)
++      = showPiInfo info (showCount c ++ show x ++ " : " ++ showTerm ty) ++
++        " -> " ++ showTerm sc
++  showTerm (Bind _ x (PVar _ c info ty) sc)
++      = showPiInfo info ("pat " ++ showCount c ++ show x ++ " : " ++ showTerm ty) ++
++        " => " ++ showTerm sc
++  showTerm (Bind _ x (PLet _ c val ty) sc)
++      = "plet " ++ showCount c ++ show x ++ " : " ++ showTerm ty ++
++        " = " ++ showTerm val ++ " in " ++ showTerm sc
++  showTerm (Bind _ x (PVTy _ c ty) sc)
++      = "pty " ++ showCount c ++ show x ++ " : " ++ showTerm ty ++
++        " => " ++ showTerm sc
++  showTerm (As _ _ n tm) = showTerm n ++ "@" ++ showTerm tm
++  showTerm (TDelayed _ _ tm) = "%Delayed " ++ showTerm tm
++  showTerm (TDelay _ _ _ tm) = "%Delay " ++ showTerm tm
++  showTerm (TForce _ _ tm) = "%Force " ++ showTerm tm
++  showTerm (PrimVal _ c) = show c
++  showTerm (Erased _ (Dotted t)) = ".(" ++ showTerm t ++ ")"
++  showTerm (Erased {}) = "[__]"
++  showTerm (TType _ u) = "Type"
++
+ export
+-covering
+ {vars : _} -> Show (Term vars) where
+-  show tm = let (fn, args) = getFnArgs tm in showApp fn args
+-    where
+-      showApp : {vars : _} -> Term vars -> List (Term vars) -> String
+-      showApp (Local _ c idx p) []
+-         = show (nameAt p) ++ "[" ++ show idx ++ "]"
+-
+-      showApp (Ref _ _ n) [] = show n
+-      showApp (Meta _ n _ args) []
+-          = "?" ++ show n ++ "_" ++ show args
+-      showApp (Bind _ x (Lam _ c info ty) sc) []
+-          = "\\" ++ withPiInfo info (showCount c ++ show x ++ " : " ++ show ty) ++
+-            " => " ++ show sc
+-      showApp (Bind _ x (Let _ c val ty) sc) []
+-          = "let " ++ showCount c ++ show x ++ " : " ++ show ty ++
+-            " = " ++ show val ++ " in " ++ show sc
+-      showApp (Bind _ x (Pi _ c info ty) sc) []
+-          = withPiInfo info (showCount c ++ show x ++ " : " ++ show ty) ++
+-            " -> " ++ show sc
+-      showApp (Bind _ x (PVar _ c info ty) sc) []
+-          = withPiInfo info ("pat " ++ showCount c ++ show x ++ " : " ++ show ty) ++
+-            " => " ++ show sc
+-      showApp (Bind _ x (PLet _ c val ty) sc) []
+-          = "plet " ++ showCount c ++ show x ++ " : " ++ show ty ++
+-            " = " ++ show val ++ " in " ++ show sc
+-      showApp (Bind _ x (PVTy _ c ty) sc) []
+-          = "pty " ++ showCount c ++ show x ++ " : " ++ show ty ++
+-            " => " ++ show sc
+-      showApp (App {}) [] = "[can't happen]"
+-      showApp (As _ _ n tm) [] = show n ++ "@" ++ show tm
+-      showApp (TDelayed _ _ tm) [] = "%Delayed " ++ show tm
+-      showApp (TDelay _ _ _ tm) [] = "%Delay " ++ show tm
+-      showApp (TForce _ _ tm) [] = "%Force " ++ show tm
+-      showApp (PrimVal _ c) [] = show c
+-      showApp (Erased _ (Dotted t)) [] = ".(" ++ show t ++ ")"
+-      showApp (Erased {}) [] = "[__]"
+-      showApp (TType _ u) [] = "Type"
+-      showApp _ [] = "???"
+-      showApp f args = "(" ++ assert_total (show f) ++ " " ++
+-                        assert_total (showSep " " (map show args))
+-                     ++ ")"
++  show = showTerm
+diff -ruN a/src/Core/TT.idr b/src/Core/TT.idr
+--- a/src/Core/TT.idr	2026-10-15 11:02:48
++++ b/src/Core/TT.idr	2026-10-15 11:02:48
+@@ -420,40 +420,69 @@
+          then Just (weakenNs p (mkVarChiply q))
+          else resolveRef p (q :< new) bs fc n
+ 
+-mkLocals : SizeOf outer -> Bounds bound ->
+-           Term (outer ++ vars) -> Term (outer ++ (bound ++ vars))
+-mkLocals outer bs (Local fc r idx p)
+-    = let MkNVar p' = addVars outer bs (MkNVar p) in Local fc r _ p'
+-mkLocals outer bs (Ref fc Bound name)
+-    = fromMaybe (Ref fc Bound name) $ do
+-        MkVar p <- resolveRef outer [<] bs fc name
+-        pure (Local fc Nothing _ p)
+-mkLocals outer bs (Ref fc nt name)
+-    = Ref fc nt name
+-mkLocals outer bs (Meta fc name y xs)
+-    = fromMaybe (Meta fc name y (map (mkLocals outer bs) xs)) $ do
+-        MkVar p <- resolveRef outer [<] bs fc name
+-        pure (Local fc Nothing _ p)
+-mkLocals outer bs (Bind fc x b scope)
+-    = Bind fc x (map (mkLocals outer bs) b)
+-           (mkLocals (suc outer) bs scope)
+-mkLocals outer bs (App fc fn arg)
+-    = App fc (mkLocals outer bs fn) (mkLocals outer bs arg)
+-mkLocals outer bs (As fc s as tm)
+-    = As fc s (mkLocals outer bs as) (mkLocals outer bs tm)
+-mkLocals outer bs (TDelayed fc x y)
+-    = TDelayed fc x (mkLocals outer bs y)
+-mkLocals outer bs (TDelay fc x t y)
+-    = TDelay fc x (mkLocals outer bs t) (mkLocals outer bs y)
+-mkLocals outer bs (TForce fc r x)
+-    = TForce fc r (mkLocals outer bs x)
+-mkLocals outer bs (PrimVal fc c) = PrimVal fc c
+-mkLocals outer bs (Erased fc Impossible) = Erased fc Impossible
+-mkLocals outer bs (Erased fc Placeholder) = Erased fc Placeholder
+-mkLocals outer bs (Erased fc (Dotted t)) = Erased fc (Dotted (mkLocals outer bs t))
+-mkLocals outer bs (TType fc u) = TType fc u
++-- Each kind of node that holds terms is traversed by a function of its
++-- own, so that every recursive call is on a part of its argument.
++mutual
++  mkLocalsPi : SizeOf outer -> Bounds bound ->
++               PiInfo (Term (outer ++ vars)) -> PiInfo (Term (outer ++ (bound ++ vars)))
++  mkLocalsPi outer bs Implicit = Implicit
++  mkLocalsPi outer bs Explicit = Explicit
++  mkLocalsPi outer bs AutoImplicit = AutoImplicit
++  mkLocalsPi outer bs (DefImplicit t) = DefImplicit (mkLocals outer bs t)
+ 
+-export
++  mkLocalsBinder : SizeOf outer -> Bounds bound ->
++                   Binder (Term (outer ++ vars)) -> Binder (Term (outer ++ (bound ++ vars)))
++  mkLocalsBinder outer bs (Lam fc c p ty)
++      = Lam fc c (mkLocalsPi outer bs p) (mkLocals outer bs ty)
++  mkLocalsBinder outer bs (Let fc c val ty)
++      = Let fc c (mkLocals outer bs val) (mkLocals outer bs ty)
++  mkLocalsBinder outer bs (Pi fc c p ty)
++      = Pi fc c (mkLocalsPi outer bs p) (mkLocals outer bs ty)
++  mkLocalsBinder outer bs (PVar fc c p ty)
++      = PVar fc c (mkLocalsPi outer bs p) (mkLocals outer bs ty)
++  mkLocalsBinder outer bs (PLet fc c val ty)
++      = PLet fc c (mkLocals outer bs val) (mkLocals outer bs ty)
++  mkLocalsBinder outer bs (PVTy fc c ty) = PVTy fc c (mkLocals outer bs ty)
++
++  mkLocalsTerms : SizeOf outer -> Bounds bound ->
++                  List (Term (outer ++ vars)) -> List (Term (outer ++ (bound ++ vars)))
++  mkLocalsTerms outer bs [] = []
++  mkLocalsTerms outer bs (t :: ts) = mkLocals outer bs t :: mkLocalsTerms outer bs ts
++
++  mkLocals : SizeOf outer -> Bounds bound ->
++             Term (outer ++ vars) -> Term (outer ++ (bound ++ vars))
++  mkLocals outer bs (Local fc r idx p)
++      = let MkNVar p' = addVars outer bs (MkNVar p) in Local fc r _ p'
++  mkLocals outer bs (Ref fc Bound name)
++      = fromMaybe (Ref fc Bound name) $ do
++          MkVar p <- resolveRef outer [<] bs fc name
++          pure (Local fc Nothing _ p)
++  mkLocals outer bs (Ref fc nt name)
++      = Ref fc nt name
++  mkLocals outer bs (Meta fc name y xs)
++      = fromMaybe (Meta fc name y (mkLocalsTerms outer bs xs)) $ do
++          MkVar p <- resolveRef outer [<] bs fc name
++          pure (Local fc Nothing _ p)
++  mkLocals outer bs (Bind fc x b scope)
++      = Bind fc x (mkLocalsBinder outer bs b)
++             (mkLocals (suc outer) bs scope)
++  mkLocals outer bs (App fc fn arg)
++      = App fc (mkLocals outer bs fn) (mkLocals outer bs arg)
++  mkLocals outer bs (As fc s as tm)
++      = As fc s (mkLocals outer bs as) (mkLocals outer bs tm)
++  mkLocals outer bs (TDelayed fc x y)
++      = TDelayed fc x (mkLocals outer bs y)
++  mkLocals outer bs (TDelay fc x t y)
++      = TDelay fc x (mkLocals outer bs t) (mkLocals outer bs y)
++  mkLocals outer bs (TForce fc r x)
++      = TForce fc r (mkLocals outer bs x)
++  mkLocals outer bs (PrimVal fc c) = PrimVal fc c
++  mkLocals outer bs (Erased fc Impossible) = Erased fc Impossible
++  mkLocals outer bs (Erased fc Placeholder) = Erased fc Placeholder
++  mkLocals outer bs (Erased fc (Dotted t)) = Erased fc (Dotted (mkLocals outer bs t))
++  mkLocals outer bs (TType fc u) = TType fc u
++
++export total
+ refsToLocals : Bounds bound -> Term vars -> Term (bound ++ vars)
+ refsToLocals None y = y
+ refsToLocals bs y = mkLocals zero  bs y
+@@ -464,93 +493,134 @@
+ refToLocal x new tm = refsToLocals (Add new x None) tm
+ 
+ -- Replace an explicit name with a term
+-export
+-substName : Name -> Term vars -> Term vars -> Term vars
+-substName x new (Ref fc nt name)
+-    = case nameEq x name of
+-           Nothing => Ref fc nt name
+-           Just Refl => new
+-substName x new (Meta fc n i xs)
+-    = Meta fc n i (map (substName x new) xs)
+ -- ASSUMPTION: When we substitute under binders, the name has always been
+ -- resolved to a Local, so no need to check that x isn't shadowing
+-substName x new (Bind fc y b scope)
+-    = Bind fc y (map (substName x new) b) (substName x (weaken new) scope)
+-substName x new (App fc fn arg)
+-    = App fc (substName x new fn) (substName x new arg)
+-substName x new (As fc s as pat)
+-    = As fc s as (substName x new pat)
+-substName x new (TDelayed fc y z)
+-    = TDelayed fc y (substName x new z)
+-substName x new (TDelay fc y t z)
+-    = TDelay fc y (substName x new t) (substName x new z)
+-substName x new (TForce fc r y)
+-    = TForce fc r (substName x new y)
+-substName x new tm = tm
++mutual
++  substNamePi : Name -> Term vars -> PiInfo (Term vars) -> PiInfo (Term vars)
++  substNamePi x new (DefImplicit t) = DefImplicit (substName x new t)
++  substNamePi x new p = p
+ 
+-export
+-addMetas : (usingResolved : Bool) -> NameMap Bool -> Term vars -> NameMap Bool
+-addMetas res ns (Local fc x idx y) = ns
+-addMetas res ns (Ref fc x name) = ns
+-addMetas res ns (Meta fc n i xs)
+-  = addMetaArgs (insert (ifThenElse res (Resolved i) n) False ns) xs
+-  where
+-    addMetaArgs : NameMap Bool -> List (Term vars) -> NameMap Bool
+-    addMetaArgs ns [] = ns
+-    addMetaArgs ns (t :: ts) = addMetaArgs (addMetas res ns t) ts
+-addMetas res ns (Bind fc x (Let _ c val ty) scope)
+-    = addMetas res (addMetas res (addMetas res ns val) ty) scope
+-addMetas res ns (Bind fc x b scope)
+-    = addMetas res (addMetas res ns (binderType b)) scope
+-addMetas res ns (App fc fn arg)
+-    = addMetas res (addMetas res ns fn) arg
+-addMetas res ns (As fc s as tm) = addMetas res ns tm
+-addMetas res ns (TDelayed fc x y) = addMetas res ns y
+-addMetas res ns (TDelay fc x t y)
+-    = addMetas res (addMetas res ns t) y
+-addMetas res ns (TForce fc r x) = addMetas res ns x
+-addMetas res ns (PrimVal fc c) = ns
+-addMetas res ns (Erased fc i) = foldr (flip $ addMetas res) ns i
+-addMetas res ns (TType fc u) = ns
++  substNameBinder : Name -> Term vars -> Binder (Term vars) -> Binder (Term vars)
++  substNameBinder x new (Lam fc c p ty)
++      = Lam fc c (substNamePi x new p) (substName x new ty)
++  substNameBinder x new (Let fc c val ty)
++      = Let fc c (substName x new val) (substName x new ty)
++  substNameBinder x new (Pi fc c p ty)
++      = Pi fc c (substNamePi x new p) (substName x new ty)
++  substNameBinder x new (PVar fc c p ty)
++      = PVar fc c (substNamePi x new p) (substName x new ty)
++  substNameBinder x new (PLet fc c val ty)
++      = PLet fc c (substName x new val) (substName x new ty)
++  substNameBinder x new (PVTy fc c ty) = PVTy fc c (substName x new ty)
+ 
++  substNameTerms : Name -> Term vars -> List (Term vars) -> List (Term vars)
++  substNameTerms x new [] = []
++  substNameTerms x new (t :: ts) = substName x new t :: substNameTerms x new ts
++
++  export total
++  substName : Name -> Term vars -> Term vars -> Term vars
++  substName x new (Ref fc nt name)
++      = if x == name then new else Ref fc nt name
++  substName x new (Meta fc n i xs)
++      = Meta fc n i (substNameTerms x new xs)
++  substName x new (Bind fc y b scope)
++      = Bind fc y (substNameBinder x new b) (substName x (weaken new) scope)
++  substName x new (App fc fn arg)
++      = App fc (substName x new fn) (substName x new arg)
++  substName x new (As fc s as pat)
++      = As fc s as (substName x new pat)
++  substName x new (TDelayed fc y z)
++      = TDelayed fc y (substName x new z)
++  substName x new (TDelay fc y t z)
++      = TDelay fc y (substName x new t) (substName x new z)
++  substName x new (TForce fc r y)
++      = TForce fc r (substName x new y)
++  substName x new tm = tm
++
++-- A binder is visited by its type, and a let's by its value too.
++mutual
++  addMetasArgs : (usingResolved : Bool) -> NameMap Bool -> List (Term vars) -> NameMap Bool
++  addMetasArgs res ns [] = ns
++  addMetasArgs res ns (t :: ts) = addMetasArgs res (addMetas res ns t) ts
++
++  export total
++  addMetas : (usingResolved : Bool) -> NameMap Bool -> Term vars -> NameMap Bool
++  addMetas res ns (Local fc x idx y) = ns
++  addMetas res ns (Ref fc x name) = ns
++  addMetas res ns (Meta fc n i xs)
++    = addMetasArgs res (insert (ifThenElse res (Resolved i) n) False ns) xs
++  addMetas res ns (Bind fc x (Let _ c val ty) scope)
++      = addMetas res (addMetas res (addMetas res ns val) ty) scope
++  addMetas res ns (Bind fc x (Lam _ _ _ ty) scope)
++      = addMetas res (addMetas res ns ty) scope
++  addMetas res ns (Bind fc x (Pi _ _ _ ty) scope)
++      = addMetas res (addMetas res ns ty) scope
++  addMetas res ns (Bind fc x (PVar _ _ _ ty) scope)
++      = addMetas res (addMetas res ns ty) scope
++  addMetas res ns (Bind fc x (PLet _ _ _ ty) scope)
++      = addMetas res (addMetas res ns ty) scope
++  addMetas res ns (Bind fc x (PVTy _ _ ty) scope)
++      = addMetas res (addMetas res ns ty) scope
++  addMetas res ns (App fc fn arg)
++      = addMetas res (addMetas res ns fn) arg
++  addMetas res ns (As fc s as tm) = addMetas res ns tm
++  addMetas res ns (TDelayed fc x y) = addMetas res ns y
++  addMetas res ns (TDelay fc x t y)
++      = addMetas res (addMetas res ns t) y
++  addMetas res ns (TForce fc r x) = addMetas res ns x
++  addMetas res ns (PrimVal fc c) = ns
++  addMetas res ns (Erased fc (Dotted t)) = addMetas res ns t
++  addMetas res ns (Erased fc _) = ns
++  addMetas res ns (TType fc u) = ns
++
+ -- Get the metavariable names in a term
+-export
++export total
+ getMetas : Term vars -> NameMap Bool
+ getMetas tm = addMetas False empty tm
+ 
+-export
+-addRefs : (underAssert : Bool) -> (aTotal : Name) ->
+-          NameMap Bool -> Term vars -> NameMap Bool
+-addRefs ua at ns (Local fc x idx y) = ns
+-addRefs ua at ns (Ref fc x name) = insert name ua ns
+-addRefs ua at ns (Meta fc n i xs)
+-    = addRefsArgs ns xs
+-  where
+-    addRefsArgs : NameMap Bool -> List (Term vars) -> NameMap Bool
+-    addRefsArgs ns [] = ns
+-    addRefsArgs ns (t :: ts) = addRefsArgs (addRefs ua at ns t) ts
+-addRefs ua at ns (Bind fc x (Let _ c val ty) scope)
+-    = addRefs ua at (addRefs ua at (addRefs ua at ns val) ty) scope
+-addRefs ua at ns (Bind fc x b scope)
+-    = addRefs ua at (addRefs ua at ns (binderType b)) scope
+-addRefs ua at ns (App _ (App _ (Ref fc _ name) x) y)
+-    = if name == at
+-         then addRefs True at (insert name True ns) y
+-         else addRefs ua at (addRefs ua at (insert name ua ns) x) y
+-addRefs ua at ns (App fc fn arg)
+-    = addRefs ua at (addRefs ua at ns fn) arg
+-addRefs ua at ns (As fc s as tm) = addRefs ua at ns tm
+-addRefs ua at ns (TDelayed fc x y) = addRefs ua at ns y
+-addRefs ua at ns (TDelay fc x t y)
+-    = addRefs ua at (addRefs ua at ns t) y
+-addRefs ua at ns (TForce fc r x) = addRefs ua at ns x
+-addRefs ua at ns (PrimVal fc c) = ns
+-addRefs ua at ns (Erased fc i) = foldr (flip $ addRefs ua at) ns i
+-addRefs ua at ns (TType fc u) = ns
++mutual
++  addRefsArgs : (underAssert : Bool) -> (aTotal : Name) ->
++                NameMap Bool -> List (Term vars) -> NameMap Bool
++  addRefsArgs ua at ns [] = ns
++  addRefsArgs ua at ns (t :: ts) = addRefsArgs ua at (addRefs ua at ns t) ts
+ 
++  export total
++  addRefs : (underAssert : Bool) -> (aTotal : Name) ->
++            NameMap Bool -> Term vars -> NameMap Bool
++  addRefs ua at ns (Local fc x idx y) = ns
++  addRefs ua at ns (Ref fc x name) = insert name ua ns
++  addRefs ua at ns (Meta fc n i xs) = addRefsArgs ua at ns xs
++  addRefs ua at ns (Bind fc x (Let _ c val ty) scope)
++      = addRefs ua at (addRefs ua at (addRefs ua at ns val) ty) scope
++  addRefs ua at ns (Bind fc x (Lam _ _ _ ty) scope)
++      = addRefs ua at (addRefs ua at ns ty) scope
++  addRefs ua at ns (Bind fc x (Pi _ _ _ ty) scope)
++      = addRefs ua at (addRefs ua at ns ty) scope
++  addRefs ua at ns (Bind fc x (PVar _ _ _ ty) scope)
++      = addRefs ua at (addRefs ua at ns ty) scope
++  addRefs ua at ns (Bind fc x (PLet _ _ _ ty) scope)
++      = addRefs ua at (addRefs ua at ns ty) scope
++  addRefs ua at ns (Bind fc x (PVTy _ _ ty) scope)
++      = addRefs ua at (addRefs ua at ns ty) scope
++  addRefs ua at ns (App _ (App _ (Ref fc _ name) x) y)
++      = if name == at
++           then addRefs True at (insert name True ns) y
++           else addRefs ua at (addRefs ua at (insert name ua ns) x) y
++  addRefs ua at ns (App fc fn arg)
++      = addRefs ua at (addRefs ua at ns fn) arg
++  addRefs ua at ns (As fc s as tm) = addRefs ua at ns tm
++  addRefs ua at ns (TDelayed fc x y) = addRefs ua at ns y
++  addRefs ua at ns (TDelay fc x t y)
++      = addRefs ua at (addRefs ua at ns t) y
++  addRefs ua at ns (TForce fc r x) = addRefs ua at ns x
++  addRefs ua at ns (PrimVal fc c) = ns
++  addRefs ua at ns (Erased fc (Dotted t)) = addRefs ua at ns t
++  addRefs ua at ns (Erased fc _) = ns
++  addRefs ua at ns (TType fc u) = ns
++
+ -- As above, but for references. Also flag whether a name is under an
+ -- 'assert_total' because we may need to know that in coverage/totality
+ -- checking
+-export
++export total
+ getRefs : (aTotal : Name) -> Term vars -> NameMap Bool
+ getRefs at tm = addRefs False at empty tm
+diff -ruN a/src/Core/TTC.idr b/src/Core/TTC.idr
+--- a/src/Core/TTC.idr	2026-10-15 11:02:48
++++ b/src/Core/TTC.idr	2026-10-15 11:02:49
+@@ -7,6 +7,9 @@
+ import Core.Env
+ import Core.Options
+ 
++import Control.WellFounded
++
++import Data.DPair
+ import Data.IOArray
+ import Data.List1
+ import Data.Vect
+@@ -75,43 +78,37 @@
+                      pure (MkVirtualFC f s e)
+              _ => corrupt "FC"
+ 
+-export
+-TTC Name where
+-  -- for efficiency reasons we do not encode UserName separately
+-  -- hence the nested pattern matches on UN (Basic/Hole/Field)
+-  toBuf (NS xs x) = do tag 0; toBuf xs; toBuf x
+-  toBuf (UN (Basic x)) = do tag 1; toBuf x
+-  toBuf (MN x y) = do tag 2; toBuf x; toBuf y
+-  toBuf (PV x y) = do tag 3; toBuf x; toBuf y
+-  toBuf (DN x y) = do tag 4; toBuf x; toBuf y
+-  toBuf (UN (Field x)) = do tag 5; toBuf x
+-  toBuf (Nested x y) = do tag 6; toBuf x; toBuf y
+-  toBuf (CaseBlock x y) = do tag 7; toBuf x; toBuf y
+-  toBuf (WithBlock x y) = do tag 8; toBuf x; toBuf y
+-  toBuf (Resolved x)
+-      = throw (InternalError ("Can't write resolved name " ++ show x))
+-  toBuf (UN Underscore) = tag 9
++-- Decoding a value that holds values of its own type is a recursion over
++-- the bytes left to read, which every part it decodes finds fewer
++-- (`fewer`): each decoder below is given those left when it began and their
++-- accessibility, and passes on to its parts those left after its tag.
+ 
+-  fromBuf
+-      = case !getTag of
++||| A name: a namespace's, a pattern variable's, a display name's or a
++||| nested name holds a name.
++total
++decodeName : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Name
++decodeName n (Access rec)
++    = do t <- getTag
++         Element m lt <- fewer n
++         case t of
+              0 => do xs <- fromBuf
+-                     x <- fromBuf
++                     x <- decodeName m (rec m lt)
+                      pure (NS xs x)
+              1 => do x <- fromBuf
+                      pure (UN $ Basic x)
+              2 => do x <- fromBuf
+                      y <- fromBuf
+                      pure (MN x y)
+-             3 => do x <- fromBuf
++             3 => do x <- decodeName m (rec m lt)
+                      y <- fromBuf
+                      pure (PV x y)
+              4 => do x <- fromBuf
+-                     y <- fromBuf
++                     y <- decodeName m (rec m lt)
+                      pure (DN x y)
+              5 => do x <- fromBuf
+                      pure (UN $ Field x)
+              6 => do x <- fromBuf
+-                     y <- fromBuf
++                     y <- decodeName m (rec m lt)
+                      pure (Nested x y)
+              7 => do x <- fromBuf
+                      y <- fromBuf
+@@ -123,6 +120,25 @@
+              _ => corrupt "Name"
+ 
+ export
++TTC Name where
++  -- for efficiency reasons we do not encode UserName separately
++  -- hence the nested pattern matches on UN (Basic/Hole/Field)
++  toBuf (NS xs x) = do tag 0; toBuf xs; toBuf x
++  toBuf (UN (Basic x)) = do tag 1; toBuf x
++  toBuf (MN x y) = do tag 2; toBuf x; toBuf y
++  toBuf (PV x y) = do tag 3; toBuf x; toBuf y
++  toBuf (DN x y) = do tag 4; toBuf x; toBuf y
++  toBuf (UN (Field x)) = do tag 5; toBuf x
++  toBuf (Nested x y) = do tag 6; toBuf x; toBuf y
++  toBuf (CaseBlock x y) = do tag 7; toBuf x; toBuf y
++  toBuf (WithBlock x y) = do tag 8; toBuf x; toBuf y
++  toBuf (Resolved x)
++      = throw (InternalError ("Can't write resolved name " ++ show x))
++  toBuf (UN Underscore) = tag 9
++
++  fromBuf = do n <- remaining; decodeName n (wellFounded n)
++
++export
+ TTC RigCount where
+   toBuf = elimSemi
+               (tag 0)
+@@ -299,125 +315,245 @@
+ mkPrf {n} {ns} Z = believe_me (First {n} {ns = n :: ns})
+ mkPrf {n} {ns} (S k) = believe_me (Later {m=n} (mkPrf {n} {ns} k))
+ 
++export
++TTC UseSide where
++  toBuf UseLeft = tag 0
++  toBuf UseRight = tag 1
++
++  fromBuf
++      = case !getTag of
++             0 => pure UseLeft
++             1 => pure UseRight
++             _ => corrupt "UseSide"
++
++-- A term and the parts of one, each as its instance below writes it.
+ mutual
+-  export
+-  {vars : _} -> TTC (Binder (Term vars)) where
+-    toBuf (Lam _ c x ty) = do tag 0; toBuf c; toBuf x; toBuf ty
+-    toBuf (Let _ c val ty) = do tag 1; toBuf c; toBuf val -- ; toBuf ty
+-    toBuf (Pi _ c x ty) = do tag 2; toBuf c; toBuf x; toBuf ty
+-    toBuf (PVar _ c p ty) = do tag 3; toBuf c; toBuf p; toBuf ty
+-    toBuf (PLet _ c val ty) = do tag 4; toBuf c; toBuf val -- ; toBuf ty
+-    toBuf (PVTy _ c ty) = do tag 5; toBuf c -- ; toBuf ty
++  total
++  decodePi : {vars : _} -> {auto b : Ref Bin Binary} ->
++             (n : Nat) -> (0 _ : Accessible LT n) -> Core (PiInfo (Term vars))
++  decodePi n (Access rec)
++      = do t <- getTag
++           Element m lt <- fewer n
++           case t of
++                0 => pure Implicit
++                1 => pure Explicit
++                2 => pure AutoImplicit
++                3 => do d <- decodeTerm m (rec m lt)
++                        pure (DefImplicit d)
++                _ => corrupt "PiInfo"
+ 
+-    fromBuf
+-        = case !getTag of
+-               0 => do c <- fromBuf; x <- fromBuf; ty <- fromBuf; pure (Lam emptyFC c x ty)
+-               1 => do c <- fromBuf; x <- fromBuf; pure (Let emptyFC c x (Erased emptyFC Placeholder))
+-               2 => do c <- fromBuf; x <- fromBuf; y <- fromBuf; pure (Pi emptyFC c x y)
+-               3 => do c <- fromBuf; p <- fromBuf; ty <- fromBuf; pure (PVar emptyFC c p ty)
+-               4 => do c <- fromBuf; x <- fromBuf; pure (PLet emptyFC c x (Erased emptyFC Placeholder))
+-               5 => do c <- fromBuf; pure (PVTy emptyFC c (Erased emptyFC Placeholder))
+-               _ => corrupt "Binder"
++  total
+ 
++  decodeBinder : {vars : _} -> {auto b : Ref Bin Binary} ->
++                 (n : Nat) -> (0 _ : Accessible LT n) -> Core (Binder (Term vars))
++  decodeBinder n (Access rec)
++      = do t <- getTag
++           Element m lt <- fewer n
++           case t of
++                0 => do c <- fromBuf
++                        x <- decodePi m (rec m lt)
++                        ty <- decodeTerm m (rec m lt)
++                        pure (Lam emptyFC c x ty)
++                1 => do c <- fromBuf
++                        x <- decodeTerm m (rec m lt)
++                        pure (Let emptyFC c x (Erased emptyFC Placeholder))
++                2 => do c <- fromBuf
++                        x <- decodePi m (rec m lt)
++                        y <- decodeTerm m (rec m lt)
++                        pure (Pi emptyFC c x y)
++                3 => do c <- fromBuf
++                        p <- decodePi m (rec m lt)
++                        ty <- decodeTerm m (rec m lt)
++                        pure (PVar emptyFC c p ty)
++                4 => do c <- fromBuf
++                        x <- decodeTerm m (rec m lt)
++                        pure (PLet emptyFC c x (Erased emptyFC Placeholder))
++                5 => do c <- fromBuf
++                        pure (PVTy emptyFC c (Erased emptyFC Placeholder))
++                _ => corrupt "Binder"
++
++  -- A list of terms as the list instance writes it: its length, then each
++  -- term, all within the bytes left after the length.
++  total
++  decodeTerms : {vars : _} -> {auto b : Ref Bin Binary} ->
++                (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
++  decodeTerms n (Access rec)
++      = do len <- fromBuf {a = Int}
++           Element m lt <- fewer n
++           decodeTermList [] (integerToNat (cast len)) m (rec m lt)
++
++  total
++
++  decodeTermList : {vars : _} -> {auto b : Ref Bin Binary} ->
++                   List (Term vars) -> (count : Nat) ->
++                   (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
++  decodeTermList ts Z n acc = pure (reverse ts)
++  decodeTermList ts (S k) n acc
++      = do t <- decodeTerm n acc
++           decodeTermList (t :: ts) k n acc
++
++  total
++
++  decodeTerm : {vars : _} -> {auto b : Ref Bin Binary} ->
++               (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
++  decodeTerm {vars} n (Access rec)
++      = do t <- getTag
++           Element m lt <- fewer n
++           case t of
++                0 => do c <- fromBuf
++                        idx <- fromBuf
++                        name <- maybe (corrupt "Term") pure
++                                      (getAt idx vars)
++                        pure (Local {name} emptyFC c idx (mkPrf idx))
++                1 => do nt <- fromBuf; name <- fromBuf
++                        pure (Ref emptyFC nt name)
++                2 => do mn <- fromBuf
++                        xs <- decodeTerms m (rec m lt)
++                        pure (Meta emptyFC mn 0 xs) -- needs resolving
++                3 => do x <- fromBuf
++                        bnd <- decodeBinder m (rec m lt)
++                        scope <- decodeTerm m (rec m lt)
++                        pure (Bind emptyFC x bnd scope)
++                4 => do fn <- decodeTerm m (rec m lt)
++                        arg <- decodeTerm m (rec m lt)
++                        pure (App emptyFC fn arg)
++                5 => do as <- decodeTerm m (rec m lt)
++                        s <- fromBuf
++                        tm <- decodeTerm m (rec m lt)
++                        pure (As emptyFC s as tm)
++                6 => do lr <- fromBuf
++                        tm <- decodeTerm m (rec m lt)
++                        pure (TDelayed emptyFC lr tm)
++                7 => do lr <- fromBuf
++                        ty <- decodeTerm m (rec m lt)
++                        tm <- decodeTerm m (rec m lt)
++                        pure (TDelay emptyFC lr ty tm)
++                8 => do lr <- fromBuf
++                        tm <- decodeTerm m (rec m lt)
++                        pure (TForce emptyFC lr tm)
++                9 => do c <- fromBuf
++                        pure (PrimVal emptyFC c)
++                10 => pure (Erased emptyFC Placeholder)
++                11 => do u <- fromBuf; pure (TType emptyFC u)
++                12 => do fn <- decodeTerm m (rec m lt)
++                         args <- decodeTerms m (rec m lt)
++                         pure (apply emptyFC fn args)
++                idxp => do c <- fromBuf
++                           let idx : Nat = fromInteger (cast (idxp - 13))
++                           let Just name = getAt idx vars
++                               | Nothing => corrupt "Term"
++                           pure (Local {name} emptyFC c idx (mkPrf idx))
++
++-- A term and the parts of one written as their instances below write them,
++-- each kind of node that holds terms by a function of its own, so that every
++-- recursive call is on a part of its argument. An application of a function
++-- to several arguments is written as its head and the list of them.
++mutual
++  total
++  encodePi : {auto b : Ref Bin Binary} -> PiInfo (Term vars) -> Core ()
++  encodePi Implicit = tag 0
++  encodePi Explicit = tag 1
++  encodePi AutoImplicit = tag 2
++  encodePi (DefImplicit r) = do tag 3; encodeTerm r
++
++  total
++  encodeBinder : {auto b : Ref Bin Binary} -> Binder (Term vars) -> Core ()
++  encodeBinder (Lam _ c x ty) = do tag 0; toBuf c; encodePi x; encodeTerm ty
++  encodeBinder (Let _ c val ty) = do tag 1; toBuf c; encodeTerm val -- ; toBuf ty
++  encodeBinder (Pi _ c x ty) = do tag 2; toBuf c; encodePi x; encodeTerm ty
++  encodeBinder (PVar _ c p ty) = do tag 3; toBuf c; encodePi p; encodeTerm ty
++  encodeBinder (PLet _ c val ty) = do tag 4; toBuf c; encodeTerm val -- ; toBuf ty
++  encodeBinder (PVTy _ c ty) = do tag 5; toBuf c -- ; toBuf ty
++
++  -- As the list instance writes a list: its length, then each.
++  total
++  encodeTerms : {auto b : Ref Bin Binary} -> List (Term vars) -> Core ()
++  encodeTerms ts = do toBuf (the Int (cast (length ts))); encodeEach ts
++
++  total
++  encodeEach : {auto b : Ref Bin Binary} -> List (Term vars) -> Core ()
++  encodeEach [] = pure ()
++  encodeEach (t :: ts) = do encodeTerm t; encodeEach ts
++
++  -- The arguments an application's function is applied to, but the last,
++  -- and the function they are applied to.
++  total
++  spineArgs : Term vars -> Nat
++  spineArgs (App _ f _) = S (spineArgs f)
++  spineArgs _ = Z
++
++  total
++  encodeArgs : {auto b : Ref Bin Binary} -> Term vars -> Core ()
++  encodeArgs (App _ f a) = do encodeArgs f; encodeTerm a
++  encodeArgs _ = pure ()
++
++  total
++  encodeHead : {auto b : Ref Bin Binary} -> Term vars -> Core ()
++  encodeHead (App _ f _) = encodeHead f
++  encodeHead t = encodeTerm t
++
++  total
++  encodeTerm : {auto b : Ref Bin Binary} -> Term vars -> Core ()
++  encodeTerm (Local {name} fc c idx y)
++      = if idx < 243
++           then do tag (13 + cast idx)
++                   toBuf c
++           else do tag 0
++                   toBuf c
++                   toBuf idx
++  encodeTerm (Ref fc nt name)
++      = do tag 1;
++           toBuf nt; toBuf name
++  encodeTerm (Meta fc n i xs)
++      = do tag 2;
++           toBuf n; encodeTerms xs
++  encodeTerm (Bind fc x bnd scope)
++      = do tag 3;
++           toBuf x;
++           encodeBinder bnd; encodeTerm scope
++  encodeTerm (App fc fn arg)
++      = case spineArgs fn of
++             Z => do tag 4
++                     encodeTerm fn
++                     encodeTerm arg
++             k => do tag 12
++                     encodeHead fn
++                     toBuf (the Int (cast (S k)))
++                     encodeArgs fn
++                     encodeTerm arg
++  encodeTerm (As fc s as tm)
++      = do tag 5;
++           encodeTerm as; toBuf s; encodeTerm tm
++  encodeTerm (TDelayed fc r tm)
++      = do tag 6;
++           toBuf r; encodeTerm tm
++  encodeTerm (TDelay fc r ty tm)
++      = do tag 7;
++           toBuf r; encodeTerm ty; encodeTerm tm
++  encodeTerm (TForce fc r tm)
++      = do tag 8;
++           toBuf r; encodeTerm tm
++  encodeTerm (PrimVal fc c)
++      = do tag 9;
++           toBuf c
++  encodeTerm (Erased fc _)
++      = tag 10
++  encodeTerm (TType fc u)
++      = do tag 11; toBuf u
++
++mutual
+   export
+-  TTC UseSide where
+-    toBuf UseLeft = tag 0
+-    toBuf UseRight = tag 1
++  {vars : _} -> TTC (Binder (Term vars)) where
++    toBuf = encodeBinder
+ 
+-    fromBuf
+-        = case !getTag of
+-               0 => pure UseLeft
+-               1 => pure UseRight
+-               _ => corrupt "UseSide"
++    fromBuf = do n <- remaining; decodeBinder n (wellFounded n)
+ 
+ 
+   export
+   {vars : _} -> TTC (Term vars) where
+-    toBuf (Local {name} fc c idx y)
+-        = if idx < 243
+-             then do tag (13 + cast idx)
+-                     toBuf c
+-             else do tag 0
+-                     toBuf c
+-                     toBuf idx
+-    toBuf (Ref fc nt name)
+-        = do tag 1;
+-             toBuf nt; toBuf name
+-    toBuf (Meta fc n i xs)
+-        = do tag 2;
+-             toBuf n; toBuf xs
+-    toBuf (Bind fc x bnd scope)
+-        = do tag 3;
+-             toBuf x;
+-             toBuf bnd; toBuf scope
+-    toBuf (App fc fn arg)
+-        = do let (fn, args) = getFnArgs (App fc fn arg)
+-             case args of
+-                  [arg] => do tag 4
+-                              toBuf fn
+-                              toBuf arg
+-                  args => do tag 12
+-                             toBuf fn
+-                             toBuf args
+-    toBuf (As fc s as tm)
+-        = do tag 5;
+-             toBuf as; toBuf s; toBuf tm
+-    toBuf (TDelayed fc r tm)
+-        = do tag 6;
+-             toBuf r; toBuf tm
+-    toBuf (TDelay fc r ty tm)
+-        = do tag 7;
+-             toBuf r; toBuf ty; toBuf tm
+-    toBuf (TForce fc r tm)
+-        = do tag 8;
+-             toBuf r; toBuf tm
+-    toBuf (PrimVal fc c)
+-        = do tag 9;
+-             toBuf c
+-    toBuf (Erased fc _)
+-        = tag 10
+-    toBuf (TType fc u)
+-        = do tag 11; toBuf u
++    toBuf = encodeTerm
+ 
+-    fromBuf {vars}
+-        = case !getTag of
+-               0 => do c <- fromBuf
+-                       idx <- fromBuf
+-                       name <- maybe (corrupt "Term") pure
+-                                     (getAt idx vars)
+-                       pure (Local {name} emptyFC c idx (mkPrf idx))
+-               1 => do nt <- fromBuf; name <- fromBuf
+-                       pure (Ref emptyFC nt name)
+-               2 => do n <- fromBuf
+-                       xs <- fromBuf
+-                       pure (Meta emptyFC n 0 xs) -- needs resolving
+-               3 => do x <- fromBuf
+-                       bnd <- fromBuf; scope <- fromBuf
+-                       pure (Bind emptyFC x bnd scope)
+-               4 => do fn <- fromBuf
+-                       arg <- fromBuf
+-                       pure (App emptyFC fn arg)
+-               5 => do as <- fromBuf; s <- fromBuf; tm <- fromBuf
+-                       pure (As emptyFC s as tm)
+-               6 => do lr <- fromBuf; tm <- fromBuf
+-                       pure (TDelayed emptyFC lr tm)
+-               7 => do lr <- fromBuf;
+-                       ty <- fromBuf; tm <- fromBuf
+-                       pure (TDelay emptyFC lr ty tm)
+-               8 => do lr <- fromBuf; tm <- fromBuf
+-                       pure (TForce emptyFC lr tm)
+-               9 => do c <- fromBuf
+-                       pure (PrimVal emptyFC c)
+-               10 => pure (Erased emptyFC Placeholder)
+-               11 => do u <- fromBuf; pure (TType emptyFC u)
+-               12 => do fn <- fromBuf
+-                        args <- fromBuf
+-                        pure (apply emptyFC fn args)
+-               idxp => do c <- fromBuf
+-                          let idx : Nat = fromInteger (cast (idxp - 13))
+-                          let Just name = getAt idx vars
+-                              | Nothing => corrupt "Term"
+-                          pure (Local {name} emptyFC c idx (mkPrf idx))
++    fromBuf = do n <- remaining; decodeTerm n (wellFounded n)
+ 
+ export
+ TTC Pat where
+@@ -465,52 +601,113 @@
+                      pure (PUnmatchable fc x)
+              _ => corrupt "Pat"
+ 
++-- A case tree and its alternatives, each as its instance below writes it.
+ mutual
++  total
++  decodeTree : {vars : _} -> {auto b : Ref Bin Binary} ->
++               (n : Nat) -> (0 _ : Accessible LT n) -> Core (CaseTree vars)
++  decodeTree {vars} n (Access rec)
++      = do t <- getTag
++           Element m lt <- fewer n
++           case t of
++                0 => do name <- fromBuf; idx <- fromBuf
++                        xs <- decodeAlts m (rec m lt)
++                        pure (Case {name} idx (mkPrf idx) (Erased emptyFC Placeholder) xs)
++                1 => do x <- decodeTerm m (rec m lt)
++                        pure (STerm 0 x)
++                2 => do msg <- fromBuf
++                        pure (Unmatched msg)
++                3 => pure Impossible
++                _ => corrupt "CaseTree"
++
++  -- A list of alternatives as the list instance writes it: its length,
++  -- then each, all within the bytes left after the length.
++  total
++  decodeAlts : {vars : _} -> {auto b : Ref Bin Binary} ->
++               (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (CaseAlt vars))
++  decodeAlts n (Access rec)
++      = do len <- fromBuf {a = Int}
++           Element m lt <- fewer n
++           decodeAltList [] (integerToNat (cast len)) m (rec m lt)
++
++  total
++
++  decodeAltList : {vars : _} -> {auto b : Ref Bin Binary} ->
++                  List (CaseAlt vars) -> (count : Nat) ->
++                  (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (CaseAlt vars))
++  decodeAltList alts Z n acc = pure (reverse alts)
++  decodeAltList alts (S k) n acc
++      = do alt <- decodeAlt n acc
++           decodeAltList (alt :: alts) k n acc
++
++  total
++
++  decodeAlt : {vars : _} -> {auto b : Ref Bin Binary} ->
++              (n : Nat) -> (0 _ : Accessible LT n) -> Core (CaseAlt vars)
++  decodeAlt n (Access rec)
++      = do t <- getTag
++           Element m lt <- fewer n
++           case t of
++                0 => do x <- fromBuf; tg <- fromBuf
++                        args <- fromBuf
++                        y <- decodeTree m (rec m lt)
++                        pure (ConCase x tg args y)
++                1 => do ty <- fromBuf; arg <- fromBuf
++                        y <- decodeTree m (rec m lt)
++                        pure (DelayCase ty arg y)
++                2 => do x <- fromBuf
++                        y <- decodeTree m (rec m lt)
++                        pure (ConstCase x y)
++                3 => do x <- decodeTree m (rec m lt)
++                        pure (DefaultCase x)
++                _ => corrupt "CaseAlt"
++
++-- A case tree and its alternatives written as their instances below write
++-- them, the alternatives in a list of their own.
++mutual
++  total
++  encodeTree : {auto b : Ref Bin Binary} -> CaseTree vars -> Core ()
++  encodeTree (Case {name} idx x scTy xs)
++      = do tag 0; toBuf name; toBuf idx; encodeAlts xs
++  encodeTree (STerm _ x)
++      = do tag 1; encodeTerm x
++  encodeTree (Unmatched msg)
++      = do tag 2; toBuf msg
++  encodeTree Impossible = tag 3
++
++  -- As the list instance writes a list: its length, then each.
++  total
++  encodeAlts : {auto b : Ref Bin Binary} -> List (CaseAlt vars) -> Core ()
++  encodeAlts alts = do toBuf (the Int (cast (length alts))); encodeEachAlt alts
++
++  total
++  encodeEachAlt : {auto b : Ref Bin Binary} -> List (CaseAlt vars) -> Core ()
++  encodeEachAlt [] = pure ()
++  encodeEachAlt (alt :: alts) = do encodeAlt alt; encodeEachAlt alts
++
++  total
++  encodeAlt : {auto b : Ref Bin Binary} -> CaseAlt vars -> Core ()
++  encodeAlt (ConCase x t args y)
++      = do tag 0; toBuf x; toBuf t; toBuf args; encodeTree y
++  encodeAlt (DelayCase ty arg y)
++      = do tag 1; toBuf ty; toBuf arg; encodeTree y
++  encodeAlt (ConstCase x y)
++      = do tag 2; toBuf x; encodeTree y
++  encodeAlt (DefaultCase x)
++      = do tag 3; encodeTree x
++
++mutual
+   export
+   {vars : _} -> TTC (CaseTree vars) where
+-    toBuf (Case {name} idx x scTy xs)
+-        = do tag 0; toBuf name; toBuf idx; toBuf xs
+-    toBuf (STerm _ x)
+-        = do tag 1; toBuf x
+-    toBuf (Unmatched msg)
+-        = do tag 2; toBuf msg
+-    toBuf Impossible = tag 3
++    toBuf = encodeTree
+ 
+-    fromBuf
+-        = case !getTag of
+-               0 => do name <- fromBuf; idx <- fromBuf
+-                       xs <- fromBuf
+-                       pure (Case {name} idx (mkPrf idx) (Erased emptyFC Placeholder) xs)
+-               1 => do x <- fromBuf
+-                       pure (STerm 0 x)
+-               2 => do msg <- fromBuf
+-                       pure (Unmatched msg)
+-               3 => pure Impossible
+-               _ => corrupt "CaseTree"
++    fromBuf = do n <- remaining; decodeTree n (wellFounded n)
+ 
+   export
+   {vars : _} -> TTC (CaseAlt vars) where
+-    toBuf (ConCase x t args y)
+-        = do tag 0; toBuf x; toBuf t; toBuf args; toBuf y
+-    toBuf (DelayCase ty arg y)
+-        = do tag 1; toBuf ty; toBuf arg; toBuf y
+-    toBuf (ConstCase x y)
+-        = do tag 2; toBuf x; toBuf y
+-    toBuf (DefaultCase x)
+-        = do tag 3; toBuf x
++    toBuf = encodeAlt
+ 
+-    fromBuf
+-        = case !getTag of
+-               0 => do x <- fromBuf; t <- fromBuf
+-                       args <- fromBuf; y <- fromBuf
+-                       pure (ConCase x t args y)
+-               1 => do ty <- fromBuf; arg <- fromBuf; y <- fromBuf
+-                       pure (DelayCase ty arg y)
+-               2 => do x <- fromBuf; y <- fromBuf
+-                       pure (ConstCase x y)
+-               3 => do x <- fromBuf
+-                       pure (DefaultCase x)
+-               _ => corrupt "CaseAlt"
++    fromBuf = do n <- remaining; decodeAlt n (wellFounded n)
+ 
+ export
+ {vars : _} -> TTC (Env Term vars) where
+@@ -1204,7 +1401,7 @@
+          def <- fromBuf
+          let a = getContent gam
+          arr <- get Arr
+-         def' <- resolved gam (restoreNS ns def)
++         def' <- resolveGlobalDef gam (restoreNS ns def)
+          when update $ coreLift_ $ writeArray arr idx (Decoded def')
+          pure def'
+ Core.Context.decode gam idx update (Decoded def) = pure def
+diff -ruN a/src/Core/Value.idr b/src/Core/Value.idr
+--- a/src/Core/Value.idr	2026-10-15 11:02:48
++++ b/src/Core/Value.idr	2026-10-15 11:02:49
+@@ -18,9 +18,6 @@
+   removeAs : Bool -- reduce 'as' patterns (don't do this on LHS)
+   evalAll : Bool -- evaluate everything, including private names
+   tcInline : Bool -- inline for totality checking
+-  fuel : Maybe Nat -- Limit for recursion depth
+-  reduceLimit : List (Name, Nat) -- reduction limits for given names. If not
+-                     -- present, no limit
+   strategy : EvalOrder
+ 
+ export
+@@ -31,8 +28,6 @@
+     , removeAs = True
+     , evalAll = False
+     , tcInline = False
+-    , fuel = Nothing
+-    , reduceLimit = []
+     , strategy = CBN
+     }
+ 
+@@ -44,8 +39,6 @@
+     , removeAs = False
+     , evalAll = False
+     , tcInline = False
+-    , fuel = Nothing
+-    , reduceLimit = []
+     , strategy = CBN
+     }
+ 
+@@ -57,8 +50,6 @@
+     , removeAs = True
+     , evalAll = True
+     , tcInline = False
+-    , fuel = Nothing
+-    , reduceLimit = []
+     , strategy = CBN
+     }
+ 
+@@ -70,8 +61,6 @@
+     , removeAs = False
+     , evalAll = False
+     , tcInline = False
+-    , fuel = Nothing
+-    , reduceLimit = []
+     , strategy = CBN
+     }
+ 
+diff -ruN a/src/Idris/Elab/Interface.idr b/src/Idris/Elab/Interface.idr
+--- a/src/Idris/Elab/Interface.idr	2026-10-15 11:02:48
++++ b/src/Idris/Elab/Interface.idr	2026-10-15 11:02:49
+@@ -345,7 +345,7 @@
+                                   dets meths
+              log "elab.interface" 10 $ "Methods: " ++ show meths
+              log "elab.interface" 5 $ "Making interface data type " ++ show dt
+-             ignore $ processDecls nest env [dt]
++             processDecls nest env [dt]
+ 
+     elabMethods : (conName : Name) -> List Name -> List Signature -> Core ()
+     elabMethods conName methNames methSigs
+diff -ruN a/src/Libraries/Utils/Binary.idr b/src/Libraries/Utils/Binary.idr
+--- a/src/Libraries/Utils/Binary.idr	2026-10-15 11:02:48
++++ b/src/Libraries/Utils/Binary.idr	2026-10-15 11:02:48
+@@ -8,7 +8,7 @@
+ -- reading and writing to chunks of memory, "Binary", which can be written
+ -- to and read from files.
+ 
+-%default covering
++%default total
+ 
+ public export
+ record Binary where
+@@ -41,13 +41,6 @@
+ export
+ incLoc : Integer -> Binary -> Binary
+ incLoc i c = { loc $= (+i) } c
+-
+-export
+-dumpBin : Binary -> IO ()
+-dumpBin chunk
+-   = do -- printLn !(traverse bufferData' (map buf done))
+-        printLn !(bufferData' (buf chunk))
+-        -- printLn !(traverse bufferData' (map buf rest))
+ 
+ export
+ fromBuffer : Buffer -> IO Binary
+diff -ruN a/src/TTImp/Elab/Local.idr b/src/TTImp/Elab/Local.idr
+--- a/src/TTImp/Elab/Local.idr	2026-10-15 11:02:48
++++ b/src/TTImp/Elab/Local.idr	2026-10-15 11:02:48
+@@ -51,7 +51,6 @@
+          let defNames = definedInBlock emptyNS nestdeclsMult
+          names' <- traverse (applyEnv f) defNames
+          let nest' = { names $= (names' ++) } nest
+-         -- TODO is this comment still up-to-date?
+          -- For the local definitions, don't allow access to linear things
+          -- unless they're explicitly passed.
+          -- This is because, at the moment, we don't have any mechanism of
+diff -ruN a/src/TTImp/ProcessDecls.idr b/src/TTImp/ProcessDecls.idr
+--- a/src/TTImp/ProcessDecls.idr	2026-10-15 11:02:48
++++ b/src/TTImp/ProcessDecls.idr	2026-10-15 11:02:48
+@@ -145,10 +145,8 @@
+                {auto u : Ref UST UState} ->
+                {auto s : Ref Syn SyntaxInfo} ->
+                {auto o : Ref ROpts REPLOpts} ->
+-               NestedNames vars -> Env Term vars -> List ImpDecl -> Core Bool
+-processDecls nest env decls
+-    = do traverse_ (processDecl [] nest env) decls
+-         pure True -- TODO: False on error
++               NestedNames vars -> Env Term vars -> List ImpDecl -> Core ()
++processDecls nest env decls = traverse_ (processDecl [] nest env) decls
+ 
+ processTTImpDecls : {vars : _} ->
+                     {auto c : Ref Ctxt Defs} ->
+@@ -156,11 +154,10 @@
+                     {auto u : Ref UST UState} ->
+                     {auto s : Ref Syn SyntaxInfo} ->
+                     {auto o : Ref ROpts REPLOpts} ->
+-                    NestedNames vars -> Env Term vars -> List ImpDecl -> Core Bool
++                    NestedNames vars -> Env Term vars -> List ImpDecl -> Core ()
+ processTTImpDecls {vars} nest env decls
+-    = do traverse_ (\d => do d' <- bindNames d
+-                             processDecl [] nest env d') decls
+-         pure True -- TODO: False on error
++    = traverse_ (\d => do d' <- bindNames d
++                          processDecl [] nest env d') decls
+   where
+     bindConNames : ImpTy -> Core ImpTy
+     bindConNames ty
+@@ -203,7 +200,7 @@
+                                 pure False
+          traverse_ recordWarning ws
+          logTime 0 "Elaboration" $
+-            catch (do ignore $ processTTImpDecls (MkNested []) Env.empty tti
++            catch (do processTTImpDecls (MkNested []) Env.empty tti
+                       Nothing <- checkDelayedHoles
+                           | Just err => throw err
+                       pure True)

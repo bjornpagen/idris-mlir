@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --implicit-check-not=.spec. < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main -o /dev/null
-// NEEDS-ACCEPTANCE: that no specialization of the loop is made on the constructors the literal count builds, as C09's binding times decide.
+// NEEDS-ACCEPTANCE: that no specialization of the loop is made on the constructors the literal count builds, as the binding times decide.
 // The IO loop of io-loop.mlir, started with a literal. Each turn of the
 // loop builds the next actions anew, so no parameter of it is fixed, and
 // the loop is not unrolled at compile time one copy per count: no copy is

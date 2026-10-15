@@ -1,11 +1,13 @@
 // RUN: idris-mlir-opt %s --idr-bufferize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@go -o /dev/null
-// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc (C15 section 2), the buffer idr-rc later adopts (C14); in-place is read right after idr-bufferize.
+// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc, the buffer idr-rc later adopts; in-place is read right after idr-bufferize.
 // A recursive function threading a linear array writes it in place on
-// every call: its parameter is no tensor to the boundary analysis, which
-// skips a cycle of calls and would assume every operand read and written;
-// the caller's release already made the buffer the thread's, and each
-// link inside @go is in place by the analysis's own check.
+// every call: the boundary analysis reads each function on a cycle of
+// calls with the others, until what each may read and write of its
+// operands is settled, so @go's call of itself is known to write only
+// the buffer it is given; the caller's release already made that buffer
+// the thread's, and each link inside @go is in place by the analysis's
+// own check.
 idr.program @"recursive-thread" root(@root) stage(first) {
   idr.func @go(%a: !idr.lin<tensor<?xi64>>, %k: i64) -> !idr.lin<tensor<?xi64>> {
     %r = idr.match_lit %k : i64 -> (!idr.lin<tensor<?xi64>>) {

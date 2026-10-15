@@ -9,6 +9,8 @@ import Core.Context
 import Core.Env
 import Core.Options
 
+import Control.WellFounded
+
 import Data.DPair
 import Data.List1
 import Data.Vect
@@ -76,6 +78,47 @@ TTC FC where
                      pure (MkVirtualFC f s e)
              _ => corrupt "FC"
 
+-- Decoding a value that holds values of its own type is a recursion over
+-- the bytes left to read, which every part it decodes finds fewer
+-- (`fewer`): each decoder below is given those left when it began and their
+-- accessibility, and passes on to its parts those left after its tag.
+
+||| A name: a namespace's, a pattern variable's, a display name's or a
+||| nested name holds a name.
+total
+decodeName : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Name
+decodeName n (Access rec)
+    = do t <- getTag
+         Element m lt <- fewer n
+         case t of
+             0 => do xs <- fromBuf
+                     x <- decodeName m (rec m lt)
+                     pure (NS xs x)
+             1 => do x <- fromBuf
+                     pure (UN $ Basic x)
+             2 => do x <- fromBuf
+                     y <- fromBuf
+                     pure (MN x y)
+             3 => do x <- decodeName m (rec m lt)
+                     y <- fromBuf
+                     pure (PV x y)
+             4 => do x <- fromBuf
+                     y <- decodeName m (rec m lt)
+                     pure (DN x y)
+             5 => do x <- fromBuf
+                     pure (UN $ Field x)
+             6 => do x <- fromBuf
+                     y <- decodeName m (rec m lt)
+                     pure (Nested x y)
+             7 => do x <- fromBuf
+                     y <- fromBuf
+                     pure (CaseBlock x y)
+             8 => do x <- fromBuf
+                     y <- fromBuf
+                     pure (WithBlock x y)
+             9 => pure (UN Underscore)
+             _ => corrupt "Name"
+
 export
 TTC Name where
   -- for efficiency reasons we do not encode UserName separately
@@ -93,35 +136,7 @@ TTC Name where
       = throw (InternalError ("Can't write resolved name " ++ show x))
   toBuf (UN Underscore) = tag 9
 
-  fromBuf
-      = case !getTag of
-             0 => do xs <- fromBuf
-                     x <- fromBuf
-                     pure (NS xs x)
-             1 => do x <- fromBuf
-                     pure (UN $ Basic x)
-             2 => do x <- fromBuf
-                     y <- fromBuf
-                     pure (MN x y)
-             3 => do x <- fromBuf
-                     y <- fromBuf
-                     pure (PV x y)
-             4 => do x <- fromBuf
-                     y <- fromBuf
-                     pure (DN x y)
-             5 => do x <- fromBuf
-                     pure (UN $ Field x)
-             6 => do x <- fromBuf
-                     y <- fromBuf
-                     pure (Nested x y)
-             7 => do x <- fromBuf
-                     y <- fromBuf
-                     pure (CaseBlock x y)
-             8 => do x <- fromBuf
-                     y <- fromBuf
-                     pure (WithBlock x y)
-             9 => pure (UN Underscore)
-             _ => corrupt "Name"
+  fromBuf = do n <- remaining; decodeName n (wellFounded n)
 
 export
 TTC RigCount where
@@ -356,125 +371,245 @@ isVarAt (S k) (_ :: vs)
          Just (Element n (Later p))
 isVarAt _ [] = Nothing
 
+export
+TTC UseSide where
+  toBuf UseLeft = tag 0
+  toBuf UseRight = tag 1
+
+  fromBuf
+      = case !getTag of
+             0 => pure UseLeft
+             1 => pure UseRight
+             _ => corrupt "UseSide"
+
+-- A term and the parts of one, each as its instance below writes it.
+mutual
+  total
+  decodePi : {vars : _} -> {auto b : Ref Bin Binary} ->
+             (n : Nat) -> (0 _ : Accessible LT n) -> Core (PiInfo (Term vars))
+  decodePi n (Access rec)
+      = do t <- getTag
+           Element m lt <- fewer n
+           case t of
+                0 => pure Implicit
+                1 => pure Explicit
+                2 => pure AutoImplicit
+                3 => do d <- decodeTerm m (rec m lt)
+                        pure (DefImplicit d)
+                _ => corrupt "PiInfo"
+
+  total
+
+  decodeBinder : {vars : _} -> {auto b : Ref Bin Binary} ->
+                 (n : Nat) -> (0 _ : Accessible LT n) -> Core (Binder (Term vars))
+  decodeBinder n (Access rec)
+      = do t <- getTag
+           Element m lt <- fewer n
+           case t of
+                0 => do c <- fromBuf
+                        x <- decodePi m (rec m lt)
+                        ty <- decodeTerm m (rec m lt)
+                        pure (Lam emptyFC c x ty)
+                1 => do c <- fromBuf
+                        x <- decodeTerm m (rec m lt)
+                        pure (Let emptyFC c x (Erased emptyFC Placeholder))
+                2 => do c <- fromBuf
+                        x <- decodePi m (rec m lt)
+                        y <- decodeTerm m (rec m lt)
+                        pure (Pi emptyFC c x y)
+                3 => do c <- fromBuf
+                        p <- decodePi m (rec m lt)
+                        ty <- decodeTerm m (rec m lt)
+                        pure (PVar emptyFC c p ty)
+                4 => do c <- fromBuf
+                        x <- decodeTerm m (rec m lt)
+                        pure (PLet emptyFC c x (Erased emptyFC Placeholder))
+                5 => do c <- fromBuf
+                        pure (PVTy emptyFC c (Erased emptyFC Placeholder))
+                _ => corrupt "Binder"
+
+  -- A list of terms as the list instance writes it: its length, then each
+  -- term, all within the bytes left after the length.
+  total
+  decodeTerms : {vars : _} -> {auto b : Ref Bin Binary} ->
+                (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
+  decodeTerms n (Access rec)
+      = do len <- fromBuf {a = Int}
+           Element m lt <- fewer n
+           decodeTermList [] (integerToNat (cast len)) m (rec m lt)
+
+  total
+
+  decodeTermList : {vars : _} -> {auto b : Ref Bin Binary} ->
+                   List (Term vars) -> (count : Nat) ->
+                   (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
+  decodeTermList ts Z n acc = pure (reverse ts)
+  decodeTermList ts (S k) n acc
+      = do t <- decodeTerm n acc
+           decodeTermList (t :: ts) k n acc
+
+  total
+
+  decodeTerm : {vars : _} -> {auto b : Ref Bin Binary} ->
+               (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
+  decodeTerm {vars} n (Access rec)
+      = do t <- getTag
+           Element m lt <- fewer n
+           case t of
+                0 => do c <- fromBuf
+                        idx <- fromBuf
+                        Element name p <- maybe (corrupt "Term") pure
+                                                (isVarAt idx vars)
+                        pure (Local {name} emptyFC c idx p)
+                1 => do nt <- fromBuf; name <- fromBuf
+                        pure (Ref emptyFC nt name)
+                2 => do mn <- fromBuf
+                        xs <- decodeTerms m (rec m lt)
+                        pure (Meta emptyFC mn 0 xs) -- needs resolving
+                3 => do x <- fromBuf
+                        bnd <- decodeBinder m (rec m lt)
+                        scope <- decodeTerm m (rec m lt)
+                        pure (Bind emptyFC x bnd scope)
+                4 => do fn <- decodeTerm m (rec m lt)
+                        arg <- decodeTerm m (rec m lt)
+                        pure (App emptyFC fn arg)
+                5 => do as <- decodeTerm m (rec m lt)
+                        s <- fromBuf
+                        tm <- decodeTerm m (rec m lt)
+                        pure (As emptyFC s as tm)
+                6 => do lr <- fromBuf
+                        tm <- decodeTerm m (rec m lt)
+                        pure (TDelayed emptyFC lr tm)
+                7 => do lr <- fromBuf
+                        ty <- decodeTerm m (rec m lt)
+                        tm <- decodeTerm m (rec m lt)
+                        pure (TDelay emptyFC lr ty tm)
+                8 => do lr <- fromBuf
+                        tm <- decodeTerm m (rec m lt)
+                        pure (TForce emptyFC lr tm)
+                9 => do c <- fromBuf
+                        pure (PrimVal emptyFC c)
+                10 => pure (Erased emptyFC Placeholder)
+                11 => do u <- fromBuf; pure (TType emptyFC u)
+                12 => do fn <- decodeTerm m (rec m lt)
+                         args <- decodeTerms m (rec m lt)
+                         pure (apply emptyFC fn args)
+                idxp => do c <- fromBuf
+                           let idx : Nat = fromInteger (cast (idxp - 13))
+                           let Just (Element name p) = isVarAt idx vars
+                               | Nothing => corrupt "Term"
+                           pure (Local {name} emptyFC c idx p)
+
+-- A term and the parts of one written as their instances below write them,
+-- each kind of node that holds terms by a function of its own, so that every
+-- recursive call is on a part of its argument. An application of a function
+-- to several arguments is written as its head and the list of them.
+mutual
+  total
+  encodePi : {auto b : Ref Bin Binary} -> PiInfo (Term vars) -> Core ()
+  encodePi Implicit = tag 0
+  encodePi Explicit = tag 1
+  encodePi AutoImplicit = tag 2
+  encodePi (DefImplicit r) = do tag 3; encodeTerm r
+
+  total
+  encodeBinder : {auto b : Ref Bin Binary} -> Binder (Term vars) -> Core ()
+  encodeBinder (Lam _ c x ty) = do tag 0; toBuf c; encodePi x; encodeTerm ty
+  encodeBinder (Let _ c val ty) = do tag 1; toBuf c; encodeTerm val -- ; toBuf ty
+  encodeBinder (Pi _ c x ty) = do tag 2; toBuf c; encodePi x; encodeTerm ty
+  encodeBinder (PVar _ c p ty) = do tag 3; toBuf c; encodePi p; encodeTerm ty
+  encodeBinder (PLet _ c val ty) = do tag 4; toBuf c; encodeTerm val -- ; toBuf ty
+  encodeBinder (PVTy _ c ty) = do tag 5; toBuf c -- ; toBuf ty
+
+  -- As the list instance writes a list: its length, then each.
+  total
+  encodeTerms : {auto b : Ref Bin Binary} -> List (Term vars) -> Core ()
+  encodeTerms ts = do toBuf (the Int (cast (length ts))); encodeEach ts
+
+  total
+  encodeEach : {auto b : Ref Bin Binary} -> List (Term vars) -> Core ()
+  encodeEach [] = pure ()
+  encodeEach (t :: ts) = do encodeTerm t; encodeEach ts
+
+  -- The arguments an application's function is applied to, but the last,
+  -- and the function they are applied to.
+  total
+  spineArgs : Term vars -> Nat
+  spineArgs (App _ f _) = S (spineArgs f)
+  spineArgs _ = Z
+
+  total
+  encodeArgs : {auto b : Ref Bin Binary} -> Term vars -> Core ()
+  encodeArgs (App _ f a) = do encodeArgs f; encodeTerm a
+  encodeArgs _ = pure ()
+
+  total
+  encodeHead : {auto b : Ref Bin Binary} -> Term vars -> Core ()
+  encodeHead (App _ f _) = encodeHead f
+  encodeHead t = encodeTerm t
+
+  total
+  encodeTerm : {auto b : Ref Bin Binary} -> Term vars -> Core ()
+  encodeTerm (Local {name} fc c idx y)
+      = if idx < 243
+           then do tag (13 + cast idx)
+                   toBuf c
+           else do tag 0
+                   toBuf c
+                   toBuf idx
+  encodeTerm (Ref fc nt name)
+      = do tag 1;
+           toBuf nt; toBuf name
+  encodeTerm (Meta fc n i xs)
+      = do tag 2;
+           toBuf n; encodeTerms xs
+  encodeTerm (Bind fc x bnd scope)
+      = do tag 3;
+           toBuf x;
+           encodeBinder bnd; encodeTerm scope
+  encodeTerm (App fc fn arg)
+      = case spineArgs fn of
+             Z => do tag 4
+                     encodeTerm fn
+                     encodeTerm arg
+             k => do tag 12
+                     encodeHead fn
+                     toBuf (the Int (cast (S k)))
+                     encodeArgs fn
+                     encodeTerm arg
+  encodeTerm (As fc s as tm)
+      = do tag 5;
+           encodeTerm as; toBuf s; encodeTerm tm
+  encodeTerm (TDelayed fc r tm)
+      = do tag 6;
+           toBuf r; encodeTerm tm
+  encodeTerm (TDelay fc r ty tm)
+      = do tag 7;
+           toBuf r; encodeTerm ty; encodeTerm tm
+  encodeTerm (TForce fc r tm)
+      = do tag 8;
+           toBuf r; encodeTerm tm
+  encodeTerm (PrimVal fc c)
+      = do tag 9;
+           toBuf c
+  encodeTerm (Erased fc _)
+      = tag 10
+  encodeTerm (TType fc u)
+      = do tag 11; toBuf u
+
 mutual
   export
   {vars : _} -> TTC (Binder (Term vars)) where
-    toBuf (Lam _ c x ty) = do tag 0; toBuf c; toBuf x; toBuf ty
-    toBuf (Let _ c val ty) = do tag 1; toBuf c; toBuf val -- ; toBuf ty
-    toBuf (Pi _ c x ty) = do tag 2; toBuf c; toBuf x; toBuf ty
-    toBuf (PVar _ c p ty) = do tag 3; toBuf c; toBuf p; toBuf ty
-    toBuf (PLet _ c val ty) = do tag 4; toBuf c; toBuf val -- ; toBuf ty
-    toBuf (PVTy _ c ty) = do tag 5; toBuf c -- ; toBuf ty
+    toBuf = encodeBinder
 
-    fromBuf
-        = case !getTag of
-               0 => do c <- fromBuf; x <- fromBuf; ty <- fromBuf; pure (Lam emptyFC c x ty)
-               1 => do c <- fromBuf; x <- fromBuf; pure (Let emptyFC c x (Erased emptyFC Placeholder))
-               2 => do c <- fromBuf; x <- fromBuf; y <- fromBuf; pure (Pi emptyFC c x y)
-               3 => do c <- fromBuf; p <- fromBuf; ty <- fromBuf; pure (PVar emptyFC c p ty)
-               4 => do c <- fromBuf; x <- fromBuf; pure (PLet emptyFC c x (Erased emptyFC Placeholder))
-               5 => do c <- fromBuf; pure (PVTy emptyFC c (Erased emptyFC Placeholder))
-               _ => corrupt "Binder"
-
-  export
-  TTC UseSide where
-    toBuf UseLeft = tag 0
-    toBuf UseRight = tag 1
-
-    fromBuf
-        = case !getTag of
-               0 => pure UseLeft
-               1 => pure UseRight
-               _ => corrupt "UseSide"
+    fromBuf = do n <- remaining; decodeBinder n (wellFounded n)
 
 
   export
   {vars : _} -> TTC (Term vars) where
-    toBuf (Local {name} fc c idx y)
-        = if idx < 243
-             then do tag (13 + cast idx)
-                     toBuf c
-             else do tag 0
-                     toBuf c
-                     toBuf idx
-    toBuf (Ref fc nt name)
-        = do tag 1;
-             toBuf nt; toBuf name
-    toBuf (Meta fc n i xs)
-        = do tag 2;
-             toBuf n; toBuf xs
-    toBuf (Bind fc x bnd scope)
-        = do tag 3;
-             toBuf x;
-             toBuf bnd; toBuf scope
-    toBuf (App fc fn arg)
-        = do let (fn, args) = getFnArgs (App fc fn arg)
-             case args of
-                  [arg] => do tag 4
-                              toBuf fn
-                              toBuf arg
-                  args => do tag 12
-                             toBuf fn
-                             toBuf args
-    toBuf (As fc s as tm)
-        = do tag 5;
-             toBuf as; toBuf s; toBuf tm
-    toBuf (TDelayed fc r tm)
-        = do tag 6;
-             toBuf r; toBuf tm
-    toBuf (TDelay fc r ty tm)
-        = do tag 7;
-             toBuf r; toBuf ty; toBuf tm
-    toBuf (TForce fc r tm)
-        = do tag 8;
-             toBuf r; toBuf tm
-    toBuf (PrimVal fc c)
-        = do tag 9;
-             toBuf c
-    toBuf (Erased fc _)
-        = tag 10
-    toBuf (TType fc u)
-        = do tag 11; toBuf u
+    toBuf = encodeTerm
 
-    fromBuf {vars}
-        = case !getTag of
-               0 => do c <- fromBuf
-                       idx <- fromBuf
-                       Element name p <- maybe (corrupt "Term") pure
-                                               (isVarAt idx vars)
-                       pure (Local {name} emptyFC c idx p)
-               1 => do nt <- fromBuf; name <- fromBuf
-                       pure (Ref emptyFC nt name)
-               2 => do n <- fromBuf
-                       xs <- fromBuf
-                       pure (Meta emptyFC n 0 xs) -- needs resolving
-               3 => do x <- fromBuf
-                       bnd <- fromBuf; scope <- fromBuf
-                       pure (Bind emptyFC x bnd scope)
-               4 => do fn <- fromBuf
-                       arg <- fromBuf
-                       pure (App emptyFC fn arg)
-               5 => do as <- fromBuf; s <- fromBuf; tm <- fromBuf
-                       pure (As emptyFC s as tm)
-               6 => do lr <- fromBuf; tm <- fromBuf
-                       pure (TDelayed emptyFC lr tm)
-               7 => do lr <- fromBuf;
-                       ty <- fromBuf; tm <- fromBuf
-                       pure (TDelay emptyFC lr ty tm)
-               8 => do lr <- fromBuf; tm <- fromBuf
-                       pure (TForce emptyFC lr tm)
-               9 => do c <- fromBuf
-                       pure (PrimVal emptyFC c)
-               10 => pure (Erased emptyFC Placeholder)
-               11 => do u <- fromBuf; pure (TType emptyFC u)
-               12 => do fn <- fromBuf
-                        args <- fromBuf
-                        pure (apply emptyFC fn args)
-               idxp => do c <- fromBuf
-                          let idx : Nat = fromInteger (cast (idxp - 13))
-                          let Just (Element name p) = isVarAt idx vars
-                              | Nothing => corrupt "Term"
-                          pure (Local {name} emptyFC c idx p)
+    fromBuf = do n <- remaining; decodeTerm n (wellFounded n)
 
 export
 TTC Pat where
@@ -522,57 +657,118 @@ TTC Pat where
                      pure (PUnmatchable fc x)
              _ => corrupt "Pat"
 
+-- A case tree and its alternatives, each as its instance below writes it.
+mutual
+  total
+  decodeTree : {vars : _} -> {auto b : Ref Bin Binary} ->
+               (n : Nat) -> (0 _ : Accessible LT n) -> Core (CaseTree vars)
+  decodeTree {vars} n (Access rec)
+      = do t <- getTag
+           Element m lt <- fewer n
+           case t of
+                0 => do name <- fromBuf; idx <- fromBuf
+                        xs <- decodeAlts m (rec m lt)
+                        -- the name stored is the scope's at that index
+                        let Just (Element name' p) = isVarAt idx vars
+                            | Nothing => corrupt "CaseTree"
+                        let True = name == name'
+                            | False => corrupt "CaseTree"
+                        pure (Case {name = name'} idx p (Erased emptyFC Placeholder) xs)
+                1 => do x <- decodeTerm m (rec m lt)
+                        pure (STerm 0 x)
+                2 => do msg <- fromBuf
+                        pure (Unmatched msg)
+                3 => pure Impossible
+                _ => corrupt "CaseTree"
+
+  -- A list of alternatives as the list instance writes it: its length,
+  -- then each, all within the bytes left after the length.
+  total
+  decodeAlts : {vars : _} -> {auto b : Ref Bin Binary} ->
+               (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (CaseAlt vars))
+  decodeAlts n (Access rec)
+      = do len <- fromBuf {a = Int}
+           Element m lt <- fewer n
+           decodeAltList [] (integerToNat (cast len)) m (rec m lt)
+
+  total
+
+  decodeAltList : {vars : _} -> {auto b : Ref Bin Binary} ->
+                  List (CaseAlt vars) -> (count : Nat) ->
+                  (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (CaseAlt vars))
+  decodeAltList alts Z n acc = pure (reverse alts)
+  decodeAltList alts (S k) n acc
+      = do alt <- decodeAlt n acc
+           decodeAltList (alt :: alts) k n acc
+
+  total
+
+  decodeAlt : {vars : _} -> {auto b : Ref Bin Binary} ->
+              (n : Nat) -> (0 _ : Accessible LT n) -> Core (CaseAlt vars)
+  decodeAlt n (Access rec)
+      = do t <- getTag
+           Element m lt <- fewer n
+           case t of
+                0 => do x <- fromBuf; tg <- fromBuf
+                        args <- fromBuf
+                        y <- decodeTree m (rec m lt)
+                        pure (ConCase x tg args y)
+                1 => do ty <- fromBuf; arg <- fromBuf
+                        y <- decodeTree m (rec m lt)
+                        pure (DelayCase ty arg y)
+                2 => do x <- fromBuf
+                        y <- decodeTree m (rec m lt)
+                        pure (ConstCase x y)
+                3 => do x <- decodeTree m (rec m lt)
+                        pure (DefaultCase x)
+                _ => corrupt "CaseAlt"
+
+-- A case tree and its alternatives written as their instances below write
+-- them, the alternatives in a list of their own.
+mutual
+  total
+  encodeTree : {auto b : Ref Bin Binary} -> CaseTree vars -> Core ()
+  encodeTree (Case {name} idx x scTy xs)
+      = do tag 0; toBuf name; toBuf idx; encodeAlts xs
+  encodeTree (STerm _ x)
+      = do tag 1; encodeTerm x
+  encodeTree (Unmatched msg)
+      = do tag 2; toBuf msg
+  encodeTree Impossible = tag 3
+
+  -- As the list instance writes a list: its length, then each.
+  total
+  encodeAlts : {auto b : Ref Bin Binary} -> List (CaseAlt vars) -> Core ()
+  encodeAlts alts = do toBuf (the Int (cast (length alts))); encodeEachAlt alts
+
+  total
+  encodeEachAlt : {auto b : Ref Bin Binary} -> List (CaseAlt vars) -> Core ()
+  encodeEachAlt [] = pure ()
+  encodeEachAlt (alt :: alts) = do encodeAlt alt; encodeEachAlt alts
+
+  total
+  encodeAlt : {auto b : Ref Bin Binary} -> CaseAlt vars -> Core ()
+  encodeAlt (ConCase x t args y)
+      = do tag 0; toBuf x; toBuf t; toBuf args; encodeTree y
+  encodeAlt (DelayCase ty arg y)
+      = do tag 1; toBuf ty; toBuf arg; encodeTree y
+  encodeAlt (ConstCase x y)
+      = do tag 2; toBuf x; encodeTree y
+  encodeAlt (DefaultCase x)
+      = do tag 3; encodeTree x
+
 mutual
   export
   {vars : _} -> TTC (CaseTree vars) where
-    toBuf (Case {name} idx x scTy xs)
-        = do tag 0; toBuf name; toBuf idx; toBuf xs
-    toBuf (STerm _ x)
-        = do tag 1; toBuf x
-    toBuf (Unmatched msg)
-        = do tag 2; toBuf msg
-    toBuf Impossible = tag 3
+    toBuf = encodeTree
 
-    fromBuf
-        = case !getTag of
-               0 => do name <- fromBuf; idx <- fromBuf
-                       xs <- fromBuf
-                       -- the name stored is the scope's at that index
-                       let Just (Element name' p) = isVarAt idx vars
-                           | Nothing => corrupt "CaseTree"
-                       let True = name == name'
-                           | False => corrupt "CaseTree"
-                       pure (Case {name = name'} idx p (Erased emptyFC Placeholder) xs)
-               1 => do x <- fromBuf
-                       pure (STerm 0 x)
-               2 => do msg <- fromBuf
-                       pure (Unmatched msg)
-               3 => pure Impossible
-               _ => corrupt "CaseTree"
+    fromBuf = do n <- remaining; decodeTree n (wellFounded n)
 
   export
   {vars : _} -> TTC (CaseAlt vars) where
-    toBuf (ConCase x t args y)
-        = do tag 0; toBuf x; toBuf t; toBuf args; toBuf y
-    toBuf (DelayCase ty arg y)
-        = do tag 1; toBuf ty; toBuf arg; toBuf y
-    toBuf (ConstCase x y)
-        = do tag 2; toBuf x; toBuf y
-    toBuf (DefaultCase x)
-        = do tag 3; toBuf x
+    toBuf = encodeAlt
 
-    fromBuf
-        = case !getTag of
-               0 => do x <- fromBuf; t <- fromBuf
-                       args <- fromBuf; y <- fromBuf
-                       pure (ConCase x t args y)
-               1 => do ty <- fromBuf; arg <- fromBuf; y <- fromBuf
-                       pure (DelayCase ty arg y)
-               2 => do x <- fromBuf; y <- fromBuf
-                       pure (ConstCase x y)
-               3 => do x <- fromBuf
-                       pure (DefaultCase x)
-               _ => corrupt "CaseAlt"
+    fromBuf = do n <- remaining; decodeAlt n (wellFounded n)
 
 export
 {vars : _} -> TTC (Env Term vars) where
@@ -1089,9 +1285,9 @@ TTC Transform where
 Core.Context.decode gam idx update (Coded ns bin)
     = do b <- newRef Bin bin
          def <- fromBuf
-         def' <- resolved gam (restoreNS ns def)
-         -- Into the table as it is now: resolving may have claimed slots,
-         -- and so grown it.
+         def' <- resolveGlobalDef gam (restoreNS ns def)
+         -- Resolving looks up no definition, so nothing else is decoded,
+         -- or written into the table, meanwhile.
          when update $ setEntry gam idx (Decoded def')
          pure def'
 Core.Context.decode gam idx update (Decoded def) = pure def

@@ -5,7 +5,8 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@unknown -o /dev/null 2> %t.unknown.err
 // RUN: FileCheck %s --check-prefix=UNKNOWN < %t.unknown.err
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@reindex -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Record eta: a constructor rebuilt from the fields of a value of that
 // constructor, each read once, is the value. An IO fold returns the IORes
 // of its recursive call rebuilt from its fields, the world among them, so
@@ -25,7 +26,7 @@ idr.program @"record-eta" root(@root) stage(first) {
 
   // traverse_ printLn xs, as the Prelude's foldr over IO raises it.
   idr.func @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes {
-    %unit = idr.constant #idr.con<@MkUnit, []> : !Unit
+    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
     %r = idr.match %xs : !idr.box<!List> -> (!IORes) {
     case @Nil() {
       %done = idr.con !IORes @MkIORes(%unit : !Unit, %w : !idr.world)

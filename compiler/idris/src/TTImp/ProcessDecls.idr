@@ -146,10 +146,8 @@ processDecls : {vars : _} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto o : Ref ROpts REPLOpts} ->
-               NestedNames vars -> Env Term vars -> List ImpDecl -> Core Bool
-processDecls nest env decls
-    = do traverse_ (processDecl [] nest env) decls
-         pure True -- TODO: False on error
+               NestedNames vars -> Env Term vars -> List ImpDecl -> Core ()
+processDecls nest env decls = traverse_ (processDecl [] nest env) decls
 
 processTTImpDecls : {vars : _} ->
                     {auto c : Ref Ctxt Defs} ->
@@ -158,11 +156,10 @@ processTTImpDecls : {vars : _} ->
                     {auto dl : Ref DLY DelayedElabs} ->
                     {auto s : Ref Syn SyntaxInfo} ->
                     {auto o : Ref ROpts REPLOpts} ->
-                    NestedNames vars -> Env Term vars -> List ImpDecl -> Core Bool
+                    NestedNames vars -> Env Term vars -> List ImpDecl -> Core ()
 processTTImpDecls {vars} nest env decls
-    = do traverse_ (\d => do d' <- bindNames d
-                             processDecl [] nest env d') decls
-         pure True -- TODO: False on error
+    = traverse_ (\d => do d' <- bindNames d
+                          processDecl [] nest env d') decls
   where
     bindConNames : ImpTy -> Core ImpTy
     bindConNames ty
@@ -206,7 +203,7 @@ processTTImpFile fname
                                 pure False
          traverse_ recordWarning ws
          logTime 0 "Elaboration" $
-            catch (do ignore $ processTTImpDecls (MkNested []) Env.empty tti
+            catch (do processTTImpDecls (MkNested []) Env.empty tti
                       Nothing <- checkDelayedHoles
                           | Just err => throw err
                       pure True)

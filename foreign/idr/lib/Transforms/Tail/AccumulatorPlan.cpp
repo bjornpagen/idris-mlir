@@ -49,18 +49,24 @@ bool isOne(Value value) {
   return constant && constant->isOne();
 }
 
-// The one value `block` yields past its constants, or null.
-Value yieldedPastConstants(Block &block) {
-  Value value;
-  for (Operation &op : block) {
-    if (isa<ConstantOp>(op))
-      continue;
-    auto yield = dyn_cast<YieldOp>(op);
-    if (!yield || yield.getNumOperands() != 1 || value)
-      return Value();
-    value = yield.getOperand(0);
-  }
-  return value;
+// The one value `block` yields, when it holds nothing but constants before
+// the yield.
+std::optional<Value> yieldedPastConstants(Block &block) {
+  auto yield = dyn_cast<YieldOp>(block.getTerminator());
+  if (!yield || yield.getNumOperands() != 1 ||
+      !llvm::all_of(block.without_terminator(), llvm::IsaPred<ConstantOp>))
+    return std::nullopt;
+  return yield.getOperand(0);
+}
+
+// The other operand of `add`, when exactly one of its operands is
+// `operand`.
+std::optional<Value> otherOperand(BigAddOp add, Value operand) {
+  if (add.getLhs() == operand && add.getRhs() != operand)
+    return add.getRhs();
+  if (add.getRhs() == operand && add.getLhs() != operand)
+    return add.getLhs();
+  return std::nullopt;
 }
 
 // Whether the default region of a countdown computes `f(n - 1) + 1` and
@@ -92,9 +98,8 @@ bool addsOneToPredecessor(Block &block, FuncOp fn, BlockArgument arg) {
     return false;
   if (!isSelfCall(call, fn) || call.getArgs().size() != 1 || call.getArgs()[0] != pred.getResult())
     return false;
-  Value sum = call.getResult(0);
-  Value addend = add.getLhs() == sum ? add.getRhs() : add.getRhs() == sum ? add.getLhs() : Value();
-  if (!addend || !isOne(addend))
+  std::optional<Value> addend = otherOperand(add, call.getResult(0));
+  if (!addend || !isOne(*addend))
     return false;
   auto yield = dyn_cast<YieldOp>(block.getTerminator());
   return yield && yield.getNumOperands() == 1 && yield.getOperand(0) == add.getResult();
@@ -117,27 +122,23 @@ std::optional<Site> siteOf(CallOp call, FuncOp fn) {
   if (call.getNumResults() != 1)
     return std::nullopt;
   if (inTailPosition(call))
-    return Site{call, BigAddOp(), Value()};
+    return Site{call, std::nullopt};
   if (!call->hasOneUse())
     return std::nullopt;
   auto add = dyn_cast<BigAddOp>(*call->user_begin());
   if (!add || !inTailPosition(add) || add->getBlock() != call->getBlock())
     return std::nullopt;
-  Value result = call.getResult(0);
-  Value addend;
-  if (add.getLhs() == result && add.getRhs() != result)
-    addend = add.getRhs();
-  else if (add.getRhs() == result && add.getLhs() != result)
-    addend = add.getLhs();
-  else
+  std::optional<Value> addend = otherOperand(add, call.getResult(0));
+  if (!addend)
     return std::nullopt;
   llvm::DenseSet<Value> seen;
-  if (dependsOnSelfCall(addend, fn, seen))
+  if (dependsOnSelfCall(*addend, fn, seen))
     return std::nullopt;
-  for (Operation *op = call->getNextNode(); op != add; op = op->getNextNode())
-    if (!isMemoryEffectFree(op) || !isSpeculatable(op))
-      return std::nullopt;
-  return Site{call, add, addend};
+  // The ops of the block between the call and the addition.
+  auto between = llvm::make_range(std::next(call->getIterator()), add->getIterator());
+  if (!llvm::all_of(between, [](Operation &op) { return isMemoryEffectFree(&op) && isSpeculatable(&op); }))
+    return std::nullopt;
+  return Site{call, Site::Addition{add, *addend}};
 }
 
 // Whether every use of `fn` in its own body is a call. A reference that is
@@ -193,8 +194,8 @@ bool isCountdown(FuncOp fn) {
   Region &zero = match.getCaseRegion(0);
   if (!zero.hasOneBlock())
     return false;
-  Value zeroValue = yieldedPastConstants(zero.front());
-  if (!zeroValue || !isZero(zeroValue))
+  std::optional<Value> zeroValue = yieldedPastConstants(zero.front());
+  if (!zeroValue || !isZero(*zeroValue))
     return false;
   Region &other = *match.getDefaultRegion();
   return other.hasOneBlock() && addsOneToPredecessor(other.front(), fn, arg);
@@ -223,7 +224,7 @@ SmallVector<Site> accumulatorSites(FuncOp fn) {
     sites.push_back(*site);
     return WalkResult::advance();
   });
-  if (walk.wasInterrupted() || llvm::none_of(sites, [](const Site &site) { return static_cast<bool>(site.add); }))
+  if (walk.wasInterrupted() || llvm::none_of(sites, [](const Site &site) { return site.addition.has_value(); }))
     return {};
   return sites;
 }

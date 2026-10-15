@@ -1,0 +1,6 @@
+NEEDS-ACCEPTANCE: that showing a dependent pair, whose Show constraint reaches the instance as a function field applied past its arity, is accepted, compiles and runs
+compile: exit 0
+artifacts: core module objects executable
+run: exit status as expected
+stdout: as expected
+stderr: empty

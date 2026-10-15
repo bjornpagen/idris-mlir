@@ -23,31 +23,20 @@ namespace idr::conversion {
 
 namespace {
 
-// A box's cell of the constructor `tag`: its header and the words after it,
-// then its fields' components stored at their offsets.
-Value buildBox(OpBuilder &b, Location loc, Runtime &runtime, const layout::Cell &layout,
-               unsigned tag, Value cell, ArrayRef<SmallVector<Value>> fields) {
-  if (!cell)
-    cell = runtime.allocate(b, loc, layout, tag);
-  for (auto [slots, values] : llvm::zip_equal(layout.fields, fields))
-    runtime.store(b, loc, cell, cellAlignment(), slots, values);
-  return cell;
-}
-
-// The cell of `con`, a box's constructor idr-stack put on the stack (its
-// `stack` property), before its fields: a slot in the entry block of the
-// function that holds it, one slot per con, allocated once per frame however
-// often the con runs, so LLVM may keep it in registers when it stays in the
-// function. Its header, written
-// where the con runs, is count 1 and the box's info with the stack mark
+// The cell of `con`, a box's constructor, with its header and the words
+// after it, before its fields. On the heap, a new cell of the runtime's. On
+// the stack, where idr-stack put it (its `stack` property), a slot in the
+// entry block of the function that holds it, one slot per con, allocated
+// once per frame however often the con runs, so LLVM may keep it in
+// registers when it stays in the function. Its header, written where the
+// con runs, is count 1 and the box's info with the stack mark
 // (IDRIS_RT_STACK_CELL): counting works on it as on any cell, but when its
 // count reaches 0 its memory is not freed, and it is never exclusive, so no
-// reset reuses it for a value that could outlive the frame. Null for a
-// con on the heap.
-Value stackCell(OpBuilder &b, Location loc, ConOp con, const layout::Cell &layout,
-                unsigned tag, Runtime &runtime) {
+// reset reuses it for a value that could outlive the frame.
+Value cellOf(OpBuilder &b, Location loc, ConOp con, const layout::Cell &layout, Tag tag,
+             Runtime &runtime) {
   if (!con.getStack())
-    return {};
+    return runtime.allocate(b, loc, layout, tag);
   Value slot;
   {
     OpBuilder::InsertionGuard guard(b);
@@ -73,32 +62,21 @@ struct LowerCon : IdrPattern<ConOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     DataType data = op.getDataType();
-    unsigned tag = op.getTag();
+    Tag tag = op.getTag();
     if (isBoxed(op.getResult().getType())) {
-      // idr-stack: a cell that never outlives its frame is a slot of it.
       const layout::Cell &cell = layouts.box(data, tag);
-      Value slot = stackCell(rewriter, loc, op, cell, tag, runtime);
-      Value box =
-          buildBox(rewriter, loc, runtime, cell, tag, slot,
-                   fieldsOf(rewriter, loc, cell, op.getHoles(), adaptor.getFields()));
+      SmallVector<SmallVector<Value>> fields =
+          fieldsOf(rewriter, loc, cell, op.getHoles(), adaptor.getFields());
+      Value box = cellOf(rewriter, loc, op, cell, tag, runtime);
+      for (auto [slots, values] : llvm::zip_equal(cell.fields, fields))
+        runtime.store(rewriter, loc, box, cellAlignment(), slots, values);
       SmallVector<SmallVector<Value>> out{{box}};
       llvm::append_range(out, destsOf(rewriter, loc, box, cell, op.getHoles()));
       rewriter.replaceOpWithMultiple(op, std::move(out));
       return success();
     }
-    const layout::SumLayout &layout = layouts.sum(data);
-    SmallVector<Value> slots(layout.slots.size());
-    for (auto [field, values] : llvm::zip_equal(layout.fields[tag], adaptor.getFields()))
-      for (auto [slot, value] : llvm::zip_equal(field, values))
-        slots[slot] = value;
-    SmallVector<Value> out;
-    if (layout.tag)
-      out.push_back(
-          arith::ConstantIntOp::create(rewriter, loc, layout.tag, static_cast<int64_t>(tag)));
-    for (auto [slot, value] : llvm::enumerate(slots))
-      out.push_back(value ? value
-                          : LLVM::ZeroOp::create(rewriter, loc, layout.slots[slot]).getResult());
-    rewriter.replaceOpWithMultiple(op, {out});
+    rewriter.replaceOpWithMultiple(
+        op, {unboxedSum(rewriter, loc, layouts.sum(data), tag, adaptor.getFields())});
     return success();
   }
 };
@@ -133,7 +111,7 @@ struct LowerField : IdrPattern<FieldOp> {
   LogicalResult matchAndRewrite(FieldOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     auto index = static_cast<unsigned>(op.getIndex());
-    unsigned tag = op.getTag();
+    Tag tag = op.getTag();
     DataType data = op.getDataType();
     if (isBoxed(op.getValue().getType())) {
       rewriter.replaceOpWithMultiple(
@@ -141,12 +119,8 @@ struct LowerField : IdrPattern<FieldOp> {
                             layouts.box(data, tag).fields[index])});
       return success();
     }
-    const layout::SumLayout &layout = layouts.sum(data);
-    ValueRange values = adaptor.getValue();
-    SmallVector<Value> out;
-    for (unsigned slot : layout.fields[tag][index])
-      out.push_back(values[layout.offset() + slot]);
-    rewriter.replaceOpWithMultiple(op, {out});
+    rewriter.replaceOpWithMultiple(
+        op, {unboxedField(layouts.sum(data), adaptor.getValue(), tag, index)});
     return success();
   }
 };

@@ -122,7 +122,6 @@ holdFor ix l uses v = coerce ix l (heldAs v.use uses) v
 
 ||| Operands, left to right, each checked against the type its position
 ||| expects and held as it binds them; `Nothing` once one never returns.
-covering
 operands : Index -> Loc -> (Fin nv -> Val) -> List (Sub Em nv) -> List Binder -> E (Maybe (List Val))
 operands ix l env [] _ = pure (Just [])
 operands ix l env (a :: as) slots = do
@@ -210,8 +209,8 @@ key : Lit -> MlirAttr
 key (LInt t n) = IntegerAttr (twos (width t) n) (IntegerType (width t))
 key (LChar c) = IntegerAttr c (IntegerType 32)
 key (LStr s) = StringAttr s
-key (LBig n) = Idr (BigAttr n)
-key (LNat n) = Idr (BigAttr (cast n))
+key (LBig n) = idr (BigAttr n)
+key (LNat n) = idr (BigAttr (cast n))
 key (LDouble d) = FloatAttr d F64Type
 
 ||| Starts a function: its own SSA numbers and operations.
@@ -279,7 +278,7 @@ holding ix l t captures build = do
   where
     linearType : Value -> Bool
     linearType v = case v.type of
-      Idr (QType One _ _) => True
+      Idr (QType One _ _) _ => True
       _ => False
 
 ||| A call, a constructor application or a case passes as many values as
@@ -291,9 +290,8 @@ saturated ix l term what given taken =
     internal (fastConcat [show l, ": ", what, " passes ", show given, " values; it takes ",
                           show taken, ": ", showBody (names ix) term 0])
 
-||| The algebra: one layer of `Term` to its emitter. It is covering because a
-||| lifted function's key is its text, and a type's text is (MLIR.typeText).
-export covering
+||| The algebra: one layer of `Term` to its emitter.
+export
 alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
 alg ix (VarF l x) env _ = Just <$> force ix l (env x)
 alg ix (LiteralF l x) env _ = Just <$> literal ix l x

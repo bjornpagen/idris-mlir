@@ -255,9 +255,9 @@ withRHS fc drop wname wargnames tm toplhs
       wrhs (ICase fc opts sc ty clauses)
           = pure $ ICase fc opts !(wrhs sc) !(wrhs ty) !(traverse wrhsC clauses)
       wrhs (ILocal fc decls sc)
-          = pure $ ILocal fc decls !(wrhs sc) -- TODO!
+          = pure $ ILocal fc !(traverse wrhsD decls) !(wrhs sc)
       wrhs (IUpdate fc upds tm)
-          = pure $ IUpdate fc upds !(wrhs tm) -- TODO!
+          = pure $ IUpdate fc !(traverse wrhsU upds) !(wrhs tm)
       wrhs (IApp fc f a)
           = pure $ IApp fc !(wrhs f) !(wrhs a)
       wrhs (IAutoApp fc f a)
@@ -274,3 +274,13 @@ withRHS fc drop wname wargnames tm toplhs
       wrhsC : ImpClause -> Core ImpClause
       wrhsC (PatClause fc lhs rhs) = pure $ PatClause fc lhs !(wrhs rhs)
       wrhsC c = pure c
+
+      -- A local definition's clauses are terms of the with clause's
+      -- right-hand side, as a case block's are.
+      wrhsD : ImpDecl -> Core ImpDecl
+      wrhsD (IDef fc n cs) = pure $ IDef fc n !(traverse wrhsC cs)
+      wrhsD d = pure d
+
+      wrhsU : IFieldUpdate -> Core IFieldUpdate
+      wrhsU (ISetField path tm) = pure $ ISetField path !(wrhs tm)
+      wrhsU (ISetFieldApp path tm) = pure $ ISetFieldApp path !(wrhs tm)

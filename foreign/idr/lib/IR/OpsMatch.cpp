@@ -36,7 +36,7 @@ LogicalResult verifyMatchRegions(Operation *op) {
 
 // The region of `Match` taken for the key `key`: its case, else the default.
 // A key is a literal of idr.match_lit, or a tag of idr.match.
-template <typename Match, typename Key>
+template <idr::detail::MatchLike Match, typename Key>
 Region *takenRegion(Match op, Key key) {
   auto cases = op.getCases();
   const auto *it = llvm::find(cases, key);
@@ -53,7 +53,7 @@ Region *takenRegion(Match op, Key key) {
 // says too little when this match has a key of its own, and the search
 // goes on outward. Only the value matters, not the position it is held in:
 // the same value in a linear position is still that value.
-template <typename Match>
+template <idr::detail::MatchLike Match>
 Region *takenFromEnclosing(Match op) {
   Value source = throughLinear(op.getScrutinee());
   for (Region *region = op->getParentRegion(); region; region = region->getParentRegion()) {
@@ -83,21 +83,22 @@ LogicalResult MatchOp::verify() {
   if (getRegions().size() != cases && getRegions().size() != cases + 1)
     return emitOpError("expects one region per case and at most one default");
   llvm::SmallDenseSet<int32_t> seen;
-  for (auto [index, tag] : llvm::enumerate(getCases())) {
-    if (tag < 0)
-      return emitOpError("has a case for constructor ") << tag;
-    const Ctor *ctor =
-        idr::detail::ctorAt(*this, getScrutinee().getType(), static_cast<unsigned>(tag));
-    if (!ctor)
+  for (auto [index, key] : llvm::enumerate(getCases())) {
+    if (key < 0)
+      return emitOpError("has a case for constructor ") << key;
+    FailureOr<std::reference_wrapper<const Ctor>> found =
+        idr::detail::ctorAt(*this, getScrutinee().getType(), getCaseTag(static_cast<unsigned>(index)));
+    if (failed(found))
       return failure();
-    if (!seen.insert(tag).second)
-      return emitOpError("has two cases for constructor ") << tag;
+    const Ctor &ctor = *found;
+    if (!seen.insert(key).second)
+      return emitOpError("has two cases for constructor @") << ctor.name.getValue();
     SmallVector<Type> expected;
-    for (Type field : ctor->fields)
+    for (Type field : ctor.fields)
       expected.push_back(fieldType(getScrutinee().getType(), field));
     TypeRange args = getCaseRegion(static_cast<unsigned>(index)).getArgumentTypes();
     if (args != TypeRange(expected))
-      return emitOpError("case @") << ctor->name.getValue()
+      return emitOpError("case @") << ctor.name.getValue()
                                    << " must take the constructor's fields at the "
                                    << "scrutinee's grade, " << expected;
   }
@@ -115,9 +116,9 @@ LogicalResult MatchOp::verifyRegions() { return verifyMatchRegions(*this); }
 DataType MatchOp::getDataType() { return dataTypeOf(getScrutinee().getType()); }
 
 void MatchOp::build(OpBuilder &builder, OperationState &state, TypeRange results,
-                    Value scrutinee, ArrayRef<unsigned> tags, unsigned regions) {
+                    Value scrutinee, ArrayRef<Tag> tags, unsigned regions) {
   SmallVector<int32_t> cases;
-  for (unsigned tag : tags)
+  for (Tag tag : tags)
     cases.push_back(static_cast<int32_t>(tag));
   build(builder, state, results, scrutinee, ArrayRef<int32_t>(cases), regions);
 }

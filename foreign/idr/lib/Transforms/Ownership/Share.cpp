@@ -24,7 +24,7 @@ namespace idr::ownership {
 // gets it shared (idr.share): the solver reads the shared value there, and
 // the value itself keeps what its provenance proves, which its callee's or
 // constructor's type must agree with.
-void shareTainted(ProgramOp program, SymbolTable &symbols) {
+void shareTainted(ProgramOp program, const SymbolTable &symbols) {
   llvm::SetVector<Value> tainted;
   DenseMap<Operation *, SmallVector<unsigned>> borrowedRoots;
   program.walk([&](DupOp dup) {
@@ -36,9 +36,9 @@ void shareTainted(ProgramOp program, SymbolTable &symbols) {
     if (fn && !isOwned(arg.getType()))
       borrowedRoots[fn].push_back(arg.getArgNumber());
   });
+  // A verified call names a function of the program.
   program.walk([&](CallOp call) {
-    auto fn = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
-    auto it = fn ? borrowedRoots.find(fn) : borrowedRoots.end();
+    auto it = borrowedRoots.find(symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()));
     if (it == borrowedRoots.end())
       return;
     for (unsigned index : it->second)
@@ -46,11 +46,12 @@ void shareTainted(ProgramOp program, SymbolTable &symbols) {
         tainted.insert(root);
   });
   // The consuming uses are found first and shared after: each share is a
-  // new use of the value.
+  // new use of the value. Placement gave every call's operands their
+  // parameters' grades, so a use's grade says whether it consumes.
   SmallVector<OpOperand *> consuming;
   for (Value value : tainted)
     for (OpOperand &use : value.getUses())
-      if (useOf(use, &symbols) == Use::Consume)
+      if (useOf(use) == Use::Consume)
         consuming.push_back(&use);
   IRRewriter rewriter(program.getContext());
   for (OpOperand *use : consuming) {

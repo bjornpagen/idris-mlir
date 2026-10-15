@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* The reserved-stack runner, idris_rt_run_on_stack, asked for a stack and a
  * guard that are not whole pages of the build's page size (TEST_PAGE_SIZE):
  * a recursion that keeps every frame runs into the guard, which ends it as

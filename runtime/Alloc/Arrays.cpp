@@ -7,6 +7,7 @@
 // copies where a copy must count or stride, and frees the cell (rt::rc).
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "Rc/Rc.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
@@ -44,8 +45,8 @@ void assign(char *to, const char *from, Element element) {
   void *const *held = static_cast<void *const *>(static_cast<const void *>(from));
   void **old = static_cast<void **>(static_cast<void *>(to));
   for (uint32_t i = 0; i < element.objs; ++i) {
-    idris_rt_inc(held[i]);
-    idris_rt_dec(old[i]);
+    rt::rc::inc(held[i]);
+    rt::rc::dec(old[i]);
   }
   memmove(to, from, static_cast<size_t>(element.bytes));
 }

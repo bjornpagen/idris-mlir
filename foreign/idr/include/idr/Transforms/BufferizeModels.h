@@ -57,13 +57,13 @@ bool mayRunAfter(mlir::Operation *later, mlir::Operation *earlier, mlir::Value v
 // the op is a call.
 bool isRelease(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state);
 
-// Whether `enter` is a link of a linear thread: every buffer its operand
-// may be is one an idr.lin.use began, through the destinations of the
-// writes between them, and nothing reads or writes that buffer after the
-// entry. It reads only aliasing and positions, which the models answer
-// before the analysis decides anything, so every analysis of one program
-// finds the same links.
-bool isLink(LinEnterOp enter, const mlir::bufferization::BufferizationOptions &options);
+// Whether the idr.lin.enter that releases the tensor `released` is a link
+// of a linear thread: every buffer the tensor may be is one an idr.lin.use
+// began, through the destinations of the writes between them, and nothing
+// reads or writes that buffer after the entry. It reads only aliasing and
+// positions, which the models answer before the analysis decides anything,
+// so every analysis of one program finds the same links.
+bool isLink(mlir::OpOperand &released, const mlir::bufferization::BufferizationOptions &options);
 
 // The program made ready for any analysis: every tensor.empty has one use,
 // and a use that writes, without reading, a buffer a release gave away, and

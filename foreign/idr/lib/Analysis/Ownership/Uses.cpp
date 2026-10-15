@@ -2,6 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Where a value is used, and where it dies on each path of a block: what
 // reset/reuse insertion decides by, and what explicit counting places by.
+// The ops of a block are asked from a first op on, a half-open range whose
+// start is the block's own start or the op after another, so no position
+// is a special case.
 #include "idr/Analysis/Ownership.h"
 
 #include "idr/IR/Grades.h"
@@ -23,12 +26,12 @@ namespace idr::ownership {
 
 namespace {
 
-// The ops that hold `uses` in `block` after `after`, in order, once each.
+// The ops that hold `uses` in `block` from `from` on, in order, once each.
 template <typename Uses>
-SmallVector<Operation *> holders(Uses &&uses, Block &block, Operation *after) {
+SmallVector<Operation *> holders(Uses &&uses, Block &block, Block::iterator from) {
   SmallVector<Operation *> users;
   for (OpOperand &use : uses)
-    if (Operation *top = heldIn(block, use, after))
+    if (Operation *top = heldIn(block, use, from))
       users.push_back(top);
   llvm::sort(users, [](Operation *a, Operation *b) { return a->isBeforeInBlock(b); });
   users.erase(std::unique(users.begin(), users.end()), users.end());
@@ -41,21 +44,49 @@ bool usedWithin(Value value, Operation *op) {
                       [&](OpOperand &use) { return op->isProperAncestor(use.getOwner()); });
 }
 
+// One case for each kind of point, so a visit of a point has every case.
+Block &blockAt(BlockStart at) { return *at.block; }
+Block &blockAt(After at) { return *at.op->getBlock(); }
+Block::iterator firstAfter(BlockStart at) { return at.block->begin(); }
+Block::iterator firstAfter(After at) { return std::next(at.op->getIterator()); }
+
 } // namespace
 
-Operation *heldIn(Block &block, OpOperand &use, Operation *after) {
+Block &blockOf(const Point &point) {
+  return std::visit([](auto at) -> Block & { return blockAt(at); }, point);
+}
+
+Block::iterator firstAt(const Point &point) {
+  return std::visit([](auto at) { return firstAfter(at); }, point);
+}
+
+Point pointBefore(Block &block, Block::iterator at) {
+  if (at == block.begin())
+    return BlockStart{&block};
+  return After{&*std::prev(at)};
+}
+
+Point definedAt(Value value) {
+  if (auto arg = dyn_cast<BlockArgument>(value))
+    return BlockStart{arg.getOwner()};
+  return After{value.getDefiningOp()};
+}
+
+Operation *heldIn(Block &block, OpOperand &use, Block::iterator from) {
+  if (from == block.end())
+    return nullptr;
   Operation *top = block.findAncestorOpInBlock(*use.getOwner());
-  if (top && (!after || after->isBeforeInBlock(top)))
+  if (top && (top == &*from || from->isBeforeInBlock(top)))
     return top;
   return nullptr;
 }
 
-SmallVector<Operation *> usersIn(Value value, Block &block, Operation *after) {
-  return holders(value.getUses(), block, after);
+SmallVector<Operation *> usersIn(Value value, Block &block, Block::iterator from) {
+  return holders(value.getUses(), block, from);
 }
 
-SmallVector<Operation *> usersIn(ArrayRef<OpOperand *> uses, Block &block, Operation *after) {
-  return holders(llvm::make_pointee_range(uses), block, after);
+SmallVector<Operation *> usersIn(ArrayRef<OpOperand *> uses, Block &block, Block::iterator from) {
+  return holders(llvm::make_pointee_range(uses), block, from);
 }
 
 // Its regions are alternatives, as the owned stage's verifier reads them,
@@ -77,14 +108,15 @@ bool decides(Operation *op) {
 // when that op uses it anywhere inside: it holds the value as long as it
 // runs. A use inside an op that decides is no reason: the region that
 // holds `op` may have dropped the value on entry, or after its last use
-// there, while another region used it.
+// there, while another region used it. The ops that hold `op` are its
+// ancestors, a chain that ends at the function.
 bool usedAfter(Value value, Operation *op) {
   Block *home = value.getParentBlock();
   for (Operation *at = op; at; at = at->getParentOp()) {
     Block *block = at->getBlock();
     if (!block)
       return false;
-    if (!usersIn(value, *block, at).empty())
+    if (!usersIn(value, *block, std::next(at->getIterator())).empty())
       return true;
     Operation *parent = block->getParentOp();
     if (block == home || isa<FuncOp>(parent))
@@ -98,22 +130,16 @@ bool usedAfter(Value value, Operation *op) {
 // A last use that consumes the value is where it moves on, its cell with
 // it: a take after that use would keep a second reference alive across it,
 // so that whoever receives the value finds its cell shared and copies it.
-void whereDies(ArrayRef<OpOperand *> uses, Block &block, SymbolTable *graded,
+void whereDies(ArrayRef<OpOperand *> uses, Block &block, function_ref<bool(OpOperand &)> takesOver,
                function_ref<void(Block &, Block::iterator)> at) {
-  SmallVector<Operation *> users = usersIn(uses, block, nullptr);
+  SmallVector<Operation *> users = usersIn(uses, block, block.begin());
   if (users.empty()) {
     at(block, block.begin());
     return;
   }
   Operation *last = users.back();
-  if (last->hasTrait<OpTrait::IsTerminator>())
-    return;
-  // Before borrow inference every call may still consume its arguments.
-  if (!graded && isa<CallOp>(last))
-    return;
-  if (llvm::any_of(uses, [&](OpOperand *use) {
-        return use->getOwner() == last && consumes(*use, graded);
-      }))
+  if (last->hasTrait<OpTrait::IsTerminator>() ||
+      llvm::any_of(uses, [&](OpOperand *use) { return use->getOwner() == last && takesOver(*use); }))
     return;
   // An op that decides moves the value into each of its regions, where it
   // dies on each path; any other holds it for as long as it runs, and it
@@ -121,36 +147,26 @@ void whereDies(ArrayRef<OpOperand *> uses, Block &block, SymbolTable *graded,
   if (decides(last)) {
     for (Region &region : last->getRegions())
       if (!region.empty())
-        whereDies(uses, region.front(), graded, at);
+        whereDies(uses, region.front(), takesOver, at);
     return;
   }
   at(block, std::next(last->getIterator()));
 }
 
-void whereDies(Value value, Block &block, SymbolTable *graded,
+void whereDies(Value value, Block &block, function_ref<bool(OpOperand &)> takesOver,
                function_ref<void(Block &, Block::iterator)> at) {
   SmallVector<OpOperand *> uses = llvm::to_vector(llvm::make_pointer_range(value.getUses()));
-  whereDies(uses, block, graded, at);
+  whereDies(uses, block, takesOver, at);
 }
 
-// heldIn answers "strictly after an op", so the op before `at` (anywhere,
-// when `at` is the block's start).
-bool fromPoint(Block &block, Block::iterator at, OpOperand &use) {
-  if (at == block.end())
-    return false;
-  Operation *after = at == block.begin() ? nullptr : &*std::prev(at);
-  return heldIn(block, use, after);
-}
-
-void eachField(ArrayRef<OpOperand *> uses, unsigned tag, Block *fields,
-               function_ref<void(Value, unsigned)> f) {
-  if (fields)
-    for (BlockArgument arg : fields->getArguments())
-      f(arg, arg.getArgNumber());
+SmallVector<Field> fieldsOf(ArrayRef<OpOperand *> uses, Tag tag, ArrayRef<BlockArgument> bound) {
+  SmallVector<Field> fields;
+  for (BlockArgument arg : bound)
+    fields.push_back({arg, arg.getArgNumber()});
   for (OpOperand *use : uses)
-    if (auto read = dyn_cast<FieldOp>(use->getOwner());
-        read && static_cast<unsigned>(read.getTag()) == tag)
-      f(read.getResult(), static_cast<unsigned>(read.getIndex()));
+    if (auto read = dyn_cast<FieldOp>(use->getOwner()); read && read.getTag() == tag)
+      fields.push_back({read.getResult(), static_cast<unsigned>(read.getIndex())});
+  return fields;
 }
 
 FieldOp onlyReads(Value box) {
@@ -174,11 +190,12 @@ FieldOp onlyReads(Type type, ArrayRef<OpOperand *> uses) {
   }
   // Every use is in the first read's block, at it or after it: from there
   // on the constructor is known. The uses in the block are usersIn's; one
-  // before the first read makes that list longer than the uses at the
-  // first read or after it, and a use outside the block is in neither.
+  // before the first read makes the list from the block's start longer
+  // than the one from the first read, and a use outside the block is in
+  // neither.
   Block *block = first->getBlock();
-  Operation *before = first->getPrevNode();
-  if (usersIn(uses, *block, before).size() != usersIn(uses, *block, nullptr).size())
+  if (usersIn(uses, *block, first->getIterator()).size() !=
+      usersIn(uses, *block, block->begin()).size())
     return nullptr;
   if (llvm::any_of(uses, [&](OpOperand *use) {
         return !block->findAncestorOpInBlock(*use->getOwner());

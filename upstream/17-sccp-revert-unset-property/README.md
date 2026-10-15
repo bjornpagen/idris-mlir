@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir][SCCP] sccp keeps a property that an in-place fold sets on an op that had none
 
 On llvm main at 7208ba24 (the pin), sccp simulates each operation's fold

@@ -1,16 +1,22 @@
 // RUN: idris-mlir-opt %s --idr-effects --idr-expect=holds=effects=@square:none,effects=@boxes:none,effects=@crashes:crash,effects=@partial:diverge,effects=@writes:io,effects=@main:io+crash+diverge -o /dev/null
 // RUN: idris-mlir-opt %s --idr-effects --idr-expect=holds=facts-as-marked -o /dev/null
-// RUN: idris-mlir-opt %s --idr-effects --cse --canonicalize --idr-expect=holds=never-calls=@main:@unused -o /dev/null
-// NEEDS-ACCEPTANCE: a call's answers are its callee's effects, which idr.call's MemoryEffectOpInterface reports (R02) from what idr-effects found (R07).
-// idr-effects finds what each function may do, once, on the function: a
-// call carries no copy, and answers MemoryEffectOpInterface from its
-// callee's, so the upstream passes treat a call as they treat any op: two
-// calls of a pure total function on the same arguments are one value, a
-// call whose results are unused is dead code when it only computes, and a
-// call of a function that may crash, perform IO or not return is kept
-// each time it is made. A result that is not a scalar is a fresh value the
-// call allocates: two such calls are two values (each makes its own cell),
-// and an unused one is dead code.
+// RUN: idris-mlir-opt %s --idr-effects --cse --canonicalize -o %t.mlir
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-distinct=@main:@square -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-read=@main:@unused -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-distinct=@main:@boxes -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-read=@main:@boxes -o /dev/null
+// RUN: idris-mlir-opt %s --idr-effects --idr-canonicalize=test-convergence=true -o /dev/null
+// NEEDS-ACCEPTANCE: that a call answers move and delay with its callee's effects as idr-effects found them, and that canonicalize and CSE keep every call.
+// idr-effects finds what each function may do, once, on the function. A
+// call holds no effects: what it may do is its callee's, which a pass that
+// knows the program's functions reads by the callee's name. So the
+// dialect's rewrites move a call of a function that only computes across
+// anything, and delay a call that performs no IO, though it may crash or
+// not return; a call that performs IO stays in its place. To upstream's
+// passes, which read the call alone, a call may do anything: dead code
+// removal keeps an unused call and CSE keeps two equal ones, however pure
+// the callee. The calls of pure callees are dropped and merged by
+// idr-pure-calls, from the callee's summary (optimize/pure-call.mlir).
 !Box = !idr.data<"Box", plain [@MkBox(i64)]>
 idr.program @"call-effects" root(@root) stage(first) {
   idr.func @square(%x: i64) -> i64 attributes {total} {
@@ -40,12 +46,12 @@ idr.program @"call-effects" root(@root) stage(first) {
     return %w1 : !idr.world
   }
   idr.func @main(%x: i64, %w: !idr.world) -> (i64, i64, !Box, !Box, i64, i64, i64, i64, !idr.world) {
-    %a = idr.call @square(%x) {expect.facts = "move delay merge"} : (i64) -> i64
-    %b = idr.call @square(%x) {expect.facts = "move delay merge"} : (i64) -> i64
-    %u = idr.call @unused(%x) {expect.facts = "drop move delay merge"} : (i64) -> i64
+    %a = idr.call @square(%x) {expect.facts = "move delay"} : (i64) -> i64
+    %b = idr.call @square(%x) {expect.facts = "move delay"} : (i64) -> i64
+    %u = idr.call @unused(%x) {expect.facts = "move delay"} : (i64) -> i64
     %b1 = idr.call @boxes(%x) {expect.facts = "move delay"} : (i64) -> !Box
     %b2 = idr.call @boxes(%x) {expect.facts = "move delay"} : (i64) -> !Box
-    %u2 = idr.call @boxes(%x) {expect.facts = "drop move delay"} : (i64) -> !Box
+    %u2 = idr.call @boxes(%x) {expect.facts = "move delay"} : (i64) -> !Box
     %c1 = idr.call @crashes(%x) {expect.facts = "delay"} : (i64) -> i64
     %c2 = idr.call @crashes(%x) {expect.facts = "delay"} : (i64) -> i64
     %p1 = idr.call @partial(%x) {expect.facts = "delay"} : (i64) -> i64

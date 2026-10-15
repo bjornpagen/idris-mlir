@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `ExecutionEngine` cannot be created in a statically linked process
 
 At `llvmorg-23.1.2`, `mlir::ExecutionEngine::create` always opens the

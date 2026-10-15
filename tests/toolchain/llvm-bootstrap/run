@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Stage 2 installed a complete tree into .toolchain/llvm, the same on every
 # host: every tool, the CMake packages of LLVM and MLIR, the configuration
 # those packages record (the backends of both targets, assertions on, RTTI

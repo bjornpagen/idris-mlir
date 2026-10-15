@@ -1,4 +1,13 @@
-// RUN: idris-mlir-opt %s --idr-target --idr-tail-calls | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-target --idr-tail-calls -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@direct:@leaf,tail-calls=@repacked:@pair,tail-calls=@joined:@leaf,tail-calls=@exits:@step,convention=@leaf:tailcc,convention=@pair:tailcc,convention=@step:tailcc,convention=@direct:tailcc,convention=@repacked:tailcc,convention=@joined:tailcc,convention=@exits:tailcc,convention=@changed:ccc,convention=@followed:ccc,convention=@load:ccc,convention=@slot:ccc,convention=@read:ccc,convention=@leaked:ccc,convention=@hub:ccc,convention=@below:ccc,convention=@off:ccc,convention=@entry:ccc,convention=@main:ccc -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@changed:@leaf -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@followed:@leaf -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@slot:@load -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@read:@load -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@leaked:@load -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@off:@below -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=tail-calls=@entry:@leaf -o /dev/null
+// NEEDS-ACCEPTANCE: that the tail-calls and convention properties hold where the printed module showed them, and fail at each call that keeps its frame.
 // idr-target first, as in the pipeline: idr-tail-calls reads the module's
 // #llvm.target to learn what the target returns in registers.
 // What idr-tail-calls takes for a call in tail position on a cycle of calls,
@@ -12,54 +21,14 @@
 // put back together (@repacked), carried to the return by a branch
 // (@joined), and by the exit of a loop whose flag the path passes as a
 // constant (@exits): each a tail call, with the return right after it.
-// CHECK-LABEL: llvm.func tailcc @leaf(
-// CHECK-LABEL: llvm.func tailcc @pair(
-// CHECK-LABEL: llvm.func tailcc @step(
-// CHECK-LABEL: llvm.func tailcc @direct(
-// CHECK: llvm.call tailcc musttail @leaf(
-// CHECK-NEXT: llvm.return
-// CHECK-LABEL: llvm.func tailcc @repacked(
-// CHECK: llvm.call tailcc musttail @pair(
-// CHECK-NEXT: llvm.return
-// CHECK-LABEL: llvm.func tailcc @joined(
-// CHECK: llvm.call tailcc musttail @leaf(
-// CHECK-NEXT: llvm.return
-// CHECK-LABEL: llvm.func tailcc @exits(
-// CHECK: llvm.call tailcc musttail @step(
-// CHECK-NEXT: llvm.return
 // A call whose result the path changes (@changed), or after which another
 // call runs (@followed), is no tail call.
-// CHECK-LABEL: llvm.func @changed(
-// CHECK-NOT: musttail
-// CHECK: llvm.return
-// CHECK-LABEL: llvm.func @followed(
-// CHECK-NOT: musttail
-// CHECK: llvm.return
 // A call that may reach its caller's frame stays a call: it takes a slot of
 // the frame (@slot), or a pointer read from one (@read), or a pointer into
 // the frame was written outside it (@leaked).
-// CHECK-LABEL: llvm.func @load(
-// CHECK-LABEL: llvm.func @slot(
-// CHECK-NOT: musttail
-// CHECK: llvm.return
-// CHECK-LABEL: llvm.func @read(
-// CHECK-NOT: musttail
-// CHECK: llvm.return
-// CHECK-LABEL: llvm.func @leaked(
-// CHECK-NOT: musttail
-// CHECK: llvm.return
-// CHECK-LABEL: llvm.func @hub(
 // A call in tail position from one cycle to another (@off, of @below,
 // which never calls back) keeps the caller's frame once at most: it stays
 // a call, and both keep C's convention.
-// CHECK-LABEL: llvm.func @below(
-// CHECK-LABEL: llvm.func @off(
-// CHECK-NOT: musttail
-// CHECK: llvm.return
-// CHECK-LABEL: llvm.func @entry(
-// CHECK-NOT: musttail
-// CHECK: llvm.return
-// CHECK-LABEL: llvm.func @main(
 module {
   llvm.func @leaf(%x: i64) -> i64 attributes {sym_visibility = "private"} {
     %zero = llvm.mlir.constant(0 : i64) : i64

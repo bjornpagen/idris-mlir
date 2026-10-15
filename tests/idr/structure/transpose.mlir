@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns-argument=@back:0,returns-argument=@same:0 -o /dev/null
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-structure-loops)),idr-expect{holds=structured-loops=@swap})' -o /dev/null
-// NEEDS-ACCEPTANCE: idr.transpose's folds and its lowering to a linalg op (R10).
+// NEEDS-ACCEPTANCE: idr.transpose's folds and its lowering to a linalg op.
 // A transpose permutes an array's dimensions: an array moved, no element
 // made. The identity permutation is the array itself, and a permutation
 // followed by its inverse is the array again, so both fold to their

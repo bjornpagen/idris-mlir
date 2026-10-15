@@ -18,10 +18,17 @@
 #include "idr/IR/Verify.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
+#include "llvm/Support/ErrorHandling.h"
+
+#include "idris_rt.h"
+
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -54,30 +61,45 @@ LogicalResult rootType(FuncOp root) {
   return success();
 }
 
+// The runtime frees a cell by its object slots, which it reads as pointers
+// of the target it is compiled for, one word each, and the layouts place
+// them so. The module's data layout is the target entry's (idr-target),
+// the one the runtime is built for, so a mismatch is the compiler's error,
+// never the program's; it is refused here, where every pass's input is
+// checked, so that no layout is ever made for another target.
+LogicalResult target(ProgramOp program) {
+  DataLayout layout = DataLayout::closest(program);
+  Type pointer = LLVM::LLVMPointerType::get(program.getContext());
+  auto size = static_cast<uint64_t>(layout.getTypeSize(pointer).getFixedValue());
+  uint64_t alignment = layout.getTypeABIAlignment(pointer);
+  if (size != IDRIS_RT_WORD_BYTES || alignment != IDRIS_RT_WORD_BYTES)
+    return program->emitError() << "the module's target is not the runtime's: its pointers take "
+                                << size << " bytes at an alignment of " << alignment
+                                << ", and the runtime's object slots are words of "
+                                << IDRIS_RT_WORD_BYTES;
+  return success();
+}
+
 // Every idr.reuse builds in a cell of its own size: its token comes from an
 // idr.take of a cell of the same size, as the target lays cells out. Only a
 // reuse needs the sizes of cells, and the program's verifier runs where no
-// pass rewrites a function beside it, so the layouts are built here, once;
-// layouts that cannot be built have said why, cell by cell, as they were.
+// pass rewrites a function beside it, so the layouts are built here, once.
 LogicalResult reuses(ProgramOp program) {
   SmallVector<ReuseOp> reuses;
   program.walk([&](ReuseOp reuse) { reuses.push_back(reuse); });
   if (reuses.empty())
     return success();
   Layouts layouts(program.getOperation());
-  if (failed(layouts.valid()))
-    return failure();
   for (ReuseOp reuse : reuses) {
     auto take = reuse.getToken().getDefiningOp<TakeOp>();
     if (!take)
       return reuse.emitOpError("builds in a token that no idr.take made");
-    auto cell = static_cast<unsigned>(take.getTag());
-    unsigned have = layouts.box(take.getDataType(), cell).size;
-    unsigned need = layouts.box(reuse.getDataType(), static_cast<unsigned>(reuse.getTag())).size;
+    unsigned have = layouts.box(take.getDataType(), take.getTag()).size;
+    unsigned need = layouts.box(reuse.getDataType(), reuse.getTag()).size;
     if (have != need)
       return reuse.emitOpError("builds a cell of ")
              << need << " bytes in the " << have << "-byte cell of @"
-             << take.getDataType().getCtor(cell).name.getValue();
+             << take.getDataType().getCtor(take.getTag()).name.getValue();
   }
   return success();
 }
@@ -129,14 +151,41 @@ bool plainReference(Value value) {
   return !ownership::isStatic(value) && !upstreamHolds(value);
 }
 
+// What a stage says of the program's idr.func and data types, decided per
+// stage with no default, so that a new stage decides each: whether
+// closures and suspensions remain, which idr-defunctionalize makes sums,
+// and with them the types that contain themselves in place, which it boxes
+// (layout::fit); and whether references are counted, which idr-rc does,
+// grading every value of ours that holds one and building its reuses.
+// Nothing for the lowered stage, whose program holds upstream's functions
+// and no idr.func.
+struct StageFacts {
+  bool closures;
+  bool counted;
+};
+
+std::optional<StageFacts> factsOf(Stage stage) {
+  switch (stage) {
+  case Stage::Higher:
+    return StageFacts{/*closures=*/true, /*counted=*/false};
+  case Stage::First:
+    return StageFacts{/*closures=*/false, /*counted=*/false};
+  case Stage::Owned:
+    return StageFacts{/*closures=*/false, /*counted=*/true};
+  case Stage::Lowered:
+    return std::nullopt;
+  }
+  llvm_unreachable("a stage of the program");
+}
+
 // What the program's stage lets the values of `fn` hold. A closure or a
 // suspension exists only before idr-defunctionalize makes each a sum, and
 // with it every idr.apply and idr.force, whose operands are such values; a
 // grade own or excl only once idr-rc counts references, after which every
 // reference of ours is graded.
-LogicalResult stageRules(FuncOp fn, Stage stage) {
-  bool pastHigher = stage != Stage::Higher;
-  bool owned = stage == Stage::Owned;
+LogicalResult stageRules(FuncOp fn, StageFacts stage) {
+  bool pastHigher = !stage.closures;
+  bool owned = stage.counted;
   if (pastHigher && llvm::any_of(fn.getResultTypes(), namesLabels))
     return fn.emitOpError("returns a closure or a suspension in a program past the higher stage, "
                           "where idr-defunctionalize has made each a sum");
@@ -171,10 +220,12 @@ LogicalResult stageRules(FuncOp fn, Stage stage) {
 } // namespace
 
 LogicalResult idr::verify::program(ProgramOp program) {
+  if (failed(target(program)))
+    return failure();
   // A lowered program is upstream's functions and globals: its root names
   // a func.func, and nothing of ours is left to hold to a rule.
-  Stage stage = program.getStage();
-  if (stage == Stage::Lowered) {
+  std::optional<StageFacts> stage = factsOf(program.getStage());
+  if (!stage) {
     if (!isa_and_nonnull<func::FuncOp>(
             SymbolTable::lookupSymbolIn(program, program.getRootAttr())))
       return program.emitOpError("is lowered, so its root ")
@@ -190,15 +241,12 @@ LogicalResult idr::verify::program(ProgramOp program) {
 
   // The data types the program's values and bodies hold, each once.
   TypeGraph graph(program.getOperation());
-  for (unsigned at = 0, n = graph.size(); at < n; ++at) {
-    DataType data = graph.declaration(at);
-    if (!data)
-      continue;
+  for (DataType data : graph.declarations()) {
     // A cell has one memo, which every reference to it sees.
-    if (data.isMemo() && graph.inlined(at))
+    if (data.isMemo() && graph.inlined(data))
       return program.emitOpError("holds the memo sum \"")
              << data.getName() << "\" in place; a memo sum is held only in a box";
-    if (stage == Stage::Higher)
+    if (stage->closures)
       continue;
     for (const Ctor &ctor : data.getCtors())
       for (Type field : ctor.fields)
@@ -215,7 +263,7 @@ LogicalResult idr::verify::program(ProgramOp program) {
   // layout::fit boxes the cycles, which idr-defunctionalize runs, so the rule
   // holds from the first-order stage on.
   SmallVector<DataType> selfContained;
-  if (stage != Stage::Higher)
+  if (!stage->closures)
     selfContained = graph.containsItself();
   if (!selfContained.empty())
     return program.emitOpError("holds the data type \"")
@@ -223,14 +271,14 @@ LogicalResult idr::verify::program(ProgramOp program) {
            << "\", which contains itself in place; a recursive type is held through a box";
   if (failed(knots(program, graph)))
     return failure();
-  return stage == Stage::Owned ? reuses(program) : success();
+  return stage->counted ? reuses(program) : success();
 }
 
 LogicalResult idr::verify::function(FuncOp fn) {
-  Stage stage = fn.getProgram().getStage();
-  if (stage == Stage::Lowered)
+  std::optional<StageFacts> stage = factsOf(fn.getProgram().getStage());
+  if (!stage)
     return fn.emitOpError("is an idr.func in a lowered program, which holds upstream's functions");
-  if (failed(stageRules(fn, stage)) || failed(verifyFlow(fn)) || failed(linearity(fn)))
+  if (failed(stageRules(fn, *stage)) || failed(verifyFlow(fn)) || failed(linearity(fn)))
     return failure();
-  return stage == Stage::Owned ? owned(fn) : success();
+  return stage->counted ? owned(fn) : success();
 }

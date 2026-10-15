@@ -34,7 +34,7 @@ namespace {
 // mark stays in every state the cell is written in: its memory is its
 // frame's.
 void writeState(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts, Value cell,
-                DataType memo, unsigned tag) {
+                DataType memo, Tag tag) {
   const layout::Cell &state = layouts.box(memo, tag);
   Value stack = LLVM::AndOp::create(b, loc, runtime.loadInfo(b, loc, cell),
                                     i32Constant(b, loc, IDRIS_RT_STACK_CELL));
@@ -66,7 +66,7 @@ struct LowerMemoSettle : IdrPattern<MemoSettleOp> {
     Location loc = op.getLoc();
     Value cell = adaptor.getCell().front();
     DataType memo = dataTypeOf(op.getCell().getType());
-    unsigned forced = memo.getForcedTag();
+    Tag forced = memo.getForcedTag();
     runtime.store(rewriter, loc, cell, cellAlignment(), layouts.box(memo, forced).fields.front(),
                   adaptor.getValue());
     writeState(rewriter, loc, runtime, layouts, cell, memo, forced);

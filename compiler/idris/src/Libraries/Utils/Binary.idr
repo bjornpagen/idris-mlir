@@ -10,7 +10,7 @@ import System.File
 -- reading and writing to chunks of memory, "Binary", which can be written
 -- to and read from files.
 
-%default covering
+%default total
 
 public export
 record Binary where
@@ -43,13 +43,6 @@ appended i (MkBin b loc s used) = MkBin b (loc+i) s (used + i)
 export
 incLoc : Integer -> Binary -> Binary
 incLoc i c = { loc $= (+i) } c
-
-export
-dumpBin : Binary -> IO ()
-dumpBin chunk
-   = do -- printLn !(traverse bufferData' (map buf done))
-        printLn !(bufferData' (buf chunk))
-        -- printLn !(traverse bufferData' (map buf rest))
 
 export
 fromBuffer : Buffer -> IO Binary

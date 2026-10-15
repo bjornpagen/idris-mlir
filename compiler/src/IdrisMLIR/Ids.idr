@@ -300,15 +300,16 @@ len129to240 input n =
   let acc0 = MkHash128 (cast n * prime64_1) 0
       acc1 = foldl (\acc, i => mix32 acc input (minus i 32) (minus i 16) (minus i 32) 0) acc0 [32, 64, 96, 128]
       acc2 = MkHash128 (avalanche3 acc1.low) (avalanche3 acc1.high)
-      acc3 = foldl (\acc, i => mix32 acc input (minus i 32) (minus i 16) (3 + minus i 160) 0) acc2 (mids 160)
+      acc3 = foldl (\acc, i => mix32 acc input (minus i 32) (minus i 16) (3 + minus i 160) 0) acc2 mids
       -- The secret is 192 bytes; the reference reads the last pair from
       -- its minimum size, 136, less 17, less 16.
       acc4 = mix32 acc3 input (minus n 16) (minus n 32) (minus (minus 136 17) 16) 0
   in finishMid acc4 (cast n)
   where
-    -- 160, 192, ... up to the length, inclusive.
-    mids : Nat -> List Nat
-    mids i = if i > n then [] else i :: assert_total (mids (i + 32))
+    -- 160, 192, ... up to the length, inclusive: the reference's loop, over
+    -- the range this function is given, at most 240.
+    mids : List Nat
+    mids = filter (<= n) [160, 192, 224]
 
 ||| The eight accumulators of the long hash.
 Accs : Type

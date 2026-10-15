@@ -2,6 +2,7 @@
 // RUN: %cc %t.o -o %t
 // RUN: %status 149 env IDRIS_RT_LIVE=1 %t 2> %t.err
 // RUN: grep -qx 'idris-rt: live cells 0' %t.err
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Every cell a program allocates is freed by the time it ends, whichever
 // way the counting went: a list mapped in place, a list read and then
 // consumed, a shared list mapped into fresh cells while it is still read
@@ -11,7 +12,7 @@ idr.program @live root(@Prog.main) stage(higher) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
+      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
       idr.yield %e : !idr.box<!L>
     }
     default {
@@ -27,7 +28,7 @@ idr.program @live root(@Prog.main) stage(higher) {
   idr.func @map(%l: !idr.box<!L>) -> !idr.box<!L> {
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
-      %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
+      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
       idr.yield %e : !idr.box<!L>
     }
     case @C(%h: i64, %t: !idr.box<!L>) {

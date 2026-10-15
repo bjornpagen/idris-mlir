@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [Idris2] Elaboration replaces a primitive applied to constants with the compiler's own result
 
 At the pin (third_party/Idris2 at 1c630e67), a definition whose right-hand

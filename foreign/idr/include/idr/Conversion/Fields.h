@@ -12,6 +12,8 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace idr::conversion {
 
 class Fields {
@@ -27,11 +29,12 @@ public:
   // the conversion starts.
   explicit Fields(mlir::Operation *program);
 
-  // For a reuse of the constructor its token's take took apart: for each
-  // field, whether the cell holds it already, because the reuse gives it
-  // back as the take gave it. Empty for a reuse of another constructor,
-  // whose cell holds none of its fields, and a new header.
-  llvm::ArrayRef<bool> kept(ReuseOp reuse) const;
+  // For a reuse of the constructor its token's take took apart, whose cell
+  // holds its header already: for each field, whether the cell holds it
+  // already, because the reuse gives it back as the take gave it. None for
+  // a reuse of another constructor, whose cell holds none of its fields and
+  // takes a new header.
+  std::optional<llvm::ArrayRef<bool>> kept(ReuseOp reuse) const;
 
 private:
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<bool>> keptFields;

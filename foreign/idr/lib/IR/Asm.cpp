@@ -14,8 +14,12 @@
 
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <functional>
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -28,51 +32,55 @@ namespace {
 // `Data.Vect.Vect[3, Prelude.Types.Nat]` is `Vect_3_Nat`. The characters are
 // read only to be shown shorter: what a symbol is, is its declaration's.
 void shortName(StringRef symbol, raw_ostream &os) {
+  SmallVector<StringRef> pieces;
+  llvm::SplitString(symbol, pieces, "[], ");
   bool first = true;
-  while (!symbol.empty()) {
-    size_t end = symbol.find_first_of("[], ");
-    StringRef piece = symbol.take_front(end);
-    symbol = end == StringRef::npos ? StringRef() : symbol.drop_front(end + 1);
-    size_t dot = piece.rfind('.');
-    if (dot != StringRef::npos)
-      piece = piece.drop_front(dot + 1);
-    if (piece.empty())
+  for (StringRef piece : pieces) {
+    StringRef last = piece.rsplit('.').second;
+    StringRef shown = piece.contains('.') ? last : piece;
+    if (shown.empty())
       continue;
     if (!first)
       os << '_';
-    os << piece;
+    os << shown;
     first = false;
   }
 }
 
 // A constructor or closure constant with more than this many constructors
 // and closures in its tree is printed as an alias. Smaller ones are printed
-// in place, as tests read them.
+// in place, as tests read them. A size policy of the printer's: it bounds
+// the text, never what is printed.
 constexpr unsigned aliasFrom = 256;
 
-// Whether `value` has more than `budget` constructors and closures, counted
-// as a tree, in at most `budget` steps however much of it is shared. A run
-// is one constructor per cell, counted along its cells and then its tail:
-// its fields along the spine would rebuild the rest of the run at each cell.
-bool larger(Attribute value, unsigned &budget) {
-  // One constructor or closure, then its parts.
-  auto node = [&](ArrayAttr parts) {
-    if (budget == 0)
-      return true;
-    --budget;
-    return llvm::any_of(parts, [&](Attribute part) { return larger(part, budget); });
+// The number of constructors and closures in `value`, counted as a tree,
+// or `cap` if there are at least that many: at most `cap` of them are
+// visited however much of it is shared, and each step reads a part of the
+// one before, so the walk ends with the attribute. A run is one constructor
+// per cell, counted along its cells and then its tail: its fields along the
+// spine would rebuild the rest of the run at each cell.
+unsigned treeSize(Attribute value, unsigned cap) {
+  // `counted` so far, then what each of `parts` adds, up to the cap.
+  auto add = [cap](unsigned counted, ArrayRef<Attribute> parts) {
+    for (Attribute part : parts)
+      if (counted < cap)
+        counted += treeSize(part, cap - counted);
+    return counted;
   };
-  if (auto con = dyn_cast<ConAttr>(value)) {
-    if (!con.isRun())
-      return node(con.getFields());
-    for (ArrayAttr cell : con.getRunCells())
-      if (node(cell))
-        return true;
-    return larger(con.getTail(), budget);
-  }
+  if (cap == 0)
+    return 0;
   if (auto closure = dyn_cast<ClosureAttr>(value))
-    return node(closure.getCaptures());
-  return false;
+    return add(1, closure.getCaptures().getValue());
+  auto con = dyn_cast<ConAttr>(value);
+  if (!con)
+    return 0;
+  if (!con.isRun())
+    return add(1, con.getFields().getValue());
+  unsigned counted = 0;
+  for (ArrayAttr cell : con.getRunCells())
+    if (counted < cap)
+      counted = add(counted + 1, cell.getValue());
+  return add(counted, con.getTail());
 }
 
 // A data type is written by its short name, defined once at the top of
@@ -99,21 +107,20 @@ struct IdrAsmInterface : OpAsmDialectInterface {
   }
 
   AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
-    unsigned budget = aliasFrom;
-    if (!larger(attr, budget))
+    if (treeSize(attr, aliasFrom + 1) <= aliasFrom)
       return AliasResult::NoAlias;
     os << "idr_value";
     return AliasResult::OverridableAlias;
   }
 };
 
-// The constructor `tag` of the data type of `type`, or null where the
+// The constructor `tag` of the data type of `type`, or nothing where the
 // printer meets an op the verifier would reject.
-const Ctor *ctorOf(Type type, int64_t tag) {
+std::optional<std::reference_wrapper<const Ctor>> ctorOf(Type type, int64_t tag) {
   DataType data = dataTypeOf(type);
   if (!data || tag < 0 || static_cast<uint64_t>(tag) >= data.getCtors().size())
-    return nullptr;
-  return &data.getCtor(static_cast<unsigned>(tag));
+    return std::nullopt;
+  return data.getCtor(Tag{static_cast<uint32_t>(tag)});
 }
 
 // A constructor's name in lower case: `@Nil` is `nil`.
@@ -133,7 +140,7 @@ ParseResult idr::parseCtorRef(AsmParser &parser, Type type, IntegerAttr &tag) {
   DataType data = dataTypeOf(type);
   if (!data)
     return parser.emitError(loc) << "expects a constructor of a data type, not of " << type;
-  std::optional<unsigned> found = data.getTag(name.getValue());
+  std::optional<Tag> found = data.getTag(name.getValue());
   if (!found)
     return parser.emitError(loc) << "the data type \"" << data.getName()
                                  << "\" has no constructor @" << name.getValue();
@@ -144,8 +151,10 @@ ParseResult idr::parseCtorRef(AsmParser &parser, Type type, IntegerAttr &tag) {
 // A tag the type has no constructor of is printed as a number, which no
 // parser reads back: only an op the verifier rejects holds one.
 void idr::printCtorRef(OpAsmPrinter &printer, Operation *, Type type, IntegerAttr tag) {
-  if (const Ctor *ctor = tag ? ctorOf(type, tag.getInt()) : nullptr)
-    printer.printSymbolName(ctor->name.getValue());
+  std::optional<std::reference_wrapper<const Ctor>> ctor =
+      tag ? ctorOf(type, tag.getInt()) : std::nullopt;
+  if (ctor)
+    printer.printSymbolName(ctor->get().name.getValue());
   else
     printer << "<<no constructor " << tag << ">>";
 }
@@ -164,12 +173,12 @@ void ConstantOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   else if (isa<ClosureAttr>(value))
     setNameFn(getResult(), isa<LazyType>(carrier) ? "thunk" : "clo");
   else if (auto con = dyn_cast<ConAttr>(value))
-    if (const Ctor *ctor = ctorOf(con.getData(), con.getTag()))
-      setNameFn(getResult(), ctorName(*ctor));
+    setNameFn(getResult(), ctorName(con.getCtor()));
 }
 
 void ConOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  if (const Ctor *ctor = ctorOf(getResult().getType(), getTag()))
+  if (std::optional<std::reference_wrapper<const Ctor>> ctor =
+          ctorOf(getResult().getType(), static_cast<int64_t>(getTag())))
     setNameFn(getResult(), ctorName(*ctor));
 }
 

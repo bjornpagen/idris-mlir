@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-every-cell=@f -o /dev/null
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
 // A box read only through its fields, never matched, dies where its last
 // field is read, and is taken apart there as a matched one is: its cell is
 // one more to build in. `f` matches the outer cell, reads the inner one's

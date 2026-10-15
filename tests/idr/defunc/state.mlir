@@ -1,7 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=no-closures,labels=@Main.twice:arg0:[@Main.tick],labels=@Main.twice:arg1:[@Main.tick],labels=@Main.seq:arg0:[@Main.twice],labels=@Main.seq:arg1:[@Main.loop],labels=@Main.run:result:[@Main.done,@Main.seq]' -o /dev/null
+// NEEDS-ACCEPTANCE: that each closure of the state transformers' one type has the sum of the labels that reach it, none leading back to @Main.seq.
 // A state monad's shape (tests/programs/basic/state-monad):
 // run n = if n == 0 then done else seq twice (loop n), where every value is
 // a state transformer of the one type T = i64 -> i64. seq's closure
@@ -9,27 +8,6 @@
 // tick, so the labels never lead back to seq: each (T, labels) gets its own
 // sum, and no closure is left. Keying by the type alone would have called T
 // infinite.
-// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.tick()]
-// CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.twice(![[F0]], ![[F0]])]
-// CHECK: ![[F2:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.loop(i64)]
-// CHECK: ![[F3:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.done(), @Main.seq(![[F1]], ![[F2]])]
-// CHECK-NOT: !idr.fn
-// CHECK-NOT: {{(idr\.| )closure }}
-// CHECK-NOT: {{(idr\.| )apply }}
-// CHECK-LABEL: idr.func @Main.twice(
-// CHECK-SAME: %{{.*}}: ![[F0]], %{{.*}}: ![[F0]], %{{.*}}: i64) -> i64
-// CHECK-LABEL: idr.func @Main.seq(
-// CHECK-SAME: %{{.*}}: ![[F1]], %{{.*}}: ![[F2]], %{{.*}}: i64) -> i64
-// CHECK: match %{{.*}} : ![[F1]] -> (i64) {
-// CHECK-NEXT: case @Main.twice(%{{.*}}: ![[F0]], %{{.*}}: ![[F0]]) {
-// CHECK: match %{{.*}} : ![[F2]] -> (i64) {
-// CHECK-NEXT: case @Main.loop(%{{.*}}: i64) {
-// CHECK-LABEL: idr.func @Main.run(
-// CHECK-SAME: -> ![[F3]]
-// CHECK: constant #idr.con<@Main.twice, [#idr.con<@Main.tick, []>, #idr.con<@Main.tick, []>]> : ![[F1]]
-// CHECK: con ![[F3]] @Main.done()
-// CHECK: con ![[F2]] @Main.loop(%{{.*}} : i64)
-// CHECK: con ![[F3]] @Main.seq(%{{.*}} : ![[F1]], %{{.*}} : ![[F2]])
 idr.program @state root(@Main.main) stage(higher) {
   idr.func @Main.tick(%s: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

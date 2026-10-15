@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=grows-nothing=@chain:%s,builds=@all_constant,\
 // RUN: builds-where-used=@one_region,builds-where-used=@two_regions,calls-closed=@closed_call:@twice,\
 // RUN: grows-nothing=@open_call:%s -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // A consumer moves into the regions of a match only where it then folds or
 // canonicalizes against what it meets there. A constructor that holds a
 // value beside a field that is not a constant folds against nothing,

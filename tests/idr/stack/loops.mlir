@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-stack,idr.func(idr-tail-loops)))' | FileCheck %s
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops),idr-stack))' | FileCheck %s
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A con in a loop writes the same stack slot on every iteration, so its
 // cell must be dead when the iteration ends. idr-stack runs before
 // idr-tail-loops makes self tail calls loops, and after it the marks are
@@ -55,7 +56,7 @@ idr.program @loops root(@Prog.main) stage(first) {
       idr.yield %acc : i64
     }
     default {
-      %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+      %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
       %c = idr.con !idr.box<!List> @Cons(%n : i64, %nil : !idr.box<!List>)
       %s = idr.call @sum(%c) : (!idr.box<!List>) -> i64
       %a = arith.addi %acc, %s : i64
@@ -88,7 +89,7 @@ idr.program @loops root(@Prog.main) stage(first) {
   idr.func @exits(%n: i64) -> !idr.box<!List> attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.box<!List>) {
     case 0 {
-      %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+      %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
       %c = idr.con !idr.box<!List> @Cons(%n : i64, %nil : !idr.box<!List>)
       idr.yield %c : !idr.box<!List>
     }

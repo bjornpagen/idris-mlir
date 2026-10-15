@@ -41,9 +41,17 @@ namespace idr {
 
 namespace idr::columns {
 
+// A data type whose arrays are held as one array per leaf: a record, whose
+// one constructor, the first of its body, every value is built with.
+struct Record {
+  static constexpr Tag tag{0};
+  DataType data;
+  llvm::ArrayRef<mlir::Type> fields() const { return data.getCtor(tag).fields; }
+};
+
 // The record a value of `type` is, when an array of it is held as one
-// array per leaf; null for any other type.
-DataType recordOf(mlir::Type type);
+// array per leaf; nothing for any other type.
+std::optional<Record> recordOf(mlir::Type type);
 
 // The leaves of a record of `type`, in field order, each record among its
 // fields its own leaves in turn.
@@ -53,31 +61,30 @@ void leavesOf(mlir::Type type, llvm::SmallVectorImpl<mlir::Type> &leaves);
 // record, or itself when its element is no record.
 void columnsOf(mlir::RankedTensorType array, llvm::SmallVectorImpl<mlir::Type> &columns);
 
-// The leaves of `record`'s value: the fields its idr.con was given, or its
-// fields read.
-llvm::SmallVector<mlir::Value> takeApart(mlir::OpBuilder &b, mlir::Location loc,
-                                         mlir::Value record);
+// The leaves of `value`, a value of `record`: the fields its idr.con was
+// given, or its fields read.
+llvm::SmallVector<mlir::Value> takeApart(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value,
+                                         Record record);
 
-// The record of `type` built of the leaves at the front of `leaves`, which
+// The value of `record` built of the leaves at the front of `leaves`, which
 // it takes.
-mlir::Value build(mlir::OpBuilder &b, mlir::Location loc, mlir::Type type,
-                  mlir::ValueRange &leaves);
+mlir::Value build(mlir::OpBuilder &b, mlir::Location loc, Record record, mlir::ValueRange &leaves);
 
-// The record at `indices` of an array of records of `element` held as
-// `columns`; the columns with `record` written at `indices`.
-mlir::Value readRecord(mlir::OpBuilder &b, mlir::Location loc, mlir::Type element,
+// The value at `indices` of an array of `element` held as `columns`; the
+// columns with `value`, of `element`, written at `indices`.
+mlir::Value readRecord(mlir::OpBuilder &b, mlir::Location loc, Record element,
                        mlir::ValueRange columns, mlir::ValueRange indices);
 llvm::SmallVector<mlir::Value> writeRecord(mlir::OpBuilder &b, mlir::Location loc,
-                                           mlir::Value record, mlir::ValueRange columns,
-                                           mlir::ValueRange indices);
+                                           mlir::Value value, Record element,
+                                           mlir::ValueRange columns, mlir::ValueRange indices);
 
-// The array of records of `type` gathered from its columns, and the
-// columns of `array`, of `types`, taken apart from it: each an idr.tabulate,
-// where an array of records meets what holds it whole.
+// The array of `type`, whose element is `element`, gathered from its
+// columns, and the columns of `array`, of `types`, taken apart from it:
+// each an idr.tabulate, where an array of records meets what holds it whole.
 mlir::Value gather(mlir::OpBuilder &b, mlir::Location loc, mlir::RankedTensorType type,
-                   mlir::ValueRange columns);
+                   Record element, mlir::ValueRange columns);
 llvm::SmallVector<mlir::Value> scatter(mlir::OpBuilder &b, mlir::Location loc, mlir::Value array,
-                                       mlir::TypeRange types);
+                                       Record element, mlir::TypeRange types);
 
 // The conversion: arrays of records, at any grade, to their columns, with
 // the gather and the scatter at its boundary.

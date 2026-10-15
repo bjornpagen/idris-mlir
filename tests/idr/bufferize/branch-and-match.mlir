@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-bufferize | FileCheck %s
-// NEEDS-ACCEPTANCE: the printed block argument and match result types after idr-bufferize's retyping (C15 section 4.6).
+// NEEDS-ACCEPTANCE: the printed block argument and match result types after idr-bufferize's retyping.
 // A linear array that crosses a block's argument (a branch contification
 // or inlining made) and a match's yield is no tensor to the analysis: the
 // use beyond the boundary starts its own writable root and the release

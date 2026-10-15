@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Red-black tree insertion, as Main.idr here (Perceus's rbtree.kk), in C.
    The tree is never shared, so every node the functional version rebuilds
    is updated in place: this is what full reuse achieves, and the floor for

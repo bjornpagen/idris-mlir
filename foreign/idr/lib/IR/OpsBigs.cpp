@@ -4,6 +4,7 @@
 // verifier of the one op that may make a natural of an integer.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Ranges.h"
 
 #include "mlir/Interfaces/Utils/InferIntRangeCommon.h"
@@ -100,24 +101,10 @@ void BigCmpOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
     return idr::ranges::rangeOf(
         ofType(idr::ranges::boundsOf(ranges[i]), getOperand(i).getType()));
   };
-  intrange::CmpPredicate predicate = intrange::CmpPredicate::eq;
-  switch (getPredicate()) {
-  case CmpPredicate::eq:
-    predicate = intrange::CmpPredicate::eq;
-    break;
-  case CmpPredicate::lt:
-    predicate = intrange::CmpPredicate::slt;
-    break;
-  case CmpPredicate::lte:
-    predicate = intrange::CmpPredicate::sle;
-    break;
-  case CmpPredicate::gt:
-    predicate = intrange::CmpPredicate::sgt;
-    break;
-  case CmpPredicate::gte:
-    predicate = intrange::CmpPredicate::sge;
-    break;
-  }
+  // The comparison of the words, whose predicate is arith's, which the
+  // range machinery's copies in order.
+  auto predicate =
+      static_cast<intrange::CmpPredicate>(idr::layout::signedPredicate(getPredicate()));
   // An unbounded side is the extreme of i64, which orders below or above
   // every bound, so a comparison decided on these ranges is decided.
   std::optional<bool> decided = intrange::evaluatePred(predicate, operand(0), operand(1));

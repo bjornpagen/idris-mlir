@@ -156,34 +156,67 @@ Hashable ty => Hashable (Binder ty) where
 Hashable (Var vars) where
   hashWithSalt h (MkVar {varIdx = i} _) = hashWithSalt h i
 
+-- A term's hash is the one its nodes' instances would give, each kind of
+-- node that holds terms hashed by a function of its own, so that every
+-- recursive call is on a part of its argument.
 mutual
-  export
-  Hashable (Term vars) where
-    hashWithSalt h (Local fc x idx y)
-        = h `hashWithSalt` 0 `hashWithSalt` idx
-    hashWithSalt h (Ref fc x name)
-        = h `hashWithSalt` 1 `hashWithSalt` name
-    hashWithSalt h (Meta fc x y xs)
-        = h `hashWithSalt` 2 `hashWithSalt` y `hashWithSalt` xs
-    hashWithSalt h (Bind fc x b scope)
-        = h `hashWithSalt` 3 `hashWithSalt` b `hashWithSalt` scope
-    hashWithSalt h (App fc fn arg)
-        = h `hashWithSalt` 4 `hashWithSalt` fn `hashWithSalt` arg
-    hashWithSalt h (As fc _ nm pat)
-        = h `hashWithSalt` 5 `hashWithSalt` nm `hashWithSalt` pat
-    hashWithSalt h (TDelayed fc x y)
-        = h `hashWithSalt` 6 `hashWithSalt` y
-    hashWithSalt h (TDelay fc x t y)
-        = h `hashWithSalt` 7 `hashWithSalt` t `hashWithSalt` y
-    hashWithSalt h (TForce fc r x)
-        = h `hashWithSalt` 8 `hashWithSalt` x
-    hashWithSalt h (PrimVal fc c)
-        = h `hashWithSalt` 9 `hashWithSalt` (show c)
-    hashWithSalt h (Erased fc _)
-        = hashWithSalt h 10
-    hashWithSalt h (TType fc u)
-        = hashWithSalt h 11 `hashWithSalt` u
+  hashPi : Int -> PiInfo (Term vars) -> Int
+  hashPi h Implicit = hashWithSalt h 0
+  hashPi h Explicit = hashWithSalt h 1
+  hashPi h AutoImplicit = hashWithSalt h 2
+  hashPi h (DefImplicit t) = hashTerm (h `hashWithSalt` 3) t
 
+  hashBinder : Int -> Binder (Term vars) -> Int
+  hashBinder h (Lam _ c p ty)
+      = hashTerm (hashPi (h `hashWithSalt` 0 `hashWithSalt` c) p) ty
+  hashBinder h (Let _ c val ty)
+      = hashTerm (hashTerm (h `hashWithSalt` 1 `hashWithSalt` c) val) ty
+  hashBinder h (Pi _ c p ty)
+      = hashTerm (hashPi (h `hashWithSalt` 2 `hashWithSalt` c) p) ty
+  hashBinder h (PVar _ c p ty)
+      = hashTerm (hashPi (h `hashWithSalt` 3 `hashWithSalt` c) p) ty
+  hashBinder h (PLet _ c val ty)
+      = hashTerm (hashTerm (h `hashWithSalt` 4 `hashWithSalt` c) val) ty
+  hashBinder h (PVTy _ c ty)
+      = hashTerm (h `hashWithSalt` 5 `hashWithSalt` c) ty
+
+  -- As a list hashes: each element's own hash in turn.
+  hashTerms : Int -> List (Term vars) -> Int
+  hashTerms h [] = abs h
+  hashTerms h (t :: ts) = hashTerms (h * 33 + hashTerm 5381 t) ts
+
+  total
+  hashTerm : Int -> Term vars -> Int
+  hashTerm h (Local fc x idx y)
+      = h `hashWithSalt` 0 `hashWithSalt` idx
+  hashTerm h (Ref fc x name)
+      = h `hashWithSalt` 1 `hashWithSalt` name
+  hashTerm h (Meta fc x y xs)
+      = hashTerms (h `hashWithSalt` 2 `hashWithSalt` y) xs
+  hashTerm h (Bind fc x b scope)
+      = hashTerm (hashBinder (h `hashWithSalt` 3) b) scope
+  hashTerm h (App fc fn arg)
+      = hashTerm (hashTerm (h `hashWithSalt` 4) fn) arg
+  hashTerm h (As fc _ nm pat)
+      = hashTerm (hashTerm (h `hashWithSalt` 5) nm) pat
+  hashTerm h (TDelayed fc x y)
+      = hashTerm (h `hashWithSalt` 6) y
+  hashTerm h (TDelay fc x t y)
+      = hashTerm (hashTerm (h `hashWithSalt` 7) t) y
+  hashTerm h (TForce fc r x)
+      = hashTerm (h `hashWithSalt` 8) x
+  hashTerm h (PrimVal fc c)
+      = h `hashWithSalt` 9 `hashWithSalt` (show c)
+  hashTerm h (Erased fc _)
+      = hashWithSalt h 10
+  hashTerm h (TType fc u)
+      = hashWithSalt h 11 `hashWithSalt` u
+
+export
+Hashable (Term vars) where
+  hashWithSalt = hashTerm
+
+mutual
   export
   Hashable Pat where
     hashWithSalt h (PAs fc nm pat)

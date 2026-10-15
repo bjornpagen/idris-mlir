@@ -5,17 +5,15 @@
 #include "idris_rt.h"
 
 #include <stdint.h>
+#include <string.h>
 
-// UTF-8's byte order is the order of the scalar values it encodes.
+// UTF-8's byte order is the order of the scalar values it encodes, and
+// memcmp compares bytes as unsigned char, the C library's vectorized loop.
+// Equal common bytes leave the shorter string first.
 extern "C" int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b) {
-  const char *p = idris_rt_str_bytes(a);
-  const char *q = idris_rt_str_bytes(b);
   uint64_t n = a->bytes < b->bytes ? a->bytes : b->bytes;
-  for (uint64_t i = 0; i < n; ++i) {
-    auto x = static_cast<unsigned char>(p[i]);
-    auto y = static_cast<unsigned char>(q[i]);
-    if (x != y)
-      return x < y ? -1 : 1;
-  }
+  int c = memcmp(idris_rt_str_bytes(a), idris_rt_str_bytes(b), n);
+  if (c != 0)
+    return c < 0 ? -1 : 1;
   return a->bytes < b->bytes ? -1 : a->bytes > b->bytes ? 1 : 0;
 }

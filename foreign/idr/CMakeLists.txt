@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The idr dialect, its passes and tools, an in-tree MLIR dialect in
 # upstream's layout: the ODS and the passes' TableGen under include/idr
 # (IR, Transforms), the libraries under lib, one add_mlir_library each, and

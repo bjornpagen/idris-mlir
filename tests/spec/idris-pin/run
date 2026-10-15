@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # make verify-pins: the Idris checkout is the staged gitlink, unmodified.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 "$root/tools/verify-pins.sh" > "$work/out" 2>&1

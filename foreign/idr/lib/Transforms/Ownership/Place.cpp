@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc-place: the references of one function made explicit, after
 // idr-rc graded every signature: the reuse rewrite at the sites Reuses
-// decided, then the reshaping and the placement of the counts. It reads the
-// program's analyses idr-rc computed before running it, and writes nothing
-// outside its function: an entry argument it grades owned is one the
-// signature already made owned.
+// decided, then the reshaping and the placement of the counts. It reads
+// what idr-rc built before running it, and writes nothing outside its
+// function: an entry argument it grades owned is one the signature
+// already made owned.
 #include "idr/Analysis/Ownership.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Ownership.h"
 
@@ -23,6 +24,8 @@ namespace {
 struct RcPlace : PassWrapper<RcPlace, OperationPass<FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RcPlace)
 
+  RcPlace(const Reuses &reuses, const CalleeEffects &callees) : reuses(reuses), callees(callees) {}
+
   StringRef getArgument() const override { return "idr-rc-place"; }
   StringRef getDescription() const override {
     return "Reuse dead cells and place the counts of one function";
@@ -30,24 +33,21 @@ struct RcPlace : PassWrapper<RcPlace, OperationPass<FuncOp>> {
 
   void runOnOperation() override {
     FuncOp fn = getOperation();
-    auto symbols = getCachedParentAnalysis<SymbolTable>();
-    auto reuses = getCachedParentAnalysis<Reuses>();
-    if (!symbols || !reuses) {
-      fn.emitError("idr-rc-place: internal error: the module's SymbolTable or Reuses was not "
-                   "computed");
-      return signalPassFailure();
-    }
     IRRewriter rewriter(fn.getContext());
-    reuseAt(rewriter, reuses->get().sites(fn));
-    Classes classes(fn);
-    if (failed(reshape(rewriter, fn, classes, symbols->get())))
+    reuseAt(rewriter, reuses.sites(fn));
+    if (failed(reshape(rewriter, fn, callees)))
       return signalPassFailure();
-    place(rewriter, fn, classes, symbols->get());
+    place(rewriter, fn, callees);
   }
+
+  const Reuses &reuses;
+  const CalleeEffects &callees;
 };
 
 } // namespace
 
-std::unique_ptr<Pass> createRcPlace() { return std::make_unique<RcPlace>(); }
+std::unique_ptr<Pass> createRcPlace(const Reuses &reuses, const CalleeEffects &callees) {
+  return std::make_unique<RcPlace>(reuses, callees);
+}
 
 } // namespace idr::ownership

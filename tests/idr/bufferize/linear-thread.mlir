@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-bufferize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@fill,in-place -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc (C15 section 2), the buffer idr-rc later adopts (C14); in-place is read right after idr-bufferize.
+// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc, the buffer idr-rc later adopts; in-place is read right after idr-bufferize.
 // A linear array's thread is written in place: @fill takes the array at
 // quantity one, unwraps it, writes every element and wraps it again for
 // its caller, and nothing is copied, in @fill or anywhere: the root's

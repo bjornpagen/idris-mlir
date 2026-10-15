@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pinned mlir-opt, with upstream/07-inline-unreachable-terminator/llvm.patch,
 # no longer shows the bug: the inliner inlines a callee whose body ends in
 # ub.unreachable, which stays the end of its block, where an unpatched

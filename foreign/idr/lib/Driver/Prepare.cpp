@@ -10,6 +10,7 @@
 #include "idr/Driver/Runtime.h"
 #include "idr/Target/Target.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/Function.h"
@@ -32,6 +33,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <variant>
 
 using namespace idr::driver;
 
@@ -66,24 +68,27 @@ int idr::driver::prepare() {
   // Only these formats mark a section for every link to leave out
   // (embedBufferInModule's exclusion); in any other, the bitcode would ship
   // in every executable.
-  if (!runtimeBitcodeSection.empty() && !triple.isOSBinFormatELF() && !triple.isOSBinFormatCOFF()) {
-    Report() << "unsupported --runtime-bitcode-section=" << runtimeBitcodeSection << ": a "
+  BitcodeHome home = runtimeBitcodeHome();
+  if (const auto *section = std::get_if<InSection>(&home);
+      section && !triple.isOSBinFormatELF() && !triple.isOSBinFormatCOFF()) {
+    Report() << "unsupported --runtime-bitcode-section=" << section->name << ": a "
              << triple.str()
              << " object has no section every link leaves out; the bitcode goes beside the "
                 "object (--runtime-bitcode-section='')";
     return usage;
   }
-  std::unique_ptr<llvm::TargetMachine> machine =
+  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> made =
       idr::target::machine(*target, triple, targetCpu, "");
-  if (!machine) {
-    Report() << "internal error: no target machine for " << targetTriple;
+  if (!made) {
+    Report() << "internal error: " << llvm::toString(made.takeError());
     return failure;
   }
+  llvm::TargetMachine &machine = **made;
   llvm::LLVMContext context;
-  std::unique_ptr<llvm::Module> runtime = readRuntime(context, triple, machine->createDataLayout());
+  std::unique_ptr<llvm::Module> runtime = readRuntime(context, triple, machine.createDataLayout());
   if (!runtime)
     return failure;
-  if (isPrepared(*runtime)) {
+  if (preparedFor(*runtime)) {
     Report() << "runtime " << runtimePath
              << " is prepared already; --prepare-runtime reads the archive";
     return usage;
@@ -94,7 +99,7 @@ int idr::driver::prepare() {
       compiledFor[function.getName()] = {
           function.getFnAttribute("target-cpu").getValueAsString().str(),
           function.getFnAttribute("target-features").getValueAsString().str()};
-  retarget(*runtime, *machine);
+  retarget(*runtime, machine);
   for (llvm::Function &function : *runtime)
     if (auto found = compiledFor.find(function.getName()); found != compiledFor.end()) {
       function.addFnAttr(cpuMark, found->second.first);
@@ -104,7 +109,7 @@ int idr::driver::prepare() {
   llvm::internalizeModule(*runtime, [](const llvm::GlobalValue &value) {
     return value.getName().starts_with("idris_rt_");
   });
-  idr::target::optimize(*runtime, *machine);
+  idr::target::optimize(*runtime, machine);
   for (const llvm::Function &function : *runtime)
     if (!function.isDeclaration() &&
         (!function.hasFnAttribute(cpuMark) || !function.hasFnAttribute(featuresMark))) {
@@ -115,9 +120,9 @@ int idr::driver::prepare() {
   if (!externalize(*runtime))
     return failure;
   runtime->addModuleFlag(llvm::Module::Error, preparedCpuFlag,
-                         llvm::MDString::get(context, machine->getTargetCPU()));
+                         llvm::MDString::get(context, machine.getTargetCPU()));
   runtime->addModuleFlag(llvm::Module::Error, preparedFeaturesFlag,
-                         llvm::MDString::get(context, machine->getTargetFeatureString()));
+                         llvm::MDString::get(context, machine.getTargetFeatureString()));
   // The bitcode half: the same module, every definition available_externally.
   std::string bitcode;
   {
@@ -130,24 +135,28 @@ int idr::driver::prepare() {
       if (value.hasAvailableExternallyLinkage())
         value.setLinkage(llvm::GlobalValue::ExternalLinkage);
   }
-  // Kept only once the object is written too.
-  std::unique_ptr<llvm::ToolOutputFile> beside;
-  if (runtimeBitcodeSection.empty()) {
-    std::error_code error;
-    std::string path = besideObject(outputPath);
-    beside = std::make_unique<llvm::ToolOutputFile>(path, error, llvm::sys::fs::OF_None);
-    if (error) {
-      cannotWrite(path, error);
-      return failure;
-    }
-    beside->os() << bitcode;
-  } else {
-    llvm::embedBufferInModule(*runtime, llvm::MemoryBufferRef(bitcode, "idris_rt"),
-                              runtimeBitcodeSection);
-  }
-  if (!emit(*runtime, *machine, outputPath))
-    return failure;
-  if (beside)
-    beside->keep();
-  return ok;
+  // Beside the object, the bitcode is kept only once the object is written
+  // too.
+  return std::visit(
+      llvm::makeVisitor(
+          [&](BesideObject) {
+            std::error_code error;
+            std::string path = besideObject(outputPath);
+            llvm::ToolOutputFile beside(path, error, llvm::sys::fs::OF_None);
+            if (error) {
+              cannotWrite(path, error);
+              return failure;
+            }
+            beside.os() << bitcode;
+            if (!emit(*runtime, machine, outputPath))
+              return failure;
+            beside.keep();
+            return ok;
+          },
+          [&](InSection section) {
+            llvm::embedBufferInModule(*runtime, llvm::MemoryBufferRef(bitcode, "idris_rt"),
+                                      section.name);
+            return emit(*runtime, machine, outputPath) ? ok : failure;
+          }),
+      home);
 }

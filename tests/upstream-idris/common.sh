@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Shared by tests/upstream-idris/run and tests/upstream-idris/one.
 # The upstream suite is third_party/Idris2/tests: each test is a directory
 # with a run script that receives the compiler as $1 (upstream's own

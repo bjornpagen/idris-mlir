@@ -11,6 +11,7 @@
 #include "idr/Conversion/Passes.h"
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Bufferize.h"
+#include "idr/Transforms/Canonicalize.h"
 #include "idr/Transforms/Columns.h"
 #include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Defunctionalize.h"

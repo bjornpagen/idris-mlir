@@ -1,0 +1,6 @@
+NEEDS-ACCEPTANCE: that a linear pattern let whose right side names an ambiguous function, which only the linear candidate fits, is accepted, compiles and runs
+compile: exit 0
+artifacts: core module objects executable
+run: exit status as expected
+stdout: as expected
+stderr: empty

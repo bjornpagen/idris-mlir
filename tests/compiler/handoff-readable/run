@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The module the frontend emits is meant to be read, as the dumps are: a
 # symbol is the Idris name of what it defines, never a code-point escape
 # (`$<digits>$`) nor a name Idris made up for a block (`case block in`,

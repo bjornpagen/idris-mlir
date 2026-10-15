@@ -14,6 +14,7 @@
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -21,15 +22,41 @@ using namespace mlir;
 
 namespace idr::conversion {
 
-ReturnRegisters::ReturnRegisters(Operation *module) : scope(module) {}
+FailureOr<ReturnRegisters> ReturnRegisters::of(Operation *module) {
+  LLVM::TargetAttr target;
+  for (Operation *op = module; op && !target; op = op->getParentOp())
+    target = op->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
+  if (!target)
+    return module->emitError("internal error: the module lost its #llvm.target");
+  LLVM::detail::initializeBackendsOnce();
+  FailureOr<std::unique_ptr<llvm::TargetMachine>> machine =
+      LLVM::detail::getTargetMachine(cast<LLVM::TargetAttrInterface>(target));
+  if (failed(machine) || !*machine)
+    return module->emitError("internal error: idr-tail-calls: no target machine for ")
+           << target.getTriple();
+  return ReturnRegisters(std::make_unique<llvm::LLVMContext>(), std::move(*machine));
+}
 
+ReturnRegisters::ReturnRegisters(std::unique_ptr<llvm::LLVMContext> c,
+                                 std::unique_ptr<llvm::TargetMachine> m)
+    : context(std::move(c)), machine(std::move(m)),
+      probe(std::make_unique<llvm::Module>("idr-tail-calls", *context)),
+      info(std::make_unique<llvm::MachineModuleInfo>(machine.get())),
+      types(std::make_unique<LLVM::TypeToLLVMIRTranslator>(*context)) {
+  probe->setTargetTriple(machine->getTargetTriple());
+  probe->setDataLayout(machine->createDataLayout());
+}
+
+ReturnRegisters::ReturnRegisters(ReturnRegisters &&) noexcept = default;
+ReturnRegisters &ReturnRegisters::operator=(ReturnRegisters &&) noexcept = default;
 ReturnRegisters::~ReturnRegisters() = default;
 
-std::optional<bool> ReturnRegisters::fit(Type type) {
+bool ReturnRegisters::fit(Type type) {
   if (isa<LLVM::LLVMVoidType>(type))
     return true;
-  if (!machine && failed(prepare()))
-    return std::nullopt;
+  auto [answer, fresh] = answers.try_emplace(type, false);
+  if (!fresh)
+    return answer->second;
   llvm::Type *translated = types->translateType(type);
   auto *fn = llvm::Function::Create(llvm::FunctionType::get(translated, false),
                                     llvm::GlobalValue::InternalLinkage, "probe", *probe);
@@ -39,33 +66,11 @@ std::optional<bool> ReturnRegisters::fit(Type type) {
   SmallVector<llvm::ISD::OutputArg, 8> outs;
   llvm::GetReturnInfo(llvm::CallingConv::Tail, translated, llvm::AttributeList(), outs, lowering,
                       probe->getDataLayout());
-  bool fits = lowering.CanLowerReturn(llvm::CallingConv::Tail, mf, /*isVarArg=*/false, outs,
-                                      context, translated);
+  answer->second = lowering.CanLowerReturn(llvm::CallingConv::Tail, mf, /*isVarArg=*/false, outs,
+                                           *context, translated);
   info->deleteMachineFunctionFor(*fn);
   fn->eraseFromParent();
-  return fits;
-}
-
-LogicalResult ReturnRegisters::prepare() {
-  LLVM::TargetAttr target;
-  for (Operation *op = scope; op && !target; op = op->getParentOp())
-    target = op->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
-  if (!target)
-    return scope->emitError("internal error: the module lost its #llvm.target");
-  LLVM::detail::initializeBackendsOnce();
-  machine = LLVM::detail::getTargetMachine(cast<LLVM::TargetAttrInterface>(target))
-                .value_or(nullptr);
-  if (!machine) {
-    scope->emitError("internal error: idr-tail-calls: no target machine for ")
-        << target.getTriple();
-    return failure();
-  }
-  probe = std::make_unique<llvm::Module>("idr-tail-calls", context);
-  probe->setTargetTriple(machine->getTargetTriple());
-  probe->setDataLayout(machine->createDataLayout());
-  info = std::make_unique<llvm::MachineModuleInfo>(machine.get());
-  types = std::make_unique<LLVM::TypeToLLVMIRTranslator>(context);
-  return success();
+  return answer->second;
 }
 
 } // namespace idr::conversion

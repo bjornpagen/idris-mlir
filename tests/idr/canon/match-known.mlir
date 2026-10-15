@@ -1,7 +1,8 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=matches-nothing=@of_con,builds-nothing=@of_con,\
 // RUN: returns=@of_constant:4.0,returns=@to_default:0.0,matches-nothing=@single,reads-fields=@single,\
 // RUN: matches=@crashes,returns=@literals:2/3/4 -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A match whose taken region is known is replaced by that region: the
 // scrutinee is a constant or built by idr.con, or one region is left. The
 // region's arguments become the constructor's fields.
@@ -24,7 +25,7 @@ idr.program @"match-known" root(@root) stage(first) {
   }
 
   idr.func @of_constant() -> f64 {
-    %s = idr.constant #idr.con<@Circle, [2.0 : f64]> : !Shape
+    %s = idr.constant #idr.con<!Shape, @Circle, [2.0 : f64]> : !Shape
     %r = idr.match %s : !Shape -> (f64) {
     case @Circle(%x: f64) {
       %a = arith.mulf %x, %x : f64

@@ -1,0 +1,9 @@
+NEEDS-ACCEPTANCE: that a Bits8 of 200, made at run time, is 200 as a Nat and as an Integer, greater than 127 and equal to 200, with no poison from a range put on the tagged word
+compile: exit 0
+artifacts: core module objects executable
+run: exit status as expected
+stdout: as expected
+stderr: empty
+object: no undefined symbol outside the allowed set
+dumps: parse and verify
+quantities: kept

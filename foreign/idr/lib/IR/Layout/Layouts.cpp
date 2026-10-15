@@ -18,6 +18,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 
+#include <cassert>
+
 #include "idris_rt.h"
 
 #include <algorithm>
@@ -36,7 +38,7 @@ std::pair<unsigned, unsigned> measure(const DataLayout &target, Type component) 
 
 } // namespace
 
-Layouts::Layouts(Operation *op) : Components(op) {
+Layouts::Layouts(Operation *op) : root(op) {
   MLIRContext *ctx = op->getContext();
   DataLayout target = DataLayout::closest(op);
   auto record = [&](Type component) {
@@ -44,19 +46,13 @@ Layouts::Layouts(Operation *op) : Components(op) {
       measures.try_emplace(component, measure(target, component));
   };
   // The runtime frees a cell by its object slots, which it reads as
-  // pointers of the target it is compiled for, one word each; the layouts
-  // must place them as it reads them. The module's data layout is the
-  // target entry's (idr-target), the one the runtime is built for, so a
-  // mismatch is the compiler's error, never the program's.
+  // pointers of the target it is compiled for, one word each, and the
+  // program's verifier refuses a module whose target's pointers are not
+  // those words (verify::program).
   Type pointer = LLVM::LLVMPointerType::get(ctx);
-  auto [pointerSize, pointerAlignment] = measure(target, pointer);
-  if (pointerSize != IDRIS_RT_WORD_BYTES || pointerAlignment != IDRIS_RT_WORD_BYTES) {
-    op->emitError() << "the module's target is not the runtime's: its pointers take "
-                    << pointerSize << " bytes at an alignment of " << pointerAlignment
-                    << ", and the runtime's object slots are words of " << IDRIS_RT_WORD_BYTES;
-    fits = false;
-    return;
-  }
+  assert(measure(target, pointer) ==
+             std::make_pair(unsigned{IDRIS_RT_WORD_BYTES}, unsigned{IDRIS_RT_WORD_BYTES}) &&
+         "a verified module's pointers are the runtime's words");
   // The scalars an element or a field may be, and every component a data
   // type holds, so that no query after this one needs the data layout's own
   // memory.
@@ -69,12 +65,10 @@ Layouts::Layouts(Operation *op) : Components(op) {
   // sums held in place are slots, and the data types held in a box are
   // cells.
   TypeGraph graph(op);
-  SmallVector<DataType> types;
-  for (unsigned at = 0, n = graph.size(); at < n; ++at)
-    if (DataType data = graph.declaration(at))
-      types.push_back(data);
+  ArrayRef<DataType> types = graph.declarations();
+  sums = layout::sumsOf(types);
   for (DataType data : types)
-    for (Type component : Components::sum(data).types())
+    for (Type component : sum(data).types())
       record(component);
   for (DataType data : types)
     for (const Ctor &ctor : data.getCtors())
@@ -82,9 +76,8 @@ Layouts::Layouts(Operation *op) : Components(op) {
         for (Type component : components(field))
           record(component);
 
-  for (unsigned at = 0, n = graph.size(); at < n; ++at) {
-    DataType data = graph.declaration(at);
-    if (!data || !graph.boxed(at))
+  for (DataType data : types) {
+    if (!graph.boxed(data))
       continue;
     // A sum of more constructors than a header's tag holds keeps each
     // one's group in every cell. A memo cell is allocated in one state and
@@ -93,27 +86,20 @@ Layouts::Layouts(Operation *op) : Components(op) {
     bool grouped = data.getCtors().size() > IDRIS_RT_TAG_LIMIT;
     bool memo = data.isMemo();
     unsigned size = 0;
-    for (auto [tag, ctor] : llvm::enumerate(data.getCtors())) {
-      layout::Cell cell = cellOf(ctor.fields, tag, grouped, memo);
+    for (Tag tag : data.getTags()) {
+      layout::Cell cell = cellOf(data.getCtor(tag).fields, tag, grouped, memo);
       size = std::max(size, cell.size);
-      boxes.try_emplace({data, static_cast<unsigned>(tag)}, std::move(cell));
+      boxes.try_emplace({data, tag}, std::move(cell));
     }
     if (memo)
-      for (unsigned tag = 0, count = static_cast<unsigned>(data.getCtors().size()); tag < count;
-           ++tag)
+      for (Tag tag : data.getTags())
         boxes.find({data, tag})->second.size = size;
   }
 }
 
-LogicalResult Layouts::valid() const { return success(fits); }
+SmallVector<Type> Layouts::components(Type type) const { return layout::componentsOf(type, sums); }
 
-SmallVector<Type> Layouts::components(Type type) const {
-  return componentsWith(type, [&](DataType data) -> const layout::SumLayout & { return sum(data); });
-}
-
-SmallVector<bool> Layouts::counted(Type type) const {
-  return countedWith(type, [&](DataType data) -> const layout::SumLayout & { return sum(data); });
-}
+SmallVector<bool> Layouts::counted(Type type) const { return layout::countedOf(type, sums); }
 
 unsigned Layouts::objects(Type type) const {
   return static_cast<unsigned>(llvm::count(counted(type), true));
@@ -127,8 +113,8 @@ unsigned Layouts::objects(ArrayRef<Type> types) const {
 }
 
 const layout::SumLayout &Layouts::sum(DataType type) const {
-  if (const layout::SumLayout *known = computed(type))
-    return *known;
+  if (auto it = sums.find(type); it != sums.end())
+    return *it->second;
   llvm::reportFatalInternalError("no layout of the sum \"" + type.getName() +
                                  "\", which no value of the module held when its layouts were "
                                  "computed");
@@ -137,18 +123,13 @@ const layout::SumLayout &Layouts::sum(DataType type) const {
 unsigned Layouts::sizeOf(Type component) const {
   if (auto it = measures.find(component); it != measures.end())
     return it->second.first;
-  return measure(DataLayout::closest(getRoot()), component).first;
+  return measure(DataLayout::closest(root), component).first;
 }
 
 unsigned Layouts::alignmentOf(Type component) const {
   if (auto it = measures.find(component); it != measures.end())
     return it->second.second;
-  return measure(DataLayout::closest(getRoot()), component).second;
-}
-
-bool Layouts::isMemo(Type type) const {
-  DataType data = dataTypeOf(type);
-  return isBoxed(type) && data && data.isMemo();
+  return measure(DataLayout::closest(root), component).second;
 }
 
 // An element is laid out as a cell of one field, less the header: the
@@ -158,7 +139,8 @@ bool Layouts::isMemo(Type type) const {
 // One whose size the array's header cannot hold, or whose object slots it
 // cannot count, is held in a cell of its own, one pointer in the array.
 layout::Element Layouts::element(Type type) const {
-  layout::Cell cell = cellOf(type, /*tag=*/0, /*grouped=*/false, /*memo=*/false);
+  // The cell of a box of one field, the one constructor of its sum.
+  layout::Cell cell = cellOf(type, Tag{0}, /*grouped=*/false, /*memo=*/false);
   constexpr unsigned header = sizeof(idris_rt_header);
   SmallVector<layout::Slot> slots = cell.fields.front();
   unsigned end = 0, alignment = 1;
@@ -168,10 +150,10 @@ layout::Element Layouts::element(Type type) const {
     alignment = std::max(alignment, alignmentOf(slot.type));
   }
   unsigned stride = static_cast<unsigned>(llvm::alignTo(end, alignment));
-  if (!cell.countWord && stride < IDRIS_RT_TAG_LIMIT)
+  if (!cell.countWord() && stride < IDRIS_RT_TAG_LIMIT)
     return layout::Element{std::move(slots), stride, layout::CellInfo::array(stride, cell.objs),
                            std::nullopt};
-  Type pointer = LLVM::LLVMPointerType::get(getRoot()->getContext());
+  Type pointer = LLVM::LLVMPointerType::get(root->getContext());
   return layout::Element{{layout::Slot{pointer, 0}},
                          IDRIS_RT_WORD_BYTES,
                          layout::CellInfo::array(IDRIS_RT_WORD_BYTES, 1),
@@ -182,7 +164,7 @@ layout::Element Layouts::element(Type type) const {
 // (and in every cell of a sum with a group), then the object slots, each a
 // word, so contiguous: the group, then the counted components. Then the
 // other components.
-layout::Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, uint64_t tag, bool grouped,
+layout::Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, Tag tag, bool grouped,
                              bool memo) const {
   SmallVector<SmallVector<layout::Slot>> fields;
   SmallVector<SmallVector<bool>> countedness;
@@ -195,13 +177,14 @@ layout::Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, uint64_t tag, bool group
   }
   SmallVector<std::pair<unsigned, unsigned>> order;
   unsigned objs = objects(fieldTypes) + (grouped ? 1 : 0);
-  bool countWord = grouped || objs > layout::mostObjects;
+  std::optional<unsigned> headerObjs =
+      layout::countWord(objs, grouped) ? std::nullopt : std::optional<unsigned>(objs);
   unsigned at = sizeof(idris_rt_header);
-  if (countWord)
+  if (!headerObjs)
     at += IDRIS_RT_WORD_BYTES;
   std::optional<layout::Slot> group;
   if (grouped) {
-    group = layout::Slot{IntegerType::get(getRoot()->getContext(), 64), at};
+    group = layout::Slot{IntegerType::get(root->getContext(), 64), at};
     at += IDRIS_RT_WORD_BYTES;
   }
   auto place = [&](unsigned field, unsigned component) {
@@ -229,7 +212,6 @@ layout::Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, uint64_t tag, bool group
   });
   for (auto [f, c] : others)
     place(f, c);
-  std::optional<unsigned> headerObjs = countWord ? std::nullopt : std::optional<unsigned>(objs);
   layout::CellInfo info =
       memo ? layout::CellInfo::thunk(tag, headerObjs) : layout::CellInfo::box(tag, headerObjs);
   return layout::Cell{std::move(fields),
@@ -237,14 +219,14 @@ layout::Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, uint64_t tag, bool group
                       objs,
                       std::move(order),
                       info,
-                      countWord,
                       group};
 }
 
-const layout::Cell &Layouts::box(DataType type, unsigned tag) const {
+const layout::Cell &Layouts::box(DataType type, Tag tag) const {
   if (auto it = boxes.find({type, tag}); it != boxes.end())
     return it->second;
-  llvm::reportFatalInternalError("no cell of the constructor " + llvm::Twine(tag) + " of \"" +
+  llvm::reportFatalInternalError("no cell of the constructor " +
+                                 llvm::Twine(static_cast<uint32_t>(tag)) + " of \"" +
                                  type.getName() +
                                  "\", which no value of the module held in a box when its "
                                  "layouts were computed");

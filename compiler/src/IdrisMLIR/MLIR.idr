@@ -44,6 +44,19 @@ Eq Dim where
   Dynamic == Dynamic = True
   _ == _ = False
 
+||| The text a dialect's syntax gives one of its types or attributes. It is
+||| made with the value it spells, by the value's one constructor (`idr`,
+||| `arith`, `ub`), so it is always that value's: a dialect's syntax writes
+||| what it holds by a function it is given, a recursion the totality
+||| checker cannot follow into, so the text of what a dialect's value holds
+||| is made before the value is, and the value's own text only reads it.
+export
+data Spelling = MkSpelling (Lazy String)
+
+||| A spelling's text.
+spelled : Spelling -> String
+spelled (MkSpelling s) = s
+
 namespace MlirAttr
   ||| An attribute, defined below: a memref's memory space is one, so the
   ||| types hold attributes as the attributes hold types.
@@ -65,7 +78,8 @@ namespace MlirType
     | RankedTensorType (List Dim) MlirType
     | MemRefType (List Dim) MlirType (Maybe MlirAttr)
     | FunctionType (Signature MlirType)
-    | Idr (IdrType MlirType)
+    | ||| A type of the `idr` dialect, made by `idr`.
+      Idr (IdrType MlirType) Spelling
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -92,9 +106,12 @@ namespace MlirAttr
     | DenseI32ArrayAttr (List Nat)
     | DenseI64ArrayAttr (List Integer)
     | DictionaryAttr (List (String, MlirAttr))
-    | Idr (IdrAttr MlirType MlirAttr)
-    | Arith (ArithAttr MlirType MlirAttr)
-    | UB (UBAttr MlirType MlirAttr)
+    | ||| An attribute of the `idr` dialect, made by `idr`.
+      Idr (IdrAttr MlirType MlirAttr) Spelling
+    | ||| An attribute of the `arith` dialect, made by `arith`.
+      Arith (ArithAttr MlirType MlirAttr) Spelling
+    | ||| An attribute of the `ub` dialect, made by `ub`.
+      UB (UBAttr MlirType MlirAttr) Spelling
 
 ||| The entry of a static index list that an operand gives: MLIR's
 ||| `ShapedType::kDynamic`, the least 64-bit integer.
@@ -108,24 +125,27 @@ dimText (Static n) = show n ++ "x"
 dimText Dynamic = "?x"
 
 mutual
-  ||| A type's text. A dialect's type writes the types it holds by this
-  ||| function, so each is a part of the type it is in: a recursion through
-  ||| a function the dialect's syntax is given, which the totality checker
-  ||| does not follow, so this and what prints with it are covering.
-  export covering
+  ||| A type's text. A builtin type writes what it holds by this function;
+  ||| a dialect's type was spelled when it was made.
+  export
   typeText : MlirType -> String
   typeText (IntegerType w) = "i" ++ show w
   typeText F64Type = "f64"
   typeText IndexType = "index"
   typeText NoneType = "none"
   typeText (RankedTensorType ds e) = fastConcat ("tensor<" :: map dimText ds ++ [typeText e, ">"])
-  typeText (MemRefType ds e space) =
-    fastConcat ("memref<" :: map dimText ds ++ [typeText e, maybe "" (\a => ", " ++ attrText a) space, ">"])
-  typeText (FunctionType s) = signature typeText s
-  typeText (Idr x) = idrTypeText typeText x
+  typeText (MemRefType ds e Nothing) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ">"])
+  typeText (MemRefType ds e (Just a)) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ", " ++ attrText a, ">"])
+  typeText (FunctionType (MkSignature ins outs)) = signature id (MkSignature (typesText ins) (typesText outs))
+  typeText (Idr _ s) = spelled s
 
-  ||| An attribute's text, each attribute it holds written by this function.
-  export covering
+  typesText : List MlirType -> List String
+  typesText [] = []
+  typesText (t :: ts) = typeText t :: typesText ts
+
+  ||| An attribute's text, each builtin attribute it holds written by this
+  ||| function.
+  export
   attrText : MlirAttr -> String
   attrText UnitAttr = "unit"
   attrText (BoolAttr b) = if b then "true" else "false"
@@ -134,34 +154,60 @@ mutual
   attrText (StringAttr s) = Text.utf8 s
   attrText (SymbolRefAttr r) = symbolRef r
   attrText (TypeAttr t) = typeText t
-  attrText (ArrayAttr as) = array attrText as
+  attrText (ArrayAttr as) = array id (attrsText as)
   attrText (DenseI32ArrayAttr []) = "array<i32>"
   attrText (DenseI32ArrayAttr ns) = "array<i32: " ++ commaSeparated (map show ns) ++ ">"
   attrText (DenseI64ArrayAttr []) = "array<i64>"
   attrText (DenseI64ArrayAttr ns) = "array<i64: " ++ commaSeparated (map show ns) ++ ">"
-  attrText (DictionaryAttr as) = "{" ++ commaSeparated (map entryText as) ++ "}"
-  attrText (Idr x) = idrAttrText typeText attrText x
-  attrText (Arith x) = arithAttrText typeText attrText x
-  attrText (UB x) = ubAttrText typeText attrText x
+  attrText (DictionaryAttr as) = "{" ++ commaSeparated (entriesText as) ++ "}"
+  attrText (Idr _ s) = spelled s
+  attrText (Arith _ s) = spelled s
+  attrText (UB _ s) = spelled s
 
-  ||| An entry of a dictionary: a unit attribute is its name alone.
-  covering
-  entryText : (String, MlirAttr) -> String
-  entryText (name, UnitAttr) = name
-  entryText (name, a) = name ++ " = " ++ attrText a
+  attrsText : List MlirAttr -> List String
+  attrsText [] = []
+  attrsText (a :: as) = attrText a :: attrsText as
+
+  ||| The entries of a dictionary: a unit attribute is its name alone.
+  entriesText : List (String, MlirAttr) -> List String
+  entriesText [] = []
+  entriesText ((name, UnitAttr) :: es) = name :: entriesText es
+  entriesText ((name, a) :: es) = (name ++ " = " ++ attrText a) :: entriesText es
+
+namespace MlirType
+  ||| A type of the `idr` dialect, spelled as its syntax writes it.
+  export
+  idr : IdrType MlirType -> MlirType
+  idr x = Idr x (MkSpelling (idrTypeText typeText x))
+
+namespace MlirAttr
+  ||| An attribute of the `idr` dialect, spelled as its syntax writes it.
+  export
+  idr : IdrAttr MlirType MlirAttr -> MlirAttr
+  idr x = Idr x (MkSpelling (idrAttrText typeText attrText x))
+
+  ||| An attribute of the `arith` dialect, spelled as its syntax writes it.
+  export
+  arith : ArithAttr MlirType MlirAttr -> MlirAttr
+  arith x = Arith x (MkSpelling (arithAttrText typeText attrText x))
+
+  ||| An attribute of the `ub` dialect, spelled as its syntax writes it.
+  export
+  ub : UBAttr MlirType MlirAttr -> MlirAttr
+  ub x = UB x (MkSpelling (ubAttrText typeText attrText x))
 
 ||| The dialect a type is of, by its constructor.
 export
 typeDialect : MlirType -> String
-typeDialect (Idr _) = "idr"
+typeDialect (Idr _ _) = "idr"
 typeDialect _ = "builtin"
 
 ||| The dialect an attribute is of, by its constructor.
 export
 attrDialect : MlirAttr -> String
-attrDialect (Idr _) = "idr"
-attrDialect (Arith _) = "arith"
-attrDialect (UB _) = "ub"
+attrDialect (Idr _ _) = "idr"
+attrDialect (Arith _ _) = "arith"
+attrDialect (UB _ _) = "ub"
 attrDialect _ = "builtin"
 
 ||| An attribute of an op's: its name, and itself.
@@ -181,10 +227,9 @@ attrIf name make = maybe [] (\x => [(name, make x)])
 
 ||| An attribute dictionary between `opening` and `closing`, after a space,
 ||| if it has any entries.
-covering
 dictionary : String -> String -> List NamedAttr -> String
 dictionary opening closing [] = ""
-dictionary opening closing as = " " ++ opening ++ commaSeparated (map entryText as) ++ closing
+dictionary opening closing as = " " ++ opening ++ commaSeparated (entriesText as) ++ closing
 
 ------------------------------------------------------------------------------
 -- Locations
@@ -351,18 +396,16 @@ named Nothing _ = ""
 mutual
   ||| An op in the generic form, its regions indented by `d`:
   ||| `"dialect.op"(operands) <{properties}> ({regions}) {attributes} : type`.
-  covering
   opText : Nat -> Op -> List String -> List String
-  opText d o rest =
-    let start = fastConcat [quoted o.name, "(", commaSeparated (map (.name) o.operands), ")",
-                            dictionary "<{" "}>" o.properties]
-        end = fastConcat [dictionary "{" "}" o.attributes, " : ",
-                          signature typeText (MkSignature (map (.type) o.operands) o.results)]
-    in case o.regions of
+  opText d (MkOp name operands properties regions attributes results) rest =
+    let start = fastConcat [quoted name, "(", commaSeparated (map (.name) operands), ")",
+                            dictionary "<{" "}>" properties]
+        end = fastConcat [dictionary "{" "}" attributes, " : ",
+                          signature typeText (MkSignature (map (.type) operands) results)]
+    in case regions of
          [] => start :: end :: rest
          rs => start :: " (" :: regionsText d rs (")" :: end :: rest)
 
-  covering
   regionsText : Nat -> List Region -> List String -> List String
   regionsText d [] rest = rest
   regionsText d [r] rest = regionText d r rest
@@ -370,19 +413,16 @@ mutual
 
   ||| A region's one block, labelled even when it has no arguments: the
   ||| generic form reads `{}` as a region of no blocks.
-  covering
   regionText : Nat -> Region -> List String -> List String
   regionText d (MkRegion arguments statements) rest =
     fastConcat ["{\n", indent d, "^bb0", argumentsText arguments, ":\n"] ::
     statementsText (S d) statements (indent d :: "}" :: rest)
 
-  covering
   argumentsText : List Argument -> String
   argumentsText [] = ""
   argumentsText as =
     "(" ++ commaSeparated (map (\a => a.value.name ++ ": " ++ typeText a.value.type) as) ++ ")"
 
-  covering
   statementsText : Nat -> List Statement -> List String -> List String
   statementsText d [] rest = rest
   statementsText d (MkStatement result op _ :: ss) rest =
@@ -390,6 +430,6 @@ mutual
 
 ||| An op in MLIR's generic form without the locations of what it holds:
 ||| what the op is, wherever it stands. A content key hashes it.
-export covering
+export
 genericForm : Op -> String
 genericForm o = fastConcat (opText 0 o [])

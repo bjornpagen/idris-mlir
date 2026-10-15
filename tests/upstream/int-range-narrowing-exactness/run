@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pinned mlir-opt, with upstream/09-int-range-narrowing-exactness/llvm.patch,
 # no longer shows the bug: arith-int-range-narrowing keeps as i64 ops a
 # remsi that may see INT32_MIN % -1 and a remui of a word that may be

@@ -1,45 +1,12 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=no-closures,labels=@Main.mkInc:result:[@Main.inc],labels=@Main.mkAdd:result:[@Main.add],labels=@Main.use:arg0:[@Main.add,@Main.inc]' -o /dev/null
+// NEEDS-ACCEPTANCE: that each set of labels is its own sum: @Main.mkInc's and @Main.mkAdd's of one label each, @Main.use's of both.
 // Values of one closure type with different sets of labels: mkInc returns
 // only @Main.inc and mkAdd only @Main.add, while @Main.use and the join of
 // the match take either. Each (type, labels) is its own sum, and where a
 // value moves into a slot with more labels, at the calls of @Main.use and
 // at the yields of the match, a match rebuilds its constructor in the
 // larger sum.
-// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.inc()]
-// CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.add(i64)]
-// CHECK: ![[F2:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.add(i64), @Main.inc()]
-// CHECK-NOT: !idr.fn
-// CHECK-LABEL: idr.func @Main.mkInc()
-// CHECK-SAME: -> ![[F0]]
-// CHECK-LABEL: idr.func @Main.mkAdd(
-// CHECK-SAME: -> ![[F1]]
-// CHECK-LABEL: idr.func @Main.use(
-// CHECK-SAME: %{{.*}}: ![[F2]]
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: %[[I:.*]] = call @Main.mkInc() : () -> ![[F0]]
-// CHECK: %[[A:.*]] = call @Main.mkAdd(%{{.*}}) : (i64) -> ![[F1]]
-// The calls:
-// CHECK: %[[I2:.*]] = {{(idr\.)?}}match %[[I]] : ![[F0]] -> (![[F2]]) {
-// CHECK-NEXT: case @Main.inc() {
-// CHECK-NEXT: %[[C:.*]] = {{(idr\.)?}}con ![[F2]] @Main.inc()
-// CHECK-NEXT: idr.yield %[[C]] : ![[F2]]
-// CHECK: call @Main.use(%[[I2]], %{{.*}}) : (![[F2]], i64) -> i64
-// CHECK: %[[A2:.*]] = {{(idr\.)?}}match %[[A]] : ![[F1]] -> (![[F2]]) {
-// CHECK-NEXT: case @Main.add(%[[X:.*]]: i64) {
-// CHECK-NEXT: %[[D:.*]] = {{(idr\.)?}}con ![[F2]] @Main.add(%[[X]] : i64)
-// CHECK-NEXT: idr.yield %[[D]] : ![[F2]]
-// CHECK: call @Main.use(%[[A2]], %{{.*}}) : (![[F2]], i64) -> i64
-// The join:
-// CHECK: match_lit %{{.*}} : i64 -> (![[F2]]) {
-// CHECK-NEXT: case 0 {
-// CHECK-NEXT: %[[J:.*]] = {{(idr\.)?}}match %[[I]] : ![[F0]] -> (![[F2]]) {
-// CHECK: idr.yield %[[J]] : ![[F2]]
-// CHECK: default {
-// CHECK-NEXT: %[[K:.*]] = {{(idr\.)?}}match %[[A]] : ![[F1]] -> (![[F2]]) {
-// CHECK: idr.yield %[[K]] : ![[F2]]
 idr.program @coerce root(@Main.main) stage(higher) {
   idr.func @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

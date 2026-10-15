@@ -24,41 +24,68 @@
 //     never left a view: the buffer may be written while the view is read.
 // idr.dup gives a view one reference of its own, which one use consumes.
 //
-// Every analysis here is read-only after its constructor, so the function
-// passes idr-rc runs nested may read it from any thread.
+// Every analysis here is a value idr-rc builds where it is used, and is
+// read-only once built, so the function passes idr-rc runs nested may read
+// it from any thread.
 #ifndef IDR_ANALYSIS_OWNERSHIP_H
 #define IDR_ANALYSIS_OWNERSHIP_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
-#include "mlir/Pass/AnalysisManager.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseMapInfoVariant.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
 #include <optional>
+#include <variant>
 
 namespace idr::ownership {
 
-// The op of `block` that holds `use`, when that op is strictly after
-// `after` (anywhere in the block when `after` is null). Null when the use
-// is not in the block, or is `after` or earlier. The one walk of a use up
-// to the block that holds it.
-mlir::Operation *heldIn(mlir::Block &block, mlir::OpOperand &use, mlir::Operation *after);
+// A point between two ops of a block: its start, or right after an op. A
+// point names the op before it, not the one after: what a rewrite puts at
+// the point goes there whatever comes to stand after it. A point is a key
+// of LLVM's hashed containers.
+struct BlockStart {
+  mlir::Block *block;
+  bool operator==(const BlockStart &) const = default;
+};
+struct After {
+  mlir::Operation *op;
+  bool operator==(const After &) const = default;
+};
+using Point = std::variant<BlockStart, After>;
 
-// The ops of `block` after `after` (from its start when null) that use
-// `value`, themselves or in their regions, in order. The second form takes
-// the uses as a caller sees them, which may be fewer than the value's own.
+// The block of `point`, and its first op at or after the point.
+mlir::Block &blockOf(const Point &point);
+mlir::Block::iterator firstAt(const Point &point);
+// The point right before `at` in `block`.
+Point pointBefore(mlir::Block &block, mlir::Block::iterator at);
+// The point where `value` is defined: the start of its block for a block
+// argument, right after its op for a result.
+Point definedAt(mlir::Value value);
+
+// The op of `block` that holds `use`, when that op is at `from` or after
+// it; null when the use is not in the block or is before `from`. The one
+// walk of a use up to the block that holds it.
+mlir::Operation *heldIn(mlir::Block &block, mlir::OpOperand &use, mlir::Block::iterator from);
+
+// The ops of `block` from `from` on that use `value`, themselves or in
+// their regions, in order. The second form takes the uses as a caller sees
+// them, which may be fewer than the value's own.
 llvm::SmallVector<mlir::Operation *> usersIn(mlir::Value value, mlir::Block &block,
-                                             mlir::Operation *after);
+                                             mlir::Block::iterator from);
 llvm::SmallVector<mlir::Operation *> usersIn(llvm::ArrayRef<mlir::OpOperand *> uses,
-                                             mlir::Block &block, mlir::Operation *after);
+                                             mlir::Block &block, mlir::Block::iterator from);
 
 // Whether each run of `op` enters exactly one of its regions, once, and
 // leaves it back to `op`, as RegionBranchOpInterface says: a match, an
@@ -80,26 +107,29 @@ bool usedAfter(mlir::Value value, mlir::Operation *op);
 // Where a value whose uses are `uses`, which `block` holds a reference to,
 // dies on each path of the block: at its start when nothing there uses it,
 // after its last use, or inside each region of that use when it decides.
-// Nowhere on a path whose last use consumes it. Calls `at` with each point.
-// `graded` is the table through which a call's consumption is read from its
-// callee's grade; null before borrow inference has graded the signatures,
-// when every call may consume its arguments.
+// Nowhere on a path whose last use takes it over (`takesOver`, the
+// caller's rule, which is what the program's grades let it know: before
+// borrow inference grades the signatures, any call may take its arguments
+// over). Calls `at` with each point.
 void whereDies(llvm::ArrayRef<mlir::OpOperand *> uses, mlir::Block &block,
-               mlir::SymbolTable *graded,
+               llvm::function_ref<bool(mlir::OpOperand &)> takesOver,
                llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
-void whereDies(mlir::Value value, mlir::Block &block, mlir::SymbolTable *graded,
+void whereDies(mlir::Value value, mlir::Block &block,
+               llvm::function_ref<bool(mlir::OpOperand &)> takesOver,
                llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
 
-// Whether `use` is at `at` in `block` or after it, itself or inside an op
-// there: where a take placed at `at` has already run.
-bool fromPoint(mlir::Block &block, mlir::Block::iterator at, mlir::OpOperand &use);
+// A field of a box as its uses read it, at its index in the constructor.
+struct Field {
+  mlir::Value value;
+  unsigned index;
+};
 
 // The fields of a box whose uses are `uses`, built by the constructor
-// `tag`, that a take of it gives: the arguments of `fields` (the case
-// region that bound them, when one did) and the results of the idr.field
-// reads of the box, each with its index.
-void eachField(llvm::ArrayRef<mlir::OpOperand *> uses, unsigned tag, mlir::Block *fields,
-               llvm::function_ref<void(mlir::Value, unsigned)> f);
+// `tag`, that a take of it gives: the arguments `bound` of the case region
+// that bound them (none when no case region did) and the results of the
+// idr.field reads of the box.
+llvm::SmallVector<Field> fieldsOf(llvm::ArrayRef<mlir::OpOperand *> uses, Tag tag,
+                                  llvm::ArrayRef<mlir::BlockArgument> bound);
 
 // The first read of a box that no match takes apart and whose every use
 // reads a field of one constructor, the point from which the box's
@@ -112,10 +142,8 @@ FieldOp onlyReads(mlir::Type type, llvm::ArrayRef<mlir::OpOperand *> uses);
 // sums (whose slots may hold boxes), and the tokens of their cells.
 bool followed(mlir::Value value);
 
-// Whether a value of `type` holds references, as the type answers.
-bool counted(mlir::Type type);
-
-// Whether `value` holds references: its type does, and it is not static.
+// Whether `value` holds references: its type does (holdsReferences), and
+// it is not static.
 bool tracked(mlir::Value value);
 
 // Whether a value of `type` is a memo cell, the box of a memo sum: the one
@@ -132,34 +160,35 @@ bool isMemoCell(mlir::Type type);
 // from needs nothing for it.
 bool isCountedElement(mlir::Value value);
 
+// The copies grade specialization made: each key, a function some live
+// call gives an exclusive value at every followed parameter while another
+// call shares one (or one such a key calls), and its copy, which takes
+// every followed parameter exclusive, in the order the keys were decided.
+struct Copies {
+  llvm::MapVector<FuncOp, FuncOp> of;
+};
+
 } // namespace idr::ownership
 
-namespace idr {
-
-// Borrow inference: which parameters of the program's functions are
-// borrowed, a view of the caller's value, and which are owned. A parameter
-// that a reuse site takes apart is owned, so it reads Reuses.
-class Borrows {
-public:
-  enum class Param : uint8_t { Untracked, Borrowed, Owned };
-
-  Borrows(mlir::Operation *program, mlir::AnalysisManager &am);
-
-  // Unless it, the Reuses it read and the SymbolTable are all preserved.
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
-
-  // Each parameter of `fn`.
-  llvm::ArrayRef<Param> params(FuncOp fn) const;
-  // Whether each result of `fn` holds references, and so is owned.
-  llvm::ArrayRef<bool> countedResults(FuncOp fn) const;
-  // How many parameters that hold references are borrowed.
-  unsigned borrowed() const { return numBorrowed; }
-
-private:
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<Param>> paramsOf;
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<bool>> resultsOf;
-  unsigned numBorrowed = 0;
+template <> struct llvm::DenseMapInfo<idr::ownership::BlockStart> {
+  static unsigned getHashValue(const idr::ownership::BlockStart &at) {
+    return DenseMapInfo<mlir::Block *>::getHashValue(at.block);
+  }
+  static bool isEqual(const idr::ownership::BlockStart &a, const idr::ownership::BlockStart &b) {
+    return a == b;
+  }
 };
+
+template <> struct llvm::DenseMapInfo<idr::ownership::After> {
+  static unsigned getHashValue(const idr::ownership::After &at) {
+    return DenseMapInfo<mlir::Operation *>::getHashValue(at.op);
+  }
+  static bool isEqual(const idr::ownership::After &a, const idr::ownership::After &b) {
+    return a == b;
+  }
+};
+
+namespace idr {
 
 // Reset/reuse insertion's decisions: in each function, the dead boxes that
 // are taken apart where they die and the constructors after each that are
@@ -167,40 +196,64 @@ private:
 // types and the layouts alone.
 class Reuses {
 public:
-  // A take and the constructors that reuse its cell. The take goes right
-  // after `after` in `block`, or at the block's start when `after` is null;
-  // `fields` is the case region that bound the box's fields, or null. The
-  // box is `box`, or, when that is null, the field `field` of the take of
-  // the function's site `from`, an earlier one: a take before this one gave
-  // the box's reads a field of its own, which is what this one takes apart.
-  // The box was built by the constructor `tag` of `data`.
+  // A field an earlier site's take gave, by the site's position among the
+  // function's sites: a take before this one gave the box's reads a field
+  // of its own, which is what this one takes apart.
+  struct TakenField {
+    unsigned site;
+    unsigned field;
+  };
+
+  // A take and the constructors that reuse its cell. The take goes at
+  // `point`; `bound` are the fields of the case region that bound the box's
+  // fields, none when no case region did. The box is a value of the
+  // function, or a field of an earlier take. It was built by the
+  // constructor `tag` of `data`.
   struct Site {
-    mlir::Value box;
-    unsigned from = 0, field = 0;
+    std::variant<mlir::Value, TakenField> box;
     DataType data;
-    unsigned tag = 0;
-    mlir::Block *block = nullptr;
-    mlir::Operation *after = nullptr;
-    mlir::Block *fields = nullptr;
+    Tag tag;
+    ownership::Point point;
+    llvm::SmallVector<mlir::BlockArgument> bound;
     llvm::SmallVector<ConOp> cons;
   };
 
-  Reuses(mlir::Operation *program, mlir::AnalysisManager &am);
+  // The sites of every function of `program`, on the layouts the target
+  // gives.
+  Reuses(ProgramOp program, const Layouts &layouts);
 
-  // Unless it, the SymbolTable and the Layouts are all preserved.
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
-
-  // The sites of `fn`, in the order they are rewritten.
-  llvm::ArrayRef<Site> sites(FuncOp fn) const;
+  // The sites of `fn`, a function of the program, in the order they are
+  // rewritten.
+  llvm::ArrayRef<Site> sites(FuncOp fn) const { return sitesOf.find(fn)->second; }
 
 private:
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<Site>> sitesOf;
+  llvm::DenseMap<FuncOp, llvm::SmallVector<Site>> sitesOf;
 };
 
-// Exclusivity, solved once on MLIR's solver and kept as tables: which
-// owned values hold the only reference to every cell their cell graph
-// reaches that a take could hand out, which blocks run, who calls each
-// function and what each returns from. No solver outlives the constructor.
+// Borrow inference: which parameters of the program's functions are
+// borrowed, a view of the caller's value, and which are owned. A parameter
+// that a reuse site takes apart is owned, so it reads the reuses decided.
+class Borrows {
+public:
+  enum class Param : uint8_t { Untracked, Borrowed, Owned };
+
+  Borrows(ProgramOp program, const mlir::SymbolTable &symbols, const Reuses &reuses);
+
+  // Each parameter of `fn`, a function of the program.
+  llvm::ArrayRef<Param> params(FuncOp fn) const { return paramsOf.find(fn)->second; }
+  // How many parameters that hold references are borrowed.
+  unsigned borrowed() const { return numBorrowed; }
+
+private:
+  llvm::DenseMap<FuncOp, llvm::SmallVector<Param>> paramsOf;
+  unsigned numBorrowed = 0;
+};
+
+// Exclusivity, solved on MLIR's solver and kept as tables: which owned
+// values hold the only reference to every cell their cell graph reaches
+// that a take could hand out, which blocks run, where each call of a key
+// of grade specialization goes, who calls each function and what each
+// returns from. No solver outlives the solve.
 class Exclusivity {
 public:
   // What is known of a value's cell graph: nothing yet (the optimistic
@@ -208,13 +261,16 @@ public:
   // reference may reach.
   enum class Sharing : uint8_t { Unknown, Exclusive, Shared };
 
-  Exclusivity(mlir::Operation *program, mlir::AnalysisManager &am);
-
-  // Unless it and the SymbolTable are preserved.
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
-
-  // Whether the solve failed; nothing else here is then meaningful.
-  bool failed() const { return unsolved; }
+  // One solve of `program`. A call of a key of `copies` or of its copy
+  // goes, within the solve, to the copy when it gives an exclusive value at
+  // every followed parameter, and to the original when it does not; so the
+  // copy's followed parameters are exclusive, a call that gives exclusive
+  // values only once other calls went to the copies is followed in the
+  // same solve, and the solve is the one of the program after each such
+  // call went where it found it goes. With no copies every call goes to
+  // its callee. Failure when MLIR's solver fails, an internal error the
+  // caller reports.
+  static mlir::FailureOr<Exclusivity> solve(ProgramOp program, const ownership::Copies &copies);
 
   // What the solve found of `value`; Unknown for a value it never reached.
   Sharing of(mlir::Value value) const;
@@ -223,16 +279,23 @@ public:
   bool proves(mlir::Value value) const;
   // Whether the solve found that `block` may run.
   bool live(mlir::Block *block) const { return liveBlocks.contains(block); }
-  // Every call of `fn`, when the solve sees them all.
+  // Where the solve sent `call`, a live call of a key of the copies it was
+  // given or of its copy: the copy or the original. None for any other
+  // call.
+  std::optional<FuncOp> target(CallOp call) const;
+  // Every call of `fn`, when the solve sees them all, each to where the
+  // solve sent it.
   std::optional<llvm::ArrayRef<mlir::Operation *>> callers(FuncOp fn) const;
   // Every return of `fn` the solve reached, when it sees them all from a
   // call of it.
   std::optional<llvm::ArrayRef<mlir::Operation *>> returns(FuncOp fn) const;
 
 private:
-  bool unsolved = false;
+  Exclusivity() = default;
+
   llvm::DenseMap<mlir::Value, Sharing> sharing;
   llvm::DenseSet<mlir::Block *> liveBlocks;
+  llvm::DenseMap<mlir::Operation *, FuncOp> targets;
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>> callersOf;
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>> returnsOf;
 };

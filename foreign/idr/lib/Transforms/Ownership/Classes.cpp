@@ -24,7 +24,7 @@ Class Classes::classOf(Value value) {
   // one an idr.own.give hands to the store that consumes it. Counting
   // places nothing for either; the boundary op is its one use.
   Operation *def = value.getDefiningOp();
-  if (!counted(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def))
+  if (!holdsReferences(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def))
     return Class::Untracked;
   // An op that only changes a grade but takes its operand over (a linear
   // position) holds what that operand holds once counted: a static operand
@@ -36,12 +36,18 @@ Class Classes::classOf(Value value) {
   auto known = classes.find(value);
   if (known != classes.end())
     return known->second;
+  // Owned, the class that takes a reference of its own, until the reads
+  // decide: classOf recurses through aliveAt into other values' classes,
+  // no chain definitionChain walks, and a recursion that comes back to this
+  // value, which only an unreachable block makes, finds it owned.
+  classes[value] = Class::Owned;
   Class result = Class::Owned;
   if (Value from = readFrom(value); from && !isCountedElement(value)) {
     if (llvm::all_of(value.getUsers(), [&](Operation *user) { return aliveAt(from, user); }))
       result = Class::Borrowed;
   } else if (auto arg = dyn_cast<BlockArgument>(value);
-             arg && arg.getOwner()->getParentOp() == fn.getOperation()) {
+             arg && arg.getOwner()->isEntryBlock() &&
+             arg.getOwner()->getParentOp() == fn.getOperation()) {
     // Borrow inference graded the signature before any function is placed:
     // a parameter it left a view is borrowed.
     if (!isOwned(arg.getType()))
@@ -58,23 +64,34 @@ Class Classes::classOf(Value value) {
 // placement keeps it: up to its last use in each block that holds `op`,
 // through every op that does not decide and uses it inside, and into the
 // region of a deciding op only when that region uses it.
+// The walk goes up the chain of what each was read from: one that closes
+// on itself, which only an unreachable block makes, is not alive, so a
+// field read from it takes a reference of its own.
 bool Classes::aliveAt(Value value, Operation *op) {
-  switch (classOf(value)) {
-  case Class::Untracked:
-  case Class::Static:
-    return true;
-  case Class::Owned:
-    // Used again after `op`, or inside a region of it: an op with regions
-    // reads what it reads as it starts, so a use in one of its regions
-    // keeps the value alive there too. usedIn is what counting asks of a
-    // region.
-    return usedAfter(value, op) ||
-           llvm::any_of(op->getRegions(), [&](Region &region) { return usedIn(value, region); });
-  case Class::Borrowed:
-    break;
+  auto readThrough = [](Value at) -> std::optional<Value> {
+    if (Value from = readFrom(at))
+      return from;
+    return std::nullopt;
+  };
+  for (Value at : definitionChain(value, readThrough)) {
+    switch (classOf(at)) {
+    case Class::Untracked:
+    case Class::Static:
+      return true;
+    case Class::Owned:
+      // Used again after `op`, or inside a region of it: an op with regions
+      // reads what it reads as it starts, so a use in one of its regions
+      // keeps the value alive there too. usedIn is what counting asks of a
+      // region.
+      return usedAfter(at, op) ||
+             llvm::any_of(op->getRegions(), [&](Region &region) { return usedIn(at, region); });
+    case Class::Borrowed:
+      break;
+    }
+    if (!readFrom(at))
+      return true;
   }
-  Value from = readFrom(value);
-  return !from || aliveAt(from, op);
+  return false;
 }
 
 bool usedIn(Value value, Region &region) {

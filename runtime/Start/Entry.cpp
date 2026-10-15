@@ -12,9 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <string.h>
 
 namespace {
 
@@ -25,11 +23,14 @@ char **argumentText = nullptr;
 
 // A program's stack: the number of bytes IDRIS_RT_STACK says, when it is
 // set; else a gibibyte, which lets a non-tail recursion go tens of millions
-// deep, or the process's stack limit (ulimit -s) when that is larger. An
-// unlimited one means as large as the address space allows.
+// deep, or the process's stack limit (ulimit -s) when that is larger, up to
+// 2^44 bytes: a quarter of the address space Darwin grants a process, so
+// that the heap keeps the rest. An unlimited limit, larger than any, is
+// that ceiling, and one the system cannot report, 0, raises nothing.
 size_t programStack() {
   constexpr size_t gibibyte = size_t{1} << 30;
-  if (const char *text = getenv("IDRIS_RT_STACK")) {
+  constexpr size_t ceiling = size_t{1} << 44;
+  if (const char *text = rt::platform::environment("IDRIS_RT_STACK")) {
     size_t bytes = 0;
     bool valid = *text != '\0';
     for (; valid && *text != '\0'; ++text) {
@@ -45,9 +46,7 @@ size_t programStack() {
     return bytes;
   }
   size_t limit = rt::platform::stackLimit();
-  if (limit == SIZE_MAX)
-    return size_t{1} << 44;
-  return limit > gibibyte ? limit : gibibyte;
+  return limit < gibibyte ? gibibyte : limit > ceiling ? ceiling : limit;
 }
 
 struct Program {
@@ -61,25 +60,8 @@ void runProgram(void *argument) {
 }
 
 // The processor test runs before anything that may use the features it
-// tests, so it and what it calls stay compiled for the target's baseline:
-// they are always inlined into idris_rt_start, or annotated as it is.
-[[gnu::always_inline]] inline void say(const char *text, size_t n) {
-  while (n > 0) {
-    ssize_t written = write(2, text, n);
-    if (written <= 0)
-      return;
-    text += written;
-    n -= static_cast<size_t>(written);
-  }
-}
-
-[[gnu::always_inline]] inline size_t length(const char *text) {
-  size_t n = 0;
-  while (text[n] != '\0')
-    ++n;
-  return n;
-}
-
+// tests, so it stays compiled for the target's baseline: it is inlined into
+// idris_rt_start, and what it calls is marked as idris_rt_start is.
 // Names what the processor lacks, and ends the process as a crash does,
 // before the program has written anything.
 [[gnu::always_inline]] inline void checkCpu(uint64_t required) {
@@ -87,18 +69,16 @@ void runProgram(void *argument) {
   if (missing == 0)
     return;
   static constexpr char prefix[] = "idris-mlir: this processor lacks";
-  static constexpr char suffix[] =
-      ", which the program was compiled to use\n";
-  say(prefix, sizeof prefix - 1);
+  static constexpr char suffix[] = ", which the program was compiled to use\n";
+  rt::platform::writeAll(2, prefix, sizeof prefix - 1);
 #define IDRIS_RT_CPU_NAME(bit, test, name)                                                       \
   if ((missing >> (bit) & 1) != 0) {                                                             \
-    say(" ", 1);                                                                                 \
-    say(name, length(name));                                                                     \
+    rt::platform::writeAll(2, " " name, sizeof(name));                                           \
   }
   IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_NAME)
 #undef IDRIS_RT_CPU_NAME
-  say(suffix, sizeof suffix - 1);
-  _exit(IDRIS_RT_CRASHED);
+  rt::platform::writeAll(2, suffix, sizeof suffix - 1);
+  rt::platform::exitProcess(IDRIS_RT_CRASHED);
 }
 
 // What the program's runner does when its stack runs out: what a crash does,
@@ -106,8 +86,8 @@ void runProgram(void *argument) {
 [[noreturn]] void programExhausted() {
   static constexpr char message[] = "idris-mlir: stack exhausted\n";
   idris_rt_flush();
-  say(message, sizeof message - 1);
-  _exit(IDRIS_RT_CRASHED);
+  rt::platform::writeAll(2, message, sizeof message - 1);
+  rt::platform::exitProcess(IDRIS_RT_CRASHED);
 }
 
 } // namespace
@@ -139,7 +119,7 @@ int64_t argumentCount() { return argumentTotal; }
 
 const idris_rt_str *argument(int64_t i) {
   const char *text = i >= 0 && i < argumentTotal ? argumentText[i] : "";
-  return idris_rt_str_from_bytes(text, length(text));
+  return idris_rt_str_from_bytes(text, strlen(text));
 }
 
 } // namespace rt::start
@@ -152,6 +132,7 @@ idris_rt_start(int64_t (*body)(void), uint64_t cpu, int argc, char **argv) {
   checkCpu(cpu);
   argumentTotal = argc;
   argumentText = argv;
+  idris_rt_gmp_init();
   Program program{body, 0};
   if (idris_rt_run_on_stack(runProgram, &program, programStack(), size_t{1} << 20,
                             programExhausted) != 0) {

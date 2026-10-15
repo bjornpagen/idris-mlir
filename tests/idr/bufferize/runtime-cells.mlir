@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-bufferize --idr-lower | FileCheck %s --implicit-check-not=malloc --implicit-check-not=aligned_alloc --implicit-check-not=@free --implicit-check-not=memrefCopy --implicit-check-not=_mlir_memref_to_llvm_alloc --implicit-check-not=3735928559
-// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc (C15 section 2), the buffer idr-rc later adopts (C14); in-place is read right after idr-bufferize.
+// NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc, the buffer idr-rc later adopts; in-place is read right after idr-bufferize.
 // A buffer is a cell of the runtime, freed by counting: every allocation
 // bufferization makes lowers to idris_rt_array_new, and the copy a head's
 // release makes of an array that is read again to the runtime's counted

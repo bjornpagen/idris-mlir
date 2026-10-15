@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # What an e2e program needs outside itself, and whether it allocates.
 #
 # Its object's undefined symbols are the runtime's (read from the runtime

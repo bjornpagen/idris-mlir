@@ -61,12 +61,12 @@
 #include "idr/Conversion/Passes.h"
 #include "idr/Conversion/TailCallPlan.h"
 
+#include "mlir/Analysis/CallGraph.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Support/TypeID.h"
 #include "mlir/Transforms/RegionUtils.h"
 
 namespace idr {
@@ -85,9 +85,9 @@ using LLVM::tailcallkind::TailCallKind;
 
 // What the plan says of one function, done to it: its convention and that
 // of its calls of `tailcc` functions; the return right after each planned
-// tail call, and the blocks that leaves unreached gone; its result through
-// memory and its calls of functions whose result goes there; then each
-// planned call made `musttail`.
+// tail call, and the blocks the entry no longer reaches gone; its result
+// through memory, and its calls of functions whose result goes there; then
+// each planned call made `musttail`.
 void place(LLVM::LLVMFuncOp fn, const TailCallPlan::Function &plan) {
   IRRewriter rewriter(fn.getContext());
   if (plan.tail)
@@ -101,53 +101,37 @@ void place(LLVM::LLVMFuncOp fn, const TailCallPlan::Function &plan) {
     rewriter.setInsertionPointToEnd(block);
     LLVM::ReturnOp::create(rewriter, call.getLoc(), call.getResults());
   }
-  if (!tailCalls.empty())
-    (void)eraseUnreachableBlocks(rewriter, fn.getBody());
-  Value out = plan.inMemory ? takeResultPointer(fn, rewriter) : Value();
-  callThroughMemory(fn, plan.throughMemory, tailCalls, out, rewriter);
-  if (out)
+  // The plan reads only what the entry reaches: a call it does not reach
+  // would keep its callee's old signature, so it goes.
+  (void)eraseUnreachableBlocks(rewriter, fn.getBody());
+  if (plan.resultInMemory) {
+    Value out = takeResultPointer(fn, rewriter);
+    passOnPointer(tailCalls, out, rewriter);
     storeResults(fn, out, rewriter);
+  }
+  callThroughSlots(fn, plan.throughSlot, rewriter);
   for (LLVM::CallOp call : tailCalls)
     call.setTailCallKind(TailCallKind::MustTail);
 }
 
-// The rewrite of one function, run by idr-tail-calls over every function
-// of the module from the plan it computed just before.
-struct Place : PassWrapper<Place, OperationPass<LLVM::LLVMFuncOp>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Place)
-
-  StringRef getArgument() const override { return "idr-tail-calls-place"; }
-
-  void runOnOperation() override {
-    LLVM::LLVMFuncOp fn = getOperation();
-    auto plan = getCachedParentAnalysis<TailCallPlan>();
-    if (!plan) {
-      fn.emitError("internal error: idr-tail-calls-place: no tail-call plan for the module");
-      return signalPassFailure();
-    }
-    if (const TailCallPlan::Function *work = plan->get().of(fn))
-      place(fn, *work);
-  }
-};
-
 struct TailCalls : idr::impl::IdrTailCallsBase<TailCalls> {
   using IdrTailCallsBase::IdrTailCallsBase;
 
+  // The plan is the module's; the rewrite then runs on every function at
+  // once, each reading only the plan and its own body.
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    {
-      // The nested pipeline drops every analysis of the module, the plan
-      // with it, so what the statistics need is copied first.
-      const TailCallPlan &plan = getAnalysis<TailCallPlan>();
-      if (failed(plan.target()))
-        return signalPassFailure();
-      numFrameBound += plan.frameBound();
-      numInMemory += plan.inMemory();
-    }
-    OpPassManager places(ModuleOp::getOperationName());
-    places.nest<LLVM::LLVMFuncOp>().addPass(std::make_unique<Place>());
-    if (failed(runPipeline(places, module)))
+    FailureOr<TailCallPlan> plan = TailCallPlan::make(module, getAnalysis<CallGraph>());
+    if (failed(plan))
       return signalPassFailure();
+    numFrameBound += plan->frameBound();
+    numInMemory += plan->inMemory();
+    SmallVector<LLVM::LLVMFuncOp> functions;
+    for (auto fn : module.getOps<LLVM::LLVMFuncOp>())
+      if (!fn.isExternal())
+        functions.push_back(fn);
+    parallelForEach(&getContext(), functions,
+                    [&](LLVM::LLVMFuncOp fn) { place(fn, plan->of(fn)); });
     module.walk([&](LLVM::CallOp call) {
       if (call.getTailCallKind() == TailCallKind::MustTail)
         ++numTailCalls;

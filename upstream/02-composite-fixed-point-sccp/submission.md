@@ -1,20 +1,53 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Submission
 
-Paste into GitHub, repository `llvm/llvm-project`. Not Bugzilla.
+Status: send next (upstream/README.md). Ready to file, not filed. One
+issue, then one pull request, on llvm/llvm-project. GitHub issues and
+pull requests, not Bugzilla.
 
-One commit. The author is Bjorn, as an individual, outside any employer.
-No employer in the author name, the email, or the message. No
-`Co-authored-by`. No `@` mentions. Add `Assisted-by: <tool>` as the last line of the pull request body
+The author is Bjorn, as an individual, outside any employer: his name and
+the public email of his GitHub account, no employer, no `Co-authored-by`,
+no `@` mentions. The last line of the commit message, of the pull request
+body and of the issue body is `Assisted-by: Claude Code`
 (llvm/docs/AIToolPolicy.md).
 
-The pull request is `pull-request.diff` in this directory, as that one commit. It
-applies unchanged to llvm main at 7208ba24 and to llvmorg-23.1.2, so there
-is no separate trunk diff.
+The pull request is `pull-request.diff` in this directory, as that one
+commit. It applies with no offset to llvm main at b43c0361 (2026-10-15)
+and to the pin, 7208ba24: `SCCP.cpp`, `sccp.mlir`, `FoldUtils.cpp` and
+`CompositePass.cpp` are unchanged between the two. Apply it with
+`git apply` and take the message from here, never from the diff's header.
 
 Open the issue, then the pull request. The squash commit message is the
 pull request title, a blank line, and the pull request body. When the
-issue number exists, replace `#<issue>` in the last line of the pull
-request body (and of the commit message in `pull-request.diff`) with it.
+issue number exists, replace `#<issue>` in the body.
+
+## Checklist before posting
+
+- [ ] Search llvm/llvm-project issues and pull requests again for sccp
+  with constants, `insertKnownConstant` and composite-fixed-point-pass.
+  On 2026-10-15 nothing covered it (the nearest: #213933, which reverts
+  in-place folds during the analysis, and #218394, merged, which made the
+  composite pass's convergence failure configurable).
+- [ ] `git fetch origin main`, `git switch -c composite-fixed-point-sccp origin/main`,
+  `git apply --check` then `git apply` the diff. If it does not apply,
+  stop and show the conflict.
+- [ ] Commit with the title and body below.
+- [ ] `git clang-format origin/main` changes nothing (the patched
+  `SCCP.cpp` was clang-format clean when the diff was made; not rerun).
+- [ ] What was observed: on main at 7208ba24, with 01-08's code diffs
+  applied together, `check-mlir` passed, and `sccp.mlir`'s new RUN line
+  failed with this change alone reverted (README, Testing on main). Not
+  rerun at b43c0361, where none of the files changed.
+- [ ] Show Bjorn the issue, the pull request and each command; one "yes,
+  post it" per command. File the issue, put its number in the body, push
+  to his fork, open the pull request against `main`.
+- [ ] Read the pre-merge CI (`check-mlir`) before anything else. A failure
+  that also happens on main without the change is reported in the pull
+  request.
+- [ ] Afterwards: the issue and pull request numbers into
+  upstream/README.md's row and this directory's README
+  `## Upstreaming plan`.
 
 ## Issue title
 
@@ -81,7 +114,9 @@ insertKnownConstant), so it makes a new one.
 
 Seen at llvmorg-23.1.2; rewrite(), OperationFolder and
 CompositeFixedPointPass's fingerprint check are the same on main at
-7208ba24.
+b43c0361.
+
+Assisted-by: Claude Code
 
 ## Pull request title
 
@@ -124,6 +159,8 @@ output against the same CHECK lines as a single run. Without this
 change it warns on most of the functions in the file.
 
 Fixes #<issue>.
+
+Assisted-by: Claude Code
 
 ## Patch file
 

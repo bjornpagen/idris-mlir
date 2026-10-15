@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `remove-dead-values` leaves a null operand in code liveness never visits
 
 In MLIR at `llvmorg-23.1.2`, `--remove-dead-values` erases a value the
@@ -179,7 +181,14 @@ the change back, it passes.
 
 ## Upstreaming plan
 
-Status: file upstream.
+Status: file upstream, after a rebase. #208881 merged on 2026-10-12 as
+0edf6243 (its own change replaces the uses of dead function arguments
+with `ub.poison`), so `llvm.patch` no longer applies to main
+(b43c0361): its function-argument hunk conflicts. It still applies to the
+pin, which the bootstrap builds. The pull request must be rebased onto
+main, keeping what #208881 does not cover (its block-argument, result
+and operation cases), and
+`submission.md`'s texts and its comment on #208881 redone (not yet done).
 
 - Where: a new issue (the block-argument and result cases; #206920 and
   #203226 cover function arguments), a pull request against llvm main

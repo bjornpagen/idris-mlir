@@ -30,6 +30,7 @@
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OperationSupport.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 using namespace idr;
@@ -43,10 +44,13 @@ bool regrades(OpOperand &use) {
 }
 
 // The use that reads the value `use` holds: past the ops that only change
-// its grade, each the one use of the last.
+// its grade, each the one use of the last. Each op is passed once: in a
+// block no path reaches, an op may use its own result, and the chain would
+// come back to it.
 OpOperand &reader(OpOperand &use) {
   OpOperand *at = &use;
-  while (regrades(*at)) {
+  llvm::SmallPtrSet<Operation *, 4> passed;
+  while (regrades(*at) && passed.insert(at->getOwner()).second) {
     Value held = at->getOwner()->getResult(0);
     if (!held.hasOneUse())
       break;

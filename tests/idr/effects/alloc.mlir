@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=facts-as-marked -o /dev/null
 // RUN: idris-mlir-opt %s --cse --canonicalize --idr-expect=holds=computes-nothing=@dead -o /dev/null
-// NEEDS-ACCEPTANCE: each op's answers are its own declared effects (R02); check each mark against them.
+// NEEDS-ACCEPTANCE: each op's answers are its own declared effects; check each mark against them.
 // Ops that allocate their result (a box's idr.con, string builders, big
 // ops) are two values when they are written twice, so that no two cells
 // become one: they may move, and an unused one is dead code, but two equal

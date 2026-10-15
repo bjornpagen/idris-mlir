@@ -36,10 +36,11 @@ import IdrisMLIR.Types
 
 import Data.Fin
 import Data.List
+import Data.List1
 import Data.SortedMap
 import Data.Vect
 
-%default covering
+%default total
 
 public export
 record Ctx where
@@ -233,7 +234,7 @@ heldName : Name
 heldName = MN "idris-mlir-held" 0
 
 mutual
-  export
+  export covering
   term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          Ctx -> List (VarInfo (Fin nv)) -> TT vars -> Core (Term nv)
   term ctx env (Local fc _ idx _) = do
@@ -267,19 +268,15 @@ mutual
   term ctx env tm@(TType fc _) = inRuntime ctx.owner (bestFC ctx fc) env tm
   term ctx env tm@(Erased fc _) = inRuntime ctx.owner (bestFC ctx fc) env tm
   term ctx env tm@(Bind fc _ (Pi {}) _) = inRuntime ctx.owner (bestFC ctx fc) env tm
-  term ctx env tm@(Bind fc x (Let lfc rig val ty) sc) = do
-    let Nothing = delayedLets tm
-      | Just (dfc, arg) => suspend ctx env dfc arg
-    -- A `let` of quantity 0 binds a compile-time value, nothing at runtime.
-    if isErased rig then term ctx (TypeValue (Erased fc Placeholder) :: env) sc else do
-      -- TTC does not keep the types of lets (Core.TTC, `Let` binders):
-      -- `Emit` synthesizes the Core type, and the Idris type is the
-      -- value's as far as it shows.
-      loc <- toLoc (bestFC ctx fc)
-      known <- valueType fc env val
-      v <- term ctx env val
-      body <- term ctx (under {k = 1} [Runtime FZ Nothing known] env) sc
-      pure (Let loc (binderName x) (quantityOf rig) v body)
+  term ctx env tm@(Bind fc x (Let lfc rig val ty) sc) = case delayedLets tm of
+    -- The `let`s around a `Delay` move into it (`delayedLets`), into the
+    -- innermost of a chain of them: the suspensions, outermost first, then
+    -- the `let`s, then what the last `Delay` delays.
+    Just _ => do
+      (suspensions, inner) <- delayed ctx env tm
+      pure (foldr Suspend inner suspensions)
+    Nothing => (\((), t) => t) <$> letIn ctx env fc x rig val (\env' => ((),) <$> term ctx env' sc)
+
   -- A lambda's binder of quantity 0 is no parameter at runtime: the lambda
   -- is its body, which takes the runtime arguments after it, as its type
   -- does once the binder is left out. A lambda is a closure, whose type is
@@ -305,6 +302,38 @@ mutual
   term ctx env tm@(Ref fc _ _) = application ctx env fc tm []
   term ctx env (Bind fc _ _ _) = internal (bestFC ctx fc) "a binder in a runtime position"
 
+  ||| A chain of `let`s and `Delay`s, read as `delayedLets` moves the `let`s:
+  ||| the location of each `Delay` met, outermost first, and the `let`s
+  ||| around what the last one delays, each bound where it is met, so that
+  ||| every part translated is a part of the chain.
+  covering
+  delayed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
+            Ctx -> List (VarInfo (Fin nv)) -> TT vars -> Core (List Loc, Term nv)
+  delayed ctx env (TDelay dfc _ _ arg) = do
+    loc <- toLoc (bestFC ctx dfc)
+    (suspensions, inner) <- delayed ctx env arg
+    pure (loc :: suspensions, inner)
+  delayed ctx env (Bind fc x (Let lfc rig val ty) sc) = letIn ctx env fc x rig val (\env' => delayed ctx env' sc)
+  delayed ctx env tm = ([],) <$> term ctx env tm
+
+  ||| A `let`, its body translated by `body` in the scope it binds. A `let`
+  ||| of quantity 0 binds a compile-time value, nothing at runtime. TTC does
+  ||| not keep the types of lets (Core.TTC, `Let` binders): `Emit`
+  ||| synthesizes the Core type, and the Idris type is the value's as far as
+  ||| it shows.
+  covering
+  letIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
+          Ctx -> List (VarInfo (Fin nv)) -> FC -> Name -> RigCount -> TT vars ->
+          ({0 m : Nat} -> List (VarInfo (Fin m)) -> Core (r, Term m)) -> Core (r, Term nv)
+  letIn ctx env fc x rig val body =
+    if isErased rig then body (TypeValue (Erased fc Placeholder) :: env) else do
+      loc <- toLoc (bestFC ctx fc)
+      known <- valueType fc env val
+      v <- term ctx env val
+      (r, inner) <- body (under {k = 1} [Runtime FZ Nothing known] env)
+      pure (r, Let loc (binderName x) (quantityOf rig) v inner)
+
+  covering
   suspend : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> Core (Term nv)
   suspend ctx env fc arg = do
@@ -318,6 +347,7 @@ mutual
   ||| applied. Past the binders the type shows, an argument is a runtime
   ||| value, and a type or an erased value there is refused, naming the
   ||| head (`what`).
+  covering
   applyOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
               Ctx -> List (VarInfo (Fin nv)) -> FC -> Loc -> Core String ->
               Term nv -> Maybe ClosedTerm -> List (TT vars) -> Core (Term nv)
@@ -345,19 +375,23 @@ mutual
   ||| Core and by a name in TT that its marker in the field becomes, and the
   ||| field, applied to the arguments past the projection's, translated
   ||| under them, with each value where it stands.
+  ||| Each value is in the scope outside the binders made so far, which
+  ||| `ren` takes into the current one, and is renamed once, where it is
+  ||| bound.
+  covering
   bindHeld : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-             Ctx -> List (VarInfo (Fin nv)) -> FC -> Loc -> Nat -> List ClosedTerm -> List (Term nv) ->
-             TT vars -> List (TT vars) -> Core (Term nv)
-  bindHeld ctx env fc loc i (t :: ts) (v :: vs) field rest = do
-    let held = MN "idris-mlir-held" (cast i)
+             Ctx -> List (VarInfo (Fin nv)) -> FC -> Loc -> Nat -> (Fin m -> Fin nv) ->
+             List (ClosedTerm, Term m) -> TT vars -> List (TT vars) -> Core (Term nv)
+  bindHeld ctx env fc loc i ren ((t, v) :: held) field rest = do
+    let name = MN "idris-mlir-held" (cast i)
     ty <- coreType fc ctx.owner ValueType !(normaliseClosed t)
-    body <- bindHeld ctx (under {k = 1} [Runtime FZ (Just ty) (Just t)] env) fc loc (S i) ts
-                     (map (weakenUnder 1) vs) (refToLocal (MN "idris-mlir-hole" (cast i)) held field)
-                     (map weaken rest)
-    pure (Let loc (shown "held") (quantityOf top) v body)
-  bindHeld ctx env fc loc _ _ _ field rest =
+    body <- bindHeld ctx (under {k = 1} [Runtime FZ (Just ty) (Just t)] env) fc loc (S i) (FS . ren) held
+                     (refToLocal (MN "idris-mlir-hole" (cast i)) name field) (map weaken rest)
+    pure (Let loc (shown "held") (quantityOf top) (rename ren v) body)
+  bindHeld ctx env fc loc _ _ [] field rest =
     let (h, as) = getFnArgs field in application ctx env fc h (as ++ rest)
 
+  covering
   application : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                 Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> List (TT vars) -> Core (Term nv)
   application ctx env afc (Ref rfc nt name) args = do
@@ -414,25 +448,35 @@ mutual
       -- parameter holds at runtime. Two places that one variable holds are
       -- one value. A value of an implementation's own type is an
       -- implementation chosen at runtime, and no such value.
-      holed : TT vars -> Core (Maybe (ClosedTerm, List ClosedTerm, List (Core (Term nv))))
+      -- The values an implementation closes over, each with its type.
+      valuesOf : List1 (ClosedTerm, Core (Term nv)) -> Core (List1 (ClosedTerm, Term nv))
+      valuesOf ((t, v) ::: rest) = (:::) <$> ((t,) <$> v) <*> later rest
+        where
+          later : List (ClosedTerm, Core (Term nv)) -> Core (List (ClosedTerm, Term nv))
+          later [] = pure []
+          later ((t', v') :: more) = (::) <$> ((t',) <$> v') <*> later more
+
+      holed : TT vars -> Core (Maybe (ClosedTerm, List1 (ClosedTerm, Core (Term nv))))
       holed x = do
-        Just (shape, found@(_ :: _)) <- walk 0 x
+        Just (shape, f :: fs) <- walk 0 x
           | _ => pure Nothing
-        let numbered = zip [0 .. length found] found
-        let distinct = keep [] numbered
-        let finals = map (\(j, (key, _, _)) => position (same j key) distinct) numbered
+        let numbered = zip [0 .. length fs] (f :: fs)
+        let first = (0, f)
+        let distinct = first ::: others [first] (zip [1 .. length fs] fs)
+        let finals = map (\(j, (key, _, _)) => position (same j key) (forget distinct)) numbered
         let shape' = foldl (\t, (j, f) => substName (MN "idris-mlir-hole-found" (cast j)) (holeMarker f) t)
                            shape (zip [0 .. length finals] finals)
-        pure (Just (shape', map (\(_, (_, ty, _)) => ty) distinct, map (\(_, (_, _, v)) => v) distinct))
+        pure (Just (shape', map (\(_, (_, ty, v)) => (ty, v)) distinct))
         where
-          -- The values, the first place each variable holds.
-          keep : List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) ->
-                 List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) ->
-                 List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv)))
-          keep acc [] = reverse acc
-          keep acc (h@(_, (Just k, _, _)) :: hs) =
-            if any (\(_, (k', _, _)) => k' == Just k) acc then keep acc hs else keep (h :: acc) hs
-          keep acc (h :: hs) = keep (h :: acc) hs
+          -- The values after the first, the first place each variable
+          -- holds: `seen` are the values kept so far.
+          others : List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) ->
+                   List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) ->
+                   List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv)))
+          others seen [] = []
+          others seen (h@(_, (Just k, _, _)) :: hs) =
+            if any (\(_, (k', _, _)) => k' == Just k) seen then others seen hs else h :: others (h :: seen) hs
+          others seen (h :: hs) = h :: others (h :: seen) hs
 
           same : Nat -> Maybe (Fin nv) -> (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) -> Bool
           same j (Just k) (_, (k', _, _)) = k' == Just k
@@ -612,24 +656,25 @@ mutual
       arguments : Loc -> List PKind -> List (TT vars) -> Core (List (Term nv))
       arguments loc kinds xs = concat <$> traverse arg (zip kinds xs)
         where
-          pack : List ClosedTerm -> List (Term nv) -> Core (Term nv)
-          pack [_] [v] = pure v
-          pack tys@(_ :: ts) (v :: vs) = do
-            DataT inst <- coreType afc ctx.owner ValueType !(normaliseClosed !(packedType tys))
+          -- The values with their types, the first and a pair of the rest
+          -- when there are more, as `packedType` holds them.
+          pack : List1 (ClosedTerm, Term nv) -> Core (Term nv)
+          pack ((_, v) ::: []) = pure v
+          pack ((t, v) ::: (p :: ps)) = do
+            DataT inst <- coreType afc ctx.owner ValueType !(normaliseClosed !(packedType (t ::: map fst (p :: ps))))
               | _ => internal afc "the values an implementation closes over, held in no pair"
             (pair, _, _) <- pairNames
             pairDef <- lookupDef afc ctx.owner pair
             let TCon _ _ _ _ _ (Just [con]) _ = definition pairDef
               | _ => internal afc "a pair type without its one constructor"
-            pure (ConApp loc (MkConId inst (shortName !(toFullNames con))) [v, !(pack ts vs)])
-          pack _ _ = internal afc "as many values as types, an implementation closes over"
+            pure (ConApp loc (MkConId inst (shortName !(toFullNames con))) [v, !(pack (p ::: ps))])
 
           arg : (PKind, TT vars) -> Core (List (Term nv))
           arg (ValueParam {}, x) = (\v => [v]) <$> term ctx env x
-          arg (DictParam _ (Just hs), x) = do
-            Just (_, _, values) <- holed x
+          arg (DictParam _ (Just _), x) = do
+            Just (_, held) <- holed x
               | Nothing => internal afc "the values an implementation closes over are gone"
-            (\v => [v]) <$> pack hs.types !(sequence values)
+            (\v => [v]) <$> pack !(valuesOf held)
           arg _ = pure []
 
       isImplementation : TT vars -> Bool
@@ -640,7 +685,7 @@ mutual
 
       argValue : TT vars -> Maybe ArgValue
       argValue x = Just (MkArgValue (closeNormalise afc env x) (solved (closeWritten afc env x)) (isImplementation x)
-                                    (map (\(shape, tys, _) => (shape, tys)) <$> holed x))
+                                    (map (\(shape, held) => (shape, map fst held)) <$> holed x))
 
       argValues : List (TT vars) -> ArgValues
       argValues = map argValue
@@ -677,27 +722,29 @@ mutual
       -- called as any definition is.
       resolveMethod : FC -> Name -> List PKind -> List (TT vars) -> Core (Maybe (Term nv))
       resolveMethod fc n kinds xs = do
-        Just (parity, idx, _, _) <- projection n
+        Just pr <- projection n
           | Nothing => pure Nothing
+        let parity = length pr.params
+        let idx = pr.matched
         let True = length xs >= parity
           | False => pure Nothing
         let statics = map compileTimeArg kinds
         case getAt idx kinds of
           Just (DictParam _ Nothing) => do
-            Just (field, _) <- projected noPath n statics
+            Just field <- projected n statics
               | Nothing => pure Nothing
             let (h, as) = getFnArgs (embedClosed {vars} field)
             Just <$> application ctx env afc h (as ++ drop parity xs)
           Just (DictParam _ (Just _)) => do
             let Just x = getAt idx xs
               | Nothing => pure Nothing
-            Just (shape, tys, values) <- holed x
+            Just (shape, held) <- holed x
               | Nothing => internal fc "the values an implementation closes over are gone"
-            Just (field, _) <- projected noPath n (replaceAt idx shape statics)
+            Just field <- projected n (replaceAt idx shape statics)
               | Nothing => pure Nothing
             loc <- toLoc fc
-            vs <- sequence values
-            Just <$> bindHeld ctx env fc loc 0 tys vs (embedClosed {vars} field) (drop parity xs)
+            values <- valuesOf held
+            Just <$> bindHeld ctx env fc loc 0 id (forget values) (embedClosed {vars} field) (drop parity xs)
           _ => pure Nothing
         where
           replaceAt : Nat -> a -> List a -> List a
@@ -760,8 +807,8 @@ mutual
       exiting : Core Bool
       exiting = do
         st <- get TState
-        let Just r = st.current >>= \i => lookup i st.requesters
-          | Nothing => pure False
+        let r :: _ = st.chain
+          | [] => pure False
         owner <- lookupDef afc ctx.owner r.name
         pure (isJust (hooksOf (fullname owner)).exits)
 
@@ -1308,6 +1355,7 @@ mutual
   ||| this use. A lambda over a type, an implementation (`\@{m} => ...`, as
   ||| a dictionary's polymorphic method field is written) or a variable
   ||| takes its argument as written; a solved metavariable is its solution.
+  covering
   headStep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
              List (VarInfo (Fin nv)) -> TT vars -> List (TT vars) -> Core (Maybe (TT vars, List (TT vars)))
   headStep env (Local _ _ idx _) as = case getAt idx env of

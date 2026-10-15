@@ -55,7 +55,8 @@ SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runt
       b, loc, types, operands,
       [&](OpBuilder &before, Location l, ValueRange args) {
         Value tag = runtime.loadTag(before, l, args[0], list, layouts);
-        Value consTag = arith::ConstantIntOp::create(before, l, list.getConsTag(), 64);
+        Value consTag = arith::ConstantIntOp::create(
+            before, l, static_cast<uint32_t>(list.getConsTag()), 64);
         Value isCons = arith::CmpIOp::create(before, l, arith::CmpIPredicate::eq, tag, consTag);
         scf::ConditionOp::create(before, l, isCons, args);
       },
@@ -72,12 +73,11 @@ SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runt
   return SmallVector<Value>(loop.getResults().drop_front());
 }
 
-// The new string of the counts a first walk gave.
-Value allocate(OpBuilder &b, Location loc, Runtime &runtime, Value bytes, Value scalars,
-               Value ascii) {
-  Value asciiWord = arith::ExtUIOp::create(b, loc, b.getI32Type(), ascii);
+// The new string of the counts a first walk gave. Whether it is ASCII is
+// whether the two counts are equal, which the runtime reads off them.
+Value allocate(OpBuilder &b, Location loc, Runtime &runtime, Value bytes, Value scalars) {
   return runtime.call(b, loc, "idris_rt_str_alloc", ptrType(b.getContext()),
-                      ValueRange{bytes, scalars, asciiWord});
+                      ValueRange{bytes, scalars});
 }
 
 // The bytes a character takes in UTF-8: 1 below 0x80, 2 below 0x800, 3
@@ -95,14 +95,8 @@ Value utf8Length(OpBuilder &b, Location loc, Value c) {
   return arith::SelectOp::create(b, loc, below(0x80), word(1), two);
 }
 
-Value isAscii(OpBuilder &b, Location loc, Value c) {
-  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult, c,
-                               arith::ConstantIntOp::create(b, loc, 0x80, 32));
-}
-
-// pack and concat walk a list the same way: once for the bytes, the scalar
-// values and whether the result is ASCII, then once to write each element
-// after the last. A character's sizes are computed here; a string's are the
+// pack and concat walk a list the same way: once for the bytes and the
+// scalar values, then once to write each element after the last. A character's sizes are computed here; a string's are the
 // runtime's.
 template <typename OpT>
 struct LowerStringOfList : IdrPattern<OpT> {
@@ -113,18 +107,16 @@ struct LowerStringOfList : IdrPattern<OpT> {
     Location loc = op.getLoc();
     DataType list = listOf(op.getList().getType());
     Value cell = adaptor.getList().front();
-    Value yes = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
     Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 64);
     SmallVector<Value> counts =
-        walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero, zero, yes},
+        walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero, zero},
              [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
                Value item = head.front();
-               Value bytes, scalars, ascii;
+               Value bytes, scalars;
                if constexpr (packing) {
                  bytes = arith::AddIOp::create(b, l, carried[0], utf8Length(b, l, item));
                  Value one = arith::ConstantIntOp::create(b, l, 1, 64);
                  scalars = arith::AddIOp::create(b, l, carried[1], one);
-                 ascii = arith::AndIOp::create(b, l, carried[2], isAscii(b, l, item));
                } else {
                  bytes = arith::AddIOp::create(
                      b, l, carried[0],
@@ -132,16 +124,10 @@ struct LowerStringOfList : IdrPattern<OpT> {
                  scalars = arith::AddIOp::create(
                      b, l, carried[1],
                      this->runtime.call(b, l, "idris_rt_str_length", b.getI64Type(), item));
-                 Value partAscii =
-                     this->runtime.call(b, l, "idris_rt_str_is_ascii", b.getI32Type(), item);
-                 Value nonzero = arith::CmpIOp::create(
-                     b, l, arith::CmpIPredicate::ne, partAscii,
-                     arith::ConstantIntOp::create(b, l, 0, 32));
-                 ascii = arith::AndIOp::create(b, l, carried[2], nonzero);
                }
-               return SmallVector<Value>{bytes, scalars, ascii};
+               return SmallVector<Value>{bytes, scalars};
              });
-    Value s = allocate(rewriter, loc, this->runtime, counts[0], counts[1], counts[2]);
+    Value s = allocate(rewriter, loc, this->runtime, counts[0], counts[1]);
     walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero},
          [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
            StringRef put = packing ? "idris_rt_str_put_char" : "idris_rt_str_put_str";
@@ -163,12 +149,12 @@ struct LowerPutList : IdrPattern<PutListOp> {
   LogicalResult matchAndRewrite(PutListOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     DataType list = listOf(op.getList().getType());
-    Type element = list.getCtor(list.getConsTag()).fields[0];
+    Type element = list.getListElement();
     StringRef put = isa<StrType>(unrestricted(element)) ? "idris_rt_io_put_str"
                                                         : "idris_rt_io_put_char";
     walk(rewriter, op.getLoc(), layouts, runtime, list, adaptor.getList().front(), {},
          [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
-           runtime.call(b, l, put, Type(), head.front());
+           runtime.perform(b, l, put, head.front());
            return SmallVector<Value>{};
          });
     // A world has no runtime form.

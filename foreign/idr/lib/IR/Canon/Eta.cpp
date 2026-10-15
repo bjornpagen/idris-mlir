@@ -18,21 +18,18 @@ namespace {
 // scrutinee, unless the match took a linear scrutinee apart: that value is
 // used, and the constructor rebuilt from its fields is a new one (in its
 // cell, once the owned stage reuses it).
-Value readOf(Value field, unsigned tag, unsigned index) {
+Value readOf(Value field, Tag tag, unsigned index) {
   if (quantityOf(field.getType()) == Quantity::One && !field.hasOneUse())
     return {};
   if (auto read = field.getDefiningOp<FieldOp>())
-    return static_cast<unsigned>(read.getTag()) == tag && read.getIndex() == index
-               ? read.getValue()
-               : Value();
+    return read.getTag() == tag && read.getIndex() == index ? read.getValue() : Value();
   auto arg = dyn_cast<BlockArgument>(field);
   auto match = arg ? dyn_cast_or_null<MatchOp>(arg.getOwner()->getParentOp()) : MatchOp();
   if (!match || arg.getArgNumber() != index ||
       quantityOf(match.getScrutinee().getType()) == Quantity::One)
     return {};
   unsigned region = arg.getOwner()->getParent()->getRegionNumber();
-  if (region >= match.getCases().size() ||
-      static_cast<unsigned>(match.getCaseTag(region)) != tag)
+  if (region >= match.getCases().size() || match.getCaseTag(region) != tag)
     return {};
   return match.getScrutinee();
 }
@@ -40,14 +37,13 @@ Value readOf(Value field, unsigned tag, unsigned index) {
 // Whether `value` is known to be built by the constructor of tag `tag`
 // where `at` is, because `at` is in that constructor's case of a match on
 // the value.
-bool knownFromMatch(Value value, unsigned tag, Operation *at) {
+bool knownFromMatch(Value value, Tag tag, Operation *at) {
   for (Region *region = at->getParentRegion(); region; region = region->getParentRegion()) {
     auto match = dyn_cast<MatchOp>(region->getParentOp());
     if (!match || throughLinear(match.getScrutinee()) != throughLinear(value))
       continue;
     unsigned index = region->getRegionNumber();
-    if (index < match.getCases().size() &&
-        static_cast<unsigned>(match.getCaseTag(index)) == tag)
+    if (index < match.getCases().size() && match.getCaseTag(index) == tag)
       return true;
   }
   return false;
@@ -68,7 +64,7 @@ namespace idr::canon {
 Value eta(ConOp con) {
   if (!con.getHoles().empty())
     return {};
-  unsigned tag = static_cast<unsigned>(con.getTag());
+  Tag tag = con.getTag();
   Value source;
   for (auto [index, field] : llvm::enumerate(con.getFields())) {
     Value read = readOf(field, tag, static_cast<unsigned>(index));

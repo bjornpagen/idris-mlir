@@ -2,10 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What a run of each function may do besides computing its results: the
 // dialect's Effect bits, held once, as each idr.func's `effects`, its entry
-// (absent until a pass has found it, when the function may do anything, as
-// Func.h's effectsOf reads it for a call). Once the program is first-order
-// a function runs the callee of each idr.call in its body and nothing
-// else: a force is a call of its memo sum's dispatch function, which calls
+// (everything, idr::anyEffect, by default, until a pass has found it).
+// Once the program is first-order a function runs the callee of each
+// idr.call in its body and nothing else: a force is a call of its memo sum's dispatch function, which calls
 // the label. So the bits flow along upstream's call graph alone, and the
 // solve is one pass over its components, callees first. A call carries no
 // copy: what it may do is its callee's.
@@ -23,7 +22,6 @@
 #define IDR_ANALYSIS_EFFECTS_H
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Func.h"
 
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/IR/SymbolTable.h"
@@ -34,19 +32,16 @@
 
 namespace idr {
 
-// What a run of `fn` may do: its entry, or anything while it has none.
-inline idr::Effect entryOf(idr::FuncOp fn) {
-  idr::EffectAttr effects = fn.getEffectsAttr();
-  return effects ? effects.getValue() : anyEffect;
-}
-
-// Gives `fn` the entry `effect`. The full set is no attribute, the one form
-// a function that may do anything holds; an equal entry is left as it is.
+// Gives `fn` the entry `effect`, read back by `fn.getEffects()`. The full
+// set, the default, is no attribute: one form for a function that may do
+// anything, so that two copies of a function compare equal; an equal entry
+// is left as it is.
 void setEntry(idr::FuncOp fn, idr::Effect effect);
 
 // The components of `graph`, upstream's call graph of a program, callees
-// first, each as its functions. A component's callees outside it come in
-// an earlier component; the order is a function of the program alone.
+// first, each as its functions: the components of its functions and the
+// call edges between them. A component's callees outside it come in an
+// earlier component; the order is a function of the program alone.
 llvm::SmallVector<llvm::SmallVector<idr::FuncOp>>
 callGraphComponents(const mlir::CallGraph &graph);
 

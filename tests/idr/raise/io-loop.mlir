@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main,no-heap-allocation=@Main.main -o /dev/null
-// NEEDS-ACCEPTANCE: that the loop is left as one self tail call with no dispatch over a box, as C06's sums and C07's cleanup make it.
+// NEEDS-ACCEPTANCE: that the loop is left as one self tail call with no dispatch over a box, after the sums and the cleanup.
 // An IO loop, in the shape Emit gives it: @countdown returns the action
 // `put n >>= \_ => countdown (n - 1)`, where @bind runs its first action,
 // then applies the function it is given and runs the action that returns,

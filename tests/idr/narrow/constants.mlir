@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --int-range-optimizations | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-rc --idr-narrow | FileCheck %s
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // Range analysis asks every idr.constant for its range: a big or a
 // natural has its value's, and a constant that is no integer states none,
 // which leaves it as it is.

@@ -3,6 +3,7 @@
 // A string from any bytes. Ill-formed input is replaced as the Unicode
 // Standard recommends (chapter 3, U+FFFD substitution of maximal subparts).
 // PIN(runtime-quarantine) — see PINS.md
+#include "Alloc/Alloc.h"
 #include "Strings/Strings.h"
 #include "idris_rt.h"
 
@@ -50,60 +51,60 @@ size_t maximalSubpart(const char *p, size_t n) {
   return 1;
 }
 
-// The n bytes at p as runs of well-formed UTF-8, which simdutf finds, and
-// the maximal subparts between them: run(q, k) for each run of k bytes at q,
-// some of them empty, and bad() for each maximal subpart.
-template <typename Run, typename Bad> void scan(const char *p, size_t n, Run run, Bad bad) {
-  while (n > 0) {
-    simdutf::result checked = rt::strings::implementation().validate_utf8_with_errors(p, n);
-    size_t good = checked.error == simdutf::SUCCESS ? n : checked.count;
-    run(p, good);
-    p += good;
-    n -= good;
-    if (n > 0) {
-      size_t skipped = maximalSubpart(p, n);
-      bad();
-      p += skipped;
-      n -= skipped;
-    }
-  }
-}
-
 } // namespace
 
 // Each maximal subpart becomes one U+FFFD, and decoding goes on after it. A
 // truncated sequence is one replacement, and a byte that no well-formed
 // sequence starts with, or that cannot follow what precedes it, is one of
 // its own: an overlong C0 80 is two, an encoded surrogate ED A0 80 three.
-// Two passes: the first sizes the string, the second writes it.
+//
+// One pass. simdutf validates a run and counts its scalars together, and
+// stops where an ill-formed sequence starts. The first run, which ends at
+// an ill-formed sequence, is copied; then each step replaces the maximal
+// subpart at `at`, at least one byte, and copies the valid run after it,
+// so `at` grows every step and the loop ends at the input's end. The
+// string's size is known only at the end, so the cell is made for the
+// most it can take, the valid prefix and three bytes for every byte after
+// it, and its lengths are set to what was written: the cell may be larger
+// than its string, which freeing never reads. Well-formed input, nearly
+// every input, is the first run whole and fills its cell exactly.
 extern "C" const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n) {
-  if (rt::strings::implementation().validate_utf8(p, n))
-    return rt::strings::stringOf(p, n);
+  if (n == 0)
+    return &rt::strings::emptyString;
+  const simdutf::implementation &utf8 = rt::strings::implementation();
+  simdutf::utf8_result first = utf8.validate_utf8_with_counts(p, n);
+  if (first.error == simdutf::SUCCESS) {
+    idris_rt_str *s = rt::strings::newString(n, first.utf32_length());
+    memcpy(rt::strings::mutableBytes(s), p, n);
+    return s;
+  }
   static constexpr char replacement[] = "\xEF\xBF\xBD";
   constexpr size_t replacementBytes = sizeof replacement - 1;
-  uint64_t bytes = 0;
-  uint64_t scalars = 0;
-  scan(
-      p, n,
-      [&](const char *run, size_t k) {
-        bytes += k;
-        scalars += rt::strings::implementation().count_utf8(run, k);
-      },
-      [&] {
-        bytes += replacementBytes;
-        ++scalars;
-      });
-  idris_rt_str *s = rt::strings::newString(bytes, scalars, false);
-  char *to = rt::strings::mutableBytes(s);
-  scan(
-      p, n,
-      [&](const char *run, size_t k) {
-        memcpy(to, run, k);
-        to += k;
-      },
-      [&] {
-        memcpy(to, replacement, replacementBytes);
-        to += replacementBytes;
-      });
+  size_t room;
+  if (__builtin_mul_overflow(n - first.input_count, replacementBytes, &room) ||
+      __builtin_add_overflow(room, first.input_count, &room))
+    rt::alloc::outOfMemory();
+  idris_rt_str *s = rt::strings::newString(room, 0);
+  char *start = rt::strings::mutableBytes(s);
+  memcpy(start, p, first.input_count);
+  char *to = start + first.input_count;
+  uint64_t scalars = first.utf32_length();
+  const char *at = p + first.input_count;
+  const char *end = p + n;
+  while (at < end) {
+    at += maximalSubpart(at, static_cast<size_t>(end - at));
+    memcpy(to, replacement, replacementBytes);
+    to += replacementBytes;
+    ++scalars;
+    if (at < end) {
+      simdutf::utf8_result run = utf8.validate_utf8_with_counts(at, static_cast<size_t>(end - at));
+      memcpy(to, at, run.input_count);
+      to += run.input_count;
+      scalars += run.utf32_length();
+      at += run.input_count;
+    }
+  }
+  s->bytes = static_cast<uint64_t>(to - start);
+  s->scalars = scalars;
   return s;
 }

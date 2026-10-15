@@ -7,7 +7,7 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@makeD:[@idris_rt_array_new],loops=@makeD:1,calls-only=@readD:[@idris_rt_crash],calls-only=@writeD:[@idris_rt_crash],calls-only=@readRefD:[],calls-only=@length:[]' -o /dev/null
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts --idr-expect=holds=in-llvm -o /dev/null
-// NEEDS-ACCEPTANCE: the lowered signatures, as R12 lowers the components of an array at a function boundary (the cell, then its dynamic sizes; a rank-0 array is its cell alone), with the runtime's symbols named as idris_rt.h declares them.
+// NEEDS-ACCEPTANCE: the lowered signatures, the components of an array at a function boundary (the cell, then its dynamic sizes; a rank-0 array is its cell alone), with the runtime's symbols named as idris_rt.h declares them.
 // An array a world orders is one runtime cell, allocated by
 // idris_rt_array_new with the element layout in its header. At a function
 // boundary its value is one pointer, the cell, then each size its type

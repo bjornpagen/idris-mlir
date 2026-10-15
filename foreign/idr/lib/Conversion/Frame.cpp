@@ -3,11 +3,11 @@
 // What of a function may point into its frame.
 
 #include "idr/Conversion/Frame.h"
+#include "idr/Support/Worklist.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 
 #include <optional>
 
@@ -26,33 +26,30 @@ bool Frame::mayPoint(Type type) {
 }
 
 Frame::Frame(LLVM::LLVMFuncOp fn) {
-  SmallVector<Value> work;
-  auto add = [&](Value value) {
-    if (value && bound.insert(value).second)
-      work.push_back(value);
-  };
-  fn.walk([&](LLVM::AllocaOp slot) { add(slot.getResult()); });
-  while (!work.empty()) {
-    Value value = work.pop_back_val();
-    for (OpOperand &use : value.getUses()) {
+  // Each value of the function enters once.
+  OnceWorklist<Value> reached;
+  fn.walk([&](LLVM::AllocaOp slot) { reached.push(slot.getResult()); });
+  while (std::optional<Value> value = reached.pop()) {
+    for (OpOperand &use : value->getUses()) {
       Operation *user = use.getOwner();
       if (auto branch = dyn_cast<BranchOpInterface>(user)) {
         if (std::optional<BlockArgument> arg =
                 branch.getSuccessorBlockArgument(use.getOperandNumber()))
-          add(*arg);
+          reached.push(*arg);
         continue;
       }
       if (auto load = dyn_cast<LLVM::LoadOp>(user)) {
-        if (load.getAddr() == value && mayPoint(load.getType()))
-          add(load.getResult());
+        if (load.getAddr() == *value && mayPoint(load.getType()))
+          reached.push(load.getResult());
         continue;
       }
       if (isa<LLVM::GEPOp, LLVM::AddrSpaceCastOp, LLVM::SelectOp, LLVM::InsertValueOp,
               LLVM::ExtractValueOp, LLVM::IntToPtrOp, LLVM::PtrToIntOp>(user))
         for (Value result : user->getResults())
-          add(result);
+          reached.push(result);
     }
   }
+  bound.insert_range(reached.entered());
   fn.walk([&](LLVM::StoreOp store) {
     leaked |= bound.contains(store.getValue()) && !bound.contains(store.getAddr());
   });

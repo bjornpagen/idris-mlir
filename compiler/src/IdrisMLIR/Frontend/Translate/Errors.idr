@@ -20,7 +20,7 @@ import Data.Maybe
 import Data.SnocList
 import Data.SortedMap
 
-%default covering
+%default total
 
 export
 isEmptyFC : FC -> Bool
@@ -68,22 +68,26 @@ export
 rejections : {auto s : Ref TState TS} -> Core (List Error)
 rejections = pure ((!(get TState)).rejected <>> [])
 
-||| An Idris location as a Core location, with the source file resolved and
-||| the origin the registry gives its module, each found once per module
-||| (`places`). A package file is in no module.
-export
-toLoc : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Core Loc
-toLoc fc@(MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = do
+||| A location in a module as a Core location, with the source file
+||| resolved and the origin the registry gives the module, each found once
+||| per module (`places`).
+moduleLoc : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+            ModuleIdent -> (Int, Int) -> (Int, Int) -> Core Loc
+moduleLoc ident (sl, sc) (el, ec) = do
   let place = show ident
   (origin, file) <- case lookup place (!(get TState)).places of
     Just known => pure known
     Nothing => do
-      file <- fromMaybe "" <$> moduleSource fc ident
+      file <- fromMaybe "" <$> moduleSource (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) ident
       origin <- originOf ident
       update TState { places $= insert place (origin, file) }
       pure (origin, file)
   pure (MkLoc origin (shown place) file sl sc el ec)
+
+||| An Idris location as a Core location. A package file is in no module.
+export
+toLoc : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Core Loc
+toLoc (MkFC (PhysicalIdrSrc ident) start end) = moduleLoc ident start end
+toLoc (MkVirtualFC (PhysicalIdrSrc ident) start end) = moduleLoc ident start end
 toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (shown "") file sl sc el ec)
-toLoc (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
-  toLoc (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec))
 toLoc _ = pure noLoc

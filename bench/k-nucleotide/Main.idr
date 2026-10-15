@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- k-nucleotide (the Benchmarks Game): the frequencies of nucleotides and

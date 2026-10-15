@@ -28,7 +28,7 @@ import Data.Vect
 
 ||| What a function is an instance of, as text.
 instanceAttr : InstanceKey -> MlirAttr
-instanceAttr key = Idr (InstanceAttr key.origin (map StringAttr key.arguments))
+instanceAttr key = idr (InstanceAttr key.origin (map StringAttr key.arguments))
 
 ||| A function, located by its Idris name, each parameter by the name Idris
 ||| gave it, then the functions its lambdas and delays became, in the order
@@ -36,7 +36,7 @@ instanceAttr key = Idr (InstanceAttr key.origin (map StringAttr key.arguments))
 ||| say, not the function's. What Idris proved of it is its own property:
 ||| `total` when every loop of its body is one Idris proved terminating. It
 ||| is written from the state `initial` makes for it.
-export covering
+export
 function : Index -> TFn -> E (List Statement)
 function ix f = do
   sym <- fnSymbol ix f.id
@@ -65,7 +65,6 @@ function ix f = do
     lazyResult : Ty -> Bool
     lazyResult (LazyT _) = True
     lazyResult _ = False
-    covering
     alg' : {0 nv : Nat} -> TermF (Sub Em) nv -> Em nv
     alg' = alg ix
     plain' : E (Maybe Val) -> E (Maybe Val)

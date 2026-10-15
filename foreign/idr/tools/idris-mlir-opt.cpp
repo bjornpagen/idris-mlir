@@ -2,13 +2,14 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idris-mlir-opt: mlir-opt with the idr dialect, passes and pipeline
 // registered. Like idris-mlir, it runs on the runtime's reserved-stack
-// runner, on a stack of 2^40 bytes, so the nested constants MLIR's parser
-// and printer recurse over are bounded by memory, not by the process's
-// stack. PIN(mlir-recursion)
+// runner, on the tools' stack, so the nested constants MLIR's parser and
+// printer recurse over are bounded by memory, not by the process's stack.
+// PIN(mlir-recursion)
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Profile.h"
+#include "idr/Support/Stack.h"
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -100,9 +101,12 @@ void optMain(void *argument) {
 } // namespace
 
 int main(int argc, char **argv) {
+  // The folders run the runtime's big operations, whose GMP allocates where
+  // a program's does, set while no other thread exists.
+  idris_rt_gmp_init();
   Invocation invocation{argc, argv};
-  if (idris_rt_run_on_stack(optMain, &invocation, size_t{1} << 40, size_t{1} << 20,
-                            exhausted) != 0) {
+  if (idris_rt_run_on_stack(optMain, &invocation, idr::support::toolStack,
+                            idr::support::toolStackGuard, exhausted) != 0) {
     static constexpr char message[] = "idris-mlir-opt: no stack could be reserved\n";
     (void)!write(2, message, sizeof message - 1);
     return 1;

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The schedule library's transform op, generated into
 # include/idr/Target/ScheduleOps.{h,cpp}.inc, which Schedules.cpp alone
 # includes (IdrScheduleOpsIncGen).

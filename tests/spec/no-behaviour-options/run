@@ -1,11 +1,15 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # No option selects how a program is compiled: the compiler has one
 # pipeline, and an experiment compares two binaries. So idris-mlir's
 # command line is its input, its outputs, its resources and its queries
 # alone, the flags `kept` names; no pass of the dialect declares an option
-# but idr-expect's `holds`, which chooses what a test checks and never how
-# anything compiles; and idris-mlir registers no debug counter, which skips
-# what a pass would do. idris-mlir-opt keeps upstream's counter, where
+# but the test checks `checks` names, idr-expect's `holds`, which chooses
+# what a test checks, and idr-canonicalize's `test-convergence`, which
+# makes the canonicalizer's unconverged count an error, neither of them
+# how anything compiles; and idris-mlir registers no debug counter, which
+# skips what a pass would do. idris-mlir-opt keeps upstream's counter, where
 # experiments live. The generator of the Idris side (idris-mlir-tblgen) is
 # a build tool, not the compiler, and is not searched.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
@@ -46,18 +50,27 @@ else
   say "flags: every one an input, an output, a resource or a query"
 fi
 
-# Every pass option the dialect's ODS declares.
+# Every pass option the dialect's ODS declares, and the test checks among
+# them, each as its declaration opens.
+checks='ListOption<"holds", "holds"
+Option<"testConvergence", "test-convergence"'
 find foreign/idr/include -name '*.td' | LC_ALL=C sort | while IFS= read -r td; do
   grep -nE '(List)?Option<"' "$td" | sed "s|^|$td:|"
 done > "$work/options"
-grep -v 'ListOption<"holds", "holds"' "$work/options" > "$work/pass-options"
-if ! grep -q 'ListOption<"holds", "holds"' "$work/options"; then
-  say "pass options: idr-expect's holds not found"
+printf '%s\n' "$checks" > "$work/checks"
+grep -v -F -f "$work/checks" "$work/options" > "$work/pass-options"
+: > "$work/missing"
+while IFS= read -r check; do
+  grep -qF -- "$check" "$work/options" || say "  $check" >> "$work/missing"
+done < "$work/checks"
+if [ -s "$work/missing" ]; then
+  say "pass options: a test check not found:"
+  cat "$work/missing"
 elif [ -s "$work/pass-options" ]; then
-  say "pass options beside idr-expect's holds:"
+  say "pass options beside the test checks:"
   cat "$work/pass-options"
 else
-  say "pass options: idr-expect's holds alone"
+  say "pass options: the test checks alone, idr-expect's holds and idr-canonicalize's test-convergence"
 fi
 
 # The counter's registration, spelled in pieces so this test is not its own

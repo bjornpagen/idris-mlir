@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s --mlir-use-nameloc-as-prefix | FileCheck %s --check-prefix=NAMED
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // The printer names a value for what it is: the world `w`, a string `s`,
 // an Integer or a natural `n`, a closure `f`, a suspension `lazy`, a token
 // `tok`, a graded value as its carrier; a constant by its kind or its
@@ -16,7 +17,7 @@
 // CHECK: %nat = constant #idr.big<3> : !idr.nat
 // CHECK: %clo = constant #idr.closure<@inc, []> : !idr.fn<(i64) -> i64>
 // CHECK: %thunk = constant #idr.closure<@later, []> : !idr.lazy<i64>
-// CHECK: %nothing = constant #idr.con<@Nothing, []> : !Maybe_Nat
+// CHECK: %nothing = constant #idr.con<!Maybe_Nat, @Nothing, []> : !Maybe_Nat
 // CHECK: %just = con {{.*}}@Just(%[[N]] : {{[^)]*}})
 // CHECK: %clo{{_[0-9]+}} = closure @inc()
 // CHECK: %thunk{{_[0-9]+}} = delay %{{.*}} : i64 -> !idr.lazy<i64>
@@ -58,7 +59,7 @@ idr.program @names root(@root) stage(higher) {
     %c2 = idr.constant #idr.big<3> : !idr.nat
     %c3 = idr.constant #idr.closure<@inc, []> : !idr.fn<(i64) -> (i64)>
     %c4 = idr.constant #idr.closure<@later, []> : !idr.lazy<i64>
-    %c5 = idr.constant #idr.con<@Nothing, []>
+    %c5 = idr.constant #idr.con<!Prelude.Types.Maybe_Prelude.Types.Nat_, @Nothing, []>
         : !Prelude.Types.Maybe_Prelude.Types.Nat_
     %v0 = idr.con !Prelude.Types.Maybe_Prelude.Types.Nat_ @Just(%n : !idr.nat)
     %v1 = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>

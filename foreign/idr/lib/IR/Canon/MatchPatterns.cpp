@@ -8,6 +8,7 @@
 #include "idr/IR/Canon.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Support/Worklist.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Matchers.h"
@@ -18,14 +19,54 @@ using namespace idr;
 
 namespace {
 
-// A string that cannot be empty never takes the case `""`.
-struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(MatchLitOp op, PatternRewriter &rewriter) const final {
+// The literal match on `scrutinee`, or on a string appended of it, that
+// has the case `""`: what a string known not to be empty reaches through
+// the appends it is part of, which are then not empty either. Each value is
+// looked at once.
+MatchLitOp emptyCaseAbove(Value scrutinee) {
+  OnceWorklist<Value> work;
+  work.push(scrutinee);
+  while (std::optional<Value> next = work.pop())
+    for (Operation *user : next->getUsers()) {
+      if (auto match = dyn_cast<MatchLitOp>(user);
+          match && match.getScrutinee() == *next &&
+          llvm::is_contained(match.getCases(), StringAttr::get(user->getContext(), "")))
+        return match;
+      if (auto append = dyn_cast<StrAppendOp>(user))
+        work.push(append.getResult());
+    }
+  return {};
+}
+
+// A string that cannot be empty never takes the case `""`. Whether it can
+// is read down the appends it is built of; a change there reaches the op
+// above it alone. So the pattern is tried at every op: at a literal match,
+// for its own scrutinee, and at a string known not to be empty, for the
+// matches it reaches up through the appends it is part of.
+struct DropEmptyStringCase : RewritePattern {
+  explicit DropEmptyStringCase(MLIRContext *context)
+      : RewritePattern(MatchAnyOpTypeTag(), PatternBenefit(1), context) {
+    setDebugName("idr-drop-empty-string-case");
+  }
+
+  LogicalResult matchAndRewrite(Operation *root, PatternRewriter &rewriter) const final {
+    auto match = dyn_cast<MatchLitOp>(root);
+    if (match && knownNonEmpty(match.getScrutinee()) && drop(match, rewriter))
+      return success();
+    if (root->getNumResults() != 1 || !isa<StrType>(unrestricted(root->getResult(0).getType())) ||
+        !knownNonEmpty(root->getResult(0)))
+      return failure();
+    MatchLitOp above = emptyCaseAbove(root->getResult(0));
+    return success(above && drop(above, rewriter));
+  }
+
+private:
+  // Drops the case `""` of `op`; whether it had one.
+  static bool drop(MatchLitOp op, PatternRewriter &rewriter) {
     auto empty = rewriter.getStringAttr("");
     const auto *it = llvm::find(op.getCases(), empty);
-    if (it == op.getCases().end() || !knownNonEmpty(op.getScrutinee()))
-      return failure();
+    if (it == op.getCases().end())
+      return false;
     auto dropped = static_cast<unsigned>(it - op.getCases().begin());
     SmallVector<unsigned> cases;
     SmallVector<Region *> regions;
@@ -36,7 +77,7 @@ struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
         regions.push_back(&op->getRegion(index));
       }
     rewriter.replaceOp(op, canon::rebuildMatch(rewriter, op, op.getResultTypes(), cases, regions));
-    return success();
+    return true;
   }
 };
 
@@ -59,19 +100,24 @@ struct EndAfterNoYield : OpRewritePattern<Match> {
       return !region.empty() && isa<ub::UnreachableOp>(region.front().getTerminator());
     };
     Attribute scrutinee;
-    Region *taken = matchPattern(op->getOperand(0), m_Constant(&scrutinee)) ? op.getTakenRegion(scrutinee)
-                                                                            : nullptr;
+    Region *taken = matchPattern(op->getOperand(0), m_Constant(&scrutinee))
+                        ? op.getTakenRegion(scrutinee)
+                        : nullptr;
     if (taken ? !neverCompletes(*taken) : !llvm::all_of(op->getRegions(), neverCompletes))
       return failure();
     Block *block = op->getBlock();
     if (!isa<MatchOp, MatchLitOp, idr::FuncOp>(block->getParentOp()) ||
         isa<ub::UnreachableOp>(op->getNextNode()))
       return failure();
-    for (Operation *after = op->getNextNode(); after; after = after->getNextNode())
-      if (after->isUsedOutsideOfBlock(block))
+    SmallVector<Operation *> after;
+    for (Operation *next = op->getNextNode(); next; next = next->getNextNode()) {
+      if (next->isUsedOutsideOfBlock(block))
         return failure();
-    while (&block->back() != op.getOperation())
-      rewriter.eraseOp(&block->back());
+      after.push_back(next);
+    }
+    // Users before what they use.
+    for (Operation *dead : llvm::reverse(after))
+      rewriter.eraseOp(dead);
     rewriter.setInsertionPointToEnd(block);
     ub::UnreachableOp::create(rewriter, op.getLoc());
     return success();
@@ -83,8 +129,6 @@ struct EndAfterNoYield : OpRewritePattern<Match> {
 template <typename Match>
 void populate(RewritePatternSet &results, MLIRContext *context) {
   canon::addMerge<Match>(results, context);
-  canon::addCaseOfCase<Match>(results, context);
-  canon::addSink<Match>(results, context);
   results.add<EndAfterNoYield<Match>>(context);
 }
 
@@ -115,8 +159,12 @@ LogicalResult readsPlainValue(Operation *op) {
                  quantityOf(throughLinear(match.getScrutinee()).getType()) != Quantity::One);
 }
 
+// Case-of-case and sinking are tried at every op, so the one hook adds
+// them for both matches.
 void addMatchPatterns(RewritePatternSet &results, MLIRContext *context) {
   populate<MatchOp>(results, context);
+  canon::addCaseOfCase(results, context);
+  canon::addSink(results, context);
 }
 
 void addMatchLitPatterns(RewritePatternSet &results, MLIRContext *context) {

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The CMake configure gate reads every release series it accepts from the
 # lock: each tool of toolchain.lock.json with an `accept` field.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # 176,000 doubles printed by the runtime (Ryu's digits in its layout), each
 # the text expected-doubles holds: the shortest digits that read back as
 # the double, a tie to the even last digit, a subnormal as any other, and
@@ -7,7 +9,7 @@
 # The runtime archive the build made, linked natively with GMP.
 runtime=$dev_prefix/runtime/libidris_rt.a
 build_test() {
-  if link_program -O1 -I"$root/runtime" "$1" "$runtime" -o "$2" > "$work/cc.log" 2>&1; then
+  if runtime_c link_program -O1 "$1" "$runtime" -o "$2" > "$work/cc.log" 2>&1; then
     say "${2##*/}: built"
   else
     say "${2##*/}: does not build"

@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.call and idr.return. A call's callee is read through a symbol table:
 // once per module verify, from the collection MLIR shares among every
-// symbol user, and by every pass that asks what a call may do
-// (idr::effectsOf). The callee's effects are the one copy; the call holds
-// none. What a call takes over is its flow's: each argument moves into its
-// callee's parameter, which owns it or not.
+// symbol user, and by every pass that asks what a call may do, through a
+// CalleeEffects (idr::ownEffects). The callee's effects are the one copy;
+// the call holds none. What a call takes over is its flow's: each argument
+// moves into its callee's parameter, which owns it or not.
 //
 // To a question asked without a symbol table, the effects an upstream pass
 // reads off the op, a call may do anything a function may: IO, a read and a
@@ -13,7 +13,7 @@
 // of the crash resource; and not returning, a write of the divergence
 // resource, as idr.crash and idr.may_loop declare theirs. So no such pass
 // drops, merges or reorders a call; the passes that know the callee do,
-// through effectsOf.
+// through their CalleeEffects.
 
 #include "idr/IR/Func.h"
 
@@ -65,16 +65,6 @@ void idr::CallOp::getEffects(
   effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
   effects.emplace_back(MemoryEffects::Write::get(), DivergenceResource::get());
   consumedEffects(getOperation(), effects);
-}
-
-Effect idr::effectsOf(CallOpInterface call, SymbolTableCollection &symbols) {
-  auto name = dyn_cast<SymbolRefAttr>(call.getCallableForCallee());
-  if (!name)
-    return anyEffect;
-  auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(call.getOperation(), name);
-  if (!fn || !fn.getEffectsAttr())
-    return anyEffect;
-  return fn.getEffectsAttr().getValue();
 }
 
 LogicalResult idr::ReturnOp::verify() {

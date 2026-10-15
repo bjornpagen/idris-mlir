@@ -20,8 +20,12 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
 #include "idr/IR/Verify.h"
+#include "idr/Support/Worklist.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -45,10 +49,10 @@ LogicalResult idr::verify::OwnedWalk::check() {
     else if (isView(arg))
       viewOf(arg, {});
   }
-  FailureOr<bool> reached = walk(entry);
+  FailureOr<Reach> reached = walk(entry);
   if (failed(reached))
     return failure();
-  if (!*reached)
+  if (*reached == Reach::Ends)
     return success();
   for (const Change &change : log)
     if (!change.old && held.lookup(change.value) != 0)
@@ -79,26 +83,24 @@ bool idr::verify::OwnedWalk::isView(Value value) {
 }
 
 // Whether `value` may be used here: every reference it holds or was read
-// from is still held. Each view was read from values defined before it, so
-// the walk up its owners meets each value once and ends.
+// from is still held. The walk up its owners meets each value once, so it
+// ends with the values in scope.
 bool idr::verify::OwnedWalk::alive(Value value) {
-  SmallVector<Value> work{value};
-  llvm::DenseSet<Value> seen;
-  while (!work.empty()) {
-    Value at = work.pop_back_val();
-    if (!seen.insert(at).second)
-      continue;
-    if (tracked(at) || carried(at)) {
-      if (held.lookup(at) < 1)
+  OnceWorklist<Value> work;
+  work.push(value);
+  while (std::optional<Value> at = work.pop()) {
+    if (tracked(*at) || carried(*at)) {
+      if (held.lookup(*at) < 1)
         return false;
       continue;
     }
-    if (!isView(at))
+    if (!isView(*at))
       continue;
-    auto from = owners.find(at);
+    auto from = owners.find(*at);
     if (from == owners.end())
       return false;
-    work.append(from->second.begin(), from->second.end());
+    for (Value owner : from->second)
+      work.push(owner);
   }
   return true;
 }
@@ -118,14 +120,15 @@ void idr::verify::OwnedWalk::viewOf(Value value, ArrayRef<Value> from) {
   owners[value].assign(from.begin(), from.end());
 }
 
+// The changes since `mark`, undone last first.
 void idr::verify::OwnedWalk::undo(size_t mark) {
-  while (log.size() > mark) {
-    Change change = log.pop_back_val();
+  for (const Change &change : llvm::reverse(ArrayRef<Change>(log).drop_front(mark))) {
     if (change.old)
       held[change.value] = *change.old;
     else
       held.erase(change.value);
   }
+  log.truncate(mark);
 }
 
 // The references of the values that were in scope at `mark` and changed

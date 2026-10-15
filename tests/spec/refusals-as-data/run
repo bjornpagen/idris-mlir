@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A refusal names its rule as data: one enum of rules, declared in the
 # dialect's ODS, its C++ generated from it and its Idris module generated
 # by idris-mlir-tblgen, so the rules are held once. A refusal is a

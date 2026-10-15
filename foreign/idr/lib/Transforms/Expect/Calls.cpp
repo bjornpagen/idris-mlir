@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// call-order, calls-only and direct-calls: what a function asks of the
-// functions it calls, the program's and the runtime's, stated as the calls
-// it makes and not as the ops around them. After lowering, a runtime
-// function is a declaration of the module named by the runtime's own
-// symbol, so a test that names one names the runtime's interface, which
-// the runtime documents; before it, every callee is the program's.
+// call-order, calls-distinct, calls-read, calls-only and direct-calls: what
+// a function asks of the functions it calls, the program's and the
+// runtime's, stated as the calls it makes and not as the ops around them.
+// After lowering, a runtime function is a declaration of the module named
+// by the runtime's own symbol, so a test that names one names the
+// runtime's interface, which the runtime documents; before it, every
+// callee is the program's.
 
 #include "idr/Transforms/Expect.h"
 
+#include "mlir/IR/Dominance.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/Interfaces/CallInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <optional>
 
 using namespace mlir;
 
@@ -60,6 +66,83 @@ LogicalResult callOrder(ModuleOp module, AnalysisManager &analyses, StringRef ar
       error << " after its call of @" << wanted[next - 1];
     held = false;
   }
+  return success(held);
+}
+
+namespace {
+
+// The copies of @f and the callee @g a property of the pair `@f:@g` is
+// stated of; none, after an error of `property`, when the argument names
+// no pair.
+struct CallsOf {
+  SmallVector<FunctionOpInterface> functions;
+  StringRef callee;
+};
+std::optional<CallsOf> callsOfPair(ModuleOp module, StringRef argument, StringRef property) {
+  auto [function, callee] = splitAt(module, argument, property);
+  if (function.empty())
+    return std::nullopt;
+  if (callee.ltrim('@').empty()) {
+    fail(module.getLoc(), property) << "name both functions, as " << property << "=@f:@g";
+    return std::nullopt;
+  }
+  SmallVector<FunctionOpInterface> functions = named(module, function, property);
+  if (functions.empty())
+    return std::nullopt;
+  return CallsOf{std::move(functions), callee};
+}
+
+} // namespace
+
+// No call of @g in a copy of @f makes again a call that dominates it: the
+// same callee on the same operands, so that it is the earlier call's
+// results.
+LogicalResult callsDistinct(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
+  constexpr StringRef property = "calls-distinct";
+  std::optional<CallsOf> pair = callsOfPair(module, argument, property);
+  if (!pair)
+    return failure();
+  SymbolTable &symbols = symbolsOf(module, analyses);
+  StringRef g = pair->callee.ltrim('@');
+  bool held = true;
+  for (FunctionOpInterface fn : pair->functions) {
+    SmallVector<CallOpInterface> made;
+    for (CallOpInterface call : callsOf(fn))
+      if (callsNamed(call, g, symbols))
+        made.push_back(call);
+    DominanceInfo dominance(fn);
+    for (auto [at, later] : llvm::enumerate(made))
+      for (CallOpInterface earlier : ArrayRef(made).take_front(at)) {
+        if (!dominance.properlyDominates(earlier.getOperation(), later.getOperation()) ||
+            !OperationEquivalence::isEquivalentTo(earlier.getOperation(), later.getOperation(),
+                                                  OperationEquivalence::IgnoreLocations))
+          continue;
+        fail(later->getLoc(), property) << where(fn) << " calls " << pair->callee
+                                        << " again on what an earlier call took";
+        held = false;
+        break;
+      }
+  }
+  return success(held);
+}
+
+// Every call of @g in a copy of @f gives a result that something reads.
+LogicalResult callsRead(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
+  constexpr StringRef property = "calls-read";
+  std::optional<CallsOf> pair = callsOfPair(module, argument, property);
+  if (!pair)
+    return failure();
+  SymbolTable &symbols = symbolsOf(module, analyses);
+  StringRef g = pair->callee.ltrim('@');
+  bool held = true;
+  for (FunctionOpInterface fn : pair->functions)
+    for (CallOpInterface call : callsOf(fn)) {
+      if (!callsNamed(call, g, symbols) || !call->use_empty())
+        continue;
+      fail(call->getLoc(), property) << where(fn) << " calls " << pair->callee
+                                     << " and reads nothing it gives";
+      held = false;
+    }
   return success(held);
 }
 

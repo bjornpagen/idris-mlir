@@ -8,7 +8,8 @@
 // RUN: sh -c 'idris-mlir-opt "%t.dumps/builtin_module_no-symbol-name/$(tail -n 1 %t.steps)" --idr-expect=holds=constant-stack=@Prog.main -o /dev/null'
 // RUN: %status 1 sh -c 'idris-mlir-opt "%t.dumps/builtin_module_no-symbol-name/$(tail -n 2 %t.steps | head -n 1)" --idr-expect=holds=constant-stack=@Prog.main -o /dev/null' 2> %t.err
 // RUN: FileCheck %s --check-prefix=GROWS < %t.err
-// NEEDS-ACCEPTANCE: that idr-tail-calls is the pipeline's last module pass, as C12 orders it, and the tree printer's file names.
+// NEEDS-ACCEPTANCE: that idr-tail-calls is the pipeline's last module pass, and the tree printer's file names.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Functions that call one another in tail position, none itself: a
 // recursion that idr-tail-loops makes no loop of, and that the optimizer
 // never inlines, since its functions are on a cycle. idr-tail-calls makes
@@ -162,7 +163,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     %w4 = idr.io.put_char %nl, %w3
     %w5 = idr.io.put_int signed %last, %w4 : i64
     %w6 = idr.io.put_char %nl, %w5
-    %unit = idr.constant #idr.con<@MkUnit, []> : !Unit
+    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
     return %unit, %w6 : !Unit, !idr.world
   }
 }

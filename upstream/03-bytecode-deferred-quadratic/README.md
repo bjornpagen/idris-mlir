@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] Reading deeply nested attributes from bytecode takes quadratic time
 
 At `llvmorg-23.1.2`, `mlir-opt` reads a module whose attribute is a builtin

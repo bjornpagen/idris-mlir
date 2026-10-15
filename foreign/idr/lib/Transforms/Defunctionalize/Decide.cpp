@@ -23,13 +23,14 @@ namespace idr::defunctionalize {
 namespace {
 
 // The bytes a key's name is made from: its carrier's canonical hash, which
-// no printing flag reaches and which is computed once per type however
-// many keys share it, then each label, in name order, after a NUL.
-std::string keyText(const Key &key) {
+// no printing flag reaches and which `names` keeps, so a carrier is printed
+// once however many keys share it, then each label, in name order, after a
+// NUL.
+std::string keyText(ContentNames &names, const Key &key) {
   std::string text;
   llvm::raw_string_ostream os(text);
-  os << canonicalHash(key.first);
-  for (auto label : key.second.getAsRange<FlatSymbolRefAttr>())
+  os << names.digest(key.carrier);
+  for (auto label : key.labels.getAsRange<FlatSymbolRefAttr>())
     os << '\0' << label.getValue();
   return text;
 }
@@ -42,8 +43,8 @@ std::string keyText(const Key &key) {
 LogicalResult Slots::name() {
   ContentNames names;
   for (auto &[key, sum] : sums) {
-    FailureOr<StringAttr> name =
-        names.intern(program.getLoc(), isLazy(key) ? "lazy$" : "fn$", "sum", keyText(key));
+    FailureOr<StringAttr> name = names.intern(program.getLoc(), key.isLazy() ? "lazy$" : "fn$",
+                                              "sum", keyText(names, key));
     if (failed(name))
       return failure();
     sum.name = *name;
@@ -54,7 +55,7 @@ LogicalResult Slots::name() {
 unsigned Slots::numConstructors() const {
   unsigned count = 0;
   for (const auto &entry : sums)
-    count += static_cast<unsigned>(entry.first.second.size());
+    count += static_cast<unsigned>(entry.first.labels.size());
   return count;
 }
 

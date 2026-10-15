@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Binary trees on one core, as Main.idr here (Lean's binarytrees.st.lean),
    in C with malloc and free. */
 #include <stdio.h>

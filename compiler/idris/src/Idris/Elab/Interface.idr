@@ -50,27 +50,43 @@ namePis i (IPi fc r info n ty sc)
 namePis i (IBindHere fc m ty) = IBindHere fc m (namePis i ty)
 namePis i ty = ty
 
-getSig : ImpDecl -> Maybe Signature
-getSig (IClaim (MkWithData _ $ MkIClaimData c _ opts ty))
-    = Just $ MkSignature { count    = c
-                         , flags    = opts
-                         , name     = ty.tyName
-                         , isData   = False
-                         , type     = namePis 0 ty.val
-                         }
-getSig (IData _ _ _ (MkImpLater fc n ty))
-    = Just $ MkSignature { count    = erased
-                         , flags    = [Invertible]
-                         , name     = NoFC n
-                         , isData   = True
-                         , type     = namePis 0 ty
-                         }
-getSig _ = Nothing
+||| What an interface's body declares: a method's signature (or an
+||| abstract type's), or a method's default definition. A declaration of any
+||| other kind declares nothing the interface holds, so it is refused where
+||| it is written rather than dropped.
+data BodyPart : Type where
+  Sig : Signature -> BodyPart
+  Default : (FC, List FnOpt, Name, List ImpClause) -> BodyPart
+
+bodyPart : ImpDecl -> Core BodyPart
+bodyPart (IClaim (MkWithData _ $ MkIClaimData c _ opts ty))
+    = pure $ Sig $ MkSignature { count    = c
+                               , flags    = opts
+                               , name     = ty.tyName
+                               , isData   = False
+                               , type     = namePis 0 ty.val
+                               }
+bodyPart (IData _ _ _ (MkImpLater fc n ty))
+    = pure $ Sig $ MkSignature { count    = erased
+                               , flags    = [Invertible]
+                               , name     = NoFC n
+                               , isData   = True
+                               , type     = namePis 0 ty
+                               }
+bodyPart (IDef fc n cs) = pure $ Default (fc, [], n, cs)
+bodyPart d
+    = throw (GenericMsg (getFC d)
+               "An interface body holds only method signatures, abstract types and default definitions")
+
+||| A body's signatures and default definitions, each in the order written.
+splitParts : List BodyPart -> (List Signature, List (FC, List FnOpt, Name, List ImpClause))
+splitParts [] = ([], [])
+splitParts (Sig s :: ps) = mapFst (s ::) (splitParts ps)
+splitParts (Default d :: ps) = mapSnd (d ::) (splitParts ps)
 
 ------------------------------------------------------------------------
 
 
--- TODO: Check all the parts of the body are legal
 -- TODO: Deal with default superclass implementations
 
 mkDataTy : FC -> List (Name, (RigCount, RawImp)) -> RawImp
@@ -238,10 +254,6 @@ getConstraintHint {vars} fc env vis iname cname constraints meths params (cn, co
         = impsBind (IAutoApp fc fn (IBindVar fc n)) ns
 
 
-getDefault : ImpDecl -> Maybe (FC, List FnOpt, Name, List ImpClause)
-getDefault (IDef fc n cs) = Just (fc, [], n, cs)
-getDefault _ = Nothing
-
 mkCon : FC -> Name -> Name
 mkCon loc (NS ns (UN n))
    = let str = displayUserName n in
@@ -297,10 +309,9 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
          -- Machine generated names need to be qualified when looking them up
          conName <- inCurrentNS conName_in
          whenJust ((.doc) <$> mcon) (addDocString conName)
-         let meth_sigs = mapMaybe getSig body
+         (meth_sigs, defaults) <- splitParts <$> traverse bodyPart body
          let meth_decls = meth_sigs
          let meth_names = map (val . name) meth_decls
-         let defaults = mapMaybe getDefault body
 
          elabAsData conName meth_names meth_sigs
          elabConstraintHints conName meth_names
@@ -348,7 +359,7 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
                                   dets meths
              log "elab.interface" 10 $ "Methods: " ++ show meths
              log "elab.interface" 5 $ "Making interface data type " ++ show dt
-             ignore $ processDecls nest env [dt]
+             processDecls nest env [dt]
 
     elabMethods : (conName : Name) -> List Name -> List Signature -> Core ()
     elabMethods conName methNames methSigs

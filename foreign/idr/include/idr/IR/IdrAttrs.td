@@ -10,6 +10,31 @@
 include "idr/IR/IdrTypes.td"
 
 //===----------------------------------------------------------------------===//
+// Tags
+//===----------------------------------------------------------------------===//
+
+// A constructor's tag (idr::Tag) as an op holds it: stored as an i32 the
+// generic form writes as its number, read and built as the tag.
+def Idr_TagAttr : TypedSignlessIntegerAttrBase<I32, "::idr::Tag", "a constructor's tag"> {
+  let convertFromStorage = "::idr::Tag{static_cast<uint32_t>($_self.getValue().getZExtValue())}";
+  let constBuilderCall =
+      "$_builder.getIntegerAttr($_builder.getIntegerType(32), static_cast<uint32_t>($0))";
+}
+
+// A constructor's tag as an attribute's parameter, written as its number.
+def Idr_TagParameter : AttrParameter<"::idr::Tag", "a constructor's tag"> {
+  let parser = [{
+    [&]() -> ::mlir::FailureOr<::idr::Tag> {
+      uint32_t tag;
+      if ($_parser.parseInteger(tag))
+        return ::mlir::failure();
+      return ::idr::Tag{tag};
+    }()
+  }];
+  let printer = "$_printer << static_cast<uint32_t>($_self)";
+}
+
+//===----------------------------------------------------------------------===//
 // Constant attributes
 //===----------------------------------------------------------------------===//
 
@@ -53,7 +78,7 @@ class Idr_Attr<string name, string attrMnemonic, dag params = (ins)>
 // along 1>`, `along 0` left out (lib/IR/ConAttr.cpp). Any form is read into
 // the attribute `get` gives for the same value, however it was written.
 def Idr_ConAttr : Idr_Attr<"Con", "con",
-    (ins "::idr::DataType":$data, "unsigned":$tag,
+    (ins "::idr::DataType":$data, Idr_TagParameter:$tag,
          ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
          OptionalParameter<"::mlir::Attribute">:$tail,
          DefaultValuedParameter<"unsigned", "0">:$spine)> {
@@ -64,13 +89,13 @@ def Idr_ConAttr : Idr_Attr<"Con", "con",
   let builders = [
     // A run when one field is a run of the constructor along that field, or
     // the second cell of one; otherwise the plain con.
-    AttrBuilder<(ins "::idr::DataType":$data, "unsigned":$tag, "::mlir::ArrayAttr":$fields)>
+    AttrBuilder<(ins "::idr::DataType":$data, "::idr::Tag":$tag, "::mlir::ArrayAttr":$fields)>
   ];
   let extraClassDeclaration = [{
     // What repeated `get` gives for the cells `cells` (each one's fields
     // without the spine field) linked through field `spine` and ending in
     // `tail`, built in O(n).
-    static ConAttr getRun(::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
+    static ConAttr getRun(::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
                           unsigned spine, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
                           ::mlir::Attribute tail);
     // The constructor, in its data type's body. Out of line: the data type is
@@ -95,31 +120,31 @@ def Idr_ConAttr : Idr_Attr<"Con", "con",
     // the parser reads them: what `get` gives for the value they say, a run
     // where its cells form one, or null after an error.
     static ConAttr getChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                              ::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
+                              ::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
                               ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
                               unsigned spine, ::mlir::Type type);
   private:
     // The attribute of stored parameters that get, getRun and the parser
     // have made canonical. ODS completes the storage only in the unit that
     // registers it, so these reach Base::get and Base::getChecked there.
-    static ConAttr getStored(::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
+    static ConAttr getStored(::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
                              ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
                              unsigned spine, ::mlir::Type type);
     static ConAttr getStoredChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                                     ::mlir::MLIRContext *context, ::idr::DataType data,
-                                    unsigned tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                                    ::idr::Tag tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
                                     ::mlir::Attribute tail, unsigned spine, ::mlir::Type type);
   public:
   }];
   let extraClassDefinition = [{
     $cppClass $cppClass::getStored(::mlir::MLIRContext *context, ::idr::DataType data,
-                                   unsigned tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                                   ::idr::Tag tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
                                    ::mlir::Attribute tail, unsigned spine, ::mlir::Type type) {
       return Base::get(context, data, tag, cells, tail, spine, type);
     }
     $cppClass $cppClass::getStoredChecked(
         ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-        ::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
+        ::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
         ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail, unsigned spine,
         ::mlir::Type type) {
       return Base::getChecked(emitError, context, data, tag, cells, tail, spine, type);
@@ -219,7 +244,7 @@ def Idr_KeyHoleAttr : Idr_KeyAttr<"KeyHole", "key_hole"> {
 // says the data type, which the key does not repeat.
 def Idr_KeyConAttr : Idr_KeyAttr<"KeyCon", "key_con"> {
   let summary = "the constructor `tag` in a key, over the patterns of its fields";
-  let parameters = (ins "unsigned":$tag, "::mlir::ArrayAttr":$fields);
+  let parameters = (ins Idr_TagParameter:$tag, "::mlir::ArrayAttr":$fields);
   let assemblyFormat = "`<` $tag `,` $fields `>`";
 }
 

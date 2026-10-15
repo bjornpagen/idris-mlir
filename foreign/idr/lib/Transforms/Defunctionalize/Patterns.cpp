@@ -21,7 +21,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Sequence.h"
+
+#include <cassert>
 
 using namespace mlir;
 
@@ -36,7 +37,8 @@ LogicalResult construct(Operation *op, FlatSymbolRefAttr label, ValueRange captu
                         const SlotTypeConverter &converter, ConversionPatternRewriter &rewriter) {
   Value made = op->getResult(0);
   Type sum = converter.typeOf(made);
-  unsigned tag = converter.slots().labelTag(converter.keyOf(made), label);
+  // A closure or a suspension holds labels, so it has a key.
+  Tag tag = converter.slots().labelTag(*converter.keyOf(made), label);
   SmallVector<Value> moved;
   if (failed(converter.coerceOperands(rewriter, op, captures, moved)))
     return failure();
@@ -71,7 +73,7 @@ struct DelayPattern : SlotPattern<DelayOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Type sum = converter().typeOf(op.getResult());
     DataType memo = dataTypeOf(sum);
-    unsigned forced = memo.getForcedTag();
+    Tag forced = memo.getForcedTag();
     Value moved = converter().coerceOperand(rewriter, op.getValueMutable(), adaptor.getValue());
     if (!moved)
       return failure();
@@ -102,8 +104,8 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
       rewriter.replaceOp(apply, poison);
       return success();
     }
-    auto tags = llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(labels.size())));
-    auto match = MatchOp::create(rewriter, loc, types, closure, ArrayRef<unsigned>(tags),
+    auto tags = llvm::to_vector(dataTypeOf(closure.getType()).getTags());
+    auto match = MatchOp::create(rewriter, loc, types, closure, ArrayRef<Tag>(tags),
                                  static_cast<unsigned>(labels.size()));
     for (auto [label, region] : llvm::zip_equal(labels, match.getRegions()))
       if (failed(call(apply, adaptor, label, region, closure, rewriter)))
@@ -122,12 +124,9 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
     const Signature &sig = keys.signature(label.fn.getAttr());
     size_t args = apply.getArgs().size();
     // The label fits the callee's carrier, by the verifier of the op that
-    // named it and the carriers of the edges it came along.
-    if (sig.type.getNumInputs() < args) {
-      apply.emitError("internal error: idr-defunctionalize: ")
-          << label.fn << " takes fewer parameters than the apply passes";
-      return failure();
-    }
+    // named it and the carriers of the edges it came along, as the label
+    // solve found when the label reached this apply.
+    assert(sig.type.getNumInputs() >= args && "a label fits the carrier of the callee that holds it");
     unsigned captures = sig.type.getNumInputs() - static_cast<unsigned>(args);
     OpBuilder::InsertionGuard guard(rewriter);
     SmallVector<Type> bound;
@@ -141,7 +140,7 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
     for (auto [i, arg] : llvm::enumerate(apply.getArgs())) {
       Value value = adaptor.getArgs()[i];
       if (carriesLabels(arg.getType())) {
-        Key to = sig.arguments[captures + i];
+        const Slot &to = sig.arguments[captures + i];
         value = converter().coerce(rewriter, loc, value, converter().keyOf(arg), to,
                                    keys.typeOf(arg.getType(), to));
         if (!value)
@@ -175,7 +174,7 @@ struct ForcePattern : SlotPattern<ForceOp> {
   LogicalResult matchAndRewrite(ForceOp force, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = force.getLoc();
-    FlatSymbolRefAttr dispatch = slots().forceOf(converter().keyOf(force.getSuspension()));
+    FlatSymbolRefAttr dispatch = slots().forceOf(*converter().keyOf(force.getSuspension()));
     const Signature &sig = slots().signature(dispatch.getAttr());
     Value cell = heldAs(rewriter, loc, adaptor.getSuspension(), sig.converted.getInput(0));
     auto made = CallOp::create(rewriter, loc, sig.converted.getResults(), dispatch,
@@ -184,7 +183,7 @@ struct ForcePattern : SlotPattern<ForceOp> {
     Value own = force.getResult();
     Type forced = cast<LazyType>(unrestricted(force.getSuspension().getType())).getValue();
     if (carriesLabels(forced)) {
-      Key to = converter().keyOf(own);
+      Slot to = converter().keyOf(own);
       value = converter().coerce(rewriter, loc, value, sig.results.front(), to,
                                  slots().typeOf(forced, to));
       if (!value)

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A name is derived from content, so an edit moves only the names it is
 # about: Main.idr and edited/Main.idr differ in the body of one definition,
 # Main.step, and in every module the two compilations pass through, the

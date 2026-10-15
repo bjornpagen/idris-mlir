@@ -54,10 +54,10 @@ void populateColumnPatterns(const TypeConverter &converter, RewritePatternSet &p
            converter.isLegal(select.getOperation());
   });
   target.addDynamicallyLegalOp<ArrayYieldOp>([&converter](ArrayYieldOp yield) {
-    if (isa<ArrayUpdateOp>(yield->getParentOp()))
+    if (isa<UpdateOpInterface>(yield->getParentOp()))
       return true;
     return converter.isLegal(yield.getOperation()) &&
-           llvm::none_of(yield.getValues().getTypes(), [](Type type) { return recordOf(type); });
+           llvm::none_of(yield.getValues().getTypes(), [](Type type) { return recordOf(type).has_value(); });
   });
 }
 

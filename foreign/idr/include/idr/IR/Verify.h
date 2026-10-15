@@ -35,8 +35,9 @@ class TypeGraph;
 
 namespace verify {
 
-// The rules of the program: its root is an idr.func of it that takes a
-// world or returns an i64; a memo sum is held only in a box; no array can
+// The rules of the program: its target's pointers are the runtime's
+// words; its root is an idr.func of it that takes a world or returns an
+// i64; a memo sum is held only in a box; no array can
 // hold a reference to itself, else the refusal `cycle`; past the higher
 // stage containment in place is acyclic and no data type has a field of a
 // closure or a suspension; and at the owned stage every idr.reuse builds in
@@ -134,9 +135,12 @@ private:
   mlir::LogicalResult make(mlir::Operation &op, mlir::Value value,
                            llvm::ArrayRef<mlir::Value> from);
 
-  // Blocks and the ops with regions (OwnedRegions.cpp).
-  mlir::FailureOr<bool> walk(mlir::Block &block);
-  mlir::FailureOr<bool> walkRegions(mlir::Operation &op);
+  // Blocks and the ops with regions (OwnedRegions.cpp): whether the walk
+  // reaches the end of what it walked, or every path in it ends first (in
+  // ub.unreachable after a crash), after which nothing is accounted for.
+  enum class Reach { End, Ends };
+  mlir::FailureOr<Reach> walk(mlir::Block &block);
+  mlir::FailureOr<Reach> walkRegions(mlir::Operation &op);
   mlir::LogicalResult enter(mlir::Operation &op, const Forwarding &forwarding,
                             mlir::Value input, llvm::ArrayRef<mlir::Value> reads,
                             llvm::function_ref<bool(mlir::Operation *)> given);

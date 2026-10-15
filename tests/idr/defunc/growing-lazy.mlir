@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // later 0 = Delay 1; later n = Delay (force (later (n - 1))): each level
 // suspends a computation that captures the suspension below, so the Lazy
 // type's key is on a cycle: it becomes a boxed sum, a suspension a cell,

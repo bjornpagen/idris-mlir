@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-bufferize -o %t.mlir
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@leak -o /dev/null
-// NEEDS-ACCEPTANCE: that idr-bufferize copies at the release (R11).
+// NEEDS-ACCEPTANCE: that idr-bufferize copies at the release.
 // A link of a linear thread (a release of a buffer a use began) is in place
 // whenever nothing reads the buffer after it. Here the module reads it
 // after its release, so the release writes a copy, and the read sees the

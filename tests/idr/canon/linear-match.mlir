@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=matches=@of_param,matches-nothing=@of_con,\
 // RUN: builds-nothing=@of_con,builds-nothing=@two_reads,reads-no-fields=@two_reads,\
 // RUN: matches-nothing=@gives_back,calls=@gives_back:@keep -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // A match takes a linear value apart, as its one use. A match on a linear
 // parameter stays, one region or many: there is no other reader to read
 // its fields from. A match on a value that entered its grade from a

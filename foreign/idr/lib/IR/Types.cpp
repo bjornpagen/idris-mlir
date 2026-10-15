@@ -30,10 +30,10 @@ namespace idr::detail {
 // What a value of a data type holds, kept, and asked for: the two other
 // changes of a data type's storage, each made under the context's lock.
 struct KeptFacts {
-  uint8_t bits;
+  Held held;
 };
 struct ReadFacts {
-  uint8_t *into;
+  std::optional<Held> &into;
 };
 
 // A data type is identified by its name, the key, which holds no type. The
@@ -44,18 +44,18 @@ struct ReadFacts {
 // each role a sum has one of. What a value of the type holds is kept beside
 // the body once it is known; it is written and read as the body is set,
 // through the uniquer's mutate, under the lock the context takes for it, so
-// threads that ask at once each see the bits whole.
+// threads that ask at once each see the facts whole.
 struct DataTypeStorage : TypeStorage {
   using KeyTy = StringRef;
 
-  explicit DataTypeStorage(StringRef identifier) : name(identifier) {}
+  explicit DataTypeStorage(StringRef name) : identifier(name) {}
 
-  bool operator==(const KeyTy &key) const { return key == name; }
+  bool operator==(const KeyTy &key) const { return key == identifier; }
   static llvm::hash_code hashKey(const KeyTy &key) { return llvm::hash_value(key); }
   static DataTypeStorage *construct(TypeStorageAllocator &allocator, const KeyTy &key) {
     return new (allocator.allocate<DataTypeStorage>()) DataTypeStorage(allocator.copyInto(key));
   }
-  KeyTy getAsKey() const { return name; }
+  KeyTy getAsKey() const { return identifier; }
 
   LogicalResult mutate(TypeStorageAllocator &allocator, const DataType::Body &body) {
     if (initialized)
@@ -67,14 +67,13 @@ struct DataTypeStorage : TypeStorage {
       copied.push_back(
           {ctor.name, allocator.copyInto(ctor.fields), ctor.byName, ctor.role, ctor.fn});
     ctors = allocator.copyInto(ArrayRef<Ctor>(copied));
-    SmallVector<unsigned> order =
-        llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(ctors.size())));
-    llvm::sort(order, [&](unsigned a, unsigned b) {
-      return ctors[a].name.getValue() < ctors[b].name.getValue();
-    });
-    byName = allocator.copyInto(ArrayRef<unsigned>(order));
+    SmallVector<Tag> order = llvm::to_vector(llvm::map_range(
+        llvm::seq<uint32_t>(0, static_cast<uint32_t>(ctors.size())),
+        [](uint32_t tag) { return Tag{tag}; }));
+    llvm::sort(order, [&](Tag a, Tag b) { return name(a) < name(b); });
+    byName = allocator.copyInto(ArrayRef<Tag>(order));
     for (auto [tag, ctor] : llvm::enumerate(ctors))
-      roleTags[static_cast<unsigned>(ctor.role)] = static_cast<unsigned>(tag);
+      roleTags[static_cast<size_t>(ctor.role)] = Tag{static_cast<uint32_t>(tag)};
     kind = body.kind;
     instance = body.instance;
     initialized = true;
@@ -82,27 +81,31 @@ struct DataTypeStorage : TypeStorage {
   }
 
   LogicalResult mutate(TypeStorageAllocator &, KeptFacts kept) {
-    facts = kept.bits;
+    facts = kept.held;
     return success();
   }
 
   LogicalResult mutate(TypeStorageAllocator &, ReadFacts read) {
-    *read.into = facts;
+    read.into = facts;
     return success();
   }
 
-  StringRef name;
+  // The name of the constructor `tag`.
+  StringRef name(Tag tag) const { return ctors[static_cast<uint32_t>(tag)].name.getValue(); }
+
+  StringRef identifier;
   bool initialized = false;
   SumKind kind = SumKind::Plain;
   ArrayRef<Ctor> ctors;
   InstanceAttr instance;
   // The tags, in the order of their constructors' names.
-  ArrayRef<unsigned> byName;
-  // By role, the tag of the constructor a sum has one of in that role; the
-  // body's rules say which roles those are.
-  std::array<unsigned, 6> roleTags{};
-  // What a value holds, ValueFacts.cpp's bits, none until they are known.
-  uint8_t facts = 0;
+  ArrayRef<Tag> byName;
+  // By role, the tag of the last constructor in that role, which is the
+  // one for a role the body's rules say a sum has one of; none for a role
+  // no constructor plays.
+  std::array<std::optional<Tag>, getMaxEnumValForCtorRole() + 1> roleTags{};
+  // What a value holds, none until it is known.
+  std::optional<Held> facts;
 };
 
 } // namespace idr::detail
@@ -128,32 +131,31 @@ DataType DataType::get(MLIRContext *context, StringRef identifier) {
   return Base::get(context, identifier);
 }
 
-StringRef DataType::getName() const { return getImpl()->name; }
+StringRef DataType::getName() const { return getImpl()->identifier; }
 SumKind DataType::getKind() const { return getImpl()->kind; }
 ArrayRef<Ctor> DataType::getCtors() const { return getImpl()->ctors; }
 
-const Ctor &DataType::getCtor(unsigned tag) const {
-  assert(tag < getImpl()->ctors.size() && "a constructor of the data type");
-  return getImpl()->ctors[tag];
+const Ctor &DataType::getCtor(Tag tag) const {
+  auto position = static_cast<uint32_t>(tag);
+  assert(position < getImpl()->ctors.size() && "a constructor of the data type");
+  return getImpl()->ctors[position];
 }
 
 InstanceAttr DataType::getInstance() const { return getImpl()->instance; }
 
-std::optional<unsigned> DataType::getTag(StringRef ctor) const {
-  ArrayRef<unsigned> order = getImpl()->byName;
-  ArrayRef<Ctor> ctors = getImpl()->ctors;
-  const unsigned *it = llvm::partition_point(
-      order, [&](unsigned tag) { return ctors[tag].name.getValue() < ctor; });
-  if (it == order.end() || ctors[*it].name.getValue() != ctor)
+std::optional<Tag> DataType::getTag(StringRef ctor) const {
+  const detail::DataTypeStorage &storage = *getImpl();
+  const Tag *it = llvm::partition_point(storage.byName,
+                                        [&](Tag tag) { return storage.name(tag) < ctor; });
+  if (it == storage.byName.end() || storage.name(*it) != ctor)
     return std::nullopt;
   return *it;
 }
 
-unsigned DataType::roleTag(CtorRole role) const {
-  unsigned tag = getImpl()->roleTags[static_cast<unsigned>(role)];
-  assert(tag < getImpl()->ctors.size() && getImpl()->ctors[tag].role == role &&
-         "a role the data type has one constructor of");
-  return tag;
+Tag DataType::roleTag(CtorRole role) const {
+  std::optional<Tag> tag = getImpl()->roleTags[static_cast<size_t>(role)];
+  assert(tag && getCtor(*tag).role == role && "a role the data type has one constructor of");
+  return *tag;
 }
 
 void DataType::walkLabels(DataType type, function_ref<void(Attribute)> walk) {
@@ -184,14 +186,14 @@ Type DataType::replaceLabels(DataType type, ArrayRef<Attribute> labels) {
 
 bool DataType::bodySet() const { return getImpl()->initialized; }
 
-uint8_t DataType::knownFacts() const {
-  uint8_t bits = 0;
-  (void)DataType(*this).mutate(detail::ReadFacts{&bits});
-  return bits;
+std::optional<Held> DataType::knownFacts() const {
+  std::optional<Held> held;
+  (void)DataType(*this).mutate(detail::ReadFacts{held});
+  return held;
 }
 
-void DataType::keepFacts(uint8_t bits) const {
-  (void)DataType(*this).mutate(detail::KeptFacts{bits});
+void DataType::keepFacts(Held held) const {
+  (void)DataType(*this).mutate(detail::KeptFacts{held});
 }
 
 LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, const Body &body) {
@@ -202,18 +204,16 @@ LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, co
   return success();
 }
 
-DataType DataType::define(MLIRContext *context, StringRef identifier,
-                          function_ref<Body(DataType self)> body) {
+FailureOr<DataType> DataType::define(MLIRContext *context, StringRef identifier,
+                                     function_ref<Body(DataType self)> body) {
   auto emitError = [&] {
     return mlir::emitError(UnknownLoc::get(context)) << "internal error: ";
   };
-  if (identifier.empty()) {
-    emitError() << "a data type has no name";
-    return {};
-  }
+  if (identifier.empty())
+    return emitError() << "a data type has no name";
   DataType type = get(context, identifier);
   if (failed(type.setBody(emitError, body(type))))
-    return {};
+    return failure();
   return type;
 }
 

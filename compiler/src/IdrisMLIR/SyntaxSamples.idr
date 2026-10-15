@@ -41,16 +41,16 @@ import System.File
 %default total
 
 str : MlirType
-str = Idr StrType
+str = idr StrType
 
 big : MlirType
-big = Idr BigType
+big = idr BigType
 
 i64 : MlirType
 i64 = IntegerType 64
 
 world : MlirType
-world = Idr (QType One Plain (Idr WorldType))
+world = idr (QType One Plain (idr WorldType))
 
 ||| A constructor of no part a pass needs.
 plainCtor : String -> List MlirType -> IdrCtor MlirType
@@ -61,26 +61,26 @@ plainCtor name fields = MkIdrCtor name fields False CtorRole.Plain Nothing
 ||| dialect boxes what a cycle runs through.
 natList : MlirType
 natList =
-  Idr (DataType "List[Nat]"
+  idr (DataType "List[Nat]"
         (Just (MkIdrSum BaseList
                  [ MkIdrCtor "Nil" [] False CtorRole.ListNil Nothing
-                 , MkIdrCtor "Cons" [Idr NatType, Idr (DataType "List[Nat]" Nothing)] False CtorRole.ListCons Nothing ]
+                 , MkIdrCtor "Cons" [idr NatType, idr (DataType "List[Nat]" Nothing)] False CtorRole.ListCons Nothing ]
                  (Just ("Prelude.Types.List", ["Prelude.Types.Nat"])))))
 
 ||| A plain sum of two constructors, one holding a list: another type's
 ||| body spelled whole inside it.
 dataT : MlirType
 dataT =
-  Idr (DataType "T" (Just (MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)))
+  idr (DataType "T" (Just (MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)))
 
 ||| Each kind of sum the dialect has, and each part a constructor plays: a
 ||| label names its function.
 kinds : List MlirType
 kinds =
-  [ Idr (DataType "Pairs" (Just (MkIdrSum InPlace [plainCtor "P" [Idr (QType One Plain i64)]] Nothing)))
-  , Idr (DataType "fn$sample"
+  [ idr (DataType "Pairs" (Just (MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64)]] Nothing)))
+  , idr (DataType "fn$sample"
           (Just (MkIdrSum Closures [MkIdrCtor "callee" [i64] False CtorRole.Label (Just "callee")] Nothing)))
-  , Idr (DataType "lazy$sample"
+  , idr (DataType "lazy$sample"
           (Just (MkIdrSum Memo [ MkIdrCtor "callee" [] True CtorRole.Label (Just "callee")
                                , MkIdrCtor "running" [] False CtorRole.Running Nothing
                                , MkIdrCtor "forced" [i64] False CtorRole.Forced Nothing ] Nothing)))
@@ -91,59 +91,59 @@ int n = IntegerAttr n i64
 
 ||| What a declaration is an instance of: an Idris definition at a type.
 maybeNat : MlirAttr
-maybeNat = Idr (InstanceAttr "Maybe" [StringAttr "Nat"])
+maybeNat = idr (InstanceAttr "Maybe" [StringAttr "Nat"])
 
 types : List MlirType
 types =
   [ big
   , natList
-  , Idr (BoxType natList)
+  , idr (BoxType natList)
   , dataT
-  , Idr (DestType (Idr (BoxType natList)))
-  , Idr (FnType (MkSignature [] []))
-  , Idr (FnType (MkSignature [i64] [i64]))
-  , Idr (FnType (MkSignature [i64] [i64, i64]))
-  , Idr (FnType (MkSignature [i64] [Idr (FnType (MkSignature [i64] [i64]))]))
-  , Idr (LazyType (Idr NatType))
-  , Idr NatType
-  , Idr (QType One Plain str)
-  , Idr (QType Many Own big)
-  , Idr (QType Many Excl (Idr (BoxType natList)))
+  , idr (DestType (idr (BoxType natList)))
+  , idr (FnType (MkSignature [] []))
+  , idr (FnType (MkSignature [i64] [i64]))
+  , idr (FnType (MkSignature [i64] [i64, i64]))
+  , idr (FnType (MkSignature [i64] [idr (FnType (MkSignature [i64] [i64]))]))
+  , idr (LazyType (idr NatType))
+  , idr NatType
+  , idr (QType One Plain str)
+  , idr (QType Many Own big)
+  , idr (QType Many Excl (idr (BoxType natList)))
   , world
-  , Idr (QType One Own str)
-  , Idr (QType Many Borrow str)
+  , idr (QType One Own str)
+  , idr (QType Many Borrow str)
   , str
-  , Idr TokenType
-  , Idr WorldType
+  , idr TokenType
+  , idr WorldType
   , RankedTensorType [Dynamic, Static 3] F64Type
   , RankedTensorType [] i64
-  , RankedTensorType [Dynamic] (Idr NatType)
-  , Idr (QType One Plain (RankedTensorType [Dynamic] i64))
-  , MemRefType [Dynamic] (IntegerType 8) (Just (Idr WorldSpaceAttr))
-  , MemRefType [] i64 (Just (Idr WorldSpaceAttr))
+  , RankedTensorType [Dynamic] (idr NatType)
+  , idr (QType One Plain (RankedTensorType [Dynamic] i64))
+  , MemRefType [Dynamic] (IntegerType 8) (Just (idr WorldSpaceAttr))
+  , MemRefType [] i64 (Just (idr WorldSpaceAttr))
   , IndexType
   ] ++ kinds
 
 key : MlirAttr
-key = Idr (SpecKeyAttr "f" [Idr (KeyHoleAttr 0), int 7])
+key = idr (SpecKeyAttr "f" [idr (KeyHoleAttr 0), int 7])
 
 attrs : List MlirAttr
 attrs =
-  [ Idr (BigAttr (-12345678901234567890))
-  , Idr (ClosureAttr "g" [int 1, StringAttr "two"])
-  , Idr (EffectAttr [])
-  , Idr (EffectAttr [Io, Crash])
+  [ idr (BigAttr (-12345678901234567890))
+  , idr (ClosureAttr "g" [int 1, StringAttr "two"])
+  , idr (EffectAttr [])
+  , idr (EffectAttr [Io, Crash])
   , maybeNat
-  , Idr (KeyRaiseAttr "f" "idr.match")
-  , Idr (RuleAttr Rule.Cycle)
-  , Idr (KeyConAttr 1 [Idr (KeyHoleAttr 2), Idr (KeyConAttr 0 [])])
-  , Idr (KeyHoleAttr 3)
+  , idr (KeyRaiseAttr "f" "idr.match")
+  , idr (RuleAttr Rule.Cycle)
+  , idr (KeyConAttr 1 [idr (KeyHoleAttr 2), idr (KeyConAttr 0 [])])
+  , idr (KeyHoleAttr 3)
   , key
-  , Idr WorldSpaceAttr
-  , Arith (FastMathFlagsAttr [])
-  , Arith (FastMathFlagsAttr [Nnan, Ninf])
-  , Arith (IntegerOverflowFlagsAttr [Nsw, Nuw])
-  , UB PoisonAttr
+  , idr WorldSpaceAttr
+  , arith (FastMathFlagsAttr [])
+  , arith (FastMathFlagsAttr [Nnan, Ninf])
+  , arith (IntegerOverflowFlagsAttr [Nsw, Nuw])
+  , ub PoisonAttr
   , UnitAttr
   , BoolAttr True
   , FloatAttr 0.5 F64Type
@@ -170,16 +170,16 @@ unsampled =
     missing what mnemonics sampled =
       map (\m => what ++ " " ++ m) (filter (\m => not (elem m sampled)) mnemonics)
     idrType : MlirType -> Maybe String
-    idrType (Idr x) = Just (idrTypeMnemonic x)
+    idrType (Idr x _) = Just (idrTypeMnemonic x)
     idrType _ = Nothing
     idrAttr : MlirAttr -> Maybe String
-    idrAttr (Idr x) = Just (idrAttrMnemonic x)
+    idrAttr (Idr x _) = Just (idrAttrMnemonic x)
     idrAttr _ = Nothing
     arithAttr : MlirAttr -> Maybe String
-    arithAttr (Arith x) = Just (arithAttrMnemonic x)
+    arithAttr (Arith x _) = Just (arithAttrMnemonic x)
     arithAttr _ = Nothing
     ubAttr : MlirAttr -> Maybe String
-    ubAttr (UB x) = Just (ubAttrMnemonic x)
+    ubAttr (UB x _) = Just (ubAttrMnemonic x)
     ubAttr _ = Nothing
 
 ||| The samples, named `stem` and their index in two digits, so that the
@@ -219,9 +219,9 @@ sample =
       s = MkValue "%s" str
       w0 = MkValue "%w0" world
       x = MkValue "%x" i64
-      lin = Idr (QType One Plain i64)
-      fn = Idr (FnType (MkSignature [i64] [i64]))
-      lazy = Idr (LazyType i64)
+      lin = idr (QType One Plain i64)
+      fn = idr (FnType (MkSignature [i64] [i64]))
+      lazy = idr (LazyType i64)
       vec = RankedTensorType [Dynamic] i64
       scalar = RankedTensorType [] i64
       matrix = RankedTensorType [Static 2, Static 3] i64
@@ -330,7 +330,6 @@ containers =
   , (At noLoc, Idr.programOp "samples" "sample" Stage.Higher) ]
 
 ||| Writes the samples to `path`.
-covering
 writeSamples : String -> IO ()
 writeSamples path = do
   Right w <- newWriter
@@ -344,8 +343,6 @@ writeSamples path = do
   Right () <- finish w h containers
     | Left e => die ("syntax-samples: " ++ e)
   closeFile h
-
-covering
 main : IO ()
 main = do
   let missed = unsampled

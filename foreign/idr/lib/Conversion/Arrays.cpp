@@ -76,16 +76,17 @@ struct LowerAlloc : IdrPattern<memref::AllocOp> {
     Value count = i64Constant(rewriter, loc, static_cast<int64_t>(known));
     auto pair = LLVM::LLVMStructType::getLiteral(getContext(),
                                                  {rewriter.getI64Type(), rewriter.getI1Type()});
-    SmallVector<Value> components{Value()};
+    SmallVector<Value> extents;
     for (ValueRange size : adaptor.getDynamicSizes()) {
       Value extent = indexWord(rewriter, loc, size.front());
-      components.push_back(extent);
+      extents.push_back(extent);
       Value product = LLVM::UMulWithOverflowOp::create(rewriter, loc, pair, count, extent);
       count = arith::SelectOp::create(rewriter, loc,
                                       LLVM::ExtractValueOp::create(rewriter, loc, product, 1), most,
                                       LLVM::ExtractValueOp::create(rewriter, loc, product, 0));
     }
-    components[0] = newCell(rewriter, loc, runtime, count, element);
+    SmallVector<Value> components{newCell(rewriter, loc, runtime, count, element)};
+    llvm::append_range(components, extents);
     rewriter.replaceOpWithMultiple(op, {components});
     return success();
   }
@@ -93,30 +94,23 @@ struct LowerAlloc : IdrPattern<memref::AllocOp> {
 
 // A constant array: its static cell, the header in front of the data. Its
 // value is any constant elements bufferization gave the global: dense, a
-// resource, or another form, each written as the cell's data.
+// resource, or another form, each written as the cell's data. Every global
+// of the program was read as a constant array before any function is
+// lowered, and a verified get_global names one of them.
 struct LowerGetGlobal : IdrPattern<memref::GetGlobalOp> {
   LowerGetGlobal(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
-                 Runtime &runtime, const DenseMap<StringAttr, memref::GlobalOp> &globals)
-      : IdrPattern(converter, ctx, layouts, runtime), globals(globals) {}
+                 Runtime &runtime, const DenseMap<StringAttr, ConstantArray> &arrays)
+      : IdrPattern(converter, ctx, layouts, runtime), arrays(arrays) {}
 
   LogicalResult matchAndRewrite(memref::GetGlobalOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    memref::GlobalOp global = globals.lookup(op.getNameAttr().getAttr());
-    std::optional<Attribute> initial = global ? global.getInitialValue() : std::nullopt;
-    if (!global || !global.getConstant() || !initial || !isa<ElementsAttr>(*initial) ||
-        !holdsWords(global.getType()))
-      return op.emitError() << "internal error: idr-lower: @" << op.getName()
-                            << " is no constant array of words";
-    if (std::optional<uint64_t> alignment = global.getAlignment();
-        alignment && *alignment > IDRIS_RT_WORD_BYTES)
-      return op.emitError() << "internal error: idr-lower: @" << op.getName() << " is aligned to "
-                            << *alignment << " bytes, past a cell's element";
+    const ConstantArray &array = arrays.at(op.getNameAttr().getAttr());
     rewriter.replaceOpWithMultiple(
-        op, {SmallVector<Value>{runtime.constantArray(rewriter, op.getLoc(), global)}});
+        op, {SmallVector<Value>{runtime.constantArray(rewriter, op.getLoc(), array)}});
     return success();
   }
 
-  const DenseMap<StringAttr, memref::GlobalOp> &globals;
+  const DenseMap<StringAttr, ConstantArray> &arrays;
 };
 
 // A new array a world orders, of the given sizes (a negative size is an
@@ -161,7 +155,8 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
   }
 };
 
-// The address of the element of an array a world orders at its indices.
+// The address of the element an access or an update names, at its i64
+// indices, in an array a world orders or in a value array's buffer.
 template <typename OpT>
 Value addressOf(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                 const layout::Element &element, ConversionPatternRewriter &rewriter) {
@@ -203,43 +198,46 @@ struct LowerArraySet : IdrPattern<ArraySetOp> {
   }
 };
 
-// An element rebuilt in its place. It moves out into the region with the
-// reference the array held, the region runs once, here, as an
-// scf.execute_region whose yield is the region's, and the first value it
-// yields moves back in over the place it left, which holds nothing to
-// release; the values after it are the op's results, before the world,
-// which is nothing. A region that never returns ends as it is, in
-// ub.unreachable.
-struct LowerArrayUpdate : IdrPattern<ArrayUpdateOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ArrayUpdateOp op, OneToNOpAdaptor adaptor,
+// An element rebuilt in its place, in an array a world orders or in a value
+// array's buffer. It moves out into the region with the reference the array
+// held, the region runs once, here, as an scf.execute_region whose yield is
+// the region's, and the first value it yields moves back in over the place
+// it left, which holds nothing to release; the values after it are the op's
+// results, and a world after them is nothing. A region that never returns
+// ends as it is, in ub.unreachable.
+template <typename OpT>
+struct LowerUpdate : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Type elementType = op.getArrayType().getElementType();
-    layout::Element element = layouts.element(elementType);
+    layout::Element element = this->layouts.element(elementType);
     Value at = addressOf(op, adaptor, element, rewriter);
-    SmallVector<Value> old = takeElement(rewriter, loc, runtime, layouts, at, element, elementType);
+    SmallVector<Value> old =
+        takeElement(rewriter, loc, this->runtime, this->layouts, at, element, elementType);
     // What the region yields: the element, then each result.
-    SmallVector<SmallVector<Type>> yielded{layouts.components(elementType)};
+    SmallVector<SmallVector<Type>> yielded{this->layouts.components(elementType)};
     for (Type out : op.getOuts().getTypes())
-      yielded.push_back(layouts.components(out));
+      yielded.push_back(this->layouts.components(out));
     SmallVector<Type> flat;
     for (ArrayRef<Type> components : yielded)
       llvm::append_range(flat, components);
     TypeConverter::SignatureConversion entry(op.getBody()->getNumArguments());
     entry.remapInput(0, old);
-    rewriter.applySignatureConversion(op.getBody(), entry, getTypeConverter());
+    rewriter.applySignatureConversion(op.getBody(), entry, this->getTypeConverter());
     auto run = scf::ExecuteRegionOp::create(rewriter, loc, flat);
     rewriter.inlineRegionBefore(op.getRegion(), run.getRegion(), run.getRegion().end());
     ValueRange values = run.getResults();
-    placeElement(rewriter, loc, runtime, at, element, values.take_front(yielded.front().size()));
+    placeElement(rewriter, loc, this->runtime, at, element,
+                 values.take_front(yielded.front().size()));
     values = values.drop_front(yielded.front().size());
     SmallVector<SmallVector<Value>> results;
     for (ArrayRef<Type> out : ArrayRef(yielded).drop_front()) {
       results.push_back(SmallVector<Value>(values.take_front(out.size())));
       values = values.drop_front(out.size());
     }
-    results.emplace_back();
+    results.resize(op->getNumResults());
     rewriter.replaceOpWithMultiple(op, std::move(results));
     return success();
   }
@@ -263,15 +261,17 @@ struct LowerArrayYield : IdrPattern<ArrayYieldOp> {
 } // namespace
 
 
-// The patterns of the cells memrefs live in, constant or allocated, and of
-// the arrays a world orders.
+// The patterns of the cells memrefs live in, constant or allocated, of the
+// arrays a world orders, and of the elements of a value array's buffer
+// rebuilt in place.
 void populateArrayPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                            const Layouts &layouts, Runtime &runtime,
-                           const DenseMap<StringAttr, memref::GlobalOp> &globals) {
+                           const DenseMap<StringAttr, ConstantArray> &arrays) {
   MLIRContext *ctx = patterns.getContext();
-  patterns.add<LowerAlloc, LowerArrayNew, LowerArrayGet, LowerArraySet, LowerArrayUpdate,
-               LowerArrayYield>(converter, ctx, layouts, runtime);
-  patterns.add<LowerGetGlobal>(converter, ctx, layouts, runtime, globals);
+  patterns.add<LowerAlloc, LowerArrayNew, LowerArrayGet, LowerArraySet,
+               LowerUpdate<ArrayUpdateOp>, LowerUpdate<ElementUpdateOp>, LowerArrayYield>(
+      converter, ctx, layouts, runtime);
+  patterns.add<LowerGetGlobal>(converter, ctx, layouts, runtime, arrays);
 }
 
 } // namespace idr::conversion

@@ -16,6 +16,8 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <optional>
+
 // The runtime's C ABI: an array's cell is its header and length, then the
 // elements, aligned to a word.
 #include "idris_rt.h"
@@ -26,22 +28,21 @@ namespace idr::conversion {
 
 namespace {
 
-// Where a memref's layout puts its fields: an identity layout fixes the
-// offset at 0 and computes the strides from the sizes; any other gives each
-// as a number or as dynamic.
-struct LayoutFields {
-  bool identity = true;
+// The offset and strides a strided layout gives, each a number or dynamic.
+// An identity layout gives none: its offset is 0 and its strides are the
+// row-major products of the sizes, which may be dynamic and are no
+// components of their own.
+struct Strided {
   int64_t offset = 0;
   SmallVector<int64_t> strides;
 };
 
-LayoutFields layoutFields(MemRefType type) {
-  LayoutFields fields;
+// A buffer's layout is the identity or strided (Layouts' components hold
+// the same fields), which always has strides and an offset.
+std::optional<Strided> stridedOf(MemRefType type) {
   if (type.getLayout().isIdentity())
-    return fields;
-  fields.identity = false;
-  // A buffer's layout is the identity or strided (Layouts' components hold
-  // the same fields), which always has strides and an offset.
+    return std::nullopt;
+  Strided fields;
   (void)type.getStridesAndOffset(fields.strides, fields.offset);
   return fields;
 }
@@ -91,39 +92,39 @@ Value countOf(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes) {
 }
 
 Descriptor unpack(OpBuilder &b, Location loc, MemRefType type, ValueRange components) {
-  LayoutFields fields = layoutFields(type);
+  std::optional<Strided> strided = stridedOf(type);
   Descriptor d;
   auto next = components.begin();
+  auto field = [&](int64_t fixed) {
+    return ShapedType::isDynamic(fixed) ? OpFoldResult(*next++) : OpFoldResult(word(b, fixed));
+  };
   d.cell = *next++;
-  d.offset = fields.identity || !ShapedType::isDynamic(fields.offset)
-                 ? OpFoldResult(word(b, fields.offset))
-                 : OpFoldResult(*next++);
+  d.offset = strided ? field(strided->offset) : OpFoldResult(word(b, 0));
   for (int64_t extent : type.getShape())
-    d.sizes.push_back(ShapedType::isDynamic(extent) ? OpFoldResult(*next++)
-                                                    : OpFoldResult(word(b, extent)));
-  if (fields.identity) {
+    d.sizes.push_back(field(extent));
+  if (strided)
+    for (int64_t stride : strided->strides)
+      d.strides.push_back(field(stride));
+  else
     d.strides = rowMajor(b, loc, d.sizes);
-  } else {
-    for (int64_t stride : fields.strides)
-      d.strides.push_back(ShapedType::isDynamic(stride) ? OpFoldResult(*next++)
-                                                        : OpFoldResult(word(b, stride)));
-  }
   assert(next == components.end() && "a memref's components are its descriptor's free fields");
   return d;
 }
 
 SmallVector<Value> pack(OpBuilder &b, Location loc, MemRefType type, const Descriptor &d) {
-  LayoutFields fields = layoutFields(type);
+  std::optional<Strided> strided = stridedOf(type);
   SmallVector<Value> components{d.cell};
-  if (!fields.identity && ShapedType::isDynamic(fields.offset))
-    components.push_back(asWord(b, loc, d.offset));
+  auto field = [&](int64_t fixed, OpFoldResult value) {
+    if (ShapedType::isDynamic(fixed))
+      components.push_back(asWord(b, loc, value));
+  };
+  if (strided)
+    field(strided->offset, d.offset);
   for (auto [extent, size] : llvm::zip_equal(type.getShape(), d.sizes))
-    if (ShapedType::isDynamic(extent))
-      components.push_back(asWord(b, loc, size));
-  if (!fields.identity)
-    for (auto [field, stride] : llvm::zip_equal(fields.strides, d.strides))
-      if (ShapedType::isDynamic(field))
-        components.push_back(asWord(b, loc, stride));
+    field(extent, size);
+  if (strided)
+    for (auto [fixed, stride] : llvm::zip_equal(strided->strides, d.strides))
+      field(fixed, stride);
   return components;
 }
 
@@ -143,23 +144,23 @@ Value descriptorOf(OpBuilder &b, Location loc, Type llvmType, MemRefType type,
 
 SmallVector<Value> componentsOf(OpBuilder &b, Location loc, MemRefType type, Value value) {
   MemRefDescriptor descriptor(value);
-  LayoutFields fields = layoutFields(type);
+  std::optional<Strided> strided = stridedOf(type);
   // Only the fields the components hold are read.
-  auto field = [&](bool dynamic, int64_t fixed, auto read) -> OpFoldResult {
-    return dynamic ? OpFoldResult(read()) : OpFoldResult(word(b, fixed));
+  auto field = [&](int64_t fixed, auto read) -> OpFoldResult {
+    return ShapedType::isDynamic(fixed) ? OpFoldResult(read()) : OpFoldResult(word(b, fixed));
   };
   Descriptor d{descriptor.allocatedPtr(b, loc),
-               field(!fields.identity && ShapedType::isDynamic(fields.offset), 0,
-                     [&] { return descriptor.offset(b, loc); }),
+               strided ? field(strided->offset, [&] { return descriptor.offset(b, loc); })
+                       : OpFoldResult(word(b, 0)),
                {},
                {}};
   for (auto [k, extent] : llvm::enumerate(type.getShape()))
-    d.sizes.push_back(field(ShapedType::isDynamic(extent), extent, [&] {
+    d.sizes.push_back(field(extent, [&] {
       return descriptor.size(b, loc, static_cast<unsigned>(k));
     }));
-  if (!fields.identity)
-    for (auto [k, stride] : llvm::enumerate(fields.strides))
-      d.strides.push_back(field(ShapedType::isDynamic(stride), stride, [&] {
+  if (strided)
+    for (auto [k, stride] : llvm::enumerate(strided->strides))
+      d.strides.push_back(field(stride, [&] {
         return descriptor.stride(b, loc, static_cast<unsigned>(k));
       }));
   return pack(b, loc, type, d);
@@ -272,6 +273,15 @@ Value elementAddress(OpBuilder &b, Location loc, const Descriptor &d, ValueRange
     bytes = arith::MulIOp::create(b, loc, bytes, arith::ConstantIntOp::create(b, loc, stride, 64));
   return LLVM::GEPOp::create(b, loc, ptrType(b.getContext()), b.getI8Type(), first,
                              ArrayRef<LLVM::GEPArg>{bytes}, LLVM::GEPNoWrapFlags::inbounds);
+}
+
+Value bufferElementAddress(OpBuilder &b, Location loc, MemRefType type, ValueRange buffer,
+                           ArrayRef<ValueRange> indices, unsigned stride) {
+  Descriptor d = unpack(b, loc, type, buffer);
+  SmallVector<Value> words;
+  for (ValueRange index : indices)
+    words.push_back(indexWord(b, loc, index.front()));
+  return elementAddress(b, loc, d, words, stride);
 }
 
 } // namespace idr::conversion

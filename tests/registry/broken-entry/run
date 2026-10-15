@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The registry validates every entry against the loaded context before
 # anything uses it. Each case is a program whose own module, named as the
 # module an entry resolves to, is the pinned module with that entry's

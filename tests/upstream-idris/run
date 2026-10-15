@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Runs one group of the upstream Idris 2 tests against this compiler and
 # records every result.
 #

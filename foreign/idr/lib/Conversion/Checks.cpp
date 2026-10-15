@@ -113,14 +113,26 @@ struct LowerCheck : IdrPattern<OpT> {
   }
 };
 
+template <typename... Ops>
+void addChecks(RewritePatternSet &patterns, const TypeConverter &converter,
+               const Layouts &layouts, Runtime &runtime) {
+  auto add = [&]<typename OpT>() {
+    if constexpr (OpT::template hasTrait<GuardOpInterface::Trait>())
+      patterns.add<LowerCheck<OpT>>(converter, patterns.getContext(), layouts, runtime);
+  };
+  (add.template operator()<Ops>(), ...);
+}
+
 } // namespace
 
-// The patterns of the guards.
+// The patterns of the guards: every op that is one, so that a guard without
+// a `fails` above does not compile.
 void populateCheckPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                            const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerCheck<CheckNonzeroOp>, LowerCheck<CheckInBoundsOp>,
-               LowerCheck<CheckNonemptyOp>, LowerCheck<CheckByteOp>, LowerCheck<CheckFiniteOp>,
-               LowerCheck<CheckRangeOp>>(converter, patterns.getContext(), layouts, runtime);
+  addChecks<
+#define GET_OP_LIST
+#include "idr/IR/IdrOps.cpp.inc"
+      >(patterns, converter, layouts, runtime);
 }
 
 } // namespace idr::conversion

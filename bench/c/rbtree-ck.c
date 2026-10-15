@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Red-black tree insertion with checkpoints, as Main.idr here (Perceus's
    rbtree-ck.kk), in C. The trees share cells, so each cell carries a count:
    insertion updates a cell in place when the count is one and copies it

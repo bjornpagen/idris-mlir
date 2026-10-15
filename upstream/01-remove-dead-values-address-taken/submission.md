@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Submission
 
 Where: a comment on https://github.com/llvm/llvm-project/pull/208881

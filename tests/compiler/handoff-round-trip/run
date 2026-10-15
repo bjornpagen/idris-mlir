@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The module the frontend hands the driver is MLIR the dialects read back
 # without loss, in bytecode, whose types and attributes are written as
 # their assembly. For each program below, idris-mlir-opt reads the emitted

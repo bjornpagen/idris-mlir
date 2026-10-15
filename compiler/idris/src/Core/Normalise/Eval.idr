@@ -74,24 +74,6 @@ mkClosure opts locs env tm@(Local _ _ idx prf)
     getLocal (S idx) (Later p) (_ :: locs) = getLocal idx p locs
 mkClosure opts locs env tm = MkClosure opts locs env tm
 
-updateLimit : NameType -> Name -> EvalOpts -> Core (Maybe EvalOpts)
-updateLimit Func n opts
-    = pure $ if isNil (reduceLimit opts)
-         then Just opts
-         else case lookup n (reduceLimit opts) of
-                   Nothing => Nothing
-                   Just Z => Nothing
-                   Just (S k) =>
-                      Just ({ reduceLimit $= set n k } opts)
-  where
-    set : Name -> Nat -> List (Name, Nat) -> List (Name, Nat)
-    set n v [] = []
-    set n v ((x, l) :: xs)
-        = if x == n
-             then (x, v) :: xs
-             else (x, l) :: set n v xs
-updateLimit t n opts = pure (Just opts)
-
 data CaseResult a
      = Result a
      | NoMatch -- case alternative didn't match anything
@@ -294,7 +276,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
         = do -- logC "eval.ref.bound" 50 $ do fn' <- toFullNames fn
              --                              pure $ "Found bound variable: " ++ show fn'
              pure def
-    evalRef env meta fc nt@Func n stk def
+    evalRef env meta fc Func n stk def
         = do -- logC "eval.ref" 50 $ do n' <- toFullNames n
              --                        pure $ "Found function: " ++ show n'
              Just res <- lookupCtxtExact n (gamma defs)
@@ -302,7 +284,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                                                                       pure $ "Stuck function: " ++ show n'
                                   pure def
              redok1 <- if evalAll topopts then pure True
-                          else if evalTypes topopts then computesType 8 (type res)
+                          else if evalTypes topopts then computesType [] (type res)
                           else pure False
              let redok2 = reducibleInAny (currentNS defs :: nestedNS defs)
                                          (fullname res)
@@ -324,10 +306,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                                                       pure $ "Stuck function: \{show n'}"
              if redok
                 then do
-                   Just opts' <- updateLimit nt n topopts
-                        | Nothing => do log "eval.stuck" 10 $ "Function \{show n} past reduction limit"
-                                        pure def -- name is past reduction limit
-                   nf <- evalDef env opts' meta fc
+                   nf <- evalDef env topopts meta fc
                            (multiplicity res) (definition res) (flags res) stk def
                    -- logC "eval.ref" 50 $ do n' <- toFullNames n
                    --                         nf <- toFullNames nf
@@ -355,17 +334,20 @@ parameters (defs : Defs) (topopts : EvalOpts)
           _ => Nothing
 
     -- Is a definition's type a universe, after its arguments: does it
-    -- compute a type? Through the names the type is written with, as far
-    -- as a depth: `VarSet : Scoped` is `Scope -> Type`.
-    computesType : {auto c : Ref Ctxt Defs} -> Nat -> Term vs -> Core Bool
+    -- compute a type? Through the names the type is written with
+    -- (`VarSet : Scoped` is `Scope -> Type`), each followed once: a name
+    -- met again is an alias that leads back to itself, which computes no
+    -- type, and the context holds finitely many names, so the walk ends.
+    computesType : {auto c : Ref Ctxt Defs} -> List Name -> Term vs -> Core Bool
     computesType _ (TType _ _) = pure True
-    computesType d (Bind _ _ (Pi {}) sc) = computesType d sc
-    computesType (S d) (Ref _ Func n) = do
-      Just def <- lookupCtxtExact n (gamma defs)
-        | Nothing => pure False
-      case definition def of
-        PMDef _ [] (STerm _ tm) _ _ => computesType d tm
-        _ => pure False
+    computesType seen (Bind _ _ (Pi {}) sc) = computesType seen sc
+    computesType seen (Ref _ Func n)
+        = if n `elem` seen then pure False else do
+            Just def <- lookupCtxtExact n (gamma defs)
+              | Nothing => pure False
+            case definition def of
+              PMDef _ [] (STerm _ tm) _ _ => computesType (n :: seen) tm
+              _ => pure False
     computesType _ _ = pure False
 
     -- TODO note the list of closures is stored RTL
@@ -588,13 +570,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                                                 def <- toFullNames def
                                                 pure "evalTree failed on \{show def}"
                                               pure def
-                               case fuel opts of
-                                    Nothing => evalWithOpts defs opts env newLoc res stk'
-                                    Just Z => log "eval.def.stuck" 50 "Recursion depth limit exceeded"
-                                              >> pure def
-                                    Just (S k) =>
-                                        do let opts' = { fuel := Just k } opts
-                                           evalWithOpts defs opts' env newLoc res stk'
+                               evalWithOpts defs opts env newLoc res stk'
              else do -- logC "eval.def.stuck" 50 $ do
                      --   def <- toFullNames def
                      --   pure $ unlines [ "Refusing to reduce \{show def}:"

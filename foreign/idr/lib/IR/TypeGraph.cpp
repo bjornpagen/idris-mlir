@@ -29,7 +29,6 @@
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -61,17 +60,16 @@ idr::TypeGraph::TypeGraph(Operation *module) {
   // place. A constant constructor names its type as its identity, not as a
   // value it holds, and its op's result type says how the value is held.
   llvm::SetVector<DataType> found;
-  llvm::DenseSet<DataType> boxedSet, inPlaceSet;
   AttrTypeWalker walker;
   walker.addWalk([](ConAttr) { return WalkResult::skip(); });
   walker.addWalk([&](BoxType box) {
     found.insert(box.getData());
-    boxedSet.insert(box.getData());
+    heldBoxed.insert(box.getData());
     return WalkResult::skip();
   });
   walker.addWalk([&](DataType data) {
     found.insert(data);
-    inPlaceSet.insert(data);
+    heldInPlace.insert(data);
     return WalkResult::skip();
   });
   auto walk = [&](auto element) { walker.walk<WalkOrder::PreOrder>(element); };
@@ -84,26 +82,25 @@ idr::TypeGraph::TypeGraph(Operation *module) {
         for (Type type : block.getArgumentTypes())
           walk(type);
   });
-  // A field adds the types it names, so the list grows as it is read.
+  // A field adds the types it names, each once, so the set grows as it is
+  // read and ends with the types the module's values reach.
   for (size_t at = 0; at < found.size(); ++at)
     for (const Ctor &ctor : found[at].getCtors())
       for (Type field : ctor.fields)
         walk(field);
 
-  SmallVector<DataType> named(found.begin(), found.end());
-  llvm::sort(named, [](DataType a, DataType b) { return a.getName() < b.getName(); });
-  for (DataType data : named) {
-    unsigned at = insert(data);
-    heldBoxed[at] = boxedSet.contains(data);
-    heldInPlace[at] = inPlaceSet.contains(data);
-  }
-  // An array is inserted as it is met, so the list grows as it is read.
+  dataTypes.assign(found.begin(), found.end());
+  llvm::sort(dataTypes, [](DataType a, DataType b) { return a.getName() < b.getName(); });
+  for (DataType data : dataTypes)
+    insert(data);
+  // An array is inserted as it is met, once, so the list grows as it is
+  // read, by the arrays the module's types name.
   for (unsigned at = 0; at < types.size(); ++at) {
-    if (auto array = dyn_cast<MemRefType>(types[at])) {
-      edges(at, array.getElementType());
+    if (isArray(at)) {
+      edges(at, cast<MemRefType>(types[at]).getElementType());
       continue;
     }
-    for (const Ctor &ctor : cast<DataType>(types[at]).getCtors())
+    for (const Ctor &ctor : dataTypes[at].getCtors())
       for (Type field : ctor.fields)
         edges(at, field);
   }
@@ -114,8 +111,6 @@ unsigned idr::TypeGraph::insert(Type type) {
   auto [it, fresh] = index.try_emplace(type, static_cast<unsigned>(types.size()));
   if (fresh) {
     types.push_back(type);
-    heldBoxed.push_back(false);
-    heldInPlace.push_back(false);
     successorsOf.emplace_back();
     inPlace.emplace_back();
   }
@@ -141,24 +136,12 @@ void idr::TypeGraph::edges(unsigned from, Type type) {
       [](Type) {});
 }
 
-std::optional<unsigned> idr::TypeGraph::node(Type type) const {
-  type = unrestricted(type);
-  if (auto box = dyn_cast<BoxType>(type))
-    type = box.getData();
-  auto found = index.find(type);
-  if (found == index.end())
-    return std::nullopt;
-  return found->second;
-}
-
-bool idr::TypeGraph::isArray(unsigned at) const { return isa<MemRefType>(types[at]); }
-
 // An array cannot hold itself, so a strongly connected component with an
 // array in it is a cycle through that array's edge, and a component
 // without one is data never written once made, which cannot knot.
 SmallVector<SmallVector<unsigned>> idr::TypeGraph::knots() const {
   SmallVector<SmallVector<unsigned>> out;
-  if (llvm::none_of(types, [](Type node) { return isa<MemRefType>(node); }))
+  if (types.size() == dataTypes.size())
     return out;
   for (const SmallVector<unsigned> &component : parts)
     if (component.size() > 1 && llvm::any_of(component, [&](unsigned at) { return isArray(at); }))
@@ -168,25 +151,24 @@ SmallVector<SmallVector<unsigned>> idr::TypeGraph::knots() const {
 
 SmallVector<unsigned> idr::TypeGraph::cycle(unsigned array, ArrayRef<unsigned> component) const {
   unsigned element = successorsOf[array].front();
-  // A walk breadth first from the element: `unseen` is what of the
-  // component it has not reached yet, `previous` the step that reached each
-  // of the rest.
-  llvm::BitVector unseen(static_cast<unsigned>(types.size()));
-  for (unsigned at : component)
-    unseen.set(at);
-  unseen.reset(element);
-  SmallVector<unsigned> previous(types.size());
-  SmallVector<unsigned> queue{element};
-  for (size_t at = 0; at < queue.size() && unseen.test(array); ++at)
-    for (unsigned next : successorsOf[queue[at]])
-      if (unseen.test(next)) {
-        unseen.reset(next);
-        previous[next] = queue[at];
-        queue.push_back(next);
-      }
+  // A walk breadth first from the element over the component, each node
+  // reached once: `reached` in the order it reaches them, `previous` the
+  // step that reached each but the element. The array holds the element,
+  // and the component reaches the array from it, so the walk reaches it.
+  llvm::DenseSet<unsigned> inComponent(component.begin(), component.end());
+  llvm::SetVector<unsigned> reached;
+  reached.insert(element);
+  llvm::DenseMap<unsigned, unsigned> previous;
+  for (size_t at = 0; at < reached.size() && !reached.contains(array); ++at)
+    for (unsigned next : successorsOf[reached[at]])
+      if (inComponent.contains(next) && reached.insert(next))
+        previous[next] = reached[at];
+  // Back from the array along the steps that reached it: each is to a node
+  // reached before, so the path is at most the nodes reached.
   SmallVector<unsigned> out{element, array};
-  while (out.back() != element)
-    out.push_back(previous[out.back()]);
+  for (size_t step = 0; step < reached.size() && out.back() != element; ++step)
+    out.push_back(previous.lookup(out.back()));
+  assert(out.back() == element && "the component reaches its array from the element");
   std::reverse(out.begin(), out.end());
   return out;
 }
@@ -204,7 +186,7 @@ SmallVector<idr::DataType> idr::TypeGraph::containsItself() const {
   llvm::sort(onCycle);
   SmallVector<DataType> out;
   for (unsigned at : onCycle)
-    if (DataType data = declaration(at))
-      out.push_back(data);
+    if (!isArray(at))
+      out.push_back(dataTypes[at]);
   return out;
 }

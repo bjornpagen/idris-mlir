@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* Reference counting against cells built by hand as idr-lower lays them out:
  * counts, saturation, freeing (a structure of any depth, under the small
  * stack the run script gives, and arrays whose elements hold objects),
@@ -373,9 +375,10 @@ static void stringsAndBignums(void) {
   const idris_rt_str *a = text("héllo"), *b = text(" wörld"), *ascii = text("ascii");
   const idris_rt_str *empty = text("");
   check(count(a) == 1 && header(a)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_STRING),
-        "a new string is a cell of kind string, tag 0 when not ASCII");
-  check(header(ascii)->info == idris_rt_info(1, 0, IDRIS_RT_KIND_STRING),
-        "an ASCII string has tag 1");
+        "a new string is a cell of kind string, tag 0");
+  check(header(ascii)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_STRING) &&
+            ascii->scalars == ascii->bytes,
+        "an ASCII string is a string like any other, its scalars its bytes");
   check(count(empty) == 0 && live() == before + 3, "the empty string is persistent");
   const idris_rt_str *ab = idris_rt_str_append(a, b);
   check(count(ab) == 1 && live() == before + 4, "append returns a new string");

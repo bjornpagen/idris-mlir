@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # PINS.md — the pinned-quirk registry
 
 One entry per pinned workaround: code or build configuration that is
@@ -123,6 +125,10 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/06-remove-dead-values-unreachable (function arguments
   reported by others, #206920, #203226, open PR #208881); plan in its
   README: a new issue and a pull request against main for all four sites
+- status (2026-10-15): #208881 merged on main 2026-10-12 (0edf6243); the
+  PR is to be rebased onto main for the block-argument, result and
+  erased-op cases. Retire when the pin is past 0edf6243 and has the
+  rebased PR.
 
 ## cse-statistic-assignment
 
@@ -233,6 +239,8 @@ which the top-level CMake configure gate reads.
   posted as a comment on #208881 on 2026-10-08
   (https://github.com/llvm/llvm-project/pull/208881#issuecomment-6073061698);
   a test-only pull request follows if #208881 lands without it
+- status (2026-10-15): retire when the pin is past 0edf6243, which fixed
+  01's test as #208881 stood on 2026-10-08; the test-only PR is due.
 
 ## inline-unreachable
 
@@ -269,8 +277,10 @@ which the top-level CMake configure gate reads.
   per level of attribute nesting, so a constant nested a few thousand deep
   overflows an 8 MiB stack with a bare SIGSEGV (6,000 levels of builtin
   array in `mlir-opt`)
-- sites: foreign/idr/lib/Driver/Main.cpp, foreign/idr/tools/idris-mlir-opt.cpp,
-  runtime/Start/Runner.cpp (`idris_rt_run_on_stack`)
+- sites: foreign/idr/include/idr/Support/Stack.h (the tools' stack and its
+  guard), foreign/idr/lib/Driver/Main.cpp, foreign/idr/tools/idris-mlir-opt.cpp,
+  foreign/idr/tools/idris-mlir-reduce.cpp, runtime/Start/Runner.cpp
+  (`idris_rt_run_on_stack`)
 - workaround: idris-mlir runs the whole compilation, and idris-mlir-opt its
   run, on the runtime's reserved-stack runner: 2^40 bytes of address space,
   committed as touched, above a guard, so the depth is bounded by memory
@@ -428,29 +438,38 @@ which the top-level CMake configure gate reads.
   (`EmptyTensorElimination.cpp:210`), and `getGlobalFor` puts a constant's
   global in the enclosing `ModuleOp` (`BufferUtils.cpp:105`), outside
   idr.program, where its `memref.get_global` does not find it and a pass on
-  the program may not write
+  the program may not write. Functions on a cycle of calls are not analyzed
+  (`OneShotModuleBufferize.cpp:515-529`), so a call into the cycle reads,
+  writes and aliases every operand, and with the non-writable results each
+  level of a recursion copies its callee's result
 - sites: none in our code; the patch. idr-bufferize (foreign/idr/lib/Transforms/Bufferize)
   runs the module driver on idr.program, attaches upstream's
   `func_ext::FuncOpBufferizableModel`, `CallOpBufferizableModel` and
   `ReturnOpBufferizableModel` to idr.func, idr.call and idr.return, and runs
   empty tensor elimination on a module analysis of its own
-- workaround: `upstream/24-one-shot-module-function-interface/llvm.patch`, three
+- workaround: `upstream/24-one-shot-module-function-interface/llvm.patch`, four
   pull requests in one diff: a reland of upstream's reverted #110322 (the
   driver, its state, the models and the type converter on
   `FunctionOpInterface`, `CallOpInterface` and `ReturnLike`; the functions
   limited to function ops with a `BufferizableOpInterface` implementation,
   so a `transform.named_sequence`, the revert's cause, stays an other op;
   the models public templates and their queries exported; a function that
-  never returns analyzed with no aliasing result); the return values that
+  never returns analyzed with no aliasing result); the strongly connected
+  components of the call graph, with each cycle's boundaries iterated to a
+  fixpoint (`analyzeCallCycle`, one `FuncBoundaryFacts` per function); the
+  return values that
   may not be writable recorded per function and read by the call model's
-  `isWritable`; and the nearest symbol table for empty tensor elimination's
+  `isWritable`, with a value that definitely aliases one of its op's
+  operands writable on its own (`OneShotAnalysisState::isWritable` asked
+  the op even then, so a call result equivalent to an argument was copied
+  before a write); and the nearest symbol table for empty tensor elimination's
   module analysis and for a constant's global
 - retire: drop each part when the pin carries upstream's fix for it; the
   patch goes when all have (`tests/upstream/one-shot-module-function-interface`
   then passes with the pristine tools); the models stay upstream's templates
 - upstream: upstream/24-one-shot-module-function-interface (not filed; not
   built; upstream main is the pin's at 2026-10-14); plan in its README:
-  three pull requests, the reland of #110322 first
+  four pull requests, the reland of #110322 first, cycles second
 
 ## eliminate-duplicate-functions
 
@@ -463,7 +482,7 @@ which the top-level CMake configure gate reads.
   comparison
 - workaround: the port of Modular's
   `Mojo/lib/Transforms/EliminateDuplicateFunctions.cpp`, taken at revision
-  `9211931` (`sources/code/modular`), Apache-2.0 WITH LLVM-exception, its
+  `9211931` (`third_party/modular`, a reference submodule: shallow, `update = none`, so a plain checkout does not fetch it; `git submodule update --init third_party/modular` does), Apache-2.0 WITH LLVM-exception, its
   header kept. What changed: it runs on idr.func; KGEN's call graph
   (Mojo's `CallGraphUtils.h`) is a graph of every symbol reference, and
   AsyncRT's dependency chains are waves by height over the graph's
@@ -479,9 +498,9 @@ which the top-level CMake configure gate reads.
 - retire: when the pin carries upstream's `duplicate-function-elimination`
   generalized to `FunctionOpInterface`, merging transitively in one pass,
   with a hook for the facts that must match: then the port goes and the
-  pass runs upstream's. Re-read against Modular when the snapshot moves
-- upstream: the generalization is planned (proposal 0004 §7, item 1), not
-  written
+  pass runs upstream's. Re-read against Modular when the submodule moves
+- upstream: the generalization is planned (the pipeline cutover's proposal
+  at 484d6403, §7 item 1), not written
 
 ## platform-gate-x86_64
 
@@ -586,15 +605,49 @@ which the top-level CMake configure gate reads.
 
 ## simdutf-dispatch
 
-- symptom: simdutf picks its implementation from the environment variable
-  `SIMDUTF_FORCE_IMPLEMENTATION` when it is set, so a program's string
-  checks could depend on its environment
-- sites: runtime/Strings/Simd.cpp
-- workaround: the runtime selects `detect_best_supported()` once and calls
-  that implementation directly
-- retire: never; deliberate
-- upstream: none
+- symptom: simdutf picks its implementation itself on first use: from the
+  environment variable `SIMDUTF_FORCE_IMPLEMENTATION` when it is set, so a
+  program's string checks could depend on its environment, and otherwise by
+  its own processor detection, cpuid and xgetbv in inline assembly
+  (`include/simdutf/internal/isadetection.h:281,296`) over a feature mask in
+  which AVX512VPOPCNTDQ and AVX512CD share a bit (`:113,117`), so it can
+  choose the icelake kernel on a processor without VPOPCNTDQ, which that
+  kernel executes
+- sites: runtime/Strings/Simd.cpp; `runsSimdutf` in the target entry's
+  processor file (runtime/Platform/X86_64/Cpu.cpp,
+  runtime/Platform/Aarch64/Cpu.cpp)
+- workaround: the runtime takes the first implementation of
+  `get_available_implementations()`, simdutf's priority order, for which the
+  target's processor file says the processor has every feature of the
+  target region its kernels are compiled in, tested with
+  `__builtin_cpu_supports` as the startup check tests a program's features,
+  and calls that implementation's methods directly. Reading the list and the
+  names runs no detection; `detect_best_supported`,
+  `supported_by_runtime_system` and the free functions that dispatch through
+  `get_active_implementation` are never called, so nothing in the tree
+  reaches simdutf's cpuid or the shared bit. On arm64 the one implementation
+  is arm64 (NEON, the baseline)
+- retire: never; deliberate: the feature decision has one owner, the
+  target's startup check
+- upstream: upstream/48-simdutf-avx512vpopcntdq-bit (the shared bit; a
+  submission, not carried)
 
+## snmalloc-arm-yield-asm
+
+- symptom: snmalloc's Arm AAL spins with inline assembly,
+  `__asm__ volatile("yield")` in `AAL_arm::pause()`
+  (third_party/snmalloc/src/snmalloc/aal/aal_arm.h:53-60), where the runtime
+  reaches the processor through intrinsics only; every snmalloc spin loop
+  the runtime meets on arm64 runs it. No configuration macro or AAL the
+  build can select replaces it: aal.h takes aal_arm.h for every Arm target,
+  and `pause()` takes `__yield()` only under MSVC
+- sites: third_party/snmalloc, compiled by runtime/Alloc/Cells.cpp
+- workaround: none; the assembly is carried as snmalloc writes it, since
+  snmalloc is no patch project of tools/patches.sh. The fix, one
+  `#elif __has_builtin(__builtin_arm_yield)` branch that emits the same
+  instruction as an intrinsic, is a submission
+- retire: when the snmalloc pin moves past upstream's change
+- upstream: upstream/49-snmalloc-arm-yield-intrinsic (not filed)
 ## linux-uapi-from-host
 
 - symptom: musl ships no kernel headers, but libc++ (`<linux/futex.h>`) and
@@ -682,3 +735,155 @@ which the top-level CMake configure gate reads.
   elaboration's folding is upstream/18-elaboration-primitive-folding, and
   the Char's text upstream/20-evaluator-char-text (the one-line fix; the
   fork's calls by name are its own)
+- totality: the fork's own code bounds no recursion by a count.
+  `normaliseTypes` follows each name once (it stopped at a depth of 8). The
+  size-change decision (`loopsTerminate`) works on dense graphs typed by
+  their path's ends (`Dense n from to`), joined only in path order by
+  `andThen`, so a path cannot be composed backwards; the graphs' rows are a
+  finite type (`Libraries.Data.List.Finite`: `Finite`, `NoDup`, the
+  pigeonhole principle); it keeps each graph and each function-and-graph
+  pair once, and collects a loop graph's powers until one repeats, finding
+  the idempotent power among them (it searched at most 1024 and counted one
+  not found as failing); each search's measure is the room left, so
+  `loopsTerminate` is total. Sites:
+  compiler/idris/src/Core/Normalise/Eval.idr (`computesType`),
+  compiler/idris/src/Core/Termination/SizeChange.idr (`Dense`, `andThen`,
+  `Calls`, `Kept`, `powers`, `nonDescending`, `loopsBack`, `search`,
+  `loopsTerminate`), compiler/idris/src/Libraries/Data/List/Finite.idr; its
+  check is tests/compiler/fork-loops-terminate
+
+## linear-ambiguous-let
+
+- symptom: at the pinned Idris, a `let` (pattern or plain) whose value
+  applies a name with several candidates to a linear variable is refused
+  ("can't find any elaboration which works ... Trying to use linear name h
+  in non-linear context") although exactly one candidate fits at
+  multiplicity one: the retry at one recognised a bare `LinearMisuse`
+  (`checkCase`) or one seen through `InType`/`InCon`/`InLHS`/`InRHS`
+  (`checkLet`), never the `AllFailed` of an ambiguous name. libs/mlir-array
+  wrote `LArray.shape` qualified because of it. The fork inherited the bug
+  with the code
+- sites: compiler/idris/src/TTImp/Elab/{Delayed (`misusesLinear`), Case
+  (`checkCaseDelayed`), Binders (`checkLet`)}.idr
+- workaround: none; the fork carries the fix as its own code, the change of
+  `upstream/fork-linear-ambiguous-let/pull-request.diff` (against the pin,
+  with upstream test `linear021`). The stock Idris is not patched: it builds
+  only stage 0 and the benchmarks' Chez baseline
+- retire: when a re-sync brings upstream's fix; then the report and this
+  entry go
+- upstream: upstream/fork-linear-ambiguous-let; nothing is sent
+  (upstream/README.md, **Idris**)
+
+## totality-depth
+
+- symptom: at the pinned Idris, whether a recursion is total depends on
+  `%totality_depth` (default 5): `sizeCompare` looks under matching
+  constructors on both sides only that deep, a count bounding a search that
+  is exponential without it, so `deep` in
+  `upstream/fork-totality-depth/Depth.idr` is refused and accepted after
+  `%totality_depth 7`; and an as pattern's sides kept the first known
+  answer, so an answer could weaken with depth. The fork inherited it; the
+  frontend reaches it through `checkTerminating`
+- sites: compiler/idris/src/Core/Termination/CallGraph.idr (`Step`,
+  `SizeMemo`, `sizeCompare`, `compareNew`, `compareRoot`),
+  compiler/idris/src/Core/{Options,Context}.idr,
+  compiler/idris/src/Idris/{Syntax,Desugar,Parser}.idr
+- workaround: none; the fork carries the change of
+  `upstream/fork-totality-depth/pull-request.diff`: each pair of subterms,
+  named by its two paths of `Step`s, is compared once (one memo per
+  comparison of an argument with a parameter), which bounds the work by the
+  product of the terms' sizes with no count; an as pattern's sides are
+  joined with `|+|`. `%totality_depth` and `totalLimit` are gone and the
+  parser refuses the pragma. Everything the pin accepts is accepted
+- retire: when a re-sync brings upstream's own removal of the count
+- upstream: upstream/fork-totality-depth; nothing is sent (**Idris**)
+
+## interface-body-dropped
+
+- symptom: at the pinned Idris, an interface body keeps its method
+  signatures, abstract types and defaults and silently drops every other
+  declaration (data with constructors, records, namespaces, `parameters`,
+  `failing`, `%runElab`, directives, nested interfaces or implementations):
+  `upstream/fork-interface-body/Dropped.idr` reports `Undefined name
+  Colour` at the use and nothing at the declaration. The fork inherited it
+- sites: compiler/idris/src/Idris/Elab/Interface.idr (`BodyPart`,
+  `bodyPart`, `splitParts`; `getSig` and `getDefault` are gone)
+- workaround: none; the fork carries the change of
+  `upstream/fork-interface-body/pull-request.diff` (upstream test
+  `interface037`). Nothing the packages Idris ships or libs/ declare is
+  refused
+- retire: when a re-sync brings upstream's fix
+- upstream: upstream/fork-interface-body; nothing is sent (**Idris**)
+
+## with-application-scope
+
+- symptom: at the pinned Idris, a with application (`f pats | w`) on a with
+  clause's right-hand side is rewritten except inside a local block's
+  definitions or a record update's fields, where it is refused (`with
+  application not implemented yet`):
+  `upstream/fork-with-application-scope/WithScope.idr`. The fork inherited
+  it
+- sites: compiler/idris/src/TTImp/WithClause.idr (`wrhsD`, `wrhsU`)
+- workaround: none; the fork carries the change of
+  `upstream/fork-with-application-scope/pull-request.diff` (upstream test
+  `with013`)
+- retire: when a re-sync brings upstream's fix
+- upstream: upstream/fork-with-application-scope; nothing is sent
+  (**Idris**)
+
+## build-main
+
+- symptom: none of Idris's. The frontend, which is total, must build a
+  program, and building needs the elaborator's session state; `UState`
+  holds the evaluator's values (`NF`, not strictly positive), which no
+  total definition may name
+- sites: compiler/idris/src/Idris/ModTree.idr (`buildMain`)
+- workaround: the fork provides `buildMain mainFile`: it makes UST, DLY and
+  MD, resets the context to the main module's origin and runs `buildDeps`.
+  It is the one elaborating operation the frontend trusts, beside the
+  evaluator's. `upstream/fork-build-main/pull-request.diff` records it
+  against the pin
+- retire: when the frontend no longer builds through it
+- upstream: nothing; upstream's drivers hold the session
+
+## total-frontend-paths
+
+- symptom: none of Idris's. Upstream code the total frontend calls is
+  `covering` and beyond Idris's checker, though it terminates: it traverses
+  binders, metavariable arguments and case alternatives through `map`,
+  `traverse` or the method being defined; it decodes a TTC by re-entering
+  `fromBuf` with the same buffer reference; decoding resolves through
+  `HasNames` instances whose `full` looks up and so may decode another
+  definition; `lookupCtxtExactI` calls itself on the index it found;
+  weakening uses `assert_total`; and some code says nothing (dead evaluator
+  fuel, two copies of each name traversal, an always-True Bool from
+  `processDecls`)
+- sites: compiler/idris/src/Core/TT/Term.idr (`insertNames`, `thinTerm`,
+  `shrinkTerm`, `onRefs`, `showTerm`), compiler/idris/src/Core/TT.idr
+  (`mkLocals`, `substName`, `addMetas`, `addRefs`),
+  compiler/idris/src/Core/Case/CaseTree.idr (`showCT`, `onTreeTerms`,
+  `getRefs`, `getMetas`), compiler/idris/src/Core/Hash.idr (`hashTerm`),
+  compiler/idris/src/Core/Core.idr (`showError`),
+  compiler/idris/src/Core/Context.idr (`OnNames`, `onNamesTerm`,
+  `onNamesTree`, `indexedName`, `resolveGlobalDef` and the `resolve…`
+  functions of its parts, `lookupContextEntry`, `lookupCtxtExactI`,
+  `lookupCtxtExact`; `decode` declared `total`),
+  compiler/idris/src/Core/Binary/Prims.idr (`remaining`, `fewer`),
+  compiler/idris/src/Core/TTC.idr (`decodeName`, `decodeTerm` and
+  `decodeTree` with their parts, `encodeTerm` and `encodeTree` with
+  theirs), compiler/idris/src/Core/Directory.idr (`mkdirAll`: done at once when the
+  directory exists; otherwise creates each prefix of the path, outermost
+  first, passing one that exists already),
+  compiler/idris/src/Core/{Value,Normalise/Eval}.idr,
+  compiler/idris/src/Algebra/SizeChange.idr (`DecEq`),
+  compiler/idris/src/Libraries/Utils/Binary.idr (`%default total`; `dumpBin`
+  gone), compiler/idris/src/TTImp/{ProcessDecls,Elab/Local}.idr
+- workaround: none; the fork's code there is total by structural or
+  well-founded recursion Idris's checker accepts, with upstream's output
+  (the same TTC bytes, shown text and hashes). A TTC's decoders recurse on
+  the bytes left to read (`Control.WellFounded`).
+  `upstream/fork-total-frontend-paths/pull-request.diff` records the change
+  against the pin
+- retire: never as a whole; each part goes when a re-sync brings upstream's
+  own total version
+- upstream: nothing is sent (**Idris**)

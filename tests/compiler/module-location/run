@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The module is at main's location, the user's code, so that whatever the
 # pipeline reports about the whole program (a cycle with no smaller place)
 # points there: the module's own location is the line of main's

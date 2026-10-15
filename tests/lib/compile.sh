@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Compiling a program with the compiler under test, and the artifacts a
 # compilation leaves or must not leave.
 
@@ -13,6 +15,22 @@ compile_program() {
   bounded "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
   compiled=$?
   record_time "$(( $(now_ms) - compile_started ))" "$@"
+}
+
+# runtime_c CMD ARG...: CMD with ARG... and then the flags a C or C++ source
+# that includes idris_rt.h compiles with, one argument per line of the
+# file the build writes beside its runtime (runtime/c-flags): the runtime's
+# own include directory, then the one its generated ABI header is in. So no
+# test spells where the build generates that header.
+runtime_c() {
+  if [ ! -f "$dev_prefix/runtime/c-flags" ]; then
+    printf '%s\n' "no $dev_prefix/runtime/c-flags, which the build writes" >&2
+    return 1
+  fi
+  while IFS= read -r runtime_c_flag; do
+    set -- "$@" "$runtime_c_flag"
+  done < "$dev_prefix/runtime/c-flags"
+  "$@"
 }
 
 # link_program ARG...: the pinned C compiler with ARG... (sources or objects,

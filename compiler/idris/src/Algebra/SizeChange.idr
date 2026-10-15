@@ -4,6 +4,8 @@ module Algebra.SizeChange
 
 import Algebra.Semiring
 
+import Decidable.Equality
+
 import Libraries.Text.PrettyPrint.Prettyprinter
 
 public export
@@ -33,6 +35,18 @@ Eq SizeChange where
   Same == Same = True
   Unknown == Unknown = True
   _ == _ = False
+
+export
+DecEq SizeChange where
+  decEq Smaller Smaller = Yes Refl
+  decEq Same Same = Yes Refl
+  decEq Unknown Unknown = Yes Refl
+  decEq Smaller Same = No (\case Refl impossible)
+  decEq Smaller Unknown = No (\case Refl impossible)
+  decEq Same Smaller = No (\case Refl impossible)
+  decEq Same Unknown = No (\case Refl impossible)
+  decEq Unknown Smaller = No (\case Refl impossible)
+  decEq Unknown Same = No (\case Refl impossible)
 
 -- information order
 export

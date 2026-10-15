@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The AArch64 list of processor features (runtime/cpu_aarch64.h), which an
 # AArch64 target entry names, read by the pinned clang's frontend, which
 # knows AArch64 without its code generator: each feature's two names are

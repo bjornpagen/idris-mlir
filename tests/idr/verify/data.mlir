@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the texts of a body's errors, as C01's setBody and type parser write them.
+// NEEDS-ACCEPTANCE: the texts of a body's errors, as the type's setBody and parser write them.
 // A data type is identified by its name and carries its body, its
 // constructors in tag order, set once: a body that breaks a rule of its
 // kind is refused where the type is written, and so is a second body for

@@ -4,7 +4,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.spec.mlir
 // RUN: FileCheck %s --check-prefix=SPEC < %t.spec.mlir
 // RUN: %status 2 idris-mlir -c %s -o %t.o -mlir-debug-counter=idr-specialize-clone-count=0
-// NEEDS-ACCEPTANCE: that skipping the action idr-specialize-clone (C09) leaves the call of @pow.
+// NEEDS-ACCEPTANCE: that skipping the action idr-specialize-clone leaves the call of @pow.
 // Making a specialization node, and redirecting a call to it, is the
 // action idr-specialize-clone. In idris-mlir-opt, where experiments live,
 // MLIR's debug counter at 0 skips every such action: the call of @pow on

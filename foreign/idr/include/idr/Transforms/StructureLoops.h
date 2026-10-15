@@ -17,6 +17,7 @@
 #ifndef IDR_TRANSFORMS_STRUCTURELOOPS_H
 #define IDR_TRANSFORMS_STRUCTURELOOPS_H
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -58,9 +59,9 @@ enum class Form {
 // idr.transpose. None is left after it.
 bool structurable(mlir::Operation *op);
 
-// The form `op`, which idr-structure-loops lowers, takes. A callee's
-// effects are read through `symbols`.
-Form formOf(mlir::Operation *op, mlir::SymbolTableCollection &symbols);
+// The form `op`, which idr-structure-loops lowers, takes. A call does what
+// `callees` says its callee does.
+Form formOf(mlir::Operation *op, const CalleeEffects &callees);
 
 // A read of an array of words from outside an op, directly in its region,
 // at distinct indices of the op's domain, each as large as the dimension
@@ -103,8 +104,9 @@ llvm::SmallVector<mlir::OpFoldResult> extentsOf(mlir::OpBuilder &b, mlir::Operat
 llvm::SmallVector<mlir::Value> valuesOf(mlir::OpBuilder &b, mlir::Location loc,
                                         llvm::ArrayRef<mlir::OpFoldResult> sizes);
 
-// A new array of `type`, its dimensions `dims` (one per dimension; those
-// the type fixes are read from it).
+// A new array of `type`, whose dimensions the type leaves dynamic are
+// sized by `dims`, which holds one size per dimension up to the last of
+// those at least; the type's own sizes stand for the rest.
 mlir::Value emptyOf(mlir::OpBuilder &b, mlir::Location loc, mlir::RankedTensorType type,
                     llvm::ArrayRef<mlir::OpFoldResult> dims);
 

@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sum's printed form and the dispatch, as C01's printer and C06's conversion write them.
+// NEEDS-ACCEPTANCE: the sum's printed form and the dispatch.
 // A closure kept in a constructor's field and bound again by a match's
 // region argument: the field's anchor holds every label any constructor
 // put there, and the match declares that each region argument reads its

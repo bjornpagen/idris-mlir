@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* A large big's digits are in its cell: its word is the cell's address, even
  * and untagged, and the limbs follow the header and the signed limb count,
  * so they are one load from the word. Each big here is read back through

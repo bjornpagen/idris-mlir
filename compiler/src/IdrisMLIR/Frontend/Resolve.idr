@@ -12,13 +12,13 @@ import Core.Core
 import Core.Directory
 import Core.Env
 import Core.Name.Namespace
-import Core.Normalise
 import Core.Options
 import Core.TT
 import Idris.Version
 import Libraries.Data.Version
 import Libraries.Utils.Path
 
+import IdrisMLIR.Frontend.Host
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Syntax.Idr
@@ -28,7 +28,7 @@ import Data.List
 import Data.Maybe
 import Data.String
 
-%default covering
+%default total
 
 ------------------------------------------------------------------------------
 -- Names and modules
@@ -39,6 +39,11 @@ export
 qname : Name -> QName
 qname (NS ns n) = MkQName (reverse (unsafeUnfoldNamespace ns)) (show n)
 qname n = MkQName [] (show n)
+
+||| Whether two names are one definition's: their full names are equal.
+export
+sameName : {auto c : Ref Ctxt Defs} -> Name -> Name -> Core Bool
+sameName n m = (==) <$> toFullNames n <*> toFullNames m
 
 ||| A registry name as Idris's, to look it up.
 export
@@ -198,9 +203,14 @@ shapeOf (Bind _ _ (Pi _ rig _ a) sc) = Pi (multiplicity rig) (shapeOf a) (shapeO
     multiplicity rig = if isErased rig then M0 else if isLinear rig then M1 else Mw
 shapeOf (PrimVal _ (PrT t)) = maybe Hole Prim (primTy t)
 shapeOf (TType _ _) = TypeOfTypes
-shapeOf tm = case getFnArgs tm of
-  (Ref _ _ n, args) => Head (Def (qname n)) (map shapeOf args)
-  _ => Hole
+shapeOf tm = spine tm []
+  where
+    ||| An application's head and the shapes of its arguments, walked down
+    ||| the spine so that every argument is a subterm.
+    spine : Term vars -> List Shape -> Shape
+    spine (App _ f a) args = spine f (shapeOf a :: args)
+    spine (Ref _ _ n) args = Head (Def (qname n)) args
+    spine _ _ = Hole
 
 ------------------------------------------------------------------------------
 -- Validation
@@ -247,7 +257,7 @@ validate = check entries
               ExternDef _ => check es
               _ => pure (Wrong (location def) (show q) (mismatch e Bodied))
             HasShape shape => do
-              ty <- toFullNames !(normalise defs Env.Nil (type def))
+              ty <- toFullNames !(host.normalise defs Env.Nil (type def))
               let found = shapeOf ty
               if conforms shape found then check es
                  else pure (Wrong (location def) (show q) (mismatch e (Found found)))

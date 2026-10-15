@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-columns -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=signature=@pairs:(index)->(tensor<?xi64>,tensor<?xf64>),signature=@first:(tensor<?xi64>,tensor<?xf64>,index)->i64 -o /dev/null
-// NEEDS-ACCEPTANCE: idr-columns' signatures (R10): a tensor of one-constructor records becomes one tensor per field, in the fields' order.
+// NEEDS-ACCEPTANCE: idr-columns' signatures: a tensor of one-constructor records becomes one tensor per field, in the fields' order.
 // A tensor of records of one plain constructor is one tensor per field:
 // what makes it yields each field into its own column, a signature takes
 // and gives the columns, and a read of an element builds the record from

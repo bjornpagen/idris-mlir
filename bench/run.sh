@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Runs the benchmarks (make bench): each program built by this compiler, by
 # the stock Idris Chez backend (the same source), and by the pinned clang -O2
 # (bench/c; linked as our programs are, with the flags idris-mlir

@@ -4,7 +4,7 @@
 // RUN: FileCheck %s --check-prefix=TAGGED < %t.tagged.err
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=word-loop=@count -o /dev/null 2> %t.count.err
 // RUN: FileCheck %s --check-prefix=COUNT < %t.count.err
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // A loop whose natural only descends to zero is versioned: one test on
 // entry that the natural is small, then a loop on words alone, with no tag
 // test and no call on bigs in it. Before idr-narrow the loop computes on

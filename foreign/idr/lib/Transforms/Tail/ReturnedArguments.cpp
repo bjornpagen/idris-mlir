@@ -61,16 +61,17 @@ struct DropFromCall : OpRewritePattern<func::CallOp> {
     SmallVector<unsigned> kept = callee->kept();
     SmallVector<Type> types;
     for (unsigned i : kept)
-      types.push_back(callee->types[i]);
+      types.push_back(callee->results[i].type);
     auto fresh = func::CallOp::create(rewriter, call.getLoc(), types, call.getCalleeAttr(), call.getOperands(),
                                       call.getArgAttrsAttr(), keep(call.getResAttrsAttr(), kept),
                                       call.getNoInlineAttr());
     fresh->setDiscardableAttrs(call->getDiscardableAttrDictionary());
     SmallVector<Value> replacements;
     unsigned next = 0;
-    for (Known known : callee->results)
-      replacements.push_back(known.kind == Known::Argument ? call.getOperand(known.argument)
-                                                           : fresh.getResult(next++));
+    for (const Returned::Result &result : callee->results) {
+      std::optional<unsigned> argument = result.known.argument();
+      replacements.push_back(argument ? call.getOperand(*argument) : fresh.getResult(next++));
+    }
     rewriter.replaceOp(call, replacements);
     return success();
   }
@@ -95,9 +96,12 @@ struct DropFromReturn : OpRewritePattern<func::ReturnOp> {
 };
 
 // The rewrite of one function. It runs only inside idr-returned-arguments,
-// which computes Returned on the module right before it.
+// which solves Returned on the module right before it and holds it for as
+// long as the nested run reads it.
 struct DropReturned : PassWrapper<DropReturned, OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DropReturned)
+
+  explicit DropReturned(const Returned &returned) : returned(returned) {}
 
   StringRef getArgument() const final { return "idr-returned-arguments-drop"; }
   StringRef getDescription() const final {
@@ -106,12 +110,6 @@ struct DropReturned : PassWrapper<DropReturned, OperationPass<func::FuncOp>> {
 
   void runOnOperation() override {
     func::FuncOp fn = getOperation();
-    std::optional<std::reference_wrapper<Returned>> cached = getCachedParentAnalysis<Returned>();
-    if (!cached) {
-      fn.emitError("internal error: idr-returned-arguments-drop runs without the module's Returned analysis");
-      return signalPassFailure();
-    }
-    const Returned &returned = cached->get();
     if (!returned.changes(fn.getSymNameAttr()))
       return markAllAnalysesPreserved();
     MLIRContext *ctx = &getContext();
@@ -119,26 +117,26 @@ struct DropReturned : PassWrapper<DropReturned, OperationPass<func::FuncOp>> {
     patterns.add<DropFromCall>(ctx, returned);
     if (const Returned::Function *own = returned.dropping(fn.getSymNameAttr())) {
       llvm::BitVector dropped(static_cast<unsigned>(own->results.size()));
-      for (auto [i, known] : llvm::enumerate(own->results))
-        if (known.kind == Known::Argument)
+      for (auto [i, result] : llvm::enumerate(own->results))
+        if (result.known.argument())
           dropped.set(static_cast<unsigned>(i));
       (void)fn.eraseResults(dropped);
       patterns.add<DropFromReturn>(ctx, *own);
     }
     walkAndApplyPatterns(fn, FrozenRewritePatternSet(std::move(patterns)));
   }
+
+  const Returned &returned;
 };
 
 struct ReturnedArguments : impl::IdrReturnedArgumentsBase<ReturnedArguments> {
   void runOnOperation() override {
-    // The count is taken before the nested run, which destroys every
-    // analysis of the module, this one included.
-    unsigned dropped = getAnalysis<Returned>().dropped();
-    if (dropped == 0)
+    const Returned returned(getOperation());
+    if (returned.dropped() == 0)
       return markAllAnalysesPreserved();
-    numDropped += dropped;
+    numDropped += returned.dropped();
     OpPassManager nested(ModuleOp::getOperationName());
-    nested.addNestedPass<func::FuncOp>(std::make_unique<DropReturned>());
+    nested.addNestedPass<func::FuncOp>(std::make_unique<DropReturned>(returned));
     if (failed(runPipeline(nested, getOperation())))
       return signalPassFailure();
     // No symbol was inserted or erased.

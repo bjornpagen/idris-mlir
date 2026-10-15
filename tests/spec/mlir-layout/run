@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # foreign/idr is an in-tree MLIR dialect in upstream's layout: headers
 # under include/idr and .cpp under lib, no C++20 module, every library one
 # add_mlir_library (add_mlir_dialect_library for the dialect), and a

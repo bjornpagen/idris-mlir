@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Files, through the C library's streams, and what the system says of an
-// open descriptor, on a POSIX system. Where Linux and macOS differ, in the
+// Files, through the C library's streams, reading and writing a descriptor,
+// and what the system says of an open descriptor, on a POSIX system. Where Linux and macOS differ, in the
 // fields of a stat's times, one function holds it.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
@@ -84,5 +84,21 @@ int64_t waitForInput(int fd) noexcept {
 }
 
 bool isTerminal(int fd) noexcept { return isatty(fd) == 1; }
+
+// A write a signal interrupts before it wrote anything is tried again, as
+// musl's stdio does; any other failure abandons the rest.
+[[clang::annotate("idris-rt-baseline")]] void writeAll(int fd, const char *p, size_t n) noexcept {
+  while (n > 0) {
+    ssize_t written = write(fd, p, n);
+    if (written < 0 && errno == EINTR)
+      continue;
+    if (written <= 0)
+      return;
+    p += written;
+    n -= static_cast<size_t>(written);
+  }
+}
+
+int64_t readSome(int fd, char *p, size_t n) noexcept { return static_cast<int64_t>(read(fd, p, n)); }
 
 } // namespace rt::platform

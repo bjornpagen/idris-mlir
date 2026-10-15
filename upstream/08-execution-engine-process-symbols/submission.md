@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 Approach changed: the old diff toggled two lookup paths with one flag and broke create(); now the process's symbols live only in the LLJIT's process-symbols JITDylib, which always exists, and the option decides only whether it holds the process generator.
 
 # Filing

@@ -22,6 +22,7 @@
 #include "Alloc/Alloc.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"
+#include "Rc/Rc.h"
 #include "idris_rt.h"
 
 #include <errno.h>
@@ -69,7 +70,8 @@ void releasePayload(Slot &slot) {
       rt::io::saveError();
     break;
   case rt::io::Kind::String:
-    idris_rt_dec(const_cast<idris_rt_str *>(slot.string));
+  case rt::io::Kind::KeptString:
+    rt::rc::decCell(slot.string);
     break;
   case rt::io::Kind::Times:
   case rt::io::Kind::Free:
@@ -110,9 +112,7 @@ int64_t newSlot(Kind kind) {
       grow();
     handle = static_cast<int64_t>(slotsUsed++) + firstHandle;
   }
-  Slot &slot = slots[handle - firstHandle];
-  slot.kind = kind;
-  slot.kept = false;
+  slots[handle - firstHandle].kind = kind;
   return handle;
 }
 
@@ -124,12 +124,12 @@ int64_t newString(const idris_rt_str *s) {
 
 int64_t keepString(int64_t handle, const idris_rt_str *s) {
   if (handle == nullHandle) {
-    handle = newString(s);
-    slots[handle - firstHandle].kept = true;
+    handle = newSlot(Kind::KeptString);
+    slots[handle - firstHandle].string = s;
     return handle;
   }
   Slot &slot = slots[handle - firstHandle];
-  idris_rt_dec(const_cast<idris_rt_str *>(slot.string));
+  rt::rc::decCell(slot.string);
   slot.string = s;
   return handle;
 }
@@ -167,11 +167,12 @@ extern "C" int64_t idris_rt_handle_is_null(int64_t handle) {
 // gave as a string, and reading one is a crash.
 extern "C" const idris_rt_str *idris_rt_handle_string(int64_t handle) {
   rt::io::Slot *slot = rt::io::slotOf(handle);
-  if (slot == nullptr || slot->kind != rt::io::Kind::String) {
+  if (slot == nullptr ||
+      (slot->kind != rt::io::Kind::String && slot->kind != rt::io::Kind::KeptString)) {
     static constexpr char message[] = "idris-mlir: a pointer read as a string holds none\n";
     idris_rt_crash(message, sizeof message - 1);
   }
-  idris_rt_inc(const_cast<idris_rt_str *>(slot->string));
+  rt::rc::incCell(slot->string);
   return slot->string;
 }
 
@@ -180,7 +181,7 @@ extern "C" const idris_rt_str *idris_rt_handle_string(int64_t handle) {
 // are left alone.
 extern "C" void idris_rt_io_handle_free(int64_t handle) {
   rt::io::Slot *slot = rt::io::slotOf(handle);
-  if (slot == nullptr || slot->kept)
+  if (slot == nullptr || slot->kind == rt::io::Kind::KeptString)
     return;
   rt::io::releaseSlot(handle);
 }

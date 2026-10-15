@@ -3,7 +3,7 @@
 // RUN: returns-on-paths=@lit_in_default_unknown:0+10+20,returns-on-paths=@lit_other_value:1+2+3,\
 // RUN: matches-once=@data_in_case,reads-no-fields=@data_in_case,matches-once=@data_in_default,\
 // RUN: reads-no-fields=@field_in_case,reads-fields=@field_of_linear_match -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // A match nested in a region of a match on the same value knows its region:
 // in a case of the enclosing match the value has that case, and in its
 // default it has none of the enclosing cases. The known region replaces the

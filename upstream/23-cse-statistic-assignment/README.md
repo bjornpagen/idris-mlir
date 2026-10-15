@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] CSE's pass statistics depend on thread scheduling
 
 On llvm main at 7208ba24 (the pin), the CSE pass's `num-cse'd` and

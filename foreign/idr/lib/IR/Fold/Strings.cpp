@@ -10,6 +10,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
+#include "idr/IR/Grades.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
@@ -197,22 +198,22 @@ OpFoldResult StrToDoubleOp::fold(FoldAdaptor adaptor) {
 
 // The runtime packs a list of characters as the cons of each onto the rest,
 // from the empty string, and concatenates a list of strings as the append
-// of each, in order: the functions of str.cons and str.append.
+// of each, in order: the functions of str.cons and str.append. The list's
+// type says which: its element is a character or a string, and a verified
+// constant holds each element at that type.
 Attribute stringOfList(MLIRContext *ctx, Attribute list) {
   std::optional<SmallVector<Attribute>> elements = listElements(list);
   if (!elements)
     return {};
   Scope scope(ctx);
   const idris_rt_str *s = scope.str(StringAttr::get(ctx, ""));
-  if (llvm::all_of(*elements, [](Attribute c) { return isa<IntegerAttr>(c); })) {
-    for (Attribute c : llvm::reverse(*elements))
-      s = scope.keep(fold::runtime<StrConsOp>(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
+  if (isa<StrType>(unrestricted(cast<ConAttr>(list).getData().getListElement()))) {
+    for (Attribute p : *elements)
+      s = scope.keep(fold::runtime<StrAppendOp>(s, scope.str(cast<StringAttr>(p))));
     return scope.attr(s);
   }
-  if (!llvm::all_of(*elements, [](Attribute p) { return isa<StringAttr>(p); }))
-    return {};
-  for (Attribute p : *elements)
-    s = scope.keep(fold::runtime<StrAppendOp>(s, scope.str(cast<StringAttr>(p))));
+  for (Attribute c : llvm::reverse(*elements))
+    s = scope.keep(fold::runtime<StrConsOp>(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
   return scope.attr(s);
 }
 

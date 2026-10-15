@@ -1,34 +1,27 @@
-// RUN: idris-mlir-opt %s --idr-rc --idr-lower --idr-entry --canonicalize --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts \
-// RUN:   | mlir-translate --mlir-to-llvmir | opt -O2 -S | FileCheck %s
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
-// The small case of every big and natural op is inline, and the runtime is
-// called only on the cold path. Stated through LLVM: where the operands are
-// small by construction (integers narrower than the small range) and the
-// result fits, the optimized function calls no big function at all; where
-// they may be anything, the call is there, behind a branch weighted against
-// it. What LLVM's optimizer leaves is LLVM IR, so it is checked as text.
-// CHECK-LABEL: define {{.*}} @sum(
-// CHECK-NOT: @idris_rt_big
-// CHECK-NOT: @idris_rt_nat
-// CHECK: ret
-// CHECK-LABEL: define {{.*}} @difference(
-// CHECK-NOT: @idris_rt_big
-// CHECK: ret
-// CHECK-LABEL: define {{.*}} @product(
-// CHECK-NOT: @idris_rt_big
-// CHECK: ret
-// CHECK-LABEL: define {{.*}} @compared(
-// CHECK-NOT: @idris_rt_big
-// CHECK: ret
-// CHECK-LABEL: define {{.*}} @naturals(
-// CHECK-NOT: @idris_rt_big
-// CHECK-NOT: @idris_rt_nat
-// CHECK: ret
-// CHECK-LABEL: define {{.*}} @unknown(
-// CHECK: br i1 {{.*}}, !prof
-// CHECK: call {{.*}} @idris_rt_big_add(
-// CHECK: ret
-idr.program @"big-fast-path" root(@Prog.main) stage(first) {
+// RUN: idris-mlir -c %s -o %t.small.o
+// RUN: llvm-nm --undefined-only --format=just-symbols %t.small.o > %t.small.imports
+// RUN: not grep -E '^_?(idris_rt_big|idris_rt_nat|_ZN2rt3big)' %t.small.imports
+// RUN: sed 's/root(@small)/root(@large)/' %s > %t.large.mlir
+// RUN: idris-mlir -c %t.large.mlir -o %t.large.o
+// RUN: llvm-nm --undefined-only --format=just-symbols %t.large.o > %t.large.imports
+// RUN: grep -E '^_?_ZN2rt3big8addLarge' %t.large.imports
+// RUN: not grep -E '^_?idris_rt_big_add$' %t.large.imports
+// NEEDS-ACCEPTANCE: that a program whose big operands are small by construction imports nothing of the runtime's big functions, its small cases inline, and that one on bigs of any size imports the add's large case, rt::big::addLarge, and not the add's entry.
+// A big or natural op is a call of the runtime's function for it, whose
+// small case is inline in the runtime and whose large case is a call of
+// its own: the op's arithmetic is the runtime's alone. idris-mlir joins
+// the runtime's bitcode to the program and optimizes them together, so the
+// small case is the program's code. Stated by what the object imports: a
+// program whose operands are small by construction (integers narrower
+// than the small range, results that fit) imports no big function of the
+// runtime at all, so each small case is inline and its large case gone
+// (the root @small); a program on bigs of any size (the root @large, which
+// the fourth RUN line makes the program's) imports the large case of the
+// add and not the add's entry. It reads and shows its bigs through the
+// runtime's own functions, which have no small case and which it may well
+// import. A symbol is matched with and without the leading underscore an
+// object format may write.
+idr.program @"big-fast-path" root(@small) stage(first) {
   idr.func @sum(%x: i32, %y: i32) -> i64 {
     %a = idr.big.from_int signed %x : i32
     %b = idr.big.from_int signed %y : i32
@@ -73,8 +66,34 @@ idr.program @"big-fast-path" root(@Prog.main) stage(first) {
     %s = idr.big.add %a, %b
     return %s : !idr.big
   }
-  idr.func @Prog.main() -> i64 {
-    %z = arith.constant 0 : i64
-    return %z : i64
+  // The small root: each function on operands small by construction, its
+  // result printed so that it is computed.
+  idr.func @small(%w: !idr.world) -> !idr.world {
+    %c, %w1 = idr.io.get_byte %w
+    %c8 = arith.trunci %c : i32 to i8
+    %c16 = arith.trunci %c : i32 to i16
+    %s = idr.call @sum(%c, %c) : (i32, i32) -> i64
+    %d = idr.call @difference(%c, %c8) : (i32, i8) -> i64
+    %p = idr.call @product(%c, %c16) : (i32, i16) -> i64
+    %q = idr.call @compared(%c, %c) : (i32, i32) -> i1
+    %n = idr.call @naturals(%c) : (i32) -> i64
+    %qi = arith.extui %q : i1 to i64
+    %w2 = idr.io.put_int signed %s, %w1 : i64
+    %w3 = idr.io.put_int signed %d, %w2 : i64
+    %w4 = idr.io.put_int signed %p, %w3 : i64
+    %w5 = idr.io.put_int signed %qi, %w4 : i64
+    %w6 = idr.io.put_int signed %n, %w5 : i64
+    return %w6 : !idr.world
+  }
+  // The large root: @unknown on two bigs read from input, any size.
+  idr.func @large(%w: !idr.world) -> !idr.world {
+    %l1, %w1 = idr.io.get_line %w
+    %l2, %w2 = idr.io.get_line %w1
+    %a = idr.big.from_str %l1
+    %b = idr.big.from_str %l2
+    %s = idr.call @unknown(%a, %b) : (!idr.big, !idr.big) -> !idr.big
+    %t = idr.big.show %s
+    %w3 = idr.io.put_str %t, %w2
+    return %w3 : !idr.world
   }
 }

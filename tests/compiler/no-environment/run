@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Neither idris-mlir nor its frontend reads Idris's environment: the
 # prefix and the package directories are their arguments. With every
 # variable Idris reads naming a directory that does not exist, a program

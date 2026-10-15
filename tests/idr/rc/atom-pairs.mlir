@@ -2,6 +2,8 @@
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@withCell -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=SHARED < %t.err
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // span, break and splitAt give a pair of empty lists where their input ends:
 // static data, an unboxed sum whose two slots are the empty list's atom.
 // No take hands out a cell of it, and nothing counts, frees or writes it,
@@ -30,7 +32,7 @@ idr.program @"atom-pairs" root(@root) stage(first) {
     %k = arith.extsi %n : i32 to i64
     %r = idr.match_lit %k : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
+      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
       idr.yield %e : !idr.box<!L>
     }
     default {
@@ -45,8 +47,8 @@ idr.program @"atom-pairs" root(@root) stage(first) {
   }
   // span (< 10): the longest prefix of elements below 10, and the rest.
   idr.func @span(%xs: !idr.box<!L>) -> !P {
-    %empty = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
-    %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %empty = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @N, []>, #idr.con<!L, @N, []>]> : !P
+    %nil = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match %xs : !idr.box<!L> -> (!P) {
     case @N() {
       idr.yield %empty : !P
@@ -79,8 +81,8 @@ idr.program @"atom-pairs" root(@root) stage(first) {
   }
   // break (== 10): the prefix before the first 10, and the rest from it.
   idr.func @break(%xs: !idr.box<!L>) -> !P {
-    %empty = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
-    %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %empty = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @N, []>, #idr.con<!L, @N, []>]> : !P
+    %nil = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match %xs : !idr.box<!L> -> (!P) {
     case @N() {
       idr.yield %empty : !P
@@ -113,8 +115,8 @@ idr.program @"atom-pairs" root(@root) stage(first) {
   }
   // splitAt n: the first n elements, and the rest.
   idr.func @splitAt(%n: i64, %xs: !idr.box<!L>) -> !P {
-    %empty = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
-    %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %empty = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @N, []>, #idr.con<!L, @N, []>]> : !P
+    %nil = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match_lit %n : i64 -> (!P) {
     case 0 {
       %p = idr.con !P @MkPair(%nil : !idr.box<!L>, %xs : !idr.box<!L>)
@@ -146,8 +148,8 @@ idr.program @"atom-pairs" root(@root) stage(first) {
   }
   // span (< 10) again, ending in a static pair whose first list is a cell.
   idr.func @withCell(%xs: !idr.box<!L>) -> !P {
-    %ended = idr.constant #idr.con<@MkPair, [#idr.con<@C, [0 : i32, #idr.con<@N, []>]>, #idr.con<@N, []>]> : !P
-    %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %ended = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @C, [0 : i32, #idr.con<!L, @N, []>]>, #idr.con<!L, @N, []>]> : !P
+    %nil = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
     %r = idr.match %xs : !idr.box<!L> -> (!P) {
     case @N() {
       idr.yield %ended : !P

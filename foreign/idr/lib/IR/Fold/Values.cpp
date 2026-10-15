@@ -43,30 +43,35 @@ Attribute compared(MLIRContext *ctx, CmpPredicate predicate, int32_t order) {
 }
 
 // The body says which constructor is the list's nil and which its cons, of
-// an element and the rest.
+// an element and the rest. The walk goes from each cons to its rest, a part
+// of the attribute it was read from, so it ends with the attribute.
 std::optional<SmallVector<Attribute>> listElements(Attribute list) {
   SmallVector<Attribute> elements;
-  while (true) {
-    auto con = dyn_cast_or_null<ConAttr>(list);
-    if (!con)
-      return std::nullopt;
-    CtorRole role = con.getCtor().role;
-    if (role == CtorRole::ListNil)
+  for (auto con = dyn_cast_or_null<ConAttr>(list); con;) {
+    switch (con.getCtor().role) {
+    case CtorRole::ListNil:
       return elements;
-    if (role != CtorRole::ListCons)
+    case CtorRole::ListCons:
+      break;
+    case CtorRole::Plain:
+    case CtorRole::Label:
+    case CtorRole::Running:
+    case CtorRole::Forced:
       return std::nullopt;
+    }
     if (con.isRun() && con.getSpine() == 1) {
       // Each cell holds the cons's fields but the spine: its element.
       for (ArrayAttr cell : con.getRunCells())
         elements.push_back(cell[0]);
-      list = con.getTail();
+      con = dyn_cast_or_null<ConAttr>(con.getTail());
       continue;
     }
     // One cell, or a run along the element, whose first element is then a
     // list again; the rest is off the spine.
     elements.push_back(con.getField(0));
-    list = con.getField(1);
+    con = dyn_cast_or_null<ConAttr>(con.getField(1));
   }
+  return std::nullopt;
 }
 
 } // namespace idr::fold

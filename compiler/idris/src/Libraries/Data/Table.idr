@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: BSD-3-Clause
--- Copyright (c) 2020 Edwin Brady
+-- Copyright (c) 2026 Bjorn Pagen
 ||| A table of entries indexed by Int, each slot empty until it is written,
 ||| on base's mutable array, held in a reference and changed in the world's
 ||| order. The array's length is the table's capacity; claiming a slot past

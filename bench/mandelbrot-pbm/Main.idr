@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 module Main
 
 -- mandelbrot (the Benchmarks Game): a portable bitmap of the set, eight

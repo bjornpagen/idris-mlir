@@ -15,7 +15,12 @@
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-reduce/MlirReduceMain.h"
 
+#include "idris_rt.h"
+
 int main(int argc, char **argv) {
+  // The folders run the runtime's big operations, whose GMP allocates where
+  // a program's does, set while no other thread exists.
+  idris_rt_gmp_init();
   mlir::registerAllPasses();
   idr::registerIdrPasses();
   idr::registerIdrPipeline();

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* fasta-redux on one core. The same sequences, generator and line length as
    fasta, but each nucleotide is the table entry of the generator's residue
    instead of a search of the cumulative probabilities: the lookup fasta

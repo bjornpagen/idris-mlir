@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Every public declaration of foreign/idr is in one header under
 # foreign/idr/include, which a unit includes by its path (idr/...); no
 # header sits beside a .cpp, so a declaration two units share has one home

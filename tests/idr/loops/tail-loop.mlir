@@ -6,7 +6,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@fib -o /dev/null 2> %t.fib.err
 // RUN: FileCheck %s --check-prefix=FIB < %t.fib.err
 // RUN: idris-mlir-opt %t.mlir --inline --canonicalize | FileCheck %s --check-prefix=KEPT
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // A self tail call in a region of a match whose results are returned
 // becomes a loop, so the stack stays constant; a call that is not in tail
 // position stays, and the stack grows with it. A loop that counts up to a

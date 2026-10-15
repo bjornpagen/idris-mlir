@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 not ready
 
 Do not send. There is no patch. This needs an RFC on LLVM Discourse for iterative parse, print and walk. Do not send code.

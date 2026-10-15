@@ -13,14 +13,15 @@ import Array
 import Linear.Vec
 
 -- The size and the capacity, with the vector given back.
-dims : (1 _ : Vec Int) -> Res (Nat, Nat) (const (Vec Int))
+dims : (1 _ : Vec n Int) -> Res (Nat, Nat) (const (Vec n Int))
 dims a = let s # a1 = size a
              c # a2 = capacity a1
          in (s, c) # a2
 
--- Each of `i` to `n` pushed, in order.
-pushFrom : (1 _ : Vec Int) -> Int -> Int -> Vec Int
-pushFrom a i n = if i > n then a else pushFrom (push a i) (i + 1) n
+-- Each of `i` to `n` pushed, in order: how many is data, so the vector
+-- comes back with its size.
+pushFrom : {k : Nat} -> (1 _ : Vec k Int) -> Int -> Int -> Res Nat (\m => Vec m Int)
+pushFrom a i n = if i > n then k # a else pushFrom (push a i) (i + 1) n
 
 -- The size, the sum, the first element and the last.
 frozen : (k : Nat) -> Vector k Int -> List Int
@@ -42,10 +43,11 @@ run k = unrestricted $ withVec 3 (the Int 7) (\v =>
       d2 # a2 = dims (reserve a1 3)
       d3 # a3 = dims (reserve a2 (cast (the Int (-5))))
       d4 # a4 = dims (reserve a3 (cast k))
-      d5 # a5 = dims (pushFrom a4 1 k)
+      m # pushed = pushFrom a4 1 k
+      d5 # a5 = dims pushed
       d6 # a6 = dims (push a5 (k + 1))
-      MkBang (n ** f) = Vec.freeze a6
-  in MkBang ([d0, d1, d2, d3, d4, d5, d6], frozen n f))
+      MkBang f = Vec.freeze a6
+  in MkBang ([d0, d1, d2, d3, d4, d5, d6], frozen (S m) f))
 
 main : IO ()
 main = do

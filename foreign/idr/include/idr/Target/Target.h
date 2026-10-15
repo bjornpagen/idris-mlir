@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace llvm {
@@ -44,9 +45,10 @@ namespace idr::target {
 // compiled for: IEEE arithmetic with no fused operations, every function
 // and datum in a section of its own, position-independent, optimized as
 // far as LLVM goes. The triple, CPU and features are the module's target.
-// Null when LLVM has no machine for them.
-std::unique_ptr<llvm::TargetMachine> machine(const llvm::Target &target, const llvm::Triple &triple,
-                                             llvm::StringRef cpu, llvm::StringRef features);
+// The error says that LLVM has no machine for them.
+llvm::Expected<std::unique_ptr<llvm::TargetMachine>>
+machine(const llvm::Target &target, const llvm::Triple &triple, llvm::StringRef cpu,
+        llvm::StringRef features);
 
 // LLVM's O3 pipeline for the machine, with MergeFunctions: identical
 // functions (clones that specialization left equal) become one.
@@ -66,6 +68,13 @@ inline constexpr llvm::StringLiteral vectorWidthKey = "max_vector_op_width";
 // when the transform dialect loads and the library is parsed.
 inline constexpr llvm::StringLiteral vectorizeSchedule = "idr.vectorization";
 void registerScheduleLibrary(mlir::DialectRegistry &registry);
+
+// The library's cleanup of the unit dimensions vectorizing left, within its
+// rounds, on the ops its handle holds. The schedule includes it with a
+// spent budget suppressed; run alone, as a test does with
+// `--transform-interpreter=entry-point=idr.vectorization.cleanup`, a spent
+// budget is an error, so a cycle among its patterns fails the test.
+inline constexpr llvm::StringLiteral cleanupSchedule = "idr.vectorization.cleanup";
 
 // The size a bin of the optimized program aims at, in LLVM instructions. A
 // bin's fixed cost (its context, machine and bitcode read) is per bin and
@@ -109,12 +118,18 @@ private:
   // order, so the module `extract` reads back has the places `of` numbered.
   static std::vector<llvm::GlobalValue *> positions(llvm::Module &module);
 
+  // Where a global value lives: declared only (a declaration, or an alias
+  // of nothing a bin defines), copied into each bin that names it (a
+  // constant whose address nothing tells apart), or defined by one bin.
+  struct Declared {};
+  struct Copied {};
+  struct Defined {
+    unsigned bin;
+  };
+
   // A global value of the module, by its place in the module's lists.
   struct Symbol {
-    // The bin that defines it, or none: a declaration, or a constant every
-    // bin that names it holds a private copy of.
-    int bin = -1;
-    bool copied = false;
+    std::variant<Declared, Copied, Defined> home;
     // The symbols its body, initializer, aliasee or resolver names.
     llvm::SmallVector<unsigned, 4> refs;
   };

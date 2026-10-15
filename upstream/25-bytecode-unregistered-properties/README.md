@@ -1,7 +1,9 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir][bytecode] The reader decodes an op's properties by its own registry, not by the writer's
 
-On llvm main at 7208ba24 (the pin), and on GitHub's main on 2026-10-15, the
-bytecode reader chooses how to decode an operation's properties by whether
+On llvm main at 7208ba24 (the pin), and at b43c0361 (main on 2026-10-15,
+where `mlir/lib/Bytecode` is unchanged since the pin), the bytecode reader chooses how to decode an operation's properties by whether
 the operation is registered where the file is read. The writer chose the
 encoding by whether it was registered where the file was written, and
 records that choice in the file. When the two disagree, an operation
@@ -76,11 +78,14 @@ The frontend's bytecode writer (`compiler/src/IdrisMLIR/MLIR/Bytecode.idr`)
 used to flag every operation name unregistered and put each operation's
 properties dictionary, as an attribute number, in the operation's own
 encoding, counting on the else branch. The reader took that number for a
-properties index, so no module the frontend wrote could be read (0005 §7,
-B1). The writer's assumption (0004's C22 §2, "the reader then takes an op's
-properties as one dictionary attribute and sets them with
-setPropertiesFromAttribute") was wrong twice: the branch is dead, and it is
-not the layout upstream's writer produces for an unregistered operation.
+properties index, so no module the frontend wrote could be read (the
+representation wave, bfdcac70; its proposal's §7, ruling B1, is at
+484d6403). The writer's assumption, written in the pipeline cutover's
+emitted-module contract (C22 §2 of the cutover's proposal, c7aa7b62 and
+5d5f3312, text at 484d6403: "the reader then takes an op's properties as
+one dictionary attribute and sets them with setPropertiesFromAttribute"),
+was wrong twice: the branch is dead, and it is not the layout upstream's
+writer produces for an unregistered operation.
 
 The frontend now writes each operation honestly: its name flagged
 registered, as it is where the file is read, and its inherent attributes
@@ -131,36 +136,46 @@ written by upstream's writer in a context where every operation it holds is
 registered. The bug was met only through the frontend's old encoding, which
 relied on the dead branch.
 
-## Testing at the pin
+## Testing
 
-On arm64 macOS, at 7208ba24:
+On arm64 macOS, 2026-10-15:
 
-- `pull-request.diff` applies (`git apply --check` in
-  `.toolchain/llvm-project`).
-- The patched `BytecodeReader.cpp` and `OpPropertiesTest.cpp` pass
-  `-fsyntax-only` with the typecheck build's compiler and flags (Apple
-  clang, `-std=c++2c`) against the pinned headers, the test with
-  googletest's and googlemock's.
+- `pull-request.diff` applies with `git apply --check`, with no offset, to
+  the pin (`.toolchain/llvm-project`, 7208ba24) and to llvm main at
+  b43c0361. Neither `BytecodeReader.cpp` nor `OpPropertiesTest.cpp`
+  changed between the two.
+- The patched `BytecodeReader.cpp` passes `-fsyntax-only` with the
+  typecheck build's command for that unit (Apple clang, the unit's own
+  flags, `-Werror=global-constructors` among them); the patched
+  `OpPropertiesTest.cpp` passes with the same command, googletest's and
+  googlemock's headers added and `-Wno-global-constructors`, as LLVM's
+  unit tests are built.
+- The open bytecode pull requests (#229910, #229735) touch other hunks of
+  `BytecodeReader.cpp`; the diff applies after either.
 
 Not run: no `mlir-opt` or `MLIRIRTests` is built on this machine, so the
 reproducer has not been run, the test has not been seen to fail without the
-change or pass with it, and `check-mlir` has not run. The lines are not
-checked with clang-format (none here).
+change or pass with it, and `check-mlir` has not run. That the test fails
+without the change is read from the code: the reader reaches
+`PropertiesSectionReader::read`'s registered-without-interface error. The
+lines are not checked with clang-format (none here); the C++ lines are
+within 80 columns.
 
 ## Upstreaming plan
 
-Status: not filed, not ready. No issue or pull request covers it: searched
-for the reader's `wasRegistered` and for unregistered operations' properties
-in bytecode, 2026-10-15.
+Status: ready to file, not filed. `submission.md` has the pull request
+title and body and the checklist to run before posting. No issue or pull
+request covers it: searched llvm/llvm-project for the reader's
+`wasRegistered`, bytecode properties and unregistered operations,
+2026-10-15.
 
 - Where: one pull request to llvm/llvm-project (MLIR, bytecode). No issue:
   the pull request carries the reproducer as its test.
 - Upstream test: `OpPropertiesTest.BytecodeWrittenUnregistered`.
-- Before sending: build `MLIRIRTests` with the change and see the test
-  pass, and fail with the `BytecodeReader.cpp` change reverted; the diff
-  must apply to then-current main and be clang-format clean;
-  `check-mlir` is the pull request's pre-merge CI's (upstream/README.md,
-  **CI decides**). Write `submission.md` then.
+- Before sending: `submission.md`'s checklist. The diff applies to
+  then-current main and is clang-format clean; `check-mlir`, which runs
+  `MLIRIRTests`, is the pull request's pre-merge CI's (upstream/README.md,
+  **CI decides**).
 - A check that the pinned tools still have the bug,
   `tests/upstream/bytecode-unregistered-properties`, is to run the
   two-tool reproducer above and expect `idris-mlir-opt` to fail; when the

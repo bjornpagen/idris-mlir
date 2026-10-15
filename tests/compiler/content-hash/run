@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The frontend's hash, IdrisMLIR.Ids.xxh3_128, the one every name it
 # generates is made from, checked against the published values: the
 # reference's sanity buffer at each length its own test reads, and three

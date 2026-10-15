@@ -241,16 +241,13 @@ void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContex
 // idr.memo.settle
 //===----------------------------------------------------------------------===//
 
-// The value is what the cell's Forced state holds.
+// The value is what the cell's Forced state holds: the one field the
+// body's rules give that state, in the memo sum the cell's type is of.
 LogicalResult MemoSettleOp::verify() {
   DataType memo = cast<BoxType>(unrestricted(getCell().getType())).getData();
-  const Ctor *forced = llvm::find_if(
-      memo.getCtors(), [](const Ctor &ctor) { return ctor.role == CtorRole::Forced; });
-  if (forced == memo.getCtors().end() || forced->fields.size() != 1)
-    return emitOpError("settles ") << getCell().getType() << ", whose memo sum has no Forced "
-                                   << "state holding one value";
-  if (unrestricted(getValue().getType()) != unrestricted(forced->fields.front()))
+  Type forced = memo.getCtor(memo.getForcedTag()).fields.front();
+  if (unrestricted(getValue().getType()) != unrestricted(forced))
     return emitOpError("settles ") << getCell().getType() << " with " << getValue().getType()
-                                   << ", where its Forced state holds " << forced->fields.front();
+                                   << ", where its Forced state holds " << forced;
   return success();
 }

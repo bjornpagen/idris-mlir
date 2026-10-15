@@ -43,6 +43,8 @@
 // syntax can say: its name, then its body, which a type inside its own body
 // leaves out, as LLVM writes an identified struct.
 
+#include "idr/Support/Worklist.h"
+
 #include "mlir/TableGen/AttrOrTypeDef.h"
 #include "mlir/TableGen/Attribute.h"
 #include "mlir/TableGen/Dialect.h"
@@ -367,21 +369,18 @@ EnumCase namedCase(const EnumCase &c, StringRef field) {
 }
 
 // Completes `enums` with the enums the cases of each name in a field, and
-// records those fields: a worklist over the enums, each taken once.
+// records those fields: each enum is taken once, and the enums are the
+// records', so the walk ends. A name is the map's own key, which stays
+// where it is as the map grows.
 void addCaseFields(Enums &enums, const EnumsOfCases &owners) {
-  std::vector<std::string> pending;
+  idr::OnceWorklist<StringRef> work;
   for (const auto &[name, used] : enums)
-    pending.push_back(name);
-  while (!pending.empty()) {
-    std::string name = pending.back();
-    pending.pop_back();
-    std::vector<CaseField> fields = caseFieldsOf(EnumInfo(enums.at(name).def), owners);
-    for (const CaseField &f : fields) {
-      std::string target = enumName(EnumInfo(f.values));
-      if (enums.try_emplace(target, Enum{f.values}).second)
-        pending.push_back(target);
-    }
-    enums.at(name).caseFields = std::move(fields);
+    work.push(name);
+  while (std::optional<StringRef> name = work.pop()) {
+    Enum &taken = enums.find(name->str())->second;
+    taken.caseFields = caseFieldsOf(EnumInfo(taken.def), owners);
+    for (const CaseField &f : taken.caseFields)
+      work.push(enums.try_emplace(enumName(EnumInfo(f.values)), Enum{f.values}).first->first);
   }
 }
 
@@ -1258,12 +1257,24 @@ std::optional<Kind> enumKind(Enums &enums, const AttrOrTypeParameter &param,
   return Kind{"List " + name, lower + "Spellings {0}"};
 }
 
+// The Idris kind of a parameter the dialect defines once for every
+// attribute that holds one, keyed on that definition: a constructor's tag
+// (Idr_TagParameter), which the Idris side holds as the number it writes.
+std::optional<Kind> definedKind(const AttrOrTypeParameter &param) {
+  const auto *def = llvm::dyn_cast<llvm::DefInit>(param.getDef());
+  if (def && def->getDef()->getName() == "Idr_TagParameter")
+    return Kind{"Nat", "show {0}"};
+  return std::nullopt;
+}
+
 // The field of a parameter, or nothing, with the reason in `why`.
 std::optional<Field> fieldOf(Enums &enums, const AttrOrTypeParameter &param, size_t index,
                              std::string &why) {
   std::optional<Kind> kind = enumKind(enums, param, why);
   if (!kind && !why.empty())
     return std::nullopt;
+  if (!kind)
+    kind = definedKind(param);
   if (!kind)
     kind = valueKind(param.getCppType());
   if (!kind) {
@@ -1307,16 +1318,12 @@ std::string parameterName(StringRef &format) {
 // a directive the generator does not write (custom, struct, params) and for
 // an else branch. Such a syntax has only `qualified`, and the C++ printer
 // alone spaces it.
+//
+// Each element read consumes text, or the reading ends, so the loop ends
+// with the text.
 std::optional<std::vector<Element>> elements(StringRef &format, bool inGroup, std::string &why) {
   std::vector<Element> out;
-  while (true) {
-    format = format.ltrim();
-    if (format.empty()) {
-      if (!inGroup)
-        return out;
-      why = "an optional group that does not end";
-      return std::nullopt;
-    }
+  for (format = format.ltrim(); !format.empty(); format = format.ltrim()) {
     if (inGroup && format.consume_front(")"))
       return out;
     if (format.consume_front("`")) {
@@ -1371,6 +1378,10 @@ std::optional<std::vector<Element>> elements(StringRef &format, bool inGroup, st
                        : ("the directive `" + word + "`").str();
     return std::nullopt;
   }
+  if (!inGroup)
+    return out;
+  why = "an optional group that does not end";
+  return std::nullopt;
 }
 
 // A literal as the declarative printer spaces it: a comma, an arrow and an
@@ -1764,6 +1775,14 @@ void emitSum(const std::vector<Def> &defs, bool isType, llvm::raw_ostream &os) {
   os << "\n";
 }
 
+// The license of a module the generator writes into the tree: the
+// generator is ours and so is the ODS it reads, so the module is ours too,
+// under the line every file of ours opens with. It comes first, before the
+// module's documentation.
+void writeLicense(llvm::raw_ostream &os) {
+  os << "-- SPDX-License-Identifier: 0BSD\n-- Copyright (c) 2026 Bjorn Pagen\n";
+}
+
 bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
   Vocabulary v = read(records, "gen-idris-syntax");
   std::string enumerations, types, attrs;
@@ -1776,6 +1795,7 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
   emitSum(v.types, true, typesOs);
   emitSum(v.attrs, false, attrsOs);
 
+  writeLicense(os);
   os << "||| The " << dialectName << " dialect's syntax, as the Idris side writes it: the enums\n"
      << "||| its ops, types and attributes take, and its types and attributes, which\n"
      << "||| IdrisMLIR.MLIR's types and attributes hold. Generated by idris-mlir-tblgen\n"
@@ -1803,6 +1823,7 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
     emitEnumValues(used, valuesOs);
   emitDiscardable(*v.dialect, discardablesOs);
 
+  writeLicense(os);
   os << "||| The " << dialectName << " dialect, as the Idris side writes it. Generated by\n"
      << "||| idris-mlir-tblgen -gen-idris-dialect from the dialect's ODS; `make build`\n"
      << "||| writes it (tools/dialects.sh). Do not edit.\n"

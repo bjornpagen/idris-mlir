@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* The runtime's string and big operations: `api` prints one line per
  * operation, which the run script compares with expected-operations. Then
  * the casts from String, whose grammar is ours (idris_rt.h), and the
@@ -156,14 +158,15 @@ static void roundTrip(void) {
 static int decodeFailures = 0, decodeChecks = 0;
 
 /* The n bytes at p become the string of the well-formed UTF-8 `want`:
- * the same bytes, scalar count and ASCII flag. */
+ * the same bytes and scalar count, so ASCII exactly when it is (a string is
+ * ASCII when its scalars are its bytes). */
 static void expectDecoded(const char *p, size_t n, const char *want) {
   const idris_rt_str *got = idris_rt_str_from_bytes(p, n);
   const idris_rt_str *expected = make(want);
   ++decodeChecks;
   if (got->bytes != expected->bytes || got->scalars != expected->scalars ||
       memcmp(idris_rt_str_bytes(got), idris_rt_str_bytes(expected), got->bytes) != 0 ||
-      idris_rt_str_is_ascii(got) != idris_rt_str_is_ascii(expected)) {
+      (got->scalars == got->bytes) != (expected->scalars == expected->bytes)) {
     fprintf(stderr, "FAIL from_bytes of %zu bytes, expected \"%s\"\n", n, want);
     ++decodeFailures;
   }
@@ -209,6 +212,86 @@ static void decoding(void) {
 #undef FFFD
   fprintf(stderr, "bytes as a string: %d of %d as idris_rt.h defines them\n",
           decodeChecks - decodeFailures, decodeChecks);
+}
+
+/* Bytes from outside the program at random: printable ASCII, whole
+ * scalars of every length, continuation bytes, lead bytes and bytes no
+ * well-formed sequence holds, up to 319 at a time, so that runs cross
+ * simdutf's 64-byte blocks. The decoded string's scalar count, which one
+ * pass of validating and counting gives for each well-formed run, is the
+ * count of its scalars, as idris_rt_utf8_count counts them; it is ASCII
+ * exactly when its two counts are equal; and its bytes are well-formed, so
+ * decoding them again gives them back with the same count. */
+static void randomDecoding(void) {
+  enum { strings = 2000, longest = 320 };
+  uint64_t state = 11;
+  int checked = 0, failed = 0;
+  for (int i = 0; i < strings; ++i) {
+    char bytes[longest + 4];
+    size_t n = 0;
+    state = state * 6364136223846793005u + 1442695040888963407u;
+    size_t length = (size_t)(state >> 33) % longest;
+    while (n < length) {
+      state = state * 6364136223846793005u + 1442695040888963407u;
+      uint32_t r = (uint32_t)(state >> 32);
+      switch (r % 6) {
+      case 0:
+      case 1:
+        bytes[n++] = (char)(0x20 + (r >> 8) % 0x5F);
+        break;
+      case 2: {
+        /* A whole scalar: below 0x800, below 0x10000 outside the
+         * surrogates, or up to 0x10FFFF. */
+        uint32_t c = (r >> 3) % 3 == 0 ? 0x80 + (r >> 8) % 0x780
+                     : (r >> 3) % 3 == 1 ? 0xE000 + (r >> 8) % 0x2000
+                                         : 0x10000 + (r >> 8) % 0x100000;
+        if (c < 0x800) {
+          bytes[n++] = (char)(0xC0 | c >> 6);
+        } else if (c < 0x10000) {
+          bytes[n++] = (char)(0xE0 | c >> 12);
+          bytes[n++] = (char)(0x80 | (c >> 6 & 0x3F));
+        } else {
+          bytes[n++] = (char)(0xF0 | c >> 18);
+          bytes[n++] = (char)(0x80 | (c >> 12 & 0x3F));
+          bytes[n++] = (char)(0x80 | (c >> 6 & 0x3F));
+        }
+        bytes[n++] = (char)(0x80 | (c & 0x3F));
+        break;
+      }
+      case 3:
+        bytes[n++] = (char)(0x80 + (r >> 8) % 0x40);
+        break;
+      case 4:
+        bytes[n++] = (char)(0xC2 + (r >> 8) % 0x33);
+        break;
+      default: {
+        static const unsigned char never[] = {0xC0, 0xC1, 0xF5, 0xF8, 0xFE, 0xFF};
+        bytes[n++] = (char)never[(r >> 8) % sizeof never];
+        break;
+      }
+      }
+    }
+    const idris_rt_str *got = idris_rt_str_from_bytes(bytes, n);
+    const char *p = idris_rt_str_bytes(got);
+    int ascii = 1;
+    for (uint64_t k = 0; k < got->bytes; ++k)
+      ascii &= (unsigned char)p[k] < 0x80;
+    const idris_rt_str *again = idris_rt_str_from_bytes(p, got->bytes);
+    ++checked;
+    if (got->scalars != idris_rt_utf8_count(p, got->bytes) ||
+        (got->scalars == got->bytes) != ascii || again->bytes != got->bytes ||
+        again->scalars != got->scalars || memcmp(idris_rt_str_bytes(again), p, got->bytes) != 0) {
+      fprintf(stderr, "FAIL random bytes %d: %zu bytes, %llu scalars\n", i, n,
+              (unsigned long long)got->scalars);
+      ++failed;
+    }
+    release(again);
+    release(got);
+  }
+  fprintf(stderr, "random bytes as a string: %d of %d count their scalars, ASCII exactly when "
+                  "the counts agree\n",
+          checked - failed, checked);
+  decodeFailures += failed;
 }
 
 int main(void) {
@@ -436,6 +519,7 @@ int main(void) {
   fprintf(stderr, "casts from String: %d of %d as idris_rt.h defines them\n", checks - failures, checks);
   roundTrip();
   decoding();
+  randomDecoding();
   uint64_t live = idris_rt_live_cells();
   fprintf(stderr, "live cells once every result is released: %llu\n", (unsigned long long)live);
   return failures == 0 && decodeFailures == 0 && borrowFailures == 0 && live == 0 ? 0 : 1;

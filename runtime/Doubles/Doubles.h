@@ -23,6 +23,6 @@ inline uint64_t bitsOf(double x) { return __builtin_bit_cast(uint64_t, x); }
 inline constexpr size_t doubleTextMax = 32;
 
 // The text of a double; returns its length (Printing.cpp).
-size_t formatDouble(double x, volatile char *out);
+size_t formatDouble(double x, char *out);
 
 } // namespace rt::doubles

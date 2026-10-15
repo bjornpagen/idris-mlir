@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=results-used=@unused,matches=@unused,\
 // RUN: returns-argument=@same:1,matches-nothing=@same,results-used=@dead,crash-sites=@dead:1 -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // Results no one uses are dropped, and a result that every region yields
 // from the same outer value is that value (upstream's region patterns).
 

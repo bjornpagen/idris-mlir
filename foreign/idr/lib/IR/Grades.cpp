@@ -6,6 +6,13 @@
 // is the arrays' unit's.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Worklist.h"
+
+#include "llvm/ADT/SmallPtrSet.h"
+
+#include "llvm/Support/ErrorHandling.h"
+
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -44,16 +51,30 @@ bool idr::isClosureType(Type type) { return isa<FnType>(unrestricted(type)); }
 
 bool idr::isLazyType(Type type) { return isa<LazyType>(unrestricted(type)); }
 
-bool idr::isOwned(Type type) {
-  Permission permission = gradeOf(type).permission;
-  return permission == Permission::Own || permission == Permission::Excl;
+namespace {
+
+// Whether a value at `permission` holds a reference of its own.
+bool holdsOwn(Permission permission) {
+  switch (permission) {
+  case Permission::Plain:
+  case Permission::Borrow:
+    return false;
+  case Permission::Own:
+  case Permission::Excl:
+    return true;
+  }
+  llvm_unreachable("a permission");
 }
+
+} // namespace
+
+bool idr::isOwned(Type type) { return holdsOwn(gradeOf(type).permission); }
 
 // A value that holds no reference of its own, plain or a borrow, comes to
 // hold one; own and excl stay.
 Type idr::owned(Type type) {
   Grade grade = gradeOf(type);
-  if (grade.permission == Permission::Plain || grade.permission == Permission::Borrow)
+  if (!holdsOwn(grade.permission))
     grade.permission = Permission::Own;
   return graded(grade, unrestricted(type));
 }
@@ -79,11 +100,13 @@ Type idr::exclusive(Type type) {
 }
 
 Quantity idr::times(Quantity a, Quantity b) {
-  if (a == Quantity::One)
+  switch (a) {
+  case Quantity::One:
     return b;
-  if (b == Quantity::One)
-    return a;
-  return Quantity::Many;
+  case Quantity::Many:
+    return Quantity::Many;
+  }
+  llvm_unreachable("a quantity");
 }
 
 // A destination is written exactly once, so it is used exactly once.
@@ -91,39 +114,56 @@ Quantity idr::quantityOf(Type type) {
   return isa<DestType>(type) ? Quantity::One : gradeOf(type).quantity;
 }
 
-Value idr::throughLinear(Value value) {
-  for (;;) {
-    if (auto enter = value.getDefiningOp<LinEnterOp>()) {
-      value = enter.getValue();
-      continue;
-    }
-    auto use = value.getDefiningOp<LinUseOp>();
-    auto enter = use ? use.getLinear().getDefiningOp<LinEnterOp>() : LinEnterOp();
-    if (!enter)
-      return value;
-    value = enter.getValue();
-  }
+namespace {
+
+// What `value` was entered into its linear position from, when it is one:
+// `lin.enter %x`, or `lin.use (lin.enter %x)`.
+std::optional<Value> enteredFrom(Value value) {
+  if (auto enter = value.getDefiningOp<LinEnterOp>())
+    return enter.getValue();
+  if (auto use = value.getDefiningOp<LinUseOp>())
+    if (auto enter = use.getLinear().getDefiningOp<LinEnterOp>())
+      return enter.getValue();
+  return std::nullopt;
 }
+
+} // namespace
+
+SmallVector<Value, 4> idr::definitionChain(Value start,
+                                           function_ref<std::optional<Value>(Value)> step) {
+  SmallVector<Value, 4> chain{start};
+  llvm::SmallPtrSet<Value, 4> passed{start};
+  for (std::optional<Value> next = step(start); next && passed.insert(*next).second;
+       next = step(*next))
+    chain.push_back(*next);
+  return chain;
+}
+
+Value idr::throughLinear(Value value) { return definitionChain(value, enteredFrom).back(); }
 
 // A view or a share of an owned array is that array, and so is the array a
 // linear position was entered with: what counting and linearity make of an
 // array changes which value names it, not which cell it is. Every op that
 // only changes a grade says so (ResultCarriesOperand).
 Value idr::arrayRoot(Value array) {
-  for (Operation *grade = array.getDefiningOp();
-       grade && grade->hasTrait<ResultCarriesOperand>(); grade = array.getDefiningOp())
-    array = grade->getOperand(0);
-  return array;
+  return definitionChain(array, [](Value value) -> std::optional<Value> {
+           Operation *grade = value.getDefiningOp();
+           if (grade && grade->hasTrait<ResultCarriesOperand>())
+             return grade->getOperand(0);
+           return std::nullopt;
+         }).back();
 }
 
+// Each value the grade changes make of `value` is looked at once, and each
+// is the result of a use of the one before, so the walk ends with them.
 bool idr::fieldReadOnce(Value value, unsigned index) {
   unsigned reads = 0;
-  SmallVector<Value, 4> work{value};
-  while (!work.empty()) {
-    Value held = work.pop_back_val();
-    for (Operation *user : held.getUsers()) {
+  OnceWorklist<Value> work;
+  work.push(value);
+  while (std::optional<Value> held = work.pop()) {
+    for (Operation *user : held->getUsers()) {
       if (user->hasTrait<ResultCarriesOperand>()) {
-        work.push_back(user->getResult(0));
+        work.push(user->getResult(0));
         continue;
       }
       auto read = dyn_cast<FieldOp>(user);

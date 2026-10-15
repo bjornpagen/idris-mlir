@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-effects --idr-expect=holds=effects=@divides:crash,effects=@makes:none,effects=@done:none,effects=@Lazy.force:crash,effects=@forces:crash -o /dev/null
-// NEEDS-ACCEPTANCE: the dispatch idr-defunctionalize makes of a memo sum (R06) and the syntax of idr.memo.enter and idr.memo.settle (R02).
+// NEEDS-ACCEPTANCE: the dispatch idr-defunctionalize makes of a memo sum and the syntax of idr.memo.enter and idr.memo.settle.
 // A memo sum stands to a suspension as a sum of closures stands to a
 // closure, and a force is a call of the sum's dispatch, `<sum>.force`,
 // which calls the function of each label it may find in the cell. So what

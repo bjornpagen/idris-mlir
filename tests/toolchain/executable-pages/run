@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A program as the target links it is laid out in pages of the target's page
 # size (the build's runtime/page-size): every segment it loads starts on a
 # page in memory and at the same offset in a page of the file, so the
@@ -16,7 +18,7 @@ case $page in
     exit 0 ;;
 esac
 program=$work/start
-if ! link_program -O1 -I"$root/runtime" "$root/tests/toolchain/page-size-mismatch/start.c" \
+if ! runtime_c link_program -O1 "$root/tests/toolchain/page-size-mismatch/start.c" \
     "$runtime" -o "$program" > "$work/cc.log" 2>&1; then
   say "start: does not link"
   show "$work/cc.log"

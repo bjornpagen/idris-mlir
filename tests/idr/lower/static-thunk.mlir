@@ -3,8 +3,9 @@
 // RUN: FileCheck %s --implicit-check-not='llvm.mlir.global private @' < %t.mlir
 // RUN: FileCheck %s --check-prefix=CELL < %t.mlir
 // RUN: FileCheck %s --check-prefix=STREAM < %t.mlir
-// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
-// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle (R02), the dispatch idr-defunctionalize makes (R06), and the names R12 gives static data, keyed on its content.
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
+// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle, the dispatch idr-defunctionalize makes, and the names the lowering gives static data, keyed on its content.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A lazy constant is a memo cell in static data, which its first force
 // writes, once: its force is a call of the memo sum's dispatch, which
 // enters and settles the cell where it is. So its global is not constant,
@@ -28,7 +29,7 @@
 idr.program @"static-thunk" root(@Prog.main) stage(first) {
   // ones = 1 :: ones: its tail is the thunk of the definition itself.
   idr.func @ones() -> !idr.box<!Stream> attributes {total} {
-    %s = idr.constant #idr.con<@Cons, [1, #idr.con<@ones, []>]> : !idr.box<!Stream>
+    %s = idr.constant #idr.con<!Stream, @Cons, [1, #idr.con<!Tail, @ones, []>]> : !idr.box<!Stream>
     return %s : !idr.box<!Stream>
   }
   idr.func @Tail.force(%t: !idr.box<!Tail>) -> !idr.box<!Stream> {

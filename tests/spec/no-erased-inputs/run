@@ -1,16 +1,40 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The frontend reads none of the forms that have already erased facts or
-# were built for other backends: no identifier of them, and no import of the
-# modules that define them, anywhere in compiler/src.
+# were built for other backends: no import of the fork's modules that define
+# them, and in its code (comments and strings aside) no name of them, the
+# fields of a definition that hold them among them, anywhere in
+# compiler/src. A name the frontend defines itself is its own, not the
+# fork's: a proof's `Lifted` relation is no lambda-lifted term.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-find "$root/compiler/src" -name '*.idr' | sort > "$work/sources"
-: > "$work/found"
+cd "$root" || exit 1
+erased='treeRT compexpr namedcompexpr schemeExpr CExp NamedCExp Lifted ANF VM getCompileData getIncCompileData'
+find compiler/src -name build -prune -o -type f -name '*.idr' -print | LC_ALL=C sort > "$work/sources"
+: > "$work/code"
 while IFS= read -r file; do
-  grep -n -w -E 'treeRT|compexpr|namedcompexpr|schemeExpr|CExp|NamedCExp|Lifted|ANF|VM|getCompileData|getIncCompileData' "$file" |
-    sed "s|^|${file#"$root"/}:|" >> "$work/found"
-  grep -n -E '^import[[:space:]]+(public[[:space:]]+)?Compiler\.(CompileExpr|LambdaLift|ANF|VMCode|Inline|Scheme|RefC|ES|Interpreter)([.[:space:]]|$)' "$file" |
-    sed "s|^|${file#"$root"/}:|" >> "$work/found"
+  idris_lex code "$file" | sed "s|^|$file:|" >> "$work/code"
 done < "$work/sources"
+# The names compiler/src defines at the top level of a module: a type
+# signature, or a data type, record or interface it declares.
+sed -n 's/^[^:]*:[0-9]*:\(\(public \)\{0,1\}export \)\{0,1\}\(data\|record\|interface\) \([A-Za-z_][A-Za-z0-9_'"'"']*\).*/\4/p;
+        s/^[^:]*:[0-9]*:\(\(public \)\{0,1\}export \)\{0,1\}\([A-Za-z_][A-Za-z0-9_'"'"']*\) *:.*/\3/p' "$work/code" |
+  LC_ALL=C sort -u > "$work/own"
+pattern=
+for name in $erased; do
+  grep -qxF "$name" "$work/own" && continue
+  pattern="$pattern${pattern:+|}$name"
+done
+: > "$work/found"
+if [ -n "$pattern" ]; then
+  awk -v pattern="^($pattern)\$" '{
+      text = $0; sub(/^[^:]*:[0-9]*:/, "", text)
+      n = split(text, words, /[^A-Za-z0-9_'"'"']+/)
+      for (j = 1; j <= n; j++) if (words[j] ~ pattern) { print; break }
+    }' "$work/code" >> "$work/found"
+fi
+grep -E '^[^:]*:[0-9]*:import[[:space:]]+(public[[:space:]]+)?Compiler\.(CompileExpr|LambdaLift|ANF|VMCode|Inline|Scheme|RefC|ES|Interpreter)([.[:space:]]|$)' \
+  "$work/code" >> "$work/found"
 if [ -s "$work/found" ]; then
   say "compiler/src reads inputs that have already erased facts:"
   cat "$work/found"

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The fuzzer (tests/Fuzz.idr) on seed 1: closed pure expressions over every
 # primitive, compiled once each, whose lines must agree with each other and
 # print expected-runtime and expected-static, the libm lines aside.

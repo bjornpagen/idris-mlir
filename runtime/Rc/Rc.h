@@ -55,6 +55,40 @@ inline idris_rt_header *lastReference(void *o) {
 // turn, and frees them (Freeing.cpp).
 void release(idris_rt_header *cell);
 
+// One reference more or less to a cell, which the caller holds as one: a
+// pointer to a header, never NULL or an odd word (a string, a large big, a
+// handle's string). They hold strings and bigs as pointers to const: the
+// count is the one field a reference may change, and only here. A
+// persistent cell is never written, so it may be read-only.
+inline void incCell(const void *o) {
+  idris_rt_header *cell = headerOf(const_cast<void *>(o));
+  if (isCounted(cell->count))
+    ++cell->count;
+}
+
+inline void decCell(const void *o) {
+  idris_rt_header *cell = headerOf(const_cast<void *>(o));
+  uint32_t count = cell->count;
+  if (!isCounted(count))
+    return;
+  if (count == 1)
+    release(cell);
+  else
+    cell->count = count - 1;
+}
+
+// idris_rt_inc and idris_rt_dec, inline: a word in an object slot may be
+// NULL or an odd word too, which counting leaves alone.
+inline void inc(const void *o) {
+  if (isObject(o))
+    incCell(o);
+}
+
+inline void dec(const void *o) {
+  if (isObject(o))
+    decCell(o);
+}
+
 // What a persistent cell holds, released without freeing the cell: its
 // memory is the program's, and its header stays.
 void releaseHeld(idris_rt_header *cell);

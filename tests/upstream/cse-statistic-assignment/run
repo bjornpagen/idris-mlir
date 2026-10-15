@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pinned mlir-opt, with upstream/23-cse-statistic-assignment/llvm.patch,
 # reports CSE's statistics accumulated over every function of a nested
 # pipeline, the same under one thread and under many: 3 operations CSE'd

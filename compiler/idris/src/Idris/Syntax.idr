@@ -432,7 +432,6 @@ mutual
        LazyOn : Bool -> Directive
        UnboundImplicits : Bool -> Directive
        AmbigDepth : Nat -> Directive
-       TotalityDepth: Nat -> Directive
        PairNames : Name -> Name -> Name -> Directive
        RewriteName : Name -> Name -> Directive
        PrimInteger : Name -> Directive

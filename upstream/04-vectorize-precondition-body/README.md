@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir][linalg] `vectorizeOpPrecondition` accepts a reduction whose body the vectorizer refuses
 
 At `llvmorg-23.1.2`, `linalg::vectorizeOpPrecondition`, documented as

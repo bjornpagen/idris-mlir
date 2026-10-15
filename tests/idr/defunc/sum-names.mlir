@@ -6,7 +6,7 @@
 // RUN: diff %t.sums %t2.sums
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms, as C01's printer writes them.
+// NEEDS-ACCEPTANCE: the sums' printed forms.
 // A sum is named from its key, the closure type and its labels, never by
 // where it first appears: the same module with its functions in reverse
 // order makes the same sums under the same names. Each (type, labels) is

@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // An array tied to sizes has those sizes as its dimensions: the dimension
 // of a tied tensor or buffer at a dynamic dimension folds to the size it
 // was tied to, and at a static one to the constant of its type, through

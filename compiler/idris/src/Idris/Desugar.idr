@@ -1386,7 +1386,6 @@ mutual
              PrefixRecordProjections b => do
                pure [IPragma fc [] (\_, nest, env => setPrefixRecordProjections b)]
              AmbigDepth n => pure [IPragma fc [] (\_, nest, env => setAmbigLimit n)]
-             TotalityDepth n => pure [IPragma fc [] (\_, next, env => setTotalLimit n)]
              AutoImplicitDepth n => pure [IPragma fc [] (\_, nest, env => setAutoImplicitLimit n)]
              NFMetavarThreshold n => pure [IPragma fc [] (\_, nest, env => setNFThreshold n)]
              SearchTimeout n => pure [IPragma fc [] (\_, nest, env => setSearchTimeout n)]

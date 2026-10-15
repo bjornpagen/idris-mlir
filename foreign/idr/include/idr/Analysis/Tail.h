@@ -17,6 +17,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
+#include <variant>
 
 namespace idr::tail {
 
@@ -36,14 +37,21 @@ mlir::Operation *tailMatch(mlir::Operation *terminator);
 // Whether `op` is a call of `fn` itself, by name.
 bool isSelfCall(mlir::Operation *op, FuncOp fn);
 
+// A box a tail builds: a constructor, or one built in a reused cell. Both
+// have the same fields, holes and destinations, so what reads one reads
+// either.
+using Built = std::variant<ConOp, ReuseOp>;
+
+// The op of `built`.
+mlir::Operation *opOf(const Built &built);
+
 // A tail modulo constructor: the self call whose result is field `index`
-// of the constructor `built` (an idr.con or idr.reuse of a box), which the
-// block's terminator passes on. The result may change its grade on its way
-// to the field (`grades`, nearest the field first): a grade has no runtime
-// form, and goes with the call.
+// of the box `built`, which the block's terminator passes on. The result
+// may change its grade on its way to the field (`grades`, nearest the
+// field first): a grade has no runtime form, and goes with the call.
 struct Modulo {
   CallOp call;
-  mlir::Operation *built;
+  Built built;
   unsigned index;
   llvm::SmallVector<mlir::Operation *, 2> grades;
 };

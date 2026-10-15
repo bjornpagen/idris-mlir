@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The runtime's archive check (runtime/check-archive.sh) reads both halves of
 # a member that carries its bitcode: the native code every link reads and
 # the bitcode that joins every program. llvm-nm alone reads such a member as

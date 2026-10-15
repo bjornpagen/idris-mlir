@@ -25,11 +25,15 @@ std::optional<ArrayYieldOp> yieldOf(Region &region) {
   return std::nullopt;
 }
 
-// A tabulation's arrays: at least one, all sharing their `rank` leading
-// dimensions, of which `sizes` gives the dynamic ones.
+// What each of a tabulation's arrays holds at an index of its domain.
+SmallVector<Type> cellsOf(TypeRange arrays, unsigned rank) {
+  return llvm::map_to_vector(
+      arrays, [&](Type array) { return cellOf(cast<RankedTensorType>(array), rank); });
+}
+
+// A tabulation's arrays, of which ODS has checked there is one: all sharing
+// their `rank` leading dimensions, of which `sizes` gives the dynamic ones.
 LogicalResult verifyTabulated(Operation *op, TypeRange arrays, unsigned rank, size_t sizes) {
-  if (arrays.empty())
-    return op->emitOpError("makes no array");
   auto first = cast<RankedTensorType>(arrays.front());
   for (Type type : arrays)
     if (!sameLead(first, cast<RankedTensorType>(type), rank))
@@ -43,8 +47,6 @@ LogicalResult verifyTabulated(Operation *op, TypeRange arrays, unsigned rank, si
   return success();
 }
 
-// The size of dimension `dim` of a domain whose sizes a tabulation's
-// arrays and size operands give.
 // The size operand of dynamic dimension `dim`: the one after those of the
 // dynamic dimensions before it.
 Value sizeOperand(RankedTensorType array, ValueRange sizes, unsigned dim) {
@@ -52,7 +54,10 @@ Value sizeOperand(RankedTensorType array, ValueRange sizes, unsigned dim) {
   return sizes[static_cast<size_t>(before)];
 }
 
-OpFoldResult tabulatedExtent(OpBuilder &b, RankedTensorType array, ValueRange sizes, unsigned dim) {
+// The size of dimension `dim` of a domain whose sizes a tabulation's
+// arrays and size operands give: a constant or an operand, so it makes
+// nothing and is its own term of value bounds.
+OpFoldResult tabulatedExtent(Builder &b, RankedTensorType array, ValueRange sizes, unsigned dim) {
   if (!array.isDynamicDim(dim))
     return b.getIndexAttr(array.getDimSize(dim));
   return sizeOperand(array, sizes, dim);
@@ -114,11 +119,7 @@ LogicalResult TabulateOp::verify() {
   return verifyTabulated(*this, getArrays().getTypes(), getRank(), getSizes().size());
 }
 
-SmallVector<Type> TabulateOp::getCellTypes() {
-  return llvm::map_to_vector(getArrays().getTypes(), [&](Type array) {
-    return cellOf(cast<RankedTensorType>(array), getRank());
-  });
-}
+SmallVector<Type> TabulateOp::getCellTypes() { return cellsOf(getArrays().getTypes(), getRank()); }
 
 LogicalResult TabulateOp::verifyRegions() { return verifyEnd(*this, getCellTypes()); }
 
@@ -127,6 +128,11 @@ SmallVector<Iteration> TabulateOp::getIterations() {
 }
 
 OpFoldResult TabulateOp::getExtent(OpBuilder &b, unsigned dim) {
+  return tabulatedExtent(b, cast<RankedTensorType>(getArrays().front().getType()), getSizes(), dim);
+}
+
+ValueBoundsConstraintSet::Variable TabulateOp::getExtentBound(unsigned dim) {
+  Builder b(getContext());
   return tabulatedExtent(b, cast<RankedTensorType>(getArrays().front().getType()), getSizes(), dim);
 }
 
@@ -172,9 +178,7 @@ LogicalResult TabulateIOOp::verify() {
 }
 
 SmallVector<Type> TabulateIOOp::getCellTypes() {
-  return llvm::map_to_vector(getArrays().getTypes(), [&](Type array) {
-    return cellOf(cast<RankedTensorType>(array), getRank());
-  });
+  return cellsOf(getArrays().getTypes(), getRank());
 }
 
 LogicalResult TabulateIOOp::verifyRegions() {
@@ -188,6 +192,11 @@ SmallVector<Iteration> TabulateIOOp::getIterations() {
 }
 
 OpFoldResult TabulateIOOp::getExtent(OpBuilder &b, unsigned dim) {
+  return tabulatedExtent(b, cast<RankedTensorType>(getArrays().front().getType()), getSizes(), dim);
+}
+
+ValueBoundsConstraintSet::Variable TabulateIOOp::getExtentBound(unsigned dim) {
+  Builder b(getContext());
   return tabulatedExtent(b, cast<RankedTensorType>(getArrays().front().getType()), getSizes(), dim);
 }
 

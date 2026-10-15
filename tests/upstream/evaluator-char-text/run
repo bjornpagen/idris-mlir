@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The fork of Idris's compiler (compiler/idris), which carries the change of
 # upstream/20-evaluator-char-text/pull-request.diff, computes a Char's text
 # as the Char itself: each proof of Main.idr checks by computing

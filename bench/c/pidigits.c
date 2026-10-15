@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* pidigits on one core, as Main.idr here: Gibbons's spigot on GMP
    integers, ten digits to a line. */
 #include <gmp.h>

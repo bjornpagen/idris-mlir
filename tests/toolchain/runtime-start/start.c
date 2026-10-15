@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* The runtime's entry, idris_rt_start, as a program's @main calls it: the
  * argument picks the program, the processor requirement and what body
  * returns, and the test reads the exit status, stdout and stderr. */

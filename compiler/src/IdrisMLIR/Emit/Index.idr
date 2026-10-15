@@ -44,27 +44,27 @@ mutual
   typeWith data' (IntT t) = Right (IntegerType (width t))
   typeWith data' CharT = Right (IntegerType 32)
   typeWith data' DoubleT = Right F64Type
-  typeWith data' StrT = Right (Idr StrType)
-  typeWith data' BigT = Right (Idr BigType)
-  typeWith data' NatT = Right (Idr NatType)
+  typeWith data' StrT = Right (idr StrType)
+  typeWith data' BigT = Right (idr BigType)
+  typeWith data' NatT = Right (idr NatType)
   -- The world is its carrier at its one grade, (one, plain).
-  typeWith data' WorldT = Right (Idr (QType One Plain (Idr WorldType)))
+  typeWith data' WorldT = Right (idr (QType One Plain (idr WorldType)))
   typeWith data' (DataT d) = data' d
   typeWith data' (FunT (MkBinder q a) r) =
-    (\x, y => Idr (FnType (MkSignature [x] [y]))) <$> heldWith data' q a <*> typeWith data' r
-  typeWith data' (LazyT r) = (\t => Idr (LazyType t)) <$> typeWith data' r
+    (\x, y => idr (FnType (MkSignature [x] [y]))) <$> heldWith data' q a <*> typeWith data' r
+  typeWith data' (LazyT r) = (\t => idr (LazyType t)) <$> typeWith data' r
   typeWith data' (TensorT ds e) = RankedTensorType ds <$> typeWith data' e
   -- Every memref the frontend writes is an array a world orders, in the
   -- world's memory.
   typeWith data' (MemRefT ds e) =
-    (\t => MemRefType ds t (Just (Idr WorldSpaceAttr))) <$> typeWith data' e
+    (\t => MemRefType ds t (Just (idr WorldSpaceAttr))) <$> typeWith data' e
 
   ||| The contract type of a value of a Core type used as `q` says: its
   ||| quantity is in the type, where no pass can lose it.
   export
   heldWith : (DataId -> Either String MlirType) -> Quantity -> Ty -> Either String MlirType
   heldWith data' q t =
-    if linear q t then (\c => Idr (QType One Plain c)) <$> typeWith data' t else typeWith data' t
+    if linear q t then (\c => idr (QType One Plain c)) <$> typeWith data' t else typeWith data' t
 
 ------------------------------------------------------------------------------
 -- Data types, spelled once
@@ -100,9 +100,9 @@ mutual
   spell datas u (Access rec) i = case enter i u of
     Just (d, Element rest fewer) => do
       ctors <- spellCtors datas rest (rec rest fewer) d.cons
-      Right (Idr (DataType d.id.name (Just (MkIdrSum d.kind ctors (Just (d.key.origin, d.key.arguments))))))
+      Right (idr (DataType d.id.name (Just (MkIdrSum d.kind ctors (Just (d.key.origin, d.key.arguments))))))
     Nothing => case lookup i datas of
-      Just d => Right (Idr (DataType d.id.name Nothing))
+      Just d => Right (idr (DataType d.id.name Nothing))
       Nothing => Left ("unknown data " ++ show i)
 
   ||| The constructors of a body: none is a label, which only

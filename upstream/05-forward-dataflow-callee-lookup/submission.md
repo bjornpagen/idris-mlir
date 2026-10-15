@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 Approach changed: the old patch gave each forward analysis its own SymbolTableCollection, beside DeadCodeAnalysis's; now the solver holds one collection per run, shared by every analysis it runs, and DeadCodeAnalysis's member is gone.
 
 # Submission

@@ -67,7 +67,7 @@ namespace {
 // Runtime, which is the worker's own.
 struct Worker {
   Worker(ProgramOp program, const Layouts &layouts, const LowerToLLVMOptions &options,
-         const Fields &fields, const DenseMap<StringAttr, memref::GlobalOp> &globals);
+         const Fields &fields, const DenseMap<StringAttr, ConstantArray> &arrays);
 
   Runtime runtime;
   TypeConverter converter;
@@ -84,7 +84,7 @@ struct Worker {
 // Every other op of a function is one of the dialects the lowering gives,
 // or the conversion fails, the compiler's error.
 Worker::Worker(ProgramOp program, const Layouts &layouts, const LowerToLLVMOptions &options,
-               const Fields &fields, const DenseMap<StringAttr, memref::GlobalOp> &globals)
+               const Fields &fields, const DenseMap<StringAttr, ConstantArray> &arrays)
     : runtime(program.getLoc(), layouts, options), target(*program.getContext()) {
   MLIRContext *ctx = program.getContext();
   converter.addConversion([](Type type) { return type; });
@@ -131,7 +131,7 @@ Worker::Worker(ProgramOp program, const Layouts &layouts, const LowerToLLVMOptio
   scf::populateSCFStructuralTypeConversionsAndLegality(converter, set, target);
   populateCountingPatterns(set, converter, layouts, runtime, fields);
   populateBigPatterns(set, converter, layouts, runtime);
-  populateArrayPatterns(set, converter, layouts, runtime, globals);
+  populateArrayPatterns(set, converter, layouts, runtime, arrays);
   populateMemrefPatterns(set, converter, layouts, runtime);
   populateBufferPatterns(set, converter, layouts, runtime);
   populateStringPatterns(set, converter, layouts, runtime);
@@ -184,9 +184,14 @@ LogicalResult lowerProgram(ProgramOp program, const Layouts &layouts,
     return failure();
 
   Fields fields(program);
-  DenseMap<StringAttr, memref::GlobalOp> globals;
-  for (auto global : program->getRegion(0).getOps<memref::GlobalOp>())
-    globals[global.getSymNameAttr()] = global;
+  // Each memref.global is read once as the constant array it must be.
+  DenseMap<StringAttr, ConstantArray> arrays;
+  for (auto global : program->getRegion(0).getOps<memref::GlobalOp>()) {
+    FailureOr<ConstantArray> array = ConstantArray::of(global);
+    if (failed(array))
+      return failure();
+    arrays.try_emplace(global.getSymNameAttr(), *array);
+  }
 
   // The functions in program order, cut into one run per thread the pool
   // has, each run lowered by a worker of its own, so which worker lowers a
@@ -198,7 +203,7 @@ LogicalResult lowerProgram(ProgramOp program, const Layouts &layouts,
   LogicalResult lowered =
       failableParallelForEach(ctx, llvm::seq<size_t>(0, runs), [&](size_t run) {
         profile::ThreadTrace trace;
-        workers[run] = std::make_unique<Worker>(program, layouts, options, fields, globals);
+        workers[run] = std::make_unique<Worker>(program, layouts, options, fields, arrays);
         size_t first = run * functions.size() / runs;
         size_t last = (run + 1) * functions.size() / runs;
         for (func::FuncOp fn : ArrayRef(functions).slice(first, last - first))
@@ -215,7 +220,8 @@ LogicalResult lowerProgram(ProgramOp program, const Layouts &layouts,
   if (failed(Runtime::merge(program, symbols, runtimes)))
     return failure();
   // A constant array is static data now, under its content's name.
-  for (memref::GlobalOp global : llvm::make_second_range(globals))
+  for (memref::GlobalOp global :
+       llvm::make_early_inc_range(program->getRegion(0).getOps<memref::GlobalOp>()))
     symbols.erase(global);
   facts.apply(layouts);
   program.setStage(Stage::Lowered);
@@ -229,8 +235,6 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
     const Layouts &layouts = getAnalysis<Layouts>();
-    if (failed(layouts.valid()))
-      return signalPassFailure();
     // Read from the module's data layout once, here: a data layout fills
     // its caches as it is asked, so no worker may ask it.
     LowerToLLVMOptions options(ctx, getAnalysis<DataLayoutAnalysis>().getAtOrAbove(module));

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The patches this repository carries on the pinned upstreams, in one
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen

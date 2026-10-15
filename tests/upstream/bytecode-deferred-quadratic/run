@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pinned mlir-opt, with upstream/03-bytecode-deferred-quadratic/llvm.patch,
 # no longer shows the bug: it reads an array attribute nested 4 times as
 # deep from bytecode in about 4 times as long, where an unpatched mlir-opt

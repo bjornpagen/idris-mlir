@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The fuzzer (tests/Fuzz.idr): generated closed expressions over every
 # primitive, computed three ways in one build, and held to the values its
 # seed's expected files record.

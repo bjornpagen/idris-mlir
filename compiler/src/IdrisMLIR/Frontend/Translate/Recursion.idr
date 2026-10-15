@@ -16,14 +16,18 @@ import Core.TT
 import Core.Termination.SizeChange
 import Libraries.Data.SparseMatrix
 
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
 
+import Control.WellFounded
+import Data.DPair
 import Data.List
+import Data.Nat
 import Data.SortedMap
 import Data.SortedSet
 
-%default covering
+%default total
 
 ||| A definition of the graph: its full name, where it is, and its calls,
 ||| each to a definition, with how each argument of the callee relates to
@@ -58,34 +62,47 @@ node n = do
   pure (Just (MkNode full (location def) calls))
 
 mutual
-  ||| Visits a definition not visited yet: its component is found once
-  ||| every definition it reaches is.
-  visit : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> Node -> Search -> Core Search
-  visit done v s0 = do
+  ||| Visits a definition the walk has just entered: its component is found
+  ||| once every definition it reaches is. `w0` is where the walk was once
+  ||| it entered the definition, and every definition it enters below
+  ||| leaves fewer than `w0` to enter (`Walk`), which is why the search
+  ||| ends.
+  visit : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> Node ->
+          (w0 : Walked) -> (0 _ : SizeAccessible w0) -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w0))
+  visit done v w0 acc s0 = do
     let key = nameKey v.name
     let s1 = { next $= S, number $= insert key s0.next, low $= insert key s0.next
              , stack $= (key ::), onStack $= insert key, nodes $= insert key v } s0
-    s2 <- successors done key (map (.fnCall) v.calls) s1
-    if lookup key s2.low /= lookup key s2.number then pure s2 else do
+    (s2, reached) <- successors done key w0 acc w0 (noMore w0) (map (.fnCall) v.calls) s1
+    if lookup key s2.low /= lookup key s2.number then pure (s2, reached) else do
       let (members, rest) = break (== key) s2.stack
       pure ({ stack := drop 1 rest
             , onStack $= \on => foldl (flip delete) on (key :: members)
-            , found $= ((key :: members) ::) } s2)
+            , found $= ((key :: members) ::) } s2, reached)
 
-  successors : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> String -> List Name -> Search ->
-               Core Search
-  successors done key [] s = pure s
-  successors done key (w :: ws) s = do
-    let wkey = nameKey w
-    s' <- if isJust (lookup wkey done) then pure s else
-            case lookup wkey s.number of
-              Just n => pure (if contains wkey s.onStack then lower key n s else s)
-              Nothing => do
-                Just wn <- node w
-                  | Nothing => pure s
-                after <- visit done wn s
-                pure (maybe after (\n => lower key n after) (lookup wkey after.low))
-    successors done key ws s'
+  ||| The calls of the definition at `key`, in order: a callee the walk has
+  ||| not entered is visited, and one on the stack lowers the definition's
+  ||| link.
+  successors : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> String ->
+               (w0 : Walked) -> (0 _ : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
+               List Name -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w))
+  successors done key w0 acc w p [] s = pure (s, Element w (noMore w))
+  successors done key w0 acc@(Access rec) w p (x :: xs) s = do
+    let xkey = nameKey x
+    let False = isJust (lookup xkey done)
+      | True => successors done key w0 acc w p xs s
+    defs <- get Ctxt
+    let Just (Element w1 q) = enter (gamma defs) x w
+      | Nothing => successors done key w0 acc w p xs (maybe s (\n => if contains xkey s.onStack then lower key n s else s)
+                                                           (lookup xkey s.number))
+    Just xn <- node x
+      | Nothing => do
+          (s', Element w2 q2) <- successors done key w0 acc w1 (thenNoMore (fewer q) p) xs s
+          pure (s', Element w2 (thenNoMore q2 (fewer q)))
+    (after, Element w2 q2) <- visit done xn w1 (rec w1 (fewerThen q p)) s
+    let s' = maybe after (\n => lower key n after) (lookup xkey after.low)
+    (s'', Element w3 q3) <- successors done key w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) xs s'
+    pure (s'', Element w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
     where
       lower : String -> Nat -> Search -> Search
       lower k n st = { low $= \m => insert k (min n (fromMaybe n (lookup k m))) m } st
@@ -112,7 +129,10 @@ checkRecursion n = do
   st <- get TState
   full <- toFullNames n
   unless (isJust (lookup (nameKey full) st.loops)) $ do
-    Just start <- node full
+    defs <- get Ctxt
+    let Just (Element w _) = enter (gamma defs) full start
       | Nothing => pure ()
-    result <- visit st.loops start (MkSearch 0 empty empty [] empty empty [])
+    Just node <- node full
+      | Nothing => pure ()
+    (result, _) <- visit st.loops node w (sizeAccessible w) (MkSearch 0 empty empty [] empty empty [])
     for_ result.found (checkComponent result.nodes)

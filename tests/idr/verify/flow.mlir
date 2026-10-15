@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the texts of the flow rule's errors, as C05's verifyFlow and verifyFlowEdges write them.
+// NEEDS-ACCEPTANCE: the texts of the flow rule's errors, as verifyFlow and verifyFlowEdges write them.
 // Every op that holds, takes or gives a closure or a suspension declares
 // how it moves, through the flow interface or through upstream's branch
 // and region-branch interfaces, and the verifier refuses one that does

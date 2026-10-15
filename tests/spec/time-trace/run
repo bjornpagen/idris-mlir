@@ -1,9 +1,11 @@
 #!/bin/sh
-# Profiling is LLVM's time trace alone (0001 D8): the profiler that was
-# culled for it is named nowhere outside the proposals that record the
-# decision, the research library (sources/, whose reports are kept
-# verbatim) and third_party, there is no profile build, and the one place
-# the --time-trace option is defined is the profile's support library.
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Profiling is LLVM's time trace alone: the profiler that was culled for
+# it is named nowhere outside the proposals, the research library
+# (sources/, whose reports are kept verbatim) and third_party, there is no
+# profile build, and the one place the --time-trace option is defined is
+# the profile's support library.
 # The culled names are spelled in pieces so this test is not its own hit.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 culled='trac''y'

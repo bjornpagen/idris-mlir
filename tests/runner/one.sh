@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # One golden test, which the runner (tests/Runner.idr) runs in a process of
 # its own, as many at once as it has threads:
 #

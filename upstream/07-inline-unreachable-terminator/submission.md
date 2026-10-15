@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 Approach changed: the old patch took the single-block fast path only for ReturnLike terminators, which broke transform.yield; now allowSingleBlockOptimization is asked of the terminator's dialect, as handleTerminator already is, and the inliner treats a declined fast path like a multi-block callee.
 
 # File the inliner abort on a callee that does not return

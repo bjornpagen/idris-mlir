@@ -1,5 +1,5 @@
 // input: emitted
-// NEEDS-ACCEPTANCE: the identified type's body as C01 and C22 print it (the constructors in tag order with their fields); reconcile the two Shape lines below with that syntax.
+// NEEDS-ACCEPTANCE: the identified type's body as the printer writes it (the constructors in tag order with their fields); reconcile the two Shape lines below with that syntax.
 // FILECHECK-OPTIONS: --implicit-check-not=idr.version --implicit-check-not=idr.entry --implicit-check-not=func.func{{.}}@ --implicit-check-not=idr.erased
 // The contract the Idris side emits. The module carries no version, entry
 // or entry kind: it holds one program, an op, at the stage before

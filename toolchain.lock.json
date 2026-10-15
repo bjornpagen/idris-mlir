@@ -43,16 +43,16 @@
   "simdutf": {
     "path": "third_party/simdutf",
     "repository": "https://github.com/simdutf/simdutf.git",
-    "revision": "dc3f7a8fa291f2ce793c7b0ddd458f4e67542f14",
-    "tag": "v9.2.1",
-    "version": "9.2.1"
+    "revision": "bb77e7bb98fe0c2296e7cf9f324c56fcd704885a",
+    "tag": "v9.3.0",
+    "version": "9.3.0"
   },
   "fast_float": {
     "path": "third_party/fast_float",
     "repository": "https://github.com/fastfloat/fast_float.git",
-    "revision": "f3f02c8ad0afd8181166dabce6a9e69f8aec24de",
-    "tag": "v8.3.1",
-    "version": "8.3.1"
+    "revision": "42f254836ee416ffcf2f4e6576260003ac33d48c",
+    "tag": "v8.3.2",
+    "version": "8.3.2"
   },
   "snmalloc": {
     "path": "third_party/snmalloc",

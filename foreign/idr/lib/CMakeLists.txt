@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The dialect's libraries, in dependency order: the support every library
 # may use, the dialect, its analyses, the target, the lowering, the passes
 # and the pipeline, and the driver idris-mlir is. A library links exactly

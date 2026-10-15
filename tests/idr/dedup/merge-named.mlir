@@ -2,7 +2,7 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=one-clone=@a,one-clone=@b -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=not-called=@b -o /dev/null
-// NEEDS-ACCEPTANCE: that the kept function's location fuses its members', as C23 makes it, so idr-expect finds the code of either definition there.
+// NEEDS-ACCEPTANCE: that the kept function's location fuses its members', so idr-expect finds the code of either definition there.
 // Two instances of different definitions whose code is one function
 // merge: which definition a function came from is provenance, read by no
 // pass, and a test API never keeps two copies apart. The one kept, the

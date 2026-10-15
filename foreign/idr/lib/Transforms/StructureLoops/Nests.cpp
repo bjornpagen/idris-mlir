@@ -14,8 +14,13 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
+
+#include <optional>
+#include <type_traits>
 
 using namespace mlir;
 
@@ -41,24 +46,26 @@ SmallVector<Value> constants(OpBuilder &b, Location loc, unsigned count, int64_t
 }
 
 // A tabulation in order: one loop per dimension of its domain, carrying
-// the arrays and, in the world's order, the world. `world` is the world
-// it starts from, or null.
+// the arrays and, in the world's order, the world, which starts as `world`.
 void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange arrays,
-               ArrayRef<Type> cells, Value world) {
+               ArrayRef<Type> cells, std::optional<Value> world) {
   Location loc = op->getLoc();
   rewriter.setInsertionPoint(op);
-  auto withWorld = [&](ValueRange values, Value next) {
+  // Values a step takes or gives, then, in the world's order, the world
+  // `next` gives.
+  auto withWorld = [&](ValueRange values, function_ref<Value()> next) {
     SmallVector<Value> all(values);
     if (world)
-      all.push_back(next);
+      all.push_back(next());
     return all;
   };
+  auto initial = [&] { return *world; };
   SmallVector<Type> given(cells);
   if (world)
-    given.push_back(world.getType());
+    given.push_back(world->getType());
   // No dimension: the region runs once, and what it gives is the array.
   if (rank == 0) {
-    std::optional<SmallVector<Value>> made = inlineRegion(rewriter, op, withWorld({}, world));
+    std::optional<SmallVector<Value>> made = inlineRegion(rewriter, op, withWorld({}, initial));
     SmallVector<Value> values = orPoison(rewriter, loc, made, given);
     SmallVector<Value> results;
     for (auto [type, value] : llvm::zip(arrays, values))
@@ -99,15 +106,12 @@ void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange a
     return llvm::none_of(array.getShape().drop_front(rank), ShapedType::isDynamic);
   });
   if (cellsKnown) {
-    SmallVector<Value> empties;
-    for (Type type : arrays) {
-      auto array = cast<RankedTensorType>(type);
-      empties.push_back(emptyOf(rewriter, loc, array, dimsOf(array, [](unsigned) {
-                                  return OpFoldResult();
-                                })));
-    }
+    // No dimension after the domain's is dynamic.
+    SmallVector<Value> empties = llvm::map_to_vector(arrays, [&](Type type) {
+      return emptyOf(rewriter, loc, cast<RankedTensorType>(type), frame);
+    });
     scf::LoopNest nest = scf::buildLoopNest(
-        rewriter, loc, zeros, extents, ones, withWorld(empties, world),
+        rewriter, loc, zeros, extents, ones, withWorld(empties, initial),
         [&](OpBuilder &b, Location l, ValueRange ivs, ValueRange carried) -> scf::ValueVector {
           SmallVector<Value> args(ivs);
           if (world)
@@ -128,11 +132,11 @@ void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange a
   Value any = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ne, count, zeros.front());
   SmallVector<Type> results(arrays);
   if (world)
-    results.push_back(world.getType());
+    results.push_back(world->getType());
   auto choice = scf::IfOp::create(
       rewriter, loc, any,
       [&](OpBuilder &b, Location l) {
-        std::optional<SmallVector<Value>> first = cloneRegion(b, op, withWorld(zeros, world));
+        std::optional<SmallVector<Value>> first = cloneRegion(b, op, withWorld(zeros, initial));
         if (!first) {
           scf::YieldOp::create(b, l, poisonOf(b, l, results));
           return;
@@ -145,7 +149,7 @@ void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange a
                                     })));
         }
         scf::LoopNest nest = scf::buildLoopNest(
-            b, l, zeros, extents, ones, withWorld(empties, first->back()),
+            b, l, zeros, extents, ones, withWorld(empties, [&] { return first->back(); }),
             [&](OpBuilder &nb, Location nl, ValueRange ivs,
                 ValueRange carried) -> scf::ValueVector {
               Value atFirst = arith::ConstantIntOp::create(nb, nl, 1, 1);
@@ -157,8 +161,8 @@ void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange a
                   nb, nl, atFirst,
                   [&](OpBuilder &tb, Location tl) {
                     SmallVector<Value> values(ArrayRef(*first).take_front(arrays.size()));
-                    Value next = world ? carried.back() : Value();
-                    scf::YieldOp::create(tb, tl, withWorld(values, next));
+                    scf::YieldOp::create(tb, tl,
+                                         withWorld(values, [&] { return carried.back(); }));
                   },
                   [&](OpBuilder &eb, Location el) {
                     SmallVector<Value> args(ivs);
@@ -180,7 +184,7 @@ void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange a
                                       return OpFoldResult(b.getIndexAttr(0));
                                     })));
         }
-        scf::YieldOp::create(b, l, withWorld(empties, world));
+        scf::YieldOp::create(b, l, withWorld(empties, initial));
       });
   rewriter.replaceOp(op, choice.getResults());
 }
@@ -190,7 +194,8 @@ void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange a
 // after it. A scan carries its results through both and writes each step's
 // accumulators at that step.
 template <typename OpT>
-void folded(RewriterBase &rewriter, OpT op, bool scan) {
+void folded(RewriterBase &rewriter, OpT op) {
+  constexpr bool scan = std::is_same_v<OpT, ScanLastOp>;
   Location loc = op.getLoc();
   unsigned frame = op.getFrameRank();
   auto count = static_cast<unsigned>(op.getInits().size());
@@ -253,19 +258,18 @@ void folded(RewriterBase &rewriter, OpT op, bool scan) {
 void transposed(RewriterBase &rewriter, TransposeOp op) {
   Location loc = op.getLoc();
   ArrayRef<int64_t> permutation = op.getPermutation();
+  SmallVector<int64_t> inverse = invertPermutationVector(permutation);
   auto rank = static_cast<unsigned>(permutation.size());
   rewriter.setInsertionPoint(op);
-  SmallVector<OpFoldResult> dims;
-  for (int64_t from : permutation)
-    dims.push_back(tensor::getMixedSize(rewriter, loc, op.getInput(), from));
+  SmallVector<OpFoldResult> dims =
+      applyPermutation(tensor::getMixedSizes(rewriter, loc, op.getInput()), permutation);
   Value empty = emptyOf(rewriter, loc, op.getType(), dims);
   scf::LoopNest nest = scf::buildLoopNest(
       rewriter, loc, constants(rewriter, loc, rank, 0), valuesOf(rewriter, loc, dims),
       constants(rewriter, loc, rank, 1), ValueRange{empty},
       [&](OpBuilder &b, Location l, ValueRange ivs, ValueRange carried) -> scf::ValueVector {
-        SmallVector<Value> at(rank);
-        for (auto [d, from] : llvm::enumerate(permutation))
-          at[static_cast<size_t>(from)] = ivs[d];
+        // The result's index d is the input's index permutation[d].
+        SmallVector<Value> at = applyPermutation(SmallVector<Value>(ivs), inverse);
         Value element = tensor::ExtractOp::create(b, l, op.getInput(), at);
         return {tensor::InsertOp::create(b, l, element, carried.front(), ivs).getResult()};
       });
@@ -277,15 +281,17 @@ void transposed(RewriterBase &rewriter, TransposeOp op) {
 void lowerOrdered(RewriterBase &rewriter, Operation *op) {
   TypeSwitch<Operation *>(op)
       .Case([&](TabulateOp t) {
-        tabulated(rewriter, t, t.getRank(), t.getArrays().getTypes(), t.getCellTypes(), {});
+        tabulated(rewriter, t, t.getRank(), t.getArrays().getTypes(), t.getCellTypes(),
+                  std::nullopt);
       })
       .Case([&](TabulateIOOp t) {
         tabulated(rewriter, t, t.getRank(), t.getArrays().getTypes(), t.getCellTypes(),
                   t.getWorld());
       })
-      .Case([&](FoldLastOp f) { folded(rewriter, f, false); })
-      .Case([&](ScanLastOp s) { folded(rewriter, s, true); })
-      .Case([&](TransposeOp t) { transposed(rewriter, t); });
+      .Case([&](FoldLastOp f) { folded(rewriter, f); })
+      .Case([&](ScanLastOp s) { folded(rewriter, s); })
+      .Case([&](TransposeOp t) { transposed(rewriter, t); })
+      .DefaultUnreachable("idr-structure-loops lowers an op it does not structure");
 }
 
 } // namespace idr::structure

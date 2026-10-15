@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@fill -o /dev/null
-// NEEDS-ACCEPTANCE: where idr-rc puts the two boundary ops, as C14 places them.
+// NEEDS-ACCEPTANCE: where idr-rc puts the two boundary ops.
+// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A buffer bufferization made is a cell like any other, but upstream's
 // ops hold plain types: memref.alloc's result takes no grade, and a
 // memref.store takes the element without its reference. Counting starts
@@ -17,7 +18,7 @@
 idr.program @buffers root(@main) stage(first) {
   idr.func @fill(%n: index, %x: i64) -> memref<?x!idr.box<!L>> {
     %a = memref.alloc(%n) : memref<?x!idr.box<!L>>
-    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!L>
+    %nil = idr.constant #idr.con<!L, @Nil, []> : !idr.box<!L>
     %c = idr.con !idr.box<!L> @Cons(%x : i64, %nil : !idr.box<!L>)
     %c0 = arith.constant 0 : index
     memref.store %c, %a[%c0] : memref<?x!idr.box<!L>>

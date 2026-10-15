@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # A runtime built for another page size than the system's refuses to start:
 # idris_rt_start checks first that the target entry's page size
 # (IDRIS_MLIR_PAGE_SIZE, which the build records in runtime/page-size) is
@@ -8,7 +10,9 @@
 # as the build compiles it, once for the build's page size and once each for
 # a smaller and a larger one, and linked ahead of the build's runtime
 # archive, whose own copy of it the link then leaves out: the program is the
-# build's runtime, built for that page size.
+# build's runtime, built for that page size. The unit and start.c read the
+# runtime's C ABI, part of which the build generates, so each compiles with
+# the runtime's C flags (runtime_c).
 step_limit=120
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 build=${idris_mlir%/foreign/idr/idris-mlir}
@@ -24,14 +28,14 @@ target=$("$idris_mlir" --print-target-triple)
 # program NAME PAGE: start.c with the memory unit built for PAGE, then the
 # build's runtime, into $work/NAME.
 program() {
-  if ! bounded "$llvm_bin/clang++" --target="$target" -std=c++26 -fno-exceptions -fno-rtti -O2 \
-      -I"$root/runtime" "-DIDRIS_RT_PAGE_SIZE=$2" -c "$root/runtime/Platform/Posix/Memory.cpp" \
+  if ! runtime_c bounded "$llvm_bin/clang++" --target="$target" -std=c++26 -fno-exceptions \
+      -fno-rtti -O2 "-DIDRIS_RT_PAGE_SIZE=$2" -c "$root/runtime/Platform/Posix/Memory.cpp" \
       -o "$work/$1-memory.o" > "$work/cc.log" 2>&1; then
     say "$1: the memory unit does not compile"
     show "$work/cc.log"
     return 1
   fi
-  if ! link_program -O1 -I"$root/runtime" "$here/start.c" "$work/$1-memory.o" "$runtime" \
+  if ! runtime_c link_program -O1 "$here/start.c" "$work/$1-memory.o" "$runtime" \
       -o "$work/$1" > "$work/cc.log" 2>&1; then
     say "$1: does not link"
     show "$work/cc.log"
