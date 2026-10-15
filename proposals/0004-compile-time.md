@@ -2,16 +2,24 @@
 
 ## 0. Status
 
-**Proposed 2026-10-14; design only.** Nothing here is coded until the
-owner approves it. It is then executed as one hard cutover, with no
-compatibility owed to any mechanism it replaces, on the owner's machine,
-where `make build` and the suites run at each lane's integration
-(§10). This file supersedes every earlier text of 0004: the compile-time
-record those drafts held is kept in §3, condensed only where nothing is
-lost, and git history holds the drafts themselves.
+**Proposed 2026-10-14; design only, every question decided but one
+(§11).** Nothing here is coded until the owner approves it. It is then
+executed as one hard cutover, with no compatibility owed to any
+mechanism it replaces, on the owner's machine, where `make build` and
+the suites run at each lane's integration (§10). This file supersedes
+every earlier text of 0004: the compile-time record those drafts held is
+kept in §3, condensed only where nothing is lost, and git history holds
+the drafts themselves.
 
-The opt-in `scc-pipeline` that landed at 552d682a is deleted by this
-cutover (§3.3, §6). Nothing builds on it in the meantime.
+**What is true now.** The cutover of 0002 is committed and builds on
+arm64 macOS. Its gate was green there at 552d682a and its file-size
+split df5d8742: `make build` clean, `make check` 27/27, `make test-idr`
+286/286, `make test` 415/415 (*measured* 2026-10-14 at `NCPU=6`, §3.3).
+Those runs took the rounds, the default; the opt-in `scc-pipeline` that
+552d682a added ran in one lit test only, and this cutover deletes it
+(§3.3, §6). Nothing builds on it in the meantime. x86_64 Linux has not
+run this tree: 0002's G1 is NotRun there. Stage 1 of `make self` has
+never finished, and this cutover is what it waits on.
 
 **Sources.** Five research reports of 2026-10-14, kept verbatim in
 `sources/notes/compile-pipeline/`: `mlton.md` (MLton's pipeline, closure
@@ -22,9 +30,11 @@ Swift, Zig, GHC, Lean), `mojo.md` (the Mojo compiler, snapshot in
 MLIR and LLVM machinery against our C++) and `casework-audit.md` (our
 casework, why acceptance depends on optimization, what blocks sharding).
 Their section numbers are cited as, for example, *mlton §2*. The stage-0
-measurement is `bench/profiles/2026-10-14-f0-stage0.md` (*F0*). `M/` and
-`L/` are the pinned MLIR and LLVM trees under `.toolchain/build/llvm-project/`.
-Line numbers in our tree are those the reports read on 2026-10-14.
+measurement is `bench/profiles/2026-10-14-f0-stage0.md` (*F0*). `M/`,
+`L/` and `lld/` are the pinned MLIR, LLVM and lld trees under
+`.toolchain/build/llvm-project/`. Every line number in our tree was
+re-read against 3de67510 on 2026-10-14; where a report's number had
+drifted, this file gives the tree's.
 
 **Claims** are marked *read* (the path), *measured* (the record),
 *recalled*, *conjecture* or *decision*.
@@ -77,7 +87,8 @@ the wrong answer. In this design that means:
 - names are derived from content, never from counters, so creation order
   cannot reach output;
 - one flow table, one canonicalization configuration, one effects analysis;
-- no pass option selects behaviour; experiments compare binaries (§10).
+- no option selects behaviour, of a pass or of the driver; experiments
+  compare binaries (§10).
 
 **The shape of the work that results.** Decide the facts once, exactly.
 Transform with a fixed sequence of bounded passes. Partition. Generate code
@@ -123,14 +134,18 @@ place where a value becomes unknown today (casework-audit §2):
 | An apply whose callee is unknown: its results go to top and its arguments join every label of the type, so unknown spreads | `Labels.cpp:134-141` | Nothing: with no source of unknown, no callee is unknown (the argument of §2.4) |
 | Region arguments of fold, generate and match that are not fields | `Labels.cpp:199-221` | The interface declares region-argument edges, through upstream's `RegionBranchOpInterface` for matches and per op for fold's accumulator and generate's element (the existing `ElementsAnchor`, `Labels.h:175`) |
 | A lazy component whose labels return different types is refused | `Moves.cpp:185-198` | The forced-state anchor: every label of a lazy key returns into the one anchor of its value type |
-| A label that does not fit its key: `fits` demands exact type equality | `Keys.cpp:84-95` | Labels are compared on the unrestricted function type, the grade being the slot's (*conjecture*, checked in §2.9) |
+| A label that does not fit its key: `fits` demands exact type equality | `Keys.cpp:84-95` | Nothing new: a label enters a key only along a declared edge from the op that named it, and that op's verifier already demands the same equality (`ClosureOp::verifySymbolUses`, `lib/IR/OpsClosures.cpp:155-171`; `SuspendOp`'s on the carrier, `:201-217`). The flow interface's verifier demands that every edge join two values of one carrier, so `fits` becomes an assertion: a label that does not fit is an internal error (*decision*, D27) |
 
 **The four changes** (casework-audit §2):
 
 1. **Closed world as a verified invariant** (*decision*). No external
-   `idr.func`, and no public function except the root, which takes a world.
-   The module verifier checks it once, before defunctionalization. This
-   deletes `escapes`, the external tops and `Decide.cpp:158-164`.
+   `idr.func`, and no public function except the root, which takes a world
+   or returns an `i64` (the two root types `Verify/Program.cpp:32-40`
+   already demands). An external `idr.func` becomes unexpressible: the
+   function verifier demands a body. The rest is the module rule the
+   root's verifier runs, once per verification, on the module that holds it
+   (D28, §4 stage 2). This deletes `escapes` (`Labels.h:279-281`), the
+   external tops and `Decide.cpp:158-164`.
 2. **One flow interface** (*decision*). An idr op interface, beside
    upstream's Call, Region and Branch interfaces, through which an op that
    carries a closure or lazy value declares how each such operand reaches
@@ -146,8 +161,9 @@ place where a value becomes unknown today (casework-audit §2):
    Evaluated delays write it, and every label of a lazy slot returns into
    it. This deletes `unifySuspensions` (`Moves.cpp:147-206`), Isolate's
    evaluated-delay branch and `Moves.cpp:37-38`.
-4. **No unknown element in `LabelSet`** (*decision*). This deletes
-   `labelsFor` (`LabelSites.cpp:92-114`), the sealing cascade
+4. **No unknown element in `LabelSet`** (*decision*). This deletes the
+   `unknown` flag (`Labels.h:43-59`), `labelsFor` (`Labels.h:276`, filed by
+   type at `LabelSites.cpp:92-114`), the sealing cascade
    (`Decide.cpp:97-184`) and both `unsupported` reasons; reaching one is an
    internal error.
 
@@ -177,11 +193,14 @@ tests):
 
 1. **Closed.** By the verified invariant, every function is defined in the
    module and every caller of a non-root function is in the module.
-2. **Every closure value has a label.** A value of a closure or lazy type is
-   created only by an op that names a label (`idr.closure`, `idr.suspend`,
-   a closure constant) or arrives through an edge some op declares. There
-   is no other way to make one: no external function returns one, and no
-   op without the interface may produce one.
+2. **Every closure value has a label of its carrier.** A value of a
+   closure or lazy type is created only by an op that names a label
+   (`idr.closure`, `idr.suspend`, a closure constant) or arrives through an
+   edge some op declares. There is no other way to make one: no external
+   function returns one, and no op without the interface may produce one.
+   The naming op's verifier makes the label fit the value's carrier
+   (`OpsClosures.cpp:155-171, 201-217`), and every edge joins two values of
+   one carrier, so a label in a key always fits it.
 3. **Flow is only along declared edges.** Every op that holds such a value
    implements the flow interface, so the analysis's transfer functions only
    copy or union label sets along declared edges. No transfer introduces a
@@ -192,13 +211,18 @@ tests):
    least fixpoint exists and is reached in finitely many steps.
 5. **Every set becomes a sum.** Each key's set is a finite set of functions,
    possibly empty. A nonempty set is a sum with one constructor per label
-   carrying its captures. An empty set means no value ever reaches the key;
-   its applies are unreachable and lower to `ub.unreachable`.
+   carrying its captures; a key on a cycle of captures is a box of that
+   sum, as today (`Decide.cpp:90-95, 197`), which ends the cycle. An empty
+   set means no value ever reaches the key; its applies are unreachable and
+   lower to `ub.unreachable`. Today an empty closure key is refused
+   (`convertible`, `Decide.cpp:42-43`); that line goes with the rest.
 6. **Values move between sets by coercion.** Where a value flows from a key
    with one set to a key with a larger one, the existing converter coerces
    it (`SlotTypeConverter::coerce`,
    `include/idr/Transforms/Defunctionalize.h:218`, *read*), as MLton's
-   coercion `case` does.
+   coercion `case` does. The target's set contains the source's, because
+   the labels flowed along that edge, so `Slots::canCoerce`
+   (`Decide.cpp:29-32`) always holds and the coercion always exists.
 7. **An apply is a dispatch.** An apply on a key becomes a case over the
    key's constructors, each arm a direct call. So every apply in the module
    has a translation, and none is refused.
@@ -218,11 +242,13 @@ SCCP, the force preparation or any budget (casework-audit §2).
 - **A broken invariant is an internal error**, never `unsupported`: a
   verifier failure after a pass, a lattice that reached a state the
   argument rules out, a termination argument that does not hold.
-- **A spent optimization budget stops optimizing.** Inline caps, the
-  unroll limit (`kUnrollLimit`, `Specialize/Keys.cpp:38`) and the clones per
-  owner (`kClonesPerOwner = 1024`, `Clones.cpp:30-33`) bound work and code
-  size; reaching one leaves the program less optimized and never rejects it.
-  `unsupported (compile-time budget)` is deleted (§6).
+- **A spent optimization budget stops optimizing.** The per-caller size
+  cap (§4 stage 7), the unroll limit (`kUnrollLimit`,
+  `Specialize/Keys.cpp:38`) and the clones per owner
+  (`kClonesPerOwner = 1024`, `include/idr/Analysis/Specialize.h:59`, spent
+  at `Clones.cpp:30-33`) bound work and code size; reaching one leaves the
+  program less optimized and never rejects it. `unsupported (compile-time
+  budget)` is deleted from its three sites (§6).
 
 ### 2.6 The directive.lam4 refusal
 
@@ -249,9 +275,11 @@ before 0CFA so that sets are smaller. Every consequence:
 - **The apply canonicalization becomes case of known constructor.** Today
   `ApplyOp::canonicalize` turns an apply of a known closure into a call
   (`lib/IR/OpsClosures.cpp:316-346`). After defunctionalization the closure
-  is a constructor and the apply a case over it, so the fold that matches a
-  case on a known constructor, which already exists (455d3c0f), does the
-  same work for every first-order program, with no closure-specific rule.
+  is a constructor and the apply a case over it, so the pattern that
+  replaces a match on a known constructor by its taken region, which
+  already exists (upstream's region-branch inlining pattern with
+  `canon::readField`, `lib/IR/OpsMatch.cpp:175-187`, *read*), does the same
+  work for every first-order program, with no closure-specific rule.
 - **Closure references become direct calls.** Each arm of a dispatch is a
   direct `idr.call`, so upstream's `CallGraph` sees every edge. The custom
   reference graph exists because an `idr.apply` is invisible to the call
@@ -270,10 +298,27 @@ before 0CFA so that sets are smaller. Every consequence:
 - **Isolate's round trip goes.** Emit writes `idr.lambda` and `idr.delay`
   regions that `idr-isolate` immediately outlines (casework-audit §1.E). Emit
   knows the captures and writes the symbol form directly (§4, stage 1).
+  Isolate keeps one region form today: an `idr.delay` whose body only
+  yields a value that is no closure or suspension stays a region
+  (`Isolate.cpp:82-86`), the evaluated suspension. *Decision* (D37): that
+  form loses its region too and becomes `idr.delay %value`, an op whose
+  operand is the value it holds; it declares one edge, its operand into the
+  forced-state anchor of its lazy type, and the fold of a force of it
+  (`ForceOp::fold`, `OpsClosures.cpp:283-293`) reads the operand. A region
+  that holds only a yield is the value said twice, and the `EvaluateDelay`
+  pattern that hoists ops out of it (`OpsClosures.cpp:95-118`) goes with
+  the region.
 - **Defunctionalization's conversion runs per function.** Once the keys are
   decided, each function's types are a pure function of the decision, so
   the module-wide `applyFullConversion` (`Pass.cpp:117-136`) becomes a
   nested conversion per function, in parallel (casework-audit §3).
+- **Effects are first known right after it.** Defunctionalization marks
+  the memo labels that reach observable output (`markByName`, `Pass.cpp:105`)
+  with a walk of its own through direct calls (`ByName.cpp:30-53`), one of
+  the three effects computations (§6). After the conversion every call is
+  direct, so the one effects summary (§4 stage 9) is first computed there,
+  over the converted module's SCCs, and `markByName` reads it
+  (*decision*, D34).
 
 ### 2.8 What it costs, and how it is kept fast
 
@@ -283,21 +328,26 @@ before 0CFA so that sets are smaller. Every consequence:
   really plural, which MLton reports as "almost no calls" (slide 14,
   mlton §2). Lane L2 records, per key, the number of constructors and the
   dispatches left after the optimizer.
-- **The solve over the stage-0 module** (about 100,000 functions after
-  emission, F0). MLton's 0CFA runs in under 2 seconds on MLton itself
-  (slide 14). Its representation choices, each adopted here
-  (*decision*):
+- **The solve over the stage-0 module** (about 100,000 functions once
+  closures are outlined: 100,198 in F0's run, 107,732 in the run of
+  234b81a0, of which deduplication then merges 7,505, *measured*). MLton's
+  0CFA runs in under 2 seconds on MLton itself (slide 14). Its
+  representation choices, each adopted here (*decision*):
   - first-order values carry no flow: every first-order type shares one
     abstract value (`abstract-value.fun:242-246`), and first-order tuples
     are not tracked (`closure-convert.fun:364-367`);
   - sets are hash-consed with cached operations (`UniqueSet`, cache size 5,
     13 bits, `abstract-value.fun:42-44`);
-  - mutable containers unify instead of coerce (`closure-convert.fun:341-345`),
-    so union-find handles every equality constraint;
+  - mutable containers unify instead of coerce
+    (`abstract-value.fun:341-345`), so union-find handles every equality
+    constraint; ours already share one anchor per element type
+    (`Labels.h:170-180`);
   - only differences are propagated (`abstract-value.fun:87-95`).
-  Our label walk took 54 seconds before it was made one walk (6a7841dc);
-  *decision:* the solve must take under 10 seconds of wall on the stage-0
-  module, or the representation is wrong.
+  Today's whole step is the bar: gathering the label sites took 46 of
+  `idr-defunctionalize`'s 57 seconds on the stage-0 module, and one walk
+  instead of one per site family took the step from 66.6 s to 54.0 s
+  (6a7841dc, *measured*). *Decision:* the solve must take under 10 seconds
+  of wall on the stage-0 module, or the representation is wrong.
 
 ### 2.9 Risks, and how each is checked
 
@@ -305,7 +355,8 @@ before 0CFA so that sets are smaller. Every consequence:
 | --- | --- |
 | The frontend emits something the closed-world verifier refuses (an external function, a second public symbol) | The verifier runs on every corpus module and the stage-0 module in lane L2; every refusal is fixed at emission |
 | An op carries a closure without the flow interface | The verifier names it; every corpus module passes before L2 integrates |
-| `fits` on unrestricted types admits a label whose grade differs from the slot's | A fixture per grade (linear, owned, plain) with the linearity verifier after defunctionalization; the verifier already checks quantities after every pass |
+| A flow edge joins two carriers, so a label reaches a key it does not fit (an internal error under D27) | The flow interface's verifier refuses such an edge; a fixture per grade (a closure taking a linear argument, one returning a linear result, a plain one, each through `lin.enter`/`lin.use` and a field) converts, with the linearity verifier after defunctionalization |
+| `markByName` reads effects from a summary instead of its own walk (D34) | Every test whose suspension writes output (`tests/programs`' laziness and output fixtures) prints the same bytes; old binary against new, every `by_name` mark the old one writes on the corpus the new one writes |
 | Sums too large for code quality | Per-key constructor counts and post-optimizer dispatch counts recorded on stage 0; bench runtime within 2% (§10) |
 | The forced anchor changes a memo's semantics | Every laziness test in `tests/programs`, and `memo-shared-stream` and `stream-share` with their live-cell marks |
 | A program accepted today only because simplify deleted its closures now runs a dispatch it did not before | Same bench threshold; the dispatch is the program's meaning, and the optimizer removes it where the constructor is known |
@@ -380,9 +431,12 @@ The research explains the flat rounds (*read*, mlton §3, upstream-mlir-llvm
   bodies that grew, so the rule fires again and again.
 - **A function with one call site always inlines, whatever its size**, and
   nothing caps the caller. That is MLton's rule too ("the minus one is the
-  deleted original", mlton §3), at zero growth per decision; MLton has a
-  `maxFunctionSize` control that no code reads (`control-flags.sml:1224-1226`).
-  Repeated over rounds it builds the 152k-op function.
+  deleted original", mlton §3), at zero growth per decision. MLton has a
+  `maxFunctionSize` control, default 10,000 blocks
+  (`control-flags.sml:1224-1226`), settable as `-max-function-size`
+  (`main/main.fun:637-638`), that none of the 43 stored files reads
+  (*read*, a search of `sources/code/mlton`). Repeated over rounds the rule
+  builds the 152k-op function.
 - **Specialization feeds inlining.** Clones are made for one call site, so
   they always inline, and inlining exposes static closures that ask for new
   clones.
@@ -397,6 +451,9 @@ The research explains the flat rounds (*read*, mlton §3, upstream-mlir-llvm
   (slide 26, mlton §3, §5). Ours grows 2.6 times and does not stop.
 
 ### 3.3 The opt-in SCC pipeline, and the pinned problem
+
+This subsection is a record of what the cutover deletes (§6), kept
+because its lessons shape §4 and §10; nothing in it is a plan.
 
 **What was built** (552d682a). `idr-simplify` gained an `scc-pipeline`
 option, default off, the rounds staying the default. Under it,
@@ -414,9 +471,10 @@ summaries and no parallelism; despite its name it computed no SCCs
 (casework-audit §1.A). On `tests/idr/pipeline/do-block.mlir` it reached its
 fixpoint in 3 deltas, byte-identical to the rounds. The gates at 552d682a
 (arm64 macOS, `NCPU=6`): `make build` clean, `make check` 27/27,
-`make test-idr` 286/286, `make test` 415/415; the SCC path itself ran one lit
-test. The file-size split (Scc.cpp, `Simplify/Trace.cpp`; `Simplify.cpp` 463
-to 383 lines) was pure movement, byte-identical.
+`make test-idr` 286/286, `make test` 415/415, all on the rounds, the
+default; the SCC path itself ran one lit test. The file-size split
+(df5d8742: Scc.cpp, `Simplify/Trace.cpp`; `Simplify.cpp` 463 to 383 lines)
+was pure movement, byte-identical.
 
 **The verdict run, killed.** Started 2026-10-14 17:03 CDT on the post-contify
 stage-0 module (`/tmp/f0/post-contify.mlir`, 158 MB; the raw emission is
@@ -495,24 +553,48 @@ runs per unit. *Decision* for every stage unless marked.
    - Closures and suspensions are written in symbol form: each lambda and
      delay is an `idr.func`, and `idr.closure`/`idr.suspend` name it with its
      captures. Emit knows the captures; `idr-isolate` and the
-     `idr.lambda`/`idr.delay` region forms go.
+     `idr.lambda`/`idr.delay` region forms go. A suspension of a value Emit
+     already holds is `idr.delay %value`, the region-free evaluated
+     suspension (§2.7, D37).
    - Generated names are derived from content: the owner's name and a hash
      of the structural key, never a counter (`.lam<n>`, `.delay<n>`,
      `Isolate.cpp:124-125`, and every other counter-named symbol, §6).
    - Binders are keyed by identity, so the synthetic world binder needs no
-     `$world` rename (`Frontend/Translate/Programs.idr:182-193`) and holes
+     `$world` rename (`Frontend/Translate/Programs.idr:182-194`) and holes
      need no sentinel name renamed around Idris's normaliser
      (`Translate/Closed.idr:173, 287-295, 471-476`): the open term is
      normalised under an environment that binds the holes.
+   - Data types are written as identified types that carry their
+     constructors (D29), and the root as the one `idr.func` with the
+     inherent `root` property (D28); the `idr.program` mark is no longer
+     written (`Dialect/Idr.idr:30-33`).
    - The in-place promise is a fact of `mlir-linear`'s types, emitted with
-     them, replacing `--demand-in-place` (§6).
+     them, replacing `--demand-in-place` (§6). *Decision:* the registry,
+     where the frontend already learns the facts of library definitions
+     (`Registry/Libraries.idr`), names the `mlir-linear` types that are
+     rebuilt in place and exclusive, and the frontend writes that fact into
+     the type's body (D29); `idr-demand` checks it on every program.
    - The handoff is MLIR bytecode: the frontend writes it and the driver
-     reads it (`readBytecodeFile`); text remains a dump. This kills the
-     11.7 s parse and every text round trip in the corpus tooling (the
-     earlier F4). Lands on identical bytes everywhere.
+     reads it; text remains a dump. The driver already reads either:
+     `parseSourceFile` detects bytecode by its magic and calls
+     `readBytecodeFile` (`M/lib/Parser/Parser.cpp:47-48, 62-63`), and the
+     driver's input takes `.mlirbc` (`lib/Driver/Options.cpp:22-23`,
+     `Artifacts.cpp:34-37`). The work is the frontend's writer. *Decision:*
+     it writes attributes and types as their assembly, the bytecode's own
+     fallback encoding, as upstream does for LLVM's identified structs,
+     whose dialect gives them no bytecode form; a recursive identified type
+     then names itself in text and is no cycle of section entries, which the
+     reader refuses (`upstream/03-bytecode-deferred-quadratic`). This
+     replaces the 11.7 s text parse with a bytecode read (*conjecture*,
+     several times faster; L1 records it) and every text round trip in the
+     corpus tooling (the earlier F4). Lands on identical bytes everywhere.
 2. **Closed-world verification** (whole-program, one walk): no external
    `idr.func`, one public root, every closure- or lazy-typed operand on an op
-   with the flow interface (§2.2).
+   with the flow interface (§2.2). It is no separate step: an external
+   `idr.func` is unexpressible (the function verifier demands a body), the
+   flow rule is each op's own verifier's, and the root's verifier runs the
+   module rule (D28). So it holds after every pass the verifier runs after,
+   and a pass that broke it is an internal error.
 3. **Deduplication** (whole-program by content; hashing per function in
    parallel): Mojo's EliminateDuplicateFunctions design, bottom-up over a
    ready set so that merging is transitive in one pass, with the
@@ -521,7 +603,10 @@ runs per unit. *Decision* for every stage unless marked.
    188-254`). It runs before defunctionalization so the label sets are
    smaller.
 4. **Defunctionalization, total** (§2): the label solve is whole-program; the
-   conversion is per function, in parallel.
+   conversion is per function, in parallel. Then the effects summary is
+   computed for the first time, bottom-up over the converted module's SCCs,
+   and the memo labels that reach observable output are marked from it
+   (D34).
 5. **Contification** (whole-program analysis, per-function rewrite): MLton's
    dominator-based contification on first-order code (Fluet and Weeks, ICFP
    2001; `code/mlton/mlton/ssa/contify.fun`, mlton §3). A function that always
@@ -537,13 +622,23 @@ runs per unit. *Decision* for every stage unless marked.
      (`include/idr/Support/Scc.h`). A node is ready when every callee outside
      its SCC is final.
    - A ready function gets its inline decisions (below), its calls inlined
-     with upstream `mlir::inlineCall`, and then **one inner per-function
-     pipeline, run once**: identity, canonicalize with the one configuration
-     (`include/idr/Transforms/Canonicalize.h:34-38`), CSE, redirect,
-     int-range, case of known constructor. The pipeline runs through
+     with upstream `mlir::inlineCall`, each inlined body taking away the
+     caller's proof of termination where the callee had none
+     (`FuncOp::absorb`, `IdrOps.td:55`, as `Inline.cpp:246` does today), and
+     then **one inner per-function pipeline, run once**: identity,
+     canonicalize with the one configuration
+     (`include/idr/Transforms/Canonicalize.h:33-37`), CSE, redirect,
+     int-range, case of known constructor, and the function's constants
+     solve with its callees' summaries (stage 9). The pipeline runs through
      `Pass::runPipeline` from per-thread copies of one `OpPassManager`, the
      pattern upstream's inliner uses (`M/lib/Transforms/Utils/Inliner.cpp:
      526-567`), so the verifier and the instrumentation stay on.
+   - The driver is a module pass, as upstream's inliner is. Inlining reads a
+     sibling of the function it rewrites, which the pass manager forbids a
+     nested pass (`sources/docs/mlir/docs/PassManagement.md:29-34`); the
+     ready set is what makes the read safe (a callee is final, so nothing
+     writes it). Every other rewrite runs inside the per-function pipeline,
+     which is 0002's D3 in the form this design keeps.
    - **A bounded local loop** follows: a call the cleanup exposed (a dispatch
      whose constructor became known) into a callee that is already final is
      inlined under the same decisions, then the pipeline runs on the caller
@@ -557,16 +652,27 @@ runs per unit. *Decision* for every stage unless marked.
    - Deterministic by dataflow order: a body is a function of its own body and
      its callees' final bodies; a callee is read only after it is final; calls
      are inlined in call-site order; dead functions are erased afterwards,
-     serially, in module order (mojo §2, §5).
+     serially, in module order (mojo §2, §5). A function the ready set
+     creates (stage 8) is built detached by a worker and inserted into the
+     module by the scheduler, serially, after its owner and in key order
+     among that owner's, so the module's order is a function of content.
 7. **Inline decisions.** MLton's per-function formula, evaluated on the
    callee's final size, the way Mojo measures it lazily after the callee's
    own pipeline (`AutomaticInline.cpp:161-166`): a leaf at most 40 ops inlines;
-   any other function inlines when `(calls - 1) * (size - 60) <= 320`; a member
-   of a recursive SCC is never inlined into another member; when every call is
-   inlined, the original is deleted. Plus what MLton lacks: **a per-caller
-   size cap** above which nothing more is inlined into that caller, so the
-   152k-op function is refused at decision time, not discovered in a trace.
-   Reaching the cap stops inlining into that caller; it never rejects.
+   any other function inlines when `(calls - 1) * (size - 60) <= 320`; a
+   function on a cycle of calls (a member of an SCC of two or more, or one
+   that calls itself) is never inlined, MLton's rule (`ssa/inline.fun:
+   271-295, 319-327`) and ours today (`lib/Analysis/Inline.cpp:100-107`),
+   which the per-function decision needs, since such a function's original
+   could never be deleted; when every call is inlined, the original is
+   deleted. Size is the op count the formula reads today
+   (`References::ops`, `Inline.cpp:108`). Plus what MLton lacks: **a
+   per-caller size cap** (*decision*, D25): calls are inlined in call-site
+   order while the caller, with the callee's final body in, stays at or
+   under **10,000 ops**; a call past that stays a call, and its callee's
+   original stays with it. So the 152k-op function is refused at decision
+   time, not discovered in a trace. Reaching the cap stops inlining into
+   that caller; it never rejects.
 8. **Specialization as demand-driven nodes in the same ready set.** A call
    whose argument is a known constructor of a sum, closures included, is a
    request keyed by (callee, the static pattern). The key's node is created
@@ -577,15 +683,27 @@ runs per unit. *Decision* for every stage unless marked.
    2944-2989`, mojo §4). `kClonesPerOwner` stays as a budget that stops
    specializing. Specialization of static structure, raising and binding times
    have no upstream analogue and stay ours (upstream-mlir-llvm §8).
-9. **Interprocedural constants and effects as bottom-up SCC summaries.** Each
-   function's solve runs with interprocedural mode off, in parallel, and
+9. **Interprocedural constants and effects as bottom-up SCC summaries,**
+   in the ready set's own order. Each function's solve runs with
+   interprocedural mode off, in parallel, when the function is final, and
    upstream's `visitExternalCall` hook applies the callee's summary, computed
    callee first over the SCC order (upstream-mlir-llvm §4;
    `M/lib/Analysis/DataFlow/SparseAnalysis.cpp:229-251, 277-302, 523-538`).
    This replaces module SCCP every round (21 to 43 s serial) and the effects
    computed three ways (§6). The solver and the analyses stay upstream; the
-   driver and the summary lattice are ours. Call-site `effects`
-   (`IdrOps.td:59-75`), a verified cache of the callee's, is written once here.
+   driver and the summary lattice are ours. A bottom-up summary carries what
+   a callee returns and does; what every caller passes is not propagated
+   down, and specialization (stage 8) is how a static argument reaches a
+   callee. Effects are summarized once before the optimizer (stage 4); the
+   ready set recomputes a function's entry when the function is final,
+   which can only shrink it, since inlining, specialization and cleanup
+   remove effects and never add one. Call-site `effects` (`IdrOps.td:59-75`)
+   is written once per call, when its caller is final. After
+   defunctionalization no closure is passed to a call, so a call's effects
+   are its callee's (the comment at `IdrOps.td:59-61` joins in "the
+   closures it is given"): the copy is kept only because `getEffects` has
+   no symbol table, and its verifier checks equality with the callee's,
+   not containment (*decision*, D38).
 10. **Dead values once:** upstream RemoveDeadValues and SymbolDCE at the end of
     the optimizer, once (65 s and 7.65 GB on the round-16 module, *measured*;
     a per-SCC liveness is left to 0006).
@@ -593,29 +711,43 @@ runs per unit. *Decision* for every stage unless marked.
     `idr-demand`, `idr-trmc`, `idr-tail-loops`, `idr-narrow`, `idr-in-bounds`,
     as today: module plans, nested rewrites. Changes: `idr.stack` becomes an
     inherent property of `idr.con`; `idr-rc`'s exclusivity loop
-    (`Ownership/Rc.cpp:84-96`) computes each function's grade contexts as a key
+    (`Ownership/Rc.cpp:79-99`) computes each function's grade contexts as a key
     set first and clones once; `idr-demand` always checks the type facts
-    (§6).
+    (§6); the copies `idr-accumulate`, `idr-trmc` and `idr-rc` make are named
+    from their keys (§6).
 12. **Lowering:** layouts are whole-program and decided first; the runtime's
     declarations are created up front from the decided set instead of inserted
     into one symbol table as the conversion goes; the conversion runs per
     function (today one serial `applyPartialConversion`, `Lower.cpp:166`).
-13. **Partitioning** into codegen units (§5): a pure function of content.
-14. **Per partition:** each unit is a nested `builtin.module`; the lowering
-    tail (`convert-to-llvm`, `convert-vector-to-llvm`,
-    `reconcile-unrealized-casts`) runs under `pm.nest<ModuleOp>()`;
-    `translateModuleToLLVMIR` takes the sub-module with its own
-    `llvm::LLVMContext` (`M/include/mlir/Target/LLVMIR/Export.h:32-36`;
-    upstream-mlir-llvm §5).
-15. **LLVM optimization and code generation per partition** (§5's two steps).
-16. **Link** the N objects in unit-name order with the runtime.
+    The lowering tail and `idr-tail-calls` run as today
+    (`lib/Transforms/Pipeline.cpp:134-172`), on the whole module: the
+    tail-call plan stays one module plan (`Conversion/TailCallPlan.h`).
+13. **LLVM, whole:** the module is translated once, the runtime linked in,
+    everything but `main` internalized and O3 run once, as today
+    (`lib/Driver/Run.cpp:164-198`, `lib/Target/Optimize.cpp:44-59`). This is
+    §5.4's S2, the step the cutover builds.
+14. **Partitioning** of the optimized LLVM module into bins (§5.3): SCCs of
+    its call graph, grouped by top-level namespace, cut by content hash at a
+    fixed size; a pure function of the module.
+15. **Code generation per bin** (§5.4): the optimized module written once as
+    bitcode, each bin materialized from it in its own `LLVMContext` with its
+    own `TargetMachine` on a pool thread, one object per bin.
+16. **Link** the bin objects in bin-name order with the runtime. With `-c`,
+    the driver writes them as one archive at the path `-o` names (D32).
 
-**Determinism rules** (*decision*): the partition count is a function of the
+After the cutover, §5.4's second step moves the partition before O3 and
+before translation: each unit becomes a nested `builtin.module`, the
+lowering tail runs under `pm.nest<ModuleOp>()`, and each unit is
+translated in a context of its own (D30; `M/include/mlir/Target/LLVMIR/
+Export.h:32-36`; upstream-mlir-llvm §5).
+
+**Determinism rules** (*decision*): the bin count is a function of the
 module's size, never of `--num-threads`; every parallel join merges in a
-canonical sorted order; every name is derived from content; erasure is
-deferred and serial in module order; node maps are ordered (MapVector);
-output is byte-identical at 1, 2 and 8 threads, checked by
-`tests/determinism` (mojo §5, codegen-partitioning §9).
+canonical sorted order; every name is derived from content; insertion of a
+new function is serial and placed by key (stage 6); erasure is deferred
+and serial in module order; node maps are ordered (MapVector); output is
+byte-identical at 1, 2 and 8 threads, checked by `tests/determinism`
+(mojo §5, codegen-partitioning §9).
 
 ## 5. The code generation unit
 
@@ -682,50 +814,122 @@ output is byte-identical at 1, 2 and 8 threads, checked by
 which agrees with 0006 D4:
 
 1. **The bin count does not depend on threads.** The target is a fixed
-   estimated size, so the objects and the executable are the same for every
-   worker count. Several bins per core, largest started first.
-2. **Edit-stable cuts.** Group by top-level namespace first (49% of calls stay
-   inside one). Within a group, order SCCs by content hash and cut where the
-   hash meets a boundary condition, between a minimum and a maximum size.
-   GCC's balanced cut at a running total would shift every later cut on one
-   edit. A single function too large for a bin is a unit of its own.
+   size, so the objects and the executable are the same for every worker
+   count. Several bins per core, largest started first. *Decision* (D26):
+   the target is **2^15 = 32,768 LLVM instructions per bin**, counted on
+   the optimized module (`Function::getInstructionCount`), the units S2
+   partitions. Reasons: a bin's fixed cost (its context, target machine,
+   pass setup and bitcode read) is per bin and its code generation is
+   linear in its instructions, so bins should be as large as balance
+   allows; the stage-0 module, at 471k idr ops when emitted (F0) and
+   larger once lowered, is then more than thirty bins (*conjecture*),
+   several per core at `NCPU=6`; every test program is one bin, so the
+   corpus keeps one object; and MLton batches its output into files of the
+   same 2^15 (statements, `control-flags.sml:125-127`). GCC's balanced
+   partitioner also fixes a count with a minimum size rather than following
+   threads (128 partitions of at least 10,000 instructions, *recalled*
+   defaults). Checked at S2 on the stage-0 module and the bench: a bin's
+   fixed cost stays under 5% of its code generation time. A miss changes
+   the constant in one commit; it never becomes an option.
+2. **Edit-stable cuts.** Group by top-level namespace first (49% of calls
+   stay inside one), read from the symbol's name, whose dots the mangling
+   keeps (`Conversion/Mangle.h:15-20`). Within a group, order SCCs by
+   content hash and cut by content, between a minimum and a maximum size.
+   *Decision:* an SCC of size s closes its bin when the bin holds at least
+   B/4 and the SCC's hash, read as a fraction of 2^64, is below s/B, or
+   when the next SCC would take the bin past 2B (B the target above). A cut
+   so depends only on the SCCs beside it, and a bin averages about B. GCC's
+   balanced cut at a running total would shift every later cut on one edit.
+   A single function too large for a bin is a unit of its own.
 3. **Linkage between units.** Each definition lives in exactly one unit. A
-   symbol another unit references gets external linkage, hidden visibility,
-   `dso_local`, and its content-derived name under a reserved prefix, which
-   avoids the static-link collision `SplitModule`'s FIXME warns of. Symbols
-   used only inside their unit become internal. The runtime enters every unit
-   as `available_externally`, as it enters the one module today
-   (`Run.cpp:186-190`). Objects link in unit-name order. `--icf=all`, already
-   on with function sections (`CMakeLists.txt:174, 213`;
-   `Target/Optimize.cpp:30`), recovers the cross-unit folding MergeFunctions
-   would miss.
-4. **To verify on both targets:** `musttail` and the `idr-tail-calls` plan
-   across object boundaries on Mach-O and ELF; the runtime's inline asm
-   (`Run.cpp:209`) against the part-0 rule.
+   function or a mutable global another unit references gets external
+   linkage, hidden visibility, `dso_local`, and its content-derived name
+   under the reserved prefix `__idr.` (*decision*): C never names a symbol
+   with a dot, and the runtime's names are C identifiers, its own mangling
+   (`Conversion/Mangle.h:15-20`), so no static link can collide with one,
+   the collision `SplitModule`'s FIXME warns of (`SplitModule.h:32-38`). A
+   private constant without address identity (`unnamed_addr`) used from
+   several units is copied into each and stays private. Symbols used only
+   inside their unit become internal. The runtime's bodies were linked and
+   optimized with the module before the split (stage 13), as today
+   (`Run.cpp:184-192`). Objects link in unit-name order. `--icf=all`,
+   already on with function sections (`CMakeLists.txt:174, 213`;
+   `Target/Optimize.cpp:30`), folds identical code across objects, which
+   matters at the second step, when MergeFunctions runs per unit.
+4. **Tail calls stay inside a unit** (*decision*, D33). `idr-tail-calls`
+   plans and rewrites on the whole module before translation, as today; a
+   planned tail call joins two functions of one cycle (`Passes.td:95-117`,
+   `Conversion/TailCallPlan.h`). O3 may break that cycle by inlining, so
+   the partitioner joins every `musttail` caller to its callee as it joins
+   an SCC, and no `musttail` crosses an object; a callee of `tailcc` that
+   another unit calls keeps its convention on the declaration that unit
+   reads, since a declaration keeps its function's calling convention.
+   Checked on both targets by the `tests/idr/tail-calls` fixtures and by a
+   generated program larger than two bins whose tail-call cycles are
+   called from another bin and run deep enough that a lost tail call would
+   overflow the stack; the partitioner treats a `musttail` across bins as
+   an internal error.
+5. **Module-level inline assembly stays in the first bin**, SplitModule's
+   rule (`SplitModule.cpp:293-294`), so it is defined once. `runtime/`'s
+   sources hold no assembly (*read*, a search of `runtime/`), yet the
+   driver initializes the assembly parser because the runtime's bitcode
+   carries some (`Run.cpp:209-210`), so it comes from what the runtime
+   includes (*conjecture*). L7 records which kind it is on both targets in
+   a test that asserts what it finds.
+6. **`-c` writes an archive** (*decision*, D32). With several bins a
+   compilation makes several objects. ld64.lld cannot merge objects into
+   one: it builds a bundle, a dylib or an executable
+   (`lld/MachO/Driver.cpp:74-85`), and its `-r` is declared hidden
+   (`lld/MachO/Options.td:247-250`) and falls to "not yet implemented". So
+   `-c` writes the bin objects, in bin-name order, as one archive at the
+   path `-o` names, through LLVM's archive writer in-process and in its
+   deterministic mode; it is an archive for one bin too, so the output has
+   one shape. A link without `-c` passes the objects themselves. The
+   relink kit 0001 describes is then that archive. The tests that read the
+   `-c` output with `llvm-nm` (`tests/idr/e2e/hello.mlir:2-3`,
+   `tests/lib/heap.sh:57-68`) read an archive and subtract what its other
+   members define (L8).
 
 ### 5.4 Two steps
 
-- **S2, first:** keep the whole-module O3, then split only code generation,
-  with the fixed bin count and our own size-based predicate (`SplitModule`'s
-  clone loop is fine to reuse, about 40 lines of partition logic of our own);
-  one context and target machine per unit, objects written in index order.
-  Almost nothing is lost, because code generation is per function after O3.
-- **Then, split before O3**, one context per unit, ThinLTO's shape without its
-  summaries (*decision*: LLVM's summary-based importer would be a second
-  inlining analysis beside ours, which the one-representation rule forbids).
-  The interprocedural facts LLVM would lose across units are emitted from our
+- **S2, first, and the step the cutover builds:** keep the whole-module O3,
+  then split only code generation, with the fixed bin size and our own
+  partition. Almost nothing is lost, because code generation is per
+  function after O3. *Decision* (D21): the split does not use
+  `SplitModule`'s clone loop. That loop clones the module once per part
+  (`SplitModule.cpp:281-296`), and each clone declares every global of the
+  module (`CloneModule.cpp:66-84`), so its serial work grows with bins times
+  module size: a cost set by the bin count, which this design keeps out.
+  Instead the optimized module is written once as bitcode on the main
+  thread; each bin's task reads it lazily in a fresh `LLVMContext`
+  (`getLazyBitcodeModule`, `L/include/llvm/Bitcode/BitcodeReader.h:203`),
+  materializes its own definitions, keeps every other symbol it references
+  as a declaration and drops the rest, applies §5.3's linkage, and runs
+  code generation with its own `TargetMachine`, the shape of the LTO
+  backend's tasks (`L/lib/LTO/LTOBackend.cpp:528-548`). Objects are written
+  in bin order. The serial part is one bitcode write.
+- **Then, split before O3** (after the cutover), one context per unit,
+  ThinLTO's shape without its summaries (*decision*: LLVM's summary-based
+  importer would be a second inlining analysis beside ours, which the
+  one-representation rule forbids). The units are cut on the lowered MLIR
+  module by the same rule, with the same constant counted in its ops, and
+  each is written as bytecode on the main thread and translated and
+  optimized in an `MLIRContext` and `LLVMContext` of its own (D30). The
+  interprocedural facts LLVM would lose across units are emitted from our
   whole-program analyses as attributes on cross-unit declarations: memory
   effects, `nounwind` and `willreturn` from the effects summaries; `noalias`
-  and `readonly` from exclusivity and borrows; `nonnull` and `dereferenceable`
-  from layouts (codegen-partitioning §9).
+  and `readonly` from exclusivity and borrows; `nonnull` and
+  `dereferenceable` from layouts (codegen-partitioning §9). The tail-call
+  plan is then decided on the parent module over every unit's functions and
+  applied per unit, with §5.3 item 4's rule.
 
 What Mojo does here, for reference (mojo §1): it splits the LLVM module per
 exported root with transitive callees (`LLVMIRUtils.cpp:301-420`), optimizes
 each split in its own context, splits again per function for codegen, and
 links the machine functions back with an `MCLinker` that needs a non-upstream
 LLVM patch and reaches into LLVM's private members (`LLVMAccessorHelper.cpp:
-41-69, 150`). We take the shape, upstream's `SplitModule` and the LTO backend
-pattern, and never the linker (§8).
+41-69, 150`). We take the shape and the LTO backend's pattern (a module as
+bitcode, read in a fresh context per task), and never the linker (§8).
 
 ## 6. What is deleted
 

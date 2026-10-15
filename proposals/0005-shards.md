@@ -1,18 +1,32 @@
 # 0005: shards
 
 **Status:** proposed, 2026-10-09, against `main` at 651156d4;
-reprioritized 2026-10-12. Nothing here is built, run or timed. Its
+reprioritized 2026-10-12; reconciled 2026-10-14 with 0004's pipeline
+cutover and with 0006. Nothing here is built, run or timed. Its
 Decisions section is decided: D1 is the user's, and D2 to D12 were pinned
 on the user's delegation by the rule that single-thread performance wins
-the tie ("Rules it keeps"). They stand until the user changes them.
+the tie ("Rules it keeps"); D13 follows from AGENTS.md and 0003 D19.
+They stand until the user changes them. The tree it builds on is the
+cutover 0002 designed, committed and building on arm64 macOS, where
+`make test` is 415/415 (*measured* 2026-10-14 at 7a27fd34 before the
+opt-in SCC pipeline and at 552d682a with it off by default; 0004 deletes
+that pipeline). x86_64 Linux is NotRun (0002 §3), so P2's epoll half
+targets a system that has not yet run the tree.
+
 Sharding follows 0003's stage 1, which follows self-hosting: P1, P2
-and P4 are that work, in order, with 0006's S0, S1, S2 and S8. P3 (asynchronous
-Rust) is parked with proposal 0013, which it needs. P5 stays on its
-measurements. Its runtime paths are read after the cutover, which made
-the runtime plain `.cpp` and `.h` files. Claims are marked: read,
+and P4 are that work, in order. 0006's S0, S1 and S2's first step are
+taken by 0004's cutover, before any of it. Whether the compiler's own
+Idris half runs on these shards is 0006's open question; its default is
+processes, so these stages serve user programs first (0006 §5.4, §12).
+P3 (asynchronous Rust) is parked with proposal 0013, which it needs. P5
+stays on its measurements. Runtime and compiler paths were re-read at
+3de67510 on 2026-10-14; `M/` and `L/` are the pinned MLIR and LLVM trees
+under `.toolchain/build/llvm-project/`. Claims are marked: read,
 measured, recalled, conjecture, decision.
 
-The runtime today is one thread running `main`. This proposal makes it
+The runtime today runs the program on one runner thread with a
+reserved stack, and "one runner runs at a time in a process" (read:
+`runtime/idris_rt.h:436-461`). This proposal makes it
 many copies of that runtime, one per core, each with its own heap, world
 and plain counts, and adds the one thing a copy lacks: a way to pause in
 the middle of a computation and be resumed by an event. It is the
@@ -49,6 +63,9 @@ Each move names the data that changes and the branches it deletes.
 - **Rust futures are polled from our task frames** (§10). Data: `Rust
   (FutT a)` as a counted foreign cell, a one-word waker. Deleted: any Rust
   runtime.
+- **The library's operations are runtime primitives** (§7.1, D13). Data:
+  registry entries keyed by name, with no Idris body. Deleted: a second,
+  sequential meaning of each operation written in Idris.
 
 ## Rules it keeps
 
@@ -76,6 +93,15 @@ Each move names the data that changes and the branches it deletes.
 - **Reject what cannot compile.** A value that may not cross is
   `unsupported (send)`, naming the type and the path to it (§7.3).
 - **Static linking.** No piece of this is loaded at run time.
+- **No option selects behaviour** (0004 D2). `IDRIS_RT_SHARDS` is the
+  program's resource, as `IDRIS_RT_STACK` is (read:
+  `runtime/idris_rt.h:436-447`): a program whose output its joins
+  order prints the same at every count (D8). The compiler gains no
+  flag: whether a program waits or forks is in its code and its types.
+- **Acceptance is a property of the program** (0004 §1). The one
+  refusal this design adds to the C++ side, `unsupported (send)`, reads
+  only the sums the whole-program label solve decides before the
+  optimizer (§7.3).
 
 ## The design
 
@@ -96,7 +122,10 @@ where it was paused.
 
 Closures and thunks are done: defunctionalization makes
 them sums (read: `foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp`,
-`foreign/idr/lib/Conversion/Force.cpp`). This proposal adds the third.
+`foreign/idr/lib/Conversion/Force.cpp`), and after 0004's cutover it
+does so for every closed, monomorphic program, by analysis alone (0004
+§2.4). So every value a message can hold has a sum type, a fact this
+design's send check reads (§7.3). This proposal adds the third.
 The line falls where the data is known: a thunk's paused state is its
 captures, known in MLIR; a task's is the values live across a wait, known
 exactly only after optimization, so LLVM's CoroSplit computes it. An LLVM
@@ -129,15 +158,18 @@ must interleave with other tasks, a socket or timer event, or a Rust
 future that returned `Pending`.
 
 **decision** It is LLVM's switched-resume coroutine, emitted by idr-lower
-as `llvm.intr.coro.*`. The ops the LLVM dialect does not spell
-(`coro.done`, `coro.destroy`, `coro.alloc`) go through
-`llvm.call_intrinsic` (read:
-`mlir/include/mlir/Dialect/LLVMIR/LLVMIntrinsicOps.td`, the coro ops;
-`LLVMOps.td`, `LLVM_CallIntrinsicOp`). CoroSplit and CoroElide already
-run in our pipelines, because `buildPerModuleDefaultPipeline(O3)`
-includes the coroutine passes (read:
-`foreign/idr/lib/Target/Optimize.cpp`; `PassBuilderPipelines.cpp`,
-`buildCoroWrapper`).
+as `llvm.intr.coro.*`. Every coroutine intrinsic it needs is an op of
+the pinned LLVM dialect, `coro.alloc`, `coro.destroy` and `coro.done`
+included (read: `M/include/mlir/Dialect/LLVMIR/LLVMIntrinsicOps.td:938-1039`),
+so none goes through `llvm.call_intrinsic`. This supersedes the earlier
+claim that those three were missing. CoroSplit and CoroElide already run
+in our pipelines, because `buildPerModuleDefaultPipeline(O3)`
+(`foreign/idr/lib/Target/Optimize.cpp:44-59`) includes every coroutine
+pass: CoroEarly in the module simplification, CoroElide in the function
+simplification, CoroSplit in the inliner's CGSCC pipeline, CoroCleanup
+after it (read: `L/lib/Passes/PassBuilderPipelines.cpp:1023, 685, 915,
+1194`). `buildCoroWrapper` (`:320`), cited before, is the O0 form. Each
+codegen unit's own O3, at 0004 §5.4's second step, runs the same passes.
 
 In MLIR the wait is `idr.wait`, a terminator with two successors:
 
@@ -184,7 +216,8 @@ cancelled. Counting never frees it, so the free walk never meets one.
 - **Only the coroutine itself suspends.** Every caller of a function that
   may wait, up to the reactor, is a coroutine too: colouring (§2.4).
 - **Not required:** a stable frame ABI across LLVM releases. A program is
-  one module on one pinned LLVM, with the runtime's bitcode linked in.
+  compiled whole by one pinned LLVM, its codegen units (0004 §5) and the
+  runtime's bitcode together, so no frame crosses a compiler boundary.
 
 #### 2.4 Colouring, decided by the compiler, avoided where it can be
 
@@ -192,12 +225,19 @@ Stackful frames would not colour, but they need a stack switch: inline
 assembly (excluded) or `makecontext`, which musl does not ship. So the
 compiler colours, as little as it can.
 
-**decision** idr-effects gains a fourth bit, `wait`, beside `io`, `crash`
-and `diverge` (read: `Transforms/Passes.td`, `idr-effects`), computed like the
-others from the primitives that wait: sockets, timers and sleep; Rust
-`await`; the join of a fork that must interleave with other tasks. Only
-`wait` functions are lowered as coroutines. The world stays the
-quantity-1 token with no runtime components.
+**decision** The effects fact gains a fourth bit, `wait`, beside `io`,
+`crash` and `diverge` (read: `foreign/idr/include/idr/Transforms/Passes.td:16-43`,
+`#idr.effects<io, crash, diverge>`). After 0004's cutover the effects
+are one bottom-up SCC summary, computed once, callee first, with the
+call-site `effects` cache written once from it (0004 §4.9, D16); `wait`
+is one more bit of that summary, never a second analysis. It is
+computed like the others from the primitives that wait: sockets, timers
+and sleep; Rust `await`; the join of a fork that must interleave with
+other tasks. Since 0004 runs defunctionalization before the optimizer,
+a closure's effects reach its caller through the direct calls of its
+dispatch, with no closure case (0004 §2.7). Only `wait` functions are
+lowered as coroutines. The world stays the quantity-1 token with no
+runtime components.
 
 **The helping join.** A join in a function that waits for nothing else
 does not colour it. While its reply has not arrived, it runs the work that
@@ -213,7 +253,9 @@ one frame. A tail call from one waiting function to another is a tail
 await: the callee's frame takes over the caller's awaiter, the caller's
 frame is destroyed, and the callee is resumed by a `musttail` call. That
 is C++'s symmetric transfer on switched-resume, and it keeps the
-constant-stack promise.
+constant-stack promise. Between two codegen units it rests on the check
+0004 already owes: `musttail` across object boundaries on Mach-O and ELF
+(0004 §5.3 item 4).
 
 ### 3. The reactor
 
@@ -222,8 +264,9 @@ constant-stack promise.
 Each shard is a runtime thread holding:
 
 - a reserved stack with a guard and its own `sigaltstack`, one runner per
-  shard instead of one per process (read: `runtime/idris_rt.h`,
-  `idris_rt_run_on_stack`);
+  shard instead of one per process (read: `runtime/idris_rt.h:448-461`,
+  `idris_rt_run_on_stack`, whose "one runner runs at a time in a
+  process" P4 lifts);
 - a snmalloc allocator, already per thread;
 - its constant table (§6);
 - a task table of (slot, generation);
@@ -236,7 +279,11 @@ today.
 
 #### 3.2 The platform wait
 
-The waiter is one operation behind the platform layer:
+The waiter is one operation behind the platform layer, which already
+keeps every difference between Linux and macOS in one function of
+`Platform/Posix` chosen by the target's macros (read:
+`runtime/Platform/Platform.h:3-8`); the waiter is one more such
+function:
 
 | Target | Waits on | A post wakes it with |
 |---|---|---|
@@ -320,7 +367,7 @@ enqueued, in one walk of the counted graph it reaches:
 |---|---|---|
 | count 0 (persistent), including a `Static i` constant (§6) | sent as the same pointer | persistent data is immutable and points only at persistent data; the receiver forces its own slot `i` |
 | count 1, reached only through moved cells, at a send that consumes the sender's last reference (idr-rc decides) | moved: the pointer is the message | nobody else can reach it; the receiver's free is snmalloc's remote free |
-| count above 1, or a stack cell | copied into a fresh count-1 cell; a forwarding map keyed by address, holding only cells of count above 1, keeps the DAG's sharing | the sender keeps its aliases and drops them on its own shard: Erlang's copy without Erlang's collector (read: `sources/papers/clebsch-2017-orca`, "when data structures are immutable") |
+| count above 1, or a stack cell (an `idr.con` whose stack placement is an inherent property after 0004, D19) | copied into a fresh count-1 cell; a forwarding map keyed by address, holding only cells of count above 1, keeps the DAG's sharing | the sender keeps its aliases and drops them on its own shard: Erlang's copy without Erlang's collector (read: `sources/papers/clebsch-2017-orca`, "when data structures are immutable") |
 | a thunk, `Forced` | copied with its value | a value |
 | a thunk, `Delayed` | copied unforced; its captures are walked | forcing it to send it could diverge where the program would not, and the memo is not semantics |
 | a thunk, `Running` | impossible | a thunk runs only on its own shard's stack, inside its force |
@@ -367,8 +414,9 @@ A top-level constant is evaluated at most once per shard that demands it
 (D6). Today there is one memo cell per process, because a constant
 stream's tail is a static thunk referenced from static data, and a
 thread-local address is not a link-time constant (read:
-`foreign/idr/lib/Conversion/StaticData.cpp`, the memo cells of thunk kind and
-`@__idr_release_cafs`).
+`foreign/idr/lib/Conversion/StaticData.cpp:246-257`, a memo cell is a
+writable `__idr_caf_` global where every other cell is constant, and
+`:72`, `@__idr_release_cafs`).
 
 **decision** The indirection is a state of the memo sum, not a test
 beside it:
@@ -386,7 +434,9 @@ memo K = Delayed_L1 caps1 | ... | Delayed_Ln capsn
 - **Each shard's constant table is one `thread_local` global** whose
   initial image is the templates, `Delayed_L caps` with persistent
   captures. The loader gives every shard its copy at no cost to the
-  compiler.
+  compiler. Under 0004's codegen units it is one definition in one unit,
+  referenced from the others as an external hidden symbol (0004 §5.3
+  item 3), so every unit reaches it the same way.
 - **The force's match gains one arm:** `Static i -> force slot i of the
   running shard's table`. Only keys that have a top-level constant have
   it, as only pipes have `pipe_next` (D7).
@@ -405,10 +455,23 @@ measurement it must pass.
 
 #### 7.1 `libs/mlir-shard`
 
-**decision** A new in-house package, in plain Idris over base. Read as
-written, its definitions are ordinary sequential IO: a fork runs its
+**decision** A new in-house package, in plain Idris over base, as
+`mlir-linear` is. Its operations (`runShards`, `fork`, `join`, the
+`Local` cells, `pipe`) are runtime primitives of the registry, keyed by
+name, with no Idris body, as `mlir-linear`'s are
+(`libs/mlir-linear/Linear/String/Iterator.idr:27-29`, `%extern`) and as
+0003 D19 makes `Linear.Array`'s: their one meaning is the runtime's
+(AGENTS.md: "No primitive has an implementation in Idris"). Their
+sequential reading is their specification, never code: a fork runs its
 computation to completion at once, a join returns the stored result, a
-`Local` is an `IORef` in a table.
+`Local` is an `IORef` in a table, and for pure work the runtime's
+meaning equals that reading (D2). This supersedes the earlier "read as
+written, its definitions are ordinary sequential IO", which gave each
+operation a second meaning in Idris that differs from the runtime's
+wherever forked effects interleave (D13). Everything else in the package
+(`io`, `pure`, its bind, `submit`, `forAll`, `Sharded`) is ordinary
+Idris over those primitives; `lend` and `forkL` join the primitives when
+D10 builds lending.
 
 ```idris
 module Shard
@@ -522,31 +585,64 @@ operand is a message.
   `idr.join` to `idr.wait` (§2.1) or to the helping join (§2.4).
 - A fork to the running shard is a call (read:
   `sources/docs/seastar/smp.hh`, `submit_to` of `this_shard_id()`).
+- **decision** `idr.fork` and `idr.join` implement 0004's one flow
+  interface (0004 D8): a closure or lazy operand of the fork reaches the
+  region argument it binds, and the region's yield reaches the join's
+  result. So the label solve follows a closure into the forked work
+  with no case of its own, and the verifier, which refuses a closure- or
+  lazy-typed operand on an op without the interface, admits the fork.
+  The region is written isolated by the frontend, its operands already
+  the message, so there is no outlining round trip of the kind 0004
+  deletes with `idr-isolate` (0004 §4 stage 1). The calls inside the
+  region are edges of the enclosing function in upstream's `CallGraph`,
+  which attributes a call nested in any region that is not a callable to
+  the enclosing callable (read: `M/lib/Analysis/CallGraph.cpp:74-97`), so
+  0004's ready set orders the forked work's callees before the forker.
 
 The frontend cannot check sendability: closure sums do not exist before
 idr-defunctionalize, and `Send` is not an interface a user should
-implement. **decision** The send check is part of `CapturingOpInterface`'s
-isolation, run by the `idr.program`
-verifier after defunctionalization. It walks the types an `idr.fork`'s
-operands and result reach and rejects a mutable cell (`IOArray`, `IORef`,
-`Buffer`), a world, a `Local` whose index is not the destination, and a
-lazy key whose memo sum can hold `pipe_next`. The rejection is
-`unsupported (send)`, naming the type and the path. A runtime handle is
-an integer and passes. A linear array (`mlir-linear`) is exclusive by
-type, so it moves; sending an array and getting it back is the
-data-parallel case.
+implement. **decision** The send check is a verifier rule of `idr.fork`,
+in force from the stage after defunctionalization, which the IR's own
+types say (0004 D19: the stage is read from types, not from the
+`idr.program` attribute that 0004 deletes). It walks the types an
+`idr.fork`'s operands and result reach and rejects a mutable cell
+(`IOArray`, `IORef`, `Buffer`), a world, a `Local` whose index is not the
+destination, and a lazy key whose memo sum can hold `pipe_next`. The
+rejection is `unsupported (send)`, naming the type and the path, as
+structured data on the diagnostic that the driver reads (0004 §6
+deletes the driver's match on the message prefix). This supersedes the
+earlier "part of `CapturingOpInterface`'s isolation": no such interface
+exists (read: `foreign/idr/include/idr/IR/IdrInterfaces.td`, which
+defines `MayCrashOpInterface`, `GuardOpInterface` and
+`ConsumingOpInterface`), and the flow interface is where 0004 puts
+closure flow.
+
+Whether a fork is accepted is a property of the program, never of the
+optimizer: the sums the check walks are the label solve's, decided on
+the whole program before the optimizer runs and total by analysis (0004
+§2.4, §2.7). Their precision is 0CFA's: a label that reaches a fork's
+type but never its value at run time is still walked. MLton's
+polyvariance would sharpen that, and 0004 leaves it unbuilt until a
+measurement asks (0004 open question 7). A runtime handle is an integer
+and passes. A linear array (0003's `LArray`, §3.8 there) is exclusive by
+type, born fresh and leaving only by `freeze`, so it moves; sending an
+array and getting it back is the data-parallel case.
 
 ### 8. Parallel loops
 
-A loop over memrefs whose body counts nothing needs no detach.
-**decision** It is tiled to `scf.forall` with `tile_using_forall` and
-lowered to a fork per shard and a join. The
-arrays reach every shard by pointer for the duration of the join: the
-body touches no count, its elements are words, and each tile writes its
-own slice, so the general `lent` grade is not needed. The `counts-nothing`
-property, an `idr-expect` check today, becomes the precondition the
-lowering checks. It goes neither through `async-parallel-for` nor
-`convert-scf-to-openmp`, each a second runtime.
+A loop whose body counts nothing needs no detach. Which loops are
+parallel, and how they are tiled, is 0003's (§14 there): after 0003's
+stage 1 a parallel dimension of a raised generic is tiled to
+`scf.forall` by the target's transform script (0003 D20).
+**decision** This proposal lowers an `scf.forall` to a fork per shard
+and a join. The arrays reach every shard by pointer for the duration of
+the join: the body touches no count, its elements are words, and each
+tile writes its own slice, so the general `lent` grade is not needed.
+The `counts-nothing` property, an `idr-expect` check today (read:
+`foreign/idr/include/idr/Transforms/Passes.td:769-800`,
+`counts-nothing=@f`), becomes the precondition the lowering checks. It
+goes neither through `async-parallel-for` nor `convert-scf-to-openmp`,
+each a second runtime.
 
 ### 9. Streams across shards
 
@@ -669,7 +765,8 @@ measurement.
   lowering of `wait` functions only; tail await.
 - **Proof:**
   - a waiting loop of 10^7 iterations runs in constant memory;
-  - a program that never waits lowers to byte-identical IR;
+  - a program that never waits lowers to IR byte-identical to the
+    binary's before P1, compared binary against binary (0004 D22);
   - the colouring measurement of D11 passes.
 
 **P2. One reactor** (§3, §10.2).
@@ -691,8 +788,9 @@ measurement.
 
 **P4. Shards** (§4 to §9).
 
-- **Change:** `libs/mlir-shard`, `idr.fork`, `shard.grid`; the send check
-  and the detach walk; the helping join; the standard streams on every
+- **Change:** `libs/mlir-shard`, its operations registry primitives
+  (D13); `idr.fork` and `idr.join` with 0004's flow interface;
+  `shard.grid`; the send check and the detach walk; the helping join; the standard streams on every
   shard and handles hopping home (D3, D4); process state under the
   platform lock (D5); `Static i` and the per-shard constant tables (D6);
   `scf.forall` lowered to fork and join.
@@ -764,6 +862,12 @@ before:
   and wake, where one word does (§10.2).
 - **The standard streams as waits:** it colours every batch program that
   reads standard input in a loop (§3.2).
+- **The library's operations as Idris definitions** whose sequential
+  bodies the compiler replaces: a second meaning of each primitive in
+  Idris (D13).
+- **A partition that keeps a coroutine with its callers,** so that
+  elision works across codegen units: a branch in a pure function of
+  content (D11).
 - **A generator coroutine,** one frame suspended many times, as a
   representation of streams: a pure language fuses producer and consumer
   instead (the contiguous-runs work). It would reuse P1's lowering
@@ -916,7 +1020,8 @@ is supported, and the reason is that a memo is a plain write
   stream forced without end is memory without end; or atomic counts on a
   kind of cell of their own, a second reference count beside ours.
 - **A pipe: the one cross-shard stream, with atomics only in its ring**
-  (§9). Read as written, `pipe s' k xs = pure xs`, so the consumer sees
+  (§9). Its specification, the sequential reading of D13, is
+  `pipe s' k xs = pure xs`, so the consumer sees
   the same values deterministically, and only where and how far ahead
   they are computed changes. A pipe has one consumer, so the send check
   rejects any value whose lazy keys can hold `pipe_next`. It needs P1,
@@ -964,6 +1069,22 @@ CoroElide. If our lowering lets the handle escape, our lowering is fixed;
 if CoroElide misses a case it should take, the case is reduced and fixed
 in LLVM, as AGENTS.md requires.
 
+Elision inlines the coroutine's ramp into its caller, so it needs both
+bodies in one LLVM module. After 0004's cutover a program is several
+codegen units (0004 §5), and at 0004 §5.4's second step each runs its
+own O3 with no importer of bodies from another unit (0004 D21). So the
+fixture runs twice: caller and callee in one unit, and in two.
+**decision** The threshold of zero holds within a unit. Across two
+units elision is impossible by construction, the frame is allocated
+from the shard's size-class fast path (§3.1), and the per-call count is
+recorded beside the bench. Reason: making the partition keep a
+coroutine with its callers would be a branch in a pure function of
+content (0004 §5.3, 0006 D4), and the idr-level inliner already inlines
+a small wait function before idr-lower makes it a coroutine (0004
+§4.7). If the recorded cross-unit count shows on a bench program's
+runtime beyond the spread, the fix is reduced to LLVM as above or made
+in our lowering, never in the partition.
+
 ### D12. Which Rust crates work
 
 The rule is computed per crate graph, not listed: a crate works when its
@@ -973,3 +1094,18 @@ generic over the async I/O traits the runtime implements (hyper 1.x, h2,
 connector; recalled). The generator rejects any other graph as
 `unsupported (rust async)` (proposal 0013 §12). P3's fixture is a hyper
 client and server.
+
+### D13. The library's operations are runtime primitives
+
+`libs/mlir-shard`'s `runShards`, `fork`, `join`, `Local` cells and
+`pipe` are runtime primitives of the registry with no Idris body, as
+`mlir-linear`'s are and as 0003 D19 makes `Linear.Array`'s (§7.1). Their
+sequential reading is their specification: for pure work the runtime
+meets it exactly (D2), and where forked effects interleave the runtime's
+causal order is the meaning. Reason: AGENTS.md gives a primitive one
+meaning, the runtime's, and an Idris body beside it would be a second
+meaning that differs wherever effects interleave. Consequence: no
+program runs these operations on a host without this runtime, Chez
+included, which AGENTS.md already says no feature is shaped for. The
+compiler's own Idris half is therefore parallel by processes until the
+owner decides otherwise (0006 §12, whose default that is).
