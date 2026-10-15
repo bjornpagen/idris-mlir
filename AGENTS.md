@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Working on idris-mlir
 
 The code is the specification. Read it, and read the MLIR documentation and
@@ -54,7 +56,7 @@ numbers.
   before the passes that use them.
 - No primitive has an implementation in Idris: its one meaning is the
   runtime's (`runtime/`), which folders call too. A closed call runs at
-  run time. Static normalization (proposal 0008) is what would fold one,
+  run time. Static normalization (proposal 0007) is what would fold one,
   and it is not built.
 - The compiler implements the Idris 2 it can compile to the code a
   monomorphic program would be: every construct whose runtime choices
@@ -88,7 +90,7 @@ numbers.
   `%foreign` or the extern; never ignore the pragma. A `Data.Buffer`
   operation is a runtime primitive, with its one meaning in `runtime/`. There
   is no C interop now or later: the one foreign world planned is Rust
-  (proposal 0014), and a C library is reached only through a Rust `-sys`
+  (proposal 0013), and a C library is reached only through a Rust `-sys`
   crate and the safe crate over it.
 - Only `IdrisMLIR.Frontend.*` may import the fork of Idris's compiler
   (`compiler/idris`), and the fork never imports `IdrisMLIR.*`.
@@ -97,6 +99,8 @@ numbers.
   to the copy the bootstrap builds, never to the checkout.
 - Install build dependencies under .toolchain/ through `make bootstrap`. Do
   not modify the user's global compiler installation or shell configuration.
+  The LLVM umbrella projects (llvm-project), modular and Idris 2 track main;
+  every other dependency is pinned to its latest release.
 - Reject what the compiler cannot compile with an explicit `unsupported`
   error that names the reason; never miscompile silently.
 - Acceptance is a property of the program, never of the optimizer. Every

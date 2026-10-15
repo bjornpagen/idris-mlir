@@ -1,52 +1,57 @@
-# Proposal 0014: Rust as the one foreign world
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
+# Proposal 0013: Rust as the one foreign world
 
 **Status:** proposed 2026-10-04 at 6fda6d8; parked 2026-10-12, in the
 queue the owner approved on 2026-10-14 (`proposals/README.md`);
-reconciled the same day with 0004's pipeline cutover and decided
+reconciled the same day with the pipeline cutover (c7aa7b62, 5d5f3312;
+its proposal at 484d6403) and decided
 throughout: there is no open question (§16, §17). Nothing here is
 built, and nothing here changes the compiler until it is taken up. It
 is parked because nothing before the array work needs a foreign world:
 the cutover, self-hosting, 0003's purge and sharding's first stages do
-not. Waiting with it: 0006's P3 (asynchronous Rust on the reactor),
-0011's T8 (solvers reached as Rust crates, 0011 §2.5) and bumbledb's
+not. Waiting with it: 0005's P3 (asynchronous Rust on the reactor),
+0010's T8 (solvers reached as Rust crates, 0010 §2.5) and bumbledb's
 storage (LMDB through heed, bumbledb 0003 §3). It is taken up when the
 first of them starts, and its staged plan (§14) then becomes work.
 
-The tree it would build on (*measured*, 0002 and 0004 §0): the cutover
-0002 designed is committed and builds on arm64 macOS, where `make test`
-was 415/415 at 7a27fd34, before the opt-in SCC pipeline, and again at
-552d682a with it off by default; both runs took the Simplify rounds,
-which 0004's cutover deleted together with that pipeline. x86_64 Linux
-is NotRun (0002 §3). `make self` has never finished; it waits on the qualification of
-0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
-bfdcac70) but not yet built (proposals/README.md).
+The tree it would build on (*measured*, 0002 and the cutover's §0): the
+cutover 0002 designed is committed and builds on arm64 macOS, where
+`make test` was 415/415 at 7a27fd34, before the opt-in SCC pipeline, and
+again at 552d682a with it off by default; both runs took the Simplify
+rounds, which the pipeline cutover deleted together with that pipeline.
+x86_64 Linux is NotRun (0002 §3). `make self` has never finished; it
+waits on the qualification of the cutover and the representation wave
+(its proposal at 484d6403), coded and integrated (c7aa7b62, 5d5f3312,
+bfdcac70) but not yet built, and of 0004 (proposals/0004-total/),
+integrated on top of them, typecheck only (proposals/README.md).
 
-Amended 2026-10-14, for 0004's cutover (each item decided in §17):
+Amended 2026-10-14, for the cutover (each item decided in §17):
 
-- No `idr.func` declaration for a shim: 0004 makes an external
-  `idr.func` unexpressible (0004 D7), so `idr.rust.call` names its shim
+- No `idr.func` declaration for a shim: the cutover made an external
+  `idr.func` unexpressible (its D7), so `idr.rust.call` names its shim
   by symbol, as the runtime's functions are named and never declared in
   the module, and carries its signature, grades included, as an inherent
   property (§9.2).
-- Callbacks export nothing: a closure passed to Rust flows through 0004's
+- Callbacks export nothing: a closure passed to Rust flows through the
   one flow interface into a callback key, and the shim gets the address
   of the key's private dispatch function, so the closed world stays as
   the verifier states it (§7.7).
 - No `linkRust`: the shim archive is read and linked by the runtime's
   own reader and link, and so takes the runtime's two cases and its
-  namespace group at both of 0007's steps (§9.3).
+  namespace group at both of 0006's steps (§9.3).
 - No stack placement of foreign cells: `idr.stack` is an inherent
-  property of `idr.con` (0004 §4 stage 11), and the shim makes every
-  foreign cell (§7.4, §9.1).
-- Rules are cases of the one rule enum 0004 D42 declares in the dialect's
-  ODS, not hand-written lines of `Rule.idr` (§9.5).
+  property of `idr.con` (the cutover's §4 stage 11), and the shim makes
+  every foreign cell (§7.4, §9.1).
+- Rules are cases of the one rule enum the cutover's D42 declared in the
+  dialect's ODS, not hand-written lines of `Rule.idr` (§9.5).
 - Keys of a Rust map of Idris values are unexpressible beyond §7.2's
-  types, instead of refused as `runtime closure`, a reason 0004 deletes
-  from the C++ side (§7.6).
+  types, instead of refused as `runtime closure`, a reason the cutover
+  deleted from the C++ side (§7.6).
 - The trust home is `Bindings`, since `Generated` already names the
   origin of code in no module (§8.1).
-- Async Rust is 0006 §10's; §12 keeps only this proposal's half, and
-  the `[blocking]` table 0006 §10.4 assumes comes with its P3 (§5).
+- Async Rust is 0005 §10's; §12 keeps only this proposal's half, and
+  the `[blocking]` table 0005 §10.4 assumes comes with its P3 (§5).
 - A binding is declared with `%extern`, as `mlir-linear`'s primitives
   are, and its registry entry holds the shim's symbol once; no
   `%foreign` label is written, and no `%foreign` is admitted beyond
@@ -56,7 +61,7 @@ Amended 2026-10-14, for 0004's cutover (each item decided in §17):
   project (§10), `std` built once per target entry (§14).
 - Paths were re-read at ccaba89c (2026-10-14), where no file under
   `foreign/`, `compiler/` or `runtime/` has changed since 3de67510
-  (0004 §0).
+  (the cutover's §0).
 
 Amended 2026-10-09:
 
@@ -168,14 +173,14 @@ each check it proves redundant.
 program's Rust is compiled to bitcode by the pinned rustc and joined to
 the program before O3 through the runtime's reader and link, as one more
 part of the runtime (§9.3). There is one static image: one allocator
-(the runtime's), one crash path (a panic is a crash), one optimizer
-pass over Idris, runtime and Rust code, one partition of the result into
-codegen bins (0004 §5.3), and no loader. Rust is only ever linked statically; there is no
-dynamic Rust library, no `dlopen`, and no plugin interface, in programs
-or in tests. The design is the
-minimum that makes a call into statically linked Rust as cheap and as
-checked as a call into the runtime, and every decision below picks the
-smaller mechanism.
+(the runtime's), one crash path (a panic is a crash), one optimizer pass
+over Idris, runtime and Rust code, one partition of the result into
+codegen bins (the cutover's §5.3), and no loader. Rust is only ever
+linked statically; there is no dynamic Rust library, no `dlopen`, and no
+plugin interface, in programs or in tests. The design is the minimum
+that makes a call into statically linked Rust as cheap and as checked as
+a call into the runtime, and every decision below picks the smaller
+mechanism.
 
 ## 2. The rules this design keeps
 
@@ -207,14 +212,14 @@ the design:
    (`!idr.lin`, `!idr.excl`). Ownership modes at a Rust call are grades on
    the parameter types of the call's inherent signature (§9.2).
 7. **Reject what cannot be compiled, with a named rule; never miscompile.**
-   A rule is a case of the one rule enum (0004 D42).
+   A rule is a case of the one rule enum (the cutover's D42).
 8. **The heap stays acyclic**: a type that could knot it is rejected, as
    `unsupported (cycle)` (`foreign/idr/lib/IR/Verify/Knots.cpp`). A Rust
    container that holds Idris values and can be mutated is a mutable-cell
    edge of the type reachability graph.
-9. **No option, toggle or mode** (0004 D2). Every residual check is one
-   behaviour, which the compiler removes where it proves it (§8.3), and
-   the shims are one build.
+9. **No option, toggle or mode** (the cutover's D2). Every residual
+   check is one behaviour, which the compiler removes where it proves it
+   (§8.3), and the shims are one build.
 10. **Two first-class targets**, x86_64 Linux (musl, static PIE) and arm64
     macOS, decided in one place, the target entry in CMakeLists.txt.
 11. **No primitive has an implementation in Idris.** A shim is the one
@@ -255,9 +260,9 @@ the design:
   give a second scheduler and I/O the runtime cannot see.
 - **Rust code that calls into Idris from another thread.** The runtime is
   single-threaded and its counts are plain arithmetic
-  (`idris_rt.h:27-38`). Under 0006's shards the rule is the same, stated
+  (`idris_rt.h:27-38`). Under 0005's shards the rule is the same, stated
   there for every foreign thread: it may wake a shard, never touch a
-  count, a cell or a world (0006 §3.3).
+  count, a cell or a world (0005 §3.3).
 - **Rust types as Idris values without a handle.** The exception is the
   scalars and strings of §7.2.
 - **Dynamic linking of Rust,** in any form: a Rust `cdylib`, `dlopen`,
@@ -265,8 +270,8 @@ the design:
 
 **Later, staged (§14):**
 
-- async Rust polled from 0006's task frames on its reactor, which is
-  0006's P3, after its P2 (§12; 0006 §10);
+- async Rust polled from 0005's task frames on its reactor, which is
+  0005's P3, after its P2 (§12; 0005 §10);
 - protocol overlays in Brady's style (§10).
 
 ## 4. The pieces
@@ -289,15 +294,15 @@ rust.toml ──► idris-mlir-bind ──► rustdoc JSON of each crate (pinned
    (registry: generated)             carries bitcode
                │                               │
                ▼                               ▼
-   0004's pipeline ──► idr-lower ──► translate ──► the runtime's link
+   the idr pipeline ──► idr-lower ──► translate ──► the runtime's link
    (runtime + libidrs.a) ──► O3 ──► bins ──► code generation per bin ──► link
 ```
 
-The middle row is 0004 §4's pipeline, stages 1 to 16, with nothing of
-its own for Rust: defunctionalization, the ready set, `idr-rc` and the
-lowering see an `idr.rust.call` as one more op (§9.2), and the runtime
-link, the partition and the per-bin code generation see Rust's bitcode
-as one more part of the runtime (§9.3).
+The middle row is the pipeline of the cutover's §4, stages 1 to 16, with
+nothing of its own for Rust: defunctionalization, the ready set,
+`idr-rc` and the lowering see an `idr.rust.call` as one more op (§9.2),
+and the runtime link, the partition and the per-bin code generation see
+Rust's bitcode as one more part of the runtime (§9.3).
 
 - **`rust.toml`** is a package's manifest (§5), an application's or a
   library's. It sits beside the package's `.ipkg`, since Idris's ipkg has
@@ -371,8 +376,8 @@ rusqlite   = ["rusqlite::Connection::*", "rusqlite::Statement::*"]
   listed in the generator's report with its reason, never silently
   dropped.
 - **Blocking items** (*decision*): a `[blocking]` table, per crate or per
-  item like `[pure]`, comes with 0006's P3, which offloads each item it
-  names to a runtime-owned thread (0006 §10.4). Before P3 there is no
+  item like `[pure]`, comes with 0005's P3, which offloads each item it
+  names to a runtime-owned thread (0005 §10.4). Before P3 there is no
   reactor to offload to, so the table does not exist and every call runs
   on the calling thread, in world order; P3 adds the table and its one
   meaning together.
@@ -455,18 +460,18 @@ entry. `<graph8>` is eight hex
 digits of the surface digest. A program has one surface, so its link has
 one set of shim symbols; the digest only keeps a stale archive from
 another surface from linking silently. Every name is derived from
-content, never from a counter (0004 D18).
+content, never from a counter (the cutover's D18).
 
 **Mangling** (*decision*). The shim crate and its whole graph, `std`
 included, build with `-Csymbol-mangling-version=v0`, whose symbols use
 only `[_0-9a-zA-Z]` (*recalled*), so every Rust function has a name
-without a dot, as the runtime's C identifiers do. 0007 §3.4 puts every
+without a dot, as the runtime's C identifiers do. 0006 §3.4 puts every
 dotless name in one namespace group, the runtime's, so Rust's functions
 join that group by the same rule and the partitioner needs none of its
-own (0004 §5.3 item 2). Reason: legacy mangling writes `..` inside impl
-paths (*recalled*), which would scatter Rust's functions across groups
-named by fragments of Rust paths. R0 checks that no function of the
-archive has a dot in its name.
+own (the cutover's §5.3 item 2). Reason: legacy mangling writes `..`
+inside impl paths (*recalled*), which would scatter Rust's functions
+across groups named by fragments of Rust paths. R0 checks that no
+function of the archive has a dot in its name.
 
 ## 7. The surface: how Rust types become Idris types
 
@@ -606,8 +611,8 @@ insert : (1 _ : Rust WordCountsT) -> String -> Int64 -> Res (Maybe Int64) (const
 **How compound values cross (decision).** A shim cannot know how
 idr-lower lays out `Maybe Int64` in a given program: layouts are decided
 per program, whole-program, before the lowering
-(`foreign/idr/lib/IR/Layout/`; 0004 §4 stage 12). So the bindings never
-move Idris data through a shim.
+(`foreign/idr/lib/IR/Layout/`; the cutover's §4 stage 12). So the
+bindings never move Idris data through a shim.
 
 - **Results:** a compound result is returned as a *result handle* (a Rust
   value of the `Option`, `Result` or tuple), and the binding's plain Idris
@@ -617,7 +622,7 @@ move Idris data through a shim.
   pair LLVM sees whole, through the allocator's allocation attributes
   (§9.4), so O3 may delete both (*conjecture*, recorded at R2, §13). The
   shim makes every foreign cell, so `idr-stack`, whose placement is a
-  property of `idr.con` (0004 §4 stage 11), never places one; this
+  property of `idr.con` (the cutover's §4 stage 11), never places one; this
   supersedes the earlier "`idr-stack` places it in the frame".
 - **Arguments:** a compound argument is built as a Rust value first, by a
   builder shim, and passed by value.
@@ -675,8 +680,8 @@ only at concrete types. There are two ways to have one (**decision**):
     the shim would depend on the compilation it feeds. This supersedes
     the earlier refusal as `unsupported (runtime closure)`: the
     implementation is not chosen at run time, so the frontend's
-    megamorphic rule does not apply (0004 §2.5), and the C++ side's use of
-    that phrase is deleted by 0004 (§6 there).
+    megamorphic rule does not apply (the cutover's §2.5), and the cutover
+    deleted the C++ side's use of that phrase (its §6).
   - A mutable container of `IdrisValue` is a mutable-cell edge for the
     acyclic-heap check (§2.8). An `RVec Node` whose `Node` can reach the
     same `RVec` is `unsupported (cycle)`, named as that check names it.
@@ -695,36 +700,40 @@ generic `F: Fn(A) -> B` takes an Idris function `A -> B` (or
 - **The compiler side** (*decision*, superseding the earlier "the
   compiler exports its apply function under a symbol the binding's
   registry entry names", which would be a public function beside the
-  root and break 0004's closed world, D7 there):
-  - `idr.rust.call` implements 0004's one flow interface (0004 §2.2,
-    D8), declared in its own ODS as every op of ours declares it (0005
-    D7): each closure operand has a declared edge into a callback key of
-    its own, so the label solve sees every label that reaches Rust, and
-    the verifier's rule that a closure-typed operand sits on an op with
-    the interface holds (0004 §4 stage 2).
-  - Defunctionalization makes the key a sum, as every key (0004 §2.4),
-    and for each such key one dispatch function: a case over the key's
-    constructors, each arm a direct call, private, named from the key
-    (0004 D18), with the runtime's ABI (§9.2). The op then carries the
-    sum, boxed (`!idr.box`, so boxing is the value's type, 0004 D29;
-    since 0005 D11 every box is fit's, decided once from the type graph,
-    so how this sum gets its box is settled with fit when this proposal
-    is taken up) so that it crosses as one counted word, and a symbol use of the
-    dispatch function, whose address the lowering passes to the shim.
+  root and break the verified closed world, the cutover's D7):
+  - `idr.rust.call` implements the one flow interface (the cutover's
+    §2.2, D8), declared in its own ODS as every op of ours declares it
+    (the representation wave's D7): each closure operand has a declared
+    edge into a callback key of its own, so the label solve sees every
+    label that reaches Rust, and the verifier's rule that a
+    closure-typed operand sits on an op with the interface holds (the
+    cutover's §4 stage 2).
+  - Defunctionalization makes the key a sum, as every key (the cutover's
+    §2.4), and for each such key one dispatch function: a case over the
+    key's constructors, each arm a direct call, private, named from the
+    key (the cutover's D18), with the runtime's ABI (§9.2). The op then
+    carries the sum, boxed (`!idr.box`, so boxing is the value's type,
+    the cutover's D29; since the representation wave's D11 every box is
+    fit's, decided once from the type graph, so how this sum gets its
+    box is settled with fit when this proposal is taken up) so that it
+    crosses as one counted word, and a symbol use of the dispatch
+    function, whose address the lowering passes to the shim.
   - The dispatch function is kept by that symbol use, as a label's
-    function is kept by the label constructor holding it (0005 D1), and is
-    never inlined, since nothing in the module calls it. Its signature is
-    the shim's ABI, so the dead-value removal (0004 §4 stage 10) must
-    leave it whole: upstream RemoveDeadValues treats a function with a
-    non-call symbol use as called from outside (*recalled*), which R3
-    checks with a callback whose argument the closure ignores.
+    function is kept by the label constructor holding it (the
+    representation wave's D1), and is never inlined, since nothing in
+    the module calls it. Its signature is the shim's ABI, so the
+    dead-value removal (the cutover's §4 stage 10) must leave it whole:
+    upstream RemoveDeadValues treats a function with a non-call symbol
+    use as called from outside (*recalled*), which R3 checks with a
+    callback whose argument the closure ignores.
   - Its one caller outside the module is Rust, and it passes only
     first-order values: a callback's parameters and result are §7.2 to
     §7.4 types, never closures or suspensions, which the op's verifier
-    checks. So no label enters from outside, which is what 0004 §2.4's
-    first step is for: once this lands, its "every caller of a non-root
-    function is in the module" reads "every caller that can pass a
-    closure or a suspension", and the rest of the argument is unchanged.
+    checks. So no label enters from outside, which is what the first
+    step of the cutover's §2.4 is for: once this lands, its "every
+    caller of a non-root function is in the module" reads "every caller
+    that can pass a closure or a suspension", and the rest of the
+    argument is unchanged.
 - **Constraints:**
   - A callback is called only before the Rust call returns. An API that
     stores one (an event handler kept past the call) needs `'static`, and
@@ -825,10 +834,11 @@ inlining, where the grade that proves it redundant is gone.
 - A flag write with no reader in between folds away after inlining.
 
 These are faster lowerings, never different ones. There is one behaviour
-and no mode (**decision**; 0004 D2): a check the compiler cannot remove
-stays in the program as a runtime check. A flag that turned the
-residual checks into rejections would be a second meaning of the same
-program. Both are stated in idr-expect's terms: `tests-nothing=@f`
+and no mode (**decision**; the cutover's D2): a check the compiler
+cannot remove stays in the program as a runtime check. A flag that
+turned the residual checks into rejections would be a second meaning of
+the same program. Both are stated in idr-expect's terms:
+`tests-nothing=@f`
 (`foreign/idr/lib/Transforms/Expect/TestsNothing.cpp`) holds of a
 function whose takes are of exclusive values, and it reads an
 `idr.rust.call`'s by-value and `&mut` operands as it reads takes, so it
@@ -860,10 +870,10 @@ may allocate, since the allocator frees a block from any thread
 - handles are `!Send` on the Idris side, because a handle is an Idris
   value.
 
-0006's shards keep this rule as it is: a foreign thread may wake a
+0005's shards keep this rule as it is: a foreign thread may wake a
 shard and free raw blocks remotely, and may never touch a count, a cell
-or a world (0006 §3.3); a blocking Rust call is offloaded to a
-runtime-owned thread whose arguments move into Rust's ownership (0006
+or a world (0005 §3.3); a blocking Rust call is offloaded to a
+runtime-owned thread whose arguments move into Rust's ownership (0005
 §10.4).
 
 ## 9. The compiler
@@ -894,20 +904,20 @@ own drop glue, `IdrisValue` included.
   compile time (§11), so static data never holds one. A top-level value
   that holds a Rust value is a static memo cell whose forced value is the
   foreign cell: counted, and released at exit by `idris_rt_caf_release`
-  (`idris_rt.h:226-230`), so its destructor runs then (0008 §2's
-  first-demand constants; per shard under 0006, 0006 §6).
+  (`idris_rt.h:226-230`), so its destructor runs then (0007 §2's
+  first-demand constants; per shard under 0005, 0005 §6).
 - **Never in a frame** (*decision*): the shim makes every foreign cell,
   through the runtime's allocator (§9.4), and `idr-stack`'s placement is
-  an inherent property of `idr.con` (0004 §4 stage 11), which builds
-  Idris data, so no foreign cell is a stack cell. This supersedes the
-  earlier "`idr-stack` may place it in a frame like a box".
+  an inherent property of `idr.con` (the cutover's §4 stage 11), which
+  builds Idris data, so no foreign cell is a stack cell. This supersedes
+  the earlier "`idr-stack` may place it in a frame like a box".
 
 **Dialect.** A counted type `!idr.foreign<"path::Type">`, a member of
 `Idr_CountedValueType` (`include/idr/IR/IdrOwnershipOps.td:35-41`), at
 every grade like the others. Its layout is the cell above, decided with
 the program's other layouts (`lib/IR/Layout/`). It is no data type and
-has no constructors, so 0004's identified data types (D29) do not
-concern it; the Rust path is its whole identity, and a path names one
+has no constructors, so the identified data types (the cutover's D29) do
+not concern it; the Rust path is its whole identity, and a path names one
 type in the program's one crate graph (§5).
 
 **Frontend.** `Ty` (`compiler/src/IdrisMLIR/Types.idr:109`) gains
@@ -915,9 +925,9 @@ type in the program's one crate graph (§5).
 maps a `Foreign t` whose `t` is a binding's `[external]` phantom to it,
 through a new hook, `ForeignType`, which the frontend asks for as it
 asks `wordType`: one more field of the registry's `Hooks` record, one
-field per kind of hook (`compiler/src/IdrisMLIR/Registry/Entry.idr`,
-0005 D20, which replaced `Frontend/Translate/Hooks.idr`'s `firstOf`
-projections).
+field per kind of hook (`compiler/src/IdrisMLIR/Registry/Entry.idr`, the
+representation wave's D20, which replaced
+`Frontend/Translate/Hooks.idr`'s `firstOf` projections).
 
 ### 9.2 The call
 
@@ -954,16 +964,17 @@ the shim is ordinary Rust that rustc lowers as it lowers any Rust.
 
 **Op.** `idr.rust.call "symbol"(%world, %args...)` (*decision*, each
 point; superseding the earlier callee "a private `idr.func`
-declaration", which 0004 makes unexpressible, since the function
-verifier demands a body of every `idr.func`, 0004 D7 and §4 stage 2):
+declaration", which the cutover made unexpressible, since the function
+verifier demands a body of every `idr.func`, the cutover's D7 and §4
+stage 2):
 
 - **Callee:** the shim's symbol, an inherent string property. A shim is
   part of the runtime (§1), and the runtime's functions are never
   `idr.func`s: the lowering declares them from the decided set before it
-  converts (0004 §4 stage 12), and the shims join that set. The op is
-  not `Idr_CallsRuntime`, whose pattern names the runtime function after
-  the op (`include/idr/IR/IdrInterfaces.td:31-36`); its lowering is its
-  own, below.
+  converts (the cutover's §4 stage 12), and the shims join that set. The
+  op is not `Idr_CallsRuntime`, whose pattern names the runtime function
+  after the op (`include/idr/IR/IdrInterfaces.td:31-36`); its lowering
+  is its own, below.
 - **Signature:** an inherent `function_type`, the binding's Idris type
   lowered, whose parameter types carry the modes as grades
   (`!idr.q<quantity, permission, value>`, `IdrTypes.td:116-138`): `&T`
@@ -979,18 +990,18 @@ verifier demands a body of every `idr.func`, 0004 D7 and §4 stage 2):
   op does, and `Idr_MayCrash`, since a shim may panic
   (`IdrInterfaces.td:40-83`). Its effects are the full set, io, crash
   and diverge (`IdrAttrs.td:154-175`), since a crate may loop, so the
-  one effects summary (0004 §4 stage 9) reads nothing more for it, a
-  callback's dispatch function included. It is not `Idr_ObservableIO`:
-  an effectful binding is called only from IO with the program's world,
-  and a pure one is the manifest's claim that nothing outside observes
-  it (§16 item 1), so a memo label that reaches a pure binding memoizes,
-  as one that reaches an `IOArray`'s operations does
-  (`IdrArrayOps.td:36`; `IdrInterfaces.td:76-82`).
+  one effects summary (the cutover's §4 stage 9) reads nothing more for
+  it, a callback's dispatch function included. It is not
+  `Idr_ObservableIO`: an effectful binding is called only from IO with
+  the program's world, and a pure one is the manifest's claim that
+  nothing outside observes it (§16 item 1), so a memo label that reaches
+  a pure binding memoizes, as one that reaches an `IOArray`'s operations
+  does (`IdrArrayOps.td:36`; `IdrInterfaces.td:76-82`).
 - **Ownership:** idr-rc sees its operands through the signature's
   grades, as it sees a call's through its callee's (`consumesOperand`,
   `IdrOps.td:63-66`). The ownership verifier checks them after every
   pass.
-- **Flow:** it implements 0004's flow interface for its closure
+- **Flow:** it implements the flow interface for its closure
   operands (§7.7), and is the only op of this proposal that can carry
   one.
 - **Lowering:** an `llvm.call` of the symbol, with each operand as its
@@ -1000,8 +1011,8 @@ verifier demands a body of every `idr.func`, 0004 D7 and §4 stage 2):
 The world: pure bindings run their calls under `unsafePerformIO` inside
 the trusted package, as `Linear.Array` did before 0003's stage 1
 replaced it with `libs/mlir-array`, whose pure operations are bodiless
-`%extern`s instead (`Array/Core.idr`; 0005 D5). The forged world orders
-them with every other effect.
+`%extern`s instead (`Array/Core.idr`; the representation wave's D5). The
+forged world orders them with every other effect.
 
 ### 9.3 Linking
 
@@ -1031,16 +1042,16 @@ Rust then takes the runtime's two cases unchanged: bodies
 `available_externally` when the native half runs on the program's CPU,
 resolved at the link in the native half, where every piece of state has
 its one definition, and otherwise definitions compiled with the program
-(`include/idr/Driver/Runtime.h:67-78`). That holds at 0004's S2, where
-the optimized module is cut into bins after one O3 (0004 §4 stages
-13-15), and at its second step, where each unit links the same bodies
-before its own O3 by the same link and the reached definitions are
-defined once in the runtime's namespace group (0007 §3.5). Rust's
-definitions fall in that group by their dotless names (§6, Mangling;
-0007 §3.4). Reason: a step of Rust's own would be a third case at
-0007's second step, which 0007 decides against ("the second step keeps
-today's two cases and adds no third"), and a second representation of
-"a part of the runtime".
+(`include/idr/Driver/Runtime.h:67-78`). That holds at 0006's S2 first
+step, which the cutover took, where the optimized module is cut into
+bins after one O3 (the cutover's §4 stages 13-15), and at its second
+step, where each unit links the same bodies before its own O3 by the
+same link and the reached definitions are defined once in the runtime's
+namespace group (0006 §3.5). Rust's definitions fall in that group by
+their dotless names (§6, Mangling; 0006 §3.4). Reason: a step of Rust's
+own would be a third case at 0006's second step, which 0006 decides
+against ("the second step keeps today's two cases and adds no third"),
+and a second representation of "a part of the runtime".
 
 `std`'s runtime start (`lang_start`) never runs: the process entry is
 the runtime's (`idris_rt_start`, `runtime/idris_rt.h:433-449`), as any
@@ -1096,7 +1107,7 @@ entry's bitcode flags), so its bitcode joins as well. The program binds
 the Rust crate, never the C below it: the generator binds no item whose
 signature exposes a raw C type or pointer (`rust pointer` in §9.5), so a
 `-sys` crate's own raw API is not bound, only safe crates over it. A
-`-sys` crate over C++ (a SAT or SMT solver for 0011's T8, 0011 §2.5)
+`-sys` crate over C++ (a SAT or SMT solver for 0010's T8, 0010 §2.5)
 is built the same way, with `CXX` the pinned clang++ and the pinned
 static libc++, never the system's (AGENTS.md). A build script that
 downloads anything fails, because the build is offline. That is the
@@ -1104,9 +1115,10 @@ rule, and a crate that needs a network build is named in the report.
 
 ### 9.4 One allocator
 
-The shim crate's `#[global_allocator]` calls the runtime: `idris_rt_alloc`
-and `idris_rt_free`, plus new `idris_rt_alloc_aligned` and
-`idris_rt_realloc` entries over snmalloc.
+The shim crate's `#[global_allocator]` calls the runtime through entry
+points the shim adds over snmalloc when it is built (`idris_rt_alloc`,
+`idris_rt_free`, `idris_rt_alloc_aligned`, `idris_rt_realloc`); the
+runtime has no general allocation entry today, since nothing calls one.
 
 - Rust and Idris share one heap and one set of size classes, and any
   block may be freed from any thread (`idris_rt.h:182-195`).
@@ -1118,10 +1130,10 @@ and `idris_rt_free`, plus new `idris_rt_alloc_aligned` and
 
 New cases of the one rule enum, each with a reject fixture. The enum is
 declared once in the dialect's ODS and its Idris `Rule` is generated
-from it, which deletes the hand-written `compiler/src/IdrisMLIR/Rule.idr`
-(0004 D42); this supersedes the earlier "new rules in `Rule.idr`". A
-refusal carries its rule as data, and the phrase is rendered from the
-enum in one place:
+from it, which deleted the hand-written
+`compiler/src/IdrisMLIR/Rule.idr` (the cutover's D42); this supersedes
+the earlier "new rules in `Rule.idr`". A refusal carries its rule as
+data, and the phrase is rendered from the enum in one place:
 
 | Rule | Who rejects | When |
 |---|---|---|
@@ -1174,26 +1186,26 @@ rollback : (1 _ : Tx Open) -> IO ()
 ## 11. Compile-time evaluation
 
 No Rust call runs at compile time. The compiler has no compile-time
-evaluation feature (`idr-eval` and its JIT left the C++ side, 0008's
+evaluation feature (`idr-eval` and its JIT left the C++ side, 0007's
 status); it normalizes the static part of the program on the type
-checker's interpreter (0008), where code that reaches a world, a forged
-one included, is stuck and runs at run time (0008 §2). Every binding
+checker's interpreter (0007), where code that reaches a world, a forged
+one included, is stuck and runs at run time (0007 §2). Every binding
 reaches one (§9.2), so a binding's call is stuck there and runs at run
 time. The stage that would have run calls the manifest declares `pure`
 is withdrawn.
 
-## 12. Async: 0006's reactor is the executor
+## 12. Async: 0005's reactor is the executor
 
 Async Rust is out of v1 because the runtime has no scheduler: a program
 is one runner thread running `main` (`idris_rt_start`,
-`runtime/idris_rt.h:433-461`). The design of async Rust is 0006 §10's,
+`runtime/idris_rt.h:433-461`). The design of async Rust is 0005 §10's,
 and this file does not restate it: the executor is the shard's reactor,
 a future is a task frame, a waker is one word, and `Rust (FutT a)` is a
 counted foreign cell of §9.1 holding a pinned future, polled through a
-shim with the task's waker (0006 §10.1 to §10.3); a blocking Rust call
-is offloaded (0006 §10.4). It is 0006's P3, after its P2, and it needs
+shim with the task's waker (0005 §10.1 to §10.3); a blocking Rust call
+is offloaded (0005 §10.4). It is 0005's P3, after its P2, and it needs
 this proposal's foreign cells and shims (R1, R2) first. Which crates
-work is 0006 D12's rule, computed per crate graph.
+work is 0005 D12's rule, computed per crate graph.
 
 What stays here is this proposal's half:
 - **I/O traits:** Rust's async I/O traits (`tokio::io::{AsyncRead,
@@ -1241,8 +1253,8 @@ give bytes out, and the program owns the sockets (*recalled*).
     gated: the handle is the one path whether or not O3 deletes its
     allocation (§7.4), so the record changes speed, never acceptance.
 - **Determinism:** every fixture's executable is byte-identical at 1, 2
-  and 8 threads (`tests/determinism`; 0004's determinism rule), with the
-  shim archive built once per surface.
+  and 8 threads (`tests/determinism`; the cutover's determinism rule),
+  with the shim archive built once per surface.
 - **The generator's own tests:** determinism, the report's contents, and
   the trust digest (a hand edit makes the package untrusted).
 - **The surface's rules**, each a fixture:
@@ -1258,12 +1270,12 @@ give bytes out, and the program owns the sockets (*recalled*).
 
 ## 14. Plan
 
-It is taken up after 0004's cutover, on its pipeline, and builds on
-nothing the cutover deletes. Each stage ends with `make check`, `make
-build`, `make test`, `make test-idr`, `make test-mlir-tools` (it changes
-how we use MLIR), `tests/determinism` at 1, 2 and 8 threads, and the new
-pool green on both target entries (AGENTS.md; 0004 §10). Each lands as a
-cutover, with nothing kept beside it (0004 D2).
+It is taken up on the pipeline the cutover built, and builds on nothing
+the cutover deleted. Each stage ends with `make check`, `make build`,
+`make test`, `make test-idr`, `make test-mlir-tools` (it changes how we
+use MLIR), `tests/determinism` at 1, 2 and 8 threads, and the new pool
+green on both target entries (AGENTS.md; the cutover's §10). Each lands
+as a cutover, with nothing kept beside it (the cutover's D2).
 
 - **R0, the toolchain.**
   - **Pins:** a `rust` entry in `toolchain.lock.json` (the nightly's date,
@@ -1318,11 +1330,11 @@ cutover, with nothing kept beside it (0004 D2).
     signature through dead-value removal); a stored `'static` callback on
     a `Shared` handle; an Idris key type for `RMap`, which is a type
     error, in `tests/reject`.
-- **R4** is withdrawn: no Rust call runs at compile time (§11); 0008's
+- **R4** is withdrawn: no Rust call runs at compile time (§11); 0007's
   static normalization runs closed calls of total Idris code, and a
   binding's call reaches a world, so it is stuck and runs at run time
-  (0008 §2).
-- **R5, async on the reactor**, is 0006's P3, not a stage here (§12).
+  (0007 §2).
+- **R5, async on the reactor**, is 0005's P3, not a stage here (§12).
 
 **Size (conjecture):**
 
@@ -1420,12 +1432,12 @@ measured need. R0 checks that no program's build rebuilds `std`.
   Rejected: layouts are decided per program, so a shim cannot know one.
   A result handle costs what O3 leaves of it, recorded at R2 (§7.4).
 - **A `linkRust` step beside the runtime's link.** Rejected (§9.3): it
-  would be a third case at 0007's second step and a second
+  would be a third case at 0006's second step and a second
   representation of a part of the runtime.
 - **An exported apply entry per callback sum.** Rejected (§7.7): a public
-  function beside the root breaks 0004's verified closed world.
+  function beside the root breaks the cutover's verified closed world.
 - **A private `idr.func` declaration as the shim's callee.** Rejected
-  (§9.2): 0004 makes a bodiless `idr.func` unexpressible.
+  (§9.2): the cutover made a bodiless `idr.func` unexpressible.
 
 ## 16. Decisions on the open questions (2026-10-09)
 
@@ -1439,7 +1451,7 @@ Each picks the smaller mechanism (§1).
    check stays a runtime check (§8.3), and the compiler
    removes every check it proves. No rule refuses a residual check: the
    earlier draft's use of the `uniqueness` rule for it is withdrawn, and
-   `uniqueness` stays `idr-demand`'s own rule (0004 D42).
+   `uniqueness` stays `idr-demand`'s own rule (the cutover's D42).
 3. **No `[values]` copying.** Every Rust struct and enum is a handle;
    fields are read through accessor shims, which inline after the
    runtime link (§7.4, §9.3). One path for every compound value.
@@ -1458,14 +1470,15 @@ Each picks the smaller mechanism (§1).
 
 ## 17. Decisions of the 2026-10-14 reconciliation
 
-Each makes this design consistent with 0004's cutover or decides what an
+Each makes this design consistent with the cutover or decides what an
 earlier text left open. There is no open question for the owner.
 
 7. **The shim is named, not declared** (§9.2). `idr.rust.call` carries
    its shim's symbol and its signature, grades included, as inherent
-   properties; there is no `idr.func` for a shim. Reason: 0004 D7 makes
-   a bodiless `idr.func` unexpressible, and the shims are part of the
-   runtime, whose functions the lowering declares (0004 §4 stage 12).
+   properties; there is no `idr.func` for a shim. Reason: the cutover's
+   D7 made a bodiless `idr.func` unexpressible, and the shims are part
+   of the runtime, whose functions the lowering declares (the cutover's
+   §4 stage 12).
 8. **`&mut` is a borrow at quantity one** (§9.2). No permission is added
    to the grade. Reason: the quantity already says the handle is given
    back, and the alias test reads `excl` grades.
@@ -1476,8 +1489,8 @@ earlier text left open. There is no open question for the owner.
 10. **Callbacks through the flow interface** (§7.7). A closure passed to
     Rust flows along `idr.rust.call`'s declared edge into a callback
     key, whose private dispatch function's address the shim gets.
-    Reason: 0004's closed world stays as the verifier states it, and a
-    callback is one more first-order caller.
+    Reason: the cutover's closed world stays as the verifier states it,
+    and a callback is one more first-order caller.
 11. **The op's effects are the full set and not observable** (§9.2).
     Reason: a crate may do anything, so no summary is read for the op;
     an effectful binding is ordered by the program's world, and a pure
@@ -1485,9 +1498,9 @@ earlier text left open. There is no open question for the owner.
 12. **One runtime link** (§9.3). The shim archive is read and linked by
     the runtime's reader and link; there is no `linkRust`. Reason: the
     runtime's two cases and its namespace group then hold for Rust at
-    both of 0007's steps, with no third case.
+    both of 0006's steps, with no third case.
 13. **v0 mangling** (§6). Reason: every Rust function is a dotless name
-    and joins the runtime's namespace group by 0007 §3.4's rule.
+    and joins the runtime's namespace group by 0006 §3.4's rule.
 14. **No foreign cell in a frame** (§7.4, §9.1). Reason: `idr.stack` is a
     property of `idr.con`, and the shim makes every foreign cell; the
     result handle's cost is LLVM's to remove and is recorded, not gated.
@@ -1498,11 +1511,12 @@ earlier text left open. There is no open question for the owner.
 16. **`Bindings` is the trust home, `Rust` the library** (§8.1), with a
     row that is trusted and admitted and reports at the caller. Reason:
     `Generated` already names an origin.
-17. **Rules are cases of the one generated rule enum** (§9.5; 0004 D42).
+17. **Rules are cases of the one generated rule enum** (§9.5; the
+    cutover's D42).
 18. **Overlays live in their project** (§10). Reason: an installed
     package outside the table is never reached, and no proposal makes
     third-party packages trusted.
-19. **Async is 0006's** (§12). This file keeps the I/O traits, the tokio
+19. **Async is 0005's** (§12). This file keeps the I/O traits, the tokio
     refusal and, with P3, the `[blocking]` table (§5).
 20. **`std` is built once per target entry by the bootstrap** (§14).
     Reason: its flags are the entry's; cargo's target directory is the

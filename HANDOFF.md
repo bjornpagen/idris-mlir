@@ -1,3 +1,94 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
+# Checkpoint (2026-10-15, 0004-total integrated on the typecheck machine)
+
+Proposal 0004 (total by construction, every known item, and upstream's
+TODOs; proposals/0004-total/README.md, the wave's record) ran as one
+wave of thirteen lanes on top of the pipeline cutover and the
+representation wave (whose proposals' last texts are at 484d6403), and
+is integrated, typecheck only. The C++ tree typechecks with regenerated
+headers (353 steps, 0 errors); the host libraries and the fork build and
+install; the frontend typechecks against the fork (64 of 64 modules);
+`make typecheck` passes every part and `make check` is 33 of 33 (the
+licence sweep applied). Nothing is
+built or run, and nothing has run on a build machine since c7aa7b62: the
+owner's build below is the first of the cutover's, the representation
+wave's and 0004's.
+
+What the tree is now (the record's §3 and §4):
+- No fuel. Every C++ worklist is an `idr::OnceWorklist` or
+  `idr::MonotoneWorklist` (`idr/Support/Worklist.h`); TailPosition has no
+  4096-step budget (an insert-once set over blocks and known values);
+  every size policy is a named constant in `tools/policies.txt`, and
+  `tests/spec/no-fuel` holds the rest of the tree to none. An
+  optimization may stop at a budget; `idr-canonicalize` counts
+  `not-converged`, and fixtures set `test-convergence`.
+- The frontend is `%default total` everywhere but the translation of
+  applications (`Terms.idr`'s `covering` definitions and the definitions
+  of Programs, Cases, Program and Driver that reach them, each named in
+  `tools/policies.txt`); instance finiteness is
+  proved (`compiler/src/IdrisMLIR/Proof/`, `Frontend/Finite.idr`); the
+  fork is total on the frontend's paths, with four of Idris's bugs fixed
+  as fork code (`upstream/fork-*`). Two trust points remain, each in
+  `tools/policies.txt`: `Frontend/Host.idr` (the evaluator, the
+  elaborator, `checkTerminating`) and the dictionary passes in
+  `Finite.translateFrom` (one `assert_total` over a set that only grows).
+- A linear value is used at most once on every path; an unused one is
+  released, so a pure use may be dropped or sunk.
+- Specialization lifts the scalars of a key that matches an earlier one's
+  shape into parameters of one copy; only structural growth is refused.
+- Patch 24 analyzes cycles of calls to a fixpoint and carries what was
+  26; 27, 48 and 49 are submissions, not carried. `idr.element.update`
+  rebuilds an element of a value array's buffer in place (a vector's
+  pop).
+- The runtime: one-pass UTF-8 (simdutf 9.3.0), simdutf's kernel chosen
+  by the target's startup check, GMP's allocator set once, small big-int
+  paths always-inline. simdutf v9.3.0 and fast_float v8.3.2 are their
+  latest releases; modular is a reference submodule
+  (`third_party/modular`, `update = none`).
+- The caller decides the CPU count (`IDRIS_MLIR_NCPU`, default every
+  core); the `NCPU=6` convention and the bootstrap's memory-per-job rule
+  are gone. The pin policy (AGENTS.md): llvm-project, modular and Idris 2
+  track main; every other dependency its latest release.
+
+Owed on the owner's machine, before anything else:
+1. `make bootstrap` (patch 24 changed again, and the simdutf and
+   fast_float pins moved), then `make build`, which reconfigures and so
+   writes the runtime's `<build>/runtime/c-flags`: nine toolchain tests
+   read it to find the generated `idris_rt_ops.h`.
+2. `make test`, `make test-idr` and `make test-mlir-tools` on both
+   targets, accepting the 189 files `tests/ACCEPTANCE.md` lists, each
+   with what to confirm.
+3. Then the toolchain bump (proposals/0004-total/toolchain-bump.md):
+   Idris 2 to main 89ba32eb alone; then CMake 4.4.4 and LLVM main
+   7a83be39 together (rebase 06, refresh 07, retire 01, check the folded
+   24 again). Chez stays on v10.4.1 until 10.5.0 is tagged.
+4. Then the queue: 0002's G1 (determinism at 1, 2 and 8 threads, the
+   bench, x86_64 Linux) and `make self`.
+
+Open (the record's §5):
+- The owner's: whether the request relation refuses a chain that grows
+  once and stops (`g Int` asks for `g (List Int)`, which asks for
+  nothing; option: refuse only repeated growth, still almost full); the
+  ryu pin (no release since v2.0); filing the submissions ready to go
+  (01 test-only, 02, 16, 22, 23, 25; 48 and 49 need a human author).
+- the dictionary passes' proof (a finite universe of learnable fields,
+  then a pigeonhole measure), which waits on typed identities in place of
+  strings that stand for things (`Request`'s names, `ConId`'s name,
+  Recursion's and Emit's string-keyed tables, the C++'s label- and
+  name-keyed lookups).
+- the primitives cleaned up: dead, duplicated or badly shaped ones,
+  across the registry, the ODS and the runtime at once (`scalar_end` is
+  dead; the UTF-8 width has a copy in `libs/mlir-linear`).
+- the translation of applications made total (`Terms.idr`'s `covering`
+  definitions and their callers, named in tools/policies.txt).
+- Deferred designs: data-type bodies that hold buffers (deletes
+  `DataRemap`'s buffers remap); dependent rewrites with 0003's stage 2;
+  a vectorizer gather from a memref; the canonicalizer cases a fold
+  weakens.
+- A pass to trim the C++ once the suites are green (it grew about 3,500
+  lines net).
+
 # Checkpoint (2026-10-15, 0005 integrated on the typecheck machine)
 
 Proposal 0005 (one representation for every fact, and no fuel) ran as one

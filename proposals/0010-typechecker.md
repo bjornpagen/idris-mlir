@@ -1,31 +1,36 @@
-# 0011: a state-of-the-art type checker and elaborator
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
+# 0010: a state-of-the-art type checker and elaborator
 
 **Status:** approved with the queue on 2026-10-14 (proposals index).
 Written 2026-10-09; trimmed 2026-10-12, when the term arena and the
-evaluator (once §2.1, §2.2, T1, T2 and T6) moved to 0008, which builds
+evaluator (once §2.1, §2.2, T1, T2 and T6) moved to 0007, which builds
 them as one array program; decided throughout 2026-10-14, and its fork
 citations re-read against the tree at ccaba89c the same day. Nothing
-here is built. This proposal builds the checker on 0008's arena and
+here is built. This proposal builds the checker on 0007's arena and
 machine: tabled instance search, the rewrite ladder, the kernel,
 parallel checking and, parked, certificates from solvers.
 
 The tree it starts from (*measured*, HANDOFF.md, 0002): the cutover of
 0002 is committed and builds on arm64 macOS, where `make test` was
-415/415 at 7a27fd34, before the opt-in SCC pipeline that 0004's cutover
-deleted. x86_64 Linux is NotRun. `make self` has never finished; it waits on the qualification of
-0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
-bfdcac70) but not yet built (proposals/README.md). The fork's elaborator is
-upstream's, and nothing of it has been measured on this tree.
+415/415 at 7a27fd34, before the opt-in SCC pipeline that the pipeline
+cutover (c7aa7b62, 5d5f3312; its proposal at 484d6403) deleted. x86_64
+Linux is NotRun. `make self` has never finished; it waits on the
+qualification of the cutover and the representation wave (bfdcac70; its
+proposal at 484d6403), coded and integrated but not yet built, which the
+owner's machine runs after 0004, integrated typecheck-only
+(proposals/README.md). The fork's elaborator is upstream's, and nothing
+of it has been measured on this tree.
 
 **Where it sits** (*decision*). T0 is recorded at `make self` (0002 §2
-step 5), on the commit 0009's O0 measures, as one record: 0008's A0 is
-a ratio to T0's elaboration figure, 0009's O0 takes that figure from
-it, and 0008 decides its TTC format on T0's share of TTC loading (0008
-§3). A0 needs only `make self` (0008's status). T3 onward builds on
-0008's A2 (the fork's checker on the machine), which in the queue
+step 5), on the commit 0008's O0 measures, as one record: 0007's A0 is
+a ratio to T0's elaboration figure, 0008's O0 takes that figure from
+it, and 0007 decides its TTC format on T0's share of TTC loading (0007
+§3). A0 needs only `make self` (0007's status). T3 onward builds on
+0007's A2 (the fork's checker on the machine), which in the queue
 follows sharding's first stages (proposals index). T7 runs definitions on
-0006's shards once that framework exists (0007 §12, the owner's
-decision); until then elaboration is single-threaded. T8 is parked with 0014.
+0005's shards once that framework exists (0006 §12, the owner's
+decision); until then elaboration is single-threaded. T8 is parked with 0013.
 
 **Goal.** The fork's elaborator (`compiler/idris`, upstream Idris 2's,
 now our code) becomes a type checker that is faster than Lean 4 and F*
@@ -42,7 +47,7 @@ and smalltt's sources (`code/smalltt/src`, `code/smalltt/bench`) are
 read directly.
 
 **Leads, not mandates.** Array programming (0003), flattened data
-(0010), a relational core (0013) and SMT were all candidates. This
+(0009), a relational core (0012) and SMT were all candidates. This
 proposal keeps what the evidence supports and says why for each.
 
 **Claims** are marked: *read* (the path), *measured* (the record),
@@ -61,12 +66,12 @@ its record or to a named external benchmark.
   memory.
 - **Where** (*decision*). On the native, self-compiled frontend at
   `make self`, on both targets, because that is the program the later
-  stages change and the one 0008's interpreter is written for (0008 §1).
+  stages change and the one 0007's interpreter is written for (0007 §1).
   The same profile on stage 0 (the fork on Chez) is recorded once beside
   it, to show what self-hosting bought; it is not a target.
 - **How** (*decision*). Two sources, both already in the tree, and no
-  profiler enters it (0002 D8: profiling is LLVM's time trace through
-  the pass manager, which serves the C++ side).
+  profiler enters it (profiling is LLVM's time trace through
+  the pass manager, `tests/spec/time-trace`, which serves the C++ side).
   - The fork's own `logTime` phases (`compiler/idris/src/Core/Context/
     Log.idr:105-213`, *read*): per module, parsing, reading imports,
     declarations, totality and elaboration (`Idris/ProcessIdr.idr:286,
@@ -134,10 +139,10 @@ Idris builds stage 0 (0002 §2 step 6: Chez hosts stage 0).
 
 Instance search and unification keep upstream's answers (§2.3).
 
-### 2.1 Terms and evaluation are 0008's (adopted)
+### 2.1 Terms and evaluation are 0007's (adopted)
 
-The checker's terms are 0008's hash-consed arena, and its evaluator is
-0008's wavefront machine with glued values, caches by id and approximate
+The checker's terms are 0007's hash-consed arena, and its evaluator is
+0007's wavefront machine with glued values, caches by id and approximate
 conversion first. The same machine normalizes the program's static part,
 so types, proofs and constants have one evaluator. Coq's
 `native_compute` (*read* `papers/gregoire-2002-strong-reduction`,
@@ -150,10 +155,10 @@ because conversion is not transitive and a closure over successes would
 make the answer depend on evaluation order (*read*, elaborators §4:
 `code/lean4/src/kernel/type_checker.h:33-41`). Terms with metavariables
 get a transient cache dropped when constraints were postponed during the
-check (elaborators §4, Lean's elaborator). These caches are 0008's A2
+check (elaborators §4, Lean's elaborator). These caches are 0007's A2
 (its D12).
 
-### 2.2 (moved: the evaluator is 0008's §4)
+### 2.2 (moved: the evaluator is 0007's §4)
 
 ### 2.3 Unification and instance search (adopted)
 
@@ -173,11 +178,11 @@ check (elaborators §4, Lean's elaborator). These caches are 0008's A2
   calls `convert` (`Core/Unify.idr:785, 941-947, 1205, 1248-1267, 1322`),
   so conversion is written once and the kernel keeps it (§2.6).
 - **Where unification's speed comes from** (*decision*): no stage here
-  changes it. It evaluates on 0008's machine from A1. Its round trips
+  changes it. It evaluates on 0007's machine from A1. Its round trips
   through a definition-free context (`clearDefs`, eighteen sites in
   `Core/Unify.idr` between `:178` and `:1659`), which try a comparison
   without unfolding and then with it, are the unbounded form of smalltt's
-  rigid, flex and full states (elaborators §11); they become 0008's A2,
+  rigid, flex and full states (elaborators §11); they become 0007's A2,
   glued values and approximate conversion, which is smalltt's bounded
   speculation: no meta solution in the flex state, at most one backtrack
   on any path (*read* `code/smalltt/src/Common.hs:187-193`,
@@ -185,7 +190,7 @@ check (elaborators §4, Lean's elaborator). These caches are 0008's A2
   keeps upstream's form, so TTCs stay identical. Postponed constraints
   wake only on the metas they are blocked on, as a semi-naive delta,
   which replaces `solveConstraints`'s rescans (`Core/Unify.idr:1516-1523`);
-  that store is 0009's O7.
+  that store is 0008's O7.
 - **Instance and auto search are tabled,** as in Lean 4 (*read*
   `papers/selsam-2020-tabled-typeclass`). A subgoal already answered is
   answered from the table, so a diamond is solved once. *Measured* there:
@@ -211,7 +216,7 @@ check (elaborators §4, Lean's elaborator). These caches are 0008's A2
   `:36-39`), the remaining depth and the stack above it.
 - **Tabling never changes an answer** (*decision*). Upstream's candidate
   order, ambiguity rule and depth bound stay. The table keys a goal by
-  its term and its environment, both ids of 0008's arena, with the
+  its term and its environment, both ids of 0007's arena, with the
   defaults flag, and holds an answer, or a failure, only where it is a
   function of that key: the goal has no unsolved meta, no branch of its
   search was abandoned against a goal above it on the stack, and none
@@ -222,14 +227,14 @@ check (elaborators §4, Lean's elaborator). These caches are 0008's A2
   hints. Failures tabled under the same rule are what make a failing
   tower of diamonds linear in its height. Two things are not taken.
   Selsam's consumers, which resume a suspended goal on a cycle: they
-  answer goals upstream abandons, which accepts programs upstream refuses
-  (§2.0). And 0013's relational core: the answers are ordered and the
-  ambiguity rule counts them, which a set-valued fixpoint does not
-  express. Reasons for the rule: the answer is which implementation a
-  program means, so a different answer is a different program (§2.0);
+  answer goals upstream abandons, which accepts programs upstream
+  refuses (§2.0). And 0012's relational core: the answers are ordered
+  and the ambiguity rule counts them, which a set-valued fixpoint does
+  not express. Reasons for the rule: the answer is which implementation
+  a program means, so a different answer is a different program (§2.0);
   the bound is the language's, a program sets it with
-  `%auto_implicit_depth`, so no compiler budget decides acceptance (0004
-  §2.5); and it counts, so it is deterministic.
+  `%auto_implicit_depth`, so no compiler budget decides acceptance (the
+  cutover's §2.5); and it counts, so it is deterministic.
 - **No wall clock bounds search** (*decision*). The fork's
   `searchTimeout` (`Core/Options.idr:141`, 1000 ms at `:217`) is set by
   `%search_timeout` and read by nothing since the REPL went
@@ -255,7 +260,7 @@ check (elaborators §4, Lean's elaborator). These caches are 0008's A2
   proof at quantity 0, under 1 s per obligation on the corpus's largest
   shape term (0003 §3.7; Frex is the precedent, under 1 s to size 30,
   *read* there). What this proposal owes the tactic is speed: it runs on
-  0008's machine, and T4's proof includes it.
+  0007's machine, and T4's proof includes it.
 - **Rewrite,** in increasing order of reach:
   - Refl elimination when the rewritten side is a variable;
   - telescope generalisation when it is a term;
@@ -297,25 +302,26 @@ the kernel checks.
   this section once listed are not its: shape inequalities are 0003's
   library tactic with no solver beside the toolchain (0003 D11); bounds
   Presburger cannot decide served `idr-in-bounds`, which 0003's stage 1
-  deletes (0004 §6); and verifying the `idr` dialect's rewrites at test
-  time (Alive2-style, *read* `papers/lopes-2015-alive`) is a tool of the
-  C++ side, not the checker's, and no proposal holds it.
+  deleted (the cutover's §6); and verifying the `idr` dialect's rewrites
+  at test time (Alive2-style, *read* `papers/lopes-2015-alive`) is a
+  tool of the C++ side, not the checker's, and no proposal holds it.
 - **How a solver is reached** (*decision*). The checker is Idris; it
-  reaches a solver as a Rust crate through 0014's bindings, the one
+  reaches a solver as a Rust crate through 0013's bindings, the one
   foreign world, and never through C, `%foreign` or a subprocess
   (AGENTS.md). MLIR's `smt` dialect and its SMT-LIB export exist in the
   pinned tree (*read*: `include/mlir/Dialect/SMT/IR`,
-  `lib/Target/SMTLIB/ExportSMTLIB.cpp`) but are C++, so they are not this
-  path. The solver is chosen when T8 starts, among those that emit a
-  certificate the reconstruction reads (LRAT for SAT, Alethe or cvc5's
+  `lib/Target/SMTLIB/ExportSMTLIB.cpp`) but are C++, so they are not
+  this path. The solver is chosen when T8 starts, among those that emit
+  a certificate the reconstruction reads (LRAT for SAT, Alethe or cvc5's
   format for SMT); it is pinned, built from source by the bootstrap,
-  linked statically on both targets, and entered in 0001's inventory.
+  linked statically on both targets, and entered in
+  `LICENSES/THIRD-PARTY.md`, the inventory.
 - **Determinism** (*decision*). A solver's limit is a counted resource
   given as an argument of the tactic call in the program's source, so
   whether a proof is found is a property of the program, never of an
   option or a clock. Certificates are cached by the query's content
   hash, so builds stay byte-identical.
-- **Parked** (*decision*): T8 waits for 0014, which is parked, and for a
+- **Parked** (*decision*): T8 waits for 0013, which is parked, and for a
   consumer, which nothing in the queue is; it is taken up when a library
   or corpus proof names a goal family a solver decides and no tactic
   does.
@@ -337,14 +343,15 @@ the kernel checks.
   graphs twice. The checker's `calcTerminating` closes `(f, g, graph)`
   triples transitively within each component (`Core/Termination/
   SizeChange.idr:77-85, 185-207`, used at `:565`), and the frontend's
-  loop verdict reads `loopsFrom`, which keeps per function only the
-  weakest graphs of the walks to it (`:383-459`, called from
-  `compiler/src/IdrisMLIR/Frontend/Translate/Recursion.idr:137`), *read*.
-  Both decide whether every loop through a function decreases, which is
-  one analysis held twice. The checker's goes, and `loopsFrom` carries
-  the call path the checker's message names (`:565-574`). That is 0009's
-  O6, which already rewrites the composition and proves identical
-  totality verdicts; this proposal adds no stage for it.
+  loop verdict reads `loopsTerminate`, which keeps per function only the
+  weakest graphs of the walks to it (`:486-580`, called from
+  `compiler/src/IdrisMLIR/Frontend/Translate/Recursion.idr:122`),
+  *read*. Both decide whether every loop through a function decreases,
+  which is one analysis held twice. The checker's goes, and
+  `loopsTerminate` carries the call path the checker's message names
+  (`:565-574`). That is 0008's O6, which already rewrites the
+  composition and proves identical totality verdicts; this proposal adds
+  no stage for it.
 - **No second checker** (*decision*). An independent re-checker, as
   lean4lean and nanoda are for Lean (*read* `code/lean4lean`,
   `code/nanoda_lib`, `papers/carneiro-2024-lean4lean`), is not built.
@@ -354,7 +361,7 @@ the kernel checks.
   AGENTS.md declines, where a test's committed expected files are its
   specification. The kernel's trust comes from being small and from tests that
   state each rule as a property: a seeded ill-typed term per rule,
-  refused by name, as 0009's O8 states laws. "Re-checked in tests"
+  refused by name, as 0008's O8 states laws. "Re-checked in tests"
   (D4) means the kernel re-checks every TTC apart from elaboration.
 - **Size and speed** (*decision*). Re-checking a library's TTCs with the
   kernel alone costs under 10% of elaborating it, on the same binary.
@@ -373,12 +380,12 @@ the kernel checks.
 
 ### 2.7 Parallelism (adopted where independent; GPU rejected for now)
 
-- **What runs in parallel** (*decision*, the owner's, 0007 §12). The
+- **What runs in parallel** (*decision*, the owner's, 0006 §12). The
   fork is the compiler's Idris half, and the compiler's Idris half runs
-  on 0006's thread-per-core shards, with linear messages, once that typed
+  on 0005's thread-per-core shards, with linear messages, once that typed
   shard framework exists; until then elaboration is single-threaded.
   Stage 0 runs the fork on Chez, where a shard primitive has no meaning
-  (0006 D13), so stage 0 stays single-threaded for good.
+  (0005 D13), so stage 0 stays single-threaded for good.
   - Modules check in dependency order as shard work. The fork already
     builds each module from a cleared context that holds only its imports
     (`buildMod`, `Idris/ModTree.idr:203-204`, a fresh unification state
@@ -390,27 +397,26 @@ the kernel checks.
   but the runtime's shards: process creation is outside the language
   (the `Process` rule, `foreign/idr/include/idr/IR/IdrBase.td:199`,
   `OutsideLanguage`; AGENTS.md), and so are threads (`Threads`, `:187`),
-  which is why elaboration waits for 0006's
+  which is why elaboration waits for 0005's
   shards, one single-threaded runtime per core, rather than run on
   threads of one process or on processes the C++ driver starts. The
   driver still runs the frontend as one child
   (`foreign/idr/lib/Driver/Compile.cpp:50`, `llvm::sys::ExecuteAndWait`).
-- **Names** (*decision*). The fork names what it generates (metas,
-  case and with blocks, variables) from one counter (`nextName`,
+- **Names** (*decision*). The fork names what it generates (metas, case
+  and with blocks, variables) from one counter (`nextName`,
   `Core/UnifyState.idr:102, 160-200`), saved in the TTC
   (`Core/Binary.idr:347`), *read*. The counter restarts for each module
   (`resetNextVar`, `Idris/ProcessIdr.idr:310`) and then takes the value
   its last import saved (`Core/Binary.idr:545`), so a module's names are
-  a function of its inputs and modules checked in parallel leave TTCs byte for
-  byte as they are. Definitions checked in parallel inside one module
-  would let the schedule reach names and TTC bytes. So T7, before its
-  shard step, derives each generated name from its definition,
-  never from a counter shared between definitions, before definitions
-  run in parallel: 0004 §1's
-  rule, names from content and never from counters, which holds in the
-  fork as in the pipeline (0004 D18). That change alters generated names
-  by design, so it is proved by TTCs identical to the stage before's up
-  to those names.
+  a function of its inputs and modules checked in parallel leave TTCs
+  byte for byte as they are. Definitions checked in parallel inside one
+  module would let the schedule reach names and TTC bytes. So T7, before
+  its shard step, derives each generated name from its definition, never
+  from a counter shared between definitions, before definitions run in
+  parallel: the rule of the cutover's §1, names from content and never
+  from counters, which holds in the fork as in the pipeline (the
+  cutover's D18). That change alters generated names by design, so it is
+  proved by TTCs identical to the stage before's up to those names.
 - **The evidence** (*measured*, elaborators §8, kernels §2): Isabelle
   3.0 to 3.2 times on 4 cores, under 1.3 for the sequential HOL
   bootstrap (`papers/wenzel-2009-parallel-isabelle`); Coq's latency on
@@ -424,18 +430,18 @@ the kernel checks.
   "practical proof irrelevance", so checking them late and in parallel
   is open to this checker (*conjecture*, elaborators §12).
 - **The array core is used where the work is regular:**
-  - constraint generation over a flat syntax tree (0009);
+  - constraint generation over a flat syntax tree (0008);
   - size-change composition as a semiring matrix product over
     `Algebra/SizeChange.idr`'s `Smaller | Same | Unknown` (`:10`), while
     the closure stays a relational fixpoint with subsumption over walks,
     since summing graphs would merge walks whose verdicts differ (§2.6;
-    0009 §4.7);
-  - batched conversion of hash-consed terms (0008).
-- **The relational core** (0013, parked until its first consumer): the
-  constraint store and postponement as semi-naive evaluation are 0009's
+    0008 §4.7);
+  - batched conversion of hash-consed terms (0007).
+- **The relational core** (0012, parked until its first consumer): the
+  constraint store and postponement as semi-naive evaluation are 0008's
   O7 on it. E-graph saturation over equalities is offered to tactics
   and returns a proof term the kernel checks; it never extends
-  conversion (§2.0). The library is 0013's and is not duplicated here
+  conversion (§2.0). The library is 0012's and is not duplicated here
   (*read* `papers/jordan-2016-souffle`, `papers/madsen-2016-datalog-to-flix`,
   `papers/bembenek-2020-formulog`). Tabled search is not on it (§2.3).
 - **Rejected for now: GPU type checking and interaction-net normalisation.**
@@ -456,32 +462,32 @@ the kernel checks.
   trusted, and no second checker stands in for the kernel's tests.
 - **Deterministic, byte-identical outputs** at every worker and shard
   count, with no name taken from a counter shared between definitions
-  (0004's determinism rules).
-- **No option selects behaviour** (0004 D2); a stage is measured old
-  binary against new from the same inputs (0004 §10). `--timing` writes
-  a record and selects nothing.
+  (the cutover's determinism rules).
+- **No option selects behaviour** (the cutover's D2); a stage is
+  measured old binary against new from the same inputs (the cutover's
+  §10). `--timing` writes a record and selects nothing.
 - **No process or thread in Idris code** (AGENTS.md); parallelism is
-  0006's shards (§2.7).
+  0005's shards (§2.7).
 - **Whole-program compilation,** and both targets.
 
 ## 4. Staged plan, each stage with its proof
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| T0 | per-phase baseline of elaborating base, `libs/`, the fork and the frontend, natively at `make self`, on both targets; stage 0 on Chez once beside it; the fork's `logTime` phases written through the driver's `--timing`, which the package commands take too (§1); the headline workloads below run once against Lean 4 and F* | committed record under `bench/profiles/`, one with 0009's O0; the baseline of 0008's A0 |
-| T1, T2 | (moved: the arena and the evaluator are 0008's A0 to A2) | |
-| T3 | tabled instance search with upstream's answers, ambiguity rule and depth bound, under §2.3's reuse rule | identical TTCs; instance-heavy files ≥ 2× over 0008's A2; a failing diamond tower elaborates in time linear in its height; no file slower by more than 5%, best of five (0004 §10's compile-time margin) |
+| T0 | per-phase baseline of elaborating base, `libs/`, the fork and the frontend, natively at `make self`, on both targets; stage 0 on Chez once beside it; the fork's `logTime` phases written through the driver's `--timing`, which the package commands take too (§1); the headline workloads below run once against Lean 4 and F* | committed record under `bench/profiles/`, one with 0008's O0; the baseline of 0007's A0 |
+| T1, T2 | (moved: the arena and the evaluator are 0007's A0 to A2) | |
+| T3 | tabled instance search with upstream's answers, ambiguity rule and depth bound, under §2.3's reuse rule | identical TTCs; instance-heavy files ≥ 2× over 0007's A2; a failing diamond tower elaborates in time linear in its height; no file slower by more than 5%, best of five (the compile-time margin of the cutover's §10) |
 | T4 | the rewrite ladder (§2.4; no `Nat` normalisation) | upstream's rewrite failures listed in tests become passes; 0003's shape-equality corpus elaborates with the library tactic within 0003's 1 s per obligation; identical TTCs where upstream succeeds |
 | T5 | the kernel apart from elaboration, holding the one conversion | every TTC of base, `libs/`, the fork and the frontend re-checked by the kernel alone in under 10% of elaborating them on the same binary; a seeded ill-typed term per typing rule refused by name |
-| T6 | (moved: the interpreter's array path is 0008's A4) | |
-| T7 | parallel elaboration: names derived per definition, then definitions on 0006's shards once they exist (0007 §12, the owner's decision); single-threaded until then | names: TTCs identical to T5's up to generated names; shards: TTCs identical at 1, 2 and 8 shards, wall time on base ≤ 1.5 / cores of T5's |
-| T8 | certificates from SAT/SMT, checked as terms; parked with 0014 (§2.5) | a fixture where the search succeeds and the kernel checks the result |
+| T6 | (moved: the interpreter's array path is 0007's A4) | |
+| T7 | parallel elaboration: names derived per definition, then definitions on 0005's shards once they exist (0006 §12, the owner's decision); single-threaded until then | names: TTCs identical to T5's up to generated names; shards: TTCs identical at 1, 2 and 8 shards, wall time on base ≤ 1.5 / cores of T5's |
+| T8 | certificates from SAT/SMT, checked as terms; parked with 0013 (§2.5) | a fixture where the search succeeds and the kernel checks the result |
 
 The order within T7 is a *decision*: generated names are derived from
 content first (§2.7, "Names"), proved by TTCs identical up to those
 names, so the shard step that follows cannot let the schedule reach
-names or TTC bytes; the shard step lands when 0006's typed shards
-exist, by the owner's decision (0007 §12).
+names or TTC bytes; the shard step lands when 0005's typed shards
+exist, by the owner's decision (0006 §12).
 
 The headline target, *conjecture until measured*: faster elaboration
 than Lean 4 and F*, on the same machine on both targets, first on
@@ -528,24 +534,24 @@ language has no inductive types.
   compatibility and lose the corpus proofs. The fork is changed stage by
   stage, each stage proved by identical TTCs.
 - **Compiled reduction** (Coq's `native_compute`, a JIT inside the type
-  checker): a second compiler inside the first. 0008's array machine is
+  checker): a second compiler inside the first. 0007's array machine is
   the answer to heavy evaluation (its D3).
 
 ## 6. Decisions
 
 - D1. Measure first (T0, natively at `make self`); every target is a
   ratio to a recorded baseline.
-- D2. The term arena and the evaluator are 0008's; this proposal builds
+- D2. The term arena and the evaluator are 0007's; this proposal builds
   the checker on them and keeps no second evaluator.
 - D3. Solvers search; the kernel checks; nothing is trusted.
 - D4. A separate small kernel, which re-checks every TTC apart from
   elaboration; no independent second checker (§2.6).
-- D5. Parallelism on 0006's shards, by the owner's decision (0007 §12):
+- D5. Parallelism on 0005's shards, by the owner's decision (0006 §12):
   modules, then definitions once names stop coming from a counter shared
   between definitions; single-threaded until the shard framework exists,
   and at stage 0 for good; no process or thread in Idris code; GPU
   deferred until measured (§2.7).
-- D6. The relational core is proposal 0013's library, not a copy here;
+- D6. The relational core is proposal 0012's library, not a copy here;
   tabled search does not use it (§2.3).
 - D7. One language: conversion is upstream's; the elaborator may succeed
   where upstream's fails only with ordinary TT the program asked for
@@ -557,17 +563,17 @@ language has no inductive types.
 - D9. No `Nat` normalisation in conversion (§2.4).
 - D10. The kernel's conversion is the only conversion; unification calls
   it (§2.6).
-- D11. T8 is parked with 0014; a solver is a Rust crate, its limit an
+- D11. T8 is parked with 0013; a solver is a Rust crate, its limit an
   argument in the program's source (§2.5).
 - D12. Unification keeps upstream's solutions, its approximations
-  included; its speed is 0008's A1 and A2 and 0009's O7, and no stage
+  included; its speed is 0007's A1 and A2 and 0008's O7, and no stage
   here changes it (§2.3).
-- D13. One termination closure, `loopsFrom` carrying the call path,
-  built as 0009's O6 (§2.6).
+- D13. One termination closure, `loopsTerminate` carrying the call path,
+  built as 0008's O6 (§2.6).
 - D14. T0 reads the fork's `logTime` through the driver's `--timing`
   and splits declarations by sampling; no profiler enters the tree (§1).
 - D15. The headline is judged on smalltt's set, translated where no
   Idris or F* version exists, against pinned Lean 4 and F* releases (§4).
 
 No question is open here. The one this file held (§2.4) is D9; T7's
-shard step waits on 0007 §12, whose owner question it shares.
+shard step waits on 0006 §12, whose owner question it shares.

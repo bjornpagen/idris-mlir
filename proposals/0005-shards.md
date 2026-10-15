@@ -1,44 +1,51 @@
-# 0006: shards
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
+# 0005: shards
 
 **Status:** proposed, 2026-10-09, against `main` at 651156d4;
-reprioritized 2026-10-12; reconciled 2026-10-14 with 0004's pipeline
-cutover and with 0007. Nothing here is built, run or timed. Its
-Decisions section is decided: D1 is the user's, and D2 to D12 were pinned
-on the user's delegation by the rule that single-thread performance wins
-the tie ("Rules it keeps"); D13 follows from AGENTS.md.
-They stand until the user changes them; no question is left open. The
-tree it builds on is the cutover 0002 designed, committed and building
-on arm64 macOS: `make build` clean, `make check` 27/27, `make test-idr`
-286/286, `make test` 415/415 (*measured* 2026-10-14 at `NCPU=6`, at
-552d682a and its file-size split df5d8742, on the rounds, the default;
-the opt-in SCC pipeline of 552d682a ran in one lit test only, and 0004
-deleted it). 0004's cutover, 0003's stage 1 and 0005 are coded and
-integrated on top of it (c7aa7b62, 5d5f3312, bfdcac70; `make check`
-32/32 on the typecheck machine), none built yet. x86_64 Linux has not
-run this tree (0002's G1 is NotRun there), so P2's epoll half targets a
-system that has not yet run it.
+reprioritized 2026-10-12; reconciled 2026-10-14 with the pipeline
+cutover (c7aa7b62, 5d5f3312; its proposal at 484d6403) and with 0006.
+Nothing here is built, run or timed. Its Decisions section is decided:
+D1 is the user's, and D2 to D12 were pinned on the user's delegation by
+the rule that single-thread performance wins the tie ("Rules it keeps");
+D13 follows from AGENTS.md. They stand until the user changes them; no
+question is left open. The tree it builds on is the cutover 0002
+designed, committed and building on arm64 macOS: `make build` clean,
+`make check` 27/27, `make test-idr` 286/286, `make test` 415/415
+(*measured* 2026-10-14 at `NCPU=6`, at 552d682a and its file-size split
+df5d8742, on the rounds, the default; the opt-in SCC pipeline of
+552d682a ran in one lit test only, and the pipeline cutover deleted it).
+The cutover, 0003's stage 1 and the representation wave (its proposal
+at 484d6403) are coded and integrated on top of it (c7aa7b62, 5d5f3312,
+bfdcac70; `make check` 32/32 on the typecheck machine), none built yet;
+0004 (proposals/0004-total/) is integrated on top of them, typecheck only.
+x86_64 Linux has not run this tree (0002's G1 is NotRun there), so P2's
+epoll half targets a system that has not yet run it.
 
-Sharding follows self-hosting (0002 §2's step 5, `make self`), then
-x86_64 Linux, 0002's step 6 and 0004 §5.4's split before O3, in the
-chain proposals/README.md gives; 0003's
-stage 1, which it builds on, landed before both, with 0004's cutover
-(c7aa7b62, 5d5f3312). P1, P2 and P4 are that work, in order. 0007's S0, S1 and S2's first step are
-taken by 0004's cutover, before any of it. The compiler's own Idris
-half runs on these shards too, by the owner's decision (0007 §5.4, §12):
+Sharding follows 0004, the qualification and self-hosting (0002 §2's
+step 5, `make self`), then x86_64 Linux, 0002's step 6 and 0006's S2
+second step (the split before O3, the cutover's §5.4), in the chain
+proposals/README.md gives; 0003's stage 1, which it builds on, landed
+before all of them, with the cutover (c7aa7b62, 5d5f3312). P1, P2 and P4
+are that work, in order. 0006's S0, S1 and S2's first step were taken by
+the cutover, before any of it. The compiler's own Idris half runs on
+these shards too, by the owner's decision (0006 §5.4, §12):
 single-threaded until this framework exists, then on its shards from
 stage 1 of `make self`; stage 0 runs on Chez and stays single-threaded.
-P3 (asynchronous Rust) is parked with proposal 0014, which it needs. P5
+P3 (asynchronous Rust) is parked with proposal 0013, which it needs. P5
 stays on its measurements. Runtime and compiler paths were re-read at
 3de67510 on 2026-10-14 and again at ccaba89c, where the code is
-unchanged; the cutover and 0005 have moved code since, and 0005 changed
-four mechanisms this file builds on: the effects summary has no
-call-site copy (0005 D13), the flow interface is declared in each op's
-ODS (D7), `Holds` is a view of the value-facts type interface (D8), and
-a force is a call of its sum's dispatch function (D2); the texts below
-that read them say so; `M/` and `L/` are the pinned MLIR and LLVM trees under
-`.toolchain/build/llvm-project/`, and `SDK/` is the macOS SDK the
-pinned clang compiles against on arm64 macOS, the one `xcrun
---show-sdk-path` names (`tools/bootstrap.sh:190`; here
+unchanged; the cutover and the representation wave have moved code
+since, and the representation wave changed four mechanisms this file
+builds on: the effects summary has no call-site copy (its D13), the flow
+interface is declared in each op's ODS (D7), `Holds` is a view of the
+value-facts type interface (D8; 0004 deleted the analysis for the
+interface's own `holdsWorld`), and a force is a call of its sum's
+dispatch function (D2); the texts below that read them say so; `M/` and
+`L/` are the pinned MLIR and LLVM trees under
+`.toolchain/build/llvm-project/`, and `SDK/` is the macOS SDK the pinned
+clang compiles against on arm64 macOS, the one `xcrun --show-sdk-path`
+names (`tools/bootstrap.sh:190`; here
 `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`). Claims are
 marked: read, measured, recalled, conjecture, decision.
 
@@ -113,12 +120,12 @@ Each move names the data that changes and the branches it deletes.
 - **Reject what cannot compile.** A value that may not cross is
   `unsupported (send)`, naming the type and the path to it (§7.3).
 - **Static linking.** No piece of this is loaded at run time.
-- **No option selects behaviour** (0004 D2). `IDRIS_RT_SHARDS` is the
-  program's resource, as `IDRIS_RT_STACK` is (read:
-  `runtime/idris_rt.h:436-447`): a program whose output its joins
-  order prints the same at every count (D8). The compiler gains no
-  flag: whether a program waits or forks is in its code and its types.
-- **Acceptance is a property of the program** (0004 §1). The one
+- **No option selects behaviour** (the cutover's D2). `IDRIS_RT_SHARDS`
+  is the program's resource, as `IDRIS_RT_STACK` is (read:
+  `runtime/idris_rt.h:436-447`): a program whose output its joins order
+  prints the same at every count (D8). The compiler gains no flag:
+  whether a program waits or forks is in its code and its types.
+- **Acceptance is a property of the program** (the cutover's §1). The one
   refusal this design adds to the C++ side, `unsupported (send)`, reads
   only the sums the whole-program label solve decides before the
   optimizer (§7.3).
@@ -140,18 +147,18 @@ where it was paused.
 | Colours its caller | no | no | yes (`wait`) |
 | Crosses shards | as a value: copied | as a value: copied | never |
 
-Closures and thunks are done: defunctionalization makes
-them sums (read: `foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp`;
-since 0005 D2 a force is a call of its memo sum's dispatch function,
-`Defunctionalize/Forces.cpp`, and the memo cell's header writes lower in
-`Conversion/MemoCells.cpp`), and after 0004's cutover it
-does so for every closed, monomorphic program, by analysis alone (0004
-§2.4). So every value a message can hold has a sum type, a fact this
-design's send check reads (§7.3). This proposal adds the third.
-The line falls where the data is known: a thunk's paused state is its
-captures, known in MLIR; a task's is the values live across a wait, known
-exactly only after optimization, so LLVM's CoroSplit computes it. An LLVM
-coroutine frame is a defunctionalized continuation, so one rule,
+Closures and thunks are done: defunctionalization makes them sums (read:
+`foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp`; since the
+representation wave's D2 a force is a call of its memo sum's dispatch
+function, `Defunctionalize/Forces.cpp`, and the memo cell's header
+writes lower in `Conversion/MemoCells.cpp`), and after the cutover it
+does so for every closed, monomorphic program, by analysis alone (the
+cutover's §2.4). So every value a message can hold has a sum type, a
+fact this design's send check reads (§7.3). This proposal adds the
+third. The line falls where the data is known: a thunk's paused state is
+its captures, known in MLIR; a task's is the values live across a wait,
+known exactly only after optimization, so LLVM's CoroSplit computes it.
+An LLVM coroutine frame is a defunctionalized continuation, so one rule,
 "suspended computation is data", is applied at the level where the data
 exists.
 
@@ -193,7 +200,8 @@ pass: CoroEarly in the module simplification, CoroElide in the function
 simplification, CoroSplit in the inliner's CGSCC pipeline, CoroCleanup
 after it (read: `L/lib/Passes/PassBuilderPipelines.cpp:1023, 685, 915,
 1194`). `buildCoroWrapper` (`:320`), cited before, is the O0 form. Each
-codegen unit's own O3, at 0004 §5.4's second step, runs the same passes.
+codegen unit's own O3, at the split before O3 (0006's S2 second step,
+the cutover's §5.4), runs the same passes.
 
 In MLIR the wait is `idr.wait`, a terminator with two successors:
 
@@ -239,9 +247,10 @@ cancelled. Counting never frees it, so the free walk never meets one.
   excludes is a resume from another thread (§3.3).
 - **Only the coroutine itself suspends.** Every caller of a function that
   may wait, up to the reactor, is a coroutine too: colouring (§2.4).
-- **Not required:** a stable frame ABI across LLVM releases. A program is
-  compiled whole by one pinned LLVM, its codegen units (0004 §5) and the
-  runtime's bitcode together, so no frame crosses a compiler boundary.
+- **Not required:** a stable frame ABI across LLVM releases. A program
+  is compiled whole by one pinned LLVM, its codegen units (the cutover's
+  §5) and the runtime's bitcode together, so no frame crosses a compiler
+  boundary.
 
 #### 2.4 Colouring, decided by the compiler, avoided where it can be
 
@@ -250,28 +259,29 @@ assembly (excluded) or `makecontext`, which musl does not ship. So the
 compiler colours, as little as it can.
 
 **decision** The effects fact gains one more bit, `wait`, beside `io`,
-`crash` and `diverge` (read: `foreign/idr/include/idr/Transforms/Passes.td:16-43`,
-`#idr.effects<io, crash, diverge>`) and the observable-output bit 0004
-adds (0004 D34). After 0004's cutover the effects are one bottom-up SCC
-summary, callee first: first computed right after the label solve, over
-the call graph in which an apply calls every label of its key, then
-recomputed once per function when it is final, which can only shrink it,
-and held in the function's one summary, which every call reads from its
-callee, since a call holds no effects (0004 §4 stages 4 and 9, D16, D34;
-0005 D13). `wait` is one
-more bit of that summary, never a second analysis, and it shrinks as the
-others do: inlining and cleanup can remove a wait and never add one.
-idr-lower reads the final bit. It is computed like the others from the
-primitives that wait: sockets, timers and sleep, and Rust `await`. A
-join adds no bit: in a function that waits for something else it lowers
-to `idr.wait`, and in any other it is the helping join (below), so the
-join never decides the colour.
-This supersedes the earlier "the join of a fork that must interleave
-with other tasks", whose "must" no analysis decided. Since 0004 runs
-defunctionalization before the optimizer, a closure's effects reach its
-caller through the direct calls of its dispatch, with no closure case
-(0004 §2.7). Only `wait` functions are lowered as coroutines. The world
-stays the quantity-1 token with no runtime components.
+`crash` and `diverge` (read:
+`foreign/idr/include/idr/Transforms/Passes.td:16-43`, `#idr.effects<io,
+crash, diverge>`) and the observable-output bit the cutover added (its
+D34). Since the cutover the effects are one bottom-up SCC summary,
+callee first: first computed right after the label solve, over the call
+graph in which an apply calls every label of its key, then recomputed
+once per function when it is final, which can only shrink it, and held
+in the function's one summary, which every call reads from its callee,
+since a call holds no effects (the cutover's §4 stages 4 and 9, D16,
+D34; the representation wave's D13). `wait` is one more bit of that
+summary, never a second analysis, and it shrinks as the others do:
+inlining and cleanup can remove a wait and never add one. idr-lower
+reads the final bit. It is computed like the others from the primitives
+that wait: sockets, timers and sleep, and Rust `await`. A join adds no
+bit: in a function that waits for something else it lowers to
+`idr.wait`, and in any other it is the helping join (below), so the join
+never decides the colour. This supersedes the earlier "the join of a
+fork that must interleave with other tasks", whose "must" no analysis
+decided. Since the cutover, defunctionalization runs before the
+optimizer, so a closure's effects reach its caller through the direct
+calls of its dispatch, with no closure case (the cutover's §2.7). Only
+`wait` functions are lowered as coroutines. The world stays the
+quantity-1 token with no runtime components.
 
 **The helping join.** A join in a function that waits for nothing else
 does not colour it. While its reply has not arrived, it runs the work that
@@ -282,25 +292,25 @@ the stack grows by the depth of nesting, as recursion would.
 **conjecture**: every parallel program in `bench/` is of that form and
 runs with no coroutine at all.
 
-**Tail await.** `idr-tail-loops` turns self tail calls into a loop inside
-one frame. A tail call from one waiting function to another is a tail
-await: the callee's frame takes over the caller's awaiter, the caller's
-frame is destroyed, and the callee is resumed by a `musttail` call. That
-is C++'s symmetric transfer on switched-resume, and it keeps the
-constant-stack promise. idr-lower writes it as
+**Tail await.** `idr-tail-loops` turns self tail calls into a loop
+inside one frame. A tail call from one waiting function to another is a
+tail await: the callee's frame takes over the caller's awaiter, the
+caller's frame is destroyed, and the callee is resumed by a `musttail`
+call. That is C++'s symmetric transfer on switched-resume, and it keeps
+the constant-stack promise. idr-lower writes it as
 `coro.await.suspend.handle`; CoroSplit lowers that to a call through the
 returned frame's resume address (read:
 `L/lib/Transforms/Coroutines/CoroSplit.cpp:124-145`) and marks the call
 `musttail` where the target supports a tail call for it (`:1079-1086`).
 The call is indirect, through the frame, so it has no static callee for
-0004's partition to keep beside it: 0004 joins every direct `musttail`
-caller to its callee and lets none cross an object (0004 §5.3 item 4,
-D33), and an indirect call reaches a function in any object. **decision**
-P1's proof includes a tail await on both targets, within one bin and
-across two bins of a generated program larger than two bins, 10^7 times
-in constant stack. This supersedes the earlier "rests on the check 0004
-already owes", since 0004 now keeps every direct `musttail` inside one
-unit.
+the code generation partition to keep beside it: the partition joins
+every direct `musttail` caller to its callee and lets none cross an
+object (the cutover's §5.3 item 4, D33), and an indirect call reaches a
+function in any object. **decision** P1's proof includes a tail await on
+both targets, within one bin and across two bins of a generated program
+larger than two bins, 10^7 times in constant stack. This supersedes the
+earlier "rests on the check the cutover already owes", since the
+partition keeps every direct `musttail` inside one unit.
 
 ### 3. The reactor
 
@@ -413,7 +423,7 @@ enqueued, in one walk of the counted graph it reaches:
 |---|---|---|
 | count 0 (persistent), including a `Static i` constant (§6) | sent as the same pointer | persistent data is immutable and points only at persistent data; the receiver forces its own slot `i` |
 | count 1, reached only through moved cells, at a send that consumes the sender's last reference (idr-rc decides) | moved: the pointer is the message | nobody else can reach it; the receiver's free is snmalloc's remote free |
-| count above 1, or a stack cell (an `idr.con` whose stack placement is an inherent property after 0004, D19) | copied into a fresh count-1 cell; a forwarding map keyed by address, holding only cells of count above 1, keeps the DAG's sharing | the sender keeps its aliases and drops them on its own shard: Erlang's copy without Erlang's collector (read: `sources/papers/clebsch-2017-orca`, "when data structures are immutable") |
+| count above 1, or a stack cell (an `idr.con` whose stack placement is an inherent property since the cutover, its D19) | copied into a fresh count-1 cell; a forwarding map keyed by address, holding only cells of count above 1, keeps the DAG's sharing | the sender keeps its aliases and drops them on its own shard: Erlang's copy without Erlang's collector (read: `sources/papers/clebsch-2017-orca`, "when data structures are immutable") |
 | a thunk, `Forced` | copied with its value | a value |
 | a thunk, `Delayed` | copied unforced; its captures are walked | forcing it to send it could diverge where the program would not, and the memo is not semantics |
 | a thunk, `Running` | impossible | a thunk runs only on its own shard's stack, inside its force |
@@ -481,22 +491,23 @@ memo K = Delayed_L1 caps1 | ... | Delayed_Ln capsn
 - **Each shard's constant table is one `thread_local` global** whose
   initial image is the templates, `Delayed_L caps` with persistent
   captures. The loader gives every shard its copy at no cost to the
-  compiler. Under 0004's codegen units it is one definition in one unit,
-  referenced from the others as an external hidden `dso_local` symbol
-  with its content-derived name under the reserved `__idr.` prefix (0004
-  §5.3 item 3), so every unit reaches it the same way; today's memo
-  cells are `__idr_caf_` made unique by the symbol table in insertion
-  order (`foreign/idr/lib/Conversion/StaticData.cpp:189-191, 246-247`),
-  a name 0004's content naming replaces (0004 D18).
+  compiler. Under the cutover's codegen units it is one definition in
+  one unit, referenced from the others as an external hidden `dso_local`
+  symbol with its content-derived name under the reserved `__idr.` prefix
+  (the cutover's §5.3 item 3), so every unit reaches it the same way;
+  before the cutover memo cells were `__idr_caf_` made unique by the
+  symbol table in insertion order, a name the cutover's content naming
+  replaced (its D18; `foreign/idr/lib/Conversion/StaticData.cpp`).
 - **The force's match gains one arm:** `Static i -> force slot i of the
-  running shard's table` (since 0005 D2 that match is the memo sum's
-  dispatch function, which every force calls). Only keys that have a top-level constant have
-  it, as only pipes have `pipe_next` (D7). Which keys those are is the
-  label solve's: a top-level constant's suspension names its label and
-  declares its edge through 0004's flow interface (0004 D8, declared in
-  ODS by 0005 D7), so the keys
-  it reaches are known when the sums are decided, and `Static i` is one
-  more constructor of those sums, never a test beside them.
+  running shard's table` (since the representation wave's D2 that match
+  is the memo sum's dispatch function, which every force calls). Only
+  keys that have a top-level constant have it, as only pipes have
+  `pipe_next` (D7). Which keys those are is the label solve's: a
+  top-level constant's suspension names its label and declares its edge
+  through the cutover's flow interface (its D8, declared in ODS by the
+  representation wave's D7), so the keys it reaches are known when the
+  sums are decided, and `Static i` is one more constructor of those
+  sums, never a test beside them.
 - **A shard's end releases its table's forced slots**: the compiler-made
   release function, run per shard.
 
@@ -635,7 +646,7 @@ range. `Here` is linear, so it is a value of the module with no runtime
 component, as the world is; the send check therefore sees its type
 (§7.3). Runtime: the `Fin` that selects a queue (an `i64` after Nat
 narrowing), `k`, and the message's bytes. Static normalization folds a closed
-placement function of total code (0008), never the core count, which is
+placement function of total code (0007), never the core count, which is
 IO.
 
 #### 7.3 The hop in MLIR and the send check
@@ -657,73 +668,76 @@ operand is a message.
   `idr.join` to `idr.wait` (§2.1) or to the helping join (§2.4).
 - A fork to the running shard is a call (read:
   `sources/docs/seastar/smp.hh`, `submit_to` of `this_shard_id()`).
-- **decision** `idr.fork` and `idr.join` implement 0004's one flow
-  interface (0004 D8): a closure or lazy operand of the fork reaches the
-  region argument it binds, and the region's yield reaches the join's
-  result. So the label solve follows a closure into the forked work
-  with no case of its own, and the verifier, which refuses a closure- or
-  lazy-typed operand on an op without the interface, admits the fork.
-  The region is written isolated by the frontend, its operands already
-  the message, so there is no outlining round trip of the kind 0004
-  deletes with `idr-isolate` (0004 §4 stage 1). The calls inside the
-  region are edges of the enclosing function in upstream's `CallGraph`,
-  which attributes a call nested in any region that is not a callable to
-  the enclosing callable (read: `M/lib/Analysis/CallGraph.cpp:74-97`), so
-  0004's ready set orders the forked work's callees before the forker.
-  That is why the fork keeps a region where 0004 gives closures the
-  symbol form (0004 §4.1): a function named by an op that is no call is
-  an edge the call graph does not see, the gap 0004 §2.7 closes for
-  closures by making every apply a direct call, and a fork made a call
-  would be a call the inliner had to be told not to inline. Its region
-  lives until idr-lower outlines it, which is lowering, not a round
-  trip.
+- **decision** `idr.fork` and `idr.join` implement the one flow
+  interface (the cutover's D8): a closure or lazy operand of the fork
+  reaches the region argument it binds, and the region's yield reaches
+  the join's result. So the label solve follows a closure into the
+  forked work with no case of its own, and the verifier, which refuses a
+  closure- or lazy-typed operand on an op without the interface, admits
+  the fork. The region is written isolated by the frontend, its operands
+  already the message, so there is no outlining round trip of the kind
+  the cutover deleted with `idr-isolate` (its §4 stage 1). The calls
+  inside the region are edges of the enclosing function in upstream's
+  `CallGraph`, which attributes a call nested in any region that is not
+  a callable to the enclosing callable (read:
+  `M/lib/Analysis/CallGraph.cpp:74-97`), so the cutover's ready set
+  orders the forked work's callees before the forker. That is why the
+  fork keeps a region where closures take the symbol form (the cutover's
+  §4.1): a function named by an op that is no call is an edge the call
+  graph does not see, the gap the cutover closed for closures by making
+  every apply a direct call (its §2.7), and a fork made a call would be
+  a call the inliner had to be told not to inline. Its region lives
+  until idr-lower outlines it, which is lowering, not a round trip.
 
 The frontend cannot check sendability: closure sums do not exist before
 idr-defunctionalize, and `Send` is not an interface a user should
 implement. **decision** The send check runs once, right after
-defunctionalization's conversion (0004 §4 stage 4), as a whole-program
-read of the decided sums, in the stage where 0004 already computes the
-first effects summary (0004 D34). There every type is first-order, so one
-walk of the types an `idr.fork`'s operands and result reach sees every
-path a message can take. It rejects a mutable cell (`IOArray`, `IORef`,
-`Buffer`), a world, `Here`, a `Join`, and a lazy key whose memo sum can
-hold `pipe_next`. The walk is one more question of the type graph that
-the value-facts type interface already answers per type (`holdsWorld`,
-`holdsClosure`, `holdsReferences`, `isCounted`, each data type's answers
-computed once when its body is set and read from any thread; read:
-`foreign/idr/include/idr/IR/IdrInterfaces.td`, 0005 D8, with `Holds` now
-a view of it): one more method, "may hold what may not cross", so the
-type graph is walked by one analysis, never by a second one of the send
-check's own. The rejection
-is `unsupported (send)`, naming the type and the path, as structured
-data on the diagnostic that the driver reads (0004 §6 deletes the
-driver's match on the message prefix). After the check, `idr.fork`'s
-verifier keeps what it established: an operand whose type may hold
-what may not cross is a broken invariant, and a pass that makes one is
-an internal error (0004 §2.5). The check is not part of the conversion,
-which accepts every verified module (0004 §2.4). This supersedes two
-earlier forms: "part of `CapturingOpInterface`'s isolation", since no
-such interface exists (read:
-`foreign/idr/include/idr/IR/IdrInterfaces.td:40, 61, 91`, which defines
-`MayCrashOpInterface`, `GuardOpInterface` and `ConsumingOpInterface`) and
-the flow interface is where 0004 puts closure flow; and "a verifier rule
-in force from the stage after defunctionalization", since 0004 makes a
-verifier failure after a pass an internal error, never `unsupported`
-(0004 §2.5), so a user's refusal cannot be one.
+defunctionalization's conversion (the cutover's §4 stage 4), as a
+whole-program read of the decided sums, in the stage that already
+computes the first effects summary (the cutover's D34). There every type
+is first-order, so one walk of the types an `idr.fork`'s operands and
+result reach sees every path a message can take. It rejects a mutable
+cell (`IOArray`, `IORef`, `Buffer`), a world, `Here`, a `Join`, and a
+lazy key whose memo sum can hold `pipe_next`. The walk is one more
+question of the type graph that the value-facts type interface already
+answers per type (`holdsWorld`, `holdsClosure`, `holdsReferences`,
+`isCounted`, each data type's answers computed once when its body is set
+and read from any thread; read:
+`foreign/idr/include/idr/IR/IdrInterfaces.td`, the representation wave's
+D8; the `Holds` analysis, a twin of `holdsWorld`, is gone since 0004):
+one more method, "may hold what may not cross", so the type graph is
+walked by one analysis, never by a second one of the send check's own.
+The rejection is `unsupported (send)`, naming the type and the path, as
+structured data on the diagnostic that the driver reads (the cutover's
+§6 deleted the driver's match on the message prefix). After the check,
+`idr.fork`'s verifier keeps what it established: an operand whose type
+may hold what may not cross is a broken invariant, and a pass that makes
+one is an internal error (the cutover's §2.5). The check is not part of
+the conversion, which accepts every verified module (the cutover's
+§2.4). This supersedes two earlier forms: "part of
+`CapturingOpInterface`'s isolation", since no such interface exists
+(read: `foreign/idr/include/idr/IR/IdrInterfaces.td:40, 61, 91`, which
+defines `MayCrashOpInterface`, `GuardOpInterface` and
+`ConsumingOpInterface`) and the flow interface is where closure flow is
+held since the cutover; and "a verifier rule in force from the stage
+after defunctionalization", since the cutover made a verifier failure
+after a pass an internal error, never `unsupported` (the cutover's
+§2.5), so a user's refusal cannot be one.
 
 Whether a fork is accepted is a property of the program, never of the
 optimizer: the sums the check walks are the label solve's, decided on
-the whole program before the optimizer runs and total by analysis (0004
-§2.4, §2.7). Their precision is 0CFA's: a label that reaches a fork's
-type but never its value at run time is still walked. **decision**
-Acceptance is judged on the 0CFA sets 0004 freezes. A change of
-precision (MLton's polyvariance, which 0004 does not build) changes
-which programs are accepted, so it is a language change, in a proposal
-of its own judged by acceptance, never by 0004 D35's bench rule, which
-judges speed (0004 D35 says the same). A runtime handle is an integer
-and passes. A linear array (0003's `LArray`, §3.8 there) is exclusive by
-type, born fresh and leaving only by `freeze`, so it moves; sending an
-array and getting it back is the data-parallel case.
+the whole program before the optimizer runs and total by analysis (the
+cutover's §2.4, §2.7). Their precision is 0CFA's: a label that reaches a
+fork's type but never its value at run time is still walked.
+**decision** Acceptance is judged on the 0CFA sets the label solve
+freezes. A change of precision (MLton's polyvariance, which the cutover
+did not build) changes which programs are accepted, so it is a language
+change, in a proposal of its own judged by acceptance, never by the
+bench rule of the cutover's D35, which judges speed (D35 says the same).
+A runtime handle is an integer and passes. A linear array (0003's
+`LArray`, §3.8 there) is exclusive by type, born fresh and leaving only
+by `freeze`, so it moves; sending an array and getting it back is the
+data-parallel case.
 
 ### 8. Parallel loops
 
@@ -743,7 +757,7 @@ tile writes its own slice, so the general `lent` grade is not needed.
 `counts-nothing=@f`), becomes an assertion the lowering makes, never a
 choice between lowerings: 0003's structuring makes an `scf.forall` only
 from a body that counts nothing (0003 §5, §14), so a forall whose body
-counts is a broken invariant and an internal error (0004 §2.5). It
+counts is a broken invariant and an internal error (the cutover's §2.5). It
 goes neither through `async-parallel-for` nor `convert-scf-to-openmp`,
 each a second runtime.
 
@@ -809,7 +823,7 @@ shape of pure fork/join.
 
 #### 10.3 `FutT`
 
-`Rust (FutT a)` is a counted foreign cell (proposal 0014 §9.1) holding a
+`Rust (FutT a)` is a counted foreign cell (proposal 0013 §9.1) holding a
 pinned Rust future. The binding's `await` is a loop in a `wait` function:
 poll through the shim with this task's waker; on `Ready a`, return `a`;
 on `Pending`, `idr.wait` for a wake of this slot, then poll again. Rust
@@ -819,17 +833,17 @@ must be `Send + Sync`, and a one-word waker is.
 Before a Rust async import is honest, one shard needs the task frame,
 the `wait` bit and tail await, a reactor with its wake queue, kick and
 platform wait, runtime-owned sockets and timers behind Rust's async I/O
-traits (proposal 0014 §12 names them), the waker, and cancellation as
+traits (proposal 0013 §12 names them), the waker, and cancellation as
 destroy. More shards, lending, taking unstarted messages and io_uring can
-wait. Static normalization covers only total, pure code (0008); waiting
+wait. Static normalization covers only total, pure code (0007); waiting
 is IO, so nothing that waits is normalized.
 
 #### 10.4 Blocking calls offloaded
 
 Synchronous bindings are generated runtime primitives that run on the
-calling shard, in world order (proposal 0014 §9.2). Once a reactor
+calling shard, in world order (proposal 0013 §9.2). Once a reactor
 exists, the manifest marks blocking items in its `[blocking]` table,
-which arrives with P3 (0014 §5), and each becomes a wait run on
+which arrives with P3 (0013 §5), and each becomes a wait run on
 a runtime-owned offload thread that runs Rust only: the arguments move
 into Rust's ownership (`IdrisValue: !Send` already enforces it), the
 completion is posted to the shard, and user code does not change, since
@@ -851,7 +865,7 @@ The send check here answers the same question per message, not per thread:
   because nothing on the sender can reach it.
 
   Decision: the send check accepts a value at the exclusive grade as a
-  move, and its region goes with it. That is the same fact 0010's packed
+  move, and its region goes with it. That is the same fact 0009's packed
   layout relies on. Everything else crosses by copy, as decided above.
 - **Noncopyable types and `borrowing`/`consuming`** (0377, 0390, 0427):
   ownership added to a language after the fact. Idris's quantities have
@@ -865,7 +879,7 @@ measurement.
 
 **P1. Task frames and the `wait` bit** (§2).
 
-- **Change:** `idr.wait`; the `wait` bit in 0004's one effects summary
+- **Change:** `idr.wait`; the `wait` bit in the one effects summary
   (§2.4); coroutine lowering of `wait` functions only; tail await as
   `coro.await.suspend.handle`.
 - **Proof:**
@@ -874,7 +888,7 @@ measurement.
     constant stack, on both targets, in one bin and in two bins of a
     generated program larger than two bins (§2.4);
   - a program that never waits lowers to IR byte-identical to the
-    binary's before P1, compared binary against binary (0004 D22);
+    binary's before P1, compared binary against binary (the cutover's D22);
   - the colouring measurement of D11 passes.
 
 **P2. One reactor** (§3, §10.2).
@@ -889,7 +903,7 @@ measurement.
 
 - **Change:** the `FutT` loop, the one-word waker, runtime sockets and
   timers behind Rust's I/O traits, and the blocking offload, driven by
-  the manifest's `[blocking]` table (0014 §5, §10.4).
+  the manifest's `[blocking]` table (0013 §5, §10.4).
 - **Proof:** a hyper client and server on one shard against their
   committed expected files; cancellation frees the Rust future
   (`IDRIS_RT_LIVE=1` reports zero); a crate graph enabling tokio's `rt`
@@ -899,9 +913,9 @@ measurement.
 
 - **Change:** `libs/mlir-shard`, its operations registry primitives
   (D13), `Local` a word naming a slot (§7.1); `idr.fork` and `idr.join`
-  with 0004's flow interface; `shard.grid`; the send check right after
+  with the flow interface; `shard.grid`; the send check right after
   defunctionalization, as one more method of the value-facts type
-  interface (0005 D8), and the detach walk
+  interface (the representation wave's D8), and the detach walk
   (§7.3, §5.1); the helping join; the standard streams on every shard
   and handles hopping home (D3, D4); process state under the platform
   lock (D5); `Static i` and the per-shard constant tables (D6);
@@ -918,8 +932,8 @@ measurement.
   - a reject fixture for each `unsupported (send)` path;
   - zero live cells summed over shards at exit;
   - D6's measurement passes;
-  - from 0004 §5.4's second step, D11's cross-unit frame count recorded
-    beside the bench;
+  - from 0006's S2 second step (the split before O3, the cutover's
+    §5.4), D11's cross-unit frame count recorded beside the bench;
   - parallel binary-trees, spectral-norm and mandelbrot measured against
     one shard, with D9's idle-time record.
 
@@ -936,9 +950,9 @@ before:
   are tensors (`proposals/0003-typed-apl/README.md` §14): it replaces
   P4's `scf.forall` lowering whole, never beside it, when
   spectral-norm's best of five is more than 2% faster with it on both
-  targets (0004 §10's runtime margin; 0003 D35, D36), and the change
-  that takes it names what lowers its collectives, since 0003 rejects
-  `ShardToMPI` (0003 §18).
+  targets (the runtime margin of the cutover's §10; 0003 D35, D36), and
+  the change that takes it names what lowers its collectives, since 0003
+  rejects `ShardToMPI` (0003 §17).
 
 ## Rejected alternatives
 
@@ -980,7 +994,7 @@ before:
 - **A Rust future as our coroutine handle:** rustc compiles a future into
   its own state machine, a foreign value; the frame that polls it is ours
   (§10.3).
-- **A tokio island** on threads of its own (proposal 0014 §3).
+- **A tokio island** on threads of its own (proposal 0013 §3).
 - **Tokio's `Arc` waker:** an allocation and an atomic count per task
   and wake, where one word does (§10.2).
 - **The standard streams as waits:** it colours every batch program that
@@ -989,12 +1003,12 @@ before:
   bodies the compiler replaces: a second meaning of each primitive in
   Idris (D13).
 - **The send check as a verifier rule:** after a pass a verifier failure
-  is an internal error, never a user's refusal (0004 §2.5); the check
-  runs once after defunctionalization and the verifier keeps its result
-  (§7.3).
+  is an internal error, never a user's refusal (the cutover's §2.5); the
+  check runs once after defunctionalization and the verifier keeps its
+  result (§7.3).
 - **A walk of its own for the send check:** the type graph already has
-  one analysis, the value-facts type interface (0005 D8), and the check
-  is one more of its methods (§7.3).
+  one analysis, the value-facts type interface (the representation
+  wave's D8), and the check is one more of its methods (§7.3).
 - **A `Local` checked against the destination when it is sent:** its
   index is quantity 0 and erased, so nothing at run time could read it;
   it crosses as the integer it is and its types keep its uses home
@@ -1113,9 +1127,9 @@ join's reply flushed its worker, so every line is out.
 
 A top-level constant is evaluated at most once per shard that demands it,
 in that shard's slot (§6). With one shard it is evaluated once, as today.
-Whether a closed call of total code becomes such a constant is 0008's
-cost rule, and 0008 computes it at its first demand, never at startup
-(0008 §2, D3). This decision is only that the shard which demands the
+Whether a closed call of total code becomes such a constant is 0007's
+cost rule, and 0007 computes it at its first demand, never at startup
+(0007 §2, D3). This decision is only that the shard which demands the
 constant computes it. A `trace` in a top-level constant prints once per
 shard that forces it. This amends the reason a static constant
 memoizes, that a top-level constant names one value evaluated once:
@@ -1133,7 +1147,7 @@ on a single-shard path (**conjecture**: a few instructions; on Mach-O a
 thread-local variable is reached through a descriptor). Rule: the lazy
 programs of `bench/` at `IDRIS_RT_SHARDS=1` are no more than 2% slower,
 best of five, than the binary before P4, run beside it under identical
-conditions on each target (0004 §10, D22; 0003 D35 measured the
+conditions on each target (the cutover's §10, D22; 0003 D35 measured the
 five-run spread at up to 97%, so a spread bounds nothing). P4 does not
 land until they are.
 
@@ -1211,23 +1225,25 @@ if CoroElide misses a case it should take, the case is reduced and fixed
 in LLVM, as AGENTS.md requires.
 
 Elision inlines the coroutine's ramp into its caller, so it needs both
-bodies in one LLVM module. After 0004's cutover a program is several
-codegen units (0004 §5). At 0004 §5.4's first step O3 still runs on the
-whole module before the split, so elision crosses bins; from its second
-step each unit runs its own O3 with no importer of bodies from another
-unit (0004 D21). So from the second step the fixture runs twice: caller
+bodies in one LLVM module. Since the cutover a program is several
+codegen units (its §5). At the first of the cutover's §5.4 steps, which
+the cutover took, O3 still runs on the whole module before the split, so
+elision crosses bins; from the second, 0006's S2 second step, each unit
+runs its own O3 with no importer of bodies from another unit (the
+cutover's D21). So from the second step the fixture runs twice: caller
 and callee in one unit, and in two (a generated program larger than two
 bins, as for tail await, §2.4). **decision** The threshold of zero holds
 at the first step and within a unit at the second. Across two units at
-the second step elision is impossible by construction, the frame is allocated
-from the shard's size-class fast path (§3.1), and the per-call count is
-recorded beside the bench. Reason: making the partition keep a
+the second step elision is impossible by construction, the frame is
+allocated from the shard's size-class fast path (§3.1), and the per-call
+count is recorded beside the bench. Reason: making the partition keep a
 coroutine with its callers would be a branch in a pure function of
-content (0004 §5.3, 0007 D4), and the idr-level inliner already inlines
-a small wait function before idr-lower makes it a coroutine (0004
-§4.7). If the recorded cross-unit count shows on a bench program's
-runtime by more than 2%, best of five (0004 §10), the fix is reduced to LLVM as above or made
-in our lowering, never in the partition.
+content (the cutover's §5.3, 0006 D4), and the idr-level inliner already
+inlines a small wait function before idr-lower makes it a coroutine (the
+cutover's §4.7). If the recorded cross-unit count shows on a bench
+program's runtime by more than 2%, best of five (the cutover's §10), the
+fix is reduced to LLVM as above or made in our lowering, never in the
+partition.
 
 ### D12. Which Rust crates work
 
@@ -1236,7 +1252,7 @@ graph enables none of tokio's `rt`, `net` or `time` features, and is
 generic over the async I/O traits the runtime implements (hyper 1.x, h2,
 `tokio-postgres` over a provided stream, the AWS SDK with a provided
 connector; recalled). The generator rejects any other graph as
-`unsupported (rust async)` (proposal 0014 §12). P3's fixture is a hyper
+`unsupported (rust async)` (proposal 0013 §12). P3's fixture is a hyper
 client and server.
 
 ### D13. The library's operations are runtime primitives
@@ -1253,5 +1269,5 @@ program runs these operations on a host without this runtime, Chez
 included, which AGENTS.md already says no feature is shaped for. The
 compiler's own Idris half is therefore single-threaded until these
 shards exist and then runs on them, from stage 1 of `make self`; stage
-0, on Chez, stays single-threaded (0007 §5.4, §12, the owner's
+0, on Chez, stays single-threaded (0006 §5.4, §12, the owner's
 decision).
