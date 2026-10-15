@@ -1,18 +1,19 @@
 #!/bin/sh
 # Profiling is LLVM's time trace alone (0001 D8): the profiler that was
 # culled for it is named nowhere outside the proposals that record the
-# decision and third_party, there is no profile build, and the one place
+# decision, the research library (sources/, whose reports are kept
+# verbatim) and third_party, there is no profile build, and the one place
 # the --time-trace option is defined is the profile's support library.
 # The culled names are spelled in pieces so this test is not its own hit.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 culled='trac''y'
 build='IDRIS_MLIR_''PROFILE'
-(cd "$root" && git grep -il "$culled" -- . ':!third_party' ':!proposals') > "$work/mentions"
+(cd "$root" && git grep -il "$culled" -- . ':!third_party' ':!proposals' ':!sources') > "$work/mentions"
 if [ -s "$work/mentions" ]; then
   say "the culled profiler is mentioned in:"
   cat "$work/mentions"
 else
-  say "the culled profiler: no mention outside proposals and third_party"
+  say "the culled profiler: no mention outside proposals, sources and third_party"
 fi
 (cd "$root" && git grep -ln "$build" -- . ':!third_party' ':!proposals') > "$work/build"
 if [ -s "$work/build" ]; then
