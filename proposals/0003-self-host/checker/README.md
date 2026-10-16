@@ -25,8 +25,13 @@ marked *read* (path), *measured* (a run), *proved* (on paper, here),
   `a50824e1`. The owner accepted both recommendations:
   - D3, as written;
   - the Idris coverage bug, recorded as
-    `upstream/50-erased-coverage-nested-match` and fixed later. Any upstream
-    bug a lane finds is added there the same way.
+    `upstream/50-erased-coverage-nested-match`.
+
+  The owner then ruled, on 2026-10-16, that any bug found is fixed at once
+  by its own subagent: an Idris bug in the fork, as the fork's own code.
+  The fixes run beside the lanes:
+  - 50, the coverage bug;
+  - 51, `totality-unimported-callee`, found by G4.
 - **The owner's rules:**
   - no stated trust point: the proof is written (2026-10-16);
   - hard cutover, with no backwards compatibility;
@@ -190,8 +195,8 @@ Sums : (0 _ : Ring g p p ps as) -> (0 _ : All IsFinite (weights g as)) ->
 ItIsStuck : (0 _ : (arc g a).weight = Stuck) -> StuckArc g a
 ```
 
-The comparisons are the machine's, and the proofs are erased (the shape of
-`Requests.pointwise`). The module imports base and nothing else.
+The comparisons are the machine's, and the proofs are erased. The module
+imports base and nothing else.
 
 ### 4.2 `Proof.Requests` after the cutover (P3): identity, listing, universe
 
@@ -296,7 +301,7 @@ data Root = Implementation Address   -- the implementation (or interface constru
           | Unrooted                 -- neither, as a lambda's result (\_ => __Impl_Eq_Int)
 export dictionaryRoot : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Root
 -- what implementationOf names at a dictionary's root, over markers, never its written head: snd (MkPair x d)
--- is d's root. The one root function. closedHeight's root (G5's heads), Site.roots and Fields' roots (G8's
+-- is d's root. The one root function. closedHeight's root (G5's heads), Argument.root and Field.root (G8's
 -- roots) are all its result, computed where Core is, so that G8 stays pure.
 export fieldsIn : Template -> List (Template, Weight)    -- each Field or Held, with its projection-rule arc weight: Finite (e + 1) 0
                                                          -- at depth e, Stuck under an Opaque
@@ -370,26 +375,44 @@ data Reach = Calls Address               -- a definition, an implementation's fu
                                           -- dictionary's dictionaryRoot, so that no root is ever read off a written head
 
 public export
+record Argument where                       -- one argument a site writes, whole: nothing about it is looked up by index
+  constructor MkArgument
+  position : Nat                             -- the target's parameter j (for Dispatches: the method's own j-th,
+                                             -- in the field's lambda order)
+  kind : Static
+  template : Template
+  root : Root                                -- dictionaryRoot for an ADictionary, made by G11 in Core; Unrooted otherwise
+  shown : String                             -- the template in the writer's binders, for messages
+
+public export
 record Site where
   constructor MkSite
   writer : Address                           -- whose parameters the Vars are
   within : Address                           -- whose text holds it, for messages: the definition, or a field's constructor
   reach : Reach
-  arguments : List (Nat, Static, Template)   -- the target's parameter j (for Dispatches: the method's own j-th,
-                                             -- after the implementation's), its kind, the template written there
+  arguments : List Argument
   fc : FC
-  shown : List (Nat, String)                 -- each template in the writer's binders, for messages
-  roots : List (Nat, Root)                   -- dictionaryRoot of each ADictionary argument, made by G11 in Core
 
 export sitesOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Core (List Site)
 export sitesIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (writer, within : Address) -> ClosedTerm -> Core (List Site)
 -- Frontend.Growth.Implementations (G12), which Sites, Heads and Graph import:
 public export
+record Field where
+  constructor MkField
+  template : Template            -- over the implementation's parameters
+  root : Root                    -- its dictionaryRoot
+  own : List Nat                 -- an eta-wrapped method field: for each of the method's own arguments (the field's
+                                 -- lambdas, in order), its parameter index in the method function M; [] otherwise
+  leading : List (Nat, Nat)      -- for each implementation parameter p, its parameter index in M; [] otherwise
+public export
 record Fields where
   constructor MkFields
-  arity : Nat                    -- the implementation's own parameters, where a Dispatches' arguments start
-  fields : List (Template, Root) -- its fields, over those parameters, each with its dictionaryRoot;
-                                 -- a hand-built dictionary's constructor fields likewise
+  arity : Nat                    -- the implementation's own parameters
+  fields : List Field            -- a hand-built dictionary's constructor fields likewise, with own = leading = []
+-- *Read* (G12, on the fork): M's parameters do not start with J's. A method's own implicit type variables come
+-- first: map_Functor_(EitherT e m) is {b} {a} {e} {m} {Functor m} func x (the fork's Idris/Elab/Implementation.idr
+-- :435-440 binds them outside). In prelude and base, 533 of 2,051 method fields are so. The eta wrapper places
+-- each argument exactly, so the placement is read off it, never assumed.
 export fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Core (Maybe Fields)
 ```
 
@@ -512,11 +535,15 @@ private `Node` (:37-42) is renamed `Member` to free the name.
 
 ```idris
 public export
+data Wrote = Written Site Argument     -- the site and the argument whose template gave the arc (a leading arc: J's call of M)
+           | Capped Position           -- a cap's origin arc into this position: no site wrote it
+
+public export
 record Built where
   constructor MkBuilt
   graph : Graph
   position : Vect graph.size Position          -- what each Fin is
-  wrote : Vect (length graph.arcs) (Site, Nat) -- the site behind each arc and its argument's index (a cap's arc: the capped callee's)
+  wrote : Vect (length graph.arcs) Wrote       -- what made each arc
   arity : Nat                                  -- A: the most children of any template's node
   parents : SortedMap Node Node                -- the node that first reached each, on the walk from main
   breadth : Nat                                -- above every reachable definition's parameter count and data type's
@@ -543,9 +570,9 @@ export build : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : N
      under an `Opaque` gives those arcs weight `Stuck`, as `weigh` does for a
      Var there. `fieldsIn` stops at a Field: a field of a field is reached
      through the outer one, by `roots`.
-   - for each `Dispatches` edge that reaches a method function's node at
-     offset a (J's arity), an arc of weight 0 from `(J-node, p)` to
-     `(M-node, p)` for every p < a. It comes from each node of J whose heads
+   - for each `Dispatches` edge that reaches a method function's node, an
+     arc of weight 0 from `(J-node, p)` to `(M-node, q)` for each `(p, q)`
+     of the method field's `leading` placement. It comes from each node of J whose heads
      agree with M-node's leading heads. M's leading positions hold J's
      arguments, which the writers of `J u⃗` gave J. J's own call of M passes
      its method dictionaries as runtime values, with no roots, so it reaches
@@ -566,12 +593,15 @@ export flow : SortedMap Address Fields -> List Site -> Flow   -- the least sets,
 -- hangs the checker (measured, P3's drafter). Novelty is by `sameAddress`, never base DecEq on Fin bytes,
 -- which costs O(value) per byte.
 export roots : Flow -> (writer : Node) -> Template -> List Address
-export reaches : Flow -> (writer : Node) -> Site -> List (Node, Nat)   -- each callee node, and where the site's argument 0 lands
-                                                                      -- (a Dispatches: past J's own parameters; otherwise 0)
+export rootsOf : Flow -> (writer : Node) -> Template -> Root -> List Address   -- the Root first, then the template:
+                                                                            -- what G2 reads at a Dispatches
+export reaches : Flow -> (writer : Node) -> Site -> List (Node, List (Nat, Nat))
+-- each callee node, and where each of the site's arguments lands, j to the callee's parameter: the identity for
+-- Calls and Builds; for a Dispatches, the method field's `own` placement
 ```
 
 `roots` of a template:
-- an argument's root is its `Site.roots` entry (§4.3's `dictionaryRoot`,
+- an argument's root is its `Argument.root` (§4.3's `dictionaryRoot`,
   never its written head): `Implementation J` is `[J]`; `Parameter i 0` is
   the writer's head at i; `Unrooted` is `[]`;
 - `Field k s` is, for each root J of s, the root of J's field k
@@ -642,8 +672,18 @@ export capOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -
 ```
 
 For a parameter that `staticsOver`, run over markers, gives `Just AShape`
-and that is Nat-like (`tyConFacts`' `natLike`, which G7 exports), take the
-callee's type with j marked, under `templateOf AType`'s unfolding. G10
+and whose type is a chain (`tyConFacts`' `chain`), take the callee's type
+with j marked and every earlier parameter given `classify`'s placeholder
+(`Erased EmptyFC Placeholder`), under `templateOf AType`'s unfolding.
+- **`chain`:** Nat-like, and no constructor takes an erased argument (G5
+  adds the field, G7 computes it). *Measured* (G10, on HEAD): `Fin` is
+  Nat-like, but a key keeps `FS`'s erased index, so
+  `f[FS (S^5 Z) _, …]` has height 7 against a cap of 3.
+- **The placeholder:** a match on an earlier parameter given a marker never
+  reduces, and the stuck application still holds all of j, which
+  `neededShape` then keys whole. *Measured*: `probe/stuck-dictionary` is
+  admitted with a key of height 6 against a cap of 2. With the
+  placeholder, that j is loose, and so uncapped. G10
 never re-derives `classify`'s tests: there is one reading of which
 parameter is a shape. The cap is `d + 1`, where d is the deepest
 match on `Var j _` recorded in a `Choice`'s first field. There is no cap
@@ -724,8 +764,8 @@ counts exactly one, `tests/lib/profile.sh:91,104`):
     exports it for G7's data chain and G2's node walk:
 
     ```idris
-    export 0 room : {u : List a} -> NoDup (x :: seen) -> All (\y => Elem y u) (x :: seen) ->
-                    LT (minus (length u) (length (x :: seen))) (minus (length u) (length seen))
+    export 0 room : {u : List a} -> NoDup (x :: kept) -> All (\y => Elem y u) (x :: kept) ->
+                    LT (minus (length u) (length (x :: kept))) (minus (length u) (length kept))
     ```
   - Global newness stays the runtime `seen` set's (`request`). The proof
     never searches all instances.
