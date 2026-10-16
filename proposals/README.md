@@ -159,10 +159,12 @@ Each has its default taken in the proposal that owns it:
   of naming a method instead of the implementation that runs. The choice:
   - A: keep the rule and rewrite about 142 sites;
   - B1: key requests by implementation;
-  - B2: count only embedding growth (Kruskal, a new proof).
+  - B2: count only embedding growth (Kruskal, a new proof);
+  - C: a fixpoint over the program's finite type-flow graph that refuses
+    only a cycle growing a type variable forever.
 
-  *Default:* none; the coordinator proposes measuring B1 and B1 plus B2 on
-  the self compile first.
+  *Default:* none; the coordinator proposes prototyping C with B1 on the
+  self compile first.
 - **0006 D14:** a crash in forked work held until its join. Taken; for
   review.
 

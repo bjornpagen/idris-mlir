@@ -769,11 +769,49 @@ list; that the fixes below remove them is *conjecture* until measured).
   - Benefit: the fork compiles unchanged on this point; programs written
     the ordinary way are accepted; and the refusal means what AGENTS.md
     says megamorphic means.
+- **C. Decide growth on the program, not on instance chains: a fixpoint
+  over the finite set of definitions** (*conjecture*, the coordinator's
+  proposal of 2026-10-16).
+  - **The graph.** Build the type-flow graph once. Each call site, and
+    each data type's field, is an edge labelled with how the callee's type
+    arguments are built from the caller's type variables: `f x = f [x]` is
+    `f → f` with `a ↦ List a`; `TTC Term`'s `toBuf` is an edge to `TTC (List
+    a)`'s implementation with `a ↦ (Name, Term)`, keyed by implementation
+    as in B1.
+  - **The fixpoint.** Compose the labels along paths until no new one
+    appears. This terminates by construction, since the program's
+    definitions are finite: the size-change principle, which the fork's
+    `loopsTerminate` already computes in total form (`SizeChange.idr`).
+  - **The refusal.** Refuse only a cycle that feeds a type variable back
+    into itself under a constructor (`a ↦ List a`, `a ↦ (a, a)`). That is
+    exactly a type grown forever, AGENTS.md's megamorphic, and the refusal
+    can name the cycle.
+  - On S1's cases: `Maybe ContextEntry` then `Maybe (Bool, Nat)` has no
+    cycle, so it is admitted. `TTC Term → TTC (List (Name, Term)) → TTC
+    Term` is a cycle that carries no variable, so it is admitted. `f x = f
+    [x]` and `data T a = Node (T (a, a))` stay refused.
+  - Limits. The analysis is exact for structural type growth. It is
+    conservative where growth is cut off by a value, such as a
+    compile-time `Nat` counting up to a bound behind an `if`; that is
+    still refused, as today. A type-level function of a variable (`F a`)
+    is treated as possibly growing unless it reduces. No total criterion
+    admits every finite case: whether instantiation stops is undecidable
+    in general.
+  - Cost: building the graph from TT, the analysis, and its proof ("no
+    growing cycle, so finitely many instances", a standard argument far
+    easier than Kruskal's), which replaces 0002's Dickson proof of the
+    chain relation.
+  - It supersedes B2, and takes B1 as its edge rule.
 - **Rejected: admit growth up to a bound derived from the program.** A
-  count would decide acceptance, which AGENTS.md forbids.
+  count would decide acceptance, which AGENTS.md forbids. **Rejected: a
+  plain fixpoint over instances,** which never ends on `f x = f [x]`:
+  termination would not hold by construction.
 
-*Default:* none; the owner decides. *Proposal (coordinator):* measure
-before deciding. S1 now runs in minutes, so a scratch frontend with B1
+*Default:* none; the owner decides. *Proposal (coordinator):* C, with
+B1 as its edge rule, prototyped in scratch on the self compile and the
+test programs, counting what it refuses, whether each refusal is a real
+growing cycle, and its compile time, before deciding. Also measure, as
+before: S1 now runs in minutes, so a scratch frontend with B1
 alone, and one with B1 and B2, can count what each leaves on the self
 compile, with no change to the tree. With those counts, A, B1 plus A for
 the remainder, and B1 plus B2 can be compared by the work each leaves.
