@@ -10,6 +10,7 @@ import Data.DPair
 import Data.List.Elem
 import Data.List1
 import Data.Nat
+import Data.So
 import Data.String
 import Data.Vect
 
@@ -101,14 +102,16 @@ remaining = do chunk <- get Bin
 
 ||| The bytes left now, with the proof that they are fewer than `n`, those
 ||| left when the asking decoder began. It asks once it has read its tag, so
-||| they are fewer for every buffer a decoder wrote.
+||| they are fewer for every buffer a decoder wrote. The decision is one
+||| comparison of the two counts and the proof is erased, never built, so a
+||| part costs the same however many bytes follow it.
 export total
 fewer : {auto b : Ref Bin Binary} -> (n : Nat) -> Core (Subset Nat (\m => LT m n))
 fewer n
     = do m <- remaining
-         case isLT m n of
-              Yes lt => pure (Element m lt)
-              No _ => corrupt "TTC: a part that reads nothing"
+         case choose (m < n) of
+              Left lt => pure (Element m (ltOpReflectsLT m n lt))
+              Right _ => corrupt "TTC: a part that reads nothing"
 
 -- Primitives; these are the only things that have to deal with growing
 -- the buffer list

@@ -191,7 +191,9 @@ call is on a part of its argument:
   tree and its alternatives are decoded by functions given the bytes left
   to read and their accessibility (`Control.WellFounded`), which each passes
   on to its parts once it has read its tag (`fewer`, `Core.Binary.Prims`):
-  the bytes of the buffer are the measure. Every other instance a
+  the bytes of the buffer are the measure. `fewer` decides with one
+  comparison and keeps its proof erased, so no unary proof is built while
+  decoding. Every other instance a
   definition is decoded through holds none of its own type, but an
   environment, decoded along its scope. A term and a case tree are also
   written by functions of their own (`encodeTerm`, `encodeTree`), since a

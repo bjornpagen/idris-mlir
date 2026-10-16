@@ -39,13 +39,16 @@ grown cap need = Prelude.max need (Prelude.max 4 (2 * cap))
 
 ||| The table with slot `i` claimed. `i` is at most one past every slot
 ||| claimed before: a slot within the capacity is there already, and one
-||| past it grows the table.
+||| past it grows the table. The copy is bound inside the growing branch: a
+||| `!` there is lifted out of `when` to the enclosing block, and would copy
+||| the whole table at every claim.
 export
 claimSlot : HasIO io => Int -> Table a -> io ()
 claimSlot i t = do
   arr <- readIORef t
-  when (i >= Data.IOArray.max arr) $
-    writeIORef t !(newArrayCopy (grown (Data.IOArray.max arr) (i + 1)) arr)
+  when (i >= Data.IOArray.max arr) $ do
+    bigger <- newArrayCopy (grown (Data.IOArray.max arr) (i + 1)) arr
+    writeIORef t bigger
 
 ||| The table with `x` in slot `i`, which it has claimed, so within the
 ||| capacity, where base's write always succeeds.
