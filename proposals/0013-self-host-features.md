@@ -5,7 +5,7 @@
 **Status:** decided 2026-10-14; trimmed 2026-10-15 to what remains.
 Every remaining item is **AFTER-SELF**: `make self` needs none of them
 (the second section says why), and they start after it (the self-host
-plan, `proposals/0003-self-host.md`). Done: feature 2 and the match on
+plan, `proposals/0003-self-host/README.md`). Done: feature 2 and the match on
 `Delay`. Not built: features 1, 3, 4, 5 and 6. Claims are marked *read*,
 *measured*, *recalled*, *conjecture* or *decision*.
 

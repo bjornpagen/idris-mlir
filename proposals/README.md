@@ -90,7 +90,7 @@ The rules every proposal holds to, each stated in AGENTS.md or here:
   (d06ed15c), its record culled to what it built (the full text is at
   b843d8b5). It remains until the owner's build is green, which
   self-hosting needs (SELF-HOST); §3 says where each remaining item went.
-- [0003](0003-self-host.md): **self-hosting: `make self` finishes.** The
+- [0003](0003-self-host/README.md): **self-hosting: `make self` finishes.** The
   stages:
   - S0: integration fixes, done in 0001.
   - S1: the refusal sweep, here.

@@ -29,7 +29,7 @@ c7aa7b62, and x86_64 Linux has run nothing.
 
 ## 2. Self-hosting
 
-Moved to [0003-self-host.md](0003-self-host.md) on 2026-10-15.
+Moved to [0003-self-host/README.md](0003-self-host/README.md) on 2026-10-15.
 
 ## 3. G1
 
@@ -114,7 +114,7 @@ proposal is deleted when G1 is green on both targets and D17 has landed.
 Retired 2026-10-15: D1 (the order, now the owner's direction and
 proposals/README.md's), D7 (the pipeline cutover's margins on stages
 that are done), and D10, D11 and D16 (self-hosting's, now
-0003-self-host.md's).
+0003-self-host/README.md's).
 
 ## 5. Open, for the owner
 

@@ -11,7 +11,9 @@
 
 The self-compile's frontend step now finishes and writes a 75 MB module in
 742 s of emit at 4.53 GB (`bench/profiles/2026-10-16-self-emit.md`), past
-the polymorphism refusals that wait on the owner's ruling (§3.2(b)). It takes 0005's former §2 (self-hosting's steps 4 to 6) and
+the polymorphism refusals. The owner ruled on those (§7), and the S2.2
+checker that replaces the rule is a packet ([checker/](checker/README.md)),
+for dispatch. It takes 0005's former §2 (self-hosting's steps 4 to 6) and
 its decisions D10, D11 and D16 (their text at b843d8b5). Goal: the
 frontend (`compiler/src`) and the fork (`compiler/idris`), compiled by
 idris-mlir itself, stages 1 to 3, stage 2 the same as stage 3, on both
@@ -683,7 +685,7 @@ is mandatory for self-hosting. Growth is not what is refused; a type grown
 without bound is. A, B2 and the program-derived bound are rejected. C's
 design is S2.2, written after a deep investigation of the frontend's
 requests, the algorithm and its proof, and a prototype on the self compile
-and the test programs. The analysis below is kept as the decision's
+and the test programs. Its swarm packet is [checker/](checker/README.md). The analysis below is kept as the decision's
 ground.
 
 ### What the rule does (*read*)

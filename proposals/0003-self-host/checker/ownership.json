@@ -1,0 +1,181 @@
+{
+  "coordinator": {
+    "writes": [
+      "compiler/idris-mlir.ipkg",
+      "tools/policies.txt",
+      "proposals/**",
+      "HANDOFF.md",
+      "bench/**",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr",
+      "compiler/src/IdrisMLIR/Frontend/Driver.idr",
+      "tests/ACCEPTANCE.md",
+      "compiler/src/IdrisMLIR/Frontend/Profile.idr"
+    ],
+    "findings": []
+  },
+  "P1": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Proof/Growth.idr"
+    ],
+    "findings": []
+  },
+  "P2": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Proof/Bound.idr"
+    ],
+    "findings": [
+      "F09"
+    ]
+  },
+  "P3": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Proof/Requests.idr",
+      "compiler/src/IdrisMLIR/Proof/AlmostFull.idr"
+    ],
+    "findings": [
+      "F05"
+    ]
+  },
+  "P4": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Potential.idr"
+    ],
+    "findings": [
+      "F14"
+    ]
+  },
+  "G1": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Template.idr"
+    ],
+    "findings": [
+      "F12"
+    ]
+  },
+  "G11": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Sites.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr"
+    ],
+    "findings": [
+      "F16"
+    ]
+  },
+  "G12": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Implementations.idr"
+    ],
+    "findings": []
+  },
+  "G8": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Heads.idr"
+    ],
+    "findings": [
+      "F11"
+    ]
+  },
+  "G9": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Fields.idr"
+    ],
+    "findings": [
+      "F13"
+    ]
+  },
+  "G10": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Caps.idr"
+    ],
+    "findings": [
+      "F15"
+    ]
+  },
+  "G2": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Graph.idr"
+    ],
+    "findings": []
+  },
+  "G3": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth/Check.idr"
+    ],
+    "findings": [
+      "F01"
+    ]
+  },
+  "G4": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Growth.idr",
+      "compiler/src/IdrisMLIR/Frontend/Program.idr"
+    ],
+    "findings": [
+      "F10"
+    ]
+  },
+  "G5": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Translate/State.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Recursion.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Keys.idr"
+    ],
+    "findings": [
+      "F02"
+    ]
+  },
+  "G6": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Finite.idr"
+    ],
+    "findings": [
+      "F04"
+    ]
+  },
+  "G7": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Translate/Types.idr"
+    ],
+    "findings": [
+      "F03"
+    ]
+  },
+  "T1": {
+    "writes": [
+      "tests/reject/polymorphism-nested/**",
+      "tests/reject/polymorphism-nested-data/**",
+      "tests/reject/polymorphism-growing-rank/**",
+      "tests/reject/polymorphism-growing-shape/**",
+      "tests/reject/polymorphism-growth-mutual/**",
+      "tests/reject/polymorphism-growth-dictionary/**",
+      "tests/reject/polymorphism-growth-recursion/**"
+    ],
+    "findings": [
+      "F06"
+    ]
+  },
+  "T2": {
+    "writes": [
+      "tests/accept/bounded-grow-once/**",
+      "tests/accept/bounded-grow-shrink/**",
+      "tests/accept/bounded-method/**",
+      "tests/accept/bounded-field/**",
+      "tests/accept/bounded-capped/**",
+      "tests/accept/bounded-dictionary-root/**",
+      "tests/accept/bounded-method-own/**",
+      "tests/accept/bounded-synonym/**"
+    ],
+    "findings": [
+      "F07"
+    ]
+  },
+  "T3": {
+    "writes": [
+      "tests/compiler/growth-check/**"
+    ],
+    "findings": [
+      "F08"
+    ]
+  }
+}
