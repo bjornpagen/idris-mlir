@@ -1,12 +1,13 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# Checkpoint (2026-10-15, 0014-sound integrated on the typecheck machine)
+# Checkpoint (2026-10-15, 0001-sound integrated on the typecheck machine)
 
-Proposal 0014 (sound passes, typed identities, good tests or none;
-proposals/0014-sound/README.md, the packet and its record) ran as one wave
-of eighteen lanes, plus a delegated lane Z for `lib/Conversion`, on top of
-0004. Every dispatch carried the owner's representation-first guideline
-first and verbatim. Mid-wave the owner added hard cutover (no backwards
+Proposal 0001 (sound passes, typed identities, good tests or none; numbered
+0014 when it ran; proposals/0001-sound/README.md, the packet and its record)
+ran as one wave of eighteen lanes, plus a delegated lane Z for
+`lib/Conversion`, on top of 0002 (then 0004, total by construction).
+Every dispatch carried the owner's representation-first guideline first
+and verbatim. Mid-wave the owner added hard cutover (no backwards
 compatibility) and upstream MLIR first (our C++ at its minimum). It is
 integrated: `make typecheck` passes every part (configure, tblgen, cxx
 with 0 errors, the regenerated dialects, libs, the fork with `Idris.Host`,
@@ -63,7 +64,7 @@ Owed on the owner's machine, before anything else:
    - `tests/idr/actions/inner-steps` may fail falsely if specialization
      folds `@inc(7)`.
    - Fuzz shrinking can be long.
-3. Then self-hosting (proposals/self-host.md, at the head of the queue):
+3. Then self-hosting (proposals/0003-self-host.md, at the head of the queue):
    its stage S1, the refusal sweep, runs on the typecheck machine.
 
 # Checkpoint (2026-10-15, 0004-total integrated on the typecheck machine)
