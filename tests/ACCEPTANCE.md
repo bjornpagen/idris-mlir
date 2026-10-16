@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-15, each with its first mark as
-its reason: 285 files. Proposal 0014's culls removed the marks of the
+its reason: 286 files. Proposal 0014's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -407,8 +407,9 @@ change that adds or removes a mark lists it here again.
 - `tests/reject/polymorphism-nested-data/expected`: that a nested data type is refused at its constructor N, line 11, in the polymorphism category, and does not hang
 - `tests/reject/raw-pointer-malloc/expected`: that malloc is refused once, as a raw pointer, at scratch's declaration (line 12), naming System.FFI.malloc
 
-## tests/toolchain (10)
+## tests/toolchain (11)
 
+- `tests/toolchain/heap-region/expected`: that every cell of a heap under 4 GiB lies in the first cell's 4 GiB region and the heap grows past it, its arrays usable and every cell freed, on both targets
 - `tests/toolchain/io-buffer/expected`: that the IO units built for a buffer of 4 and of 7 bytes print what the default build prints, and that echo gives back its input
 - `tests/toolchain/runtime-api/expected`: rc.c gained the checks of wide cells, of odd words in object slots and of idris_rt_caf_release, and idris_rt_is_unique takes a cell now, so its checks of NULL and odd words are gone; confirm every check passes and the total reads 101
 - `tests/toolchain/runtime-bigs/expected`: that the pinned clang builds bigs.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit

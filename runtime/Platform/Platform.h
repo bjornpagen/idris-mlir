@@ -164,8 +164,10 @@ constexpr size_t roundUp(size_t n, size_t unit) noexcept { return (n + unit - 1)
 void checkPageSize() noexcept;
 
 // `size` bytes of address space, readable and writable and committed as
-// they are touched, or null when the system grants none that large.
-char *reserve(size_t size) noexcept;
+// they are touched, starting at a multiple of `alignment`, or null when the
+// system grants none that large. The alignment is a power of two, a page or
+// more; the caller keeps `size + alignment` from wrapping.
+char *reserve(size_t size, size_t alignment = pageSize()) noexcept;
 
 // Makes the n bytes at p, whole pages, inaccessible.
 bool protect(char *p, size_t n) noexcept;

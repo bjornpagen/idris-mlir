@@ -64,7 +64,11 @@ namespace rt::platform {
   exitProcess(IDRIS_RT_CRASHED);
 }
 
-char *reserve(size_t size) noexcept {
+// mmap gives a page's alignment. A larger one is a region `alignment - page`
+// bytes longer, cut to the aligned part: what lies before and after it is
+// given back, so only the aligned `size` bytes stay reserved. For a page's
+// alignment nothing is added and nothing cut.
+char *reserve(size_t size, size_t alignment) noexcept {
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
 #ifdef MAP_NORESERVE
   // Linux would otherwise count the whole region against overcommit. Darwin
@@ -72,8 +76,18 @@ char *reserve(size_t size) noexcept {
   // grants 2^46 bytes of address space either way.
   flags |= MAP_NORESERVE;
 #endif
-  void *region = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
-  return region == MAP_FAILED ? nullptr : static_cast<char *>(region);
+  size_t extra = alignment - pageSize();
+  void *region = mmap(nullptr, size + extra, PROT_READ | PROT_WRITE, flags, -1, 0);
+  if (region == MAP_FAILED)
+    return nullptr;
+  char *start = static_cast<char *>(region);
+  size_t before = roundUp(reinterpret_cast<uintptr_t>(start), alignment) -
+                  reinterpret_cast<uintptr_t>(start);
+  if (before != 0)
+    release(start, before);
+  if (extra != before)
+    release(start + before + size, extra - before);
+  return start + before;
 }
 
 bool protect(char *p, size_t n) noexcept { return mprotect(p, n, PROT_NONE) == 0; }

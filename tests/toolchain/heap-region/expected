@@ -1,0 +1,5 @@
+NEEDS-ACCEPTANCE: that every cell of a heap under 4 GiB lies in the first cell's 4 GiB region and the heap grows past it, its arrays usable and every cell freed, on both targets
+under 4 GiB: 48 arrays of 64 MiB and 18000 cells, 0 outside the first cell's 4 GiB region
+past 4 GiB: 32 more arrays of 64 MiB; arrays whose bytes did not hold: 0
+live cells after releasing them: 0
+region: exit 0
