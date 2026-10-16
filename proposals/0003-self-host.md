@@ -676,10 +676,15 @@ Out of S2.1 (*read*, recorded for S3):
 - D8. `make self` holds when stage 2 = stage 3 on both targets, recorded
   in HANDOFF.md. This proposal is deleted then.
 
-## 7. Open, for the owner: the polymorphism rule
+## 7. The polymorphism rule (decided: C, the owner, 2026-10-16)
 
-The guard's scope (§3.2(a)) was decided by the owner on 2026-10-15. One
-question is left, and it decides most of S2's remaining work.
+The owner decided on 2026-10-16 (*decision*): C, with B1 as its edge rule,
+is mandatory for self-hosting. Growth is not what is refused; a type grown
+without bound is. A, B2 and the program-derived bound are rejected. C's
+design is S2.2, written after a deep investigation of the frontend's
+requests, the algorithm and its proof, and a prototype on the self compile
+and the test programs. The analysis below is kept as the decision's
+ground.
 
 ### What the rule does (*read*)
 
@@ -807,7 +812,7 @@ list; that the fixes below remove them is *conjecture* until measured).
   plain fixpoint over instances,** which never ends on `f x = f [x]`:
   termination would not hold by construction.
 
-*Default:* none; the owner decides. *Proposal (coordinator):* C, with
+*Decided:* C, with B1 as its edge rule (the owner). *Before it was decided, the coordinator proposed:* C, with
 B1 as its edge rule, prototyped in scratch on the self compile and the
 test programs, counting what it refuses, whether each refusal is a real
 growing cycle, and its compile time, before deciding. Also measure, as

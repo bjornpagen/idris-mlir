@@ -51,6 +51,11 @@ nothing has measured the new pipeline on the self module. 0003 is the
 plan. Its S1, the frontend's refusal sweep, runs here; S3 to S5 are the
 owner's machines.
 
+**The polymorphism rule is decided** (the owner, 2026-10-16): option C of
+0003 §7, a fixpoint over the program's finite type-flow graph that refuses
+only a type grown without bound. It is mandatory for self-hosting, and its
+design is 0003's S2.2.
+
 **The chain, in order:** the owner's build of 0001 and 0002 (HANDOFF.md
 lists it); 0003, self-hosting, S1 and S2 here, then S3 to S5; 0004, the
 toolchain bump, whose strongest check is stage 2 = stage 3 on the new pins;
@@ -153,18 +158,6 @@ Each has its default taken in the proposal that owns it:
   with `RUSTC_BOOTSTRAP=1`.
 - **0015 §16.2:** whether the target rules bind a program's crates.
   *Default:* our tree only.
-- **0003 §7, the polymorphism rule, which decides most of self-hosting's
-  remaining work.** Every polymorphism refusal on the self compile grows
-  once and stops: an artifact of measuring a key by its written size, and
-  of naming a method instead of the implementation that runs. The choice:
-  - A: keep the rule and rewrite about 142 sites;
-  - B1: key requests by implementation;
-  - B2: count only embedding growth (Kruskal, a new proof);
-  - C: a fixpoint over the program's finite type-flow graph that refuses
-    only a cycle growing a type variable forever.
-
-  *Default:* none; the coordinator proposes prototyping C with B1 on the
-  self compile first.
 - **0006 D14:** a crash in forked work held until its join. Taken; for
   review.
 
