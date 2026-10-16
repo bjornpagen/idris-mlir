@@ -139,6 +139,19 @@ The rules every proposal holds to, each stated in AGENTS.md or here:
   the owner's acceptance, the two questions below, and three small edits
   (the port's changes note, the porting rules into `foreign/README.md`,
   the LLVM row of `LICENSES/THIRD-PARTY.md`).
+- [0017](0017-apple-dmp.md): the heap as Apple's data memory-dependent
+  prefetcher reads it. The heap region is built (efe0ad36). P0, the native
+  measurement that can withdraw every claim, and P1, the stack in the
+  heap's region, can run now. P2 to P4 are AFTER-SELF, with 0008's gathers,
+  0011's gates and G1.
+- [0018](0018-fin-words.md): `Fin n` as a machine word where its bound is
+  static. Nothing is built. F0 measures on the owner's build; F1 is
+  frontend-only; F2 waits on F0. AFTER-SELF.
+- [0019](0019-niche-sums.md): niche layouts of sums. A sum with one
+  constructor that has fields holds the others in values that field never
+  holds, so `Maybe String` is one word. Then thin sums out of `fit`'s boxes,
+  several constructors with fields, and a list's `Nil` as NULL (gated).
+  Nothing is built. N1 needs only the owner's build. AFTER-SELF.
 
 ## Questions only the owner can settle
 
