@@ -98,6 +98,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 48 | simdutf-avx512vpopcntdq-bit | issue + PR to simdutf/simdutf: AVX512VPOPCNTDQ gets an instruction_set bit of its own (0x20000), not AVX512CD's | not carried (the runtime never runs simdutf's detection); not filed; simdutf's AI policy wants a human author who answers for it; pull-request.diff applies to the pin; distinct-bits.cpp fails at the pin and holds with the diff |
 | 49 | snmalloc-arm-yield-intrinsic | PR to microsoft/snmalloc: the Arm AAL's pause uses __builtin_arm_yield where the compiler has it, as prefetch uses __builtin_prefetch | not carried (snmalloc is no patch project; PINS.md snmalloc-arm-yield-asm); not filed; Microsoft CLA; pull-request.diff applies to the pin |
 | 50 | erased-coverage-nested-match | nothing (**Idris**) | recorded 2026-10-16; no fix yet (Bjorn: later); nothing in the tree reaches it |
+| 51 | totality-unimported-callee | nothing (**Idris**) | recorded 2026-10-16; no fix yet (Bjorn: later); the fork has the same lookup |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
