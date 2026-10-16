@@ -20,8 +20,13 @@ marked *read* (path), *measured* (a run), *proved* (on paper, here),
   - `frontend.md`: how the frontend makes requests, *read*;
   - `algorithm.md`: the algorithm and its proof;
   - `prototype.md`: the criterion on the self compile's real requests, *measured*.
-- **Authorised:** writing this packet. Dispatching the lanes waits for the
-  owner's "go".
+- **Authorised:** writing this packet, and dispatching it. The owner said
+  "go" on 2026-10-16, and all nineteen lanes were dispatched from
+  `a50824e1`. The owner accepted both recommendations:
+  - D3, as written;
+  - the Idris coverage bug, recorded as
+    `upstream/50-erased-coverage-nested-match` and fixed later. Any upstream
+    bug a lane finds is added there the same way.
 - **The owner's rules:**
   - no stated trust point: the proof is written (2026-10-16);
   - hard cutover, with no backwards compatibility;
@@ -915,8 +920,7 @@ two deleted modules out), the typecheck, and the gates of §7.
   - no gate uses a patched frontend;
   - the S1 prefix (`/tmp/0014-S2b/s1/pfx`) is a package prefix, not a
     backdoor, and stays until `tools/self.sh` replaces it.
-- **D3 (coordinator, under D1; for the owner's confirmation before
-  dispatch).**
+- **D3 (coordinator, under D1; the owner accepted it, 2026-10-16).**
   - A stuck call of a non-recursive definition is unfolded (§4.3) and
     labelled through its leaves.
   - A structural Nat recursion is bounded (§4.3). Any other stuck

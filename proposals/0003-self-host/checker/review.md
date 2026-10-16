@@ -71,13 +71,13 @@ cycle. Its README items are in §4:
 - **The universe takes an abstract address listing,** since the concrete
   one does not typecheck (11 GB). It is bounded by `breadth`.
 
-## Open for the owner
+## Decided by the owner (2026-10-16)
 
-- **D3:** a stuck type-level recursion that is not structural on a Nat is
-  refused even from a bounded source, as in `polymorphism-growth-recursion`.
-  That is the price of no trust point. Nothing in the tree or the accepted
+- **D3, accepted:** a stuck type-level recursion that is not structural on
+  a Nat is refused even from a bounded source, as in
+  `polymorphism-growth-recursion`. Nothing in the tree or the accepted
   tests meets it (prototype Follow-ups 2 and 3).
-- **An Idris coverage bug:** an erased function with nested constructor
-  matches is reported "not covering". The reproducer is
-  `/tmp/0003d-P1P4/scratch/X.idr`. AGENTS.md says to fix it by a patch, not
-  by writing around it. The current sketches need no workaround.
+- **The Idris coverage bug,** an erased function with nested constructor
+  matches reported "not covering", is recorded as
+  `upstream/50-erased-coverage-nested-match` and fixed later. Any upstream
+  bug found is added under `upstream/` the same way.
