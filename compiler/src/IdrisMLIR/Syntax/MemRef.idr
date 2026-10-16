@@ -59,4 +59,24 @@ Show AtomicRMWKind where
   show AtomicRMWKind.Ori = "ori"
   show AtomicRMWKind.Xori = "xori"
 
--- fingerprint: 2777922695-1009284 3354492897-2447
+||| The value of each AtomicRMWKind.
+export
+atomicRMWKindValue : AtomicRMWKind -> Nat
+atomicRMWKindValue AtomicRMWKind.Addf = 0
+atomicRMWKindValue AtomicRMWKind.Addi = 1
+atomicRMWKindValue AtomicRMWKind.Andi = 2
+atomicRMWKindValue AtomicRMWKind.Assign = 3
+atomicRMWKindValue AtomicRMWKind.Maximumf = 4
+atomicRMWKindValue AtomicRMWKind.Maxnumf = 5
+atomicRMWKindValue AtomicRMWKind.Maxs = 6
+atomicRMWKindValue AtomicRMWKind.Maxu = 7
+atomicRMWKindValue AtomicRMWKind.Minimumf = 8
+atomicRMWKindValue AtomicRMWKind.Minnumf = 9
+atomicRMWKindValue AtomicRMWKind.Mins = 10
+atomicRMWKindValue AtomicRMWKind.Minu = 11
+atomicRMWKindValue AtomicRMWKind.Mulf = 12
+atomicRMWKindValue AtomicRMWKind.Muli = 13
+atomicRMWKindValue AtomicRMWKind.Ori = 14
+atomicRMWKindValue AtomicRMWKind.Xori = 15
+
+-- fingerprint: 1240240407-1022005 4013245676-3227

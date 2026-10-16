@@ -37,6 +37,15 @@ Show CmpPredicate where
   show CmpPredicate.Gt = "gt"
   show CmpPredicate.Gte = "gte"
 
+||| The value of each CmpPredicate.
+export
+cmpPredicateValue : CmpPredicate -> Nat
+cmpPredicateValue CmpPredicate.Eq = 0
+cmpPredicateValue CmpPredicate.Lt = 1
+cmpPredicateValue CmpPredicate.Lte = 2
+cmpPredicateValue CmpPredicate.Gt = 3
+cmpPredicateValue CmpPredicate.Gte = 4
+
 namespace CtorRole
   ||| the part a constructor plays in its sum
   public export
@@ -61,14 +70,15 @@ Show CtorRole where
   show CtorRole.Running = "running"
   show CtorRole.Forced = "forced"
 
--- How the syntax below spells each CtorRole.
-ctorRoleSpelling : CtorRole -> String
-ctorRoleSpelling CtorRole.Plain = "plain"
-ctorRoleSpelling CtorRole.ListNil = "nil"
-ctorRoleSpelling CtorRole.ListCons = "cons"
-ctorRoleSpelling CtorRole.Label = "label"
-ctorRoleSpelling CtorRole.Running = "running"
-ctorRoleSpelling CtorRole.Forced = "forced"
+||| The value of each CtorRole.
+export
+ctorRoleValue : CtorRole -> Nat
+ctorRoleValue CtorRole.Plain = 0
+ctorRoleValue CtorRole.ListNil = 1
+ctorRoleValue CtorRole.ListCons = 2
+ctorRoleValue CtorRole.Label = 3
+ctorRoleValue CtorRole.Running = 4
+ctorRoleValue CtorRole.Forced = 5
 
 namespace Effect
   ||| what a call of a function may do
@@ -87,6 +97,13 @@ Show Effect where
   show Effect.Io = "io"
   show Effect.Crash = "crash"
   show Effect.Diverge = "diverge"
+
+||| The value of each Effect.
+export
+effectValue : Effect -> Nat
+effectValue Effect.Io = 1
+effectValue Effect.Crash = 2
+effectValue Effect.Diverge = 4
 
 -- How the syntax below spells each Effect.
 effectSpelling : Effect -> String
@@ -119,6 +136,14 @@ Show Permission where
   show Permission.Own = "own"
   show Permission.Excl = "excl"
 
+||| The value of each Permission.
+export
+permissionValue : Permission -> Nat
+permissionValue Permission.Plain = 0
+permissionValue Permission.Borrow = 1
+permissionValue Permission.Own = 2
+permissionValue Permission.Excl = 3
+
 -- How the syntax below spells each Permission.
 permissionSpelling : Permission -> String
 permissionSpelling Permission.Plain = "plain"
@@ -141,6 +166,12 @@ export
 Show Quantity where
   show Quantity.One = "one"
   show Quantity.Many = "many"
+
+||| The value of each Quantity.
+export
+quantityValue : Quantity -> Nat
+quantityValue Quantity.One = 1
+quantityValue Quantity.Many = 2
 
 -- How the syntax below spells each Quantity.
 quantitySpelling : Quantity -> String
@@ -217,6 +248,39 @@ Show Rule where
   show Rule.Cycle = "cycle"
   show Rule.Runtime = "runtime"
 
+||| The value of each Rule.
+export
+ruleValue : Rule -> Nat
+ruleValue Rule.ProgramShape = 0
+ruleValue Rule.TrustedLibrary = 1
+ruleValue Rule.WorldUse = 2
+ruleValue Rule.IOPrimitive = 3
+ruleValue Rule.ValueType = 4
+ruleValue Rule.DependentField = 5
+ruleValue Rule.DictionaryField = 6
+ruleValue Rule.DataType = 7
+ruleValue Rule.DefinitionShape = 8
+ruleValue Rule.Match = 9
+ruleValue Rule.StaticArgument = 10
+ruleValue Rule.Polymorphism = 11
+ruleValue Rule.Primitive = 13
+ruleValue Rule.StringPrimitive = 14
+ruleValue Rule.RuntimeClosure = 15
+ruleValue Rule.EscapeHatch = 16
+ruleValue Rule.UserPragma = 17
+ruleValue Rule.Threads = 18
+ruleValue Rule.Finalizer = 19
+ruleValue Rule.RawPointer = 20
+ruleValue Rule.Signal = 21
+ruleValue Rule.Process = 22
+ruleValue Rule.CompiledModule = 23
+ruleValue Rule.IdentityHook = 24
+ruleValue Rule.HookShape = 25
+ruleValue Rule.Deprecated = 26
+ruleValue Rule.Uniqueness = 28
+ruleValue Rule.Cycle = 29
+ruleValue Rule.Runtime = 30
+
 -- How the syntax below spells each Rule.
 ruleSpelling : Rule -> String
 ruleSpelling Rule.ProgramShape = "program"
@@ -265,6 +329,12 @@ Show RuleCategory where
   show RuleCategory.Megamorphic = "megamorphic"
   show RuleCategory.OutsideLanguage = "outside the language"
 
+||| The value of each RuleCategory.
+export
+ruleCategoryValue : RuleCategory -> Nat
+ruleCategoryValue RuleCategory.Megamorphic = 0
+ruleCategoryValue RuleCategory.OutsideLanguage = 1
+
 namespace Stage
   ||| what the functions of a program may hold
   public export
@@ -284,6 +354,14 @@ Show Stage where
   show Stage.First = "first"
   show Stage.Owned = "owned"
   show Stage.Lowered = "lowered"
+
+||| The value of each Stage.
+export
+stageValue : Stage -> Nat
+stageValue Stage.Higher = 0
+stageValue Stage.First = 1
+stageValue Stage.Owned = 2
+stageValue Stage.Lowered = 3
 
 namespace SumKind
   ||| what sum a data type is
@@ -307,13 +385,14 @@ Show SumKind where
   show SumKind.Closures = "closures"
   show SumKind.Memo = "memo"
 
--- How the syntax below spells each SumKind.
-sumKindSpelling : SumKind -> String
-sumKindSpelling SumKind.Plain = "plain"
-sumKindSpelling SumKind.BaseList = "list"
-sumKindSpelling SumKind.InPlace = "in_place"
-sumKindSpelling SumKind.Closures = "closures"
-sumKindSpelling SumKind.Memo = "memo"
+||| The value of each SumKind.
+export
+sumKindValue : SumKind -> Nat
+sumKindValue SumKind.Plain = 0
+sumKindValue SumKind.BaseList = 1
+sumKindValue SumKind.InPlace = 2
+sumKindValue SumKind.Closures = 3
+sumKindValue SumKind.Memo = 4
 
 ||| The category of each Rule.
 export
@@ -352,9 +431,10 @@ ruleCategory Rule.Runtime = RuleCategory.OutsideLanguage
 -- Types
 ------------------------------------------------------------------------------
 
-||| One constructor of a data type's body, as `!idr.data` writes it: its
-||| name, its fields' types, whether every force of it runs it, the part it
-||| plays in its sum, and the function it names, which only a label names.
+||| One constructor of a data type's body, as the module's table of data
+||| types holds it: its name, its fields' types, whether every force of it
+||| runs it, the part it plays in its sum, and the function it names, which
+||| only a label names.
 public export
 record IdrCtor ty where
   constructor MkIdrCtor
@@ -364,19 +444,15 @@ record IdrCtor ty where
   role : CtorRole
   fn : Maybe String
 
-||| A data type's body, as `!idr.data` writes it: what sum it is, its
-||| constructors in tag order, and the Idris instance it is of, its origin
-||| and arguments.
+||| A data type's body, as the module's table of data types holds it: what
+||| sum it is, its constructors in tag order, and the Idris instance it is
+||| of, its origin and arguments.
 public export
 record IdrSum ty where
   constructor MkIdrSum
   kind : SumKind
   ctors : List (IdrCtor ty)
   instanceOf : Maybe (String, List String)
-
--- How `!idr.data` writes a constructor of its body.
-idrCtorText : (t : ty -> String) -> IdrCtor ty -> String
-idrCtorText t c = fastConcat [symbol c.name, "(", commaSeparated (map t c.fields), ")", if c.role == CtorRole.Plain then "" else " " ++ ctorRoleSpelling c.role, maybe "" (\f => " " ++ symbol f) c.fn, if c.byName then " by_name" else ""]
 
 ||| The idr dialect's types, one constructor each, named
 ||| after its C++ class; `ty` is the type of the types they hold.
@@ -386,8 +462,8 @@ data IdrType : (ty : Type) -> Type where
   BigType : IdrType ty
   ||| `!idr.box`: a reference to a cell that holds a value of a data type
   BoxType : (data' : ty) -> IdrType ty
-  ||| `!idr.data`: a data type, identified by its name, whose body is its constructors; written without its body inside its own body
-  DataType : (name : String) -> (body : Maybe (IdrSum ty)) -> IdrType ty
+  ||| `!idr.data`: a data type, identified by its name, whose body is its constructors; written by its name, its body in the module's table of data types
+  DataType : (name : String) -> IdrType ty
   ||| `!idr.dest`: a field of a cell built without it, to be written exactly once
   DestType : (value : ty) -> IdrType ty
   ||| `!idr.fn`: a closure
@@ -415,7 +491,7 @@ export
 idrTypeMnemonic : IdrType ty -> String
 idrTypeMnemonic BigType = "big"
 idrTypeMnemonic (BoxType _) = "box"
-idrTypeMnemonic (DataType _ _) = "data"
+idrTypeMnemonic (DataType _) = "data"
 idrTypeMnemonic (DestType _) = "dest"
 idrTypeMnemonic (FnType _) = "fn"
 idrTypeMnemonic (LazyType _) = "lazy"
@@ -431,7 +507,7 @@ export
 idrTypeText : (t : ty -> String) -> IdrType ty -> String
 idrTypeText t BigType = "!idr.big"
 idrTypeText t (BoxType data') = fastConcat ["!idr.box<", (t data'), ">"]
-idrTypeText t (DataType name body) = fastConcat ["!idr.data<", utf8 name, maybe "" (\b => fastConcat [", ", sumKindSpelling b.kind, " [", commaSeparated (map (idrCtorText t) b.ctors), "]", maybe "" (\i => fastConcat [" instance #idr.instance<", utf8 (fst i), ", ", array utf8 (snd i), ">"]) b.instanceOf]) body, ">"]
+idrTypeText t (DataType name) = fastConcat ["!idr.data<", utf8 name, ">"]
 idrTypeText t (DestType value) = fastConcat ["!idr.dest<", (t value), ">"]
 idrTypeText t (FnType functionType) = fastConcat ["!idr.fn<", (signature t functionType), ">"]
 idrTypeText t (LazyType value) = fastConcat ["!idr.lazy<", (t value), ">"]
@@ -507,4 +583,4 @@ idrAttrText t a WorldSpaceAttr = "#idr.world"
 
 -- Not generated:
 -- attribute ConAttr: its syntax is C++
--- fingerprint: 1234605846-1398062 4293270930-20431
+-- fingerprint: 2009807748-1411435 784468251-21848

@@ -2,8 +2,8 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The program's declarations: its functions, each named by its symbol and
 ||| stating its key as `#idr.instance`, each followed by the functions its
-||| lambdas and delays became. A data instance is no declaration: its type
-||| carries its constructors (Emit.Types).
+||| lambdas and delays became. A data instance is no declaration: its body
+||| is in the module's table of data types (Emit.Index).
 module IdrisMLIR.Emit.Declarations
 
 import IdrisMLIR.Dialect.Idr as Idr
@@ -47,7 +47,7 @@ function ix f = do
     res' <- traverse (fit ix f.loc (Just f.result)) res
     let args = map (\((name, _), (_, o)) => MkArgument o (Named name f.loc)) (toList (zip f.params bound))
     pure (args, res')
-  rt <- mlirType ix f.result
+  let rt = mlirType f.result
   body <- epilogue ix f.loc res ops
   -- One cell for a lazy constant. Inlining the function that builds it
   -- would build a fresh cell at every use, and each force would run the

@@ -46,7 +46,7 @@ cp "$root/tools/dialects.sh" "$root/tools/toolchain.sh" "$root/tools/host.sh" "$
 cp -R "$root/foreign/idr/include" "$copy/foreign/idr/"
 cp "$root/foreign/idr/tools/idris-mlir-tblgen.cpp" "$copy/foreign/idr/tools/"
 cp -R "$root/compiler/src/IdrisMLIR/Syntax" "$root/compiler/src/IdrisMLIR/Dialect" \
-  "$copy/compiler/src/IdrisMLIR/"
+  "$root/compiler/src/IdrisMLIR/Encoding" "$copy/compiler/src/IdrisMLIR/"
 export IDRIS_MLIR_TOOLCHAIN="$toolchain"
 printf '%s\n' '-- a line no generator wrote' >> "$copy/compiler/src/IdrisMLIR/Dialect/UB.idr"
 check "$copy" "a module edited by hand"

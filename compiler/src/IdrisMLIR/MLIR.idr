@@ -4,15 +4,17 @@
 ||| attribute are data: the builtin ones the frontend uses are constructors
 ||| here, and each dialect's are the constructors of the sums generated from
 ||| the dialect's ODS (IdrisMLIR.Syntax.*), which this module's types and
-||| attributes hold; each is written in the syntax ODS declares for it,
-||| which the dialect's generated C++ parser reads. The handoff is MLIR
-||| bytecode (IdrisMLIR.MLIR.Bytecode), which keeps every attribute and type
-||| as that text, the bytecode's own encoding of one a dialect gives no
-||| other, and every op as its parts: name, operands, attributes (its
-||| inherent ones, which become its properties when it is made, with its
-||| discardable ones), regions, result types and location. The generated
-||| builders make the ops (IdrisMLIR.Dialect.*). An op's text, in MLIR's
-||| generic form, is only what a content key hashes.
+||| attributes hold. A data type is its name: its body is the module's, in
+||| its table of data types, which the handoff writes once. The handoff is
+||| MLIR bytecode (IdrisMLIR.MLIR.Bytecode): each type and attribute that
+||| can hold a data type is an entry of its dialect's bytecode encoding,
+||| which refers to what it holds by entry, and every other is its text, in
+||| the syntax ODS declares for it, which the dialect's generated C++ parser
+||| reads; every op is its parts: name, operands, attributes (its inherent
+||| ones, which become its properties when it is made, with its discardable
+||| ones), regions, result types and location. The generated builders make
+||| the ops (IdrisMLIR.Dialect.*). An op's text, in MLIR's generic form, a
+||| data type in it by its name, is only what a content key hashes.
 module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
@@ -53,10 +55,6 @@ Eq Dim where
 export
 data Spelling = MkSpelling (Lazy String)
 
-||| A spelling's text.
-spelled : Spelling -> String
-spelled (MkSpelling s) = s
-
 namespace MlirAttr
   ||| An attribute, defined below: a memref's memory space is one, so the
   ||| types hold attributes as the attributes hold types.
@@ -92,7 +90,9 @@ namespace MlirAttr
   ||| dense array of `i32` is the number of values in each group of an op's
   ||| operands or results, where more than one group may vary in length, and
   ||| that of `i64` the static entries of an op's mixed index lists; a
-  ||| dictionary is an op's attributes of one kind, by name.
+  ||| dictionary is an op's attributes of one kind, by name; the identity
+  ||| map of a rank is the layout a memref of that rank has, which its entry
+  ||| names.
   public export
   data MlirAttr
     = UnitAttr
@@ -106,6 +106,7 @@ namespace MlirAttr
     | DenseI32ArrayAttr (List Nat)
     | DenseI64ArrayAttr (List Integer)
     | DictionaryAttr (List (String, MlirAttr))
+    | IdentityMap Nat
     | ||| An attribute of the `idr` dialect, made by `idr`.
       Idr (IdrAttr MlirType MlirAttr) Spelling
     | ||| An attribute of the `arith` dialect, made by `arith`.
@@ -137,7 +138,7 @@ mutual
   typeText (MemRefType ds e Nothing) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ">"])
   typeText (MemRefType ds e (Just a)) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ", " ++ attrText a, ">"])
   typeText (FunctionType (MkSignature ins outs)) = signature id (MkSignature (typesText ins) (typesText outs))
-  typeText (Idr _ s) = spelled s
+  typeText (Idr _ (MkSpelling s)) = s
 
   typesText : List MlirType -> List String
   typesText [] = []
@@ -160,9 +161,12 @@ mutual
   attrText (DenseI64ArrayAttr []) = "array<i64>"
   attrText (DenseI64ArrayAttr ns) = "array<i64: " ++ commaSeparated (map show ns) ++ ">"
   attrText (DictionaryAttr as) = "{" ++ commaSeparated (entriesText as) ++ "}"
-  attrText (Idr _ s) = spelled s
-  attrText (Arith _ s) = spelled s
-  attrText (UB _ s) = spelled s
+  attrText (IdentityMap n) =
+    let dims = commaSeparated (map (\i => "d" ++ show i) (take n [0 .. n])) in
+    fastConcat ["affine_map<(", dims, ") -> (", dims, ")>"]
+  attrText (Idr _ (MkSpelling s)) = s
+  attrText (Arith _ (MkSpelling s)) = s
+  attrText (UB _ (MkSpelling s)) = s
 
   attrsText : List MlirAttr -> List String
   attrsText [] = []

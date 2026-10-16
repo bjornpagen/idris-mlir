@@ -11,50 +11,6 @@ import IdrisMLIR.Syntax.Arith
 %default total
 
 ------------------------------------------------------------------------------
--- Enums
-------------------------------------------------------------------------------
-
--- The value that stands for a CmpFPredicate, as the ops below write it.
-cmpFPredicateValue : CmpFPredicate -> Integer
-cmpFPredicateValue CmpFPredicate.AlwaysFalse = 0
-cmpFPredicateValue CmpFPredicate.OEQ = 1
-cmpFPredicateValue CmpFPredicate.OGT = 2
-cmpFPredicateValue CmpFPredicate.OGE = 3
-cmpFPredicateValue CmpFPredicate.OLT = 4
-cmpFPredicateValue CmpFPredicate.OLE = 5
-cmpFPredicateValue CmpFPredicate.ONE = 6
-cmpFPredicateValue CmpFPredicate.ORD = 7
-cmpFPredicateValue CmpFPredicate.UEQ = 8
-cmpFPredicateValue CmpFPredicate.UGT = 9
-cmpFPredicateValue CmpFPredicate.UGE = 10
-cmpFPredicateValue CmpFPredicate.ULT = 11
-cmpFPredicateValue CmpFPredicate.ULE = 12
-cmpFPredicateValue CmpFPredicate.UNE = 13
-cmpFPredicateValue CmpFPredicate.UNO = 14
-cmpFPredicateValue CmpFPredicate.AlwaysTrue = 15
-
--- The value that stands for a CmpIPredicate, as the ops below write it.
-cmpIPredicateValue : CmpIPredicate -> Integer
-cmpIPredicateValue CmpIPredicate.Eq = 0
-cmpIPredicateValue CmpIPredicate.Ne = 1
-cmpIPredicateValue CmpIPredicate.Slt = 2
-cmpIPredicateValue CmpIPredicate.Sle = 3
-cmpIPredicateValue CmpIPredicate.Sgt = 4
-cmpIPredicateValue CmpIPredicate.Sge = 5
-cmpIPredicateValue CmpIPredicate.Ult = 6
-cmpIPredicateValue CmpIPredicate.Ule = 7
-cmpIPredicateValue CmpIPredicate.Ugt = 8
-cmpIPredicateValue CmpIPredicate.Uge = 9
-
--- The value that stands for a RoundingMode, as the ops below write it.
-roundingModeValue : RoundingMode -> Integer
-roundingModeValue RoundingMode.ToNearestEven = 0
-roundingModeValue RoundingMode.Downward = 1
-roundingModeValue RoundingMode.Upward = 2
-roundingModeValue RoundingMode.TowardZero = 3
-roundingModeValue RoundingMode.ToNearestAway = 4
-
-------------------------------------------------------------------------------
 -- Ops
 ------------------------------------------------------------------------------
 
@@ -62,7 +18,7 @@ roundingModeValue RoundingMode.ToNearestAway = 4
 export
 addfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 addfOp lhs rhs result =
-  MkOp "arith.addf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp "arith.addf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
 
 ||| `arith.addi`: integer addition operation
 export
@@ -104,13 +60,13 @@ ceildivuiOp lhs rhs result =
 export
 cmpfOp : {default Nothing fastmath : Maybe MlirAttr} -> (predicate : CmpFPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 cmpfOp predicate lhs rhs result =
-  MkOp "arith.cmpf" [lhs, rhs] ([("predicate", IntegerAttr (cmpFPredicateValue predicate) (IntegerType 64))] ++ attrIf "fastmath" id fastmath) [] [] [result]
+  MkOp "arith.cmpf" [lhs, rhs] ([("predicate", IntegerAttr (natToInteger (cmpFPredicateValue predicate)) (IntegerType 64))] ++ attrIf "fastmath" id fastmath) [] [] [result]
 
 ||| `arith.cmpi`: integer comparison operation
 export
 cmpiOp : (predicate : CmpIPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 cmpiOp predicate lhs rhs result =
-  MkOp "arith.cmpi" [lhs, rhs] [("predicate", IntegerAttr (cmpIPredicateValue predicate) (IntegerType 64))] [] [] [result]
+  MkOp "arith.cmpi" [lhs, rhs] [("predicate", IntegerAttr (natToInteger (cmpIPredicateValue predicate)) (IntegerType 64))] [] [] [result]
 
 ||| `arith.constant`: integer or floating point constant
 export
@@ -122,13 +78,13 @@ constantOp value result =
 export
 convertfOp : {default Nothing roundingmode : Maybe RoundingMode} -> {default Nothing fastmath : Maybe MlirAttr} -> (in' : Value) -> (out : MlirType) -> Op
 convertfOp in' out =
-  MkOp "arith.convertf" [in'] (attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode ++ attrIf "fastmath" id fastmath) [] [] [out]
+  MkOp "arith.convertf" [in'] (attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode ++ attrIf "fastmath" id fastmath) [] [] [out]
 
 ||| `arith.divf`: floating point division operation
 export
 divfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 divfOp lhs rhs result =
-  MkOp "arith.divf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp "arith.divf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
 
 ||| `arith.divsi`: signed integer division operation
 export
@@ -260,7 +216,7 @@ minuiOp lhs rhs result =
 export
 mulfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 mulfOp lhs rhs result =
-  MkOp "arith.mulf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp "arith.mulf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
 
 ||| `arith.muli`: Integer multiplication operation.
 export
@@ -320,7 +276,7 @@ scalingExtfOp in' scale out =
 export
 scalingTruncfOp : {default Nothing roundingmode : Maybe RoundingMode} -> {default Nothing fastmath : Maybe MlirAttr} -> (in' : Value) -> (scale : Value) -> (out : MlirType) -> Op
 scalingTruncfOp in' scale out =
-  MkOp "arith.scaling_truncf" [in', scale] (attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode ++ attrIf "fastmath" id fastmath) [] [] [out]
+  MkOp "arith.scaling_truncf" [in', scale] (attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode ++ attrIf "fastmath" id fastmath) [] [] [out]
 
 ||| `arith.select`: select operation
 export
@@ -356,7 +312,7 @@ sitofpOp in' out =
 export
 subfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 subfOp lhs rhs result =
-  MkOp "arith.subf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp "arith.subf" [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
 
 ||| `arith.subi`: Integer subtraction operation.
 export
@@ -374,7 +330,7 @@ subuiExtendedOp lhs rhs diff borrow =
 export
 truncfOp : {default Nothing roundingmode : Maybe RoundingMode} -> {default Nothing fastmath : Maybe MlirAttr} -> (in' : Value) -> (out : MlirType) -> Op
 truncfOp in' out =
-  MkOp "arith.truncf" [in'] (attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode ++ attrIf "fastmath" id fastmath) [] [] [out]
+  MkOp "arith.truncf" [in'] (attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode ++ attrIf "fastmath" id fastmath) [] [] [out]
 
 ||| `arith.trunci`: integer truncation operation
 export
@@ -394,4 +350,4 @@ xoriOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 xoriOp lhs rhs result =
   MkOp "arith.xori" [lhs, rhs] [] [] [] [result]
 
--- fingerprint: 4291181153-971443 2922854290-17916
+-- fingerprint: 3550233381-984164 1353580-16211

@@ -15,8 +15,8 @@
 ||| values of their scope where they are; a lambda and a `Delay` are each a
 ||| function of its own, which an `idr.closure` or an `idr.suspend` names
 ||| with its captures; an array is made, folded and scanned by the array
-||| ops, each a region from indices to an element; a data type carries its
-||| constructors in its type.
+||| ops, each a region from indices to an element; a data type is its name,
+||| its constructors in the module's table of data types.
 |||
 ||| Types are synthesized as they are written, bidirectionally: every
 ||| emitter returns its value's type (TTC drops the types of `let`s), and a
@@ -65,9 +65,8 @@ emit : File -> Source -> IO (Either String ())
 emit h src = do
   let Just root = find (\f => f.id == src.root) src.fns
     | Nothing => pure (Left "the root function is missing")
-  let Right ix = index src
-    | Left e => pure (Left e)
-  Right w <- newWriter
+  let ix = index src
+  Right w <- newWriter ix.table
     | Left e => pure (Left e)
   written <- newIORef SortedSet.empty
   Right () <- each src.fns (\f => case evalStateT (initial f.id (shown f.key.origin)) (function ix f) of

@@ -11,18 +11,6 @@ import IdrisMLIR.Syntax.Math
 %default total
 
 ------------------------------------------------------------------------------
--- Enums
-------------------------------------------------------------------------------
-
--- The value that stands for a RoundingMode, as the ops below write it.
-roundingModeValue : RoundingMode -> Integer
-roundingModeValue RoundingMode.ToNearestEven = 0
-roundingModeValue RoundingMode.Downward = 1
-roundingModeValue RoundingMode.Upward = 2
-roundingModeValue RoundingMode.TowardZero = 3
-roundingModeValue RoundingMode.ToNearestAway = 4
-
-------------------------------------------------------------------------------
 -- Ops
 ------------------------------------------------------------------------------
 
@@ -174,7 +162,7 @@ floorOp operand result =
 export
 fmaOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (a' : Value) -> (b : Value) -> (c : Value) -> (result : MlirType) -> Op
 fmaOp a' b c result =
-  MkOp "math.fma" [a', b, c] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp "math.fma" [a', b, c] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
 
 ||| `math.fpowi`: floating point raised to the signed integer power
 export
@@ -302,4 +290,4 @@ truncOp : {default Nothing fastmath : Maybe MlirAttr} -> (operand : Value) -> (r
 truncOp operand result =
   MkOp "math.trunc" [operand] (attrIf "fastmath" id fastmath) [] [] [result]
 
--- fingerprint: 3120119822-826193 2147398599-13439
+-- fingerprint: 2935998903-838914 1956693955-12939

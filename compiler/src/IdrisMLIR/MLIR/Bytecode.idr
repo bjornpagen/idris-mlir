@@ -2,9 +2,12 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| A module as MLIR bytecode, the file the driver reads. One encoding, the
 ||| same for every module:
-||| version 6, the pinned reader's current one; every attribute and type as
-||| its text, the bytecode's own fallback, which a recursive data type needs,
-||| since its text names itself and no cycle of entries reaches the reader;
+||| version 6, the pinned reader's current one; each data type written once,
+||| its body in the module's table of data types, attribute entry 0, and
+||| every other occurrence of it naming its member there; each type and
+||| attribute that can hold a data type an entry of its dialect's bytecode
+||| encoding (IdrisMLIR.Encoding.*), which refers to what it holds by
+||| entry, and every other entry its text, the bytecode's own fallback;
 ||| every op name recorded as registered, as it is where the file is read;
 ||| every op's inherent attributes in its one attribute dictionary, with its
 ||| discardable ones. Creating an op moves each inherent attribute into its
@@ -17,13 +20,18 @@
 ||| innermost one's block are isolated, their regions in a section of their
 ||| own; nothing nested in those is.
 |||
-||| Numbers are given in first use: of a string, a dialect, an op name, an
-||| attribute or a type by its text. Bytes are written one by one, so no
-||| byte order is assumed. The functions are encoded as Emit finishes each,
-||| so no value of the whole module is held.
+||| Numbers are given in first use: of a string, a dialect and an op name by
+||| its text, and of an attribute or a type by what its entry holds, its
+||| dialect and its text or its bytes, which hold entry numbers, so an entry
+||| is as small as what it holds directly. Bytes are written one by one, so
+||| no byte order is assumed. The functions are encoded as Emit finishes
+||| each, so no value of the whole module is held.
 module IdrisMLIR.MLIR.Bytecode
 
+import IdrisMLIR.Encoding.Builtin
+import IdrisMLIR.Encoding.Idr
 import IdrisMLIR.MLIR
+import IdrisMLIR.MLIR.Parts
 
 import Control.Monad.Error.Either
 import Data.Buffer
@@ -85,11 +93,9 @@ byte bs b = do
   writeIORef bs.used (used + 1)
 
 ||| The `n` low bytes of `v`, least significant first.
-littleEndian : Bytes -> Nat -> Integer -> W ()
-littleEndian bs Z v = pure ()
-littleEndian bs (S n) v = do
-  byte bs (cast (v `mod` 256))
-  littleEndian bs n (v `div` 256)
+littleEndian : Nat -> Integer -> List Bits8
+littleEndian Z v = []
+littleEndian (S n) v = cast (v `mod` 256) :: littleEndian n (v `div` 256)
 
 ||| 2 to the `n`.
 pow2 : Nat -> Integer
@@ -99,16 +105,25 @@ pow2 (S n) = 2 * pow2 n
 ||| A PrefixVarInt: in its first byte, a zero bit for each byte after it,
 ||| then a one, and the value in the bits left of the `k` bytes, 7 to a
 ||| byte; a value of 56 bits or more is a zero byte and its eight bytes.
-varint : Bytes -> Nat -> W ()
-varint bs n = go 1 8
+prefixVarInt : Nat -> List Bits8
+prefixVarInt n = go 1 8
   where
     v : Integer
     v = cast n
-    go : (k : Nat) -> (left : Nat) -> W ()
-    go k Z = byte bs 0 >> littleEndian bs 8 v
+    go : (k : Nat) -> (left : Nat) -> List Bits8
+    go k Z = 0 :: littleEndian 8 v
     go k (S left) =
-      if v < pow2 (7 * k) then littleEndian bs k ((2 * v + 1) * pow2 (minus k 1))
+      if v < pow2 (7 * k) then littleEndian k ((2 * v + 1) * pow2 (minus k 1))
       else go (S k) left
+
+||| A zigzagged PrefixVarInt, as MLIR writes a signed one: `n` at least 0
+||| as `2n`, a negative `n` as `-2n - 1`, so that a 64-bit value takes 64
+||| bits.
+signedVarInt : Integer -> List Bits8
+signedVarInt n = prefixVarInt (cast (if n >= 0 then 2 * n else -2 * n - 1))
+
+varint : Bytes -> Nat -> W ()
+varint bs n = traverse_ (byte bs) (prefixVarInt n)
 
 ||| A varint whose low bit is `flag`.
 varintFlag : Bytes -> Nat -> Bool -> W ()
@@ -147,20 +162,18 @@ section bs code contents = do
 -- Numbering
 ------------------------------------------------------------------------------
 
-||| Things numbered in first use by their text, each with what its entry
-||| holds.
-record Numbered p where
+||| Things numbered in first use by a key, each with what its entry holds.
+record Numbered k p where
   constructor MkNumbered
-  -- By the very text the file holds, which is what a table of it numbers.
-  numbers : IORef (SortedMap String Nat)
+  numbers : IORef (SortedMap k Nat)
   entries : IORef (SnocList p)
   count : IORef Nat
 
-newNumbered : W (Numbered p)
+newNumbered : Ord k => W (Numbered k p)
 newNumbered = MkNumbered <$> newIORef SortedMap.empty <*> newIORef [<] <*> newIORef 0
 
 ||| The number of `key`, given the first time with the entry `entry` makes.
-number : Numbered p -> String -> W p -> W Nat
+number : Numbered k p -> k -> W p -> W Nat
 number t key entry = do
   ns <- readIORef t.numbers
   case lookup key ns of
@@ -173,30 +186,47 @@ number t key entry = do
       writeIORef t.count (S n)
       pure n
 
-entriesOf : Numbered p -> W (List p)
+entriesOf : Numbered k p -> W (List p)
 entriesOf t = (<>> []) <$> readIORef t.entries
 
+||| What an attribute or type entry holds: its text, or the bytes its
+||| dialect's encoding gives it, which name what it holds by number. The
+||| offset section says which.
+data Payload = Textual String | Encoded (List Bits8)
+
+Eq Payload where
+  Textual a == Textual b = a == b
+  Encoded a == Encoded b = a == b
+  _ == _ = False
+
+Ord Payload where
+  compare (Textual a) (Textual b) = compare a b
+  compare (Textual _) (Encoded _) = LT
+  compare (Encoded _) (Textual _) = GT
+  compare (Encoded a) (Encoded b) = compare a b
+
+||| An attribute or type entry: its dialect's number, and what it holds. It
+||| is its own key, so two entries are one exactly when they hold the same.
+Entry : Type
+Entry = (Nat, Payload)
+
 ||| The strings, dialects (by their name's string), op names (by dialect
-||| and name), attributes and types (by dialect and text) of a module, and
-||| the ops of its innermost container's block, encoded.
+||| and name), attributes and types (by what their entries hold) of a
+||| module, the member of its table each data type is, by name, and the ops
+||| of its innermost container's block, encoded.
 export
 record Writer where
   constructor MkWriter
-  stringTable : Numbered String
-  dialectTable : Numbered Nat
-  opNameTable : Numbered (Nat, Nat)
-  attrTable : Numbered (Nat, String)
-  typeTable : Numbered (Nat, String)
+  stringTable : Numbered String String
+  dialectTable : Numbered String Nat
+  opNameTable : Numbered String (Nat, Nat)
+  attrTable : Numbered Entry Entry
+  typeTable : Numbered Entry Entry
+  members : SortedMap String Nat
   ||| Those ops, encoded, how many, and how many values they define.
   body : Bytes
   count : IORef Nat
   values : IORef Nat
-
-export
-newWriter : IO (Either String Writer)
-newWriter = runEitherT $
-  MkWriter <$> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered
-           <*> newBytes <*> newIORef 0 <*> newIORef 0
 
 stringNumber : Writer -> String -> W Nat
 stringNumber w s = number w.stringTable s (pure s)
@@ -213,21 +243,251 @@ opNameNumber w name =
     s <- stringNumber w (pack (drop 1 (unpack rest)))
     pure (d, s)
 
-attrNumber : Writer -> MlirAttr -> W Nat
-attrNumber w a =
-  let text = attrText a in
-  number w.attrTable text ((\d => (d, text)) <$> dialectNumber w (attrDialect a))
+||| A part's bytes, as (1) of the table's layout gives them: a string by
+||| its number, given here in its first use.
+partBytes : Writer -> Part -> W (List Bits8)
+partBytes w (VarInt n) = pure (prefixVarInt n)
+partBytes w (SignedVarInt n) = pure (signedVarInt n)
+partBytes w (Flag b) = pure [if b then 1 else 0]
+partBytes w (Str s) = prefixVarInt <$> stringNumber w s
+partBytes w (TypeAt r) = pure (prefixVarInt r.number)
+partBytes w (AttrAt r) = pure (prefixVarInt r.number)
+partBytes w (OptionalAttrAt Nothing) = pure (prefixVarInt 0)
+partBytes w (OptionalAttrAt (Just r)) = pure (prefixVarInt (2 * r.number + 1))
 
-typeNumber : Writer -> MlirType -> W Nat
-typeNumber w t =
-  let text = typeText t in
-  number w.typeTable text ((\d => (d, text)) <$> dialectNumber w (typeDialect t))
+encoded : Writer -> List Part -> W (List Bits8)
+encoded w parts = concat <$> traverse (partBytes w) parts
 
-||| A location is a builtin attribute.
-locationNumber : Writer -> Location -> W Nat
-locationNumber w at =
-  let text = location at in
-  number w.attrTable text ((\d => (d, text)) <$> dialectNumber w "builtin")
+||| A dialect whose types and attributes the handoff encodes natively: its
+||| name, and the code a field of the table starts with that is one of its
+||| type records written in place.
+record Dialect where
+  constructor MkDialect
+  name : String
+  fieldCode : Nat
+
+idrDialect : Dialect
+idrDialect = MkDialect "idr" 2
+
+builtinDialect : Dialect
+builtinDialect = MkDialect "builtin" 3
+
+||| The type entry of `d` that `parts` encode.
+typeEntry : Writer -> Dialect -> List Part -> W TypeRef
+typeEntry w d parts = do
+  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w d.name <*> encoded w parts
+  MkTypeRef <$> number w.typeTable e (pure e)
+
+||| The attribute entry of `d` that `parts` encode.
+attrEntry : Writer -> Dialect -> List Part -> W AttrRef
+attrEntry w d parts = do
+  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w d.name <*> encoded w parts
+  MkAttrRef <$> number w.attrTable e (pure e)
+
+||| A type's entry as its text.
+typeTextEntry : Writer -> MlirType -> W TypeRef
+typeTextEntry w t = do
+  e <- (\n => (n, Textual (typeText t))) <$> dialectNumber w (typeDialect t)
+  MkTypeRef <$> number w.typeTable e (pure e)
+
+||| An attribute's entry as its text.
+attrTextEntry : Writer -> MlirAttr -> W AttrRef
+attrTextEntry w a = do
+  e <- (\n => (n, Textual (attrText a))) <$> dialectNumber w (attrDialect a)
+  MkAttrRef <$> number w.attrTable e (pure e)
+
+||| A location is a builtin attribute, written as its text.
+locationNumber : Writer -> Location -> W AttrRef
+locationNumber w at = do
+  e <- (\n => (n, Textual (location at))) <$> dialectNumber w builtinDialect.name
+  MkAttrRef <$> number w.attrTable e (pure e)
+
+------------------------------------------------------------------------------
+-- Types and attributes
+------------------------------------------------------------------------------
+
+||| The table of data types is attribute entry 0: numbered before any entry
+||| its bodies make (`newWriter`), so that every data type's entry names it.
+tableRef : AttrRef
+tableRef = MkAttrRef 0
+
+||| The member of the table a data type is, by its name. A name the table
+||| does not hold is data the program does not declare, which only a bug of
+||| the frontend writes: this lookup is where it is found.
+member : Writer -> String -> W Nat
+member w name = case lookup name w.members of
+  Just k => pure k
+  Nothing => throwE ("a data type " ++ name ++ ", which the program does not declare")
+
+||| Where a type is written: an entry of its own, whose records refer to
+||| the types they hold by entry; or a field of the table, where a data type
+||| is its member and a type that holds one is its record in place.
+data Place = InEntry | InTable
+
+||| How a type is written: a data type, as its member of the table; a type
+||| of a record of the two dialects' encodings, as that record, each type
+||| it holds written as the place says, and whether a data type is below it;
+||| any other type, as its text, which holds no data type.
+data Native = Member Nat | Record Dialect (List Part) Bool | AsText
+
+||| A record of `d`, from what the one type it holds is written as.
+recordOf : Dialect -> (List Part -> List Part) -> (List Part, Bool) -> Native
+recordOf d encode (parts, below) = Record d (encode parts) below
+
+||| A dimension of a shaped type as its record gives it: a dynamic one is
+||| `ShapedType::kDynamic`.
+extent : Dim -> Integer
+extent (Static n) = cast n
+extent Dynamic = dynamicExtent
+
+-- Every recursion is on a part of the type or attribute written, through
+-- mutual helpers for lists, as `typesText` is, so that totality holds.
+mutual
+  ||| The one switch over the kinds of type: how `t` is written in `place`.
+  native : Writer -> Place -> MlirType -> W Native
+  native w pl (Idr (DataType name) _) = Member <$> member w name
+  native w pl (Idr (QType q p v) _) = recordOf idrDialect (encodeQType q p) <$> held w pl v
+  native w pl (Idr (FnType sig) _) = recordOf idrDialect encodeFnType <$> heldSignature w pl sig
+  native w pl (Idr (LazyType v) _) = recordOf idrDialect encodeLazyType <$> held w pl v
+  native w pl (Idr (BoxType v) _) = recordOf idrDialect encodeBoxType <$> held w pl v
+  native w pl (Idr (DestType v) _) = recordOf idrDialect encodeDestType <$> held w pl v
+  native w pl (FunctionType sig) = recordOf builtinDialect id <$> functionType w pl sig
+  native w pl (RankedTensorType ds e) =
+    recordOf builtinDialect (encodeRankedTensorType (map extent ds)) <$> held w pl e
+  -- Upstream has a record for a memref in the default memory space and one
+  -- for a memref in another; each names its identity layout.
+  native w pl (MemRefType ds e Nothing) = do
+    layout <- attrTextEntry w (IdentityMap (length ds))
+    recordOf builtinDialect (\x => encodeMemRefType (map extent ds) x layout) <$> held w pl e
+  native w pl (MemRefType ds e (Just space)) = do
+    s <- attrNumber w space
+    layout <- attrTextEntry w (IdentityMap (length ds))
+    recordOf builtinDialect (\x => encodeMemRefTypeWithMemSpace s (map extent ds) x layout) <$> held w pl e
+  native w pl _ = pure AsText
+
+  ||| A type's entry. A data type's names the table and its member.
+  export
+  typeNumber : Writer -> MlirType -> W TypeRef
+  typeNumber w t = case !(native w InEntry t) of
+    Member k => typeEntry w idrDialect (encodeDataType tableRef k)
+    Record d parts _ => typeEntry w d parts
+    AsText => typeTextEntry w t
+
+  ||| A type as a field of the table, and whether a data type is at or
+  ||| below it: a data type is its member; a type that holds one is its
+  ||| record in place, of its dialect's code; any other is its entry.
+  field : Writer -> MlirType -> W (List Part, Bool)
+  field w t = case !(native w InTable t) of
+    Member k => pure ([VarInt 1, VarInt k], True)
+    Record d parts True => pure (VarInt d.fieldCode :: parts, True)
+    _ => (\r => ([VarInt 0, TypeAt r], False)) <$> typeNumber w t
+
+  ||| A type a record holds, written as `place` says.
+  held : Writer -> Place -> MlirType -> W (List Part, Bool)
+  held w InEntry t = (\r => ([TypeAt r], False)) <$> typeNumber w t
+  held w InTable t = field w t
+
+  heldAll : Writer -> Place -> List MlirType -> W (List (List Part, Bool))
+  heldAll w pl [] = pure []
+  heldAll w pl (t :: ts) = (::) <$> held w pl t <*> heldAll w pl ts
+
+  ||| A builtin function type's record, from its signature.
+  functionType : Writer -> Place -> Signature MlirType -> W (List Part, Bool)
+  functionType w pl (MkSignature ins outs) = do
+    is <- heldAll w pl ins
+    os <- heldAll w pl outs
+    pure (encodeFunctionType (map fst is) (map fst os), any snd is || any snd os)
+
+  ||| A builtin function type's entry, from its signature.
+  functionEntry : Writer -> Signature MlirType -> W TypeRef
+  functionEntry w sig = typeEntry w builtinDialect (fst !(functionType w InEntry sig))
+
+  ||| The builtin function type a closure's record holds, written as `held`
+  ||| writes a type. The generated `FnType` holds its signature, not that
+  ||| type, so this is `held` of the function type, on the signature, which
+  ||| is the part the recursion is on.
+  heldSignature : Writer -> Place -> Signature MlirType -> W (List Part, Bool)
+  heldSignature w InEntry sig = (\r => ([TypeAt r], False)) <$> functionEntry w sig
+  heldSignature w InTable sig = do
+    (parts, below) <- functionType w InTable sig
+    if below then pure (VarInt builtinDialect.fieldCode :: parts, True)
+      else (\r => ([VarInt 0, TypeAt r], False)) <$> functionEntry w sig
+
+  ||| An attribute's entry: an array, a dictionary and a type, which can
+  ||| hold a data type, are builtin's records; every other is its text.
+  attrNumber : Writer -> MlirAttr -> W AttrRef
+  attrNumber w (ArrayAttr as) = do
+    rs <- attrNumbers w as
+    attrEntry w builtinDialect (encodeArrayAttr rs)
+  attrNumber w (DictionaryAttr es) = do
+    rs <- namedNumbers w es
+    attrEntry w builtinDialect (encodeDictionaryAttr rs)
+  attrNumber w (TypeAttr t) = do
+    r <- typeNumber w t
+    attrEntry w builtinDialect (encodeTypeAttr [TypeAt r])
+  attrNumber w a = attrTextEntry w a
+
+  attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)
+  attrNumbers w [] = pure []
+  attrNumbers w (a :: as) = (::) <$> attrNumber w a <*> attrNumbers w as
+
+  ||| A dictionary's entries, each its name, a string, and its value, in the
+  ||| op's order: the reader sorts them, as the parser does.
+  namedNumbers : Writer -> List (String, MlirAttr) -> W (List (AttrRef, AttrRef))
+  namedNumbers w [] = pure []
+  namedNumbers w ((name, a) :: es) =
+    (\n, v, rest => (n, v) :: rest) <$> attrTextEntry w (StringAttr name) <*> attrNumber w a <*> namedNumbers w es
+
+------------------------------------------------------------------------------
+-- The table of data types
+------------------------------------------------------------------------------
+
+||| Each data type's member of the table, by name: its place in it. Two of
+||| one name are a bug of the frontend, which names each instance once.
+membersOf : List (String, a) -> W (SortedMap String Nat)
+membersOf = go 0 SortedMap.empty
+  where
+    go : Nat -> SortedMap String Nat -> List (String, a) -> W (SortedMap String Nat)
+    go k m [] = pure m
+    go k m ((name, _) :: rest) = case lookup name m of
+      Just _ => throwE ("two data types are named " ++ name)
+      Nothing => go (S k) (insert name k m) rest
+
+||| A constructor of a body: its name, its role, whether every force runs
+||| it, the function a label names, and its fields.
+ctorParts : Writer -> IdrCtor MlirType -> W (List Part)
+ctorParts w c = do
+  fn <- traverse (\f => attrNumber w (SymbolRefAttr (MkSymbolRef f []))) c.fn
+  fields <- traverse (\t => fst <$> field w t) c.fields
+  pure ([Str c.name, VarInt (ctorRoleValue c.role), Flag c.byName, OptionalAttrAt fn, VarInt (length fields)]
+        ++ concat fields)
+
+||| A body: its kind of sum, its constructors in tag order, and the Idris
+||| instance it is of.
+bodyParts : Writer -> IdrSum MlirType -> W (List Part)
+bodyParts w s = do
+  ctors <- traverse (ctorParts w) s.ctors
+  inst <- traverse (\(origin, args) => attrNumber w (idr (InstanceAttr origin (map StringAttr args)))) s.instanceOf
+  pure ([VarInt (sumKindValue s.kind), VarInt (length ctors)] ++ concat ctors ++ [OptionalAttrAt inst])
+
+||| A writer of a module whose data types are `datas`, in order, each its
+||| name and body: the table, attribute entry 0, written first, its fields
+||| numbered as they are met, each data type its member by its place in
+||| `datas`.
+export
+newWriter : List (String, IdrSum MlirType) -> IO (Either String Writer)
+newWriter datas = runEitherT $ do
+  members <- membersOf datas
+  w <- MkWriter <$> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered
+                <*> pure members <*> newBytes <*> newIORef 0 <*> newIORef 0
+  -- Entry 0 is the table's (`tableRef`): numbered before its bodies number
+  -- what they hold, and put first once they are written.
+  writeIORef w.attrTable.count 1
+  bodies <- traverse (bodyParts w . snd) datas
+  idr <- dialectNumber w idrDialect.name
+  table <- encoded w ([VarInt dataTableCode, VarInt (length datas)] ++ map (Str . fst) datas ++ concat bodies)
+  modifyIORef w.attrTable.entries ([< (idr, Encoded table)] ++)
+  pure w
 
 ------------------------------------------------------------------------------
 -- Ops and regions
@@ -278,13 +538,15 @@ mutual
     varint out !(opNameNumber w o.name)
     byte out (cast (bit (not (null attributes)) hasAttrs + bit (not (null o.results)) hasResults
                     + bit (not (null o.operands)) hasOperands + bit (not (null o.regions)) hasRegions))
-    varint out !(locationNumber w at)
+    loc <- locationNumber w at
+    varint out loc.number
     unless (null attributes) $ do
-      n <- attrNumber w (DictionaryAttr attributes)
-      varint out n
+      d <- attrNumber w (DictionaryAttr attributes)
+      varint out d.number
     unless (null o.results) $ do
       varint out (length o.results)
-      traverse_ (\t => varint out !(typeNumber w t)) o.results
+      traverse_ (\t => do r <- typeNumber w t
+                          varint out r.number) o.results
     unless (null o.operands) $ do
       varint out (length o.operands)
       traverse_ (operand out scope) o.operands
@@ -320,8 +582,10 @@ mutual
     varintFlag out (length statements) (not (null arguments))
     unless (null arguments) $ do
       varint out (length arguments)
-      traverse_ (\a => do varintFlag out !(typeNumber w a.value.type) True
-                          varint out !(locationNumber w a.at)) arguments
+      traverse_ (\a => do t <- typeNumber w a.value.type
+                          varintFlag out t.number True
+                          loc <- locationNumber w a.at
+                          varint out loc.number) arguments
       byte out 0
     encodeStatements w out inner (base + n) statements
 
@@ -363,16 +627,25 @@ runs ((d, x) :: rest) = case runs rest of
   (d', xs) :: more => if d == d' then (d, x :: xs) :: more else (d, [x]) :: (d', xs) :: more
   [] => [(d, [x])]
 
-||| The attribute or type entries: their texts, and the offset section's
-||| groups of their sizes.
-entryTexts : Bytes -> Bytes -> List (Nat, String) -> W ()
-entryTexts texts offsets entries = do
-  traverse_ (\(_, t) => string texts t) entries
-  traverse_ (\(d, ts) => do
+||| An entry's bytes after `out`'s, and whether its dialect's encoding made
+||| them.
+payload : Bytes -> Payload -> W Bool
+payload out (Textual s) = False <$ string out s
+payload out (Encoded bs) = True <$ traverse_ (byte out) bs
+
+||| The attribute or type entries, after `payloads`, and the offset
+||| section's groups of their sizes, each flagged when it is custom.
+entries : Bytes -> Bytes -> List Entry -> W ()
+entries payloads offsets es =
+  traverse_ (\(d, ps) => do
                varint offsets d
-               varint offsets (length ts)
-               traverse_ (\t => varintFlag offsets (cast (stringByteLength t + 1)) False) ts)
-            (runs entries)
+               varint offsets (length ps)
+               traverse_ (\p => do
+                            before <- size payloads
+                            custom <- payload payloads p
+                            after <- size payloads
+                            varintFlag offsets (cast (after - before)) custom) ps)
+            (runs es)
 
 writeBytes : File -> Bytes -> W ()
 writeBytes h bs = do
@@ -424,12 +697,12 @@ finish w h containers = runEitherT $ do
   -- What the IR numbered, now complete.
   attrs <- entriesOf w.attrTable
   types <- entriesOf w.typeTable
-  texts <- newBytes
+  payloads <- newBytes
   offsets <- newBytes
   varint offsets (length attrs)
   varint offsets (length types)
-  entryTexts texts offsets attrs
-  entryTexts texts offsets types
+  entries payloads offsets attrs
+  entries payloads offsets types
   ops <- entriesOf w.opNameTable
   dialects <- entriesOf w.dialectTable
   ds <- newBytes
@@ -452,7 +725,7 @@ finish w h containers = runEitherT $ do
   string file "idris-mlir"
   section file 4 ir
   section file 3 offsets
-  section file 2 texts
+  section file 2 payloads
   section file 1 ds
   section file 0 ss
   section file 8 !newBytes

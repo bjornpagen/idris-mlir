@@ -127,7 +127,7 @@ fit ix l (Just (TensorT ds e)) v = case v.type of
   TensorT es e' =>
     if ds == es then pure v
     else if length ds == length es && e == e' then do
-      t <- mlirType ix (TensorT ds e)
+      let t = mlirType (TensorT ds e)
       r <- mlirValue l t (Tensor.castOp !(plainOperand ix l v))
       pure (val r.name (TensorT ds e) Many)
     else internal ("an array of type " ++ show v.type ++ " where " ++ show (TensorT ds e) ++ " is expected")
@@ -312,7 +312,7 @@ tensorOp ix l Reshape rt (x :: extents) = do
       e = elementOf x.type
       leading = take r ds
       n = if all isStatic leading then Static (product (map staticOf leading)) else Dynamic
-  flatTy <- mlirType ix (TensorT (n :: cell) e)
+  let flatTy = mlirType (TensorT (n :: cell) e)
   cellSizes <- traverse (dimEntry l xv ds) (take cellRank [r .. length ds])
   flat <- case r of
     S Z => pure xv
@@ -320,13 +320,13 @@ tensorOp ix l Reshape rt (x :: extents) = do
       let (outs, static) = mixed (Right 1 :: cellSizes)
       mlirValue l flatTy (Tensor.expandShapeOp xv (map ArrayAttr (unitGroups cellRank)) outs static)
     _ => mlirValue l flatTy (Tensor.collapseShapeOp xv (groups r cellRank))
-  rt' <- mlirType ix rt
+  let rt' = mlirType rt
   case t of
     S Z => do
       res <- if TensorT (n :: cell) e == rt then pure flat else mlirValue l rt' (Tensor.castOp flat)
       pure (val res.name rt Many)
     Z => do
-      unitTy <- mlirType ix (TensorT (Static 1 :: cell) e)
+      let unitTy = mlirType (TensorT (Static 1 :: cell) e)
       unit <- if n == Static 1 then pure flat else mlirValue l unitTy (Tensor.castOp flat)
       res <- mlirValue l rt' (Tensor.collapseShapeOp unit (map ArrayAttr (unitGroups cellRank)))
       pure (val res.name rt Many)
@@ -368,14 +368,14 @@ tensorOp ix l (Pad a) rt [lo, hi, v, x] = do
   let (lows, staticLow) = mixed (map (\i => if i == a then Left low else Right 0) (axes ds))
       (highs, staticHigh) = mixed (map (\i => if i == a then Left high else Right 0) (axes ds))
       padded = TensorT (map (\(i, d) => if i == a then Dynamic else d) (zip (axes ds) ds)) (elementOf x.type)
-  pt <- mlirType ix padded
+  let pt = mlirType padded
   -- The region gives the value at each index of the padding: the cell's
   -- element at the cell's axes.
   ivs <- traverse (\_ => (\n => MkValue n IndexType) <$> fresh) ds
   (yielded, ops) <- collect $ case v.type of
     TensorT _ el => do
       vv <- plainOperand ix l v
-      mlirValue l !(mlirType ix el) (Tensor.extractOp vv (drop (S a) ivs))
+      mlirValue l (mlirType el) (Tensor.extractOp vv (drop (S a) ivs))
     _ => plainOperand ix l v
   let body = MkRegion (map (\i => MkArgument i (At l)) ivs)
                       (ops ++ [MkStatement Nothing (Tensor.yieldOp yielded) (At l)])
@@ -425,7 +425,7 @@ reduce ix l r acc elem rt z x body = do
     TensorT _ _ => case r of
       FoldLast => given ix l rt z
       ScanLast => plainOperand ix l z
-    t => mlirValue l (RankedTensorType [] !(mlirType ix t)) (Tensor.fromElementsOp [!(plainOperand ix l z)])
+    t => mlirValue l (RankedTensorType [] (mlirType t)) (Tensor.fromElementsOp [!(plainOperand ix l z)])
   ivs <- indices (S frame)
   (a, av) <- freshVal ix acc Many
   reg <- region l (toList ivs ++ [av]) $ do
@@ -462,8 +462,8 @@ tabulateIO ix l rt extents world body step done = do
       | Nothing => pure Nothing
     (e, w1) <- taken stepCon (typeOf elemField) res
     pure (Just [!(given ix l cell e), w1])
-  t <- mlirType ix rt
-  wt <- mlirType ix WorldT
+  let t = mlirType rt
+      wt = mlirType WorldT
   [arr, w] <- resultNames l (Idr.tabulateIoOp sizes !(operand ix world) r [t] wt)
     | _ => internal "a tabulation in the world's order giving more than its array and world"
   Just <$> ioResult ix l done (val arr rt Many) (val w WorldT Many)
@@ -472,8 +472,8 @@ tabulateIO ix l rt extents world body step done = do
     -- its one constructor, whose case yields its fields.
     taken : Con -> Ty -> Val -> E (Val, Value)
     taken c et res = do
-      et' <- mlirType ix et
-      wt <- mlirType ix WorldT
+      let et' = mlirType et
+          wt = mlirType WorldT
       x <- fresh
       w1 <- fresh
       let arm = MkRegion [MkArgument (MkValue x et') (At l), MkArgument (MkValue w1 wt) (At l)]

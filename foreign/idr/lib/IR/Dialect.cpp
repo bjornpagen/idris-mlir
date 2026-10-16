@@ -56,4 +56,5 @@ void IdrDialect::initialize() {
       >();
   addInlinerInterface(*this);
   detail::addAsmInterface(*this);
+  detail::addBytecodeInterface(*this);
 }

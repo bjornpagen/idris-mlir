@@ -37,4 +37,13 @@ Show RoundingMode where
   show RoundingMode.TowardZero = "toward_zero"
   show RoundingMode.ToNearestAway = "to_nearest_away"
 
--- fingerprint: 3120119822-826193 3813046804-1429
+||| The value of each RoundingMode.
+export
+roundingModeValue : RoundingMode -> Nat
+roundingModeValue RoundingMode.ToNearestEven = 0
+roundingModeValue RoundingMode.Downward = 1
+roundingModeValue RoundingMode.Upward = 2
+roundingModeValue RoundingMode.TowardZero = 3
+roundingModeValue RoundingMode.ToNearestAway = 4
+
+-- fingerprint: 2935998903-838914 1554636677-1743

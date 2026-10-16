@@ -39,6 +39,11 @@ mlir_tablegen(IdrTypeInterfaces.cpp.inc -gen-type-interface-defs)
 set(LLVM_TARGET_DEFINITIONS IdrFlow.td)
 mlir_tablegen(IdrFlow.h.inc -gen-op-interface-decls)
 mlir_tablegen(IdrFlow.cpp.inc -gen-op-interface-defs)
+# The dialect's bytecode: each record of IdrBytecode.td read by upstream's
+# generated reader (lib/IR/Bytecode.cpp holds what the records cannot say:
+# the module's one table of data types).
+set(LLVM_TARGET_DEFINITIONS IdrBytecode.td)
+mlir_tablegen(IdrBytecode.cpp.inc -gen-bytecode -bytecode-dialect="Idr")
 set(LLVM_TARGET_DEFINITIONS IdrOps.td)
 mlir_tablegen(IdrEnums.h.inc -gen-enum-decls)
 mlir_tablegen(IdrEnums.cpp.inc -gen-enum-defs)

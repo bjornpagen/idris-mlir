@@ -127,7 +127,7 @@ mlirValue l t build = do
 export
 value : Index -> Loc -> Ty -> (MlirType -> Op) -> E Val
 value ix l t build = do
-  r <- mlirValue l !(mlirType ix t) build
+  r <- mlirValue l (mlirType t) build
   pure (val r.name t Many)
 
 ||| An op without results.
@@ -150,7 +150,7 @@ coerce ix l use v = case (linear v.use v.type, linear use v.type) of
   (True, False) => value ix l v.type (Idr.linUseOp !(operand ix v))
   (False, True) => do
     let entered = { use := One } v
-    t <- heldType ix One v.type
+    let t = heldType One v.type
     r <- mlirValue l t (Idr.linEnterOp !(operand ix v))
     pure ({ name := r.name } entered)
   _ => pure v
@@ -437,11 +437,11 @@ effect ix l p types vs res = do
     | _ => internal (show res ++ " does not hold a value and a world")
   args <- traverse (operand ix) vs
   let unit = unitOf ix x
-  gives <- case (p, unit) of
-    (ArrayGet, _) => (\t => [t]) <$> mlirType ix x
-    (_, Just _) => pure []
-    (_, Nothing) => (\t => [t]) <$> mlirType ix x
-  names <- placed l types (primOp p args (gives ++ [!(mlirType ix WorldT)]))
+  let gives = case (p, unit) of
+                (ArrayGet, _) => [mlirType x]
+                (_, Just _) => []
+                (_, Nothing) => [mlirType x]
+  names <- placed l types (primOp p args (gives ++ [mlirType WorldT]))
   v <- case (p, unit, head' names) of
     (ArrayGet, _, Just n) => pure (val n x Many)
     (_, Just u, _) => con ix l u []

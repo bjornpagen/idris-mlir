@@ -357,6 +357,10 @@ namespace detail {
 // its large constants.
 void addAsmInterface(IdrDialect &dialect);
 
+// Adds the dialect's bytecode interface: its types written by the records
+// of IdrBytecode.td, and the module's table of data types read.
+void addBytecodeInterface(IdrDialect &dialect);
+
 // What idr.match and idr.match_lit share, which their rules and their
 // syntax are written once over: a scrutinee, a key per case region, and a
 // default region or none.

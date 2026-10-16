@@ -57,34 +57,36 @@ plainCtor : String -> List MlirType -> IdrCtor MlirType
 plainCtor name fields = MkIdrCtor name fields False CtorRole.Plain Nothing
 
 ||| A list of naturals: base's list, recursive through itself, which its
-||| own body names by its name alone, as the frontend writes it: the
-||| dialect boxes what a cycle runs through.
+||| own body names by its name, as every type does: the dialect boxes what
+||| a cycle runs through.
 natList : MlirType
-natList =
-  idr (DataType "List[Nat]"
-        (Just (MkIdrSum BaseList
-                 [ MkIdrCtor "Nil" [] False CtorRole.ListNil Nothing
-                 , MkIdrCtor "Cons" [idr NatType, idr (DataType "List[Nat]" Nothing)] False CtorRole.ListCons Nothing ]
-                 (Just ("Prelude.Types.List", ["Prelude.Types.Nat"])))))
+natList = idr (DataType "List[Nat]")
 
-||| A plain sum of two constructors, one holding a list: another type's
-||| body spelled whole inside it.
+||| A plain sum of two constructors, one holding a list: another data type
+||| named in its body.
 dataT : MlirType
-dataT =
-  idr (DataType "T" (Just (MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)))
+dataT = idr (DataType "T")
 
 ||| Each kind of sum the dialect has, and each part a constructor plays: a
 ||| label names its function.
-kinds : List MlirType
+kinds : List (String, IdrSum MlirType)
 kinds =
-  [ idr (DataType "Pairs" (Just (MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64)]] Nothing)))
-  , idr (DataType "fn$sample"
-          (Just (MkIdrSum Closures [MkIdrCtor "callee" [i64] False CtorRole.Label (Just "callee")] Nothing)))
-  , idr (DataType "lazy$sample"
-          (Just (MkIdrSum Memo [ MkIdrCtor "callee" [] True CtorRole.Label (Just "callee")
-                               , MkIdrCtor "running" [] False CtorRole.Running Nothing
-                               , MkIdrCtor "forced" [i64] False CtorRole.Forced Nothing ] Nothing)))
+  [ ("Pairs", MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64)]] Nothing)
+  , ("fn$sample", MkIdrSum Closures [MkIdrCtor "callee" [i64] False CtorRole.Label (Just "callee")] Nothing)
+  , ("lazy$sample", MkIdrSum Memo [ MkIdrCtor "callee" [] True CtorRole.Label (Just "callee")
+                                  , MkIdrCtor "running" [] False CtorRole.Running Nothing
+                                  , MkIdrCtor "forced" [i64] False CtorRole.Forced Nothing ] Nothing)
   ]
+
+||| The bodies of the data types the samples name, the module's table.
+table : List (String, IdrSum MlirType)
+table =
+  ( "List[Nat]"
+  , MkIdrSum BaseList [ MkIdrCtor "Nil" [] False CtorRole.ListNil Nothing
+                      , MkIdrCtor "Cons" [idr NatType, natList] False CtorRole.ListCons Nothing ]
+             (Just ("Prelude.Types.List", ["Prelude.Types.Nat"])) )
+  :: ("T", MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)
+  :: kinds
 
 int : Integer -> MlirAttr
 int n = IntegerAttr n i64
@@ -122,7 +124,7 @@ types =
   , MemRefType [Dynamic] (IntegerType 8) (Just (idr WorldSpaceAttr))
   , MemRefType [] i64 (Just (idr WorldSpaceAttr))
   , IndexType
-  ] ++ kinds
+  ] ++ map (\(name, _) => idr (DataType name)) kinds
 
 key : MlirAttr
 key = idr (SpecKeyAttr "f" [idr (KeyHoleAttr 0), int 7])
@@ -332,7 +334,7 @@ containers =
 ||| Writes the samples to `path`.
 writeSamples : String -> IO ()
 writeSamples path = do
-  Right w <- newWriter
+  Right w <- newWriter table
     | Left e => die ("syntax-samples: " ++ e)
   for_ [sample, callee, thunk, nothing] $ \s => do
     Right () <- writeTopLevel w s

@@ -32,15 +32,18 @@ class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
 // label whether every force runs it), and the Idris instance it is of. The
 // body comes with the type, as an LLVM identified struct's does: the type
 // is made with it (define), every fact in it is decided before then, and a
-// pass that would change one makes a new type (DataRemap). Only the parser
-// and define ever see the type without its body, so no reader asks whether
-// it has one. A pattern or a verifier reads the type, never the module.
-// What a value of the type holds is computed once from the body and kept
-// with it. To upstream's walkers the type's sub-elements are its labels'
-// functions alone, so a symbol use of a label is a use of the type: its
-// fields are types of their own, which the walkers do not enter. Written
-// `!idr.data<"T", kind [@C(fields) role, ...] instance #idr.instance<...>>`,
-// and `!idr.data<"T">` only inside its own body (lib/IR/Types.cpp).
+// pass that would change one makes a new type (DataRemap). Only the parser,
+// define and the bytecode's table ever see the type without its body, so no
+// reader asks whether it has one. A pattern or a verifier reads the type,
+// never the module. What a value of the type holds is computed once from
+// the body and kept with it. To upstream's walkers the type's sub-elements
+// are its labels' functions alone, so a symbol use of a label is a use of
+// the type: its fields are types of their own, which the walkers do not
+// enter. Written `!idr.data<"T", kind [@C(fields) role, ...] instance
+// #idr.instance<...>>`, and `!idr.data<"T">` only inside its own body
+// (lib/IR/Types.cpp). In the frontend's bytecode a data type is written
+// once, its body in the module's table, and named everywhere else by its
+// place there (lib/IR/Bytecode.cpp).
 def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInterface]> {
   let summary = "a data type, identified by its name, whose body is its constructors";
   let parameters = (ins StringRefParameter<"the data type's identifier">:$name);
@@ -71,6 +74,16 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     static ::mlir::FailureOr<DataType> define(::mlir::MLIRContext *context,
                                               ::llvm::StringRef identifier,
                                               ::llvm::function_ref<Body(DataType self)> body);
+
+    // The module's table of data types in bytecode (its layout is above
+    // DataTable in IdrBytecode.td): readTable reads it into a TypeAttr of
+    // each member, every member's body set; member reads a data type's
+    // entry, the member `index` of `table`. Failure, or no type, after an
+    // error at the reader's location.
+    static ::mlir::LogicalResult readTable(::mlir::DialectBytecodeReader &reader,
+                                           ::mlir::ArrayAttr &table);
+    static ::mlir::Type member(::mlir::DialectBytecodeReader &reader, ::mlir::ArrayAttr table,
+                               uint64_t index);
 
     ::idr::SumKind getKind() const;
     // In tag order.
@@ -137,8 +150,8 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     ::idr::Held facts() const;
     std::optional<::idr::Held> knownFacts() const;
     void keepFacts(::idr::Held held) const;
-    // Whether the body is set yet: false only while the parser or define
-    // makes the type, when no fact of it is final.
+    // Whether the body is set yet: false only while the parser, define or
+    // the bytecode's table makes the type, when no fact of it is final.
     bool bodySet() const;
     static void walkLabels(DataType type, ::llvm::function_ref<void(::mlir::Attribute)> walk);
     static ::mlir::Type replaceLabels(DataType type, ::llvm::ArrayRef<::mlir::Attribute> labels);

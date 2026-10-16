@@ -18,6 +18,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Facts
         , IdrisMLIR.Term
         , IdrisMLIR.MLIR.Text
+        , IdrisMLIR.MLIR.Parts
         , IdrisMLIR.Syntax.Idr
         , IdrisMLIR.Syntax.Builtin
         , IdrisMLIR.Syntax.Arith
@@ -25,6 +26,8 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Syntax.UB
         , IdrisMLIR.Syntax.MemRef
         , IdrisMLIR.Syntax.Tensor
+        , IdrisMLIR.Encoding.Idr
+        , IdrisMLIR.Encoding.Builtin
         , IdrisMLIR.MLIR
         , IdrisMLIR.MLIR.Bytecode
         , IdrisMLIR.Dialect.Idr

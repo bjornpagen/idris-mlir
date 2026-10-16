@@ -451,7 +451,7 @@ alg ix (LamF l name b body) env expected = do
     plain ix l (body.result (bind [inner] env) result) >>= traverse (fit ix l result)
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a lambda whose body never returns"
-  rt <- mlirType ix t
+  let rt = mlirType t
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedLambda [MkArgument arg (Named name l)] ops' [rt]
   Just <$> holding ix l (FunT (MkBinder b.quantity param) t) captures (Idr.closureOp sym captures)
@@ -479,7 +479,7 @@ alg ix (SuspendF l body) env expected = do
       (r, ops) <- collect (plain ix l (body.result env result) >>= traverse (fit ix l result))
       Just t <- pure (result <|> map (.type) r)
         | Nothing => internal "the result type of a Delay whose body never returns"
-      rt <- mlirType ix t
+      let rt = mlirType t
       ops' <- epilogue ix l r ops
       (sym, captures) <- lift l LiftedDelay [] ops' [rt]
       Just <$> holding ix l (LazyT t) captures (Idr.suspendOp sym captures)

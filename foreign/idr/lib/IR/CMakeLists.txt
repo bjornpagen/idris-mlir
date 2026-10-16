@@ -14,6 +14,7 @@ add_public_tablegen_target(IdrCanonicalizeIncGen)
 # headers reach every library that includes the dialect's.
 add_mlir_dialect_library(IdrIR
 	Dialect.cpp
+	Bytecode.cpp
 	Ops.cpp
 	OpsCon.cpp
 	OpsMatch.cpp

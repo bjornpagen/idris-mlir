@@ -59,6 +59,26 @@ Show CmpFPredicate where
   show CmpFPredicate.UNO = "uno"
   show CmpFPredicate.AlwaysTrue = "true"
 
+||| The value of each CmpFPredicate.
+export
+cmpFPredicateValue : CmpFPredicate -> Nat
+cmpFPredicateValue CmpFPredicate.AlwaysFalse = 0
+cmpFPredicateValue CmpFPredicate.OEQ = 1
+cmpFPredicateValue CmpFPredicate.OGT = 2
+cmpFPredicateValue CmpFPredicate.OGE = 3
+cmpFPredicateValue CmpFPredicate.OLT = 4
+cmpFPredicateValue CmpFPredicate.OLE = 5
+cmpFPredicateValue CmpFPredicate.ONE = 6
+cmpFPredicateValue CmpFPredicate.ORD = 7
+cmpFPredicateValue CmpFPredicate.UEQ = 8
+cmpFPredicateValue CmpFPredicate.UGT = 9
+cmpFPredicateValue CmpFPredicate.UGE = 10
+cmpFPredicateValue CmpFPredicate.ULT = 11
+cmpFPredicateValue CmpFPredicate.ULE = 12
+cmpFPredicateValue CmpFPredicate.UNE = 13
+cmpFPredicateValue CmpFPredicate.UNO = 14
+cmpFPredicateValue CmpFPredicate.AlwaysTrue = 15
+
 namespace CmpIPredicate
   ||| allowed 64-bit signless integer cases: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
   public export
@@ -91,6 +111,20 @@ Show CmpIPredicate where
   show CmpIPredicate.Ugt = "ugt"
   show CmpIPredicate.Uge = "uge"
 
+||| The value of each CmpIPredicate.
+export
+cmpIPredicateValue : CmpIPredicate -> Nat
+cmpIPredicateValue CmpIPredicate.Eq = 0
+cmpIPredicateValue CmpIPredicate.Ne = 1
+cmpIPredicateValue CmpIPredicate.Slt = 2
+cmpIPredicateValue CmpIPredicate.Sle = 3
+cmpIPredicateValue CmpIPredicate.Sgt = 4
+cmpIPredicateValue CmpIPredicate.Sge = 5
+cmpIPredicateValue CmpIPredicate.Ult = 6
+cmpIPredicateValue CmpIPredicate.Ule = 7
+cmpIPredicateValue CmpIPredicate.Ugt = 8
+cmpIPredicateValue CmpIPredicate.Uge = 9
+
 namespace FastMathFlags
   ||| Floating point fast math flags
   public export
@@ -116,6 +150,17 @@ Show FastMathFlags where
   show FastMathFlags.Arcp = "arcp"
   show FastMathFlags.Contract = "contract"
   show FastMathFlags.Afn = "afn"
+
+||| The value of each FastMathFlags.
+export
+fastMathFlagsValue : FastMathFlags -> Nat
+fastMathFlagsValue FastMathFlags.Reassoc = 1
+fastMathFlagsValue FastMathFlags.Nnan = 2
+fastMathFlagsValue FastMathFlags.Ninf = 4
+fastMathFlagsValue FastMathFlags.Nsz = 8
+fastMathFlagsValue FastMathFlags.Arcp = 16
+fastMathFlagsValue FastMathFlags.Contract = 32
+fastMathFlagsValue FastMathFlags.Afn = 64
 
 -- How the syntax below spells each FastMathFlags.
 fastMathFlagsSpelling : FastMathFlags -> String
@@ -147,6 +192,12 @@ export
 Show IntegerOverflowFlags where
   show IntegerOverflowFlags.Nsw = "nsw"
   show IntegerOverflowFlags.Nuw = "nuw"
+
+||| The value of each IntegerOverflowFlags.
+export
+integerOverflowFlagsValue : IntegerOverflowFlags -> Nat
+integerOverflowFlagsValue IntegerOverflowFlags.Nsw = 1
+integerOverflowFlagsValue IntegerOverflowFlags.Nuw = 2
 
 -- How the syntax below spells each IntegerOverflowFlags.
 integerOverflowFlagsSpelling : IntegerOverflowFlags -> String
@@ -180,6 +231,15 @@ Show RoundingMode where
   show RoundingMode.TowardZero = "toward_zero"
   show RoundingMode.ToNearestAway = "to_nearest_away"
 
+||| The value of each RoundingMode.
+export
+roundingModeValue : RoundingMode -> Nat
+roundingModeValue RoundingMode.ToNearestEven = 0
+roundingModeValue RoundingMode.Downward = 1
+roundingModeValue RoundingMode.Upward = 2
+roundingModeValue RoundingMode.TowardZero = 3
+roundingModeValue RoundingMode.ToNearestAway = 4
+
 ------------------------------------------------------------------------------
 -- Attributes
 ------------------------------------------------------------------------------
@@ -212,4 +272,4 @@ arithAttrText : (t : ty -> String) -> (a : at -> String) -> ArithAttr ty at -> S
 arithAttrText t a (FastMathFlagsAttr value) = fastConcat ["#arith.fastmath<", (fastMathFlagsSpellings value), ">"]
 arithAttrText t a (IntegerOverflowFlagsAttr value) = fastConcat ["#arith.overflow<", (integerOverflowFlagsSpellings value), ">"]
 
--- fingerprint: 4291181153-971443 509352973-8240
+-- fingerprint: 3550233381-984164 1160600943-10420

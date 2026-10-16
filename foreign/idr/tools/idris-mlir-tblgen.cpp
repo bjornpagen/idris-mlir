@@ -14,6 +14,12 @@
 //   results; its discardable attributes; its primitives, the ops Idris
 //   names, each a constructor the Idris side builds it from; and the guards
 //   its partial ops take (compiler/src/IdrisMLIR/Dialect/).
+// - -gen-idris-bytecode, a dialect's bytecode entries for the Idris side,
+//   from the records in upstream's DSL (mlir/IR/BytecodeBase.td) that
+//   mlir-tblgen -gen-bytecode reads for the C++ reader: each record's code,
+//   and the parts of each record whose members it knows, so that the writer
+//   and the reader lay an entry out by one record
+//   (compiler/src/IdrisMLIR/Encoding/).
 // - -gen-runtime-abi-decls and -gen-runtime-abi-defs, the runtime's C
 //   functions the ops call (Idr_Runtime): their C prototypes, which the
 //   runtime's header includes, so that a definition that does not match its
@@ -42,8 +48,9 @@
 // whose syntax ODS does not declare is left out, with the reason, at the end
 // of the syntax module. The syntax of a type the generator knows by itself
 // is an identified type's (a TypeDef with MutableType), which no declarative
-// syntax can say: its name, then its body, which a type inside its own body
-// leaves out, as LLVM writes an identified struct.
+// syntax can say: its name alone. Its body is the module's, written once in
+// the module's table of data types, whose records the syntax module holds
+// and the bytecode writer writes.
 
 #include "idr/Support/Worklist.h"
 
@@ -63,6 +70,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/bit.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TableGen/Error.h"
@@ -71,6 +79,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -301,13 +310,11 @@ struct CaseField {
 };
 
 // The enums the dialect's ops, types and attributes take, by their ODS
-// records: written once each, in the syntax module, with their spellings if
-// a syntax prints one, and their values, in the ops' module, if an op stores
-// one as an integer; and the fields in which their cases name another
-// enum's.
+// records: written once each, in the syntax module, with their values and,
+// if a syntax prints one, their spellings; and the fields in which their
+// cases name another enum's.
 struct Enum {
   const llvm::Record *def;
-  bool values = false;
   bool spellings = false;
   std::vector<CaseField> caseFields = {};
 };
@@ -455,12 +462,25 @@ void emitEnum(const Enum &used, llvm::raw_ostream &os) {
   for (const EnumCase &c : cases)
     os << "  show " << qualifiedCase(info, c) << " = " << literal(c.getStr()) << "\n";
   os << "\n";
+  // The value of each case, beside the enum, for whatever writes a case as
+  // its value: an op's integer attribute, a bytecode entry. The Idris side
+  // holds it as a Nat, as a bytecode entry writes it (a VarInt); a negative
+  // value would be another value there, so it is refused here.
+  std::string lower = camel(name, false);
+  os << "||| The value of each " << name << ".\nexport\n"
+     << lower << "Value : " << name << " -> Nat\n";
+  for (const EnumCase &c : cases) {
+    if (c.getValue() < 0)
+      llvm::PrintFatalError(&c.getDef(), "the case " + c.getSymbol() + " of " + name +
+                                             " has a negative value");
+    os << lower << "Value " << qualifiedCase(info, c) << " = " << c.getValue() << "\n";
+  }
+  os << "\n";
   if (!used.spellings)
     return;
   // Private to the module, out of the way of whatever imports it. The
   // syntax spells a case as MLIR's enum parser reads it
   // (parseKeywordOrString): its string, quoted where it is no keyword.
-  std::string lower = camel(name, false);
   os << "-- How the syntax below spells each " << name << ".\n"
      << lower << "Spelling : " << name << " -> String\n";
   for (const EnumCase &c : cases)
@@ -494,21 +514,6 @@ void emitCaseFields(const Enum &used, llvm::raw_ostream &os) {
   }
 }
 
-// The values of an enum an op stores as an integer, private to the ops'
-// module too.
-void emitEnumValues(const Enum &used, llvm::raw_ostream &os) {
-  if (!used.values)
-    return;
-  EnumInfo info(used.def);
-  std::string name = enumName(info);
-  std::string lower = camel(name, false);
-  os << "-- The value that stands for a " << name << ", as the ops below write it.\n"
-     << lower << "Value : " << name << " -> Integer\n";
-  for (const EnumCase &c : info.getAllCases())
-    os << lower << "Value " << qualifiedCase(info, c) << " = " << c.getValue() << "\n";
-  os << "\n";
-}
-
 //===----------------------------------------------------------------------===//
 // Values of ops: builtin types and attributes
 //===----------------------------------------------------------------------===//
@@ -526,12 +531,13 @@ std::optional<std::string> builtinType(const llvm::Record &type) {
 }
 
 // How the ops' module writes a value of an enum stored as an integer of
-// `width` bits, which the generic form writes as its value.
+// `width` bits, which the generic form writes as its value: the syntax
+// module's value of the case.
 Kind enumValue(Enums &enums, const llvm::Record *def, int64_t width) {
   EnumInfo info(def);
   std::string name = enumName(info);
-  useEnum(enums, def).values = true;
-  return Kind{name, llvm::formatv("IntegerAttr ({0}Value {{0}) (IntegerType {1})",
+  useEnum(enums, def);
+  return Kind{name, llvm::formatv("IntegerAttr (natToInteger ({0}Value {{0})) (IntegerType {1})",
                                   camel(name, false), width)
                         .str()};
 }
@@ -1587,68 +1593,51 @@ bool isIdentified(const llvm::Record &record) {
                       [](const llvm::Record *trait) { return trait->getName() == "MutableType"; });
 }
 
-// An identified type, as its C++ printer writes it: `<"name">` inside its
-// own body, `<"name", kind [@C(fields) role by_name, ...] instance
-// #d.instance<origin, [arguments]>>` everywhere else. Its constructor holds
-// the name and, where it is written whole, the body: a record of the kind
-// (the enum its ODS names as `bodyKinds`), the constructors in tag order and
-// the instance. A constructor's role (the enum its ODS names as
-// `ctorRoles`) is written after its fields, by its keyword unless it is
-// plain, and a label's then names the label's function. The records and the
-// writer of a constructor are `preamble`, which goes before the sum of types
-// that holds them.
+// An identified type, as the Idris side writes it: by its name alone,
+// `<"name">`, which only a content key reads. Its body is written once, in
+// the module's table of data types, and `preamble`, before the sum of types,
+// holds the table's records: a body's kind (the enum its ODS names as
+// `bodyKinds`), its constructors in tag order and its instance, and each
+// constructor's name, fields, whether every force of it runs it, role (the
+// enum its ODS names as `ctorRoles`) and the function a label names. No type
+// holds a body.
 void identifiedOf(Enums &enums, const AttrOrTypeDef &def, StringRef sum, Def &out,
                   std::string &preamble) {
   const llvm::Record *kinds = def.getDef()->getValueAsDef("bodyKinds");
-  useEnum(enums, kinds).spellings = true;
+  useEnum(enums, kinds);
   std::string kind = enumName(EnumInfo(kinds));
   const llvm::Record *roles = def.getDef()->getValueAsDef("ctorRoles");
-  useEnum(enums, roles).spellings = true;
-  EnumInfo roleInfo(roles);
-  std::string role = enumName(roleInfo);
-  std::vector<EnumCase> roleCases = roleInfo.getAllCases();
-  auto plain = llvm::find_if(roleCases, [](const EnumCase &c) { return c.getSymbol() == "Plain"; });
-  if (plain == roleCases.end())
-    llvm::PrintFatalError(roles, role + " has no case Plain, the role written as nothing");
+  useEnum(enums, roles);
+  std::string role = enumName(EnumInfo(roles));
   std::string dialect = def.getDialect().getName().str();
   std::string module = lastName(moduleName).str();
   std::string ctor = module + "Ctor", body = module + "Sum";
-  std::string ctorText = camel(dialect, false) + "CtorText";
   std::string mnemonic = def.getMnemonic() ? def.getMnemonic()->str() : std::string();
   std::string spelling = "!" + dialect + "." + mnemonic;
   llvm::raw_string_ostream pre(preamble);
-  pre << "||| One constructor of a data type's body, as `" << spelling << "` writes it: its\n"
-      << "||| name, its fields' types, whether every force of it runs it, the part it\n"
-      << "||| plays in its sum, and the function it names, which only a label names.\n"
+  pre << "||| One constructor of a data type's body, as the module's table of data\n"
+      << "||| types holds it: its name, its fields' types, whether every force of it\n"
+      << "||| runs it, the part it plays in its sum, and the function it names, which\n"
+      << "||| only a label names.\n"
       << "public export\nrecord " << ctor << " ty where\n  constructor Mk" << ctor << "\n"
       << "  name : String\n  fields : List ty\n  byName : Bool\n  role : " << role << "\n"
       << "  fn : Maybe String\n\n"
-      << "||| A data type's body, as `" << spelling << "` writes it: what sum it is, its\n"
-      << "||| constructors in tag order, and the Idris instance it is of, its origin\n"
-      << "||| and arguments.\n"
+      << "||| A data type's body, as the module's table of data types holds it: what\n"
+      << "||| sum it is, its constructors in tag order, and the Idris instance it is\n"
+      << "||| of, its origin and arguments.\n"
       << "public export\nrecord " << body << " ty where\n  constructor Mk" << body << "\n"
       << "  kind : " << kind << "\n  ctors : List (" << ctor << " ty)\n"
-      << "  instanceOf : Maybe (String, List String)\n\n"
-      << "-- How `" << spelling << "` writes a constructor of its body.\n"
-      << ctorText << " : (t : ty -> String) -> " << ctor << " ty -> String\n"
-      << ctorText << " t c = fastConcat [symbol c.name, \"(\", commaSeparated (map t c.fields), "
-      << "\")\", if c.role == " << qualifiedCase(roleInfo, *plain) << " then \"\" else \" \" ++ "
-      << camel(role, false) << "Spelling c.role, maybe \"\" (\\f => \" \" ++ symbol f) c.fn, "
-      << "if c.byName then \" by_name\" else \"\"]\n\n";
+      << "  instanceOf : Maybe (String, List String)\n\n";
   std::string constructor =
       constructorName(def.getCppClassName().str(), "the type " + def.getCppClassName());
   llvm::raw_string_ostream decl(out.constructor);
   decl << "  ||| `" << spelling << "`" << summary(def.getSummary())
-       << "; written without its body inside its own body\n  " << constructor
-       << " : (name : String) -> (body : Maybe (" << body << " ty)) -> " << sum << " ty\n";
+       << "; written by its name, its body in the module's table of data types\n  "
+       << constructor << " : (name : String) -> " << sum << " ty\n";
   out.mnemonicName = mnemonic;
-  out.mnemonic = llvm::formatv("({0} _ _) = {1}", constructor, literal(mnemonic)).str();
-  out.text = llvm::formatv(
-                 "({0} name body) = fastConcat [{1}, utf8 name, maybe \"\" (\\b => fastConcat "
-                 "[\", \", {2}Spelling b.kind, \" [\", commaSeparated (map ({3} t) b.ctors), "
-                 "\"]\", maybe \"\" (\\i => fastConcat [\" instance #{4}.instance<\", utf8 (fst i), "
-                 "\", \", array utf8 (snd i), \">\"]) b.instanceOf]) body, \">\"]",
-                 constructor, literal(spelling + "<"), camel(kind, false), ctorText, dialect)
+  out.mnemonic = llvm::formatv("({0} _) = {1}", constructor, literal(mnemonic)).str();
+  out.text = llvm::formatv("({0} name) = fastConcat [{1}, utf8 name, \">\"]", constructor,
+                           literal(spelling + "<"))
                  .str();
 }
 
@@ -1687,7 +1676,8 @@ struct Vocabulary {
   std::optional<mlir::tblgen::Dialect> dialect;
   std::vector<Def> types, attrs;
   std::vector<std::string> omitted;
-  // What the sum of types holds besides types: an identified type's body.
+  // What goes before the sum of types: the records of the table that holds
+  // an identified type's body.
   std::string typesPreamble;
   std::string ops, primitives, guards;
   Enums enums;
@@ -1819,10 +1809,8 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
   if (syntaxModuleName.empty())
     llvm::PrintFatalError("-gen-idris-dialect needs -idris-syntax-module");
   Vocabulary v = read(records, "gen-idris-dialect");
-  std::string values, discardables;
-  llvm::raw_string_ostream valuesOs(values), discardablesOs(discardables);
-  for (const auto &[name, used] : v.enums)
-    emitEnumValues(used, valuesOs);
+  std::string discardables;
+  llvm::raw_string_ostream discardablesOs(discardables);
   emitDiscardable(*v.dialect, discardablesOs);
 
   writeLicense(os);
@@ -1831,11 +1819,322 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
      << "||| writes it (tools/dialects.sh). Do not edit.\n"
      << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR\nimport " << syntaxModuleName
      << "\n\n%default total\n\n";
-  section(os, "Enums", values);
   section(os, "Discardable attributes", discardables);
   section(os, "Ops", v.ops);
   section(os, "Primitives", v.primitives);
   section(os, "Guards", v.guards);
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Bytecode entries
+//===----------------------------------------------------------------------===//
+
+// A dialect's bytecode records are upstream's DSL (mlir/IR/BytecodeBase.td),
+// from which mlir-tblgen -gen-bytecode writes the C++ reader. Nothing
+// upstream writes Idris, so the Idris writer's encoders are generated here
+// from the same records, and an entry has one layout. A record's code is its
+// place in its dialect's `elems`, by which the reader dispatches. Its
+// encoder takes its members in order and gives its parts, its code first,
+// each member as the reader reads it: a member's kind is its parser
+// template, which WithType and WithGetter keep (so `WithType<"::mlir::
+// FunctionType", Type>` is a type, and a List<k> a k), and an array and a
+// composite are told by their DSL classes, as -gen-bytecode tells them. A
+// record with a member of any other kind has no encoder, and the module
+// says why.
+
+// How an encoder takes a member read by one of the reader's own methods, or
+// an enum, and writes it: its Idris type, and the expression of its parts
+// from a value `{0}` of it, one Part or, with `one` false, a List Part.
+struct Atom {
+  std::string type;
+  std::string parts;
+  bool one;
+};
+
+// The atoms, by the parser template each is read by. A dialect's attribute
+// or type as a member (a builtin StringAttr in a NamedAttribute) is read as
+// any attribute or type is. An attribute is its entry's number. A type is
+// the parts the writer gives for it: the number of its entry, or a field of
+// what holds it.
+std::optional<Atom> atomOf(StringRef parser) {
+  static const std::pair<StringRef, Atom> atoms[] = {
+      {"succeeded($_reader.readVarInt($_var))", {"Nat", "VarInt {0}", true}},
+      {"succeeded($_reader.readSignedVarInt($_var))", {"Integer", "SignedVarInt {0}", true}},
+      {"succeeded($_reader.readBool($_var))", {"Bool", "Flag {0}", true}},
+      {"succeeded($_reader.readString($_var))", {"String", "Str {0}", true}},
+      {"succeeded($_reader.readAttribute($_var))", {"AttrRef", "AttrAt {0}", true}},
+      {"succeeded($_reader.readAttribute<$_resultType>($_var))", {"AttrRef", "AttrAt {0}", true}},
+      {"succeeded($_reader.readType($_var))", {"List Part", "{0}", false}},
+      {"succeeded($_reader.readType<$_resultType>($_var))", {"List Part", "{0}", false}}};
+  for (const auto &[template_, atom] : atoms)
+    if (template_ == parser)
+      return atom;
+  return std::nullopt;
+}
+
+// A member of a record: an atom; an array of its one element, written as
+// its count and then each element; or a composite of its members, written
+// one after the other.
+struct Member {
+  enum Form { Atomic, Array, Composite } form;
+  Atom atom = {};
+  std::vector<Member> members = {};
+  std::vector<std::string> names = {}; // a composite's members' DSL names
+};
+
+// The member `def` declares, or nothing, with the reason in `why`. An enum
+// is a member that names its enum (Idr_Enum's `enumName`): the syntax
+// module's, whose value of a case is what the reader reads.
+std::optional<Member> memberOf(const llvm::Record *def, StringRef name, std::string &why) {
+  if (def->getValue("enumName")) {
+    std::string e = def->getValueAsString("enumName").str();
+    return Member{Member::Atomic, {e, "VarInt (" + camel(e, false) + "Value {0})", true}};
+  }
+  if (def->isSubClassOf("ArrayWithKnownSize")) {
+    why = llvm::formatv("its member `{0}` is an array whose count another member gives", name)
+              .str();
+    return std::nullopt;
+  }
+  if (def->isSubClassOf("Array")) {
+    std::optional<Member> element = memberOf(def->getValueAsDef("elemT"), name, why);
+    if (!element)
+      return std::nullopt;
+    return Member{Member::Array, {}, {*element}};
+  }
+  if (def->isSubClassOf("CompositeBytecode")) {
+    const llvm::DagInit *dag = def->getValueAsDag("members");
+    Member composite{Member::Composite};
+    for (unsigned i = 0, e = dag->getNumArgs(); i < e; ++i) {
+      StringRef inner = dag->getArgNameStr(i);
+      std::optional<Member> member =
+          memberOf(llvm::cast<llvm::DefInit>(dag->getArg(i))->getDef(), inner, why);
+      if (!member)
+        return std::nullopt;
+      composite.members.push_back(*member);
+      composite.names.push_back(inner.str());
+    }
+    return composite;
+  }
+  StringRef parser = def->getValueAsString("cParser");
+  if (std::optional<Atom> atom = atomOf(parser))
+    return Member{Member::Atomic, *atom};
+  why = llvm::formatv("its member `{0}` is read by `{1}`", name, parser).str();
+  return std::nullopt;
+}
+
+// The Idris type of a member: one word or a tuple, which an argument writes
+// as it is, or a type applied, which it parenthesizes.
+struct IdrisType {
+  std::string text;
+  bool closed;
+};
+
+IdrisType typeOf(const Member &m) {
+  switch (m.form) {
+  case Member::Atomic:
+    return {m.atom.type, !StringRef(m.atom.type).contains(' ')};
+  case Member::Array: {
+    IdrisType element = typeOf(m.members.front());
+    return {"List " + (element.closed ? element.text : "(" + element.text + ")"), false};
+  }
+  case Member::Composite: {
+    if (m.members.size() == 1)
+      return typeOf(m.members.front());
+    std::vector<std::string> types;
+    for (const Member &member : m.members)
+      types.push_back(typeOf(member).text);
+    return {"(" + llvm::join(types, ", ") + ")", true};
+  }
+  }
+  llvm_unreachable("a member is an atom, an array or a composite");
+}
+
+// The names an encoder's body uses unqualified, besides what it binds.
+bool isUsedInEncoders(StringRef name) {
+  static constexpr StringRef names[] = {"length", "map", "concat", "concatMap"};
+  return llvm::is_contained(names, name);
+}
+
+// A name for a member's value after its DSL name, hiding nothing the body
+// uses and no name bound around it.
+std::string fresh(StringRef dslName, std::set<std::string> &scope) {
+  std::string name = camel(dslName, false);
+  while (isReserved(name) || isUsedInEncoders(name) || scope.count(name))
+    name += '\'';
+  scope.insert(name);
+  return name;
+}
+
+// One piece of an encoder's parts: one Part, or a List Part.
+struct PartsPiece {
+  bool one;
+  std::string text;
+};
+
+// The expression of pieces: each run of single parts a list, the lists
+// joined by `++`.
+std::string partsExpression(const std::vector<PartsPiece> &pieces) {
+  std::vector<std::string> lists, run;
+  auto close = [&] {
+    if (!run.empty())
+      lists.push_back("[" + llvm::join(run, ", ") + "]");
+    run.clear();
+  };
+  for (const PartsPiece &piece : pieces) {
+    if (piece.one) {
+      run.push_back(piece.text);
+      continue;
+    }
+    close();
+    lists.push_back(piece.text);
+  }
+  close();
+  return lists.empty() ? "[]" : llvm::join(lists, " ++ ");
+}
+
+// Binds a member's value, under names fresh in `scope`: appends the pattern
+// that binds it to `patterns`, and the pieces that write it to `pieces`. An
+// array's elements are written by a function of one element, as the map
+// of a constructor where one part writes an element.
+void bindMember(const Member &m, StringRef name, std::set<std::string> &scope,
+                std::vector<std::string> &patterns, std::vector<PartsPiece> &pieces) {
+  switch (m.form) {
+  case Member::Atomic: {
+    std::string value = fresh(name, scope);
+    patterns.push_back(value);
+    pieces.push_back({m.atom.one, llvm::formatv(m.atom.parts.c_str(), value).str()});
+    return;
+  }
+  case Member::Array: {
+    std::string values = fresh(name, scope);
+    patterns.push_back(values);
+    pieces.push_back({true, "VarInt (length " + values + ")"});
+    std::set<std::string> inner = scope;
+    std::vector<std::string> elementPatterns;
+    std::vector<PartsPiece> element;
+    bindMember(m.members.front(), "x", inner, elementPatterns, element);
+    std::string pattern = elementPatterns.front();
+    if (element.size() == 1 && !element.front().one && element.front().text == pattern) {
+      pieces.push_back({false, "concat " + values});
+      return;
+    }
+    if (element.size() == 1 && element.front().one) {
+      StringRef text = element.front().text;
+      bool eta = text.ends_with(" " + pattern) &&
+                 !text.drop_back(pattern.size() + 1).contains(' ');
+      pieces.push_back({false, eta ? ("map " + text.drop_back(pattern.size() + 1) + " " + values).str()
+                                   : "map (\\" + pattern + " => " + text.str() + ") " + values});
+      return;
+    }
+    pieces.push_back({false, "concatMap (\\" + pattern + " => " + partsExpression(element) +
+                                 ") " + values});
+    return;
+  }
+  case Member::Composite: {
+    if (m.members.size() == 1) {
+      bindMember(m.members.front(), m.names.front(), scope, patterns, pieces);
+      return;
+    }
+    std::vector<std::string> inner;
+    for (auto [member, memberName] : llvm::zip(m.members, m.names))
+      bindMember(member, memberName, scope, inner, pieces);
+    patterns.push_back("(" + llvm::join(inner, ", ") + ")");
+    return;
+  }
+  }
+}
+
+// One record's code and encoder, or its code and why it has no encoder.
+void emitRecord(const llvm::Record *def, size_t code, StringRef what, llvm::raw_ostream &os,
+                std::vector<std::string> &omitted) {
+  std::string record = def->getName().str();
+  std::string codeName = camel(record, false) + "Code";
+  os << "||| The code of `" << record << "`, its place among the dialect's " << what
+     << "s.\nexport\n" << codeName << " : Nat\n" << codeName << " = " << code << "\n\n";
+  const llvm::DagInit *dag = def->getValueAsDag("members");
+  std::vector<Member> members;
+  std::vector<StringRef> names;
+  for (unsigned i = 0, e = dag->getNumArgs(); i < e; ++i) {
+    std::string why;
+    std::optional<Member> member =
+        memberOf(llvm::cast<llvm::DefInit>(dag->getArg(i))->getDef(), dag->getArgNameStr(i), why);
+    if (!member) {
+      omitted.push_back(llvm::formatv("{0} {1}: {2}", what, record, why).str());
+      return;
+    }
+    members.push_back(*member);
+    names.push_back(dag->getArgNameStr(i));
+  }
+  std::set<std::string> scope;
+  std::vector<std::string> patterns;
+  std::vector<PartsPiece> pieces{{true, "VarInt " + codeName}};
+  for (auto [member, name] : llvm::zip(members, names))
+    bindMember(member, name, scope, patterns, pieces);
+  std::string encoder = "encode" + record;
+  os << "||| The parts of `" << record << "`: its code";
+  for (StringRef name : names)
+    os << ", `" << name << "`";
+  os << ".\nexport\n" << encoder << " : ";
+  for (const Member &member : members) {
+    IdrisType type = typeOf(member);
+    os << type.text << " -> ";
+  }
+  os << "List Part\n" << encoder;
+  for (const std::string &pattern : patterns)
+    os << " " << pattern;
+  os << " = " << partsExpression(pieces) << "\n\n";
+}
+
+// The records of the dialect's types or attributes, in `elems` order: the
+// list of the DialectTypes or DialectAttributes of -idris-dialect. The DSL
+// names a dialect as its C++ class does (`Idr`, `Builtin`), ODS by its
+// namespace (`idr`, `builtin`), so the two are compared without case.
+std::vector<const llvm::Record *> elemsOf(const llvm::RecordKeeper &records, StringRef kind,
+                                          bool &found) {
+  std::vector<const llvm::Record *> elems;
+  for (const llvm::Record *def : records.getAllDerivedDefinitionsIfDefined(kind))
+    if (def->getValueAsString("dialect").equals_insensitive(dialectName)) {
+      elems = def->getValueAsListOfDefs("elems");
+      found = true;
+    }
+  return elems;
+}
+
+bool emitIdrisBytecode(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
+  if (dialectName.empty() || moduleName.empty() || syntaxModuleName.empty())
+    llvm::PrintFatalError(
+        "-gen-idris-bytecode needs -idris-dialect, -idris-module and -idris-syntax-module");
+  bool found = false;
+  std::vector<const llvm::Record *> types = elemsOf(records, "DialectTypes", found);
+  std::vector<const llvm::Record *> attrs = elemsOf(records, "DialectAttributes", found);
+  if (!found)
+    llvm::PrintFatalError("no bytecode records of the dialect " + dialectName);
+  std::string typesText, attrsText;
+  llvm::raw_string_ostream typesOs(typesText), attrsOs(attrsText);
+  std::vector<std::string> omitted;
+  for (auto [code, def] : llvm::enumerate(types))
+    emitRecord(def, code, "type", typesOs, omitted);
+  for (auto [code, def] : llvm::enumerate(attrs))
+    emitRecord(def, code, "attribute", attrsOs, omitted);
+
+  writeLicense(os);
+  os << "||| The " << dialectName << " dialect's bytecode entries, as the Idris side writes\n"
+     << "||| them: the code of each of its records, and the parts of each record whose\n"
+     << "||| members' kinds are known, from its members in order, a type as the parts\n"
+     << "||| the writer gives for it. Generated by idris-mlir-tblgen -gen-idris-bytecode\n"
+     << "||| from the dialect's bytecode records, from which mlir-tblgen -gen-bytecode\n"
+     << "||| writes the C++ reader; `make build` writes it (tools/dialects.sh). Do not\n"
+     << "||| edit.\n"
+     << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR.Parts\nimport " << syntaxModuleName
+     << "\n\n%default total\n\n";
+  section(os, "Types", typesText);
+  section(os, "Attributes", attrsText);
+  if (!omitted.empty()) {
+    os << "-- Not generated:\n";
+    for (const std::string &why : omitted)
+      os << "-- " << why << "\n";
+  }
   return false;
 }
 
@@ -2212,6 +2511,9 @@ const mlir::GenRegistration genIdrisSyntax("gen-idris-syntax",
 const mlir::GenRegistration genIdrisDialect("gen-idris-dialect",
                                             "The Idris side's ops of a dialect",
                                             emitIdrisDialect);
+const mlir::GenRegistration genIdrisBytecode("gen-idris-bytecode",
+                                             "The Idris side's bytecode entries of a dialect",
+                                             emitIdrisBytecode);
 const mlir::GenRegistration
     genRuntimeAbiDecls("gen-runtime-abi-decls",
                        "The C declarations of the runtime functions the ops call",

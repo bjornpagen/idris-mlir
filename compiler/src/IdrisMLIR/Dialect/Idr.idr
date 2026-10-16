@@ -11,25 +11,6 @@ import IdrisMLIR.Syntax.Idr
 %default total
 
 ------------------------------------------------------------------------------
--- Enums
-------------------------------------------------------------------------------
-
--- The value that stands for a CmpPredicate, as the ops below write it.
-cmpPredicateValue : CmpPredicate -> Integer
-cmpPredicateValue CmpPredicate.Eq = 0
-cmpPredicateValue CmpPredicate.Lt = 1
-cmpPredicateValue CmpPredicate.Lte = 2
-cmpPredicateValue CmpPredicate.Gt = 3
-cmpPredicateValue CmpPredicate.Gte = 4
-
--- The value that stands for a Stage, as the ops below write it.
-stageValue : Stage -> Integer
-stageValue Stage.Higher = 0
-stageValue Stage.First = 1
-stageValue Stage.Owned = 2
-stageValue Stage.Lowered = 3
-
-------------------------------------------------------------------------------
 -- Ops
 ------------------------------------------------------------------------------
 
@@ -85,7 +66,7 @@ bigAndOp lhs rhs result =
 export
 bigCmpOp : (predicate : CmpPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 bigCmpOp predicate lhs rhs result =
-  MkOp "idr.big.cmp" [lhs, rhs] [("predicate", IntegerAttr (cmpPredicateValue predicate) (IntegerType 64))] [] [] [result]
+  MkOp "idr.big.cmp" [lhs, rhs] [("predicate", IntegerAttr (natToInteger (cmpPredicateValue predicate)) (IntegerType 64))] [] [] [result]
 
 ||| `idr.big.div`: the quotient of two bigs, as Integer's div and mod, by a divisor that is not zero
 export
@@ -871,7 +852,7 @@ ownGiveOp value result =
 export
 programOp : (symName : String) -> (root : String) -> (stage : Stage) -> (bodyRegion : Region) -> Op
 programOp symName root stage bodyRegion =
-  MkOp "idr.program" [] [("sym_name", StringAttr symName), ("root", SymbolRefAttr (MkSymbolRef root [])), ("stage", IntegerAttr (stageValue stage) (IntegerType 32))] [bodyRegion] [] []
+  MkOp "idr.program" [] [("sym_name", StringAttr symName), ("root", SymbolRefAttr (MkSymbolRef root [])), ("stage", IntegerAttr (natToInteger (stageValue stage)) (IntegerType 32))] [bodyRegion] [] []
 
 ||| `idr.return`: returns from a function
 export
@@ -925,7 +906,7 @@ strBytesLengthOp str result =
 export
 strCmpOp : (predicate : CmpPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 strCmpOp predicate lhs rhs result =
-  MkOp "idr.str.cmp" [lhs, rhs] [("predicate", IntegerAttr (cmpPredicateValue predicate) (IntegerType 64))] [] [] [result]
+  MkOp "idr.str.cmp" [lhs, rhs] [("predicate", IntegerAttr (natToInteger (cmpPredicateValue predicate)) (IntegerType 64))] [] [] [result]
 
 ||| `idr.str.concat`: the concatenation of a list of strings, built once
 export
@@ -1513,4 +1494,4 @@ guardsOf (MkOp "idr.str.tail" _ _ _ _ _) = [MkGuard 0 Nonempty "tail of an empty
 guardsOf (MkOp "idr.to_int" _ _ _ _ _) = [MkGuard 0 Finite "cast of a non-finite Double"]
 guardsOf _ = []
 
--- fingerprint: 1234605846-1398062 3373916402-67030
+-- fingerprint: 2009807748-1411435 1935744548-66391

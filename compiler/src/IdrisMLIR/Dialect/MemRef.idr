@@ -11,29 +11,6 @@ import IdrisMLIR.Syntax.MemRef
 %default total
 
 ------------------------------------------------------------------------------
--- Enums
-------------------------------------------------------------------------------
-
--- The value that stands for a AtomicRMWKind, as the ops below write it.
-atomicRMWKindValue : AtomicRMWKind -> Integer
-atomicRMWKindValue AtomicRMWKind.Addf = 0
-atomicRMWKindValue AtomicRMWKind.Addi = 1
-atomicRMWKindValue AtomicRMWKind.Andi = 2
-atomicRMWKindValue AtomicRMWKind.Assign = 3
-atomicRMWKindValue AtomicRMWKind.Maximumf = 4
-atomicRMWKindValue AtomicRMWKind.Maxnumf = 5
-atomicRMWKindValue AtomicRMWKind.Maxs = 6
-atomicRMWKindValue AtomicRMWKind.Maxu = 7
-atomicRMWKindValue AtomicRMWKind.Minimumf = 8
-atomicRMWKindValue AtomicRMWKind.Minnumf = 9
-atomicRMWKindValue AtomicRMWKind.Mins = 10
-atomicRMWKindValue AtomicRMWKind.Minu = 11
-atomicRMWKindValue AtomicRMWKind.Mulf = 12
-atomicRMWKindValue AtomicRMWKind.Muli = 13
-atomicRMWKindValue AtomicRMWKind.Ori = 14
-atomicRMWKindValue AtomicRMWKind.Xori = 15
-
-------------------------------------------------------------------------------
 -- Ops
 ------------------------------------------------------------------------------
 
@@ -71,7 +48,7 @@ assumeAlignmentOp memref alignment result =
 export
 atomicRmwOp : (kind : AtomicRMWKind) -> (value : Value) -> (memref : Value) -> (indices : List Value) -> (result : MlirType) -> Op
 atomicRmwOp kind value memref indices result =
-  MkOp "memref.atomic_rmw" (concat [[value], [memref], indices]) [("kind", IntegerAttr (atomicRMWKindValue kind) (IntegerType 64))] [] [] [result]
+  MkOp "memref.atomic_rmw" (concat [[value], [memref], indices]) [("kind", IntegerAttr (natToInteger (atomicRMWKindValue kind)) (IntegerType 64))] [] [] [result]
 
 ||| `memref.atomic_yield`: yield operation for GenericAtomicRMWOp
 export
@@ -229,4 +206,4 @@ viewOp : (source : Value) -> (byteShift : Value) -> (sizes : List Value) -> (res
 viewOp source byteShift sizes result0 =
   MkOp "memref.view" (concat [[source], [byteShift], sizes]) [] [] [] [result0]
 
--- fingerprint: 2777922695-1009284 2525800889-12629
+-- fingerprint: 1240240407-1022005 2565779856-11663
