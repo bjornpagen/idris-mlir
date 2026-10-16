@@ -99,17 +99,19 @@ public export
 chainOf : Item -> List Request
 chainOf it = it.request :: it.above
 
-||| The requests an instance made, judged: each one under the instance's
-||| chain, and new to it.
-Under : List Request -> List Item -> Type
-Under c new = All (\k => (k.above = c, New Older c k.request)) new
+||| The chains of items, in order.
+0 chains : List (Subset Item p) -> List (List Request)
+chains [] = []
+chains (Element it _ :: items) = chainOf it :: chains items
 
-||| The requests an instance made, as items, with the erased evidence that
-||| each is under its chain and new to it.
-record Judged (chain : List Request) where
-  constructor MkJudged
-  items : List Item
-  0 under : Under chain items
+||| A request judged under a chain: an item under it, and new to it.
+Under : List Request -> Item -> Type
+Under c k = (k.above = c, New Older c k.request)
+
+||| The requests an instance made, judged: each one an item with the erased
+||| evidence that it is under the instance's chain and new to it.
+Judged : List Request -> Type
+Judged chain = List (Subset Item (Under chain))
 
 ------------------------------------------------------------------------------
 -- Judging requests
@@ -147,17 +149,17 @@ requestedUnder earlier = do
   judge (st.requested <>> [])
   where
     judge : List Request -> Core (Judged earlier)
-    judge [] = pure (MkJudged [] [])
+    judge [] = pure []
     judge (r :: rs) = case admit requestLink earlier r of
       Admitted new => do
-        MkJudged rest under <- judge rs
-        pure (MkJudged (MkItem r earlier :: rest) ((Refl, new) :: under))
-      Refused x _ (Grown _ g) => refusal x r (position g)
+        rest <- judge rs
+        pure (Element (MkItem r earlier) (Refl, new) :: rest)
+      Refused x _ _ (GrownAt i) _ => refusal x r i
       -- A broken invariant: a request of a definition has one argument per
       -- parameter of its case tree (every call classifies `length params`
       -- of the definition's `PMDef`, and the root, `main`, has none), so
       -- two links of one definition have one length.
-      Refused _ _ (Arity _ _) => do
+      Refused _ _ _ OtherArity _ => do
         internal r.site ("a definition requested at two numbers of arguments: " ++
                          nameKey !(toFullNames r.name))
       -- A broken invariant: a request is recorded only for an instance not
@@ -166,7 +168,7 @@ requestedUnder earlier = do
       -- was requested and stays seen for the pass (a rejected instance
       -- restores the state from before it), so a recorded request is new
       -- to its chain.
-      Refused _ _ (Again _) =>
+      Refused _ _ _ Repeated _ =>
         internal r.site ("an instance requested again as new on its own chain: " ++ r.inst.name)
 
 ------------------------------------------------------------------------------
@@ -181,47 +183,60 @@ anyNonEmpty : Any p xs -> NonEmpty xs
 anyNonEmpty (Here _) = IsNonEmpty
 anyNonEmpty (There _) = IsNonEmpty
 
-allReverse : {0 p : a -> Type} -> (xs : List a) -> All p xs -> All p (reverse xs)
-allReverse xs ps = go [] xs [] ps
-  where
-    go : (acc, ys : List a) -> All p acc -> All p ys -> All p (reverseOnto acc ys)
-    go acc [] pacc [] = pacc
-    go acc (y :: ys) pacc (py :: pys) = go (y :: acc) ys (py :: pacc) pys
+||| An item of a generation: its chain is one of the generation's.
+Member : List (List Request) -> Item -> Type
+Member gen it = Elem (chainOf it) gen
 
-allMap : {0 p : b -> Type} -> (f : a -> b) -> (xs : List a) -> All (p . f) xs -> All p (map f xs)
-allMap f [] [] = []
-allMap f (x :: xs) (px :: pxs) = px :: allMap f xs pxs
+||| An item of the next generation: its chain extends one of the
+||| generation's by a request new to it.
+Below : List (List Request) -> Item -> Type
+Below gen it = Any (Extends Older (chainOf it)) gen
 
--- Each item of a generation has its chain in the generation.
-inGeneration : (items : List Item) -> All (\it => Elem (chainOf it) (map Finite.chainOf items)) items
-inGeneration [] = []
-inGeneration (it :: items) =
-  Here :: mapProperty There (inGeneration items)
+-- The chains `rest` end the generation `gen`.
+data Ends : (rest, gen : List (List Request)) -> Type where
+  Whole : Ends gen gen
+  Past : Ends (c :: rest) gen -> Ends rest gen
+
+0 endsElem : Ends rest gen -> Elem c rest -> Elem c gen
+endsElem Whole e = e
+endsElem (Past ends) e = endsElem ends (There e)
+
+-- The items that end a generation, each with its place in it.
+placed : (0 gen : List (List Request)) -> (rest : List (Subset Item p)) -> (0 _ : Ends (chains rest) gen) ->
+         List (Subset Item (Member gen))
+placed gen [] _ = []
+placed gen (Element it _ :: rest) ends = Element it (endsElem ends Here) :: placed gen rest (Past ends)
 
 -- A request judged under a chain extends it.
 extends : (k : Item) -> k.above = c -> New Older c k.request -> Extends Older (chainOf k) c
 extends (MkItem r above) eq new = rewrite eq in Extend new
 
--- The requests of an instance of the generation are below the generation.
-belowGeneration : {0 gen : List (List Request)} -> (new : List Item) -> Elem c gen -> Under c new ->
-                  All (\k => Any (Extends Older (chainOf k)) gen) new
-belowGeneration [] _ [] = []
-belowGeneration (k :: ks) here ((eq, fresh) :: under) =
-  elemAny here (extends k eq fresh) :: belowGeneration ks here under
+-- The requests an item of the generation made, below the generation,
+-- before the next generation so far, the newest first.
+pushBelow : {0 gen : List (List Request)} -> (0 _ : Elem c gen) ->
+            Judged c -> List (Subset Item (Below gen)) -> List (Subset Item (Below gen))
+pushBelow here [] next = next
+pushBelow here (Element k under :: new) next =
+  pushBelow here new (Element k (elemAny here (extends k (fst under) (snd under))) :: next)
+
+-- Each chain of the next generation is below one of the generation's.
+0 belowAll : (next : List (Subset Item (Below gen))) -> All (\c => Any (Extends Older c) gen) (chains next)
+belowAll [] = []
+belowAll (Element _ below :: next) = below :: belowAll next
 
 -- The first generation, the root's requests, is accessible: each chain is
 -- a request alone.
-0 firstGeneration : (roots : List Item) -> Under [] roots ->
-                    All (Accessible (Extends Older)) (map Finite.chainOf roots)
-firstGeneration [] [] = []
-firstGeneration (MkItem r above :: roots) ((eq, _) :: under) =
-  rewrite eq in chainsEnd requestLink [r] ([] :: [])
-    :: firstGeneration roots under
+0 firstGeneration : (roots : Judged []) -> All (Accessible (Extends Older)) (chains roots)
+firstGeneration [] = []
+firstGeneration (Element (MkItem r above) under :: roots) =
+  rewrite fst under in chainsEnd requestLink [r] ([] :: [])
+    :: firstGeneration roots
 
 ||| One pass: the generation and the proof that the generations from it
-||| end, the items of it still to take, each one's chain in it, and the
-||| next generation so far, newest first, each one's chain extending a
-||| chain of the generation by a request new to it. An instance its
+||| end, the items of it still to take, each with the erased evidence that
+||| its chain is in it, and the next generation so far, newest first, each
+||| with the erased evidence that its chain extends a chain of the
+||| generation by a request new to it. An instance its
 ||| translation or the judgment of its requests rejects is recorded and
 ||| leaves the state as it was before it, the instances it requested
 ||| included, but for the rejections and what they refused, and what it
@@ -230,27 +245,22 @@ firstGeneration (MkItem r above :: roots) ((eq, _) :: under) =
 pass : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
        (translate : Request -> Core ()) ->
        (0 gen : List (List Request)) -> (0 _ : Accessible (Follows (Extends Older)) gen) ->
-       (todo : List Item) -> (0 _ : All (\it => Elem (chainOf it) gen) todo) ->
-       (next : List Item) -> (0 _ : All (\it => Any (Extends Older (chainOf it)) gen) next) ->
+       (todo : List (Subset Item (Member gen))) -> (next : List (Subset Item (Below gen))) ->
        Core ()
-pass translate gen acc (it :: todo) (here :: there) next below = do
+pass translate gen acc@(Access _) (Element it here :: todo) next = do
   update TState { chain := chainOf it }
   before <- get TState
   Nothing <- noting (do translate it.request; requestedUnder (chainOf it))
-    | Just (MkJudged new under) =>
-        pass translate gen acc todo there (reverse new ++ next)
-             (allReverse new (belowGeneration new here under) ++ below)
+    | Just new => pass translate gen acc todo (pushBelow here new next)
   after <- get TState
   put TState ({ rejected := after.rejected, refused := after.refused, places := after.places
               , tyCons := after.tyCons, loops := after.loops, blockNames := after.blockNames } before)
-  pass translate gen acc todo there next below
-pass translate gen (Access more) [] [] [] [] = pure ()
-pass translate gen (Access more) [] [] (k :: ks) below =
-  pass translate (map chainOf (reverse (k :: ks)))
-       (more (map chainOf (reverse (k :: ks)))
-             (MkFollows (anyNonEmpty (head below))
-                        (allMap chainOf (reverse (k :: ks)) (allReverse (k :: ks) below))))
-       (reverse (k :: ks)) (inGeneration (reverse (k :: ks))) [] []
+  pass translate gen acc todo next
+pass translate gen (Access more) [] [] = pure ()
+pass translate gen (Access more) [] next@(Element _ below :: _) =
+  let items := reverse next in
+  pass translate (chains items) (more (chains items) (MkFollows (anyNonEmpty below) (belowAll items)))
+       (placed (chains items) items Whole) []
 
 ||| A dictionary field the pass matched before any construction site gave
 ||| it, which one has given since, and which was not known when the pass
@@ -305,9 +315,9 @@ translateFrom root translate = do
     passes known = do
       Just inst <- root
         | Nothing => pure Nothing
-      MkJudged roots under <- requestedUnder []
-      pass translate (map chainOf roots) (generations (map chainOf roots) (firstGeneration roots under))
-           roots (inGeneration roots) [] []
+      roots <- requestedUnder []
+      pass translate (chains roots) (generations (chains roots) (firstGeneration roots))
+           (placed (chains roots) roots Whole) []
       st <- get TState
       let Just _ = learnt known st
         | Nothing => pure (Just inst)

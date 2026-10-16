@@ -43,7 +43,8 @@ checkAs rig elabinfo nest env fc nameFC side n_in pat topexp
                     (tm, exp, bty) <- mkPatternHole nameFC rig n env
                                             (implicitMode elabinfo)
                                             topexp
-                    log "elab.as" 5 $ "Added as pattern name " ++ show (n, (rigAs, tm, exp, bty))
+                    log "elab.as" 5 $ "Added as pattern name (" ++ show n ++ ", (" ++ show rigAs ++ ", (" ++
+                                       showTerm tm ++ ", (" ++ showTerm exp ++ ", " ++ showTerm bty ++ "))))"
                     defs <- get Ctxt
                     update EST { boundNames $= ((n, AsBinding rigAs Explicit tm exp pattm) :: ),
                                  toBind $= ((n, AsBinding rigAs Explicit tm bty pattm) ::) }

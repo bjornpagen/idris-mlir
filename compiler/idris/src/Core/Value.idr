@@ -232,6 +232,13 @@ HasNames (NF free) where
   resolved defs (NErased fc imp) = pure $ NErased fc imp
   resolved defs (NType fc n) = pure $ NType fc !(resolved defs n)
 
+||| A value with its names made full, as a log shows it. Its scope is taken
+||| at quantity 0: no name depends on it, so the implementation is one for
+||| every scope, never one chosen by a scope known only at runtime.
+export
+toFullNF : {auto c : Ref Ctxt Defs} -> {0 free : Scope} -> NF free -> Core (NF free)
+toFullNF = toFullNames
+
 export
 covering
 {free : _} -> Show (NF free) where

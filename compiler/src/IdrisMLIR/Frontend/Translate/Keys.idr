@@ -39,6 +39,7 @@ import Data.Nat
 import Data.List
 import Data.SnocList
 import Data.SortedMap
+import Data.SortedSet
 import Data.List.Quantifiers
 import Data.String
 import Data.Vect
@@ -443,7 +444,7 @@ node : Form -> Token Form
 node f = Node f Nothing 0
 
 glyphOf : Char -> Glyph
-glyphOf c = let k = cast {to = Integer} (ord c) in (restrict 1087 (k `div` 1024), restrict 1023 (k `mod` 1024))
+glyphOf c = let k = cast {to = Integer} (ord c) in (lowBits 11 (k `div` 1024), lowBits 10 k)
 
 spellChars : List Char -> List (Token Form)
 spellChars [] = []
@@ -482,88 +483,162 @@ referenceTo : Context -> Name -> Maybe Nat -> List (Token Form)
 referenceTo ctx n (Just i) = [Number (Shaped Marker) i]
 referenceTo ctx n Nothing = [Node (Shaped Reference) (definitionAddress ctx n) 0]
 
+||| What writing a term reads beside it: the context, which gives each name
+||| its address, and the successors of the `Nat`-like types the term names
+||| (`successorsIn`), by address.
+record Writer where
+  constructor MkWriter
+  context : Context
+  successors : SortedSet Address
+
+||| The successor a term is, if it is a constructor the writer knows as one.
+successorOf : Writer -> TT vs -> Maybe Address
+successorOf w (Ref _ (DataCon _ _) n) = case definitionAddress w.context n of
+  Just a => if contains a w.successors then Just a else Nothing
+  Nothing => Nothing
+successorOf w _ = Nothing
+
+||| A run of one successor before a written term: the successor's node,
+||| and a magnitude, which for a run of one is 0.
+runOfOne : Address -> List (Token Form) -> List (Token Form)
+runOfOne s ts = Node (Shaped Successors) (Just s) 0 :: Number (Shaped Successors) 0 :: ts
+
+||| Do two symbols start a run of the successor?
+runOf : Address -> Token Form -> Form -> Bool
+runOf s (Node (Shaped Successors) (Just s') _) (Shaped Successors) = sameAddress s s'
+runOf _ _ _ = False
+
+||| A run one successor longer, if the symbols start a run of it; a run of
+||| one before them, if not.
+lengthened : (starts : Bool) -> Address -> Token Form -> Form -> Nat -> List (Token Form) -> List (Token Form)
+lengthened True s t g m rest = t :: Number g (S (S m)) :: rest
+lengthened False s t g m rest = runOfOne s (t :: Number g m :: rest)
+
+||| A successor applied to a term written: the run the term starts with,
+||| if it is one of the same successor, one longer; else a run of one. A
+||| run of `n` weighs `2n`, as the `n` applications and references of the
+||| successor it stands for do, so an argument weighs what it weighed
+||| spelt out, and a run is two symbols however long it is.
+succeeding : Address -> List (Token Form) -> List (Token Form)
+succeeding s (t :: Number g m :: rest) = lengthened (runOf s t g) s t g m rest
+succeeding s ts = runOfOne s ts
+
 mutual
   ||| A term in prefix order, a symbol per node: what Idris's `==` tells
   ||| terms apart by, but for doubles, which their prints tell apart (0.0
   ||| and -0.0 are two, every NaN is one); no location, no binder's name.
   ||| A name is its address in the context, a marker its number; a name
   ||| the context does not hold is no instance's (`unresolved`), and a
-  ||| request of one stops before it is written.
-  write : Context -> TT vs -> List (Token Form)
-  write ctx (Local _ _ idx _) = [Node (Shaped Variable) Nothing idx]
-  write ctx (Ref _ _ n) = referenceTo ctx n (markerOf n)
-  write ctx (Meta _ _ i args) = Node (Shaped Hole) (Just (addressOf i)) (length args) :: writeAll ctx args
-  write ctx (Bind _ _ b sc) = writeBinder ctx b ++ write ctx sc
-  write ctx (App _ f a) = node (Shaped Applied) :: (write ctx f ++ write ctx a)
-  write ctx (As _ _ a p) = node (Shaped AsPattern) :: (write ctx a ++ write ctx p)
-  write ctx (TDelayed _ _ t) = node (Shaped LazyType) :: write ctx t
-  write ctx (TDelay _ _ t a) = node (Shaped Suspended) :: (write ctx t ++ write ctx a)
-  write ctx (TForce _ _ t) = node (Shaped Forced) :: write ctx t
-  write ctx (PrimVal _ c) = writeConstant c
-  write ctx (Erased _ Placeholder) = [node (Shaped Placeholder)]
-  write ctx (Erased _ Impossible) = [node (Shaped Impossible)]
-  write ctx (Erased _ (Dotted t)) = node (Shaped Dotted) :: write ctx t
-  write ctx (TType _ _) = [node (Shaped Universe)]
+  ||| request of one stops before it is written. A run of a `Nat`-like
+  ||| type's successor, a literal's above all (`Fin 1024`), is two symbols.
+  write : Writer -> TT vs -> List (Token Form)
+  write w (Local _ _ idx _) = [Node (Shaped Variable) Nothing idx]
+  write w (Ref _ _ n) = referenceTo w.context n (markerOf n)
+  write w (Meta _ _ i args) = Node (Shaped Hole) (Just (addressOf i)) (length args) :: writeAll w args
+  write w (Bind _ _ b sc) = writeBinder w b ++ write w sc
+  write w (App _ f a) = writeApplication w (successorOf w f) f a
+  write w (As _ _ a p) = node (Shaped AsPattern) :: (write w a ++ write w p)
+  write w (TDelayed _ _ t) = node (Shaped LazyType) :: write w t
+  write w (TDelay _ _ t a) = node (Shaped Suspended) :: (write w t ++ write w a)
+  write w (TForce _ _ t) = node (Shaped Forced) :: write w t
+  write w (PrimVal _ c) = writeConstant c
+  write w (Erased _ Placeholder) = [node (Shaped Placeholder)]
+  write w (Erased _ Impossible) = [node (Shaped Impossible)]
+  write w (Erased _ (Dotted t)) = node (Shaped Dotted) :: write w t
+  write w (TType _ _) = [node (Shaped Universe)]
 
-  writeAll : Context -> List (TT vs) -> List (Token Form)
-  writeAll ctx [] = []
-  writeAll ctx (t :: ts) = write ctx t ++ writeAll ctx ts
+  ||| An application, by its function: a successor, which runs with what
+  ||| it is applied to, or any other.
+  writeApplication : Writer -> Maybe Address -> TT vs -> TT vs -> List (Token Form)
+  writeApplication w (Just s) f a = succeeding s (write w a)
+  writeApplication w Nothing f a = node (Shaped Applied) :: (write w f ++ write w a)
 
-  writeBinder : Context -> TTBinder (TT vs) -> List (Token Form)
-  writeBinder ctx (Lam _ q info ty) = writePassing ctx Lambda q info ++ write ctx ty
-  writeBinder ctx (Let _ q v ty) = node (Bound LetIn (quantity q) ByHand) :: (write ctx v ++ write ctx ty)
-  writeBinder ctx (Pi _ q info ty) = writePassing ctx PiType q info ++ write ctx ty
-  writeBinder ctx (PVar _ q info ty) = writePassing ctx Pattern q info ++ write ctx ty
-  writeBinder ctx (PLet _ q v ty) = node (Bound PatternLet (quantity q) ByHand) :: (write ctx v ++ write ctx ty)
-  writeBinder ctx (PVTy _ q ty) = node (Bound PatternType (quantity q) ByHand) :: write ctx ty
+  writeAll : Writer -> List (TT vs) -> List (Token Form)
+  writeAll w [] = []
+  writeAll w (t :: ts) = write w t ++ writeAll w ts
 
-  writePassing : Context -> Binding -> RigCount -> PiInfo (TT vs) -> List (Token Form)
-  writePassing ctx b q Implicit = [node (Bound b (quantity q) ByUnification)]
-  writePassing ctx b q Explicit = [node (Bound b (quantity q) ByHand)]
-  writePassing ctx b q AutoImplicit = [node (Bound b (quantity q) BySearch)]
-  writePassing ctx b q (DefImplicit t) = node (Bound b (quantity q) ByDefault) :: write ctx t
+  writeBinder : Writer -> TTBinder (TT vs) -> List (Token Form)
+  writeBinder w (Lam _ q info ty) = writePassing w Lambda q info ++ write w ty
+  writeBinder w (Let _ q v ty) = node (Bound LetIn (quantity q) ByHand) :: (write w v ++ write w ty)
+  writeBinder w (Pi _ q info ty) = writePassing w PiType q info ++ write w ty
+  writeBinder w (PVar _ q info ty) = writePassing w Pattern q info ++ write w ty
+  writeBinder w (PLet _ q v ty) = node (Bound PatternLet (quantity q) ByHand) :: (write w v ++ write w ty)
+  writeBinder w (PVTy _ q ty) = node (Bound PatternType (quantity q) ByHand) :: write w ty
+
+  writePassing : Writer -> Binding -> RigCount -> PiInfo (TT vs) -> List (Token Form)
+  writePassing w b q Implicit = [node (Bound b (quantity q) ByUnification)]
+  writePassing w b q Explicit = [node (Bound b (quantity q) ByHand)]
+  writePassing w b q AutoImplicit = [node (Bound b (quantity q) BySearch)]
+  writePassing w b q (DefImplicit t) = node (Bound b (quantity q) ByDefault) :: write w t
 
 mutual
-  ||| A name of the term that the context does not hold, if there is one.
-  unresolved : Context -> TT vs -> Maybe Name
-  unresolved ctx (Ref _ _ n) = case markerOf n of
-    Just _ => Nothing
-    Nothing => maybe (Just n) (const Nothing) (definitionAddress ctx n)
-  unresolved ctx (Meta _ _ _ args) = unresolvedAll ctx args
-  unresolved ctx (Bind _ _ b sc) = unresolvedBinder ctx b <|> unresolved ctx sc
-  unresolved ctx (App _ f a) = unresolved ctx f <|> unresolved ctx a
-  unresolved ctx (As _ _ a p) = unresolved ctx a <|> unresolved ctx p
-  unresolved ctx (TDelayed _ _ t) = unresolved ctx t
-  unresolved ctx (TDelay _ _ t a) = unresolved ctx t <|> unresolved ctx a
-  unresolved ctx (TForce _ _ t) = unresolved ctx t
-  unresolved ctx (Erased _ (Dotted t)) = unresolved ctx t
-  unresolved ctx (Local {}) = Nothing
-  unresolved ctx (PrimVal {}) = Nothing
-  unresolved ctx (Erased _ Placeholder) = Nothing
-  unresolved ctx (Erased _ Impossible) = Nothing
-  unresolved ctx (TType {}) = Nothing
+  ||| The references of a term `write` writes by address, with their
+  ||| kinds, in the order it writes them, before `acc`: every reference
+  ||| but the frontend's own markers.
+  namesOf : TT vs -> List (NameType, Name) -> List (NameType, Name)
+  namesOf (Ref _ nt n) acc = maybe ((nt, n) :: acc) (const acc) (markerOf n)
+  namesOf (Meta _ _ _ args) acc = namesOfAll args acc
+  namesOf (Bind _ _ b sc) acc = namesOfBinder b (namesOf sc acc)
+  namesOf (App _ f a) acc = namesOf f (namesOf a acc)
+  namesOf (As _ _ a p) acc = namesOf a (namesOf p acc)
+  namesOf (TDelayed _ _ t) acc = namesOf t acc
+  namesOf (TDelay _ _ t a) acc = namesOf t (namesOf a acc)
+  namesOf (TForce _ _ t) acc = namesOf t acc
+  namesOf (Erased _ (Dotted t)) acc = namesOf t acc
+  namesOf (Local {}) acc = acc
+  namesOf (PrimVal {}) acc = acc
+  namesOf (Erased _ Placeholder) acc = acc
+  namesOf (Erased _ Impossible) acc = acc
+  namesOf (TType {}) acc = acc
 
-  unresolvedAll : Context -> List (TT vs) -> Maybe Name
-  unresolvedAll ctx [] = Nothing
-  unresolvedAll ctx (t :: ts) = unresolved ctx t <|> unresolvedAll ctx ts
+  namesOfAll : List (TT vs) -> List (NameType, Name) -> List (NameType, Name)
+  namesOfAll [] acc = acc
+  namesOfAll (t :: ts) acc = namesOf t (namesOfAll ts acc)
 
-  unresolvedBinder : Context -> TTBinder (TT vs) -> Maybe Name
-  unresolvedBinder ctx (Lam _ _ info ty) = unresolvedPassing ctx info <|> unresolved ctx ty
-  unresolvedBinder ctx (Let _ _ v ty) = unresolved ctx v <|> unresolved ctx ty
-  unresolvedBinder ctx (Pi _ _ info ty) = unresolvedPassing ctx info <|> unresolved ctx ty
-  unresolvedBinder ctx (PVar _ _ info ty) = unresolvedPassing ctx info <|> unresolved ctx ty
-  unresolvedBinder ctx (PLet _ _ v ty) = unresolved ctx v <|> unresolved ctx ty
-  unresolvedBinder ctx (PVTy _ _ ty) = unresolved ctx ty
+  namesOfBinder : TTBinder (TT vs) -> List (NameType, Name) -> List (NameType, Name)
+  namesOfBinder (Lam _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
+  namesOfBinder (Let _ _ v ty) acc = namesOf v (namesOf ty acc)
+  namesOfBinder (Pi _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
+  namesOfBinder (PVar _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
+  namesOfBinder (PLet _ _ v ty) acc = namesOf v (namesOf ty acc)
+  namesOfBinder (PVTy _ _ ty) acc = namesOf ty acc
 
-  unresolvedPassing : Context -> PiInfo (TT vs) -> Maybe Name
-  unresolvedPassing ctx (DefImplicit t) = unresolved ctx t
-  unresolvedPassing ctx _ = Nothing
+  namesOfPassing : PiInfo (TT vs) -> List (NameType, Name) -> List (NameType, Name)
+  namesOfPassing (DefImplicit t) acc = namesOf t acc
+  namesOfPassing _ acc = acc
+
+||| A name of the term that the context does not hold, if there is one.
+unresolved : Context -> TT vs -> Maybe Name
+unresolved ctx t = snd <$> find (\(_, n) => isNothing (definitionAddress ctx n)) (namesOf t [])
+
+||| The successors of `Nat`-like types the terms name, by address: the
+||| constructors of one argument that Idris flags as one (its metadata, never
+||| a name), which `write` writes runs of.
+successorsIn : {auto c : Ref Ctxt Defs} -> List ClosedTerm -> Core (SortedSet Address)
+successorsIn tms = do
+  defs <- get Ctxt
+  let candidates = SortedMap.fromList (mapMaybe (candidate (gamma defs)) (foldr namesOf [] tms))
+  found <- traverse (successor defs) (SortedMap.toList candidates)
+  pure (SortedSet.fromList (catMaybes found))
+  where
+    -- A constructor of one argument, by its address.
+    candidate : Context -> (NameType, Name) -> Maybe (Address, Name)
+    candidate ctx (DataCon _ 1, n) = (\a => (a, n)) <$> definitionAddress ctx n
+    candidate ctx _ = Nothing
+
+    successor : Defs -> (Address, Name) -> Core (Maybe Address)
+    successor defs (a, n) = do
+      Just def <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure Nothing
+      pure (case natRole def of
+              Just Succ => Just a
+              _ => Nothing)
 
 -- Every number a written term holds is below its weight and its depth
 -- together: a variable's index is below the binders around it, each of
 -- which weighs at least one; a hole's argument count is below its
--- arguments' weight; a literal's magnitude is below its own weight. So an
--- argument, closed, fits its size.
+-- arguments' weight; a literal's magnitude is below its own weight, and a
+-- run's below the run's. So an argument, closed, fits its size.
 
 0 varBelow : IsVar n idx vs -> LT idx (length vs)
 varBelow First = LTESucc LTEZero
@@ -605,24 +680,65 @@ referenceWeighs ctx n Nothing = LTESucc LTEZero
 referenceFits ctx n (Just i) = [LTESucc (selfBelow _ _)]
 referenceFits ctx n Nothing = [LTESucc LTEZero]
 
+-- A run of one weighs two more than what follows it, and its numbers are
+-- 0.
+0 oneFits : (s : Address) -> (ts : List (Token Form)) -> All (Fits (weighs ts + d)) ts ->
+            All (Fits (weighs (runOfOne s ts) + d)) (runOfOne s ts)
+oneFits s ts fs = LTESucc LTEZero :: LTESucc LTEZero :: fittingMore (lteSuccRight (lteSuccRight reflexive)) fs
+
+0 twoMore : (a, b : Nat) -> a + S (S b) = S (S (a + b))
+twoMore a b = rewrite sym (plusSuccRightSucc a (S b)) in rewrite sym (plusSuccRightSucc a b) in Refl
+
+-- A run one longer weighs two more, and its magnitude is two more.
+0 lengthenedFits : (starts : Bool) -> (s : Address) -> (t : Token Form) -> (g : Form) -> (m : Nat) ->
+                   (rest : List (Token Form)) -> All (Fits (weighs (t :: Number g m :: rest) + d)) (t :: Number g m :: rest) ->
+                   All (Fits (weighs (lengthened starts s t g m rest) + d)) (lengthened starts s t g m rest)
+lengthenedFits False s t g m rest fs = oneFits s (t :: Number g m :: rest) fs
+lengthenedFits True s t g m rest (ft :: fm :: frest) =
+  rewrite twoMore (weight t) (S (m + weighs rest)) in
+  let (ft' :: frest') = fittingMore (lteSuccRight (lteSuccRight reflexive)) (the (All _ (t :: rest)) (ft :: frest)) in
+  ft' :: LTESucc (LTESucc fm) :: frest'
+
+0 succeedingFits : (s : Address) -> (ts : List (Token Form)) -> All (Fits (weighs ts + d)) ts ->
+                   All (Fits (weighs (succeeding s ts) + d)) (succeeding s ts)
+succeedingFits s [] fs = oneFits s [] fs
+succeedingFits s [t] fs = oneFits s [t] fs
+succeedingFits s (t :: Node f k n :: rest) fs = oneFits s (t :: Node f k n :: rest) fs
+succeedingFits s (t :: Number g m :: rest) fs = lengthenedFits (runOf s t g) s t g m rest fs
+
+0 succeedingWeighs : (s : Address) -> (ts : List (Token Form)) -> LTE 1 (weighs (succeeding s ts))
+succeedingWeighs s [] = LTESucc LTEZero
+succeedingWeighs s [t] = LTESucc LTEZero
+succeedingWeighs s (t :: Node f k n :: rest) = LTESucc LTEZero
+succeedingWeighs s (t :: Number g m :: rest) = lengthenedWeighs (runOf s t g) t
+  where
+    lengthenedWeighs : (starts : Bool) -> (t : Token Form) -> LTE 1 (weighs (lengthened starts s t g m rest))
+    lengthenedWeighs False t = LTESucc LTEZero
+    lengthenedWeighs True (Node _ _ _) = LTESucc LTEZero
+    lengthenedWeighs True (Number _ _) = LTESucc LTEZero
+
+0 appliedWeighs : (w : Writer) -> (m : Maybe Address) -> (f, a : TT vs) -> LTE 1 (weighs (writeApplication w m f a))
+appliedWeighs w (Just s) f a = succeedingWeighs s (write w a)
+appliedWeighs w Nothing f a = LTESucc LTEZero
+
 mutual
-  0 writeWeighs : (ctx : Context) -> (t : TT vs) -> LTE 1 (weighs (write ctx t))
-  writeWeighs ctx (Local _ _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (Ref _ _ n) = referenceWeighs ctx n (markerOf n)
-  writeWeighs ctx (Meta _ _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (Bind _ _ b sc) =
-    rewrite weighsAppend (writeBinder ctx b) (write ctx sc) in
-    transitive (binderWeighs ctx b) (lteAddRight (weighs (writeBinder ctx b)))
-  writeWeighs ctx (App _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (As _ _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (TDelayed _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (TDelay _ _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (TForce _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (PrimVal _ c) = constantWeighs c
-  writeWeighs ctx (Erased _ Placeholder) = LTESucc LTEZero
-  writeWeighs ctx (Erased _ Impossible) = LTESucc LTEZero
-  writeWeighs ctx (Erased _ (Dotted _)) = LTESucc LTEZero
-  writeWeighs ctx (TType _ _) = LTESucc LTEZero
+  0 writeWeighs : (w : Writer) -> (t : TT vs) -> LTE 1 (weighs (write w t))
+  writeWeighs w (Local _ _ _ _) = LTESucc LTEZero
+  writeWeighs w (Ref _ _ n) = referenceWeighs w.context n (markerOf n)
+  writeWeighs w (Meta _ _ _ _) = LTESucc LTEZero
+  writeWeighs w (Bind _ _ b sc) =
+    rewrite weighsAppend (writeBinder w b) (write w sc) in
+    transitive (binderWeighs w b) (lteAddRight (weighs (writeBinder w b)))
+  writeWeighs w (App _ f a) = appliedWeighs w (successorOf w f) f a
+  writeWeighs w (As _ _ _ _) = LTESucc LTEZero
+  writeWeighs w (TDelayed _ _ _) = LTESucc LTEZero
+  writeWeighs w (TDelay _ _ _ _) = LTESucc LTEZero
+  writeWeighs w (TForce _ _ _) = LTESucc LTEZero
+  writeWeighs w (PrimVal _ c) = constantWeighs c
+  writeWeighs w (Erased _ Placeholder) = LTESucc LTEZero
+  writeWeighs w (Erased _ Impossible) = LTESucc LTEZero
+  writeWeighs w (Erased _ (Dotted _)) = LTESucc LTEZero
+  writeWeighs w (TType _ _) = LTESucc LTEZero
 
   0 constantWeighs : (c : Constant) -> LTE 1 (weighs (writeConstant c))
   constantWeighs (I _) = LTESucc LTEZero
@@ -641,78 +757,83 @@ mutual
   constantWeighs (PrT _) = LTESucc LTEZero
   constantWeighs WorldVal = LTESucc LTEZero
 
-  0 binderWeighs : (ctx : Context) -> (b : TTBinder (TT vs)) -> LTE 1 (weighs (writeBinder ctx b))
-  binderWeighs ctx (Lam _ q info ty) = passingWeighsBefore ctx Lambda q info (write ctx ty)
-  binderWeighs ctx (Let _ _ _ _) = LTESucc LTEZero
-  binderWeighs ctx (Pi _ q info ty) = passingWeighsBefore ctx PiType q info (write ctx ty)
-  binderWeighs ctx (PVar _ q info ty) = passingWeighsBefore ctx Pattern q info (write ctx ty)
-  binderWeighs ctx (PLet _ _ _ _) = LTESucc LTEZero
-  binderWeighs ctx (PVTy _ _ _) = LTESucc LTEZero
+  0 binderWeighs : (w : Writer) -> (b : TTBinder (TT vs)) -> LTE 1 (weighs (writeBinder w b))
+  binderWeighs w (Lam _ q info ty) = passingWeighsBefore w Lambda q info (write w ty)
+  binderWeighs w (Let _ _ _ _) = LTESucc LTEZero
+  binderWeighs w (Pi _ q info ty) = passingWeighsBefore w PiType q info (write w ty)
+  binderWeighs w (PVar _ q info ty) = passingWeighsBefore w Pattern q info (write w ty)
+  binderWeighs w (PLet _ _ _ _) = LTESucc LTEZero
+  binderWeighs w (PVTy _ _ _) = LTESucc LTEZero
 
-  0 passingWeighsBefore : (ctx : Context) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) ->
-                          (rest : List (Token Form)) -> LTE 1 (weighs (writePassing ctx b q info ++ rest))
-  passingWeighsBefore ctx b q Implicit rest = LTESucc LTEZero
-  passingWeighsBefore ctx b q Explicit rest = LTESucc LTEZero
-  passingWeighsBefore ctx b q AutoImplicit rest = LTESucc LTEZero
-  passingWeighsBefore ctx b q (DefImplicit _) rest = LTESucc LTEZero
+  0 passingWeighsBefore : (w : Writer) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) ->
+                          (rest : List (Token Form)) -> LTE 1 (weighs (writePassing w b q info ++ rest))
+  passingWeighsBefore w b q Implicit rest = LTESucc LTEZero
+  passingWeighsBefore w b q Explicit rest = LTESucc LTEZero
+  passingWeighsBefore w b q AutoImplicit rest = LTESucc LTEZero
+  passingWeighsBefore w b q (DefImplicit _) rest = LTESucc LTEZero
 
-0 argsWeigh : (ctx : Context) -> (ts : List (TT vs)) -> LTE (length ts) (weighs (writeAll ctx ts))
-argsWeigh ctx [] = LTEZero
-argsWeigh ctx (t :: ts) =
-  rewrite weighsAppend (write ctx t) (writeAll ctx ts) in
-  plusLteMonotone (writeWeighs ctx t) (argsWeigh ctx ts)
+0 argsWeigh : (w : Writer) -> (ts : List (TT vs)) -> LTE (length ts) (weighs (writeAll w ts))
+argsWeigh w [] = LTEZero
+argsWeigh w (t :: ts) =
+  rewrite weighsAppend (write w t) (writeAll w ts) in
+  plusLteMonotone (writeWeighs w t) (argsWeigh w ts)
 
 mutual
-  0 writeFits : (ctx : Context) -> (t : TT vs) -> All (Fits (weighs (write ctx t) + length vs)) (write ctx t)
-  writeFits ctx (Local _ _ idx p) = [LTESucc (lteSuccLeft (varBelow p))]
-  writeFits ctx (Ref _ _ n) = referenceFits ctx n (markerOf n)
-  writeFits ctx (Meta _ _ _ args) =
-    LTESucc (transitive (argsWeigh ctx args) (lteAddRight (weighs (writeAll ctx args))))
-      :: fittingMore (lteSuccRight reflexive) (writeAllFits ctx args)
-  writeFits ctx (Bind _ _ b sc) =
-    fittingUnder (writeBinder ctx b) (write ctx sc) (binderWeighs ctx b) (binderFits ctx b) (writeFits ctx sc)
-  writeFits ctx (App _ f a) = headed (fittingAppend (write ctx f) (write ctx a) (writeFits ctx f) (writeFits ctx a))
-  writeFits ctx (As _ _ a p) = headed (fittingAppend (write ctx a) (write ctx p) (writeFits ctx a) (writeFits ctx p))
-  writeFits ctx (TDelayed _ _ t) = headed (writeFits ctx t)
-  writeFits ctx (TDelay _ _ t a) = headed (fittingAppend (write ctx t) (write ctx a) (writeFits ctx t) (writeFits ctx a))
-  writeFits ctx (TForce _ _ t) = headed (writeFits ctx t)
-  writeFits ctx (PrimVal _ c) = constantFits c
-  writeFits ctx (Erased _ Placeholder) = [LTESucc LTEZero]
-  writeFits ctx (Erased _ Impossible) = [LTESucc LTEZero]
-  writeFits ctx (Erased _ (Dotted t)) = headed (writeFits ctx t)
-  writeFits ctx (TType _ _) = [LTESucc LTEZero]
+  0 writeFits : (w : Writer) -> (t : TT vs) -> All (Fits (weighs (write w t) + length vs)) (write w t)
+  writeFits w (Local _ _ idx p) = [LTESucc (lteSuccLeft (varBelow p))]
+  writeFits w (Ref _ _ n) = referenceFits w.context n (markerOf n)
+  writeFits w (Meta _ _ _ args) =
+    LTESucc (transitive (argsWeigh w args) (lteAddRight (weighs (writeAll w args))))
+      :: fittingMore (lteSuccRight reflexive) (writeAllFits w args)
+  writeFits w (Bind _ _ b sc) =
+    fittingUnder (writeBinder w b) (write w sc) (binderWeighs w b) (binderFits w b) (writeFits w sc)
+  writeFits w (App _ f a) = appliedFits w (successorOf w f) f a
+  writeFits w (As _ _ a p) = headed (fittingAppend (write w a) (write w p) (writeFits w a) (writeFits w p))
+  writeFits w (TDelayed _ _ t) = headed (writeFits w t)
+  writeFits w (TDelay _ _ t a) = headed (fittingAppend (write w t) (write w a) (writeFits w t) (writeFits w a))
+  writeFits w (TForce _ _ t) = headed (writeFits w t)
+  writeFits w (PrimVal _ c) = constantFits c
+  writeFits w (Erased _ Placeholder) = [LTESucc LTEZero]
+  writeFits w (Erased _ Impossible) = [LTESucc LTEZero]
+  writeFits w (Erased _ (Dotted t)) = headed (writeFits w t)
+  writeFits w (TType _ _) = [LTESucc LTEZero]
 
-  0 writeAllFits : (ctx : Context) -> (ts : List (TT vs)) ->
-                   All (Fits (weighs (writeAll ctx ts) + length vs)) (writeAll ctx ts)
-  writeAllFits ctx [] = []
-  writeAllFits ctx (t :: ts) = fittingAppend (write ctx t) (writeAll ctx ts) (writeFits ctx t) (writeAllFits ctx ts)
+  0 appliedFits : (w : Writer) -> (m : Maybe Address) -> (f, a : TT vs) ->
+                  All (Fits (weighs (writeApplication w m f a) + length vs)) (writeApplication w m f a)
+  appliedFits w (Just s) f a = succeedingFits s (write w a) (writeFits w a)
+  appliedFits w Nothing f a = headed (fittingAppend (write w f) (write w a) (writeFits w f) (writeFits w a))
 
-  0 binderFits : (ctx : Context) -> (b : TTBinder (TT vs)) ->
-                 All (Fits (weighs (writeBinder ctx b) + length vs)) (writeBinder ctx b)
-  binderFits ctx (Lam _ q info ty) =
-    fittingAppend (writePassing ctx Lambda q info) (write ctx ty) (passingFits ctx Lambda q info) (writeFits ctx ty)
-  binderFits ctx (Let _ _ v ty) = headed (fittingAppend (write ctx v) (write ctx ty) (writeFits ctx v) (writeFits ctx ty))
-  binderFits ctx (Pi _ q info ty) =
-    fittingAppend (writePassing ctx PiType q info) (write ctx ty) (passingFits ctx PiType q info) (writeFits ctx ty)
-  binderFits ctx (PVar _ q info ty) =
-    fittingAppend (writePassing ctx Pattern q info) (write ctx ty) (passingFits ctx Pattern q info) (writeFits ctx ty)
-  binderFits ctx (PLet _ _ v ty) = headed (fittingAppend (write ctx v) (write ctx ty) (writeFits ctx v) (writeFits ctx ty))
-  binderFits ctx (PVTy _ _ ty) = headed (writeFits ctx ty)
+  0 writeAllFits : (w : Writer) -> (ts : List (TT vs)) ->
+                   All (Fits (weighs (writeAll w ts) + length vs)) (writeAll w ts)
+  writeAllFits w [] = []
+  writeAllFits w (t :: ts) = fittingAppend (write w t) (writeAll w ts) (writeFits w t) (writeAllFits w ts)
 
-  0 passingFits : (ctx : Context) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) ->
-                  All (Fits (weighs (writePassing ctx b q info) + length vs)) (writePassing ctx b q info)
-  passingFits ctx b q Implicit = [LTESucc LTEZero]
-  passingFits ctx b q Explicit = [LTESucc LTEZero]
-  passingFits ctx b q AutoImplicit = [LTESucc LTEZero]
-  passingFits ctx b q (DefImplicit t) = headed (writeFits ctx t)
+  0 binderFits : (w : Writer) -> (b : TTBinder (TT vs)) ->
+                 All (Fits (weighs (writeBinder w b) + length vs)) (writeBinder w b)
+  binderFits w (Lam _ q info ty) =
+    fittingAppend (writePassing w Lambda q info) (write w ty) (passingFits w Lambda q info) (writeFits w ty)
+  binderFits w (Let _ _ v ty) = headed (fittingAppend (write w v) (write w ty) (writeFits w v) (writeFits w ty))
+  binderFits w (Pi _ q info ty) =
+    fittingAppend (writePassing w PiType q info) (write w ty) (passingFits w PiType q info) (writeFits w ty)
+  binderFits w (PVar _ q info ty) =
+    fittingAppend (writePassing w Pattern q info) (write w ty) (passingFits w Pattern q info) (writeFits w ty)
+  binderFits w (PLet _ _ v ty) = headed (fittingAppend (write w v) (write w ty) (writeFits w v) (writeFits w ty))
+  binderFits w (PVTy _ _ ty) = headed (writeFits w ty)
+
+  0 passingFits : (w : Writer) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) ->
+                  All (Fits (weighs (writePassing w b q info) + length vs)) (writePassing w b q info)
+  passingFits w b q Implicit = [LTESucc LTEZero]
+  passingFits w b q Explicit = [LTESucc LTEZero]
+  passingFits w b q AutoImplicit = [LTESucc LTEZero]
+  passingFits w b q (DefImplicit t) = headed (writeFits w t)
 
 writtenFrom : (ts : List (Token Form)) -> (0 _ : All (Fits (weighs ts + 0)) ts) -> Written Form
 writtenFrom ts fits = MkWritten (weighs ts) ts Refl (replace {p = \b => All (Fits b) ts} (plusZeroRightNeutral _) fits)
 
 ||| A compile-time argument written out: its size the weight of its
 ||| symbols, every number in it below that size.
-writtenOf : Context -> ClosedTerm -> Written Form
-writtenOf ctx t = writtenFrom (write ctx t) (writeFits ctx t)
+writtenOf : Writer -> ClosedTerm -> Written Form
+writtenOf w t = writtenFrom (write w t) (writeFits w t)
 
 ------------------------------------------------------------------------------
 -- The identity as text
@@ -816,7 +937,8 @@ instanceKey fc owner n args = do
   let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing args'
     | Just stray => internal fc ("a compile-time argument of " ++ show full ++ " names " ++ show stray ++
                                  ", which the context does not hold")
-  let link = MkLink (addressOf d) (map (map (writtenOf (gamma defs))) args')
+  writer <- MkWriter (gamma defs) <$> successorsIn (catMaybes args')
+  let link = MkLink (addressOf d) (map (map (writtenOf writer)) args')
   case lookup link (!(get TState)).named of
     Just (symbol, key) => pure (MkInstance link key symbol)
     Nothing => do

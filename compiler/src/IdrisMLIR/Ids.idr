@@ -99,15 +99,13 @@ record Hash128 where
 -- of ours would have no meaning, and natively after, with the same values.
 -- The word operations are base's `Data.Bits` on `Bits64`.
 
-||| A shift's amount, below 64, as `Data.Bits` takes it.
-amount : Bits64 -> Fin 64
-amount s = restrict 63 (cast s)
+-- A shift's amount is a `Fin 64`, as `Data.Bits` takes it: every shift
+-- the hash makes is by a constant, written where it is made.
+shr : Bits64 -> Fin 64 -> Bits64
+shr = shiftR
 
-shr : Bits64 -> Bits64 -> Bits64
-shr x s = shiftR x (amount s)
-
-shl : Bits64 -> Bits64 -> Bits64
-shl x s = shiftL x (amount s)
+shl : Bits64 -> Fin 64 -> Bits64
+shl = shiftL
 
 xor64 : Bits64 -> Bits64 -> Bits64
 xor64 = xor
@@ -151,13 +149,9 @@ secret =
   , 0x45, 0xcb, 0x3a, 0x8f, 0x95, 0x16, 0x04, 0x28, 0xaf, 0xd7, 0xfb, 0xca, 0xbb, 0x4b, 0x40, 0x7e ]
 
 ||| The little-endian word of the first `k` bytes (at most 8), missing
-||| bytes counting as zero.
+||| bytes counting as zero: each byte below the word of the bytes after it.
 littleEndian : Nat -> List Bits8 -> Bits64
-littleEndian k bytes = go 0 0 (take k bytes)
-  where
-    go : Bits64 -> Bits64 -> List Bits8 -> Bits64
-    go acc _ [] = acc
-    go acc at (b :: bs) = go (or64 acc (shl (cast b) at)) (at + 8) bs
+littleEndian k bytes = foldr (\b, rest => or64 (shl rest 8) (cast b)) 0 (take k bytes)
 
 ||| The 64-bit little-endian word at an offset.
 read64 : List Bits8 -> Nat -> Bits64
@@ -215,8 +209,9 @@ byteswap32 x =
 byteswap64 : Bits64 -> Bits64
 byteswap64 x = or64 (shl (byteswap32 (low32 x)) 32) (byteswap32 (shr x 32))
 
-rotl32 : Bits64 -> Bits64 -> Bits64
-rotl32 x r = low32 (or64 (shl x r) (shr (low32 x) (32 - r)))
+||| A 32-bit word rotated left by 13 bits, the one rotation the hash makes.
+rotl32by13 : Bits64 -> Bits64
+rotl32by13 x = low32 (or64 (shl x 13) (shr (low32 x) 19))
 
 len1to3 : List Bits8 -> Nat -> Hash128
 len1to3 input n =
@@ -225,7 +220,7 @@ len1to3 input n =
       c2 = byteAt input (divNatNZ n 2 ItIsSucc)
       c3 = byteAt input (minus n 1)
       combinedl = or64 (or64 (shl c1 16) (shl c2 24)) (or64 c3 (shl len 8))
-      combinedh = rotl32 (byteswap32 combinedl) 13
+      combinedh = rotl32by13 (byteswap32 combinedl)
       bitflipl = xor64 (read32 secret 0) (read32 secret 4)
       bitfliph = xor64 (read32 secret 8) (read32 secret 12)
   in MkHash128 (avalanche64 (xor64 combinedl bitflipl)) (avalanche64 (xor64 combinedh bitfliph))
@@ -404,11 +399,12 @@ utf8 s = concatMap encode (unpack s)
 ||| first.
 export
 hex16 : Bits64 -> String
-hex16 x = pack (map digit (reverse [0 .. 15]))
+hex16 x = pack (map digit [60, 56, 52, 48, 44, 40, 36, 32, 28, 24, 20, 16, 12, 8, 4, 0])
   where
-    digit : Nat -> Char
-    digit i =
-      let d = and64 (shr x (cast (4 * i))) 0xF in
+    -- The digit of the four bits at a shift.
+    digit : Fin 64 -> Char
+    digit at =
+      let d = and64 (shr x at) 0xF in
       if d < 10 then chr (cast d + ord '0') else chr (cast d - 10 + ord 'a')
 
 ||| The low half of the hash of a key's text, as 16 hex digits.

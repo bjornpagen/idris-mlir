@@ -96,7 +96,7 @@ addressOf i = bytes 8 (cast i)
   where
     bytes : (k : Nat) -> Integer -> Vect k (Fin 256)
     bytes Z _ = []
-    bytes (S k) v = restrict 255 v :: bytes k (v `div` 256)
+    bytes (S k) v = lowBits 8 v :: bytes k (v `div` 256)
 
 ||| A definition's identity: its address in the context; nothing for a
 ||| name the context does not hold, which no table keeps.

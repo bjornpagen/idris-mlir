@@ -55,14 +55,7 @@ data Decision : Type -> Type where
   Holds : p -> Decision p
   Fails : (0 _ : Not p) -> Decision p
 
-||| `<` on naturals, as the machine compares them, is `LT`.
-export
-ltSo : {b, a : Nat} -> So (b < a) -> LT b a
-ltSo {b = Z} {a = S _} _ = LTESucc LTEZero
-ltSo {b = S b} {a = S a} so = LTESucc (ltSo so)
-ltSo {b = Z} {a = Z} so = absurd so
-ltSo {b = S _} {a = Z} so = absurd so
-
+||| `<=` on naturals, as the machine compares them, is `LTE`.
 lteSo : {b, a : Nat} -> So (b <= a) -> LTE b a
 lteSo {b = Z} _ = LTEZero
 lteSo {b = S b} {a = S a} so = LTESucc (lteSo so)
@@ -142,7 +135,7 @@ grows [] (_ :: _) = Fails (\case _ impossible)
 grows (_ :: _) [] = Fails (\case _ impossible)
 grows (b :: bs) (a :: as) = case choose (b < a) of
   Left lt => case pointwise bs as of
-    Holds pw => Holds (Here (ltSo lt) pw)
+    Holds pw => Holds (Here (ltOpReflectsLT b a lt) pw)
     Fails npw => Fails (\case Here _ pw => npw pw
                               There _ g => npw (growsPointwise g))
   Right nlt => case choose (b <= a) of
@@ -252,6 +245,20 @@ vectorsComplete {k = S k} xs all (x :: v) = vectConsesComplete xs (vectors k xs)
 public export
 Address : Type
 Address = Vect 8 (Fin 256)
+
+-- Twice a number below `n`, and one more for a set bit: a number below
+-- twice `n`.
+doubled : (bit : Bool) -> Fin n -> Fin (n + (n + 0))
+doubled False FZ = FZ
+doubled True (FZ {k}) = rewrite sym (plusSuccRightSucc k (k + 0)) in FS FZ
+doubled bit (FS {k} f) = rewrite sym (plusSuccRightSucc k (k + 0)) in FS (FS (doubled bit f))
+
+||| The low `d` bits of a non-negative number, a number below `2^d`, read
+||| bit by bit: an address's bytes, a character's halves.
+export
+lowBits : (d : Nat) -> Integer -> Fin (power 2 d)
+lowBits Z _ = FZ
+lowBits (S d) v = doubled (v `mod` 2 == 1) (lowBits d (v `div` 2))
 
 ||| Every vector of a length over a listed type, listed. Stated over any
 ||| length and type, so that no listing is ever spelt out.
@@ -661,22 +668,40 @@ public export
 Via : (e -> Link form) -> Rel e
 Via link x y = Requested (link x) (link y)
 
+||| Why a chain refuses a request against an earlier instance on it, as a
+||| refusal names it: the request grows against the instance, larger at a
+||| position; it is of the instance's definition at another number of
+||| arguments; or it is the instance again.
+public export
+data Refusal = GrownAt Nat | OtherArity | Repeated
+
+||| The reason a pair of requests that a chain cannot hold both of gives.
+public export
+reason : Requested x y -> Refusal
+reason (Grown _ g) = GrownAt (position g)
+reason (Arity _ _) = OtherArity
+reason (Again _) = Repeated
+
 ||| What a chain says of a request: new to every instance on it, or not
-||| new to one, which it names with the reason.
+||| new to one, which it names with the reason, the evidence's. What is
+||| held at runtime is the earlier instance and the reason, a plain sum;
+||| the evidence is erased, so a verdict has one representation whatever
+||| the chain and the request.
 public export
 data Admission : (e -> Link form) -> List e -> e -> Type where
   Admitted : (0 _ : New (Via link) chain y) -> Admission link chain y
-  Refused : (x : e) -> (0 _ : Elem x chain) -> Requested (link x) (link y) -> Admission link chain y
+  Refused : (x : e) -> (0 _ : Elem x chain) -> (0 r : Requested (link x) (link y)) ->
+            (why : Refusal) -> (0 _ : reason r = why) -> Admission link chain y
 
 ||| A chain's answer to a request, the nearest instance first.
 export
 admit : DecEq form => (link : e -> Link form) -> (chain : List e) -> (y : e) -> Admission link chain y
 admit link [] y = Admitted []
 admit link (x :: xs) y = case requested (link x) (link y) of
-  Holds r => Refused x Here r
+  Holds r => Refused x Here r (reason r) Refl
   Fails nr => case admit link xs y of
     Admitted new => Admitted (nr :: new)
-    Refused x' e r => Refused x' (There e) r
+    Refused x' e r why given => Refused x' (There e) r why given
 
 ------------------------------------------------------------------------------
 -- The relation is almost full

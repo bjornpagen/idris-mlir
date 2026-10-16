@@ -452,7 +452,8 @@ checkBindVar rig elabinfo nest env fc nm topexp
                    case implicitMode elabinfo of
                         PI _ => setInvertible fc n
                         _ => pure ()
-                   log "elab.implicits" 5 $ "Added Bound implicit " ++ show (n, (rig, tm, exp, bty))
+                   log "elab.implicits" 5 $ "Added Bound implicit (" ++ show n ++ ", (" ++ show rig ++ ", (" ++
+                                            showTerm tm ++ ", (" ++ showTerm exp ++ ", " ++ showTerm bty ++ "))))"
                    update EST { boundNames $= ((n, NameBinding fc rig Explicit tm exp) ::),
                                 toBind $= ((n, NameBinding fc rig Explicit tm bty) :: ) }
 

@@ -215,15 +215,44 @@ refsOf hs def =
     TCon _ _ _ _ _ cons _ => fromType ++ fromMaybe [] cons
     _ => fromType
 
+||| What refers to a definition the walk reaches: a user definition, or the
+||| program's root; or a trusted definition, by its full name, which the
+||| walk enters once, for whichever user definition reaches it first.
+data Referrer = User | Library Name
+
 ||| A definition the walk of what the roots reach is to check: its name, the
 ||| path from the user definition that reaches it, the nearest first, each
-||| definition on it with its address and its location, and whether a
-||| trusted definition refers to it.
+||| definition on it with its address and its location, and what refers to
+||| it.
 record Reach where
   constructor MkReach
   name : Name
   path : List (Name, Address, FC)
-  fromTrusted : Bool
+  from : Referrer
+
+||| Does a trusted definition refer to the one reached?
+byLibrary : Referrer -> Bool
+byLibrary User = False
+byLibrary (Library _) = True
+
+||| What the walk keeps besides what it has entered: the rejected
+||| definitions reported, each with the user definition it was reported
+||| for; every reach of each trusted definition, by its address, the first
+||| and those after it was entered; and every reach of a rejected
+||| definition. A trusted definition is walked once, so a user definition
+||| that reaches it after the first is behind whatever its walk rejected
+||| all the same: the reaches of the trusted definitions say who is.
+record Kept where
+  constructor MkKept
+  reported : SortedSet (Address, Address)
+  arrivals : SortedMap Address (List Reach)
+  refusals : List Reach
+
+||| A walk ended: what it entered, and what it kept.
+record Ended where
+  constructor MkEnded
+  entered : Walked
+  kept : Kept
 
 ||| What a level of the walk has found for the next: nothing yet, or the
 ||| definitions found, once one was entered into the walk since the level
@@ -252,8 +281,15 @@ queued (Queued _ next) = next
 export
 checkReachable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> List Name -> Core ()
-checkReachable fc roots =
-  level start (sizeAccessible start) start (noMore start) empty (map (\r => MkReach r [] False) roots) Idle
+checkReachable fc roots = do
+  MkEnded end kept <- level start (sizeAccessible start) start (noMore start) (MkKept empty empty [])
+                            (map (\r => MkReach r [] User) roots) Idle
+  -- Each rejected definition again, as every user definition behind its
+  -- reach reaches it, which reports it for each of them once.
+  behind <- traverse (\r => map (\u => MkReach r.name u r.from)
+                                <$> usersBehind kept.arrivals start (sizeAccessible start) [r])
+                     kept.refusals
+  ignore (level end (sizeAccessible end) end (noMore end) kept (concat behind) Idle)
   where
     userFC : List (Name, Address, FC) -> FC
     userFC [] = fc
@@ -275,9 +311,9 @@ checkReachable fc roots =
     -- definition an error names: what it refers to, each with the path
     -- that reaches it, or the definition's rejection.
     visit : GlobalDef -> Loc -> (here : List (Name, Address, FC)) -> (owner : String) ->
-            (path : List (Name, Address, FC)) -> (fromTrusted : Bool) ->
+            (path : List (Name, Address, FC)) -> (from : Referrer) ->
             Core (List Reach)
-    visit def loc here owner path fromTrusted = do
+    visit def loc here owner path from = do
       let full = fullname def
       let key = show full
       let origin = loc.origin
@@ -308,8 +344,8 @@ checkReachable fc roots =
       -- A trusted library may crash with a string. The reach has to come
       -- from a trusted definition: a user's call of the same function is
       -- still an escape hatch, and believe_me stays one either way.
-      let libraryCrash = fromTrusted && (hooksOf full).libraryCrash
-      let builtinCrash = fromTrusted && case definition def of
+      let libraryCrash = byLibrary from && (hooksOf full).libraryCrash
+      let builtinCrash = byLibrary from && case definition def of
                                           Builtin Crash => True
                                           _ => False
       when (isEscapeHatch def) $
@@ -317,7 +353,7 @@ checkReachable fc roots =
           reject (userFC here) owner EscapeHatch ("the escape hatch " ++ key ++ via here)
       case definition def of
         Builtin BelieveMe => reject (userFC here) owner EscapeHatch ("believe_me" ++ via here)
-        Builtin Crash => unless fromTrusted $
+        Builtin Crash => unless (byLibrary from) $
           reject (userFC here) owner EscapeHatch ("idris_crash" ++ via here)
         Hole {} => reject (userFC here) owner EscapeHatch ("the hole " ++ key ++ via here)
         -- Only the declarations the registry gives a meaning may be
@@ -350,7 +386,7 @@ checkReachable fc roots =
           _ => pure ()
       -- A library's own totality assertions are trusted.
       let refs' = if trusted then filter (not . assertion . qname) refs else refs
-      pure (map (\r => MkReach r here trusted) refs')
+      pure (map (\r => MkReach r here (if trusted then Library full else User)) refs')
 
     -- The definitions to visit, breadth first, so that a path in a message
     -- is a shortest one: a level of the walk, and what its definitions
@@ -361,23 +397,27 @@ checkReachable fc roots =
     -- definitions left to enter than the last. A rejected one is not
     -- entered, and is reported for each owner once (`reported`).
     level : (w0 : Walked) -> (0 acc : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
-            (reported : SortedSet (Address, Address)) -> List Reach -> Pending w0 w -> Core ()
-    level w0 acc@(Access rec) w p reported [] Idle = pure ()
-    level w0 acc@(Access rec) w p reported [] (Queued lt next) =
-      level w (rec w lt) w (noMore w) reported (next <>> []) Idle
-    level w0 acc@(Access rec) w p reported (r :: rest) pending = do
+            Kept -> List Reach -> Pending w0 w -> Core Ended
+    level w0 acc@(Access rec) w p kept [] Idle = pure (MkEnded w kept)
+    level w0 acc@(Access rec) w p kept [] (Queued lt next) =
+      level w (rec w lt) w (noMore w) kept (next <>> []) Idle
+    level w0 acc@(Access rec) w p kept (r :: rest) pending = do
       defs <- get Ctxt
       Just def <- lookupCtxtExact r.name (gamma defs)
-        | Nothing => level w0 acc w p reported rest pending
+        | Nothing => level w0 acc w p kept rest pending
       let full = fullname def
       -- What tells definitions apart is their address in the context; a
       -- name with none has no place, and is never entered (`Walk`).
       let Just key = definitionAddress (gamma defs) full
-        | Nothing => level w0 acc w p reported rest pending
+        | Nothing => level w0 acc w p kept rest pending
       -- Where the definition comes from, as the registry classifies it.
       loc <- toLoc (location def)
+      let trusted = covers Trusted loc.origin
+      -- Only a trusted definition is walked for a user definition other
+      -- than itself: a user definition is the owner of what it reaches.
+      let kept' = if trusted then { arrivals $= insertWith (++) key [r] } kept else kept
       -- Primitives have no location; errors name the user definition.
-      let here = if covers Trusted loc.origin || isNothing (isNonEmptyFC (location def))
+      let here = if trusted || isNothing (isNonEmptyFC (location def))
                    then r.path else (full, key, location def) :: r.path
       let owner = maybe full fst (head' here)
       let ownerKey = maybe key (fst . snd) (head' here)
@@ -385,17 +425,33 @@ checkReachable fc roots =
                                                 maybe id (insert . fst . snd) (head' r.path)) }
       -- Checked and found good already: entered into the walk.
       let Just (Element w1 q) = enter (gamma defs) full w
-        | Nothing => level w0 acc w p reported rest pending
+        | Nothing => level w0 acc w p kept' rest pending
       st <- get TState
       let reach = (key, ownerKey)
-      if contains reach reported ||
+      let refusing = { reported $= insert reach, refusals $= (r ::) } kept'
+      if contains reach kept'.reported ||
          maybe False (\m => contains (m, nameRoot full) st.spelled) (moduleOf (userFC here))
         then do
           refuse
-          level w0 acc w p (insert reach reported) rest pending
+          level w0 acc w p refusing rest pending
         else do
-          Nothing <- noting (visit def loc here (show owner) r.path r.fromTrusted)
-            | Just next => level w0 acc w1 (thenNoMore (fewer q) p) reported rest
+          Nothing <- noting (visit def loc here (show owner) r.path r.from)
+            | Just next => level w0 acc w1 (thenNoMore (fewer q) p) kept' rest
                                  (Queued (fewerThen q p) (queued pending <>< next))
           refuse
-          level w0 acc w p (insert reach reported) rest pending
+          level w0 acc w p refusing rest pending
+
+    -- The paths of the user definitions behind reaches: a user
+    -- definition's own, and through a trusted definition, those behind
+    -- each reach of it, each trusted definition walked back through once.
+    usersBehind : SortedMap Address (List Reach) -> (w : Walked) -> (0 _ : SizeAccessible w) ->
+                  List Reach -> Core (List (List (Name, Address, FC)))
+    usersBehind arrivals w (Access rec) [] = pure []
+    usersBehind arrivals w acc@(Access rec) (r :: rest) = case r.from of
+      User => (r.path ::) <$> usersBehind arrivals w acc rest
+      Library n => do
+        defs <- get Ctxt
+        let Just (Element w' less) = enter (gamma defs) n w
+          | Nothing => usersBehind arrivals w acc rest
+        let reaches = fromMaybe [] (definitionAddress (gamma defs) n >>= \a => lookup a arrivals)
+        usersBehind arrivals w' (rec w' less) (reaches ++ rest)

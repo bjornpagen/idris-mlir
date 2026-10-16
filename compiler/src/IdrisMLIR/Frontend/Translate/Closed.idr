@@ -6,6 +6,7 @@
 module IdrisMLIR.Frontend.Translate.Closed
 
 import Core.Case.CaseTree
+import Core.CompileExpr
 import Core.Context
 import Core.Core
 import Core.Env
@@ -68,6 +69,24 @@ Functor VarInfo where
   map f (Shaped x t i s) = Shaped (f x) t i s
   map f (TypeValue t) = TypeValue t
   map f (Static t h) = Static t (map (\(x, hs) => (f x, hs)) h)
+
+||| The role Idris gives a constructor of a `Nat`-like type
+||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
+||| successor adds one, as Idris's own backends represent every such type.
+||| Idris counts only runtime arguments, so `Fin` is one too.
+public export
+data NatRole = Zero | Succ
+
+export
+natRole : GlobalDef -> Maybe NatRole
+natRole def = case mapMaybe role (flags def) of
+  (r :: _) => Just r
+  [] => Nothing
+  where
+    role : DefFlag -> Maybe NatRole
+    role (ConType ZERO) = Just Zero
+    role (ConType SUCC) = Just Succ
+    role _ = Nothing
 
 ||| An environment under a binder of `k` variables, which come first.
 export
@@ -413,15 +432,17 @@ export
 rootOf : {auto c : Ref Ctxt Defs} -> Name -> Core Name
 rootOf n = climb start (sizeAccessible start) n
   where
+    -- The accessibility proof is erased, and every clause matches its one
+    -- constructor: no alternative is chosen by it.
     climb : (w : Walked) -> (0 _ : SizeAccessible w) -> Name -> Core Name
-    climb w acc (NS ns (CaseBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
-    climb w acc (NS ns (WithBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
-    climb w acc@(Access rec) m@(NS _ (Nested (outer, _) _)) = do
+    climb w (Access _) (NS ns (CaseBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
+    climb w (Access _) (NS ns (WithBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
+    climb w (Access rec) m@(NS _ (Nested (outer, _) _)) = do
       defs <- get Ctxt
       case enter (gamma defs) (Resolved outer) w of
         Nothing => pure m
         Just (Element w' less) => climb w' (rec w' less) !(toFullNames (Resolved outer))
-    climb w acc m = pure m
+    climb w (Access _) m = pure m
 
 ||| Did Idris prove that every call of a definition ends? Idris's own
 ||| termination check, which follows everything the definition calls, so
@@ -1422,21 +1443,23 @@ mutual
           CutEnv vs ws -> TT vs -> Arg ws
   argOf w acc env a = MkArg (rename env a) (dependsOn env a) (cut w acc env a)
 
-  ||| The head of an application, with its arguments, cut.
+  ||| The head of an application, with its arguments, cut. The
+  ||| accessibility proof is erased, and every clause matches its one
+  ||| constructor: no alternative is chosen by it.
   spine : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           CutEnv vs ws -> TT vs -> List (Arg ws) -> Core (TT ws)
-  spine w acc env (App _ f a) args = spine w acc env f (argOf w acc env a :: args)
-  spine w acc env (Bind _ _ (Lam {}) sc) (a :: args) = cutApplied w acc (Apply a env) sc args
-  spine w acc env (Bind fc x b sc) [] = Bind fc x <$> binder w acc env b <*> cut w acc (keep env) sc
-  spine w acc env (TDelayed fc r t) [] = TDelayed fc r <$> cut w acc env t
-  spine w acc env (Local fc _ idx v) [] = case boundAt env fc idx v of
+  spine w acc@(Access _) env (App _ f a) args = spine w acc env f (argOf w acc env a :: args)
+  spine w acc@(Access _) env (Bind _ _ (Lam {}) sc) (a :: args) = cutApplied w acc (Apply a env) sc args
+  spine w acc@(Access _) env (Bind fc x b sc) [] = Bind fc x <$> binder w acc env b <*> cut w acc (keep env) sc
+  spine w acc@(Access _) env (TDelayed fc r t) [] = TDelayed fc r <$> cut w acc env t
+  spine w (Access _) env (Local fc _ idx v) [] = case boundAt env fc idx v of
     AVar t => pure t
     AnArg a => a.cutForm
-  spine w acc env (Local fc _ idx v) args@(_ :: _) = case boundAt env fc idx v of
+  spine w (Access _) env (Local fc _ idx v) args@(_ :: _) = case boundAt env fc idx v of
     AVar _ => pure (Erased fc Placeholder)
     AnArg a => appliedArg a args
-  spine w acc env tm@(Ref fc (DataCon _ _) _) args = foldl (App fc) (rename env tm) <$> cutArgs args
-  spine w acc env tm@(Ref fc (TyCon _) _) args = foldl (App fc) (rename env tm) <$> cutArgs args
+  spine w (Access _) env tm@(Ref fc (DataCon _ _) _) args = foldl (App fc) (rename env tm) <$> cutArgs args
+  spine w (Access _) env tm@(Ref fc (TyCon _) _) args = foldl (App fc) (rename env tm) <$> cutArgs args
   spine w acc@(Access rec) env tm@(Ref fc Func n) args =
     if !(typeFunction n)
        then foldl (App fc) (rename env tm) <$> cutArgs args
@@ -1453,7 +1476,7 @@ mutual
          let Just (env', rest) = boundParams w' (rec w' less) pargs given
            | Nothing => pure (Erased fc Placeholder)
          cutApplied w' (rec w' less) env' body rest
-  spine w acc env _ _ = pure (Erased EmptyFC Placeholder)
+  spine w (Access _) env _ _ = pure (Erased EmptyFC Placeholder)
 
   ||| An argument a lambda or a plain function binds, applied in turn: the
   ||| argument's cut applied to theirs, when it keeps its head

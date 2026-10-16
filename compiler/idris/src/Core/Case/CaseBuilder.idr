@@ -259,6 +259,13 @@ HasNames (PatClause todo vars) where
   resolved gam (MkPatClause ns nps i rhs)
      = [| MkPatClause (traverse (resolved gam) ns) (resolved gam nps) (pure i) (resolved gam rhs) |]
 
+-- A clause with its names made full, as a log shows it. Its scopes are
+-- taken at quantity 0: no name depends on them, so the implementation is
+-- one for every scope, never one chosen by a scope known only at runtime.
+toFullClause : {auto c : Ref Ctxt Defs} -> {0 todo : List Name} -> {0 vars : Scope} ->
+               PatClause todo vars -> Core (PatClause todo vars)
+toFullClause = toFullNames
+
 0 IsConClause : PatClause (a :: todo) vars -> Type
 IsConClause (MkPatClause _ (MkInfo pat _ _ :: _) _ _) = IsConPat pat
 
@@ -1091,7 +1098,7 @@ patCompile fc fn phase ty (p :: ps)
          pats <- mkPatClausesFrom 0 ns (p :: ps)
          -- low verbosity level: pretty print fully resolved names
          logC "compile.casetree" 5 $ do
-           pats <- traverse toFullNames $ forget pats
+           pats <- traverse toFullClause $ forget pats
            pure $ "Pattern clauses:\n"
                 ++ show (indent 2 $ vcat $ pretty <$> pats)
          -- higher verbosity: dump the raw data structure

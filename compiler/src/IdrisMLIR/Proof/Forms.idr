@@ -22,18 +22,23 @@ import Decidable.Equality
 ||| count the node's number), an as-pattern, a lazy type, a suspended value, a
 ||| forced one, an erased term, a universe, a string literal and a double
 ||| literal (the characters of the string and of the double's print
-||| follow), the world, and a runtime value an implementation closes over
-||| (its number among those values the symbol's magnitude).
+||| follow), the world, a runtime value an implementation closes over (its
+||| number among those values the symbol's magnitude), and a run of a
+||| `Nat`-like type's successor applied to a term, which follows (the
+||| successor's address the node's, and the run's length the magnitude of
+||| the symbol after it).
 public export
 data Shape
   = Applied | Variable | Reference | Hole | AsPattern | LazyType | Suspended | Forced
   | Placeholder | Impossible | Dotted | Universe | Text | Floating | World | Marker
+  | Successors
 
-shapeTable : Vect 16 Shape
+shapeTable : Vect 17 Shape
 shapeTable = [ Applied, Variable, Reference, Hole, AsPattern, LazyType, Suspended, Forced
-             , Placeholder, Impossible, Dotted, Universe, Text, Floating, World, Marker ]
+             , Placeholder, Impossible, Dotted, Universe, Text, Floating, World, Marker
+             , Successors ]
 
-shapeCode : Shape -> Fin 16
+shapeCode : Shape -> Fin 17
 shapeCode Applied = 0
 shapeCode Variable = 1
 shapeCode Reference = 2
@@ -50,9 +55,10 @@ shapeCode Text = 12
 shapeCode Floating = 13
 shapeCode World = 14
 shapeCode Marker = 15
+shapeCode Successors = 16
 
 shapes : Numbered Shape
-shapes = MkNumbered 16 shapeCode (\i => index i Forms.shapeTable) decoded
+shapes = MkNumbered 17 shapeCode (\i => index i Forms.shapeTable) decoded
   where
     decoded : (x : Shape) -> index (shapeCode x) Forms.shapeTable = x
     decoded Applied = Refl
@@ -71,6 +77,7 @@ shapes = MkNumbered 16 shapeCode (\i => index i Forms.shapeTable) decoded
     decoded Floating = Refl
     decoded World = Refl
     decoded Marker = Refl
+    decoded Successors = Refl
 
 export
 DecEq Shape where
@@ -158,11 +165,11 @@ export
 Ord Passing where
   compare a b = compare (passingCode a) (passingCode b)
 
-||| A character, by its code point, as the high and the low ten bits of
-||| it: a code point is below 1088 times 1024.
+||| A character, by its code point, as the high eleven and the low ten of
+||| its twenty-one bits.
 public export
 Glyph : Type
-Glyph = (Fin 1088, Fin 1024)
+Glyph = (Fin 2048, Fin 1024)
 
 ||| A form of term: a shape; a binder, with its quantity and how its
 ||| argument is passed; an integer literal's primitive type and whether it
@@ -236,7 +243,7 @@ bools : Listed Bool
 bools = MkListed [False, True] (\case False => Here; True => There Here)
 
 glyphs : Listed Glyph
-glyphs = listedPair (listedFin 1088) (listedFin 1024)
+glyphs = listedPair (listedFin 2048) (listedFin 1024)
 
 sums : Listed Sum
 sums =

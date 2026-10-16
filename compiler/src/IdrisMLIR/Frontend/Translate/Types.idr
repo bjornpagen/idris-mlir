@@ -230,24 +230,6 @@ typeParams def params = case definition def of
     kinds (Bind _ _ (Pi _ _ _ a) sc) = valueKind a :: kinds sc
     kinds _ = []
 
-||| The role Idris gives a constructor of a `Nat`-like type
-||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
-||| successor adds one, as Idris's own backends represent every such type.
-||| Idris counts only runtime arguments, so `Fin` is one too.
-public export
-data NatRole = Zero | Succ
-
-export
-natRole : GlobalDef -> Maybe NatRole
-natRole def = case mapMaybe role (flags def) of
-  (r :: _) => Just r
-  [] => Nothing
-  where
-    role : DefFlag -> Maybe NatRole
-    role (ConType ZERO) = Just Zero
-    role (ConType SUCC) = Just Succ
-    role _ = Nothing
-
 ||| Is a type constructor `Nat`-like: do its constructors carry Idris's
 ||| `ZERO` and `SUCC` flags? These are read from Idris's metadata, never
 ||| from names.
@@ -534,16 +516,6 @@ buildingLink b = b.link
 Chained : List Building -> Type
 Chained chain = Accessible (Extends (Via buildingLink)) chain
 
-||| Why a chain of instances refuses one more: it is one on the chain, it
-||| grows past one at a position, or it is of the same definition at
-||| another number of arguments.
-data Refusal = Again' | GrownAt Nat | OtherArity
-
-refusal : Requested x y -> Refusal
-refusal (Again _) = Again'
-refusal (Grown _ g) = GrownAt (position g)
-refusal (Arity _ _) = OtherArity
-
 mutual
   ||| The Core type of a type, read under binders whose values are given,
   ||| in the registration of the data instances on `chain`. The type is
@@ -651,11 +623,11 @@ mutual
       _ => do
         let y = MkBuilding inst tname key found.link
         case admit buildingLink chain y of
-          Refused x _ why => case refusal why of
+          Refused x _ _ why _ => case why of
             -- An instance being registered is referred to by its own
             -- fields when it is recursive: it is declared, whatever its
             -- shape.
-            Again' => do
+            Repeated => do
               update TState { reentered $= insert inst }
               pure (inst, DataT inst)
             GrownAt i =>

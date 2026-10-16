@@ -369,6 +369,16 @@ merge; each says what changed in its interface.
   whose names are resolved; and `convertMatches` in
   `Core.Normalise.Convert` binds its scopes as `Scope`, where upstream's
   `_` made them lists of any type.
+- **Logs of values in a scope.** A log that makes a value's names full
+  takes its scope at quantity 0: `toFullNF` (`Core.Value`, for the
+  evaluator's logs) and `toFullClause` (`Core.Case.CaseBuilder`, for
+  `patCompile`'s). The logs of a pattern variable and of an as-pattern
+  (`TTImp.Elab.ImplicitBind`, `TTImp.Elab.As`) show their terms by
+  `showTerm`, as the text upstream's `show` of the tuple gave. Upstream's
+  applied `HasNames` and `Show` of a pair at the scope the caller holds at
+  runtime; this compiler chooses an implementation at compile time, and
+  one Idris does not prove ends cannot be expanded to show that its scope
+  is used only where it is erased.
 - `OperatorLHSInfo` (`Core.TT`) is a family over `Type`, as its
   constructors use it. Upstream declared it over a value of an implicit
   type (`tm -> Type`), which this compiler reads as a parameter that is a

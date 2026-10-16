@@ -453,7 +453,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                    | NoMatch => findAlt env loc opts fc stk val xs
                    | GotStuck => do
                        logC "eval.casetree.stuck" 5 $ do
-                         val <- toFullNames val
+                         val <- toFullNF val
                          x <- toFullNames x
                          pure $ "Got stuck matching \{show val} against \{show x}"
                        pure GotStuck
@@ -469,7 +469,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
            -- we have not defined quote yet (it depends on eval itself) so we show the NF
            -- i.e. only the top-level constructor.
            logC "eval.casetree" 5 $ do
-             xval <- toFullNames xval
+             xval <- toFullNF xval
              pure "Evaluated \{show name} to \{show xval}"
            let loc' = updateLocal opts env idx (embedIsVar x) loc xval
            findAlt env loc' opts fc stk xval alts
@@ -561,13 +561,13 @@ parameters (defs : Defs) (topopts : EvalOpts)
              || (tcInline opts && elem TCInline flags)
              then case argsFromStack args stk of
                        Nothing => do logC "eval.def.underapplied" 50 $ do
-                                       def <- toFullNames def
+                                       def <- toFullNF def
                                        pure "Cannot reduce under-applied \{show def}"
                                      pure def
                        Just (locs', stk') =>
                             do (Result (MkTermEnv newLoc res)) <- evalTree env locs' opts fc stk' tree
                                     | _ => do logC "eval.def.stuck" 50 $ do
-                                                def <- toFullNames def
+                                                def <- toFullNF def
                                                 pure "evalTree failed on \{show def}"
                                               pure def
                                evalWithOpts defs opts env newLoc res stk'
@@ -599,7 +599,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
     -- the stack
     evalDef env opts meta fc rigd def flags stk orig = do
       logC "eval.def.stuck" 50 $ do
-        orig <- toFullNames orig
+        orig <- toFullNF orig
         pure "Cannot reduce def \{show orig}: it is a \{show def}"
       pure orig
 
