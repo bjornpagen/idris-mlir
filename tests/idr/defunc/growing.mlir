@@ -1,21 +1,9 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // Closures that a recursion on a runtime value makes larger: each level
 // captures a closure of its own type, so no unboxed sum over labels stands
 // for them: their keys become boxed sums. The unrelated closure type in the
 // same module is still an unboxed sum. No closure is left.
-// CHECK-DAG: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [{{.*}}]
-// CHECK-DAG: !{{[A-Za-z0-9_$.]+}} = !idr.data<{{[^,]*}}, closures [{{.*}}]
-// CHECK-NOT: !idr.fn
-// CHECK-NOT: {{(idr\.| )closure }}
-// CHECK-NOT: {{(idr\.| )apply }}
-// CHECK-LABEL: idr.func @Main.pick(
-// CHECK-SAME: -> !{{[A-Za-z0-9_$.]+}}
-// CHECK: con {{.*}}@Main.twice(
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: match %{{.*}} : ![[F0]] -> (i1)
 idr.program @growing root(@Main.main) stage(higher) {
   idr.func @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

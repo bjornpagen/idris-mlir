@@ -4,6 +4,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
+#include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -22,6 +23,13 @@ using namespace mlir;
 namespace idr::narrow {
 
 namespace {
+
+// idr-narrow attempts to make one op on bigs an op on words, as upstream's
+// apply-pattern attempts a pattern; the unit is the op.
+struct NarrowWordAction : support::TaggedAction<NarrowWordAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-narrow-word";
+};
 
 arith::IntegerOverflowFlags noWrap(bool nonNegative) {
   return nonNegative ? arith::IntegerOverflowFlags::nsw | arith::IntegerOverflowFlags::nuw
@@ -170,13 +178,19 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
 
 // An op on bigs that all fit, reached after the joints made words of what
 // flows round loops and out of merges. A conversion the joints made is
-// left to the folds that pair it, not narrowed again.
+// left to the folds that pair it, not narrowed again. Only an op that takes
+// or gives a big is attempted: every case of narrowOp is one.
 struct NarrowWord : RewritePattern {
   NarrowWord(MLIRContext *ctx, Facts &facts, uint64_t &narrowed)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), facts(facts), narrowed(narrowed) {}
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
-    if (facts.made(op) || !narrowOp(rewriter, facts, op))
+    if (facts.made(op) || (llvm::none_of(op->getOperandTypes(), isBig) &&
+                           llvm::none_of(op->getResultTypes(), isBig)))
+      return failure();
+    bool done = false;
+    (void)support::perform<NarrowWordAction>(op, [&] { done = narrowOp(rewriter, facts, op); });
+    if (!done)
       return failure();
     ++narrowed;
     return success();

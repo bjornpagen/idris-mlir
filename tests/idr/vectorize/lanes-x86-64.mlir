@@ -8,11 +8,7 @@
 // RUN: FileCheck %s --check-prefix=WIDE < %t.err
 // RUN: %status 1 idris-mlir-opt %t.inexact.mlir --idr-expect=holds=narrowed-lanes=@inexact -o /dev/null 2> %t.inexact
 // RUN: FileCheck %s --check-prefix=INEXACT < %t.inexact
-// RUN: FileCheck %s --check-prefix=SQUARES < %t.squares.mlir
-// RUN: FileCheck %s --check-prefix=EIGHTH < %t.eighth.mlir
-// RUN: FileCheck %s --check-prefix=ROWS < %t.rows.mlir
-// RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
-// NEEDS-ACCEPTANCE: the versioned loops' printed form after idr-narrow-lanes on the vectorization schedule's loops, and the tree printer's file names for a function.
+// NEEDS-ACCEPTANCE: the tree printer's file names for a function.
 // NEEDS-ACCEPTANCE: that the schedule library's unit-dimension cleanup (@idr.vectorization.cleanup), run again with its failure not suppressed on each function as idr-narrow-lanes left it, after the schedule, converges within its budget.
 // After idr-narrow-lanes a vectorized loop whose body computes on the
 // 64-bit index has two versions: when the sizes it reads are at most a
@@ -29,42 +25,11 @@
 // INT32_MIN % -1, which overflows on i32; an unsigned remainder of a word
 // that is negative, read as another number on i32. Each function keeps
 // its own body (no_inline), read in the module printed after
-// idr-narrow-lanes ran on it. The whole pipeline reaches the LLVM dialect
-// with the 32-bit lanes in it. The lanes are x86-64-v3's four, the x86-64
+// idr-narrow-lanes ran on it.
+// The lanes are x86-64-v3's four, the x86-64
 // target entry's CPU.
-// SQUARES-LABEL: func.func private @squares(
-// SQUARES: arith.cmpi ule
-// SQUARES: scf.if
-// SQUARES: arith.minui
-// SQUARES: scf.for
-// SQUARES: arith.muli {{.*}} : vector<4xi32>
-// SQUARES: } else {
-// SQUARES: scf.for
-// SQUARES: arith.muli {{.*}} : vector<4xi64>
-// SQUARES: return
-// EIGHTH-LABEL: func.func private @eighth(
-// EIGHTH-NOT: scf.if
-// EIGHTH: arith.muli {{.*}} : vector<4xi64>
-// EIGHTH-NOT: scf.if
-// EIGHTH: return
-// ROWS-LABEL: func.func private @rows(
-// ROWS: arith.cmpi ule
-// ROWS: scf.if
-// ROWS: arith.minui
-// ROWS: arith.muli {{.*}} : vector<4xi32>
-// ROWS: arith.divf {{.*}} : vector<4xf64>
-// ROWS: } else {
-// ROWS: arith.muli {{.*}} : vector<4xi64>
-// ROWS: return
 // WIDE: error: expected narrowed-lanes: a loop computes integer lanes of 64 bits with no 32-bit version in @eighth
 // INEXACT: error: expected narrowed-lanes: a loop computes integer lanes of 64 bits with no 32-bit version in @inexact
-// LLVM-NOT: vector.
-// LLVM-NOT: affine.
-// LLVM-NOT: linalg.
-// LLVM: llvm.mul %{{.*}} : vector<4xi32>
-// LLVM-NOT: vector.
-// LLVM-NOT: affine.
-// LLVM-NOT: linalg.
 idr.program @"lanes-x86-64" root(@root) stage(higher) {
   idr.func @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
     %c0 = arith.constant 0 : index

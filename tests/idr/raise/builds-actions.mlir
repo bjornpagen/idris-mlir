@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@actions -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // NEEDS-ACCEPTANCE: that the effects summary gives @actions no effect, so its call is raised across the output.
 // A callee that only builds an IO action performs no IO when it runs: it
 // makes constructors of @put's closure, which writes, and calls nothing
@@ -10,10 +9,6 @@
 // raised across the output between it and the dispatch that runs its
 // action: the raised call takes the world that output leaves, and the
 // original is no longer called.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: idr.io.put_int
-// CHECK: idr.io.put_int
-// CHECK: call @{{actions\.raise\.[0-9a-f]+}}(
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>

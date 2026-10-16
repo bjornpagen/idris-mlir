@@ -27,6 +27,7 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Actions.h"
 
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/OperationSupport.h"
@@ -46,6 +47,19 @@ namespace idr {
 using namespace mlir;
 
 namespace {
+
+// One erase of an unread pure call; its IR unit is the call.
+struct PureEraseAction : idr::support::TaggedAction<PureEraseAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-pure-calls-erase";
+};
+
+// One merge of a pure call into the identical call that dominates it; its
+// IR unit is the call merged.
+struct PureMergeAction : idr::support::TaggedAction<PureMergeAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-pure-calls-merge";
+};
 
 // Two calls are one key when they are the same op but for location: the
 // same callee, operands and attributes, as upstream's CSE compares ops.
@@ -93,8 +107,8 @@ struct PureCalls : idr::impl::IdrPureCallsBase<PureCalls> {
     for (idr::CallOp call : llvm::reverse(calls)) {
       if (!call->use_empty() || !pure(call))
         continue;
-      call.erase();
-      ++erased;
+      if (idr::support::perform<PureEraseAction>(call, [&] { call.erase(); }))
+        ++erased;
     }
 
     numMerged += merged;
@@ -135,10 +149,14 @@ struct PureCalls : idr::impl::IdrPureCallsBase<PureCalls> {
     for (Operation &op : llvm::make_early_inc_range(block)) {
       auto call = dyn_cast<idr::CallOp>(op);
       if (call && pure(call) && llvm::none_of(call.getResultTypes(), idr::isLinear)) {
+        // A skipped merge leaves the second call as it is, and the first
+        // stays the key.
         if (Operation *first = known.lookup(&op)) {
-          op.replaceAllUsesWith(first->getResults());
-          op.erase();
-          ++merged;
+          if (idr::support::perform<PureMergeAction>(&op, [&] {
+                op.replaceAllUsesWith(first->getResults());
+                op.erase();
+              }))
+            ++merged;
         } else {
           known.insert(&op, &op);
         }

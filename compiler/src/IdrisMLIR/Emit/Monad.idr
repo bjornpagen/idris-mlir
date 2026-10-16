@@ -23,20 +23,21 @@ record ES where
   next : Nat
   ||| The operations of the region being written.
   ops : SnocList Statement
-  ||| The symbol of the function of the program being written, which owns
-  ||| the functions its lambdas and delays become, and its Idris
-  ||| definition, where their code is from.
-  owner : String
+  ||| The function of the program being written, which owns the functions
+  ||| its lambdas and delays become, and its Idris definition, where their
+  ||| code is from.
+  owner : FnId
   definition : Shown
   ||| Those functions, in the order their bodies were finished, and the key
-  ||| of each by its symbol: one function per key.
+  ||| of each by its symbol, the name MLIR is given, so that two contents
+  ||| on one name are found: one function per key.
   lifted : SnocList Statement
   keys : SortedMap String String
 
-||| The state before the function of the program named `owner`, from the
+||| The state before the function `owner` of the program, from the
 ||| definition `definition`, is written.
 export
-initial : String -> Shown -> ES
+initial : FnId -> Shown -> ES
 initial owner definition = MkES 0 [<] owner definition [<] empty
 
 public export

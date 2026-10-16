@@ -18,11 +18,36 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Every pass of the dialect is an IdrPass, which states its role, the one
+// fact the tests read of it (IdrPassRoles.txt, written by idris-mlir-tblgen
+// -gen-pass-roles). A role is a record, one of the four below, so that a
+// role none of them is is no TableGen value, and TableGen refuses it:
+//   - optimization: every transform it makes is optional, an MLIR action
+//     (idr/Support/Actions.h); skipping any one, or the pass, leaves a
+//     valid module whose behaviour is the same but for the stack and the
+//     heap it needs;
+//   - lowering: a step the pipeline needs, which changes the program's
+//     representation or its stage, or writes what later steps read;
+//   - analysis: changes no op; writes only facts the verifier relates to
+//     the body, or remarks;
+//   - check: changes nothing, and refuses a program or fails a test.
+class IdrPassRole<string roleName> {
+  string name = roleName;
+}
+def IdrRoleOptimization : IdrPassRole<"optimization">;
+def IdrRoleLowering : IdrPassRole<"lowering">;
+def IdrRoleAnalysis : IdrPassRole<"analysis">;
+def IdrRoleCheck : IdrPassRole<"check">;
+
+class IdrPass<string arg, string anchor, IdrPassRole passRole> : Pass<arg, anchor> {
+  IdrPassRole role = passRole;
+}
+
 //===----------------------------------------------------------------------===//
 // The module's target (lib/Target)
 //===----------------------------------------------------------------------===//
 
-def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
+def IdrTarget : IdrPass<"idr-target", "::mlir::ModuleOp", IdrRoleLowering> {
   let summary = "Give the module its target: triple, CPU, features, data layout";
   let description = [{
     Writes the build's target triple and CPU on the module as its
@@ -47,7 +72,7 @@ def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
 // On any op: the pipeline runs it on idr.func and, after lowering, on
 // func.func. Built here with no symbol table; a pipeline made for one run
 // over a program gives that run's table instead.
-def IdrCanonicalize : Pass<"idr-canonicalize"> {
+def IdrCanonicalize : IdrPass<"idr-canonicalize", "", IdrRoleOptimization> {
   let summary = "Canonicalize under upstream's greedy driver, a call's effects its callee's where the program's symbol table was given";
   let description = [{
     The canonicalization patterns of every loaded dialect and registered
@@ -80,7 +105,7 @@ def IdrCanonicalize : Pass<"idr-canonicalize"> {
 // Whole-program facts and the optimizer (lib/Transforms)
 //===----------------------------------------------------------------------===//
 
-def IdrDeduplicate : Pass<"idr-deduplicate", "::idr::ProgramOp"> {
+def IdrDeduplicate : IdrPass<"idr-deduplicate", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Keep one of each class of functions with identical bodies";
   let description = [{
     Monomorphisation makes one function per instantiation, and erasure
@@ -102,7 +127,7 @@ def IdrDeduplicate : Pass<"idr-deduplicate", "::idr::ProgramOp"> {
   let dependentDialects = ["::idr::IdrDialect"];
 }
 
-def IdrDefunctionalize : Pass<"idr-defunctionalize", "::idr::ProgramOp"> {
+def IdrDefunctionalize : IdrPass<"idr-defunctionalize", "::idr::ProgramOp", IdrRoleLowering> {
   let summary = "Replace every closure and suspension by a constructor of a sum, every force by a call";
   let description = [{
     A sparse dataflow analysis finds the labels each value of a closure or
@@ -149,7 +174,7 @@ def IdrDefunctionalize : Pass<"idr-defunctionalize", "::idr::ProgramOp"> {
   ];
 }
 
-def IdrEffects : Pass<"idr-effects", "::idr::ProgramOp"> {
+def IdrEffects : IdrPass<"idr-effects", "::idr::ProgramOp", IdrRoleAnalysis> {
   let summary = "Compute the effects of every idr.func";
   let description = [{
     Writes `effects` on every `idr.func` of a program past the `higher`
@@ -171,7 +196,7 @@ def IdrEffects : Pass<"idr-effects", "::idr::ProgramOp"> {
   ];
 }
 
-def IdrContify : Pass<"idr-contify", "::idr::ProgramOp"> {
+def IdrContify : IdrPass<"idr-contify", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Inline each function called once from another function of its cycle";
   let description = [{
     A function whose one use is a call from another function of its
@@ -199,7 +224,7 @@ def IdrContify : Pass<"idr-contify", "::idr::ProgramOp"> {
   let dependentDialects = ["::idr::IdrDialect"];
 }
 
-def IdrOptimize : Pass<"idr-optimize", "::idr::ProgramOp"> {
+def IdrOptimize : IdrPass<"idr-optimize", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Optimize each function once, bottom-up over the call graph";
   let description = [{
     One bottom-up ready set over the strongly connected components of the
@@ -237,7 +262,8 @@ def IdrOptimize : Pass<"idr-optimize", "::idr::ProgramOp"> {
     pipeline's own steps are made for each run, holding the summaries and
     the node table they read, so no other pipeline can hold one, and none
     is registered; each counts into a statistic of this pass named for the
-    step.
+    step, and so do its canonicalize and cse, whose counts are read off each
+    copy of the pipeline once the waves end.
   }];
   let statistics = [
     Statistic<"numInlined", "inlined", "Calls inlined">,
@@ -253,11 +279,16 @@ def IdrOptimize : Pass<"idr-optimize", "::idr::ProgramOp"> {
     Statistic<"numRedirected", "idr-redirect.redirected",
               "Calls redirected to the specialization or raise node their key names">,
     Statistic<"numConstants", "idr-constants.constants", "Values replaced by a constant">,
+    Statistic<"numNotConverged", "idr-canonicalize.not-converged",
+              "Functions the inner canonicalizer left less canonical: the greedy driver's "
+              "iteration limit was spent before the patterns converged on them">,
+    Statistic<"numCSE", "cse.num-cse'd", "Operations the inner cse merged into an equal one">,
+    Statistic<"numDCE", "cse.num-dce'd", "Operations the inner cse erased as dead">,
   ];
   let dependentDialects = ["::idr::IdrDialect", "::mlir::arith::ArithDialect"];
 }
 
-def IdrBindingTimes : Pass<"idr-binding-times", "::idr::ProgramOp"> {
+def IdrBindingTimes : IdrPass<"idr-binding-times", "::idr::ProgramOp", IdrRoleAnalysis> {
   let summary = "Report the binding time of every parameter";
   let description = [{
     A remark on every function: `free for every parameter` for one on no
@@ -272,7 +303,7 @@ def IdrBindingTimes : Pass<"idr-binding-times", "::idr::ProgramOp"> {
 // The arrays stage (lib/Transforms/Columns, StructureLoops, Bufferize)
 //===----------------------------------------------------------------------===//
 
-def IdrColumns : Pass<"idr-columns", "::idr::ProgramOp"> {
+def IdrColumns : IdrPass<"idr-columns", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Hold a tensor of records as one tensor per leaf of the record";
   let description = [{
     A tensor whose element is a record (`tensor<...x!idr.data<r>>`, r a
@@ -304,7 +335,7 @@ def IdrColumns : Pass<"idr-columns", "::idr::ProgramOp"> {
   let dependentDialects = ["::mlir::tensor::TensorDialect", "::idr::IdrDialect"];
 }
 
-def IdrStructureLoops : Pass<"idr-structure-loops", "::idr::FuncOp"> {
+def IdrStructureLoops : IdrPass<"idr-structure-loops", "::idr::FuncOp", IdrRoleLowering> {
   let summary = "Lower each array op to a linalg op or to its ordered loop nest";
   let description = [{
     The one-to-one lowering of the array language's generating set,
@@ -350,7 +381,7 @@ def IdrStructureLoops : Pass<"idr-structure-loops", "::idr::FuncOp"> {
                            "::mlir::ub::UBDialect"];
 }
 
-def IdrBufferize : Pass<"idr-bufferize", "::idr::ProgramOp"> {
+def IdrBufferize : IdrPass<"idr-bufferize", "::idr::ProgramOp", IdrRoleLowering> {
   let summary = "Put every array in a buffer, in place wherever the program allows";
   let description = [{
     One-Shot Bufferize on the whole program, before counting: every tensor
@@ -384,7 +415,7 @@ def IdrBufferize : Pass<"idr-bufferize", "::idr::ProgramOp"> {
 // Memory and loops (lib/Transforms/Stack, Ownership, Demand, Tail, Narrow)
 //===----------------------------------------------------------------------===//
 
-def IdrStack : Pass<"idr-stack", "::idr::ProgramOp"> {
+def IdrStack : IdrPass<"idr-stack", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Put the cells of boxes that never leave their frame on the stack";
   let description = [{
     Gives an `idr.con` of a box its `stack` property when no reference to
@@ -410,7 +441,7 @@ def IdrStack : Pass<"idr-stack", "::idr::ProgramOp"> {
   ];
 }
 
-def IdrAccumulate : Pass<"idr-accumulate", "::idr::ProgramOp"> {
+def IdrAccumulate : IdrPass<"idr-accumulate", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Make a recursion that adds its own result a tail call with an accumulator";
   let description = [{
     A self call whose result a tail position adds (an `idr.big.add` of the
@@ -433,7 +464,7 @@ def IdrAccumulate : Pass<"idr-accumulate", "::idr::ProgramOp"> {
   ];
 }
 
-def IdrRc : Pass<"idr-rc", "::idr::ProgramOp"> {
+def IdrRc : IdrPass<"idr-rc", "::idr::ProgramOp", IdrRoleLowering> {
   let summary = "Make every reference explicit: reset/reuse, borrowed parameters, dup and drop";
   let description = [{
     Runs on a program in the `first` stage, on functional code, after the
@@ -497,7 +528,7 @@ def IdrRc : Pass<"idr-rc", "::idr::ProgramOp"> {
   ];
 }
 
-def IdrDemand : Pass<"idr-demand", "::idr::ProgramOp"> {
+def IdrDemand : IdrPass<"idr-demand", "::idr::ProgramOp", IdrRoleCheck> {
   let summary = "Reject a program that breaks the in-place promise its types make";
   let description = [{
     Runs after idr-rc, on a program in the `owned` stage and the grades it
@@ -513,7 +544,7 @@ def IdrDemand : Pass<"idr-demand", "::idr::ProgramOp"> {
   let dependentDialects = ["::idr::IdrDialect"];
 }
 
-def IdrTrmc : Pass<"idr-trmc", "::idr::ProgramOp"> {
+def IdrTrmc : IdrPass<"idr-trmc", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Make a recursion that returns a constructor around its own result a tail call with a destination";
   let description = [{
     A self call whose result is a field of the boxed constructor a tail
@@ -535,7 +566,7 @@ def IdrTrmc : Pass<"idr-trmc", "::idr::ProgramOp"> {
   ];
 }
 
-def IdrTailLoops : Pass<"idr-tail-loops", "::idr::FuncOp"> {
+def IdrTailLoops : IdrPass<"idr-tail-loops", "::idr::FuncOp", IdrRoleOptimization> {
   let summary = "Turn self tail calls into scf.while loops";
   let description = [{
     A function that calls itself in tail position, directly or through the
@@ -558,7 +589,7 @@ def IdrTailLoops : Pass<"idr-tail-loops", "::idr::FuncOp"> {
   ];
 }
 
-def IdrNarrow : Pass<"idr-narrow", "::idr::ProgramOp"> {
+def IdrNarrow : IdrPass<"idr-narrow", "::idr::ProgramOp", IdrRoleOptimization> {
   let summary = "Make the bigs and naturals proved to fit a small plain i64 words";
   let description = [{
     Integer range analysis sees the ops on bigs and naturals through their
@@ -589,7 +620,7 @@ def IdrNarrow : Pass<"idr-narrow", "::idr::ProgramOp"> {
 // Lowering (lib/Conversion)
 //===----------------------------------------------------------------------===//
 
-def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
+def IdrLower : IdrPass<"idr-lower", "::mlir::ModuleOp", IdrRoleLowering> {
   let summary = "Lower idr to func, arith, math, scf, ub and llvm";
   let description = [{
     Lowers the program, in the `owned` stage, inside it. First every
@@ -624,7 +655,7 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
   ];
 }
 
-def IdrEntry : Pass<"idr-entry", "::mlir::ModuleOp"> {
+def IdrEntry : IdrPass<"idr-entry", "::mlir::ModuleOp", IdrRoleLowering> {
   let summary = "Make the lowered root the program's entry: @__idr_main and @main";
   let description = [{
     Runs after idr-lower. Every function and datum of the lowered program
@@ -644,7 +675,7 @@ def IdrEntry : Pass<"idr-entry", "::mlir::ModuleOp"> {
 // After lowering, on func.func (lib/Transforms/Narrow)
 //===----------------------------------------------------------------------===//
 
-def IdrNarrowLanes : Pass<"idr-narrow-lanes", "::mlir::func::FuncOp"> {
+def IdrNarrowLanes : IdrPass<"idr-narrow-lanes", "::mlir::func::FuncOp", IdrRoleOptimization> {
   let summary = "Run the integer lanes of each vectorized loop in 32 bits under a bound on the sizes";
   let description = [{
     After the vectorization schedule, each vectorized loop (as its ops say:
@@ -678,7 +709,8 @@ def IdrNarrowLanes : Pass<"idr-narrow-lanes", "::mlir::func::FuncOp"> {
   ];
 }
 
-def IdrReturnedArguments : Pass<"idr-returned-arguments", "::mlir::ModuleOp"> {
+def IdrReturnedArguments
+    : IdrPass<"idr-returned-arguments", "::mlir::ModuleOp", IdrRoleOptimization> {
   let summary = "Drop a result a function always returns as one of its arguments";
   let description = [{
     A result that is, on every path, one and the same argument of its
@@ -697,7 +729,7 @@ def IdrReturnedArguments : Pass<"idr-returned-arguments", "::mlir::ModuleOp"> {
   ];
 }
 
-def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
+def IdrTailCalls : IdrPass<"idr-tail-calls", "::mlir::ModuleOp", IdrRoleLowering> {
   let summary = "Make every call in tail position on a cycle of calls a guaranteed tail call";
   let description = [{
     Runs on the LLVM dialect, last. The plan is the module's (which calls
@@ -737,7 +769,7 @@ def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
 
 // On the builtin.module, not the program: a test checks a module at every
 // stage, the lowered one too, where the program has been taken apart.
-def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
+def IdrExpect : IdrPass<"idr-expect", "::mlir::ModuleOp", IdrRoleCheck> {
   let summary = "Check named properties of the module, and change nothing";
   let description = [{
     Tests state what a pass guarantees by name, not by the ops that happen

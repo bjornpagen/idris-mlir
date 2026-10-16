@@ -389,10 +389,16 @@ iteratorPrimitive name result p =
   MkEntry (Def (MkQName iteratorModule name)) (Typed (Pi Mw str (Pi Mw int result))) (IOCall p []) [Primitive]
 
 ||| The in-house string iterator's primitives. An offset is any Int: each
-||| op means something at every one, so its calls have no guard.
+||| op means something at every one, so its calls have no guard. The step
+||| past a character, `scalarBytes`, is a definition with a body, the byte
+||| length of the character's own string, which is its meaning on the stock
+||| host too; its entry is the faster lowering, the op that gives that
+||| length without building the string.
 iterators : List Entry
 iterators =
   [ iteratorPrimitive "prim__scalarAt" (Prim CharP) StrScalarAt
+  , MkEntry (Def (MkQName iteratorModule "scalarBytes")) (Typed (Pi Mw (Prim CharP) int))
+            (IOCall StrScalarBytes []) [Primitive]
   , iteratorPrimitive "prim__dropBytes" str StrDropBytes ]
 
 ||| The table: Idris's backend contract as the compiler implements it.

@@ -47,6 +47,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Support/Actions.h"
 #include "idr/Support/Scc.h"
 
 #include "mlir/IR/Location.h"
@@ -69,6 +70,15 @@ namespace idr {
 using namespace mlir;
 
 namespace {
+
+// idr-deduplicate merges one class of identical functions into its first;
+// the unit is the function kept. The action is the decision: a class it
+// skips names no rename, so every function above it reads its members as
+// they are named, and no member goes.
+struct DeduplicateMergeAction : idr::support::TaggedAction<DeduplicateMergeAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-deduplicate-merge";
+};
 
 struct EliminateDuplicateFunctionsPass
     : idr::impl::IdrDeduplicateBase<EliminateDuplicateFunctionsPass> {
@@ -170,9 +180,11 @@ void EliminateDuplicateFunctionsPass::runOnOperation() {
       llvm::sort(members, [](idr::FuncOp lhs, idr::FuncOp rhs) {
         return lhs.getSymName() < rhs.getSymName();
       });
-      for (idr::FuncOp member : llvm::drop_begin(members))
-        renames[member.getSymNameAttr()] = members.front().getSymNameAttr();
-      classes.push_back(std::move(members));
+      (void)idr::support::perform<DeduplicateMergeAction>(members.front(), [&] {
+        for (idr::FuncOp member : llvm::drop_begin(members))
+          renames[member.getSymNameAttr()] = members.front().getSymNameAttr();
+        classes.push_back(std::move(members));
+      });
     }
   }
 

@@ -80,24 +80,9 @@ Value allocate(OpBuilder &b, Location loc, Runtime &runtime, Value bytes, Value 
                       ValueRange{bytes, scalars});
 }
 
-// The bytes a character takes in UTF-8: 1 below 0x80, 2 below 0x800, 3
-// below 0x10000, else 4.
-Value utf8Length(OpBuilder &b, Location loc, Value c) {
-  Value wide = arith::ExtUIOp::create(b, loc, b.getI64Type(), c);
-  auto word = [&](int64_t value) -> Value {
-    return arith::ConstantIntOp::create(b, loc, value, 64);
-  };
-  auto below = [&](int64_t limit) {
-    return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult, wide, word(limit));
-  };
-  Value three = arith::SelectOp::create(b, loc, below(0x10000), word(3), word(4));
-  Value two = arith::SelectOp::create(b, loc, below(0x800), word(2), three);
-  return arith::SelectOp::create(b, loc, below(0x80), word(1), two);
-}
-
 // pack and concat walk a list the same way: once for the bytes and the
-// scalar values, then once to write each element after the last. A character's sizes are computed here; a string's are the
-// runtime's.
+// scalar values, then once to write each element after the last. A
+// character's sizes and a string's are the runtime's.
 template <typename OpT>
 struct LowerStringOfList : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -114,7 +99,11 @@ struct LowerStringOfList : IdrPattern<OpT> {
                Value item = head.front();
                Value bytes, scalars;
                if constexpr (packing) {
-                 bytes = arith::AddIOp::create(b, l, carried[0], utf8Length(b, l, item));
+                 bytes = arith::AddIOp::create(
+                     b, l, carried[0],
+                     this->runtime.call(b, l,
+                                        idr::runtime::Abi<StrScalarBytesOp>::functions[0].symbol,
+                                        b.getI64Type(), item));
                  Value one = arith::ConstantIntOp::create(b, l, 1, 64);
                  scalars = arith::AddIOp::create(b, l, carried[1], one);
                } else {

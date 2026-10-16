@@ -37,12 +37,14 @@ namespace verify {
 
 // The rules of the program: its target's pointers are the runtime's
 // words; its root is an idr.func of it that takes a world or returns an
-// i64; a memo sum is held only in a box; no array can
-// hold a reference to itself, else the refusal `cycle`; past the higher
-// stage containment in place is acyclic and no data type has a field of a
-// closure or a suspension; and at the owned stage every idr.reuse builds in
-// a cell of its own size. A lowered program is upstream's functions and
-// globals, and its one rule is that its root names a func.func of it.
+// i64; each function's declared effects cover what its body may do, its
+// own part (bodyEffect) and its callees'; a memo sum is held only in a
+// box; no array can hold a reference to itself, else the refusal `cycle`;
+// past the higher stage containment in place is acyclic and no data type
+// has a field of a closure or a suspension; and at the owned stage every
+// idr.reuse builds in a cell of its own size. A lowered program is
+// upstream's functions and globals, and its one rule is that its root
+// names a func.func of it.
 mlir::LogicalResult program(ProgramOp program);
 
 // No array can hold a reference to itself, by the cycles of `graph`.

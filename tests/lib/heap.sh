@@ -16,42 +16,45 @@
 # is the test: the day an optimization stops keeping those values off the
 # heap, it fails.
 
-# The calls LLVM makes by itself for the target (copies, fills, and what
-# else its code generation emits): the build writes them from the target
-# entry (runtime/CMakeLists.txt, codegen-symbols). A build that predates
-# the file falls back to the copy and fill calls every target has.
-codegen_symbols=$(cat "$dev_prefix/runtime/codegen-symbols" 2> /dev/null) ||
-  codegen_symbols='memcpy memset memmove'
-
-# The prefix the object format puts before a C name ("" on ELF, "_" on
-# Mach-O), a target entry fact the build writes (runtime/symbol-prefix): a
-# tool that prints a symbol prints it with the prefix, and no allowed list
-# spells one, so every comparison here is in C names.
-symbol_prefix=$(cat "$dev_prefix/runtime/symbol-prefix" 2> /dev/null) || symbol_prefix=
-
-# c_names: each line of stdin with the object format's symbol prefix taken
-# off.
-c_names() {
-  if [ -n "$symbol_prefix" ]; then
-    sed "s/^$symbol_prefix//"
-  else
-    cat
+# runtime_fact NAME: a fact of the target entry that the build writes
+# beside the runtime (runtime/CMakeLists.txt) and the harness reads,
+# $dev_prefix/runtime/NAME, in $runtime_fact_value: codegen-symbols, the
+# calls LLVM makes by itself for the target (copies, fills, and what else
+# its code generation emits), one per line; symbol-prefix, the prefix the
+# object format puts before a C name, one line ("_" on Mach-O, empty on
+# ELF, which is a fact like any other). Without the file, one line naming
+# it and status 1: the harness has no fact to check against, and no check
+# runs on a guessed one.
+runtime_fact() {
+  if [ ! -f "$dev_prefix/runtime/$1" ]; then
+    say "object: no $dev_prefix/runtime/$1, which the build writes"
+    return 1
   fi
+  runtime_fact_value=$(cat "$dev_prefix/runtime/$1")
 }
 
-# runtime_symbols: what the runtime object every program links defines
-# and imports (its native half: the bitcode in it names the same symbols).
+# c_names PREFIX: each line of stdin with PREFIX, the object format's
+# symbol prefix, taken off. A tool that prints a symbol prints it with the
+# prefix, and no allowed list spells one, so every comparison here is in C
+# names.
+c_names() {
+  sed "s/^$1//"
+}
+
+# runtime_symbols PREFIX: what the runtime object every program links
+# defines and imports (its native half: the bitcode in it names the same
+# symbols), in C names.
 runtime_symbols() {
   "$llvm_bin/llvm-nm" --no-llvm-bc --format=just-symbols "$("$idris_mlir" --print-runtime)" 2> /dev/null |
-    sort -u | c_names
+    sort -u | c_names "$1"
 }
 
-# allowed_symbols TEST: the calls allowed to the program of the test
-# directory TEST.
+# allowed_symbols TEST CODEGEN PREFIX: the calls allowed to the program of
+# the test directory TEST, the code generation's calls CODEGEN among them.
 allowed_symbols() {
   allowed_tests=$(cd "$1/.." && pwd)
-  say "$codegen_symbols"
-  runtime_symbols
+  say "$2"
+  runtime_symbols "$3"
   [ -f "$allowed_tests/symbols" ] && sed '/^#/d' "$allowed_tests/symbols"
   return 0
 }
@@ -62,25 +65,30 @@ allowed_symbols() {
 # A symbol one object defines and another uses is the program's own, so
 # what the objects import is what any of them leaves undefined, less what
 # any of them defines.
+# Its status is 0 when they are, 1 when anything else is printed.
 object_imports() {
   object_test=$1
   shift
   if [ $# -eq 0 ]; then
     say "object: none written"
-    return
+    return 1
   fi
+  runtime_fact codegen-symbols || return 1
+  object_codegen=$runtime_fact_value
+  runtime_fact symbol-prefix || return 1
+  object_prefix=$runtime_fact_value
   if ! "$llvm_bin/llvm-nm" --undefined-only --format=just-symbols "$@" > "$work/nm.raw" 2> "$work/nm.err" ||
      ! "$llvm_bin/llvm-nm" --defined-only --extern-only --format=just-symbols "$@" > "$work/nm.defined" 2>> "$work/nm.err"; then
     say "object: llvm-nm failed"
     show "$work/nm.err"
-    return
+    return 1
   fi
   # With several files llvm-nm heads each one's symbols with its name, a
   # line ending in a colon, and parts them with blank lines.
-  grep -v -e '^$' -e ':$' "$work/nm.defined" | c_names | LC_ALL=C sort -u > "$work/nm.own"
-  grep -v -e '^$' -e ':$' "$work/nm.raw" | c_names | LC_ALL=C sort -u |
+  grep -v -e '^$' -e ':$' "$work/nm.defined" | c_names "$object_prefix" | LC_ALL=C sort -u > "$work/nm.own"
+  grep -v -e '^$' -e ':$' "$work/nm.raw" | c_names "$object_prefix" | LC_ALL=C sort -u |
     LC_ALL=C comm -23 - "$work/nm.own" > "$work/nm.out"
-  object_allowed=" $(allowed_symbols "$object_test" | tr '\n' ' ') "
+  object_allowed=" $(allowed_symbols "$object_test" "$object_codegen" "$object_prefix" | tr '\n' ' ') "
   object_extra=
   for object_symbol in $(cat "$work/nm.out"); do
     case $object_allowed in
@@ -92,6 +100,7 @@ object_imports() {
     say "object: no undefined symbol outside the allowed set"
   else
     say "object: undefined symbols outside the allowed set:$object_extra"
+    return 1
   fi
 }
 

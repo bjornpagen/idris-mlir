@@ -31,8 +31,11 @@
 ||| host-dependent terms aside, and reviewed as any expected output.
 module TwoLevels
 
+import Prelude
 import Data.List
+import Data.Maybe
 import Data.String
+import Prims
 
 %default covering
 
@@ -50,21 +53,11 @@ hostTerm : String -> String -> String -> Term
 hostTerm reason t e = MkTerm t e (Just reason)
 
 intTys : List String
-intTys = ["Int", "Int8", "Int16", "Int32", "Int64", "Bits8", "Bits16", "Bits32", "Bits64"]
+intTys = map tyName fixedTys
 
-signed : String -> Bool
-signed t = isPrefixOf "Int" t
-
-||| The bounds of an integer type.
-bounds : String -> (Integer, Integer)
-bounds "Int8" = (-128, 127)
-bounds "Int16" = (-32768, 32767)
-bounds "Int32" = (-2147483648, 2147483647)
-bounds "Bits8" = (0, 255)
-bounds "Bits16" = (0, 65535)
-bounds "Bits32" = (0, 4294967295)
-bounds "Bits64" = (0, 18446744073709551615)
-bounds _ = (-9223372036854775808, 9223372036854775807)
+||| The fixed-width integer types with their widths and bounds.
+fixed : List (Ty, Width, (Integer, Integer))
+fixed = [ (t, w, b) | t <- fixedTys, w <- toList (widthOf t), b <- toList (bounds t) ]
 
 ||| A literal of a type that nothing around it says.
 typed : String -> String -> String
@@ -84,16 +77,16 @@ prim op t = "prim__" ++ op ++ "_" ++ t
 ------------------------------------------------------------------------------
 
 ||| The integer primitives of one type, at the edges of its range.
-intTerms : String -> List Term
-intTerms t =
-  let (lo, hi) = bounds t
+intTerms : (Ty, Width, (Integer, Integer)) -> List Term
+intTerms (ty, w, (lo, hi)) =
+  let t = tyName ty
       a = hi
-      b = if signed t then -7 else 7
+      b = if w.signed then -7 else 7
       l = num
   in [ term t (app (prim op t) [l a, l b]) | op <- ["add", "sub", "mul", "and", "or", "xor"] ]
   ++ [ term t (app (prim op t) [l x, l y])
      | op <- ["div", "mod"]
-     , (x, y) <- if signed t then [(lo, -1), (-17, 5), (17, -5), (hi, 7)] else [(hi, 7), (17, 5)] ]
+     , (x, y) <- if w.signed then [(lo, -1), (-17, 5), (17, -5), (hi, 7)] else [(hi, 7), (17, 5)] ]
   ++ [ term "Int" (app (prim op t) [l x, l y])
      | op <- ["lt", "lte", "eq", "gte", "gt"], (x, y) <- [(lo, hi), (b, b)] ]
   ++ [ term u (app ("prim__cast_" ++ t ++ u) [l v]) | u <- intTys, u /= t, v <- [lo, hi] ]
@@ -115,8 +108,13 @@ specials =
   , app "prim__div_Double" ["(-1.0)", "0.0"]
   , app "prim__negate_Double" ["0.0"] ]
 
-libm : List String
-libm = ["Exp", "Log", "Sin", "Cos", "Tan", "ASin", "ACos", "ATan"]
+||| The Double functions of `arity` arguments, in the table's order.
+doubleFns : Nat -> List Prim
+doubleFns arity = [ p | p <- prims, isDoubleFn (family p.op), length p.args == arity ]
+  where
+    isDoubleFn : Family -> Bool
+    isDoubleFn DoubleFn = True
+    isDoubleFn _ = False
 
 doubleTerms : List Term
 doubleTerms =
@@ -126,11 +124,10 @@ doubleTerms =
   ++ [ term "Double" (app "prim__negate_Double" [x]) | x <- ds ]
   ++ [ term "Int" (app (prim op "Double") [x, y])
      | op <- ["lt", "lte", "eq", "gte", "gt"], (x, y) <- zip ds (reverse ds) ]
-  ++ [ term "Double" (app ("prim__double" ++ f) [x]) | f <- ["Sqrt", "Floor", "Ceiling"], x <- ds ]
-  ++ [ hostTerm ("prim__double" ++ f ++ ": libm") "Double" (app ("prim__double" ++ f) ["0.5"])
-     | f <- libm ]
-  ++ [ hostTerm "prim__doublePow: libm" "Double" (app "prim__doublePow" ["2.5", "3.5"])
-     , term "String" (app "prim__cast_DoubleString" ["0.1"])
+  ++ [ term "Double" (app p.name [x]) | p <- doubleFns 1, isNothing (hostOf p.op), x <- ds ]
+  ++ [ hostTerm (p.name ++ ": " ++ why) "Double" (app p.name ["0.5"]) | p <- doubleFns 1, why <- toList (hostOf p.op) ]
+  ++ [ hostTerm (p.name ++ ": " ++ why) "Double" (app p.name ["2.5", "3.5"]) | p <- doubleFns 2, why <- toList (hostOf p.op) ]
+  ++ [ term "String" (app "prim__cast_DoubleString" ["0.1"])
      , term "Integer" (app "prim__cast_DoubleInteger" ["1.0e20"])
      , term "Double" (app "prim__cast_StringDouble" ["\"2.5e-3\""])
      ]
@@ -181,7 +178,7 @@ bigTerms =
 
 primitiveTerms : List Term
 primitiveTerms =
-  concatMap intTerms intTys ++ doubleTerms ++ charTerms ++ stringTerms ++ bigTerms
+  concatMap intTerms fixed ++ doubleTerms ++ charTerms ++ stringTerms ++ bigTerms
 
 ------------------------------------------------------------------------------
 -- A corpus of total Prelude functions

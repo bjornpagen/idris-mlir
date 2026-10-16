@@ -3,7 +3,5 @@ artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
-object: no undefined symbol outside the allowed set
+universal: holds
 prelude Prelude.Show: 16 exports, each used (3 compile-time only: MkShow Prec Show)
-dumps: parse and verify
-quantities: kept

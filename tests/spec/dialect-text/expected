@@ -1,0 +1,4 @@
+witness: two FileChecks of module text and an orphan check line are found, a FileCheck of diagnostics is not
+dialect fixtures: found
+module text: no FileCheck reads any outside asm/, syntax/ and verify/
+orphan checks: every check line names a prefix a RUN line of its file checks

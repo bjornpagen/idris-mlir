@@ -15,6 +15,7 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -31,6 +32,13 @@ using namespace mlir;
 
 namespace {
 
+// idr-identity makes one call the argument it gives back; the unit is the
+// call.
+struct IdentityCallAction : idr::support::TaggedAction<IdentityCallAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-identity-call";
+};
+
 struct GiveBack : OpRewritePattern<idr::CallOp> {
   GiveBack(MLIRContext *ctx, const idr::optimize::ReadySet &set, const idr::optimize::Node &reader,
            unsigned &calls)
@@ -40,8 +48,11 @@ struct GiveBack : OpRewritePattern<idr::CallOp> {
     std::optional<unsigned> given = set.givesBack(reader, call.getCalleeAttr().getAttr());
     if (!given)
       return failure();
-    rewriter.replaceOp(call, idr::heldAs(rewriter, call.getLoc(), call.getArgs()[*given],
-                                         call.getResult(0).getType()));
+    if (!idr::support::perform<IdentityCallAction>(call, [&] {
+          rewriter.replaceOp(call, idr::heldAs(rewriter, call.getLoc(), call.getArgs()[*given],
+                                               call.getResult(0).getType()));
+        }))
+      return failure();
     ++calls;
     return success();
   }

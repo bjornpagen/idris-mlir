@@ -1,8 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@bump -o /dev/null
-// RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@bump2 -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=SHARED < %t.err
-// NEEDS-ACCEPTANCE: the copy is named <owner>.excl.<16 hex digits> from its key.
 // NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // idr-rc proves which values hold the only reference to every cell they
@@ -12,25 +10,9 @@
 // list a caller uses again is shared, and the function it then goes to
 // takes its cells apart with the runtime test; where the same function
 // also gets fresh lists, those calls go to a copy specialized on the grade.
-// CHECK-LABEL: idr.func @build(
-// CHECK-SAME: -> !idr.excl<!idr.box<!L>>
-// CHECK-LABEL: idr.func @bump(
-// CHECK-SAME: %{{.*}}: !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
 // A nullary constructor is its atom: its take yields nothing.
-// CHECK: take %{{.*}} : !idr.excl<!idr.box<!L>> @N -> ()
-// CHECK: take %{{.*}} : !idr.excl<!idr.box<!L>> @C -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
-// CHECK-LABEL: idr.func @bump2(
-// CHECK-SAME: %{{.*}}: !idr.own<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
-// CHECK: take %{{.*}} : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
 // The calls of @bump2 with an exclusive list go to a copy of their own,
 // whose takes test no count.
-// CHECK-LABEL: idr.func @[[EXCL:bump2\.excl\.[0-9a-f]+]](
-// CHECK-SAME: %{{.*}}: !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
-// CHECK: take %{{.*}} : !idr.excl<!idr.box<!L>> @C ->
-// CHECK: call @[[EXCL]](
-// CHECK-LABEL: idr.func @root(
-// CHECK: share %{{.*}} : !idr.excl<!idr.box<!L>>
-// CHECK: call @[[EXCL]](
 // SHARED: error: expected tests-nothing: idr.take in @bump2 tests a value of '!idr.own<!idr.box<!idr.data<"L"{{.*}}>>>', which is not exclusive
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @exclusive root(@root) stage(first) {

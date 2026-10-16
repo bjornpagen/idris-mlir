@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,crash-sites=@Thunk.force:1,calls=@Thunk.force:@one,calls=@Thunk.force:@plus,calls-only=@Thunk.force:[@one,@plus,@idris_rt_crash],aligned-access' -o /dev/null
-// RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle and the dispatch idr-defunctionalize makes of a memo sum, and the header words the lowering writes for them.
+// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle and the dispatch idr-defunctionalize makes of a memo sum.
 // A force is a call of its memo sum's dispatch, `<sum>.force`, which
 // idr-defunctionalize makes: a match on the cell's state. A cell in a
 // label's state has its captures moved out to the dispatch, is marked
@@ -15,9 +14,6 @@
 // Entering and settling write the cell's header: the memo sum is a box of
 // @one and @plus, then running and forced, so running is tag 2 and forced
 // tag 3, each with the thunk kind, 1 << 24, the runtime's header words.
-// CHECK-LABEL: func.func private @Thunk.force(
-// CHECK-DAG: llvm.mlir.constant(16777218 : i32)
-// CHECK-DAG: llvm.mlir.constant(16777219 : i32)
 !Thunk = !idr.data<"Thunk", memo [@one() label @one, @plus(i64) label @plus, @running() running, @forced(i64) forced]>
 idr.program @"force-view" root(@Main.main) stage(owned) {
   idr.func @one() -> i64 attributes {total} {

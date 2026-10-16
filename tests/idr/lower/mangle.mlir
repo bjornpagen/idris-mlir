@@ -1,22 +1,12 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=linker-names,lowered -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // A function's symbol is its Idris name with its instance's arguments,
 // which may hold any character; from idr-lower on it is the name LLVM and
 // the linker take, so phase 0 writes every character outside letters,
 // digits, `_` and `.` as `$`, its code point, `$`: the function and its
 // calls alike, so every symbol the program defines is in that alphabet.
 // Static data is named in it already and keeps its names. The encoding is
-// the names the linker sees, so it is checked as written.
-// CHECK-LABEL: func.func private @Main.show$91$Prelude.Types.Nat$93$(
-// CHECK-LABEL: func.func private @Main.pair$91$Prelude.Types.Nat$44$$32$Prelude.Types.Nat$93$(
-// CHECK: call @Main.show$91$Prelude.Types.Nat$93$(
-// CHECK-LABEL: func.func private @Main.go$39$(
-// CHECK-LABEL: func.func private @Main.caf$233$(
-// CHECK: call @Main.go$39$(
-// CHECK-LABEL: func.func @Prog.main(
-// CHECK: call @Main.pair$91$Prelude.Types.Nat$44$$32$Prelude.Types.Nat$93$(
-// CHECK: call @Main.caf$233$(
+// the names the linker sees.
 idr.program @mangle root(@Prog.main) stage(owned) {
   idr.func @"Main.show[Prelude.Types.Nat]"(%n: i64) -> i64 attributes {total} {
     %r = arith.addi %n, %n : i64

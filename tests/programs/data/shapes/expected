@@ -3,8 +3,5 @@ artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
-object: no undefined symbol outside the allowed set
+universal: holds
 heap: nothing is allocated on the heap
-FileCheck mlir.check: ok
-dumps: parse and verify
-quantities: kept

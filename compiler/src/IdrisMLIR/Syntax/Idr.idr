@@ -507,4 +507,4 @@ idrAttrText t a WorldSpaceAttr = "#idr.world"
 
 -- Not generated:
 -- attribute ConAttr: its syntax is C++
--- fingerprint: 339026584-1396770 4293270930-20431
+-- fingerprint: 1234605846-1398062 4293270930-20431

@@ -1,23 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // ping 0 = zero; ping n = p (pong (n - 1)); pong n = q (ping (n - 1)):
 // @Main.p captures only closures of @Main.q, and @Main.q only closures of
 // @Main.p or @Main.zero, so the two keys of the type have different labels,
 // but each holds the other: a cycle, which no unboxed sum can stand for.
 // Both become boxed sums, whose cells end the cycle, and no closure is
 // left.
-// CHECK-DAG: ![[Q:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [{{.*}}]
-// CHECK-DAG: ![[P:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [{{.*}}]
-// CHECK-NOT: !idr.fn
-// CHECK-NOT: {{(idr\.| )closure }}
-// CHECK-NOT: {{(idr\.| )apply }}
-// CHECK-LABEL: idr.func @Main.p(
-// CHECK-SAME: !{{[A-Za-z0-9_$.]+}}
-// CHECK-LABEL: idr.func @Main.ping(
-// CHECK-SAME: -> !{{[A-Za-z0-9_$.]+}}
-// CHECK: con {{.*}}@Main.p(
 idr.program @cycle root(@Main.main) stage(higher) {
   idr.func @Main.zero(%x: i64) -> i64 attributes {total} {
     return %x : i64

@@ -1,22 +1,26 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
+# NEEDS-ACCEPTANCE: universal prints one line, universal: holds, where the object, dump and quantity checks printed one each; a failing check still prints its own lines.
 # What holds of every compilation, checked on each e2e fixture's own
 # compilation (lib/e2e.sh): the fixture is compiled once, with every module
 # the pipeline passes through dumped, and the properties below read those
 # dumps. Nothing compiles a fixture a second time: a compile is seconds, and
-# there are hundreds of fixtures.
+# there are hundreds of fixtures. universal prints them as one line.
 
 # compilation_properties EMITTED DUMPS: the properties of the compilation
 # that just ran (compile_program), whose emitted module is EMITTED and whose
 # dumps are in DUMPS: every module dumped after a step parses and verifies
 # again; no step up to lowering drops or widens a quantity Idris proved.
+# Its status is 1 when one fails.
 compilation_properties() {
   if [ -z "$(step_dumps "$2" | head -n 1)" ]; then
     say "dumps: none"
-    return
+    return 1
   fi
-  dumps_verify "$2"
-  quantities_kept "$1" "$2"
+  cp_failed=
+  dumps_verify "$2" || cp_failed=yes
+  quantities_kept "$1" "$2" || cp_failed=yes
+  [ -z "$cp_failed" ]
 }
 
 # dumps_verify DUMPS: idris-mlir-opt parses every module the pipeline dumped
@@ -30,7 +34,8 @@ dumps_verify() {
       dv_failed=yes
     fi
   done
-  [ -n "$dv_failed" ] || say "dumps: parse and verify"
+  [ -z "$dv_failed" ] || return 1
+  say "dumps: parse and verify"
 }
 
 # quantities_kept EMITTED DUMPS: no step of the pipeline drops or widens a
@@ -52,5 +57,28 @@ quantities_kept() {
       qk_failed=yes
     fi
   done
-  [ -n "$qk_failed" ] || say "quantities: kept"
+  [ -z "$qk_failed" ] || return 1
+  say "quantities: kept"
+}
+
+# universal TEST EMITTED DUMPS OBJECT...: what holds of every compilation,
+# as one line: the objects OBJECT... import nothing the program of the
+# test directory TEST may not (object_imports), and the compilation whose
+# emitted module is EMITTED and whose dumps are in DUMPS keeps its
+# properties (compilation_properties). One line, `universal: holds`, when
+# all hold; otherwise the lines of the checks, and status 1. A check added
+# to every compilation is added here, and no transcript changes.
+universal() {
+  universal_test=$1
+  universal_emitted=$2
+  universal_dumps=$3
+  shift 3
+  universal_failed=
+  object_imports "$universal_test" "$@" > "$work/universal.log" || universal_failed=yes
+  compilation_properties "$universal_emitted" "$universal_dumps" >> "$work/universal.log" || universal_failed=yes
+  if [ -n "$universal_failed" ]; then
+    cat "$work/universal.log"
+    return 1
+  fi
+  say "universal: holds"
 }

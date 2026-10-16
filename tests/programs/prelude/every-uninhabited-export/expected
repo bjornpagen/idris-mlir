@@ -3,7 +3,5 @@ artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
-object: no undefined symbol outside the allowed set
+universal: holds
 prelude Prelude.Uninhabited: 5 exports, each used (2 compile-time only: MkUninhabited Uninhabited)
-dumps: parse and verify
-quantities: kept

@@ -184,9 +184,13 @@ installed before the profile instrumentation:
 
 ### 4.2 Pass roles and actions (K2, K3)
 
-- `Passes.td` defines `class IdrPass<string arg, string anchor, string passRole>
-  : Pass<arg, anchor> { string role = passRole; }`; every pass in `Passes.td`
-  derives from it. The inner steps of `InnerPasses.td` keep `Pass` (including
+- `Passes.td` defines the role as a record, `class IdrPassRole<string
+  roleName> { string name = roleName; }` with the four defs
+  `IdrRoleOptimization`, `IdrRoleLowering`, `IdrRoleAnalysis`,
+  `IdrRoleCheck`, and `class IdrPass<string arg, string anchor, IdrPassRole
+  passRole> : Pass<arg, anchor> { IdrPassRole role = passRole; }`, so an
+  unknown role is no TableGen value and TableGen refuses it; every pass in
+  `Passes.td` derives from it. The inner steps of `InnerPasses.td` keep `Pass` (including
   `Passes.td` there would pull every pass into `InnerPasses.h.inc`); they are
   steps of idr-optimize, whose role they share.
 - Roles, fixed: `lowering` for idr-target, idr-defunctionalize, idr-rc,
@@ -196,11 +200,7 @@ installed before the profile instrumentation:
   idr-expect; `optimization` for every other pass.
 - `idris-mlir-tblgen -gen-pass-roles` writes `<role> <argument>` per line,
   sorted by argument, to `IdrPassRoles.txt` beside `IdrRules.txt`; it fails on
-  a pass not declared as `IdrPass` or on an unknown role.
-- `idris-mlir-tblgen -gen-rule-categories` writes `IdrRuleCategories.inc`,
-  `idr::categoryOf(Rule)`, from each rule's ODS `category`, so that C++ reads
-  the category the Idris side and `IdrRules.txt` already read (one fact, one
-  place); G's report is its first consumer.
+  a pass not declared as `IdrPass` (TableGen itself refuses an unknown role).
 - Every optional transform of an `optimization` pass performs through an
   action (`include/idr/Support/Actions.h`), tagged `idr-<pass>-<transform>`;
   the existing `idr-raise`, `idr-specialize-clone` and `idr-optimize-node` keep
@@ -269,10 +269,9 @@ installed before the profile instrumentation:
   checked by `Plan::of` against the input and outputs, a usage error with any
   action but compiling, a failed write failing the compilation. Lines:
   `verdict: accepted|refused|internal`; then `diagnostic: <severity> <rule,
-  spaces as -, or -> <the rule's category, spaces as -, from `categoryOf`,
-  which K2's `-gen-rule-categories` generates from the ODS, or -> <file:line
-  of the first file location> <the innermost
-  named pass on the delivering thread, or ->`; then `statistic:
+  spaces as -, or -> <file:line of the first file location, or ->`; no field
+  names a rule's category, which `IdrRules.txt` gives and a reader joins on
+  the rule, nor the pass, which MLIR does not tell a diagnostic handler; then `statistic:
   <pass>.<name>=<summed value>` for every statistic, zeros included, sorted
   bytewise. A frontend refusal writes `verdict: refused` alone.
 - **F09.** The input's content decides, with no flag: the parse registry is the
@@ -311,12 +310,13 @@ Canonical text: `parts/lanes/I.md`, Fixed decisions (T and Q quote it). In short
   `nameKey !(toFullNames r.name)`, the same text); `owner` and
   `Dictionary.chooser` are `Shown`, since they are only printed and an `FnId`
   prints the instance, not the definition. `request`'s signature is unchanged.
-- **`ConId`** becomes `MkConId (dataId : DataId) {arity : Nat} (index : Fin
-  arity)`: `index` is Idris's tag (0, 1, … in declaration order,
+- **`ConId`** becomes `MkConId (dataId : DataId) {0 arity : Nat} (index : Fin
+  arity)` (the arity erased: only `index`'s type needs it): `index` is Idris's tag (0, 1, … in declaration order,
   `Core/Context/Data.idr:116-121`); equality and order by `(dataId, finToNat
   index)`; `Show ConId` prints `<dataId>#<index>` for internal messages only;
-  `Term.Con` gains `name : String` for every user-visible print, its tag set
-  from the index at the one place a `Con` is built; `Types.conIdOf` is the only
+  `Term.Con` gains `name : String` for every user-visible print and holds no
+  tag of its own: `c.tag` is the derived projection `finToNat c.id.index`, and
+  the unread `idrisName` is deleted; `Types.conIdOf` is the only
   constructor of a `ConId`.
 - **Tables:** `loops`, `refused`, `tyCons`, `blockNames` keyed by `Address`;
   `places`, `spelled` by `ModuleIdent`; `TS.symbols` and Emit's `keys` stay
@@ -421,7 +421,7 @@ handoff.
 | Lane | Exclusive writes (`ownership.json`) | Consumes | Findings |
 |---|---|---|---|
 | K1 contracts | `lib/Transforms/Contracts/**`, `include/idr/Transforms/Contracts.h`, `tools/idris-mlir-opt.cpp` | §4.1, idr-expect's definitions | F01 |
-| K2 roles | `include/idr/Transforms/{Passes,InnerPasses}.td`, `tools/idris-mlir-tblgen.cpp`, `lib/Transforms/Optimize/**`, `include/idr/Transforms/Optimize.h` | §4.2 (with `-gen-rule-categories`) | F04, F05 |
+| K2 roles | `include/idr/Transforms/{Passes,InnerPasses}.td`, `tools/idris-mlir-tblgen.cpp`, `lib/Transforms/Optimize/**`, `include/idr/Transforms/Optimize.h` | §4.2 | F04, F05 |
 | K3 actions | `lib/Transforms/**` except `Optimize/`, `Expect/`, `Contracts/`; `include/idr/Support/Actions.h` | §4.2 | F03 |
 | E expect | `lib/Transforms/Expect/**`, `include/idr/Transforms/Expect.h`, `tests/idr/expect/**` | — | F21 |
 | F facts and IR | `include/idr/IR/**` except `IdrStringOps.td`; `lib/IR/**` except `OpsStrings.cpp`, `Fold/Strings.cpp`; `tools/idris-mlir-reduce.cpp`; `include/idr/Analysis/Effects.h`, `lib/Analysis/Effects.cpp` (the body-effects rule moves to `lib/IR`) | §4.3 | F02, F06, F07 |
@@ -492,6 +492,28 @@ representation-first guideline:
   second copy of nothing, for the next wave to delete or give a site.
 - An `LLVM_ENABLE_REVERSE_ITERATION` build compared with the normal one; a
   simulated platform layer for the runtime's IO; libFuzzer (O3).
+- Found during the wave, each with its evidence, for the next wave:
+  - crash-sites counts `idr.exit` and every noreturn runtime call as a crash,
+    while `idr::bodyEffect` counts only `MayCrash`. It is latent, since no
+    dialect fixture reaches `idr.io.exit`. The single-fact fix: generate a
+    `crashes` flag from `MayCrash` into the runtime table and read it on both
+    sides of lowering.
+  - C++ identities still held as strings: `CalleePattern::kLabel`
+    (`IR/Canon.h`), the `StringMap`s in `Conversion/Runtime.cpp`, and
+    `getName() == "main"` in `Driver/Run.cpp`. Also owed: a pass that trims
+    the C++.
+  - The `static argument` refusal reached through a library projection is
+    reported at the projection (`Prelude/Show.idr:49`), not at the user's
+    code, so its reject fixture is owed. Lane T's program:
+    `chosen = if loopy 0 == 3 then showA else showB` with `loopy` covering.
+  - ODS gives some rules the category Megamorphic or OutsideLanguage while
+    the rule also refuses bounded cases (`ValueType`, `DependentField`,
+    `DictionaryField`, `StaticArgument`, `RuntimeClosure`, `Match`,
+    `Primitive`, `StringPrimitive`). The category is per rule where it is a
+    fact of each site.
+  - `tests/Prims.idr`'s `Op` is a test-side copy of Idris's `PrimFn`,
+    kept apart from the compiler's on purpose so the model stays
+    independent, but it can drift. Its `opIndex` is a hand numbering.
 - Snapshot candidates (O6): the Hypothesis reducer paper (CC-BY), matklad's
   three posts, TigerBeetle's VOPR sources (Apache-2.0); link-only for the
   Google, Turso and TigerBeetle posts and the ACM papers (swarm, Csmith, EMI,
@@ -521,3 +543,23 @@ lane, the common obligations and six binding rules; 0 problems. The review's
 prerequisites: (1) D1 and D8 ruled (R1, R2); (2) integration sequenced in
 `orchestrator.md`; (3) X1's A10 repairs land with F's verifier (orchestrator
 step 6); (4) accepted (R5). Document checks only.
+
+2026-10-15, integration on the typecheck machine. Eighteen lanes and one
+delegated lane (Z: `lib/Conversion`, three duplicate and dead-code
+removals) delivered. Every hub text was applied (CMake: `IdrContracts`,
+`IdrPassRoles.txt`, `foreign/idr/unittests`, `IdrSupport` links,
+`Expect/Folded.cpp`, `Driver/Outcome.cpp`; the Makefile's `test-unit`; both
+`.ipkg`s; `tools/policies.txt`; `PINS.md`; `.gitignore`), the dialect modules
+were regenerated once, and the coordinator fixed what integration found:
+`conIdOf` reads a constructor's type in normal form (`-@` hid the binders of
+`Linear.List.(::)`, refusing twelve linear programs), the user pragma
+`%prefix_record_projections` left `Translate/Closed.idr` (the frontend
+refuses it), the hole marker's spelling is `markerName`/`markerOf` alone, and
+lane G's report reads statistics through a minimal instrumentation with no
+`thread_local` and names no pass (`tests/spec/mlir-layout`). `make typecheck`
+passes every part (C++ 0 errors) and `make check` is 35/35; `tests/ACCEPTANCE.md`
+lists 285 files. Evidence that ran here: the runtime property programs and
+`rc`, two googletest boxes, Gen and Sem and TwoLevels on Chez, and the
+frontend on Chez beside HEAD's (same exit status on all 312 test programs).
+Everything idris-mlir does is the owner's build.
+

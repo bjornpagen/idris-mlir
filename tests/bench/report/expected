@@ -5,7 +5,7 @@ it prints its results.md
 | regex | 4.500 |
 | fib | 0.50x | 1.04x | +108% |
 best of 2 runs
-times.svg: 9 rects
-vs-c.svg: 2 rects
-vs-chez.svg: 3 rects
+times.svg: an svg
+vs-c.svg: an svg
+vs-chez.svg: an svg
 vs-c names what it leaves out

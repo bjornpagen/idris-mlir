@@ -7,7 +7,7 @@
 # form that start a profile fixture; the status is 1 without one.
 header() {
   awk -v field="$2" '
-    !/^--[ \t]*(expect|message|names):/ { exit }
+    !/^--[ \t]*(expect|message):/ { exit }
     {
       key = $0; sub(/^--[ \t]*/, "", key); sub(/:.*$/, "", key)
       if (key == field) { value = $0; sub(/^--[ \t]*[a-z]+:[ \t]*/, "", value); found = 1 }
@@ -36,7 +36,7 @@ profile_prepare() {
   fi
 }
 
-# profile_compile: $work/fixture/Main.idr to build/exec/Main, with the
+# profile_compile [OPTION]...: $work/fixture/Main.idr to build/exec/Main, with OPTION... and the
 # installed packages its `packages` names.
 profile_compile() {
   profile_options=
@@ -46,16 +46,16 @@ profile_compile() {
     done
   fi
   # shellcheck disable=SC2086 # the packages are words
-  compile_program $profile_options "$work/fixture/Main.idr" Main
+  compile_program $profile_options "$@" "$work/fixture/Main.idr" Main
 }
 
 # profile_reject FIXTURE: `tests/reject/<reason>-<desc>/`, a directory holding
 # Main.idr and its other modules, whose first
 # line is `-- expect: <reason>, line <n>` (and then, optionally,
-# `-- message: <text>`, text the refusal holds, and `-- names: <a>; <b>...`,
-# what the refusal names, each anywhere in it, whatever words surround
-# them), the name starting with <reason>, words joined by dashes. It is
-# rejected with exit status 3, reported on line n, and leaves no artifact.
+# `-- message: <text>`, text the refusal holds anywhere in it, whatever
+# words surround it), the name starting with <reason>, words joined by
+# dashes. It is rejected with exit status 3, reported on line n, and leaves
+# no artifact.
 # Who refuses is the reason: the phrase of one of the rules (lib/rules.sh)
 # is this compiler's refusal, exactly one `unsupported (<reason>)`; `idris`
 # is Idris's own, its parser's or its checker's, and no rule of ours.
@@ -120,19 +120,6 @@ profile_reject() {
       say "message: not in the output: $reject_message"
     fi
   fi
-  if reject_names=$(header "$reject_main" names); then
-    printf '%s\n' "$reject_names" | tr ';' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' |
-      while IFS= read -r reject_named; do
-        [ -z "$reject_named" ] || grep -qF -- "$reject_named" "$work/compile.all" ||
-          printf '%s\n' "$reject_named"
-      done > "$work/unnamed"
-    if [ -s "$work/unnamed" ]; then
-      say "names: not in the output:"
-      sed 's/^/  /' "$work/unnamed"
-    else
-      say "names: each as the header says"
-    fi
-  fi
   no_artifacts "$work/fixture"
 }
 
@@ -140,17 +127,23 @@ profile_reject() {
 # and its other modules: it compiles with every artifact written. With an
 # expected-stdout or an expected-exit beside it, it also runs, printing
 # that stdout (none without the file) and exiting with that status (0
-# without the file), with nothing on stderr.
+# without the file), with nothing on stderr. What holds of every
+# compilation holds of it (universal), read off its dumps.
 profile_accept() {
   accept_fixture=$(cd "$1" && pwd)
   profile_prepare "$accept_fixture"
-  profile_compile
+  accept_dumps=$work/fixture/build/exec/Main.dump
+  # shellcheck disable=SC2046 # the dump options are words
+  profile_compile $(dump_options "$accept_dumps")
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"
     return
   fi
   artifacts "$work/fixture" Main
+  # shellcheck disable=SC2046 # one path per object, none with a space
+  universal "$accept_fixture" "$(artifact_file "$work/fixture" Main module)" "$accept_dumps" \
+    $(artifact_files "$work/fixture" Main objects)
   [ -f "$accept_fixture/expected-stdout" ] || [ -f "$accept_fixture/expected-exit" ] || return 0
   run_ours accept "$work/fixture/build/exec/Main" /dev/null
   accept_exit=0

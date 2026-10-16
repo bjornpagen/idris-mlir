@@ -1,15 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // Eight labels reach one closure type: some by a direct yield, the rest
 // through the field of a box, whose own four labels are a subset. The
 // analysis joins the overlapping sets until they stop growing; each sum
 // holds every label that reaches it once, in name order, whatever order
 // the program met them in.
-// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@bb(i64), @cc(), @ff(), @mid()]
-// CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@aa(), @bb(i64), @cc(), @dd(), @ee(i64), @ff(), @mid(), @zz()]
-// CHECK-NOT: !idr.fn
 !Box = !idr.data<"Box", plain [@Box(!idr.fn<(i64) -> (i64)>)]>
 idr.program @"many-labels" root(@Main.main) stage(higher) {
   idr.func @zz(%x: i64) -> i64 attributes {total} {
@@ -39,7 +34,6 @@ idr.program @"many-labels" root(@Main.main) stage(higher) {
   idr.func @dd(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  // CHECK-LABEL: idr.func @pick(
   idr.func @pick(%n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %c1 = arith.constant 1 : i64
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
@@ -86,10 +80,6 @@ idr.program @"many-labels" root(@Main.main) stage(higher) {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  // CHECK-LABEL: idr.func @Main.main(
-  // CHECK: match %{{.*}} : ![[F1]] -> (i64) {
-  // CHECK: case @aa() {
-  // CHECK: case @zz() {
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64

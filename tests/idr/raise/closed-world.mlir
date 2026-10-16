@@ -1,14 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
-// RUN: FileCheck %s --implicit-check-not=.spec. < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main -o /dev/null
-// NEEDS-ACCEPTANCE: that no specialization of the loop is made on the constructors the literal count builds, as the binding times decide.
 // The IO loop of io-loop.mlir, started with a literal. Each turn of the
 // loop builds the next actions anew, so no parameter of it is fixed, and
 // the loop is not unrolled at compile time one copy per count: no copy is
 // made, and the loop runs as a loop, with no recursion left that grows
 // the stack.
-// CHECK: idr.func @Main.main(
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>

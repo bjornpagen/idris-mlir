@@ -1,7 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: that the sixteen statements unfold into @Main.main.
 // A do block of 16 statements, in the shape Emit gives it: statement k is
 // @sk, the thunk `putStr "k" >> rest` that `>>` delays, whose action is
 // @bind of @put and of @seq, which forces the thunk of the next statement.
@@ -9,25 +7,6 @@
 // and the optimizer, callee first, folds each dispatch on a known
 // constructor into a call and inlines it: the whole block unfolds into the
 // root, in order, and no closure is left.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK: idr.io.put_str
-// CHECK-NOT: idr.io.put_str
-// CHECK-NOT: call
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>

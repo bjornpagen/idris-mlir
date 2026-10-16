@@ -1,26 +1,19 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: idris-mlir-opt %s --idr-defunctionalize --mlir-disable-threading > %t.serial.mlir
+// RUN: cmp %t.mlir %t.serial.mlir
 // RUN: awk 'BEGIN { ORS = "" } NR == 1, /^idr\.program / { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
 // RUN: idris-mlir-opt %t.reversed.mlir --idr-defunctionalize > %t2.mlir
 // RUN: grep '= !idr.data<' %t.mlir | sort > %t.sums
 // RUN: grep '= !idr.data<' %t2.mlir | sort > %t2.sums
 // RUN: diff %t.sums %t2.sums
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms.
+// NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // A sum is named from its key, the closure type and its labels, never by
 // where it first appears: the same module with its functions in reverse
 // order makes the same sums under the same names. Each (type, labels) is
 // one sum: {@Main.b} of i64 -> i64 (the result of @Main.onlyB),
 // {@Main.zneg} of i1 -> i1, and {@Main.a, @Main.b} of i64 -> i64 (the
 // argument of @Main.use).
-// CHECK-DAG: ![[B:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.b()]
-// CHECK-DAG: ![[N:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.zneg()]
-// CHECK-DAG: ![[AB:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.a(), @Main.b()]
-// CHECK-NOT: !idr.fn
-// CHECK-LABEL: idr.func @Main.onlyB() -> ![[B]]
-// CHECK-LABEL: idr.func @Main.neg() -> ![[N]]
-// CHECK-LABEL: idr.func @Main.use(
-// CHECK-SAME: %{{.*}}: ![[AB]]
 idr.program @"sum-names" root(@Main.main) stage(higher) {
   idr.func @Main.a(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

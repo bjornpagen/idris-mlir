@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The conversions of scalars: to a character, a byte or an integer, and
+// The conversions of scalars: to a character or an integer, and
 // the first character of a number's text; when a division or a conversion
 // may run before the guard of its operand; and idr.lin.enter and
 // idr.lin.use, a value moved into a linear type and used out of it, whose
@@ -34,20 +34,6 @@ void ToCharOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setR
 
 // A value its guard refuses folds to nothing: the program never converts
 // it, since the guard crashes first.
-OpFoldResult ToByteOp::fold(FoldAdaptor adaptor) {
-  if (!CheckByteOp::holds(adaptor.getValue()))
-    return {};
-  return IntegerAttr::get(getType(), cast<IntegerAttr>(adaptor.getValue()).getValue().trunc(8));
-}
-
-void ToByteOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
-  setResultRange(getResult(), idr::ranges::nonNegative(8, 0, 255));
-}
-
-Speculation::Speculatability ToByteOp::getSpeculatability() {
-  return guardedSpeculatability<CheckByteOp>(getValue());
-}
-
 OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
   if (!CheckFiniteOp::holds(adaptor.getValue()))
     return {};

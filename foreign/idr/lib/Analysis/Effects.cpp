@@ -7,7 +7,7 @@
 // and every member gets them.
 #include "idr/Analysis/Effects.h"
 
-#include "idr/IR/Grades.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Scc.h"
 #include "idr/Support/Worklist.h"
@@ -38,24 +38,11 @@ idr::FuncOp calleeOf(idr::CallOp call, const SymbolTable &symbols) {
   return callee;
 }
 
-// What `fn` does before its body runs a single op (it may not return
-// unless Idris proved it total, and it performs IO when a world reaches
-// it, which only a parameter can bring), then what each op of its body
-// does itself. A world forged here is IO no parameter announces.
+// What `fn`'s body does itself, idr::bodyEffect's one rule, which the
+// program's verifier also reads; then the callee of each of its calls.
 Body bodyOf(idr::FuncOp fn, const SymbolTable &symbols) {
-  Body body;
-  if (!fn.getTotal())
-    body.own = body.own | idr::Effect::diverge;
-  if (llvm::any_of(fn.getArgumentTypes(), idr::holdsWorld))
-    body.own = body.own | idr::Effect::io;
-  fn.getBody().walk([&](Operation *op) {
-    if (auto mayCrash = dyn_cast<idr::MayCrashOpInterface>(op); mayCrash && mayCrash.getCrashCause())
-      body.own = body.own | idr::Effect::crash;
-    if (isa<idr::WorldNewOp>(op))
-      body.own = body.own | idr::Effect::io;
-    if (auto call = dyn_cast<idr::CallOp>(op))
-      body.callees.push_back(calleeOf(call, symbols));
-  });
+  Body body{idr::bodyEffect(fn), {}};
+  fn.getBody().walk([&](idr::CallOp call) { body.callees.push_back(calleeOf(call, symbols)); });
   return body;
 }
 

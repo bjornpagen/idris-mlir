@@ -1,0 +1,71 @@
+// RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
+// NEEDS-ACCEPTANCE: the text of the program verifier's effects error, and that a covered pair verifies.
+// A function's declared effects cover what its body may do: what the body
+// does itself (IO where a parameter may hold a world, a crash where an op
+// may crash, not returning unless Idris proved it total) and what each
+// function it calls declares. A solve says too much, never too little, so
+// a set that misses a bit is the compiler's error, reported with the bits
+// it misses. A function without `effects` declares everything.
+
+idr.program @effects root(@root) stage(first) {
+  // expected-error @+1 {{declares the effects none, which do not cover what its body may do: io}}
+  idr.func @writes(%s: !idr.str, %w: !idr.world) -> !idr.world attributes {total, effects = #idr.effects<none>} {
+    %w1 = idr.io.put_str %s, %w
+    return %w1 : !idr.world
+  }
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @effects root(@root) stage(first) {
+  idr.func @checks(%x: i64) -> i64 attributes {total, effects = #idr.effects<crash>} {
+    %y = idr.check.nonzero %x, "division by zero" : i64
+    return %y : i64
+  }
+  // expected-error @+1 {{declares the effects none, which do not cover what its body may do: crash}}
+  idr.func @calls(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
+    %r = idr.call @checks(%x) : (i64) -> i64
+    return %r : i64
+  }
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @effects root(@root) stage(first) {
+  // expected-error @+1 {{declares the effects none, which do not cover what its body may do: diverge}}
+  idr.func @partial(%x: i64) -> i64 attributes {effects = #idr.effects<none>} {
+    return %x : i64
+  }
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+// Covered: a function that is not total says it may not return, its caller
+// says what it calls may do, and a function without `effects` calls anything.
+idr.program @effects root(@root) stage(first) {
+  idr.func @checks(%x: i64) -> i64 attributes {effects = #idr.effects<crash, diverge>} {
+    %y = idr.check.nonzero %x, "division by zero" : i64
+    return %y : i64
+  }
+  idr.func @calls(%x: i64) -> i64 attributes {total, effects = #idr.effects<crash, diverge>} {
+    %r = idr.call @checks(%x) : (i64) -> i64
+    return %r : i64
+  }
+  idr.func @root() -> i64 {
+    %c = arith.constant 3 : i64
+    %r = idr.call @calls(%c) : (i64) -> i64
+    return %r : i64
+  }
+}

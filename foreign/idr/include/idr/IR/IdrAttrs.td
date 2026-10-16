@@ -199,18 +199,16 @@ def Idr_CmpPredicate : I64EnumAttr<"CmpPredicate",
 }
 
 //===----------------------------------------------------------------------===//
-// What a call may do
+// What a function may do
 //===----------------------------------------------------------------------===//
 
-// What a call of a function may do besides computing its results, as
-// idr-effects finds it: `io`, perform IO, which takes a world, so only a
-// function that takes one can; `crash`, end the program with a crash;
-// `diverge`, never return, which a function may where its own body loops
-// without Idris's proof (no `total`) or where it reaches one that may. It
-// is the `effects` of every idr.func and of every idr.call, whose own is
-// its callee's. Optimization only removes what a function reaches, so a
-// stale value says too much, never too little; a function or call without
-// it may do anything.
+// What a run of a function may do besides computing its results: `io`,
+// perform IO; `crash`, end the program with a crash; `diverge`, never
+// return. It is a fact of an idr.func alone, its `effects`: what its body
+// does of itself, which idr::bodyEffect decides, and what each function it
+// calls may do. Its absence means every effect. Optimization only removes
+// what a function reaches, so a stale value says too much, never too
+// little.
 def Idr_Effect : I32BitEnumAttr<"Effect", "what a call of a function may do", [
       I32BitEnumAttrCaseNone<"none">,
       I32BitEnumAttrCaseBit<"io", 0>,

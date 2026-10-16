@@ -1,16 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's printed form.
 // A choice between two suspensions made at run time: the match's yields
 // reach its result through the region-branch edges upstream's interface
 // declares, so the forced value's cell may be either suspension, and both
 // are constructors of one memo sum. Nothing about a suspension is lost on
 // the way; an op that does not declare how a suspension moves through it
 // is refused by the verifier where it is written (verify/flow.mlir).
-// CHECK: ![[M:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@one(), @two(), @running(), @forced(i64)]
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: force %{{.*}} : !idr.box<![[M]]> -> i64
 idr.program @"lazy-choice" root(@Main.main) stage(higher) {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64

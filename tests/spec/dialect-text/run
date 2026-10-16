@@ -1,0 +1,110 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The dialect suite states properties, never the text of a module a pass
+# made: outside asm/, syntax/ and verify/, where printed syntax is the
+# contract, no RUN line hands FileCheck module text, piped from
+# idris-mlir-opt, idris-mlir-reduce or mlir-translate with no 2>&1, or read
+# from a file named .mlir, .ll or .reduced. One fixture is exempt by name,
+# lower/llvm-facts.mlir: the attributes LLVM reads are the lowering's
+# interface with LLVM, so they are checked as LLVM is given them, and that
+# text is the contract itself. And nowhere under tests/idr is there a check
+# line (prefix CHECK, or any prefix with a FileCheck suffix) whose prefix
+# no RUN line of its file checks. Each check runs on a planted file first,
+# which it must catch.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+
+# module_text FILE...: `FILE: RUN n` for each joined RUN line, numbered as
+# lib/lit.sh numbers them, in which FileCheck reads module text.
+module_text() {
+  for module_text_file in "$@"; do
+    sed -n 's/^[[:space:]]*\/\/[[:space:]]*RUN:[[:space:]]*//p' "$module_text_file" |
+      awk '{ sub(/[ \t]+$/, "") }
+           /\\$/ { sub(/\\$/, ""); joined = joined $0; next }
+           { print joined $0; joined = "" }
+           END { if (joined != "") print joined }' |
+      awk -v file="$module_text_file" '
+        {
+          n++
+          segs = split($0, seg, "&&")
+          for (s = 1; s <= segs; s++) {
+            at = index(seg[s], "FileCheck")
+            if (at == 0) continue
+            if (substr(seg[s], at) ~ /<[ \t]*[^ \t]*\.(mlir|ll|reduced)([ \t]|$)/) { print file ": RUN " n; break }
+            stages = split(substr(seg[s], 1, at - 1), stage, "|")
+            if (stages < 2) continue
+            feeding = stage[stages - 1]
+            if (feeding ~ /2>&1/) continue
+            sub(/^[ \t]+/, "", feeding)
+            sub(/^%status[ \t]+[0-9]+[ \t]+/, "", feeding)
+            sub(/^not[ \t]+/, "", feeding)
+            split(feeding, word, /[ \t]+/)
+            if (word[1] == "idris-mlir-opt" || word[1] == "idris-mlir-reduce" || word[1] == "mlir-translate") {
+              print file ": RUN " n; break
+            }
+          }
+        }'
+  done
+}
+
+# orphans FILE...: each check line of each FILE whose prefix no RUN line
+# of FILE checks (CHECK when a FileCheck names no prefix).
+orphans() {
+  for orphans_file in "$@"; do
+    awk '
+      FNR == NR {
+        if ($0 ~ /^[[:space:]]*\/\/[[:space:]]*RUN:/ && $0 ~ /FileCheck/) {
+          n = split($0, part, "FileCheck")
+          for (i = 2; i <= n; i++) {
+            if (match(part[i], /^[^|&]*--check-prefix=[A-Za-z0-9_-]+/)) {
+              s = substr(part[i], RSTART, RLENGTH); sub(/^.*--check-prefix=/, "", s); used[s] = 1
+            } else used["CHECK"] = 1
+          }
+        }
+        next
+      }
+      match($0, /^[[:space:]]*\/\/[[:space:]]*[A-Z][A-Z0-9_]*(-NEXT|-SAME|-NOT|-DAG|-LABEL|-EMPTY|-COUNT-[0-9]+)?:/) {
+        d = substr($0, RSTART, RLENGTH); sub(/^[[:space:]]*\/\/[[:space:]]*/, "", d); sub(/:$/, "", d)
+        p = d; sub(/-(NEXT|SAME|NOT|DAG|LABEL|EMPTY|COUNT-[0-9]+)$/, "", p)
+        if ((p == "CHECK" || p != d) && !(p in used)) print FILENAME ":" FNR ": " $0
+      }' "$orphans_file" "$orphans_file"
+  done
+}
+
+cat > "$work/witness.mlir" <<'MLIR'
+// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
+// RUN: idris-mlir-opt %s -o %t.mlir
+// RUN: FileCheck %s --check-prefix=OUT < %t.mlir
+// RUN: %status 1 idris-mlir-opt %s -o /dev/null 2>&1 | FileCheck %s --check-prefix=ERR
+// CHECK: x
+// OUT: y
+// ERR: z
+// GONE-NEXT: w
+MLIR
+w_text=$(module_text "$work/witness.mlir" | sed 's/^.*: //' | tr '\n' ' ')
+w_orphans=$(orphans "$work/witness.mlir" | wc -l | tr -d ' ')
+if [ "$w_text" = "RUN 1 RUN 3 " ] && [ "$w_orphans" -eq 1 ]; then
+  say "witness: two FileChecks of module text and an orphan check line are found, a FileCheck of diagnostics is not"
+else
+  say "witness: the checks do not find what was planted (module text: ${w_text:-none}; orphans: $w_orphans)"
+fi
+
+find tests/idr -name build -prune -o -type f -name '*.mlir' -print | LC_ALL=C sort > "$work/fixtures"
+if [ -s "$work/fixtures" ]; then say "dialect fixtures: found"; else say "dialect fixtures: none found"; fi
+# shellcheck disable=SC2046 # one path per fixture, none with a space
+module_text $(grep -vE '^tests/idr/(asm|syntax|verify)/' "$work/fixtures" | grep -vx 'tests/idr/lower/llvm-facts.mlir') > "$work/text"
+if [ -s "$work/text" ]; then
+  say "module text checked by FileCheck outside asm/, syntax/ and verify/:"
+  sed 's/^/  /' "$work/text"
+else
+  say "module text: no FileCheck reads any outside asm/, syntax/ and verify/"
+fi
+# shellcheck disable=SC2046 # one path per fixture, none with a space
+orphans $(cat "$work/fixtures") > "$work/orphans"
+if [ -s "$work/orphans" ]; then
+  say "check lines no RUN line of their file checks:"
+  sed 's/^/  /' "$work/orphans"
+else
+  say "orphan checks: every check line names a prefix a RUN line of its file checks"
+fi

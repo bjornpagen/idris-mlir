@@ -2,9 +2,12 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The pieces of MLIR's text that every printer shares: names, string and
 ||| number literals, symbol references, function signatures and lists. A
-||| leaf, so that the generated syntax of each dialect (IdrisMLIR.Syntax.*)
-||| and the builtin types and attributes (IdrisMLIR.MLIR) write them alike.
+||| leaf but for the one UTF-8 encoder (`Ids.utf8`), so that the generated
+||| syntax of each dialect (IdrisMLIR.Syntax.*) and the builtin types and
+||| attributes (IdrisMLIR.MLIR) write them alike.
 module IdrisMLIR.MLIR.Text
+
+import IdrisMLIR.Ids
 
 import Data.List
 import Data.Maybe
@@ -31,22 +34,16 @@ quoted s = fastConcat ("\"" :: map esc (unpack s) ++ ["\""])
     esc '\\' = "\\\\"
     esc c = if ord c < 32 || ord c == 127 then "\\" ++ hex (ord c) else singleton c
 
-||| A string as the UTF-8 bytes of a string attribute.
+||| A string as the UTF-8 bytes of a string attribute: each byte of its
+||| encoding printable as itself but a quote and a backslash, every other
+||| escaped.
 export
 utf8 : String -> String
-utf8 s = fastConcat ("\"" :: map enc (unpack s) ++ ["\""])
+utf8 s = fastConcat ("\"" :: map byte (IdrisMLIR.Ids.utf8 s) ++ ["\""])
   where
-    byte : Int -> String
-    byte b = if b >= 32 && b < 127 && b /= 34 && b /= 92 then singleton (chr b) else "\\" ++ hex b
-    enc : Char -> String
-    enc c =
-      let n = ord c in
-      if n < 0x80 then byte n
-      else if n < 0x800 then byte (0xC0 + n `div` 64) ++ byte (0x80 + n `mod` 64)
-      else if n < 0x10000 then byte (0xE0 + n `div` 4096) ++ byte (0x80 + (n `div` 64) `mod` 64)
-                               ++ byte (0x80 + n `mod` 64)
-      else byte (0xF0 + n `div` 262144) ++ byte (0x80 + (n `div` 4096) `mod` 64)
-           ++ byte (0x80 + (n `div` 64) `mod` 64) ++ byte (0x80 + n `mod` 64)
+    byte : Bits8 -> String
+    byte b = let n = cast {to = Int} b in
+             if n >= 32 && n < 127 && n /= 34 && n /= 92 then singleton (chr n) else "\\" ++ hex n
 
 ||| A symbol reference, `@name`: the name itself when it is an MLIR bare
 ||| identifier (a letter or `_`, then letters, digits, `_`, `$` and `.`),

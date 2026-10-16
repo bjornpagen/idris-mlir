@@ -39,8 +39,8 @@ void generatingSuccessors(mlir::Operation *op,
                           llvm::SmallVectorImpl<mlir::RegionSuccessor> &regions);
 
 // The rule every region of the generating set and of an update keeps: it
-// ends in idr.array.yield of `types`, each at any grade where `graded`
-// says so, or in ub.unreachable.
+// ends in idr.array.yield of `types`, each at any permission where
+// `graded` says so, or in ub.unreachable.
 mlir::LogicalResult verifyEnd(mlir::Operation *op, mlir::TypeRange types,
                               llvm::function_ref<bool(unsigned)> graded = {});
 

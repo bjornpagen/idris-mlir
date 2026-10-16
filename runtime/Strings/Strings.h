@@ -57,7 +57,7 @@ inline constexpr size_t intTextMax = 20;
 
 // The decimal digits of an integer, written backwards from `end`; returns
 // where they start.
-inline char *formatUnsigned(uint64_t value, char *end) {
+[[gnu::always_inline]] inline char *formatUnsigned(uint64_t value, char *end) {
   do {
     *--end = static_cast<char>('0' + value % 10);
     value /= 10;
@@ -73,15 +73,20 @@ inline char *formatSigned(int64_t value, char *end) {
   return start;
 }
 
+// The number of bytes of c's UTF-8: 1 below 0x80, 2 below 0x800, 3 below
+// 0x10000, else 4, of its bits read unsigned, so that every int32_t has
+// one, the length encodeUtf8 writes it in.
+inline size_t utf8Length(int32_t c) {
+  auto u = static_cast<uint32_t>(c);
+  return u < 0x80 ? 1 : u < 0x800 ? 2 : u < 0x10000 ? 3 : 4;
+}
+
 // The UTF-8 encoding of c into out, which has room for 4 bytes; returns its
-// length.
+// length. A one-byte encoding's lead byte has no prefix, so ASCII is
+// written by the rule every length is.
 inline size_t encodeUtf8(int32_t c, char *out) {
   auto u = static_cast<uint32_t>(c);
-  if (u < 0x80) {
-    out[0] = static_cast<char>(u);
-    return 1;
-  }
-  size_t n = u < 0x800 ? 2 : u < 0x10000 ? 3 : 4;
+  size_t n = utf8Length(c);
   static constexpr uint32_t prefix[] = {0, 0, 0xC0, 0xE0, 0xF0};
   out[0] = static_cast<char>(prefix[n] | (u >> (6 * (n - 1))));
   for (size_t k = 1; k < n; ++k)

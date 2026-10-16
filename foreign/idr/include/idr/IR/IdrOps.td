@@ -56,15 +56,20 @@ def Idr_Stage : I32EnumAttr<"Stage", "what the functions of a program may hold",
 // (verify::program) once per verification of the module that holds it,
 // after every op is verified, and never when a pass manager verifies the
 // program or one of its functions. Other symbols a pass puts in it (the
-// globals of static data) live beside the functions.
+// globals of static data) live beside the functions. It is the one program
+// of a module, the closed world every pass reads, so a pass reaches it from
+// its module and no two programs are ever rewritten or printed beside each
+// other.
 def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlock,
-    NoTerminator, Symbol, SymbolName, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+    NoTerminator, Symbol, SymbolName, HasParent<"::mlir::ModuleOp">,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "a closed program: its functions, its root and its stage";
   let arguments = (ins SymbolNameAttr:$sym_name, FlatSymbolRefAttr:$root, Idr_Stage:$stage);
   let regions = (region SizedRegion<1>:$bodyRegion);
   let assemblyFormat = [{
     $sym_name `root` `(` $root `)` `stage` `(` $stage `)` attr-dict-with-keyword $bodyRegion
   }];
+  let hasVerifier = 1;
   let hasRegionVerifier = 1;
   let skipDefaultBuilders = 1;
   let builders = [
@@ -88,26 +93,50 @@ def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlo
 // Functions
 //===----------------------------------------------------------------------===//
 
-// The function of a program, and what is known of it: what Idris proved
-// (total), what the passes find (effects), what keeps a cell shared
-// (no_inline) and what it is an instance of. Each is inherent, so no pass
-// drops one without changing the op, and every reader uses the generated
-// accessor. Every function is defined. Its visibility is no fact of its
-// own: it is public exactly when it is its program's root, which nothing
-// in the program calls and no pass may discard, and private otherwise, so
-// that upstream's symbol walks, which never read the program's `root`,
-// keep the root and may drop any other function without uses. Its region
-// verifier owns the rules of one function at its program's stage: the
-// flow of closures before idr-defunctionalize, every linear value used
-// once on every path, and the owned stage's counting. effects is the
-// function's own, by default everything (idr::anyEffect): a function no
-// pass has solved may do anything, which its accessor says. The default's
-// one form is the attribute's absence, which the verifier holds, so that
-// equal functions have equal attributes.
 def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
     SymbolName, FunctionOpInterface, IsolatedFromAbove,
     HasParent<"ProgramOp">, OpAsmOpInterface]> {
   let summary = "a function of the program, with the facts known of it";
+  let description = [{
+    The function of a program, and what is known of it: what Idris proved
+    (`total`), what the passes find (`effects`), what keeps a cell shared
+    (`no_inline`) and what it is an instance of (`instance`). Each is
+    inherent, so no pass drops one without changing the op, and every
+    reader uses the generated accessor. Every function is defined. Its
+    visibility is no fact of its own: it is public exactly when it is its
+    program's root, which nothing in the program calls and no pass may
+    discard, and private otherwise, so that upstream's symbol walks, which
+    never read the program's `root`, keep the root and may drop any other
+    function without uses. Its region verifier owns the rules of one
+    function at its program's stage: the flow of closures before
+    idr-defunctionalize, every linear value used once on every path, and
+    the owned stage's counting.
+
+    `total`: every loop of the body's own ends. The frontend writes it
+    where Idris proved every loop of the body terminating, and on a
+    lambda's or a delay's function, which has no loop of its own;
+    idr-defunctionalize writes it on each force function, whose body is a
+    match and calls. A copy keeps it, and `absorb` clears it when a body
+    takes in a callee without it (inlining, contification). No other pass
+    writes it. A call of a function without it is no loop of the caller's
+    own: whether the callee returns is in the callee's `effects`.
+
+    `no_inline`: written only by the frontend, on a function of no
+    parameters whose result is lazy, whose cell every use shares.
+
+    `effects`: what a run of the function may do, by default everything
+    (`idr::anyEffect`): a function no pass has solved may do anything,
+    which its accessor says. The default's one form is the attribute's
+    absence, which the verifier holds, so that equal functions have equal
+    attributes. A solve (idr-effects, idr-optimize's ready set) writes it,
+    and a stale value says too much, never too little. The program's
+    verifier holds that it covers the body's own part (`idr::bodyEffect`),
+    its callees' effects, and (before idr-defunctionalize) everything for an
+    apply or a force.
+
+    `instance`: what the function is an instance of, as the frontend wrote
+    it.
+  }];
   let arguments = (ins SymbolNameAttr:$sym_name,
                        TypeAttrOf<FunctionType>:$function_type,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,

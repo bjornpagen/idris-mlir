@@ -62,10 +62,15 @@ bool isWorld(mlir::Type type);
 // of ours, plain for a builtin buffer, which upstream's ops take ungraded.
 // `owned` and `view` keep the quantity and change the permission;
 // `atQuantity` keeps the permission and changes the quantity.
+// `atPermission` keeps the quantity, which is Idris's, and sets the
+// permission: how a value is compared with a slot declared at another
+// permission (a plain field, element or yield, a dup's owned result, a
+// store's plain carrier), whatever counting made of it.
 bool isOwned(mlir::Type type);
 mlir::Type owned(mlir::Type type);
 mlir::Type view(mlir::Type type);
 mlir::Type atQuantity(mlir::Type type, Quantity quantity);
+mlir::Type atPermission(mlir::Type type, Permission permission);
 
 // Whether a value holds the only reference to every cell of its cell
 // graph (the excl permission), which idr-rc proves and writes into the

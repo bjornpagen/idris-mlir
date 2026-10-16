@@ -19,103 +19,51 @@
 ||| value is stated once, here.
 module Sem
 
+import Prelude
 import Data.Bits
 import Data.List
+import Data.Maybe
 import Data.String
+import Prims
 
 %default covering
 
-public export
-record IntType where
-  constructor MkIntType
-  name : String
-  width : Nat
-  signed : Bool
+||| A fixed-width integer type with its width and its least and greatest
+||| values, as Prims states them.
+record Fixed where
+  constructor MkFixed
+  ty : Ty
+  width : Width
+  lo : Integer
+  hi : Integer
 
-||| Every integer type, in the order the tables are made.
-export
-types : List IntType
-types =
-  [ MkIntType "Int" 64 True, MkIntType "Int8" 8 True, MkIntType "Int16" 16 True
-  , MkIntType "Int32" 32 True, MkIntType "Int64" 64 True
-  , MkIntType "Bits8" 8 False, MkIntType "Bits16" 16 False
-  , MkIntType "Bits32" 32 False, MkIntType "Bits64" 64 False
-  ]
+||| Every fixed-width integer type, in the order the tables are made.
+fixed : List Fixed
+fixed = [ MkFixed t w lo hi | t <- fixedTys, w <- toList (widthOf t), (lo, hi) <- toList (bounds t) ]
 
 ||| The most cases one program checks.
 maxCases : Nat
 maxCases = 120
 
-int : IntType
-int = MkIntType "Int" 64 True
+||| Int's width, which the literals are written in.
+int : Width
+int = fromJust (widthOf TInt)
 
-pow2 : Nat -> Integer
-pow2 k = shiftL 1 k
-
-||| `n mod m` for `m > 0`, never negative (Python's `%`).
-modulo : Integer -> Integer -> Integer
-modulo n m =
-  if n >= 0 then n `mod` m
-     else let r = negate n `mod` m in if r == 0 then 0 else m - r
-
-wrap : IntType -> Integer -> Integer
-wrap t n =
-  let m = modulo n (pow2 t.width)
-  in if t.signed && m >= pow2 (pred t.width) then m - pow2 t.width else m
-
-bounds : IntType -> (Integer, Integer)
-bounds t =
-  if t.signed
-     then (negate (pow2 (pred t.width)), pow2 (pred t.width) - 1)
-     else (0, pow2 t.width - 1)
-
-values : IntType -> List Integer
+values : Fixed -> List Integer
 values t =
-  let (lo, hi) = bounds t
-  in if t.signed then [lo, lo + 1, -1, 0, 1, hi]
-                 else [0, 1, 2, pow2 (pred t.width), hi - 1, hi]
+  if t.width.signed then [t.lo, t.lo + 1, -1, 0, 1, t.hi]
+                    else [0, 1, 2, pow2 (pred t.width.bits), t.hi - 1, t.hi]
 
-divValues : IntType -> List Integer
+divValues : Fixed -> List Integer
 divValues t =
-  let (lo, hi) = bounds t
-  in if t.signed then [lo, -7, -2, -1, 0, 1, 2, 7, hi]
-                 else [0, 1, 2, 7, hi - 1, hi]
-
-||| Euclidean division: the remainder is never negative.
-euclid : Integer -> Integer -> (Integer, Integer)
-euclid a b =
-  let q0 = abs a `div` abs b
-      q = if (a < 0) == (b < 0) then q0 else negate q0
-      r = a - b * q
-  in if r < 0 then (if b > 0 then (q - 1, r + b) else (q + 1, r - b))
-              else (q, r)
-
-quotient : IntType -> Integer -> Integer -> Integer
-quotient t a b = if t.signed then wrap t (fst (euclid a b)) else a `div` b
-
-remainder : IntType -> Integer -> Integer -> Integer
-remainder t a b = if t.signed then wrap t (snd (euclid a b)) else a `mod` b
-
-bitwise : IntType -> (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
-bitwise t op a b = wrap t (op (modulo a (pow2 t.width)) (modulo b (pow2 t.width)))
-
-||| `n` divided by `m > 0`, rounded down.
-floorDiv : Integer -> Integer -> Integer
-floorDiv n m = if n >= 0 then n `div` m else negate ((negate n + m - 1) `div` m)
-
-||| A shift: `a`, as an integer of unbounded width, moved `s` places, left or
-||| right, the other way when `s` is negative, then wrapped to the type.
-shifted : IntType -> (left : Bool) -> Integer -> Integer -> Integer
-shifted t left a s =
-  let places = if left then s else negate s
-  in if places >= 0 then wrap t (a * pow2 (cast places))
-                    else wrap t (floorDiv a (pow2 (cast (negate places))))
+  if t.width.signed then [t.lo, -7, -2, -1, 0, 1, 2, 7, t.hi]
+                    else [0, 1, 2, 7, t.hi - 1, t.hi]
 
 ||| The shift amounts of a type: within its width, at it and past it, and a
 ||| signed type's negative ones, which shift the other way.
-shiftAmounts : IntType -> List Integer
+shiftAmounts : Width -> List Integer
 shiftAmounts t =
-  let w = cast {to = Integer} t.width
+  let w = cast {to = Integer} t.bits
       within = [0, 1, 3, w - 1, w, w + 1]
   in if t.signed then within ++ [-1, -3] else within
 
@@ -123,46 +71,39 @@ shiftAmounts t =
 ||| A primitive applied to literals reaches this compiler as written
 ||| (upstream/18-elaboration-primitive-folding), so every case is this
 ||| compiler's arithmetic.
-lit : IntType -> Integer -> String
+lit : Ty -> Integer -> String
 lit t v =
   let asInt = wrap int v
       text = if asInt >= 0 then show asInt else "(" ++ show asInt ++ ")"
-  in if t.name == "Int" then text else "(prim__cast_Int" ++ t.name ++ " " ++ text ++ ")"
+  in if t == TInt then text else "(" ++ castNamed TInt t ++ " " ++ text ++ ")"
 
 ||| An expression, the type of its result and the value it must have.
 Case : Type
-Case = (String, IntType, Integer)
+Case = (String, Ty, Integer)
 
-binary : IntType -> String -> Integer -> Integer -> String
-binary t op a b = "(prim__" ++ op ++ "_" ++ t.name ++ " " ++ lit t a ++ " " ++ lit t b ++ ")"
+binary : Ty -> Op -> Integer -> Integer -> String
+binary t op a b = "(" ++ named op t ++ " " ++ lit t a ++ " " ++ lit t b ++ ")"
 
 pairs : List Integer -> List (Integer, Integer)
 pairs vs = [(a, b) | a <- vs, b <- vs]
 
-arithmetic : List (String, Integer -> Integer -> Integer)
-arithmetic = [("add", (+)), ("sub", (-)), ("mul", (*))]
-
-logical : List (String, Integer -> Integer -> Integer)
-logical = [("and", (.&.)), ("or", (.|.)), ("xor", xor)]
-
-comparisons : List (String, Integer -> Integer -> Bool)
-comparisons = [("lt", (<)), ("lte", (<=)), ("eq", (==)), ("gte", (>=)), ("gt", (>))]
-
 ||| The tables of one type, each a title and its cases.
-tables : IntType -> List (String, List Case)
-tables t =
-  let vs = values t
-      ds = filter (\(_, b) => b /= 0) (pairs (divValues t))
-      arith = [(binary t op a b, t, wrap t (f a b)) | (op, f) <- arithmetic, (a, b) <- pairs vs]
-      divs = [(binary t "div" a b, t, quotient t a b) | (a, b) <- ds]
-      mods = [(binary t "mod" a b, t, remainder t a b) | (a, b) <- ds]
-      bits = [(binary t op a b, t, bitwise t f a b) | (op, f) <- logical, (a, b) <- pairs vs]
-      shifts = [(binary t op a s, t, shifted t left a s)
-               | (op, left) <- [("shl", True), ("shr", False)], a <- vs, s <- shiftAmounts t]
-      cmp = [(binary t op a b, int, if f a b then 1 else 0) | (op, f) <- comparisons, (a, b) <- pairs vs]
-      casts = [("(prim__cast_" ++ t.name ++ u.name ++ " " ++ lit t a ++ ")", u, wrap u a)
-              | u <- types, u.name /= t.name, a <- vs]
-  in [("arith", arith), ("div", divs), ("mod", mods), ("bitwise", bits), ("shift", shifts),
+tables : Fixed -> List (String, List Case)
+tables f =
+  let t = f.ty
+      w = f.width
+      vs = values f
+      ds = filter (\(_, b) => b /= 0) (pairs (divValues f))
+      arith = [(binary t op a b, t, wrap w (g a b)) | (op, g) <- arithmetic, (a, b) <- pairs vs]
+      divs = [(binary t Div a b, t, quotient w a b) | (a, b) <- ds]
+      mods = [(binary t Mod a b, t, remainder w a b) | (a, b) <- ds]
+      bits = [(binary t op a b, t, bitwise w g a b) | (op, g) <- logical, (a, b) <- pairs vs]
+      moves = [(binary t op a s, t, shifted w left a s)
+              | (op, left) <- shifts, a <- vs, s <- shiftAmounts w]
+      cmp = [(binary t op a b, TInt, if g a b then 1 else 0) | (op, g) <- comparisons, (a, b) <- pairs vs]
+      casts = [("(" ++ castNamed t u.ty ++ " " ++ lit t a ++ ")", u.ty, wrap u.width a)
+              | u <- fixed, u.ty /= t, a <- vs]
+  in [("arith", arith), ("div", divs), ("mod", mods), ("bitwise", bits), ("shift", moves),
       ("compare", cmp), ("cast", casts)]
 
 chunks : Nat -> List a -> List (List a)
@@ -179,7 +120,7 @@ program : List Case -> String
 program cases =
   let numbered = zip [1 .. length cases] cases
       body = foldr (\(i, (expr, ty, expected)), rest =>
-                      "chk (prim__eq_" ++ ty.name ++ " " ++ expr ++ " " ++ lit ty expected ++ ") "
+                      "chk (" ++ named Eq ty ++ " " ++ expr ++ " " ++ lit ty expected ++ ") "
                         ++ show i ++ "\n  (" ++ rest ++ ")")
                    (show agreed) numbered
   in unlines
@@ -198,10 +139,17 @@ program cases =
 ||| Every test: its name, and the cases its program checks.
 tests : List (String, List Case)
 tests = do
-  t <- types
+  t <- fixed
   (title, table) <- tables t
   (part, chunk) <- zip [0 .. length table] (chunks maxCases table)
-  pure ("prim-" ++ toLower t.name ++ "-" ++ title ++ "-" ++ show part, chunk)
+  pure ("prim-" ++ toLower (tyName t.ty) ++ "-" ++ title ++ "-" ++ show part, chunk)
+
+||| The name of every test, in the order of the tables: each must have its
+||| directory under tests/programs/semantics, and each such directory a
+||| name here (sem-index).
+export
+names : List String
+names = map fst tests
 
 ||| The program of a test, by its name.
 export

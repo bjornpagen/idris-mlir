@@ -25,6 +25,12 @@ cl::opt<std::string> outputPath("o",
                                 cl::desc("Output: the executable, or with -c the archive of its "
                                          "objects"),
                                 cl::init(""));
+// An output of a compilation, and the one that outlives a failure: it says
+// why the compilation failed.
+cl::opt<std::string> reportPath("report",
+                                cl::desc("Write the compilation's verdict, diagnostics and pass "
+                                         "statistics to this file, whatever the verdict"),
+                                cl::init(""));
 // What the compilation makes: the executable, linked by the pinned clang
 // with the runtime, or with -c only the objects it links, as one archive.
 cl::opt<bool> objectOnly("c",

@@ -23,6 +23,8 @@
 #                          contract changes
 #   make test-mlir-tools   tests/upstream, each upstream bug on its reproducer with the
 #                          pinned tools; after changing upstream MLIR usage
+#   make test-unit         foreign/idr/unittests, the exhaustive boxes (googletest);
+#                          after C++ changes, once make build has built them
 #   make compile SRC=Main.idr OUT=prog
 #                          idris-mlir, through tools/compile.sh
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
@@ -115,7 +117,7 @@ TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build fork frontend prefix libs host-libs \
-        test test-idr test-mlir-tools runner compile bench self self-fork typecheck \
+        test test-idr test-mlir-tools test-unit runner compile bench self self-fork typecheck \
         typecheck-configure typecheck-tblgen typecheck-cxx typecheck-dialects typecheck-libs \
         typecheck-fork typecheck-frontend
 .DEFAULT_GOAL := help
@@ -290,6 +292,20 @@ test-idr: runner
 test-mlir-tools: runner libs
 	@$(PINS) built llvm sysroot
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-mlir-tools $(GOLDEN)
+
+# The exhaustive boxes (foreign/idr/unittests): each googletest program the
+# build made there, under the timeout every test command has. The largest
+# box makes some 10^7 runtime calls of nanoseconds each, so one still
+# running after 600 s has hung.
+test-unit:
+	@$(PINS) built llvm sysroot
+	@boxes=$$(find '$(ROOT)/build/$(PRESET)/foreign/idr/unittests' -maxdepth 1 -type f -name 'idr-box-*' -perm -u+x 2> /dev/null | LC_ALL=C sort); \
+	if [ -z "$$boxes" ]; then echo 'test-unit: no box is built (make build builds them)' >&2; exit 1; fi; \
+	failed=; for box in $$boxes; do \
+	  echo "==> $${box##*/}"; \
+	  $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 600 "$$box" || failed="$$failed $${box##*/}"; \
+	done; \
+	if [ -n "$$failed" ]; then echo "test-unit: failed:$$failed" >&2; exit 1; fi
 
 compile:
 	@test -n '$(SRC)' && test -n '$(OUT)' || { echo 'usage: make compile SRC=Main.idr OUT=prog' >&2; exit 2; }

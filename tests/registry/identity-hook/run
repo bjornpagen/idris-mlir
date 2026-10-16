@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # A positive test of the registry's IdentityOnLastArgument hook: `replace`
-# and `rewrite__impl` are the value they move. translate.check finds neither
-# called in full Core, and the program prints expected-stdout.
+# and `rewrite__impl` are the value they move, and the program prints
+# expected-stdout.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 e2e_io .

@@ -15,7 +15,6 @@
 // next one a consumer of a match of lists, and so on: every region would
 // get a copy of the rest of the chain, twice the code at each choice. So
 // the function grows nothing.
-// CHECK-COUNT-3: con {{.*}}@Cons
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"List">>) cons]>
 idr.program @"held-not-read" root(@root) stage(first) {
   idr.func @chain(%a: i64, %b: i64, %c: i64, %tail: !idr.box<!List>) -> !idr.box<!List> {

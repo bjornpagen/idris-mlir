@@ -37,6 +37,7 @@
 // no bound narrows; the copy is cloned into the version, and the function
 // itself is never analysed.
 
+#include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -65,6 +66,13 @@ using namespace mlir;
 namespace idr::narrow {
 
 namespace {
+
+// idr-narrow-lanes gives one vectorized loop its 32-bit version; the unit
+// is the scf.for.
+struct NarrowLanesVersionAction : support::TaggedAction<NarrowLanesVersionAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-narrow-lanes-version";
+};
 
 // The exponents of the bounds tried: below 2^31 every index fits i32, and
 // below 2^8 a version runs on too few elements to matter. The search tries
@@ -150,8 +158,9 @@ FailureOr<std::optional<Fitting>> largestFitting(Copy &copy) {
 }
 
 // `loop` versioned with 32-bit lanes under a bound on its sizes, or left as
-// it is with a remark; failure, reported at the loop, when an analysis of
-// its copy fails, an internal error.
+// it is with a remark, or without one, counted neither narrowed nor wide,
+// when an action handler skips its version; failure, reported at the loop,
+// when an analysis of its copy fails, an internal error.
 LogicalResult versionLanes(RewriterBase &rewriter, scf::ForOp loop, LaneCounts &counts) {
   Location loc = loop.getLoc();
   auto wide = [&](const Twine &why) {
@@ -176,28 +185,34 @@ LogicalResult versionLanes(RewriterBase &rewriter, scf::ForOp loop, LaneCounts &
 
   // if (every tested input <= 2^low) { the copy } else { the loop }: one
   // test of each, one bound of each type, and some input is tested.
-  rewriter.setInsertionPoint(loop);
-  llvm::MapVector<Type, Value> bounds;
-  SmallVector<Value> tests;
-  for (Value input : inputs) {
-    if (!testable(input))
-      continue;
-    Value &bound = bounds[input.getType()];
-    if (!bound)
-      bound = arith::ConstantOp::create(rewriter, loc,
-                                        IntegerAttr::get(input.getType(), int64_t{1} << low));
-    tests.push_back(arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ule, input, bound));
-  }
-  Value guard = tests.front();
-  for (Value test : llvm::drop_begin(tests))
-    guard = arith::AndIOp::create(rewriter, loc, guard, test);
-  auto branch = scf::IfOp::create(rewriter, loc, TypeRange{}, guard, /*withElseRegion=*/true);
-  rewriter.setInsertionPointToStart(branch.thenBlock());
-  copy.cloneInto(rewriter);
-  // The loop as it was is a copy too; the loop, which has no results, goes.
-  rewriter.setInsertionPoint(branch.elseBlock()->getTerminator());
-  rewriter.clone(*loop);
-  rewriter.eraseOp(loop);
+  if (!support::perform<NarrowLanesVersionAction>(loop, [&] {
+        rewriter.setInsertionPoint(loop);
+        llvm::MapVector<Type, Value> bounds;
+        SmallVector<Value> tests;
+        for (Value input : inputs) {
+          if (!testable(input))
+            continue;
+          Value &bound = bounds[input.getType()];
+          if (!bound)
+            bound = arith::ConstantOp::create(
+                rewriter, loc, IntegerAttr::get(input.getType(), int64_t{1} << low));
+          tests.push_back(
+              arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ule, input, bound));
+        }
+        Value guard = tests.front();
+        for (Value test : llvm::drop_begin(tests))
+          guard = arith::AndIOp::create(rewriter, loc, guard, test);
+        auto branch =
+            scf::IfOp::create(rewriter, loc, TypeRange{}, guard, /*withElseRegion=*/true);
+        rewriter.setInsertionPointToStart(branch.thenBlock());
+        copy.cloneInto(rewriter);
+        // The loop as it was is a copy too; the loop, which has no results,
+        // goes.
+        rewriter.setInsertionPoint(branch.elseBlock()->getTerminator());
+        rewriter.clone(*loop);
+        rewriter.eraseOp(loop);
+      }))
+    return success();
   remarkAt<remark::detail::OptRemarkPass>(
       loc, "Narrowed", "the integer lanes compute in 32 bits for sizes up to 2^" + Twine(low));
   ++counts.narrowed;

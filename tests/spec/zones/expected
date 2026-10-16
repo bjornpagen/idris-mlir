@@ -1,4 +1,3 @@
 C++: found
 C++: the runtime under runtime/
-C++: all under foreign/idr and runtime
-C++ sources: .cpp and .h in foreign/idr's layout and the runtime
+C++: each file in a zone of the list, with that zone's extensions

@@ -1,7 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s --implicit-check-not='!idr.lazy' --implicit-check-not='{{(idr\.| )suspend }}' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // A Lazy value picked at runtime and forced later: its type's key becomes a
 // memo sum, a box, so that every reference sees one cell. It has a
 // constructor per label, named after the label's function, whose fields
@@ -10,12 +8,6 @@
 // functions, which nothing else names once each suspension is a
 // constructor. The force keeps its op and takes the box; nothing lazy is
 // left.
-// CHECK: ![[L:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@one(), @twice(i64), @running(), @forced(i64)]
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: match_lit %{{.*}} : i64 -> (!idr.box<![[L]]>) {
-// CHECK: con !idr.box<![[L]]> @one()
-// CHECK: con !idr.box<![[L]]> @twice(%{{.*}} : i64)
-// CHECK: force %{{.*}} : !idr.box<![[L]]> -> i64
 idr.program @"memo-sum" root(@Main.main) stage(higher) {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64

@@ -51,11 +51,10 @@ callGraphComponents(const mlir::CallGraph &graph);
 // this is asked, so its entry will not change. A call to a member
 // carries nothing new: that member's own part is in the sum.
 //
-// A body's own part: diverge unless Idris proved its function total; crash
-// where an op may crash; IO where it forges a world or a parameter may
-// hold one, since a world reaches a function no other way. It reads the
-// members' bodies, `symbols` to resolve a callee and nothing else, so
-// disjoint components may be asked from different workers.
+// A body's own part is idr::bodyEffect's (Func.h), the one rule the
+// program's verifier also holds. It reads the members' bodies, `symbols`
+// to resolve a callee and nothing else, so disjoint components may be
+// asked from different workers.
 idr::Effect componentEffects(llvm::ArrayRef<idr::FuncOp> component,
                              const mlir::SymbolTable &symbols);
 

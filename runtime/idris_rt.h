@@ -154,6 +154,13 @@ static inline const char *idris_rt_str_bytes(const idris_rt_str *s) {
  * each integer has one representation. */
 typedef int64_t idris_rt_big;
 
+/* The small range, the integers an odd word holds: 63 bits of two's
+ * complement, from -2^62 to 2^62 - 1. The runtime's bigs and the compiler's
+ * ranges read these two, so the bound a value is narrowed by is the one the
+ * runtime holds it small by. */
+#define IDRIS_RT_SMALL_MIN (-(INT64_C(1) << 62))
+#define IDRIS_RT_SMALL_MAX ((INT64_C(1) << 62) - 1)
+
 /* A big outside the small range: the header (kind IDRIS_RT_KIND_BIGNUM), the
  * signed number of limbs (GMP's convention: its sign is the integer's, its
  * magnitude the count), then the limbs, least significant first, in the same
@@ -215,10 +222,9 @@ typedef struct idris_rt_memref {
  * one's meaning is documented below with the runtime's other functions. */
 #include "idris_rt_ops.h"
 
-/* Reference counting. Every entry point below takes NULL, an odd word and a
- * persistent object too, and then does nothing (idris_rt_is_unique returns
- * false): an object slot may hold any of them, so callers
- * need no test first. */
+/* Reference counting. Every entry point below but idris_rt_is_unique takes
+ * NULL, an odd word and a persistent object too, and then does nothing: an
+ * object slot may hold any of them, so callers need no test first. */
 
 /* A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,
  * with the matching info, anything else the runtime frees): its header is
@@ -265,8 +271,11 @@ void idris_rt_dec(void *o);
  * persistent captures, and then nothing is released. */
 void idris_rt_caf_release(void *cell);
 
-/* Whether o is exclusive: count 1, and not a stack cell. */
-bool idris_rt_is_unique(const void *o);
+/* Whether a cell is exclusive: count 1, and not a stack cell, so never a
+ * persistent one. It takes a cell, never a word that may be NULL or a small
+ * value: the caller knows which it holds, and a cell is what it asks
+ * about. */
+bool idris_rt_is_unique(const idris_rt_header *cell);
 
 /* Frees the memory of a counted heap cell, and nothing else: the caller has
  * already moved out what it owns, having found it exclusive
@@ -392,8 +401,9 @@ IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
  * idris_rt_io_arg. First,
  * when the system's page size is not the target's the runtime is built for,
  * it names both and ends the process with IDRIS_RT_CRASHED. When the
- * CPU lacks one of them, it names them and ends the process with
- * IDRIS_RT_CRASHED before the program runs; it is compiled for the target's baseline, and idris-mlir
+ * CPU lacks one of them, it names them, a bit no feature names by its
+ * number, and ends the process with IDRIS_RT_CRASHED before the program
+ * runs; it is compiled for the target's baseline, and idris-mlir
  * keeps it there. Otherwise it points GMP at the runtime's allocator
  * (idris_rt_gmp_init) and runs body on a reserved stack
  * (idris_rt_run_on_stack) of the number of bytes the environment variable
@@ -457,12 +467,13 @@ int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t gua
  * offset has a meaning: it is clamped to [0, bytes], and one inside a
  * scalar's encoding stands for the start of that scalar.
  * - idris_rt_str_scalar_at: the scalar that starts there; 0 at the end.
- * - idris_rt_str_scalar_end: the offset after that scalar, which is
- *   greater than the offset when the offset is below the end; the byte
- *   length at the end.
  * - idris_rt_str_drop_bytes: the scalars from there on: the string itself
  *   (one more reference) from 0, the persistent empty one at the end, and
- *   otherwise a new string of those bytes. */
+ *   otherwise a new string of those bytes.
+ * And the iterator's step past the scalar it read:
+ * - idris_rt_str_scalar_bytes: the number of bytes of a character's UTF-8,
+ *   1 to 4; for an int32_t that is no scalar value, the length its
+ *   encoding as idris_rt_str_from_char writes it has. */
 /* idris_rt_str_cmp gives negative, zero or positive as its first string is
  * before, equal to or after its second in the order of their scalar values,
  * Unicode's code point order, which is the byte order of their UTF-8. */

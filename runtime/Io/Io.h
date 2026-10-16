@@ -19,8 +19,16 @@ namespace rt::io {
 // page. It bounds one write's worth of pending output and is never an
 // alignment or a region size (the target entry's page size is
 // IDRIS_MLIR_PAGE_SIZE, which rt::platform's startup check reads); 4096 is a
-// small write's worth on every target.
-inline constexpr size_t bufferSize = 4096;
+// small write's worth on every target. A test build may set
+// IDRIS_RT_IO_BUFFER_SIZE to a few bytes, so that every boundary of the
+// buffers is reached with little data (tests/toolchain/io-buffer); the
+// production build sets nothing.
+#ifndef IDRIS_RT_IO_BUFFER_SIZE
+#define IDRIS_RT_IO_BUFFER_SIZE 4096
+#endif
+inline constexpr size_t bufferSize = IDRIS_RT_IO_BUFFER_SIZE;
+static_assert(bufferSize >= 4, "the output buffer holds a character's longest UTF-8, which "
+                               "idris_rt_io_put_char encodes in place");
 
 // Errors (Errors.cpp): the errno base reads after a call that failed.
 

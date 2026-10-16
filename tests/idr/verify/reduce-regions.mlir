@@ -1,16 +1,18 @@
 // RUN: printf '#!/bin/sh\nfor op in "match " match_lit; do\n  if ! grep -q "$op" "$1"; then exit 0; fi\ndone\nexit 1\n' > %t.test
 // RUN: chmod +x %t.test
 // RUN: idris-mlir-reduce %s --reduction-tree="traversal-mode=0 test=%t.test" -o %t.reduced 2> %t.log
-// RUN: FileCheck %s < %t.reduced
+// RUN: FileCheck %s --implicit-check-not=arith. < %t.reduced
 // RUN: FileCheck %s --check-prefix=LOG < %t.log
-// idris-mlir-reduce erases ops and drops their uses, so a candidate it
-// verifies can hold an idr.yield whose operand is gone. The test keeps
-// every op with a region (a match on a constructor and one on a literal),
-// so the reducer works inside each of them. It looks
-// for each as idr.func prints it, without the prefix where the op name has
-// one dot. MLIR rejects such a yield for its null operand before the
-// region's own checks read it, and the reduction ends with every op still
-// there.
+// NEEDS-ACCEPTANCE: that idr's reduction pattern leaves no arith op in the reduced module, each value made ub.poison.
+// idris-mlir-reduce erases ops and drops their uses, so a candidate that
+// erases an op whose value an idr.yield or a return uses holds a null
+// operand, which MLIR refuses before any region's own check reads it. The
+// idr dialect's reduction pattern simplifies such an op instead: what it
+// computes becomes ub.poison, which takes no operand. The test keeps every
+// op with a region (a match on a constructor and one on a literal), so the
+// reducer works inside each of them; it looks for each as idr.func prints
+// it, without the prefix where the op name has one dot. Every value a
+// function computes ends as a poison, so no arith op is left anywhere.
 // LOG: null operand found
 // CHECK: match %
 // CHECK: match_lit

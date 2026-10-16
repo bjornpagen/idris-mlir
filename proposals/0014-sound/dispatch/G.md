@@ -320,10 +320,9 @@ Fixed decisions:
     - `void diagnostic(std::string fields)`;
     - `void count(std::string key, uint64_t by)` (adds into a `std::map<std::string, uint64_t>`, creating the key at 0);
     - `void write(llvm::raw_ostream &) const`.
-- **Report format (§4.4).** One line `verdict: <name>`, then a line `diagnostic: <fields>` for each diagnostic in the order the handler received them, then a line `statistic: <key>=<value>` for each statistic in `std::map` order (bytewise). The fields are `<severity> <rule> <category> <file:line> <pass>`:
+- **Report format (§4.4).** One line `verdict: <name>`, then a line `diagnostic: <fields>` for each diagnostic in the order the handler received them, then a line `statistic: <key>=<value>` for each statistic in `std::map` order (bytewise). The fields are `<severity> <rule> <file:line> <pass>`. No category field: a rule's category is a function of the rule, which `IdrRules.txt` (phrase TAB category) already gives, so a reader joins on the rule; a C++ reading of the category would be custom code for a second copy of an ODS fact:
   - **severity:** `note`, `warning`, `error` or `remark`, from `mlir::DiagnosticSeverity`.
   - **rule:** `stringifyRule(*refusalRule(d))` with each space written `-` (no phrase contains `-`, so the change is reversible), or `-`.
-  - **category:** for a refusal, `stringifyRuleCategory(idr::categoryOf(*refusalRule(d)))` with each space written `-` (`megamorphic`, `outside-the-language`); `-` for any other diagnostic. `categoryOf` is generated from the ODS by lane K2 (`#include "idr/IR/IdrRuleCategories.inc"`, after `idr/IR/IdrDialect.h` and `llvm/Support/ErrorHandling.h`, in the one unit that writes the fields): the category is a fact of the rule, held once in `IdrBase.td`.
   - **file:line:** `<getFilename()>:<getStartLine()>` of `d.getLocation()->findInstanceOf<mlir::FileLineColRange>()`, or `-`.
   - **pass:** the argument of the innermost pass with a non-empty argument that the report's instrumentation has begun, and not yet ended, on the thread delivering the diagnostic; `-` when there is none (the parse, the classification, the translation). A diagnostic emitted inside a group that MLIR runs in parallel is replayed after the group, on the thread that ran it. Such groups are the pipeline's own `nest<FuncOp>` groups and idr-optimize's waves of more than one component (`Optimize/Waves.cpp:267`). The diagnostic therefore names the innermost named pass on that thread: `-` for a function group, `idr-optimize` for a wave. Which case applies depends on the program, never on `--num-threads`; only `--mlir-disable-threading` names the inner pass. Write this in the comment.
   - **statistic key:** `<getArgument(), or getName() when empty>.<Statistic::getName()>`. The value is the sum, over every run of every instance of that pass, of the statistic's increase between `runBeforePass` and `runAfterPass` or `runAfterPassFailed`. Every statistic of a pass that ran gets a line, zeros included.
@@ -338,7 +337,7 @@ Fixed decisions:
   - If the module holds an `idr.program` among its top-level ops, it is a handoff module, and every op nested in it must be of a dialect `handoff.getDialectAllocator(ns)` knows. Otherwise: `op->emitError("is of no dialect the frontend writes, in a module that holds an idr.program")`.
   - If not, every nested op must be `isa<mlir::LLVM::LLVMDialect>(op->getDialect())`, and the module runs only `toObjects`. Otherwise: `op->emitError("is no op of the LLVM dialect, in a module that holds no idr.program: such a module is the pipeline's output")`.
   - `toObjects` also refuses a `#llvm.target` triple other than `targetTriple`: `internal error: the module is compiled for <t>, and idris-mlir for <targetTriple>`. A missing target keeps today's message.
-Inputs: §4.4. Lane I's frontend half, read only to check it. Lane K2's generated `idr::categoryOf(Rule) -> RuleCategory` in `IdrRuleCategories.inc` (K2.md decision 5a quotes its exact text); until the coordinator applies K2's CMake line, check-units of the unit that includes it fails on the missing file: report that, and nothing else, as NeedsIntegration.
+Inputs: §4.4. Lane I's frontend half, read only to check it.
 Outputs:
 - `Verdict`, `statusOf`, `nameOf` and `Outcome` in `include/idr/Driver/Verdict.h`.
 - `run(Artifacts &, mlir::TimingScope &, Outcome &)` in `Compile.h`.
@@ -383,7 +382,7 @@ Delete:
 - The handler's unsynchronized `verdict = std::max(...)`.
 NOT TO DO:
 - No option that changes what is compiled (no `--from-llvm`, no debug counter).
-- No category accessor written by hand (that would be a second copy of the ODS fact): `categoryOf` is K2's generated one.
+- No category field and no C++ reading of a rule's category (generated or written): the rule is printed, and its category is `IdrRules.txt`'s.
 - No report from `idris-mlir-opt` or the frontend.
 - No reading of the frontend's stderr into the report.
 - No change to `Prepare.cpp`'s or `ReadRuntime.cpp`'s flows beyond what compiles against the new headers.
@@ -392,7 +391,7 @@ NOT TO DO:
 Stop and return: Return when steps 1-6 are in and check-units passes for every Driver unit, and you have the spec's diff and your reading of the frontend's half. Missing operands to return: X3's `kept` change, and the coordinator's placement of your fixtures.
 Acceptance:
 - **F08:**
-  - Input: a module that fails parse verification with a refusal (the first chunk of `tests/idr/verify/cycle.mlir`). Outcome: exit 3; the report holds `verdict: refused` and `diagnostic: error cycle outside-the-language <path>:<line> -`.
+  - Input: a module that fails parse verification with a refusal (the first chunk of `tests/idr/verify/cycle.mlir`). Outcome: exit 3; the report holds `verdict: refused` and `diagnostic: error cycle <path>:<line> -`.
   - Input: the same refusal reported beside an internal error. Outcome: exit 1, `verdict: internal`. At HEAD this exits 3 (`Run.cpp:73,238`). By source review this is the discriminator: the enum's order, `std::max`, and `statusOf`.
   - Input: an accepted module (`tests/idr/e2e/exit-42.mlir`) with `--report`. Outcome: `verdict: accepted`, no `diagnostic:` line, and `statistic: idr-optimize.<name>=<n>` lines in bytewise order. The report is byte-identical across `--num-threads 1, 3, 5, 13`.
 - **F09:** `idris-mlir-opt exit-42.mlir --idr-target --idr-pipeline -o m.mlir`, then `idris-mlir -c m.mlir -o m.o`, then the pinned clang link: the program exits 42. At HEAD the parse fails on the `llvm` ops. A `func.func`-only module gives exit 1 and the classification error.
@@ -412,7 +411,7 @@ Handoff:
   1. For X3: `tests/spec/no-behaviour-options/run`, add `report` to `kept` after `o c`. This is an output, as §4.4 says.
   2. Fixture texts for the coordinator to place under `tests/idr/obs/` (X1's), each with a first-line `NEEDS-ACCEPTANCE`. Give the full text for:
      - `report-accepted.mlir`: exit-42's module, `--report`, and FileCheck of `verdict: accepted`, `CHECK-NOT: diagnostic:`, and a `statistic: idr-optimize.` line;
-     - `report-refused.mlir`: the knot chunk, `%status 3`, `verdict: refused`, `diagnostic: error cycle outside-the-language`;
+     - `report-refused.mlir`: the knot chunk, `%status 3`, `verdict: refused`, `diagnostic: error cycle `;
      - `lowered-input.mlir`: `idris-mlir-opt --idr-target --idr-pipeline`, then `idris-mlir -c`, `%cc` and `%status 42`;
      - `lowered-mixed.mlir`: a `func.func` module, `%status 1`, the classification error, and `verdict: internal`.
   3. Your reading of the frontend's half.
@@ -430,6 +429,25 @@ Handoff:
   revert, reformat or "fix" a change you did not make. A hub file
   (`CMakeLists.txt`, `*.ipkg`, `Makefile`, `PINS.md`, `upstream/README.md`)
   is the coordinator's: put the exact text you need in your handoff.
+- **Hard cutover, zero backwards compatibility (the owner's rule).** The new
+  representation replaces the old one in the same change, everywhere in your
+  writes: no shim, alias, re-export, deprecated name, wrapper keeping an old
+  signature, dual code path, fallback to the old form, compatibility flag,
+  "legacy" branch, or comment promising a later removal. Old formats, option
+  names and file layouts are not kept readable. A consumer outside your writes
+  is named in your handoff for its owner to cut over, never served by a
+  bridge you keep.
+- **Upstream MLIR first, our C++ at its minimum (the owner's rule).** This
+  project is idris-mlir: an MLIR compiler for Idris, not a superoptimizer of
+  its own. Before writing C++, find the upstream mechanism and use it: ODS
+  and its constraints, interfaces and traits, declarative patterns,
+  upstream passes and their options, `PassInstrumentation`, actions and
+  `DebugCounter`, `verifyRoundtrip`, the reducer interface, LLVM's
+  statistics. Prefer declaring in TableGen to writing in C++; prefer deleting
+  our C++ an upstream mechanism replaces to adding any; a new C++ abstraction,
+  helper or generator states in its comment why no upstream mechanism fits.
+  Where this pulls against an optimization, the smaller C++ wins unless your
+  dispatch names the optimization.
 - **Two hosts, forever.** Idris you write (frontend, fork, `libs/`, test
   machinery) must build with the stock Idris on Chez and with idris-mlir
   (`make self`): stay inside the subset idris-mlir compiles (nothing it

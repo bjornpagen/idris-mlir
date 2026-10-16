@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The stack idris-mlir and idris-mlir-opt run on, the runtime's
+// The stack idris-mlir, idris-mlir-opt and idris-mlir-reduce run on, the runtime's
 // reserved-stack runner's: MLIR's parser, printer and walks recurse over
 // nested constants, so the stack is committed as it is touched and larger
 // than the memory of a machine that compiles, which runs out first. No

@@ -93,6 +93,10 @@ Type idr::atQuantity(Type type, Quantity quantity) {
   return graded({quantity, gradeOf(type).permission}, unrestricted(type));
 }
 
+Type idr::atPermission(Type type, Permission permission) {
+  return graded({gradeOf(type).quantity, permission}, unrestricted(type));
+}
+
 bool idr::isExclusive(Type type) { return gradeOf(type).permission == Permission::Excl; }
 
 Type idr::exclusive(Type type) {

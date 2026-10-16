@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The entries of the string iterator's primitives, which the in-house
-# library declares %extern, are validated like base's once a program loads
-# their module: each case is a program whose own Linear.String.Iterator is
-# the library's with one primitive at another shape, which stops the
-# compilation with a shape mismatch that shows the entry, the shape
-# expected and the shape found, and leaves no artifact; unbroken, the
-# program compiles.
+# library declares %extern, and of its step, scalarBytes, a definition with
+# a body, are validated like base's once a program loads their module: each
+# case is a program whose own Linear.String.Iterator is the library's with
+# one of them at another shape, which stops the compilation with a shape
+# mismatch that shows the entry, the shape expected and the shape found,
+# and leaves no artifact; unbroken, the program compiles.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
 main='module Main
@@ -17,7 +17,7 @@ import Linear.String.Iterator
 
 main : IO ()
 main = putStrLn (show (Iterator.foldl (\n, _ => n + 1) (the Int 0) "héllo"))'
-for case in prim__scalarAt:scalar-at prim__scalarEnd:scalar-end prim__dropBytes:drop-bytes; do
+for case in prim__scalarAt:scalar-at scalarBytes:scalar-bytes prim__dropBytes:drop-bytes; do
   registry_shadowed "Linear.String.Iterator.${case%%:*}" "${case#*:}" \
     libs/mlir-linear/Linear/String/Iterator.idr Linear/String/Iterator.idr "${case%%:*}" shape \
     "$main" -p mlir-linear

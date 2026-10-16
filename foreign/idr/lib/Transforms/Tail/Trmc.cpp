@@ -37,6 +37,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
+#include "idr/Support/Actions.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
@@ -51,6 +52,13 @@ using namespace mlir;
 
 namespace idr::tail {
 namespace {
+
+// idr-trmc gives one function its destination-passing clone; the unit is
+// the function.
+struct TrmcCloneAction : support::TaggedAction<TrmcCloneAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-trmc-clone";
+};
 
 // A call of `clone` with `operands`, in place of `old`: the clone is the
 // same recursion with the same facts, so the call does what the old one
@@ -204,24 +212,27 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
       if (*plan)
         plans.push_back(std::move(**plan));
     }
-    if (plans.empty())
-      return markAllAnalysesPreserved();
     IRRewriter rewriter(ctx);
+    unsigned performed = 0;
     for (const Plan &plan : plans) {
       FuncOp fn = plan.fn;
-      ++numFunctions;
-      numTails += plan.tails.size();
-      FuncOp clone = fn.clone();
-      clone.setSymNameAttr(plan.name);
-      symbols.insert(clone, std::next(fn->getIterator()));
-      auto dest = DestType::get(ctx, unrestricted(fn.getResultTypes()[0]));
-      unsigned arity = clone.getNumArguments();
-      (void)clone.insertArgument(arity, dest, DictionaryAttr(), fn.getLoc());
-      (void)clone.eraseResult(0);
-      rewriteClone(rewriter, clone.getBody().front(), fn, clone, clone.getArgument(arity));
-      for (const Modulo &tail : plan.tails)
-        passDestination(rewriter, tail, clone, std::nullopt);
+      performed += support::perform<TrmcCloneAction>(fn, [&] {
+        ++numFunctions;
+        numTails += plan.tails.size();
+        FuncOp clone = fn.clone();
+        clone.setSymNameAttr(plan.name);
+        symbols.insert(clone, std::next(fn->getIterator()));
+        auto dest = DestType::get(ctx, unrestricted(fn.getResultTypes()[0]));
+        unsigned arity = clone.getNumArguments();
+        (void)clone.insertArgument(arity, dest, DictionaryAttr(), fn.getLoc());
+        (void)clone.eraseResult(0);
+        rewriteClone(rewriter, clone.getBody().front(), fn, clone, clone.getArgument(arity));
+        for (const Modulo &tail : plan.tails)
+          passDestination(rewriter, tail, clone, std::nullopt);
+      });
     }
+    if (performed == 0)
+      return markAllAnalysesPreserved();
     markAnalysesPreserved<SymbolTable, TypeGraph, Layouts>();
   }
 };

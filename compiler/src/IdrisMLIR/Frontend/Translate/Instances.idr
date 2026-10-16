@@ -43,12 +43,11 @@ request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 request fc owner n kinds = do
   found <- instanceKey fc owner n (map staticOf kinds)
   let inst = MkFnId found.symbol
-  base <- nameKey <$> toFullNames n
   st <- get TState
   unless (contains inst st.seen) $ do
     checkRecursion n
     update TState { seen $= insert inst
-                  , requested $= (:< MkRequest inst n base kinds found.key fc owner found.link) }
+                  , requested $= (:< MkRequest inst n kinds found.key fc (shown owner) found.link) }
   pure inst
 
 ||| A compile-time value of an argument, computed on demand: normalised for a

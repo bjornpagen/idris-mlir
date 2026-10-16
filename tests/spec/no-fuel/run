@@ -28,12 +28,13 @@
 # reason`, a finding at `path` on a line holding `text`: the size policies,
 # which bound growth, output or how long an optimization runs, never what
 # is correct or accepted, the widths of the runtime's representation, the
-# frontend's trust points, each named in the output by its module, and the
-# definitions not yet total, each named in the output by its name under its
-# reason, so that a further one of either fails here. An annotation alone
-# on its line is read with the line after it, so that a policy names the
-# definition, `covering name :`. Each must still be in its file, so that
-# whoever removes one removes its line.
+# frontend's trust points and the definitions not yet total. That file is
+# the list, reviewed where it changes: the output states that every finding
+# is one of its lines, never which, so removing a covering definition and
+# its line changes nothing here, and a new one is a line added there. An
+# annotation alone on its line is read with the line after it, so that a
+# policy names the definition, `covering name :`. Each must still be in
+# its file, so that whoever removes one removes its line.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cd "$root" || exit 1
 policies=tools/policies.txt
@@ -243,11 +244,6 @@ trusted() {
   awk -F'\t' -v path="$1" -v code="$2" \
     '$1 == path && index(code, $2) > 0 { found = 1 } END { exit !found }' "$work/policies"
 }
-# reason FILE CODE: the reason of the policy that names that line of FILE.
-reason() {
-  awk -F'\t' -v path="$1" -v code="$2" \
-    '$1 == path && index(code, $2) > 0 { print $3; exit }' "$work/policies"
-}
 find compiler/src libs -name build -prune -o -type f -name '*.idr' -print | LC_ALL=C sort > "$work/idris"
 if [ -s "$work/idris" ]; then
   say "idris sources: compiler/src and libs searched"
@@ -256,8 +252,6 @@ else
 fi
 : > "$work/covering"
 : > "$work/asserted"
-: > "$work/trusted"
-: > "$work/excepted"
 while IFS= read -r file; do
   idris_lex code "$file" > "$work/idris-code"
   if grep -qE '^[0-9]+:%default[[:space:]]+(covering|partial)' "$work/idris-code"; then
@@ -267,55 +261,30 @@ while IFS= read -r file; do
      grep -qE '^[0-9]+:([a-z_][A-Za-z0-9_'"'"']*[[:space:]]+:([[:space:]]|$)|(export|public|private|data|record|interface|implementation)[[:space:]])' "$work/idris-code"; then
     say "  $file: covering by Idris's default, with no %default total" >> "$work/covering"
   fi
-  # A trusted line is named by its module, once for each line of code that
-  # asserts or is annotated, so that a further one anywhere shows.
-  module=${file#compiler/src/}
-  module=${module#libs/*/}
-  module=$(printf '%s' "${module%.idr}" | tr / .)
   # A definition annotated covering or partial, which a policy names by
-  # `covering name :` under its reason, or is a finding.
+  # `covering name :`, or is a finding.
   annotated < "$work/idris-code" |
     while IFS= read -r hit; do
       line=${hit%%:*}
       code=${hit#*:}
-      why=$(reason "$file" "$code")
-      if [ -n "$why" ]; then
-        name=${code#* }
-        name=${name%% *}
-        name=${name%%:*}
-        printf '%s\t%s.%s\n' "$why" "$module" "$name" >> "$work/excepted"
-      else
-        say "  $file:$line: a definition Idris checks only for coverage"
-      fi
+      trusted "$file" "$code" || say "  $file:$line: a definition Idris checks only for coverage"
     done >> "$work/covering"
   grep -E '(^|[^A-Za-z0-9_'"'"'.])(assert_total|assert_smaller)([^A-Za-z0-9_'"'"']|$)' "$work/idris-code" |
     while IFS= read -r hit; do
       line=${hit%%:*}
       code=${hit#*:}
-      if trusted "$file" "$code"; then
-        say "trusted: $module" >> "$work/trusted"
-      else
-        say "  $file:$line: asserts what Idris does not check"
-      fi
+      trusted "$file" "$code" || say "  $file:$line: asserts what Idris does not check"
     done >> "$work/asserted"
 done < "$work/idris"
 if [ -s "$work/covering" ]; then
   say "covering: some modules or definitions are not total:"
   cat "$work/covering"
-elif [ -s "$work/excepted" ]; then
-  say "covering: only the definitions a policy names, below; every other module and definition is total"
 else
-  say "covering: none, every module and every definition is total"
+  say "covering: every module and definition is total but those a policy names"
 fi
-# The definitions a policy leaves covering, under its reason.
-LC_ALL=C sort "$work/excepted" | awk -F'\t' '
-  $1 != last { print $1 ":"; last = $1 }
-  { print "  " $2 }'
-
-LC_ALL=C sort "$work/trusted"
 if [ -s "$work/asserted" ]; then
-  say "assertions: some assert totality outside the trusted:"
+  say "assertions: some assert totality where no policy names it:"
   cat "$work/asserted"
 else
-  say "assertions: none outside the trusted, nothing else asserts its own totality"
+  say "assertions: only where a policy names them"
 fi

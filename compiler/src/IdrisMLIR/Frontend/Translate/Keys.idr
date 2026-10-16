@@ -193,8 +193,11 @@ mutual
           Element w1 q1 <- blocksFrom full w0 acc w p
           MkReached ks' w2 q2 <- nameUnder origin ks w0 acc w1 (thenNoMore q1 p) rest
           pure (MkReached ks' w2 (thenNoMore q2 q1))
-    let key = nameKey full
     defs <- get Ctxt
+    -- A name the context does not hold has no address and is no block to
+    -- name, as `enter` never enters it.
+    let Just key = definitionAddress (gamma defs) full
+      | Nothing => nameUnder origin ks w0 acc w p rest
     let Nothing = lookup key (!(get TState)).blockNames
       | Just _ => nameUnder origin ks w0 acc w p rest
     let Just (Element w1 q) = enter (gamma defs) full w
@@ -214,10 +217,12 @@ mutual
                Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
                (w : Walked) -> (0 _ : NoMore w w0) -> Core (Subset Walked (\w' => NoMore w' w))
   blocksFrom full w0 acc@(Access rec) w p = do
-    let key = nameKey full
     defs <- get Ctxt
     let Nothing = blockOf full
       | Just _ => pure (Element w (noMore w))
+    -- Nor is a name the context does not hold a definition to walk.
+    let Just key = definitionAddress (gamma defs) full
+      | Nothing => pure (Element w (noMore w))
     let Nothing = lookup key (!(get TState)).blockNames
       | Just _ => pure (Element w (noMore w))
     let Just (Element w1 q) = enter (gamma defs) full w
@@ -253,7 +258,12 @@ keyOrigin n = do
   full <- toFullNames n
   let Just _ = blockOf full
     | Nothing => pure (plainOrigin full)
-  let key = nameKey full
+  -- Naming blocks only reads the context, so this one read is the context
+  -- the search below lists.
+  defs <- get Ctxt
+  -- A block with no address is one no definition can refer to.
+  let Just key = definitionAddress (gamma defs) full
+    | Nothing => unreferenced full
   Nothing <- named key
     | Just o => pure o
   st <- get TState
@@ -265,18 +275,20 @@ keyOrigin n = do
   nameBlocksOf !(rootOf full)
   Nothing <- named key
     | Just o => pure o
-  defs <- get Ctxt
   let all = map fst (Libraries.Data.NameMap.toList (resolvedAs (gamma defs)))
   let (near, far) = partition (\c => namespaceOf c == namespaceOf full) all
   search key (near ++ far)
   Just o <- named key
-    | Nothing => internal EmptyFC ("no definition refers to the block " ++ show full)
+    | Nothing => unreferenced full
   pure o
   where
-    named : String -> Core (Maybe String)
+    unreferenced : Name -> Core String
+    unreferenced full = internal EmptyFC ("no definition refers to the block " ++ show full)
+
+    named : Address -> Core (Maybe String)
     named key = pure (lookup key (!(get TState)).blockNames)
 
-    search : String -> List Name -> Core ()
+    search : Address -> List Name -> Core ()
     search key [] = pure ()
     search key (c :: cs) = do
       nameBlocksOf c
@@ -402,16 +414,7 @@ argumentText tm = pure (render 0 Alone !(toFullNames tm))
 -- The identity: the arguments written out
 ------------------------------------------------------------------------------
 
-||| A name of the context by its index, as the index's eight bytes, the low
-||| byte first.
-addressOf : Int -> Address
-addressOf i = bytes 8 (cast i)
-  where
-    bytes : (k : Nat) -> Integer -> Vect k (Fin 256)
-    bytes Z _ = []
-    bytes (S k) v = restrict 255 v :: bytes k (v `div` 256)
-
-||| The index an address is of.
+||| The index an address is of (`State.addressOf`'s inverse).
 indexOf : Address -> Integer
 indexOf = foldr (\b, rest => cast (finToNat b) + 256 * rest) 0
 
@@ -472,16 +475,23 @@ writeConstant (Db x) = node (Shaped Floating) :: spell (show x)
 writeConstant (PrT t) = [node (PrimitiveType (primitive t))]
 writeConstant WorldVal = [node (Shaped World)]
 
+||| A reference by what its name is (`markerOf`): a marker of a runtime
+||| value an implementation closes over by its number, whose magnitude
+||| weighs itself as a literal's does, and any other name by its address.
+referenceTo : Context -> Name -> Maybe Nat -> List (Token Form)
+referenceTo ctx n (Just i) = [Number (Shaped Marker) i]
+referenceTo ctx n Nothing = [Node (Shaped Reference) (definitionAddress ctx n) 0]
+
 mutual
   ||| A term in prefix order, a symbol per node: what Idris's `==` tells
   ||| terms apart by, but for doubles, which their prints tell apart (0.0
   ||| and -0.0 are two, every NaN is one); no location, no binder's name.
-  ||| A name is its address in the context; a name the context does not
-  ||| hold is no instance's (`unresolved`), and a request of one is refused
-  ||| before it is written.
+  ||| A name is its address in the context, a marker its number; a name
+  ||| the context does not hold is no instance's (`unresolved`), and a
+  ||| request of one stops before it is written.
   write : Context -> TT vs -> List (Token Form)
   write ctx (Local _ _ idx _) = [Node (Shaped Variable) Nothing idx]
-  write ctx (Ref _ _ n) = [Node (Shaped Reference) (addressOf <$> getNameID n ctx) 0]
+  write ctx (Ref _ _ n) = referenceTo ctx n (markerOf n)
   write ctx (Meta _ _ i args) = Node (Shaped Hole) (Just (addressOf i)) (length args) :: writeAll ctx args
   write ctx (Bind _ _ b sc) = writeBinder ctx b ++ write ctx sc
   write ctx (App _ f a) = node (Shaped Applied) :: (write ctx f ++ write ctx a)
@@ -516,7 +526,9 @@ mutual
 mutual
   ||| A name of the term that the context does not hold, if there is one.
   unresolved : Context -> TT vs -> Maybe Name
-  unresolved ctx (Ref _ _ n) = maybe (Just n) (const Nothing) (getNameID n ctx)
+  unresolved ctx (Ref _ _ n) = case markerOf n of
+    Just _ => Nothing
+    Nothing => maybe (Just n) (const Nothing) (definitionAddress ctx n)
   unresolved ctx (Meta _ _ _ args) = unresolvedAll ctx args
   unresolved ctx (Bind _ _ b sc) = unresolvedBinder ctx b <|> unresolved ctx sc
   unresolved ctx (App _ f a) = unresolved ctx f <|> unresolved ctx a
@@ -584,10 +596,19 @@ constantFits WorldVal = [LTESucc LTEZero]
 0 headed : All (Fits (weighs ts + d)) ts -> All (Fits (S (weighs ts + d))) (node f :: ts)
 headed fs = LTESucc LTEZero :: fittingMore (lteSuccRight reflexive) fs
 
+0 referenceWeighs : (ctx : Context) -> (n : Name) -> (m : Maybe Nat) -> LTE 1 (weighs (referenceTo ctx n m))
+referenceWeighs ctx n (Just _) = LTESucc LTEZero
+referenceWeighs ctx n Nothing = LTESucc LTEZero
+
+0 referenceFits : (ctx : Context) -> (n : Name) -> (m : Maybe Nat) ->
+                  All (Fits (weighs (referenceTo ctx n m) + d)) (referenceTo ctx n m)
+referenceFits ctx n (Just i) = [LTESucc (selfBelow _ _)]
+referenceFits ctx n Nothing = [LTESucc LTEZero]
+
 mutual
   0 writeWeighs : (ctx : Context) -> (t : TT vs) -> LTE 1 (weighs (write ctx t))
   writeWeighs ctx (Local _ _ _ _) = LTESucc LTEZero
-  writeWeighs ctx (Ref _ _ _) = LTESucc LTEZero
+  writeWeighs ctx (Ref _ _ n) = referenceWeighs ctx n (markerOf n)
   writeWeighs ctx (Meta _ _ _ _) = LTESucc LTEZero
   writeWeighs ctx (Bind _ _ b sc) =
     rewrite weighsAppend (writeBinder ctx b) (write ctx sc) in
@@ -644,7 +665,7 @@ argsWeigh ctx (t :: ts) =
 mutual
   0 writeFits : (ctx : Context) -> (t : TT vs) -> All (Fits (weighs (write ctx t) + length vs)) (write ctx t)
   writeFits ctx (Local _ _ idx p) = [LTESucc (lteSuccLeft (varBelow p))]
-  writeFits ctx (Ref _ _ n) = [LTESucc LTEZero]
+  writeFits ctx (Ref _ _ n) = referenceFits ctx n (markerOf n)
   writeFits ctx (Meta _ _ _ args) =
     LTESucc (transitive (argsWeigh ctx args) (lteAddRight (weighs (writeAll ctx args))))
       :: fittingMore (lteSuccRight reflexive) (writeAllFits ctx args)
@@ -789,6 +810,9 @@ instanceKey fc owner n args = do
   defs <- get Ctxt
   let Just d = getNameID full (gamma defs)
     | Nothing => reject fc owner CompiledModule ("missing definition " ++ show full)
+  -- A broken invariant: a compile-time argument is checked TT, every name
+  -- of which the context holds, but the frontend's own markers, which are
+  -- written by their numbers (`markerOf`).
   let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing args'
     | Just stray => internal fc ("a compile-time argument of " ++ show full ++ " names " ++ show stray ++
                                  ", which the context does not hold")
@@ -803,6 +827,11 @@ instanceKey fc owner n args = do
                  else pure Whole
       let key = MkInstanceKey origin (map fst printed) print
       let symbol = keyText key
+      -- A broken invariant: the key prints the link whole, or carries 64
+      -- bits of the hash of its text where it does not, so two links on
+      -- one symbol are a print that drops what it claims to keep, or a
+      -- collision of those bits. The symbol, not the link, is what reaches
+      -- MLIR, so this is checked on the symbol.
       case lookup symbol (!(get TState)).symbols of
         Just other => unless (other == link) $
           internal fc ("two instances on the symbol " ++ symbol)

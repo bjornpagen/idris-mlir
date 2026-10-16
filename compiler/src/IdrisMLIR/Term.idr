@@ -369,14 +369,19 @@ public export
 record Con where
   constructor MkCon
   id : ConId
-  ||| The Idris full name, for the constructor's location.
-  idrisName : Shown
-  tag : Nat
+  ||| The constructor's name within its data type, as the module and the
+  ||| dump print it (`Types.shortName`).
+  name : String
   fields : List Binder
   loc : Loc
   ||| The part the registry says this constructor plays: the dialect's own
   ||| enum, `Plain` for one it names no part for.
   role : CtorRole
+
+||| A constructor's tag: Idris's, its identity's position (`id.index`).
+public export
+(.tag) : Con -> Nat
+(.tag) c = finToNat c.id.index
 
 ||| A data instance. Its key is what it is an instance of, and its Idris
 ||| name is the key's origin. It says nothing of how its values are laid
@@ -442,21 +447,25 @@ keyText k = printed ++ suffix k.print
 -- Printing
 ------------------------------------------------------------------------------
 
-||| How the dump names a function and a data instance.
+||| How the dump names a function, a data instance and a constructor.
 public export
 record Names where
   constructor MkNames
   fnName : FnId -> String
   dataName : DataId -> String
+  conName : ConId -> String
 
-||| Each function and data instance of a program by its key printed; an id
-||| the program does not declare, by itself.
+||| Each function and data instance of a program by its key printed, and
+||| each constructor by its name; an id the program does not declare, by
+||| itself.
 export
 sourceNames : Source -> Names
 sourceNames p =
   let fns = SortedMap.fromList (map (\f => (f.id, keyText f.key)) p.fns)
       datas = SortedMap.fromList (map (\d => (d.id, keyText d.key)) p.datas)
+      cons = SortedMap.fromList (concatMap (\d => map (\c => (c.id, c.name)) d.cons) p.datas)
   in MkNames (\f => fromMaybe (show f) (lookup f fns)) (\d => fromMaybe (show d) (lookup d datas))
+             (\c => fromMaybe (show c) (lookup c cons))
 
 indent : Nat -> String
 indent d = replicate (2 * d) ' '
@@ -491,7 +500,7 @@ printer names (EffectF _ p tys as _) ix d =
   "io." ++ show (Op p) ++ typeArgs names tys ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
 printer names (CallF _ fn stands as) ix d = names.fnName fn ++ standing stands ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
 printer names (ConAppF _ c as) ix d =
-  names.dataName c.dataId ++ "::" ++ show c ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
+  names.dataName c.dataId ++ "::" ++ names.conName c ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
 printer names (LetF _ _ q v b) ix d =
   "let " ++ quantityText q ++ " = " ++ v ix (S d) ++ "\n" ++ indent d ++ b (under {k = 1} ix) d
 printer names (CaseF _ x alts def) ix d =
@@ -500,7 +509,7 @@ printer names (CaseF _ x alts def) ix d =
   where
     alt : AltF Printed n -> String
     alt (MkAltF {k} c fs body) =
-      "\n" ++ indent (S d) ++ show c ++ "/" ++ show k ++ " => " ++ body (under {k} ix) (S (S d))
+      "\n" ++ indent (S d) ++ names.conName c ++ "/" ++ show k ++ " => " ++ body (under {k} ix) (S (S d))
 printer names (CaseLitF _ x alts def) ix d =
   "case #" ++ show (ix x) ++ " of" ++
   concatMap (\(k, e) => "\n" ++ indent (S d) ++ show k ++ " => " ++ e ix (S (S d))) alts ++
@@ -556,7 +565,7 @@ showSource p =
     roleText r = " " ++ show r
     dataDecl : Names -> IdrisMLIR.Term.Data -> String
     dataDecl names d = "data " ++ keyText d.key ++ kindText d.kind ++
-                       concatMap (\c => "\n  " ++ show c.id ++ " tag " ++ show c.tag ++ " (" ++
+                       concatMap (\c => "\n  " ++ c.name ++ " tag " ++ show c.tag ++ " (" ++
                          joinBy ", " (map (binderText names.dataName) c.fields) ++ ")" ++
                          roleText c.role) d.cons ++ "\n"
     fnDecl : Names -> TFn -> String

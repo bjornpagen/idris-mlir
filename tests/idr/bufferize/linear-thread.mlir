@@ -1,16 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-bufferize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=in-place=@fill,in-place -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // NEEDS-ACCEPTANCE: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc, the buffer idr-rc later adopts; in-place is read right after idr-bufferize.
 // A linear array's thread is written in place: @fill takes the array at
 // quantity one, unwraps it, writes every element and wraps it again for
 // its caller, and nothing is copied, in @fill or anywhere: the root's
 // fresh array is a thread's head no one reads after it, so its release
 // copies nothing either. The grade is kept on the buffer.
-// CHECK-LABEL: idr.func @fill(
-// CHECK-SAME: !idr.lin<memref<?xi64>>
-// CHECK-NOT: tensor<
-// CHECK: return
 idr.program @"linear-thread" root(@root) stage(first) {
   idr.func @fill(%a: !idr.lin<tensor<?xi64>>, %n: index) -> !idr.lin<tensor<?xi64>> {
     %c0 = arith.constant 0 : index

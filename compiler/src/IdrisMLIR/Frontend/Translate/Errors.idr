@@ -74,15 +74,14 @@ rejections = pure ((!(get TState)).rejected <>> [])
 moduleLoc : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             ModuleIdent -> (Int, Int) -> (Int, Int) -> Core Loc
 moduleLoc ident (sl, sc) (el, ec) = do
-  let place = show ident
-  (origin, file) <- case lookup place (!(get TState)).places of
+  (origin, file) <- case lookup ident (!(get TState)).places of
     Just known => pure known
     Nothing => do
       file <- fromMaybe "" <$> moduleSource (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) ident
       origin <- originOf ident
-      update TState { places $= insert place (origin, file) }
+      update TState { places $= insert ident (origin, file) }
       pure (origin, file)
-  pure (MkLoc origin (shown place) file sl sc el ec)
+  pure (MkLoc origin (shown (show ident)) file sl sc el ec)
 
 ||| An Idris location as a Core location. A package file is in no module.
 export

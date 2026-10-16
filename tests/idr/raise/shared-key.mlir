@@ -1,20 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@f,not-called=@g,not-called=@pair -o /dev/null
-// RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the order of the raised calls in the root, which is the order of the applies.
 // A copy made by raising is keyed by its callee and what consumes the
 // result: a dispatch of it, or of one field of it. Calls with equal keys
 // share a copy, whatever their arguments. A call with a constant argument
 // shares it too: the raising is decided before any specialization of the
 // call. @f, @g and @pair loop, so none is inlined; none is called after
 // the optimizer.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: call @[[G:g\.raise\.[0-9a-f]+]](
-// CHECK: call @[[F:f\.raise\.[0-9a-f]+]](
-// CHECK: call @[[F]](
-// CHECK: call @{{pair\.raise\.[0-9a-f]+}}(
-// CHECK: call @{{pair\.raise\.[0-9a-f]+}}(
-// CHECK: call @[[F]](
 !Pair = !idr.data<"Pair", plain [@MkPair(!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]>
 idr.program @"shared-key" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {

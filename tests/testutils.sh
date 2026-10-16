@@ -51,10 +51,10 @@
 #     prelude.sh       a prelude module whose every export a program uses
 #     e2e.sh           the end-to-end programs, each compiled once, and the
 #                      generated semantics tests
-#     properties.sh    what holds of every compilation, off its dumps
+#     properties.sh    what holds of every compilation, off its dumps, as one line
 #     profile.sh       the profile's accept and reject fixtures
-#     determinism.sh   compilations at 1, 2 and 8 threads, and one thread
-#                      against the pool, byte for byte
+#     determinism.sh   compilations at 1, 3, 5 and 13 threads and in a second
+#                      process, and one thread against the pool, byte for byte
 #     lit.sh           the dialect tests' RUN lines
 #     fuzz.sh          the fuzzer
 #     two-levels.sh    closed terms, compiled, against their recorded values

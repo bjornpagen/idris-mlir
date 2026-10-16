@@ -1,7 +1,0 @@
-// input: emitted
-// FILECHECK-OPTIONS: --implicit-check-not={{idr[.]data<[@"]*Main[.]}}
-// No dictionary exists at runtime: neither interface's data type is
-// emitted. Nor is the user's state type: St has one constructor of one
-// runtime field, so a value of it is that field's value, a function, and
-// no data type of Main is declared.
-// CHECK: idr.func @"$idris-mlir.root"

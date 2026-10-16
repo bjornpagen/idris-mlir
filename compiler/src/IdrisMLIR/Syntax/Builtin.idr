@@ -11,4 +11,4 @@ import IdrisMLIR.MLIR.Text
 
 %default total
 
--- fingerprint: 506474480-586605 2334059294-479
+-- fingerprint: 301866043-588287 2334059294-479

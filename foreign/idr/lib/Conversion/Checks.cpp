@@ -67,12 +67,6 @@ Value fails(CheckNonemptyOp, Converted<CheckNonemptyOp> in, OpBuilder &b, Locati
                  arith::ConstantIntOp::create(b, loc, 0, 64));
 }
 
-// A value above 255; a negative one is a large unsigned one.
-Value fails(CheckByteOp, Converted<CheckByteOp> in, OpBuilder &b, Location loc, Runtime &) {
-  return compare(b, loc, arith::CmpIPredicate::ugt, in.getValue().front(),
-                 arith::ConstantIntOp::create(b, loc, 255, 64));
-}
-
 // NaN or an infinity.
 Value fails(CheckFiniteOp, Converted<CheckFiniteOp> in, OpBuilder &b, Location loc, Runtime &) {
   Value finite = math::IsFiniteOp::create(b, loc, in.getValue().front());

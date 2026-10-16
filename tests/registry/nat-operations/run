@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # A positive test of the registry's NatOperation hooks: the functions on
-# naturals compute on Nat's representation. translate.check finds none of
-# them translated in full Core, and the program prints expected-stdout.
+# naturals compute on Nat's representation, and the program prints
+# expected-stdout, which a unary recursion over its values would not finish.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 e2e_io .

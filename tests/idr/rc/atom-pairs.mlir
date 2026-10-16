@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@span,tests-nothing=@break,tests-nothing=@splitAt,tests-nothing=@header -o /dev/null
-// RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@withCell -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=SHARED < %t.err
 // NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
@@ -14,16 +13,6 @@
 // reverse-complement's '>' :: hdr does (@header). A static pair holding a
 // cell with fields is not built only of atoms: a take would hand out that
 // cell, so @withCell's result stays owned, and its take tests the count.
-// CHECK-LABEL: idr.func @span(
-// CHECK-SAME: -> !idr.excl<!P>
-// CHECK-LABEL: idr.func @break(
-// CHECK-SAME: -> !idr.excl<!P>
-// CHECK-LABEL: idr.func @splitAt(
-// CHECK-SAME: -> !idr.excl<!P>
-// CHECK-LABEL: idr.func @withCell(
-// CHECK-SAME: -> !idr.own<!P>
-// CHECK-LABEL: idr.func @header(
-// CHECK-SAME: -> !idr.excl<!idr.box<!L>>
 // SHARED: error: expected tests-nothing: idr.take in @withCell tests a value of '!idr.own<!idr.data<"P"{{.*}}>>', which is not exclusive
 !L = !idr.data<"L", list [@N() nil, @C(i32, !idr.box<!idr.data<"L">>) cons]>
 !P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>

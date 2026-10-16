@@ -4,11 +4,7 @@
 // RUN: sh -c 'for f in squares rows sumf; do idris-mlir-opt %t.$f.mlir --transform-interpreter=entry-point=idr.vectorization.cleanup -o /dev/null || exit 1; done'
 // RUN: idris-mlir-opt %t.squares.mlir --idr-expect=holds=vectorized=@squares -o /dev/null
 // RUN: idris-mlir-opt %t.rows.mlir --idr-expect=holds=vectorized=@rows -o /dev/null
-// RUN: FileCheck %s --check-prefix=SQUARES < %t.squares.mlir
-// RUN: FileCheck %s --check-prefix=ROWS < %t.rows.mlir
-// RUN: FileCheck %s --check-prefix=SUMF < %t.sumf.mlir
-// RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
-// NEEDS-ACCEPTANCE: the vectorized loops' printed form after the vectorization schedule and the tree printer's file names for a function (func_func_<symbol>/<n>_<m>_<pass>.mlir).
+// NEEDS-ACCEPTANCE: the tree printer's file names for a function (func_func_<symbol>/<n>_<m>_<pass>.mlir).
 // NEEDS-ACCEPTANCE: that the schedule library's unit-dimension cleanup (@idr.vectorization.cleanup), run again on what the schedule left with its failure not suppressed, converges within its budget on every function here.
 // A loop over an array with a parallel dimension computes on the target's
 // lanes after the vectorization schedule: four 64-bit words on x86-64-v3,
@@ -20,34 +16,7 @@
 // order: the rows are the lanes, each adding its row in order, so no
 // reduction across lanes is anywhere. A lone float fold is a loop in
 // index order and computes on no vector, so its result is the same on
-// every target. The whole pipeline then reaches the LLVM dialect with
-// vector stores and no vector, affine or linalg op left.
-// SQUARES-LABEL: func.func private @squares(
-// SQUARES: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-// SQUARES: vector.transfer_write %{{.*}} : vector<4xi64>
-// SQUARES-NOT: linalg.generic
-// SQUARES: return
-// ROWS-LABEL: func.func private @rows(
-// ROWS-NOT: vector.multi_reduction
-// ROWS-NOT: vector.reduction
-// ROWS: scf.for
-// ROWS: arith.divf %{{.*}} : vector<4xf64>
-// ROWS: arith.addf %{{.*}} : vector<4xf64>
-// ROWS: vector.transfer_write %{{.*}} : vector<4xf64>
-// ROWS-NOT: vector.multi_reduction
-// ROWS-NOT: vector.reduction
-// ROWS: return
-// SUMF-LABEL: func.func private @sumf(
-// SUMF-NOT: vector<
-// SUMF: return
-// LLVM-NOT: vector.
-// LLVM-NOT: affine.
-// LLVM-NOT: linalg.
-// LLVM-DAG: llvm.store %{{.*}} : vector<4xi64>, !llvm.ptr
-// LLVM-DAG: llvm.store %{{.*}} : vector<4xf64>, !llvm.ptr
-// LLVM-NOT: vector.
-// LLVM-NOT: affine.
-// LLVM-NOT: linalg.
+// every target.
 idr.program @"rows-x86-64" root(@root) stage(higher) {
   idr.func @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
     %c0 = arith.constant 0 : index

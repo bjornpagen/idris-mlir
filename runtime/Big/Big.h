@@ -17,21 +17,21 @@
 
 namespace rt::big {
 
-// A big's word: a small value, tagged, or a large one's cell (Words.cpp
-// checks the layout this reads).
-inline constexpr int64_t smallMin = -(int64_t{1} << 62);
-inline constexpr int64_t smallMax = (int64_t{1} << 62) - 1;
+// A big's word: a small value, tagged, in the small range
+// (IDRIS_RT_SMALL_MIN to IDRIS_RT_SMALL_MAX), or a large one's cell
+// (Words.cpp checks the layout this reads).
+//
 // The least magnitude that does not fit a small word, as a double. 2^62 is
-// exactly a double and smallMax is not, so every double inside (-bound, bound)
-// truncates into [smallMin, smallMax].
+// exactly a double and IDRIS_RT_SMALL_MAX is not, so every double inside
+// (-bound, bound) truncates into the small range.
 inline constexpr double smallBound = 0x1p62;
-static_assert(smallBound == -static_cast<double>(smallMin));
+static_assert(smallBound == -static_cast<double>(IDRIS_RT_SMALL_MIN));
 
 inline bool isSmall(idris_rt_big a) { return (a & 1) != 0; }
 // Both small, in one test of the two words' tag bits.
 inline bool bothSmall(idris_rt_big a, idris_rt_big b) { return (a & b & 1) != 0; }
 inline int64_t smallValue(idris_rt_big a) { return a >> 1; }
-inline bool fits(int64_t v) { return v >= smallMin && v <= smallMax; }
+inline bool fits(int64_t v) { return v >= IDRIS_RT_SMALL_MIN && v <= IDRIS_RT_SMALL_MAX; }
 inline idris_rt_big small(int64_t v) {
   return static_cast<idris_rt_big>(static_cast<uint64_t>(v) << 1 | 1);
 }

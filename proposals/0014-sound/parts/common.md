@@ -13,6 +13,25 @@
   revert, reformat or "fix" a change you did not make. A hub file
   (`CMakeLists.txt`, `*.ipkg`, `Makefile`, `PINS.md`, `upstream/README.md`)
   is the coordinator's: put the exact text you need in your handoff.
+- **Hard cutover, zero backwards compatibility (the owner's rule).** The new
+  representation replaces the old one in the same change, everywhere in your
+  writes: no shim, alias, re-export, deprecated name, wrapper keeping an old
+  signature, dual code path, fallback to the old form, compatibility flag,
+  "legacy" branch, or comment promising a later removal. Old formats, option
+  names and file layouts are not kept readable. A consumer outside your writes
+  is named in your handoff for its owner to cut over, never served by a
+  bridge you keep.
+- **Upstream MLIR first, our C++ at its minimum (the owner's rule).** This
+  project is idris-mlir: an MLIR compiler for Idris, not a superoptimizer of
+  its own. Before writing C++, find the upstream mechanism and use it: ODS
+  and its constraints, interfaces and traits, declarative patterns,
+  upstream passes and their options, `PassInstrumentation`, actions and
+  `DebugCounter`, `verifyRoundtrip`, the reducer interface, LLVM's
+  statistics. Prefer declaring in TableGen to writing in C++; prefer deleting
+  our C++ an upstream mechanism replaces to adding any; a new C++ abstraction,
+  helper or generator states in its comment why no upstream mechanism fits.
+  Where this pulls against an optimization, the smaller C++ wins unless your
+  dispatch names the optimization.
 - **Two hosts, forever.** Idris you write (frontend, fork, `libs/`, test
   machinery) must build with the stock Idris on Chez and with idris-mlir
   (`make self`): stay inside the subset idris-mlir compiles (nothing it

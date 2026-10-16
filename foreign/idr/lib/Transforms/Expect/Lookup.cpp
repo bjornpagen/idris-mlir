@@ -29,6 +29,7 @@ Check lookup(llvm::StringRef name) {
       .Case("facts-as-marked", factsAsMarked)
       .Case("output-fused", outputFused)
       .Case("folds-balanced", foldsBalanced)
+      .Case("folded", folded)
       .Case("constant-stack", constantStack)
       .Case("tail-calls", tailCalls)
       .Case("counted-loop", countedLoop)

@@ -24,6 +24,7 @@ import IdrisMLIR.Frontend.Translate
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Syntax.Idr
@@ -145,7 +146,7 @@ checkPragmas ident path = do
     ||| An escape hatch found here is this module's: what reaches it in TT
     ||| is not reported again (`checkReachable`).
     found : String -> Core ()
-    found n = update TState { spelled $= insert (show ident, n) }
+    found n = update TState { spelled $= insert (ident, n) }
     ||| An escape hatch in the source: a spelling the registry forbids. Idris
     ||| reduces `prim__believe_me` applied to a value during elaboration, so
     ||| it can vanish from TT.
@@ -215,12 +216,13 @@ refsOf hs def =
     _ => fromType
 
 ||| A definition the walk of what the roots reach is to check: its name, the
-||| path from the user definition that reaches it, the nearest first, and
-||| whether a trusted definition refers to it.
+||| path from the user definition that reaches it, the nearest first, each
+||| definition on it with its address and its location, and whether a
+||| trusted definition refers to it.
 record Reach where
   constructor MkReach
   name : Name
-  path : List (Name, FC)
+  path : List (Name, Address, FC)
   fromTrusted : Bool
 
 ||| What a level of the walk has found for the next: nothing yet, or the
@@ -253,16 +255,18 @@ checkReachable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 checkReachable fc roots =
   level start (sizeAccessible start) start (noMore start) empty (map (\r => MkReach r [] False) roots) Idle
   where
-    userFC : List (Name, FC) -> FC
+    userFC : List (Name, Address, FC) -> FC
     userFC [] = fc
-    userFC ((_, f) :: _) = f
+    userFC ((_, _, f) :: _) = f
 
-    moduleOf : FC -> String
-    moduleOf (MkFC (PhysicalIdrSrc ident) _ _) = show ident
-    moduleOf (MkVirtualFC (PhysicalIdrSrc ident) _ _) = show ident
-    moduleOf _ = ""
+    -- The module a location is in; a package file and no location are in
+    -- none.
+    moduleOf : FC -> Maybe ModuleIdent
+    moduleOf (MkFC (PhysicalIdrSrc ident) _ _) = Just ident
+    moduleOf (MkVirtualFC (PhysicalIdrSrc ident) _ _) = Just ident
+    moduleOf _ = Nothing
 
-    via : List (Name, FC) -> String
+    via : List (Name, Address, FC) -> String
     via [] = ""
     via path = " (reached through " ++ joinBy " -> " (map (show . fst) (reverse path)) ++ ")"
 
@@ -270,8 +274,8 @@ checkReachable fc roots =
     -- the path, and `here` the path from it and `owner` the user
     -- definition an error names: what it refers to, each with the path
     -- that reaches it, or the definition's rejection.
-    visit : GlobalDef -> Loc -> (here : List (Name, FC)) -> (owner : String) ->
-            (path : List (Name, FC)) -> (fromTrusted : Bool) ->
+    visit : GlobalDef -> Loc -> (here : List (Name, Address, FC)) -> (owner : String) ->
+            (path : List (Name, Address, FC)) -> (fromTrusted : Bool) ->
             Core (List Reach)
     visit def loc here owner path fromTrusted = do
       let full = fullname def
@@ -357,7 +361,7 @@ checkReachable fc roots =
     -- definitions left to enter than the last. A rejected one is not
     -- entered, and is reported for each owner once (`reported`).
     level : (w0 : Walked) -> (0 acc : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
-            (reported : SortedSet (String, String)) -> List Reach -> Pending w0 w -> Core ()
+            (reported : SortedSet (Address, Address)) -> List Reach -> Pending w0 w -> Core ()
     level w0 acc@(Access rec) w p reported [] Idle = pure ()
     level w0 acc@(Access rec) w p reported [] (Queued lt next) =
       level w (rec w lt) w (noMore w) reported (next <>> []) Idle
@@ -366,24 +370,26 @@ checkReachable fc roots =
       Just def <- lookupCtxtExact r.name (gamma defs)
         | Nothing => level w0 acc w p reported rest pending
       let full = fullname def
-      -- What tells definitions apart: `show` leaves out the index of a
-      -- case block, so that two case blocks of one definition would be
-      -- one, and the second never checked.
-      let key = nameKey full
+      -- What tells definitions apart is their address in the context; a
+      -- name with none has no place, and is never entered (`Walk`).
+      let Just key = definitionAddress (gamma defs) full
+        | Nothing => level w0 acc w p reported rest pending
       -- Where the definition comes from, as the registry classifies it.
       loc <- toLoc (location def)
       -- Primitives have no location; errors name the user definition.
       let here = if covers Trusted loc.origin || isNothing (isNonEmptyFC (location def))
-                   then r.path else (full, location def) :: r.path
+                   then r.path else (full, key, location def) :: r.path
       let owner = maybe full fst (head' here)
-      let refuse = update TState { refused $= (insert key . insert (nameKey owner) .
-                                                maybe id (insert . nameKey . fst) (head' r.path)) }
+      let ownerKey = maybe key (fst . snd) (head' here)
+      let refuse = update TState { refused $= (insert key . insert ownerKey .
+                                                maybe id (insert . fst . snd) (head' r.path)) }
       -- Checked and found good already: entered into the walk.
       let Just (Element w1 q) = enter (gamma defs) full w
         | Nothing => level w0 acc w p reported rest pending
       st <- get TState
-      let reach = (key, nameKey owner)
-      if contains reach reported || contains (moduleOf (userFC here), nameRoot full) st.spelled
+      let reach = (key, ownerKey)
+      if contains reach reported ||
+         maybe False (\m => contains (m, nameRoot full) st.spelled) (moduleOf (userFC here))
         then do
           refuse
           level w0 acc w p (insert reach reported) rest pending

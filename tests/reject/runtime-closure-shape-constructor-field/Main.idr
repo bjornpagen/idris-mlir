@@ -1,5 +1,5 @@
 -- expect: runtime closure, line 26
--- message: an implementation chosen at runtime: (Main.MkSize (Prelude.Types.S [__]))
+-- message: an implementation chosen at runtime
 module Main
 
 import Prelude

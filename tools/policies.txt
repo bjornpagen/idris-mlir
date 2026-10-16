@@ -28,31 +28,15 @@ runtime/idris_rt.h: #define IDRIS_RT_TAG_LIMIT 0x10000u -- the tag field of a ce
 runtime/idris_rt.h: #define IDRIS_RT_OBJS_LIMIT 0x100u -- the object count field of a cell's header, 8 bits: a cell of more object slots counts them in a word after the header
 runtime/Io/Clock.cpp: constexpr int64_t secondsLimit = int64_t{1} << 33; -- the seconds an OSClock holds beside its 30 bits of nanoseconds, so that the immediate value stays positive; a reading past it is the invalid clock
 #
-# The frontend's two trust points, each with its theorem: what the frontend
-# relies on and Idris's totality checker cannot see.
-compiler/src/IdrisMLIR/Frontend/Host.idr: host = assert_total -- every operation of Idris's compiler the frontend calls and the checker cannot follow returns, TT's normalization last among them: Idris's theory is not strongly normalizing, so this one is irreducible
-compiler/src/IdrisMLIR/Frontend/Finite.idr: assert_total (passes (union known (keySet st.dicts))) -- the dictionary passes end: each pass learns a field the last took as never built, and known only grows; that finitely many fields are learnable rests on instance finiteness over every dictionary assignment, which no type here states
+# The trust points, each with its theorem: what the frontend relies on and
+# Idris's totality checker cannot see.
+compiler/idris/src/Idris/Host.idr: host = assert_total -- every operation of Idris's compiler the frontend calls and the checker cannot follow returns, TT's normalization last among them: Idris's theory is not strongly normalizing, so this one is irreducible
 #
 # The definitions Idris checks only for coverage, each by its name: a
-# translation that is not yet total, which the spec lists under its reason.
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering term : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering suspend : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering delayed : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering letIn : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering applyOver : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering bindHeld : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering application : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: covering headStep : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr: covering translateInstance : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr: covering translateIOProgram : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering tree : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering natCase : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering natAlternatives : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering staticCase : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering newtypeCase : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering conAlternatives : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr: covering litAlternatives : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Program.idr: covering program : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Driver.idr: covering perform : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Driver.idr: covering frontend : -- not yet total: the translation of applications
-compiler/src/IdrisMLIR/Frontend/Driver.idr: covering main : -- not yet total: the translation of applications
+# translation that is not yet total.
+compiler/src/IdrisMLIR/Frontend/Finite.idr: covering translateFrom : -- the dictionary passes end: each pass learns a field the last took as never built, known only grows, and the fields any pass can learn are those of the request tree under the assignment the passes compute, finite by the fan theorem; that tree is no value before the passes end, so no measure exists to descend on
+compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr: covering translateIOProgram : -- calls translateFrom, covering until the dictionary passes are proved finite
+compiler/src/IdrisMLIR/Frontend/Program.idr: covering program : -- calls translateIOProgram, covering until the dictionary passes are proved finite
+compiler/src/IdrisMLIR/Frontend/Driver.idr: covering perform : -- reaches translateFrom, covering until the dictionary passes are proved finite
+compiler/src/IdrisMLIR/Frontend/Driver.idr: covering frontend : -- reaches translateFrom, covering until the dictionary passes are proved finite
+compiler/src/IdrisMLIR/Frontend/Driver.idr: covering main : -- reaches translateFrom, covering until the dictionary passes are proved finite

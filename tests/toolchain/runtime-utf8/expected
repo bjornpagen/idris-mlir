@@ -1,0 +1,10 @@
+NEEDS-ACCEPTANCE: runtime-utf8 is new: confirm that utf8.cpp builds through prop_build with no C++ library and that its 7 properties hold on both targets (each target's simdutf kernel), that runtime-utf8/report is written, and set --cases in run
+utf8: built
+box: the model gives the Standard's example its U+FFFDs: ok
+from_bytes: Table 3-7's scalars, one U+FFFD per maximal subpart: ok
+box: every byte string of at most 2 bytes: ok
+box: every byte pair across a 64-byte block boundary: ok
+box: every row of Table 3-7 and its truncations around a block boundary: ok
+from_utf8, utf8_count: well-formed bytes as they are, counted: ok
+every operation borrows its argument and returns one owned result: ok
+utf8: exit 0

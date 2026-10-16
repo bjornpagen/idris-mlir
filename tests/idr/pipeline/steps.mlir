@@ -4,9 +4,12 @@
 // RUN: awk '!/^[0-9]+_[a-z][a-z0-9-]*[.]mlir$/ { exit 1 } $0 + 0 != NR - 1 { exit 1 } END { if (NR < 2) exit 1 }' %t.dumps
 // RUN: head -n 1 %t.dumps | grep -qx 0_idr-target.mlir
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline -o %t.pipeline.mlir
+// RUN: idris-mlir-opt %s --idr-target --idr-pipeline --mlir-disable-threading -o %t.pipeline.serial.mlir
+// RUN: cmp %t.pipeline.mlir %t.pipeline.serial.mlir
 // RUN: sh -c 'idris-mlir-opt "%t.dir/builtin_module_no-symbol-name/$(tail -n 1 %t.dumps)" -o %t.last.mlir'
 // RUN: idris-mlir-opt %t.pipeline.mlir -o %t.again.mlir
 // RUN: cmp %t.last.mlir %t.again.mlir
+// NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // NEEDS-ACCEPTANCE: the tree printer's directory for the module (builtin_module_no-symbol-name) and its file names (<n>_<pass>.mlir), as the pinned MLIR writes them.
 // idris-mlir prints the module after each pass its manager runs through
 // upstream's IR printer, into a tree of files: the module's own passes as

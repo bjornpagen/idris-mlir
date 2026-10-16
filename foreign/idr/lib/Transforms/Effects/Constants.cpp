@@ -7,7 +7,8 @@
 // pipeline, so that a function's final body states its own summary: every
 // value the solve holds constant is a constant op when the step ends, a
 // return's operands among them, and the ready set reads the summary from
-// there when the component finishes.
+// there when the component finishes. A replacement an action handler skips
+// leaves the value as it was, and the summary knows that much less of it.
 //
 // The summaries are on the nodes of idr-optimize's ready set for the run,
 // which the step is given when it is made; a function never reads another
@@ -16,6 +17,7 @@
 
 #include "idr/Analysis/Constants.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
 
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
@@ -38,6 +40,28 @@ using mlir::dataflow::Lattice;
 
 namespace {
 
+// idr-constants gives one value's uses its constant; the unit is the
+// value's defining op, or for a block argument its block's parent op.
+struct ConstantsReplaceAction : idr::support::TaggedAction<ConstantsReplaceAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-constants-replace";
+};
+
+// idr-constants erases one op every result of which became a constant; the
+// unit is the op.
+struct ConstantsEraseAction : idr::support::TaggedAction<ConstantsEraseAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-constants-erase";
+};
+
+// idr-constants hands one constant already in the body to the folder,
+// which may move it to its block's front or merge it into an equal one met
+// before; the unit is the constant.
+struct ConstantsUniqueAction : idr::support::TaggedAction<ConstantsUniqueAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-constants-unique";
+};
+
 // Gives every use of `value` the constant the solve holds for it, made by
 // `folder` in the dialect that folded it, at `builder`'s block; whether it
 // could. A value the solve never reached, or found to vary, keeps its uses.
@@ -49,13 +73,17 @@ bool replaceWithConstant(DataFlowSolver &solver, OperationFolder &folder, OpBuil
   Attribute constant = lattice->getValue().getConstantValue();
   if (!constant)
     return false;
-  Value made = folder.getOrCreateConstant(builder.getInsertionBlock(),
-                                          lattice->getValue().getConstantDialect(), constant,
-                                          value.getType());
-  if (!made)
-    return false;
-  value.replaceAllUsesWith(made);
-  return true;
+  Value made;
+  Operation *unit =
+      value.getDefiningOp() ? value.getDefiningOp() : value.getParentBlock()->getParentOp();
+  (void)idr::support::perform<ConstantsReplaceAction>(unit, [&] {
+    made = folder.getOrCreateConstant(builder.getInsertionBlock(),
+                                      lattice->getValue().getConstantDialect(), constant,
+                                      value.getType());
+    if (made)
+      value.replaceAllUsesWith(made);
+  });
+  return static_cast<bool>(made);
 }
 
 // What the rewrite did: how many values it replaced, and whether it
@@ -99,11 +127,13 @@ private:
     for (Operation &op : llvm::make_early_inc_range(block)) {
       Attribute held;
       if (matchPattern(&op, m_Constant(&held))) {
-        Block *in = op.getBlock();
-        Operation *before = op.getPrevNode();
-        // False when `op` was replaced, and so erased.
-        bool kept = folder.insertKnownConstant(&op, held);
-        out.changed = out.changed || !kept || op.getBlock() != in || op.getPrevNode() != before;
+        (void)idr::support::perform<ConstantsUniqueAction>(&op, [&] {
+          Block *in = op.getBlock();
+          Operation *before = op.getPrevNode();
+          // False when `op` was replaced, and so erased.
+          bool kept = folder.insertKnownConstant(&op, held);
+          out.changed = out.changed || !kept || op.getBlock() != in || op.getPrevNode() != before;
+        });
         continue;
       }
       builder.setInsertionPoint(&op);
@@ -111,10 +141,9 @@ private:
       for (Value result : op.getResults())
         out.replaced += replaceWithConstant(solver, folder, builder, result);
       if (op.getNumResults() != 0 && out.replaced - before == op.getNumResults() &&
-          wouldOpBeTriviallyDead(&op)) {
-        op.erase();
+          wouldOpBeTriviallyDead(&op) &&
+          idr::support::perform<ConstantsEraseAction>(&op, [&] { op.erase(); }))
         continue;
-      }
       if (op.getNumRegions() != 0)
         holding.push_back(&op);
     }

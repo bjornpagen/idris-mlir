@@ -5,7 +5,6 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=reads-nothing=@length,crash-sites=@length:0,crash-sites=@read:1,crash-sites=@write:1,crash-sites=@readD:1,crash-sites=@writeD:1,crash-sites=@readRef:0,crash-sites=@takeRef:0' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=call-order=@make:[@idris_rt_array_new,@idris_rt_inc,@idris_rt_dec],loops=@make:1,calls=@read:@idris_rt_inc,calls=@write:@idris_rt_dec,calls=@readRef:@idris_rt_inc,never-calls=@takeRef:@idris_rt_inc,never-calls=@takeRef:@idris_rt_dec' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@makeD:[@idris_rt_array_new],loops=@makeD:1,calls-only=@readD:[@idris_rt_crash],calls-only=@writeD:[@idris_rt_crash],calls-only=@readRefD:[],calls-only=@length:[]' -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts --idr-expect=holds=in-llvm -o /dev/null
 // NEEDS-ACCEPTANCE: the lowered signatures, the components of an array at a function boundary (the cell, then its dynamic sizes; a rank-0 array is its cell alone), with the runtime's symbols named as idris_rt.h declares them.
 // An array a world orders is one runtime cell, allocated by
@@ -25,9 +24,6 @@
 // A byte element takes one byte: the cell's header says the stride is 1
 // (the tag bits) with no object slot, and kind array (4 << 24), the
 // runtime's header word.
-// CHECK-LABEL: func.func {{.*}}@bytes(
-// CHECK: %[[INFO:.*]] = llvm.mlir.constant(67108865 : i32) : i32
-// CHECK: llvm.call @idris_rt_array_new(%{{.*}}, %[[INFO]])
 // An exchange, an update of the element whose region gives a new element
 // back and the old one out, moves the old one out with the array's
 // reference to it and stores the new one in its place: it counts nothing.

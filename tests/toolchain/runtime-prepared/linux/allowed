@@ -1,0 +1,11 @@
+# What the prepared runtime may need on x86_64 Linux beyond ../allowed,
+# in the same form.
+#
+# musl: errno's location, and the system calls snmalloc's Linux platform
+# makes by number (its waits on an address, its entropy).
+__errno_location
+syscall
+#
+# compiler-rt: the CPU model __builtin_cpu_supports reads at the program's
+# entry.
+__cpu_*

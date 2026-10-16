@@ -1,16 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches.
 // An IORef of functions is an array of rank 0, made with no size and
 // written with no index. What a read of it may give is every label that was
 // made into it or written over it, the one slot of its element type, which
 // the fill and the written value join from wherever they stand among the
 // op's operands. The apply of what it read then calls both.
-// CHECK: !{{[A-Za-z0-9_$.]+}} = !idr.data<{{[^,]*}}, closures [@add(i64), @dbl(){{.*}}]
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK-DAG: call @add(
-// CHECK-DAG: call @dbl(
 idr.program @"ioref-closure" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

@@ -201,12 +201,6 @@ callOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing 
 callOp callee args results =
   MkOp "idr.call" args ([("callee", SymbolRefAttr (MkSymbolRef callee []))] ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs) [] [] results
 
-||| `idr.check.byte`: the value, which must be from 0 to 255, else the program crashes
-export
-checkByteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
-checkByteOp value cause checked =
-  MkOp "idr.check.byte" [value] [("cause", StringAttr cause)] [] [] [checked]
-
 ||| `idr.check.finite`: the value, which must be neither NaN nor infinite, else the program crashes
 export
 checkFiniteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
@@ -993,11 +987,11 @@ strScalarAtOp : (str : Value) -> (offset : Value) -> (result : MlirType) -> Op
 strScalarAtOp str offset result =
   MkOp "idr.str.scalar_at" [str, offset] [] [] [] [result]
 
-||| `idr.str.scalar_end`: the byte offset after the character at a byte offset
+||| `idr.str.scalar_bytes`: the number of bytes of a character's UTF-8
 export
-strScalarEndOp : (str : Value) -> (offset : Value) -> (result : MlirType) -> Op
-strScalarEndOp str offset result =
-  MkOp "idr.str.scalar_end" [str, offset] [] [] [] [result]
+strScalarBytesOp : (value : Value) -> (result : MlirType) -> Op
+strScalarBytesOp value result =
+  MkOp "idr.str.scalar_bytes" [value] [] [] [] [result]
 
 ||| `idr.str.show`: the text of a number, as prim__cast_TString writes it
 export
@@ -1065,12 +1059,6 @@ tieShapeOp : (value : Value) -> (dims : List Value) -> (result : MlirType) -> Op
 tieShapeOp value dims result =
   MkOp "idr.tie_shape" (concat [[value], dims]) [] [] [] [result]
 
-||| `idr.to_byte`: an Int from 0 to 255 as a byte
-export
-toByteOp : (value : Value) -> (result : MlirType) -> Op
-toByteOp value result =
-  MkOp "idr.to_byte" [value] [] [] [] [result]
-
 ||| `idr.to_char`: an integer as a Char: itself if a scalar value, else 0
 export
 toCharOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
@@ -1128,7 +1116,6 @@ data IdrPrim
   | BigShow
   | BigFromStr
   | CrashStr
-  | ToByte
   | ToInt
   | DoubleHead
   | StrAppend
@@ -1143,8 +1130,8 @@ data IdrPrim
   | StrLength
   | StrBytesLength
   | StrScalarAt
-  | StrScalarEnd
   | StrDropBytes
+  | StrScalarBytes
   | StrIndex
   | StrHead
   | StrToDouble
@@ -1252,7 +1239,6 @@ primPerformsIO BigToDouble = False
 primPerformsIO BigShow = False
 primPerformsIO BigFromStr = False
 primPerformsIO CrashStr = False
-primPerformsIO ToByte = False
 primPerformsIO ToInt = False
 primPerformsIO DoubleHead = False
 primPerformsIO StrAppend = False
@@ -1267,8 +1253,8 @@ primPerformsIO StrTail = False
 primPerformsIO StrLength = False
 primPerformsIO StrBytesLength = False
 primPerformsIO StrScalarAt = False
-primPerformsIO StrScalarEnd = False
 primPerformsIO StrDropBytes = False
+primPerformsIO StrScalarBytes = False
 primPerformsIO StrIndex = False
 primPerformsIO StrHead = False
 primPerformsIO StrToDouble = False
@@ -1374,7 +1360,6 @@ primOp BigToDouble operands results = MkOp "idr.big.to_double" operands [] [] []
 primOp BigShow operands results = MkOp "idr.big.show" operands [] [] [] results
 primOp BigFromStr operands results = MkOp "idr.big.from_str" operands [] [] [] results
 primOp CrashStr operands results = MkOp "idr.crash_str" operands [] [] [] results
-primOp ToByte operands results = MkOp "idr.to_byte" operands [] [] [] results
 primOp ToInt operands results = MkOp "idr.to_int" operands [] [] [] results
 primOp DoubleHead operands results = MkOp "idr.double_head" operands [] [] [] results
 primOp StrAppend operands results = MkOp "idr.str.append" operands [] [] [] results
@@ -1389,8 +1374,8 @@ primOp StrTail operands results = MkOp "idr.str.tail" operands [] [] [] results
 primOp StrLength operands results = MkOp "idr.str.length" operands [] [] [] results
 primOp StrBytesLength operands results = MkOp "idr.str.bytes_length" operands [] [] [] results
 primOp StrScalarAt operands results = MkOp "idr.str.scalar_at" operands [] [] [] results
-primOp StrScalarEnd operands results = MkOp "idr.str.scalar_end" operands [] [] [] results
 primOp StrDropBytes operands results = MkOp "idr.str.drop_bytes" operands [] [] [] results
+primOp StrScalarBytes operands results = MkOp "idr.str.scalar_bytes" operands [] [] [] results
 primOp StrIndex operands results = MkOp "idr.str.index" operands [] [] [] results
 primOp StrHead operands results = MkOp "idr.str.head" operands [] [] [] results
 primOp StrToDouble operands results = MkOp "idr.str.to_double" operands [] [] [] results
@@ -1487,7 +1472,7 @@ data Count = CountAt Nat | WordSize | BytesOf Nat | LengthOf Nat
 ||| its guard op takes: each operand of the op it takes as it is, by its
 ||| position among the op's, and each count.
 public export
-data Check = Nonzero | InBounds Nat | Nonempty | Byte | Finite | InRange Count Count
+data Check = Nonzero | InBounds Nat | Nonempty | Finite | InRange Count Count
 
 ||| A guard a partial op takes, an op `idr.check.*`: the position
 ||| of the operand it guards, whose value the guard's result stands for in
@@ -1525,8 +1510,7 @@ guardsOf (MkOp "idr.mod" _ _ _ _ _) = [MkGuard 1 Nonzero "division by zero"]
 guardsOf (MkOp "idr.str.head" _ _ _ _ _) = [MkGuard 0 Nonempty "head of an empty string"]
 guardsOf (MkOp "idr.str.index" _ _ _ _ _) = [MkGuard 1 (InBounds 0) "string index out of range"]
 guardsOf (MkOp "idr.str.tail" _ _ _ _ _) = [MkGuard 0 Nonempty "tail of an empty string"]
-guardsOf (MkOp "idr.to_byte" _ _ _ _ _) = [MkGuard 0 Byte "a byte outside 0 to 255"]
 guardsOf (MkOp "idr.to_int" _ _ _ _ _) = [MkGuard 0 Finite "cast of a non-finite Double"]
 guardsOf _ = []
 
--- fingerprint: 339026584-1396770 263302314-67736
+-- fingerprint: 1234605846-1398062 3373916402-67030

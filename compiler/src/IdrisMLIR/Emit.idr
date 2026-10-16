@@ -70,7 +70,7 @@ emit h src = do
   Right w <- newWriter
     | Left e => pure (Left e)
   written <- newIORef SortedSet.empty
-  Right () <- each src.fns (\f => case evalStateT (initial f.id.name (shown f.key.origin)) (function ix f) of
+  Right () <- each src.fns (\f => case evalStateT (initial f.id (shown f.key.origin)) (function ix f) of
                 Left msg => pure (Left msg)
                 Right ss => each ss (\s => case symbolOf s of
                   Nothing => pure (Left "a function without its symbol")

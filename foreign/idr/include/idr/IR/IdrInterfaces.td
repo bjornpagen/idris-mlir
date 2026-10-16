@@ -163,7 +163,9 @@ def Idr_UpdateOpInterface : OpInterface<"UpdateOpInterface"> {
   ];
 }
 
-// The idr.io ops, which idr-effects looks for.
+// The idr.io ops, which the frontend orders in the world's chain
+// (primPerformsIO). What a function may do is idr::bodyEffect's, which
+// reads IO off the worlds a function takes or forges, not off this.
 def Idr_PerformsIO : NativeOpTrait<"PerformsIO"> {
   let cppNamespace = "::idr";
 }

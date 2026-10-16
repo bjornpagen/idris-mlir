@@ -112,7 +112,7 @@ mutual
   spellCtors datas u acc [] = Right []
   spellCtors datas u acc (c :: cs) = do
     fs <- spellFields datas u acc c.fields
-    (MkIdrCtor c.id.name fs False c.role Nothing ::) <$> spellCtors datas u acc cs
+    (MkIdrCtor c.name fs False c.role Nothing ::) <$> spellCtors datas u acc cs
 
   spellFields : SortedMap DataId Data -> (u : List Data) -> (0 _ : Accessible Fewer u) -> List Binder
              -> Either String (List MlirType)
@@ -133,8 +133,9 @@ index src = do
                  (fromList (map (\f => (f.id, f)) src.fns))
                  (fromList spelled))
 
-||| The names a report gives the functions and data instances of a term:
-||| their symbols.
+||| The names a report gives the functions, data instances and constructors
+||| of a term: their symbols; a constructor the program does not declare, by
+||| its identity.
 export
 names : Index -> Names
-names ix = MkNames (.name) (.name)
+names ix = MkNames (.name) (.name) (\c => maybe (show c) (.name) (lookup c ix.cons))

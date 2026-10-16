@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The in-process part of a compilation: the idr pipeline in one pass
-// manager, then LLVM, from a module to the objects of its bins.
+// The in-process part of a compilation, from a module to the objects of
+// its bins: a handoff module through the idr pipeline in one pass manager
+// and then LLVM, the pipeline's output through LLVM alone; and what each
+// step reported, folded into the compilation's outcome.
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
@@ -10,6 +12,7 @@
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
+#include "idr/Driver/Verdict.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Pipeline.h"
@@ -17,6 +20,7 @@
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
 #include "mlir/Debug/CLOptionsSetup.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -25,19 +29,24 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/Parser/Parser.h"
+#include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/Timing.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/GlobalValue.h"
@@ -53,7 +62,6 @@
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -62,44 +70,76 @@ using namespace idr::driver;
 
 namespace {
 
-// What the errors reported so far make of the compilation, each worse than
-// the one before. Any error fails it, whether or not what reported it
-// failed: an error from a pass that then goes on is an error all the same.
-// A refusal carries the rule it names as data, and is the user's, printed
-// at the location of the user's code the module carries (MLIR's diagnostic
-// handler, which shows the source line); any other error is internal. A
-// refusal decides the verdict whatever else was reported: the program is
-// what the compiler does not take.
-enum class Verdict : std::uint8_t { Clean, Internal, Rejected };
+// The status of a compilation a step stopped.
+int stopped(Outcome &outcome) {
+  outcome.failed();
+  return statusOf(outcome.verdict());
+}
 
-// The exit status of a compilation that stopped: a step that failed with
-// no error reported is internal too.
-int status(Verdict verdict) {
-  switch (verdict) {
-  case Verdict::Clean:
-  case Verdict::Internal:
-    return failure;
-  case Verdict::Rejected:
-    return rejected;
-  }
-  llvm_unreachable("every verdict has its status");
+// What a module is, by what it holds, never by an option: the frontend's,
+// a handoff module, which holds an idr.program and goes through the
+// pipeline and then LLVM; or the pipeline's output, the LLVM dialect
+// alone, which goes to LLVM as it is.
+enum class ModuleKind : std::uint8_t { Handoff, Lowered };
+
+// The module's kind: an idr.program among its ops makes it a handoff
+// module, whose every op must be of a dialect the frontend writes;
+// otherwise every op must be the LLVM dialect's. An error at the first op
+// that is not, naming it (idris-mlir prints no op on a diagnostic), and
+// failure: a module half lowered (an arith op in an llvm.func) is neither,
+// and LLVM's translation would fail on it with no word of why. An op of a
+// dialect neither kind is written in (func) does not parse.
+mlir::FailureOr<ModuleKind> kindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
+  auto written = [&](mlir::Operation *op) {
+    return static_cast<bool>(handoff.getDialectAllocator(op->getName().getDialectNamespace()));
+  };
+  auto lowered = [](mlir::Operation *op) {
+    return mlir::isa<mlir::LLVM::LLVMDialect>(op->getDialect());
+  };
+  // A kind, the ops a module of it holds, and what an op it may not hold is
+  // said to be.
+  struct Holds {
+    ModuleKind kind;
+    llvm::function_ref<bool(mlir::Operation *)> op;
+    llvm::StringLiteral otherwise;
+  };
+  const Holds holds =
+      module.getOps<idr::ProgramOp>().empty()
+          ? Holds{ModuleKind::Lowered, lowered,
+                  "is no op of the LLVM dialect, in a module that holds no idr.program: such "
+                  "a module is the pipeline's output"}
+          : Holds{ModuleKind::Handoff, written,
+                  "is of no dialect the frontend writes, in a module that holds an idr.program"};
+  mlir::WalkResult walked =
+      module.getBody()->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *op) {
+        if (holds.op(op))
+          return mlir::WalkResult::advance();
+        op->emitOpError(holds.otherwise);
+        return mlir::WalkResult::interrupt();
+      });
+  if (walked.wasInterrupted())
+    return mlir::failure();
+  return holds.kind;
 }
 
 // The pipeline, idr-target first, in one manager, so that what a pass
 // preserves the next one finds. --stats, LLVM's own option, prints its
 // statistics too; MLIR's own pass-manager options (IR printing, the module
 // after each pass with -mlir-print-ir-tree-dir, crash reproducers,
-// -mlir-pass-statistics) apply to it. The timer is added last: the
+// -mlir-pass-statistics) apply to it. The report's instrumentation reads
+// each pass's statistics around each of its runs, before MLIR merges the
+// copies' statistics to print them. The timer is added last: the
 // instrumentations unwind in reverse, so it stops before IR is printed,
 // and a pass's row is the pass's own time. The manager goes, and prints
 // its statistics, before LLVM starts. Zero, or an exit status.
-int runPipeline(mlir::ModuleOp module, const Verdict &verdict, mlir::TimingScope &rootTiming) {
+int runPipeline(mlir::ModuleOp module, Outcome &outcome, mlir::TimingScope &rootTiming) {
   mlir::PassManager pm(module.getContext());
   if (llvm::AreStatisticsEnabled())
     pm.enableStatistics(mlir::PassDisplayMode::List);
   if (mlir::failed(mlir::applyPassManagerCLOptions(pm)))
     return usage;
   idr::profile::addInstrumentation(pm);
+  pm.addInstrumentation(foldStatistics(outcome));
   pm.enableTiming(rootTiming);
   // The module's target, which every pass reads: idr-entry tells the
   // runtime's entry which of its features to test; the object code is
@@ -107,10 +147,14 @@ int runPipeline(mlir::ModuleOp module, const Verdict &verdict, mlir::TimingScope
   pm.addPass(idr::createIdrTarget());
   idr::buildPipeline(pm);
   bool ran = mlir::succeeded(pm.run(module));
-  if (!ran || verdict != Verdict::Clean) {
-    if (verdict != Verdict::Rejected)
+  // Any error stops the compilation, whether or not what reported it
+  // failed: an error from a pass that then goes on is an error all the
+  // same.
+  if (!ran || outcome.verdict() != Verdict::Accepted) {
+    int status = stopped(outcome);
+    if (outcome.verdict() == Verdict::Internal)
       Report() << "internal error: the pipeline " << (ran ? "reported an error" : "failed");
-    return status(verdict);
+    return status;
   }
   return ok;
 }
@@ -121,13 +165,21 @@ int runPipeline(mlir::ModuleOp module, const Verdict &verdict, mlir::TimingScope
 // on `pool`. Each stage has a timer of its own, so -mlir-timing says which
 // one a compilation spends its time on.
 int toObjects(mlir::ModuleOp module, Artifacts &artifacts, const llvm::Target &target,
-              const llvm::Triple &triple, llvm::ThreadPoolInterface &pool, const Verdict &verdict,
+              const llvm::Triple &triple, llvm::ThreadPoolInterface &pool, Outcome &outcome,
               mlir::TimingScope &rootTiming) {
   mlir::TimingScope llvmTiming = rootTiming.nest("LLVM");
   auto moduleTarget =
       module->getAttrOfType<mlir::LLVM::TargetAttr>(mlir::LLVM::LLVMDialect::getTargetAttrName());
   if (!moduleTarget) {
     Report() << "internal error: the module lost its #llvm.target";
+    return failure;
+  }
+  // The runtime it is linked with and every link are for the build's
+  // triple; a module the pipeline lowered for another cannot join them.
+  if (llvm::StringRef compiledFor = moduleTarget.getTriple().getValue();
+      compiledFor != targetTriple) {
+    Report() << "internal error: the module is compiled for " << compiledFor
+             << ", and idris-mlir for " << targetTriple;
     return failure;
   }
   std::string features =
@@ -146,10 +198,11 @@ int toObjects(mlir::ModuleOp module, Artifacts &artifacts, const llvm::Target &t
     IDR_ZONE_IN("translate", LLVM);
     mlir::TimingScope stage = llvmTiming.nest("translate");
     llvmModule = mlir::translateModuleToLLVMIR(module, llvmContext);
-    if (!llvmModule || verdict != Verdict::Clean) {
-      if (verdict != Verdict::Rejected)
+    if (!llvmModule || outcome.verdict() != Verdict::Accepted) {
+      int status = stopped(outcome);
+      if (outcome.verdict() == Verdict::Internal)
         Report() << "internal error: translation to LLVM IR failed";
-      return status(verdict);
+      return status;
     }
     llvmModule->setTargetTriple(triple);
     llvmModule->setDataLayout(machine.createDataLayout());
@@ -197,11 +250,16 @@ const llvm::Target *idr::driver::nativeTarget(const llvm::Triple &triple) {
   return target;
 }
 
-int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
-  // The module holds one idr.program, which the pipeline's program passes
-  // run nested on. It is parsed with exactly the dialects the frontend
-  // writes, so an op of any other fails to parse. The rest load after. The
-  // context runs the function groups over the functions in parallel unless
+int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming, Outcome &outcome) {
+  // A module is one of two kinds, by what it holds (kindOf): a handoff
+  // module, as the frontend writes one, holds one idr.program, which the
+  // pipeline's program passes run nested on, and goes through the pipeline
+  // and then LLVM; a module of the LLVM dialect alone, the pipeline's
+  // output, goes to LLVM as it is. It is parsed with the dialects the
+  // frontend writes and the two the pipeline's output is written in, LLVM
+  // and DLTI, so an op of any other fails to parse; its kind then says
+  // which of them its ops may be of. The rest load after. The context runs
+  // the function groups over the functions in parallel unless
   // --mlir-disable-threading; two compiles of one module are the same bytes
   // either way, since no pass keeps state a worker thread shares.
   mlir::DialectRegistry handoff;
@@ -211,6 +269,9 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
   // How a closure moves through the upstream ops that can hold one, which
   // the verifier checks from the parse on.
   idr::registerFlowInterfaceExternalModels(handoff);
+  mlir::DialectRegistry readable;
+  handoff.appendTo(readable);
+  readable.insert<mlir::LLVM::LLVMDialect, mlir::DLTIDialect>();
   // The one pool of the compilation, which the function passes and the
   // bins' code generation run on, sized by --num-threads (every CPU by
   // default); declared before the context so it outlives it, as
@@ -222,7 +283,7 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
   // Created disabled so the pool can be set (setThreadPool requires
   // it and enables threading itself); --mlir-disable-threading keeps
   // it disabled, as upstream's tools arrange the same pair.
-  mlir::MLIRContext context(handoff, mlir::MLIRContext::Threading::DISABLED);
+  mlir::MLIRContext context(readable, mlir::MLIRContext::Threading::DISABLED);
   context.setThreadPool(pool);
   llvm::Triple triple(targetTriple);
   const llvm::Target *target = nativeTarget(triple);
@@ -231,13 +292,11 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
 
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
-  Verdict verdict = Verdict::Clean;
-  context.getDiagEngine().registerHandler([&](mlir::Diagnostic &diagnostic) {
-    if (diagnostic.getSeverity() == mlir::DiagnosticSeverity::Error)
-      verdict = std::max(verdict,
-                         idr::refusalRule(diagnostic) ? Verdict::Rejected : Verdict::Internal);
-    return mlir::failure();
-  });
+  // Every diagnostic into the outcome, and then on to this handler, which
+  // prints it. A refusal carries the rule it names as data, and is printed
+  // at the location of the user's code the module carries (MLIR's handler
+  // shows the source line).
+  foldDiagnostics(context, outcome);
   // -mlir-timing, MLIR's own option, times the parse (with the verification
   // that follows it), each pass and LLVM's stages, under the compilation's
   // root.
@@ -249,8 +308,11 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
   }
   // The parsed module is verified, and some of the verifier's rules are the
   // user's (a type that can reach itself through an array).
-  if (!module || verdict != Verdict::Clean)
-    return status(verdict);
+  if (!module || outcome.verdict() != Verdict::Accepted)
+    return stopped(outcome);
+  mlir::FailureOr<ModuleKind> kind = kindOf(*module, handoff);
+  if (mlir::failed(kind))
+    return stopped(outcome);
   mlir::DialectRegistry everything;
   mlir::registerAllDialects(everything);
   mlir::registerAllExtensions(everything);
@@ -273,10 +335,11 @@ int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
   mlir::tracing::InstallDebugHandler debugHandler(context, debugConfig);
   // MLIR reports what it cannot set up as asked (a file --log-actions-to
   // cannot open) as an error and goes on without it.
-  if (verdict != Verdict::Clean)
+  if (outcome.verdict() != Verdict::Accepted)
     return usage;
 
-  if (int code = runPipeline(*module, verdict, rootTiming))
-    return code;
-  return toObjects(*module, artifacts, *target, triple, pool, verdict, rootTiming);
+  if (*kind == ModuleKind::Handoff)
+    if (int code = runPipeline(*module, outcome, rootTiming))
+      return code;
+  return toObjects(*module, artifacts, *target, triple, pool, outcome, rootTiming);
 }

@@ -325,7 +325,7 @@ alg ix (CallF l fn stands as) env expected = do
 alg ix (ConAppF l c as) env _ = do
   Just k <- pure (lookup c ix.cons)
     | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
-  saturated ix l (ConApp l c (map (.term) as)) ("an application of " ++ show c) (length as) (length k.fields)
+  saturated ix l (ConApp l c (map (.term) as)) ("an application of " ++ k.name) (length as) (length k.fields)
   Just vs <- operands ix l env as k.fields
     | Nothing => pure Nothing
   Just <$> con ix l k vs
@@ -374,7 +374,7 @@ alg ix (CaseF l x alts def) env expected = do
     alternative before scrut (MkAltF {k} c fs body) = do
       Just ctor <- pure (lookup c ix.cons)
         | Nothing => internal ("a case of " ++ show c ++ ", which is not declared")
-      saturated ix l body.term ("a case of " ++ show c) k (length ctor.fields)
+      saturated ix l body.term ("a case of " ++ ctor.name) k (length ctor.fields)
       let takenApart = linear scrut.use scrut.type
       let use = if takenApart then (\b : Binder => b.quantity) else const Many
       bound <- traverse (\(_, f) => freshVal ix (typeOf f) (use f)) fs
@@ -453,7 +453,7 @@ alg ix (LamF l name b body) env expected = do
     | Nothing => internal "the result type of a lambda whose body never returns"
   rt <- mlirType ix t
   ops' <- epilogue ix l r ops
-  (sym, captures) <- lift l "lam" [MkArgument arg (Named name l)] ops' [rt]
+  (sym, captures) <- lift l LiftedLambda [MkArgument arg (Named name l)] ops' [rt]
   Just <$> holding ix l (FunT (MkBinder b.quantity param) t) captures (Idr.closureOp sym captures)
 alg ix (AppF l f x) env expected = do
   Just fv <- plain ix l (f.result env Nothing)
@@ -481,7 +481,7 @@ alg ix (SuspendF l body) env expected = do
         | Nothing => internal "the result type of a Delay whose body never returns"
       rt <- mlirType ix t
       ops' <- epilogue ix l r ops
-      (sym, captures) <- lift l "delay" [] ops' [rt]
+      (sym, captures) <- lift l LiftedDelay [] ops' [rt]
       Just <$> holding ix l (LazyT t) captures (Idr.suspendOp sym captures)
 alg ix (ResumeF l e) env expected = do
   Just ev <- plain ix l (e.result env Nothing)

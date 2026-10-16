@@ -23,6 +23,7 @@ import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -40,14 +41,17 @@ import Data.Vect
 ||| parameters, numbered in order; a type, an implementation and a parameter
 ||| of quantity 0 are compile-time values of the case tree's scope, which has
 ||| one variable per parameter of the definition's type.
-covering
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Core ()
 translateInstance p = do
   def <- lookupDef EmptyFC (show p.name) p.name
   let owner = show (fullname def)
+  -- A definition is its address, which a name the context does not hold
+  -- has not: no check refused it, and no loop through it is known.
+  let address = definitionAddress (gamma !(get Ctxt)) (fullname def)
   -- A definition the checks refused is left out, and so is what only it
   -- reaches.
-  False <- pure (contains (nameKey (fullname def)) (!(get TState)).refused)
+  before <- get TState
+  False <- pure (maybe False (\a => contains a before.refused) address)
     | True => pure ()
   let fc = location def
   PMDef _ args treeCT _ _ <- pure (definition def)
@@ -76,7 +80,8 @@ translateInstance p = do
   let body = tied loc ties tree'
   -- Every loop through the definition terminates: its component was
   -- checked when the instance was requested (`Recursion`).
-  let tot = fromMaybe False (lookup (nameKey (fullname def)) (!(get TState)).loops)
+  after <- get TState
+  let tot = fromMaybe False (address >>= \a => lookup a after.loops)
   let facts = MkFacts tot
   update TState { fns $= insert p.inst (MkTFn p.inst p.key (length params) (fromList params) result body loc facts)
                 , fnOrder $= (:< p.inst) }
@@ -141,6 +146,7 @@ assemble root = do
 ||| `IORes` of `main`'s result and the last world, so the world is used
 ||| exactly once. `%MkWorld` never appears. Nothing when an instance was
 ||| rejected (`rejections`).
+-- covering only because translateFrom is: the dictionary passes are not yet proved finite (Finite.idr)
 export covering
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core (Maybe Source)

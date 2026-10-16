@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # A positive test of the registry's pointer hooks: base's pointers are the
-# runtime's handles. translate.check finds none of the pointer operations
-# called in full Core, and the program prints expected-stdout.
+# runtime's handles, and the program prints expected-stdout.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 e2e_io .

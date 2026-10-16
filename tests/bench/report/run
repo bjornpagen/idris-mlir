@@ -14,7 +14,7 @@ grep -q '^Best of 2 runs' "$work/now/results.md" && say "best of 2 runs"
 for chart in times vs-c vs-chez; do
   svg=$work/now/$chart.svg
   if head -n 1 "$svg" | grep -q '^<svg ' && tail -n 1 "$svg" | grep -qx '</svg>'; then
-    say "$chart.svg: $(grep -c '<rect' "$svg") rects"
+    say "$chart.svg: an svg"
   else
     say "$chart.svg: not an svg"
   fi

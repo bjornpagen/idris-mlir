@@ -64,7 +64,7 @@ LogicalResult verifyEnd(Operation *op, TypeRange types, function_ref<bool(unsign
                                         << op->getName() << " takes " << types.size();
   for (auto [at, value, type] : llvm::enumerate(yield.getValues(), types)) {
     bool any = graded && graded(static_cast<unsigned>(at));
-    if (any ? view(value.getType()) != type : value.getType() != type)
+    if (value.getType() != (any ? atPermission(type, gradeOf(value.getType()).permission) : type))
       return yield.emitOpError("yields ")
              << value.getType() << " at " << at << " where " << op->getName() << " takes "
              << type;

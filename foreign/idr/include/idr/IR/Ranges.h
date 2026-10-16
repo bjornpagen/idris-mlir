@@ -8,20 +8,19 @@
 // both inside fits a small, and "may not fit a small" is the top, which
 // every big the analysis cannot see computed starts at. Integer and Nat
 // share the machinery: a natural only adds the lower bound 0, which its
-// type proves.
+// type proves. The small range, the values a big holds in its word, is the
+// runtime's: IDRIS_RT_SMALL_MIN to IDRIS_RT_SMALL_MAX.
 #ifndef IDR_IR_RANGES_H
 #define IDR_IR_RANGES_H
 
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 
+#include "idris_rt.h"
+
 #include <cstdint>
 #include <optional>
 
 namespace idr::ranges {
-
-// The small range: the values a big holds in its word.
-inline constexpr int64_t smallMin = -(int64_t{1} << 62);
-inline constexpr int64_t smallMax = (int64_t{1} << 62) - 1;
 
 // The bounds of a value, where no bound is none that way. Each bound is
 // inside the small range.

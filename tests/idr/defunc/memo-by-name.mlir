@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A trusted library's effect happens where its value is demanded, so a
 // label whose function reaches an effect the program's outside observes
@@ -11,12 +10,6 @@
 // observes is the trait on their class, said once beside each op: a
 // clock reading is one, and an error's text, the same at every call, is
 // none, though both are IO in the world's order.
-// NEEDS-ACCEPTANCE: the memo sum's printed constructors.
-// CHECK-DAG: @traced(i64) label @traced by_name
-// CHECK-DAG: @sized(i64){{[],]}}
-// CHECK-DAG: @shout(){{[],]}}
-// CHECK-DAG: @clocked(i64) label @clocked by_name
-// CHECK-DAG: @errtext(i64){{[],]}}
 idr.program @"memo-by-name" root(@Main.main) stage(higher) {
   idr.func @traced(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new

@@ -26,12 +26,15 @@ record DataId where
   constructor MkDataId
   name : String
 
-||| A constructor of a data instance: the instance and the Idris full name.
+||| A constructor of a data instance: the instance, and the constructor's
+||| position among its type's constructors, which is Idris's tag for it.
+||| Its name is printed from the context that declares it (`Con.name`).
 public export
 record ConId where
   constructor MkConId
   dataId : DataId
-  name : String
+  {0 arity : Nat}
+  index : Fin arity
 
 ||| An Idris name as it is printed: what the compiler reports, never what it
 ||| compares. It has `Show` and no `Eq`, so code outside the registry can
@@ -73,9 +76,11 @@ export Eq DataId where a == b = a.name == b.name
 export Ord DataId where compare a b = compare a.name b.name
 export Show DataId where show = (.name)
 
-export Eq ConId where a == b = a.dataId == b.dataId && a.name == b.name
-export Ord ConId where compare a b = compare (a.dataId, a.name) (b.dataId, b.name)
-export Show ConId where show c = c.name
+export Eq ConId where a == b = a.dataId == b.dataId && finToNat a.index == finToNat b.index
+export Ord ConId where compare a b = compare (a.dataId, finToNat a.index) (b.dataId, finToNat b.index)
+-- The identity, for the compiler's own errors: what a user or a test reads
+-- names a constructor by `Con.name`.
+export Show ConId where show c = show c.dataId ++ "#" ++ show (finToNat c.index)
 
 ------------------------------------------------------------------------------
 -- Names from content

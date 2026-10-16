@@ -2,6 +2,7 @@
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=lowered,aligned-access -o /dev/null
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-entry --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts | mlir-translate --mlir-to-llvmir | FileCheck %s --check-prefix=LL
+// NEEDS-ACCEPTANCE: @walk reads no offset after a character now; the lowered facts of the other functions are unchanged.
 // NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // What the types say and the LLVM types no longer do goes to LLVM as
 // attributes of the parameters and results: a box, closure or string is a
@@ -15,8 +16,7 @@
 // module's.
 // The range an op states for its result is the runtime's promise too, so a
 // runtime call's result says it: an Int's text starts with '-' or a digit,
-// a character read at a byte offset is a scalar value or 0, and the offset
-// after it is not negative.
+// and a character read at a byte offset is a scalar value or 0.
 // CHECK-LABEL: func.func private @head(
 // CHECK-SAME: !llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull}
 // CHECK-SAME: -> (!llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull})
@@ -33,7 +33,6 @@
 // LL: define {{.*}}i64 @shade(i8 range(i8 0, 3) %{{[0-9]+}}
 // LL: call range(i32 45, 58) i32 @idris_rt_int_head
 // LL: call range(i32 0, 1114112) i32 @idris_rt_str_scalar_at
-// LL: call range(i64 0, -9223372036854775808) i64 @idris_rt_str_scalar_end
 // LL: attributes #[[COLD]] = { cold noreturn }
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
 !Colour = !idr.data<"Colour", plain [@Red(), @Green(), @Blue(f64)]>
@@ -64,9 +63,8 @@ idr.program @"llvm-facts" root(@Prog.main) stage(first) {
   }
   idr.func @walk(%s: !idr.str, %o: i64) -> i64 {
     %c = idr.str.scalar_at %s, %o
-    %e = idr.str.scalar_end %s, %o
     %w = arith.extui %c : i32 to i64
-    %r = arith.addi %w, %e : i64
+    %r = arith.addi %w, %o : i64
     return %r : i64
   }
   idr.func @unread(%l: !idr.box<!List>, %n: i64) -> i64 {

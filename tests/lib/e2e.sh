@@ -61,7 +61,7 @@ e2e_io() {
   fi
   # Every compilation prints the module after each step (dump_options):
   # the checks of the fixture's modules read those dumps, and so do the
-  # properties of every compilation (compilation_properties).
+  # checks of every compilation (universal).
   mkdir "$work/ours"
   copy_fixture "$io_fixture" "$work/ours"
   io_dumps=$work/ours/build/exec/prog.dump
@@ -122,10 +122,9 @@ e2e_io() {
   fi
 
   # shellcheck disable=SC2046 # one path per object, none with a space
-  object_imports "$here" $(artifact_files "$work/ours" prog objects)
+  universal "$here" "$io_module" "$io_dumps" $(artifact_files "$work/ours" prog objects)
   heap_free "$io_fixture" "$io_dumps"
   module_checks "$io_fixture" "$io_module" "$io_dumps" "$(artifact_file "$work/ours" prog core)"
-  compilation_properties "$io_module" "$io_dumps"
 }
 
 # sem_case NAME: the generated semantics test NAME, an e2e fixture built in

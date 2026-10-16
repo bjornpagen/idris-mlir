@@ -84,7 +84,8 @@ struct Optimize : idr::impl::IdrOptimizeBase<Optimize> {
     // The ready set is the node table's schedule and its binding times.
     const idr::specialize::Nodes nodes(set, set, effects);
     const idr::optimize::InnerCounts counts{numIdentityCalls, numPureErased, numPureMerged,
-                                            numRedirected, numConstants};
+                                            numRedirected, numConstants, numNotConverged,
+                                            numCSE, numDCE};
     const idr::optimize::InnerRun inner{set, nodes, effects, counts};
     // Every function's analysis manager exists before any task, so a
     // pipeline's own nesting finds it instead of inserting it.
@@ -95,6 +96,7 @@ struct Optimize : idr::impl::IdrOptimizeBase<Optimize> {
         {program, set, symbols, nodes, inner, getAnalysisManager()},
         [this](OpPassManager &pm, Operation *op) { return runPipeline(pm, op); });
     LogicalResult ran = scheduler.run();
+    scheduler.addInnerStatistics();
     numInlined += scheduler.inlined();
     numCapped += scheduler.capped();
     numNodes += scheduler.made();

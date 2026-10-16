@@ -1,0 +1,16 @@
+NEEDS-ACCEPTANCE: runtime-doubles is new: confirm that doubles.cpp builds through prop_build with no C++ library and that its 13 properties hold on both targets (each target's strtod and nextafter are its C library's), that runtime-doubles/report is written, and set --cases in run
+doubles: built
+show_f64: reads back as the double: ok
+show_f64: no shorter text reads back: ok
+show_f64: the nearest of the shortest, ties to the even digit: ok
+show_f64: idris_rt.h's layout: ok
+put_double, double_head: show_f64's text: ok
+str_to_double: strtod's double for every decimal text: ok
+str_to_double: integer literals of every base read as the nearest double: ok
+str_to_double: inf, infinity and nan in any case, signed: ok
+str_to_double: every named malformed text reads as 0.0: ok
+round trip: str_to_double of show_f64: ok
+to_int: truncated toward zero, modulo 2^64: ok
+box: every exponent with the edge significands: ok
+every operation borrows its argument and returns one owned result: ok
+doubles: exit 0

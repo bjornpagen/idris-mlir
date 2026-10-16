@@ -12,9 +12,12 @@
 
 #include "llvm/ADT/StringRef.h"
 
+#include <memory>
 #include <string>
 
 namespace mlir {
+class MLIRContext;
+class PassInstrumentation;
 class TimingScope;
 } // namespace mlir
 
@@ -24,6 +27,8 @@ class Triple;
 } // namespace llvm
 
 namespace idr::driver {
+
+class Outcome;
 
 // What links a program for the target entry, after its objects, the
 // runtime and -o: --target with the triple, then the entry's executable and
@@ -41,13 +46,27 @@ inline constexpr llvm::StringLiteral linkFlags[] = {
 std::string frontendBeside(const char *argv0);
 
 // The chain, from the input to the artifacts, which are kept only once
-// every step succeeded; an exit status.
+// every step succeeded, and to the report, written whatever the verdict;
+// the exit status of the verdict, or of a usage error.
 int compile(llvm::StringRef frontendPath, Artifacts &artifacts);
 
-// The module the artifacts name through the pipeline and LLVM into the
-// objects of its bins, written where the artifacts say, each pass and
-// stage timed under `rootTiming`. An exit status.
-int run(Artifacts &artifacts, mlir::TimingScope &rootTiming);
+// The module the artifacts name into the objects of its bins, written where
+// the artifacts say: a handoff module through the pipeline and LLVM, a
+// module of the LLVM dialect alone, the pipeline's output, through LLVM.
+// Each pass and stage is timed under `rootTiming`, and every diagnostic and
+// pass statistic is folded into `outcome`. Zero, the status of the verdict
+// a step stopped on, or a status of a step that failed with none reported
+// (a usage error among them).
+int run(Artifacts &artifacts, mlir::TimingScope &rootTiming, Outcome &outcome);
+
+// Every diagnostic of `context`, from whichever thread delivers it, into
+// `outcome`: the verdict it makes and its fields in the report. The handler
+// then passes it on, to the one registered before it that prints it.
+void foldDiagnostics(mlir::MLIRContext &context, Outcome &outcome);
+
+// The instrumentation that adds each statistic's increase over every run
+// of every pass into `outcome`.
+std::unique_ptr<mlir::PassInstrumentation> foldStatistics(Outcome &outcome);
 
 // LLVM's target for the triple, with its code generator and assembly
 // parser (the runtime carries inline assembly) initialized; null, reported,

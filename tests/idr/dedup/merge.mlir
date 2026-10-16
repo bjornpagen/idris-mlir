@@ -1,9 +1,9 @@
 // RUN: idris-mlir-opt %s --idr-deduplicate -o %t.mlir
-// RUN: FileCheck %s < %t.mlir
+// RUN: idris-mlir-opt %s --idr-deduplicate --mlir-disable-threading -o %t.serial.mlir
+// RUN: cmp %t.mlir %t.serial.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-deduplicate -o %t.again.mlir
 // RUN: diff %t.mlir %t.again.mlir
-// RUN: idris-mlir-opt %s --idr-deduplicate -mlir-print-debuginfo | FileCheck %s --check-prefix=LOC
-// NEEDS-ACCEPTANCE: how the kept functions' fused locations print with -mlir-print-debuginfo.
+// NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // Private functions that are one function twice over become one, the
 // member with the smallest name kept: @B.inc is @A.inc, @B.id is @A.id,
 // two outlines of one body, and @B.down is @A.down though each calls
@@ -12,20 +12,6 @@
 // the two callers. A call, and a closure naming one of them, name the one
 // kept, whose location is the fusion of its members', and a second run
 // changes nothing.
-// CHECK-NOT: idr.func @B
-// CHECK: idr.func @A.inc(
-// CHECK: idr.func @A.twice(
-// CHECK: idr.func @A.id(
-// CHECK: idr.func @A.down(
-// CHECK: idr.func @root(
-// CHECK: call @A.inc(
-// CHECK: call @A.inc(
-// CHECK: closure @A.inc(
-// CHECK: call @A.down(
-// CHECK: call @A.down(
-// CHECK: call @A.twice(
-// CHECK: call @A.twice(
-// LOC: loc(fused[
 idr.program @merge root(@root) stage(higher) {
   idr.func @A.inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64

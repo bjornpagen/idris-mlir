@@ -9,6 +9,8 @@
 
 #include "idr/Transforms/Columns.h"
 
+#include "idr/Support/Actions.h"
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -63,6 +65,13 @@ void populateColumnPatterns(const TypeConverter &converter, RewritePatternSet &p
 
 namespace {
 
+// idr-columns holds the program's arrays of records as their columns, in
+// one conversion; the unit is the program.
+struct ColumnsConvertAction : idr::support::TaggedAction<ColumnsConvertAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-columns-convert";
+};
+
 struct Columns : idr::impl::IdrColumnsBase<Columns> {
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
@@ -70,11 +79,13 @@ struct Columns : idr::impl::IdrColumnsBase<Columns> {
     RewritePatternSet patterns(ctx);
     ConversionTarget target(*ctx);
     populateColumnPatterns(converter, patterns, target);
-    if (failed(applyPartialConversion(getOperation(), target, std::move(patterns)))) {
+    (void)idr::support::perform<ColumnsConvertAction>(getOperation(), [&] {
+      if (succeeded(applyPartialConversion(getOperation(), target, std::move(patterns))))
+        return;
       getOperation()->emitError("internal error: idr-columns: an array of records was left "
                                 "neither held as its columns nor gathered");
       signalPassFailure();
-    }
+    });
   }
 };
 

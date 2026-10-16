@@ -1,0 +1,6 @@
+NEEDS-ACCEPTANCE: that malloc is refused once, as a raw pointer, at scratch's declaration (line 12), naming System.FFI.malloc
+compile: exit 3
+unsupported (raw pointer): the only error
+line: as the header says
+message: as the header says
+artifacts: none

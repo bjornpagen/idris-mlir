@@ -1,5 +1,71 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
+# Checkpoint (2026-10-15, 0014-sound integrated on the typecheck machine)
+
+Proposal 0014 (sound passes, typed identities, good tests or none;
+proposals/0014-sound/README.md, the packet and its record) ran as one wave
+of eighteen lanes, plus a delegated lane Z for `lib/Conversion`, on top of
+0004. Every dispatch carried the owner's representation-first guideline
+first and verbatim. Mid-wave the owner added hard cutover (no backwards
+compatibility) and upstream MLIR first (our C++ at its minimum). It is
+integrated: `make typecheck` passes every part (configure, tblgen, cxx
+with 0 errors, the regenerated dialects, libs, the fork with `Idris.Host`,
+the frontend) and `make check` is 35 of 35. Nothing of the compiler is
+built or run. What ran here, needing no LLVM:
+- **Runtime property programs** (host clang): bigs 14/14, text 8/8,
+  doubles 13/13, utf8 7/7, strings 8/8, the counting model, and `rc`
+  101/101. Each lane's mutants are caught by the properties named.
+- **googletest:** `idr-box-ranges` 7/7 and `idr-box-tagged` 15/15.
+- **On Chez:** Gen and its users; Sem's 72 programs and TwoLevels'
+  modules are byte-identical to HEAD. The frontend changes give identical
+  exit status on all 312 test programs (T), and Q's runs give
+  byte-identical Core and modules on 15 programs and three refusals.
+
+What the tree is now (the packet's §4 and §8):
+- **Per-pass contracts:** `idris-mlir-opt --idr-contracts`, on every
+  dialect fixture through `tests/lib/lit.sh` with `--verify-roundtrip`.
+- **Pass roles and actions:** pass roles are TableGen records
+  (`IdrPassRoles.txt`), and every optional transform is an MLIR action,
+  skippable one at a time.
+- **One rule each:** one effects rule (`idr::bodyEffect`, read by the
+  analysis and the verifier), one slot rule (`atPermission`, five sites),
+  one program per module.
+- **One verdict:** `Accepted < Refused < Internal`, a refusal failing its
+  step, and `--report=<file>`.
+- **Typed identities in the frontend:** `Address`, `ConId` by index,
+  `Con.tag` derived. The trust in Idris's compiler lives in the fork
+  (`Idris.Host`), and `Finite.translateFrom` is `covering` (outcome B).
+  The translation of applications is total.
+- **Dead and duplicated code deleted:** the `scalar_end` chain, the byte
+  ops, the lowering's UTF-8 length and exclusivity copies, the frontend's
+  second UTF-8 encoder, and the compiler's copy of the small range.
+- **About 300 brittle checks deleted outright,** among them the 176,000-line
+  doubles snapshot. Three tests are kept as their own contract (R2).
+- **Tests added:** idr-expect gains `folded`, and every property has a test
+  that fails it. Also new: the runtime property programs (`prop.h`), the
+  googletest boxes (`make test-unit`), `tests/Gen.idr` and
+  `tests/Prims.idr`, the `rules-covered` and `dialect-text` specs, and
+  determinism at 1, 3, 5, 13 threads plus a second process.
+- **The owner's rulings:** R1-R5 (packet §8), and the totality rule
+  narrowed (2026-10-15): a definition Idris does not prove ends is refused
+  only where a normaliser would run it.
+
+Owed on the owner's machine, before anything else:
+1. `make build` (it reconfigures for the new CMake: IdrContracts,
+   `foreign/idr/unittests`, `IdrPassRoles.txt`), then `make test`,
+   `make test-idr`, `make test-unit` and `make test-mlir-tools` on both
+   targets, accepting the 285 files `tests/ACCEPTANCE.md` lists. No pin
+   moved, so no `make bootstrap` is needed beyond the last entry's.
+2. Watch for:
+   - `--idr-contracts` on every dialect fixture prints and parses the
+     module once per checked run, so the slowest fixtures may near their
+     timeouts.
+   - `tests/idr/actions/inner-steps` may fail falsely if specialization
+     folds `@inc(7)`.
+   - Fuzz shrinking can be long.
+3. Then self-hosting (proposals/self-host.md, at the head of the queue):
+   its stage S1, the refusal sweep, runs on the typecheck machine.
+
 # Checkpoint (2026-10-15, 0004-total integrated on the typecheck machine)
 
 Proposal 0004 (total by construction, every known item, and upstream's

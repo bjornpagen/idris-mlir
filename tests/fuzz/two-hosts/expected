@@ -1,0 +1,9 @@
+NEEDS-ACCEPTANCE: idris-mlir compiles Gen, Prims, Fuzz, Sem and TwoLevels, and its program prints the stock host's text byte for byte, a draw's loop and a tape's reset reusing their cells in place; the limits measured
+stock host: Gen's checks: ok
+compile: exit 0
+artifacts: core module objects executable
+run: exit status as expected
+stdout: as expected
+stderr: empty
+universal: holds
+mlir.expect: holds

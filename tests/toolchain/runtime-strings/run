@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The runtime's string operations held to a model of scalars: every result
+# the model's, canonical and owned as idris_rt.h says, every operand
+# borrowed, on persistent and counted operands (strings.cpp states each
+# property). One line per property; the classes each reached go to the
+# report.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+. "$root/tests/toolchain/lib/prop.sh"
+prop_build "$here/strings.cpp" "$work/strings" || exit 0
+# The case count is debt: 1000 cases took 0.5 s on an arm64 Mac (host
+# clang, -O1); set it on the owner's build so the program ends well within
+# step_limit on both targets.
+prop_run "$work/strings" --seed 1 --cases 1000

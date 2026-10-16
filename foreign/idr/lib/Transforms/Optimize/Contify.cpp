@@ -40,6 +40,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
+#include "idr/Support/Actions.h"
 #include "idr/Transforms/Inline.h"
 
 #include "mlir/Analysis/CallGraph.h"
@@ -58,6 +59,13 @@ namespace idr {
 using namespace mlir;
 
 namespace {
+
+// One move of a function into its one call, which then goes with the
+// function; its IR unit is the call.
+struct ContifyMoveAction : idr::support::TaggedAction<ContifyMoveAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-contify-move";
+};
 
 // The component of the call graph each function is in, by its number.
 llvm::DenseMap<Operation *, unsigned> componentsOf(const CallGraph &graph) {
@@ -91,13 +99,20 @@ unsigned contify(idr::ProgramOp program, SymbolTable &symbols, const CallGraph &
     if (!caller || caller == fn || component.at(caller) != component.at(fn) ||
         !idr::inlining::fitsRegion(interface, call, fn))
       continue;
-    if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
-                          /*shouldCloneInlinedRegion=*/false)))
-      continue;
-    caller.absorb(fn);
-    call.erase();
-    symbols.erase(fn);
-    ++contified;
+    // A skipped move leaves the function and its one call, and the users
+    // the sweep took before it began stay true.
+    bool moved = false;
+    (void)idr::support::perform<ContifyMoveAction>(call, [&] {
+      if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
+                            /*shouldCloneInlinedRegion=*/false)))
+        return;
+      caller.absorb(fn);
+      call.erase();
+      symbols.erase(fn);
+      moved = true;
+    });
+    if (moved)
+      ++contified;
   }
   return contified;
 }

@@ -42,6 +42,7 @@ import Core.Options
 import Core.UnifyState
 
 import Idris.CommandLine
+import Idris.Host
 import Idris.ModTree
 import Idris.Package
 import Idris.Package.Types
@@ -50,13 +51,13 @@ import Idris.REPL.Opts
 import Idris.SetOptions
 import Idris.Syntax
 
-import IdrisMLIR.Frontend.Host
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Program
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Registry.Libraries
 
 import Data.List
+import Data.List1
 import Data.String
 import System
 import System.File
@@ -212,19 +213,26 @@ arguments args = do
 -- Exit statuses
 ------------------------------------------------------------------------------
 
-||| The compiler's own error is 1; every other error is the program's: 3.
-statusOf : Error -> ExitCode
-statusOf (InternalError _) = ExitFailure 1
-statusOf _ = ExitFailure 3
-
-||| The errors a build reported (and printed): the program's, unless one is
-||| the compiler's.
-statusOfAll : List Error -> ExitCode
+||| The status of the errors a build reported (and printed), by the one
+||| rule of the verdict: accepted < refused < internal, the worst seen
+||| winning. The compiler's own error (1) makes the build the compiler's
+||| whatever else it found, and the program's errors alone are its refusal
+||| (3); a build that reported none is accepted, and has no errors to give
+||| here. The order needs no exception for an error a refusal caused: a
+||| refusal ends the translation of what it refuses (`Errors.noting`,
+||| `TS.refused`), so no error found after it is its cascade, and an
+||| internal error beside one is the compiler's, to be fixed before the
+||| refusal can be believed.
+statusOfAll : List1 Error -> ExitCode
 statusOfAll errs = if any internal errs then ExitFailure 1 else ExitFailure 3
   where
     internal : Error -> Bool
     internal (InternalError _) = True
     internal _ = False
+
+||| The status of one error, by the same rule.
+statusOf : Error -> ExitCode
+statusOf err = statusOfAll (err ::: [])
 
 ------------------------------------------------------------------------------
 -- A run
@@ -256,7 +264,7 @@ built source = do
     | Left err => throw (FileErr source err)
   mainModule <- ctxtPathToNS source
   [] <- host.buildMain source
-    | errs => coreLift (exitWith (statusOfAll errs))
+    | (e :: es) => coreLift (exitWith (statusOfAll (e ::: es)))
   pure mainModule
 
 ||| Idris shows an error's location with the lines of the source it read
@@ -281,11 +289,11 @@ perform : {auto c : Ref Ctxt Defs} ->
 perform (Compile timing core out source) = do
   mainModule <- built source
   [] <- program mainModule timing core out
-    | errs => do
-        for_ errs $ \err => do
+    | (e :: es) => do
+        for_ (e :: es) $ \err => do
           showingItsSource err
           emitError err
-        coreLift (exitWith (statusOfAll errs))
+        coreLift (exitWith (statusOfAll (e ::: es)))
   pure ()
 perform (Check source) = ignore (built source)
 perform (PackageCommand timing cmd file) = do

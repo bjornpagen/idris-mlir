@@ -93,6 +93,34 @@ LogicalResult Scheduler::runInner(FuncOp fn) {
   return result;
 }
 
+// The canonicalizer and cse count into statistics of their own, on each
+// copy of the pipeline that ran (`inner` never runs). MLIR's pass manager
+// reports the statistics of its own pipeline, and a pipeline a pass runs
+// through runPipeline is none of it, so the counts are read here off the
+// copies, through upstream's own statistics. MLIR names a statistic by its
+// pass's argument and its own name, as it prints them, so the table below
+// says by those names which of the run's counts each adds to. No worker
+// runs once the waves end; the copies are read under their lock all the
+// same, as everywhere else.
+void Scheduler::addInnerStatistics() {
+  const InnerCounts &counts = analyses.inner.counts;
+  struct Into {
+    StringRef step, statistic;
+    Pass::Statistic &total;
+  };
+  // A copy is matched by the argument MLIR gives its pass, the only name a copy carries.
+  const Into into[] = {{"idr-canonicalize", "not-converged", counts.notConverged},
+                       {"cse", "num-cse'd", counts.cseMerged},
+                       {"cse", "num-dce'd", counts.cseErased}};
+  std::lock_guard<std::mutex> lock(pipelinesMutex);
+  for (const std::unique_ptr<OpPassManager> &pm : pipelines)
+    for (Pass &pass : pm->getPasses())
+      for (Pass::Statistic *statistic : pass.getStatistics())
+        for (const Into &each : into)
+          if (pass.getArgument() == each.step && StringRef(statistic->getName()) == each.statistic)
+            each.total += statistic->getValue();
+}
+
 // The table gives each node to one claimant, which builds it detached: the
 // build reads only its owner, which is final, and requests nothing, the
 // node's calls being its own turns' to redirect. Which turn of a wave

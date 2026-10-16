@@ -3,7 +3,5 @@ artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
-object: no undefined symbol outside the allowed set
+universal: holds
 prelude Prelude.Num: 22 exports, each used (10 compile-time only: Abs Fractional Integral MkAbs MkFractional MkIntegral MkNeg MkNum Neg Num)
-dumps: parse and verify
-quantities: kept

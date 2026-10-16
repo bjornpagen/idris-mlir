@@ -281,12 +281,13 @@ which the top-level CMake configure gate reads.
   guard), foreign/idr/lib/Driver/Main.cpp, foreign/idr/tools/idris-mlir-opt.cpp,
   foreign/idr/tools/idris-mlir-reduce.cpp, runtime/Start/Runner.cpp
   (`idris_rt_run_on_stack`)
-- workaround: idris-mlir runs the whole compilation, and idris-mlir-opt its
-  run, on the runtime's reserved-stack runner: 2^40 bytes of address space,
+- workaround: idris-mlir runs the whole compilation, and idris-mlir-opt and
+  idris-mlir-reduce their runs, on the runtime's reserved-stack runner: 2^40
+  bytes of address space,
   committed as touched, above a guard, so the depth is bounded by memory
   (2^40 bytes is more than a compiling machine has; reserving costs time
   in proportion to the size, at start and exit). Running out of it is a
-  named error. idris-mlir-reduce does not have it
+  named error
 - retire: when MLIR parses, prints and walks nested attributes from a
   worklist; `tests/upstream/recursive-attribute-parser` fails then. There is
   no patch: the fix is a design change across the parser, the printer and
@@ -366,7 +367,7 @@ which the top-level CMake configure gate reads.
 - sites: none in our code; the patch. idr-narrow-lanes versions a
   vectorized loop when its wide integer ops fit 32 bits, and the narrowing
   of its copy leaves wide an op whose 32-bit form would compute something
-  else (tests/idr/vectorize/lanes-loops, lanes-x86-64)
+  else (tests/idr/vectorize/lanes-x86-64)
 - workaround: `upstream/09-int-range-narrowing-exactness/llvm.patch`, the
   remainders alone: `remsi` does not narrow when the dividend's range holds
   the narrow signed minimum and the divisor's holds -1, and the unsigned

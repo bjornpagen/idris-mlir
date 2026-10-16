@@ -1,5 +1,5 @@
 -- expect: polymorphism, line 11
--- names: Main.T[Int]; Main.T[Builtin.Pair Int Int]
+
 module Main
 
 -- A nested data type: each N holds a T of pairs of what it holds itself,

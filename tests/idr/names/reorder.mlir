@@ -1,10 +1,13 @@
 // RUN: awk 'BEGIN { ORS = "" } NR == 1, /^idr\.program / { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
+// RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading -o %t.serial.mlir
+// RUN: cmp %t.mlir %t.serial.mlir
 // RUN: idris-mlir-opt %t.reversed.mlir --idr-optimize -o %t.reversed.out.mlir
 // RUN: sed -n 's/^ *idr\.func \(private \)\{0,1\}@\([^(]*\)(.*/\2/p' %t.mlir | sort > %t.names
 // RUN: sed -n 's/^ *idr\.func \(private \)\{0,1\}@\([^(]*\)(.*/\2/p' %t.reversed.out.mlir | sort > %t.reversed.names
 // RUN: grep -q '[.]spec[.]' %t.names
 // RUN: diff %t.names %t.reversed.names
+// NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as the binding-time rule allows.
 // A function the optimizer makes is named from its key, the owner and
 // the static pattern, never from a counter or from the order the work ran

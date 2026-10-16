@@ -5,8 +5,9 @@
 // text, with no visibility written, since its program's root decides it;
 // and the rules of one function at its program's stage, which run after the
 // ops of its body are verified and in parallel with every other
-// function's.
+// function's; and what a body does of itself.
 
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Verify.h"
@@ -32,6 +33,17 @@ void idr::ProgramOp::build(OpBuilder &builder, OperationState &state, StringRef 
   properties.root = FlatSymbolRefAttr::get(builder.getContext(), root);
   properties.stage = StageAttr::get(builder.getContext(), stage);
   state.addRegion()->emplaceBlock();
+}
+
+// A module holds one program, the closed world every pass reads: the first
+// in its module's block, and none after it. Only that block's ops are read,
+// which no pass on a program changes.
+LogicalResult idr::ProgramOp::verify() {
+  ProgramOp first = *(*this)->getBlock()->getOps<ProgramOp>().begin();
+  if (first != *this)
+    return emitOpError("@") << getSymName() << " is a second program beside @"
+                            << first.getSymName() << ", and a module holds one program";
+  return success();
 }
 
 FuncOp idr::ProgramOp::lookupRoot() {
@@ -118,3 +130,19 @@ LogicalResult idr::FuncOp::verify() {
 // and the ops' verifiers have run: a match's regions and yields are well
 // formed. The rest is the function's rules at its program's stage.
 LogicalResult idr::FuncOp::verifyRegions() { return verify::function(*this); }
+
+// A world reaches a function only through a parameter, so IO is read off
+// the signature, and off the body only where it forges a world, IO no
+// parameter announces.
+Effect idr::bodyEffect(FuncOp fn) {
+  Effect own = fn.getTotal() ? Effect::none : Effect::diverge;
+  if (llvm::any_of(fn.getArgumentTypes(), idr::holdsWorld))
+    own = own | Effect::io;
+  fn.getBody().walk([&](Operation *op) {
+    if (auto mayCrash = dyn_cast<MayCrashOpInterface>(op); mayCrash && mayCrash.getCrashCause())
+      own = own | Effect::crash;
+    if (isa<WorldNewOp>(op))
+      own = own | Effect::io;
+  });
+  return own;
+}

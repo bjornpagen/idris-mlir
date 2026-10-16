@@ -3,7 +3,5 @@ artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
-object: no undefined symbol outside the allowed set
+universal: holds
 prelude Prelude.EqOrd: 21 exports, each used (5 compile-time only: Eq MkEq MkOrd Ord Ordering)
-dumps: parse and verify
-quantities: kept

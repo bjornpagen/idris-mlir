@@ -14,9 +14,7 @@ linearId : (1 x : Int) -> Int
 linearId x = x
 
 -- A loop on an Int, which Idris does not prove terminating. Compile-time
--- evaluation reduces it all the same; mlir.check reads the module as
--- emitted, before that, where clamp and linearId have their erased and
--- linear parameters.
+-- evaluation reduces it all the same.
 public export
 countdown : Int -> Int
 countdown 0 = 7

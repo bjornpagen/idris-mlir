@@ -1,0 +1,11 @@
+NEEDS-ACCEPTANCE: runtime-strings is new: confirm that strings.cpp builds through prop_build with no C++ library and that its 8 properties hold on both targets, that runtime-strings/report is written, and set --cases in run
+strings: built
+length, index, head: the model's: ok
+tail, cons, from_char, append: the model's: ok
+reverse: the model's: ok
+substr: the model's, negative and past-the-end arguments included: ok
+cmp: the order of the scalars: ok
+results: canonical, the empty one persistent, an operand returned with one more reference: ok
+box: every string of at most 3 scalars over a, U+00E9, U+20AC, U+1F600, every operation: ok
+every operation borrows its operands and returns one owned result: ok
+strings: exit 0

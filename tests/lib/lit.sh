@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
+# NEEDS-ACCEPTANCE: every dialect input round-trips through the generic form and bytecode, and every pass a RUN line runs keeps its contracts (--verify-roundtrip --idr-contracts on every idris-mlir-opt).
 # The dialect tests' `// RUN:` lines, run without lit and without Python.
 
 # sed_escape TEXT: TEXT as the replacement of a `s|...|...|` command.
@@ -54,7 +55,10 @@ lit_cc() {
 # \ continues it on the next RUN line. idris-mlir-opt, idris-mlir and the
 # pinned LLVM's FileCheck, not and count come first on PATH, `echo -n`
 # omits the newline, and `timeout` is coreutils' (tools/host.sh), which
-# bounds itself.
+# bounds itself. Every idris-mlir-opt of a RUN line reads its input back
+# from the generic form and from bytecode before any pass
+# (--verify-roundtrip) and checks each pass's contracts as it runs
+# (--idr-contracts).
 lit() {
   lit_file=$(cd "$(dirname "$1")" && pwd)/${1##*/}
   # The runtime is idris-mlir's (make build), asked for only by a test
@@ -72,6 +76,7 @@ lit() {
   while IFS= read -r lit_line; do
     lit_n=$((lit_n + 1))
     lit_command=$(printf '%s\n' "$lit_line" | sed \
+      -e 's/idris-mlir-opt /idris-mlir-opt --verify-roundtrip --idr-contracts /g' \
       -e "s|%status|lit_status|g" \
       -e "s|%cc|lit_cc|g" \
       -e "s|%runtime|$(sed_escape "$lit_runtime")|g" \

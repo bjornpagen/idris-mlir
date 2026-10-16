@@ -80,19 +80,6 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
   let hasFolder = 1;
 }
 
-// An Int written as a byte of a buffer, which is 0 to 255: idr.check.byte
-// guards it, as Chez's bytevector-u8-set! refuses any other.
-def Idr_ToByteOp : Idr_Op<"to_byte", [NoMemoryEffect,
-    Idr_Guarded<"value", "Byte", "a byte outside 0 to 255">,
-    DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
-  let summary = "an Int from 0 to 255 as a byte";
-  let arguments = (ins I64:$value);
-  let results = (outs I8:$result);
-  let assemblyFormat = "$value attr-dict";
-  let hasFolder = 1;
-}
-
 // Truncates toward zero and wraps to the result width. The Double is
 // finite: idr.check.finite guards it.
 def Idr_ToIntOp : Idr_Op<"to_int", [Idr_Runtime<"idris_rt_to_int">, NoMemoryEffect,

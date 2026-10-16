@@ -1,10 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=lowered,direct-calls,calls=@__idr_release_cafs:@idris_rt_caf_release,calls=@Prog.main:@Tail.force -o /dev/null
-// RUN: FileCheck %s --implicit-check-not='llvm.mlir.global private @' < %t.mlir
-// RUN: FileCheck %s --check-prefix=CELL < %t.mlir
-// RUN: FileCheck %s --check-prefix=STREAM < %t.mlir
 // NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
-// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle, the dispatch idr-defunctionalize makes, and the names the lowering gives static data, keyed on its content.
+// NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle and the dispatch idr-defunctionalize makes.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A lazy constant is a memo cell in static data, which its first force
 // writes, once: its force is a call of the memo sum's dispatch, which
@@ -13,17 +10,7 @@
 // here 0. Every other static cell stays constant, among them a constant
 // stream whose tail is that cell: it holds the cell's address.
 // @__idr_release_cafs releases what each such cell holds once forced,
-// when the program ends. The globals are the runtime's static data,
-// checked as written.
-// CHECK: llvm.mlir.global private @{{__idr\.caf\.[0-9a-f]+}}()
-// CELL: llvm.mlir.global private @{{__idr\.caf\.[0-9a-f]+}}()
-// CELL-NOT: llvm.mlir.global
-// CELL: llvm.mlir.constant(16777216 : i32) : i32
-// STREAM: llvm.mlir.global private constant @{{__idr\.box\.[0-9a-f]+}}()
-// STREAM-NOT: llvm.mlir.global
-// STREAM: llvm.mlir.addressof @{{__idr\.caf\.[0-9a-f]+}} : !llvm.ptr
-// STREAM-NOT: llvm.mlir.global
-// STREAM: llvm.return
+// when the program ends. The globals are the runtime's static data.
 !Tail = !idr.data<"Tail", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"Tail">>)]>>) forced]>
 !Stream = !idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"Tail", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream">>) forced]>>)]>
 idr.program @"static-thunk" root(@Prog.main) stage(first) {

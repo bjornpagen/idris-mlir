@@ -10,7 +10,7 @@
 // an -o that names the input (or makes outputs that collide) is a usage
 // error, which leaves every file as it was.
 // FRONT: idris-mlir: {{.*}}the frontend's, for Idris source
-// SAME: idris-mlir: -o names outputs that collide
+// SAME: idris-mlir: -o and --report name outputs that collide
 idr.program @inputs root(@Prog.main) stage(higher) {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64

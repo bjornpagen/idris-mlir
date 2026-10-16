@@ -308,14 +308,21 @@ shapeDims fc owner shape = do
 tyConFacts : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              GlobalDef -> Core TyConFacts
 tyConFacts def = do
-  let key = nameKey (fullname def)
+  defs <- get Ctxt
+  -- A name the context does not hold has no address to keep its facts by.
+  let Just key = definitionAddress (gamma defs) (fullname def)
+    | Nothing => facts
   case lookup key (!(get TState)).tyCons of
     Just known => pure known
     Nothing => do
+      found <- facts
+      update TState { tyCons $= insert key found }
+      pure found
+  where
+    facts : Core TyConFacts
+    facts = do
       ps <- dataParams def
-      facts <- MkTyConFacts ps <$> typeParams def ps <*> natLike def
-      update TState { tyCons $= insert key facts }
-      pure facts
+      MkTyConFacts ps <$> typeParams def ps <*> natLike def
 
 ||| The type arguments of a type constructor, and its arity.
 paramPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -426,6 +433,34 @@ export
 shortName : Name -> String
 shortName (NS _ n) = shortName n
 shortName n = show n
+
+||| A constructor's identity in a data instance: its tag as a position
+||| among the constructors of the type its result is. Nothing when the
+||| definition is no constructor, its type's constructors are not known,
+||| or its tag is past them.
+export
+conIdOf : {auto c : Ref Ctxt Defs} -> DataId -> GlobalDef -> Core (Maybe ConId)
+conIdOf inst def = do
+  let DCon tag _ _ = definition def
+    | _ => pure Nothing
+  -- The type as written may hide its binders behind a definition (`a -@ b`
+  -- is `(1 _ : a) -> b`), so the type constructor is read off its normal
+  -- form, as `constructor` reads the layout.
+  Just tn <- built <$> normaliseClosed (type def)
+    | Nothing => pure Nothing
+  defs <- get Ctxt
+  Just tdef <- lookupCtxtExact tn (gamma defs)
+    | Nothing => pure Nothing
+  let TCon _ _ _ _ _ (Just cons) _ = definition tdef
+    | _ => pure Nothing
+  pure (MkConId inst <$> integerToFin (cast tag) (length cons))
+  where
+    -- The type constructor a constructor's type ends in, under its binders.
+    built : TT vs -> Maybe Name
+    built (Bind _ _ (Pi {}) sc) = built sc
+    built tm = case getFnArgs tm of
+      (Ref _ (TyCon _) tn, _) => Just tn
+      _ => Nothing
 
 ||| Is a type the type of implementations, whatever binds a value of it?
 ||| Idris passes a function's constraints to its `where` functions and its
@@ -659,8 +694,10 @@ mutual
   constructor chain acc fc owner inst targs ps keep dcon = do
     def <- lookupDef fc owner dcon
     let cname = show (fullname def)
-    DCon tag arity _ <- pure (definition def)
+    DCon _ arity _ <- pure (definition def)
       | _ => reject fc owner CompiledModule (cname ++ " is not a constructor")
+    Just cid <- conIdOf inst def
+      | Nothing => reject fc owner CompiledModule (cname ++ " is not a constructor")
     loc <- toLoc (location def)
     -- The type as written may hide its binders behind a definition
     -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
@@ -673,7 +710,7 @@ mutual
       internal (location def) (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
                                show (length layout))
     kinds <- walk chain acc cname (location def) targs 0 layout none ty
-    let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) (mapMaybe fieldBinder kinds) loc
+    let con = MkCon cid (shortName (fullname def)) (mapMaybe fieldBinder kinds) loc
                     (fromMaybe CtorRole.Plain (hooksOf (fullname def)).plays)
     update TState { cons $= insert con.id (MkConLayout kinds (fullname def) con) }
     pure (con, kinds)

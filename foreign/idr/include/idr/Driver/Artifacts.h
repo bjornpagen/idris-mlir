@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What a compilation reads and writes. The input's kind is its extension,
-// and every file the compilation writes is named from one base. Each output
-// is written whole or not at all, and is removed when the compilation
-// fails.
+// and every file the compilation writes is named from one base but the
+// report, which --report names. Each output is written whole or not at all,
+// and is removed when the compilation fails; the report is never removed,
+// since it says why one failed.
 #ifndef IDR_DRIVER_ARTIFACTS_H
 #define IDR_DRIVER_ARTIFACTS_H
 
@@ -27,11 +28,14 @@ class Triple;
 namespace idr::driver {
 
 // Where the compilation's module comes from, by the input's extension. A
-// module is MLIR's, text or bytecode, and goes straight to the pipeline: it
-// is itself what the pipeline reads, and nothing writes a Core. Anything
-// else is Idris source, which the frontend reads into the Core and the
-// module, both named from the base: the frontend decides, by Idris's own
-// extensions, whether it reads it, so only MLIR's are named here.
+// module is MLIR's, text or bytecode, and is itself what the compilation
+// reads in process, so nothing writes a Core; what it holds decides where
+// it goes, no option: a handoff module, as the frontend writes one, goes to
+// the pipeline, and a module of the LLVM dialect alone, the pipeline's
+// output, goes to LLVM. Anything else is Idris source, which the frontend
+// reads into the Core and the module, both named from the base: the
+// frontend decides, by Idris's own extensions, whether it reads it, so only
+// MLIR's are named here.
 struct FromIdris {
   std::string source, corePath, modulePath;
 };
@@ -57,14 +61,16 @@ using Product = std::variant<Executable, Archive>;
 // is its path without its extension. Idris source also leaves <base>.core
 // and <base>.mlirbc, the module the pipeline reads, as MLIR bytecode.
 //
-// The outputs of every plan are distinct from each other and from its
-// input, which would otherwise be overwritten, or removed as a stale output
-// when the compilation fails: `of` makes no other plan.
+// The files every plan writes, its outputs and its report, are distinct
+// from each other and from its input, which would otherwise be overwritten,
+// or removed as a stale output when the compilation fails: `of` makes no
+// other plan.
 class Plan {
 public:
-  // The plan for `input` and `product`, or none when two of its outputs
-  // are one file or one is the input.
-  static std::optional<Plan> of(llvm::StringRef input, Product product);
+  // The plan for `input`, `product` and the report, when one is asked for,
+  // or none when two of the files it writes are one or one is the input.
+  static std::optional<Plan> of(llvm::StringRef input, Product product,
+                                std::optional<std::string> report);
 
   // The directories of every file the compilation writes, made before
   // anything runs: the frontend, the pipeline and the link each write
@@ -72,19 +78,28 @@ public:
   // the steps before it have run.
   bool makeDirectories() const;
 
-  // The module the pipeline reads.
+  // The module the compilation reads in process.
   const std::string &modulePath() const;
 
   const std::string base;
   const Source source;
   const Product product;
+  // The file the compilation's report is written to, whatever its verdict:
+  // no output, since a failure keeps it.
+  const std::optional<std::string> report;
 
 protected:
-  Plan(std::string base, Source source, Product product);
+  Plan(std::string base, Source source, Product product, std::optional<std::string> report);
 
   // The files the compilation writes whose names are known before anything
-  // runs: the Core and the module for Idris source, and the product.
+  // runs and which it removes when it fails: the Core and the module for
+  // Idris source, and the product.
   std::vector<std::string> outputs() const;
+
+private:
+  // Every file the compilation writes whose name is known before anything
+  // runs: the outputs, and the report when there is one.
+  std::vector<std::string> written() const;
 };
 
 // A plan under way: from its making, every file the compilation writes is

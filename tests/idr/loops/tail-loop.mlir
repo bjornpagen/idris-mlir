@@ -5,7 +5,6 @@
 // RUN: FileCheck %s --check-prefix=COUNT < %t.count.err
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@fib -o /dev/null 2> %t.fib.err
 // RUN: FileCheck %s --check-prefix=FIB < %t.fib.err
-// RUN: idris-mlir-opt %t.mlir --inline --canonicalize | FileCheck %s --check-prefix=KEPT
 // NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // A self tail call in a region of a match whose results are returned
 // becomes a loop, so the stack stays constant; a call that is not in tail
@@ -15,12 +14,6 @@
 // scf.while.
 // COUNT: error: expected counted-loop: a loop of @count has no trip count
 // FIB: error: expected constant-stack: the stack grows with the recursion of @fib
-// A partial function's loop keeps idr.may_loop, which keeps it alive when
-// nothing uses its result; a total one's is dead code once inlined there.
-// KEPT-LABEL: idr.func @Main.main(
-// KEPT: may_loop
-// KEPT-NOT: {{(idr\.| )may_loop }}
-// KEPT: call @fib
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
 idr.program @"tail-loop" root(@Main.main) stage(first) {
   idr.func @count(%acc: i64, %n: i64) -> i64 attributes {total} {

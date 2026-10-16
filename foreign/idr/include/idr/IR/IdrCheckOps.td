@@ -121,14 +121,6 @@ def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", "Nonempty", [SameOperandsAndRe
   let assemblyFormat = "$str `,` $cause attr-dict `:` type($str)";
 }
 
-def Idr_CheckByteOp : Idr_CheckOp<"byte", "Byte", [
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
-  let summary = "the value, which must be from 0 to 255, else the program crashes";
-  let arguments = (ins I64:$value, StrAttr:$cause);
-  let results = (outs I64:$checked);
-  let assemblyFormat = "$value `,` $cause attr-dict";
-}
-
 def Idr_CheckFiniteOp : Idr_CheckOp<"finite", "Finite"> {
   let summary = "the value, which must be neither NaN nor infinite, else the program crashes";
   let arguments = (ins F64:$value, StrAttr:$cause);

@@ -1,0 +1,4 @@
+The Prelude's map, ++ and ranges build the list of 1112064 characters, and
+toList and == walk it, each as deep as the list is long: more frames than
+the 1 MiB stack holds, and they fit the one programs get. What is tested is
+the iterator's step, not their stack.

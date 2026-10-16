@@ -118,7 +118,8 @@ private:
   template <typename, template <typename> class...> friend class mlir::Op;
 };
 
-// An idr.io op (`Idr_PerformsIO`), what idr-effects looks for.
+// An idr.io op (`Idr_PerformsIO`), which the frontend orders in the world's
+// chain; what a function may do is idr::bodyEffect's.
 template <typename ConcreteType>
 class PerformsIO : public mlir::OpTrait::TraitBase<ConcreteType, PerformsIO> {
 private:

@@ -3,7 +3,5 @@ artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
-object: no undefined symbol outside the allowed set
+universal: holds
 prelude Prelude.Interfaces: 107 exports, each used (22 compile-time only: Alternative Applicative Bifoldable Bifunctor Bitraversable Foldable Functor MkAlternative MkApplicative MkBifoldable MkBifunctor MkBitraversable MkFoldable MkFunctor MkMonad MkMonoid MkSemigroup MkTraversable Monad Monoid Semigroup Traversable)
-dumps: parse and verify
-quantities: kept

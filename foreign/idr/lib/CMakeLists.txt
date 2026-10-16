@@ -101,6 +101,7 @@ add_mlir_library(IdrDriver
 	Driver/LinkRuntime.cpp
 	Driver/Main.cpp
 	Driver/Options.cpp
+	Driver/Outcome.cpp
 	Driver/Prepare.cpp
 	Driver/ReadRuntime.cpp
 	Driver/Run.cpp

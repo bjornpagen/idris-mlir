@@ -130,8 +130,9 @@ LogicalResult idr::detail::verifyHoles(Operation *op, const Ctor &ctor, ArrayRef
 
 // The constructor is one of the result's type, and the fields given are
 // its, the holes aside: in the owned stage a field that holds references
-// is owned (or exclusive), and moves into the cell. A cell idr-stack keeps
-// in its frame is a box's.
+// is owned (or exclusive), the field's type at the value's permission, and
+// moves into the cell. A borrow never fills a field: what a cell holds, it
+// owns. A cell idr-stack keeps in its frame is a box's.
 LogicalResult ConOp::verify() {
   if (getStack() && !isa<BoxType>(unrestricted(getResult().getType())))
     return emitOpError("is kept on the stack, which only a box's cell is");
@@ -145,8 +146,9 @@ LogicalResult ConOp::verify() {
     return failure();
   for (auto [index, expected] : llvm::enumerate(ctor.fields)) {
     Value value = getField(static_cast<unsigned>(index));
-    if (value && expected != value.getType() &&
-        !(isOwned(value.getType()) && view(value.getType()) == expected))
+    if (value && value.getType() != expected &&
+        !(isOwned(value.getType()) &&
+          value.getType() == atPermission(expected, gradeOf(value.getType()).permission)))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   }
   return success();

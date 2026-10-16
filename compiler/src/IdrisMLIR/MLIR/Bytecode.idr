@@ -151,6 +151,7 @@ section bs code contents = do
 ||| holds.
 record Numbered p where
   constructor MkNumbered
+  -- By the very text the file holds, which is what a table of it numbers.
   numbers : IORef (SortedMap String Nat)
   entries : IORef (SnocList p)
   count : IORef Nat
@@ -232,7 +233,8 @@ locationNumber w at =
 -- Ops and regions
 ------------------------------------------------------------------------------
 
-||| The values in scope, by SSA name, with their numbers.
+||| The values in scope, by SSA name, the only identity a value has in
+||| `IdrisMLIR.MLIR`, with their numbers.
 Scope : Type
 Scope = SortedMap String Nat
 

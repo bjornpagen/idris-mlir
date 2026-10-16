@@ -30,9 +30,10 @@ LogicalResult verifyCount(Operation *op, size_t count, StringRef what, MemRefTyp
 }
 
 // An element moves into an array, or out of it, at the element type at any
-// grade: plain before idr-rc, and owned after it when it holds references.
+// permission: plain before idr-rc, and owned after it when it holds
+// references.
 LogicalResult verifyElement(Operation *op, StringRef what, Type type, MemRefType array) {
-  if (view(type) != array.getElementType())
+  if (type != atPermission(array.getElementType(), gradeOf(type).permission))
     return op->emitOpError() << what << " has type " << type << ", but the array holds "
                              << array.getElementType();
   return success();
@@ -41,8 +42,8 @@ LogicalResult verifyElement(Operation *op, StringRef what, Type type, MemRefType
 // What every update is, on an array a world orders or on a value array's
 // buffer alike (UpdateOpInterface), said once. One index per dimension of
 // the array, and a region that binds the element alone, at the array's
-// element type at any grade, and yields the element, at any grade, then
-// each result.
+// element type at any permission, and yields the element, at any
+// permission, then each result.
 LogicalResult verifyUpdate(UpdateOpInterface op) {
   Operation *self = op.getOperation();
   if (failed(verifyCount(self, op.getIndices().size(), "indices", op.getArrayType())))
@@ -266,7 +267,7 @@ OpFoldResult NatToExtentOp::fold(FoldAdaptor adaptor) {
     return {};
   const APInt &value = big.getValue();
   if (value.isNegative() || value.getSignificantBits() > 64 ||
-      value.getSExtValue() > idr::ranges::smallMax)
+      value.getSExtValue() > IDRIS_RT_SMALL_MAX)
     return {};
   return IntegerAttr::get(IndexType::get(getContext()), value.getSExtValue());
 }
@@ -277,7 +278,7 @@ void NatToExtentOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
   idr::ranges::Bounds bounds = idr::ranges::boundsOf(ranges[0]);
   int64_t lo = std::max<int64_t>(bounds.lo.value_or(0), 0);
-  int64_t hi = std::min<int64_t>(bounds.hi.value_or(idr::ranges::smallMax), idr::ranges::smallMax);
+  int64_t hi = std::min<int64_t>(bounds.hi.value_or(IDRIS_RT_SMALL_MAX), IDRIS_RT_SMALL_MAX);
   if (hi < lo)
     hi = lo;
   setResultRange(getResult(), ConstantIntRanges::fromSigned(

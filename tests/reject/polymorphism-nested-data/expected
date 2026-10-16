@@ -1,6 +1,5 @@
-NEEDS-ACCEPTANCE: that a nested data type is refused at its constructor N, line 11, in the polymorphism category, naming Main.T[Int] and the larger Main.T[Builtin.Pair Int Int] its field needs, and does not hang
+NEEDS-ACCEPTANCE: that a nested data type is refused at its constructor N, line 11, in the polymorphism category, and does not hang
 compile: exit 3
 unsupported (polymorphism): the only error
 line: as the header says
-names: each as the header says
 artifacts: none

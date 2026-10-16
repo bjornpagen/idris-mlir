@@ -115,7 +115,7 @@ extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_mul(idris_rt_big a, 
   return mulLarge(a, b);
 }
 
-// The quotient of two small integers is small, but for smallMin / -1.
+// The quotient of two small integers is small, but for IDRIS_RT_SMALL_MIN / -1.
 extern "C" idris_rt_big idris_rt_big_div(idris_rt_big a, idris_rt_big b) {
   if (bothSmall(a, b)) {
     int64_t q, r;
@@ -135,7 +135,7 @@ extern "C" idris_rt_big idris_rt_big_mod(idris_rt_big a, idris_rt_big b) {
   return binary(a, b, mpz_mod);
 }
 
-// 2 - (2x + 1) = 2(-x) + 1, which overflows for smallMin alone.
+// 2 - (2x + 1) = 2(-x) + 1, which overflows for IDRIS_RT_SMALL_MIN alone.
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_neg(idris_rt_big a) {
   idris_rt_big negated;
   if (isSmall(a) && !__builtin_sub_overflow(idris_rt_big{2}, a, &negated)) [[likely]]

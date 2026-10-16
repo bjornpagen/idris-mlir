@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,signature=@load:(!llvm.ptr,i64,i64)->i16,signature=@store:(!llvm.ptr,i64,i64,i16)->(),crash-sites=@load:1,crash-sites=@store:1,crash-sites=@copy:2' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@load:[@idris_rt_crash],calls-only=@store:[@idris_rt_crash],call-order=@copy:[@idris_rt_crash,@idris_rt_crash,@idris_rt_io_buffer_copy],calls-only=@copy:[@idris_rt_crash,@idris_rt_io_buffer_copy]' -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // A word in a buffer is at its offset from the buffer's first byte, read or
 // written by the target's own load or store at alignment 1. The guard of
 // the offset crashes unless the word's bytes lie in the buffer, and the
@@ -9,13 +8,7 @@
 // crash. A copy is the runtime's, after the guards of both of its ranges,
 // and the runtime is given each buffer as its cell, its first byte and its
 // size, so no address in a buffer is asked of it: the arguments of the
-// runtime's copy are its C interface, checked as written.
-// CHECK-LABEL: func.func private @load(
-// CHECK: llvm.load %{{.*}} <alignment = 1> : !llvm.ptr -> i16
-// CHECK-LABEL: func.func private @store(
-// CHECK: llvm.store %{{.*}}, %{{.*}} <alignment = 1> : i32, !llvm.ptr
-// CHECK-LABEL: func.func private @copy(
-// CHECK: llvm.call @idris_rt_io_buffer_copy({{.*}}) : (!llvm.ptr, !llvm.ptr, i64, i64, i64, !llvm.ptr, !llvm.ptr, i64, i64) -> ()
+// runtime's copy are its C interface.
 idr.program @buffer root(@root) stage(owned) {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 8 : i64

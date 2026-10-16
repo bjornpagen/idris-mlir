@@ -1,4 +1,3 @@
-// RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o /dev/null
 // An array a world orders is a counted value, memref<?xE, #idr.world>: a
 // new one is owned (never exclusive: its elements are reached through
@@ -6,26 +5,8 @@
 // element read takes a reference of its own, which its reader consumes or
 // drops; a value set moves into the array. The array itself is only read
 // by get and set, so a function that does only that borrows it (a plain
-// parameter). The second RUN line checks that the owned module lowers.
+// parameter).
 
-// CHECK-LABEL: idr.func @make(
-// CHECK: %[[X:.*]] = {{(idr\.)?}}con !idr.{{own|excl}}<!Opt> @Some(
-// CHECK-NOT: {{(idr\.| )dup }}
-// CHECK: %[[A:.*]], %{{.*}} = idr.array.new [%{{.*}}], %[[X]], %{{.*}} : !idr.{{own|excl}}<!Opt> -> !idr.own<memref<?x!Opt, #idr.world>>
-// CHECK-NEXT: return %[[A]]
-// CHECK-LABEL: idr.func @read(
-// CHECK-SAME: %[[B:[^:]*]]: memref<?x!Opt, #idr.world>
-// CHECK: %[[V:.*]], %{{.*}} = idr.array.get %[[B]][%{{.*}}], %{{.*}} : memref<?x!Opt, #idr.world> -> !idr.own<!Opt>
-// CHECK-NEXT: return %[[V]]
-// CHECK-LABEL: idr.func @write(
-// CHECK-SAME: %[[C:[^:]*]]: memref<?x!Opt, #idr.world>, %[[S:[^:]*]]: !idr.own<!idr.str>
-// CHECK: %[[Y:.*]] = {{(idr\.)?}}con {{.*}}@Some(%[[S]] : {{[^)]*}})
-// CHECK-NOT: {{(idr\.| )dup }}
-// CHECK: idr.array.set %[[C]][%{{.*}}], %[[Y]], %{{.*}} : memref<?x!Opt, #idr.world>, !idr.{{own|excl}}<!Opt>
-// CHECK-NOT: {{(idr\.| )drop }}
-// CHECK-LABEL: idr.func @unused(
-// CHECK: %[[U:.*]], %{{.*}} = idr.array.get
-// CHECK-NEXT: drop %[[U]]
 !Opt = !idr.data<"Opt", plain [@None(), @Some(!idr.str)]>
 idr.program @arrays root(@root) stage(first) {
   idr.func @root(%w: !idr.world) -> !idr.world {

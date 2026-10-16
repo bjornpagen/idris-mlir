@@ -24,8 +24,9 @@
 |||
 |||     runtests --sem-program <name>   the program of a semantics test
 |||     runtests --sem-expected <name>  the stdout its program must print
-|||     runtests --fuzz-program <seed> <cases> runtime|static
-|||                                     a program of the fuzzer (Fuzz.idr)
+|||     runtests --sem-names            the names of the semantics tests, one a line
+|||     runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...
+|||                                     a program or a case of the fuzzer (Fuzz.idr)
 |||     runtests --two-levels-program primitives|prelude terms|main
 |||                                     a module of the two levels (TwoLevels.idr)
 |||     runtests --lock                 the check of toolchain.lock.json
@@ -144,7 +145,7 @@ suites =
       , pool "determinism: byte-identical artifacts" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
       , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]
-      , pool "fuzz: closed expressions over every primitive, each written three ways, against their recorded values" ["fuzz"]
+      , pool "fuzz: closed expressions over every primitive, each written four ways, held to each other and to the integers' documented meaning; Gen and its users on both hosts" ["fuzz"]
       , pool "two levels: closed terms over every primitive and the Prelude, compiled, against their recorded values" ["two-levels"]
       , pool "bench: every benchmark builds and prints its recorded output" ["bench"]
       ])
@@ -171,8 +172,8 @@ takeOwn [] = (Nothing, [])
 runnerUsage : String
 runnerUsage = unlines
   [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [Test.Golden options]"
-  , "       runtests --sem-program <name> | --sem-expected <name> | --lock"
-  , "       runtests --fuzz-program <seed> <cases> runtime|static"
+  , "       runtests --sem-program <name> | --sem-expected <name> | --sem-names | --lock"
+  , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
   , "       runtests --two-levels-program primitives|prelude terms|main"
   , Test.Golden.usage
   ]
@@ -207,10 +208,11 @@ main = do
     ["--sem-expected", name] =>
       maybe (die ("no semantics test " ++ name)) putStr (expectedOf name)
     ("--fuzz-program" :: fuzz) =>
-      maybe (die "usage: runtests --fuzz-program <seed> <cases> runtime|static") putStr
+      maybe (die "usage: runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...") putStr
             (Fuzz.programOf fuzz)
     ("--two-levels-program" :: which) =>
       maybe (die "usage: runtests --two-levels-program primitives|prelude terms|main") putStr
             (TwoLevels.programOf which)
+    ["--sem-names"] => putStr (unlines Sem.names)
     ["--lock"] => Lock.check !root
     rest => runSuites (fromMaybe "runtests" (head' args)) rest

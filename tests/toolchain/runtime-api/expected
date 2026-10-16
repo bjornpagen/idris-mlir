@@ -1,16 +1,8 @@
-NEEDS-ACCEPTANCE: rc.c gained twelve checks (a new array's slots NULL from birth, and idris_rt_memref_copy on views of boxes and of doubles); confirm every one passes and the total reads 85
-api: built
+NEEDS-ACCEPTANCE: rc.c gained the checks of wide cells, of odd words in object slots and of idris_rt_caf_release, and idris_rt_is_unique takes a cell now, so its checks of NULL and odd words are gone; confirm every check passes and the total reads 101
 rc: built
-api: exit 0
-casts from String: 74 of 74 as idris_rt.h defines them
-doubles read back from their text: 30013 of 30013
-bytes as a string: 16 of 16 as idris_rt.h defines them
-random bytes as a string: 2000 of 2000 count their scalars, ASCII exactly when the counts agree
-live cells once every result is released: 0
-3136 operations: the results expected-operations holds
 rc: exit 0
 stack: 256 KiB
-rc: 85 of 85 checks as idris_rt.h defines them
+rc: 101 of 101 checks as idris_rt.h defines them
 idris-rt: live cells 0
 rc leak, IDRIS_RT_LIVE=1: exit 0
   stderr | idris-rt: live cells 1

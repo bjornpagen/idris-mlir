@@ -229,6 +229,13 @@ through `normalise`, `normaliseTypes`, `normaliseHoles` and `buildMain`
 (below), building packages, and the termination checker
 (`checkTerminating`), which reads each definition through the evaluator.
 
+`Idris.Host` is the fork's own module (no upstream file has it): the one
+record of these operations, a field each, and its one value, `host`, whose
+`assert_total` is the fork's statement that each returns. The fork is a
+library this compiler trusts, so its own assertions are admitted, where the
+same assertion in the frontend's modules, which are the program's, would be
+refused; the frontend calls these operations only through `host`.
+
 ### Rewritten so that this compiler can compile it
 
 These keep upstream's interfaces where they can, so that a re-sync stays a

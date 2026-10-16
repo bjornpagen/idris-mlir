@@ -1,20 +1,36 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # Determinism: the same program compiles to the same bytes whatever the
-# number of threads: one compilation at each of 1, 2 and 8 threads, byte
-# for byte; and one module through the pipeline under one thread and under
-# MLIR's pool.
+# number of threads: one compilation at each of 1, 3, 5 and 13 threads and
+# one more at 13 in a second process, byte for byte; and one module
+# through the pipeline under one thread and under MLIR's pool.
 
-# The thread counts every determinism check compiles at.
-determinism_threads_counts='1 2 8'
+# The compilations every determinism check makes, by their thread counts:
+# 1 runs serially; 3, 5 and 13 are pairwise coprime, so no two of them
+# split a list of work at the same boundaries, and 13 is more threads than
+# a small program has functions, so some threads get none; the last, 13
+# again, is a second process, so nothing a process draws when it starts
+# (where its allocator places things) reaches an artifact.
+determinism_runs='1 3 5 13 13'
+# The same compilations in words, as the transcripts name them: the
+# distinct counts, and a second process for a count that comes again.
+# shellcheck disable=SC2086 # the counts are words
+determinism_phrase=$(printf '%s\n' $determinism_runs | awk '
+  seen[$1]++ { again = 1; next }
+  { count[++n] = $1 }
+  END {
+    for (i = 1; i <= n; i++) words = words (i == 1 ? "" : i == n ? " and " : ", ") count[i]
+    print words " threads" (again ? " and in a second process" : "")
+  }')
 
 # determinism FIXTURE: an IO program in Main.idr with the installed
-# packages its `packages` names, compiled at each of 1, 2 and 8 threads,
+# packages its `packages` names, compiled by each of determinism_runs,
 # gives byte-identical artifacts of every kind (lib/compile.sh) and the
 # same module after every step of the pipeline. --num-threads comes after
 # the one tools/compile.sh passes, so it is the one that counts. Every
 # compilation runs in the one directory, so nothing differs by where it
-# ran, and its build is moved aside to $work/det<threads> after it.
+# ran, and its build is moved aside to $work/det<n> after it, n counting
+# the compilations.
 determinism() {
   det_packages=
   if [ -f "$1/packages" ]; then
@@ -22,56 +38,60 @@ determinism() {
   fi
   mkdir "$work/det"
   copy_fixture "$1" "$work/det"
-  for det_threads in $determinism_threads_counts; do
+  det_run=0
+  det_seen=
+  det_runs=
+  for det_threads in $determinism_runs; do
+    det_run=$((det_run + 1))
     rm -rf "$work/det/build"
     # shellcheck disable=SC2046,SC2086 # the packages and the dump options are words
     compile_program $det_packages --num-threads="$det_threads" \
       $(dump_options "$work/det/build/exec/prog.dump") "$work/det/Main.idr" prog
-    if [ "$det_threads" -eq 1 ]; then
-      say "compile at 1 thread: exit $compiled"
-    else
-      say "compile at $det_threads threads: exit $compiled"
-    fi
+    if [ "$det_threads" -eq 1 ]; then det_what="1 thread"; else det_what="$det_threads threads"; fi
+    case " $det_seen " in *" $det_threads "*) det_what="$det_what, a second process" ;; esac
+    det_seen="$det_seen $det_threads"
+    say "compile at $det_what: exit $compiled"
     if [ "$compiled" -ne 0 ]; then
       show "$work/compile.out" "$work/compile.err"
       return
     fi
-    mkdir "$work/det$det_threads"
-    mv "$work/det/build" "$work/det$det_threads/build"
+    mkdir "$work/det$det_run"
+    mv "$work/det/build" "$work/det$det_run/build"
+    det_runs="$det_runs $det_run"
   done
   for det_kind in $artifact_kinds; do
     det_differ=
     det_missing=
-    for det_threads in $determinism_threads_counts; do
-      artifact_files "$work/det$det_threads" prog "$det_kind" > "$work/files$det_threads"
-      [ -s "$work/files$det_threads" ] || det_missing=yes
-      sed "s|^$work/det$det_threads/||" "$work/files$det_threads" > "$work/names$det_threads"
+    for det_run in $det_runs; do
+      artifact_files "$work/det$det_run" prog "$det_kind" > "$work/files$det_run"
+      [ -s "$work/files$det_run" ] || det_missing=yes
+      sed "s|^$work/det$det_run/||" "$work/files$det_run" > "$work/names$det_run"
     done
     if [ -n "$det_missing" ]; then
       say "$det_kind: missing"
       continue
     fi
-    for det_threads in $determinism_threads_counts; do
-      cmp -s "$work/names1" "$work/names$det_threads" || det_differ=yes
+    for det_run in $det_runs; do
+      cmp -s "$work/names1" "$work/names$det_run" || det_differ=yes
       while IFS= read -r det_name; do
-        cmp -s "$work/det1/$det_name" "$work/det$det_threads/$det_name" || det_differ=yes
+        cmp -s "$work/det1/$det_name" "$work/det$det_run/$det_name" || det_differ=yes
       done < "$work/names1"
     done
     if [ -n "$det_differ" ]; then
-      say "$det_kind: differs between 1, 2 and 8 threads"
+      say "$det_kind: differs at $determinism_phrase"
     else
-      say "$det_kind: identical at 1, 2 and 8 threads"
+      say "$det_kind: identical at $determinism_phrase"
     fi
   done
   det_differ=
-  for det_threads in $determinism_threads_counts; do
-    step_dumps "$work/det$det_threads/build/exec/prog.dump" > "$work/dumps$det_threads"
-    sed 's|^.*/||' "$work/dumps$det_threads" > "$work/steps$det_threads"
+  for det_run in $det_runs; do
+    step_dumps "$work/det$det_run/build/exec/prog.dump" > "$work/dumps$det_run"
+    sed 's|^.*/||' "$work/dumps$det_run" > "$work/steps$det_run"
   done
   det_count=$(wc -l < "$work/dumps1" | tr -d ' ')
-  for det_threads in $determinism_threads_counts; do
-    cmp -s "$work/steps1" "$work/steps$det_threads" || det_differ="$det_differ (the steps)"
-    paste "$work/dumps1" "$work/dumps$det_threads" > "$work/pairs"
+  for det_run in $det_runs; do
+    cmp -s "$work/steps1" "$work/steps$det_run" || det_differ="$det_differ (the steps)"
+    paste "$work/dumps1" "$work/dumps$det_run" > "$work/pairs"
     while IFS="$(printf '\t')" read -r det_one det_other; do
       cmp -s "$det_one" "$det_other" || det_differ="$det_differ ${det_one##*/}"
     done < "$work/pairs"
@@ -79,9 +99,9 @@ determinism() {
   if [ "$det_count" -eq 0 ]; then
     say "dumps: none"
   elif [ -n "$det_differ" ]; then
-    say "dumps: differ between 1, 2 and 8 threads:$det_differ"
+    say "dumps: differ at $determinism_phrase:$det_differ"
   else
-    say "dumps: identical at 1, 2 and 8 threads"
+    say "dumps: identical at $determinism_phrase"
   fi
 }
 

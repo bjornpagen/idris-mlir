@@ -22,6 +22,7 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/Support/Actions.h"
 #include "idr/Support/Worklist.h"
 
 #include "mlir/Analysis/CallGraph.h"
@@ -40,6 +41,15 @@ using namespace mlir;
 
 namespace idr::tail {
 namespace {
+
+// idr-returned-arguments decides that one function's returned arguments
+// drop; the unit is the func.func. The action is the decision: a function
+// whose drop it skips keeps its results, and returns its argument all the
+// same, so what its callers' results are known to be stays true.
+struct ReturnedDropAction : support::TaggedAction<ReturnedDropAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-returned-arguments-drop";
+};
 
 using Known = Returned::Known;
 // An eligible function's result, by the function's slot and the result's
@@ -235,12 +245,14 @@ Returned::Returned(ModuleOp module) {
     if (llvm::none_of(function.results,
                       [](const Result &result) { return result.known.argument().has_value(); }))
       continue;
-    numDropped += static_cast<unsigned>(function.results.size() - function.kept().size());
-    changed.insert(fn.getSymNameAttr());
-    for (Operation *call : calls[i])
-      if (auto caller = call->getParentOfType<func::FuncOp>())
-        changed.insert(caller.getSymNameAttr());
-    functions[fn.getSymNameAttr()] = std::move(function);
+    (void)support::perform<ReturnedDropAction>(fn, [&] {
+      numDropped += static_cast<unsigned>(function.results.size() - function.kept().size());
+      changed.insert(fn.getSymNameAttr());
+      for (Operation *call : calls[i])
+        if (auto caller = call->getParentOfType<func::FuncOp>())
+          changed.insert(caller.getSymNameAttr());
+      functions[fn.getSymNameAttr()] = std::move(function);
+    });
   }
 }
 

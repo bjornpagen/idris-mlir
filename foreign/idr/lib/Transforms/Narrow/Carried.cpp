@@ -5,6 +5,7 @@
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -22,6 +23,12 @@ namespace idr::narrow {
 using ranges::Bounds;
 
 namespace {
+
+// idr-narrow makes one joint's carried bigs words; the unit is the joint op.
+struct NarrowJointAction : support::TaggedAction<NarrowJointAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-narrow-joint";
+};
 
 // Retypes the big block argument `arg` to i64: its uses get the big of it.
 // The argument belongs to the joint being rewritten, or to an op inside it.
@@ -96,15 +103,16 @@ unsigned narrowCarried(RewriterBase &rewriter, Facts &facts, Operation *op) {
     if (!llvm::all_of(inputs, [&](Value input) { return facts.fits(input); }) ||
         !llvm::all_of(operands, [&](OpOperand *operand) { return facts.fits(operand->get()); }))
       continue;
-    for (OpOperand *operand : operands)
-      passWord(rewriter, facts, operand->getOwner(), operand->getOperandNumber());
-    for (Value input : inputs) {
-      if (auto arg = dyn_cast<BlockArgument>(input))
-        narrowArgument(rewriter, facts, arg);
-      else
-        narrowResult(rewriter, facts, cast<OpResult>(input));
-    }
-    ++count;
+    count += support::perform<NarrowJointAction>(op, [&] {
+      for (OpOperand *operand : operands)
+        passWord(rewriter, facts, operand->getOwner(), operand->getOperandNumber());
+      for (Value input : inputs) {
+        if (auto arg = dyn_cast<BlockArgument>(input))
+          narrowArgument(rewriter, facts, arg);
+        else
+          narrowResult(rewriter, facts, cast<OpResult>(input));
+      }
+    });
   }
   return count;
 }

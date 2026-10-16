@@ -146,8 +146,7 @@ public:
            llvm::ArrayRef<bool> counted);
 
   // Whether the cell holds the only reference to itself, where it may be
-  // reused: count 1, and not in a stack frame, whose cell a callee it was
-  // lent to must never take over.
+  // reused, as the runtime decides it (idris_rt_is_unique); an i1.
   mlir::Value exclusive(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
 
   // The components of the constant `value` of type `type`: scalars as LLVM

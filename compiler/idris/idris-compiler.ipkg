@@ -78,6 +78,7 @@ modules =
     Idris.Elab.Interface,
     Idris.Env,
     Idris.Error,
+    Idris.Host,
     Idris.IDEMode.Holes,
     Idris.ModTree,
     Idris.Package,

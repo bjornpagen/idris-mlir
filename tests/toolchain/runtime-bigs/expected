@@ -1,0 +1,17 @@
+NEEDS-ACCEPTANCE: that the pinned clang builds bigs.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit
+bigs: built
+add, sub, mul: the integer GMP computes: ok
+div, mod: Euclidean: a = q*b + r and 0 <= r < |b|: ok
+and, or, xor: two's complement, bit by bit: ok
+shl, shr: a * 2^k and floor(a / 2^k), the other way for k < 0: ok
+neg, cmp, nat_from_big, pred: ok
+from_int_s, from_int_u, to_int: exact, and to_int modulo 2^64: ok
+to_double: nearest, ties to even, infinity past the largest: ok
+from_double: truncated toward zero: ok
+laws: commutative, associative, distributive, identities, inverses: ok
+laws: shifts compose and undo: ok
+small path = large path on small operands: ok
+box: every pair of edge values, every operation: ok
+box: every edge value shifted by every amount in [-130, 130]: ok
+every operation borrows its operands and returns one owned result: ok
+bigs: exit 0

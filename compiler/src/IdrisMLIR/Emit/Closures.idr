@@ -61,6 +61,7 @@ captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 record Numbering where
   constructor MkNumbering
   next : Nat
+  -- By SSA name, the only identity a value has in `IdrisMLIR.MLIR`.
   names : SortedMap String String
 
 numbered : Numbering -> Occurrence -> Numbering
@@ -92,6 +93,15 @@ renumbered r = renameRegion (renamedBy (walkRegion numbered (MkNumbering 0 empty
 functionOp : String -> MlirType -> Region -> Op
 functionOp sym type body = Idr.funcOp {total' = True} sym type body
 
+||| What a lifted function's body was in its owner, which its symbol says.
+public export
+data Lifted = LiftedLambda | LiftedDelay
+
+||| A lifted kind as its symbol spells it.
+liftedText : Lifted -> String
+liftedText LiftedLambda = "lam"
+liftedText LiftedDelay = "delay"
+
 ||| The function a lambda's or a delay's body becomes, among its owner's,
 ||| and its symbol and captures. `params` are the arguments the body binds
 ||| itself (a lambda's parameter, none for a delay), `body` its statements
@@ -101,7 +111,7 @@ functionOp sym type body = Idr.funcOp {total' = True} sym type body
 ||| text without its name and locations; a symbol written already with that
 ||| text is the same function, and with another text an internal error.
 export
-lift : Loc -> (kind : String) -> List Argument -> List Statement -> List MlirType
+lift : Loc -> (kind : Lifted) -> List Argument -> List Statement -> List MlirType
     -> E (String, List Value)
 lift l kind params body results = do
   let caps = captures (MkRegion params body)
@@ -112,11 +122,11 @@ lift l kind params body results = do
       type = FunctionType (MkSignature (map (.value.type) args) results)
       key = genericForm (functionOp "" type region)
   st <- get
-  let sym = contentName st.owner kind key
+  let sym = contentName st.owner.name (liftedText kind) key
   case lookup sym st.keys of
     Just known =>
       if known == key then pure (sym, caps)
-      else internal ("two functions of " ++ st.owner ++ " are named " ++ sym)
+      else internal ("two functions of " ++ show st.owner ++ " are named " ++ sym)
     Nothing => do
       put ({ keys $= insert sym key,
              lifted $= (:< MkStatement Nothing (functionOp sym type region) (Named st.definition l)) } st)

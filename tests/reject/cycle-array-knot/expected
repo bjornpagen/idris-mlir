@@ -2,5 +2,4 @@ NEEDS-ACCEPTANCE: where the cycle refusal is now reported. The header keeps line
 compile: exit 3
 unsupported (cycle): the only error
 line: as the header says
-message: as the header says
 artifacts: none

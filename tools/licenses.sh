@@ -47,7 +47,7 @@ NOTICE -- the attribution notices, which quote the parties' own
 */expected */expected-* */expected.* *.check *.expect -- what a test compares its output with
 */stdin */input */input-from *.in *.out -- what a test or a benchmark reads, byte for byte
 */packages */covers */heap-free */constant-stack */live-cells */default-stack */libm-lines */symbols */targets */compare */reference */about */libs -- a mark or a datum of a fixture or a benchmark, which its harness reads
-*/allowlist */allowed */uncovered -- a list a spec test reads
+*/allowlist */allowed */uncovered */without-fixture -- a list a spec test reads
 tests/*/*.idr tests/*.mlir -- a fixture's source, whose line numbers reach its expected output
 upstream/*/*.mlir upstream/*/*.ll upstream/*/*.sh upstream/*/*.idr upstream/*/*.c upstream/*/*.cpp -- a reproducer, which its report quotes and its upstream test copies
 bench/runs/* bench/profiles/* -- a record of a measurement, kept as it was taken

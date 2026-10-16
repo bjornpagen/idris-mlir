@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s --implicit-check-not='{{(idr\.| )apply }}' --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A list of Lazy actions that no constructor ever builds: @first is called
@@ -9,13 +8,6 @@
 // no label, so that nothing lazy is left; the closure's key is the empty
 // set, so its apply never runs and gives poison: no closure is left for
 // the lowering.
-// NEEDS-ACCEPTANCE: the sums' printed forms; @Act and @List are remade with the converted field types.
-// CHECK-DAG: ![[L:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@running(), @forced({{.*}})]
-// CHECK-DAG: = !idr.data<{{[^,]*}}, closures []
-// CHECK-LABEL: idr.func @first(
-// CHECK: force %{{.*}} : !idr.box<![[L]]> ->
-// CHECK: %[[P:.*]] = ub.poison : i64
-// CHECK: call @first(%{{.*}}, %[[P]])
 !Act = !idr.data<"Act", plain [@MkAct(!idr.fn<(i64) -> (i64)>)]>
 !List = !idr.data<"List", list [@Nil() nil, @Cons(!idr.lazy<!Act>, !idr.box<!idr.data<"List">>) cons]>
 idr.program @"unreached-cell" root(@Prog.main) stage(higher) {

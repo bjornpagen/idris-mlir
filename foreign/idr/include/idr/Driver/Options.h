@@ -21,6 +21,7 @@ namespace idr::driver {
 
 extern llvm::cl::opt<std::string> inputPath;
 extern llvm::cl::opt<std::string> outputPath;
+extern llvm::cl::opt<std::string> reportPath;
 extern llvm::cl::opt<bool> objectOnly;
 extern llvm::cl::list<std::string> packages;
 extern llvm::cl::list<std::string> packagePath;

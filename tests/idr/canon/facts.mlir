@@ -4,6 +4,7 @@
 // RUN: builds-nothing=@delayed_crash,crash-sites=@delayed_crash:2 -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@across_computing -o /dev/null
 // RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// NEEDS-ACCEPTANCE: @applies declares every effect, as the verifier's effect rule asks of a function that applies a closure; the canonicalizer's answers are unchanged.
 // NEEDS-ACCEPTANCE: that a canonicalizer without the program's symbol table keeps every call where it is and moves nothing across one, and keeps every unused call.
 // Canonicalization moves code as the effects of each op answer. A call
 // holds no effects of its own: what it does is its callee's, which a
@@ -17,7 +18,7 @@
 // path. Dead code removal reads the call alone too, so every unused call
 // stays (idr-pure-calls drops those of pure callees). A callee that
 // applies a closure it is given may do what that closure does, which
-// nothing here knows: it may crash or never return.
+// nothing here knows: it may write, crash or never return.
 
 !Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
 idr.program @facts root(@root) stage(higher) {
@@ -33,7 +34,7 @@ idr.program @facts root(@root) stage(higher) {
     %r = idr.div signed %x, %x : i64
     return %r : i64
   }
-  idr.func @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {effects = #idr.effects<crash, diverge>} {
+  idr.func @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
     %r = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }

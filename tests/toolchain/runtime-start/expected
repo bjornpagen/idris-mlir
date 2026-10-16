@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the entry names a missing bit no feature names by its number (this processor lacks bit 63), on both targets
 million: exit 0
   stdout | 42
 million, IDRIS_RT_STACK=8388608: exit 1
@@ -17,4 +18,4 @@ negative: exit 1
 million, IDRIS_RT_STACK=12x: exit 1
   stderr | idris-mlir: IDRIS_RT_STACK is not a number of bytes above 0
 cpu: exit 1
-  stderr | idris-mlir: this processor lacks, which the program was compiled to use
+  stderr | idris-mlir: this processor lacks bit 63, which the program was compiled to use

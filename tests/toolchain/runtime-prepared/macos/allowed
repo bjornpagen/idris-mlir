@@ -1,0 +1,23 @@
+# What the prepared runtime may need on arm64 macOS beyond ../allowed,
+# in the same form.
+#
+# libSystem: errno's location, the stack protector, thread-local
+# variables, the zero fill code generation calls on Darwin, the descriptor
+# check select's macros expand to, and what snmalloc's Apple platform calls
+# for its memory, its waits on an address and its entropy.
+__error
+__stack_chk_fail
+__stack_chk_guard
+_tlv_bootstrap
+bzero
+__darwin_check_fd_set_overflow
+mach_task_self_
+mach_vm_map
+__ulock_wait
+__ulock_wake
+CCRandomGenerateBytes
+#
+# compiler-rt: the CPU features __builtin_cpu_supports reads at the
+# program's entry.
+__aarch64_cpu_features
+__init_cpu_features_resolver

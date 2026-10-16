@@ -45,6 +45,7 @@ add_mlir_library(IdrInline
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
+	IdrSupport
 	IdrIR
 	IdrAnalysis
 	MLIRIR
@@ -105,6 +106,7 @@ add_mlir_library(IdrSmallPasses
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
+	IdrSupport
 	IdrIR
 	IdrAnalysis
 	MLIRIR
@@ -128,6 +130,7 @@ add_mlir_library(IdrCanonicalize
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
+	IdrSupport
 	IdrIR
 	MLIRIR
 	MLIRPass
@@ -256,6 +259,7 @@ add_mlir_library(IdrTail
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
+	IdrSupport
 	IdrIR
 	IdrAnalysis
 	MLIRIR
@@ -291,6 +295,7 @@ add_mlir_library(IdrNarrow
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
+	IdrSupport
 	IdrIR
 	IdrAnalysis
 	MLIRIR
@@ -394,6 +399,7 @@ add_mlir_library(IdrColumns
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
+	IdrSupport
 	IdrIR
 	IdrStructureLoops
 	MLIRIR
@@ -430,6 +436,7 @@ add_mlir_library(IdrExpect
 	Expect/Does.cpp
 	Expect/Facts.cpp
 	Expect/Folds.cpp
+	Expect/Folded.cpp
 	Expect/Fused.cpp
 	Expect/Growth.cpp
 	Expect/Guards.cpp
@@ -494,6 +501,29 @@ add_mlir_library(IdrExpect
 	MLIRLinalgDialect
 	MLIRTensorDialect
 	MLIRVectorDialect
+)
+
+# The contracts idris-mlir-opt --idr-contracts checks after every pass on
+# the module or the program, idr-expect's definitions among them, and the
+# pass that breaks one on purpose for their test.
+add_mlir_library(IdrContracts
+	Contracts/Contracts.cpp
+
+	EXCLUDE_FROM_LIBMLIR
+	DISABLE_INSTALL
+	PARTIAL_SOURCES_INTENDED
+
+	DEPENDS
+	IdrOpsIncGen
+	IdrPassesIncGen
+
+	LINK_LIBS PUBLIC
+	IdrExpect
+	IdrAnalysis
+	IdrIR
+	MLIRIR
+	MLIRPass
+	MLIRSupport
 )
 
 # The pipeline idris-mlir runs and the tools register: every pass the .td

@@ -39,7 +39,9 @@ int main(int argc, char **argv) {
   uint64_t required = 0;
   if (argc > 1)
     mode = argv[1];
-  /* A feature no processor has: the entry refuses to run the program. */
+  /* A bit no feature of either target's list names, which the entry's
+   * test of the processor never finds: it refuses to run the program and
+   * names the bit by its number. */
   if (strcmp(mode, "cpu") == 0)
     required = UINT64_C(1) << 63;
   int32_t status = idris_rt_start(body, required, argc, argv);

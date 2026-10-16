@@ -158,21 +158,26 @@ def Idr_StrScalarAtOp : Idr_Op<"str.scalar_at", [Pure, Idr_Runtime<"idris_rt_str
   let assemblyFormat = "custom<StrRead>($str, type($str)) `,` $offset attr-dict";
 }
 
-def Idr_StrScalarEndOp : Idr_Op<"str.scalar_end", [Pure, Idr_Runtime<"idris_rt_str_scalar_end">, Idr_Primitive,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
-  let hasFolder = 1;
-  let summary = "the byte offset after the character at a byte offset";
-  let arguments = (ins Idr_StrRead:$str, I64:$offset);
-  let results = (outs I64:$result);
-  let assemblyFormat = "custom<StrRead>($str, type($str)) `,` $offset attr-dict";
-}
-
 def Idr_StrDropBytesOp : Idr_StrBuilderOp<"drop_bytes", [Idr_Runtime<"idris_rt_str_drop_bytes">, Idr_Primitive]> {
   let summary = "the characters of a string from a byte offset on";
   let arguments = (ins Idr_StrRead:$str, I64:$offset);
   let assemblyFormat = [{
     custom<StrRead>($str, type($str)) `,` $offset attr-dict custom<StrResult>(type($result))
   }];
+}
+
+// The linear string iterator's step past the character it read: the
+// length of the character's UTF-8, a function of the character alone,
+// since every string is well-formed UTF-8. The length is the runtime's one
+// rule, the one idr.str.from_char encodes a character by, so the iterator
+// states none of its own. Folded by calling the runtime.
+def Idr_StrScalarBytesOp : Idr_Op<"str.scalar_bytes", [Pure, Idr_Runtime<"idris_rt_str_scalar_bytes">, Idr_Primitive,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let hasFolder = 1;
+  let summary = "the number of bytes of a character's UTF-8";
+  let arguments = (ins I32:$value);
+  let results = (outs I64:$result);
+  let assemblyFormat = "$value attr-dict";
 }
 
 // The index is at least 0 and below the string's length: idr.check.in_bounds

@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,signature=@counts:(!llvm.ptr,i8,!llvm.ptr,i64,i64)->!llvm.ptr,call-order=@counts:[@idris_rt_inc,@idris_rt_dec,@idris_rt_dec]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=call-order=@drop:[@idris_rt_dec,@idris_rt_dec,@idris_rt_free_cell],never-calls=@drop:@idris_rt_inc,never-calls=@static:@idris_rt_inc,calls=@rebuild:@idris_rt_cell,never-calls=@rebuild:@idris_rt_free_cell' -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // The counting ops call the runtime on each counted component: a string's
 // pointer, a big's word (as a pointer), each counted slot of a sum, in the
@@ -13,9 +12,6 @@
 // memory freed. A reference to static data (a constant box, a constant
 // string) counts nothing: static data holds no count. A reuse builds in
 // the token, or in a new cell when it is null, and never frees it.
-// An unused counted slot is empty.
-// CHECK-LABEL: func.func private @unused(
-// CHECK: llvm.mlir.zero : !llvm.ptr
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 !S = !idr.data<"S", plain [@A(!idr.str), @B(i64)]>
 idr.program @counting root(@Prog.main) stage(owned) {

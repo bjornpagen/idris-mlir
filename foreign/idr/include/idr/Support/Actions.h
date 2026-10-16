@@ -5,7 +5,8 @@
 // idris-mlir-opt a debug counter (-mlir-debug-counter=<tag>-skip=N,
 // <tag>-count=M) can bisect them. A skipped action is a transform that does
 // not happen: the IR stays as it was, and valid. Each action's IR unit is
-// the call it transforms.
+// the op it transforms: a call, a function, a loop, a constructor, the op
+// whose value becomes a constant.
 #ifndef IDR_SUPPORT_ACTIONS_H
 #define IDR_SUPPORT_ACTIONS_H
 

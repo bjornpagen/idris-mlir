@@ -63,9 +63,11 @@ void StrScalarAtOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn
   setResultRange(getResult(), idr::ranges::nonNegative(32, 0, 0x10FFFF));
 }
 
-// An offset within the string's bytes.
-void StrScalarEndOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
-  setResultRange(getResult(), idr::ranges::nonNegative(64, 0, INT64_MAX));
+// One to four bytes, of any i32: one that is no scalar value has the
+// length its encoding has.
+void StrScalarBytesOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
+                                         SetIntRangeFn setResultRange) {
+  setResultRange(getResult(), idr::ranges::nonNegative(64, 1, 4));
 }
 
 // An index past the string's end reads outside it, so it stays below its

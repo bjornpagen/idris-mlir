@@ -6,7 +6,7 @@
 # far, names the cause and exits as a crash; main's value is the exit status
 # from 0 to 255, and any other is a crash that names it; IDRIS_RT_STACK sets
 # the stack's size; a processor without what the program needs is refused
-# before the program runs.
+# before the program runs, and named.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 runtime=$dev_prefix/runtime/libidris_rt.a
 if ! runtime_c link_program -O1 "$here/start.c" "$runtime" -o "$work/start" \

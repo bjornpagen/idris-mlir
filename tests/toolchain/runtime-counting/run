@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Reference counting and arrays hold to a model of what idris_rt.h says
+# they mean, on every case counting.cpp draws: after each operation the
+# runtime's live cells, each live object's count and exclusivity, each
+# slot's word and the static cells agree with the model, wide cells, odd
+# words in slots, arrays held by boxes, view copies and memo cells
+# included; at a case's end nothing it made is live.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+. "$root/tests/toolchain/lib/prop.sh"
+prop_build "$here/counting.cpp" "$work/counting" || exit 0
+# 10000 cases ran in 0.3 s on the host build of the runtime for arm64
+# macOS; the owner's build of both targets confirms they end well within
+# step_limit.
+prop_run "$work/counting" --seed 1 --cases 10000

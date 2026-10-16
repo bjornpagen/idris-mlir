@@ -5,7 +5,7 @@
 # them (idris_rt_ops.h, which runtime/idris_rt.h includes) and as the
 # lowering and the folders read them (IdrRuntimeAbi.inc); the word op of
 # each big op (IdrBigToWord.inc); the rules a refusal names, with their
-# categories, for the tests (IdrRules.txt). They come first, so that the
+# categories, for the tests (IdrRules.txt); the role of each pass (IdrPassRoles.txt). They come first, so that the
 # ops' headers' target, made after them, depends on them, and everything
 # that waits on the ops' headers waits on these too.
 set(TABLEGEN_OUTPUT "")
@@ -16,6 +16,10 @@ tablegen(IDR idris_rt_ops.h -gen-runtime-abi-decls)
 tablegen(IDR IdrRuntimeAbi.inc -gen-runtime-abi-defs)
 tablegen(IDR IdrBigToWord.inc -gen-big-to-word)
 tablegen(IDR IdrRules.txt -gen-rule-list)
+# The role of each pass, read from the passes' declarations, beside the
+# rules for the tests (IdrPassRoles.txt).
+set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/../Transforms/Passes.td)
+tablegen(IDR IdrPassRoles.txt -gen-pass-roles)
 add_public_tablegen_target(IdrRuntimeAbiIncGen)
 set(TABLEGEN_OUTPUT "")
 

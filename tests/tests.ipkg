@@ -7,7 +7,9 @@ brief = "The golden test runner of idris-mlir"
 depends = contrib, test
 sourcedir = "."
 modules = Fuzz
+        , Gen
         , Lock
+        , Prims
         , Runner
         , Sem
         , TwoLevels

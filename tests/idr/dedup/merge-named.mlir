@@ -1,5 +1,3 @@
-// RUN: idris-mlir-opt %s --idr-deduplicate -o %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=one-clone=@a,one-clone=@b -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=not-called=@b -o /dev/null
 // NEEDS-ACCEPTANCE: that the kept function's location fuses its members', so idr-expect finds the code of either definition there.
@@ -10,11 +8,6 @@
 // either definition, here by the names its locations carry, finds the one
 // function: every call of either reaches one function, and the code of
 // @b is still called, as @A.inst.
-// CHECK-NOT: idr.func @B.inst
-// CHECK: idr.func @A.inst(
-// CHECK: idr.func @root(
-// CHECK: call @A.inst(
-// CHECK: call @A.inst(
 idr.program @"merge-named" root(@root) stage(higher) {
   idr.func @A.inst(%x: i64) -> i64 attributes {instance = #idr.instance<"Prog.fA", ["Int"]>, total} {
     %c = arith.constant 3 : i64

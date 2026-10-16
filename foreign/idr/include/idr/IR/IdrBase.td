@@ -224,7 +224,7 @@ def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
 // writes the cases into Idris as they are.
 def Idr_CheckKind : I32EnumAttr<"CheckKind", "the condition a guard checks", [
     I32EnumAttrCase<"Nonzero", 0, "nonzero">, I32EnumAttrCase<"InBounds", 1, "in_bounds">,
-    I32EnumAttrCase<"Nonempty", 2, "nonempty">, I32EnumAttrCase<"Byte", 3, "byte">,
+    I32EnumAttrCase<"Nonempty", 2, "nonempty">,
     I32EnumAttrCase<"Finite", 4, "finite">, I32EnumAttrCase<"InRange", 5, "range">]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;

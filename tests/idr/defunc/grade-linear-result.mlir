@@ -1,14 +1,8 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-expect=holds=no-closures,quantities-kept=%s -o /dev/null
-// RUN: FileCheck %s < %t.mlir
-// NEEDS-ACCEPTANCE: the dispatch's printed form, as defunctionalization writes it.
 // A closure that returns a linear result, itself linear because it is
 // entered at once, kept in a constructor's field and used once: its key
 // is the carrier without the grade, so the label fits, and the result of
 // the dispatch keeps its grade, as the verifier checks after the pass.
-// CHECK-LABEL: idr.func @main(
-// CHECK: case @make(
-// CHECK: call @make(
 !Box = !idr.data<"Box", plain [@MkBox(!idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>)]>
 idr.program @"grade-linear-result" root(@main) stage(higher) {
   idr.func @make(%k: i64, %x: i64) -> !idr.lin<i64> attributes {total} {

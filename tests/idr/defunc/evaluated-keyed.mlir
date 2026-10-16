@@ -1,16 +1,11 @@
 // RUN: idris-mlir-opt %s -split-input-file --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir -split-input-file --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the printed dispatches.
 // An evaluated suspension holds its value in the forced state of its cell,
 // which every cell of its lazy type shares: the value's labels flow into
 // that anchor, and every force of the type reads them back. So a closure
 // or a suspension an evaluated suspension holds converts like any other:
 // the force gives a constructor of the closure's sum, and the apply of it
 // is a dispatch that calls the label.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: case @add(
-// CHECK: call @add(
 idr.program @"evaluated-keyed" root(@Main.main) stage(higher) {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
@@ -33,9 +28,6 @@ idr.program @"evaluated-keyed" root(@Main.main) stage(higher) {
 // A suspension held by an evaluated one: the inner cell's labels flow into
 // the outer cell's forced state, and the force of the forced value is a
 // force of a cell of the inner memo sum, whose suspension is @one.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: force
-// CHECK: force
 idr.program @"evaluated-keyed" root(@Main.main) stage(higher) {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64

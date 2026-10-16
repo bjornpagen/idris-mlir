@@ -4,8 +4,8 @@ module Main
 -- The null pointer is the null handle, a literal; a test of null is the
 -- handle operation; a cast between pointer types is the handle it is
 -- given; and a string handle's string is read with the handle operation,
--- as base's getEnv reads a variable's value. translate.check finds none of
--- them called in full Core, and the program prints expected-stdout.
+-- as base's getEnv reads a variable's value. The program prints
+-- expected-stdout.
 
 import Prelude
 import System

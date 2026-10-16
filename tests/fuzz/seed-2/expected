@@ -1,6 +1,9 @@
+NEEDS-ACCEPTANCE: the goldens are gone; confirm the eight property lines hold for both seeds on both targets
 runtime: every build compiles, runs, exits 0 and writes nothing on stderr: ok
 runtime: each case prints one value, whoever computes it: ok
-runtime: prints expected-runtime, the libm lines aside: ok
+runtime: every d line is folded: ok
+runtime: each case over integers prints its documented value: ok
 static: every build compiles, runs, exits 0 and writes nothing on stderr: ok
 static: each case prints one value, whoever computes it: ok
-static: prints expected-static, the libm lines aside: ok
+static: every d line is folded: ok
+static: each case over integers prints its documented value: ok

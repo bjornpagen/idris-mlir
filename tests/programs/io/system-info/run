@@ -14,6 +14,7 @@ if ! n=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null); then
   echo "neither nproc nor sysctl reported a processor count" >&2
   exit 1
 fi
-printf '%s\n' "$os" "$windows" mlir "$n" > expected-stdout
-trap 'rm -f expected-stdout' EXIT
-e2e_io .
+mkdir "$work/fixture"
+cp Main.idr "$work/fixture/"
+printf '%s\n' "$os" "$windows" mlir "$n" > "$work/fixture/expected-stdout"
+e2e_io "$work/fixture"

@@ -172,26 +172,15 @@ struct LowerToChar : IdrPattern<ToCharOp> {
   }
 };
 
-// to_byte: the low byte of a value from 0 to 255, which its guard checked.
-struct LowerToByte : IdrPattern<ToByteOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ToByteOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, rewriter.getI8Type(), adaptor.getValue());
-    return success();
-  }
-};
-
 } // namespace
 
 // The patterns of crashes, of what has no runtime form (a forged world),
 // of the effect a loop that need not end keeps, and of the scalar
-// operations whose meaning is more than arith's: division, shifts, chars and
-// bytes.
+// operations whose meaning is more than arith's: division, shifts and chars.
 void populateScalarPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerCrash, LowerWorldNew, LowerMayLoop, LowerToChar, LowerToByte,
-               LowerDivision<DivOp>, LowerDivision<ModOp>, LowerShift<ShlOp>, LowerShift<ShrOp>>(
+  patterns.add<LowerCrash, LowerWorldNew, LowerMayLoop, LowerToChar, LowerDivision<DivOp>,
+               LowerDivision<ModOp>, LowerShift<ShlOp>, LowerShift<ShrOp>>(
       converter, patterns.getContext(), layouts, runtime);
 }
 

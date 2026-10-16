@@ -76,8 +76,10 @@ staticOf (ValueParam _ shape _) = shape
 
 ||| A full name, printed so that different names print differently: Idris's
 ||| `show` prints only the display part of a `DN` and leaves out the index of
-||| a case or with block. The translation's own maps are keyed by it; it is
-||| no part of what the program is called, which `Keys` prints.
+||| a case or with block. It is a print, for a refusal that names a
+||| definition (the polymorphic recursion's); no table is keyed by it, since
+||| a definition is its address (`definitionAddress`), and it is no part of
+||| what the program is called, which `Keys` prints.
 export
 nameKey : Name -> String
 nameKey (NS ns n) = show (NS ns (UN (Basic (nameKey n))))
@@ -86,22 +88,37 @@ nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
 nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
 nameKey n = show n
 
-||| A function instance requested: its identity, its definition (with the
-||| full name as `nameKey` prints it), its parameters as the call that
-||| requested it classified them, so that it is translated at the same
-||| values, its key, the call that requested it, where and in whose
-||| definition, which a refusal of its chain names, and its link, which is
-||| its identity and what its chain compares (`Finite`).
+||| A name of the context by its index, as the index's eight bytes, the low
+||| byte first: what a definition is, which the request links compare.
+export
+addressOf : Int -> Address
+addressOf i = bytes 8 (cast i)
+  where
+    bytes : (k : Nat) -> Integer -> Vect k (Fin 256)
+    bytes Z _ = []
+    bytes (S k) v = restrict 255 v :: bytes k (v `div` 256)
+
+||| A definition's identity: its address in the context; nothing for a
+||| name the context does not hold, which no table keeps.
+export
+definitionAddress : Context -> Name -> Maybe Address
+definitionAddress ctx n = addressOf <$> getNameID n ctx
+
+||| A function instance requested: its identity, its definition, its
+||| parameters as the call that requested it classified them, so that it is
+||| translated at the same values, its key, the call that requested it,
+||| where and in whose definition, as a refusal of its chain prints it, and
+||| its link, which is its identity, its definition's address, and what its
+||| chain compares (`Finite`).
 public export
 record Request where
   constructor MkRequest
   inst : FnId
   name : Name
-  base : String
   kinds : List PKind
   key : InstanceKey
   site : FC
-  owner : String
+  owner : Shown
   link : Link Form
 
 ||| Instances waiting to be translated, first in first out: the front in
@@ -167,13 +184,14 @@ record ConLayout where
   con : Con
 
 ||| The one implementation a dictionary field holds in the whole program,
-||| and the user definition that chose it: the one the first construction
-||| site's instance was requested for, through the library's instances.
+||| and the user definition that chose it, as a refusal prints it: the one
+||| the first construction site's instance was requested for, through the
+||| library's instances.
 public export
 record Dictionary where
   constructor MkDictionary
   impl : ClosedTerm
-  chooser : String
+  chooser : Shown
   site : FC
 
 export
@@ -213,9 +231,9 @@ record TS where
   requested : SnocList Request
   moduleFC : FC
   ||| The definitions whose component of the call graph has been checked
-  ||| (`Recursion`), by `nameKey`, each with whether every loop through it
+  ||| (`Recursion`), by address, each with whether every loop through it
   ||| terminates.
-  loops : SortedMap String Bool
+  loops : SortedMap Address Bool
   ||| The instances made, by their identity, the link (`Keys.instanceKey`):
   ||| each with its symbol and its key.
   named : SortedMap (Link Form) (String, InstanceKey)
@@ -224,10 +242,10 @@ record TS where
   ||| here.
   symbols : SortedMap String (Link Form)
   ||| What each case, with and nested block is called, `<parent>.case<k>`,
-  ||| by `nameKey`, and every definition whose blocks are named, by its own
-  ||| origin (`Keys`). A block's name depends only on the definitions, so
-  ||| each is found once and kept from pass to pass.
-  blockNames : SortedMap String String
+  ||| by its address, and every definition whose blocks are named, by its
+  ||| own origin (`Keys`). A block's name depends only on the definitions,
+  ||| so each is found once and kept from pass to pass.
+  blockNames : SortedMap Address String
   ||| The implementation each dictionary field holds, by constructor and
   ||| position among its arguments; the one part of the state a pass hands
   ||| to the next (`nextPass`).
@@ -253,20 +271,20 @@ record TS where
   ||| (`Errors.noting`), so that one run reports every independent one.
   rejected : SnocList Error
   ||| The definitions the checks of what the program reaches rejected, and
-  ||| the user definitions that refer to them, by `nameKey`: the translation
+  ||| the user definitions that refer to them, by address: the translation
   ||| leaves them out, since what it would find there is the same
   ||| rejection again, or something the checks exist to keep from it.
-  refused : SortedSet String
+  refused : SortedSet Address
   ||| The escape hatches and holes the source of a user module spells, by
-  ||| module and name, each rejected where it is written.
-  spelled : SortedSet (String, String)
+  ||| module and the name as spelt, each rejected where it is written.
+  spelled : SortedSet (ModuleIdent, String)
   ||| Where each module a location names comes from and its source file, by
-  ||| the module's name: facts of the module, found once each
-  ||| (`Errors.toLoc`), which no pass and no rejection changes.
-  places : SortedMap String (Origin, String)
+  ||| the module: facts of the module, found once each (`Errors.toLoc`),
+  ||| which no pass and no rejection changes.
+  places : SortedMap ModuleIdent (Origin, String)
   ||| What the translation reads of each type constructor's definition
-  ||| (`Types.tyConFacts`), by `nameKey`, found once each.
-  tyCons : SortedMap String TyConFacts
+  ||| (`Types.tyConFacts`), by address, found once each.
+  tyCons : SortedMap Address TyConFacts
 
 export
 initState : SortedSet Name -> FC -> TS

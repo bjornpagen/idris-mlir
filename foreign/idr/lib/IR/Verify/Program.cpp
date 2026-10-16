@@ -2,15 +2,17 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The rules of a program at the stage its idr.program says. The program's
 // own, which its symbol-use verifier runs once every op of it is verified,
-// on one thread: its root; its data types, a memo sum only in a box, no
-// array that can reach itself, and past the higher stage containment in
-// place acyclic and no closure or suspension in a body; and the cells its
-// reuses build in. And a function's, which its region verifier runs, in
-// parallel with every other function's: what the stage lets its values
-// hold, then its closures' flow, its linear values and its counting.
-// The stage is read from the program, never from what a function holds.
+// on one thread: its root; each function's declared effects covering what
+// its body may do; its data types, a memo sum only in a box, no array that
+// can reach itself, and past the higher stage containment in place acyclic
+// and no closure or suspension in a body; and the cells its reuses build
+// in. And a function's, which its region verifier runs, in parallel with
+// every other function's: what the stage lets its values hold, then its
+// closures' flow, its linear values and its counting. The stage is read
+// from the program, never from what a function holds.
 
 #include "idr/IR/Flow.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -58,6 +60,37 @@ LogicalResult rootType(FuncOp root) {
     return root.emitOpError("is the root, so its type must be () -> i64 or (!idr.world) -> (...), "
                             "not ")
            << type;
+  return success();
+}
+
+// Each function's declared effects cover what its body may do: what the
+// body does itself (bodyEffect, the rule idr-effects solves by), what each
+// function it calls declares, and everything for an idr.apply or an
+// idr.force, whose callee is a value. A solve says too much of a function,
+// never too little, so a set that misses a bit is the compiler's error, on
+// which a pass that trusts it (idr-pure-calls) would drop an effect. A
+// function without `effects` declares everything, which covers any body,
+// so only a declared set is walked. Every callee is an idr.func of the
+// program: the program's own verification ran each call's symbol-use check
+// before its symbol-use verifier runs this.
+LogicalResult effectsCovered(ProgramOp program) {
+  SymbolTable symbols(program.getOperation());
+  for (FuncOp fn : program.getOps<FuncOp>()) {
+    if (!fn.getEffectsAttr())
+      continue;
+    Effect required = bodyEffect(fn);
+    fn.getBody().walk([&](Operation *op) {
+      if (auto call = dyn_cast<CallOp>(op))
+        required = required | symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()).getEffects();
+      else if (isa<ApplyOp, ForceOp>(op))
+        required = required | anyEffect;
+    });
+    Effect declared = fn.getEffects();
+    if (!bitEnumContainsAll(declared, required))
+      return fn.emitOpError("declares the effects ")
+             << stringifyEffect(declared) << ", which do not cover what its body may do: "
+             << stringifyEffect(required & ~declared);
+  }
   return success();
 }
 
@@ -236,7 +269,7 @@ LogicalResult idr::verify::program(ProgramOp program) {
   if (!root)
     return program.emitOpError("has root ")
            << program.getRootAttr() << ", which is no idr.func of the program";
-  if (failed(rootType(root)))
+  if (failed(rootType(root)) || failed(effectsCovered(program)))
     return failure();
 
   // The data types the program's values and bodies hold, each once.

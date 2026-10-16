@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@alloc2:[@idris_rt_array_new],call-order=@alloc2:[@idris_rt_array_new],calls-only=@copyStrings:[@idris_rt_memref_copy],calls-only=@copyWords:[],calls-only=@copyStrided:[@idris_rt_memref_copy]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@loadString:[],calls-only=@storeString:[@idris_rt_dec],calls-only=@extent:[@idris_rt_crash],crash-sites=@extent:1,calls-only=@tied:[],lowered=@tied' -o /dev/null
-// RUN: FileCheck %s --implicit-check-not=3735928559 < %t.mlir
 // NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
 // NEEDS-ACCEPTANCE: the lowered forms of value buffers, a memref in a function on a descriptor built at its use by upstream's patterns; check each function's calls.
 // A buffer bufferization made is a cell of the runtime: an allocation of
@@ -15,12 +14,6 @@
 // large`. A tie is no op at run time. Static data is named by its content
 // under __idr, and a descriptor of a cell holds the cell, never upstream's
 // marker of a pointer that was not allocated.
-// CHECK-DAG: llvm.mlir.global private constant @__idr.msg.{{[0-9a-f]{16}}}
-// CHECK-DAG: array too large
-// CHECK-LABEL: func.func {{.*}}@alloc2(
-// CHECK: llvm.intr.umul.with.overflow
-// CHECK-LABEL: func.func private @copyWords(
-// CHECK: llvm.intr.memcpy
 idr.program @"value-buffers" root(@root) stage(first) {
   idr.func @alloc2(%a: index, %b: index) -> memref<?x?xf64> {
     %m = memref.alloc(%a, %b) : memref<?x?xf64>

@@ -62,8 +62,9 @@ void runProgram(void *argument) {
 // The processor test runs before anything that may use the features it
 // tests, so it stays compiled for the target's baseline: it is inlined into
 // idris_rt_start, and what it calls is marked as idris_rt_start is.
-// Names what the processor lacks, and ends the process as a crash does,
-// before the program has written anything.
+// Names what the processor lacks, each feature by its name and each bit no
+// feature names by its number, and ends the process as a crash does, before
+// the program has written anything.
 [[gnu::always_inline]] inline void checkCpu(uint64_t required) {
   uint64_t missing = required & ~rt::platform::cpuFeatures();
   if (missing == 0)
@@ -77,6 +78,20 @@ void runProgram(void *argument) {
   }
   IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_NAME)
 #undef IDRIS_RT_CPU_NAME
+  // The requirement is the program's word, which may hold a bit the
+  // target's list does not name (a program built against another list):
+  // the processor lacks it all the same, so it is named by its number.
+#define IDRIS_RT_CPU_BIT(bit, test, name) | uint64_t{1} << (bit)
+  constexpr uint64_t named = 0 IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_BIT);
+#undef IDRIS_RT_CPU_BIT
+  for (uint64_t unnamed = missing & ~named; unnamed != 0; unnamed &= unnamed - 1) {
+    static constexpr char bitText[] = " bit ";
+    char digits[rt::strings::intTextMax];
+    char *end = digits + sizeof digits;
+    char *start = rt::strings::formatUnsigned(static_cast<uint64_t>(__builtin_ctzll(unnamed)), end);
+    rt::platform::writeAll(2, bitText, sizeof bitText - 1);
+    rt::platform::writeAll(2, start, static_cast<size_t>(end - start));
+  }
   rt::platform::writeAll(2, suffix, sizeof suffix - 1);
   rt::platform::exitProcess(IDRIS_RT_CRASHED);
 }

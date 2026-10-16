@@ -13,8 +13,7 @@
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
-// The runtime's C ABI: a cell's header, the stack mark of its info and the
-// width of a header's tag.
+// The runtime's C ABI: a cell's header and the size of a word.
 #include "idris_rt.h"
 
 #include <optional>
@@ -97,12 +96,7 @@ void Runtime::storeWord(OpBuilder &b, Location loc, Value address, Value value) 
 }
 
 Value Runtime::exclusive(OpBuilder &b, Location loc, Value cell) {
-  Value count = LLVM::LoadOp::create(b, loc, b.getI32Type(), cell, alignAt(cellAlignment(), 0));
-  Value info = loadInfo(b, loc, cell);
-  Value one = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, count, i32Constant(b, loc, 1));
-  Value stack = LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, IDRIS_RT_STACK_CELL));
-  Value heap = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, stack, i32Constant(b, loc, 0));
-  return LLVM::AndOp::create(b, loc, one, heap);
+  return call(b, loc, "idris_rt_is_unique", b.getI1Type(), cell);
 }
 
 } // namespace idr::conversion

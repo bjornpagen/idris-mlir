@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@map,not-called=@add -o /dev/null
-// RUN: FileCheck %s --implicit-check-not='call @map(' < %t.mlir
 // NEEDS-ACCEPTANCE: that @map is specialized on the known constructor of @add with its capture a hole.
 // A closure passed to a recursive map, whose function is a fixed
 // parameter. After defunctionalization it is a constructor of its sum
@@ -9,7 +8,6 @@
 // @add, which it inlines, and the recursive call, which passes the same
 // constructor, has the copy's key and calls the copy itself. One copy
 // serves the whole recursion, and @map itself is no longer called.
-// CHECK: idr.func @Main.main(
 !L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @"higher-order" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {

@@ -236,6 +236,12 @@ struct InnerCounts {
   mlir::Pass::Statistic &pureMerged;
   mlir::Pass::Statistic &redirected;
   mlir::Pass::Statistic &constants;
+  // What the inner pipeline's canonicalize and cse counted: their statistics
+  // are their own on each copy of the pipeline, and the scheduler adds them
+  // here once the waves end (addInnerStatistics).
+  mlir::Pass::Statistic &notConverged;
+  mlir::Pass::Statistic &cseMerged;
+  mlir::Pass::Statistic &cseErased;
 };
 
 // What the inner pipeline's steps read of one run of idr-optimize, and where
@@ -318,6 +324,9 @@ public:
   uint64_t inlined() const { return numInlined; }
   uint64_t capped() const { return numCapped; }
   uint64_t made() const { return numMade; }
+  // Adds what each copy of the inner pipeline's canonicalize and cse counted
+  // to the run's InnerCounts; once, after the waves (Component.cpp).
+  void addInnerStatistics();
 
 private:
   // A turn, on a worker (Component.cpp).

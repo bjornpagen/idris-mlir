@@ -22,17 +22,18 @@ import Decidable.Equality
 ||| count the node's number), an as-pattern, a lazy type, a suspended value, a
 ||| forced one, an erased term, a universe, a string literal and a double
 ||| literal (the characters of the string and of the double's print
-||| follow), and the world.
+||| follow), the world, and a runtime value an implementation closes over
+||| (its number among those values the symbol's magnitude).
 public export
 data Shape
   = Applied | Variable | Reference | Hole | AsPattern | LazyType | Suspended | Forced
-  | Placeholder | Impossible | Dotted | Universe | Text | Floating | World
+  | Placeholder | Impossible | Dotted | Universe | Text | Floating | World | Marker
 
-shapeTable : Vect 15 Shape
+shapeTable : Vect 16 Shape
 shapeTable = [ Applied, Variable, Reference, Hole, AsPattern, LazyType, Suspended, Forced
-             , Placeholder, Impossible, Dotted, Universe, Text, Floating, World ]
+             , Placeholder, Impossible, Dotted, Universe, Text, Floating, World, Marker ]
 
-shapeCode : Shape -> Fin 15
+shapeCode : Shape -> Fin 16
 shapeCode Applied = 0
 shapeCode Variable = 1
 shapeCode Reference = 2
@@ -48,9 +49,10 @@ shapeCode Universe = 11
 shapeCode Text = 12
 shapeCode Floating = 13
 shapeCode World = 14
+shapeCode Marker = 15
 
 shapes : Numbered Shape
-shapes = MkNumbered 15 shapeCode (\i => index i Forms.shapeTable) decoded
+shapes = MkNumbered 16 shapeCode (\i => index i Forms.shapeTable) decoded
   where
     decoded : (x : Shape) -> index (shapeCode x) Forms.shapeTable = x
     decoded Applied = Refl
@@ -68,6 +70,7 @@ shapes = MkNumbered 15 shapeCode (\i => index i Forms.shapeTable) decoded
     decoded Text = Refl
     decoded Floating = Refl
     decoded World = Refl
+    decoded Marker = Refl
 
 export
 DecEq Shape where

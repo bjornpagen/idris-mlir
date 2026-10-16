@@ -1,7 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-optimize --time-trace=%t.json > %t-traced.mlir
 // RUN: idris-mlir-opt %s --idr-optimize > %t-plain.mlir
+// RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading > %t-serial.mlir
+// RUN: cmp %t-plain.mlir %t-serial.mlir
 // RUN: diff %t-traced.mlir %t-plain.mlir
 // RUN: FileCheck %s --check-prefix=TRACE < %t.json
+// NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // NEEDS-ACCEPTANCE: the zone names of idr-optimize's nodes and of the inner pipeline's passes.
 // A time trace (--time-trace) records the optimizer and every pass of the
 // pipeline it runs on each function, with what each ran on; writing one

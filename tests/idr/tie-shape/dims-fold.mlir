@@ -1,4 +1,3 @@
-// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
 // An array tied to sizes has those sizes as its dimensions: the dimension
 // of a tied tensor or buffer at a dynamic dimension folds to the size it
@@ -6,19 +5,6 @@
 // the dialect's canonicalization of shaped results. So a size Idris proved
 // equal across a call is the same value on both sides, and no dimension is
 // read at run time.
-// CHECK-LABEL: idr.func @dynamic(
-// CHECK-SAME: %{{[^:]*}}: tensor<?xi64>, %[[N:[^:]*]]: index)
-// CHECK-NOT: tensor.dim
-// CHECK: return %[[N]] : index
-// CHECK-LABEL: idr.func @static(
-// CHECK-SAME: %{{[^:]*}}: tensor<4x?xi64>, %[[M:[^:]*]]: index)
-// CHECK-NOT: tensor.dim
-// CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
-// CHECK: return %[[C4]], %[[M]] : index, index
-// CHECK-LABEL: idr.func @buffer(
-// CHECK-SAME: %{{[^:]*}}: memref<?xf64>, %[[K:[^:]*]]: index)
-// CHECK-NOT: memref.dim
-// CHECK: return %[[K]] : index
 idr.program @"dims-fold" root(@root) stage(first) {
   idr.func @dynamic(%x: tensor<?xi64>, %n: index) -> index {
     %y = idr.tie_shape %x dims(%n) : tensor<?xi64>

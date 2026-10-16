@@ -29,11 +29,12 @@ bool movesAs(Type type, Type expected) {
 
 } // namespace
 
-// The result is the value, owned.
+// The result is the value, owned: the value is the result at the
+// permission it holds, a borrow or plain static data, as its type bounds.
 LogicalResult DupOp::verify() {
-  if (view(getType()) != getValue().getType())
-    return emitOpError("has result ") << getType() << ", which is not " << getValue().getType()
-                                      << " owned";
+  Type value = getValue().getType();
+  if (value != atPermission(getType(), gradeOf(value).permission))
+    return emitOpError("has result ") << getType() << ", which is not " << value << " owned";
   return success();
 }
 LogicalResult DropOp::verify() { return success(); }

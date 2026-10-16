@@ -13,7 +13,8 @@ reproduce). `make test only=NAME` runs the tests whose path contains NAME:
 A test is a directory with a POSIX-sh `run` script and an `expected` file:
 the runner (Main.idr, Runner.idr) calls `run` with the compiler under test
 and compares its stdout with `expected`. `run` prints one line per check
-(the exit status, the artifacts, the output against the expected files),
+(the exit status, the artifacts, the output against the expected files,
+and one line, `universal: holds`, for what holds of every compilation),
 so a failure shows as a difference and `expected` is the transcript of a
 good run. `testutils.sh` holds what the scripts share and lists the marks
 a fixture may carry.
@@ -38,7 +39,8 @@ changes, as any golden test's. No other implementation is asked.
   the line the header `-- expect: <rule>, line N` names; the name starts
   with the rule, one of the rules the build's generated list names
   (`lib/rules.sh`). A `packages` file beside a fixture of either kind names
-  the packages it compiles with.
+  the packages it compiles with. A rule with no fixture has a line of
+  `reject/without-fixture` saying why (`spec/rules-covered`).
 - `compiler/`, `registry/`, `determinism/`, `toolchain/`, `fuzz/`,
   `two-levels/`, `bench/`: the other pools of `make test`, named for what
   they check.
@@ -47,8 +49,10 @@ changes, as any golden test's. No other implementation is asked.
   it is one `idr.program`, which names its root and its stage (`higher`
   before defunctionalization, `first` after it, `owned` after counting,
   `lowered` after lowering), and a property of it is stated with
-  idr-expect, FileCheck kept for printed syntax and text the runtime
-  prints.
+  idr-expect, FileCheck kept for printed syntax, under `asm/`, `syntax/`
+  and `verify/`, for the attributes LLVM reads (`lower/llvm-facts.mlir`),
+  and for text the runtime or a pass prints as diagnostics
+  (`spec/dialect-text`).
 - `upstream/`: the reproducers of the bugs recorded in `../upstream/`.
 - `lib/`: the helpers `testutils.sh` sources, one file per concern;
   `templates/`: a minimal test of each kind to copy.

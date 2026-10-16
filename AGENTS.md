@@ -53,6 +53,10 @@ numbers.
   place, no counting) only make it faster. A primitive of `libs/` (an
   `%extern`) means only what `runtime/` says, so a program that reaches one
   runs under idris-mlir alone, and nothing the stock host runs reaches one.
+  What the stock host runs uses only definitions with bodies, which
+  idris-mlir may replace with a runtime op through the registry's `Faster`
+  hook: the body is the one meaning, and removing the hook leaves the same
+  result. A building stage may use either host, but neither is dropped.
   Neither host is given an escape hatch to compile it: a trust the frontend
   takes in Idris's compiler is stated in the fork, which is Idris's compiler,
   and one it takes in itself is `covering`, never asserted.
@@ -87,7 +91,8 @@ numbers.
   contrib for external packages. What they covered comes from the packages
   this compiler ships in `libs/` (`mlir-array`: shaped arrays, linear
   arrays and the growable vector; `mlir-linear`: linear data), written for this compiler's analyses in plain Idris over
-  base's primitives. A trusted library may run an IO action for a pure
+  base's primitives, and over runtime primitives (`%extern`) where only
+  programs use an operation. A trusted library may run an IO action for a pure
   value (`unsafePerformIO`, a forged world): its effects happen where the
   value is demanded, in program order with every other effect. User code
   may not.
@@ -170,7 +175,8 @@ numbers.
   sequences, write the property once as an expressive check (a helper, a
   verifier-style assertion pass) and state tests in its terms.
 - Checks: `make check` always. After compiler changes, run `make build` and
-  `make test`. After C++ changes, also run `make test-idr`. After changing
+  `make test`. After C++ changes, also run `make test-idr` and
+  `make test-unit`. After changing
   MLIR usage, also run `make test-mlir-tools`. Every command a test runs
   times out, so a hang is a failure, not a wait. If a toolchain is
   unavailable, say so; do not report skipped tests as passed.

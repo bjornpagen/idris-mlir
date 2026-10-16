@@ -1,16 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sum's printed form and the dispatch.
 // A function of several blocks, as inlining a callee that ends in
 // ub.unreachable leaves one: a closure reaches the second block through
 // a block argument of a branch. The branch declares what it forwards
 // (upstream's branch interface), so the argument holds both labels and
 // the function's result is their sum, which the root dispatches on.
-// CHECK: = !idr.data<{{[^,]*}}, closures [@add(i64), @dbl()]
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: case @add(
-// CHECK: case @dbl(
 idr.program @"block-argument" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

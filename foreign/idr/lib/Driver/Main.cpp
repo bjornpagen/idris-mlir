@@ -81,17 +81,18 @@ static int runOnLargeStack(llvm::function_ref<int()> body) {
   return compilation.status;
 }
 
-// The compilation of the input to what -o names: its plan read from the
-// command line, its directories made, and then, armed, the chain.
-static int compileInput(const char *argv0) {
+// The compilation of the input to what -o names, and its report to what
+// --report names: its plan read from the command line, its directories
+// made, and then, armed, the chain.
+static int compileInput(const char *argv0, std::optional<std::string> report) {
   if (inputPath.empty() || outputPath.empty()) {
     Report() << "give an input file and -o (see --help)";
     return usage;
   }
   Product product = objectOnly ? Product(Archive{outputPath}) : Product(Executable{outputPath});
-  std::optional<Plan> plan = Plan::of(inputPath, std::move(product));
+  std::optional<Plan> plan = Plan::of(inputPath, std::move(product), std::move(report));
   if (!plan) {
-    Report() << "-o names outputs that collide with each other or with the input";
+    Report() << "-o and --report name outputs that collide with each other or with the input";
     return usage;
   }
   bool frontendOptions = packages.getNumOccurrences() || packagePath.getNumOccurrences() ||
@@ -151,6 +152,14 @@ int idr::driver::main(int argc, char **argv) {
   // --time-trace, when it named a file: written as this returns, by
   // whichever way out the compilation took.
   idr::profile::Trace trace("idris-mlir");
+  // The report is a compilation's, and only a compilation is asked for one.
+  std::optional<std::string> report;
+  if (!reportPath.empty())
+    report = reportPath.getValue();
+  if (report && action != Action::Compile) {
+    Report() << "--report is a compilation's: give an input and -o";
+    return usage;
+  }
   switch (action.getValue()) {
   case Action::PrintTargetTriple:
     llvm::outs() << targetTriple << "\n";
@@ -178,7 +187,7 @@ int idr::driver::main(int argc, char **argv) {
       return failure;
     return runOnLargeStack(prepare);
   case Action::Compile:
-    return compileInput(argv[0]);
+    return compileInput(argv[0], std::move(report));
   }
   llvm_unreachable("every action is handled");
 }

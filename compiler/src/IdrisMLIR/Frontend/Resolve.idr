@@ -14,11 +14,11 @@ import Core.Env
 import Core.Name.Namespace
 import Core.Options
 import Core.TT
+import Idris.Host
 import Idris.Version
 import Libraries.Data.Version
 import Libraries.Utils.Path
 
-import IdrisMLIR.Frontend.Host
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Syntax.Idr

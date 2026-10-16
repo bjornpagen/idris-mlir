@@ -18,9 +18,13 @@
 ||| A step moves past the character it read by the length of that
 ||| character's UTF-8, a function of the character alone: every character
 ||| is a Unicode scalar value and every string well-formed UTF-8, so that
-||| is where the next one starts. The length is at least one byte by its
-||| type, so a walk to the end takes fewer steps than the string has bytes,
-||| which is what ends `foldl` and `unpack`.
+||| is where the next one starts. The length is the byte length of the
+||| character's own string, so on each host it means what that host's
+||| strings say, and idris-mlir computes it without building the string. A
+||| walk takes each character's first byte off the count of bytes left, a
+||| successor by its type, and the rest after it, so a walk to the end takes
+||| at most as many steps as the string has bytes, which is what ends
+||| `foldl` and `unpack`.
 module Linear.String.Iterator
 
 import Control.WellFounded
@@ -36,12 +40,16 @@ import Data.Nat
 %extern prim__scalarAt : String -> Int -> Char
 %extern prim__dropBytes : String -> Int -> String
 
-||| The bytes of a character's UTF-8 after its first: none for ASCII, up
-||| to three, by its scalar value.
+||| The number of bytes of a character's UTF-8, 1 to 4: the byte length of
+||| its own string. idris-mlir's registry lowers its calls to the runtime's
+||| one rule for that length (`idr.str.scalar_bytes`); any other host runs
+||| the body.
+scalarBytes : Char -> Int
+scalarBytes c = stringByteLength (cast c)
+
+||| The bytes of a character's UTF-8 after its first.
 continuation : Char -> Nat
-continuation c =
-  let v = ord c in
-  if v < 0x80 then 0 else if v < 0x800 then 1 else if v < 0x10000 then 2 else 3
+continuation c = cast (scalarBytes c - 1)
 
 ||| What is left of a count once some of it is taken is no more than it.
 0 minusLeft : (l, k : Nat) -> LTE (minus l k) l
@@ -79,7 +87,7 @@ uncons : (str : String) -> (1 it : StringIterator str) -> UnconsResult str
 uncons str (MkStringIterator offset) =
   if offset < stringByteLength str
      then let c = prim__scalarAt str offset in
-          Character c (MkStringIterator (offset + 1 + cast (continuation c)))
+          Character c (MkStringIterator (offset + scalarBytes c))
      else EOF
 
 ||| The characters of a string folded from the left.

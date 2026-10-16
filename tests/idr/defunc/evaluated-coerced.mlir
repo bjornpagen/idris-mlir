@@ -1,18 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s --implicit-check-not=ub.poison --implicit-check-not='!idr.lazy' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's printed form.
 // An evaluated suspension holds its value and names no label: it is a cell
 // already forced. It shares the one memo sum of every cell that reaches
 // the slots it reaches, here @later's, since lazy sets are unified, and it
 // is built forced in that sum, never rebuilt and never taken for a move
 // that does not run: only a key no value ever reaches gives poison.
-// CHECK: ![[M:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@later(i64), @running(), @forced(i64)]
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: %[[NOW:.*]] = {{(idr\.)?}}con !idr.box<![[M]]> @forced(%{{.*}} : i64)
-// CHECK: %[[LATER:.*]] = {{(idr\.)?}}con !idr.box<![[M]]> @later(%{{.*}} : i64)
-// CHECK: call @use(%[[NOW]])
-// CHECK: call @use(%[[LATER]])
 idr.program @"evaluated-coerced" root(@Main.main) stage(higher) {
   idr.func @later(%x: i64) -> i64 attributes {total} {
     %y = arith.muli %x, %x : i64

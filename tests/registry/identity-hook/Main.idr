@@ -2,7 +2,7 @@ module Main
 
 -- The registry's IdentityOnLastArgument hook (entries Builtin.replace and
 -- Builtin.rewrite__impl): a value moved along an equality is the value
--- itself. translate.check finds neither called in full Core.
+-- itself.
 
 import Prelude
 import Data.Nat

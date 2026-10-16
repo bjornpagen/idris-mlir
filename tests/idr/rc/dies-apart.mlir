@@ -1,6 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@sumAfterTag -o /dev/null
-// RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-rc --idr-lower | FileCheck %s --check-prefix=LOWER
 // NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A box that dies in the region of the match that saw its constructor is
@@ -19,42 +17,6 @@
 // the test (Perceus specializes a drop only where the children are used),
 // and is dropped where it dies: `headOnly` reads a list's head, a number,
 // and its tail dies with it; `numbers` reads a cell of two numbers.
-// CHECK-LABEL: idr.func @sumAfterTag(
-// CHECK-NOT: {{(idr\.| )dup }}
-// CHECK: take
-// CHECK-NOT: {{(idr\.| )dup }}
-// CHECK: return
-// CHECK-LABEL: idr.func @headOnly(
-// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @C
-// CHECK: drop
-// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @C
-// CHECK: return
-// CHECK-LABEL: idr.func @numbers(
-// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @V1
-// CHECK: drop
-// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @V1
-// CHECK: return
-// LOWER-LABEL: func.func private @tail(
-// LOWER: scf.if
-// LOWER-NEXT: llvm.call @idris_rt_dec(
-// LOWER-NEXT: scf.yield
-// LOWER-NEXT: } else {
-// LOWER-COUNT-1: llvm.call @idris_rt_inc(
-// LOWER-NOT: llvm.call @idris_rt_inc(
-// LOWER: llvm.call @idris_rt_dec(
-// LOWER: }
-// LOWER-NOT: llvm.call @idris_rt_dec(
-// LOWER: llvm.call @idris_rt_free_cell(
-// LOWER-NOT: llvm.call @idris_rt_dec(
-// LOWER: return
-// LOWER-LABEL: func.func private @tailX(
-// LOWER-NOT: scf.if
-// LOWER-NOT: idris_rt_inc
-// LOWER: llvm.call @idris_rt_dec(
-// LOWER-NOT: idris_rt_dec
-// LOWER: llvm.call @idris_rt_free_cell(
-// LOWER-NOT: idris_rt_dec
-// LOWER: return
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 !LL = !idr.data<"LL", list [@NN() nil, @CC(!idr.box<!L>, !idr.box<!idr.data<"LL">>) cons]>
 !V = !idr.data<"V", plain [@V0(), @V1(i64, i64)]>

@@ -17,7 +17,7 @@ namespace idr::ranges {
 namespace {
 
 std::optional<int64_t> inside(std::optional<int64_t> v) noexcept {
-  if (v && *v >= smallMin && *v <= smallMax)
+  if (v && *v >= IDRIS_RT_SMALL_MIN && *v <= IDRIS_RT_SMALL_MAX)
     return v;
   return std::nullopt;
 }

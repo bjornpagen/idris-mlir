@@ -1,0 +1,4 @@
+NEEDS-ACCEPTANCE: that the counting model holds on every case: live cells, each count and exclusivity as idris_rt.h defines them, wide cells, odd words in slots, arrays, view copies and memo cells included
+counting: built
+counting: ok
+counting: exit 0

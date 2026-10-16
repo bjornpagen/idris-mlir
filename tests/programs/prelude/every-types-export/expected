@@ -3,7 +3,5 @@ artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
-object: no undefined symbol outside the allowed set
+universal: holds
 prelude Prelude.Types: 122 exports, each used (8 compile-time only: (<=>) Dec Either Maybe MkRange Nat Range Stream.Stream)
-dumps: parse and verify
-quantities: kept

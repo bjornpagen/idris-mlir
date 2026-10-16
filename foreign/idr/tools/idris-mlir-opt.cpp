@@ -11,6 +11,7 @@
 #include "idr/Support/Profile.h"
 #include "idr/Support/Stack.h"
 #include "idr/Target/Target.h"
+#include "idr/Transforms/Contracts.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "idris_rt.h"
@@ -23,6 +24,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -42,12 +44,20 @@ struct Invocation {
   int status = 1;
 };
 
+// A test's check of every pass as it runs, never a choice of how a program is compiled.
+llvm::cl::opt<bool> contracts(
+    "idr-contracts",
+    llvm::cl::desc("Check after every pass on the module or the program the relations it must "
+                   "keep, and fail naming the pass that broke one"),
+    llvm::cl::init(false));
+
 void optMain(void *argument) {
   auto &invocation = *static_cast<Invocation *>(argument);
   llvm::InitLLVM init(invocation.argc, invocation.argv);
   mlir::registerAllPasses();
   idr::registerIdrPasses();
   idr::registerIdrPipeline();
+  idr::registerContractTestPass();
   mlir::DialectRegistry registry;
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);
@@ -62,9 +72,13 @@ void optMain(void *argument) {
   // --time-trace, when it named a file: written as this returns.
   idr::profile::Trace trace("idris-mlir-opt");
   // Every manager this tool runs carries the profile's zones, ahead of the
-  // pipeline the command line gives, as idris-mlir's manager does.
+  // pipeline the command line gives, as idris-mlir's manager does; under
+  // --idr-contracts, the contracts too, ahead of the zones, which so time
+  // each pass without its checks.
   mlir::MlirOptMainConfig config = mlir::MlirOptMainConfig::createFromCLOptions();
   config.setPassPipelineSetupFn([parsed = config](mlir::PassManager &pm) {
+    if (contracts)
+      pm.addInstrumentation(std::make_unique<idr::ContractInstrumentation>());
     idr::profile::addInstrumentation(pm);
     return parsed.setupPassPipeline(pm);
   });

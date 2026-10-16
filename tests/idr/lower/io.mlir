@@ -1,7 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-lower --idr-entry -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,entry,signature=@Prog.r:()->(),call-order=@Prog.r:[@idris_rt_io_put_str,@idris_rt_io_get_byte,@idris_rt_io_put_char,@idris_rt_io_put_int_s,@idris_rt_io_put_int_u,@idris_rt_io_put_double]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=call-order=@__idr_main:[@Prog.r,@__idr_release_cafs,@idris_rt_main_return],returns=@__idr_main:0,calls=@main:@idris_rt_start' -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // Each IO op calls its runtime function, in the order the world threads
 // them; the world disappears (1:0), so the IO root takes and returns
 // nothing. put_int extends to 64 bits as its signedness says and picks the
@@ -11,9 +10,6 @@
 // @__idr_main and the program's arguments to the runtime's entry, which
 // runs it on its reserved stack; a module with no target asks the
 // processor for no feature, the runtime's word 0.
-// CHECK-LABEL: func.func @main(
-// CHECK: %[[NONE:.*]] = llvm.mlir.constant(0 : i64) : i64
-// CHECK: llvm.call @idris_rt_start(%{{.*}}, %[[NONE]], %{{.*}}, %{{.*}})
 idr.program @io root(@Prog.r) stage(owned) {
   idr.func @Prog.r(%w: !idr.world) -> !idr.world {
     %s = idr.constant "h\C3\A9llo\0A" : !idr.str

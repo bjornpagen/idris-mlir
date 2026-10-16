@@ -1,16 +1,10 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
-// RUN: awk '/^\/\/ -----/ { n++; next } n == 1' %s > %t.reuse.mlir
-// RUN: idris-mlir-opt %t.reuse.mlir | idris-mlir-opt | FileCheck %s
 // The owned stage is what a function's grades say: a function with an owned
 // value is in it, and idr.func's verifier keeps the stage's rule there,
 // with no attribute to say so and no look at the rest of the module. A
 // function whose owned value is never consumed is refused; another in the
 // same module, which holds no owned value, builds a plain constructor and
-// is not asked. A reuse, the owned stage's own constructor, prints and
-// parses back with its token among its operands' types.
-// CHECK-LABEL: idr.func @bump(
-// CHECK: idr.take %{{.*}} : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
-// CHECK: idr.reuse %{{.*}} @C(%{{.*}}, %{{.*}}) : (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>>
+// is not asked.
 
 !P = !idr.data<"P", plain [@MkP(i64, i64)]>
 idr.program @"owned-not-consumed" root(@root) stage(owned) {

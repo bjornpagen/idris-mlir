@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=apart=@A.tot:@B.tot,apart=@A.eff:@B.eff,apart=@A.inc:@B.dec,apart=@A.ping:@B.ping -o /dev/null
+// NEEDS-ACCEPTANCE: the two functions that are not total declare diverge, as the verifier's effect rule asks; they are still kept apart.
 // What is not one function twice over stays twice: a pair of which only
 // one is total, a pair whose effects differ (each function's own facts,
 // which every call of it reads, so the one kept would state one of them of
@@ -15,11 +16,11 @@ idr.program @"keep-apart" root(@root) stage(higher) {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func @A.eff(%x: i64) -> i64 attributes {effects = #idr.effects<none>} {
+  idr.func @A.eff(%x: i64) -> i64 attributes {effects = #idr.effects<diverge>} {
     %y = arith.muli %x, %x : i64
     return %y : i64
   }
-  idr.func @B.eff(%x: i64) -> i64 attributes {effects = #idr.effects<crash>} {
+  idr.func @B.eff(%x: i64) -> i64 attributes {effects = #idr.effects<crash, diverge>} {
     %y = arith.muli %x, %x : i64
     return %y : i64
   }

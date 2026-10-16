@@ -46,10 +46,12 @@
 
 using namespace idr::driver;
 
-Plan::Plan(std::string base, Source source, Product product)
-    : base(std::move(base)), source(std::move(source)), product(std::move(product)) {}
+Plan::Plan(std::string base, Source source, Product product, std::optional<std::string> report)
+    : base(std::move(base)), source(std::move(source)), product(std::move(product)),
+      report(std::move(report)) {}
 
-std::optional<Plan> Plan::of(llvm::StringRef input, Product product) {
+std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
+                             std::optional<std::string> report) {
   std::string base = std::visit(llvm::makeVisitor(
                                     [](const Executable &executable) { return executable.path; },
                                     [](const Archive &archive) {
@@ -62,9 +64,9 @@ std::optional<Plan> Plan::of(llvm::StringRef input, Product product) {
   Source source = extension == ".mlir" || extension == ".mlirbc"
                       ? Source(FromModule{input.str()})
                       : Source(FromIdris{input.str(), base + ".core", base + ".mlirbc"});
-  Plan plan(std::move(base), std::move(source), std::move(product));
+  Plan plan(std::move(base), std::move(source), std::move(product), std::move(report));
   llvm::StringSet<> seen;
-  for (const std::string &path : plan.outputs())
+  for (const std::string &path : plan.written())
     if (!seen.insert(path).second || path == input || llvm::sys::fs::equivalent(path, input))
       return std::nullopt;
   return plan;
@@ -78,13 +80,20 @@ std::vector<std::string> Plan::outputs() const {
   return paths;
 }
 
+std::vector<std::string> Plan::written() const {
+  std::vector<std::string> paths = outputs();
+  if (report)
+    paths.push_back(*report);
+  return paths;
+}
+
 const std::string &Plan::modulePath() const {
   return std::visit([](const auto &from) -> const std::string & { return from.modulePath; },
                     source);
 }
 
 bool Plan::makeDirectories() const {
-  for (const std::string &path : outputs())
+  for (const std::string &path : written())
     if (!makeDirectoryOf(path))
       return false;
   return true;

@@ -31,8 +31,8 @@
 ||| A pass is void when a dictionary field it took as never built is built
 ||| after it was matched (`Dictionaries`); the next pass starts over knowing
 ||| the field. That the passes are finitely many is the one statement this
-||| module takes on trust, at the call that starts the next pass
-||| (`translateFrom`).
+||| module does not prove, so `translateFrom`, which starts each pass, is
+||| `covering`, and its comment states the gap.
 module IdrisMLIR.Frontend.Finite
 
 import Core.Context
@@ -123,9 +123,9 @@ record Judged (chain : List Request) where
 refusal : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           (earlier, later : Request) -> Nat -> Core a
 refusal earlier r i = do
-  def <- lookupDef r.site r.owner r.name
-  reject r.site r.owner Polymorphism
-         ("polymorphic recursion: " ++ r.base ++ " requests itself with its argument " ++
+  def <- lookupDef r.site (show r.owner) r.name
+  reject r.site (show r.owner) Polymorphism
+         ("polymorphic recursion: " ++ nameKey !(toFullNames r.name) ++ " requests itself with its argument " ++
           parameter i (type def) ++ " larger than an earlier request of it on the same chain (" ++
           keyText r.key ++ " after " ++ keyText earlier.key ++
           "), and no analysis bounds how far a chain that grows so goes")
@@ -153,10 +153,19 @@ requestedUnder earlier = do
         MkJudged rest under <- judge rs
         pure (MkJudged (MkItem r earlier :: rest) ((Refl, new) :: under))
       Refused x _ (Grown _ g) => refusal x r (position g)
-      Refused x _ (Arity _ _) =>
-        internal r.site ("a definition requested at two numbers of arguments: " ++ r.base)
-      -- What is left is a request of an instance already on the chain,
-      -- which was requested before and so is seen: a new request is none.
+      -- A broken invariant: a request of a definition has one argument per
+      -- parameter of its case tree (every call classifies `length params`
+      -- of the definition's `PMDef`, and the root, `main`, has none), so
+      -- two links of one definition have one length.
+      Refused _ _ (Arity _ _) => do
+        internal r.site ("a definition requested at two numbers of arguments: " ++
+                         nameKey !(toFullNames r.name))
+      -- A broken invariant: a request is recorded only for an instance not
+      -- yet seen (`Instances.request`), one link is one instance (`named`,
+      -- `Keys.instanceKey`), and every instance on a chain was seen when it
+      -- was requested and stays seen for the pass (a rejected instance
+      -- restores the state from before it), so a recorded request is new
+      -- to its chain.
       Refused _ _ (Again _) =>
         internal r.site ("an instance requested again as new on its own chain: " ++ r.inst.name)
 
@@ -261,19 +270,30 @@ learnt known st = find (\k => contains k (keySet st.dicts) && not (contains k kn
 ||| next pass starts from, not only the first.
 |||
 ||| Each pass ends (the worklist above). That the passes end is the one
-||| statement this module takes on trust, at the one call that starts the
-||| next pass: TRUST POINT (the passes are finitely many): every pass after
-||| the first knows every field the pass before it knew and one it did not
-||| (`learnt`), and the fields a pass can learn are finitely many, so that
-||| call is made finitely often. The fields a pass can learn are fields of
-||| the data instances the requests reach when every alternative a pass took
-||| as unreachable is translated, a tree whose chains are finite
-||| (`chainsEnd`) and whose branching is finite, since an instance's
-||| requests are its body's calls; but that tree is not one the types
-||| state, and no list of the fields exists before the program is
-||| translated. The statement is the call's termination, and no type of
-||| fields is claimed well founded.
+||| statement this module does not prove, so `translateFrom` is `covering`,
+||| checked for coverage alone, and asserts nothing: TRUST POINT (the
+||| passes are finitely many): every pass after the first knows every field
+||| the pass before it knew and one it did not (`learnt`), and a field once
+||| given an implementation keeps it (a second is a refusal), so each pass
+||| translates every alternative the pass before it did, the same way, and
+||| more. The passes are therefore no more than the fields any pass can
+||| learn. A field is a constructor of a data instance, by its position
+||| among the instance's constructors (`ConId.index`), and one of that
+||| constructor's argument positions, so a data instance has finitely many.
+||| The instances any pass registers are those of the request tree under
+||| the assignment the passes converge to: its chains are those the
+||| relation admits, finite (`chainsEnd`), and it branches finitely, an
+||| instance's requests being its body's call sites, one request each once
+||| every field it matches holds its one implementation; such a tree is
+||| finite (the fan theorem, on the inductive bar `afRequested` gives), and
+||| so are its fields. What no type here states is that tree: it is the
+||| request tree under the assignment the passes compute, so neither it nor
+||| the list of its fields exists before the passes end, and the measure,
+||| its fields not yet known, is no value the recursion can descend on; with
+||| such a list, `roomAfter` (`Libraries.Data.List.Finite`) would be the
+||| descent.
 export
+covering
 translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                 (root : Core (Maybe FnId)) -> (translate : Request -> Core ()) -> Core (Maybe FnId)
 translateFrom root translate = do
@@ -292,4 +312,4 @@ translateFrom root translate = do
       let Just _ = learnt known st
         | Nothing => pure (Just inst)
       update TState nextPass
-      assert_total (passes (union known (keySet st.dicts)))
+      passes (union known (keySet st.dicts))

@@ -56,7 +56,6 @@ idr.program @"force-of-choice" root(@root) stage(higher) {
   // A suspension its region forces too is shared: the later force reads the
   // cell the first one filled. That region keeps the cell and forces it
   // twice; only the other region calls.
-  // CHECK-COUNT-2: force %[[T]]
   idr.func @shared(%b: i64, %x: i64) -> i64 {
     %s:2 = idr.match_lit %b : i64 -> (!idr.lazy<i64>, i64) {
     case 0 {

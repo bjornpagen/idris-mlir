@@ -11,9 +11,9 @@ import Core.Core
 import Core.Env
 import Core.Options
 import Core.TT
+import Idris.Host
 import Libraries.Data.List.SizeOf
 
-import IdrisMLIR.Frontend.Host
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
@@ -30,7 +30,6 @@ import Data.Nat
 import Data.Vect
 
 %default total
-%prefix_record_projections off
 
 ||| Idris's terms and binders; `Term` and `Binder` are Core's own.
 public export
@@ -200,6 +199,18 @@ hasMeta = mentions metaTerm
     metaTerm (Meta {}) = True
     metaTerm _ = False
 
+||| The name of marker `i` (`holeMarker`'s): a name of the frontend's own,
+||| which no context holds. It and `markerOf` are the one spelling of it.
+export
+markerName : Nat -> Name
+markerName i = MN "idris-mlir-hole" (cast i)
+
+||| The number of the marker a name is, if it is one (`markerName`'s).
+export
+markerOf : Name -> Maybe Nat
+markerOf (MN "idris-mlir-hole" i) = Just (cast i)
+markerOf _ = Nothing
+
 ||| Does a term mention a part that stands for a runtime value, wherever
 ||| it stands (`runtimeDependent`'s two markers)?
 export
@@ -208,12 +219,13 @@ hasRuntimePart = mentions part
   where
     part : TT vs -> Bool
     part (Erased _ Impossible) = True
-    part (Ref _ _ (MN "idris-mlir-hole" _)) = True
+    part (Ref _ _ n) = isJust (markerOf n)
     part _ = False
 
 ||| A closed term with its lambdas applied and the solutions of its
 ||| metavariables filled in, by the normaliser of Idris's that evaluates
 ||| nothing else: it unfolds no definition, so it runs none.
+export
 lambdasApplied : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 lambdasApplied tm = do
   defs <- get Ctxt
@@ -285,7 +297,7 @@ runtimeDependent = go
     mutual
       go : TT vs -> Core Bool
       go (Erased _ Impossible) = pure True
-      go (Ref _ _ (MN "idris-mlir-hole" _)) = pure True
+      go (Ref _ _ n) = pure (isJust (markerOf n))
       go (Erased _ (Dotted t)) = go t
       go (Bind _ _ (Pi {}) _) = pure False
       go (Bind _ _ (Let _ _ v _) sc) = if !(go v) then pure True else go sc
@@ -970,7 +982,7 @@ unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
 -- that no binder binds, which a translation of the implementation
 -- replaces with the value (`Terms.term`, by `refToLocal`, which takes
 -- bound names).
-holeMarker i = Ref EmptyFC Bound (MN "idris-mlir-hole" (cast i))
+holeMarker i = Ref EmptyFC Bound (markerName i)
 
 ||| The numbers of the markers a term holds.
 holeIndices : TT vars -> List Nat
@@ -978,7 +990,7 @@ holeIndices tm = nub (go tm)
   where
     mutual
       go : TT vs -> List Nat
-      go (Ref _ _ (MN "idris-mlir-hole" i)) = [cast i]
+      go (Ref _ _ n) = toList (markerOf n)
       go (Bind _ _ b sc) = binder b ++ go sc
       go (App _ f a) = go f ++ go a
       go (As _ _ _ p) = go p
@@ -1008,7 +1020,7 @@ holeIndices tm = nub (go tm)
 -- variables again in its normal form.
 normaliseKeeping normaliser tm = do
   defs <- get Ctxt
-  let holes = map (\i => MN "idris-mlir-hole" (cast i)) (holeIndices tm)
+  let holes = map markerName (holeIndices tm)
   nf <- normaliser defs (mkEnv EmptyFC (holes ++ Scope.empty)) (refsToLocals (bound holes) tm)
   pure (substs (mkSizeOf holes) (markers holes) nf)
   where
@@ -1026,7 +1038,7 @@ fillHoles : List ClosedTerm -> ClosedTerm -> ClosedTerm
 fillHoles values tm = foldl fill tm (zip [0 .. length values] values)
   where
     fill : ClosedTerm -> (Nat, ClosedTerm) -> ClosedTerm
-    fill t (i, v) = substName (MN "idris-mlir-hole" (cast i)) v t
+    fill t (i, v) = substName (markerName i) v t
 
 ||| A reference to a definition, as Idris writes one: with its kind.
 export
@@ -1085,7 +1097,7 @@ mentionsHole : TT vars -> Bool
 mentionsHole = mentions hole
   where
     hole : TT vs -> Bool
-    hole (Ref _ _ (MN "idris-mlir-hole" _)) = True
+    hole (Ref _ _ n) = isJust (markerOf n)
     hole _ = False
 
 ||| Does a term mention `unknownPart`?

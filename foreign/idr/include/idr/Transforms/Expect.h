@@ -177,6 +177,10 @@ mlir::LogicalResult outputFused(mlir::ModuleOp, mlir::AnalysisManager &, llvm::S
 // `folds-balanced`: the folders released every reference they took from
 // the runtime.
 mlir::LogicalResult foldsBalanced(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
+// `folded=@f`: no op is left in any copy of @f that a fold would have
+// replaced: one with results, no memory effect, no call and no constant,
+// whose operands are constants alone.
+mlir::LogicalResult folded(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
 // `constant-stack=@f`: no recursion from @f grows the stack: every function
 // @f may call that is on a cycle of references refers to the others of its
 // cycle only by guaranteed tail calls (`musttail`), so before

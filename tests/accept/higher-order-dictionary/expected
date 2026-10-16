@@ -1,6 +1,7 @@
-NEEDS-ACCEPTANCE: that a user dictionary built by applying a function-valued argument to () is accepted as holding one implementation of Eq Int, compiles and runs
+NEEDS-ACCEPTANCE: that a user dictionary built by applying a function-valued argument to () is accepted as holding one implementation of Eq Int, compiles and runs; and that what holds of every compilation holds of it (universal: holds)
 compile: exit 0
 artifacts: core module objects executable
+universal: holds
 run: exit status as expected
 stdout: as expected
 stderr: empty

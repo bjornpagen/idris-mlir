@@ -198,12 +198,14 @@ def Idr_OwnAdoptOp : Idr_Op<"own.adopt", [Pure, DeclareOpInterfaceMethods<Idr_Fl
 }
 
 // Hands an owned value's reference to the memref.store that writes it,
-// whose value is the plain carrier. Nothing at runtime: the store releases
-// the element it overwrites and the value moves in.
+// whose value is the plain carrier: the value at the plain permission, its
+// quantity kept, so that the store, whose element has no grade, refuses a
+// linear one rather than lose its quantity. Nothing at runtime: the store
+// releases the element it overwrites and the value moves in.
 def Idr_OwnGiveOp : Idr_Op<"own.give", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     TypesMatchWith<"the result is the value without its reference", "value", "result",
-                   "::idr::view($_self)">]> {
+                   "::idr::atPermission($_self, ::idr::Permission::Plain)">]> {
   let summary = "hands an owned value's reference to the store that writes it";
   let arguments = (ins Idr_OwnType:$value);
   let results = (outs AnyType:$result);

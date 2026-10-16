@@ -34,6 +34,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Support/Actions.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -88,6 +89,27 @@ FailureOr<StringAttr> copyName(FuncOp fn, StringRef kind, SymbolTable &symbols) 
 
 namespace {
 
+// idr-tail-loops makes one function's self tail calls a loop; the unit is
+// the function.
+struct TailLoopAction : support::TaggedAction<TailLoopAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-tail-loops-loop";
+};
+
+// idr-tail-loops moves the invariant code of one while-do loop before it;
+// the unit is the loop. One action for the whole loop: skipping one op of
+// it would let the hoisting move that op's users above it.
+struct TailHoistAction : support::TaggedAction<TailHoistAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-tail-loops-hoist";
+};
+
+// idr-tail-loops makes one while-do loop an scf.for; the unit is the loop.
+struct TailUpliftAction : support::TaggedAction<TailUpliftAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-tail-loops-uplift";
+};
+
 // The decision that `fn`'s body is, or none: a match of two regions, one
 // that ends in the self tail call and one that reaches none.
 std::optional<Decision> decisionOf(FuncOp fn) {
@@ -127,26 +149,35 @@ struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
     FuncOp fn = getOperation();
     if (!reachesTailCall(fn.getBody().front(), fn))
       return markAllAnalysesPreserved();
-    ++numLoops;
     IRRewriter rewriter(fn.getContext());
-    std::optional<Decision> decision = decisionOf(fn);
+    // The while-do loop when the body is a decision; failure once the
+    // general loop is made instead.
     FailureOr<scf::WhileOp> loop = failure();
-    if (decision)
-      loop = whileDo(fn, *decision, rewriter);
-    if (failed(loop)) {
-      generalLoop(fn, rewriter);
+    if (!support::perform<TailLoopAction>(fn, [&] {
+          std::optional<Decision> decision = decisionOf(fn);
+          if (decision)
+            loop = whileDo(fn, *decision, rewriter);
+          if (failed(loop))
+            generalLoop(fn, rewriter);
+        }))
+      return markAllAnalysesPreserved();
+    ++numLoops;
+    if (failed(loop))
       return;
-    }
     // Code that the loop does not change moves out of it, and a loop that
     // counts to a bound becomes an scf.for; one that does not stays a while.
-    moveLoopInvariantCode(
-        loop->getLoopRegions(),
-        [&](Value value, Region *) { return loop->isDefinedOutsideOfLoop(value); },
-        [&](Operation *op, Region *) { return invariantCode(op); },
-        [&](Operation *op, Region *) { loop->moveOutOfLoop(op); });
+    (void)support::perform<TailHoistAction>(*loop, [&] {
+      moveLoopInvariantCode(
+          loop->getLoopRegions(),
+          [&](Value value, Region *) { return loop->isDefinedOutsideOfLoop(value); },
+          [&](Operation *op, Region *) { return invariantCode(op); },
+          [&](Operation *op, Region *) { loop->moveOutOfLoop(op); });
+    });
     rewriter.setInsertionPoint(*loop);
-    if (succeeded(scf::upliftWhileToForLoop(rewriter, *loop)))
-      ++numCounted;
+    (void)support::perform<TailUpliftAction>(*loop, [&] {
+      if (succeeded(scf::upliftWhileToForLoop(rewriter, *loop)))
+        ++numCounted;
+    });
   }
 };
 

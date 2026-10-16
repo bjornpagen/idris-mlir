@@ -20,6 +20,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
+#include "idr/Support/Actions.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -46,6 +47,19 @@ using namespace mlir;
 namespace idr::narrow {
 
 namespace {
+
+// idr-narrow attempts to fold one conversion; the unit is the conversion.
+struct NarrowFoldAction : support::TaggedAction<NarrowFoldAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-narrow-fold";
+};
+
+// idr-narrow erases one conversion nothing reads; the unit is the
+// conversion.
+struct NarrowEraseAction : support::TaggedAction<NarrowEraseAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-narrow-erase";
+};
 
 // The word rewrite of one function, under the ranges idr-narrow solved for
 // the program, which it holds for as long as the nested run reads them. It
@@ -97,7 +111,11 @@ struct NarrowWords : PassWrapper<NarrowWords, OperationPass<FuncOp>> {
       // The folders of idr.big.to_int, idr.big.small and idr.big.from_int
       // return a constant, another op's value or nothing, never the op's
       // own result: a fold runs once, and replaces and erases the op.
-      if (!op->hasTrait<OpTrait::ConstantLike>() && succeeded(folder.tryToFold(op))) {
+      bool folded = false;
+      if (!op->hasTrait<OpTrait::ConstantLike>())
+        (void)support::perform<NarrowFoldAction>(
+            op, [&] { folded = succeeded(folder.tryToFold(op)); });
+      if (folded) {
         changed = true;
         continue;
       }
@@ -105,10 +123,9 @@ struct NarrowWords : PassWrapper<NarrowWords, OperationPass<FuncOp>> {
     }
     IRRewriter rewriter(&getContext());
     for (Operation *op : llvm::reverse(left))
-      if (isOpTriviallyDead(op)) {
-        rewriter.eraseOp(op);
+      if (isOpTriviallyDead(op) &&
+          support::perform<NarrowEraseAction>(op, [&] { rewriter.eraseOp(op); }))
         changed = true;
-      }
     if (carried == 0 && narrowed == 0 && !changed)
       markAllAnalysesPreserved();
   }

@@ -140,4 +140,4 @@ yieldOp : (value : Value) -> Op
 yieldOp value =
   MkOp "tensor.yield" [value] [] [] [] []
 
--- fingerprint: 3389184132-745371 1101873536-7955
+-- fingerprint: 2165930230-747053 1101873536-7955

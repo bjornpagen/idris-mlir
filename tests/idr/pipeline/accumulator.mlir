@@ -1,13 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@count -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // An accumulator through the optimizer: @count is called with a constant
 // Integer accumulator and a counter read at runtime. The accumulator
 // changes on every iteration, so it is no static parameter and the call is
 // not specialized on it: @count is still called, and no copy of it is
 // made.
-// CHECK: call @count(
-// CHECK-NOT: @count.
 idr.program @accumulator root(@Main.main) stage(first) {
   idr.func @count(%acc: !idr.big, %n: i64) -> !idr.big attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.big) {

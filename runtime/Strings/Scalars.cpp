@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // A string as its scalars: its length, a scalar at an index, slices, and
-// the reverse; and by byte offset, as an iterator walks it.
+// the reverse; by byte offset, as an iterator walks it; and the iterator's
+// step, the number of bytes of a scalar's UTF-8.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Strings/Strings.h"
 #include "idris_rt.h"
@@ -128,17 +129,9 @@ extern "C" int32_t idris_rt_str_scalar_at(const idris_rt_str *s, int64_t offset)
   return at == s->bytes ? 0 : decode(idris_rt_str_bytes(s) + at);
 }
 
-extern "C" int64_t idris_rt_str_scalar_end(const idris_rt_str *s, int64_t offset) {
-  uint64_t at = boundary(s, offset);
-  if (at == s->bytes)
-    return static_cast<int64_t>(at);
-  if (rt::strings::isAscii(s))
-    return static_cast<int64_t>(at + 1);
-  const char *p = idris_rt_str_bytes(s);
-  ++at;
-  while (at < s->bytes && isContinuation(p[at]))
-    ++at;
-  return static_cast<int64_t>(at);
+// The iterator's step past the scalar it read: its encoding's length.
+extern "C" int64_t idris_rt_str_scalar_bytes(int32_t c) {
+  return static_cast<int64_t>(rt::strings::utf8Length(c));
 }
 
 // The bytes from the boundary on, a new string: an ASCII string's tail is

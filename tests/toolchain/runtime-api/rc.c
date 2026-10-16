@@ -4,7 +4,9 @@
  * counts, saturation, freeing (a structure of any depth, under the small
  * stack the run script gives, and arrays whose elements hold objects),
  * arrays born with NULL slots, the copy of a memref's view, reuse, stack
- * cells, and the live-cell count.
+ * cells, wide cells (whose slots follow the word that counts them), odd
+ * words in object slots (a grouped sum's group word), the release of static
+ * memo cells, and the live-cell count.
  * A failed check prints a line to standard error. The summary goes through
  * the runtime's output buffer, which idris_rt_main_return must flush; then
  * main returns as @main does.
@@ -32,7 +34,7 @@ static idris_rt_header *header(const void *o) { return (idris_rt_header *)o; }
 static uint32_t count(const void *o) { return header(o)->count; }
 static uint64_t live(void) { return idris_rt_live_cells(); }
 static void **slot(void *cell, size_t offset) { return (void **)((char *)cell + offset); }
-static void *word(int64_t small) { return (void *)(uintptr_t)(small << 1 | 1); }
+static void *word(int64_t small) { return (void *)(uintptr_t)((uint64_t)small << 1 | 1); }
 static const idris_rt_str *text(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
 
 static uint32_t box(uint32_t tag, uint32_t objs) {
@@ -67,9 +69,10 @@ static void noOps(void) {
     idris_rt_inc(o);
     idris_rt_dec(o);
     idris_rt_dec(o);
-    check(!idris_rt_is_unique(o), "NULL, a small big or static data is not exclusive");
     idris_rt_free_cell(o);
   }
+  check(!idris_rt_is_unique(&persistentCons.header) && !idris_rt_is_unique(&persistentNil),
+        "static data is not exclusive");
   check(persistentCons.header.count == 0 && persistentNil.count == 0,
         "static data keeps count 0 through inc, dec and free_cell");
   check(persistentCons.header.info == (1u | 1u << 16) && persistentCons.head == 7,
@@ -472,10 +475,10 @@ static void stackCells(void) {
   void *shared = frame.slots[1];
   idris_rt_inc(shared);
   check(live() == before + 2, "a stack cell is not a live cell");
-  check(!idris_rt_is_unique(&frame), "a stack cell is never exclusive");
+  check(!idris_rt_is_unique(&frame.header), "a stack cell is never exclusive");
   idris_rt_inc(&frame);
   idris_rt_dec(&frame);
-  check(frame.header.count == 1 && !idris_rt_is_unique(&frame),
+  check(frame.header.count == 1 && !idris_rt_is_unique(&frame.header),
         "a stack cell at count 1 is not exclusive either");
   idris_rt_dec(&frame);
   check(frame.header.count == 0 && frame.plain == 99,
@@ -499,6 +502,111 @@ static void stackCells(void) {
   idris_rt_dec(holder);
   check(inner.header.count == 0 && inner.plain == 42 && live() == before,
         "a stack cell that dies in a worklist releases its slots and keeps its memory");
+}
+
+/* A box or a thunk of `n` object slots laid out wide, as idr-lower lays out
+ * a cell of more slots than the header's objs field counts: objs is
+ * IDRIS_RT_OBJS_WIDE, the word after the header holds n, the slots follow
+ * it, and one plain word follows them. The caller fills the slots. */
+static void *wide(uint32_t kind, uint64_t n) {
+  void *cell = idris_rt_cell(16 + 8 * (size_t)n + 8, idris_rt_info(3, IDRIS_RT_OBJS_WIDE, kind));
+  int64_t plain = 77;
+  memcpy((char *)cell + 8, &n, sizeof n);
+  memcpy((char *)cell + 16 + 8 * (size_t)n, &plain, sizeof plain);
+  return cell;
+}
+
+/* Cells too wide for objs to count: 255, the field's mark and so the least
+ * count it cannot hold, and 300, beyond it. A death releases every slot
+ * after the counting word, and a slot that holds NULL or an odd word
+ * releases nothing. */
+static void wideCells(void) {
+  static const uint64_t sizes[] = {IDRIS_RT_OBJS_WIDE, 300};
+  for (size_t s = 0; s < sizeof sizes / sizeof sizes[0]; ++s) {
+    uint64_t n = sizes[s], held = 0;
+    uint64_t before = live();
+    void *box = wide(IDRIS_RT_KIND_BOX, n);
+    for (uint64_t i = 0; i < n; ++i) {
+      void *value = i % 3 == 0 ? cons((int64_t)i, NULL) : i % 3 == 1 ? NULL : word(5);
+      held += i % 3 == 0;
+      *slot(box, 16 + 8 * (size_t)i) = value;
+    }
+    check(live() == before + 1 + held, "a wide box and the cells its slots hold are live");
+    idris_rt_dec(box);
+    check(live() == before, "one dec frees a wide box and every cell its slots hold");
+
+    void *shared = cons(1, NULL);
+    void *thunk = wide(IDRIS_RT_KIND_THUNK, n);
+    for (uint64_t i = 0; i < n; ++i) {
+      idris_rt_inc(shared);
+      *slot(thunk, 16 + 8 * (size_t)i) = shared;
+    }
+    check(count(shared) == 1 + n && live() == before + 2,
+          "a wide thunk holds a reference to its capture in each of its slots");
+    idris_rt_dec(thunk);
+    check(count(shared) == 1 && live() == before + 1,
+          "a wide thunk's death releases the capture in each of its slots once");
+    idris_rt_dec(shared);
+  }
+}
+
+/* A cell of a grouped sum (one of more constructors than a header's tag
+ * holds): its first object slot holds the group word, the group held as a
+ * small integer is, 2g + 1 (word(g)), which counting leaves alone as it
+ * leaves every odd word. Group 2 is the first even group past 0, whose word
+ * stored raw would be read as a reference. */
+static void groupWords(void) {
+  for (int64_t g = 0; g < 4; ++g) {
+    uint64_t before = live();
+    void *fields[] = {word(g), cons(1, NULL), cons(2, NULL)};
+    void *cell = con(5, 3, fields, g);
+    check(live() == before + 3, "a cell of a group and the two cells it holds are live");
+    idris_rt_dec(cell);
+    check(live() == before, "one dec frees a cell of a group and both cells it holds");
+  }
+}
+
+/* A static memo cell, as idr-lower writes a static thunk: count 0 (static
+ * data), kind thunk, and two object slots, which its first force writes once
+ * with a counted value. */
+typedef struct {
+  idris_rt_header header;
+  void *slots[2];
+} memoCell;
+
+/* idris_rt_caf_release releases what a static memo cell holds, once, and
+ * leaves the cell as static data; a memo cell never forced holds only
+ * static captures, and a counted cell, NULL and an odd word are no static
+ * memo cell, so it changes nothing of them. */
+static void cafRelease(void) {
+  uint64_t before = live();
+  uint32_t info = idris_rt_info(1, 2, IDRIS_RT_KIND_THUNK);
+  static memoCell forced, unforced;
+  forced.header = (idris_rt_header){0, info};
+  forced.slots[0] = cons(1, NULL);
+  forced.slots[1] = word(5);
+  idris_rt_caf_release(&forced);
+  check(live() == before, "caf_release frees the cell a forced static memo cell holds");
+  check(forced.header.count == 0 && forced.header.info == info,
+        "a released static memo cell keeps count 0 and its info");
+  forced.slots[0] = NULL;
+
+  unforced.header = (idris_rt_header){0, info};
+  unforced.slots[0] = &persistentNil;
+  unforced.slots[1] = NULL;
+  idris_rt_caf_release(&unforced);
+  check(live() == before && unforced.header.count == 0 && unforced.header.info == info &&
+            unforced.slots[0] == &persistentNil && persistentNil.count == 0 &&
+            persistentNil.info == 0,
+        "caf_release of a static memo cell never forced changes nothing");
+
+  void *held = cons(2, NULL), *cell = cons(1, held);
+  idris_rt_caf_release(cell);
+  idris_rt_caf_release(NULL);
+  idris_rt_caf_release(word(3));
+  check(count(cell) == 1 && count(held) == 1 && live() == before + 2,
+        "caf_release of a counted cell, NULL or an odd word changes nothing");
+  idris_rt_dec(cell);
 }
 
 static void report(void) {
@@ -540,6 +648,9 @@ int main(int argc, char **argv) {
   stringsAndBignums();
   tokens();
   stackCells();
+  wideCells();
+  groupWords();
+  cafRelease();
   check(live() == 0, "nothing is live at the end");
   report();
   idris_rt_main_return();

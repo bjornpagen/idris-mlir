@@ -25,6 +25,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
+#include "idr/Support/Actions.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/PatternMatch.h"
@@ -49,14 +50,21 @@ constexpr unsigned stackCellLimit = 256;
 constexpr unsigned stackFrameLimit = 1024;
 constexpr unsigned recursiveStackFrameLimit = 64;
 
+// idr-stack puts one constructor's cell on the stack; the unit is the con.
+struct StackCellAction : idr::support::TaggedAction<StackCellAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-stack-cell";
+};
+
 struct Stack : idr::impl::IdrStackBase<Stack> {
   void runOnOperation() override {
     idr::ProgramOp program = getOperation();
     const idr::Layouts &layouts = getAnalysis<idr::Layouts>();
     const idr::Escapes &escapes = getAnalysis<idr::Escapes>();
     // The decision, on the program as it stands: the cons whose property
-    // is to change.
-    SmallVector<std::pair<idr::ConOp, bool>> changes;
+    // is to change, those the analysis no longer proves back to the heap and
+    // those it newly proves onto the stack.
+    SmallVector<idr::ConOp> toHeap, toStack;
     for (idr::FuncOp fn : program.getOps<idr::FuncOp>()) {
       unsigned left = escapes.recursive(fn) ? recursiveStackFrameLimit : stackFrameLimit;
       // Whether `con` goes on the stack, which takes its size from what is
@@ -71,20 +79,32 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
         if (size > stackCellLimit || size > left)
           return false;
         left -= size;
-        ++numCells;
         return true;
       };
       fn.walk<WalkOrder::PreOrder>([&](idr::ConOp con) {
-        if (bool marked = onStack(con); marked != con.getStack())
-          changes.emplace_back(con, marked);
+        bool marked = onStack(con);
+        if (marked == con.getStack()) {
+          numCells += marked;
+          return;
+        }
+        (marked ? toStack : toHeap).push_back(con);
       });
     }
-    if (changes.empty())
-      return markAllAnalysesPreserved();
 
+    // A cell the analysis no longer proves goes back to the heap whatever an
+    // action handler says, so only putting a cell on the stack is an action.
+    // The frame budget a skipped cell took stays taken: less is on the
+    // stack, never anything wrong.
     IRRewriter rewriter(&getContext());
-    for (auto [con, marked] : changes)
-      rewriter.modifyOpInPlace(con, [&] { con.setStack(marked); });
+    for (idr::ConOp con : toHeap)
+      rewriter.modifyOpInPlace(con, [&] { con.setStack(false); });
+    unsigned stacked = 0;
+    for (idr::ConOp con : toStack)
+      stacked += idr::support::perform<StackCellAction>(
+          con, [&] { rewriter.modifyOpInPlace(con, [&] { con.setStack(true); }); });
+    numCells += stacked;
+    if (toHeap.empty() && stacked == 0)
+      return markAllAnalysesPreserved();
     // The property changes what a con does to memory, which the ownership
     // analyses read, and nothing a data type or a symbol says.
     markAnalysesPreserved<idr::TypeGraph, idr::Layouts, SymbolTable>();

@@ -21,6 +21,8 @@
 // - -gen-big-to-word, the word op each big op names (Idr_WordOp).
 // - -gen-rule-list, the rules a refusal of a program names, each with its
 //   category, one per line, for the tests to read.
+// - -gen-pass-roles, the role of each pass (IdrPass), one per line, for the
+//   tests to read.
 //
 // Emit writes MLIR only through the Idris modules, so what an op, a type or
 // an attribute is, and how each of its parts is spelled, is said once: in
@@ -2177,6 +2179,33 @@ bool emitRuleList(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
   return false;
 }
 
+//===----------------------------------------------------------------------===//
+// The role of each pass
+//===----------------------------------------------------------------------===//
+
+// Every pass of the records, one per line: its role, a space and its
+// argument, sorted by argument, as the tests read them. A pass is an
+// IdrPass, whose role is one of the IdrPassRole records Passes.td defines:
+// TableGen refuses any other, and a pass declared on upstream's Pass alone
+// is a fact only this generator sees. Upstream's pass generators write a
+// pass's C++ and its documentation, and none writes a field of a pass's
+// record for a reader outside C++, so the role is written here, beside the
+// rule list the tests read the same way.
+bool emitPassRoles(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
+  std::vector<std::pair<std::string, std::string>> roles;
+  for (const llvm::Record *def : records.getAllDerivedDefinitions("PassBase")) {
+    if (!def->isSubClassOf("IdrPass"))
+      llvm::PrintFatalError(def, llvm::Twine(def->getName()) +
+                                     " is no IdrPass: every pass states its role");
+    roles.emplace_back(def->getValueAsString("argument").str(),
+                       def->getValueAsDef("role")->getValueAsString("name").str());
+  }
+  llvm::sort(roles);
+  for (const auto &[argument, role] : roles)
+    os << role << " " << argument << "\n";
+  return false;
+}
+
 const mlir::GenRegistration genIdrisSyntax("gen-idris-syntax",
                                            "The Idris side's syntax of a dialect",
                                            emitIdrisSyntax);
@@ -2195,6 +2224,8 @@ const mlir::GenRegistration genBigToWord("gen-big-to-word", "The word op each bi
 const mlir::GenRegistration genRuleList("gen-rule-list",
                                         "The rules a refusal names, with their categories",
                                         emitRuleList);
+const mlir::GenRegistration genPassRoles("gen-pass-roles", "The role of each pass, for the tests",
+                                         emitPassRoles);
 
 } // namespace
 

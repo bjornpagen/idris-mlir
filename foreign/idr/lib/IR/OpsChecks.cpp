@@ -60,11 +60,6 @@ bool CheckNonemptyOp::holds(ArrayRef<Attribute> constants) {
   return str && !str.getValue().empty();
 }
 
-bool CheckByteOp::holds(ArrayRef<Attribute> constants) {
-  return constants.size() == 1 && word(constants, 0) &&
-         !word(constants, 0).getValue().isNegative() && word(constants, 0).getValue().isIntN(8);
-}
-
 bool CheckFiniteOp::holds(ArrayRef<Attribute> constants) {
   if (constants.size() != 1)
     return false;
@@ -120,10 +115,6 @@ OpFoldResult CheckInBoundsOp::fold(FoldAdaptor adaptor) {
 // lets a head read the character off the string it was built from.
 OpFoldResult CheckNonemptyOp::fold(FoldAdaptor adaptor) {
   return foldCheck(*this, holds(adaptor.getOperands()), knownNonEmpty(getStr()));
-}
-
-OpFoldResult CheckByteOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor.getOperands()), false);
 }
 
 OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) {
@@ -183,11 +174,6 @@ void CheckInBoundsOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> 
     return;
   setResultRange(getChecked(), IntegerValueRange(within(ranges[0].getValue(), 0,
                                                         std::numeric_limits<int64_t>::max() - 1)));
-}
-
-void CheckByteOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
-                                    SetIntRangeFn setResultRange) {
-  setResultRange(getChecked(), within(ranges[0], 0, 255));
 }
 
 // At least 0, and at most the size's greatest value less the least count,

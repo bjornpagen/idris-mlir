@@ -9,6 +9,7 @@
 
 #include "idr/IR/Canon.h"
 #include "idr/IR/Flow.h"
+#include "idr/Support/Actions.h"
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
@@ -26,6 +27,13 @@ namespace idr {
 using namespace mlir;
 
 namespace {
+
+// idr-canonicalize makes one greedy run of its patterns over an op; the
+// unit is the op the pass runs on.
+struct CanonicalizeRunAction : idr::support::TaggedAction<CanonicalizeRunAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-canonicalize-run";
+};
 
 GreedyRewriteConfig canonicalizerConfig() {
   return GreedyRewriteConfig()
@@ -62,15 +70,17 @@ struct Canonicalizer : idr::impl::IdrCanonicalizeBase<Canonicalizer> {
   // statistic counts it. Only a test, which states that the patterns
   // converge on its input, makes it a failure.
   void runOnOperation() override {
-    if (succeeded(applyPatternsGreedily(getOperation(), *patterns, canonicalizerConfig())))
-      return;
-    ++notConverged;
-    if (!testConvergence)
-      return;
-    getOperation()->emitError("canonicalization did not converge on this ")
-        << getOperation()->getName()
-        << ": a pattern undoes another, or matches again after a change no rewrite reported";
-    signalPassFailure();
+    (void)idr::support::perform<CanonicalizeRunAction>(getOperation(), [&] {
+      if (succeeded(applyPatternsGreedily(getOperation(), *patterns, canonicalizerConfig())))
+        return;
+      ++notConverged;
+      if (!testConvergence)
+        return;
+      getOperation()->emitError("canonicalization did not converge on this ")
+          << getOperation()->getName()
+          << ": a pattern undoes another, or matches again after a change no rewrite reported";
+      signalPassFailure();
+    });
   }
 
   const idr::CalleeEffects *callees;

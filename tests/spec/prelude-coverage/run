@@ -43,4 +43,3 @@ if [ -s "$work/stale" ]; then
   say "listed as uncovered but covered now (remove the lines):"
   cat "$work/stale"
 fi
-say "covered: $(wc -l < "$work/covered" | tr -d ' ') of $(wc -l < "$work/modules" | tr -d ' ') modules"

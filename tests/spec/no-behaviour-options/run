@@ -10,13 +10,15 @@
 # makes the canonicalizer's unconverged count an error, neither of them
 # how anything compiles; and idris-mlir registers no debug counter, which
 # skips what a pass would do. idris-mlir-opt keeps upstream's counter, where
-# experiments live. The generator of the Idris side (idris-mlir-tblgen) is
-# a build tool, not the compiler, and is not searched.
+# experiments live, and its contracts (idr-contracts), which check each
+# pass and change nothing; idris-mlir's report (report) is an output. The
+# generator of the Idris side (idris-mlir-tblgen) is a build tool, not the
+# compiler, and is not searched.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cd "$root" || exit 1
 kept='o c p package-path prefix no-prelude log-actions-tags runtime runtime-bitcode-section
 print-runtime prepare-runtime print-target-triple print-link-flags print-target-cpu num-threads
-time-trace time-trace-granularity'
+time-trace time-trace-granularity report idr-contracts'
 
 # The flag of every cl::opt and cl::list the compiler's sources declare:
 # the first string literal of each declaration but a positional one's.

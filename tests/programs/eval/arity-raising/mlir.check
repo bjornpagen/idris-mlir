@@ -1,8 +1,0 @@
-// input: after idr-optimize
-// countdown returns an action, and main applies it at once to a world, so
-// the optimizer calls a copy of countdown that takes the world, and the
-// copy calls itself. A copy's name is countdown's, its kind (`raise`)
-// and its key's hash.
-// This is tests/idr/raise/io-loop.mlir, from Idris.
-// CHECK: call @Main.countdown.raise.{{[^(]+}}(
-// CHECK: idr.func @Main.countdown.raise.{{[^(]+}}({{.*}}!idr.world

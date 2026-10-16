@@ -35,9 +35,9 @@ import Core.Context
 import Core.Core
 import Core.Env
 import Core.TT
+import Idris.Host
 import Libraries.Data.WithDefault
 
-import IdrisMLIR.Frontend.Host
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
@@ -144,7 +144,7 @@ recordDictionary fc owner cid ty i impl = do
   impl' <- toFullNames !(implementationOf impl)
   chosen <- chooser
   let site = maybe fc snd chosen
-  let by = maybe owner (show . fst) chosen
+  let by = maybe (shown owner) (shown . show . fst) chosen
   st <- get TState
   case lookup (cid, i) st.dicts of
     Just d => unless (d.impl == impl') $ do
@@ -152,8 +152,8 @@ recordDictionary fc owner cid ty i impl = do
       let con = maybe (show cid) (\l => show l.name) (lookup cid st.cons)
       reject site owner DictionaryField
              (con ++ " holds two implementations of " ++ !(showTT ty) ++
-              ": " ++ !(showTT d.impl) ++ ", chosen in " ++ d.chooser ++ ", and " ++ !(showTT impl') ++
-              ", chosen in " ++ by ++ concatMap ("; " ++) why)
+              ": " ++ !(showTT d.impl) ++ ", chosen in " ++ show d.chooser ++ ", and " ++ !(showTT impl') ++
+              ", chosen in " ++ show by ++ concatMap ("; " ++) why)
     Nothing =>
       update TState { dicts $= insert (cid, i) (MkDictionary impl' by site) }
 

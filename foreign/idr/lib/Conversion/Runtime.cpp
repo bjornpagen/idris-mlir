@@ -257,19 +257,27 @@ Value Runtime::constantArray(OpBuilder &b, Location loc, const ConstantArray &ar
 
 namespace {
 
-// The declaration of the runtime function `name` of type `type`, detached.
-// The C ABI has the caller extend an argument narrower than 32 bits, and the
-// runtime's narrow parameters are unsigned (a byte): without zeroext, a
-// caller would pass garbage in the upper bits. A function that does not
-// return lets LLVM treat what follows its call as unreachable.
+// The declaration of the runtime function `name` of type `type`, detached,
+// as clang declares it from idris_rt.h on every target. The C ABI extends an
+// integer narrower than 32 bits, an argument in its caller and a result in
+// its callee, and the runtime's narrow integers are unsigned (a bool):
+// without zeroext, a caller would pass garbage in an argument's upper bits.
+// A function that does not return lets LLVM treat what follows its call as
+// unreachable.
 LLVM::LLVMFuncOp declaration(Location loc, StringRef name, LLVM::LLVMFunctionType type,
                              bool noreturn) {
   OpBuilder b(loc.getContext());
   auto callee = LLVM::LLVMFuncOp::create(b, loc, name, type);
+  auto narrow = [](Type value) {
+    auto integer = dyn_cast<IntegerType>(value);
+    return integer && integer.getWidth() < 32;
+  };
   for (auto [i, arg] : llvm::enumerate(type.getParams()))
-    if (auto integer = dyn_cast<IntegerType>(arg); integer && integer.getWidth() < 32)
+    if (narrow(arg))
       callee.setArgAttr(static_cast<unsigned>(i), LLVM::LLVMDialect::getZExtAttrName(),
                         b.getUnitAttr());
+  if (narrow(type.getReturnType()))
+    callee.setResultAttr(0, LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
   if (noreturn)
     callee.setNoreturn(true);
   return callee;

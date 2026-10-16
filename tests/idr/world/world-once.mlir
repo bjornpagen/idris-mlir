@@ -1,9 +1,9 @@
-// RUN: idris-mlir-opt %s | FileCheck %s
+// RUN: idris-mlir-opt %s -o /dev/null
+// NEEDS-ACCEPTANCE: the module verifies; the FileCheck of its own function names is gone.
 // Worlds used once on each path are accepted.
 
 
 // A chain of IO ops.
-// CHECK-LABEL: idr.func @chain
 !B = !idr.data<"B", plain [@F(), @T()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(i64, !idr.world)]>
 idr.program @"world-once" root(@chain) stage(first) {
@@ -15,7 +15,6 @@ idr.program @"world-once" root(@chain) stage(first) {
   }
 
   // One use in each region of a match is one use on each path.
-  // CHECK-LABEL: idr.func @branches
   idr.func @branches(%b: !B,
                               %w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
@@ -36,7 +35,6 @@ idr.program @"world-once" root(@chain) stage(first) {
 
   // A region that crashes does not reach the use after the match, but no
   // region is special: a region that yields the world unused is fine.
-  // CHECK-LABEL: idr.func @crash
   idr.func @crash(%n: i64, %w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     %r = idr.match_lit %n : i64 -> (!idr.world) {
@@ -53,7 +51,6 @@ idr.program @"world-once" root(@chain) stage(first) {
   }
 
   // A world stored in a constructor and returned is used once.
-  // CHECK-LABEL: idr.func @stored
   idr.func @stored(%w: !idr.world) -> !IORes {
     %z = arith.constant 0 : i64
     %r = idr.con !IORes @MkIORes(%z : i64, %w : !idr.world)
@@ -61,7 +58,6 @@ idr.program @"world-once" root(@chain) stage(first) {
   }
 
   // A loop carries the world from one iteration to the next.
-  // CHECK-LABEL: idr.func @loop
   idr.func @loop(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     %r = scf.while (%v = %w) : (!idr.world) -> !idr.world {

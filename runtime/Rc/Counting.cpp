@@ -12,8 +12,8 @@ extern "C" void idris_rt_inc(void *o) { rt::rc::inc(o); }
 
 extern "C" void idris_rt_dec(void *o) { rt::rc::dec(o); }
 
-extern "C" bool idris_rt_is_unique(const void *o) {
-  return rt::rc::isObject(o) && rt::rc::isExclusive(static_cast<const idris_rt_header *>(o));
+extern "C" bool idris_rt_is_unique(const idris_rt_header *cell) {
+  return rt::rc::isExclusive(cell);
 }
 
 extern "C" void idris_rt_free_cell(void *o) {

@@ -4,7 +4,8 @@
 # foreign/idr is an in-tree MLIR dialect in upstream's layout: headers
 # under include/idr and .cpp under lib, no C++20 module, every library one
 # add_mlir_library (add_mlir_dialect_library for the dialect), and a
-# CMakeLists.txt only where a list of the layout is. The build follows the
+# CMakeLists.txt only where a list of the layout is, its googletest
+# programs' under unittests among them. The build follows the
 # project's profile: the presets but asan-ubsan (PINS.md
 # no-sanitizer-runtimes), C++26 with clang and libc++, no exceptions or
 # RTTI, warnings as errors. No state outlives a call but three: the
@@ -73,7 +74,7 @@ fi
 
 # The lists of the layout, and no other.
 sed 's|^\./||' "$work/lists" > "$work/found"
-for dir in "" include/idr include/idr/IR include/idr/Transforms include/idr/Target lib lib/IR lib/Analysis lib/Transforms lib/Support lib/Target; do
+for dir in "" include/idr include/idr/IR include/idr/Transforms include/idr/Target lib lib/IR lib/Analysis lib/Transforms lib/Support lib/Target unittests; do
   printf '%s\n' "$idr${dir:+/$dir}/CMakeLists.txt"
 done | sort > "$work/layout"
 comm -23 "$work/found" "$work/layout" > "$work/extra"

@@ -20,12 +20,14 @@ import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
+import Control.WellFounded
 import Data.Fin
 import Data.List
 import Data.String
@@ -448,14 +450,15 @@ forcedEnv env tys known =
 
 mutual
   ||| A case tree over its scope's variables, and their types as their
-  ||| binders give them (`Typed`).
-  export covering
+  ||| binders give them (`Typed`). Each leaf's term starts a path of its
+  ||| own (`Terms.term`).
+  export
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
          CaseTree vars -> Core (Term nv)
   tree ctx env tys known (STerm _ tm) = do
     env' <- forcedEnv env tys known
-    term ctx env' tm
+    term asWritten start (sizeAccessible start) ctx env' tm
   -- Idris proved it cannot be reached. An `Unmatched` leaf of a covering
   -- definition is one too: a definition whose clauses are all impossible
   -- has only that leaf. In a definition with missing cases it is one of
@@ -489,14 +492,18 @@ mutual
       -- type. The Core type names it when it is a declaration the
       -- constructor belongs to; a value of a type with one runtime field
       -- has its field's type, so the Idris type names it then.
-      instanceOf : VarInfo (Fin nv) -> Name -> Core DataId
-      instanceOf v cn = do
+      instanceOf : VarInfo (Fin nv) -> GlobalDef -> Core DataId
+      instanceOf v def = do
         st <- get TState
-        let fromCore = case coreTyOf v of
-                         Just (DataT d) => case lookup (MkConId d (shortName cn)) st.cons of
-                           Just layout => if layout.name == cn then Just d else Nothing
-                           Nothing => Nothing
-                         _ => Nothing
+        let cn = fullname def
+        fromCore <- case coreTyOf v of
+                      Just (DataT d) => do
+                        Just cid <- conIdOf d def
+                          | Nothing => pure Nothing
+                        pure (case lookup cid st.cons of
+                                Just layout => if layout.name == cn then Just d else Nothing
+                                Nothing => Nothing)
+                      _ => pure Nothing
         case (fromCore, idrisTypeOf v) of
           (Just d, _) => pure d
           (Nothing, Just ity) => do
@@ -527,7 +534,7 @@ mutual
               -- constructors is a match on zero.
               Just _ => natCase ctx env tys known idx shape loc i (idrisTypeOf v) alts
               Nothing => do
-                inst <- instanceOf v (fullname def)
+                inst <- instanceOf v def
                 st <- get TState
                 if isJust (lookup inst st.newtypes)
                    then newtypeCase ctx env tys known idx v inst alts
@@ -590,7 +597,6 @@ mutual
 
   ||| A match on a `Nat`-like value: zero, or a successor binding the
   ||| predecessor. The default stands for whichever the tree leaves out.
-  covering
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
             Maybe ClosedTerm -> Loc -> Fin nv -> Maybe ClosedTerm ->
@@ -611,7 +617,6 @@ mutual
   ||| (`deadDefault`). The value's shape, if known, rules one of the two out,
   ||| and gives the predecessor its own; the predecessor is of the value's
   ||| type (`ity`).
-  covering
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
                     Maybe ClosedTerm -> Maybe ClosedTerm -> Bool -> Loc -> Fin nv ->
@@ -660,7 +665,6 @@ mutual
   ||| constructor, and the alternative's variables stand for its arguments.
   ||| An argument that mentions the runtime value the implementation closes
   ||| over closes over it too.
-  covering
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
                ClosedTerm -> Maybe (Fin nv, Holes) ->
@@ -701,7 +705,6 @@ mutual
   ||| field's value: nothing is matched at runtime, the alternative's
   ||| arguments stand for what the constructor holds, and its field for the
   ||| matched value itself, at the field's type.
-  covering
   newtypeCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                 Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
                 VarInfo (Fin nv) -> DataId -> List (CaseAlt vars) -> Core (Term nv)
@@ -726,7 +729,8 @@ mutual
       firstNamed : List (CaseAlt vars) -> Core (Term nv)
       firstNamed (ConCase cn _ args rhs :: _) = do
         def <- lookupDef ctx.fc ctx.owner cn
-        let cid = MkConId inst (shortName (fullname def))
+        Just cid <- conIdOf inst def
+          | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
         st <- get TState
         let Just info = lookup cid st.cons
           | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
@@ -753,7 +757,6 @@ mutual
   ||| name the one the value's shape says it was built with (`built`). The
   ||| shape, if known, rules out every other constructor and gives the
   ||| fields their shapes.
-  covering
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
                     Maybe ClosedTerm -> Bool -> Bool -> DataId ->
@@ -761,7 +764,8 @@ mutual
   conAlternatives ctx env tys known shape every built inst scTy idx [] = pure ([], Nothing)
   conAlternatives ctx env tys known shape every built inst scTy idx (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
-    let cid = MkConId inst (shortName (fullname def))
+    Just cid <- conIdOf inst def
+      | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
     st <- get TState
     let Just info = lookup cid st.cons
       | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
@@ -798,7 +802,6 @@ mutual
   conAlternatives ctx env tys known shape every built inst scTy idx (ConstCase {} :: _) =
     internal ctx.fc "a constant alternative in a constructor match"
 
-  covering
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
                     List (CaseAlt vars) ->

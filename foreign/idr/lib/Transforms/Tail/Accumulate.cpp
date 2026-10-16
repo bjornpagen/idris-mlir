@@ -24,6 +24,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
+#include "idr/Support/Actions.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
@@ -42,6 +43,20 @@ using namespace mlir;
 
 namespace idr::tail {
 namespace {
+
+// idr-accumulate makes one countdown return its argument; the unit is the
+// function.
+struct AccumulateCountdownAction : support::TaggedAction<AccumulateCountdownAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-accumulate-countdown";
+};
+
+// idr-accumulate gives one function its accumulator clone; the unit is the
+// function.
+struct AccumulateCloneAction : support::TaggedAction<AccumulateCloneAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-accumulate-clone";
+};
 
 // A call of `clone` in place of `call`, with `carried` after its arguments.
 // The clone is the same recursion with the same facts, so the call does
@@ -168,22 +183,29 @@ struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
       if (*plan)
         plans.emplace_back(fn, std::move(**plan));
     }
-    if (plans.empty())
-      return markAllAnalysesPreserved();
     IRRewriter rewriter(program.getContext());
+    unsigned performed = 0;
     for (auto &[planned, plan] : plans) {
       FuncOp fn = planned;
-      std::visit(Visit{[&](const Countdown &) { returnArgument(fn, rewriter); },
-                       [&](const Accumulator &accumulator) {
-                         seed(rewriter, symbols, fn, accumulator);
-                         ++numFunctions;
-                         numTails += static_cast<uint64_t>(
-                             llvm::count_if(accumulator.sites, [](const Site &site) {
-                               return site.addition.has_value();
-                             }));
-                       }},
-                 plan);
+      performed += std::visit(
+          Visit{[&](const Countdown &) {
+                  return support::perform<AccumulateCountdownAction>(
+                      fn, [&] { returnArgument(fn, rewriter); });
+                },
+                [&](const Accumulator &accumulator) {
+                  return support::perform<AccumulateCloneAction>(fn, [&] {
+                    seed(rewriter, symbols, fn, accumulator);
+                    ++numFunctions;
+                    numTails += static_cast<uint64_t>(
+                        llvm::count_if(accumulator.sites, [](const Site &site) {
+                          return site.addition.has_value();
+                        }));
+                  });
+                }},
+          plan);
     }
+    if (performed == 0)
+      return markAllAnalysesPreserved();
     markAnalysesPreserved<SymbolTable, TypeGraph, Layouts>();
   }
 };

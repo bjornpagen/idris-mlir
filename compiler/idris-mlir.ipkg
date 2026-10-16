@@ -43,7 +43,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Emit.Bodies
         , IdrisMLIR.Emit.Declarations
         , IdrisMLIR.Emit
-        , IdrisMLIR.Frontend.Host
         , IdrisMLIR.Frontend.Walk
         , IdrisMLIR.Frontend.Resolve
         , IdrisMLIR.Frontend.Translate.State

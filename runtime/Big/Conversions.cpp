@@ -26,7 +26,7 @@ extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_s(int64_t v
 }
 
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_u(uint64_t value) {
-  if (value <= static_cast<uint64_t>(smallMax)) [[likely]]
+  if (value <= static_cast<uint64_t>(IDRIS_RT_SMALL_MAX)) [[likely]]
     return small(static_cast<int64_t>(value));
   return fromUnsignedLarge(value);
 }

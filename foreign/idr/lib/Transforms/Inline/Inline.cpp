@@ -11,6 +11,7 @@
 
 #include "idr/Analysis/Inline.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
 
 #include "mlir/IR/Visitors.h"
@@ -20,6 +21,16 @@
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
+
+namespace {
+
+// idr-optimize's inline step inlines one call; the unit is the call.
+struct InlineAction : idr::support::TaggedAction<InlineAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-optimize-inline";
+};
+
+} // namespace
 
 bool idr::inlining::fitsRegion(InlinerInterface &interface, CallOp call, FuncOp callee) {
   Region &body = callee.getBody();
@@ -57,13 +68,15 @@ idr::inlining::inlineCalls(FuncOp caller,
       ++step.capped;
       continue;
     }
-    if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
-                          /*shouldCloneInlinedRegion=*/true)))
-      continue;
-    caller.absorb(fn);
-    call.erase();
-    size += facts.size - 1;
-    ++step.inlined;
+    (void)idr::support::perform<InlineAction>(call, [&] {
+      if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
+                            /*shouldCloneInlinedRegion=*/true)))
+        return;
+      caller.absorb(fn);
+      call.erase();
+      size += facts.size - 1;
+      ++step.inlined;
+    });
   }
   return step;
 }

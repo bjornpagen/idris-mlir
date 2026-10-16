@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+lit ../lowered-mixed.mlir

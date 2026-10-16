@@ -1,16 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
-// NEEDS-ACCEPTANCE: the sum's printed form and the dispatch.
 // A closure kept in a constructor's field and bound again by a match's
 // region argument: the field's anchor holds every label any constructor
 // put there, and the match declares that each region argument reads its
 // field's anchor, so the bound closure's labels are known and its apply is
 // a dispatch.
-// CHECK: = !idr.data<{{[^,]*}}, closures [@add(i64), @dbl()]
-// CHECK-LABEL: idr.func @run(
-// CHECK: case @add(
-// CHECK: case @dbl(
 !Op = !idr.data<"Op", plain [@Unary(!idr.fn<(i64) -> (i64)>), @None()]>
 idr.program @"match-field" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {

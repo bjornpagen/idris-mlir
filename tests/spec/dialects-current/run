@@ -14,7 +14,29 @@ mode=
 check() {
   bounded sh "$1/tools/dialects.sh" check $mode > "$work/out" 2>&1
   say "$2: exit $?"
-  cat "$work/out"
+  modules
+}
+# modules: what tools/dialects.sh check said of the modules, as one line:
+# every one current, every one stale, or those that are not current when
+# every other one is. What it said of no module (why it could not check)
+# is shown as it is.
+modules() {
+  awk '
+    !/^IdrisMLIR\./ { print "  | " $0; next }
+    {
+      n++; name = $0; sub(/:.*/, "", name)
+      state = $0; sub(/^[^:]*: /, "", state); sub(/ \(.*\)$/, "", state)
+      if (state == "current") current++
+      else if (state == "stale") stale++
+      else { others++; other = other (other == "" ? "" : ", ") name " " state }
+    }
+    END {
+      if (n == 0) print "modules: none checked"
+      else if (current == n) print "modules: every one current"
+      else if (stale == n) print "modules: every one stale"
+      else if (current + others == n) print "modules: " other ", every other one current"
+      else print "modules: " current " current, " stale " stale, " others " other, of " n
+    }' "$work/out"
 }
 check "$root" "the checked-in modules"
 

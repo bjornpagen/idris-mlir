@@ -39,4 +39,4 @@ export
 ubAttrText : (t : ty -> String) -> (a : at -> String) -> UBAttr ty at -> String
 ubAttrText t a PoisonAttr = "#ub.poison"
 
--- fingerprint: 2658125070-524740 1733273252-1417
+-- fingerprint: 936934428-526422 1733273252-1417

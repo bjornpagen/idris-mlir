@@ -1,11 +1,14 @@
 // RUN: sed 's/%q = arith.subi %y, %k : i64/%q = arith.muli %y, %k : i64/' %s > %t.edited.mlir
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
+// RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading -o %t.serial.mlir
+// RUN: cmp %t.mlir %t.serial.mlir
 // RUN: idris-mlir-opt %t.edited.mlir --idr-optimize -o %t.edited.out.mlir
 // RUN: not cmp -s %s %t.edited.mlir
 // RUN: sed -n 's/^ *idr\.func \(private \)\{0,1\}@\([^(]*\)(.*/\2/p' %t.mlir | grep -v '^scale' | sort > %t.names
 // RUN: sed -n 's/^ *idr\.func \(private \)\{0,1\}@\([^(]*\)(.*/\2/p' %t.edited.out.mlir | grep -v '^scale' | sort > %t.edited.names
 // RUN: grep -q '[.]spec[.]' %t.names
 // RUN: diff %t.names %t.edited.names
+// NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as the binding-time rule allows.
 // One definition edited leaves every other symbol where it was: the
 // first RUN line changes the body of @scale alone, and every function the

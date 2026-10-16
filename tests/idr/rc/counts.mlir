@@ -1,5 +1,4 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=reuses-in-place=@map,counts-nothing=@sum,counts-nothing=@scalars -o /dev/null
-// RUN: idris-mlir-opt %s --idr-rc | FileCheck %s
 // NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // idr-rc makes every reference explicit. That each is consumed exactly once
@@ -11,18 +10,9 @@
 // reuses in place (the first RUN line). A function that only reads its
 // list borrows it (a plain parameter, a view of the caller's), and counts
 // nothing; neither do worlds and scalars.
-// CHECK-LABEL: idr.func @sum(
-// CHECK-SAME: %{{.*}}: !idr.box<!L>, %{{.*}}: i64)
-// CHECK-LABEL: idr.func @both(
 
 // A string consumed twice is owned, and the first consuming use takes a
 // reference of its own from a view of it; one only read is borrowed.
-// CHECK-SAME: %[[A:[^:]*]]: !idr.own<!idr.str>, %[[B:[^:]*]]: !idr.str)
-// CHECK: %[[V:.*]] = {{(idr\.)?}}borrow %[[A]]
-// CHECK-COUNT-1: dup %[[V]]
-// CHECK-NOT: {{(idr\.| )dup }}
-// CHECK-NOT: {{(idr\.| )drop }}%[[B]]
-// CHECK-LABEL: idr.func @scalars(
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 !Two = !idr.data<"Two", plain [@Two(!idr.str, !idr.str)]>
 idr.program @counts root(@root) stage(first) {

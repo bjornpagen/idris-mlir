@@ -1,2 +1,4 @@
+NEEDS-ACCEPTANCE: that what holds of every compilation holds of this program: its objects import only what is allowed, its dumps parse and verify, no step drops a quantity (universal: holds)
 compile: exit 0
 artifacts: core module objects executable
+universal: holds

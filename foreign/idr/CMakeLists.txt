@@ -101,6 +101,9 @@ link_libraries(idris_mlir_language_profile)
 
 add_subdirectory(include/idr)
 add_subdirectory(lib)
+# The exhaustive boxes over the arithmetic the passes and the runtime's
+# small paths rest on (unittests, make test-unit).
+add_subdirectory(unittests)
 
 # The tools, each tools/<tool>.cpp, and what each links: idris-mlir, the
 # driver; idris-mlir-opt; idris-mlir-reduce, which shrinks a module that
@@ -108,6 +111,7 @@ add_subdirectory(lib)
 set(IDR_TOOLS idris-mlir idris-mlir-opt idris-mlir-reduce)
 set(IDR_TOOL_LINKS_idris-mlir IdrDriver)
 set(IDR_TOOL_LINKS_idris-mlir-opt
+	IdrContracts
 	IdrPipeline
 	IdrTarget
 	IdrIR

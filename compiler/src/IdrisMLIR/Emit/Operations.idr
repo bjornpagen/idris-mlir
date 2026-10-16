@@ -87,7 +87,6 @@ guarded l types o = foldlM check o (guardsOf o)
       build <- the (E (MlirType -> Op)) $ case g.check of
         Nonzero => pure (Idr.checkNonzeroOp x g.cause)
         Nonempty => pure (Idr.checkNonemptyOp x g.cause)
-        Byte => pure (Idr.checkByteOp x g.cause)
         Finite => pure (Idr.checkFiniteOp x g.cause)
         InBounds i => pure (Idr.checkInBoundsOp x !(operandAt o i) g.cause)
         InRange c size => pure (Idr.checkRangeOp x !(count o c) !(count o size) g.cause)
@@ -251,10 +250,11 @@ primValue ix l p vs t = do
   value ix l t (\r => primOp p args [r])
 
 ||| What a pure primitive of the dialect gives, at Core's type: a string, an
-||| Integer or a natural as itself, a character a `Char`, a length, a byte
-||| offset or a handle's test an `Int`; Integer arithmetic gives what it takes,
-||| Integers or naturals. A conversion whose result its types name is a
-||| `Cast`, `ToStr`, `FromStr`, `ToBig` or `FromBig`, which gives that type.
+||| Integer or a natural as itself, a character a `Char`, a length in
+||| characters or bytes or a handle's test an `Int`; Integer arithmetic gives
+||| what it takes, Integers or naturals. A conversion whose result its types
+||| name is a `Cast`, `ToStr`, `FromStr`, `ToBig` or `FromBig`, which gives
+||| that type.
 resultOf : IdrPrim -> List Val -> E Ty
 resultOf BigAdd (a :: _) = pure a.type
 resultOf BigMul (a :: _) = pure a.type
@@ -274,7 +274,7 @@ resultOf p _ = case p of
   StrScalarAt => pure CharT
   StrLength => pure (IntT IdrisInt)
   StrBytesLength => pure (IntT IdrisInt)
-  StrScalarEnd => pure (IntT IdrisInt)
+  StrScalarBytes => pure (IntT IdrisInt)
   HandleIsNull => pure (IntT IdrisInt)
   BigSub => pure BigT
   BigAnd => pure BigT

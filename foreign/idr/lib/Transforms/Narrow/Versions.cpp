@@ -4,6 +4,7 @@
 // natural small.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Actions.h"
 #include "idr/Support/Worklist.h"
 #include "idr/Transforms/Narrow.h"
 
@@ -20,6 +21,13 @@ using namespace mlir;
 namespace idr::narrow {
 
 namespace {
+
+// idr-narrow versions one loop on its descending natural; the unit is the
+// scf.while.
+struct NarrowVersionAction : support::TaggedAction<NarrowVersionAction> {
+  using TaggedAction::TaggedAction;
+  static constexpr llvm::StringLiteral tag = "idr-narrow-version";
+};
 
 // Whether `yielded`, what `loop` yields round for its argument `arg`, is
 // `arg` or a predecessor of it within one trip round the loop: through
@@ -97,7 +105,7 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts
   return std::nullopt;
 }
 
-// if (init <= smallMax) { the loop, from init masked to its low 62 bits }
+// if (init <= IDRIS_RT_SMALL_MAX) { the loop, from init masked to its low 62 bits }
 // else { the loop }. On the first path the mask changes nothing, and shows
 // the analysis the bound that a descending argument keeps. Both versions
 // are copies, which the walk that versions does not visit, so a loop is
@@ -108,7 +116,7 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
   Value init = loop.getInits()[index];
   Type nat = init.getType();
   rewriter.setInsertionPoint(loop);
-  APInt max(64, static_cast<uint64_t>(ranges::smallMax), /*isSigned=*/true);
+  APInt max(64, static_cast<uint64_t>(IDRIS_RT_SMALL_MAX), /*isSigned=*/true);
   Value bound = ConstantOp::create(rewriter, loc, nat, BigAttr::get(ctx, max));
   Value small = BigCmpOp::create(rewriter, loc, CmpPredicate::lte, init, bound);
   auto branch = scf::IfOp::create(rewriter, loc, loop.getResultTypes(), small,
@@ -116,7 +124,8 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
 
   rewriter.setInsertionPointToStart(branch.thenBlock());
   Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), init);
-  Value mask = arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(ranges::smallMax));
+  Value mask =
+      arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(IDRIS_RT_SMALL_MAX));
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
   Value start = BigSmallOp::create(rewriter, loc, nat, masked);
   // The copy starts from the word, so the natural it was read from drops
@@ -141,7 +150,9 @@ struct VersionDescending : OpRewritePattern<scf::WhileOp> {
     std::optional<unsigned> index = descendingArgument(loop, facts);
     if (!index)
       return failure();
-    version(rewriter, facts, loop, *index);
+    if (!support::perform<NarrowVersionAction>(
+            loop, [&] { version(rewriter, facts, loop, *index); }))
+      return failure();
     ++versioned;
     return success();
   }

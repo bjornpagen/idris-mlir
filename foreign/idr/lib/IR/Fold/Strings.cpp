@@ -138,19 +138,18 @@ OpFoldResult StrScalarAtOp::fold(FoldAdaptor adaptor) {
                      });
 }
 
-OpFoldResult StrScalarEndOp::fold(FoldAdaptor adaptor) {
-  Type type = getType();
-  return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
-                     [&](Scope &, const idris_rt_str *s, int64_t at) -> OpFoldResult {
-                       return wrapped(type, fold::runtime<StrScalarEndOp>(s, at));
-                     });
-}
-
 OpFoldResult StrDropBytesOp::fold(FoldAdaptor adaptor) {
   return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
                      [](Scope &scope, const idris_rt_str *s, int64_t at) -> OpFoldResult {
                        return scope.attr(fold::runtime<StrDropBytesOp>(s, at));
                      });
+}
+
+OpFoldResult StrScalarBytesOp::fold(FoldAdaptor adaptor) {
+  auto value = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
+  if (!value)
+    return {};
+  return wrapped(getType(), fold::runtime<StrScalarBytesOp>(static_cast<int32_t>(value.getInt())));
 }
 
 // Nothing at an index the guard refuses, outside the string, where the

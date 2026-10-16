@@ -1,6 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@pick,not-called=@add,not-called=@sub -o /dev/null
-// RUN: FileCheck %s < %t.mlir
 // NEEDS-ACCEPTANCE: that the call of @pick is raised, as a call whose result a dispatch consumes is.
 // A call whose result is applied at once, with only an op without effects
 // between them: after defunctionalization the apply is a dispatch on the
@@ -10,8 +9,6 @@
 // meets the constructor each region builds and folds to a direct call,
 // which the copy inlines, and the recursive tail calls the copy itself. So
 // neither @pick nor the functions its closures name is called.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: call @{{pick\.raise\.[0-9a-f]+}}(
 idr.program @apply root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

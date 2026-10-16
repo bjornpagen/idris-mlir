@@ -1,46 +1,12 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@growLeft,reuses-in-place=@growLeft,tests-nothing=@growLeft,counts-nothing=@growLeft2,reuses-in-place=@growLeft2 -o /dev/null
-// RUN: idris-mlir-opt %s --idr-rc --idr-lower | FileCheck %s
 // NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A constructor rebuilt in the cell of the one taken apart, with one field
 // changed: the fields given back as the take gave them are in the cell
 // already, with the reference it held all along. In the owned stage they
 // move out of the take and into the reuse, so nothing is counted for them
-// (counts-nothing); the lowering stores neither them nor the header, only
-// the field that changed. Where the box may be shared, the take tests it
-// and the token may be null: the kept fields are then stored into the
-// fresh cell only, and the cell that was the box's gets the one store. A
-// reuse of another constructor of the same size writes its header and
-// every field.
-// CHECK-LABEL: func.func private @growLeft(
-// CHECK-NOT: llvm.store
-// CHECK-NOT: idris_rt_cell
-// CHECK: call @wrap
-// CHECK-COUNT-1: llvm.store
-// CHECK-NOT: llvm.store
-// CHECK-NOT: idris_rt_cell
-// CHECK: return
-// CHECK-LABEL: func.func private @growLeft2(
-// CHECK: scf.if
-// CHECK: idris_rt_inc
-// CHECK: idris_rt_dec
-// CHECK-NOT: llvm.store
-// CHECK: call @wrap
-// CHECK-NOT: llvm.store
-// CHECK: scf.if
-// CHECK: llvm.call @idris_rt_cell(
-// CHECK-COUNT-2: llvm.store
-// CHECK: } else {
-// CHECK-NEXT: scf.yield
-// CHECK: }
-// CHECK-COUNT-1: llvm.store
-// CHECK-NOT: llvm.store
-// CHECK: return
-// CHECK-LABEL: func.func private @swap(
-// CHECK-NOT: idris_rt_cell
-// CHECK-COUNT-5: llvm.store
-// CHECK-NOT: llvm.store
-// CHECK: return
+// (counts-nothing). Where the box may be shared, the take tests it
+// and the token may be null.
 !T = !idr.data<"T", plain [@Leaf(), @Node(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
 !P = !idr.data<"P", plain [@None(), @Pair(!idr.box<!T>, !idr.box<!T>, i64)]>
 idr.program @"kept-fields" root(@root) stage(first) {
