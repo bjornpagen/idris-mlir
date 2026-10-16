@@ -7,8 +7,9 @@
 ||| chains judge, which nothing prints. Its key is how it reads: the
 ||| definition's printed name, a block named by its place in the definition
 ||| that holds it, and the arguments printed with every binder named by its
-||| depth, so that one instance prints one way whatever Idris called its
-||| binders and whatever counter it numbered its blocks with. The symbol is
+||| depth and every `Nat` literal by its value, so that one instance prints
+||| one way whatever Idris called its binders and whatever counter it
+||| numbered its blocks with. The symbol is
 ||| the key printed (`Term.keyText`), with the hash of the link's text
 ||| where the print drops part of the identity.
 module IdrisMLIR.Frontend.Translate.Keys
@@ -39,7 +40,6 @@ import Data.Nat
 import Data.List
 import Data.SnocList
 import Data.SortedMap
-import Data.SortedSet
 import Data.List.Quantifiers
 import Data.String
 import Data.Vect
@@ -298,6 +298,33 @@ keyOrigin n = do
         Nothing => search key cs
 
 ------------------------------------------------------------------------------
+-- What a term is read beside
+------------------------------------------------------------------------------
+
+||| What writing a term and printing it read beside it: the context, which
+||| gives each name its address, and the roles of the constructors of
+||| `Nat`-like types the term names (`rolesIn`), by address.
+record Writer where
+  constructor MkWriter
+  context : Context
+  roles : SortedMap Address NatRole
+
+||| The role of the constructor a term is, if the writer knows it as a zero
+||| or a successor, with its address.
+roleOf : Writer -> TT vs -> Maybe (Address, NatRole)
+roleOf w (Ref _ (DataCon _ _) n) = do
+  a <- definitionAddress w.context n
+  r <- lookup a w.roles
+  pure (a, r)
+roleOf w _ = Nothing
+
+||| The successor a term is, if it is a constructor the writer knows as one.
+successorOf : Writer -> TT vs -> Maybe Address
+successorOf w t = case roleOf w t of
+  Just (s, Succ) => Just s
+  _ => Nothing
+
+------------------------------------------------------------------------------
 -- Arguments as text
 ------------------------------------------------------------------------------
 
@@ -335,55 +362,83 @@ dropsWidth c = case constantLit c of
   Just (LBig _) => True
   _ => False
 
+||| How many of the successor `s` a term is a run of down to a zero, and
+||| the zero, if the run ends in one. A run is of one successor, as
+||| `write`'s is, since its print names the successor once.
+toZero : Writer -> Address -> TT vs -> Maybe (Nat, Name)
+toZero w s t@(Ref _ _ z) = case roleOf w t of
+  Just (_, Zero) => Just (0, z)
+  _ => Nothing
+toZero w s (App _ f a) = case successorOf w f of
+  Just s' => if sameAddress s s' then (\(k, z) => (S k, z)) <$> toZero w s a else Nothing
+  Nothing => Nothing
+toZero w s _ = Nothing
+
+||| A successor `f` applied to `a`, as a literal of its `Nat`-like type
+||| when `a` is a run of it down to its zero: the successor named once
+||| with how many of it there are in decimal, then the zero,
+||| `Prelude.Types.S^1024 Prelude.Types.Z`, so that a literal's print
+||| grows with its digits, not its value, and two types' literals, whose
+||| successors are two names, print apart.
+literalOf : Writer -> TT vs -> TT vs -> Maybe (String, Bool)
+literalOf w f@(Ref _ _ s) a = do
+  sa <- successorOf w f
+  (k, z) <- toZero w sa a
+  pure (plainOrigin s ++ "^" ++ show (S k) ++ " " ++ plainOrigin z, dropsName s || dropsName z)
+literalOf w _ _ = Nothing
+
 mutual
   ||| A term at a depth of binders: a variable by its binder's depth, a
-  ||| definition by its printed full name, an arrow whose result does not
-  ||| mention its binder as `a -> b`, one whose does as `(x0 : a) -> b`,
-  ||| each with Idris's quantity and braces; and whether the print dropped
-  ||| part of what tells terms apart (`eqTerm`): an erased part that is not
-  ||| a placeholder, a metavariable's arguments, a name printed with less, a
+  ||| definition by its printed full name, a literal of a `Nat`-like type
+  ||| by its value (`literalOf`), an arrow whose result does not mention
+  ||| its binder as `a -> b`, one whose does as `(x0 : a) -> b`, each with
+  ||| Idris's quantity and braces; and whether the print dropped part of
+  ||| what tells terms apart (`eqTerm`): an erased part that is not a
+  ||| placeholder, a metavariable's arguments, a name printed with less, a
   ||| lambda's or a let's binder type and quantity, a binder printed
   ||| through, a default implicit printed as implicit, an integer's width,
   ||| a delay's type, an as-pattern's name.
-  render : Nat -> Place -> TT vs -> (String, Bool)
-  render d _ (Local _ _ idx _) = (binderAt (minus d (S idx)), False)
-  render d _ (Ref _ _ n) = (plainOrigin n, dropsName n)
-  render d _ (Meta _ n _ args) = ("?" ++ plainOrigin n, not (null args) || dropsName n)
-  render d p (Bind _ _ (Pi _ rig info a) sc) =
-    let (t, lost) = arrow d rig info a sc in (parensIf (notAlone p) t, lost)
-  render d p (Bind _ _ (Lam {}) sc) =
-    (parensIf (notAlone p) ("\\" ++ binderAt d ++ " => " ++ fst (render (S d) Alone sc)), True)
-  render d p (Bind _ _ (Let _ _ v _) sc) =
-    (parensIf (notAlone p) ("let " ++ binderAt d ++ " = " ++ fst (render d Alone v) ++ " in " ++
-                            fst (render (S d) Alone sc)), True)
-  render d p (Bind _ _ _ sc) = (fst (render (S d) p sc), True)
-  render d p (App _ f a) =
-    let parts = spineParts d f [render d Applied a] in
-    (parensIf (applied p) (joinBy " " (map fst parts)), any snd parts)
-  render d _ (PrimVal _ c) = (show c, dropsWidth c)
-  render d _ (Erased _ Placeholder) = ("_", False)
-  render d _ (Erased _ _) = ("_", True)
-  render d _ (TType _ _) = ("Type", False)
-  render d p (TDelayed _ _ t) = let (s, lost) = render d Applied t in (parensIf (applied p) ("Lazy " ++ s), lost)
-  render d p (TDelay _ _ _ t) = (parensIf (applied p) ("Delay " ++ fst (render d Applied t)), True)
-  render d p (TForce _ _ t) = let (s, lost) = render d Applied t in (parensIf (applied p) ("Force " ++ s), lost)
-  render d p (As _ _ _ pat) = (fst (render d p pat), True)
+  render : Writer -> Nat -> Place -> TT vs -> (String, Bool)
+  render w d _ (Local _ _ idx _) = (binderAt (minus d (S idx)), False)
+  render w d _ (Ref _ _ n) = (plainOrigin n, dropsName n)
+  render w d _ (Meta _ n _ args) = ("?" ++ plainOrigin n, not (null args) || dropsName n)
+  render w d p (Bind _ _ (Pi _ rig info a) sc) =
+    let (t, lost) = arrow w d rig info a sc in (parensIf (notAlone p) t, lost)
+  render w d p (Bind _ _ (Lam {}) sc) =
+    (parensIf (notAlone p) ("\\" ++ binderAt d ++ " => " ++ fst (render w (S d) Alone sc)), True)
+  render w d p (Bind _ _ (Let _ _ v _) sc) =
+    (parensIf (notAlone p) ("let " ++ binderAt d ++ " = " ++ fst (render w d Alone v) ++ " in " ++
+                            fst (render w (S d) Alone sc)), True)
+  render w d p (Bind _ _ _ sc) = (fst (render w (S d) p sc), True)
+  render w d p (App _ f a) = case literalOf w f a of
+    Just (t, lost) => (parensIf (applied p) t, lost)
+    Nothing =>
+      let parts = spineParts w d f [render w d Applied a] in
+      (parensIf (applied p) (joinBy " " (map fst parts)), any snd parts)
+  render w d _ (PrimVal _ c) = (show c, dropsWidth c)
+  render w d _ (Erased _ Placeholder) = ("_", False)
+  render w d _ (Erased _ _) = ("_", True)
+  render w d _ (TType _ _) = ("Type", False)
+  render w d p (TDelayed _ _ t) = let (s, lost) = render w d Applied t in (parensIf (applied p) ("Lazy " ++ s), lost)
+  render w d p (TDelay _ _ _ t) = (parensIf (applied p) ("Delay " ++ fst (render w d Applied t)), True)
+  render w d p (TForce _ _ t) = let (s, lost) = render w d Applied t in (parensIf (applied p) ("Force " ++ s), lost)
+  render w d p (As _ _ _ pat) = (fst (render w d p pat), True)
 
   ||| An application's head and arguments, each as an applied argument
   ||| prints, walked down the spine so that each is a subterm.
-  spineParts : Nat -> TT vs -> List (String, Bool) -> List (String, Bool)
-  spineParts d (App _ f a) parts = spineParts d f (render d Applied a :: parts)
-  spineParts d f parts = render d Applied f :: parts
+  spineParts : Writer -> Nat -> TT vs -> List (String, Bool) -> List (String, Bool)
+  spineParts w d (App _ f a) parts = spineParts w d f (render w d Applied a :: parts)
+  spineParts w d f parts = render w d Applied f :: parts
 
-  arrow : Nat -> RigCount -> PiInfo (TT vs) -> TT vs -> TT (x :: vs) -> (String, Bool)
-  arrow d rig info a sc =
+  arrow : Writer -> Nat -> RigCount -> PiInfo (TT vs) -> TT vs -> TT (x :: vs) -> (String, Bool)
+  arrow w d rig info a sc =
     let dependent = isNothing (shrink sc (Drop Refl))
-        alone = render d Alone a
-        asDomain = render d Domain a
+        alone = render w d Alone a
+        asDomain = render w d Domain a
         domain = if dependent then binderAt d ++ " : " ++ fst alone else fst asDomain
         lostA = if dependent then snd alone else snd asDomain
         inner = quantityPrefix rig ++ domain
-        rest = render (S d) Alone sc
+        rest = render w (S d) Alone sc
     in (bound dependent inner info ++ " -> " ++ fst rest, lostA || defaulted info || snd rest)
     where
       bound : Bool -> String -> PiInfo (TT vs) -> String
@@ -408,8 +463,8 @@ mutual
 ||| names of their binders, which are one instance, print alike, and no
 ||| counter of Idris's reaches the text; and whether the print dropped part
 ||| of the argument's identity.
-argumentText : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (String, Bool)
-argumentText tm = pure (render 0 Alone !(toFullNames tm))
+argumentText : {auto c : Ref Ctxt Defs} -> Writer -> ClosedTerm -> Core (String, Bool)
+argumentText w tm = pure (render w 0 Alone !(toFullNames tm))
 
 ------------------------------------------------------------------------------
 -- The identity: the arguments written out
@@ -482,21 +537,6 @@ writeConstant WorldVal = [node (Shaped World)]
 referenceTo : Context -> Name -> Maybe Nat -> List (Token Form)
 referenceTo ctx n (Just i) = [Number (Shaped Marker) i]
 referenceTo ctx n Nothing = [Node (Shaped Reference) (definitionAddress ctx n) 0]
-
-||| What writing a term reads beside it: the context, which gives each name
-||| its address, and the successors of the `Nat`-like types the term names
-||| (`successorsIn`), by address.
-record Writer where
-  constructor MkWriter
-  context : Context
-  successors : SortedSet Address
-
-||| The successor a term is, if it is a constructor the writer knows as one.
-successorOf : Writer -> TT vs -> Maybe Address
-successorOf w (Ref _ (DataCon _ _) n) = case definitionAddress w.context n of
-  Just a => if contains a w.successors then Just a else Nothing
-  Nothing => Nothing
-successorOf w _ = Nothing
 
 ||| A run of one successor before a written term: the successor's node,
 ||| and a magnitude, which for a run of one is 0.
@@ -611,27 +651,31 @@ mutual
 unresolved : Context -> TT vs -> Maybe Name
 unresolved ctx t = snd <$> find (\(_, n) => isNothing (definitionAddress ctx n)) (namesOf t [])
 
-||| The successors of `Nat`-like types the terms name, by address: the
-||| constructors of one argument that Idris flags as one (its metadata, never
-||| a name), which `write` writes runs of.
-successorsIn : {auto c : Ref Ctxt Defs} -> List ClosedTerm -> Core (SortedSet Address)
-successorsIn tms = do
+||| The zeros and successors of `Nat`-like types the terms name, by address:
+||| the constructors of no argument and of one that Idris flags as such
+||| (`natRole`, its metadata, never a name), whose runs `write` writes and
+||| whose literals the key prints.
+rolesIn : {auto c : Ref Ctxt Defs} -> List ClosedTerm -> Core (SortedMap Address NatRole)
+rolesIn tms = do
   defs <- get Ctxt
   let candidates = SortedMap.fromList (mapMaybe (candidate (gamma defs)) (foldr namesOf [] tms))
-  found <- traverse (successor defs) (SortedMap.toList candidates)
-  pure (SortedSet.fromList (catMaybes found))
+  found <- traverse (role defs) (SortedMap.toList candidates)
+  pure (SortedMap.fromList (catMaybes found))
   where
-    -- A constructor of one argument, by its address.
-    candidate : Context -> (NameType, Name) -> Maybe (Address, Name)
-    candidate ctx (DataCon _ 1, n) = (\a => (a, n)) <$> definitionAddress ctx n
+    -- A constructor by its address, with the role its arity admits: a zero
+    -- takes no argument, a successor one.
+    candidate : Context -> (NameType, Name) -> Maybe (Address, (Name, NatRole))
+    candidate ctx (DataCon _ 0, n) = (\a => (a, (n, Zero))) <$> definitionAddress ctx n
+    candidate ctx (DataCon _ 1, n) = (\a => (a, (n, Succ))) <$> definitionAddress ctx n
     candidate ctx _ = Nothing
 
-    successor : Defs -> (Address, Name) -> Core (Maybe Address)
-    successor defs (a, n) = do
+    role : Defs -> (Address, (Name, NatRole)) -> Core (Maybe (Address, NatRole))
+    role defs (a, (n, admitted)) = do
       Just def <- lookupCtxtExact n (gamma defs)
         | Nothing => pure Nothing
-      pure (case natRole def of
-              Just Succ => Just a
+      pure (case (natRole def, admitted) of
+              (Just Zero, Zero) => Just (a, Zero)
+              (Just Succ, Succ) => Just (a, Succ)
               _ => Nothing)
 
 -- Every number a written term holds is below its weight and its depth
@@ -900,8 +944,8 @@ linkText (MkLink d as) = do
 ||| keys the instance. The definition fixes how many positions it has, so
 ||| the ones after the last that keys tell no two instances apart, and a
 ||| definition that keys nothing prints none.
-keyed : {auto c : Ref Ctxt Defs} -> List (Maybe ClosedTerm) -> Core (List (String, Bool))
-keyed args = traverse (maybe (pure ("-", False)) argumentText) (reverse (dropWhile isNothing (reverse args)))
+keyed : {auto c : Ref Ctxt Defs} -> Writer -> List (Maybe ClosedTerm) -> Core (List (String, Bool))
+keyed w args = traverse (maybe (pure ("-", False)) (argumentText w)) (reverse (dropWhile isNothing (reverse args)))
 
 ||| An instance as a request finds or makes it: its identity, which is its
 ||| link (the definition's address and the compile-time arguments written
@@ -937,13 +981,13 @@ instanceKey fc owner n args = do
   let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing args'
     | Just stray => internal fc ("a compile-time argument of " ++ show full ++ " names " ++ show stray ++
                                  ", which the context does not hold")
-  writer <- MkWriter (gamma defs) <$> successorsIn (catMaybes args')
+  writer <- MkWriter (gamma defs) <$> rolesIn (catMaybes args')
   let link = MkLink (addressOf d) (map (map (writtenOf writer)) args')
   case lookup link (!(get TState)).named of
     Just (symbol, key) => pure (MkInstance link key symbol)
     Nothing => do
       origin <- keyOrigin full
-      printed <- keyed args'
+      printed <- keyed writer args'
       print <- if any snd printed
                  then (\t => Lossy (xxh3_128 (utf8 t)).low) <$> linkText link
                  else pure Whole

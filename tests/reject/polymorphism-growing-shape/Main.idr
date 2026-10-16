@@ -1,5 +1,5 @@
 -- expect: polymorphism, line 19
--- message: which its recursion builds deeper at each call
+-- message: no analysis bounds how far a chain that grows so goes
 module Main
 
 import Prelude
