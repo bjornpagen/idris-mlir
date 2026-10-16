@@ -185,7 +185,7 @@ position in the queue, and each may turn out wrong for this language.
 ## Renumberings
 
 Each renumbering commit's message holds its map; dated records
-(`HANDOFF.md` entries, `bench/`, `sources/`, `bugs/`) keep the numbering
+(`HANDOFF.md` entries, `bench/`, `sources/`) keep the numbering
 then in force. Earlier maps: dcb087d2, 77994b30, 1f4170c0, 787744f3.
 
 On 2026-10-15 (c), self-hosting first:
