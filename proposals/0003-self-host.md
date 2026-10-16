@@ -676,8 +676,104 @@ Out of S2.1 (*read*, recorded for S3):
 - D8. `make self` holds when stage 2 = stage 3 on both targets, recorded
   in HANDOFF.md. This proposal is deleted then.
 
-## 7. Open, for the owner
+## 7. Open, for the owner: the polymorphism rule
 
-Nothing. The guard's scope (§3.2(a)) was decided by the owner on
-2026-10-15, and S1 runs on the typecheck machine under the owner's
-standing permission to build anything but the LLVM project.
+The guard's scope (§3.2(a)) was decided by the owner on 2026-10-15. One
+question is left, and it decides most of S2's remaining work.
+
+### What the rule does (*read*)
+
+The frontend monomorphises: every definition is compiled once per
+combination of its compile-time arguments, an *instance*. Translating one
+instance requests others, so the requests form chains from the root
+(`Frontend/Finite.idr`, `Proof/Requests.idr`). For the compiler to finish
+on every program, no chain may be infinite.
+
+The rule is the relation `Proof.Requests.admit`. It refuses a request
+that *grows against* an earlier request of the same definition on the same
+chain, meaning its compile-time arguments are, position by position, no
+smaller and at one position larger. *Size* is the weight of an argument as
+written: one symbol per node of the term. A refusal is `unsupported
+(polymorphism)`. The relation is almost full by Dickson's lemma, so every
+chain it admits is finite, and that is proved in `Proof/`. It refuses at
+the first growth, without waiting to see whether the chain would stop. The
+owner ruled to keep it so (47f97059), for the regimented subset.
+
+The same relation guards data types too (`Translate/Types.idr`,
+`dataInstanceIn`): registering an instance of a data type may need
+instances of other types, and a chain through which an instance of a
+container grows against an earlier instance of the same container is
+refused: "a data type whose values need ever larger instances of itself".
+
+### What S1 found (*measured*, `bench/profiles/2026-10-15-self-s1.md`)
+
+Every polymorphism refusal on the self-compile *grows once and stops*. None
+is a recursion that builds its type deeper at each call, which is
+AGENTS.md's megamorphic. There are two forms.
+
+- **Data instances: 44 refusals at 30 constructors.** These are the fork's
+  `Core.Context`, `Idris.Syntax`, `TTImp.TTImp` and a few more, plus 3 in
+  our frontend. Example: while `Maybe ContextEntry` is being registered, a
+  field needs `Maybe (Bool, Nat)`. The two are unrelated types. But
+  `(Bool, Nat)` is written with more symbols than `ContextEntry`, so the
+  second instance of `Maybe` counts as larger, and the chain is refused.
+  `PartialEval (List (Name, Nat))` beside other `List` instances is the
+  same case.
+- **Request chains: 350 refusals at 106 sites** once the data form is let
+  through: `toBuf`/`fromBuf` 200, `reify`/`reflect` 93, `map` 38, plus 3
+  in our frontend. Example: the implementation of `TTC Term` calls
+  `toBuf` at `List (Name, Term)`. The request is keyed by the method
+  `toBuf` and the type it is called at, and `List (Name, Term)` is larger
+  than `Term`, so the method "grows". Yet a different implementation runs
+  (`TTC (List a)`), and its own requests come back down to `TTC Term`,
+  which is a repeat.
+
+So in both forms the growth the rule sees comes from what it measures: the
+written size of a key, and a method rather than the implementation that
+runs. Nothing in the program grows without bound (*read*, from S1's case
+list; that the fixes below remove them is *conjecture* until measured).
+
+### The choice
+
+- **A. Keep the rule; rewrite the code to fit its measure.**
+  - About 136 sites in the fork and 6 in our frontend. Give each listed
+    field a named element type, so a nested key is written no larger:
+    `PartialEval (List ReductionLimit)`, a record in place of
+    `Maybe (Bool, Nat)`. Encode, reflect and map nested fields with
+    per-field functions instead of the overloaded method at a larger type.
+  - Cost: mechanical, but large, and in the files upstream Idris edits
+    most (TTC, reflection). Every re-sync of the fork would conflict
+    there. Every later program that writes Idris this ordinary way is
+    refused the same way, so programmers write for the measure.
+  - Benefit: nothing in the compiler changes; the proof stands as it is;
+    the subset stays the strictest.
+- **B. Keep refusing real growth, but measure it correctly.** Two changes,
+  each keeping termination by construction.
+  - **B1.** Key a method request by the implementation that runs, not by
+    the method. `TTC Term` calling `toBuf` at `List (Name, Term)` is then
+    a request of `TTC (List a)`'s implementation, which grows against
+    nothing on the chain. This removes the request-chain form wherever a
+    different implementation runs. The relation and its proof are
+    unchanged; only what a request names changes.
+  - **B2.** Count growth only where the later argument *contains* the
+    earlier one as a part: a homeomorphic embedding, the classical
+    termination test of partial evaluators and supercompilers. `Maybe
+    ContextEntry` then `Maybe (Bool, Nat)` is no growth, while `T a` then
+    `T (List a)` still is, and stays refused. Termination still holds,
+    since embedding is a well-quasi-order on finite trees (Kruskal's tree
+    theorem). But the proof is much harder than Dickson's lemma: until it
+    is written in `Proof/`, it is a stated trust point. Each check costs a
+    tree embedding test instead of a vector comparison.
+  - Cost: frontend work and a new proof obligation (B2). Instance sets may
+    grow somewhat, which means more code and compile time.
+  - Benefit: the fork compiles unchanged on this point; programs written
+    the ordinary way are accepted; and the refusal means what AGENTS.md
+    says megamorphic means.
+- **Rejected: admit growth up to a bound derived from the program.** A
+  count would decide acceptance, which AGENTS.md forbids.
+
+*Default:* none; the owner decides. *Proposal (coordinator):* measure
+before deciding. S1 now runs in minutes, so a scratch frontend with B1
+alone, and one with B1 and B2, can count what each leaves on the self
+compile, with no change to the tree. With those counts, A, B1 plus A for
+the remainder, and B1 plus B2 can be compared by the work each leaves.
