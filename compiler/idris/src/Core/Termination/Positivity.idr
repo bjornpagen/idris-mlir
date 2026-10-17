@@ -120,7 +120,7 @@ checkCon defs tyns cn
                         "Couldn't find constructor " ++ show cn
                       pure Unchecked
         Just ty =>
-          case !(totRefsIn defs ty) of
+          case !(totRefsIn ty) of
             IsTerminating =>
               do tyNF <- nf defs Env.empty ty
                  logNF "totality.positivity" 20 "Checking the type " Env.empty tyNF
@@ -159,7 +159,7 @@ calcPositive loc n
          case !(lookupDefTyExact n (gamma defs)) of
               Just (TCon _ _ _ _ tns dcons _, ty) =>
                   let dcons = fromMaybe [] dcons in
-                  case !(totRefsIn defs ty) of
+                  case !(totRefsIn ty) of
                        IsTerminating =>
                             do log "totality.positivity" 30 $
                                  "Now checking constructors of " ++ show !(toFullNames n)

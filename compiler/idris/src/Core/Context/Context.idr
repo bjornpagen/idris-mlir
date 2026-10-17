@@ -23,6 +23,7 @@ import Libraries.Data.UserNameMap
 import Libraries.Data.WithDefault
 import Libraries.Data.SparseMatrix
 import Libraries.Data.Table
+import Libraries.Data.VarSet
 import Libraries.Utils.Binary
 
 public export
@@ -189,13 +190,21 @@ public export
 data Clause : Type where
      MkClause : {vars : _} ->
                 (env : Env Term vars) ->
-                (lhs : Term vars) -> (rhs : Term vars) -> Clause
+                (lhs : Term vars) -> (rhs : Term vars) ->
+                -- The variables of `env` that name an argument the clause
+                -- leaves to unification (an implicit it leaves out, of the
+                -- definition or of a constructor in a pattern, a case
+                -- block's environment, a with block's argument): the
+                -- elaborator binds each by an as-pattern whose pattern is
+                -- what unification found from the patterns the clause does
+                -- write.
+                (unified : VarSet vars) -> Clause
 %name Clause cl
 
 export
 covering
 Show Clause where
-  show (MkClause {vars} env lhs rhs)
+  show (MkClause {vars} env lhs rhs _)
       = show vars ++ ": " ++ show lhs ++ " = " ++ show rhs
 
 public export

@@ -1,0 +1,482 @@
+diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
+--- a/src/Core/Case/CaseBuilder.idr	2026-10-16 20:00:02
++++ b/src/Core/Case/CaseBuilder.idr	2026-10-16 20:00:03
+@@ -234,10 +234,20 @@
+ tail : NamedPats (p :: ps) vars -> NamedPats ps vars
+ tail (x :: xs) = xs
+ 
++-- The clause a row of the match comes from, which every copy of the row
++-- carries through the splits: its place among the clauses, which its leaf
++-- names, and the names of the arguments it leaves to unification
++-- (`Clause`'s `unified`), which the tree splits after the others
++-- (`arrange`).
++record Origin where
++  constructor MkOrigin
++  index : Int
++  unified : List Name
++
+ data PatClause : (todo : List Name) -> Scoped where
+      MkPatClause : List Name -> -- names matched so far (from original lhs)
+                    NamedPats todo vars ->
+-                   Int -> (rhs : Term vars) -> PatClause todo vars
++                   Origin -> (rhs : Term vars) -> PatClause todo vars
+ 
+ getNPs : PatClause todo vars -> NamedPats todo vars
+ getNPs (MkPatClause _ lhs pid rhs) = lhs
+@@ -291,6 +301,33 @@
+     ++ "\n, " ++ show rest
+   show NoClauses = "NONE"
+ 
++-- What a clause does with one of its arguments, least first: binds it to a
++-- variable; binds it to what unification found from the patterns the clause
++-- writes (the elaborator's as-pattern for an argument the clause leaves to
++-- unification: an implicit it leaves out, a case block's environment, a
++-- with block's argument); or tests it.
++data Use = Binds | Fixed | Tests
++
++-- What two clauses together do with an argument: the more of the two.
++both : Use -> Use -> Use
++both Tests _ = Tests
++both _ Tests = Tests
++both Fixed _ = Fixed
++both _ Fixed = Fixed
++both Binds Binds = Binds
++
++-- What a clause does with an argument, by its pattern there and the names
++-- of the arguments it leaves to unification. A pattern the tree cannot split
++-- binds.
++use : (unified : List Name) -> Pat -> Use
++use unified (PAs _ n p)
++    = case use unified p of
++           Tests => if n `elem` unified then Fixed else Tests
++           u => u
++use unified (PLoc {}) = Binds
++use unified (PUnmatchable {}) = Binds
++use unified _ = Tests
++
+ data ClauseType : PatClause (a :: todo) vars -> Type where
+      ConClause : (0 isCon : IsConClause p) => ClauseType p
+      VarClause : ClauseType p
+@@ -322,6 +359,7 @@
+ clauseType phase (MkPatClause pvars (MkInfo arg _ ty :: rest) pid rhs)
+     = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
+   where
++
+     -- used when we are tempted to split on a constructor: is
+     -- this actually a fully applied one?
+     splitCon : Nat -> List Pat -> Maybe (So True)
+@@ -505,7 +543,7 @@
+     addConG : {vars', todo' : _} ->
+               Name -> (tag : Int) ->
+               List Pat -> NamedPats todo' vars' ->
+-              Int -> (rhs : Term vars') ->
++              Origin -> (rhs : Term vars') ->
+               (acc : List01 ne (Group todo' vars')) ->
+               Core (List01 True (Group todo' vars'))
+     -- Group all the clauses that begin with the same constructor, and
+@@ -548,7 +586,7 @@
+     -- and compiler)
+     addDelayG : {vars', todo' : _} ->
+                 Pat -> Pat -> NamedPats todo' vars' ->
+-                Int -> (rhs : Term vars') ->
++                Origin -> (rhs : Term vars') ->
+                 (acc : List01 ne (Group todo' vars')) ->
+                 Core (List01 True (Group todo' vars'))
+     addDelayG pty parg pats pid rhs []
+@@ -580,7 +618,7 @@
+ 
+     addConstG : {vars', todo' : _} ->
+                 Constant -> NamedPats todo' vars' ->
+-                Int -> (rhs : Term vars') ->
++                Origin -> (rhs : Term vars') ->
+                 (acc : List01 ne (Group todo' vars')) ->
+                 Core (List01 True (Group todo' vars'))
+     addConstG c pats pid rhs []
+@@ -596,7 +634,7 @@
+     addGroup : {vars, todo, idx : _} ->
+                (pat : Pat) -> (0 _ : IsConPat pat) =>
+                (0 p : IsVar nm idx vars) ->
+-               NamedPats todo vars -> Int -> Term vars ->
++               NamedPats todo vars -> Origin -> Term vars ->
+                List01 ne (Group todo vars) ->
+                Core (List01 True (Group todo vars))
+     -- In 'As' replace the name on the RHS with a reference to the
+@@ -863,6 +901,93 @@
+ shuffleVars el (MkPatClause pvars lhs pid rhs)
+     = MkPatClause pvars (moveFirst el lhs) pid rhs
+ 
++-- The columns split later: those the clauses only bind, and some bind to
++-- what unification found.
++splitLater : List Name -> List Use -> List Name
++splitLater (n :: ns) (Fixed :: us) = n :: splitLater ns us
++splitLater (_ :: ns) (_ :: us) = splitLater ns us
++splitLater _ _ = []
++
++-- `n` before `ns`, unless it is split later.
++sooner : (postponed : Bool) -> Name -> List Name -> List Name
++sooner True n ns = ns
++sooner False n ns = n :: ns
++
++-- `n` before `ns`, if it is split later.
++afterwards : (postponed : Bool) -> Name -> List Name -> List Name
++afterwards True n ns = n :: ns
++afterwards False n ns = ns
++
++-- The columns `later` does not name, in order.
++earlier : (later : List Name) -> List Name -> List Name
++earlier later [] = []
++earlier later (n :: ns) = sooner (n `elem` later) n (earlier later ns)
++
++-- The columns `later` names, in order.
++deferred : (later : List Name) -> List Name -> List Name
++deferred later [] = []
++deferred later (n :: ns) = afterwards (n `elem` later) n (deferred later ns)
++
++keepSooner : (postponed : Bool) -> PatInfo n vars -> NamedPats ms vars ->
++             NamedPats (sooner postponed n ms) vars
++keepSooner True p ps = ps
++keepSooner False p ps = p :: ps
++
++keepAfterwards : (postponed : Bool) -> PatInfo n vars -> NamedPats ms vars ->
++                 NamedPats (afterwards postponed n ms) vars
++keepAfterwards True p ps = p :: ps
++keepAfterwards False p ps = ps
++
++earlierPats : (later : List Name) -> {todo : _} ->
++              NamedPats todo vars -> NamedPats (earlier later todo) vars
++earlierPats later [] = []
++earlierPats later {todo = n :: _} (p :: ps)
++    = keepSooner (n `elem` later) p (earlierPats later ps)
++
++deferredPats : (later : List Name) -> {todo : _} ->
++               NamedPats todo vars -> NamedPats (deferred later todo) vars
++deferredPats later [] = []
++deferredPats later {todo = n :: _} (p :: ps)
++    = keepAfterwards (n `elem` later) p (deferredPats later ps)
++
++-- A clause with the columns `later` names after the others.
++arranged : (later : List Name) -> {todo : _} ->
++           PatClause todo vars -> PatClause (earlier later todo ++ deferred later todo) vars
++arranged later (MkPatClause pvars ps pid rhs)
++    = MkPatClause pvars (earlierPats later ps ++ deferredPats later ps) pid rhs
++
++-- What the clauses together do with each column.
++columnUses : List01 True (PatClause todo vars) -> List Use
++columnUses (c :: cs) = foldl (\acc, c' => zipWith both acc (uses c')) (uses c) (forget cs)
++  where
++    uses : PatClause todo' vars' -> List Use
++    uses (MkPatClause _ ps o _) = map (use (unified o)) (getPatInfo ps)
++
++-- Whether every column's type is known. Where one is not, it is found as the
++-- columns before it are split, so the columns keep their order.
++typed : NamedPats todo vars -> Bool
++typed [] = True
++typed (p :: ps)
++    = case argType p of
++           Known {} => typed ps
++           _ => False
++
++-- The clauses' own tests come before what unification fixed from them. A
++-- column the clauses only bind, and some bind to what unification found from
++-- the patterns they write (an implicit a clause leaves out, a case block's
++-- environment, a with block's argument), is split after the others, at every
++-- step. Split before the patterns that fix it, it leaves branches that only
++-- the emptiness of a later column's type rules out (`All IsF (A :: xs)`,
++-- when `IsF A` has no constructor), which the coverage check does not look
++-- into; split after them, those branches are impossible by unification. It
++-- is still split: a leaf binds what its pattern names, and a column whose
++-- type computes on it (`Lifted r xs y z`) waits for it (pickNextViable).
++arrange : {todo : _} -> List01 True (PatClause todo vars) ->
++          (todo' ** List01 True (PatClause todo' vars))
++arrange cs@(c :: _)
++    = let later = if typed (getNPs c) then splitLater todo (columnUses cs) else [] in
++          (_ ** map (arranged later) cs)
++
+ mutual
+   {- 'PatClause' contains a list of patterns still to process (that's the
+      "todo") and a right hand side with the variables we know about "vars".
+@@ -877,10 +1002,21 @@
+           List01 True (PatClause todo vars) ->
+           IMaybe ne (CaseTree vars) ->
+           Core (CaseTree vars)
++  match fc fn phase clauses err
++      = let (_ ** clauses') = arrange clauses in
++            step fc fn phase clauses' err
++
++  step : {vars, todo : _} ->
++         {auto i : Ref PName Int} ->
++         {auto c : Ref Ctxt Defs} ->
++         FC -> Name -> Phase ->
++         List01 True (PatClause todo vars) ->
++         IMaybe ne (CaseTree vars) ->
++         Core (CaseTree vars)
+   -- Before 'partition', reorder the arguments so that the one we
+   -- inspect next has a concrete type that is the same in all cases, and
+   -- has the most distinct constructors (via pickNextViable)
+-  match {todo = _ :: _} fc fn phase clauses err
++  step {todo = _ :: _} fc fn phase clauses err
+       = do let nps = getNPs <$> clauses
+            let (_ ** (MkNVar next)) = nextIdxByScore (caseTreeHeuristics !getSession) phase nps
+            let prioritizedClauses = shuffleVars next <$> clauses
+@@ -894,10 +1030,10 @@
+            Just mix <- mixture fc fn phase ps err
+            log "compile.casetree.intermediate" 25 $ "match: new case tree " ++ show mix
+            pure mix
+-  match {todo = []} fc fn phase (MkPatClause pvars [] pid (Erased _ Impossible) :: _) err
++  step {todo = []} fc fn phase (MkPatClause pvars [] pid (Erased _ Impossible) :: _) err
+        = pure Impossible
+-  match {todo = []} fc fn phase (MkPatClause pvars [] pid rhs :: _) err
+-       = pure $ STerm pid rhs
++  step {todo = []} fc fn phase (MkPatClause pvars [] pid rhs :: _) err
++       = pure $ STerm (index pid) rhs
+ 
+   caseGroups : {pvar, vars, todo : _} ->
+                {auto i : Ref PName Int} ->
+@@ -1040,7 +1176,7 @@
+ mkPatClause : {auto c : Ref Ctxt Defs} ->
+               FC -> Name ->
+               (args : Scope) -> ClosedTerm ->
+-              Int -> (List Pat, ClosedTerm) ->
++              Origin -> (List Pat, ClosedTerm) ->
+               Core (PatClause args args)
+ mkPatClause fc fn args ty pid (ps, rhs)
+     = maybe (throw (CaseCompile fc fn DifferingArgNumbers))
+@@ -1074,13 +1210,15 @@
+              pure (MkInfo p First (Builtin.snd fa_tys)
+                       :: weaken !(mkNames args ps eq (Builtin.fst fa_tys)))
+ 
++-- Each clause comes with the names of the arguments it leaves to
++-- unification (`Origin`).
+ export
+ patCompile : {auto c : Ref Ctxt Defs} ->
+              FC -> Name -> Phase ->
+-             ClosedTerm -> List01 True (List Pat, ClosedTerm) ->
++             ClosedTerm -> List01 True (List Name, List Pat, ClosedTerm) ->
+              Core (args ** CaseTree args)
+ patCompile fc fn phase ty (p :: ps)
+-    = do let (ns ** n) = getNames 0 (fst p)
++    = do let (ns ** n) = getNames 0 (fst (snd p))
+          pats <- mkPatClausesFrom 0 ns (p :: ps)
+          -- low verbosity level: pretty print fully resolved names
+          logC "compile.casetree" 5 $ do
+@@ -1094,11 +1232,11 @@
+          pure (_ ** cases)
+   where
+     mkPatClausesFrom : Int -> (args : Scope) ->
+-                       List01 ne (List Pat, ClosedTerm) ->
++                       List01 ne (List Name, List Pat, ClosedTerm) ->
+                        Core (List01 ne (PatClause args args))
+     mkPatClausesFrom i ns [] = pure []
+-    mkPatClausesFrom i ns (p :: ps)
+-        = do p' <- mkPatClause fc fn ns ty i p
++    mkPatClausesFrom i ns ((unified, p) :: ps)
++        = do p' <- mkPatClause fc fn ns ty (MkOrigin i unified) p
+              ps' <- mkPatClausesFrom (i + 1) ns ps
+              pure (p' :: ps')
+ 
+@@ -1108,35 +1246,9 @@
+       let (ns ** n) = getNames (i + 1) xs
+       in (MN "arg" i :: ns ** suc n)
+ 
+--- A definition elaborated at quantity 0 has no run time: its tree only
+--- decides which values its clauses match and how it reduces, so it splits
+--- only what the clauses match. An argument a clause leaves to unification
+--- is a variable of the clause, named by the as-pattern the elaborator binds
+--- it with, whose pattern is what unification found from the patterns the
+--- clause does write; the tree splits those. Split before them, that pattern
+--- leaves branches that only the emptiness of a later argument's type rules
+--- out (`All IsF (A :: xs)`, when `IsF A` has no constructor), which the
+--- coverage check does not look into. It stays a pattern only when a name in
+--- it is bound by none of the patterns the clause writes, so that the tree
+--- still binds that name.
+-asVariables : (unified : List Name) -> List Pat -> List Pat
+-asVariables unified ps = map variable ps
+-  where
+-    leftOut : Pat -> Bool
+-    leftOut (PAs _ n _) = n `elem` unified
+-    leftOut _ = False
+-
+-    written : List Name
+-    written = concatMap namesFrom (filter (not . leftOut) ps)
+-
+-    variable : Pat -> Pat
+-    variable (PAs fc n p)
+-        = if (n `elem` unified) && namesIn written p then PLoc fc n else PAs fc n p
+-    variable p = p
+-
+ toPatClause : {auto c : Ref Ctxt Defs} ->
+               FC -> Name -> (List Name, ClosedTerm, ClosedTerm) ->
+-              Core (List Pat, ClosedTerm)
++              Core (List Name, List Pat, ClosedTerm)
+ toPatClause fc n (unified, lhs, rhs)
+     = case getFnArgs lhs of
+            (Ref ffc Func fn, args)
+@@ -1144,7 +1256,7 @@
+                     (np, _) <- getPosition n (gamma defs)
+                     (fnp, _) <- getPosition fn (gamma defs)
+                     if np == fnp
+-                       then pure (asVariables unified !(traverse argToPat args), rhs)
++                       then pure (unified, !(traverse argToPat args), rhs)
+                        else throw (GenericMsg ffc ("Wrong function name in pattern LHS " ++ show (n, fn)))
+            (f, args) => throw (GenericMsg fc "Not a function name in pattern LHS")
+ 
+@@ -1152,7 +1264,7 @@
+ -- explicitly named. We'll assign de Bruijn indices when we're done, and
+ -- the names of the top level variables we created are returned in 'args'.
+ -- Each clause comes with the names of the arguments it leaves to
+--- unification that the tree takes as variables (asVariables).
++-- unification, which the tree splits after the others (patCompile).
+ export
+ simpleCase : {auto c : Ref Ctxt Defs} ->
+              FC -> Phase -> Name -> ClosedTerm ->
+@@ -1165,7 +1277,6 @@
+                      indent 2 $ vcat $ flip map cs $ \ lrhs =>
+                        byShow (fst lrhs) <++> pretty "=" <++> byShow (snd lrhs))
+          ps <- traverseList01 (toPatClause fc fn) clauses
+-         defs <- get Ctxt
+          patCompile fc fn phase ty ps
+ 
+ mutual
+@@ -1297,18 +1408,10 @@
+     labelPat i (x :: xs) = ("pat" ++ show i ++ ":", x) :: labelPat (i + 1) xs
+ 
+     -- The names `close` gives the variables a clause leaves to
+-    -- unification, which the tree of a definition elaborated at quantity 0
+-    -- takes as variables (asVariables). Above quantity 0 a definition runs,
+-    -- and its trees go on testing a relevant argument left to unification,
+-    -- as the code built from them does.
++    -- unification, which the tree splits after the others (patCompile).
+     unifiedNames : {vars : _} -> String -> VarSet vars -> List Name
+     unifiedNames pname unified
+-        = case phase of
+-               CompileTime cr =>
+-                   if isErased cr
+-                      then map (\v => MN pname (cast (varIdx v))) (VarSet.toList unified)
+-                      else []
+-               RunTime => []
++        = map (\v => MN pname (cast (varIdx v))) (VarSet.toList unified)
+ 
+     toClosed : Defs -> (String, Clause) -> (List Name, ClosedTerm, ClosedTerm)
+     toClosed defs (pname, MkClause env lhs rhs unified)
+diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
+--- a/src/TTImp/ProcessDef.idr	2026-10-16 20:00:02
++++ b/src/TTImp/ProcessDef.idr	2026-10-16 20:00:03
+@@ -832,6 +832,24 @@
+ toPats (MkClause {vars} env lhs rhs _)
+     = (_ ** (env, lhs, rhs))
+ 
++-- A clause as the tree its definition keeps reads it. Only the coverage
++-- check needs an argument a clause leaves to unification split after the
++-- patterns that fix it, and it builds a tree of its own. Above quantity 0
++-- the tree a definition keeps is the program that runs (this compiler's
++-- frontend translates it, testing in the order the tree splits), and it
++-- takes an erased argument as a variable where later patterns bind the names
++-- in it; moved after them, that argument is split, and a type the definition
++-- computes stops reducing while it is unsolved (the length in `Data.Fun`'s
++-- `Fun` and `chain`, which base's `Data.Nat.Order.lte` leaves unsolved, so
++-- that `lte` no longer checks). So that tree is built from the clauses
++-- without the mark, and splits in the arguments' order, as the runtime tree
++-- does (`mkRunTime`, whose clauses carry none). At quantity 0 nothing runs
++-- and every argument a clause matches is split, and the tree splits such an
++-- argument last, as the coverage check's does.
++saved : RigCount -> Clause -> Clause
++saved mult cl@(MkClause env lhs rhs _)
++    = if isErased mult then cl else MkClause env lhs rhs VarSet.empty
++
+ warnUnreachable : {auto c : Ref Ctxt Defs} ->
+                   Clause -> Core ()
+ warnUnreachable (MkClause env lhs rhs _)
+@@ -939,7 +957,7 @@
+ 
+          (cargs ** (tree_ct, unreachable)) <-
+              logTime 3 ("Building compile time case tree for " ++ show n) $
+-                getPMDef fc (CompileTime mult) n ty (rights cs)
++                getPMDef fc (CompileTime mult) n ty (map (saved mult) (rights cs))
+ 
+          traverse_ warnUnreachable unreachable
+ 
+diff -ruN a/tests/idris2/coverage/coverage033/RelevantImplicit.idr b/tests/idris2/coverage/coverage033/RelevantImplicit.idr
+--- a/tests/idris2/coverage/coverage033/RelevantImplicit.idr	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage033/RelevantImplicit.idr	2026-10-16 20:00:03
+@@ -0,0 +1,69 @@
++import Data.List.Quantifiers
++
++%default total
++
++data W = A | F Integer | B
++
++data IsF : W -> Type where
++  ItIsF : IsF (F w)
++
++data Pr : W -> Type where
++  M1 : Pr (F w)
++  M2 : Pr B
++
++-- `ws` is relevant and the clauses do not write it: the elaborator binds
++-- it, and the patterns of the explicit argument fix it. The coverage check
++-- must not split it before them.
++fp4 : {ws : List W} -> All IsF ws -> All Pr ws
++fp4 [] = []
++fp4 (ItIsF :: fs) = M1 :: fp4 fs
++
++-- `w` is erased in `ItIsF`; the right-hand side reads it from `ws`, which
++-- the case tree the definition keeps still splits.
++sumF : {ws : List W} -> All IsF ws -> Integer
++sumF [] = 0
++sumF (ItIsF {w} :: fs) = w + sumF fs
++
++sumTwo : sumF (ItIsF {w = 1} :: ItIsF {w = 2} :: []) = 3
++sumTwo = Refl
++
++-- A case block and a with block, whose environment holds `ws`.
++cb : {ws : List W} -> All IsF ws -> Nat
++cb xs = case xs of
++  [] => 0
++  (ItIsF :: _) => 1
++
++wb : {ws : List W} -> All IsF ws -> Bool -> Nat
++wb xs b with (b)
++  wb [] b | True = 0
++  wb (ItIsF :: _) b | True = 1
++  wb _ b | False = 2
++
++-- A later argument's type computes on the index the clauses leave out, so
++-- the case tree splits the index before that argument, at any quantity.
++Rel : Type -> Type
++Rel a = a -> a -> Type
++
++Lift : Rel a -> a -> Rel a
++Lift r x = \y, z => Either (r y z) (r x y)
++
++Lifted : Rel a -> List a -> Rel a
++Lifted r [] = r
++Lifted r (x :: xs) = Lift (Lifted r xs) x
++
++New : Rel a -> List a -> a -> Type
++New r xs x = All (\y => Not (r y x)) xs
++
++data Bad : Rel a -> List a -> Type where
++  Nil : Bad r []
++  (::) : New r xs x -> Bad r xs -> Bad r (x :: xs)
++
++liftedBad : {0 r : Rel a} -> Bad r xs -> New r xs y -> Lifted r xs y z -> r y z
++liftedBad [] [] l = l
++liftedBad (nx :: bxs) (ny :: nys) (Left l) = liftedBad bxs nys l
++liftedBad (nx :: bxs) (ny :: nys) (Right l) = absurd (ny (liftedBad bxs nx l))
++
++0 liftedBad0 : {0 r : Rel a} -> Bad r xs -> New r xs y -> Lifted r xs y z -> r y z
++liftedBad0 [] [] l = l
++liftedBad0 (nx :: bxs) (ny :: nys) (Left l) = liftedBad0 bxs nys l
++liftedBad0 (nx :: bxs) (ny :: nys) (Right l) = absurd (ny (liftedBad0 bxs nx l))
+diff -ruN a/tests/idris2/coverage/coverage033/expected b/tests/idris2/coverage/coverage033/expected
+--- a/tests/idris2/coverage/coverage033/expected	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage033/expected	2026-10-16 20:00:03
+@@ -0,0 +1 @@
++1/1: Building RelevantImplicit (RelevantImplicit.idr)
+diff -ruN a/tests/idris2/coverage/coverage033/run b/tests/idris2/coverage/coverage033/run
+--- a/tests/idris2/coverage/coverage033/run	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage033/run	2026-10-16 20:00:03
+@@ -0,0 +1,3 @@
++. ../../../testutils.sh
++
++check RelevantImplicit.idr

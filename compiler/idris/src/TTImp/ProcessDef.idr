@@ -41,6 +41,7 @@ import Libraries.Data.NameMap
 import Libraries.Data.WithDefault
 import Libraries.Text.PrettyPrint.Prettyprinter
 import Libraries.Data.List.SizeOf
+import Libraries.Data.VarSet
 
 %default covering
 
@@ -293,6 +294,7 @@ checkLHS : {vars : _} ->
            Int -> List ElabOpt -> NestedNames vars -> Env Term vars ->
            FC -> RawImp ->
            Core (RawImp, -- checked LHS with implicits added
+                 List Name, -- the as-patterns bound for implicits it leaves out
                  (vars' ** (Thin vars vars',
                            Env Term vars', NestedNames vars',
                            Term vars', Term vars')))
@@ -322,9 +324,9 @@ checkLHS {vars} trans mult n opts nest env fc lhs_in
          let lhsMode = if trans
                           then InTransform
                           else InLHS mult
-         (lhstm, lhstyg) <-
+         (lhstm, lhstyg, marks) <-
              wrapErrorC opts (InLHS fc !(getFullName (Resolved n))) $
-                     elabTerm n lhsMode opts nest env
+                     elabTermSubMarked n lhsMode opts nest env env Refl
                                 (IBindHere fc PATTERN lhs) Nothing
          logTerm "declare.def.lhs" 5 "Checked LHS term" lhstm
          lhsty <- getTerm lhstyg
@@ -351,7 +353,7 @@ checkLHS {vars} trans mult n opts nest env fc lhs_in
          setHoleLHS (bindEnv fc env lhstm_lin)
 
          ext <- extendEnv env Refl nest lhstm_lin lhsty_lin
-         pure (lhs, ext)
+         pure (lhs, marks, ext)
 
 -- Return whether any of the pattern variables are in a trivially empty
 -- type, where trivally empty means one of:
@@ -376,6 +378,28 @@ applyEnv env withname
          pure (withname, (Just withname, reverse (allVarsNoLet env),
                   \fc, nt => applyTo fc
                          (Ref fc nt (Resolved n')) env))
+
+-- The variables of a checked left-hand side's scope that name an argument
+-- the clause leaves to unification. The elaborator writes each such argument
+-- as an as-pattern on its own side over `_` (an implicit the clause leaves
+-- out, `implicitsAs`; a case block's environment; a with block's argument)
+-- and binds the as-name in the scope. A case alternative's pattern on the
+-- variable it splits goes into that variable's as-pattern too, but it is
+-- the clause's own: only the `_` marks an argument left to unification.
+-- So does each as-pattern the elaborator binds for an implicit argument it
+-- inserts into a pattern (`marks`, from `checkLHS`).
+unifiedArgs : {vars : _} -> (marks : List Name) -> RawImp -> VarSet vars
+unifiedArgs marks lhs = foldr bind VarSet.empty (marks ++ leftOut lhs)
+  where
+    leftOut : RawImp -> List Name
+    leftOut (IAs _ _ UseLeft n (Implicit {})) = [n]
+    leftOut (IApp _ f a) = leftOut f ++ leftOut a
+    leftOut (INamedApp _ f _ a) = leftOut f ++ leftOut a
+    leftOut (IAutoApp _ f a) = leftOut f ++ leftOut a
+    leftOut _ = []
+
+    bind : Name -> VarSet vars -> VarSet vars
+    bind n set = maybe set (\v => VarSet.insert v set) (isVar n vars)
 
 -- Check a pattern clause, returning the component of the 'Case' expression it
 -- represents, or Nothing if it's an impossible clause
@@ -417,7 +441,7 @@ checkClause mult vis totreq hashit n opts nest env (ImpossibleClause fc lhs)
                               then pure (Left lhs_raw)
                               else throw (ValidCase fc env (Right err)))
 checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in rhs)
-    = do (_, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
+    = do (lhs_raw, marks, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
              checkLHS False mult n opts nest env fc lhs_in
          let rhsMode = if isErased mult then InType else InExpr
          log "declare.def.clause" 5 $ "Checking RHS " ++ show rhs
@@ -441,11 +465,11 @@ checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in r
                  addLHS (getFC lhs_in) (length env) env' lhstm'
               _ => pure ()
 
-         pure (Right (MkClause env' lhstm' rhstm))
+         pure (Right (MkClause env' lhstm' rhstm (unifiedArgs marks lhs_raw)))
 -- TODO: (to decide) With is complicated. Move this into its own module?
 checkClause {vars} mult vis totreq hashit n opts nest env
     (WithClause ifc lhs_in rig wval_raw mprf flags cs)
-    = do (lhs, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
+    = do (lhs, marks, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
              checkLHS False mult n opts nest env ifc lhs_in
          let wmode
                = if isErased mult || isErased rig then InType else InExpr
@@ -546,7 +570,7 @@ checkClause {vars} mult vis totreq hashit n opts nest env
          let wdef = IDef ifc wname cs'
          processDecl [] nest'' env wdef
 
-         pure (Right (MkClause env' lhspat rhs))
+         pure (Right (MkClause env' lhspat rhs (unifiedArgs marks lhs)))
   where
     vfc : FC
     vfc = virtualiseFC ifc
@@ -774,11 +798,12 @@ mkRunTime fc n
     makeErrorClause env lhs
         = MkClause env (matchAny lhs)
              (mkCrash ("Unhandled input for " ++ show n ++ " at " ++ show fc))
+             VarSet.empty
 
     addErrorCase : List Clause -> List Clause
     addErrorCase [] = []
-    addErrorCase [MkClause env lhs rhs]
-        = MkClause env lhs rhs :: makeErrorClause env lhs :: []
+    addErrorCase [MkClause env lhs rhs unified]
+        = MkClause env lhs rhs unified :: makeErrorClause env lhs :: []
     addErrorCase (x :: xs) = x :: addErrorCase xs
 
     getSpec : List DefFlag -> Maybe (List (Name, Nat))
@@ -799,7 +824,7 @@ mkRunTime fc n
 
     toClause : FC -> (vars ** (Env Term vars, Term vars, Term vars)) -> Clause
     toClause fc (_ ** (env, lhs, rhs))
-        = MkClause env lhs rhs
+        = MkClause env lhs rhs VarSet.empty
 
 compileRunTime : {auto c : Ref Ctxt Defs} ->
                  {auto m : Ref MD Metadata} ->
@@ -816,12 +841,30 @@ compileRunTime fc atotal
          update Ctxt { toCompileCase := [] }
 
 toPats : Clause -> (vs ** (Env Term vs, Term vs, Term vs))
-toPats (MkClause {vars} env lhs rhs)
+toPats (MkClause {vars} env lhs rhs _)
     = (_ ** (env, lhs, rhs))
+
+-- A clause as the tree its definition keeps reads it. Only the coverage
+-- check needs an argument a clause leaves to unification split after the
+-- patterns that fix it, and it builds a tree of its own. Above quantity 0
+-- the tree a definition keeps is the program that runs (this compiler's
+-- frontend translates it, testing in the order the tree splits), and it
+-- takes an erased argument as a variable where later patterns bind the names
+-- in it; moved after them, that argument is split, and a type the definition
+-- computes stops reducing while it is unsolved (the length in `Data.Fun`'s
+-- `Fun` and `chain`, which base's `Data.Nat.Order.lte` leaves unsolved, so
+-- that `lte` no longer checks). So that tree is built from the clauses
+-- without the mark, and splits in the arguments' order, as the runtime tree
+-- does (`mkRunTime`, whose clauses carry none). At quantity 0 nothing runs
+-- and every argument a clause matches is split, and the tree splits such an
+-- argument last, as the coverage check's does.
+saved : RigCount -> Clause -> Clause
+saved mult cl@(MkClause env lhs rhs _)
+    = if isErased mult then cl else MkClause env lhs rhs VarSet.empty
 
 warnUnreachable : {auto c : Ref Ctxt Defs} ->
                   Clause -> Core ()
-warnUnreachable (MkClause env lhs rhs)
+warnUnreachable (MkClause env lhs rhs _)
     = recordWarning (UnreachableClause (getLoc lhs) env lhs)
 
 isAlias : RawImp -> Maybe ((FC, Name)              -- head symbol
@@ -928,7 +971,7 @@ processDef opts nest env fc n_in cs_in
 
          (cargs ** (tree_ct, unreachable)) <-
              logTime 3 ("Building compile time case tree for " ++ show n) $
-                getPMDef fc (CompileTime mult) n ty (rights cs)
+                getPMDef fc (CompileTime mult) n ty (map (saved mult) (rights cs))
 
          traverse_ warnUnreachable unreachable
 
@@ -1001,7 +1044,7 @@ processDef opts nest env fc n_in cs_in
     -- one where all the arguments are variables? If so, no need to do the
     -- (potentially expensive) coverage check
     catchAll : Clause -> Bool
-    catchAll (MkClause env lhs _)
+    catchAll (MkClause env lhs _ _)
        = all simplePat (getArgs lhs)
 
     -- Return 'Nothing' if the clause is impossible, otherwise return the
@@ -1048,7 +1091,7 @@ processDef opts nest env fc n_in cs_in
     getClause (Left rawlhs)
         = catch (do lhsp <- getImpossibleTerm env nest rawlhs
                     log "declare.def.impossible" 3 $ "Generated impossible LHS: " ++ show lhsp
-                    pure $ Just $ MkClause Env.empty lhsp (Erased (getFC rawlhs) Impossible))
+                    pure $ Just $ MkClause Env.empty lhsp (Erased (getFC rawlhs) Impossible) VarSet.empty)
                 (\e => do log "declare.def" 5 $ "Error in getClause " ++ show e
                           recordWarning $ GenericWarn (fromMaybe (getFC rawlhs) $ getErrorLoc e) (show e)
                           pure Nothing)

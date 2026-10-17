@@ -10,8 +10,8 @@ removing the line; an `expected` file whose first line is the mark is
 replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
-less this page, as it stood on 2026-10-15, each with its first mark as
-its reason: 286 files. Proposal 0014's culls removed the marks of the
+less this page, as it stood on 2026-10-16, each with its first mark as
+its reason: 291 files. Proposal 0014's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -421,8 +421,13 @@ change that adds or removes a mark lists it here again.
 - `tests/toolchain/runtime-text/expected`: that the pinned clang builds text.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit
 - `tests/toolchain/runtime-utf8/expected`: runtime-utf8 is new: confirm that utf8.cpp builds through prop_build with no C++ library and that its 7 properties hold on both targets (each target's simdutf kernel), that runtime-utf8/report is written, and set --cases in run
 
-## tests/upstream (3)
+## tests/upstream (8)
 
+- `tests/upstream/constructor-implicit-mark/expected`: that definitions whose clauses leave a constructor's implicit to the elaborator, relevant in v1 and erased in the quantity-0 v3, are accepted as covering under %default total, that implicits the clauses write are still matched (w3 at C3 {x = B} takes its second clause), and that the program compiles and runs, printing (1, 2); and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
+- `tests/upstream/erased-constant-pattern/expected`: that a quantity-0 definition splits what its clauses write on an erased argument (a constant in h and pv, a type in tp), so that h 5 reduces to 2 in hFive and in the type of five, which only Two inhabits, and that it does not split a constructor's type implicit that unification solved (len); and that the program compiles and runs, printing 2; and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
+- `tests/upstream/erased-coverage-nested-match/expected`: that erased definitions whose clauses leave their list index to the elaborator are accepted as covering under %default total, compute in types, and the program compiles and runs; and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
 - `tests/upstream/evaluator-char-text/expected`: that what holds of every compilation holds of this program: its objects import only what is allowed, its dumps parse and verify, no step drops a quantity (universal: holds); the artifacts line is the kinds lib/compile.sh names
 - `tests/upstream/one-shot-module-function-interface/expected`: written before a toolchain carried the extended patch 24 (upstream's boundary models on FunctionOpInterface and CallOpInterface, the analysis of cycles of calls, results that are not writable and the definite-alias rule, the nearest symbol table) and before idr-bufferize used those models on idr.program: confirm each line below.
+- `tests/upstream/relevant-implicit-split/expected`: that definitions above quantity 0 whose clauses leave their relevant list index to the elaborator, with a case block and a with block over it, are accepted as covering under %default total, and the program compiles and runs, reading at run time what only that index holds; and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
 - `tests/upstream/termination-closure/expected`: that what holds of every compilation holds of this program: its objects import only what is allowed, its dumps parse and verify, no step drops a quantity (universal: holds); the artifacts line is the kinds lib/compile.sh names
+- `tests/upstream/totality-unimported-callee/expected`: that the fork refuses Main.caller as not total, Loop.loop, in a module Main does not import, being reachable through ViaLoop.viaLoop, with Idris's own error at exit 3, and does not refuse Main.counted, which reaches the total Count.count the same way

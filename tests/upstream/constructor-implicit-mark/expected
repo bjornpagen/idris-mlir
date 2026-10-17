@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that definitions whose clauses leave a constructor's implicit to the elaborator, relevant in v1 and erased in the quantity-0 v3, are accepted as covering under %default total, that implicits the clauses write are still matched (w3 at C3 {x = B} takes its second clause), and that the program compiles and runs, printing (1, 2); and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

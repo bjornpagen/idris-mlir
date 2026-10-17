@@ -21,13 +21,24 @@ import Libraries.Data.NameMap
 %default covering
 
 findPLetRenames : {vars : _} ->
-                  Term vars -> List (Name, (RigCount, Name))
-findPLetRenames (Bind fc n (PLet _ c (Local _ _ idx p) ty) sc)
+                  (marks : List Name) -> Term vars -> List (Name, (RigCount, Name))
+findPLetRenames marks (Bind fc n (PLet _ c (Local _ _ idx p) ty) sc)
     = case nameAt p of
-           x@(MN {}) => (x, (c, n)) :: findPLetRenames sc
-           _ => findPLetRenames sc
-findPLetRenames (Bind fc n _ sc) = findPLetRenames sc
-findPLetRenames tm = []
+           x@(MN {}) => if n `elem` marks
+                           then findPLetRenames marks sc
+                           else (x, (c, n)) :: findPLetRenames marks sc
+           _ => findPLetRenames marks sc
+findPLetRenames marks (Bind fc n _ sc) = findPLetRenames marks sc
+findPLetRenames marks tm = []
+
+-- A mark over a variable gives way to it: the variable is the clause's own
+-- for that argument, which the case tree never splits, and nothing names
+-- the mark.
+markDrops : (marks : List Name) -> Term vars -> List Name
+markDrops marks (Bind fc n (PLet _ _ (Local {}) _) sc)
+    = if n `elem` marks then n :: markDrops marks sc else markDrops marks sc
+markDrops marks (Bind fc n _ sc) = markDrops marks sc
+markDrops marks tm = []
 
 doPLetRenames : {vars : _} ->
                 List (Name, (RigCount, Name)) ->
@@ -86,20 +97,22 @@ addHoleToSave n
          addToSave n
          traverse_ addToSave ms
 
+-- Elaborate a term, returning with it and its type the as-patterns it
+-- binds for implicit arguments its patterns leave out (`marks`).
 export
-elabTermSub : {inner, vars : _} ->
-              {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
-              {auto u : Ref UST UState} ->
-              {auto dl : Ref DLY DelayedElabs} ->
-              {auto s : Ref Syn SyntaxInfo} ->
-              {auto o : Ref ROpts REPLOpts} ->
-              Int -> ElabMode -> List ElabOpt ->
-              NestedNames vars -> Env Term vars ->
-              Env Term inner -> Thin inner vars ->
-              RawImp -> Maybe (Glued vars) ->
-              Core (Term vars, Glued vars)
-elabTermSub {vars} defining mode opts nest env env' sub tm ty
+elabTermSubMarked : {inner, vars : _} ->
+                     {auto c : Ref Ctxt Defs} ->
+                     {auto m : Ref MD Metadata} ->
+                     {auto u : Ref UST UState} ->
+                     {auto dl : Ref DLY DelayedElabs} ->
+                     {auto s : Ref Syn SyntaxInfo} ->
+                     {auto o : Ref ROpts REPLOpts} ->
+                     Int -> ElabMode -> List ElabOpt ->
+                     NestedNames vars -> Env Term vars ->
+                     Env Term inner -> Thin inner vars ->
+                     RawImp -> Maybe (Glued vars) ->
+                     Core (Term vars, Glued vars, List Name)
+elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
     = do let incase = elem InCase opts
          let inPE = elem InPartialEval opts
          let inTrans = elem InTrans opts
@@ -189,11 +202,13 @@ elabTermSub {vars} defining mode opts nest env env' sub tm ty
          -- to just x)
          case mode of
               InLHS _ =>
-                 do let vs = findPLetRenames chktm
-                    let ret = doPLetRenames vs [] chktm
-                    pure (ret, gnf env (doPLetRenames vs [] !(getTerm chkty)))
+                 do let vs = findPLetRenames (marks est) chktm
+                    let drops = markDrops (marks est) chktm
+                    let ret = doPLetRenames vs drops chktm
+                    pure (ret, gnf env (doPLetRenames vs drops !(getTerm chkty)),
+                          marks est)
               _ => do dumpConstraints "elab" 2 False
-                      pure (chktm, chkty)
+                      pure (chktm, chkty, marks est)
   where
     addHoles : (acc : IntMap (FC, Name)) ->
                (allHoles : IntMap (FC, Name)) ->
@@ -204,6 +219,23 @@ elabTermSub {vars} defining mode opts nest env env' sub tm ty
         = case lookup n allhs of
                Nothing => addHoles acc allhs hs
                Just _ => addHoles (insert n x acc) allhs hs
+
+export
+elabTermSub : {inner, vars : _} ->
+              {auto c : Ref Ctxt Defs} ->
+              {auto m : Ref MD Metadata} ->
+              {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
+              {auto s : Ref Syn SyntaxInfo} ->
+              {auto o : Ref ROpts REPLOpts} ->
+              Int -> ElabMode -> List ElabOpt ->
+              NestedNames vars -> Env Term vars ->
+              Env Term inner -> Thin inner vars ->
+              RawImp -> Maybe (Glued vars) ->
+              Core (Term vars, Glued vars)
+elabTermSub defining mode opts nest env env' sub tm ty
+    = do (tm', ty', _) <- elabTermSubMarked defining mode opts nest env env' sub tm ty
+         pure (tm', ty')
 
 export
 elabTerm : {vars : _} ->

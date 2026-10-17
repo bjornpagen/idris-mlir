@@ -465,7 +465,7 @@ checkMatched erase cs ulhs
     tryClauses [] ulhs
         = do logTermNF "coverage" 10 "Nothing matches" Env.empty ulhs
              pure $ Just ulhs
-    tryClauses (MkClause env lhs _ :: cs) ulhs
+    tryClauses (MkClause env lhs _ _ :: cs) ulhs
         = if !(clauseMatches erase env lhs ulhs)
              then do logTermNF "coverage" 10 "Yes" env lhs
                      pure Nothing -- something matches, discared it

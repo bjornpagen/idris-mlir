@@ -492,7 +492,11 @@ merge; each says what changed in its interface.
   term that common subexpression elimination hoists to the top level,
   where it runs once, at load time.
 - `ttcVersion` (`Core.Binary`) has eleven digits where stock Idris's have
-  ten, so a TTC either one writes is refused by the other when read.
+  ten, so a TTC either one writes is refused by the other when read. A TTC
+  holds its extra data as a blob of its own, so a reader that does not know
+  its type reads the definitions past it (`readDefinitions`), as the
+  termination check does for the modules a context's imports reach
+  (upstream/51-totality-unimported-callee).
 - `buildMain` (`Idris.ModTree`) builds a main file in a session of its
   own: it makes the unification state, the delayed elaborators and the
   metadata, resets the context to the main module's origin and runs
@@ -554,7 +558,16 @@ change laid out against the pin in `upstream/<bug>/pull-request.diff`,
 which the re-sync reads. Nothing is sent to Idris (upstream/README.md,
 **Idris**). The pinned checkout third_party/Idris2 stays unmodified. The
 fixes carried: upstream/18-elaboration-primitive-folding,
-20-evaluator-char-text, 21-termination-closure, and fork-linear-ambiguous-let
+20-evaluator-char-text, 21-termination-closure,
+50-erased-coverage-nested-match (a checked clause marks the arguments it
+leaves to unification), 51-totality-unimported-callee (a termination check
+reads a callee from the modules its imports reach, and refuses one no
+loaded module defines), 52-relevant-implicit-split (a case tree splits what
+a clause leaves to unification after what it writes),
+53-constructor-implicit-mark (a constructor's left-out implicit is marked),
+54-erased-constant-pattern (at quantity 0 a constant or type written on an
+erased argument splits), and
+fork-linear-ambiguous-let
 (an ambiguous name in a linear `let`'s value), fork-totality-depth (no count
 decides whether a recursion is total; `%totality_depth` is refused),
 fork-interface-body (a declaration an interface body cannot hold is

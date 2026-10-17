@@ -1,0 +1,6 @@
+NEEDS-ACCEPTANCE: that the fork refuses Main.caller as not total, Loop.loop, in a module Main does not import, being reachable through ViaLoop.viaLoop, with Idris's own error at exit 3, and does not refuse Main.counted, which reaches the total Count.count the same way
+compile: exit 3
+caller: not total, Loop.loop reached through ViaLoop.viaLoop
+counted: not refused
+refusal: Idris's own, no rule of ours
+artifacts: none

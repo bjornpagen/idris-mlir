@@ -27,6 +27,7 @@ import Libraries.Data.NatSet
 import Libraries.Data.StringMap
 import Libraries.Data.Table
 import Libraries.Data.UserNameMap
+import Libraries.Data.VarSet
 import Libraries.Data.WithDefault
 import Libraries.Text.Distance.Levenshtein
 
@@ -600,11 +601,11 @@ HasNames (Env Term vars) where
 
 export
 HasNames Clause where
-  full gam (MkClause env lhs rhs)
-     = pure $ MkClause !(full gam env) !(full gam lhs) !(full gam rhs)
+  full gam (MkClause env lhs rhs unified)
+     = pure $ MkClause !(full gam env) !(full gam lhs) !(full gam rhs) unified
 
-  resolved gam (MkClause env lhs rhs)
-    = [| MkClause (resolved gam env) (resolved gam lhs) (resolved gam rhs) |]
+  resolved gam (MkClause env lhs rhs unified)
+    = [| MkClause (resolved gam env) (resolved gam lhs) (resolved gam rhs) (pure unified) |]
 
 
 export
@@ -983,6 +984,23 @@ export
 allNames : Context -> Core (List Name)
 allNames ctxt = traverse (full ctxt) $ map Resolved [1..nextEntry ctxt - 1]
 
+||| The modules a context's imports reach without importing them, and the
+||| definitions read from them, which the termination check reads and the
+||| elaborator never sees. A definition an import holds may call into any
+||| module that import reaches, but a module is checked with only what its
+||| imports make visible; a check that follows calls out of that finds the
+||| callees here. A module is named here when a module the context imports
+||| imports it and no import of this context reads it, and read the first
+||| time the check needs a definition the context does not hold.
+public export
+record Unimported where
+  constructor MkUnimported
+  ||| The modules named and not read yet.
+  unread : List ModuleIdent
+  ||| The definitions of the modules read, and of every module they
+  ||| import, by full name.
+  unimportedDefs : NameMap ContextEntry
+
 public export
 record Defs where
   constructor MkDefs
@@ -1050,6 +1068,7 @@ record Defs where
        -- ^ For functions which are callable from a foreign language. This
        -- maps names to a pair of the back end and the exported function name
   defsStack : SnocList Name -- stack of the definition names being processed
+  unimported : Unimported
 
 -- Label for context references
 export
@@ -1096,6 +1115,7 @@ initDefs
            , schemeEvalLoaded = False
            , foreignExports = empty
            , defsStack = [<]
+           , unimported = MkUnimported [] empty
            }
 
 -- Reset the context, except for the options
@@ -1936,6 +1956,12 @@ export
 addImported : {auto c : Ref Ctxt Defs} ->
               (ModuleIdent, Bool, Namespace) -> Core ()
 addImported mod = update Ctxt { imported $= (mod ::) }
+
+||| Names a module that a module the context imports imports, and that no
+||| import of this context reads, so that the termination check can read it.
+export
+addUnimported : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core ()
+addUnimported m = update Ctxt { unimported->unread $= (m ::) }
 
 export
 getImported : {auto c : Ref Ctxt Defs} ->

@@ -32,10 +32,11 @@ import public Libraries.Utils.Binary
 ||| every TTC a stock Idris writes, whatever the date of either. Stock
 ||| versions have ten digits; ours carry an eleventh, leading 1, so no
 ||| stock version can equal one of ours, and a stock prelude is rejected
-||| when read rather than misread.
+||| when read rather than misread. Ours also hold their extra data as a
+||| blob (`writeTTCFile`), which upstream's do not.
 export
 ttcVersion : Int
-ttcVersion = 1_2026_10_09_00
+ttcVersion = 1_2026_10_16_00
 
 export
 checkTTCVersion : String -> Int -> Int -> Core ()
@@ -191,6 +192,19 @@ HasNames e => HasNames (TTCFile e) where
       resolvedForeign : (Name, String) -> Core (Name, String)
       resolvedForeign (n,s) = pure $ (!(resolved gam n), s)
 
+||| A value written into a blob of its own.
+encodeBlob : TTC a => a -> Core Binary
+encodeBlob x
+    = do b <- initBinaryS 1024
+         toBuf x
+         get Bin
+
+||| The value a blob holds.
+decodeBlob : TTC a => Binary -> Core a
+decodeBlob blob
+    = do b <- newRef Bin blob
+         fromBuf
+
 -- NOTE: TTC files are only compatible if the version number is the same,
 -- *and* the 'annot/extra' type are the same, or there are no holes/constraints
 writeTTCFile : (HasNames extra, TTC extra) =>
@@ -204,7 +218,9 @@ writeTTCFile b file_in
            toBuf (ifaceHash file)
            toBuf (importHashes file)
            toBuf (imported file)
-           toBuf (extraData file)
+           -- The extra data is a blob of its own, so that a reader that
+           -- does not know its type passes over it (`readDefinitions`).
+           toBuf !(encodeBlob (extraData file))
            toBuf (context file)
            toBuf (userHoles file)
            toBuf (autoHints file)
@@ -221,11 +237,13 @@ writeTTCFile b file_in
            toBuf (transforms file)
            toBuf (foreignExports file)
 
-readTTCFile : TTC extra =>
-              {auto c : Ref Ctxt Defs} ->
-              Bool -> String -> Maybe (Namespace) ->
-              Ref Bin Binary -> Core (TTCFile extra)
-readTTCFile readall file as b
+||| The fields of a TTC file, in order, the extra data read by
+||| `readExtra` from its blob. Without `readall`, only up to the extra data.
+readTTCFileWith : {auto c : Ref Ctxt Defs} ->
+                  (readExtra : Binary -> Core extra) ->
+                  Bool -> String -> Maybe (Namespace) ->
+                  Ref Bin Binary -> Core (TTCFile extra)
+readTTCFileWith readExtra readall file as b
       = do hdr <- fromBuf
            when (hdr /= "TT2") $
              corrupt ("TTC header in " ++ file ++ " " ++ show hdr)
@@ -235,7 +253,7 @@ readTTCFile readall file as b
            ifaceHash <- fromBuf
            importHashes <- fromBuf
            imp <- fromBuf
-           ex <- fromBuf
+           ex <- readExtra !fromBuf
            if not readall
               then pure (MkTTCFile ver totalReq
                                    ifaceHash importHashes
@@ -271,6 +289,27 @@ readTTCFile readall file as b
     replaceNS : Namespace -> (Name, a) -> (Name, a)
     replaceNS ns n@(NS _ _, d) = n
     replaceNS ns (n, d) = (NS ns n, d)
+
+readTTCFile : TTC extra =>
+              {auto c : Ref Ctxt Defs} ->
+              Bool -> String -> Maybe (Namespace) ->
+              Ref Bin Binary -> Core (TTCFile extra)
+readTTCFile = readTTCFileWith decodeBlob
+
+||| The definitions of the module a TTC file holds, by full name, with the
+||| namespace each is decoded into and the modules the file imports: all a
+||| reader needs to see a module's definitions without importing it, whose
+||| extra data it passes over.
+export
+readDefinitions : {auto c : Ref Ctxt Defs} ->
+                  (fname : String) ->
+                  Core (List ModuleIdent, Namespace, List (Name, Binary))
+readDefinitions fname
+    = do Right buffer <- coreLift $ readFromFile fname
+               | Left err => throw (InternalError (fname ++ ": " ++ show err))
+         bin <- newRef Bin buffer
+         ttc <- readTTCFileWith (\_ => pure ()) True fname Nothing bin
+         pure (map fst (imported ttc), currentNS ttc, context ttc)
 
 -- Pull out the list of GlobalDefs that we want to save
 getSaveDefs : Namespace -> List Name -> List (Name, Binary) -> Defs ->

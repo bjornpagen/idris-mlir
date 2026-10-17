@@ -1,0 +1,584 @@
+diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
+--- a/src/Core/Case/CaseBuilder.idr	2026-10-16 20:00:03
++++ b/src/Core/Case/CaseBuilder.idr	2026-10-16 20:00:03
+@@ -304,8 +304,9 @@
+ -- What a clause does with one of its arguments, least first: binds it to a
+ -- variable; binds it to what unification found from the patterns the clause
+ -- writes (the elaborator's as-pattern for an argument the clause leaves to
+--- unification: an implicit it leaves out, a case block's environment, a
+--- with block's argument); or tests it.
++-- unification: an implicit of the definition or of a constructor in a
++-- pattern that it leaves out, a case block's environment, a with block's
++-- argument); or tests it.
+ data Use = Binds | Fixed | Tests
+ 
+ -- What two clauses together do with an argument: the more of the two.
+@@ -359,6 +360,11 @@
+ clauseType phase (MkPatClause pvars (MkInfo arg _ ty :: rest) pid rhs)
+     = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
+   where
++    -- whether the clause writes this pattern
++    written : Bool
++    written = case use (unified pid) arg of
++                   Tests => True
++                   _ => False
+ 
+     -- used when we are tempted to split on a constructor: is
+     -- this actually a fully applied one?
+@@ -381,9 +387,15 @@
+              then Nothing
+              else splitCon a xs
+     getClauseType phase (PAs _ _ p) t = getClauseType phase p t
+-    getClauseType phase l (Known r t) = if isErased r
+-      then Nothing
+-      else clauseType' l
++    -- At quantity 0 a pattern a clause writes on an erased argument is a
++    -- match, a constant or a type as much as a constructor (above): nothing
++    -- there was made must-unify. What unification fixed there stays a
++    -- variable, unless it is a constructor: a type it solved (the `a` of
++    -- `[] {a}`) is the only one the argument's type allows.
++    getClauseType (CompileTime cr) l (Known r t)
++        = if isErased r && not (isErased cr && written) then Nothing else clauseType' l
++    getClauseType RunTime l (Known r t)
++        = if isErased r then Nothing else clauseType' l
+     getClauseType phase l _ = clauseType' l
+ 
+ partition : {a, as, vars : _} ->
+@@ -973,15 +985,17 @@
+            _ => False
+ 
+ -- The clauses' own tests come before what unification fixed from them. A
+--- column the clauses only bind, and some bind to what unification found from
+--- the patterns they write (an implicit a clause leaves out, a case block's
+--- environment, a with block's argument), is split after the others, at every
+--- step. Split before the patterns that fix it, it leaves branches that only
+--- the emptiness of a later column's type rules out (`All IsF (A :: xs)`,
+--- when `IsF A` has no constructor), which the coverage check does not look
+--- into; split after them, those branches are impossible by unification. It
+--- is still split: a leaf binds what its pattern names, and a column whose
+--- type computes on it (`Lifted r xs y z`) waits for it (pickNextViable).
++-- column the clauses only bind, and some bind to what unification found
++-- from the patterns they write (an implicit of the definition or of a
++-- constructor in a pattern that a clause leaves out, a case block's
++-- environment, a with block's argument), is split after the others, at
++-- every step. Split before the patterns that fix it, it leaves branches
++-- that only the emptiness of a later column's type rules out (`All IsF
++-- (A :: xs)`, when `IsF A` has no constructor), which the coverage check
++-- does not look into; split after them, those branches are impossible by
++-- unification. It is still split: a leaf binds what its pattern names, and
++-- a column whose type computes on it (`Lifted r xs y z`) waits for it
++-- (pickNextViable).
+ arrange : {todo : _} -> List01 True (PatClause todo vars) ->
+           (todo' ** List01 True (PatClause todo' vars))
+ arrange cs@(c :: _)
+diff -ruN a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
+--- a/src/Core/Context/Context.idr	2026-10-16 20:00:03
++++ b/src/Core/Context/Context.idr	2026-10-16 20:00:03
+@@ -194,7 +194,8 @@
+                 (env : Env Term vars) ->
+                 (lhs : Term vars) -> (rhs : Term vars) ->
+                 -- The variables of `env` that name an argument the clause
+-                -- leaves to unification (an implicit it leaves out, a case
++                -- leaves to unification (an implicit it leaves out, of the
++                -- definition or of a constructor in a pattern, a case
+                 -- block's environment, a with block's argument): the
+                 -- elaborator binds each by an as-pattern whose pattern is
+                 -- what unification found from the patterns the clause does
+diff -ruN a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
+--- a/src/TTImp/Elab/App.idr	2026-10-16 20:00:03
++++ b/src/TTImp/Elab/App.idr	2026-10-16 20:00:03
+@@ -8,6 +8,7 @@
+ import Idris.REPL.Opts
+ import Idris.Syntax
+ 
++import TTImp.Elab.As
+ import TTImp.Elab.Check
+ import TTImp.Elab.Dot
+ import TTImp.TTImp
+@@ -158,6 +159,37 @@
+ isHole (NApp _ (NMeta {}) _) = True
+ isHole _ = False
+ 
++-- On the left-hand side, an implicit argument that a pattern leaves out,
++-- the hole `nm` unification fills, is bound as the definition's own are
++-- (`implicitsAs`): an as-pattern on its own side over what unification
++-- finds, named by the hole, so that the case tree splits it after the
++-- patterns that fix it rather than before them. Nothing else names it
++-- (`marks`), and over a variable it gives way to the variable. Above
++-- quantity 0 an erased argument needs no mark: the case tree takes one as a
++-- variable where the names it binds are bound elsewhere.
++unifiedArg : {vars : _} ->
++             {auto c : Ref Ctxt Defs} ->
++             {auto m : Ref MD Metadata} ->
++             {auto u : Ref UST UState} ->
++             {auto e : Ref EST (EState vars)} ->
++             RigCount -> ElabInfo -> Env Term vars -> FC ->
++             (nm : Name) -> (metaval : Term vars) -> (metaty : Term vars) ->
++             Core (Term vars)
++unifiedArg argRig elabinfo env fc nm metaval metaty
++    = case elabMode elabinfo of
++           InLHS lrig =>
++               if bindingVars elabinfo && (isErased lrig || not (isErased argRig))
++                  then do let n = dropNS nm
++                          est <- get EST
++                          noteLHSPatVar (elabMode elabinfo) n
++                          notePatVar (PV n (defining est))
++                          update EST { marks $= (n ::) }
++                          let ty = gnf env metaty
++                          fst <$> bindAs argRig elabinfo env fc EmptyFC UseLeft n
++                                         (metaval, ty) (Just ty)
++                  else pure metaval
++           _ => pure metaval
++
+ mutual
+   makeImplicit : {vars : _} ->
+                  {auto c : Ref Ctxt Defs} ->
+@@ -183,7 +215,7 @@
+            empty <- clearDefs defs
+            metaty <- quote empty env aty
+            metaval <- metaVar fc argRig env nm metaty
+-           let fntm = App fc tm metaval
++           fntm <- App fc tm <$> unifiedArg argRig elabinfo env fc nm metaval metaty
+            fnty <- sc defs (toClosure defaultOpts env metaval)
+            when (bindingVars elabinfo) $ update EST $
+              addBindIfUnsolved nm (getLoc (getFn tm)) argRig Implicit env metaval metaty
+@@ -274,7 +306,7 @@
+                    empty <- clearDefs defs
+                    metaty <- quote empty env aty
+                    metaval <- metaVar fc argRig env nm metaty
+-                   let fntm = App fc tm metaval
++                   fntm <- App fc tm <$> unifiedArg argRig elabinfo env fc nm metaval metaty
+                    fnty <- sc defs (toClosure defaultOpts env metaval)
+                    update EST $ addBindIfUnsolved nm (getLoc (getFn tm)) argRig AutoImplicit env metaval metaty
+                    checkAppWith rig elabinfo nest env fc
+diff -ruN a/src/TTImp/Elab/As.idr b/src/TTImp/Elab/As.idr
+--- a/src/TTImp/Elab/As.idr	2026-10-16 20:00:03
++++ b/src/TTImp/Elab/As.idr	2026-10-16 20:00:03
+@@ -13,7 +13,49 @@
+ 
+ %default covering
+ 
++-- Only one side can be usable if it's linear! Normally we'd assume this
++-- to be the new variable (UseRight), but in generated case blocks it's
++-- better if it's the pattern (UseLeft)
++rigPat : UseSide -> RigCount -> RigCount
++rigPat UseLeft rig = if isLinear rig then linear else rig
++rigPat UseRight rig = if isLinear rig then erased else rig
++
++rigAs : UseSide -> RigCount -> RigCount
++rigAs UseLeft rig = if isLinear rig then erased else rig
++rigAs UseRight rig = if isLinear rig then linear else rig
++
++-- Name the checked pattern `pat`, at multiplicity `rig`, as `n_in`: the
++-- as-pattern `n_in@pat`, whose name the left-hand side binds. The caller has
++-- noted `n_in` as a pattern variable (`noteLHSPatVar`, `notePatVar`).
+ export
++bindAs : {vars : _} ->
++         {auto c : Ref Ctxt Defs} ->
++         {auto m : Ref MD Metadata} ->
++         {auto u : Ref UST UState} ->
++         {auto e : Ref EST (EState vars)} ->
++         RigCount -> ElabInfo -> Env Term vars ->
++         FC -> (nameFC : FC) -> UseSide -> Name ->
++         (pat : (Term vars, Glued vars)) -> Maybe (Glued vars) ->
++         Core (Term vars, Glued vars)
++bindAs rig elabinfo env fc nameFC side n_in (pattm, patty) topexp
++    = do est <- get EST
++         let n = PV n_in (defining est)
++         (tm, exp, bty) <- mkPatternHole nameFC rig n env
++                                 (implicitMode elabinfo)
++                                 topexp
++         log "elab.as" 5 $ "Added as pattern name " ++ show (n, (rigAs side rig, tm, exp, bty))
++         update EST { boundNames $= ((n, AsBinding (rigAs side rig) Explicit tm exp pattm) :: ),
++                      toBind $= ((n, AsBinding (rigAs side rig) Explicit tm bty pattm) ::) }
++         (ntm, nty) <- checkExp rig elabinfo env nameFC tm (gnf env exp)
++                                (Just patty)
++
++         -- Add the name type to the metadata
++         log "metadata.names" 7 $ "checkAs is adding ↓"
++         addNameType nameFC n_in env !(getTerm nty)
++
++         pure (As fc side ntm pattm, patty)
++
++export
+ checkAs : {vars : _} ->
+           {auto c : Ref Ctxt Defs} ->
+           {auto m : Ref MD Metadata} ->
+@@ -36,37 +78,6 @@
+          notePatVar n
+          case lookup n (boundNames est) of
+               Nothing =>
+-                 do (pattm, patty) <- check rigPat elabinfo nest env pat topexp
+-                    (tm, exp, bty) <- mkPatternHole nameFC rig n env
+-                                            (implicitMode elabinfo)
+-                                            topexp
+-                    log "elab.as" 5 $ "Added as pattern name " ++ show (n, (rigAs, tm, exp, bty))
+-                    defs <- get Ctxt
+-                    update EST { boundNames $= ((n, AsBinding rigAs Explicit tm exp pattm) :: ),
+-                                 toBind $= ((n, AsBinding rigAs Explicit tm bty pattm) ::) }
+-                    (ntm, nty) <- checkExp rig elabinfo env nameFC tm (gnf env exp)
+-                                           (Just patty)
+-
+-                    -- Add the name type to the metadata
+-                    log "metadata.names" 7 $ "checkAs is adding ↓"
+-                    addNameType nameFC n_in env !(getTerm nty)
+-
+-                    pure (As fc side ntm pattm, patty)
++                 do pat' <- check (rigPat side rig) elabinfo nest env pat topexp
++                    bindAs rig elabinfo env fc nameFC side n_in pat' topexp
+               Just bty => throw (NonLinearPattern fc n_in)
+-  where
+-    -- Only one side can be usable if it's linear! Normally we'd assume this
+-    -- to be the new variable (UseRight), but in generated case blocks it's
+-    -- better if it's the pattern (UseLeft)
+-    rigPat' : UseSide -> RigCount
+-    rigPat' UseLeft = if isLinear rig then linear else rig
+-    rigPat' UseRight = if isLinear rig then erased else rig
+-
+-    rigPat : RigCount
+-    rigPat = rigPat' side
+-
+-    rigAs' : UseSide -> RigCount
+-    rigAs' UseLeft = if isLinear rig then erased else rig
+-    rigAs' UseRight = if isLinear rig then linear else rig
+-
+-    rigAs : RigCount
+-    rigAs = rigAs' side
+diff -ruN a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
+--- a/src/TTImp/Elab/Check.idr	2026-10-16 20:00:03
++++ b/src/TTImp/Elab/Check.idr	2026-10-16 20:00:03
+@@ -146,6 +146,9 @@
+   delayDepth : Nat -- if it gets too deep, it gets slow, so fail quicker
+   linearUsed : VarSet vars
+   saveHoles : NameMap () -- things we'll need to save to TTC, even if solved
++  marks : List Name
++                  -- as-patterns bound for implicit arguments the patterns
++                  -- leave out, which nothing else names (`unifiedArg`)
+ 
+   unambiguousNames : UserNameMap (Name, Int, GlobalDef)
+                   -- Mapping from userNameRoot to fully resolved names.
+@@ -172,6 +175,7 @@
+     , linearUsed = VarSet.empty
+     , saveHoles = empty
+     , unambiguousNames = empty
++    , marks = []
+     }
+ 
+ export
+diff -ruN a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
+--- a/src/TTImp/Elab.idr	2026-10-16 20:00:03
++++ b/src/TTImp/Elab.idr	2026-10-16 20:00:03
+@@ -19,14 +19,25 @@
+ %default covering
+ 
+ findPLetRenames : {vars : _} ->
+-                  Term vars -> List (Name, (RigCount, Name))
+-findPLetRenames (Bind fc n (PLet _ c (Local _ _ idx p) ty) sc)
++                  (marks : List Name) -> Term vars -> List (Name, (RigCount, Name))
++findPLetRenames marks (Bind fc n (PLet _ c (Local _ _ idx p) ty) sc)
+     = case nameAt p of
+-           x@(MN {}) => (x, (c, n)) :: findPLetRenames sc
+-           _ => findPLetRenames sc
+-findPLetRenames (Bind fc n _ sc) = findPLetRenames sc
+-findPLetRenames tm = []
++           x@(MN {}) => if n `elem` marks
++                           then findPLetRenames marks sc
++                           else (x, (c, n)) :: findPLetRenames marks sc
++           _ => findPLetRenames marks sc
++findPLetRenames marks (Bind fc n _ sc) = findPLetRenames marks sc
++findPLetRenames marks tm = []
+ 
++-- A mark over a variable gives way to it: the variable is the clause's own
++-- for that argument, which the case tree never splits, and nothing names
++-- the mark.
++markDrops : (marks : List Name) -> Term vars -> List Name
++markDrops marks (Bind fc n (PLet _ _ (Local {}) _) sc)
++    = if n `elem` marks then n :: markDrops marks sc else markDrops marks sc
++markDrops marks (Bind fc n _ sc) = markDrops marks sc
++markDrops marks tm = []
++
+ doPLetRenames : {vars : _} ->
+                 List (Name, (RigCount, Name)) ->
+                 List Name -> Term vars -> Term vars
+@@ -84,19 +95,21 @@
+          addToSave n
+          traverse_ addToSave ms
+ 
++-- Elaborate a term, returning with it and its type the as-patterns it
++-- binds for implicit arguments its patterns leave out (`marks`).
+ export
+-elabTermSub : {inner, vars : _} ->
+-              {auto c : Ref Ctxt Defs} ->
+-              {auto m : Ref MD Metadata} ->
+-              {auto u : Ref UST UState} ->
+-              {auto s : Ref Syn SyntaxInfo} ->
+-              {auto o : Ref ROpts REPLOpts} ->
+-              Int -> ElabMode -> List ElabOpt ->
+-              NestedNames vars -> Env Term vars ->
+-              Env Term inner -> Thin inner vars ->
+-              RawImp -> Maybe (Glued vars) ->
+-              Core (Term vars, Glued vars)
+-elabTermSub {vars} defining mode opts nest env env' sub tm ty
++elabTermSubMarked : {inner, vars : _} ->
++                     {auto c : Ref Ctxt Defs} ->
++                     {auto m : Ref MD Metadata} ->
++                     {auto u : Ref UST UState} ->
++                     {auto s : Ref Syn SyntaxInfo} ->
++                     {auto o : Ref ROpts REPLOpts} ->
++                     Int -> ElabMode -> List ElabOpt ->
++                     NestedNames vars -> Env Term vars ->
++                     Env Term inner -> Thin inner vars ->
++                     RawImp -> Maybe (Glued vars) ->
++                     Core (Term vars, Glued vars, List Name)
++elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
+     = do let incase = elem InCase opts
+          let inPE = elem InPartialEval opts
+          let inTrans = elem InTrans opts
+@@ -187,11 +200,13 @@
+          -- to just x)
+          case mode of
+               InLHS _ =>
+-                 do let vs = findPLetRenames chktm
+-                    let ret = doPLetRenames vs [] chktm
+-                    pure (ret, gnf env (doPLetRenames vs [] !(getTerm chkty)))
++                 do let vs = findPLetRenames (marks est) chktm
++                    let drops = markDrops (marks est) chktm
++                    let ret = doPLetRenames vs drops chktm
++                    pure (ret, gnf env (doPLetRenames vs drops !(getTerm chkty)),
++                          marks est)
+               _ => do dumpConstraints "elab" 2 False
+-                      pure (chktm, chkty)
++                      pure (chktm, chkty, marks est)
+   where
+     addHoles : (acc : IntMap (FC, Name)) ->
+                (allHoles : IntMap (FC, Name)) ->
+@@ -202,6 +217,22 @@
+         = case lookup n allhs of
+                Nothing => addHoles acc allhs hs
+                Just _ => addHoles (insert n x acc) allhs hs
++
++export
++elabTermSub : {inner, vars : _} ->
++              {auto c : Ref Ctxt Defs} ->
++              {auto m : Ref MD Metadata} ->
++              {auto u : Ref UST UState} ->
++              {auto s : Ref Syn SyntaxInfo} ->
++              {auto o : Ref ROpts REPLOpts} ->
++              Int -> ElabMode -> List ElabOpt ->
++              NestedNames vars -> Env Term vars ->
++              Env Term inner -> Thin inner vars ->
++              RawImp -> Maybe (Glued vars) ->
++              Core (Term vars, Glued vars)
++elabTermSub defining mode opts nest env env' sub tm ty
++    = do (tm', ty', _) <- elabTermSubMarked defining mode opts nest env env' sub tm ty
++         pure (tm', ty')
+ 
+ export
+ elabTerm : {vars : _} ->
+diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
+--- a/src/TTImp/ProcessDef.idr	2026-10-16 20:00:03
++++ b/src/TTImp/ProcessDef.idr	2026-10-16 20:00:03
+@@ -291,6 +291,7 @@
+            Int -> List ElabOpt -> NestedNames vars -> Env Term vars ->
+            FC -> RawImp ->
+            Core (RawImp, -- checked LHS with implicits added
++                 List Name, -- the as-patterns bound for implicits it leaves out
+                  (vars' ** (Thin vars vars',
+                            Env Term vars', NestedNames vars',
+                            Term vars', Term vars')))
+@@ -320,9 +321,9 @@
+          let lhsMode = if trans
+                           then InTransform
+                           else InLHS mult
+-         (lhstm, lhstyg) <-
++         (lhstm, lhstyg, marks) <-
+              wrapErrorC opts (InLHS fc !(getFullName (Resolved n))) $
+-                     elabTerm n lhsMode opts nest env
++                     elabTermSubMarked n lhsMode opts nest env env Refl
+                                 (IBindHere fc PATTERN lhs) Nothing
+          logTerm "declare.def.lhs" 5 "Checked LHS term" lhstm
+          lhsty <- getTerm lhstyg
+@@ -349,7 +350,7 @@
+          setHoleLHS (bindEnv fc env lhstm_lin)
+ 
+          ext <- extendEnv env Refl nest lhstm_lin lhsty_lin
+-         pure (lhs, ext)
++         pure (lhs, marks, ext)
+ 
+ -- Return whether any of the pattern variables are in a trivially empty
+ -- type, where trivally empty means one of:
+@@ -382,8 +383,10 @@
+ -- and binds the as-name in the scope. A case alternative's pattern on the
+ -- variable it splits goes into that variable's as-pattern too, but it is
+ -- the clause's own: only the `_` marks an argument left to unification.
+-unifiedArgs : {vars : _} -> RawImp -> VarSet vars
+-unifiedArgs lhs = foldr bind VarSet.empty (leftOut lhs)
++-- So does each as-pattern the elaborator binds for an implicit argument it
++-- inserts into a pattern (`marks`, from `checkLHS`).
++unifiedArgs : {vars : _} -> (marks : List Name) -> RawImp -> VarSet vars
++unifiedArgs marks lhs = foldr bind VarSet.empty (marks ++ leftOut lhs)
+   where
+     leftOut : RawImp -> List Name
+     leftOut (IAs _ _ UseLeft n (Implicit {})) = [n]
+@@ -434,7 +437,7 @@
+                               then pure (Left lhs_raw)
+                               else throw (ValidCase fc env (Right err)))
+ checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in rhs)
+-    = do (lhs_raw, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
++    = do (lhs_raw, marks, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
+              checkLHS False mult n opts nest env fc lhs_in
+          let rhsMode = if isErased mult then InType else InExpr
+          log "declare.def.clause" 5 $ "Checking RHS " ++ show rhs
+@@ -458,11 +461,11 @@
+                  addLHS (getFC lhs_in) (length env) env' lhstm'
+               _ => pure ()
+ 
+-         pure (Right (MkClause env' lhstm' rhstm (unifiedArgs lhs_raw)))
++         pure (Right (MkClause env' lhstm' rhstm (unifiedArgs marks lhs_raw)))
+ -- TODO: (to decide) With is complicated. Move this into its own module?
+ checkClause {vars} mult vis totreq hashit n opts nest env
+     (WithClause ifc lhs_in rig wval_raw mprf flags cs)
+-    = do (lhs, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
++    = do (lhs, marks, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
+              checkLHS False mult n opts nest env ifc lhs_in
+          let wmode
+                = if isErased mult || isErased rig then InType else InExpr
+@@ -563,7 +566,7 @@
+          let wdef = IDef ifc wname cs'
+          processDecl [] nest'' env wdef
+ 
+-         pure (Right (MkClause env' lhspat rhs (unifiedArgs lhs)))
++         pure (Right (MkClause env' lhspat rhs (unifiedArgs marks lhs)))
+   where
+     vfc : FC
+     vfc = virtualiseFC ifc
+diff -ruN a/src/TTImp/ProcessTransform.idr b/src/TTImp/ProcessTransform.idr
+--- a/src/TTImp/ProcessTransform.idr	2026-10-16 20:00:03
++++ b/src/TTImp/ProcessTransform.idr	2026-10-16 20:00:03
+@@ -26,7 +26,7 @@
+ processTransform eopts nest env fc tn_in lhs rhs
+     = do tn <- inCurrentNS tn_in
+          tidx <- resolveName tn
+-         (_, (vars'  ** (sub', env', nest', lhstm, lhsty))) <-
++         (_, _, (vars'  ** (sub', env', nest', lhstm, lhsty))) <-
+              checkLHS True top tidx eopts nest env fc lhs
+          logTerm "transform.lhs" 3 "Transform LHS" lhstm
+          rhstm <- wrapError (InRHS fc tn_in) $
+diff -ruN a/tests/idris2/coverage/coverage034/ConImplicit.idr b/tests/idris2/coverage/coverage034/ConImplicit.idr
+--- a/tests/idris2/coverage/coverage034/ConImplicit.idr	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage034/ConImplicit.idr	2026-10-16 20:00:03
+@@ -0,0 +1,47 @@
++import Data.List.Quantifiers
++
++%default total
++
++data W = A | F Integer | B
++
++data IsF : W -> Type where
++  ItIsF : IsF (F w)
++
++-- A constructor's implicit that the clauses leave out, and that the pattern
++-- of the constructor's field fixes, is no match: the case tree must not
++-- split it before that field, at either quantity.
++data T1 : Type where
++  C1 : {x : W} -> All IsF [x] -> T1
++
++v1 : T1 -> ()
++v1 (C1 (ItIsF :: [])) = ()
++
++data T2 : Type where
++  C2 : {0 x : W} -> All IsF [x] -> T2
++
++0 v3 : T2 -> Integer
++v3 (C2 (ItIsF :: [])) = 3
++
++v3Three : v3 (C2 (ItIsF {w = 7} :: [])) = 3
++v3Three = Refl
++
++-- An implicit the clause writes is still a match.
++data T3 : Type where
++  C3 : {x : W} -> T3
++
++w3 : T3 -> Integer
++w3 (C3 {x = A}) = 1
++w3 _ = 2
++
++w3B : w3 (C3 {x = B}) = 2
++w3B = Refl
++
++data T4 : Type where
++  C4 : {0 x : W} -> T4
++
++0 w4 : T4 -> Integer
++w4 (C4 {x = A}) = 1
++w4 _ = 2
++
++w4B : w4 (C4 {x = B}) = 2
++w4B = Refl
+diff -ruN a/tests/idris2/coverage/coverage034/expected b/tests/idris2/coverage/coverage034/expected
+--- a/tests/idris2/coverage/coverage034/expected	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage034/expected	2026-10-16 20:00:03
+@@ -0,0 +1 @@
++1/1: Building ConImplicit (ConImplicit.idr)
+diff -ruN a/tests/idris2/coverage/coverage034/run b/tests/idris2/coverage/coverage034/run
+--- a/tests/idris2/coverage/coverage034/run	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage034/run	2026-10-16 20:00:03
+@@ -0,0 +1,3 @@
++. ../../../testutils.sh
++
++check ConImplicit.idr
+diff -ruN a/tests/idris2/coverage/coverage035/ErasedConstant.idr b/tests/idris2/coverage/coverage035/ErasedConstant.idr
+--- a/tests/idris2/coverage/coverage035/ErasedConstant.idr	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage035/ErasedConstant.idr	2026-10-16 20:00:03
+@@ -0,0 +1,39 @@
++%default total
++
++-- At quantity 0, a constant or a type that a clause writes on an erased
++-- argument is a match.
++0 h : (0 n : Integer) -> Integer
++h 0 = 1
++h _ = 2
++
++hFive : h 5 = 2
++hFive = Refl
++
++hZero : h 0 = 1
++hZero = Refl
++
++0 tp : (0 t : Type) -> Integer
++tp Integer = 1
++tp _ = 2
++
++tpString : tp String = 2
++tpString = Refl
++
++data P : Type where
++  MkP : (0 n : Integer) -> P
++
++0 pv : P -> Integer
++pv (MkP 0) = 1
++pv (MkP _) = 2
++
++pvFive : pv (MkP 5) = 2
++pvFive = Refl
++
++-- A type that a constructor's implicit takes by unification is no match:
++-- `len` covers every list.
++0 len : List Integer -> Nat
++len [] = 0
++len (_ :: xs) = S (len xs)
++
++lenTwo : len [1, 2] = 2
++lenTwo = Refl
+diff -ruN a/tests/idris2/coverage/coverage035/expected b/tests/idris2/coverage/coverage035/expected
+--- a/tests/idris2/coverage/coverage035/expected	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage035/expected	2026-10-16 20:00:03
+@@ -0,0 +1 @@
++1/1: Building ErasedConstant (ErasedConstant.idr)
+diff -ruN a/tests/idris2/coverage/coverage035/run b/tests/idris2/coverage/coverage035/run
+--- a/tests/idris2/coverage/coverage035/run	1969-12-31 18:00:00
++++ b/tests/idris2/coverage/coverage035/run	2026-10-16 20:00:03
+@@ -0,0 +1,3 @@
++. ../../../testutils.sh
++
++check ErasedConstant.idr

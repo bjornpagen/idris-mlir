@@ -101,7 +101,9 @@ readModule full loc vis imp as
                        do let m = fst mimp
                           let reexp = fst (snd mimp)
                           let as = snd (snd mimp)
-                          when (reexp || full) $ readModule full loc reexp m as) more
+                          if reexp || full
+                             then readModule full loc reexp m as
+                             else addUnimported m) more
          setNS modNS
 
 readImport : {auto c : Ref Ctxt Defs} ->

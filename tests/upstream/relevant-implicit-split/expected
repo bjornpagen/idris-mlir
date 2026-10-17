@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that definitions above quantity 0 whose clauses leave their relevant list index to the elaborator, with a case block and a with block over it, are accepted as covering under %default total, and the program compiles and runs, reading at run time what only that index holds; and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

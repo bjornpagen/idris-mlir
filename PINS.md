@@ -220,6 +220,99 @@ which the top-level CMake configure gate reads.
   takes no tool-written contribution (upstream/README.md, **Idris**); its
   diff records the change for re-syncs
 
+## erased-coverage-nested-match
+
+- symptom: at the pinned Idris, the compile-time tree of a quantity-0
+  definition splits an argument its clauses leave to unification before
+  the patterns that fix it; `0 fp : All IsF ws -> All Pr ws` is reported
+  not covering. The fork inherited it
+- sites: the fork, Core/Context/Context.idr (`Clause`), TTImp/ProcessDef.idr
+  (`unifiedArgs`); the case builder's order is relevant-implicit-split's
+- workaround: none; the fork carries the change of
+  upstream/50-erased-coverage-nested-match/pull-request.diff, the first of
+  the series 50, 52, 53. The stock Idris is not patched: nothing it builds
+  meets the bug
+- retire: when a re-sync brings upstream's fix; then the report,
+  tests/upstream/erased-coverage-nested-match and this entry go
+- upstream: nothing is sent (upstream/README.md, **Idris**)
+
+## totality-unimported-callee
+
+- symptom: at the pinned Idris a `total` function reaching a looping
+  `covering` function through a module its module does not import is
+  accepted: the module's context holds only what its imports make visible,
+  and `resolveCall` (`src/Core/Termination/SizeChange.idr`) drops a callee
+  it does not hold. The fork inherited it (its `--check` accepted the
+  reproducer's LC)
+- sites: the fork, compiler/idris/src/Core/Termination/{References,SizeChange,Positivity}.idr,
+  Core/Context.idr (`Unimported`), Core/Binary.idr (extra data as a blob,
+  `readDefinitions`, `ttcVersion`), Idris/ProcessIdr.idr (`readModule`)
+- workaround: none; the fork carries the fix as its own code, the change of
+  `upstream/51-totality-unimported-callee/pull-request.diff`: the check
+  reads a callee the context does not hold from the modules its imports
+  reach, into a table the elaborator never sees, and refuses one no loaded
+  module defines. The stock Idris is not patched (stage 0 only) and still
+  accepts the reproducer
+- retire: when a re-sync of the fork brings upstream's fix; then the report,
+  `tests/upstream/totality-unimported-callee` and this entry go
+- upstream: upstream/51-totality-unimported-callee; nothing is sent
+  (upstream/README.md, **Idris**); its diff records the change for re-syncs
+
+## relevant-implicit-split
+
+- symptom: at the pinned Idris, the coverage tree of a definition splits an
+  argument its clauses leave to unification before the patterns that fix
+  it, at every quantity; `fp4 : {ws : List W} -> All IsF ws -> All Pr ws`
+  is reported not covering. The fork inherited it, and
+  erased-coverage-nested-match's first change, which took such an argument
+  as a variable, refused `0 liftedBad0`, whose later argument's type needs
+  the split
+- sites: the fork, Core/Case/CaseBuilder.idr (`Origin`, `Use`, `arrange`:
+  at every step of the match an argument no clause tests and some clause
+  leaves to unification is split last), TTImp/ProcessDef.idr (`saved`: the
+  tree a running definition keeps is built without the marks)
+- workaround: none; the fork carries the change of
+  upstream/52-relevant-implicit-split/pull-request.diff, applied after
+  50's. The stock Idris is not patched: nothing it builds meets the bug
+- retire: with erased-coverage-nested-match, when a re-sync brings
+  upstream's fix; then the report, tests/upstream/relevant-implicit-split
+  and this entry go
+- upstream: nothing is sent (upstream/README.md, **Idris**)
+
+## constructor-implicit-mark
+
+- symptom: at the pinned Idris, a constructor's implicit a pattern leaves
+  out, solved by unification, keeps no mark in the checked clause, so the
+  case tree splits it before the field that fixes it; `v1 (C1 (ItIsF ::
+  [])) = ()` is reported not covering. The fork inherited it
+- sites: the fork, TTImp/Elab/{App,As,Check}.idr, TTImp/Elab.idr,
+  TTImp/ProcessDef.idr (`unifiedArgs`), TTImp/ProcessTransform.idr: a
+  left-out implicit is bound as an as-pattern over its hole, the one mark
+  erased-coverage-nested-match reads, and the mark is dropped where the
+  hole is a variable
+- workaround: none; the fork carries the change of
+  upstream/53-constructor-implicit-mark/pull-request.diff, applied after
+  52's; it also carries erased-constant-pattern. The stock Idris is not
+  patched: nothing it builds meets the bug
+- retire: when a re-sync brings upstream's fix; then the report,
+  tests/upstream/constructor-implicit-mark and this entry go
+- upstream: nothing is sent (upstream/README.md, **Idris**)
+
+## erased-constant-pattern
+
+- symptom: at the pinned Idris, the case tree of a quantity-0 definition
+  takes a constant or type a clause writes on an erased argument as a
+  variable: `0 h : (0 n : Integer) -> Integer; h 0 = 1; h _ = 2` reports
+  `h _` unreachable and proves `h 5 = 1`. The fork inherited it
+- sites: the fork, Core/Case/CaseBuilder.idr (`getClauseType`: at quantity
+  0 a pattern the clause writes splits)
+- workaround: none; the fork carries it in
+  upstream/53-constructor-implicit-mark/pull-request.diff. The stock Idris
+  is not patched: nothing it builds meets the bug
+- retire: when a re-sync brings upstream's fix; then the report,
+  tests/upstream/erased-constant-pattern and this entry go
+- upstream: nothing is sent (upstream/README.md, **Idris**)
+
 ## remove-dead-values-address-taken
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

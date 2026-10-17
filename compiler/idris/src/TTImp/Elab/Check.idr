@@ -148,6 +148,9 @@ record EState (vars : Scope) where
   delayDepth : Nat -- if it gets too deep, it gets slow, so fail quicker
   linearUsed : VarSet vars
   saveHoles : NameMap () -- things we'll need to save to TTC, even if solved
+  marks : List Name
+                  -- as-patterns bound for implicit arguments the patterns
+                  -- leave out, which nothing else names (`unifiedArg`)
 
   unambiguousNames : UserNameMap (Name, Int, GlobalDef)
                   -- Mapping from userNameRoot to fully resolved names.
@@ -174,6 +177,7 @@ initEStateSub n env sub = MkEState
     , linearUsed = VarSet.empty
     , saveHoles = empty
     , unambiguousNames = empty
+    , marks = []
     }
 
 export

@@ -267,18 +267,17 @@ setPrefixTerminating : {auto c : Ref Ctxt Defs} ->
 setPrefixTerminating [] g = pure ()
 setPrefixTerminating (_ :: []) g = pure ()
 setPrefixTerminating ((l, f) :: p) g
-    = do setTerminating l f (NotTerminating (BadPath p g))
+    = do setReachedTerminating l f (NotTerminating (BadPath p g))
          setPrefixTerminating p g
 
 addFunctions : {auto c : Ref Ctxt Defs} ->
-              Defs ->
               List GlobalDef -> -- functions we're adding
               NameMap (FC, Name) -> -- functions we've already seen (and their predecessor)
               WorkList ->
               Core (Either Terminating (WorkList, NameMap (FC, Name)))
-addFunctions defs [] pred work
+addFunctions [] pred work
     = pure $ Right (work, pred)
-addFunctions defs (d1 :: ds) pred work
+addFunctions (d1 :: ds) pred work
     = do calls <- foldlC resolveCall [] d1.sizeChange
          let Nothing = find isNonTerminating calls
             | Just (d2, l, _) =>
@@ -287,15 +286,18 @@ addFunctions defs (d1 :: ds) pred work
                  setPrefixTerminating init g
                  pure $ Left (NotTerminating (BadPath init g))
          let (ds, pred, work) = foldl addCall (ds, pred, work) (filter isUnchecked calls)
-         addFunctions defs ds pred work
+         addFunctions ds pred work
   where
+    -- A call is to a definition, a function, a constructor or a case block,
+    -- and the context and the modules its imports reach hold every one a
+    -- loaded definition calls: a call to a name neither holds is a context
+    -- out of step with its TTCs, and is refused.
     resolveCall : List (GlobalDef, FC, (Name, Name, Graph)) ->
                   SCCall ->
                   Core (List (GlobalDef, FC, (Name, Name, Graph)))
     resolveCall calls (MkSCCall g ch l)
-        = do Just d2 <- lookupCtxtExact g (gamma defs)
-                | Nothing => do logC "totality.termination.calc" 7 $ do pure "Not found: \{show g}"
-                                pure calls
+        = do Just d2 <- lookupReached g
+                | Nothing => undefinedName l g
              pure ((d2, l, (d1.fullname, d2.fullname, MkGraph ch (Call l d2.fullname))) :: calls)
 
     addCall : (List GlobalDef, NameMap (FC, Name), WorkList) ->
@@ -322,10 +324,9 @@ addFunctions defs (d1 :: ds) pred work
                _ => False
 
 initWork : {auto c : Ref Ctxt Defs} ->
-           Defs ->
            GlobalDef -> -- entry
            Core (Either Terminating (WorkList, NameMap (FC, Name)))
-initWork defs def = addFunctions defs [def] (insert def.fullname (def.location, def.fullname) empty) empty
+initWork def = addFunctions [def] (insert def.fullname (def.location, def.fullname) empty) empty
 
 ||| The strongly connected components of the graph of the calls in a work
 ||| list, as each function's component (Tarjan's algorithm). A path from a
@@ -579,8 +580,8 @@ loopsTerminate calls members
 
 ||| The names a definition refers to, with those of its case blocks, which
 ||| are checked as part of it.
-addCases : {auto c : Ref Ctxt Defs} -> Defs -> List Name -> Core (List Name)
-addCases defs ns = go empty ns
+addCases : {auto c : Ref Ctxt Defs} -> List Name -> Core (List Name)
+addCases ns = go empty ns
   where
     go : NameMap () -> List Name -> Core (List Name)
     go all [] = pure (keys all)
@@ -589,7 +590,7 @@ addCases defs ns = go empty ns
              Just _ => go all ns
              Nothing =>
                if caseFn !(getFullName n)
-                  then case !(lookupCtxtExact n (gamma defs)) of
+                  then case !(lookupReached n) of
                             Just def => go (insert n () all) (keys (refersTo def) ++ ns)
                             Nothing => go (insert n () all) ns
                   else go (insert n () all) ns
@@ -608,8 +609,8 @@ addCases defs ns = go empty ns
 ||| function outside the search (under `assert_total`, or a guarded `Delay`)
 ||| may still become non-terminating, and so does everything that refers to
 ||| one.
-settle : {auto c : Ref Ctxt Defs} -> Defs -> List Name -> Core ()
-settle defs visited
+settle : {auto c : Ref Ctxt Defs} -> List Name -> Core ()
+settle visited
     = do let seen = Libraries.Data.NameMap.fromList (map (\n => (n, ())) visited)
          deps <- explore seen visited empty
          let users = foldlNames (\m, n, ds => foldl (\m, d => insert d (n :: fromMaybe [] (lookup d m)) m) m
@@ -617,7 +618,7 @@ settle defs visited
                                 (the (NameMap (List Name)) empty) deps
          let unsettled = spread users empty (keys (filterBy (\n => maybe False isNothing (lookup n deps)) deps))
          traverse_ (\n => when (isNothing (lookup n unsettled)) $
-                             setTerminating EmptyFC n IsTerminating)
+                             setReachedTerminating EmptyFC n IsTerminating)
                    (keys deps)
   where
     primitive : Def -> Bool
@@ -629,17 +630,19 @@ settle defs visited
     -- Nothing when it depends on a name that is not settled.
     dependencies : NameMap () -> Name -> Core (Maybe (List Name))
     dependencies seen n
-        = do Just def <- lookupCtxtExact n (gamma defs)
+        = do Just def <- lookupReached n
                | Nothing => pure Nothing
              let PMDef {} = definition def
                | d => pure (if primitive d then Just [] else Nothing)
-             refs <- addCases defs (keys (refersTo def) ++ map (\(MkSCCall g _ _) => g) def.sizeChange)
+             refs <- addCases (keys (refersTo def) ++ map (\(MkSCCall g _ _) => g) def.sizeChange)
              go refs []
       where
         go : List Name -> List Name -> Core (Maybe (List Name))
         go [] acc = pure (Just acc)
         go (r :: rs) acc
-            = do Just d <- lookupCtxtExact r (gamma defs)
+            = do -- A name that is no definition, a variable, waits on
+                 -- nothing.
+                 Just d <- lookupReached r
                    | Nothing => go rs acc
                  case isTerminating (totality d) of
                       IsTerminating => go rs acc
@@ -677,9 +680,9 @@ calcTerminating loc n
          logC "totality.termination.calc" 7 $ do pure $ "Calculating termination: " ++ show !(toFullNames n)
          Just def <- lookupCtxtExact n (gamma defs)
            | Nothing => undefinedName loc n
-         IsTerminating <- totRefs defs (nub !(addCases defs (keys (refersTo def))))
+         IsTerminating <- totRefs (nub !(addCases (keys (refersTo def))))
            | bad => pure bad
-         Right (work, pred) <- initWork defs def
+         Right (work, pred) <- initWork def
            | Left bad => pure bad
          let s = transitiveClosure (insideComponents work) initSCSet
          let Nothing = findNonTerminatingLoop s
@@ -687,9 +690,9 @@ calcTerminating loc n
                let loopSeq = callSeq loop.path in
                ifThenElse (def.fullname == g)
                  (pure $ NotTerminating (RecPath loopSeq))
-                 (do setTerminating EmptyFC g (NotTerminating (RecPath loopSeq))
+                 (do setReachedTerminating EmptyFC g (NotTerminating (RecPath loopSeq))
                      let init = prefixCallSeq pred g
                      setPrefixTerminating init g
                      pure $ NotTerminating (BadPath init g))
-         settle defs (keys pred)
+         settle (keys pred)
          pure IsTerminating

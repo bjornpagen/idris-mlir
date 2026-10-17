@@ -10,6 +10,7 @@ import Core.Value
 import Idris.REPL.Opts
 import Idris.Syntax
 
+import TTImp.Elab.As
 import TTImp.Elab.Check
 import TTImp.Elab.Dot
 import TTImp.TTImp
@@ -160,6 +161,37 @@ isHole : NF vars -> Bool
 isHole (NApp _ (NMeta {}) _) = True
 isHole _ = False
 
+-- On the left-hand side, an implicit argument that a pattern leaves out,
+-- the hole `nm` unification fills, is bound as the definition's own are
+-- (`implicitsAs`): an as-pattern on its own side over what unification
+-- finds, named by the hole, so that the case tree splits it after the
+-- patterns that fix it rather than before them. Nothing else names it
+-- (`marks`), and over a variable it gives way to the variable. Above
+-- quantity 0 an erased argument needs no mark: the case tree takes one as a
+-- variable where the names it binds are bound elsewhere.
+unifiedArg : {vars : _} ->
+             {auto c : Ref Ctxt Defs} ->
+             {auto m : Ref MD Metadata} ->
+             {auto u : Ref UST UState} ->
+             {auto e : Ref EST (EState vars)} ->
+             RigCount -> ElabInfo -> Env Term vars -> FC ->
+             (nm : Name) -> (metaval : Term vars) -> (metaty : Term vars) ->
+             Core (Term vars)
+unifiedArg argRig elabinfo env fc nm metaval metaty
+    = case elabMode elabinfo of
+           InLHS lrig =>
+               if bindingVars elabinfo && (isErased lrig || not (isErased argRig))
+                  then do let n = dropNS nm
+                          est <- get EST
+                          noteLHSPatVar (elabMode elabinfo) n
+                          notePatVar (PV n (defining est))
+                          update EST { marks $= (n ::) }
+                          let ty = gnf env metaty
+                          fst <$> bindAs argRig elabinfo env fc EmptyFC UseLeft n
+                                         (metaval, ty) (Just ty)
+                  else pure metaval
+           _ => pure metaval
+
 mutual
   makeImplicit : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
@@ -186,7 +218,7 @@ mutual
            empty <- clearDefs defs
            metaty <- quote empty env aty
            metaval <- metaVar fc argRig env nm metaty
-           let fntm = App fc tm metaval
+           fntm <- App fc tm <$> unifiedArg argRig elabinfo env fc nm metaval metaty
            fnty <- sc defs (toClosure defaultOpts env metaval)
            when (bindingVars elabinfo) $ update EST $
              addBindIfUnsolved nm (getLoc (getFn tm)) argRig Implicit env metaval metaty
@@ -279,7 +311,7 @@ mutual
                    empty <- clearDefs defs
                    metaty <- quote empty env aty
                    metaval <- metaVar fc argRig env nm metaty
-                   let fntm = App fc tm metaval
+                   fntm <- App fc tm <$> unifiedArg argRig elabinfo env fc nm metaval metaty
                    fnty <- sc defs (toClosure defaultOpts env metaval)
                    update EST $ addBindIfUnsolved nm (getLoc (getFn tm)) argRig AutoImplicit env metaval metaty
                    checkAppWith rig elabinfo nest env fc

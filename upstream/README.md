@@ -42,7 +42,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   therefore never applies; apply it with `git apply`, and take the commit
   message from `submission.md`, never from the file's header. For simdutf
   and snmalloc (48, 49), the pull request to that project, which no patch
-  project applies. For Idris (18, 20, 21 and the six fork-* directories),
+  project applies. For Idris (18, 20, 21, 50, 51, 52, 53 and the six fork-* directories),
   the change the fork carries as its own code, laid out
   against third_party/Idris2's pin with the test upstream's suite would
   hold: the record a re-sync of the fork reads, never sent.
@@ -97,8 +97,11 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 27 | one-shot-tensor-like-copy | issue + PR: an out-of-place operand of a custom tensor-like type gets no copy and its allocation reaches `llvm_unreachable`; `BufferizationOptions::tensorAllocationFn`, whose default fails naming the type | not carried (nothing in the tree reaches it); not filed; pull-request.diff |
 | 48 | simdutf-avx512vpopcntdq-bit | issue + PR to simdutf/simdutf: AVX512VPOPCNTDQ gets an instruction_set bit of its own (0x20000), not AVX512CD's | not carried (the runtime never runs simdutf's detection); not filed; simdutf's AI policy wants a human author who answers for it; pull-request.diff applies to the pin; distinct-bits.cpp fails at the pin and holds with the diff |
 | 49 | snmalloc-arm-yield-intrinsic | PR to microsoft/snmalloc: the Arm AAL's pause uses __builtin_arm_yield where the compiler has it, as prefetch uses __builtin_prefetch | not carried (snmalloc is no patch project; PINS.md snmalloc-arm-yield-asm); not filed; Microsoft CLA; pull-request.diff applies to the pin |
-| 50 | erased-coverage-nested-match | nothing (**Idris**) | recorded 2026-10-16; no fix yet (Bjorn: later); nothing in the tree reaches it |
-| 51 | totality-unimported-callee | nothing (**Idris**) | recorded 2026-10-16; no fix yet (Bjorn: later); the fork has the same lookup |
+| 50 | erased-coverage-nested-match | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| 51 | totality-unimported-callee | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| 52 | relevant-implicit-split | nothing (**Idris**) | carried as fork code (compiler/idris); series 50 → 52 → 53, the diff applied after 50's |
+| 53 | constructor-implicit-mark | nothing (**Idris**) | carried as fork code (compiler/idris); series 50 → 52 → 53, the diff applied after 52's and recording 54 too |
+| 54 | erased-constant-pattern | nothing (**Idris**) | carried as fork code (compiler/idris), in 53's diff |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
