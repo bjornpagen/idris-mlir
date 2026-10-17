@@ -6,10 +6,12 @@
 # upstream/54-erased-constant-pattern: at quantity 0, a constant or a type
 # that a clause writes on an erased argument is a match of the definition's
 # case tree, while what the clause leaves to unification is split after it
-# and stays a variable unless it is a constructor. Main.idr's `h 5` reduces
-# to 2, which `hFive` and the type of `five` say; the pinned, unpatched
-# Idris takes `h 0`'s pattern as a variable, reduces `h 5` to 1 and refuses
-# the module. When a re-sync brings upstream's fix, the reports, their
-# PINS.md entries and this test go (upstream/README.md).
+# and stays a variable unless it is a constructor, as does every part of it.
+# Main.idr's `h 5` reduces to 2, which `hFive` and the type of `five` say,
+# and `heads`, whose `All`'s implicit unification fixes to the pair its
+# clause writes, is covering, the types in that pair being no match; the
+# pinned, unpatched Idris takes `h 0`'s pattern as a variable, reduces `h 5`
+# to 1 and refuses the module. When a re-sync brings upstream's fix, the
+# reports, their PINS.md entries and this test go (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 profile_accept .

@@ -1,31 +1,32 @@
 diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
---- a/src/Core/Case/CaseBuilder.idr	2026-10-16 20:00:03
-+++ b/src/Core/Case/CaseBuilder.idr	2026-10-16 20:00:03
-@@ -304,8 +304,9 @@
- -- What a clause does with one of its arguments, least first: binds it to a
- -- variable; binds it to what unification found from the patterns the clause
- -- writes (the elaborator's as-pattern for an argument the clause leaves to
---- unification: an implicit it leaves out, a case block's environment, a
---- with block's argument); or tests it.
-+-- unification: an implicit of the definition or of a constructor in a
+--- a/src/Core/Case/CaseBuilder.idr	2026-10-16 21:42:46
++++ b/src/Core/Case/CaseBuilder.idr	2026-10-16 21:42:46
+@@ -64,9 +64,9 @@
+ -- Where a clause's pattern on a column comes from: the clause wrote it, or
+ -- unification found it from the patterns the clause wrote. The latter is
+ -- the elaborator's as-pattern for an argument the clause leaves to
+--- unification (an implicit it leaves out, a case block's environment, a
+--- with block's argument), and every part of such a pattern once the tree
+--- splits it.
++-- unification (an implicit of the definition or of a constructor in a
 +-- pattern that it leaves out, a case block's environment, a with block's
-+-- argument); or tests it.
- data Use = Binds | Fixed | Tests
++-- argument), and every part of such a pattern once the tree splits it.
+ data Source = Written | Unified
  
- -- What two clauses together do with an argument: the more of the two.
-@@ -359,6 +360,11 @@
- clauseType phase (MkPatClause pvars (MkInfo arg _ ty :: rest) pid rhs)
+ -- The source of a pattern on a column made from a pattern of source `s`:
+@@ -371,6 +371,11 @@
+ clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
      = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
    where
 +    -- whether the clause writes this pattern
 +    written : Bool
-+    written = case use (unified pid) arg of
++    written = case use src arg of
 +                   Tests => True
 +                   _ => False
  
      -- used when we are tempted to split on a constructor: is
      -- this actually a fully applied one?
-@@ -381,9 +387,15 @@
+@@ -393,9 +398,15 @@
               then Nothing
               else splitCon a xs
      getClauseType phase (PAs _ _ p) t = getClauseType phase p t
@@ -44,7 +45,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
      getClauseType phase l _ = clauseType' l
  
  partition : {a, as, vars : _} ->
-@@ -973,15 +985,17 @@
+@@ -993,15 +1004,17 @@
             _ => False
  
  -- The clauses' own tests come before what unification fixed from them. A
@@ -72,8 +73,8 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
            (todo' ** List01 True (PatClause todo' vars))
  arrange cs@(c :: _)
 diff -ruN a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
---- a/src/Core/Context/Context.idr	2026-10-16 20:00:03
-+++ b/src/Core/Context/Context.idr	2026-10-16 20:00:03
+--- a/src/Core/Context/Context.idr	2026-10-16 21:42:46
++++ b/src/Core/Context/Context.idr	2026-10-16 21:42:46
 @@ -194,7 +194,8 @@
                  (env : Env Term vars) ->
                  (lhs : Term vars) -> (rhs : Term vars) ->
@@ -85,8 +86,8 @@ diff -ruN a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
                  -- elaborator binds each by an as-pattern whose pattern is
                  -- what unification found from the patterns the clause does
 diff -ruN a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
---- a/src/TTImp/Elab/App.idr	2026-10-16 20:00:03
-+++ b/src/TTImp/Elab/App.idr	2026-10-16 20:00:03
+--- a/src/TTImp/Elab/App.idr	2026-10-16 21:42:46
++++ b/src/TTImp/Elab/App.idr	2026-10-16 21:42:46
 @@ -8,6 +8,7 @@
  import Idris.REPL.Opts
  import Idris.Syntax
@@ -152,8 +153,8 @@ diff -ruN a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
                     update EST $ addBindIfUnsolved nm (getLoc (getFn tm)) argRig AutoImplicit env metaval metaty
                     checkAppWith rig elabinfo nest env fc
 diff -ruN a/src/TTImp/Elab/As.idr b/src/TTImp/Elab/As.idr
---- a/src/TTImp/Elab/As.idr	2026-10-16 20:00:03
-+++ b/src/TTImp/Elab/As.idr	2026-10-16 20:00:03
+--- a/src/TTImp/Elab/As.idr	2026-10-16 21:42:46
++++ b/src/TTImp/Elab/As.idr	2026-10-16 21:42:46
 @@ -13,7 +13,49 @@
  
  %default covering
@@ -245,8 +246,8 @@ diff -ruN a/src/TTImp/Elab/As.idr b/src/TTImp/Elab/As.idr
 -    rigAs : RigCount
 -    rigAs = rigAs' side
 diff -ruN a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
---- a/src/TTImp/Elab/Check.idr	2026-10-16 20:00:03
-+++ b/src/TTImp/Elab/Check.idr	2026-10-16 20:00:03
+--- a/src/TTImp/Elab/Check.idr	2026-10-16 21:42:46
++++ b/src/TTImp/Elab/Check.idr	2026-10-16 21:42:46
 @@ -146,6 +146,9 @@
    delayDepth : Nat -- if it gets too deep, it gets slow, so fail quicker
    linearUsed : VarSet vars
@@ -266,8 +267,8 @@ diff -ruN a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
  
  export
 diff -ruN a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
---- a/src/TTImp/Elab.idr	2026-10-16 20:00:03
-+++ b/src/TTImp/Elab.idr	2026-10-16 20:00:03
+--- a/src/TTImp/Elab.idr	2026-10-16 21:42:46
++++ b/src/TTImp/Elab.idr	2026-10-16 21:42:46
 @@ -19,14 +19,25 @@
  %default covering
  
@@ -376,8 +377,8 @@ diff -ruN a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
  export
  elabTerm : {vars : _} ->
 diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
---- a/src/TTImp/ProcessDef.idr	2026-10-16 20:00:03
-+++ b/src/TTImp/ProcessDef.idr	2026-10-16 20:00:03
+--- a/src/TTImp/ProcessDef.idr	2026-10-16 21:42:46
++++ b/src/TTImp/ProcessDef.idr	2026-10-16 21:42:46
 @@ -291,6 +291,7 @@
             Int -> List ElabOpt -> NestedNames vars -> Env Term vars ->
             FC -> RawImp ->
@@ -453,8 +454,8 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
      vfc : FC
      vfc = virtualiseFC ifc
 diff -ruN a/src/TTImp/ProcessTransform.idr b/src/TTImp/ProcessTransform.idr
---- a/src/TTImp/ProcessTransform.idr	2026-10-16 20:00:03
-+++ b/src/TTImp/ProcessTransform.idr	2026-10-16 20:00:03
+--- a/src/TTImp/ProcessTransform.idr	2026-10-16 21:42:46
++++ b/src/TTImp/ProcessTransform.idr	2026-10-16 21:42:46
 @@ -26,7 +26,7 @@
  processTransform eopts nest env fc tn_in lhs rhs
      = do tn <- inCurrentNS tn_in
@@ -466,7 +467,7 @@ diff -ruN a/src/TTImp/ProcessTransform.idr b/src/TTImp/ProcessTransform.idr
           rhstm <- wrapError (InRHS fc tn_in) $
 diff -ruN a/tests/idris2/coverage/coverage034/ConImplicit.idr b/tests/idris2/coverage/coverage034/ConImplicit.idr
 --- a/tests/idris2/coverage/coverage034/ConImplicit.idr	1969-12-31 18:00:00
-+++ b/tests/idris2/coverage/coverage034/ConImplicit.idr	2026-10-16 20:00:03
++++ b/tests/idris2/coverage/coverage034/ConImplicit.idr	2026-10-16 21:42:46
 @@ -0,0 +1,47 @@
 +import Data.List.Quantifiers
 +
@@ -517,20 +518,23 @@ diff -ruN a/tests/idris2/coverage/coverage034/ConImplicit.idr b/tests/idris2/cov
 +w4B = Refl
 diff -ruN a/tests/idris2/coverage/coverage034/expected b/tests/idris2/coverage/coverage034/expected
 --- a/tests/idris2/coverage/coverage034/expected	1969-12-31 18:00:00
-+++ b/tests/idris2/coverage/coverage034/expected	2026-10-16 20:00:03
++++ b/tests/idris2/coverage/coverage034/expected	2026-10-16 21:42:46
 @@ -0,0 +1 @@
 +1/1: Building ConImplicit (ConImplicit.idr)
 diff -ruN a/tests/idris2/coverage/coverage034/run b/tests/idris2/coverage/coverage034/run
 --- a/tests/idris2/coverage/coverage034/run	1969-12-31 18:00:00
-+++ b/tests/idris2/coverage/coverage034/run	2026-10-16 20:00:03
++++ b/tests/idris2/coverage/coverage034/run	2026-10-16 21:42:46
 @@ -0,0 +1,3 @@
 +. ../../../testutils.sh
 +
 +check ConImplicit.idr
 diff -ruN a/tests/idris2/coverage/coverage035/ErasedConstant.idr b/tests/idris2/coverage/coverage035/ErasedConstant.idr
 --- a/tests/idris2/coverage/coverage035/ErasedConstant.idr	1969-12-31 18:00:00
-+++ b/tests/idris2/coverage/coverage035/ErasedConstant.idr	2026-10-16 20:00:03
-@@ -0,0 +1,39 @@
++++ b/tests/idris2/coverage/coverage035/ErasedConstant.idr	2026-10-16 21:42:46
+@@ -0,0 +1,52 @@
++import Data.List.Quantifiers
++import Data.Nat
++
 +%default total
 +
 +-- At quantity 0, a constant or a type that a clause writes on an erased
@@ -570,14 +574,24 @@ diff -ruN a/tests/idris2/coverage/coverage035/ErasedConstant.idr b/tests/idris2/
 +
 +lenTwo : len [1, 2] = 2
 +lenTwo = Refl
++
++-- The same inside a pattern unification fixed: `All`'s implicit `x` is
++-- found to be the pair the clause writes, and the types `Nat` and `Bool` in
++-- it are no match either.
++0 heads : (p : Nat) -> (hs : List (Nat, Bool)) -> All (\e => LT (fst e) p) hs -> List Nat
++heads p [] [] = []
++heads p ((i, a) :: hs) (lt :: lts) = i :: heads p hs lts
++
++headsTwo : heads 5 [(1, True), (2, False)] [LTESucc (LTESucc LTEZero), LTESucc (LTESucc (LTESucc LTEZero))] = [1, 2]
++headsTwo = Refl
 diff -ruN a/tests/idris2/coverage/coverage035/expected b/tests/idris2/coverage/coverage035/expected
 --- a/tests/idris2/coverage/coverage035/expected	1969-12-31 18:00:00
-+++ b/tests/idris2/coverage/coverage035/expected	2026-10-16 20:00:03
++++ b/tests/idris2/coverage/coverage035/expected	2026-10-16 21:42:46
 @@ -0,0 +1 @@
 +1/1: Building ErasedConstant (ErasedConstant.idr)
 diff -ruN a/tests/idris2/coverage/coverage035/run b/tests/idris2/coverage/coverage035/run
 --- a/tests/idris2/coverage/coverage035/run	1969-12-31 18:00:00
-+++ b/tests/idris2/coverage/coverage035/run	2026-10-16 20:00:03
++++ b/tests/idris2/coverage/coverage035/run	2026-10-16 21:42:46
 @@ -0,0 +1,3 @@
 +. ../../../testutils.sh
 +

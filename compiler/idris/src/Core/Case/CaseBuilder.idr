@@ -63,6 +63,22 @@ covering
   show (Stuck t) = "Stuck " ++ show t
   show Unknown = "Unknown"
 
+-- Where a clause's pattern on a column comes from: the clause wrote it, or
+-- unification found it from the patterns the clause wrote. The latter is
+-- the elaborator's as-pattern for an argument the clause leaves to
+-- unification (an implicit of the definition or of a constructor in a
+-- pattern that it leaves out, a case block's environment, a with block's
+-- argument), and every part of such a pattern once the tree splits it.
+data Source = Written | Unified
+
+-- The source of a pattern on a column made from a pattern of source `s`:
+-- what unification found stays found, and an as-pattern whose name
+-- `unified` holds is found.
+sourceOf : (unified : List Name) -> Source -> Pat -> Source
+sourceOf unified s (PAs _ n p)
+    = if n `elem` unified then Unified else sourceOf unified s p
+sourceOf unified s _ = s
+
 record PatInfo (pvar : Name) (vars : Scope) where
   constructor MkInfo
   {idx : Nat}
@@ -71,21 +87,22 @@ record PatInfo (pvar : Name) (vars : Scope) where
   0 loc : IsVar name idx vars
   argType : ArgType vars -- Type of the argument being inspected (i.e.
                          -- *not* refined by this particular pattern)
+  source : Source
 
 covering
 {vars : _} -> Show (PatInfo n vars) where
   show pi = show (pat pi) ++ " : " ++ show (argType pi)
 
 HasNames (PatInfo n vars) where
-  full gam (MkInfo pat loc argType)
+  full gam (MkInfo pat loc argType source)
      = do pat <- full gam pat
           argType <- full gam argType
-          pure $ MkInfo pat loc argType
+          pure $ MkInfo pat loc argType source
 
-  resolved gam (MkInfo pat loc argType)
+  resolved gam (MkInfo pat loc argType source)
      = do pat <- resolved gam pat
           argType <- resolved gam argType
-          pure $ MkInfo pat loc argType
+          pure $ MkInfo pat loc argType source
 
 {-
 NamedPats is a list of patterns on the LHS of a clause. Each entry in
@@ -220,7 +237,7 @@ Weaken ArgType where
   weakenNs s Unknown = Unknown
 
 Weaken (PatInfo p) where
-  weakenNs s (MkInfo p el fty) = MkInfo p (weakenIsVar s el) (weakenNs s fty)
+  weakenNs s (MkInfo p el fty src) = MkInfo p (weakenIsVar s el) (weakenNs s fty) src
 
 Weaken (NamedPats todo) where
   weaken [] = []
@@ -278,15 +295,15 @@ toFullClause : {auto c : Ref Ctxt Defs} -> {0 todo : List Name} -> {0 vars : Sco
 toFullClause = toFullNames
 
 0 IsConClause : PatClause (a :: todo) vars -> Type
-IsConClause (MkPatClause _ (MkInfo pat _ _ :: _) _ _) = IsConPat pat
+IsConClause (MkPatClause _ (MkInfo pat _ _ _ :: _) _ _) = IsConPat pat
 
 substInClause : {a, vars, todo : _} ->
                 {auto c : Ref Ctxt Defs} ->
                 FC -> Subset (PatClause (a :: todo) vars) IsConClause ->
                 Core (Subset (PatClause (a :: todo) vars) IsConClause)
-substInClause fc (Element (MkPatClause pvars (MkInfo pat pprf fty :: pats) pid rhs) isCons)
+substInClause fc (Element (MkPatClause pvars (MkInfo pat pprf fty src :: pats) pid rhs) isCons)
     = do pats' <- substInPats fc a (mkTerm vars pat) pats
-         pure $ Element (MkPatClause pvars (MkInfo pat pprf fty :: pats') pid rhs) isCons
+         pure $ Element (MkPatClause pvars (MkInfo pat pprf fty src :: pats') pid rhs) isCons
 
 data Partitions : List01 ne (PatClause (a :: todo) vars) -> Type where
      ConClauses : {a, todo, vars : _} ->
@@ -310,12 +327,9 @@ covering
     ++ "\n, " ++ show rest
   show NoClauses = "NONE"
 
--- What a clause does with one of its arguments, least first: binds it to a
--- variable; binds it to what unification found from the patterns the clause
--- writes (the elaborator's as-pattern for an argument the clause leaves to
--- unification: an implicit of the definition or of a constructor in a
--- pattern that it leaves out, a case block's environment, a with block's
--- argument); or tests it.
+-- What a clause does with a column, least first: binds it to a variable;
+-- binds it to what unification found from the patterns the clause writes
+-- (`Unified`); or tests it.
 data Use = Binds | Fixed | Tests
 
 -- What two clauses together do with an argument: the more of the two.
@@ -326,17 +340,14 @@ both Fixed _ = Fixed
 both _ Fixed = Fixed
 both Binds Binds = Binds
 
--- What a clause does with an argument, by its pattern there and the names
--- of the arguments it leaves to unification. A pattern the tree cannot split
--- binds.
-use : (unified : List Name) -> Pat -> Use
-use unified (PAs _ n p)
-    = case use unified p of
-           Tests => if n `elem` unified then Fixed else Tests
-           u => u
-use unified (PLoc {}) = Binds
-use unified (PUnmatchable {}) = Binds
-use unified _ = Tests
+-- What a clause does with a column, by its pattern there and where the
+-- pattern comes from. A pattern the tree cannot split binds.
+use : Source -> Pat -> Use
+use src (PAs _ _ p) = use src p
+use src (PLoc {}) = Binds
+use src (PUnmatchable {}) = Binds
+use Written _ = Tests
+use Unified _ = Fixed
 
 data ClauseType : PatClause (a :: todo) vars -> Type where
      ConClause : (0 isCon : IsConClause p) => ClauseType p
@@ -366,12 +377,12 @@ clauseType : Phase -> (p : PatClause (a :: as) vars) -> ClauseType p
 -- Or, if we're compiling for runtime we won't be able to split on it, so
 -- also treat it as a variable
 -- Or, if it's an under-applied constructor then do NOT attempt to split on it!
-clauseType phase (MkPatClause pvars (MkInfo arg _ ty :: rest) pid rhs)
+clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
     = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
   where
     -- whether the clause writes this pattern
     written : Bool
-    written = case use (unified pid) arg of
+    written = case use src arg of
                    Tests => True
                    _ => False
 
@@ -493,10 +504,11 @@ nextName root
 nextNames : {vars : _} ->
             {auto i : Ref PName Int} ->
             {auto c : Ref Ctxt Defs} ->
-            FC -> String -> List Pat -> Maybe (NF vars) ->
+            FC -> String -> (unified : List Name) -> Source ->
+            List Pat -> Maybe (NF vars) ->
             Core (args ** (SizeOf args, NamedPats args (args ++ vars)))
-nextNames fc root [] fty = pure ([] ** (zero, []))
-nextNames fc root (p :: pats) fty
+nextNames fc root unified src [] fty = pure ([] ** (zero, []))
+nextNames fc root unified src (p :: pats) fty
      = do defs <- get Ctxt
           empty <- clearDefs defs
           n <- nextName root
@@ -514,20 +526,22 @@ nextNames fc root (p :: pats) fty
                                          Known c !(quote empty env farg))
                    Just t =>
                       pure (Nothing, Stuck !(quote empty env t))
-          (args ** (l, ps)) <- nextNames fc root pats (fst fa_tys)
+          (args ** (l, ps)) <- nextNames fc root unified src pats (fst fa_tys)
           let argTy = case snd fa_tys of
                            Unknown => Unknown
                            Known rig t => Known rig (weakenNs (suc l) t)
                            Stuck t => Stuck (weakenNs (suc l) t)
-          pure (n :: args ** (suc l, MkInfo p First argTy :: weaken ps))
+          pure (n :: args ** (suc l, MkInfo p First argTy (sourceOf unified src p) :: weaken ps))
 
 -- replace the prefix of patterns with 'pargs'
-newPats : (pargs : List Pat) -> LengthMatch pargs ns ->
+newPats : (unified : List Name) -> Source ->
+          (pargs : List Pat) -> LengthMatch pargs ns ->
           NamedPats (ns ++ todo) vars ->
           NamedPats ns vars
-newPats [] NilMatch rest = []
-newPats (newpat :: xs) (ConsMatch w) (pi :: rest)
-  = { pat := newpat } pi :: newPats xs w rest
+newPats unified src [] NilMatch rest = []
+newPats unified src (newpat :: xs) (ConsMatch w) (pi :: rest)
+  = { pat := newpat, source := sourceOf unified src newpat } pi
+      :: newPats unified src xs w rest
 
 updateNames : List (Name, Pat) -> List (Name, Name)
 updateNames = mapMaybe update
@@ -568,7 +582,7 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
     = foldlC (uncurry . gc) !(gc [] x p) $ pushIn xs ps
   where
     addConG : {vars', todo' : _} ->
-              Name -> (tag : Int) ->
+              Name -> (tag : Int) -> Source ->
               List Pat -> NamedPats todo' vars' ->
               Origin -> (rhs : Term vars') ->
               (acc : List01 ne (Group todo' vars')) ->
@@ -577,7 +591,7 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
     -- add new pattern arguments for each of that constructor's arguments.
     -- The type of 'ConGroup' ensures that we refer to the arguments by
     -- the same name in each of the clauses
-    addConG n tag pargs pats pid rhs []
+    addConG n tag src pargs pats pid rhs []
         = do cty <- if n == UN (Basic "->")
                       then pure $ NBind fc (MN "_" 0) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN "top" 0)))) $
                               (\d, a => pure $ NBind fc (MN "_" 1) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NErased fc Placeholder)))
@@ -586,17 +600,17 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
                               Just t <- lookupTyExact n (gamma defs)
                                    | Nothing => pure (NErased fc Placeholder)
                               nf defs (mkEnv fc vars') (embed t)
-             (patnames ** (l, newargs)) <- nextNames fc "e" pargs (Just cty)
+             (patnames ** (l, newargs)) <- nextNames fc "e" (unified pid) src pargs (Just cty)
              -- Update non-linear names in remaining patterns (to keep
              -- explicit dependencies in types accurate)
              let pats' = updatePatNames (updateNames (zip patnames pargs))
                                         (weakenNs l pats)
              let clause = MkPatClause pvars (newargs ++ pats') pid (weakenNs l rhs)
              pure [ConGroup n tag [clause]]
-    addConG n tag pargs pats pid rhs (g :: gs) with (checkGroupMatch (CName n tag) pargs g)
-      addConG n tag pargs pats pid rhs
+    addConG n tag src pargs pats pid rhs (g :: gs) with (checkGroupMatch (CName n tag) pargs g)
+      addConG n tag src pargs pats pid rhs
               (ConGroup n' tag' (MkPatClause pvars ps tid tm :: rest) :: gs) | ConMatch {newargs} lprf
-        = do let newps = newPats pargs lprf ps
+        = do let newps = newPats (unified pid) src pargs lprf ps
              let l = mkSizeOf newargs
              let pats' = updatePatNames (updateNames (zip newargs pargs))
                                         (weakenNs l pats)
@@ -604,25 +618,25 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
              -- put the new clause at the end of the group, since we
              -- match the clauses top to bottom.
              pure $ ConGroup n' tag' (MkPatClause pvars ps tid tm :: rest ++ [newclause]) :: gs
-      addConG n tag pargs pats pid rhs (g :: gs) | NoMatch
-        = (g ::) <$> addConG n tag pargs pats pid rhs gs
+      addConG n tag src pargs pats pid rhs (g :: gs) | NoMatch
+        = (g ::) <$> addConG n tag src pargs pats pid rhs gs
 
     -- This rather ugly special case is to deal with laziness, where Delay
     -- is like a constructor, but with a special meaning that it forces
     -- evaluation when case analysis reaches it (dealt with in the evaluator
     -- and compiler)
     addDelayG : {vars', todo' : _} ->
-                Pat -> Pat -> NamedPats todo' vars' ->
+                Source -> Pat -> Pat -> NamedPats todo' vars' ->
                 Origin -> (rhs : Term vars') ->
                 (acc : List01 ne (Group todo' vars')) ->
                 Core (List01 True (Group todo' vars'))
-    addDelayG pty parg pats pid rhs []
+    addDelayG src pty parg pats pid rhs []
         = do let dty = NBind fc (MN "a" 0) (Pi fc erased Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN "top" 0)))) $
                         (\d, a =>
                             do a' <- evalClosure d a
                                pure (NBind fc (MN "x" 0) (Pi fc top Explicit a)
                                        (\dv, av => pure (NDelayed fc LUnknown a'))))
-             ([tyname, argname] ** (l, newargs)) <- nextNames fc "e" [pty, parg]
+             ([tyname, argname] ** (l, newargs)) <- nextNames fc "e" (unified pid) src [pty, parg]
                                                   (Just dty)
                 | _ => throw (InternalError "Error compiling Delay pattern match")
              let pats' = updatePatNames (updateNames [(tyname, pty),
@@ -630,18 +644,18 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
                                         (weakenNs l pats)
              let clause = MkPatClause pvars (newargs ++ pats') pid (weakenNs l rhs)
              pure [DelayGroup [clause]]
-    addDelayG pty parg pats pid rhs (g :: gs) with (checkGroupMatch CDelay [] g)
-      addDelayG pty parg pats pid rhs
+    addDelayG src pty parg pats pid rhs (g :: gs) with (checkGroupMatch CDelay [] g)
+      addDelayG src pty parg pats pid rhs
           (DelayGroup (MkPatClause pvars ps tid tm :: rest) :: gs) | DelayMatch {tyarg} {valarg}
         = do let l = mkSizeOf [tyarg, valarg]
-             let newps = newPats [pty, parg] (ConsMatch (ConsMatch NilMatch)) ps
+             let newps = newPats (unified pid) src [pty, parg] (ConsMatch (ConsMatch NilMatch)) ps
              let pats' = updatePatNames (updateNames [(tyarg, pty),
                                                       (valarg, parg)])
                                         (weakenNs l pats)
              let newclause = MkPatClause pvars (newps ++ pats') pid (weakenNs l rhs)
              pure $ DelayGroup (MkPatClause pvars ps tid tm :: rest ++ [newclause]) :: gs
-      addDelayG pty parg pats pid rhs (g :: gs) | NoMatch
-        = (g ::) <$> addDelayG pty parg pats pid rhs gs
+      addDelayG src pty parg pats pid rhs (g :: gs) | NoMatch
+        = (g ::) <$> addDelayG src pty parg pats pid rhs gs
 
     addConstG : {vars', todo' : _} ->
                 Constant -> NamedPats todo' vars' ->
@@ -659,30 +673,31 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
         = (g ::) <$> addConstG c pats pid rhs gs
 
     addGroup : {vars, todo, idx : _} ->
-               (pat : Pat) -> (0 _ : IsConPat pat) =>
+               Source -> (pat : Pat) -> (0 _ : IsConPat pat) =>
                (0 p : IsVar nm idx vars) ->
                NamedPats todo vars -> Origin -> Term vars ->
                List01 ne (Group todo vars) ->
                Core (List01 True (Group todo vars))
     -- In 'As' replace the name on the RHS with a reference to the
     -- variable we're doing the case split on
-    addGroup (PAs fc n p) pprf pats pid rhs acc
-         = addGroup p pprf pats pid (substName n (Local fc (Just True) idx pprf) rhs) acc
-    addGroup (PCon cfc n t a pargs) pprf pats pid rhs acc
+    addGroup src (PAs fc n p) pprf pats pid rhs acc
+         = addGroup (sourceOf (unified pid) src (PAs fc n p)) p pprf pats pid
+                    (substName n (Local fc (Just True) idx pprf) rhs) acc
+    addGroup src (PCon cfc n t a pargs) pprf pats pid rhs acc
          = if a == length pargs
-              then addConG n t pargs pats pid rhs acc
+              then addConG n t src pargs pats pid rhs acc
               else throw (CaseCompile cfc fn (NotFullyApplied n))
-    addGroup (PTyCon cfc n a pargs) pprf pats pid rhs acc
+    addGroup src (PTyCon cfc n a pargs) pprf pats pid rhs acc
          = if a == length pargs
-           then addConG n 0 pargs pats pid rhs acc
+           then addConG n 0 src pargs pats pid rhs acc
            else throw (CaseCompile cfc fn (NotFullyApplied n))
-    addGroup (PArrow _ _ s t) pprf pats pid rhs acc
-         = addConG (UN $ Basic "->") 0 [s, t] pats pid rhs acc
+    addGroup src (PArrow _ _ s t) pprf pats pid rhs acc
+         = addConG (UN $ Basic "->") 0 src [s, t] pats pid rhs acc
     -- Go inside the delay; we'll flag the case as needing to force its
     -- scrutinee (need to check in 'caseGroups below)
-    addGroup (PDelay _ _ pty parg) pprf pats pid rhs acc
-         = addDelayG pty parg pats pid rhs acc
-    addGroup (PConst _ c) pprf pats pid rhs acc
+    addGroup src (PDelay _ _ pty parg) pprf pats pid rhs acc
+         = addDelayG src pty parg pats pid rhs acc
+    addGroup src (PConst _ c) pprf pats pid rhs acc
          = addConstG c pats pid rhs acc
 
     gc : {a, vars, todo : _} ->
@@ -690,8 +705,8 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
          (p : PatClause (a :: todo) vars) ->
          (0 _ : IsConClause p) ->
          Core (List01 True (Group todo vars))
-    gc acc (MkPatClause _ (MkInfo pat pprf _ :: pats) pid rhs) isCon
-        = addGroup pat pprf pats pid rhs acc
+    gc acc (MkPatClause _ (MkInfo pat pprf _ src :: pats) pid rhs) isCon
+        = addGroup src pat pprf pats pid rhs acc
 
 getFirstPat : NamedPats (p :: ps) ns -> Pat
 getFirstPat (p :: _) = pat p
@@ -987,8 +1002,12 @@ arranged later (MkPatClause pvars ps pid rhs)
 columnUses : List01 True (PatClause todo vars) -> List Use
 columnUses (c :: cs) = foldl (\acc, c' => zipWith both acc (uses c')) (uses c) (forget cs)
   where
+    patUses : NamedPats todo' vars' -> List Use
+    patUses [] = []
+    patUses (p :: ps) = use (source p) (pat p) :: patUses ps
+
     uses : PatClause todo' vars' -> List Use
-    uses (MkPatClause _ ps o _) = map (use (unified o)) (getPatInfo ps)
+    uses (MkPatClause _ ps _ _) = patUses ps
 
 -- Whether every column's type is known. Where one is not, it is found as the
 -- columns before it are split, so the columns keep their order.
@@ -1101,7 +1120,7 @@ mutual
   -- the same variable (pprf) for the first argument. If not, the result
   -- will be a broken case tree... so we should find a way to express this
   -- in the type if we can.
-  conRule {a} fc fn phase cs@(MkPatClause pvars (MkInfo pat pprf fty :: pats) pid rhs :: rest) err
+  conRule {a} fc fn phase cs@(MkPatClause pvars (MkInfo pat pprf fty _ :: pats) pid rhs :: rest) err
       = do Element refinedcs _ <- pullOut <$> traverseList01 (substInClause fc) (pushIn cs isCons)
            groups <- groupCons fc fn pvars refinedcs
            ty <- case fty of
@@ -1122,19 +1141,19 @@ mutual
     where
       updateVar : PatClause (a :: todo) vars -> Core (PatClause todo vars)
       -- replace the name with the relevant variable on the rhs
-      updateVar (MkPatClause pvars (MkInfo (PLoc pfc n) prf fty :: pats) pid rhs)
+      updateVar (MkPatClause pvars (MkInfo (PLoc pfc n) prf fty _ :: pats) pid rhs)
           = pure $ MkPatClause (n :: pvars)
                         !(substInPats fc a (Local pfc (Just False) _ prf) pats)
                         pid (substName n (Local pfc (Just False) _ prf) rhs)
       -- If it's an as pattern, replace the name with the relevant variable on
       -- the rhs then continue with the inner pattern
-      updateVar (MkPatClause pvars (MkInfo (PAs pfc n pat) prf fty :: pats) pid rhs)
+      updateVar (MkPatClause pvars (MkInfo (PAs pfc n pat) prf fty src :: pats) pid rhs)
           = do pats' <- substInPats fc a (mkTerm _ pat) pats
                let rhs' = substName n (Local pfc (Just True) _ prf) rhs
-               updateVar (MkPatClause pvars (MkInfo pat prf fty :: pats') pid rhs')
+               updateVar (MkPatClause pvars (MkInfo pat prf fty (sourceOf (unified pid) src (PAs pfc n pat)) :: pats') pid rhs')
       -- match anything, name won't appear in rhs but need to update
       -- LHS pattern types based on what we've learned
-      updateVar (MkPatClause pvars (MkInfo pat prf fty :: pats) pid rhs)
+      updateVar (MkPatClause pvars (MkInfo pat prf fty _ :: pats) pid rhs)
           = pure $ MkPatClause pvars
                         !(substInPats fc a (mkTerm vars pat) pats) pid rhs
 
@@ -1236,7 +1255,7 @@ mkPatClause fc fn args ty pid (ps, rhs)
                               Known c (embed !(quote empty [] farg)))
                      Just t =>
                         pure (Nothing, Stuck (embed !(quote empty [] t)))
-             pure (MkInfo p First (Builtin.snd fa_tys)
+             pure (MkInfo p First (Builtin.snd fa_tys) (sourceOf (unified pid) Written p)
                       :: weaken !(mkNames args ps eq (Builtin.fst fa_tys)))
 
 -- Each clause comes with the names of the arguments it leaves to

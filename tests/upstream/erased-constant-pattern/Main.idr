@@ -54,5 +54,21 @@ len (_ :: xs) = S (len xs)
 lenTwo : len [1, 2] = 2
 lenTwo = Refl
 
+-- The same inside a pattern unification fixed: `All`'s implicit `x` is
+-- found to be the pair the clause writes, and the types in it are no match.
+data All : (0 p : a -> Type) -> List a -> Type where
+  Nil : All p []
+  (::) : {0 xs : List a} -> p x -> All p xs -> All p (x :: xs)
+
+data Pos : Nat -> Type where
+  IsPos : Pos (S n)
+
+0 heads : (hs : List (Nat, Bool)) -> All (\e => Pos (fst e)) hs -> List Nat
+heads [] [] = []
+heads ((i, a) :: hs) (_ :: ps) = i :: heads hs ps
+
+headsTwo : heads [(1, True), (2, False)] [IsPos, IsPos] = [1, 2]
+headsTwo = Refl
+
 main : IO ()
 main = putStrLn (describe five)

@@ -1,4 +1,4 @@
-NEEDS-ACCEPTANCE: that a quantity-0 definition splits what its clauses write on an erased argument (a constant in h and pv, a type in tp), so that h 5 reduces to 2 in hFive and in the type of five, which only Two inhabits, and that it does not split a constructor's type implicit that unification solved (len); and that the program compiles and runs, printing 2; and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
+NEEDS-ACCEPTANCE: that a quantity-0 definition splits what its clauses write on an erased argument (a constant in h and pv, a type in tp), so that h 5 reduces to 2 in hFive and in the type of five, which only Two inhabits, and that it does not split a constructor's type implicit that unification solved (len), nor the types inside a pair that unification fixed to the pair a clause writes (heads, whose headsTwo reduces); and that the program compiles and runs, printing 2; and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
 compile: exit 0
 artifacts: core module objects executable
 universal: holds

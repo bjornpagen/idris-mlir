@@ -73,21 +73,26 @@ The change is upstream/53-constructor-implicit-mark's `pull-request.diff`
 (after 50's and 52's), one diff for both: there is no fix of this bug
 without the mark that one adds. Its part here is `getClauseType`'s rule
 for a pattern on an erased argument at quantity 0, which reads what the
-clause does with it (upstream/52's `Use`): a pattern the clause writes is
-split whatever its kind, as a constructor already was. One unification
-fixed, the definitions' implicits and now their constructors' (upstream/50,
-53), keeps the old rule: split after what the clause writes (upstream/52),
-and a variable unless it is a constructor. A type unification solved there
+clause does with it (upstream/52's `Use`, from the pattern's `Source`): a
+pattern the clause writes is split whatever its kind, as a constructor
+already was. One unification fixed, the definitions' implicits and now
+their constructors' (upstream/50, 53), and every part of one once the tree
+splits it, keeps the old rule: split after what the clause writes
+(upstream/52), and a variable unless it is a constructor. A type unification solved there
 is the only one the argument's type allows, and splitting it leaves a
 default branch the coverage check cannot match: splitting every pattern on
 an erased argument at quantity 0 left base's `Control.App.Has`, whose `[]`
-carries such a type, with no case covered. Above quantity 0, and in the
-run-time tree, nothing changes.
+carries such a type, with no case covered; and reading the source off the
+top of a column alone left the types inside a pair unification fixed to
+read as written (`heads`, whose `All`'s implicit `x` is found to be the
+clause's `(i, a)`, was reported not covering, as were six definitions of
+the frontend that call its like). Above quantity 0, and in the run-time
+tree, nothing changes.
 
 Upstream test: `tests/idris2/coverage/coverage035`, in that diff,
 `ErasedConstant.idr`: `h`, whose `h 5` must be 2 and `h 0` 1, `tp`, `pv`,
-and `len` over `List Integer`, which must stay covering and reduce
-`len [1, 2]` to 2.
+`len` over `List Integer`, which must stay covering and reduce `len [1, 2]`
+to 2, and `heads`, which must stay covering and reduce in a type.
 
 ## Why there is no patch
 
@@ -103,7 +108,7 @@ As upstream/53's, with the series: at the pin, the stock Idris reports
 `coverage035`'s `h _`, `tp _` and `pv (MkP _)` unreachable and refuses
 `hFive`, `tpString` and `pvFive`, and nothing else; the changed fork checks
 it, printing exactly its `expected`, and checks `h 5 = 2` with `h _`
-reachable (no warning).
+reachable (no warning). `heads` checks at the pin and with the series.
 `tests/upstream/erased-constant-pattern` compiles through the changed
 frontend, which the unchanged fork's refuses at `hFive`; its core prints
 `Two`'s string, and its `expected` waits for a build of the whole

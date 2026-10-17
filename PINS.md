@@ -269,7 +269,9 @@ which the top-level CMake configure gate reads.
   the split
 - sites: the fork, Core/Case/CaseBuilder.idr (`Origin`, `Use`, `arrange`:
   at every step of the match an argument no clause tests and some clause
-  leaves to unification is split last), TTImp/ProcessDef.idr (`saved`: the
+  leaves to unification is split last, and `Source`: every part of a
+  pattern unification found keeps that origin when the tree splits it),
+  TTImp/ProcessDef.idr (`saved`: the
   tree a running definition keeps is built without the marks)
 - workaround: none; the fork carries the change of
   upstream/52-relevant-implicit-split/pull-request.diff, applied after

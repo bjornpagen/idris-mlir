@@ -171,10 +171,12 @@ fork carries: upstream/52 (the first), 53 (the second) and 54 (the third).
   a type pattern on an erased argument that unification solved, needs the
   mark the previous case lacks.
 
-With all four, two forms keep the pin's split: a column one clause writes
-and another leaves to unification (`mixed {ws = []} [] = 0; mixed (ItIsF
-:: fs) = S (mixed fs)`, upstream/52), and a `_` the clause writes that
-unification solves (upstream/53).
+With all four, one form keeps the pin's split: a `_` the clause writes
+that unification solves (upstream/53). A column one clause writes and
+another leaves to unification (`mixed {ws = []} [] = 0; mixed (ItIsF ::
+fs) = S (mixed fs)`) is covering too: the column keeps its place, and the
+parts of the pattern unification found are split after the others
+(upstream/52).
 
 ## Why there is no patch
 

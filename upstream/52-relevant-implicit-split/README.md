@@ -98,17 +98,20 @@ clause leaves to unification, `unifiedArgs`) it reads. upstream/53's
 - Each row of the case builder's match carries the clause it comes from
   (`Origin`): its place, which its leaf names, and the names of the
   arguments it leaves to unification, which every copy of the row keeps
-  through the splits. At every step `match` arranges the columns
-  (`arrange`): one the clauses only bind, and some bind to what
-  unification found from the patterns they write (`Use`: `Binds`,
-  `Fixed`, `Tests`), goes after the others. It is still split: a leaf
-  binds what its pattern names, and a column whose type computes on it
-  waits for it (`pickNextViable` passes over a column it cannot type yet).
-  Split after the patterns that fix it, the branches it leaves are
-  impossible by unification, which the coverage check sees. This replaces
-  50's `asVariables`, which took such an argument as a variable. Where a
-  column's type is not known, the columns keep their order (`typed`): such
-  a type is found as the columns before it are split.
+  through the splits, and each of its columns records where its pattern
+  comes from (`PatInfo`'s `Source`): the clause wrote it, or unification
+  found it (the elaborator's as-pattern, and every part of such a pattern,
+  which the column made from that part inherits when the tree splits it). At
+  every step `match` arranges the columns (`arrange`): one the clauses only
+  bind, and some bind to what unification found (`Use`: `Binds`, `Fixed`,
+  `Tests`, read off the pattern and its source), goes after the others. It
+  is still split: a leaf binds what its pattern names, and a column whose
+  type computes on it waits for it (`pickNextViable` passes over a column it
+  cannot type yet). Split after the patterns that fix it, the branches it
+  leaves are impossible by unification, which the coverage check sees. This
+  replaces 50's `asVariables`, which took such an argument as a variable.
+  Where a column's type is not known, the columns keep their order
+  (`typed`): such a type is found as the columns before it are split.
 - `getPMDef` reads the mark of every clause it is given, at every phase.
   The coverage check gives it the checked clauses, so its tree splits such
   an argument last at every quantity, and so does the tree a definition
@@ -134,9 +137,11 @@ block `cb`, the with block `wb`, and `liftedBad` and `0 liftedBad0`.
 ## What the fix leaves
 
 - A column some clause tests and another leaves to unification keeps its
-  place: with `mixed {ws = []} [] = 0` and `mixed (ItIsF :: fs) = S (mixed
-  fs)`, `mixed` is reported not covering at the pin and with the fix.
-  Moving the column would move the first clause's own test.
+  place, so a clause's own test is never moved; once it is split, the parts
+  of the pattern unification found are split after the others. With `mixed
+  {ws = []} [] = 0` and `mixed (ItIsF :: fs) = S (mixed fs)`, which the pin
+  reports not covering, `ws` is split first and `F w` last, and `mixed` is
+  covering.
 - The tree a definition above quantity 0 keeps still splits such an
   argument first: the frontend's program for `fp4` tests `ws` before its
   explicit argument, and the branches the coverage check now proves no input
@@ -174,7 +179,8 @@ imports, so efe0ad36's compiler and tests are the base) built the same way
   reproducer, 50's `fp`, `fp2`, `fp3`, `g` and `Pick`, this report's `fp4`,
   `sumF`, `cb`, `wb`, `liftedBad` and `liftedBad0`, 53's `v1` and `v3` and
   their quantity-0 forms, and 54's `h` (`h 5` is 2, `h _` reachable) check.
-  `mixed`, and 53's solved wildcards, are reported as at the pin;
+  `mixed` is covering, and 53's solved wildcards are reported as at the
+  pin;
 - the fixtures of upstream/21, 50, 51, 52, 53 and 54 compile through the
   frontend as they should (51's is refused, as its test expects), 21's and
   50's to the same Core as the baseline's. This report's fixture compiles
@@ -199,6 +205,27 @@ imports, so efe0ad36's compiler and tests are the base) built the same way
   and against the one the changed frontend built;
 - the frontend's own sources (efe0ad36's `compiler/src`, with
   `AlmostFull`) check with it as with the baseline.
+
+A first form of the merge read a pattern's source off the top of its column
+alone, so the parts of a pattern unification found, once split, read as
+the clause's own, and upstream/54's rule split the types in them: with
+`All`'s implicit `x` fixed to the pair a clause writes, `0 headsIn : (p :
+Nat) -> (hs : List (Nat, Bool)) -> All (\e => LT (fst e) p) hs -> ...`
+was reported not covering, and so were six definitions of the frontend's
+own that call it, which the pin accepts. That form was committed as
+41612045; the source now travels with each column. Checked against
+41612045's fork, built the same way: `coverage035` with its new case
+`heads` prints exactly its `expected`, and the reproducer checks; of the
+484 TTCs, 482 are byte-identical, `TTImp.ProcessDef` differs only in
+machine-generated names and `Core.Case.CaseBuilder` is the change; the 385
+programs give the same status, output, Core and bytecode against both
+prefixes; the fixtures of 21, 50, 51, 52 and 53 give what they gave, 54's
+compiles with its new case; the pinned Idris typechecks the pin with 50
+and 52, and with all three; and every module of the frontend's sources,
+41612045's (67) and the working tree's (78), checks with it as with the
+pinned stock Idris, but for the working tree's `Driver`, whose `frontend`
+is declared total and reaches the fork's `Core.Value.NTCon`: upstream/51's
+check, the same with the fork of 50 and 51 alone and with 51 alone.
 
 52 alone was first checked the same way, against the same base; with it
 50's `asVariables` was taken out, and a version that took the argument as a
