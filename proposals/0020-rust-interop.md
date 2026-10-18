@@ -177,8 +177,6 @@ Idris closures as callbacks (§8.8); C libraries as Rust crates only.
 - Dynamic linking of Rust in any form.
 - `unsafe` functions and `static mut`, whose contracts a binding cannot
   uphold (§11.5).
-- `std`'s free functions: arguments, environment, exit, threads, panics
-  and allocation are the runtime's (§6).
 
 **Later:** async Rust polled from 0007's task frames, its P3 (§15);
 protocol overlays (§13).
@@ -243,7 +241,10 @@ accepted and ignored.
 - Cargo resolves once, at generation, into `rust.lock`, which the
   application commits. `cargo vendor` fills `build/rust/vendor/`, and
   every later build is offline.
-- `std`, `core` and `alloc` cannot be named (*proposed*, §6).
+- `std` is named like any crate (*decision*, the owner, 2026-10-18):
+  `std = "1"`, as `core` and `alloc` are, each requirement met by the
+  pinned toolchain's version rather than by crates.io, and each compiled
+  from the bootstrap's sysroot (§11.3).
 - No table marks a blocking call: 0007's P3 decides how one leaves the
   shard, without a manifest field (§15).
 - The binding modules are `Rust.<Crate>` and the generator's internal
@@ -264,14 +265,11 @@ accepted and ignored.
    so is each trait those impls implement. What they mention is reached
    in turn. A blanket impl (`impl<T: Display> ToString for T`) is not
    bound: the trait it is written over already gives what it gives.
-3. **`std` is reached, never named.** `std`, `core` and `alloc`
-   contribute the types bound signatures reach (`Duration`, `io::Error`,
-   `PathBuf`), each with its own items, and no free function. Arguments,
-   environment, exit, threads, panics and allocation belong to the
-   runtime, and Idris's own libraries reach files, processes and time
-   through it. So `std::env::args`, which on some targets `std` fills
-   only in the `lang_start` that never runs here (§11.3, *recalled*),
-   cannot be called.
+3. **`std` is a crate like any other.** Named, it is bound whole; not
+   named, its types still come when a bound signature reaches them
+   (`Duration`, `io::Error`, `PathBuf`), as any crate's do. What a crate
+   does to the process (prints, reads, exits) the runtime keeps in order
+   for every crate alike, `std` included (§10.5).
 4. **Generic types** are bound at instances (§8.6).
 5. **An item is left out** when it cannot be bound, with one reason of a
    closed set (§11.5). An item that needs a left-out item is left out
@@ -333,10 +331,14 @@ name as printed, and the generator holds no copy of the mangling (§12).
   `String`, `List` or `IO` never meets the Prelude's.
 - **One name per item.** An item re-exported under several paths is
   named by its shortest public path in the crate that defines it (fewest
-  segments, then the first in path order). An item of `core` or `alloc`
-  that `std` re-exports is named by its `std` path, the one Rust
-  programmers write. An item its defining crate does not make public is
-  named by its shortest public path in the graph.
+  segments, then the first in path order); an item its defining crate
+  does not make public, by its shortest public path in the graph.
+- **A re-export is a public import.** A Rust module that re-exports
+  another module's items imports that module's Idris module publicly, so
+  `import Rust.Std.Time` brings `Duration`, whose name is
+  `Rust.Core.Time.Duration`. Idris re-exports modules, not names, so a
+  re-export of one item brings its module's other names into scope too;
+  every name stays one item's.
 - **A name Idris cannot declare.** A Rust name that starts with `_` is
   left out (`name`): Idris declares no name so spelled (*read*), and by
   Rust's convention such an item is not for callers.
@@ -589,16 +591,24 @@ item is bound depend on a number.
 
 ### 8.7 Constants and statics
 
-Well supported (*decision*, the owner); the forms are *proposed*:
+Well supported, and a constant is never `IO` (*decision*, the owner);
+the forms are *proposed*:
 
-- **A `const` whose Idris type holds no object** is a pure Idris value.
-  Rust fixed it at compile time, so the binding computes it once, from a
-  nullary shim, which trusted library code may do (AGENTS.md: a trusted
-  library may run an IO action for a pure value). After the runtime link
-  the shim's constant folds into its uses (*conjecture*, R1).
-  `pub const MAX_SIZE: usize = 4096` is `MAX_SIZE : Bits64`.
-- **A `const` whose type holds an object** is `IO (Rust t)`: each use of
-  a Rust constant is a fresh value, and so is each run of the action.
+- **Every `const` is a pure Idris value.** Rust fixed it at compile time,
+  so the binding computes it once, from a nullary shim, which trusted
+  library code may do (AGENTS.md: a trusted library may run an IO action
+  for a pure value). After the runtime link the shim's constant folds
+  into its uses (*conjecture*, R1). `pub const MAX_SIZE: usize = 4096` is
+  `MAX_SIZE : Bits64`.
+- **A `const` that holds an object** is that object, made once and
+  borrowed shared forever, as an immutable static's is: a constant never
+  changes, so an exclusive or by-value use of it stops the program
+  (§10.2), and a use that needs a copy of its own calls `clone` where the
+  type is `Clone`.
+- **A `const` whose type has interior mutability** (`const ZERO:
+  AtomicUsize`: a type that is not `Freeze`, which the probe asks rustc,
+  §8.6; *recalled*) is left out (`const`): each Rust use of it is a fresh
+  value that can change, which one shared pure value cannot be.
 - **An immutable `static` of a plain or data type** is a pure value, as
   a constant is: data holds no interior mutability, so its bytes never
   change.
@@ -649,8 +659,8 @@ A parameter `impl Fn(A) -> B`, `impl FnMut`, `impl FnOnce`, `&dyn Fn`,
 
 ## 9. Effects: every call is `IO`
 
-(*proposed*, from the owner's ruling that nothing is annotated.) Every
-binding of a function or method is an `IO` action.
+(*decision*, the owner, 2026-10-18.) Every binding of a function or
+method is an `IO` action.
 
 Why: Rust's types say who owns a value and who may change it, never
 whether a function reads a file, the clock, the network, a global or a
@@ -713,7 +723,7 @@ see them, and AGENTS.md keeps linearity out of correctness, so each object
 keeps them at run time, as Rust's `RefCell` does:
 
 - **One borrow state per object:** free, shared by n, or exclusive. A
-  static's is shared forever.
+  static's and a constant's is shared forever.
 - **A call borrows each object it is given for as long as it runs**:
   shared for `&`, exclusive for `&mut`. A borrow handle keeps its object
   borrowed until it is released (§8.4). So one check covers aliased
@@ -770,6 +780,40 @@ and they may allocate and free, but nothing of Idris reaches them:
 thread, and an item whose bounds would need one to cross is left out
 (`send`). A handle is an Idris value. 0007's shards keep the rule (0007
 §3.3).
+
+### 10.5 One process
+
+(*proposed*) `std` is the platform layer of Rust code and the runtime is
+the platform layer of the program, and there is one process, so the two
+must agree on it. Nothing in the bindings sets `std` apart: the ordinary
+reasons leave out what would take the process from the runtime
+(`std::thread::spawn` and `std::panic::set_hook` need closures that are
+`Send`, so `send`; `std::env::set_var` and `std::alloc::alloc` are
+`unsafe`). What remains is not a question of which items are bound, since
+any crate's own code can print, read or exit; the runtime keeps it in
+order for every crate:
+
+- **One output order.** The runtime's output goes through one buffer
+  (*read*: `runtime/Io/Output.cpp`) and `std`'s through its own. The
+  runtime writes out its buffer before a Rust call starts, and the shim
+  flushes `std`'s standard output and error after the call returns, so
+  writes from both sides appear in program order (cost *conjecture*,
+  measured at R1).
+- **One ending.** The runtime writes its pending output and open files'
+  buffers only on its own ending paths (*read*: `runtime/Io/Ending.cpp`).
+  It runs that ending, once, on every exit of the process, `exit` from C
+  included, so `std::process::exit`, which flushes `std`'s own output
+  and calls `exit` (*recalled*), ends a program as base's `exit` does.
+- **One start.** `std`'s start-up never runs (§11.3), so what `std` reads
+  from it the runtime gives it instead: on musl, `std::env::args` is
+  filled only there (*recalled*). R0 finds the mechanism and checks that
+  `std::env::args` and base's `getArgs` agree on both targets; if `std`
+  offers none short of a change to its source, that change is made to the
+  pinned source as AGENTS.md says, with its plan to go upstream.
+- **Standard input** has two readers when both sides read it, each
+  buffering ahead of the other. R1 decides whether `std`'s input reads
+  through the runtime's buffer or the two are kept apart by another
+  means; until then a fixture shows what happens.
 
 ## 11. The compiler
 
@@ -830,7 +874,7 @@ thread, and an item whose bounds would need one to cross is left out
   The verifier checks operands and results against it, as `idr.call` is
   checked against its callee; `idr-rc` and the ownership verifier read
   its grades as a callee's.
-- **Effects** (*proposed*): every shim call takes and gives the world in
+- **Effects** (*decision*): every shim call takes and gives the world in
   its signature. The op declares its effects through
   `MemoryEffectOpInterface` on the IO, crash and divergence resources, as
   `idr.call` does (`lib/IR/Effects.cpp`), always: a crate may do I/O,
@@ -869,9 +913,9 @@ read after the runtime's, with no step of Rust's own:
 
 `std`'s `lang_start` never runs: the entry is `idris_rt_start`, and what
 `std` sets up there (*recalled*: arguments on some Linux targets, the
-stack guard, `SIGPIPE`) is the runtime's job. No binding reaches
-`std::env` or `std::process`'s free functions (§6), and R0 records what
-`std` does without `lang_start`.
+stack guard, `SIGPIPE`) is the runtime's job, and §10.5 says how `std`
+still sees the process the runtime runs. R0 records what `std` does
+without `lang_start`.
 
 **One archive per program:** one surface, one shim crate, one `std`, one
 `#[global_allocator]`, one panic runtime. Two archives from two graphs
@@ -911,15 +955,16 @@ an allocation and free pair it sees whole after the runtime link.
 ### 11.5 Diagnostics: the reasons
 
 The generator's reasons are its own closed set (*proposed*: `ascii`,
-`name`, `unsafe`, `generic` and `dyn` are new). Each is a variant of one
-Rust enum in the generator, printed by name in `rust.surface`, so a test
-reads a fixture's reasons as data:
+`name`, `unsafe`, `const`, `generic` and `dyn` are new). Each is a
+variant of one Rust enum in the generator, printed by name in
+`rust.surface`, so a test reads a fixture's reasons as data:
 
 | Reason | The item is left out because |
 |---|---|
 | `ascii` | an identifier on its path is not ASCII |
 | `name` | its Idris name would start with `_`, or would meet another's (§7) |
 | `unsafe` | it is an `unsafe fn`, a `static mut` or an item of an `extern` block |
+| `const` | it is a constant whose type has interior mutability |
 | `pointer` | its signature holds a raw pointer or a function pointer |
 | `lifetime` | a result borrows from two parameters or from a `Buffer`; a borrowed argument is data holding an object; an argument must be `'static` |
 | `send` | it would move an Idris value to another thread |
@@ -1102,6 +1147,11 @@ reads expected files is Idris in the test runner, with shell only as glue.
   read in Idris and compared with the same seed's Idris value; a
   `&mut [u8]` the crate writes, seen by Idris after the call; a constant
   and a static read in Idris, equal to what the crate prints.
+- **One process** (§10.5): lines printed by Idris and by a crate,
+  alternately, come out in program order; a crate's `std::process::exit`
+  keeps the output written before it and the open files' buffers;
+  `std::env::args` equals base's `getArgs`; and a fixture reads standard
+  input from both sides, its expected files stating what R1 decides.
 - **Drop timing:** a destructor with a visible effect appears at a fixed
   point of stdout. `IDRIS_RT_LIVE=1` reports zero live cells at the end
   of every fixture, foreign cells included.
@@ -1159,9 +1209,11 @@ nothing kept beside it.
   assembly members; life without `lang_start`); §19's question 2;
   rustdoc inside the shim workspace sees the build's features; the probe
   (§8.6) reads back through rustdoc's JSON; rustdoc `--target` for the
-  other entry works on either host; the layout assertions compile.
+  other entry works on either host; the layout assertions compile; and
+  how `std` gets the program's arguments (§10.5).
 - **R1, objects, data and traits** (AFTER-SELF; after R0). Runtime: the
-  foreign kind, its freeing and the borrow state. Dialect:
+  foreign kind, its freeing, the borrow state, and one process (§10.5:
+  the output order, the ending on every exit, standard input). Dialect:
   `!idr.foreign`, `idr.rust.call` and its checks' lowering. Frontend:
   `ForeignT`, `Rust`'s hook, the `Bindings` home, admission by origin and
   the reserved-name list. Driver: the generator step and the archive in
@@ -1217,8 +1269,9 @@ driver and runtime 2–3k; bootstrap and tests about 1.5k.
 - **Escaping reserved words with `'`** (`open'`): readable, but a prime
   is outside the mangling's alphabet, so the generator would need a
   second copy of the mangling to spell a shim's symbol.
-- **Binding `std`'s free functions:** the runtime owns what they reach
-  (§6).
+- **Setting `std` apart**, whether as a crate that cannot be named or as
+  a list of its items left out as the runtime's: a special case, where the
+  ordinary reasons and one process (§10.5) do the work, for every crate.
 - **A made-up name for an `impl Trait` result**, from its use site: one
   more generated name, where the trait object is the value's one
   representation (§8.5).
@@ -1275,10 +1328,11 @@ driver and runtime 2–3k; bootstrap and tests about 1.5k.
    calls (`std`, a `-sys` crate's C). Default: the rules bind the tree,
    not a program's crates, which are the foreign world with `std` as their
    platform layer; R0 records what the fixtures' graphs bring.
-3. **The 2026-10-18 model.** The revision's *proposed* choices, each
-   taken as its default and each with its alternative in §18: every Rust
-   call is `IO` (§9); one handle with a run-time borrow state, and no
+3. **The 2026-10-18 model.** The owner has ruled that every Rust call is
+   `IO` (§9) and that `std` is named like any crate (§5). The revision's
+   other choices are *proposed*, each taken as its default and each with
+   its alternative in §18: one handle with a run-time borrow state, and no
    linear handles (§10.2); data and objects (§8.2, §8.3); whole named
-   crates, with `std` reached but never named (§6); traits as interfaces
-   (§8.5); generic functions over the surface's types, decided by rustc
-   (§8.6); and the names (§7). Default: as written.
+   crates (§6); one process kept by the runtime (§10.5); traits as
+   interfaces (§8.5); generic functions over the surface's types, decided
+   by rustc (§8.6); and the names (§7). Default: as written.

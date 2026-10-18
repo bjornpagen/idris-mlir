@@ -182,10 +182,11 @@ Each has its default taken in the proposal that owns it:
   with `RUSTC_BOOTSTRAP=1`.
 - **0020 §19.2:** whether the target rules bind a program's crates.
   *Default:* our tree only.
-- **0020 §19.3:** the 2026-10-18 model: every Rust call is `IO`, one
-  handle with a run-time borrow state, data and objects, whole named
-  crates, traits as interfaces, generics decided by rustc, the names.
-  *Default:* as written.
+- **0020 §19.3:** the 2026-10-18 model beyond the owner's rulings (every
+  Rust call is `IO`, `std` named like any crate): one handle with a
+  run-time borrow state, data and objects, whole named crates, one process
+  kept by the runtime, traits as interfaces, generics decided by rustc,
+  the names. *Default:* as written.
 - **0007 D14:** a crash in forked work held until its join. Taken; for
   review.
 
