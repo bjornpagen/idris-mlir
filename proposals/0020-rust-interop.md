@@ -789,31 +789,30 @@ must agree on it. Nothing in the bindings sets `std` apart: the ordinary
 reasons leave out what would take the process from the runtime
 (`std::thread::spawn` and `std::panic::set_hook` need closures that are
 `Send`, so `send`; `std::env::set_var` and `std::alloc::alloc` are
-`unsafe`). What remains is not a question of which items are bound, since
-any crate's own code can print, read or exit; the runtime keeps it in
-order for every crate:
+`unsafe`). A program that writes one stream from both sides, or reads
+standard input from both, gets what two buffers on one descriptor give;
+that is the program's doing, and nothing here arranges for it. Two
+things are not the program's doing:
 
-- **One output order.** The runtime's output goes through one buffer
-  (*read*: `runtime/Io/Output.cpp`) and `std`'s through its own. The
-  runtime writes out its buffer before a Rust call starts, and the shim
-  flushes `std`'s standard output and error after the call returns, so
-  writes from both sides appear in program order (cost *conjecture*,
-  measured at R1).
-- **One ending.** The runtime writes its pending output and open files'
-  buffers only on its own ending paths (*read*: `runtime/Io/Ending.cpp`).
-  It runs that ending, once, on every exit of the process, `exit` from C
-  included, so `std::process::exit`, which flushes `std`'s own output
-  and calls `exit` (*recalled*), ends a program as base's `exit` does.
-- **One start.** `std`'s start-up never runs (§11.3), so what `std` reads
-  from it the runtime gives it instead: on musl, `std::env::args` is
-  filled only there (*recalled*). R0 finds the mechanism and checks that
-  `std::env::args` and base's `getArgs` agree on both targets; if `std`
+- **One ending.** A crate may end the process itself: `clap` exits after
+  printing `--help` (*recalled*). The runtime writes its pending output
+  and open files' buffers only on its own ending paths (*read*:
+  `runtime/Io/Ending.cpp`), so it runs that ending, once, on every exit of
+  the process, `exit` from C included, and `std::process::exit`, which
+  flushes `std`'s own output and calls `exit` (*recalled*), ends a program
+  as base's `exit` does.
+- **One start.** On Linux the kernel starts every static program in
+  musl's `_start`, which calls `main` with the arguments. A Rust program's
+  `main` is rustc's, which runs `std`'s start-up, and on musl that is where
+  `std` saves the arguments; glibc would hand them to `std` another way,
+  and on macOS `std` asks the system for them (*recalled*). Our `main` is
+  idris-mlir's `@main`, which passes them to `idris_rt_start` (*read*:
+  `lib/Conversion/Entry.cpp`, `runtime/Start/Entry.cpp`), so `std` never
+  saves them and `std::env::args` is empty on Linux alone. The runtime has
+  them, and gives them to `std`: R0 finds the means and checks that
+  `std::env::args` and base's `getArgs` agree on both targets. If `std`
   offers none short of a change to its source, that change is made to the
   pinned source as AGENTS.md says, with its plan to go upstream.
-- **Standard input** has two readers when both sides read it, each
-  buffering ahead of the other. R1 decides whether `std`'s input reads
-  through the runtime's buffer or the two are kept apart by another
-  means; until then a fixture shows what happens.
 
 ## 11. The compiler
 
@@ -1147,11 +1146,9 @@ reads expected files is Idris in the test runner, with shell only as glue.
   read in Idris and compared with the same seed's Idris value; a
   `&mut [u8]` the crate writes, seen by Idris after the call; a constant
   and a static read in Idris, equal to what the crate prints.
-- **One process** (§10.5): lines printed by Idris and by a crate,
-  alternately, come out in program order; a crate's `std::process::exit`
-  keeps the output written before it and the open files' buffers;
-  `std::env::args` equals base's `getArgs`; and a fixture reads standard
-  input from both sides, its expected files stating what R1 decides.
+- **One process** (§10.5): a crate's `std::process::exit` keeps the
+  output Idris wrote before it and the open files' buffers; and
+  `std::env::args` equals base's `getArgs` on both targets.
 - **Drop timing:** a destructor with a visible effect appears at a fixed
   point of stdout. `IDRIS_RT_LIVE=1` reports zero live cells at the end
   of every fixture, foreign cells included.
@@ -1212,8 +1209,8 @@ nothing kept beside it.
   other entry works on either host; the layout assertions compile; and
   how `std` gets the program's arguments (§10.5).
 - **R1, objects, data and traits** (AFTER-SELF; after R0). Runtime: the
-  foreign kind, its freeing, the borrow state, and one process (§10.5:
-  the output order, the ending on every exit, standard input). Dialect:
+  foreign kind, its freeing, the borrow state, and the ending on every
+  exit (§10.5). Dialect:
   `!idr.foreign`, `idr.rust.call` and its checks' lowering. Frontend:
   `ForeignT`, `Rust`'s hook, the `Bindings` home, admission by origin and
   the reserved-name list. Driver: the generator step and the archive in
