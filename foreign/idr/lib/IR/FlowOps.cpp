@@ -257,16 +257,15 @@ void idr::TakeOp::getFlowEdges(FlowEdges &edges) {
 }
 
 // The value, which has no cell of its own, is taken over: each field moves
-// out of it. A constructor of no field has no part to move, so its value
-// is given up whole: the one case where nothing of the value goes on.
+// out of it. A constructor none of whose fields holds a reference (none at
+// all, or only words) moves no reference on, so its value is given up
+// whole: else the unpack would read as a borrow of it.
 void idr::UnpackOp::getFlowEdges(FlowEdges &edges) {
   OpOperand &value = getValueMutable();
   DataType data = getDataType();
   Tag tag = getTag();
-  if (getFields().empty()) {
+  if (llvm::none_of(getFields(), [](Value field) { return holdsReferences(field.getType()); }))
     edges.release(value);
-    return;
-  }
   for (auto [i, field] : llvm::enumerate(getFields()))
     edges.flow(FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(i))),
                FlowPoint::of(Value(field)));
