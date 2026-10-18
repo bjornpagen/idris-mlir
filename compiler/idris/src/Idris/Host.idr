@@ -30,6 +30,7 @@ import Core.TT
 import Idris.CommandLine
 import Idris.ModTree
 import Idris.Package
+import Idris.REPL.Common
 import Idris.REPL.Opts
 import Idris.SetOptions
 import Idris.Syntax
@@ -77,6 +78,13 @@ record Host where
                        {auto o : Ref ROpts REPLOpts} -> {auto p : Ref PostS PostSession} ->
                        List CLOpt -> Core ControlFlow
 
+  -- The error printer.
+
+  ||| `Idris.REPL.Common.emitError`: the evaluator again, since an error is
+  ||| printed with the holes of its terms normalised (`normaliseHoles`).
+  emitError : {auto c : Ref Ctxt Defs} -> {auto o : Ref ROpts REPLOpts} ->
+              {auto s : Ref Syn SyntaxInfo} -> Error -> Core ()
+
 ||| Idris's compiler, as a program over it calls it where the checker
 ||| cannot follow it. The one trust of such a program in this compiler,
 ||| stated once: each of these returns.
@@ -90,4 +98,5 @@ host = assert_total (MkHost
   , checkTerminating
   , buildMain
   , processPackageOpts
+  , emitError
   })

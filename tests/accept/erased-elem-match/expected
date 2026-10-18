@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that a match of `Here` that makes an erased index the runtime field it was unified with reads that field, compiles and runs, printing 2; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

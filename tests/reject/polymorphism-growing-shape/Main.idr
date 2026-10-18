@@ -1,5 +1,5 @@
 -- expect: polymorphism, line 19
--- message: no analysis bounds how far a chain that grows so goes
+-- message: growing it by 1 each round, and nothing bounds how far it grows
 module Main
 
 import Prelude

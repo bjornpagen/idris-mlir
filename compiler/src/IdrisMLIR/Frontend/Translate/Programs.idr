@@ -54,7 +54,7 @@ translateInstance p = do
   False <- pure (maybe False (\a => contains a before.refused) address)
     | True => pure ()
   let fc = location def
-  PMDef _ args treeCT _ _ <- pure (definition def)
+  PMDef _ args treeCT _ pats <- pure (definition def)
     | _ => reject fc owner DefinitionShape "not a pattern-matching definition"
   -- A missing case crashes.
   let complete = case isCovering (totality def) of
@@ -66,8 +66,7 @@ translateInstance p = do
   let env = environment (length params) 0 kinds
   when (length env /= length kinds) $
     internal fc "the runtime parameters of an instance numbered out of order"
-  tree' <- tree (MkCtx owner fc complete) env (telescope (length args) (type def))
-                (emptyKnown (length env)) treeCT
+  tree' <- tree (MkCtx owner fc complete) env !(clauses args (type def) pats) treeCT
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
@@ -146,8 +145,7 @@ assemble root = do
 ||| `IORes` of `main`'s result and the last world, so the world is used
 ||| exactly once. `%MkWorld` never appears. Nothing when an instance was
 ||| rejected (`rejections`).
--- covering only because translateFrom is: the dictionary passes are not yet proved finite (Finite.idr)
-export covering
+export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core (Maybe Source)
 translateIOProgram fc main = do

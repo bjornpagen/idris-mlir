@@ -49,26 +49,41 @@ import System.File.Buffer
 -- Hooks and definitions
 ------------------------------------------------------------------------------
 
-||| What a refusal of a forbidden definition says. Threads, finalizers, raw
-||| memory, signals and processes name why they are outside the language;
-||| every other forbidden definition is a use of it.
-exclusion : Rule -> String -> String
-exclusion Threads n =
-  n ++ " starts or coordinates threads (a mutex, a channel), which are outside the language" ++
-  " this compiler implements"
-exclusion Finalizer n = n ++ " registers a collector finalizer, which is outside the language this compiler implements"
-exclusion RawPointer n = n ++ " allocates raw memory, which is outside the language this compiler implements"
-exclusion Signal n = n ++ " handles or sends a signal, which is outside the language this compiler implements"
-exclusion Process n = n ++ " runs another process, which is outside the language this compiler implements"
-exclusion _ n = "uses " ++ n
+||| What refusing a definition a rule forbids says of it, by its name, for a
+||| rule that puts it outside the language wherever the program reaches it:
+||| threads, finalizers, raw memory, signals and processes. Nothing for the
+||| other rules, which forbid only what user code names (`firstForbidden`).
+outsideLanguage : Rule -> Maybe (String -> String)
+outsideLanguage rule = (\why, n => n ++ " " ++ why ++ " outside the language this compiler implements") <$> reason rule
+  where
+    reason : Rule -> Maybe String
+    reason Threads = Just "starts or coordinates threads (a mutex, a channel), which are"
+    reason Finalizer = Just "registers a collector finalizer, which is"
+    reason RawPointer = Just "allocates raw memory, which is"
+    reason Signal = Just "handles or sends a signal, which is"
+    reason Process = Just "runs another process, which is"
+    reason _ = Nothing
 
-||| Does a hook answer for a definition's body? The identity on its runtime
-||| argument and a function of the array language are never translated, at
-||| any arity (a call below it is a closure over the saturated call), and
-||| the exit's `believe_me` is translated as an action that does not
-||| return: the escape hatch in each body is the hook's, not the program's.
+||| What a refusal of a forbidden definition says: why it is outside the
+||| language, or that it is a use of it.
+exclusion : Rule -> String -> String
+exclusion rule n = maybe ("uses " ++ n) (\says => says n) (outsideLanguage rule)
+
+||| Does a hook answer for every call of a definition, so that its body is
+||| never translated, and the growth check reads no site in it? The
+||| identity on its runtime argument and a function of the array language,
+||| at any arity (a call below it is a closure over the saturated call).
+export
+answersForCalls : Hooks -> Bool
+answersForCalls hs = hs.identityOnLast || isJust hs.generating
+
+||| Does a hook answer for a definition's body, so that the walk of what the
+||| program reaches does not check it (`refsOf`)? One that answers for every
+||| call (`answersForCalls`), and the exit, whose body is translated, with
+||| its `believe_me` as an action that does not return: the escape hatch in
+||| each body is the hook's, not the program's.
 answersForBody : Hooks -> Bool
-answersForBody hs = hs.identityOnLast || isJust hs.exits || isJust hs.generating
+answersForBody hs = answersForCalls hs || isJust hs.exits
 
 ||| The first of the definitions a user definition refers to that the
 ||| registry forbids in the user's code, with its rule.
@@ -329,13 +344,9 @@ checkReachable fc roots = do
       -- outside the language wherever they are reached. The world's
       -- forbidden operations are not: the program root is one, and user
       -- code is refused where it names them.
-      case (hooksOf full).forbidden of
-        Just Threads => reject (userFC here) owner Threads (exclusion Threads key ++ via here)
-        Just Finalizer => reject (userFC here) owner Finalizer (exclusion Finalizer key ++ via here)
-        Just RawPointer => reject (userFC here) owner RawPointer (exclusion RawPointer key ++ via here)
-        Just Signal => reject (userFC here) owner Signal (exclusion Signal key ++ via here)
-        Just Process => reject (userFC here) owner Process (exclusion Process key ++ via here)
-        _ => pure ()
+      case (hooksOf full).forbidden >>= \rule => (rule,) <$> outsideLanguage rule of
+        Just (rule, says) => reject (userFC here) owner rule (says key ++ via here)
+        Nothing => pure ()
       -- A deprecated name is rejected wherever it is reached. The hook's
       -- text names the replacement.
       case (hooksOf full).deprecated of

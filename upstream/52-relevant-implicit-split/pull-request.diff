@@ -1,7 +1,7 @@
 diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
---- a/src/Core/Case/CaseBuilder.idr	2026-10-16 21:42:46
-+++ b/src/Core/Case/CaseBuilder.idr	2026-10-16 21:42:46
-@@ -61,6 +61,22 @@
+--- a/src/Core/Case/CaseBuilder.idr	2026-10-17 12:03:47
++++ b/src/Core/Case/CaseBuilder.idr	2026-10-17 12:07:42
+@@ -61,6 +61,23 @@
    show (Stuck t) = "Stuck " ++ show t
    show Unknown = "Unknown"
  
@@ -15,7 +15,8 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
 +
 +-- The source of a pattern on a column made from a pattern of source `s`:
 +-- what unification found stays found, and an as-pattern whose name
-+-- `unified` holds is found.
++-- `unified` holds is found. A column's source is read once, when the column
++-- is made, so it holds as the tree takes the column's as-patterns off.
 +sourceOf : (unified : List Name) -> Source -> Pat -> Source
 +sourceOf unified s (PAs _ n p)
 +    = if n `elem` unified then Unified else sourceOf unified s p
@@ -24,7 +25,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  record PatInfo (pvar : Name) (vars : Scope) where
    constructor MkInfo
    {idx : Nat}
-@@ -69,21 +85,22 @@
+@@ -69,21 +86,22 @@
    0 loc : IsVar name idx vars
    argType : ArgType vars -- Type of the argument being inspected (i.e.
                           -- *not* refined by this particular pattern)
@@ -51,7 +52,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  
  {-
  NamedPats is a list of patterns on the LHS of a clause. Each entry in
-@@ -218,7 +235,7 @@
+@@ -218,7 +236,7 @@
    weakenNs s Unknown = Unknown
  
  Weaken (PatInfo p) where
@@ -60,7 +61,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  
  Weaken (NamedPats todo) where
    weaken [] = []
-@@ -234,10 +251,20 @@
+@@ -234,10 +252,20 @@
  tail : NamedPats (p :: ps) vars -> NamedPats ps vars
  tail (x :: xs) = xs
  
@@ -82,7 +83,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  
  getNPs : PatClause todo vars -> NamedPats todo vars
  getNPs (MkPatClause _ lhs pid rhs) = lhs
-@@ -259,15 +286,15 @@
+@@ -259,15 +287,15 @@
       = [| MkPatClause (traverse (resolved gam) ns) (resolved gam nps) (pure i) (resolved gam rhs) |]
  
  0 IsConClause : PatClause (a :: todo) vars -> Type
@@ -101,7 +102,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  
  data Partitions : List01 ne (PatClause (a :: todo) vars) -> Type where
       ConClauses : {a, todo, vars : _} ->
-@@ -291,6 +318,28 @@
+@@ -291,6 +319,28 @@
      ++ "\n, " ++ show rest
    show NoClauses = "NONE"
  
@@ -130,7 +131,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  data ClauseType : PatClause (a :: todo) vars -> Type where
       ConClause : (0 isCon : IsConClause p) => ClauseType p
       VarClause : ClauseType p
-@@ -319,9 +368,10 @@
+@@ -319,9 +369,10 @@
  -- Or, if we're compiling for runtime we won't be able to split on it, so
  -- also treat it as a variable
  -- Or, if it's an under-applied constructor then do NOT attempt to split on it!
@@ -142,7 +143,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
      -- used when we are tempted to split on a constructor: is
      -- this actually a fully applied one?
      splitCon : Nat -> List Pat -> Maybe (So True)
-@@ -428,10 +478,11 @@
+@@ -428,10 +479,11 @@
  nextNames : {vars : _} ->
              {auto i : Ref PName Int} ->
              {auto c : Ref Ctxt Defs} ->
@@ -157,7 +158,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
       = do defs <- get Ctxt
            empty <- clearDefs defs
            n <- nextName root
-@@ -449,20 +500,22 @@
+@@ -449,20 +501,22 @@
                                           Known c !(quote empty env farg))
                     Just t =>
                        pure (Nothing, Stuck !(quote empty env t))
@@ -186,7 +187,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  
  updateNames : List (Name, Pat) -> List (Name, Name)
  updateNames = mapMaybe update
-@@ -503,16 +556,16 @@
+@@ -503,16 +557,16 @@
      = foldlC (uncurry . gc) !(gc [] x p) $ pushIn xs ps
    where
      addConG : {vars', todo' : _} ->
@@ -206,7 +207,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
          = do cty <- if n == UN (Basic "->")
                        then pure $ NBind fc (MN "_" 0) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN "top" 0)))) $
                                (\d, a => pure $ NBind fc (MN "_" 1) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NErased fc Placeholder)))
-@@ -521,17 +574,17 @@
+@@ -521,17 +575,17 @@
                                Just t <- lookupTyExact n (gamma defs)
                                     | Nothing => pure (NErased fc Placeholder)
                                nf defs (mkEnv fc vars') (embed t)
@@ -228,7 +229,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
               let l = mkSizeOf newargs
               let pats' = updatePatNames (updateNames (zip newargs pargs))
                                          (weakenNs l pats)
-@@ -539,25 +592,25 @@
+@@ -539,25 +593,25 @@
               -- put the new clause at the end of the group, since we
               -- match the clauses top to bottom.
               pure $ ConGroup n tag (MkPatClause pvars ps tid tm :: rest ++ [newclause]) :: gs
@@ -260,7 +261,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
                                                    (Just dty)
                  | _ => throw (InternalError "Error compiling Delay pattern match")
               let pats' = updatePatNames (updateNames [(tyname, pty),
-@@ -565,22 +618,22 @@
+@@ -565,22 +619,22 @@
                                          (weakenNs l pats)
               let clause = MkPatClause pvars (newargs ++ pats') pid (weakenNs l rhs)
               pure [DelayGroup [clause]]
@@ -289,7 +290,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
                  (acc : List01 ne (Group todo' vars')) ->
                  Core (List01 True (Group todo' vars'))
      addConstG c pats pid rhs []
-@@ -594,30 +647,31 @@
+@@ -594,30 +648,30 @@
          = (g ::) <$> addConstG c pats pid rhs gs
  
      addGroup : {vars, todo, idx : _} ->
@@ -306,8 +307,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
 -         = addGroup p pprf pats pid (substName n (Local fc (Just True) idx pprf) rhs) acc
 -    addGroup (PCon cfc n t a pargs) pprf pats pid rhs acc
 +    addGroup src (PAs fc n p) pprf pats pid rhs acc
-+         = addGroup (sourceOf (unified pid) src (PAs fc n p)) p pprf pats pid
-+                    (substName n (Local fc (Just True) idx pprf) rhs) acc
++         = addGroup src p pprf pats pid (substName n (Local fc (Just True) idx pprf) rhs) acc
 +    addGroup src (PCon cfc n t a pargs) pprf pats pid rhs acc
           = if a == length pargs
 -              then addConG n t pargs pats pid rhs acc
@@ -345,75 +345,43 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  
  getFirstPat : NamedPats (p :: ps) ns -> Pat
  getFirstPat (p :: _) = pat p
-@@ -863,6 +917,97 @@
+@@ -863,6 +917,67 @@
  shuffleVars el (MkPatClause pvars lhs pid rhs)
      = MkPatClause pvars (moveFirst el lhs) pid rhs
  
-+-- The columns split later: those the clauses only bind, and some bind to
-+-- what unification found.
-+splitLater : List Name -> List Use -> List Name
-+splitLater (n :: ns) (Fixed :: us) = n :: splitLater ns us
-+splitLater (_ :: ns) (_ :: us) = splitLater ns us
-+splitLater _ _ = []
++-- The columns `todo` taken apart, each part in order, into those the tree
++-- splits where they stand (`now`) and those it splits after all of them
++-- (`after`).
++data Arrangement : (now, after, todo : List Name) -> Type where
++     NoColumns : Arrangement [] [] []
++     InPlace : Arrangement now after todo -> Arrangement (n :: now) after (n :: todo)
++     Postponed : Arrangement now after todo -> Arrangement now (n :: after) (n :: todo)
 +
-+-- `n` before `ns`, unless it is split later.
-+sooner : (postponed : Bool) -> Name -> List Name -> List Name
-+sooner True n ns = ns
-+sooner False n ns = n :: ns
++-- Where the clauses put each column: one they only bind, and some bind to
++-- what unification found, goes after the others.
++arrangement : {todo : _} -> List01 True (NamedPats todo vars) ->
++              (now ** after ** Arrangement now after todo)
++arrangement {todo = []} rows = (_ ** _ ** NoColumns)
++arrangement {todo = _ :: _} rows
++    = let (column, rest) = splitColumn rows
++          (_ ** _ ** placed) = arrangement rest in
++          case foldr (\p, u => both (use (source p) (pat p)) u) Binds column of
++               Fixed => (_ ** _ ** Postponed placed)
++               _ => (_ ** _ ** InPlace placed)
 +
-+-- `n` before `ns`, if it is split later.
-+afterwards : (postponed : Bool) -> Name -> List Name -> List Name
-+afterwards True n ns = n :: ns
-+afterwards False n ns = ns
++arrangePats : Arrangement now after todo -> NamedPats todo vars ->
++              (NamedPats now vars, NamedPats after vars)
++arrangePats NoColumns [] = ([], [])
++arrangePats (InPlace placed) (p :: ps)
++    = let (soon, late) = arrangePats placed ps in (p :: soon, late)
++arrangePats (Postponed placed) (p :: ps)
++    = let (soon, late) = arrangePats placed ps in (soon, p :: late)
 +
-+-- The columns `later` does not name, in order.
-+earlier : (later : List Name) -> List Name -> List Name
-+earlier later [] = []
-+earlier later (n :: ns) = sooner (n `elem` later) n (earlier later ns)
-+
-+-- The columns `later` names, in order.
-+deferred : (later : List Name) -> List Name -> List Name
-+deferred later [] = []
-+deferred later (n :: ns) = afterwards (n `elem` later) n (deferred later ns)
-+
-+keepSooner : (postponed : Bool) -> PatInfo n vars -> NamedPats ms vars ->
-+             NamedPats (sooner postponed n ms) vars
-+keepSooner True p ps = ps
-+keepSooner False p ps = p :: ps
-+
-+keepAfterwards : (postponed : Bool) -> PatInfo n vars -> NamedPats ms vars ->
-+                 NamedPats (afterwards postponed n ms) vars
-+keepAfterwards True p ps = p :: ps
-+keepAfterwards False p ps = ps
-+
-+earlierPats : (later : List Name) -> {todo : _} ->
-+              NamedPats todo vars -> NamedPats (earlier later todo) vars
-+earlierPats later [] = []
-+earlierPats later {todo = n :: _} (p :: ps)
-+    = keepSooner (n `elem` later) p (earlierPats later ps)
-+
-+deferredPats : (later : List Name) -> {todo : _} ->
-+               NamedPats todo vars -> NamedPats (deferred later todo) vars
-+deferredPats later [] = []
-+deferredPats later {todo = n :: _} (p :: ps)
-+    = keepAfterwards (n `elem` later) p (deferredPats later ps)
-+
-+-- A clause with the columns `later` names after the others.
-+arranged : (later : List Name) -> {todo : _} ->
-+           PatClause todo vars -> PatClause (earlier later todo ++ deferred later todo) vars
-+arranged later (MkPatClause pvars ps pid rhs)
-+    = MkPatClause pvars (earlierPats later ps ++ deferredPats later ps) pid rhs
-+
-+-- What the clauses together do with each column.
-+columnUses : List01 True (PatClause todo vars) -> List Use
-+columnUses (c :: cs) = foldl (\acc, c' => zipWith both acc (uses c')) (uses c) (forget cs)
-+  where
-+    patUses : NamedPats todo' vars' -> List Use
-+    patUses [] = []
-+    patUses (p :: ps) = use (source p) (pat p) :: patUses ps
-+
-+    uses : PatClause todo' vars' -> List Use
-+    uses (MkPatClause _ ps _ _) = patUses ps
++arranged : Arrangement now after todo -> PatClause todo vars ->
++           PatClause (now ++ after) vars
++arranged placed (MkPatClause pvars ps pid rhs)
++    = let (soon, late) = arrangePats placed ps in
++          MkPatClause pvars (soon ++ late) pid rhs
 +
 +-- Whether every column's type is known. Where one is not, it is found as the
 +-- columns before it are split, so the columns keep their order.
@@ -437,13 +405,15 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
 +arrange : {todo : _} -> List01 True (PatClause todo vars) ->
 +          (todo' ** List01 True (PatClause todo' vars))
 +arrange cs@(c :: _)
-+    = let later = if typed (getNPs c) then splitLater todo (columnUses cs) else [] in
-+          (_ ** map (arranged later) cs)
++    = if typed (getNPs c)
++         then let (_ ** _ ** placed) = arrangement (getNPs <$> cs) in
++                  (_ ** arranged placed <$> cs)
++         else (_ ** cs)
 +
  mutual
    {- 'PatClause' contains a list of patterns still to process (that's the
       "todo") and a right hand side with the variables we know about "vars".
-@@ -877,10 +1022,21 @@
+@@ -877,10 +992,21 @@
            List01 True (PatClause todo vars) ->
            IMaybe ne (CaseTree vars) ->
            Core (CaseTree vars)
@@ -466,7 +436,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
        = do let nps = getNPs <$> clauses
             let (_ ** (MkNVar next)) = nextIdxByScore (caseTreeHeuristics !getSession) phase nps
             let prioritizedClauses = shuffleVars next <$> clauses
-@@ -894,10 +1050,10 @@
+@@ -894,10 +1020,10 @@
             Just mix <- mixture fc fn phase ps err
             log "compile.casetree.intermediate" 25 $ "match: new case tree " ++ show mix
             pure mix
@@ -480,7 +450,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  
    caseGroups : {pvar, vars, todo : _} ->
                 {auto i : Ref PName Int} ->
-@@ -936,7 +1092,7 @@
+@@ -936,7 +1062,7 @@
    -- the same variable (pprf) for the first argument. If not, the result
    -- will be a broken case tree... so we should find a way to express this
    -- in the type if we can.
@@ -489,7 +459,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
        = do Element refinedcs _ <- pullOut <$> traverseList01 (substInClause fc) (pushIn cs isCons)
             groups <- groupCons fc fn pvars refinedcs
             ty <- case fty of
-@@ -957,19 +1113,19 @@
+@@ -957,19 +1083,19 @@
      where
        updateVar : PatClause (a :: todo) vars -> Core (PatClause todo vars)
        -- replace the name with the relevant variable on the rhs
@@ -505,7 +475,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
            = do pats' <- substInPats fc a (mkTerm _ pat) pats
                 let rhs' = substName n (Local pfc (Just True) _ prf) rhs
 -               updateVar (MkPatClause pvars (MkInfo pat prf fty :: pats') pid rhs')
-+               updateVar (MkPatClause pvars (MkInfo pat prf fty (sourceOf (unified pid) src (PAs pfc n pat)) :: pats') pid rhs')
++               updateVar (MkPatClause pvars (MkInfo pat prf fty src :: pats') pid rhs')
        -- match anything, name won't appear in rhs but need to update
        -- LHS pattern types based on what we've learned
 -      updateVar (MkPatClause pvars (MkInfo pat prf fty :: pats) pid rhs)
@@ -513,7 +483,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
            = pure $ MkPatClause pvars
                          !(substInPats fc a (mkTerm vars pat) pats) pid rhs
  
-@@ -1040,7 +1196,7 @@
+@@ -1040,7 +1166,7 @@
  mkPatClause : {auto c : Ref Ctxt Defs} ->
                FC -> Name ->
                (args : Scope) -> ClosedTerm ->
@@ -522,7 +492,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
                Core (PatClause args args)
  mkPatClause fc fn args ty pid (ps, rhs)
      = maybe (throw (CaseCompile fc fn DifferingArgNumbers))
-@@ -1071,16 +1227,18 @@
+@@ -1071,16 +1197,18 @@
                                Known c (embed !(quote empty [] farg)))
                       Just t =>
                          pure (Nothing, Stuck (embed !(quote empty [] t)))
@@ -544,7 +514,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
           pats <- mkPatClausesFrom 0 ns (p :: ps)
           -- low verbosity level: pretty print fully resolved names
           logC "compile.casetree" 5 $ do
-@@ -1094,11 +1252,11 @@
+@@ -1094,11 +1222,11 @@
           pure (_ ** cases)
    where
      mkPatClausesFrom : Int -> (args : Scope) ->
@@ -559,7 +529,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
               ps' <- mkPatClausesFrom (i + 1) ns ps
               pure (p' :: ps')
  
-@@ -1108,35 +1266,9 @@
+@@ -1108,35 +1236,9 @@
        let (ns ** n) = getNames (i + 1) xs
        in (MN "arg" i :: ns ** suc n)
  
@@ -596,7 +566,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  toPatClause fc n (unified, lhs, rhs)
      = case getFnArgs lhs of
             (Ref ffc Func fn, args)
-@@ -1144,7 +1276,7 @@
+@@ -1144,7 +1246,7 @@
                      (np, _) <- getPosition n (gamma defs)
                      (fnp, _) <- getPosition fn (gamma defs)
                      if np == fnp
@@ -605,7 +575,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
                         else throw (GenericMsg ffc ("Wrong function name in pattern LHS " ++ show (n, fn)))
             (f, args) => throw (GenericMsg fc "Not a function name in pattern LHS")
  
-@@ -1152,7 +1284,7 @@
+@@ -1152,7 +1254,7 @@
  -- explicitly named. We'll assign de Bruijn indices when we're done, and
  -- the names of the top level variables we created are returned in 'args'.
  -- Each clause comes with the names of the arguments it leaves to
@@ -614,7 +584,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  export
  simpleCase : {auto c : Ref Ctxt Defs} ->
               FC -> Phase -> Name -> ClosedTerm ->
-@@ -1165,7 +1297,6 @@
+@@ -1165,7 +1267,6 @@
                       indent 2 $ vcat $ flip map cs $ \ lrhs =>
                         byShow (fst lrhs) <++> pretty "=" <++> byShow (snd lrhs))
           ps <- traverseList01 (toPatClause fc fn) clauses
@@ -622,7 +592,7 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
           patCompile fc fn phase ty ps
  
  mutual
-@@ -1297,18 +1428,10 @@
+@@ -1297,18 +1398,10 @@
      labelPat i (x :: xs) = ("pat" ++ show i ++ ":", x) :: labelPat (i + 1) xs
  
      -- The names `close` gives the variables a clause leaves to
@@ -644,9 +614,9 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
      toClosed : Defs -> (String, Clause) -> (List Name, ClosedTerm, ClosedTerm)
      toClosed defs (pname, MkClause env lhs rhs unified)
 diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
---- a/src/TTImp/ProcessDef.idr	2026-10-16 21:42:46
-+++ b/src/TTImp/ProcessDef.idr	2026-10-16 21:42:46
-@@ -832,6 +832,24 @@
+--- a/src/TTImp/ProcessDef.idr	2026-10-17 12:07:42
++++ b/src/TTImp/ProcessDef.idr	2026-10-17 12:07:42
+@@ -835,6 +835,24 @@
  toPats (MkClause {vars} env lhs rhs _)
      = (_ ** (env, lhs, rhs))
  
@@ -671,7 +641,7 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
  warnUnreachable : {auto c : Ref Ctxt Defs} ->
                    Clause -> Core ()
  warnUnreachable (MkClause env lhs rhs _)
-@@ -939,7 +957,7 @@
+@@ -942,7 +960,7 @@
  
           (cargs ** (tree_ct, unreachable)) <-
               logTime 3 ("Building compile time case tree for " ++ show n) $

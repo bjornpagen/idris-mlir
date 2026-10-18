@@ -1,0 +1,2 @@
+NEEDS-ACCEPTANCE: that check agrees with brute force on every graph of Box.idr and gives each hand case the verdict expected-stdout says, built from compiler/src against the installed fork on Chez
+growth-check: every verdict as expected-stdout says

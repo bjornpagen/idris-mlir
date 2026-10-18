@@ -280,16 +280,18 @@ solution fc n args = do
     apply (Bind _ _ (Let _ _ val _) sc) as drop env = apply sc as (suc drop) (substs drop env val :: env)
     apply tm as drop env = foldl (App fc) (substs drop env tm) as
 
-||| The quantities of a definition's parameters, as its type binds them.
-quantities : {auto c : Ref Ctxt Defs} -> Name -> Core (List RigCount)
-quantities n = do
+||| Which parameters of a definition are erased, by position, as its type
+||| binds them.
+export
+erasedArgs : {auto c : Ref Ctxt Defs} -> Name -> Core (List Bool)
+erasedArgs n = do
   defs <- get Ctxt
   Just def <- lookupCtxtExact n (gamma defs)
     | Nothing => pure []
   pure (go (type def))
   where
-    go : TT vs -> List RigCount
-    go (Bind _ _ (Pi _ rig _ _) sc) = rig :: go sc
+    go : TT vs -> List Bool
+    go (Bind _ _ (Pi _ rig _ _) sc) = isErased rig :: go sc
     go _ = []
 
 ||| What `runtimeDependent` has read of an application, its head and
@@ -347,9 +349,7 @@ runtimeDependent = go
       applied : TT vs -> Core Applied
       applied (App _ f a) = appliedTo f a
       applied (Ref _ (TyCon _) _) = pure OfType
-      applied (Ref _ _ n) = do
-        qs <- quantities n
-        pure (Taking (map isErased qs))
+      applied (Ref _ _ n) = Taking <$> erasedArgs n
       applied f = pure (if !(go f) then Depends else Taking [])
 
 ||| The normal form of a closed term, its definitions unfolded as in
@@ -367,7 +367,6 @@ export
 holeMarker : Nat -> ClosedTerm
 
 ||| One of Idris's normalisers, at any scope.
-public export
 Normaliser : Type
 Normaliser = {free : _} -> Defs -> Env Term free -> Term free -> Core (Term free)
 
@@ -514,7 +513,6 @@ partialIn tm = firstOf (functionsIn tm)
 ||| the translation reduces goes through here, so none runs what Idris does
 ||| not prove ends; the one that applies lambdas (`lambdasApplied`) runs
 ||| none.
-export
 normalisedBy : {auto c : Ref Ctxt Defs} -> Normaliser -> ClosedTerm -> Core (Either Name ClosedTerm)
 normalisedBy normaliser tm = do
   filled <- solved tm
@@ -603,13 +601,10 @@ data Parts : Scope -> Type where
   Nil : Parts []
   (::) : Part -> Parts vs -> Parts (v :: vs)
 
-0 later : IsVar n (S i) (m :: ns) -> IsVar n i ns
-later (Later v) = v
-
 ||| The part a variable stands for, which its scope says is there.
 partAt : Parts vs -> (idx : Nat) -> (0 _ : IsVar n idx vs) -> Part
 partAt (p :: _) Z _ = p
-partAt (_ :: ps) (S i) v = partAt ps i (later v)
+partAt (_ :: ps) (S i) v = partAt ps i (dropLater v)
 partAt [] _ First impossible
 partAt [] _ (Later _) impossible
 
@@ -753,14 +748,16 @@ mutual
           Just (Element w' less) => reduce asWritten w' (rec w' less) env body rest
       _ => case projectionOf def of
         Nothing => normalised ph w acc tm
-        -- A projection: the normaliser's normal form when it is a
-        -- constructor's; otherwise the field the projection takes from the
-        -- constructor its record reduces to here, its arguments as
-        -- written; otherwise what the normaliser that unfolds every
-        -- definition reduces it to.
+        -- A projection: the field it takes from the constructor its record
+        -- reduces to here, its arguments as written, so that an
+        -- implementation in it stays the implementation it names. A
+        -- normal form of the record unfolds every implementation inside
+        -- its fields too, so taken first it would give one implementation
+        -- a second written form. A record that reduces to no constructor
+        -- here is stuck in the normal form of the normaliser that unfolds
+        -- every definition, which no other normaliser goes past, so the
+        -- projection is what that normaliser makes of it.
         Just pr => do
-          Stuck _ <- normalisedConstructor ph w acc tm
-            | found => pure found
           Just (field, extras) <- project pr args
             | Nothing => again tm
           applied ph w acc field extras
@@ -821,27 +818,6 @@ mutual
   normalisedTo next w acc tm = case !(normalisedBy host.normalise tm) of
     Left n => pure (Stuck (OnPartial n))
     Right nf => reduce next w acc [] nf []
-
-  ||| A term given to Idris's normaliser, as `normalised`, when its normal
-  ||| form is a constructor applied: its parts are reduced on in the normal
-  ||| form's phase. Of a normal form, the normaliser is not asked again.
-  normalisedConstructor : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                          Lazy ClosedTerm -> Core (Head Part)
-  normalisedConstructor Normal w acc tm = pure (Stuck (OnValue tm))
-  normalisedConstructor (Beta next _) w acc tm = constructorTo next w acc tm
-  normalisedConstructor (Written (Beta next _) _) w acc tm = constructorTo next w acc tm
-  normalisedConstructor (Written Normal ItIsBeta) _ _ _ impossible
-  normalisedConstructor (Written (Written _ _) ItIsBeta) _ _ _ impossible
-
-  constructorTo : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                  Lazy ClosedTerm -> Core (Head Part)
-  constructorTo next w acc tm = case !(normalisedBy host.normalise tm) of
-    Left n => pure (Stuck (OnPartial n))
-    Right nf => do
-      defs <- get Ctxt
-      case normalHead (gamma defs) nf of
-        Built {} => reduce next w acc [] nf []
-        stuck => pure stuck
 
   ||| The implementation a term stands for (`implementationOf`), with what
   ||| each of its variables stands for, applied to parts.
@@ -915,19 +891,6 @@ projected n args = do
 export
 implementationOf : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 implementationOf tm = implementing asWritten start (sizeAccessible start) [] tm []
-
-||| Which arguments of a constructor are erased, by position.
-export
-erasedArgs : {auto c : Ref Ctxt Defs} -> Name -> Core (List Bool)
-erasedArgs n = do
-  defs <- get Ctxt
-  Just def <- lookupCtxtExact n (gamma defs)
-    | Nothing => pure []
-  pure (go (type def))
-  where
-    go : TT vs -> List Bool
-    go (Bind _ _ (Pi _ rig _ _) sc) = isErased rig :: go sc
-    go _ = []
 
 ||| A term as a message shows it, every name full: a name Idris has
 ||| resolved to its place in the context prints as `$resolved359`, which
@@ -1156,9 +1119,7 @@ lookupDef fc owner n = do
 ||| name for one: `VarSet : Scoped` is `Scope -> Type`.
 export
 computesType : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
-computesType def = do
-  defs <- get Ctxt
-  pure (isTypeLike !(host.normaliseTypes defs [] (type def)))
+computesType def = isTypeLike <$> normaliseClosed (type def)
 
 ||| A type argument as data instances compare them. A type-level function
 ||| and the lambda of its one clause are the same argument: elaboration
@@ -1189,14 +1150,13 @@ canonicalTypeArg tm = walk False tm
 
     normaliseClause : {vs : _} -> FC -> TT vs -> Core (Maybe ClosedTerm)
     normaliseClause fc body = do
-      defs <- get Ctxt
       let written = wrapLams fc body
       -- A name with no argument (`Scope = List Name`) is already reduced
       -- by ordinary normalisation wherever it is applied. Inlining it
       -- here turns a parameter into a value at one site only.
       case written of
         Bind _ _ (Lam {}) _ => do
-          nf <- host.normaliseTypes defs [] written
+          nf <- normaliseClosed written
           -- Quoting can put the name back; the clause is kept as written.
           let chosen = if etaContracted nf then written else nf
           pure (if hasPi chosen then Just chosen else Nothing)
@@ -1309,9 +1269,9 @@ boundAt Same fc idx v = AVar (Local fc Nothing idx v)
 boundAt Closed _ _ First impossible
 boundAt Closed _ _ (Later _) impossible
 boundAt (Keep env) fc Z _ = AVar (Local fc Nothing Z First)
-boundAt (Keep env) fc (S i) v = weakenBound (boundAt env fc i (later v))
+boundAt (Keep env) fc (S i) v = weakenBound (boundAt env fc i (dropLater v))
 boundAt (Apply a env) fc Z _ = AnArg a
-boundAt (Apply a env) fc (S i) v = boundAt env fc i (later v)
+boundAt (Apply a env) fc (S i) v = boundAt env fc i (dropLater v)
 
 mutual
   ||| A term in the scope of the cut term, as written.
@@ -1555,8 +1515,7 @@ closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
                  FC -> List (VarInfo a) -> TT vars -> Core ClosedTerm
 closeNormalise fc env tm = do
   closed <- solved (betaAll (wrapLams fc tm) (reverse (map value env)))
-  defs <- get Ctxt
-  host.normaliseTypes defs [] !(cutRuntime closed)
+  normaliseClosed !(cutRuntime closed)
   where
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t

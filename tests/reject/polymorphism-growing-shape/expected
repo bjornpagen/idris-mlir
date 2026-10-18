@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that grow, which calls itself at S n over Ints, a type that needs all of n, is refused once as polymorphism at its declaration (line 19), by the growth check, whose message names the cycle and its growth of 1 a round; Ints's pair, one head per level, adds no cause
 compile: exit 3
 unsupported (polymorphism): the only error
 line: as the header says

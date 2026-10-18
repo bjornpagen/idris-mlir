@@ -1,14 +1,14 @@
--- expect: polymorphism, line 14
+-- expect: polymorphism, line 12
+-- message: growing it by 1 each round, and nothing bounds how far it grows
 module Main
-
 import Prelude
 import Array
 
 -- Each call of deeper gives its array one more axis, so the ranks its
 -- instances must take are unbounded: an array's rank is its type's, and
--- the chain of requests from main grows at it at each step. The program is
--- refused, naming that growth, rather than compiled to an array of a rank
--- only the run knows.
+-- deeper passes its own shape back to itself as s :< 2, one axis longer at
+-- each round. The program is refused, naming that growth, rather than
+-- compiled to an array of a rank only the run knows.
 deeper : Array s Int -> Nat -> Int
 deeper x Z = sum x
 deeper x (S k) = deeper (tabulate (shape x :< 2) (\(i :< _) => x !! i)) k

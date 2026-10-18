@@ -51,10 +51,11 @@ nothing has measured the new pipeline on the self module. 0003 is the
 plan. Its S1, the frontend's refusal sweep, runs here; S3 to S5 are the
 owner's machines.
 
-**The polymorphism rule is decided** (the owner, 2026-10-16): option C of
-0003 §7, a fixpoint over the program's finite type-flow graph that refuses
-only a type grown without bound. It is mandatory for self-hosting, and its
-design is 0003's S2.2.
+**The polymorphism rule is built** (the owner's ruling, 2026-10-16;
+integrated 2026-10-17): option C of 0003 §7, a growth graph over the
+program's finite type flow that refuses only a type grown without bound,
+with its proof in Idris. The self compile's frontend step passes it with
+no patch (0003's S2.2, `bench/profiles/2026-10-17-self-growth.md`).
 
 **The chain, in order:** the owner's build of 0001 and 0002 (HANDOFF.md
 lists it); 0003, self-hosting, S1 and S2 here, then S3 to S5; 0004, the
@@ -94,8 +95,8 @@ The rules every proposal holds to, each stated in AGENTS.md or here:
   stages:
   - S0: integration fixes, done in 0001.
   - S1: the refusal sweep, here.
-  - S2: fix each refusal in the code, never by loosening a rule. The
-    likeliest is the fork's `SyntaxInfo` knot, made plain data.
+  - S2: fix each refusal in the code, never by loosening a rule. Done:
+    S2.1 writes each data type once, S2.2 is the polymorphism checker.
   - S3: the pipeline on the self module (owner's machine).
   - S4 and S5: `make self` on arm64 macOS, then x86_64 Linux, with stage
     2 = stage 3.

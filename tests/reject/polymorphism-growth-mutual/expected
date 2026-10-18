@@ -1,0 +1,6 @@
+NEEDS-ACCEPTANCE: that up and down, whose cycle adds two constructors and takes one off, are refused once as polymorphism at up's declaration (line 22, the cycle's first definition in the source), by the growth check, whose message names the cycle through down and its growth of 1 a round (the sum, not the larger arc)
+compile: exit 3
+unsupported (polymorphism): the only error
+line: as the header says
+message: as the header says
+artifacts: none

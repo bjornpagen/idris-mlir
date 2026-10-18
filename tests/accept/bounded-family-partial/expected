@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that W, whose family m is F, a definition given fewer arguments than it takes, applied to x in T's static argument, is admitted with T's argument bounded by F's body around x (the family read as its meaning), where reading F as its key's one head raised the growth check's internal error, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

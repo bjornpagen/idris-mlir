@@ -1,0 +1,6 @@
+NEEDS-ACCEPTANCE: that W, which applies its family m to two closed arguments in T's static argument, where m's value applies its family argument to what holds its other argument (a sum of the two arguments' heights), is refused once as polymorphism at T's declaration (line 15), by the growth check, whose message names the family m, though its instances are finite: a sum of two arguments' heights is no weight the check states (a known limit)
+compile: exit 3
+unsupported (polymorphism): the only error
+line: as the header says
+message: as the header says
+artifacts: none

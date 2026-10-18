@@ -1,0 +1,16 @@
+one position: 12 graphs, 4 grow, 0 disagree
+two positions: 10404 graphs, 8312 grow, 0 disagree
+three positions: 266240 graphs, 212933 grow, 0 disagree
+three positions, stuck: 262144 graphs, 260720 grow, 0 disagree
+parallel arcs: 4096 graphs, 2863 grow, 0 disagree
+no positions: bounded
+grow once: bounded
+grow, then shrink: bounded
+grow twice, shrink once: grows, 1 cause
+a mutual +1: grows, 1 cause
+a cap: bounded
+the same, uncapped: grows, 1 cause
+a stuck arc on no cycle: grows, 1 cause
+two loops, one growing: grows, 1 cause
+a stuck arc a growing cycle reaches: grows, 1 cause
+two growing components: grows, 2 causes

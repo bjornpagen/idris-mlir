@@ -72,10 +72,10 @@ lacks: upstream/53-constructor-implicit-mark.
 The change is upstream/53-constructor-implicit-mark's `pull-request.diff`
 (after 50's and 52's), one diff for both: there is no fix of this bug
 without the mark that one adds. Its part here is `getClauseType`'s rule
-for a pattern on an erased argument at quantity 0, which reads what the
-clause does with it (upstream/52's `Use`, from the pattern's `Source`): a
-pattern the clause writes is split whatever its kind, as a constructor
-already was. One unification fixed, the definitions' implicits and now
+for a pattern on an erased argument at quantity 0, which reads where the
+pattern comes from (upstream/52's `Source`, `matchesErased`): a pattern the
+clause writes is split whatever its kind, as a constructor already was.
+One unification fixed, the definitions' implicits and now
 their constructors' (upstream/50, 53), and every part of one once the tree
 splits it, keeps the old rule: split after what the clause writes
 (upstream/52), and a variable unless it is a constructor. A type unification solved there

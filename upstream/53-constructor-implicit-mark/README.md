@@ -90,12 +90,11 @@ report points here.
   binds the definition's own (`implicitsAs`): an as-pattern on its own
   side over the hole unification fills, named by the hole (`unifiedArg`,
   from `makeImplicit` and `makeDefImplicit`). It records the name
-  (`EState`'s `marks`); `checkLHS` returns the names
-  (`elabTermSubMarked`), and `checkClause` adds them to the clause's
-  `VarSet` of arguments left to unification, upstream/50's one mark
-  (`unifiedArgs`). Above quantity 0 an erased argument is not marked:
-  252e07833's rule takes it as a variable where the names it binds are
-  bound elsewhere, as before.
+  (`EState`'s `marks`), which `elabTermSubMarked` returns, and `checkLHS`
+  adds the names to the `VarSet` of arguments the clause leaves to
+  unification, upstream/50's one mark (`unifiedArgs`). Above quantity 0 an
+  erased argument is not marked: 252e07833's rule takes it as a variable
+  where the names it binds are bound elsewhere, as before.
 - A mark over a variable gives way to it (`markDrops`, and
   `findPLetRenames` skips it): the variable keeps its name and its as-name
   goes, so an implicit unification leaves unsolved, or solves to another
@@ -110,9 +109,10 @@ report points here.
   splits as at the pin, so no rule above quantity 0 is needed.
 - `checkAs`'s binding of the as-name is `bindAs`, which `unifiedArg` uses
   too; `elabTermSub` is `elabTermSubMarked` without the marks.
-- upstream/54's part: `getClauseType` reads whether the clause writes a
-  pattern (`Use`); at quantity 0 a pattern it writes on an erased argument
-  is split whatever its kind, and one unification fixed keeps the old rule.
+- upstream/54's part: `getClauseType` reads where a pattern comes from
+  (upstream/52's `Source`, `matchesErased`); at quantity 0 a pattern the
+  clause writes on an erased argument is split whatever its kind, and one
+  unification fixed keeps the old rule.
 
 Upstream tests: `tests/idris2/coverage/coverage034` (in the diff),
 `ConImplicit.idr`: `v1`, `v3` (computed in a type), and `w3` and `w4`,

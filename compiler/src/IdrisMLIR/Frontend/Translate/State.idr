@@ -16,6 +16,7 @@ import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
+import Data.DPair
 import Data.Fin
 import Data.List1
 import Data.SnocList
@@ -65,21 +66,61 @@ runtimeBinder (ValueParam b _ _) = Just b
 runtimeBinder (DictParam _ (Just h)) = Just h.binder
 runtimeBinder _ = Nothing
 
-||| The compile-time value that keys an instance at this parameter, if any.
+||| How a static argument keys its instance, as classify's PKind: a type
+||| (TypeParam), a type family (TypeParam too: a type parameter whose kind
+||| is a function into a universe, `tm : Scope -> Type` or a functor's `f`,
+||| whose value is a type constructor applied to fewer arguments than it
+||| takes, or a lambda), an implementation (DictParam), a form (FormParam),
+||| a shape (ValueParam). A family and an implementation are the kinds whose
+||| value's head splits the definition it is given to (`Root`).
+public export
+data Static = AType | AFamily | ADictionary | AForm | AShape
+
+-- The kinds in one order, so that a table can be keyed by kind.
+kindOrder : Static -> Nat
+kindOrder AType = 0
+kindOrder AFamily = 1
+kindOrder ADictionary = 2
+kindOrder AForm = 3
+kindOrder AShape = 4
+
 export
-staticOf : PKind -> Maybe ClosedTerm
-staticOf (TypeParam t) = Just t
-staticOf (DictParam t _) = Just t
-staticOf ErasedParam = Nothing
-staticOf (FormParam f) = Just f
-staticOf (ValueParam _ shape _) = shape
+Eq Static where
+  x == y = kindOrder x == kindOrder y
+
+export
+Ord Static where
+  compare x y = compare (kindOrder x) (kindOrder y)
+
+||| The kinds a request's static argument is read at: every kind but a
+||| family's. A family keys its instance as any type does (`TypeParam`),
+||| and its value reads as a type, whose root is the type constructor it
+||| applies when it has one, so a request is never read as a family.
+public export
+data Requested : Static -> Type where
+  ReadAsType : Requested AType
+  ReadAsDictionary : Requested ADictionary
+  ReadAsForm : Requested AForm
+  ReadAsShape : Requested AShape
+
+||| The compile-time value that keys an instance at a parameter, with the
+||| kind the growth check reads it at: a type, an implementation, a form,
+||| a value's shape; nothing for a parameter that keys nothing. The one
+||| reading of a request's parameter as a static argument.
+export
+staticKindOf : PKind -> Maybe (Subset Static Requested, ClosedTerm)
+staticKindOf (TypeParam t) = Just (Element AType ReadAsType, t)
+staticKindOf (DictParam t _) = Just (Element ADictionary ReadAsDictionary, t)
+staticKindOf ErasedParam = Nothing
+staticKindOf (FormParam f) = Just (Element AForm ReadAsForm, f)
+staticKindOf (ValueParam _ shape _) = (Element AShape ReadAsShape,) <$> shape
 
 ||| A full name, printed so that different names print differently: Idris's
 ||| `show` prints only the display part of a `DN` and leaves out the index of
-||| a case or with block. It is a print, for a refusal that names a
-||| definition (the polymorphic recursion's); no table is keyed by it, since
-||| a definition is its address (`definitionAddress`), and it is no part of
-||| what the program is called, which `Keys` prints.
+||| a case or with block. It is a print, for a message that names a
+||| definition; no table is keyed by it, since a definition is its address
+||| (`definitionAddress`), and it is no part of what the program is called,
+||| which `Keys` prints.
 export
 nameKey : Name -> String
 nameKey (NS ns n) = show (NS ns (UN (Basic (nameKey n))))
@@ -104,12 +145,73 @@ export
 definitionAddress : Context -> Name -> Maybe Address
 definitionAddress ctx n = addressOf <$> getNameID n ctx
 
+||| A definition as the growth check splits it (`Growth`): its address,
+||| the implementation (or interface constructor) at the root of each
+||| implementation it is given that has one, and the type constructor at
+||| the head of each type family it is given that one heads (`tm : Scope ->
+||| Type` at `Term`), by the parameter's index, ascending. A method is
+||| requested as its projection at the dictionary, so two calls of it at
+||| implementations of different heads are two nodes: it is keyed by the
+||| implementation that runs. A definition whose kinds depend on what its
+||| family is (an index of `Term` keys nothing that a marker would key) is
+||| two nodes at two type constructors, each with its own positions.
+public export
+record Node where
+  constructor MkNode
+  definition : Address
+  heads : List (Nat, Address)
+
+export
+Eq Node where
+  x == y = x.definition == y.definition && x.heads == y.heads
+
+export
+Ord Node where
+  compare x y = compare (x.definition, x.heads) (y.definition, y.heads)
+
+||| A static position of the checked graph: a node and one of its
+||| definition's parameters, by position.
+public export
+Position : Type
+Position = (Node, Nat)
+
+||| The index of the context an address is (`addressOf`'s inverse): the
+||| index whose eight bytes, the low byte first, it is.
+export
+addressIndex : Address -> Int
+addressIndex a = cast (bytes a)
+  where
+    bytes : Vect k (Fin 256) -> Integer
+    bytes [] = 0
+    bytes (b :: bs) = cast (finToNat b) + 256 * bytes bs
+
+||| The name a definition's address stands for (`addressOf`'s inverse): the
+||| context's entry at that index, for a message to print (`toFullNames`);
+||| nothing for bytes no entry of the context has.
+export
+nameAt : Context -> Address -> Maybe Name
+nameAt ctx a = let i = addressIndex a in
+               if i < nextEntry ctx then Just (Resolved i) else Nothing
+
+||| A static argument as the growth check reads it (`Template.closedHeight`):
+||| its height, and the definition at its root that splits the node of a
+||| request it is given to, the implementation of a dictionary or the type
+||| constructor at the head of a family, if it has one.
+public export
+record StaticReading where
+  constructor MkStaticReading
+  height : Nat
+  head : Maybe Address
+
 ||| A function instance requested: its identity, its definition, its
 ||| parameters as the call that requested it classified them, so that it is
 ||| translated at the same values, its key, the call that requested it,
-||| where and in whose definition, as a refusal of its chain prints it, and
-||| its link, which is its identity, its definition's address, and what its
-||| chain compares (`Finite`).
+||| where and in whose definition, for a message to print, its link, which
+||| is its identity, its node, and the height of each static argument by
+||| its parameter's index, ascending, which the worklist checks against the
+||| growth check's bounds at the node's positions (`Finite`). The node's
+||| heads and the heights are the arguments' readings, found when the
+||| instance is requested (`Instances.request`).
 public export
 record Request where
   constructor MkRequest
@@ -120,38 +222,8 @@ record Request where
   site : FC
   owner : Shown
   link : Link Form
-
-||| Instances waiting to be translated, first in first out: the front in
-||| order and the back as requested. Requesting is constant time, and
-||| taking the next is amortised constant, since the back is reversed into
-||| the front only when the front is empty. A list appended at its end
-||| would copy every waiting instance at every request.
-public export
-record Queue a where
-  constructor MkQueue
-  front : List a
-  back : SnocList a
-
-public export
-emptyQueue : Queue a
-emptyQueue = MkQueue [] [<]
-
-public export
-enqueue : a -> Queue a -> Queue a
-enqueue x q = { back $= (:< x) } q
-
-||| Each of the list, in order, at the back.
-public export
-enqueueAll : List a -> Queue a -> Queue a
-enqueueAll [] q = q
-enqueueAll (x :: xs) q = enqueueAll xs (enqueue x q)
-
-public export
-dequeue : Queue a -> Maybe (a, Queue a)
-dequeue (MkQueue (x :: xs) b) = Just (x, MkQueue xs b)
-dequeue (MkQueue [] b) = case b <>> [] of
-  [] => Nothing
-  (x :: xs) => Just (x, MkQueue xs [<])
+  node : Node
+  heights : List (Nat, Nat)
 
 ||| One argument of a constructor, as a data instance has it. Idris does not
 ||| put the data type's parameters first (`(::) : {0 len} -> {0 elem} ->
@@ -197,15 +269,23 @@ record Dictionary where
 export
 data TState : Type where
 
+||| What a type constructor's values are, as numbers go.
+public export
+data Natness = NotNat     -- not Nat-like
+             | Numeral    -- Nat-like (Idris's ZERO/SUCC), but a constructor takes an erased argument (Fin's FS)
+             | Chain      -- Nat-like, every constructor argument at run time: a shape is a chain of S
+
 ||| What the translation reads of a type constructor's definition: its
-||| parameters, the type parameters among them that a value represents, and
-||| whether it is `Nat`-like.
+||| parameters, the type parameters among them that a value represents, what
+||| its values are as numbers go, and the arguments its values hold, which
+||| the growth check watches (`Types.represented`).
 public export
 record TyConFacts where
   constructor MkTyConFacts
   params : List Nat
   typeParams : List Nat
-  natLike : Bool
+  natness : Natness
+  represented : List Nat
 
 public export
 record TS where
@@ -227,7 +307,7 @@ record TS where
   fnOrder : SnocList FnId
   seen : SortedSet FnId
   ||| The instances requested since the worklist last took them, in the
-  ||| order requested (`Finite.translateFrom`).
+  ||| order requested (`Finite.requestedUnder`).
   requested : SnocList Request
   moduleFC : FC
   ||| The definitions whose component of the call graph has been checked
@@ -258,7 +338,7 @@ record TS where
   ||| The request chain of the instance being translated: its own request,
   ||| the one that requested it, back to the root. It leads back to the user
   ||| definition a library instance serves (`Dictionaries.chooser`); the
-  ||| worklist sets it (`Finite.translateFrom`).
+  ||| worklist sets it (`Finite.pass`).
   chain : List Request
   ||| The type constructors of the interfaces the program loaded, by full
   ||| name: Idris's own table of them, read once, since nothing the
@@ -285,6 +365,20 @@ record TS where
   ||| What the translation reads of each type constructor's definition
   ||| (`Types.tyConFacts`), by address, found once each.
   tyCons : SortedMap Address TyConFacts
+  ||| Each static argument a request has given, read (`StaticReading`), by its
+  ||| kind and as a link writes it (`Keys.write`), which tells two
+  ||| arguments apart as Idris's `==` does: an argument reads the same in
+  ||| every request that gives it, so it is read once (`Instances.request`).
+  readings : SortedMap (Static, Written Form) StaticReading
+  ||| Each static position's height bound, written by the growth check
+  ||| (`Growth.checkGrowth`) once, before the translation: a request whose
+  ||| static argument is higher, or whose position has none, is the
+  ||| check's unsoundness, which the worklist reports (`Finite`).
+  bounds : SortedMap Position Nat
+  ||| The same bounds as sizes of written arguments, per definition: the
+  ||| universe the worklist descends in (`Proof.Requests.Bounds`).
+  ||| Nothing is within it until the growth check writes it.
+  sizes : Bounds
 
 export
 initState : SortedSet Name -> FC -> TS
@@ -293,16 +387,28 @@ initState ifaces fc = MkTS
   , cons = empty, fns = empty, fnOrder = [<], seen = empty, requested = [<], moduleFC = fc
   , loops = empty, named = empty, symbols = empty, blockNames = empty, dicts = empty
   , assumed = empty, chain = [], interfaces = ifaces, rejected = [<], refused = empty
-  , spelled = empty, places = empty, tyCons = empty }
+  , spelled = empty, places = empty, tyCons = empty, readings = empty, bounds = empty
+  , sizes = MkBounds (const []) 0 0 0 }
+
+||| What a translation has found that outlives what found it, put back in
+||| a state: the rejections and what they refused, and what it found of
+||| modules, type constructors, static arguments, blocks and the call
+||| graph's components, facts of the program's definitions that
+||| nothing the translation does changes. An instance its translation
+||| rejects leaves the state as it was before it but for these
+||| (`Finite.pass`), and a pass starts with them (`nextPass`).
+export
+keepFound : (from : TS) -> TS -> TS
+keepFound from = { rejected := from.rejected, refused := from.refused, places := from.places
+                 , tyCons := from.tyCons, readings := from.readings, loops := from.loops
+                 , blockNames := from.blockNames }
 
 ||| The state a pass of the translation starts from: nothing of the last
-||| pass but the dictionaries it found, the interfaces, the rejections and
-||| what they refused, and what it found of modules, type constructors,
-||| blocks and the call graph's components (`places`, `tyCons`,
-||| `blockNames`, `loops`). A void pass's rejections stay: the first one
-||| found is the one the program is refused with, whichever pass found it.
+||| pass but the dictionaries it found, the interfaces, what it found that
+||| outlives it (`keepFound`), and the growth check's bounds, which hold for
+||| every pass. A void pass's rejections stay: the first one found is the
+||| one the program is refused with, whichever pass found it.
 export
 nextPass : TS -> TS
-nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused, places := st.places
-               , tyCons := st.tyCons, loops := st.loops, blockNames := st.blockNames }
-                (initState st.interfaces st.moduleFC)
+nextPass st = keepFound st ({ dicts := st.dicts, bounds := st.bounds, sizes := st.sizes }
+                              (initState st.interfaces st.moduleFC))

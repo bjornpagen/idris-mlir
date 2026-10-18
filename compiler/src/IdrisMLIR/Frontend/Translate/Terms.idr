@@ -518,9 +518,10 @@ mutual
   applyVariable ph w acc ctx env afc fc r idx p args = case getAt idx env of
     Just (Runtime x _ _) => applied x
     Just (Shaped x _ _ _) => applied x
-    -- Idris's quantity check keeps a compile-time variable out of every
-    -- position that exists at runtime, and the translation leaves out
-    -- every erased one.
+    -- Idris's quantity check of a clause keeps a binder of quantity 0 out
+    -- of every position that exists at runtime, a leaf reads each binder
+    -- where its clause holds it at runtime (`Forced.heldAt`), and the
+    -- translation leaves out every erased position.
     Just (TypeValue _) => internal (bestFC ctx fc) "a compile-time variable in a runtime position"
     Just (Static t held) => implementationAt ph ctx env fc t held args
     Nothing => internal (bestFC ctx fc) "a variable out of scope"

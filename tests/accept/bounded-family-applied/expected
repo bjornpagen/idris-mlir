@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that W, whose family m is a lambda applied to x in T's static argument, is admitted with T's argument bounded by the lambda's body around x (beta at the instance), where the reading one level above x raised the growth check's internal error, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

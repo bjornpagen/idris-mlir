@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that a clause whose runtime index end holds add start len, a term the unifier computed and Idris's tree never matches, still matches every input that reaches its leaf, so the leaf reads the erased index start as the runtime field the clause unified it with, in a clause and in a with block; that it compiles and runs, printing 10 twice; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

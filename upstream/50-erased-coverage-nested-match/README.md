@@ -113,10 +113,11 @@ after it, replaced its case-builder half; the fork carries both:
 
 - A checked clause carries the variables of its scope that name an
   argument it leaves to unification (`MkClause`'s new `VarSet`).
-  `checkClause` reads them off the raw left-hand side (`unifiedArgs`: the
-  names of `IAs _ _ UseLeft n (Implicit _ _)`, the form upstream's
-  `isImplicitAs` already recognises), for pattern clauses and with
-  clauses; every other clause has none.
+  `checkLHS` reads them off the raw left-hand side it checks (`unifiedArgs`:
+  the names of `IAs _ _ UseLeft n (Implicit _ _)`, the form upstream's
+  `isImplicitAs` already recognises) and returns them in the clause's
+  scope, which `checkClause` keeps for pattern clauses and with clauses
+  (and a transform drops); every other clause has none.
 - In a definition elaborated at quantity 0, the case builder took each
   such argument as the variable it is (`asVariables`): its as-pattern
   became its name alone, unless a name in its pattern was bound by no

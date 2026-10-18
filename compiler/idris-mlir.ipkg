@@ -52,10 +52,14 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Given
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed
-        , IdrisMLIR.Proof.AlmostFull
+        , IdrisMLIR.Proof.Growth
+        , IdrisMLIR.Proof.Bound
         , IdrisMLIR.Proof.Generations
         , IdrisMLIR.Proof.Forms
         , IdrisMLIR.Proof.Requests
+        , IdrisMLIR.Frontend.Growth.Potential
+        , IdrisMLIR.Frontend.Growth.Check
+        , IdrisMLIR.Frontend.Growth.Template
         , IdrisMLIR.Frontend.Finite
         , IdrisMLIR.Frontend.Translate.Shapes
         , IdrisMLIR.Frontend.Translate.Keys
@@ -70,6 +74,13 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Programs
         , IdrisMLIR.Frontend.Translate
         , IdrisMLIR.Frontend.Profile
+        , IdrisMLIR.Frontend.Growth.Implementations
+        , IdrisMLIR.Frontend.Growth.Sites
+        , IdrisMLIR.Frontend.Growth.Heads
+        , IdrisMLIR.Frontend.Growth.Fields
+        , IdrisMLIR.Frontend.Growth.Caps
+        , IdrisMLIR.Frontend.Growth.Graph
+        , IdrisMLIR.Frontend.Growth
         , IdrisMLIR.Frontend.Program
         , IdrisMLIR.Frontend.Driver
 main = IdrisMLIR.Frontend.Driver

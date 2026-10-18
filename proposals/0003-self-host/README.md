@@ -2,18 +2,19 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # Self-hosting: `make self` finishes
 
-**Status:** in progress (2026-10-16). S1 is done
+**Status:** in progress (2026-10-17). S1 is done
 (`bench/profiles/2026-10-15-self-s1.md`). These S2 fixes are in:
 - the TTC decoder runs at stock speed (da9492a9);
 - no escape hatch or erased match is left (4d190757);
 - keys spell a Nat literal by its value (d1dc847e);
-- the handoff writes each data type once, S2.1.
+- the handoff writes each data type once, S2.1;
+- the polymorphism checker replaces the rule, S2.2
+  ([checker/](checker/README.md), its integration record in §12).
 
-The self-compile's frontend step now finishes and writes a 75 MB module in
-742 s of emit at 4.53 GB (`bench/profiles/2026-10-16-self-emit.md`), past
-the polymorphism refusals. The owner ruled on those (§7), and the S2.2
-checker that replaces the rule is a packet ([checker/](checker/README.md)),
-for dispatch. It takes 0005's former §2 (self-hosting's steps 4 to 6) and
+The self-compile's frontend step finishes with no patch and no refusal
+(`bench/profiles/2026-10-17-self-growth.md`); the C++ reader and the
+pipeline on its module are S3, on the owner's build. It takes 0005's
+former §2 (self-hosting's steps 4 to 6) and
 its decisions D10, D11 and D16 (their text at b843d8b5). Goal: the
 frontend (`compiler/src`) and the fork (`compiler/idris`), compiled by
 idris-mlir itself, stages 1 to 3, stage 2 the same as stage 3, on both

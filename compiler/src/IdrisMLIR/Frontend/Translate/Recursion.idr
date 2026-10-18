@@ -17,7 +17,6 @@ import Core.Termination.SizeChange
 import Libraries.Data.SparseMatrix
 
 import IdrisMLIR.Frontend.Walk
-import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Proof.Requests
 
@@ -31,32 +30,31 @@ import Data.SortedSet
 %default total
 
 ||| A definition of the graph: its full name, its address, which the
-||| search keys it by, where it is, and its calls, each to a definition,
-||| with how each argument of the callee relates to the caller's (row: the
-||| callee's argument; column: the caller's).
-record Node where
-  constructor MkNode
+||| search keys it by, and its calls, each to a definition, with how each
+||| argument of the callee relates to the caller's (row: the callee's
+||| argument; column: the caller's).
+record Member where
+  constructor MkMember
   name : Name
   address : Address
-  location : FC
   calls : List SCCall
 
 ||| Tarjan's search for the components, from one definition: each
 ||| definition met gets a number in the order met, and the least number of
 ||| one still on the stack that it reaches, each definition by its address.
+||| The stack and the components found hold the definitions themselves.
 record Search where
   constructor MkSearch
   next : Nat
   number : SortedMap Address Nat
   low : SortedMap Address Nat
-  stack : List Address
+  stack : List Member
   onStack : SortedSet Address
-  nodes : SortedMap Address Node
-  found : List (List Address)
+  found : List (List Member)
 
 ||| A definition as a node, with its calls to definitions that exist.
-node : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe Node)
-node n = do
+memberOf : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe Member)
+memberOf n = do
   defs <- get Ctxt
   Just def <- lookupCtxtExact n (gamma defs)
     | Nothing => pure Nothing
@@ -64,7 +62,7 @@ node n = do
   let Just address = definitionAddress (gamma defs) full
     | Nothing => pure Nothing
   calls <- traverse (\call => pure ({ fnCall := !(toFullNames call.fnCall) } call)) (sizeChange def)
-  pure (Just (MkNode full address (location def) calls))
+  pure (Just (MkMember full address calls))
 
 mutual
   ||| Visits a definition the walk has just entered: its component is found
@@ -72,18 +70,18 @@ mutual
   ||| it entered the definition, and every definition it enters below
   ||| leaves fewer than `w0` to enter (`Walk`), which is why the search
   ||| ends.
-  visit : {auto c : Ref Ctxt Defs} -> SortedMap Address Bool -> Node ->
+  visit : {auto c : Ref Ctxt Defs} -> SortedMap Address Bool -> Member ->
           (w0 : Walked) -> (0 _ : SizeAccessible w0) -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w0))
   visit done v w0 acc s0 = do
     let key = v.address
     let s1 = { next $= S, number $= insert key s0.next, low $= insert key s0.next
-             , stack $= (key ::), onStack $= insert key, nodes $= insert key v } s0
+             , stack $= (v ::), onStack $= insert key } s0
     (s2, reached) <- successors done key w0 acc w0 (noMore w0) (map (.fnCall) v.calls) s1
     if lookup key s2.low /= lookup key s2.number then pure (s2, reached) else do
-      let (members, rest) = break (== key) s2.stack
+      let (members, rest) = break (\m => m.address == key) s2.stack
       pure ({ stack := drop 1 rest
-            , onStack $= \on => foldl (flip delete) on (key :: members)
-            , found $= ((key :: members) ::) } s2, reached)
+            , onStack $= \on => foldl (flip delete) on (key :: map (.address) members)
+            , found $= ((v :: members) ::) } s2, reached)
 
   ||| The calls of the definition at `key`, in order: a callee the walk has
   ||| not entered is visited, and one on the stack lowers the definition's
@@ -101,7 +99,7 @@ mutual
     let Just (Element w1 q) = enter (gamma defs) x w
       | Nothing => successors done key w0 acc w p xs (maybe s (\n => if contains xkey s.onStack then lower key n s else s)
                                                            (lookup xkey s.number))
-    Just xn <- node x
+    Just xn <- memberOf x
       | Nothing => do
           (s', Element w2 q2) <- successors done key w0 acc w1 (thenNoMore (fewer q) p) xs s
           pure (s', Element w2 (thenNoMore q2 (fewer q)))
@@ -115,18 +113,16 @@ mutual
 
 ||| Checks one component: whether every loop through each of its
 ||| definitions terminates, which its definitions' `terminating` fact says.
-||| Whether its recursion asks for ever more instances is the request
-||| chains' to say (`Instances.request`), on the instances themselves.
-checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 SortedMap Address Node -> List Address -> Core ()
-checkComponent nodes members = do
+||| Whether its recursion asks for ever more instances is the growth
+||| check's to say (`Growth`), on the program's static positions.
+checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Member -> Core ()
+checkComponent members = do
   defs <- get Ctxt
-  let inside = the (SortedSet Address) (fromList members)
+  let inside = the (SortedSet Address) (fromList (map (.address) members))
   let within = \n => maybe False (\a => contains a inside) (definitionAddress (gamma defs) n)
-  let callers = mapMaybe (\m => lookup m nodes) members
   let calls = [ (caller.name, call.fnCall, call.fnArgs)
-              | caller <- callers, call <- caller.calls, within call.fnCall ]
-  let verdicts = loopsTerminate calls (map (.name) callers)
+              | caller <- members, call <- caller.calls, within call.fnCall ]
+  let verdicts = loopsTerminate calls (map (.name) members)
   update TState { loops $= \m => foldl (\m', (n, v) => maybe m' (\a => insert a v m') (definitionAddress (gamma defs) n))
                                         m verdicts }
 
@@ -143,7 +139,7 @@ checkRecursion n = do
   unless (isJust (lookup key st.loops)) $ do
     let Just (Element w _) = enter (gamma defs) full start
       | Nothing => pure ()
-    Just node <- node full
+    Just member <- memberOf full
       | Nothing => pure ()
-    (result, _) <- visit st.loops node w (sizeAccessible w) (MkSearch 0 empty empty [] empty empty [])
-    for_ result.found (checkComponent result.nodes)
+    (result, _) <- visit st.loops member w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
+    for_ result.found checkComponent

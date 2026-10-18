@@ -1,5 +1,6 @@
-NEEDS-ACCEPTANCE: that the request-chain rule refuses at the recursive call, line 14, as it refuses polymorphism-nested at its own, rather than with the refusal of a shape with no spine
+NEEDS-ACCEPTANCE: that deeper, which calls itself at s :< 2, is refused once as polymorphism at its declaration (line 12), by the growth check, whose message names the cycle and its growth of 1 a round, rather than with the refusal of a shape with no spine
 compile: exit 3
 unsupported (polymorphism): the only error
 line: as the header says
+message: as the header says
 artifacts: none

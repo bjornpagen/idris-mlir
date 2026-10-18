@@ -2,8 +2,10 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| A program, once Idris has built its main file: the user's `main` checked
 ||| against the profile, translated to Core and emitted as MLIR, the Core and
-||| the module written to the paths idris-mlir names. Nothing runs a tool:
-||| the pipeline and the link are idris-mlir's.
+||| the module written to the paths idris-mlir names. Before the translation,
+||| the growth check bounds every static position, or refuses the types that
+||| grow without bound. Nothing runs a tool: the pipeline and the link are
+||| idris-mlir's.
 module IdrisMLIR.Frontend.Program
 
 import Core.Context
@@ -16,6 +18,7 @@ import IdrisMLIR.Emit
 import IdrisMLIR.Ids
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
+import IdrisMLIR.Frontend.Growth
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
@@ -133,11 +136,12 @@ entryPoint = do
 ||| names the module `mainFile`, into the Core at `corePath` and the module
 ||| at `mlirPath`, or gives the program's rejections, the first found
 ||| first, and writes nothing. The checks of the source and of what the
-||| program reaches report every rejection they find, and the translation
-||| every rejected instance of what they did not refuse. An error that is
-||| not a rejection (no main, a broken registry entry, the compiler's own)
-||| is thrown.
-export covering
+||| program reaches report every rejection they find, the growth check
+||| every cause of a type grown without bound, and the translation of a
+||| program the growth check admits every rejected instance of what the
+||| checks did not refuse. An error that is not a rejection (no main, a
+||| broken registry entry, the compiler's own) is thrown.
+export
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (timing : Maybe String) ->
           (corePath, mlirPath : String) -> Core (List Error)
@@ -184,18 +188,27 @@ program mainFile timing corePath mlirPath = do
   t1 <- now
   checkReachable fc [main]
   t2 <- now
+  admitted <- checkGrowth fc main
+  t3 <- now
+  let checked = [("checks", t1 - t0), ("reachable", t2 - t1), ("growth", t3 - t2)]
+  -- A program whose growth is refused is not translated: no potential, no
+  -- bound for the translation to stay within. Every refusal found so far
+  -- is reported.
+  True <- pure admitted
+    | False => do
+        reportTimes timing checked
+        rejections
   Just prog <- translateIOProgram fc main
     | Nothing => do
-        t3 <- now
-        reportTimes timing [("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)]
+        t4 <- now
+        reportTimes timing (checked ++ [("translate", t4 - t3)])
         rejections
-  t3 <- now
+  t4 <- now
   -- The Core is printed once the module is written, so that neither text
   -- is held while the other is made, and a compilation Emit gives up on
   -- writes neither.
   writeModule fc mlirPath prog
   write corePath (showSource prog)
-  t4 <- now
-  reportTimes timing [ ("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)
-                     , ("emit", t4 - t3) ]
+  t5 <- now
+  reportTimes timing (checked ++ [("translate", t4 - t3), ("emit", t5 - t4)])
   pure []

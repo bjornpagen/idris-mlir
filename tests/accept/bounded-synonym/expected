@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that a List (Nat, Vector1 a), Vector1 a a synonym for List1 (Nat, a), is admitted by the growth check with List1 and Pair at (Nat, a) built through the synonym, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

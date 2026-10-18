@@ -281,7 +281,6 @@ showingItsSource err = case map fst (getErrorLoc err >>= isNonEmptyFC) of
     setCurrentElabSource text
   _ => setCurrentElabSource ""
 
-covering
 perform : {auto c : Ref Ctxt Defs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
@@ -292,7 +291,7 @@ perform (Compile timing core out source) = do
     | (e :: es) => do
         for_ (e :: es) $ \err => do
           showingItsSource err
-          emitError err
+          host.emitError err
         coreLift (exitWith (statusOfAll (e ::: es)))
   pure ()
 perform (Check source) = ignore (built source)
@@ -307,7 +306,6 @@ perform (PackageCommand timing cmd file) = do
   reportTimes timing [(pack (dropWhile (== '-') (unpack (show cmd))), end - start)]
 perform LibDir = coreLift (putStrLn !pkgGlobalDirectory)
 
-covering
 frontend : Run -> Core ()
 frontend r = do
   c <- newRef Ctxt !initDefs
@@ -327,10 +325,9 @@ frontend r = do
   addPrimitives
   catch (do session r; perform r.task) $ \err => do
     showingItsSource err
-    emitError err
+    host.emitError err
     coreLift (exitWith (statusOf err))
 
-covering
 main : IO ()
 main = do
   args <- getArgs

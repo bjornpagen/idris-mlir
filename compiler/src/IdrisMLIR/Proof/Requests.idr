@@ -1,35 +1,28 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| The relation the frontend's request chains keep, defined once, and the
-||| proof that it is almost full, so that every chain it admits is finite.
+||| A request's identity, the listing of every request, and the universe
+||| of requests within bounds, which the worklist recurses on.
 |||
-||| A request is an instance of a definition at static arguments. A chain
-||| (the instance requesting it, the one that requested that, back to the
-||| root) cannot hold a request that grows against an earlier instance of
-||| the same definition: smaller at no argument and larger at one. The
-||| frontend checks a request by `admit`, whose answer is either the
-||| evidence that the request is new to the chain, which the worklist
-||| descends on, or the earlier instance and the way the request grows
-||| against it, which the refusal names. The answer costs comparisons of
-||| numbers; its proofs are erased.
-|||
-||| An argument is written in prefix order, a symbol per node of the term:
-||| the node's form (finitely many), the context name it names (finitely
-||| many), and a number below the argument's size (a variable's index, a
-||| count of arguments); a literal's magnitude weighs as much as itself.
-||| An argument's size is the weight of its symbols, so finitely many
-||| arguments share a size, finitely many requests share a definition and
-||| a vector of sizes, and the relation is almost full: pointwise `<=` on
-||| the sizes (Dickson's lemma), intersected with equality of definitions
-||| and with equality within a finite fibre. Nothing about the requests is
-||| assumed; the bound is in their type.
+||| A request is an instance of a definition at static arguments: its link,
+||| the definition's address in the context and one written argument per
+||| parameter. An argument is written in prefix order, a symbol per node of
+||| the term: the node's form (finitely many), the context name it names
+||| (finitely many), and a number below the argument's size (a variable's
+||| index, a count of arguments); a literal's magnitude weighs as much as
+||| itself. An argument's size is the weight of its symbols, so finitely
+||| many arguments share a size. The requests of a definition at sizes
+||| pointwise at most a bound are finitely many, listed (`Universe`); the
+||| growth check gives the bounds (`Bounds`); a request within them is a
+||| member of the universe, which `within` decides by comparisons of
+||| numbers, so a worklist that keeps each link once has room for fewer at
+||| each step. Nothing about the requests is assumed; the bound is in their
+||| type.
 module IdrisMLIR.Proof.Requests
 
-import IdrisMLIR.Proof.AlmostFull
+import IdrisMLIR.Proof.Growth
 
-import Control.Relation
-import Control.WellFounded
 import public Data.Fin
+import Data.Fin.Properties
 import Data.List
 import Data.List.Elem
 import Data.List.Quantifiers
@@ -41,53 +34,7 @@ import Decidable.Equality
 %default total
 
 ------------------------------------------------------------------------------
--- Deciding at runtime
-------------------------------------------------------------------------------
-
-||| A decision as the frontend makes it at runtime: the evidence that it
-||| holds, which the frontend reads, or the erased evidence that it does
-||| not. The comparisons it rests on are the machine's (`<`, `==` on
-||| naturals, which Idris compiles to integer operations), and the proofs
-||| that they mean what the relation says are erased, so a decision costs
-||| its comparisons and nothing more.
-public export
-data Decision : Type -> Type where
-  Holds : p -> Decision p
-  Fails : (0 _ : Not p) -> Decision p
-
-||| `<=` on naturals, as the machine compares them, is `LTE`.
-lteSo : {b, a : Nat} -> So (b <= a) -> LTE b a
-lteSo {b = Z} _ = LTEZero
-lteSo {b = S b} {a = S a} so = LTESucc (lteSo so)
-lteSo {b = S _} {a = Z} so = absurd so
-
-notLtSo : {b, a : Nat} -> So (not (b < a)) -> Not (LT b a)
-notLtSo {b = Z} {a = S _} so _ = absurd so
-notLtSo {b = S b} {a = S a} so (LTESucc lt) = notLtSo so lt
-notLtSo {a = Z} _ lt = absurd lt
-
-notLteSo : {b, a : Nat} -> So (not (b <= a)) -> Not (LTE b a)
-notLteSo {b = Z} {a = Z} so _ = absurd so
-notLteSo {b = Z} {a = S _} so _ = absurd so
-notLteSo {b = S b} {a = S a} so (LTESucc le) = notLteSo so le
-notLteSo {b = S _} {a = Z} _ le = absurd le
-
-||| Equal naturals, as the machine compares them.
-export
-equalSo : {m, n : Nat} -> So (m == n) -> m = n
-equalSo {m = Z} {n = Z} _ = Refl
-equalSo {m = S m} {n = S n} so = cong S (equalSo so)
-equalSo {m = Z} {n = S _} so = absurd so
-equalSo {m = S _} {n = Z} so = absurd so
-
-||| A natural compares equal to itself.
-export
-equalSelf : (m : Nat) -> So (m == m)
-equalSelf Z = Oh
-equalSelf (S m) = equalSelf m
-
-------------------------------------------------------------------------------
--- Growth
+-- Sizes compared
 ------------------------------------------------------------------------------
 
 namespace Pointwise
@@ -96,55 +43,6 @@ namespace Pointwise
   data Pointwise : List Nat -> List Nat -> Type where
     Nil : Pointwise [] []
     (::) : (0 _ : LTE b a) -> Pointwise bs as -> Pointwise (b :: bs) (a :: as)
-
-||| `after` grows against `before`: they have one length, `after` is
-||| smaller at no position and larger at one.
-public export
-data Grows : (before, after : List Nat) -> Type where
-  ||| Larger here, and smaller nowhere after.
-  Here : (0 _ : LT b a) -> (0 _ : Pointwise bs as) -> Grows (b :: bs) (a :: as)
-  ||| As large here, and growing after.
-  There : (0 _ : LTE b a) -> Grows bs as -> Grows (b :: bs) (a :: as)
-
-||| The position at which a growth is larger.
-public export
-position : Grows before after -> Nat
-position (Here _ _) = 0
-position (There _ g) = S (position g)
-
-0 growsPointwise : Grows bs as -> Pointwise bs as
-growsPointwise (Here lt pw) = lteSuccLeft lt :: pw
-growsPointwise (There le g) = le :: growsPointwise g
-
-pointwise : (bs, as : List Nat) -> Decision (Pointwise bs as)
-pointwise [] [] = Holds []
-pointwise [] (_ :: _) = Fails (\case _ impossible)
-pointwise (_ :: _) [] = Fails (\case _ impossible)
-pointwise (b :: bs) (a :: as) = case choose (b <= a) of
-  Right nle => Fails (\(le :: _) => notLteSo nle le)
-  Left le => case pointwise bs as of
-    Fails npw => Fails (\(_ :: pw) => npw pw)
-    Holds pw => Holds (lteSo le :: pw)
-
-||| Whether `after` grows against `before`, at the first position at which
-||| it is larger.
-export
-grows : (before, after : List Nat) -> Decision (Grows before after)
-grows [] [] = Fails (\case _ impossible)
-grows [] (_ :: _) = Fails (\case _ impossible)
-grows (_ :: _) [] = Fails (\case _ impossible)
-grows (b :: bs) (a :: as) = case choose (b < a) of
-  Left lt => case pointwise bs as of
-    Holds pw => Holds (Here (ltOpReflectsLT b a lt) pw)
-    Fails npw => Fails (\case Here _ pw => npw pw
-                              There _ g => npw (growsPointwise g))
-  Right nlt => case choose (b <= a) of
-    Right nle => Fails (\case Here lt _ => notLteSo nle (lteSuccLeft lt)
-                              There le _ => notLteSo nle le)
-    Left le => case grows bs as of
-      Holds g => Holds (There (lteSo le) g)
-      Fails ng => Fails (\case Here lt _ => notLtSo nlt lt
-                               There _ g => ng g)
 
 ------------------------------------------------------------------------------
 -- Requests
@@ -190,10 +88,9 @@ listedEither la lb = MkListed (map Left la.values ++ map Right lb.values) comple
 ||| A type that another listed one maps onto, with an inverse: listed.
 export
 listedVia : (to : b -> a) -> (from : a -> b) -> ((y : b) -> from (to y) = y) -> Listed a -> Listed b
-listedVia to from back l = MkListed (map from l.values) complete
-  where
-    complete : (y : b) -> Elem y (map from l.values)
-    complete y = replace {p = \z => Elem z (map from l.values)} (back y) (elemMap from (l.complete (to y)))
+listedVia to from back l =
+  MkListed (map from l.values)
+    (\y => replace {p = \z => Elem z (map from l.values)} (back y) (elemMap from (l.complete (to y))))
 
 ||| A type that a finite numbering codes and decodes: listed, and with
 ||| equality decided by the codes. This is how a closed enumeration of the
@@ -246,12 +143,28 @@ public export
 Address : Type
 Address = Vect 8 (Fin 256)
 
+-- A bit, as the number it adds.
+bitOf : Bool -> Nat
+bitOf False = 0
+bitOf True = 1
+
+0 bitAtMostOne : (b : Bool) -> LTE (bitOf b) 1
+bitAtMostOne False = LTEZero
+bitAtMostOne True = reflexive
+
+-- A bit and twice a number below `n` are together below twice `n`.
+0 twiceBelow : (b : Bool) -> LT x n -> LT (bitOf b + (x + x)) (n + (n + 0))
+twiceBelow b lt =
+  rewrite plusZeroRightNeutral n in
+  transitive (LTESucc (plusLteMonotoneRight (x + x) (bitOf b) 1 (bitAtMostOne b)))
+             (replace {p = \z => LTE (S z) (n + n)} (sym (plusSuccRightSucc x x)) (plusLteMonotone lt lt))
+
 -- Twice a number below `n`, and one more for a set bit: a number below
--- twice `n`.
+-- twice `n`, computed on the number itself (`finToNat` and `natToFinLT`
+-- are the identity at run time), so that a bit costs one step whatever
+-- the number.
 doubled : (bit : Bool) -> Fin n -> Fin (n + (n + 0))
-doubled False FZ = FZ
-doubled True (FZ {k}) = rewrite sym (plusSuccRightSucc k (k + 0)) in FS FZ
-doubled bit (FS {k} f) = rewrite sym (plusSuccRightSucc k (k + 0)) in FS (FS (doubled bit f))
+doubled bit f = natToFinLT (bitOf bit + (finToNat f + finToNat f)) {prf = twiceBelow bit (elemSmallerThanBound f)}
 
 ||| The low `d` bits of a non-negative number, a number below `2^d`, read
 ||| bit by bit: an address's bytes, a character's halves.
@@ -260,9 +173,8 @@ lowBits : (d : Nat) -> Integer -> Fin (power 2 d)
 lowBits Z _ = FZ
 lowBits (S d) v = doubled (v `mod` 2 == 1) (lowBits d (v `div` 2))
 
-||| Every vector of a length over a listed type, listed. Stated over any
-||| length and type, so that no listing is ever spelt out.
-export
+-- Every vector of a length over a listed type, listed. Stated over any
+-- length and type, so that no listing is ever spelt out.
 listedVect : (k : Nat) -> Listed a -> Listed (Vect k a)
 listedVect k l = MkListed (vectors k l.values) (vectorsComplete l.values l.complete)
 
@@ -331,28 +243,6 @@ public export
 sizes : Link form -> List Nat
 sizes l = map argumentSize l.arguments
 
-||| An earlier request `x` and a later one `y` of the same definition that
-||| a chain cannot hold both of.
-public export
-data Requested : Link form -> Link form -> Type where
-  ||| `y` grows against `x`.
-  Grown : (0 _ : x.definition = y.definition) -> Grows (sizes x) (sizes y) -> Requested x y
-  ||| `y` has another number of arguments than `x`.
-  Arity : (0 _ : x.definition = y.definition) -> (0 _ : Not (length x.arguments = length y.arguments)) ->
-          Requested x y
-  ||| `y` is `x`.
-  Again : (0 _ : x = y) -> Requested x y
-
-DecEq form => DecEq (Token form) where
-  decEq (Node f n i) (Node g m j) = case decEq (f, n, i) (g, m, j) of
-    Yes Refl => Yes Refl
-    No ne => No (\case Refl => ne Refl)
-  decEq (Number f i) (Number g j) = case decEq (f, i) (g, j) of
-    Yes Refl => Yes Refl
-    No ne => No (\case Refl => ne Refl)
-  decEq (Node _ _ _) (Number _ _) = No (\case _ impossible)
-  decEq (Number _ _) (Node _ _ _) = No (\case _ impossible)
-
 -- Two writings of an argument with the same symbols are one: the proofs
 -- that they weigh and fit its size are erased, and unique.
 uip : (0 p, q : x = y) -> p = q
@@ -379,20 +269,6 @@ written p q b c =
 writtenEq : s = t -> ts = us -> {0 p : weighs ts = s} -> {0 q : weighs us = t} ->
             {0 b : All (Fits s) ts} -> {0 c : All (Fits t) us} -> MkWritten s ts p b = MkWritten t us q c
 writtenEq Refl Refl = written _ _ _ _
-
-DecEq form => DecEq (Written form) where
-  decEq (MkWritten s ts p b) (MkWritten t us q c) = case decEq s t of
-    No ne => No (\eq => ne (cong (.size) eq))
-    Yes same => case decEq ts us of
-      No ne => No (\eq => ne (cong (.symbols) eq))
-      Yes alike => Yes (writtenEq same alike)
-
-DecEq form => DecEq (Link form) where
-  decEq (MkLink d as) (MkLink e bs) = case decEq d e of
-    No ne => No (\case Refl => ne Refl)
-    Yes Refl => case decEq as bs of
-      No ne => No (\case Refl => ne Refl)
-      Yes Refl => Yes Refl
 
 ||| Requests are kept apart in a map by their links: two links compare
 ||| equal exactly when every part of them does.
@@ -471,240 +347,113 @@ fittingUnder xs ys one fx fy =
 -- Comparing requests at runtime
 ------------------------------------------------------------------------------
 
--- A `Fin` is the number it is, at runtime as in proofs, so two compare as
--- their numbers.
-sameFin : Fin n -> Fin n -> Bool
-sameFin i j = finToNat i == finToNat j
+-- Every comparison decides, keeping its evidence: the machine compares the
+-- numbers (`samePosition`, `==` on naturals), and every proof that the
+-- comparison means equality is erased, so a decision costs its comparisons.
 
-0 finInjective : (i, j : Fin n) -> finToNat i = finToNat j -> i = j
-finInjective FZ FZ _ = Refl
-finInjective (FS i) (FS j) eq = cong FS (finInjective i j (cong pred eq))
-finInjective FZ (FS _) eq = absurd eq
-finInjective (FS _) FZ eq = absurd eq
+sameNat : (k, k' : Nat) -> Decision (k = k')
+sameNat k k' = case choose (k == k') of
+  Left same => Holds (irrelevantEq (equalSo same))
+  Right other => Fails (\Refl => soNotToNotSo other (equalSelf k))
 
-0 sameFinSound : (i, j : Fin n) -> So (sameFin i j) -> i = j
-sameFinSound i j so = finInjective i j (equalSo so)
+-- A form compares as its writer decides.
+sameForm : DecEq form => (f, g : form) -> Decision (f = g)
+sameForm f g = case decEq f g of
+  Yes eq => Holds eq
+  No ne => Fails ne
 
-0 sameFinSelf : (i : Fin n) -> So (sameFin i i)
-sameFinSelf i = equalSelf (finToNat i)
+-- Two addresses are one exactly when their bytes are.
+decideAddress : (a, b : Vect k (Fin 256)) -> Decision (a = b)
+decideAddress [] [] = Holds Refl
+decideAddress (x :: xs) (y :: ys) = case samePosition x y of
+  Fails ne => Fails (\Refl => ne Refl)
+  Holds Refl => case decideAddress xs ys of
+    Fails ne => Fails (\Refl => ne Refl)
+    Holds Refl => Holds Refl
 
 ||| Two addresses are one: their bytes compare equal.
 export
 sameAddress : Vect k (Fin 256) -> Vect k (Fin 256) -> Bool
-sameAddress [] [] = True
-sameAddress (b :: bs) (c :: cs) = sameFin b c && sameAddress bs cs
+sameAddress a b = case decideAddress a b of
+  Holds _ => True
+  Fails _ => False
 
 export
 0 sameAddressSound : (a, b : Vect k (Fin 256)) -> So (sameAddress a b) -> a = b
-sameAddressSound [] [] _ = Refl
-sameAddressSound (b :: bs) (c :: cs) so =
-  let (sb, sbs) = soAnd so in rewrite sameFinSound b c sb in rewrite sameAddressSound bs cs sbs in Refl
+sameAddressSound a b so with (decideAddress a b)
+  sameAddressSound a b so | Holds eq = eq
+  sameAddressSound a b so | Fails _ = absurd so
 
 export
 0 sameAddressSelf : (a : Vect k (Fin 256)) -> So (sameAddress a a)
-sameAddressSelf [] = Oh
-sameAddressSelf (b :: bs) = andSo (sameFinSelf b, sameAddressSelf bs)
+sameAddressSelf a with (decideAddress a a)
+  sameAddressSelf a | Holds _ = Oh
+  sameAddressSelf a | Fails ne = absurd (ne Refl)
 
-sameName : Maybe Address -> Maybe Address -> Bool
-sameName Nothing Nothing = True
-sameName (Just a) (Just b) = sameAddress a b
-sameName Nothing (Just _) = False
-sameName (Just _) Nothing = False
+-- Two optional parts are one when both are absent, or both present and one.
+sameMaybe : ((x, y : a) -> Decision (x = y)) -> (m, m' : Maybe a) -> Decision (m = m')
+sameMaybe same Nothing Nothing = Holds Refl
+sameMaybe same (Just x) (Just y) = case same x y of
+  Fails ne => Fails (\Refl => ne Refl)
+  Holds Refl => Holds Refl
+sameMaybe same Nothing (Just _) = Fails (\case Refl impossible)
+sameMaybe same (Just _) Nothing = Fails (\case Refl impossible)
 
-0 sameNameSound : (m, m' : Maybe Address) -> So (sameName m m') -> m = m'
-sameNameSound Nothing Nothing _ = Refl
-sameNameSound (Just a) (Just b) so = cong Just (sameAddressSound a b so)
-sameNameSound Nothing (Just _) so = absurd so
-sameNameSound (Just _) Nothing so = absurd so
+-- Two lists are one when they are as long and one at every place.
+sameList : ((x, y : a) -> Decision (x = y)) -> (xs, ys : List a) -> Decision (xs = ys)
+sameList same [] [] = Holds Refl
+sameList same (x :: xs) (y :: ys) = case same x y of
+  Fails ne => Fails (\Refl => ne Refl)
+  Holds Refl => case sameList same xs ys of
+    Fails ne => Fails (\Refl => ne Refl)
+    Holds Refl => Holds Refl
+sameList same [] (_ :: _) = Fails (\case Refl impossible)
+sameList same (_ :: _) [] = Fails (\case Refl impossible)
 
-0 sameNameSelf : (m : Maybe Address) -> So (sameName m m)
-sameNameSelf Nothing = Oh
-sameNameSelf (Just a) = sameAddressSelf a
+sameToken : DecEq form => (t, u : Token form) -> Decision (t = u)
+sameToken (Node f m k) (Node g m' k') = case sameForm f g of
+  Fails ne => Fails (\Refl => ne Refl)
+  Holds Refl => case sameMaybe decideAddress m m' of
+    Fails ne => Fails (\Refl => ne Refl)
+    Holds Refl => case sameNat k k' of
+      Fails ne => Fails (\Refl => ne Refl)
+      Holds Refl => Holds Refl
+sameToken (Number f k) (Number g k') = case sameForm f g of
+  Fails ne => Fails (\Refl => ne Refl)
+  Holds Refl => case sameNat k k' of
+    Fails ne => Fails (\Refl => ne Refl)
+    Holds Refl => Holds Refl
+sameToken (Node _ _ _) (Number _ _) = Fails (\case Refl impossible)
+sameToken (Number _ _) (Node _ _ _) = Fails (\case Refl impossible)
 
-yes : Dec p -> Bool
-yes (Yes _) = True
-yes (No _) = False
+-- Two writings are one when their sizes and symbols are: the proofs that
+-- the symbols weigh and fit the size are erased, and unique (`writtenEq`).
+sameWritten : DecEq form => (w, v : Written form) -> Decision (w = v)
+sameWritten (MkWritten s ts p b) (MkWritten t us q c) = case sameNat s t of
+  Fails ne => Fails (\eq => ne (cong (.size) eq))
+  Holds same => case sameList sameToken ts us of
+    Fails ne => Fails (\eq => ne (cong (.symbols) eq))
+    Holds alike => Holds (irrelevantEq (writtenEq same alike))
 
-sameForm : DecEq form => form -> form -> Bool
-sameForm f g = yes (decEq f g)
+-- Two links are one exactly when their definitions and arguments are.
+sameLink : DecEq form => (x, y : Link form) -> Decision (x = y)
+sameLink (MkLink d as) (MkLink e bs) = case decideAddress d e of
+  Fails ne => Fails (\Refl => ne Refl)
+  Holds Refl => case sameList (sameMaybe sameWritten) as bs of
+    Fails ne => Fails (\Refl => ne Refl)
+    Holds Refl => Holds Refl
 
-0 sameFormSound : DecEq form => (f, g : form) -> So (sameForm f g) -> f = g
-sameFormSound f g so with (decEq f g)
-  sameFormSound f g so | Yes eq = eq
-  sameFormSound f g so | No _ = absurd so
-
-0 sameFormSelf : DecEq form => (f : form) -> So (sameForm f f)
-sameFormSelf f with (decEq f f)
-  sameFormSelf f | Yes _ = Oh
-  sameFormSelf f | No ne = absurd (ne Refl)
-
-sameToken : DecEq form => Token form -> Token form -> Bool
-sameToken (Node f m k) (Node g m' k') = sameForm f g && (sameName m m' && k == k')
-sameToken (Number f k) (Number g k') = sameForm f g && k == k'
-sameToken (Node _ _ _) (Number _ _) = False
-sameToken (Number _ _) (Node _ _ _) = False
-
-0 sameTokenSound : DecEq form => (t, u : Token form) -> So (sameToken t u) -> t = u
-sameTokenSound (Node f m k) (Node g m' k') so =
-  let (sf, rest) = soAnd so
-      (sm, sk) = soAnd rest in
-  rewrite sameFormSound f g sf in rewrite sameNameSound m m' sm in rewrite equalSo {m = k} {n = k'} sk in Refl
-sameTokenSound (Number f k) (Number g k') so =
-  let (sf, sk) = soAnd so in
-  rewrite sameFormSound f g sf in rewrite equalSo {m = k} {n = k'} sk in Refl
-sameTokenSound (Node _ _ _) (Number _ _) so = absurd so
-sameTokenSound (Number _ _) (Node _ _ _) so = absurd so
-
-0 sameTokenSelf : DecEq form => (t : Token form) -> So (sameToken t t)
-sameTokenSelf (Node f m k) = andSo (sameFormSelf f, andSo (sameNameSelf m, equalSelf k))
-sameTokenSelf (Number f k) = andSo (sameFormSelf f, equalSelf k)
-
-sameTokens : DecEq form => List (Token form) -> List (Token form) -> Bool
-sameTokens [] [] = True
-sameTokens (t :: ts) (u :: us) = sameToken t u && sameTokens ts us
-sameTokens [] (_ :: _) = False
-sameTokens (_ :: _) [] = False
-
-0 sameTokensSound : DecEq form => (ts, us : List (Token form)) -> So (sameTokens ts us) -> ts = us
-sameTokensSound [] [] _ = Refl
-sameTokensSound (t :: ts) (u :: us) so =
-  let (st, sts) = soAnd so in
-  rewrite sameTokenSound t u st in rewrite sameTokensSound ts us sts in Refl
-sameTokensSound [] (_ :: _) so = absurd so
-sameTokensSound (_ :: _) [] so = absurd so
-
-0 sameTokensSelf : DecEq form => (ts : List (Token form)) -> So (sameTokens ts ts)
-sameTokensSelf [] = Oh
-sameTokensSelf (t :: ts) = andSo (sameTokenSelf t, sameTokensSelf ts)
-
-sameWritten : DecEq form => Written form -> Written form -> Bool
-sameWritten w v = w.size == v.size && sameTokens w.symbols v.symbols
-
-0 sameWrittenSound : DecEq form => (w, v : Written form) -> So (sameWritten w v) -> w = v
-sameWrittenSound (MkWritten s ts p b) (MkWritten t us q c) so =
-  let (ss, sts) = soAnd so in writtenEq (equalSo ss) (sameTokensSound ts us sts)
-
-0 sameWrittenSelf : DecEq form => (w : Written form) -> So (sameWritten w w)
-sameWrittenSelf (MkWritten s ts _ _) = andSo (equalSelf s, sameTokensSelf ts)
-
-sameArgument : DecEq form => Maybe (Written form) -> Maybe (Written form) -> Bool
-sameArgument Nothing Nothing = True
-sameArgument (Just w) (Just v) = sameWritten w v
-sameArgument Nothing (Just _) = False
-sameArgument (Just _) Nothing = False
-
-0 sameArgumentSound : DecEq form => (a, b : Maybe (Written form)) -> So (sameArgument a b) -> a = b
-sameArgumentSound Nothing Nothing _ = Refl
-sameArgumentSound (Just w) (Just v) so = cong Just (sameWrittenSound w v so)
-sameArgumentSound Nothing (Just _) so = absurd so
-sameArgumentSound (Just _) Nothing so = absurd so
-
-0 sameArgumentSelf : DecEq form => (a : Maybe (Written form)) -> So (sameArgument a a)
-sameArgumentSelf Nothing = Oh
-sameArgumentSelf (Just w) = sameWrittenSelf w
-
-sameArguments : DecEq form => List (Maybe (Written form)) -> List (Maybe (Written form)) -> Bool
-sameArguments [] [] = True
-sameArguments (a :: as) (b :: bs) = sameArgument a b && sameArguments as bs
-sameArguments [] (_ :: _) = False
-sameArguments (_ :: _) [] = False
-
-0 sameArgumentsSound : DecEq form => (as, bs : List (Maybe (Written form))) -> So (sameArguments as bs) -> as = bs
-sameArgumentsSound [] [] _ = Refl
-sameArgumentsSound (a :: as) (b :: bs) so =
-  let (sa, sas) = soAnd so in
-  rewrite sameArgumentSound a b sa in rewrite sameArgumentsSound as bs sas in Refl
-sameArgumentsSound [] (_ :: _) so = absurd so
-sameArgumentsSound (_ :: _) [] so = absurd so
-
-0 sameArgumentsSelf : DecEq form => (as : List (Maybe (Written form))) -> So (sameArguments as as)
-sameArgumentsSelf [] = Oh
-sameArgumentsSelf (a :: as) = andSo (sameArgumentSelf a, sameArgumentsSelf as)
-
-||| Two requests are one: their definitions and arguments compare equal.
-sameLink : DecEq form => Link form -> Link form -> Bool
-sameLink x y = sameAddress x.definition y.definition && sameArguments x.arguments y.arguments
-
-0 sameLinkSound : DecEq form => (x, y : Link form) -> So (sameLink x y) -> x = y
-sameLinkSound (MkLink d as) (MkLink e bs) so =
-  let (sd, sas) = soAnd so in
-  rewrite sameAddressSound d e sd in rewrite sameArgumentsSound as bs sas in Refl
-
-0 sameLinkSelf : DecEq form => (x : Link form) -> So (sameLink x x)
-sameLinkSelf (MkLink d as) = andSo (sameAddressSelf d, sameArgumentsSelf as)
-
-||| Whether a chain cannot hold an earlier `x` and a later `y`, deciding by
-||| comparisons of numbers: the definitions' addresses, the numbers of
-||| arguments, the sizes, and, between requests of one definition at sizes
-||| neither grows against, their symbols.
+||| Links are equal as `sameLink` decides, by the machine's comparisons:
+||| what a short list of links, such as the fields the passes learn, is
+||| searched by.
 export
-requested : DecEq form => (x, y : Link form) -> Decision (Requested x y)
-requested x y = case choose (sameAddress x.definition y.definition) of
-  Right nd => Fails (\case Grown d _ => notSame nd d
-                           Arity d _ => notSame nd d
-                           Again eq => notSame nd (cong (.definition) eq))
-  Left sd => case choose (length x.arguments == length y.arguments) of
-    Right nl => Holds (Arity (sameAddressSound _ _ sd)
-                         (\l => soNotToNotSo nl
-                                  (replace {p = \z => So (length x.arguments == z)} l (equalSelf (length x.arguments)))))
-    Left sl => case grows (sizes x) (sizes y) of
-      Holds g => Holds (Grown (sameAddressSound _ _ sd) g)
-      Fails ng => case choose (sameLink x y) of
-        Left same => Holds (Again (sameLinkSound x y same))
-        Right other => Fails (\case Grown _ g => ng g
-                                    Arity _ nl => nl (equalSo sl)
-                                    Again eq => soNotToNotSo other
-                                                  (replace {p = \z => So (sameLink x z)} eq (sameLinkSelf x)))
-  where
-    0 notSame : {a, b : Address} -> So (not (sameAddress a b)) -> Not (a = b)
-    notSame nd eq = soNotToNotSo nd (replace {p = \z => So (sameAddress a z)} eq (sameAddressSelf a))
+DecEq form => DecEq (Link form) where
+  decEq x y = case sameLink x y of
+    Holds eq => Yes eq
+    Fails ne => No (\eq => void (ne eq))
 
 ------------------------------------------------------------------------------
--- Chains
-------------------------------------------------------------------------------
-
-||| The chain's relation on whatever a chain holds, compared by its link.
-public export
-Via : (e -> Link form) -> Rel e
-Via link x y = Requested (link x) (link y)
-
-||| Why a chain refuses a request against an earlier instance on it, as a
-||| refusal names it: the request grows against the instance, larger at a
-||| position; it is of the instance's definition at another number of
-||| arguments; or it is the instance again.
-public export
-data Refusal = GrownAt Nat | OtherArity | Repeated
-
-||| The reason a pair of requests that a chain cannot hold both of gives.
-public export
-reason : Requested x y -> Refusal
-reason (Grown _ g) = GrownAt (position g)
-reason (Arity _ _) = OtherArity
-reason (Again _) = Repeated
-
-||| What a chain says of a request: new to every instance on it, or not
-||| new to one, which it names with the reason, the evidence's. What is
-||| held at runtime is the earlier instance and the reason, a plain sum;
-||| the evidence is erased, so a verdict has one representation whatever
-||| the chain and the request.
-public export
-data Admission : (e -> Link form) -> List e -> e -> Type where
-  Admitted : (0 _ : New (Via link) chain y) -> Admission link chain y
-  Refused : (x : e) -> (0 _ : Elem x chain) -> (0 r : Requested (link x) (link y)) ->
-            (why : Refusal) -> (0 _ : reason r = why) -> Admission link chain y
-
-||| A chain's answer to a request, the nearest instance first.
-export
-admit : DecEq form => (link : e -> Link form) -> (chain : List e) -> (y : e) -> Admission link chain y
-admit link [] y = Admitted []
-admit link (x :: xs) y = case requested (link x) (link y) of
-  Holds r => Refused x Here r (reason r) Refl
-  Fails nr => case admit link xs y of
-    Admitted new => Admitted (nr :: new)
-    Refused x' e r why given => Refused x' (There e) r why given
-
-------------------------------------------------------------------------------
--- The relation is almost full
+-- Every request, listed
 ------------------------------------------------------------------------------
 
 -- Every list of an element of the first followed by one of the second.
@@ -872,76 +621,229 @@ fibreComplete : (forms : Listed form) -> (names : Listed Address) -> (l : Link f
                 Elem l (fibre forms names (l.definition, sizes l))
 fibreComplete forms names (MkLink d as) = elemMap (MkLink d) (argumentsComplete forms names as)
 
-||| Size vectors of one length compared pointwise; of two lengths, always
-||| related.
-Lengthwise : Rel (List Nat)
-Lengthwise xs ys = Either (Not (length xs = length ys)) (Pointwise xs ys)
+------------------------------------------------------------------------------
+-- The requests within bounds
+------------------------------------------------------------------------------
 
-pad : (k : Nat) -> List Nat -> Vect k Nat
-pad Z _ = []
-pad (S k) [] = 0 :: pad k []
-pad (S k) (x :: xs) = x :: pad k xs
+||| How large a request may be: for each definition, by its address, the
+||| height each static argument of its requests stays within, one per
+||| parameter, a parameter past the list's end or at 0 keying nothing; the
+||| most children of any template's node (`arity`); the heaviest literal or
+||| hole token any template holds (`heaviest`); and the breadth, above
+||| every link's length, constructor index and argument index of the
+||| reachable program, without which a padded bound would admit a link of
+||| any length.
+public export
+record Bounds where
+  constructor MkBounds
+  heightAt : Address -> List Nat
+  arity : Nat
+  heaviest : Nat
+  breadth : Nat
 
-padBelow : (k : Nat) -> (xs, ys : List Nat) -> length xs = k -> length ys = k ->
-           Below (pad k xs) (pad k ys) -> Pointwise xs ys
-padBelow Z [] [] _ _ _ = []
-padBelow Z (_ :: _) _ px _ _ = absurd px
-padBelow Z [] (_ :: _) _ py _ = absurd py
-padBelow (S _) [] _ px _ _ = absurd px
-padBelow (S _) (_ :: _) [] _ py _ = absurd py
-padBelow (S k) (x :: xs) (y :: ys) px py (le :: b) = le :: padBelow k xs ys (cong pred px) (cong pred py) b
+||| The bound of each of `n` parameters: the list's, and 0 past its end.
+public export
+padded : Nat -> List Nat -> List Nat
+padded Z _ = []
+padded (S n) [] = 0 :: padded n []
+padded (S n) (s :: ss) = s :: padded n ss
 
-lengthwiseAt : (a : List Nat) -> Sub (\y, z => Below (pad (length a) y) (pad (length a) z)) (Lift Lengthwise a)
-lengthwiseAt a y z b = case decEq (length y) (length a) of
-  No ny => Right (Left (\ay => ny (sym ay)))
-  Yes ya => case decEq (length z) (length a) of
-    No nz => Left (Left (\yz => nz (trans (sym yz) ya)))
-    Yes za => Left (Right (padBelow (length a) y z ya za b))
+||| The most nodes a tree of a height has when none has more than `arity`
+||| children: arity^0 + arity^1 + ... + arity^(height - 1).
+public export
+nodesWithin : (arity, height : Nat) -> Nat
+nodesWithin arity Z = 0
+nodesWithin arity (S h) = 1 + arity * nodesWithin arity h
 
-||| Size vectors are almost always pointwise ordered or of two lengths.
-afLengthwise : AF Lengthwise
-afLengthwise = sup (\a => strengthen (lengthwiseAt a) (inverse (pad (length a)) (dickson (length a))))
+||| The most a static argument weighs written when it is no higher than
+||| `height`, no node of it has more than `arity` children and no literal
+||| or hole token weighs more than `heaviest`, its tree read as its key
+||| writes it (`Template.closedHeight`):
+||| (2 * height + heaviest) * sum [max 1 arity ^ k | k < height].
+||| Level k of such a tree has at most (max 1 arity)^k nodes, so it has at
+||| most `nodesWithin (max 1 arity) height` of them, a lone leaf counted
+||| when the arity is 0. A node's symbols weigh at most twice its height
+||| plus the heaviest token: a head of k children writes k applications and
+||| its own symbol, which its children's nodes outnumber; a run of n
+||| successors with its zero (`Keys.succeeding`), the heaviest symbols a
+||| height bounds, weighs 2n + 1 at height n + 1; and any other literal or
+||| hole weighs at most `heaviest`. Erased: the number is never computed
+||| (`fitsWithin` compares against it).
+public export
+0 sizeWithin : (arity, height, heaviest : Nat) -> Nat
+sizeWithin arity height heaviest = (2 * height + heaviest) * nodesWithin (S (pred arity)) height
 
--- Related by all three, two requests are related by the chain's relation.
-lengthMap : (f : a -> b) -> (xs : List a) -> length (map f xs) = length xs
-lengthMap f [] = Refl
-lengthMap f (_ :: xs) = cong S (lengthMap f xs)
+-- The counts grow with the height, for at least one child a node.
+0 nodesGrow : (m, k, r : Nat) -> LTE (nodesWithin (S m) k) (nodesWithin (S m) (r + k))
+nodesGrow m k Z = reflexive
+nodesGrow m k (S r) = transitive (nodesGrow m k r) (lteSuccRight (lteAddRight (nodesWithin (S m) (r + k))))
 
--- Nowhere larger and not equal is growth.
-pointwiseGrows : {bs, as : List Nat} -> Pointwise bs as -> Not (bs = as) -> Grows bs as
-pointwiseGrows [] ne = absurd (ne Refl)
-pointwiseGrows {bs = b :: bs} {as = a :: as} (le :: pw) ne = case decEq b a of
-  Yes Refl => There le (pointwiseGrows pw (\eq => ne (cong (b ::) eq)))
-  No nba => Here (lteNotEqual le nba) pw
+0 timesLte : (c : Nat) -> LTE x y -> LTE (c * x) (c * y)
+timesLte Z _ = LTEZero
+timesLte (S c) le = plusLteMonotone le (timesLte c le)
 
-lower : DecEq form => (x, y : Link form) ->
-        (x.definition = y.definition,
-         (Lengthwise (sizes x) (sizes y),
-          (x.definition, sizes x) = (y.definition, sizes y) -> x = y)) ->
-        Requested x y
-lower x y (d, (Left nl, _)) =
-  Arity d (\l => nl (trans (lengthMap _ x.arguments) (trans l (sym (lengthMap _ y.arguments)))))
-lower x y (d, (Right pw, same)) = case decEq (sizes x) (sizes y) of
-  Yes s => Again (same (rewrite d in rewrite s in Refl))
-  No ns => Grown d (pointwiseGrows pw ns)
-
-||| The chain's relation is almost full over requests whose forms are
-||| finitely listed: every chain it admits is finite.
-export
-afRequested : DecEq form => (forms : Listed form) -> AF {a = Link form} Requested
-afRequested forms = afOver forms addresses
+-- Below a bound that is itself below another: the second proof is erased,
+-- so this costs the first's size, however large the bounds.
+lteThrough : LTE a b -> (0 _ : LTE b c) -> LTE a c
+lteThrough LTEZero _ = LTEZero
+lteThrough (LTESucc p) q = rewrite above q in LTESucc (lteThrough p (fromLteSucc (rewrite sym (above q) in q)))
   where
-    -- Over any listing of the addresses, so that none is spelt out.
-    afOver : Listed form -> Listed Address -> AF {a = Link form} Requested
-    afOver forms names =
-      strengthen lower
-        (intersection (inverse (.definition) (finiteEquality names.values names.complete))
-           (intersection (inverse sizes afLengthwise)
-              (finiteFibres (\l => (l.definition, sizes l)) (fibre forms names) (fibreComplete forms names))))
+    0 above : LTE (S n) m -> m = S (pred m)
+    above (LTESucc _) = Refl
 
-||| Every chain the relation admits is accessible under extension by a
-||| request new to it: a recursion that extends one so ends.
+-- From the count n at level k, r levels below the height: whether `size`
+-- fits c times the count at the height. It stops at the first level whose
+-- product reaches `size`, since the counts only grow, so it never builds
+-- the product at the height.
+climb : (size, c, m : Nat) -> (r, k, n : Nat) -> (0 _ : n = nodesWithin (S m) k) ->
+        Decision (LTE size (c * nodesWithin (S m) (r + k)))
+climb size c m r k n eq = case choose (size <= c * n) of
+  Left fits =>
+    Holds (lteThrough (lteSo fits)
+             (replace {p = \z => LTE (c * z) (c * nodesWithin (S m) (r + k))} (sym eq) (timesLte c (nodesGrow m k r))))
+  Right over => case r of
+    Z => Fails (\le => notLteSo over (replace {p = \z => LTE size (c * z)} (sym eq) le))
+    S r' => replace {p = \t => Decision (LTE size (c * nodesWithin (S m) t))} (sym (plusSuccRightSucc r' k))
+              (climb size c m r' (S k) (1 + S m * n) (cong (\z => 1 + S m * z) eq))
+
+-- Whether a static argument of a size fits `sizeWithin`, by comparisons of
+-- numbers no larger than the size times the first factor: the terms are
+-- summed only until they pass the size, at most `height` of them.
+fitsWithin : (size, arity, height, heaviest : Nat) -> Decision (LTE size (sizeWithin arity height heaviest))
+fitsWithin size arity height heaviest =
+  replace {p = \t => Decision (LTE size ((2 * height + heaviest) * nodesWithin (S (pred arity)) t))}
+          (plusZeroRightNeutral height)
+          (climb size (2 * height + heaviest) (pred arity) height 0 0 Refl)
+
+||| The sizes each of a definition's `n` parameters stays within.
+public export
+0 sizesAt : Bounds -> Nat -> Address -> List Nat
+sizesAt b n d = map (\h => sizeWithin b.arity h b.heaviest) (padded n (b.heightAt d))
+
+-- Every size vector pointwise at most a bound.
+vectorsBelow : List Nat -> List (List Nat)
+vectorsBelow [] = [[]]
+vectorsBelow (b :: bs) = conses (below (S b)) (vectorsBelow bs)
+
+0 vectorsBelowComplete : (ss, bs : List Nat) -> Pointwise ss bs -> Elem ss (vectorsBelow bs)
+vectorsBelowComplete [] [] [] = Here
+vectorsBelowComplete (s :: ss) (b :: bs) (le :: pw) =
+  consesComplete (below (S b)) (vectorsBelow bs) (belowComplete (S b) s (LTESucc le))
+                 (vectorsBelowComplete ss bs pw)
+
+||| Every link within the bounds: of every definition, with at most the
+||| breadth of arguments, at every list of them each of whose sizes is at
+||| most `sizeWithin` of its parameter's height. Stated over any listing of
+||| the addresses (callers pass `addresses`), so that none is spelt out
+||| where two are compared. It is finite, and never computed: it is the
+||| room a worklist that keeps each link once recurses on.
+public export
+0 Universe : Listed form -> Listed Address -> Bounds -> List (Link form)
+Universe forms names b =
+  joinMap (\d => joinMap (\n => joinMap (\ss => fibre forms names (d, ss)) (vectorsBelow (sizesAt b n d)))
+                         (below (S b.breadth)))
+          names.values
+
+0 inUniverse : (forms : Listed form) -> (names : Listed Address) -> (b : Bounds) -> (l : Link form) ->
+               LTE (length l.arguments) b.breadth ->
+               Pointwise (sizes l) (sizesAt b (length l.arguments) l.definition) ->
+               Elem l (Universe forms names b)
+inUniverse forms names b l short sized =
+  joinMapComplete (\d => joinMap (\n => joinMap (\ss => fibre forms names (d, ss)) (vectorsBelow (sizesAt b n d)))
+                                 (below (S b.breadth)))
+                  names.values (names.complete l.definition)
+    (joinMapComplete (\n => joinMap (\ss => fibre forms names (l.definition, ss)) (vectorsBelow (sizesAt b n l.definition)))
+                     (below (S b.breadth)) (belowComplete (S b.breadth) (length l.arguments) (LTESucc short))
+       (joinMapComplete (\ss => fibre forms names (l.definition, ss))
+                        (vectorsBelow (sizesAt b (length l.arguments) l.definition))
+                        (vectorsBelowComplete (sizes l) (sizesAt b (length l.arguments) l.definition) sized)
+          (fibreComplete forms names l)))
+
+||| A link within the bounds: the comparisons `within` made, and the
+||| membership in the universe they give, all erased. The membership's
+||| index is a place in a list never computed, so it is no value at
+||| runtime.
+public export
+record InUniverse (0 forms : Listed form) (0 names : Listed Address) (b : Bounds) (l : Link form) where
+  constructor MkIn
+  0 short : LTE (length l.arguments) b.breadth
+  0 sized : Pointwise (sizes l) (sizesAt b (length l.arguments) l.definition)
+  0 member : Elem l (Universe forms names b)
+
+||| Whether a link is within the bounds, by the machine's comparisons: its
+||| number of arguments against the breadth, and each argument's size
+||| against `sizeWithin` of its parameter's height (`fitsWithin`), the
+||| heights padded with 0.
 export
-chainAccessible : DecEq form => (forms : Listed form) -> (link : e -> Link form) ->
-                  (chain : List e) -> Bad (Via link) chain -> Accessible (Extends (Via link)) chain
-chainAccessible forms link chain bad = extendsAccessible (inverse link (afRequested forms)) chain bad
+within : (0 forms : Listed form) -> (0 names : Listed Address) -> (b : Bounds) -> (l : Link form) ->
+         Decision (InUniverse forms names b l)
+within forms names b l = case choose (length l.arguments <= b.breadth) of
+  Right long => Fails (\inside => notLteSo long inside.short)
+  Left fits => case allFit l.arguments (b.heightAt l.definition) of
+    Fails large => Fails (\inside => large inside.sized)
+    Holds sized => Holds (MkIn (lteSo fits) sized (inUniverse forms names b l (lteSo fits) sized))
+  where
+    -- One argument against its parameter's height, then the rest.
+    next : (a : Maybe (Written form)) -> (h : Nat) -> Lazy (Decision (Pointwise ss hs)) ->
+           Decision (Pointwise (argumentSize a :: ss) (sizeWithin b.arity h b.heaviest :: hs))
+    next a h rest = case fitsWithin (argumentSize a) b.arity h b.heaviest of
+      Fails over => Fails (\(le :: _) => over le)
+      Holds le => case rest of
+        Fails more => Fails (\(_ :: pw) => more pw)
+        Holds pw => Holds (le :: pw)
+
+    -- Down the arguments, the heights padded with 0 as they run out, as
+    -- `padded` pads them: one height for each argument.
+    allFit : (as : List (Maybe (Written form))) -> (hs : List Nat) ->
+             Decision (Pointwise (map Requests.argumentSize as) (map (\h => sizeWithin b.arity h b.heaviest) (padded (length as) hs)))
+    allFit [] _ = Holds []
+    allFit (a :: as) [] = next a 0 (allFit as [])
+    allFit (a :: as) (h :: hs) = next a h (allFit as hs)
+
+||| The fields `translateFrom` learns: a data link in the universe, a
+||| constructor index and an argument index, both below the breadth.
+public export
+0 FieldUniverse : Listed form -> Listed Address -> Bounds -> List (Link form, Nat, Nat)
+FieldUniverse forms names b = pairs (Universe forms names b) (pairs (below b.breadth) (below b.breadth))
+
+||| A field in the field universe: the comparisons `inFields` made, so that
+||| its `Fails` needs no soundness proof of the listing, and the membership
+||| they give, erased as `InUniverse`'s is.
+public export
+record InFields (0 forms : Listed form) (0 names : Listed Address) (b : Bounds) (f : (Link form, Nat, Nat)) where
+  constructor MkInFields
+  0 link : InUniverse forms names b (fst f)
+  0 index : LT (fst (snd f)) b.breadth
+  0 argument : LT (snd (snd f)) b.breadth
+  0 member : Elem f (FieldUniverse forms names b)
+
+||| Whether a field is in the field universe: its link within the bounds,
+||| its two indices below the breadth, by the machine's comparisons.
+export
+inFields : (0 forms : Listed form) -> (0 names : Listed Address) -> (b : Bounds) -> (f : (Link form, Nat, Nat)) ->
+           Decision (InFields forms names b f)
+inFields forms names b (l, c, i) = case within forms names b l of
+  Fails out => Fails (\inside => out inside.link)
+  Holds inside => case (choose (c < b.breadth), choose (i < b.breadth)) of
+    (Left lc, Left li) =>
+      let 0 c' = ltOpReflectsLT c b.breadth lc
+          0 i' = ltOpReflectsLT i b.breadth li in
+      Holds (MkInFields inside c' i'
+               (pairsComplete (Universe forms names b) (pairs (below b.breadth) (below b.breadth)) inside.member
+                  (pairsComplete (below b.breadth) (below b.breadth) (belowComplete b.breadth c c')
+                     (belowComplete b.breadth i i'))))
+    (Right nc, _) => Fails (\inside => notLtSo nc inside.index)
+    (_, Right ni) => Fails (\inside => notLtSo ni inside.argument)
+
+||| Whether a link is one of a list's, by the machine's comparisons
+||| (`sameLink`). A chain of requests decides it of each request that
+||| extends it: the erased evidence that the link is not one of the chain's
+||| keeps the chain free of duplicates.
+export
+elemLink : DecEq form => (l : Link form) -> (ls : List (Link form)) -> Decision (Elem l ls)
+elemLink l [] = Fails absurd
+elemLink l (k :: ks) = case sameLink l k of
+  Holds Refl => Holds Here
+  Fails other => case elemLink l ks of
+    Holds e => Holds (There e)
+    Fails ne => Fails (neitherHereNorThere other ne)

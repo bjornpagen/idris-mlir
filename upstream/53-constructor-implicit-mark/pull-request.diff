@@ -1,6 +1,6 @@
 diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
---- a/src/Core/Case/CaseBuilder.idr	2026-10-16 21:42:46
-+++ b/src/Core/Case/CaseBuilder.idr	2026-10-16 21:42:46
+--- a/src/Core/Case/CaseBuilder.idr	2026-10-17 12:07:42
++++ b/src/Core/Case/CaseBuilder.idr	2026-10-17 12:07:42
 @@ -64,9 +64,9 @@
  -- Where a clause's pattern on a column comes from: the clause wrote it, or
  -- unification found it from the patterns the clause wrote. The latter is
@@ -14,38 +14,31 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
  data Source = Written | Unified
  
  -- The source of a pattern on a column made from a pattern of source `s`:
-@@ -371,6 +371,11 @@
+@@ -372,6 +372,14 @@
  clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
      = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
    where
-+    -- whether the clause writes this pattern
-+    written : Bool
-+    written = case use src arg of
-+                   Tests => True
-+                   _ => False
++    -- At quantity 0 a pattern a clause writes on an erased argument is a
++    -- match, a constant or a type as much as a constructor (below): nothing
++    -- there was made must-unify. What unification fixed there stays a
++    -- variable, unless it is a constructor: a type it solved (the `a` of
++    -- `[] {a}`) is the only one the argument's type allows.
++    matchesErased : Phase -> Source -> Bool
++    matchesErased (CompileTime cr) Written = isErased cr
++    matchesErased _ _ = False
  
      -- used when we are tempted to split on a constructor: is
      -- this actually a fully applied one?
-@@ -393,9 +398,15 @@
+@@ -394,7 +402,7 @@
               then Nothing
               else splitCon a xs
      getClauseType phase (PAs _ _ p) t = getClauseType phase p t
 -    getClauseType phase l (Known r t) = if isErased r
--      then Nothing
--      else clauseType' l
-+    -- At quantity 0 a pattern a clause writes on an erased argument is a
-+    -- match, a constant or a type as much as a constructor (above): nothing
-+    -- there was made must-unify. What unification fixed there stays a
-+    -- variable, unless it is a constructor: a type it solved (the `a` of
-+    -- `[] {a}`) is the only one the argument's type allows.
-+    getClauseType (CompileTime cr) l (Known r t)
-+        = if isErased r && not (isErased cr && written) then Nothing else clauseType' l
-+    getClauseType RunTime l (Known r t)
-+        = if isErased r then Nothing else clauseType' l
++    getClauseType phase l (Known r t) = if isErased r && not (matchesErased phase src)
+       then Nothing
+       else clauseType' l
      getClauseType phase l _ = clauseType' l
- 
- partition : {a, as, vars : _} ->
-@@ -993,15 +1004,17 @@
+@@ -961,15 +969,17 @@
             _ => False
  
  -- The clauses' own tests come before what unification fixed from them. A
@@ -73,8 +66,8 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
            (todo' ** List01 True (PatClause todo' vars))
  arrange cs@(c :: _)
 diff -ruN a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
---- a/src/Core/Context/Context.idr	2026-10-16 21:42:46
-+++ b/src/Core/Context/Context.idr	2026-10-16 21:42:46
+--- a/src/Core/Context/Context.idr	2026-10-17 12:03:48
++++ b/src/Core/Context/Context.idr	2026-10-17 12:03:48
 @@ -194,7 +194,8 @@
                  (env : Env Term vars) ->
                  (lhs : Term vars) -> (rhs : Term vars) ->
@@ -86,8 +79,8 @@ diff -ruN a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
                  -- elaborator binds each by an as-pattern whose pattern is
                  -- what unification found from the patterns the clause does
 diff -ruN a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
---- a/src/TTImp/Elab/App.idr	2026-10-16 21:42:46
-+++ b/src/TTImp/Elab/App.idr	2026-10-16 21:42:46
+--- a/src/TTImp/Elab/App.idr	2026-10-17 12:03:48
++++ b/src/TTImp/Elab/App.idr	2026-10-17 12:03:48
 @@ -8,6 +8,7 @@
  import Idris.REPL.Opts
  import Idris.Syntax
@@ -153,8 +146,8 @@ diff -ruN a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
                     update EST $ addBindIfUnsolved nm (getLoc (getFn tm)) argRig AutoImplicit env metaval metaty
                     checkAppWith rig elabinfo nest env fc
 diff -ruN a/src/TTImp/Elab/As.idr b/src/TTImp/Elab/As.idr
---- a/src/TTImp/Elab/As.idr	2026-10-16 21:42:46
-+++ b/src/TTImp/Elab/As.idr	2026-10-16 21:42:46
+--- a/src/TTImp/Elab/As.idr	2026-10-17 12:03:48
++++ b/src/TTImp/Elab/As.idr	2026-10-17 12:03:48
 @@ -13,7 +13,49 @@
  
  %default covering
@@ -246,8 +239,8 @@ diff -ruN a/src/TTImp/Elab/As.idr b/src/TTImp/Elab/As.idr
 -    rigAs : RigCount
 -    rigAs = rigAs' side
 diff -ruN a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
---- a/src/TTImp/Elab/Check.idr	2026-10-16 21:42:46
-+++ b/src/TTImp/Elab/Check.idr	2026-10-16 21:42:46
+--- a/src/TTImp/Elab/Check.idr	2026-10-17 12:03:48
++++ b/src/TTImp/Elab/Check.idr	2026-10-17 12:03:48
 @@ -146,6 +146,9 @@
    delayDepth : Nat -- if it gets too deep, it gets slow, so fail quicker
    linearUsed : VarSet vars
@@ -267,8 +260,8 @@ diff -ruN a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
  
  export
 diff -ruN a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
---- a/src/TTImp/Elab.idr	2026-10-16 21:42:46
-+++ b/src/TTImp/Elab.idr	2026-10-16 21:42:46
+--- a/src/TTImp/Elab.idr	2026-10-17 12:03:48
++++ b/src/TTImp/Elab.idr	2026-10-17 12:03:48
 @@ -19,14 +19,25 @@
  %default covering
  
@@ -377,17 +370,22 @@ diff -ruN a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
  export
  elabTerm : {vars : _} ->
 diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
---- a/src/TTImp/ProcessDef.idr	2026-10-16 21:42:46
-+++ b/src/TTImp/ProcessDef.idr	2026-10-16 21:42:46
-@@ -291,6 +291,7 @@
-            Int -> List ElabOpt -> NestedNames vars -> Env Term vars ->
-            FC -> RawImp ->
-            Core (RawImp, -- checked LHS with implicits added
-+                 List Name, -- the as-patterns bound for implicits it leaves out
-                  (vars' ** (Thin vars vars',
-                            Env Term vars', NestedNames vars',
-                            Term vars', Term vars')))
-@@ -320,9 +321,9 @@
+--- a/src/TTImp/ProcessDef.idr	2026-10-17 12:07:42
++++ b/src/TTImp/ProcessDef.idr	2026-10-17 12:07:42
+@@ -286,8 +286,10 @@
+ -- and binds the as-name in the scope. A case alternative's pattern on the
+ -- variable it splits goes into that variable's as-pattern too, but it is
+ -- the clause's own: only the `_` marks an argument left to unification.
+-unifiedArgs : {vars : _} -> RawImp -> VarSet vars
+-unifiedArgs lhs = foldr bind VarSet.empty (leftOut lhs)
++-- So does each as-pattern the elaborator binds for an implicit argument it
++-- inserts into a pattern (`marks`).
++unifiedArgs : {vars : _} -> (marks : List Name) -> RawImp -> VarSet vars
++unifiedArgs marks lhs = foldr bind VarSet.empty (marks ++ leftOut lhs)
+   where
+     leftOut : RawImp -> List Name
+     leftOut (IAs _ _ UseLeft n (Implicit {})) = [n]
+@@ -342,9 +344,9 @@
           let lhsMode = if trans
                            then InTransform
                            else InLHS mult
@@ -399,72 +397,15 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
                                  (IBindHere fc PATTERN lhs) Nothing
           logTerm "declare.def.lhs" 5 "Checked LHS term" lhstm
           lhsty <- getTerm lhstyg
-@@ -349,7 +350,7 @@
-          setHoleLHS (bindEnv fc env lhstm_lin)
+@@ -372,7 +374,7 @@
  
-          ext <- extendEnv env Refl nest lhstm_lin lhsty_lin
--         pure (lhs, ext)
-+         pure (lhs, marks, ext)
+          (vars' ** (sub', env', nest', lhstm', lhsty')) <-
+              extendEnv env Refl nest lhstm_lin lhsty_lin
+-         pure (lhs, (vars' ** (sub', env', nest', lhstm', lhsty', unifiedArgs lhs)))
++         pure (lhs, (vars' ** (sub', env', nest', lhstm', lhsty', unifiedArgs marks lhs)))
  
  -- Return whether any of the pattern variables are in a trivially empty
  -- type, where trivally empty means one of:
-@@ -382,8 +383,10 @@
- -- and binds the as-name in the scope. A case alternative's pattern on the
- -- variable it splits goes into that variable's as-pattern too, but it is
- -- the clause's own: only the `_` marks an argument left to unification.
--unifiedArgs : {vars : _} -> RawImp -> VarSet vars
--unifiedArgs lhs = foldr bind VarSet.empty (leftOut lhs)
-+-- So does each as-pattern the elaborator binds for an implicit argument it
-+-- inserts into a pattern (`marks`, from `checkLHS`).
-+unifiedArgs : {vars : _} -> (marks : List Name) -> RawImp -> VarSet vars
-+unifiedArgs marks lhs = foldr bind VarSet.empty (marks ++ leftOut lhs)
-   where
-     leftOut : RawImp -> List Name
-     leftOut (IAs _ _ UseLeft n (Implicit {})) = [n]
-@@ -434,7 +437,7 @@
-                               then pure (Left lhs_raw)
-                               else throw (ValidCase fc env (Right err)))
- checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in rhs)
--    = do (lhs_raw, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
-+    = do (lhs_raw, marks, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
-              checkLHS False mult n opts nest env fc lhs_in
-          let rhsMode = if isErased mult then InType else InExpr
-          log "declare.def.clause" 5 $ "Checking RHS " ++ show rhs
-@@ -458,11 +461,11 @@
-                  addLHS (getFC lhs_in) (length env) env' lhstm'
-               _ => pure ()
- 
--         pure (Right (MkClause env' lhstm' rhstm (unifiedArgs lhs_raw)))
-+         pure (Right (MkClause env' lhstm' rhstm (unifiedArgs marks lhs_raw)))
- -- TODO: (to decide) With is complicated. Move this into its own module?
- checkClause {vars} mult vis totreq hashit n opts nest env
-     (WithClause ifc lhs_in rig wval_raw mprf flags cs)
--    = do (lhs, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
-+    = do (lhs, marks, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
-              checkLHS False mult n opts nest env ifc lhs_in
-          let wmode
-                = if isErased mult || isErased rig then InType else InExpr
-@@ -563,7 +566,7 @@
-          let wdef = IDef ifc wname cs'
-          processDecl [] nest'' env wdef
- 
--         pure (Right (MkClause env' lhspat rhs (unifiedArgs lhs)))
-+         pure (Right (MkClause env' lhspat rhs (unifiedArgs marks lhs)))
-   where
-     vfc : FC
-     vfc = virtualiseFC ifc
-diff -ruN a/src/TTImp/ProcessTransform.idr b/src/TTImp/ProcessTransform.idr
---- a/src/TTImp/ProcessTransform.idr	2026-10-16 21:42:46
-+++ b/src/TTImp/ProcessTransform.idr	2026-10-16 21:42:46
-@@ -26,7 +26,7 @@
- processTransform eopts nest env fc tn_in lhs rhs
-     = do tn <- inCurrentNS tn_in
-          tidx <- resolveName tn
--         (_, (vars'  ** (sub', env', nest', lhstm, lhsty))) <-
-+         (_, _, (vars'  ** (sub', env', nest', lhstm, lhsty))) <-
-              checkLHS True top tidx eopts nest env fc lhs
-          logTerm "transform.lhs" 3 "Transform LHS" lhstm
-          rhstm <- wrapError (InRHS fc tn_in) $
 diff -ruN a/tests/idris2/coverage/coverage034/ConImplicit.idr b/tests/idris2/coverage/coverage034/ConImplicit.idr
 --- a/tests/idris2/coverage/coverage034/ConImplicit.idr	1969-12-31 18:00:00
 +++ b/tests/idris2/coverage/coverage034/ConImplicit.idr	2026-10-16 21:42:46

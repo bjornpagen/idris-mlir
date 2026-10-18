@@ -3,8 +3,8 @@
 ||| What each instance is called, and what tells two instances apart. An
 ||| instance is its definition and its compile-time arguments written out
 ||| (`write`), a symbol per node, every part Idris's `==` tells terms apart
-||| by and nothing else: that link is its identity, the one the request
-||| chains judge, which nothing prints. Its key is how it reads: the
+||| by and nothing else: that link is its identity, which nothing prints.
+||| Its key is how it reads: the
 ||| definition's printed name, a block named by its place in the definition
 ||| that holds it, and the arguments printed with every binder named by its
 ||| depth and every `Nat` literal by its value, so that one instance prints
@@ -304,6 +304,7 @@ keyOrigin n = do
 ||| What writing a term and printing it read beside it: the context, which
 ||| gives each name its address, and the roles of the constructors of
 ||| `Nat`-like types the term names (`rolesIn`), by address.
+export
 record Writer where
   constructor MkWriter
   context : Context
@@ -374,18 +375,28 @@ toZero w s (App _ f a) = case successorOf w f of
   Nothing => Nothing
 toZero w s _ = Nothing
 
-||| A successor `f` applied to `a`, as a literal of its `Nat`-like type
-||| when `a` is a run of it down to its zero: the successor named once
-||| with how many of it there are in decimal, then the zero,
-||| `Prelude.Types.S^1024 Prelude.Types.Z`, so that a literal's print
-||| grows with its digits, not its value, and two types' literals, whose
-||| successors are two names, print apart.
-literalOf : Writer -> TT vs -> TT vs -> Maybe (String, Bool)
-literalOf w f@(Ref _ _ s) a = do
+||| A run of one successor down to a zero, as the writer knows them: the
+||| successor applied n >= 1 times, the same at each step, to a zero of its
+||| type, as n, the successor and the zero. The one reading of such a run:
+||| the key prints it as a literal (`literalOf`), and the growth check
+||| reads its height (`Template`).
+export
+successorRun : Writer -> TT vs -> Maybe (Nat, Name, Name)
+successorRun w (App _ f@(Ref _ _ s) a) = do
   sa <- successorOf w f
   (k, z) <- toZero w sa a
-  pure (plainOrigin s ++ "^" ++ show (S k) ++ " " ++ plainOrigin z, dropsName s || dropsName z)
-literalOf w _ _ = Nothing
+  pure (S k, s, z)
+successorRun w _ = Nothing
+
+||| A run of a successor down to its zero (`successorRun`), as a literal of
+||| its `Nat`-like type: the successor named once with how many of it there
+||| are in decimal, then the zero, `Prelude.Types.S^1024 Prelude.Types.Z`,
+||| so that a literal's print grows with its digits, not its value, and two
+||| types' literals, whose successors are two names, print apart.
+literalOf : Writer -> TT vs -> Maybe (String, Bool)
+literalOf w t = do
+  (n, s, z) <- successorRun w t
+  pure (plainOrigin s ++ "^" ++ show n ++ " " ++ plainOrigin z, dropsName s || dropsName z)
 
 mutual
   ||| A term at a depth of binders: a variable by its binder's depth, a
@@ -410,7 +421,7 @@ mutual
     (parensIf (notAlone p) ("let " ++ binderAt d ++ " = " ++ fst (render w d Alone v) ++ " in " ++
                             fst (render w (S d) Alone sc)), True)
   render w d p (Bind _ _ _ sc) = (fst (render w (S d) p sc), True)
-  render w d p (App _ f a) = case literalOf w f a of
+  render w d p tm@(App _ f a) = case literalOf w tm of
     Just (t, lost) => (parensIf (applied p) t, lost)
     Nothing =>
       let parts = spineParts w d f [render w d Applied a] in
@@ -470,10 +481,6 @@ argumentText w tm = pure (render w 0 Alone !(toFullNames tm))
 -- The identity: the arguments written out
 ------------------------------------------------------------------------------
 
-||| The index an address is of (`State.addressOf`'s inverse).
-indexOf : Address -> Integer
-indexOf = foldr (\b, rest => cast (finToNat b) + 256 * rest) 0
-
 ||| A quantity by its number: 0, 1, many.
 quantity : RigCount -> Fin 3
 quantity q = if isErased q then 0 else if isLinear q then 1 else 2
@@ -514,6 +521,7 @@ integer t v = [Number (IntegerLit (primitive t) (v < 0)) (integerToNat (abs v))]
 ||| A constant: an integer by its type, sign and magnitude, a string and a
 ||| double by their characters (a double's print tells doubles apart), a
 ||| character, a primitive type, the world.
+export
 writeConstant : Constant -> List (Token Form)
 writeConstant (I x) = integer IntType (cast x)
 writeConstant (I8 x) = integer Int8Type (cast x)
@@ -655,7 +663,7 @@ unresolved ctx t = snd <$> find (\(_, n) => isNothing (definitionAddress ctx n))
 ||| the constructors of no argument and of one that Idris flags as such
 ||| (`natRole`, its metadata, never a name), whose runs `write` writes and
 ||| whose literals the key prints.
-rolesIn : {auto c : Ref Ctxt Defs} -> List ClosedTerm -> Core (SortedMap Address NatRole)
+rolesIn : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Core (SortedMap Address NatRole)
 rolesIn tms = do
   defs <- get Ctxt
   let candidates = SortedMap.fromList (mapMaybe (candidate (gamma defs)) (foldr namesOf [] tms))
@@ -677,6 +685,12 @@ rolesIn tms = do
               (Just Zero, Zero) => Just (a, Zero)
               (Just Succ, Succ) => Just (a, Succ)
               _ => Nothing)
+
+||| What reading terms beside the context needs (`Writer`): the context, and
+||| the roles of the zeros and successors the terms name (`rolesIn`).
+export
+writerOf : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Core Writer
+writerOf tms = MkWriter (gamma !(get Ctxt)) <$> rolesIn tms
 
 -- Every number a written term holds is below its weight and its depth
 -- together: a variable's index is below the binders around it, each of
@@ -913,7 +927,7 @@ mutual
 
 ||| A name of the context by its address, as it reads in every build.
 addressIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Core String
-addressIdentity a = nameIdentity !(toFullNames (Resolved (cast (indexOf a))))
+addressIdentity a = nameIdentity !(toFullNames (Resolved (addressIndex a)))
 
 ||| An instance's identity as text that reads the same in every build, for
 ||| the hash a symbol carries when its key's print drops part of the
@@ -949,16 +963,20 @@ keyed w args = traverse (maybe (pure ("-", False)) (argumentText w)) (reverse (d
 
 ||| An instance as a request finds or makes it: its identity, which is its
 ||| link (the definition's address and the compile-time arguments written
-||| out); its key; and its symbol, the key printed.
+||| out); its key; its symbol, the key printed; and each compile-time
+||| argument as the request gave it, with how the link writes it, by
+||| position (`Nothing` where the request gave none).
 public export
-record Instance where
+record Instance a where
   constructor MkInstance
   link : Link Form
   key : InstanceKey
   symbol : String
+  arguments : List (Maybe (a, Written Form))
 
 ||| The instance of a definition at its compile-time arguments (`Nothing` at
-||| a position that keys nothing). Two requests are one instance exactly
+||| a position that keys nothing), each given as whatever the request knows
+||| of it, which holds its term (`term`). Two requests are one instance exactly
 ||| when their links are equal: the map of instances is keyed by the link,
 ||| and a request of an instance already made finds it there without
 ||| printing anything. A new one is printed: its key, and its symbol, which
@@ -968,10 +986,11 @@ record Instance where
 ||| request names, missing from the context as a lookup of it is.
 export
 instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              FC -> String -> Name -> List (Maybe ClosedTerm) -> Core Instance
-instanceKey fc owner n args = do
+              FC -> String -> Name -> (term : a -> ClosedTerm) -> List (Maybe a) -> Core (Instance a)
+instanceKey fc owner n term given = do
   full <- toFullNames n
-  args' <- traverse (traverseOpt toFullNames) args
+  resolved <- traverse (traverseOpt (\x => (x,) <$> toFullNames (term x))) given
+  let args' = map (map snd) resolved
   defs <- get Ctxt
   let Just d = getNameID full (gamma defs)
     | Nothing => reject fc owner CompiledModule ("missing definition " ++ show full)
@@ -981,10 +1000,11 @@ instanceKey fc owner n args = do
   let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing args'
     | Just stray => internal fc ("a compile-time argument of " ++ show full ++ " names " ++ show stray ++
                                  ", which the context does not hold")
-  writer <- MkWriter (gamma defs) <$> rolesIn (catMaybes args')
-  let link = MkLink (addressOf d) (map (map (writtenOf writer)) args')
+  writer <- writerOf (catMaybes args')
+  let arguments = map (map (\(x, t) => (x, writtenOf writer t))) resolved
+  let link = MkLink (addressOf d) (map (map snd) arguments)
   case lookup link (!(get TState)).named of
-    Just (symbol, key) => pure (MkInstance link key symbol)
+    Just (symbol, key) => pure (MkInstance link key symbol arguments)
     Nothing => do
       origin <- keyOrigin full
       printed <- keyed writer args'
@@ -1003,4 +1023,4 @@ instanceKey fc owner n args = do
           internal fc ("two instances on the symbol " ++ symbol)
         Nothing => pure ()
       update TState { named $= insert link (symbol, key), symbols $= insert symbol link }
-      pure (MkInstance link key symbol)
+      pure (MkInstance link key symbol arguments)

@@ -397,21 +397,21 @@ export sitesOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address
 export sitesIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (writer, within : Address) -> ClosedTerm -> Core (List Site)
 -- Frontend.Growth.Implementations (G12), which Sites, Heads and Graph import:
 public export
-record Field where
-  constructor MkField
-  template : Template            -- over the implementation's parameters
-  root : Root                    -- its dictionaryRoot
-  own : List Nat                 -- an eta-wrapped method field: for each of the method's own arguments (the field's
-                                 -- lambdas, in order), its parameter index in the method function M; [] otherwise
-  leading : List (Nat, Nat)      -- for each implementation parameter p, its parameter index in M; [] otherwise
+data Field : Type where
+  -- an eta-wrapped method field: its method function m, its template, and where each argument lands in m.
+  -- own: for each of the method's own arguments (the field's lambdas, in order), its parameter index in m;
+  -- leading: for each implementation parameter p, its index in m. Its root is m, by construction.
+  Method : (m : Address) -> Template -> (own : List Nat) -> (leading : List (Nat, Nat)) -> Field
+  -- any other field: a hand-built dictionary's lambda, a superclass dictionary, with its dictionaryRoot
+  Plain : Template -> Root -> Field
 public export
 record Fields where
   constructor MkFields
   arity : Nat                    -- the implementation's own parameters
-  fields : List Field            -- a hand-built dictionary's constructor fields likewise, with own = leading = []
+  fields : List Field            -- in the interface constructor's order
 -- *Read* (G12, on the fork): M's parameters do not start with J's. A method's own implicit type variables come
 -- first: map_Functor_(EitherT e m) is {b} {a} {e} {m} {Functor m} func x (the fork's Idris/Elab/Implementation.idr
--- :435-440 binds them outside). In prelude and base, 533 of 2,051 method fields are so. The eta wrapper places
+-- :435-440 binds them outside). In prelude and base, 528 of 2,051 method fields are so (measured, G12). The eta wrapper places
 -- each argument exactly, so the placement is read off it, never assumed.
 export fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Core (Maybe Fields)
 ```
@@ -446,10 +446,16 @@ export fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Addres
     includes the heads in `Choice` leaves and in unfolded synonyms. So
     `List (Nat, Vector1 a)` builds `List1` and `Pair` at `(Nat, a)`; the
     written term alone misses them (*read*, soundness review). A data
-    constructor applied is `Builds` of its type likewise. They are read as the data key reads them:
-    `canonicalTypeArg` (`Closed.idr:1172`), then `eraseIndices` (*read*:
-    `Types.idr:383-409, 612`; G7 exports it). An index is then `Leaf 1`. A function's type
-    parameter, which its key holds in full normal form, is read in full;
+    constructor applied is `Builds` of its type likewise.
+  - A `Builds` site's arguments are read with each type constructor's
+    unrepresented arguments erased, keyed on `represented` (G11's
+    `eraseIn`). They are never read through `eraseIndices`, which is keyed
+    on `typeParams` and would erase a represented index: nested-data's
+    `T (a, a)` would become `T _` and lose its +1 arc (*measured*, G9).
+    The data key erases more than this, so its heights stay within these
+    bounds. Each argument is first read through `canonicalTypeArg`
+    (`Closed.idr:1172`). A function's type parameter, which its key holds
+    in full normal form, is read in full;
   - an implementation applied is `Calls` of its function;
   - a method call is the projection's `Calls`, at the projection's
     parameters. Beside it is a `Dispatches t r k`, carrying the method's own
@@ -535,8 +541,9 @@ private `Node` (:37-42) is renamed `Member` to free the name.
 
 ```idris
 public export
-data Wrote = Written Site Argument     -- the site and the argument whose template gave the arc (a leading arc: J's call of M)
-           | Capped Position           -- a cap's origin arc into this position: no site wrote it
+data Wrote = FromArgument Site Argument   -- the site and the argument whose template gave the arc
+           | FromField Address Nat         -- a leading arc: implementation J's method field k placed J's parameter
+           | FromCap Position              -- a cap's origin arc into this position: no site wrote it
 
 public export
 record Built where
@@ -570,9 +577,11 @@ export build : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : N
      under an `Opaque` gives those arcs weight `Stuck`, as `weigh` does for a
      Var there. `fieldsIn` stops at a Field: a field of a field is reached
      through the outer one, by `roots`.
-   - for each `Dispatches` edge that reaches a method function's node, an
-     arc of weight 0 from `(J-node, p)` to `(M-node, q)` for each `(p, q)`
-     of the method field's `leading` placement. It comes from each node of J whose heads
+   - for each `Dispatched m placed j k leading`, an arc of weight 0 from
+     `(J-node, p)` to `(m, q)` for each `(p, q)` in `leading`, from each
+     node of J whose heads agree, attributed `FromField j k`. G2 never
+     recomputes J, the field or a placement, and never searches J's body
+     for its call of M. It comes from each node of J whose heads
      agree with M-node's leading heads. M's leading positions hold J's
      arguments, which the writers of `J u⃗` gave J. J's own call of M passes
      its method dictionaries as runtime values, with no roots, so it reaches
@@ -595,9 +604,18 @@ export flow : SortedMap Address Fields -> List Site -> Flow   -- the least sets,
 export roots : Flow -> (writer : Node) -> Template -> List Address
 export rootsOf : Flow -> (writer : Node) -> Template -> Root -> List Address   -- the Root first, then the template:
                                                                             -- what G2 reads at a Dispatches
-export reaches : Flow -> (writer : Node) -> Site -> List (Node, List (Nat, Nat))
--- each callee node, and where each of the site's arguments lands, j to the callee's parameter: the identity for
--- Calls and Builds; for a Dispatches, the method field's `own` placement
+public export
+record Placed where                -- an argument and the callee parameter it lands at: never looked up again
+  constructor MkPlaced
+  argument : Argument
+  parameter : Nat
+public export
+data Reached : Type where
+  -- Calls and Builds: each argument at its own position
+  Called : Node -> List Placed -> Reached
+  -- through implementation j's Method field k: its own placement applied, its leading placement carried
+  Dispatched : Node -> List Placed -> (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Reached
+export reaches : Flow -> (writer : Node) -> Site -> List Reached
 ```
 
 `roots` of a template:
@@ -672,11 +690,17 @@ export capOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -
 ```
 
 For a parameter that `staticsOver`, run over markers, gives `Just AShape`
-and whose type is a chain (`tyConFacts`' `chain`), take the callee's type
+and whose type is a `Chain` (`tyConFacts`' `natness`), take the callee's type
 with j marked and every earlier parameter given `classify`'s placeholder
 (`Erased EmptyFC Placeholder`), under `templateOf AType`'s unfolding.
-- **`chain`:** Nat-like, and no constructor takes an erased argument (G5
-  adds the field, G7 computes it). *Measured* (G10, on HEAD): `Fin` is
+- **`natness`:** `TyConFacts`' two `Bool`s become one sum, so that a chain
+  that is not Nat-like cannot be stated. G5 declares it, and G7 computes it:
+
+  ```idris
+  data Natness = NotNat     -- not Nat-like
+               | Numeral    -- Nat-like (Idris's ZERO/SUCC), but a constructor takes an erased argument
+               | Chain      -- Nat-like, every constructor argument at run time: a shape is a chain of S
+  ``` *Measured* (G10, on HEAD): `Fin` is
   Nat-like, but a key keeps `FS`'s erased index, so
   `f[FS (S^5 Z) _, …]` has height 7 against a cap of 3.
 - **The placeholder:** a match on an earlier parameter given a marker never
@@ -1053,3 +1077,183 @@ until it lands (0003).
 - **Assembly and validation** (`assemble.py`, then `validate.py`, at
   2026-10-16): 19 dispatches; 1 link, 16 findings, 987 write pairs and 19
   dispatches checked; 0 problems.
+
+## 12. Integration record
+
+Integration found what the lanes, typechecking against stubs, could not:
+the composed checker on the corpus and on the self compile. Each change
+below replaced the packet's form outright; nothing is kept beside it.
+
+### Contract changes (§4 as built)
+
+- **§4.3, the reading.**
+  - `dictionaryRoot` is structural: the request and the sites call the same
+    function, and none reads Idris's normaliser. A projection whose record
+    is no constructor has no root; the template's field decides.
+  - A projection reads as the choice of its written application and its
+    field.
+  - Eta is read throughout: `contracted` contracts a lambda that only
+    passes its variables on, at every depth, so `\x => a x` reads as `a`.
+  - `Static` gains `AFamily`, an erased type parameter whose kind is a
+    function into a universe, decided by `keyingOf`. `Template.typeRoot` is
+    a family's one root function: the type constructor heading its
+    eta-contracted normal form.
+  - `Root.Implementation` is `Rooted`.
+  - `Applied i d args` is a family applied, which every instance
+    beta-reduces; `Formal` is an argument of a family's value. A family
+    value reads as its meaning: a lambda's variables are formals, and a
+    definition given fewer arguments than it takes is unfolded over them.
+- **§4.4, sites.** `sitesOf a heads` reads a definition at a node; a
+  family argument's root is its type root. `Argument.shown` is a
+  `Core String`, rendered only where a refusal prints. Profile has
+  `answersForCalls` (a body never translated) beside `answersForBody`.
+- **§4.5, nodes.** `Node.heads` holds family heads as well as dictionary
+  roots: a family parameter splits a node by the type constructor its value
+  has there. A node's positions are decided at its heads by the request's
+  own `staticsOver`/`keyingOf`, so a request's keyed positions are its
+  node's (C3 by construction).
+- **§4.6, the graph.** The field rule carries a field's value by its
+  record's own variables, as deep as the field holds them (`fieldsIn` is
+  gone). Leading arcs are drawn once per method node. Per-node readings
+  are computed from the flow, and the walk checks that every node it meets
+  has one. An applied family is read k heads above its arguments only
+  where closed templates no higher than k land at the family (the landings
+  rule).
+- **§4.7, heads.** The flow gains `Passes`; `reaching` gives the flow's
+  set at a parameter.
+- **§4.8.** `represented` is cached in `TyConFacts`.
+- **§4.10, the check.** Its tables are trees over a position's bits,
+  `Places n d` with an erased `LTE n (power 2 d)`, read in about log n
+  steps; Tarjan's measure is their count of unseen leaves.
+- **§4.12, the proofs.** `Proof.Bound` models beta: `Meaning`, `Lands`,
+  `Reduces`, with `betaHeight`, `reducesBelow` and `landed`, so Theorem 1
+  covers applied families.
+- **§4.13.** A new message: "`<f>` passes `<x>` through its type family
+  `<m>` to `<g>`, and nothing bounds what it computes".
+- **Option (a).** `Translate/Closed.unfolded` projects structurally first:
+  a method resolves to the implementation's method function, not to the
+  normal form Idris's normaliser inlines. See below.
+
+### Option (a): methods resolve to the implementation's method function
+
+The packet's "each kind is read as its key writes it" met keys that held
+Idris's normal form of a dictionary: `Translate/Closed.unfolded` asked the
+normaliser for a projection's record, so a key held `MkShow Int (\x0 =>
+primNumShow …)`, and the code translated from it held method bodies the
+normaliser had inlined. Reading those forms for growth cost what the
+normaliser's output costs: on the self compile, `Ord (Node, Nat)` reaches
+`Vect 8 (Fin 256)`'s successor chains, 8 to 14 GB in under two minutes,
+whole or one normal form per definition. A projection now takes the field
+from the constructor its record reduces to, its arguments as written, so an
+implementation in it stays the implementation it names, and a method is a
+call of the implementation's method function. Inlining is MLIR's.
+
+On the 381 fixtures (*measured*): status, stdout and stderr are identical
+to HEAD's; 306 are identical in every respect; 75 differ in Core and module
+only. Over those 75, 442 instances call a method function where HEAD
+inlined its body, 345 method-function instances are added, and 15 HEAD
+instances merge (a second instance of one function at one implementation,
+keyed once by its name and once by its normal form). Module bytes 7,907,895
+→ 7,885,057 (−0.29%); Core functions 11,676 → 12,006 (+2.8%); show-heavy
+programs shrink (prelude-show −20%), IO-heavy ones grow (prelude-lists
++5.7%). Running them is the owner's build.
+
+### Known limits found at integration
+
+Finite but refused, each conservative and none met by the tree, the
+fixtures or the self compile:
+- a type family whose value computes, wherever it is applied to static
+  arguments: a match on the family's argument (even a non-recursive one),
+  a Nat recursion on it, or a dependent pair's predicate whose body
+  computes;
+- a family value that applies one of its family arguments to what holds
+  another (`\g, x => g (List x)`): beta sums two arguments' heights, which
+  no weight states (`tests/reject/polymorphism-growth-family-sum`);
+- a lambda family forwarded through another definition, when what lands
+  there is open.
+
+The link between Template's reading of a family value and `Proof.Bound`'s
+`Meaning` is by construction, as the rest of `Describes` is (§4.12): the
+proof cannot state Idris's TT. A request outside its bound stays the
+check's internal error (C3), so a gap there stops the compile; it never
+miscompiles. A node at heads the flow did not give is that error too
+(none is known).
+
+### Gates (arm64 macOS, the typecheck machine; no LLVM built)
+
+- **Gate 2** (§7.2): the integrated frontend against HEAD's on Chez over
+  every program of `tests/programs`, `tests/accept` and `tests/reject`.
+  Status, stdout and stderr are identical on all 381 that HEAD has; 306 are
+  identical in every respect; 75 differ in Core and module only, by option
+  (a). Every T1 fixture is refused once, at the line and with the cycle its
+  header states; every T2 fixture, `erased-elem-match` and the five
+  `bounded-family-*` are admitted and write their module; the two
+  `polymorphism-growth-family-*` are refused as their headers say;
+  `polymorphic-recursion-swapped`, `growing-specialization-function`,
+  `higher-order-dictionary` and `type-level-shapes` are still admitted. No
+  program raises the growth check's internal error.
+- **Gate 3** (§7.3): the self compile's frontend step, unpatched, on a
+  fresh copy of `compiler/src`, against a prefix whose fork package the
+  integrated frontend built (the S1 prefix predates the fork's TTC version):
+  exit 0, no refusal, no internal error. Times and sizes:
+  `bench/profiles/2026-10-17-self-growth.md`.
+- **Gate 4:** T3's box, from the tree: every verdict as `expected-stdout`
+  says.
+- **Gate 5:** `Proof/`, `Frontend/Growth*` and `Frontend/Finite.idr` hold
+  no `assert_total`, `covering`, `believe_me` or `postulate`, and each is
+  `%default total`; Driver's `perform`, `frontend` and `main` are total, the
+  error printer being one more field of the fork's `Idris.Host.host`.
+- `make check`: 35 of 35.
+
+### What integration fixed beyond the contracts
+
+- **The fork** (41612045, 73d6dcf3): Idris bugs 50 to 54, as the fork's own
+  code. 51 made the frontend's reach into Idris's error printer visible,
+  which `host.emitError` now states.
+- **Soundness:** a family value given as a definition under-applied, or a
+  lambda stuck on its variable, read below its meaning, so four programs
+  raised the internal error; `Proof.Bound`'s beta model found them.
+- **Precision:** eta-expanded markers, and the per-definition kinds that
+  refused the fork's `Core.Env.getBinderUnder` three times (its scope `ns`
+  sits only in `Term`'s erased index), each a packet defect by §7.
+- **Time:** the growth phase on the self compile went from 1,093 s to
+  about 67 s: `concat` folding `++` from the left (three quadratic joins),
+  arcs looked up by index, and Vect tables in the check (now `Places n d`).
+  Each static argument of a request is read once into `TS.readings`, and a
+  request carries its heights, so the worklist reads instead of
+  recomputing.
+- **Spec:** `tests/spec/no-erased-inputs` used `\|` in a basic `sed`
+  expression, which BSD sed lacks, so on macOS it never saw the frontend's
+  own data types; AlmostFull's `Lifted` hid that. It is `sed -E` now.
+
+### The hard cleanup (2026-10-17)
+
+After integration, at the owner's word ("hard cutovers and hard cleanup after
+a night of churn"), six agents cleaned the frontend's checker files and the
+fork's five fixes, each in its own files, with outputs identical: the Core
+and module of every fixture and the self compile's verdict. What went:
+duplicate readings (one reading per kind in Template; caps decided once in
+Graph; constructors read once in Types), unread payloads, lists matched by
+position (the check's cycle walks are one list of proved edges), Bool tests
+that returned no evidence (comparisons in Proof.Requests return proofs),
+and the erased-Elem fix's predecessor: `Cases.equated`, `bindEquated`,
+`forcedEnv` and Forced's `Known`/`View`, which computed a weaker copy of
+what the clause's left-hand side already holds (about 650 lines, behind a
+guard fixture, `tests/accept/erased-elem-later-match`). `Proof.Requests`'
+`lowBits` takes one step per bit (`lowBits 11` over a million values: 9.5 s
+to 0.22 s). The four `Proof.Bound` theorems the frontend's family readings
+rest on stay, exported, though no code calls them: the proof is the
+guarantee.
+
+The cleanup's one regression, found by gate 3 and by no fixture: Forced
+read every left-hand-side term that was not a variable, an erased term or
+an as-pattern as a test, so a runtime implicit the unifier computed (the
+fork's `Partitions`, whose `ps` holds `cs ++ ps'`, which Idris's tree never
+matches) left its clause covering nothing, and the erased indices that
+clause unified with constructor fields reached run time as `[__]`. Forced
+now reads each place of a clause once, as Idris's case builder does: only
+a constructor, an arrow, a constant or a suspension tests; a computed
+literal (`fromInteger 3`) is a test not taken apart. The deleted `equated`
+was a second copy of what the clause holds. Guard:
+`tests/accept/erased-index-forced-index`, the clause and its with-block
+form.

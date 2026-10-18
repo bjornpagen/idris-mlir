@@ -1,6 +1,6 @@
 diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
---- a/src/Core/Case/CaseBuilder.idr	2026-10-16 17:35:08
-+++ b/src/Core/Case/CaseBuilder.idr	2026-10-16 17:35:08
+--- a/src/Core/Case/CaseBuilder.idr	2026-09-08 08:21:45
++++ b/src/Core/Case/CaseBuilder.idr	2026-10-17 12:03:47
 @@ -20,6 +20,7 @@
  import Libraries.Data.List.LengthMatch
  import Libraries.Data.List01
@@ -100,8 +100,8 @@ diff -ruN a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
 +    toClosed defs (pname, MkClause env lhs rhs unified)
 +          = (unifiedNames pname unified, close fc pname env lhs, close fc pname env rhs)
 diff -ruN a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
---- a/src/Core/Context/Context.idr	2026-10-16 17:35:08
-+++ b/src/Core/Context/Context.idr	2026-10-16 17:35:08
+--- a/src/Core/Context/Context.idr	2026-09-08 08:21:45
++++ b/src/Core/Context/Context.idr	2026-10-17 12:03:47
 @@ -21,6 +21,7 @@
  import Libraries.Data.UserNameMap
  import Libraries.Data.WithDefault
@@ -134,8 +134,8 @@ diff -ruN a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
  
  public export
 diff -ruN a/src/Core/Context.idr b/src/Core/Context.idr
---- a/src/Core/Context.idr	2026-10-16 17:35:08
-+++ b/src/Core/Context.idr	2026-10-16 17:35:08
+--- a/src/Core/Context.idr	2026-09-08 08:21:45
++++ b/src/Core/Context.idr	2026-10-17 12:03:47
 @@ -27,6 +27,7 @@
  import Libraries.Data.NatSet
  import Libraries.Data.StringMap
@@ -161,8 +161,8 @@ diff -ruN a/src/Core/Context.idr b/src/Core/Context.idr
  
  export
 diff -ruN a/src/Core/Coverage.idr b/src/Core/Coverage.idr
---- a/src/Core/Coverage.idr	2026-10-16 17:35:08
-+++ b/src/Core/Coverage.idr	2026-10-16 17:35:08
+--- a/src/Core/Coverage.idr	2026-09-08 08:21:45
++++ b/src/Core/Coverage.idr	2026-10-17 12:03:47
 @@ -463,7 +463,7 @@
      tryClauses [] ulhs
          = do logTermNF "coverage" 10 "Nothing matches" Env.empty ulhs
@@ -173,8 +173,8 @@ diff -ruN a/src/Core/Coverage.idr b/src/Core/Coverage.idr
               then do logTermNF "coverage" 10 "Yes" env lhs
                       pure Nothing -- something matches, discared it
 diff -ruN a/src/TTImp/Interactive/GenerateDef.idr b/src/TTImp/Interactive/GenerateDef.idr
---- a/src/TTImp/Interactive/GenerateDef.idr	2026-10-16 17:35:08
-+++ b/src/TTImp/Interactive/GenerateDef.idr	2026-10-16 17:35:08
+--- a/src/TTImp/Interactive/GenerateDef.idr	2026-09-08 08:21:45
++++ b/src/TTImp/Interactive/GenerateDef.idr	2026-10-17 12:03:47
 @@ -61,7 +61,7 @@
              | Left err => noResult -- TODO: impossible clause, do something
                                     -- appropriate
@@ -185,8 +185,8 @@ diff -ruN a/src/TTImp/Interactive/GenerateDef.idr b/src/TTImp/Interactive/Genera
              | _ => throw (GenericMsg loc "No searchable hole on RHS")
           defs <- get Ctxt
 diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
---- a/src/TTImp/ProcessDef.idr	2026-10-16 17:35:08
-+++ b/src/TTImp/ProcessDef.idr	2026-10-16 17:35:08
+--- a/src/TTImp/ProcessDef.idr	2026-09-08 08:21:45
++++ b/src/TTImp/ProcessDef.idr	2026-10-17 12:07:42
 @@ -39,6 +39,7 @@
  import Libraries.Data.WithDefault
  import Libraries.Text.PrettyPrint.Prettyprinter
@@ -195,9 +195,9 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
  
  %default covering
  
-@@ -374,6 +375,26 @@
-                   \fc, nt => applyTo fc
-                          (Ref fc nt (Resolved n')) env))
+@@ -278,6 +279,26 @@
+         = do newc <- combine c c'
+              combineAll newc cs
  
 +-- The variables of a checked left-hand side's scope that name an argument
 +-- the clause leaves to unification. The elaborator writes each such argument
@@ -219,37 +219,65 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
 +    bind : Name -> VarSet vars -> VarSet vars
 +    bind n set = maybe set (\v => VarSet.insert v set) (isVar n vars)
 +
- -- Check a pattern clause, returning the component of the 'Case' expression it
- -- represents, or Nothing if it's an impossible clause
- export
-@@ -413,7 +434,7 @@
+ export -- also used by Transforms
+ checkLHS : {vars : _} ->
+            {auto c : Ref Ctxt Defs} ->
+@@ -292,7 +313,9 @@
+            Core (RawImp, -- checked LHS with implicits added
+                  (vars' ** (Thin vars vars',
+                            Env Term vars', NestedNames vars',
+-                           Term vars', Term vars')))
++                           Term vars', Term vars',
++                           -- the arguments it leaves to unification
++                           VarSet vars')))
+ checkLHS {vars} trans mult n opts nest env fc lhs_in
+     = do defs <- get Ctxt
+          logRaw "declare.def.lhs" 30 "Raw LHS: " lhs_in
+@@ -347,8 +370,9 @@
+          logTerm "declare.def.lhs" 5 "LHS type" lhsty_lin
+          setHoleLHS (bindEnv fc env lhstm_lin)
+ 
+-         ext <- extendEnv env Refl nest lhstm_lin lhsty_lin
+-         pure (lhs, ext)
++         (vars' ** (sub', env', nest', lhstm', lhsty')) <-
++             extendEnv env Refl nest lhstm_lin lhsty_lin
++         pure (lhs, (vars' ** (sub', env', nest', lhstm', lhsty', unifiedArgs lhs)))
+ 
+ -- Return whether any of the pattern variables are in a trivially empty
+ -- type, where trivally empty means one of:
+@@ -413,7 +437,7 @@
                                then pure (Left lhs_raw)
                                else throw (ValidCase fc env (Right err)))
  checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in rhs)
 -    = do (_, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
-+    = do (lhs_raw, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
++    = do (_, (vars'  ** (sub', env', nest', lhstm', lhsty', unified))) <-
               checkLHS False mult n opts nest env fc lhs_in
           let rhsMode = if isErased mult then InType else InExpr
           log "declare.def.clause" 5 $ "Checking RHS " ++ show rhs
-@@ -437,7 +458,7 @@
+@@ -437,11 +461,11 @@
                   addLHS (getFC lhs_in) (length env) env' lhstm'
                _ => pure ()
  
 -         pure (Right (MkClause env' lhstm' rhstm))
-+         pure (Right (MkClause env' lhstm' rhstm (unifiedArgs lhs_raw)))
++         pure (Right (MkClause env' lhstm' rhstm unified))
  -- TODO: (to decide) With is complicated. Move this into its own module?
  checkClause {vars} mult vis totreq hashit n opts nest env
      (WithClause ifc lhs_in rig wval_raw mprf flags cs)
-@@ -542,7 +563,7 @@
+-    = do (lhs, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
++    = do (lhs, (vars'  ** (sub', env', nest', lhspat, reqty, unified))) <-
+              checkLHS False mult n opts nest env ifc lhs_in
+          let wmode
+                = if isErased mult || isErased rig then InType else InExpr
+@@ -542,7 +566,7 @@
           let wdef = IDef ifc wname cs'
           processDecl [] nest'' env wdef
  
 -         pure (Right (MkClause env' lhspat rhs))
-+         pure (Right (MkClause env' lhspat rhs (unifiedArgs lhs)))
++         pure (Right (MkClause env' lhspat rhs unified))
    where
      vfc : FC
      vfc = virtualiseFC ifc
-@@ -766,11 +787,12 @@
+@@ -766,11 +790,12 @@
      makeErrorClause env lhs
          = MkClause env (matchAny lhs)
               (mkCrash ("Unhandled input for " ++ show n ++ " at " ++ show fc))
@@ -264,7 +292,7 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
      addErrorCase (x :: xs) = x :: addErrorCase xs
  
      getSpec : List DefFlag -> Maybe (List (Name, Nat))
-@@ -791,7 +813,7 @@
+@@ -791,7 +816,7 @@
  
      toClause : FC -> (vars ** (Env Term vars, Term vars, Term vars)) -> Clause
      toClause fc (_ ** (env, lhs, rhs))
@@ -273,7 +301,7 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
  
  compileRunTime : {auto c : Ref Ctxt Defs} ->
                   {auto m : Ref MD Metadata} ->
-@@ -807,12 +829,12 @@
+@@ -807,12 +832,12 @@
           update Ctxt { toCompileCase := [] }
  
  toPats : Clause -> (vs ** (Env Term vs, Term vs, Term vs))
@@ -288,7 +316,7 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
      = recordWarning (UnreachableClause (getLoc lhs) env lhs)
  
  isAlias : RawImp -> Maybe ((FC, Name)              -- head symbol
-@@ -990,7 +1012,7 @@
+@@ -990,7 +1015,7 @@
      -- one where all the arguments are variables? If so, no need to do the
      -- (potentially expensive) coverage check
      catchAll : Clause -> Bool
@@ -297,7 +325,7 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
         = all simplePat (getArgs lhs)
  
      -- Return 'Nothing' if the clause is impossible, otherwise return the
-@@ -1037,7 +1059,7 @@
+@@ -1037,7 +1062,7 @@
      getClause (Left rawlhs)
          = catch (do lhsp <- getImpossibleTerm env nest rawlhs
                      log "declare.def.impossible" 3 $ "Generated impossible LHS: " ++ show lhsp
@@ -306,6 +334,27 @@ diff -ruN a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
                  (\e => do log "declare.def" 5 $ "Error in getClause " ++ show e
                            recordWarning $ GenericWarn (fromMaybe (getFC rawlhs) $ getErrorLoc e) (show e)
                            pure Nothing)
+diff -ruN a/src/TTImp/ProcessTransform.idr b/src/TTImp/ProcessTransform.idr
+--- a/src/TTImp/ProcessTransform.idr	2026-09-08 08:21:45
++++ b/src/TTImp/ProcessTransform.idr	2026-10-17 12:07:42
+@@ -12,6 +12,8 @@
+ import TTImp.ProcessDef -- for checking LHS
+ import TTImp.TTImp
+ 
++import Libraries.Data.VarSet
++
+ %default covering
+ 
+ export
+@@ -26,7 +28,7 @@
+ processTransform eopts nest env fc tn_in lhs rhs
+     = do tn <- inCurrentNS tn_in
+          tidx <- resolveName tn
+-         (_, (vars'  ** (sub', env', nest', lhstm, lhsty))) <-
++         (_, (vars'  ** (sub', env', nest', lhstm, lhsty, _))) <-
+              checkLHS True top tidx eopts nest env fc lhs
+          logTerm "transform.lhs" 3 "Transform LHS" lhstm
+          rhstm <- wrapError (InRHS fc tn_in) $
 diff -ruN a/tests/idris2/coverage/coverage032/ErasedNested.idr b/tests/idris2/coverage/coverage032/ErasedNested.idr
 --- a/tests/idris2/coverage/coverage032/ErasedNested.idr	1969-12-31 18:00:00
 +++ b/tests/idris2/coverage/coverage032/ErasedNested.idr	2026-10-16 17:34:32

@@ -227,7 +227,8 @@ which the top-level CMake configure gate reads.
   the patterns that fix it; `0 fp : All IsF ws -> All Pr ws` is reported
   not covering. The fork inherited it
 - sites: the fork, Core/Context/Context.idr (`Clause`), TTImp/ProcessDef.idr
-  (`unifiedArgs`); the case builder's order is relevant-implicit-split's
+  (`unifiedArgs`), TTImp/ProcessTransform.idr (its clause's marks); the case
+  builder's order is relevant-implicit-split's
 - workaround: none; the fork carries the change of
   upstream/50-erased-coverage-nested-match/pull-request.diff, the first of
   the series 50, 52, 53. The stock Idris is not patched: nothing it builds
@@ -288,8 +289,7 @@ which the top-level CMake configure gate reads.
   case tree splits it before the field that fixes it; `v1 (C1 (ItIsF ::
   [])) = ()` is reported not covering. The fork inherited it
 - sites: the fork, TTImp/Elab/{App,As,Check}.idr, TTImp/Elab.idr,
-  TTImp/ProcessDef.idr (`unifiedArgs`), TTImp/ProcessTransform.idr: a
-  left-out implicit is bound as an as-pattern over its hole, the one mark
+  TTImp/ProcessDef.idr (`unifiedArgs`): a left-out implicit is bound as an as-pattern over its hole, the one mark
   erased-coverage-nested-match reads, and the mark is dropped where the
   hole is a variable
 - workaround: none; the fork carries the change of

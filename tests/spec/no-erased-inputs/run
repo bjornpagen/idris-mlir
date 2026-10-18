@@ -18,8 +18,8 @@ while IFS= read -r file; do
 done < "$work/sources"
 # The names compiler/src defines at the top level of a module: a type
 # signature, or a data type, record or interface it declares.
-sed -n 's/^[^:]*:[0-9]*:\(\(public \)\{0,1\}export \)\{0,1\}\(data\|record\|interface\) \([A-Za-z_][A-Za-z0-9_'"'"']*\).*/\4/p;
-        s/^[^:]*:[0-9]*:\(\(public \)\{0,1\}export \)\{0,1\}\([A-Za-z_][A-Za-z0-9_'"'"']*\) *:.*/\3/p' "$work/code" |
+sed -n -E 's/^[^:]*:[0-9]*:((public )?export )?(data|record|interface) ([A-Za-z_][A-Za-z0-9_'"'"']*).*/\4/p;
+           s/^[^:]*:[0-9]*:((public )?export )?([A-Za-z_][A-Za-z0-9_'"'"']*) *:.*/\3/p' "$work/code" |
   LC_ALL=C sort -u > "$work/own"
 pattern=
 for name in $erased; do

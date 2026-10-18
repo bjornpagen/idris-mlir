@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that W, whose family m is the type constructor List applied to x in T's static argument, is admitted with W's node split by m's head, the applied family read as List applied, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

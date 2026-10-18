@@ -281,6 +281,28 @@ combineLinear loc ((n, count) :: cs)
         = do newc <- combine c c'
              combineAll newc cs
 
+-- The variables of a checked left-hand side's scope that name an argument
+-- the clause leaves to unification. The elaborator writes each such argument
+-- as an as-pattern on its own side over `_` (an implicit the clause leaves
+-- out, `implicitsAs`; a case block's environment; a with block's argument)
+-- and binds the as-name in the scope. A case alternative's pattern on the
+-- variable it splits goes into that variable's as-pattern too, but it is
+-- the clause's own: only the `_` marks an argument left to unification.
+-- So does each as-pattern the elaborator binds for an implicit argument it
+-- inserts into a pattern (`marks`).
+unifiedArgs : {vars : _} -> (marks : List Name) -> RawImp -> VarSet vars
+unifiedArgs marks lhs = foldr bind VarSet.empty (marks ++ leftOut lhs)
+  where
+    leftOut : RawImp -> List Name
+    leftOut (IAs _ _ UseLeft n (Implicit {})) = [n]
+    leftOut (IApp _ f a) = leftOut f ++ leftOut a
+    leftOut (INamedApp _ f _ a) = leftOut f ++ leftOut a
+    leftOut (IAutoApp _ f a) = leftOut f ++ leftOut a
+    leftOut _ = []
+
+    bind : Name -> VarSet vars -> VarSet vars
+    bind n set = maybe set (\v => VarSet.insert v set) (isVar n vars)
+
 export -- also used by Transforms
 checkLHS : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
@@ -294,10 +316,11 @@ checkLHS : {vars : _} ->
            Int -> List ElabOpt -> NestedNames vars -> Env Term vars ->
            FC -> RawImp ->
            Core (RawImp, -- checked LHS with implicits added
-                 List Name, -- the as-patterns bound for implicits it leaves out
                  (vars' ** (Thin vars vars',
                            Env Term vars', NestedNames vars',
-                           Term vars', Term vars')))
+                           Term vars', Term vars',
+                           -- the arguments it leaves to unification
+                           VarSet vars')))
 checkLHS {vars} trans mult n opts nest env fc lhs_in
     = do defs <- get Ctxt
          logRaw "declare.def.lhs" 30 "Raw LHS: " lhs_in
@@ -352,8 +375,9 @@ checkLHS {vars} trans mult n opts nest env fc lhs_in
          logTerm "declare.def.lhs" 5 "LHS type" lhsty_lin
          setHoleLHS (bindEnv fc env lhstm_lin)
 
-         ext <- extendEnv env Refl nest lhstm_lin lhsty_lin
-         pure (lhs, marks, ext)
+         (vars' ** (sub', env', nest', lhstm', lhsty')) <-
+             extendEnv env Refl nest lhstm_lin lhsty_lin
+         pure (lhs, (vars' ** (sub', env', nest', lhstm', lhsty', unifiedArgs marks lhs)))
 
 -- Return whether any of the pattern variables are in a trivially empty
 -- type, where trivally empty means one of:
@@ -378,28 +402,6 @@ applyEnv env withname
          pure (withname, (Just withname, reverse (allVarsNoLet env),
                   \fc, nt => applyTo fc
                          (Ref fc nt (Resolved n')) env))
-
--- The variables of a checked left-hand side's scope that name an argument
--- the clause leaves to unification. The elaborator writes each such argument
--- as an as-pattern on its own side over `_` (an implicit the clause leaves
--- out, `implicitsAs`; a case block's environment; a with block's argument)
--- and binds the as-name in the scope. A case alternative's pattern on the
--- variable it splits goes into that variable's as-pattern too, but it is
--- the clause's own: only the `_` marks an argument left to unification.
--- So does each as-pattern the elaborator binds for an implicit argument it
--- inserts into a pattern (`marks`, from `checkLHS`).
-unifiedArgs : {vars : _} -> (marks : List Name) -> RawImp -> VarSet vars
-unifiedArgs marks lhs = foldr bind VarSet.empty (marks ++ leftOut lhs)
-  where
-    leftOut : RawImp -> List Name
-    leftOut (IAs _ _ UseLeft n (Implicit {})) = [n]
-    leftOut (IApp _ f a) = leftOut f ++ leftOut a
-    leftOut (INamedApp _ f _ a) = leftOut f ++ leftOut a
-    leftOut (IAutoApp _ f a) = leftOut f ++ leftOut a
-    leftOut _ = []
-
-    bind : Name -> VarSet vars -> VarSet vars
-    bind n set = maybe set (\v => VarSet.insert v set) (isVar n vars)
 
 -- Check a pattern clause, returning the component of the 'Case' expression it
 -- represents, or Nothing if it's an impossible clause
@@ -441,7 +443,7 @@ checkClause mult vis totreq hashit n opts nest env (ImpossibleClause fc lhs)
                               then pure (Left lhs_raw)
                               else throw (ValidCase fc env (Right err)))
 checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in rhs)
-    = do (lhs_raw, marks, (vars'  ** (sub', env', nest', lhstm', lhsty'))) <-
+    = do (_, (vars'  ** (sub', env', nest', lhstm', lhsty', unified))) <-
              checkLHS False mult n opts nest env fc lhs_in
          let rhsMode = if isErased mult then InType else InExpr
          log "declare.def.clause" 5 $ "Checking RHS " ++ show rhs
@@ -465,11 +467,11 @@ checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in r
                  addLHS (getFC lhs_in) (length env) env' lhstm'
               _ => pure ()
 
-         pure (Right (MkClause env' lhstm' rhstm (unifiedArgs marks lhs_raw)))
+         pure (Right (MkClause env' lhstm' rhstm unified))
 -- TODO: (to decide) With is complicated. Move this into its own module?
 checkClause {vars} mult vis totreq hashit n opts nest env
     (WithClause ifc lhs_in rig wval_raw mprf flags cs)
-    = do (lhs, marks, (vars'  ** (sub', env', nest', lhspat, reqty))) <-
+    = do (lhs, (vars'  ** (sub', env', nest', lhspat, reqty, unified))) <-
              checkLHS False mult n opts nest env ifc lhs_in
          let wmode
                = if isErased mult || isErased rig then InType else InExpr
@@ -570,7 +572,7 @@ checkClause {vars} mult vis totreq hashit n opts nest env
          let wdef = IDef ifc wname cs'
          processDecl [] nest'' env wdef
 
-         pure (Right (MkClause env' lhspat rhs (unifiedArgs marks lhs)))
+         pure (Right (MkClause env' lhspat rhs unified))
   where
     vfc : FC
     vfc = virtualiseFC ifc

@@ -14,6 +14,8 @@ import TTImp.Elab.Check
 import TTImp.ProcessDef -- for checking LHS
 import TTImp.TTImp
 
+import Libraries.Data.VarSet
+
 %default covering
 
 export
@@ -29,7 +31,7 @@ processTransform : {vars : _} ->
 processTransform eopts nest env fc tn_in lhs rhs
     = do tn <- inCurrentNS tn_in
          tidx <- resolveName tn
-         (_, _, (vars'  ** (sub', env', nest', lhstm, lhsty))) <-
+         (_, (vars'  ** (sub', env', nest', lhstm, lhsty, _))) <-
              checkLHS True top tidx eopts nest env fc lhs
          logTerm "transform.lhs" 3 "Transform LHS" lhstm
          rhstm <- wrapError (InRHS fc tn_in) $

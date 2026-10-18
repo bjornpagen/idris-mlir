@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that describe, given Show Int as snd (MkPair () (dictOf Int ...)) and Show Bool through a let as dictOf Bool ..., is admitted by the growth check with each instance's node split by its dictionary's root, Show Int or Show Bool, never the written head snd or dictOf, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+universal: holds
+run: exit status as expected
+stdout: as expected
+stderr: empty

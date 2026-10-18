@@ -31,12 +31,3 @@ runtime/Io/Clock.cpp: constexpr int64_t secondsLimit = int64_t{1} << 33; -- the 
 # The trust points, each with its theorem: what the frontend relies on and
 # Idris's totality checker cannot see.
 compiler/idris/src/Idris/Host.idr: host = assert_total -- every operation of Idris's compiler the frontend calls and the checker cannot follow returns, TT's normalization last among them: Idris's theory is not strongly normalizing, so this one is irreducible
-#
-# The definitions Idris checks only for coverage, each by its name: a
-# translation that is not yet total.
-compiler/src/IdrisMLIR/Frontend/Finite.idr: covering translateFrom : -- the dictionary passes end: each pass learns a field the last took as never built, known only grows, and the fields any pass can learn are those of the request tree under the assignment the passes compute, finite by the fan theorem; that tree is no value before the passes end, so no measure exists to descend on
-compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr: covering translateIOProgram : -- calls translateFrom, covering until the dictionary passes are proved finite
-compiler/src/IdrisMLIR/Frontend/Program.idr: covering program : -- calls translateIOProgram, covering until the dictionary passes are proved finite
-compiler/src/IdrisMLIR/Frontend/Driver.idr: covering perform : -- reaches translateFrom, covering until the dictionary passes are proved finite
-compiler/src/IdrisMLIR/Frontend/Driver.idr: covering frontend : -- reaches translateFrom, covering until the dictionary passes are proved finite
-compiler/src/IdrisMLIR/Frontend/Driver.idr: covering main : -- reaches translateFrom, covering until the dictionary passes are proved finite

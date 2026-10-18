@@ -73,7 +73,8 @@ data Source = Written | Unified
 
 -- The source of a pattern on a column made from a pattern of source `s`:
 -- what unification found stays found, and an as-pattern whose name
--- `unified` holds is found.
+-- `unified` holds is found. A column's source is read once, when the column
+-- is made, so it holds as the tree takes the column's as-patterns off.
 sourceOf : (unified : List Name) -> Source -> Pat -> Source
 sourceOf unified s (PAs _ n p)
     = if n `elem` unified then Unified else sourceOf unified s p
@@ -380,11 +381,14 @@ clauseType : Phase -> (p : PatClause (a :: as) vars) -> ClauseType p
 clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
     = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
   where
-    -- whether the clause writes this pattern
-    written : Bool
-    written = case use src arg of
-                   Tests => True
-                   _ => False
+    -- At quantity 0 a pattern a clause writes on an erased argument is a
+    -- match, a constant or a type as much as a constructor (below): nothing
+    -- there was made must-unify. What unification fixed there stays a
+    -- variable, unless it is a constructor: a type it solved (the `a` of
+    -- `[] {a}`) is the only one the argument's type allows.
+    matchesErased : Phase -> Source -> Bool
+    matchesErased (CompileTime cr) Written = isErased cr
+    matchesErased _ _ = False
 
     -- used when we are tempted to split on a constructor: is
     -- this actually a fully applied one?
@@ -407,15 +411,9 @@ clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
              then Nothing
              else splitCon a xs
     getClauseType phase (PAs _ _ p) t = getClauseType phase p t
-    -- At quantity 0 a pattern a clause writes on an erased argument is a
-    -- match, a constant or a type as much as a constructor (above): nothing
-    -- there was made must-unify. What unification fixed there stays a
-    -- variable, unless it is a constructor: a type it solved (the `a` of
-    -- `[] {a}`) is the only one the argument's type allows.
-    getClauseType (CompileTime cr) l (Known r t)
-        = if isErased r && not (isErased cr && written) then Nothing else clauseType' l
-    getClauseType RunTime l (Known r t)
-        = if isErased r then Nothing else clauseType' l
+    getClauseType phase l (Known r t) = if isErased r && not (matchesErased phase src)
+      then Nothing
+      else clauseType' l
     getClauseType phase l _ = clauseType' l
 
 partition : {a, as, vars : _} ->
@@ -681,8 +679,7 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
     -- In 'As' replace the name on the RHS with a reference to the
     -- variable we're doing the case split on
     addGroup src (PAs fc n p) pprf pats pid rhs acc
-         = addGroup (sourceOf (unified pid) src (PAs fc n p)) p pprf pats pid
-                    (substName n (Local fc (Just True) idx pprf) rhs) acc
+         = addGroup src p pprf pats pid (substName n (Local fc (Just True) idx pprf) rhs) acc
     addGroup src (PCon cfc n t a pargs) pprf pats pid rhs acc
          = if a == length pargs
               then addConG n t src pargs pats pid rhs acc
@@ -943,71 +940,39 @@ shuffleVars {idx = Z} First orig = orig -- no-op
 shuffleVars {idx = S _} el (MkPatClause pvars lhs pid rhs)
     = MkPatClause pvars (moveFirst el lhs) pid rhs
 
--- The columns split later: those the clauses only bind, and some bind to
--- what unification found.
-splitLater : List Name -> List Use -> List Name
-splitLater (n :: ns) (Fixed :: us) = n :: splitLater ns us
-splitLater (_ :: ns) (_ :: us) = splitLater ns us
-splitLater _ _ = []
+-- The columns `todo` taken apart, each part in order, into those the tree
+-- splits where they stand (`now`) and those it splits after all of them
+-- (`after`).
+data Arrangement : (now, after, todo : List Name) -> Type where
+     NoColumns : Arrangement [] [] []
+     InPlace : Arrangement now after todo -> Arrangement (n :: now) after (n :: todo)
+     Postponed : Arrangement now after todo -> Arrangement now (n :: after) (n :: todo)
 
--- `n` before `ns`, unless it is split later.
-sooner : (postponed : Bool) -> Name -> List Name -> List Name
-sooner True n ns = ns
-sooner False n ns = n :: ns
+-- Where the clauses put each column: one they only bind, and some bind to
+-- what unification found, goes after the others.
+arrangement : {todo : _} -> List01 True (NamedPats todo vars) ->
+              (now ** after ** Arrangement now after todo)
+arrangement {todo = []} rows = (_ ** _ ** NoColumns)
+arrangement {todo = _ :: _} rows
+    = let (column, rest) = splitColumn rows
+          (_ ** _ ** placed) = arrangement rest in
+          case foldr (\p, u => both (use (source p) (pat p)) u) Binds column of
+               Fixed => (_ ** _ ** Postponed placed)
+               _ => (_ ** _ ** InPlace placed)
 
--- `n` before `ns`, if it is split later.
-afterwards : (postponed : Bool) -> Name -> List Name -> List Name
-afterwards True n ns = n :: ns
-afterwards False n ns = ns
+arrangePats : Arrangement now after todo -> NamedPats todo vars ->
+              (NamedPats now vars, NamedPats after vars)
+arrangePats NoColumns [] = ([], [])
+arrangePats (InPlace placed) (p :: ps)
+    = let (soon, late) = arrangePats placed ps in (p :: soon, late)
+arrangePats (Postponed placed) (p :: ps)
+    = let (soon, late) = arrangePats placed ps in (soon, p :: late)
 
--- The columns `later` does not name, in order.
-earlier : (later : List Name) -> List Name -> List Name
-earlier later [] = []
-earlier later (n :: ns) = sooner (n `elem` later) n (earlier later ns)
-
--- The columns `later` names, in order.
-deferred : (later : List Name) -> List Name -> List Name
-deferred later [] = []
-deferred later (n :: ns) = afterwards (n `elem` later) n (deferred later ns)
-
-keepSooner : (postponed : Bool) -> PatInfo n vars -> NamedPats ms vars ->
-             NamedPats (sooner postponed n ms) vars
-keepSooner True p ps = ps
-keepSooner False p ps = p :: ps
-
-keepAfterwards : (postponed : Bool) -> PatInfo n vars -> NamedPats ms vars ->
-                 NamedPats (afterwards postponed n ms) vars
-keepAfterwards True p ps = p :: ps
-keepAfterwards False p ps = ps
-
-earlierPats : (later : List Name) -> {todo : _} ->
-              NamedPats todo vars -> NamedPats (earlier later todo) vars
-earlierPats later [] = []
-earlierPats later {todo = n :: _} (p :: ps)
-    = keepSooner (n `elem` later) p (earlierPats later ps)
-
-deferredPats : (later : List Name) -> {todo : _} ->
-               NamedPats todo vars -> NamedPats (deferred later todo) vars
-deferredPats later [] = []
-deferredPats later {todo = n :: _} (p :: ps)
-    = keepAfterwards (n `elem` later) p (deferredPats later ps)
-
--- A clause with the columns `later` names after the others.
-arranged : (later : List Name) -> {todo : _} ->
-           PatClause todo vars -> PatClause (earlier later todo ++ deferred later todo) vars
-arranged later (MkPatClause pvars ps pid rhs)
-    = MkPatClause pvars (earlierPats later ps ++ deferredPats later ps) pid rhs
-
--- What the clauses together do with each column.
-columnUses : List01 True (PatClause todo vars) -> List Use
-columnUses (c :: cs) = foldl (\acc, c' => zipWith both acc (uses c')) (uses c) (forget cs)
-  where
-    patUses : NamedPats todo' vars' -> List Use
-    patUses [] = []
-    patUses (p :: ps) = use (source p) (pat p) :: patUses ps
-
-    uses : PatClause todo' vars' -> List Use
-    uses (MkPatClause _ ps _ _) = patUses ps
+arranged : Arrangement now after todo -> PatClause todo vars ->
+           PatClause (now ++ after) vars
+arranged placed (MkPatClause pvars ps pid rhs)
+    = let (soon, late) = arrangePats placed ps in
+          MkPatClause pvars (soon ++ late) pid rhs
 
 -- Whether every column's type is known. Where one is not, it is found as the
 -- columns before it are split, so the columns keep their order.
@@ -1033,8 +998,10 @@ typed (p :: ps)
 arrange : {todo : _} -> List01 True (PatClause todo vars) ->
           (todo' ** List01 True (PatClause todo' vars))
 arrange cs@(c :: _)
-    = let later = if typed (getNPs c) then splitLater todo (columnUses cs) else [] in
-          (_ ** map (arranged later) cs)
+    = if typed (getNPs c)
+         then let (_ ** _ ** placed) = arrangement (getNPs <$> cs) in
+                  (_ ** arranged placed <$> cs)
+         else (_ ** cs)
 
 mutual
   {- 'PatClause' contains a list of patterns still to process (that's the
@@ -1150,7 +1117,7 @@ mutual
       updateVar (MkPatClause pvars (MkInfo (PAs pfc n pat) prf fty src :: pats) pid rhs)
           = do pats' <- substInPats fc a (mkTerm _ pat) pats
                let rhs' = substName n (Local pfc (Just True) _ prf) rhs
-               updateVar (MkPatClause pvars (MkInfo pat prf fty (sourceOf (unified pid) src (PAs pfc n pat)) :: pats') pid rhs')
+               updateVar (MkPatClause pvars (MkInfo pat prf fty src :: pats') pid rhs')
       -- match anything, name won't appear in rhs but need to update
       -- LHS pattern types based on what we've learned
       updateVar (MkPatClause pvars (MkInfo pat prf fty _ :: pats) pid rhs)

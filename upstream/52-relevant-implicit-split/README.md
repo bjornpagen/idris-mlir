@@ -102,12 +102,12 @@ clause leaves to unification, `unifiedArgs`) it reads. upstream/53's
   comes from (`PatInfo`'s `Source`): the clause wrote it, or unification
   found it (the elaborator's as-pattern, and every part of such a pattern,
   which the column made from that part inherits when the tree splits it). At
-  every step `match` arranges the columns (`arrange`): one the clauses only
-  bind, and some bind to what unification found (`Use`: `Binds`, `Fixed`,
-  `Tests`, read off the pattern and its source), goes after the others. It
-  is still split: a leaf binds what its pattern names, and a column whose
-  type computes on it waits for it (`pickNextViable` passes over a column it
-  cannot type yet). Split after the patterns that fix it, the branches it
+  every step `match` arranges the columns (`arrange`, an `Arrangement` of
+  them): one the clauses only bind, and some bind to what unification found
+  (`Use`: `Binds`, `Fixed`, `Tests`, read off the pattern and its source),
+  goes after the others. It is still split: a leaf binds what its pattern
+  names, and a column whose type computes on it waits for it
+  (`pickNextViable` passes over a column it cannot type yet). Split after the patterns that fix it, the branches it
   leaves are impossible by unification, which the coverage check sees. This
   replaces 50's `asVariables`, which took such an argument as a variable.
   Where a column's type is not known, the columns keep their order
@@ -128,7 +128,7 @@ clause leaves to unification, `unifiedArgs`) it reads. upstream/53's
 
 upstream/53 adds marks for a constructor's implicits, which the same order
 splits after the field that fixes them, at whatever step their constructor
-is split; upstream/54 is a rule of the same `Use` at quantity 0.
+is split; upstream/54 is a rule on the same `Source` at quantity 0.
 
 Upstream test: `tests/idris2/coverage/coverage033` (in the diff),
 `RelevantImplicit.idr`: `fp4`, `sumF` with a reduction in a type, the case
@@ -226,6 +226,27 @@ and 52, and with all three; and every module of the frontend's sources,
 pinned stock Idris, but for the working tree's `Driver`, whose `frontend`
 is declared total and reaches the fork's `Core.Value.NTCon`: upstream/51's
 check, the same with the fork of 50 and 51 alone and with 51 alone.
+
+The fork and the series were then cleaned up together, neither changing
+what it does: `checkLHS` returns the arguments a clause leaves to
+unification in the clause's scope, where it returned the marks for
+`checkClause` to combine with the raw left-hand side (50, 53); `arrange`
+takes the columns apart into an `Arrangement` read off the columns, where
+it named the later ones in a list matched against the columns by position
+(52); a column's `Source` is read where the column is made and nowhere
+else (52); and 54's rule reads the pattern's `Source`, not a `Use` (53).
+Checked against the fork before it, both built the same way (arm64 macOS,
+2026-10-17): `coverage032` to `coverage035` print exactly their `expected`;
+the reproducers of 50 to 54 and `headsIn` print what they printed;
+prelude's and base's TTCs are byte-identical, and so are the fork's own
+but for the three modules edited and `TTImp.ProcessDecls`, whose import
+hashes record `checkLHS`'s new type; every module of the frontend's
+sources checks with the same output; 46 programs of tests/accept and
+tests/reject and the fixtures of upstream/21, 50, 51, 52, 53 and 54 give
+the same status, output, Core and bytecode; the series applies in order
+to the pin (`git apply` too) and gives the fork's change, as above; and
+the pinned Idris typechecks the pin with 50, with 50 and 52, and with all
+three.
 
 52 alone was first checked the same way, against the same base; with it
 50's `asVariables` was taken out, and a version that took the argument as a
