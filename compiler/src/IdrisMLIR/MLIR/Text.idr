@@ -19,31 +19,35 @@ import Data.String
 -- Names
 ------------------------------------------------------------------------------
 
-hex : Int -> String
-hex n = let digits = unpack "0123456789ABCDEF" in
-        pack [ fromMaybe '0' (getAt (cast (n `div` 16)) digits)
-             , fromMaybe '0' (getAt (cast (n `mod` 16)) digits) ]
+||| A hexadecimal digit, `0` to `F`, of a number below 16.
+hexDigit : Int -> Char
+hexDigit d = chr (if d < 10 then ord '0' + d else ord 'A' + (d - 10))
 
-||| A string literal with MLIR's escapes, for text that is ASCII.
+||| The escape of a byte, `\XX`, before the characters `rest`.
+escape : Int -> List Char -> List Char
+escape n rest = '\\' :: hexDigit (n `div` 16) :: hexDigit (n `mod` 16) :: rest
+
+||| A string literal with MLIR's escapes, for text that is ASCII. Its
+||| characters are made in one pass and packed once.
 export
 quoted : String -> String
-quoted s = fastConcat ("\"" :: map esc (unpack s) ++ ["\""])
+quoted s = pack ('"' :: foldr esc ['"'] (unpack s))
   where
-    esc : Char -> String
-    esc '"' = "\\\""
-    esc '\\' = "\\\\"
-    esc c = if ord c < 32 || ord c == 127 then "\\" ++ hex (ord c) else singleton c
+    esc : Char -> List Char -> List Char
+    esc '"' rest = '\\' :: '"' :: rest
+    esc '\\' rest = '\\' :: '\\' :: rest
+    esc c rest = if ord c < 32 || ord c == 127 then escape (ord c) rest else c :: rest
 
 ||| A string as the UTF-8 bytes of a string attribute: each byte of its
 ||| encoding printable as itself but a quote and a backslash, every other
-||| escaped.
+||| escaped. Its characters are made in one pass and packed once.
 export
 utf8 : String -> String
-utf8 s = fastConcat ("\"" :: map byte (IdrisMLIR.Ids.utf8 s) ++ ["\""])
+utf8 s = pack ('"' :: foldr byte ['"'] (IdrisMLIR.Ids.utf8 s))
   where
-    byte : Bits8 -> String
-    byte b = let n = cast {to = Int} b in
-             if n >= 32 && n < 127 && n /= 34 && n /= 92 then singleton (chr n) else "\\" ++ hex n
+    byte : Bits8 -> List Char -> List Char
+    byte b rest = let n = cast {to = Int} b in
+                  if n >= 32 && n < 127 && n /= 34 && n /= 92 then chr n :: rest else escape n rest
 
 ||| A symbol reference, `@name`: the name itself when it is an MLIR bare
 ||| identifier (a letter or `_`, then letters, digits, `_`, `$` and `.`),

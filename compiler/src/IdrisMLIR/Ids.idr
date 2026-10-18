@@ -9,7 +9,9 @@ module IdrisMLIR.Ids
 import Data.Bits
 import Data.Fin
 import Data.List
+import Data.List1
 import Data.Nat
+import Data.Vect
 
 %default total
 
@@ -298,7 +300,7 @@ len17to128 input n =
 len129to240 : List Bits8 -> Nat -> Hash128
 len129to240 input n =
   let acc0 = MkHash128 (cast n * prime64_1) 0
-      acc1 = foldl (\acc, i => mix32 acc input (minus i 32) (minus i 16) (minus i 32) 0) acc0 [32, 64, 96, 128]
+      acc1 = foldl (\acc, i => mix32 acc input (minus i 32) (minus i 16) (minus i 32) 0) acc0 (the (List Nat) [32, 64, 96, 128])
       acc2 = MkHash128 (avalanche3 acc1.low) (avalanche3 acc1.high)
       acc3 = foldl (\acc, i => mix32 acc input (minus i 32) (minus i 16) (3 + minus i 160) 0) acc2 mids
       -- The secret is 192 bytes; the reference reads the last pair from
@@ -311,61 +313,91 @@ len129to240 input n =
     mids : List Nat
     mids = filter (<= n) [160, 192, 224]
 
-||| The eight accumulators of the long hash.
-Accs : Type
-Accs = List Bits64
+||| Eight words of the long hash, as it reads a stripe of the input, its
+||| secret and its accumulators: four pairs of neighbours, which each step
+||| mixes into each other.
+Lanes : Type
+Lanes = Vect 4 (Bits64, Bits64)
 
-||| The words of a 64-byte stripe.
-stripeWords : List Bits8 -> List Bits64
-stripeWords bytes = map (\i => read64 bytes (8 * i)) [0 .. 7]
+||| The little-endian word of the next eight bytes, and the bytes after them.
+word : List Bits8 -> (Bits64, List Bits8)
+word bytes = let (here, rest) = splitAt 8 bytes in (littleEndian 8 here, rest)
 
-||| One 64-byte stripe accumulated, with the secret at `key`.
-accumulate : Accs -> List Bits8 -> Nat -> Accs
-accumulate acc stripe key = pairs acc (stripeWords stripe) (map (\i => read64 secret (key + 8 * i)) [0 .. 7])
+||| The next `k` pairs of words, and the bytes after them.
+pairs : (k : Nat) -> List Bits8 -> (Vect k (Bits64, Bits64), List Bits8)
+pairs Z bytes = ([], bytes)
+pairs (S k) bytes =
+  let (w0, r0) = word bytes
+      (w1, r1) = word r0
+      (ws, r2) = pairs k r1
+  in ((w0, w1) :: ws, r2)
+
+||| The secret's eight words from `key`.
+secretAt : Nat -> Lanes
+secretAt key = fst (pairs 4 (drop key secret))
+
+||| The secret each stripe of a block is accumulated with, in the order of
+||| the block's sixteen stripes; read once.
+stripeKeys : List1 Lanes
+stripeKeys = map (\t => secretAt (8 * t)) (0 ::: [1 .. 15])
+
+||| The secret a block's accumulators are scrambled with, after its last
+||| stripe; that of the input's last 64 bytes; and those the two halves of
+||| the hash merge the accumulators with.
+scrambleKey, lastKey, lowKey, highKey : Lanes
+scrambleKey = secretAt (minus 192 64)
+lastKey = secretAt (minus (minus 192 64) 7)
+lowKey = secretAt 11
+highKey = secretAt (minus (minus 192 64) 11)
+
+||| One 64-byte stripe accumulated with its secret.
+accumulate : Lanes -> Lanes -> Lanes -> Lanes
+accumulate = zipWith3 step
   where
     product : Bits64 -> Bits64
     product k = low32 k * shr k 32
-    pairs : List Bits64 -> List Bits64 -> List Bits64 -> List Bits64
-    pairs (a0 :: a1 :: as) (d0 :: d1 :: ds) (k0 :: k1 :: ks) =
-      (a0 + d1 + product (xor64 d0 k0)) :: (a1 + d0 + product (xor64 d1 k1)) :: pairs as ds ks
-    pairs as _ _ = as
+    step : (Bits64, Bits64) -> (Bits64, Bits64) -> (Bits64, Bits64) -> (Bits64, Bits64)
+    step (a0, a1) (d0, d1) (k0, k1) = (a0 + d1 + product (xor64 d0 k0), a1 + d0 + product (xor64 d1 k1))
 
-||| The accumulators scrambled with the secret at `key`.
-scramble : Accs -> Nat -> Accs
-scramble acc key = zipWith step acc (map (\i => read64 secret (key + 8 * i)) [0 .. 7])
+||| The accumulators scrambled with the secret.
+scramble : Lanes -> Lanes
+scramble acc = zipWith (\(a0, a1), (k0, k1) => (one a0 k0, one a1 k1)) acc scrambleKey
   where
-    step : Bits64 -> Bits64 -> Bits64
-    step a k = xor64 (xor64 a (shr a 47)) k * prime32_1
+    one : Bits64 -> Bits64 -> Bits64
+    one a k = xor64 (xor64 a (shr a 47)) k * prime32_1
 
-||| The accumulators merged into one word, with the secret at `key`.
-merge : Accs -> Nat -> Bits64 -> Bits64
-merge acc key start = avalanche3 (go start 0 acc)
-  where
-    go : Bits64 -> Nat -> List Bits64 -> Bits64
-    go r i (a0 :: a1 :: as) =
-      go (r + fold64 (xor64 a0 (read64 secret (key + 16 * i))) (xor64 a1 (read64 secret (key + 16 * i + 8)))) (S i) as
-    go r _ _ = r
+||| The accumulators merged into one word, with the secret `key`.
+merge : Lanes -> Lanes -> Bits64 -> Bits64
+merge acc key start =
+  avalanche3 (foldl (\r, ((a0, a1), (k0, k1)) => r + fold64 (xor64 a0 k0) (xor64 a1 k1)) start (zip acc key))
 
-||| The long hash: every whole stripe before the last byte, sixteen to a
-||| block with a scramble after each block, then the last 64 bytes.
+||| The long hash: every whole stripe before the last byte, in order, a block
+||| of sixteen at a time with a scramble after each block, then the last 64
+||| bytes. A block is the secret's keys its stripes have left, never none:
+||| the stripe that takes the last one is the one the scramble follows.
 long : List Bits8 -> Nat -> Hash128
 long input n =
-  let acc0 = [prime32_3, prime64_1, prime64_2, prime64_3, prime64_4, prime32_2, prime64_5, prime32_1]
-      stripes = divNatNZ (minus n 1) 64 ItIsSucc
-      acc1 = run acc0 0 stripes input
-      acc2 = accumulate acc1 (drop (minus n 64) input) (minus (minus 192 64) 7)
+  let acc0 = [(prime32_3, prime64_1), (prime64_2, prime64_3), (prime64_4, prime32_2), (prime64_5, prime32_1)]
+      acc1 = run acc0 stripeKeys (stripes n) input
+      acc2 = accumulate acc1 (fst (pairs 4 (drop (minus n 64) input))) lastKey
       len = the Bits64 (cast n)
-  in MkHash128 (merge acc2 11 (len * prime64_1))
-               (merge acc2 (minus (minus 192 64) 11) (complement (len * prime64_2)))
+  in MkHash128 (merge acc2 lowKey (len * prime64_1))
+               (merge acc2 highKey (complement (len * prime64_2)))
   where
     complement : Bits64 -> Bits64
     complement x = xor64 x 0xFFFFFFFFFFFFFFFF
-    run : Accs -> Nat -> Nat -> List Bits8 -> Accs
-    run acc t Z _ = acc
-    run acc t (S more) bytes =
-      let acc' = accumulate acc bytes (8 * modNatNZ t 16 ItIsSucc)
-          acc'' = if modNatNZ (S t) 16 ItIsSucc == 0 then scramble acc' (minus 192 64) else acc'
-      in run acc'' (S t) more (drop 64 bytes)
+    -- The whole stripes before the last byte, (n - 1) / 64, divided as an
+    -- integer: `divNatNZ` counts down in ones.
+    stripes : Nat -> Nat
+    stripes k = cast (cast {to = Integer} (minus k 1) `div` 64)
+    run : Lanes -> List1 Lanes -> Nat -> List Bits8 -> Lanes
+    run acc block Z _ = acc
+    run acc (key ::: keys) (S more) bytes =
+      let (stripe, rest) = pairs 4 bytes
+          acc' = accumulate acc stripe key
+      in case keys of
+           next :: left => run acc' (next ::: left) more rest
+           [] => run (scramble acc') stripeKeys more rest
 
 ||| XXH3's 128-bit hash, seed 0 and the default secret, of the bytes.
 export
@@ -378,22 +410,23 @@ xxh3_128 input =
   else long input n
 
 ||| The UTF-8 bytes of a string, each character encoded by its scalar value
-||| in one to four bytes.
+||| in one to four bytes, put before the bytes of the characters after it:
+||| one pass, each byte made once.
 export
 utf8 : String -> List Bits8
-utf8 s = concatMap encode (unpack s)
+utf8 s = foldr encode [] (unpack s)
   where
     byte : Int -> Bits8
     byte = cast
-    encode : Char -> List Bits8
-    encode c =
+    encode : Char -> List Bits8 -> List Bits8
+    encode c rest =
       let v = ord c in
-      if v < 0x80 then [byte v]
-      else if v < 0x800 then [byte (0xC0 + v `div` 0x40), byte (0x80 + v `mod` 0x40)]
-      else if v < 0x10000 then [ byte (0xE0 + v `div` 0x1000), byte (0x80 + (v `div` 0x40) `mod` 0x40)
-                               , byte (0x80 + v `mod` 0x40) ]
-      else [ byte (0xF0 + v `div` 0x40000), byte (0x80 + (v `div` 0x1000) `mod` 0x40)
-           , byte (0x80 + (v `div` 0x40) `mod` 0x40), byte (0x80 + v `mod` 0x40) ]
+      if v < 0x80 then byte v :: rest
+      else if v < 0x800 then byte (0xC0 + v `div` 0x40) :: byte (0x80 + v `mod` 0x40) :: rest
+      else if v < 0x10000 then byte (0xE0 + v `div` 0x1000) :: byte (0x80 + (v `div` 0x40) `mod` 0x40)
+                                 :: byte (0x80 + v `mod` 0x40) :: rest
+      else byte (0xF0 + v `div` 0x40000) :: byte (0x80 + (v `div` 0x1000) `mod` 0x40)
+             :: byte (0x80 + (v `div` 0x40) `mod` 0x40) :: byte (0x80 + v `mod` 0x40) :: rest
 
 ||| A word as exactly 16 lowercase hexadecimal digits, most significant
 ||| first.

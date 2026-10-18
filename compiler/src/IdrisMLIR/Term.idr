@@ -463,7 +463,7 @@ sourceNames : Source -> Names
 sourceNames p =
   let fns = SortedMap.fromList (map (\f => (f.id, keyText f.key)) p.fns)
       datas = SortedMap.fromList (map (\d => (d.id, keyText d.key)) p.datas)
-      cons = SortedMap.fromList (concatMap (\d => map (\c => (c.id, c.name)) d.cons) p.datas)
+      cons = SortedMap.fromList (foldr (\d, rest => map (\c => (c.id, c.name)) d.cons ++ rest) [] p.datas)
   in MkNames (\f => fromMaybe (show f) (lookup f fns)) (\d => fromMaybe (show d) (lookup d datas))
              (\c => fromMaybe (show c) (lookup c cons))
 

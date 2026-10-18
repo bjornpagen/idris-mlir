@@ -84,13 +84,24 @@ reserve bs n = do
     writeIORef bs.buffer new
     writeIORef bs.capacity cap'
 
+||| `bs` from `at` in `buf`, in order; the position after them.
+setAll : Buffer -> Int -> List Bits8 -> IO Int
+setAll buf at [] = pure at
+setAll buf at (b :: bs) = do
+  setBits8 buf at b
+  setAll buf (at + 1) bs
+
+||| Bytes after those written, room made for all of them at once.
+bytes : Bytes -> List Bits8 -> W ()
+bytes out bs = do
+  reserve out (cast (length bs))
+  buf <- readIORef out.buffer
+  used <- readIORef out.used
+  end <- liftIO (setAll buf used bs)
+  writeIORef out.used end
+
 byte : Bytes -> Bits8 -> W ()
-byte bs b = do
-  reserve bs 1
-  used <- readIORef bs.used
-  buf <- readIORef bs.buffer
-  setBits8 buf used b
-  writeIORef bs.used (used + 1)
+byte bs b = bytes bs [b]
 
 ||| The `n` low bytes of `v`, least significant first.
 littleEndian : Nat -> Integer -> List Bits8
@@ -102,19 +113,24 @@ pow2 : Nat -> Integer
 pow2 Z = 1
 pow2 (S n) = 2 * pow2 n
 
+||| Each length a PrefixVarInt has below nine bytes, `k`, with the bound its
+||| values stay under, 2 to the 7k, and the scale of its `k - 1` zero bits
+||| and one, 2 to the k - 1: worked out once.
+lengths : List (Nat, Integer, Integer)
+lengths = map (\k => (k, pow2 (7 * k), pow2 (minus k 1))) [1 .. 8]
+
 ||| A PrefixVarInt: in its first byte, a zero bit for each byte after it,
 ||| then a one, and the value in the bits left of the `k` bytes, 7 to a
 ||| byte; a value of 56 bits or more is a zero byte and its eight bytes.
 prefixVarInt : Nat -> List Bits8
-prefixVarInt n = go 1 8
+prefixVarInt n = go lengths
   where
     v : Integer
     v = cast n
-    go : (k : Nat) -> (left : Nat) -> List Bits8
-    go k Z = 0 :: littleEndian 8 v
-    go k (S left) =
-      if v < pow2 (7 * k) then littleEndian k ((2 * v + 1) * pow2 (minus k 1))
-      else go (S k) left
+    go : List (Nat, Integer, Integer) -> List Bits8
+    go [] = 0 :: littleEndian 8 v
+    go ((k, bound, scale) :: rest) =
+      if v < bound then littleEndian k ((2 * v + 1) * scale) else go rest
 
 ||| A zigzagged PrefixVarInt, as MLIR writes a signed one: `n` at least 0
 ||| as `2n`, a negative `n` as `-2n - 1`, so that a 64-bit value takes 64
@@ -123,7 +139,7 @@ signedVarInt : Integer -> List Bits8
 signedVarInt n = prefixVarInt (cast (if n >= 0 then 2 * n else -2 * n - 1))
 
 varint : Bytes -> Nat -> W ()
-varint bs n = traverse_ (byte bs) (prefixVarInt n)
+varint bs n = bytes bs (prefixVarInt n)
 
 ||| A varint whose low bit is `flag`.
 varintFlag : Bytes -> Nat -> Bool -> W ()
@@ -194,21 +210,54 @@ entriesOf t = (<>> []) <$> readIORef t.entries
 ||| offset section says which.
 data Payload = Textual String | Encoded (List Bits8)
 
+||| Bytes in lexicographic order, each compared as a `Bits8`, the order
+||| `compare` gives lists, without its comparison passed per element.
+compareBytes : List Bits8 -> List Bits8 -> Ordering
+compareBytes [] [] = EQ
+compareBytes [] (_ :: _) = LT
+compareBytes (_ :: _) [] = GT
+compareBytes (x :: xs) (y :: ys) = case compare x y of
+  EQ => compareBytes xs ys
+  o => o
+
 Eq Payload where
   Textual a == Textual b = a == b
-  Encoded a == Encoded b = a == b
+  Encoded a == Encoded b = compareBytes a b == EQ
   _ == _ = False
 
 Ord Payload where
   compare (Textual a) (Textual b) = compare a b
   compare (Textual _) (Encoded _) = LT
   compare (Encoded _) (Textual _) = GT
-  compare (Encoded a) (Encoded b) = compare a b
+  compare (Encoded a) (Encoded b) = compareBytes a b
 
 ||| An attribute or type entry: its dialect's number, and what it holds. It
 ||| is its own key, so two entries are one exactly when they hold the same.
 Entry : Type
 Entry = (Nat, Payload)
+
+||| What an attribute's entry is found by: what the entry holds; or a string
+||| attribute's string, or a symbol reference's names, whose text is the
+||| entry's, made once, the first time it is numbered. Only a string
+||| attribute's text is a quoted string and only a symbol reference's starts
+||| with `@`, and each text spells exactly one of them, so a key finds the
+||| entry its text would.
+data AttrKey = Holding Entry | StringKey String | SymbolKey String (List String)
+
+Eq AttrKey where
+  Holding a == Holding b = a == b
+  StringKey a == StringKey b = a == b
+  SymbolKey a as == SymbolKey b bs = a == b && as == bs
+  _ == _ = False
+
+Ord AttrKey where
+  compare (Holding a) (Holding b) = compare a b
+  compare (Holding _) _ = LT
+  compare _ (Holding _) = GT
+  compare (StringKey a) (StringKey b) = compare a b
+  compare (StringKey _) (SymbolKey _ _) = LT
+  compare (SymbolKey _ _) (StringKey _) = GT
+  compare (SymbolKey a as) (SymbolKey b bs) = compare (a, as) (b, bs)
 
 ||| The strings, dialects (by their name's string), op names (by dialect
 ||| and name), attributes and types (by what their entries hold) of a
@@ -220,7 +269,7 @@ record Writer where
   stringTable : Numbered String String
   dialectTable : Numbered String Nat
   opNameTable : Numbered String (Nat, Nat)
-  attrTable : Numbered Entry Entry
+  attrTable : Numbered AttrKey Entry
   typeTable : Numbered Entry Entry
   members : SortedMap String Nat
   ||| Those ops, encoded, how many, and how many values they define.
@@ -237,8 +286,8 @@ dialectNumber w d = number w.dialectTable d (stringNumber w d)
 ||| An op name's number: its dialect is what precedes its first dot.
 opNameNumber : Writer -> String -> W Nat
 opNameNumber w name =
-  let (dialect, rest) = break (== '.') name in
   number w.opNameTable name $ do
+    let (dialect, rest) = break (== '.') name
     d <- dialectNumber w dialect
     s <- stringNumber w (pack (drop 1 (unpack rest)))
     pure (d, s)
@@ -255,8 +304,17 @@ partBytes w (AttrAt r) = pure (prefixVarInt r.number)
 partBytes w (OptionalAttrAt Nothing) = pure (prefixVarInt 0)
 partBytes w (OptionalAttrAt (Just r)) = pure (prefixVarInt (2 * r.number + 1))
 
+||| The parts' bytes, in order, each part's before those of the parts after
+||| it, so that each byte is copied once.
 encoded : Writer -> List Part -> W (List Bits8)
-encoded w parts = concat <$> traverse (partBytes w) parts
+encoded w [] = pure []
+encoded w (p :: ps) = (++) <$> partBytes w p <*> encoded w ps
+
+||| Lists joined in order, each before the join of those after it, so that
+||| each element is copied once (base's `concat` appends each list to all
+||| before it).
+joined : List (List a) -> List a
+joined = foldr (++) []
 
 ||| A dialect whose types and attributes the handoff encodes natively: its
 ||| name, and the code a field of the table starts with that is one of its
@@ -282,7 +340,11 @@ typeEntry w d parts = do
 attrEntry : Writer -> Dialect -> List Part -> W AttrRef
 attrEntry w d parts = do
   e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w d.name <*> encoded w parts
-  MkAttrRef <$> number w.attrTable e (pure e)
+  MkAttrRef <$> number w.attrTable (Holding e) (pure e)
+
+||| An attribute's entry as its text, of its dialect.
+textual : Writer -> MlirAttr -> W Entry
+textual w a = (\n => (n, Textual (attrText a))) <$> dialectNumber w (attrDialect a)
 
 ||| A type's entry as its text.
 typeTextEntry : Writer -> MlirType -> W TypeRef
@@ -290,17 +352,20 @@ typeTextEntry w t = do
   e <- (\n => (n, Textual (typeText t))) <$> dialectNumber w (typeDialect t)
   MkTypeRef <$> number w.typeTable e (pure e)
 
-||| An attribute's entry as its text.
+||| An attribute's entry as its text: a string's and a symbol reference's
+||| found by their value, so that their text is made once.
 attrTextEntry : Writer -> MlirAttr -> W AttrRef
+attrTextEntry w a@(StringAttr s) = MkAttrRef <$> number w.attrTable (StringKey s) (textual w a)
+attrTextEntry w a@(SymbolRefAttr r) = MkAttrRef <$> number w.attrTable (SymbolKey r.root r.nested) (textual w a)
 attrTextEntry w a = do
-  e <- (\n => (n, Textual (attrText a))) <$> dialectNumber w (attrDialect a)
-  MkAttrRef <$> number w.attrTable e (pure e)
+  e <- textual w a
+  MkAttrRef <$> number w.attrTable (Holding e) (pure e)
 
 ||| A location is a builtin attribute, written as its text.
 locationNumber : Writer -> Location -> W AttrRef
 locationNumber w at = do
   e <- (\n => (n, Textual (location at))) <$> dialectNumber w builtinDialect.name
-  MkAttrRef <$> number w.attrTable e (pure e)
+  MkAttrRef <$> number w.attrTable (Holding e) (pure e)
 
 ------------------------------------------------------------------------------
 -- Types and attributes
@@ -460,7 +525,7 @@ ctorParts w c = do
   fn <- traverse (\f => attrNumber w (SymbolRefAttr (MkSymbolRef f []))) c.fn
   fields <- traverse (\t => fst <$> field w t) c.fields
   pure ([Str c.name, VarInt (ctorRoleValue c.role), Flag c.byName, OptionalAttrAt fn, VarInt (length fields)]
-        ++ concat fields)
+        ++ joined fields)
 
 ||| A body: its kind of sum, its constructors in tag order, and the Idris
 ||| instance it is of.
@@ -468,7 +533,7 @@ bodyParts : Writer -> IdrSum MlirType -> W (List Part)
 bodyParts w s = do
   ctors <- traverse (ctorParts w) s.ctors
   inst <- traverse (\(origin, args) => attrNumber w (idr (InstanceAttr origin (map StringAttr args)))) s.instanceOf
-  pure ([VarInt (sumKindValue s.kind), VarInt (length ctors)] ++ concat ctors ++ [OptionalAttrAt inst])
+  pure ([VarInt (sumKindValue s.kind), VarInt (length ctors)] ++ joined ctors ++ [OptionalAttrAt inst])
 
 ||| A writer of a module whose data types are `datas`, in order, each its
 ||| name and body: the table, attribute entry 0, written first, its fields
@@ -485,7 +550,7 @@ newWriter datas = runEitherT $ do
   writeIORef w.attrTable.count 1
   bodies <- traverse (bodyParts w . snd) datas
   idr <- dialectNumber w idrDialect.name
-  table <- encoded w ([VarInt dataTableCode, VarInt (length datas)] ++ map (Str . fst) datas ++ concat bodies)
+  table <- encoded w ([VarInt dataTableCode, VarInt (length datas)] ++ map (Str . fst) datas ++ joined bodies)
   modifyIORef w.attrTable.entries ([< (idr, Encoded table)] ++)
   pure w
 
@@ -631,7 +696,7 @@ runs ((d, x) :: rest) = case runs rest of
 ||| them.
 payload : Bytes -> Payload -> W Bool
 payload out (Textual s) = False <$ string out s
-payload out (Encoded bs) = True <$ traverse_ (byte out) bs
+payload out (Encoded bs) = True <$ bytes out bs
 
 ||| The attribute or type entries, after `payloads`, and the offset
 ||| section's groups of their sizes, each flagged when it is custom.
@@ -720,7 +785,7 @@ finish w h containers = runEitherT $ do
   traverse_ (\s => varint ss (cast (stringByteLength s + 1))) (reverse strings)
   traverse_ (string ss) strings
   file <- newBytes
-  traverse_ (byte file) [0x4D, 0x4C, 0xEF, 0x52]
+  bytes file [0x4D, 0x4C, 0xEF, 0x52]
   varint file 6
   string file "idris-mlir"
   section file 4 ir

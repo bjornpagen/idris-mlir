@@ -78,7 +78,7 @@ export
 index : Source -> Index
 index src =
   MkIndex (fromList (map (\d => (d.id, d)) src.datas))
-          (fromList (concatMap (\d => map (\c => (c.id, c)) d.cons) src.datas))
+          (fromList (foldr (\d, rest => map (\c => (c.id, c)) d.cons ++ rest) [] src.datas))
           (fromList (map (\f => (f.id, f)) src.fns))
           (map (\d => (d.id.name, body d)) src.datas)
 
