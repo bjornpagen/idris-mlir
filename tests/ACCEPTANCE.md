@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-17, each with its first mark as
-its reason: 316 files. Proposal 0014's culls removed the marks of the
+its reason: 318 files. Proposal 0014's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -390,7 +390,7 @@ change that adds or removes a mark lists it here again.
 - `tests/lib/lit.sh`: every dialect input round-trips through the generic form and bytecode, and every pass a RUN line runs keeps its contracts (--verify-roundtrip --idr-contracts on every idris-mlir-opt).
 - `tests/lib/properties.sh`: universal prints one line, universal: holds, where the object, dump and quantity checks printed one each; a failing check still prints its own lines.
 
-## tests/programs (14)
+## tests/programs (16)
 
 - `tests/programs/arrays/linarray-bubble/expected`: that the port to the size-indexed vector, each position a Fin its loop's test against the size gives, prints the same and keeps its loops count-free and allocation-free
 - `tests/programs/arrays/linarray-fannkuch/expected`: that the port to the size-indexed vector, positions checked against the size where they are used, prints the same and keeps its loops count-free, allocation-free and in place
@@ -402,6 +402,8 @@ change that adds or removes a mark lists it here again.
 - `tests/programs/arrays/linarray-unionfind/expected`: that the port to the size-indexed vector, nodes checked against the size where they are read or written, prints the same and keeps its loops count-free and allocation-free
 - `tests/programs/arrays/linarray-write-past-size/expected`: that a write at the slot a pop left, inside the capacity but at the size, is refused by the checked conversion of its index (Nothing, printed as out of range) rather than ending the program, and that every check of the expected file holds
 - `tests/programs/arrays/vec-pop-then-push/expected`: that the port to the size-indexed vector, whose pop gives the element itself, prints the same
+- `tests/programs/data/dependent-pair-family-eta/expected`: that a box built at Box Nat (Q b) and held by a dependent pair at Box Nat ( => Q b a) is one data instance, so the match on the box the pair holds sees the constructor build made and its Ord field (no unreachable alternative), compiles and runs, printing expected-stdout; and that what holds of every compilation holds of it (universal: holds)
+- `tests/programs/data/sortedmap-map-after-insert/expected`: that map over a SortedMap built by insert, and keySet, which maps it, match the constructors insert built (no unreachable alternative in Dependent.map), compile and run, printing expected-stdout; and that what holds of every compilation holds of it (universal: holds)
 - `tests/programs/interfaces/method-runtime-implicits/expected`: that a call through an interface of a method whose leading arguments are runtime implicits (an auto-implicit IORef, a Nat) gives the implementation's method function each in its place, compiles and runs, printing expected-stdout; and that what holds of every compilation holds of it (universal: holds)
 - `tests/programs/nat/bits8-past-127/expected`: that a Bits8 of 200, made at run time, is 200 as a Nat and as an Integer, greater than 127 and equal to 200, with no poison from a range put on the tagged word
 - `tests/programs/semantics/sem-index/expected`: that runtests --sem-names (tests/Main.idr) lists the 72 chunks and matches the 72 prim- directories

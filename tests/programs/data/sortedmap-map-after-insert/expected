@@ -1,0 +1,7 @@
+NEEDS-ACCEPTANCE: that map over a SortedMap built by insert, and keySet, which maps it, match the constructors insert built (no unreachable alternative in Dependent.map), compile and run, printing expected-stdout; and that what holds of every compilation holds of it (universal: holds)
+compile: exit 0
+artifacts: core module objects executable
+run: exit status as expected
+stdout: as expected
+stderr: empty
+universal: holds

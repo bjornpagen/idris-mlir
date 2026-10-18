@@ -1074,17 +1074,63 @@ export
 computesType : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
 computesType def = isTypeLike <$> normaliseClosed (type def)
 
-||| A type argument as data instances compare them. A type-level function
-||| and the lambda of its one clause are the same argument: elaboration
-||| leaves the name in one type and the clause in another (`Printed`, and
-||| `\n => (Fin n -> Nat) -> Nat -> String`), including where the name is
-||| an argument of another type (`List (AltF Printed _)`). The clause is
-||| inlined where the name stands, when that clause is a function type.
-||| An applied name is left to normalisation, and so is an alias of a
-||| data type: normalisation has already made those one type.
+mutual
+  ||| A term with every eta-redex in it contracted, the innermost first:
+  ||| `\y => f y`, where `f` does not mention `y`, is `f`, and so `\x, y =>
+  ||| g x y` is `g`. A normal form keeps them: Idris passes a method's
+  ||| argument of a type that binds implicits so (`fork`'s thread, `\{e'},
+  ||| {c} => thread e' c`), and a family as a lambda that applies it (`\x
+  ||| => g x`: an implementation's superclass over `f . g`, a recursion
+  ||| over `Cells p`, the predicate of `(c ** as ** Positive g c as)`).
+  ||| A type argument is compared contracted (`canonicalTypeArg`), and every
+  ||| reading of the growth check takes a term contracted, a site's and a
+  ||| request's alike, so that a family is read as itself whatever stands
+  ||| for it: a marker, or the type constructor at its head.
+  export
+  contracted : TT vs -> TT vs
+  contracted (Bind fc x (Lam lfc rig info ty) sc) = case contracted sc of
+    app@(App _ f (Local _ _ Z _)) => fromMaybe (Bind fc x (Lam lfc rig info (contracted ty)) app) (shrink f (Drop Refl))
+    sc' => Bind fc x (Lam lfc rig info (contracted ty)) sc'
+  contracted (Bind fc x b sc) = Bind fc x (binderContracted b) (contracted sc)
+  contracted (App fc f a) = App fc (contracted f) (contracted a)
+  contracted (As fc side a p) = As fc side (contracted a) (contracted p)
+  contracted (TDelayed fc r t) = TDelayed fc r (contracted t)
+  contracted (TDelay fc r t a) = TDelay fc r (contracted t) (contracted a)
+  contracted (TForce fc r t) = TForce fc r (contracted t)
+  contracted (Erased fc (Dotted t)) = Erased fc (Dotted (contracted t))
+  contracted t = t
+
+  -- A binder's type, and a `let`'s value. What a binder's implicitness
+  -- holds is no part any reading takes.
+  binderContracted : TTBinder (TT vs) -> TTBinder (TT vs)
+  binderContracted (Lam fc rig info ty) = Lam fc rig info (contracted ty)
+  binderContracted (Let fc rig v ty) = Let fc rig (contracted v) (contracted ty)
+  binderContracted (Pi fc rig info ty) = Pi fc rig info (contracted ty)
+  binderContracted (PVar fc rig info ty) = PVar fc rig info (contracted ty)
+  binderContracted (PLet fc rig v ty) = PLet fc rig (contracted v) (contracted ty)
+  binderContracted (PVTy fc rig ty) = PVTy fc rig (contracted ty)
+
+||| A type argument as data instances compare them: up to eta, and with
+||| a type-level function and the lambda of its one clause as one
+||| argument. Elaboration writes a family as `f` in one type and as `\x =>
+||| f x` in another, at any depth (`(c ** as ** Positive g c as)` holds
+||| `\as => Positive g c as` under the lambda over `c`), so the argument
+||| is contracted (`contracted`) before anything else reads it: the
+||| contracted form is the one each of them has without knowing a
+||| family's arity, which expanding would need, and it is taken before
+||| the indices are erased (`Types.eraseIndices`), which would leave
+||| `\as => Positive _ _ _`, no longer a redex. A lambda's domain is no
+||| part of the comparison (`Keys.write`). Elaboration also leaves a
+||| type-level function's name in one type and its clause in another
+||| (`Printed`, and `\n => (Fin n -> Nat) -> Nat -> String`), including
+||| where the name is an argument of another type (`List (AltF Printed
+||| _)`): the clause is inlined where the name stands, when that clause is
+||| a function type, and is contracted too. An applied name is left to
+||| normalisation, and so is an alias of a data type: normalisation has
+||| already made those one type.
 export
 canonicalTypeArg : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
-canonicalTypeArg tm = walk False tm
+canonicalTypeArg tm = contracted <$> walk False (contracted tm)
   where
     -- Reduced to a name, rather than staying a lambda over its clause.
     etaContracted : TT vars -> Bool
@@ -1145,14 +1191,6 @@ canonicalTypeArg tm = walk False tm
         Nothing <- clause fc n
           | Just lam => pure (embedClosed lam)
         pure (Ref fc Func n)
-    -- Elaboration writes a type family as `f` in one type and as
-    -- `(\x => f x)` in another. They name one data instance. The
-    -- function is walked where it is written; walking keeps the
-    -- variables a term mentions, so it leaves the binder unused exactly
-    -- when it was unused before.
-    walk _ tm@(Bind _ _ (Lam {}) (App _ fn (Local _ _ Z _))) = do
-      fn' <- walk False fn
-      pure (fromMaybe tm (shrink fn' (Drop Refl)))
     walk _ (App fc f a) = App fc <$> walk True f <*> walk False a
     walk _ (Meta fc n i args) = Meta fc n i <$> each args
       where

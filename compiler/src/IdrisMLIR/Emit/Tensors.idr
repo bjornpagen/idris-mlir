@@ -119,8 +119,12 @@ axes xs = take (length xs) [0 .. length xs]
 
 ||| `v` where a slot of type `slot` takes it: a tensor whose type differs
 ||| from the slot's only in which dimensions are static is cast to it; any
-||| other tensor that differs is the frontend's error. Other values are as
-||| they are.
+||| other tensor that differs is the frontend's error. Any other value is
+||| of the slot's type, but for the extents of the tensors in it, which a
+||| closure's type holds dynamic; one that is not is the frontend's error
+||| too. A value of one data instance where its slot takes another is one
+||| type translated as two, and a match on the slot's would take the
+||| constructors the value was built with as never built.
 export
 fit : Index -> Loc -> Maybe Ty -> Val -> E Val
 fit ix l (Just (TensorT ds e)) v = case v.type of
@@ -132,7 +136,11 @@ fit ix l (Just (TensorT ds e)) v = case v.type of
       pure (val r.name (TensorT ds e) Many)
     else internal ("an array of type " ++ show v.type ++ " where " ++ show (TensorT ds e) ++ " is expected")
   _ => pure v
-fit ix l _ v = pure v
+fit ix l (Just slot) v =
+  if dynamicDims v.type == dynamicDims slot
+    then pure v
+    else internal ("a value of type " ++ show v.type ++ " where " ++ show slot ++ " is expected")
+fit ix l Nothing v = pure v
 
 ||| What a region gives where its op takes it: the value at the slot's
 ||| type, plain.

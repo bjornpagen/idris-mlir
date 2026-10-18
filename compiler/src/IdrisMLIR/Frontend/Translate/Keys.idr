@@ -3,7 +3,8 @@
 ||| What each instance is called, and what tells two instances apart. An
 ||| instance is its definition and its compile-time arguments written out
 ||| (`write`), a symbol per node, every part Idris's `==` tells terms apart
-||| by and nothing else: that link is its identity, which nothing prints.
+||| by but a lambda's domain, which the place the lambda stands at fixes,
+||| and nothing else: that link is its identity, which nothing prints.
 ||| Its key is how it reads: the
 ||| definition's printed name, a block named by its place in the definition
 ||| that holds it, and the arguments printed with every binder named by its
@@ -406,9 +407,9 @@ mutual
   ||| Idris's quantity and braces; and whether the print dropped part of
   ||| what tells terms apart (`eqTerm`): an erased part that is not a
   ||| placeholder, a metavariable's arguments, a name printed with less, a
-  ||| lambda's or a let's binder type and quantity, a binder printed
-  ||| through, a default implicit printed as implicit, an integer's width,
-  ||| a delay's type, an as-pattern's name.
+  ||| lambda's quantity and passing, a let's binder type and quantity, a
+  ||| binder printed through, a default implicit printed as implicit, an
+  ||| integer's width, a delay's type, an as-pattern's name.
   render : Writer -> Nat -> Place -> TT vs -> (String, Bool)
   render w d _ (Local _ _ idx _) = (binderAt (minus d (S idx)), False)
   render w d _ (Ref _ _ n) = (plainOrigin n, dropsName n)
@@ -574,7 +575,14 @@ succeeding s ts = runOfOne s ts
 mutual
   ||| A term in prefix order, a symbol per node: what Idris's `==` tells
   ||| terms apart by, but for doubles, which their prints tell apart (0.0
-  ||| and -0.0 are two, every NaN is one); no location, no binder's name.
+  ||| and -0.0 are two, every NaN is one); no location, no binder's name,
+  ||| no lambda's domain. A lambda's domain is what the place it stands at
+  ||| takes (a parameter's type, a function type's domain), no reduction
+  ||| reads it, and Idris writes it only where it had it: `const v`
+  ||| reduces to `\(_ : k) => v`, while unification solves the same family
+  ||| as `\(_ : _) => v` (`Core.Unify.instantiate`). Written, it would make
+  ||| one type two data instances, and a value built as one would reach a
+  ||| match on the other, whose constructors no site builds.
   ||| A name is its address in the context, a marker its number; a name
   ||| the context does not hold is no instance's (`unresolved`), and a
   ||| request of one stops before it is written. A run of a `Nat`-like
@@ -606,7 +614,7 @@ mutual
   writeAll w (t :: ts) = write w t ++ writeAll w ts
 
   writeBinder : Writer -> TTBinder (TT vs) -> List (Token Form)
-  writeBinder w (Lam _ q info ty) = writePassing w Lambda q info ++ write w ty
+  writeBinder w (Lam _ q info _) = writePassing w Lambda q info
   writeBinder w (Let _ q v ty) = node (Bound LetIn (quantity q) ByHand) :: (write w v ++ write w ty)
   writeBinder w (Pi _ q info ty) = writePassing w PiType q info ++ write w ty
   writeBinder w (PVar _ q info ty) = writePassing w Pattern q info ++ write w ty
@@ -644,7 +652,7 @@ mutual
   namesOfAll (t :: ts) acc = namesOf t (namesOfAll ts acc)
 
   namesOfBinder : TTBinder (TT vs) -> List (NameType, Name) -> List (NameType, Name)
-  namesOfBinder (Lam _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
+  namesOfBinder (Lam _ _ info _) acc = namesOfPassing info acc
   namesOfBinder (Let _ _ v ty) acc = namesOf v (namesOf ty acc)
   namesOfBinder (Pi _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
   namesOfBinder (PVar _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
@@ -816,12 +824,19 @@ mutual
   constantWeighs WorldVal = LTESucc LTEZero
 
   0 binderWeighs : (w : Writer) -> (b : TTBinder (TT vs)) -> LTE 1 (weighs (writeBinder w b))
-  binderWeighs w (Lam _ q info ty) = passingWeighsBefore w Lambda q info (write w ty)
+  binderWeighs w (Lam _ q info _) = passingWeighs w Lambda q info
   binderWeighs w (Let _ _ _ _) = LTESucc LTEZero
   binderWeighs w (Pi _ q info ty) = passingWeighsBefore w PiType q info (write w ty)
   binderWeighs w (PVar _ q info ty) = passingWeighsBefore w Pattern q info (write w ty)
   binderWeighs w (PLet _ _ _ _) = LTESucc LTEZero
   binderWeighs w (PVTy _ _ _) = LTESucc LTEZero
+
+  0 passingWeighs : (w : Writer) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) ->
+                     LTE 1 (weighs (writePassing w b q info))
+  passingWeighs w b q Implicit = LTESucc LTEZero
+  passingWeighs w b q Explicit = LTESucc LTEZero
+  passingWeighs w b q AutoImplicit = LTESucc LTEZero
+  passingWeighs w b q (DefImplicit _) = LTESucc LTEZero
 
   0 passingWeighsBefore : (w : Writer) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) ->
                           (rest : List (Token Form)) -> LTE 1 (weighs (writePassing w b q info ++ rest))
@@ -868,8 +883,7 @@ mutual
 
   0 binderFits : (w : Writer) -> (b : TTBinder (TT vs)) ->
                  All (Fits (weighs (writeBinder w b) + length vs)) (writeBinder w b)
-  binderFits w (Lam _ q info ty) =
-    fittingAppend (writePassing w Lambda q info) (write w ty) (passingFits w Lambda q info) (writeFits w ty)
+  binderFits w (Lam _ q info _) = passingFits w Lambda q info
   binderFits w (Let _ _ v ty) = headed (fittingAppend (write w v) (write w ty) (writeFits w v) (writeFits w ty))
   binderFits w (Pi _ q info ty) =
     fittingAppend (writePassing w PiType q info) (write w ty) (passingFits w PiType q info) (writeFits w ty)
