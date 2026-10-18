@@ -1,5 +1,36 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
+# Checkpoint (2026-10-18, the representation wave on the typecheck machine)
+
+Proposal 0004 landed as 2c042728: 27 lanes, one hard cutover (the commit
+message says what changed). The C++ typechecks with every lane's change,
+the Idris dialect modules are regenerated from the new ODS, and the fork
+builds; the frontend was not built with its three lanes together, and
+nothing is linked or run. The fork's two reference knots (SyntaxInfo, DLY)
+are plain data, and tools/self.sh does 0003's D6.
+
+The owner's run, in order, on each target:
+1. `git pull`, then `git submodule update --init` (simdutf and fast_float
+   moved), then `make bootstrap` if it has not run since the total wave's
+   checkpoint below.
+2. `make check` (no build), then `make build`. Expect the first build since
+   c7aa7b62 to stop on link and type errors the typecheck could not see;
+   the frontend (`compiler/src`) is the likeliest place: lanes L20, L21 and
+   L22 were each built alone, their final forms only typechecked against
+   stubs of each other.
+3. `make test`, `make test-idr`, `make test-unit`, `make test-mlir-tools`.
+   About 111 tests fail by construction until accepted (their expected
+   file starts with `NEEDS-ACCEPTANCE:`); `tests/ACCEPTANCE.md` lists 439
+   files owed acceptance, each with what to confirm. Wave-wide fixture
+   spellings in tests/idr are being rewritten in follow-up commits.
+4. `make self-fork`, then `tools/self.sh 1`: the frontend half (measured
+   345 s, 5.6 GB here before the wave) writes the self module and keeps
+   it; the pipeline half runs on it for the first time ever. Watch first:
+   the frontend's own self compile under lane L22's change ran out of
+   memory in L22's private run (a type-level 2^63 written in unary); the
+   fix (`Walk.capacity`) is in the tree and was tested on small programs
+   only. Then `make self`, stages 1 to 3, stage 2 equal to stage 3.
+
 # Checkpoint (2026-10-18, the polymorphism checker integrated on the typecheck machine)
 
 Self-hosting's S2.2 is in (3fc4d2e4; proposals/0003-self-host/checker/,
