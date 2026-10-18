@@ -160,7 +160,9 @@ The rules every proposal holds to, each stated in AGENTS.md or here:
   holds, so `Maybe String` is one word. Then thin sums out of `fit`'s boxes,
   several constructors with fields, and a list's `Nil` as NULL (gated).
   Nothing is built. N1 needs only the owner's build. AFTER-SELF.
-- [0020](0020-rust-interop.md): Rust as the one foreign world. Parked.
+- [0020](0020-rust-interop.md): Rust as the one foreign world. The
+  manifest names crates and nothing else; the generator binds them whole.
+  Parked; revised 2026-10-18.
 
 ## Questions only the owner can settle
 
@@ -176,10 +178,14 @@ Each has its default taken in the proposal that owns it:
   none, on either host.
 - **0013 §2.3:** `%auto_implicit_depth` and `%ambiguity_depth`, counts
   that decide acceptance. *Default:* keep.
-- **0020 §16.1:** the Rust toolchain pin. *Default:* the latest stable
+- **0020 §19.1:** the Rust toolchain pin. *Default:* the latest stable
   with `RUSTC_BOOTSTRAP=1`.
-- **0020 §16.2:** whether the target rules bind a program's crates.
+- **0020 §19.2:** whether the target rules bind a program's crates.
   *Default:* our tree only.
+- **0020 §19.3:** the 2026-10-18 model: every Rust call is `IO`, one
+  handle with a run-time borrow state, data and objects, whole named
+  crates, traits as interfaces, generics decided by rustc, the names.
+  *Default:* as written.
 - **0007 D14:** a crash in forked work held until its join. Taken; for
   review.
 

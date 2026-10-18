@@ -504,25 +504,25 @@ task, whose cancel path drops what it owns, a `FutT` included.
 
 #### 10.3 `FutT`
 
-`Rust (FutT a)` is a counted foreign cell (0020 §9.1) holding a pinned
+`Rust (FutT a)` is a counted foreign cell (0020 §11.1) holding a pinned
 future. `await` is a loop in a `wait` function: poll through the shim
 with this task's waker; on `Ready a` return `a`; on `Pending`, `idr.wait`
 for a wake of this slot and poll again. Rust futures need not be `Send`,
 since they never leave their shard; a one-word `Waker` is `Send + Sync`.
 An async Rust import needs P1, P2, runtime-owned sockets and timers
-behind Rust's async I/O traits (0020 §12), the waker, and cancellation as
+behind Rust's async I/O traits (0020 §15), the waker, and cancellation as
 destroy.
 
 #### 10.4 Blocking calls offloaded
 
-Synchronous bindings run on the calling shard, in world order (0020
-§9.2). With a reactor, the manifest's `[blocking]` table (0020 §5,
-arriving with P3) marks items that become waits run on a runtime-owned
-offload thread that runs only Rust: the arguments move into Rust's
-ownership (`IdrisValue: !Send`), the completion is posted to the shard,
-and user code does not change, its type having been `IO` all along. A
-blocking item that takes an Idris callback stays inline, or the
-callback would run Idris code on a foreign thread.
+Synchronous bindings run on the calling shard, in world order (0020 §9).
+With a reactor, a synchronous call that blocks would stall the shard, and
+P3 decides how such a call leaves it; no manifest field marks one (0020
+§5 has none). An offloaded call runs on a runtime-owned thread that runs
+only Rust: its arguments move into Rust's ownership, its completion is
+posted to the shard, and user code does not change, its type having been
+`IO` all along. A call that takes an Idris callback stays inline, or the
+callback would run Idris code on a foreign thread (`IdrisFn` is `!Send`).
 
 ## Staged plan
 
@@ -550,8 +550,8 @@ P2 and 0020's foreign cells and shims. Change: the `FutT` loop, the
 waker, runtime sockets and timers behind Rust's I/O traits, the blocking
 offload. Proof: a hyper client and server on one shard against committed
 expected files; cancellation frees the future (`IDRIS_RT_LIVE=1` reports
-zero); a crate graph enabling tokio's `rt` fails the generator with the
-reason `async` (D12).
+zero); a crate graph enabling tokio's `rt` fails the generator, naming
+the crates (D12).
 
 **P4. Shards** (§4 to §9). **AFTER-SELF**; after P1 and P2. Change:
 `libs/mlir-shard`, its `Shard` primitives (D13) and `Shard.Pure` with
@@ -751,10 +751,10 @@ a crate works when its graph enables none of tokio's `rt`, `net` or
 `time` features and is generic over the async I/O traits the runtime
 implements (hyper 1.x, h2, `tokio-postgres` over a provided stream, the
 AWS SDK with a provided connector; recalled). Any other graph fails the
-generator with the reason `async`, naming the crates (0020 §9.5, §12):
-a manifest's failure stops the build before the compiler runs, so it is
-no refusal of a program and no case of the dialect's `Rule` enum. P3's
-fixture is a hyper client and server.
+generator, naming the crates (0020 §11.5, §15): a generator's failure
+stops the build before the compiler runs, so it is no refusal of a
+program and no case of the dialect's `Rule` enum. P3's fixture is a
+hyper client and server.
 
 **D13. The effectful operations are runtime primitives.** `runShards`,
 `fork`, `join`, the `Local` cells and `pipe` are bodiless `%extern`s
