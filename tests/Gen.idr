@@ -429,19 +429,11 @@ zeroedBelow s positive =
     lessThanPlus : (n : Nat) -> IsSucc m -> LT n (n + m)
     lessThanPlus n {m = S j} ItIsSucc = rewrite sym (plusSuccRightSucc n j) in LTESucc (lteAddRight n)
 
-||| `div' fuel c 1`, which is `c` halved with enough fuel, is never above `c`.
-0 halfAtMost : (fuel, c : Nat) -> LTE (div' fuel c 1) c
-halfAtMost Z _ = LTEZero
-halfAtMost (S _) Z = LTEZero
-halfAtMost (S _) (S Z) = LTEZero
-halfAtMost (S fuel) (S (S c)) =
-  LTESucc (lteSuccRight (replace {p = \m => LTE (div' fuel m 1) c} (sym (minusZeroRight c)) (halfAtMost fuel c)))
-
-||| A value above 0, halved, is smaller.
-0 halfBelow : (k : Nat) -> LT (divNatNZ (S k) 2 ItIsSucc) (S k)
-halfBelow Z = LTESucc LTEZero
-halfBelow (S j) =
-  LTESucc (LTESucc (replace {p = \m => LTE (div' (S j) m 1) j} (sym (minusZeroRight j)) (halfAtMost (S j) j)))
+||| `k` less any amount is below `S k`: subtraction stops at 0.
+0 leftBelow : (k, q : Nat) -> LT (minus k q) (S k)
+leftBelow Z _ = LTESucc LTEZero
+leftBelow (S k) Z = reflexive
+leftBelow (S k) (S q) = lteSuccRight (leftBelow k q)
 
 ||| A tape cut around a span of at least one cell: the cells before it, the
 ||| span's first cell and the rest of it, and the cells after it.
@@ -485,16 +477,22 @@ zeroedSpan (MkCut b y ys a whole) = case isItSucc (tapeSum (y :: ys)) of
                                   (replaced b (y :: ys) (replicate (length (y :: ys)) 0) a (zeroedBelow (y :: ys) positive))))
   No _ => Nothing
 
-||| The span's first cell halved, when it is above 0.
+||| The span's first cell halved, rounding down, when it is above 0: `S k`
+||| halved is `k` less half of `k`, and `k` less any amount is below `S k`,
+||| so the proof never reads the division that sizes the half. The division
+||| is one step of the runtime's on either host, where a recursion on the
+||| cell would take as many steps as the cell holds.
 halved : Cut t -> Maybe (Subset (List Nat) (Below t))
 halved (MkCut b Z ys a whole) = Nothing
 halved (MkCut b (S k) ys a whole) =
-  Just (Element (b ++ half k :: ys ++ a)
-                (replace {p = \u => Below u (b ++ half k :: ys ++ a)} whole
-                         (replaced b (S k :: ys) (half k :: ys) a (cellBelow (half k) (S k) ys (halfBelow k)))))
+  Just (Element (b ++ half :: ys ++ a)
+                (replace {p = \u => Below u (b ++ half :: ys ++ a)} whole
+                         (replaced b (S k :: ys) (half :: ys) a (cellBelow half (S k) ys (leftBelow k halfOfK)))))
   where
-    half : Nat -> Nat
-    half k = divNatNZ (S k) 2 ItIsSucc
+    halfOfK : Nat
+    halfOfK = integerToNat (div (natToInteger k) 2)
+    half : Nat
+    half = minus k halfOfK
 
 ||| The span's first cell less one, when it is above 1.
 decremented : Cut t -> Maybe (Subset (List Nat) (Below t))
