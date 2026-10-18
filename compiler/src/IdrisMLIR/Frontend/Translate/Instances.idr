@@ -91,6 +91,7 @@ request fc owner n kinds = do
     read <- readings 0 found.arguments
     let node = MkNode found.link.definition (mapMaybe (\(i, r) => (i,) <$> r.head) read)
     update TState { seen $= insert inst
+                  , fnOrder $= (:< inst)
                   , requested $= (:< MkRequest inst n kinds found.key fc (shown owner) found.link node
                                                (map (\(i, r) => (i, r.height)) read)) }
   pure inst

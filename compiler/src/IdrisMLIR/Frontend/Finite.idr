@@ -26,10 +26,13 @@
 ||| recurses on its accessibility proof, and within a generation on the
 ||| instances still to take.
 |||
-||| A pass is void when a dictionary field it took as never built is built
-||| after it was matched (`Dictionaries`); the next pass starts over knowing
-||| the field. Each pass learns a field no pass before it learnt, a field
-||| of a data instance within the bounds, so the passes too recurse on the
+||| An instance that matched a dictionary field before any construction
+||| site gave it took the field as never built (`Dictionaries`), and waits
+||| on it. When the worklist has taken every instance, the waiting
+||| instances whose field a construction site has since given are taken
+||| again, knowing it, in a round of their own, and with what they then
+||| request. Each round learns a field no round before it learnt, a field
+||| of a data instance within the bounds, so the rounds too recurse on the
 ||| room left in a finite universe.
 module IdrisMLIR.Frontend.Finite
 
@@ -56,6 +59,7 @@ import Data.Fin
 import Data.List
 import Data.List.Elem
 import Data.List.Quantifiers
+import Data.Maybe
 import Data.Nat
 import Data.So
 import Data.SortedMap
@@ -87,7 +91,7 @@ public export
 0 Inside : Bounds -> Link Form -> Type
 Inside b l = InUniverse forms addresses b l
 
-||| The dictionary fields the passes have room to learn.
+||| The dictionary fields the rounds have room to learn.
 0 Learnable : Bounds -> List DictField
 Learnable b = FieldUniverse forms addresses b
 
@@ -216,7 +220,7 @@ requestedUnder b bounds earlier = do
         -- A broken invariant: a request is recorded only for an instance not
         -- yet seen (`Instances.request`), one link is one instance (`named`,
         -- `Keys.instanceKey`), and every instance on a chain was seen when it
-        -- was requested and stays seen for the pass (a rejected instance
+        -- was requested and stays seen (a rejected instance
         -- restores the state from before it), so a recorded request is new
         -- to its chain.
         Holds _ => internal r.site ("an instance requested again as new on its own chain: " ++ r.inst.name)
@@ -277,50 +281,89 @@ pushBelow here (Element k under :: new) next =
 belowAll [] = []
 belowAll (Element _ below :: next) = below :: belowAll next
 
--- The first generation, the root's requests, is accessible: each chain is
--- a request alone, a link of the universe.
-0 firstGeneration : (b : Bounds) -> (roots : Judged b []) -> All (Accessible (Fresh b)) (chains roots)
-firstGeneration b [] = []
-firstGeneration b (Element (MkItem r []) (MkUnder _ here) :: roots) =
-  freshEnds b [r] (absurd :: []) [here] (wellFounded _) :: firstGeneration b roots
+||| An item the worklist can take again in a later round: its chain is
+||| accessible under fresh extension, so what it requests ends.
+Resumable : Bounds -> Item -> Type
+Resumable b it = Accessible (Fresh b) (chainOf it)
 
-||| One pass: the generation and the proof that the generations from it
+||| An item of a generation the worklist takes is one it can take again.
+0 resumes : Accessible (Follows (Fresh b)) gen -> Member gen it -> Resumable b it
+resumes acc here = elemAccessible acc here
+
+-- The chains of items the worklist can take again are accessible.
+0 resumable : (items : List (Subset Item (Resumable b))) -> All (Accessible (Fresh b)) (chains items)
+resumable [] = []
+resumable (Element _ acc :: items) = acc :: resumable items
+
+||| The root's requests, each its chain alone, a link of the universe: the
+||| first round's items.
+rooted : (0 b : Bounds) -> Judged b [] -> List (Subset Item (Resumable b))
+rooted b [] = []
+rooted b (Element it under :: roots) = Element it (alone b under) :: rooted b roots
+  where
+    0 alone : (b : Bounds) -> Under b [] x -> Resumable b x
+    alone b (MkUnder {r} _ here) = freshEnds b [r] (absurd :: []) [here] (wellFounded _)
+
+||| An instance that matched dictionary fields no construction site had
+||| given (`TS.assumed`), with them: it translated their alternatives as
+||| unreachable, and waits for a construction site of one.
+Waiting : Bounds -> Type
+Waiting b = (Subset Item (Resumable b), SortedSet (ConId, Nat))
+
+||| An instance translated waits on the fields it took as never built; one
+||| that took none waits on nothing, and is not kept.
+waitOn : Subset Item (Resumable b) -> SortedSet (ConId, Nat) -> SnocList (Waiting b) -> SnocList (Waiting b)
+waitOn it fields waiting = case Prelude.toList fields of
+  [] => waiting
+  _ => waiting :< (it, fields)
+
+||| The waiting instances a construction site has woken, in the order they
+||| were translated, each with a field it took as never built that a site
+||| has since given, and the instances still waiting.
+wake : SortedMap (ConId, Nat) Dictionary -> SnocList (Waiting b) ->
+       (SnocList (Subset Item (Resumable b), (ConId, Nat)), SnocList (Waiting b))
+wake dicts [<] = ([<], [<])
+wake dicts (ws :< w@(it, fields)) =
+  let (woken, still) = wake dicts ws in
+  case find (\k => isJust (lookup k dicts)) (Prelude.toList fields) of
+    Just k => (woken :< (it, k), still)
+    Nothing => (woken, still :< w)
+
+||| One round: the generation and the proof that the generations from it
 ||| end, the items of it still to take, each with the erased evidence that
-||| its chain is in it, and the next generation so far, newest first, each
+||| its chain is in it, the next generation so far, newest first, each
 ||| with the erased evidence that its chain extends a chain of the
-||| generation by a request new to it. An instance its translation rejects
-||| is recorded and leaves the state as it was before it, the instances it
-||| requested included, but for the rejections and what they refused, and
-||| what it found of definitions: what it would have reached is reported
-||| once it is fixed, and every rejection the translation reports is
-||| independent.
-pass : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-       (translate : Request -> Core ()) -> (b : Bounds) -> SortedMap Position Nat ->
-       (0 gen : List (List Request)) -> (0 _ : Accessible (Follows (Fresh b)) gen) ->
-       (todo : List (Subset Item (Member gen))) -> (next : List (Subset Item (Below b gen))) ->
-       Core ()
-pass translate b bounds gen acc@(Access _) (Element it here :: todo) next = do
-  update TState { chain := chainOf it }
+||| generation by a request new to it, and the instances waiting on a
+||| dictionary field, in the order they were translated. An instance its
+||| translation rejects is recorded and leaves the state as it was before
+||| it, the instances it requested included, but for the rejections and
+||| what they refused, and what it found of definitions: what it would have
+||| reached is reported once it is fixed, and every rejection the
+||| translation reports is independent. It still waits on the fields it
+||| took as never built: given one, it is rejected for what it then finds.
+worklist : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+           (translate : Request -> Core ()) -> (b : Bounds) -> SortedMap Position Nat ->
+           (0 gen : List (List Request)) -> (0 acc : Accessible (Follows (Fresh b)) gen) ->
+           (todo : List (Subset Item (Member gen))) -> (next : List (Subset Item (Below b gen))) ->
+           SnocList (Waiting b) -> Core (SnocList (Waiting b))
+worklist translate b bounds gen acc@(Access _) (Element it here :: todo) next waiting = do
+  update TState { chain := chainOf it, assumed := empty }
   before <- get TState
-  Nothing <- noting (do translate it.request; requestedUnder b bounds (chainOf it))
-    | Just new => pass translate b bounds gen acc todo (pushBelow here new next)
+  result <- noting (do translate it.request; requestedUnder b bounds (chainOf it))
   after <- get TState
-  put TState (keepFound after before)
-  pass translate b bounds gen acc todo next
-pass translate b bounds gen (Access more) [] [] = pure ()
-pass translate b bounds gen (Access more) [] next@(Element _ below :: _) =
+  let waiting' = waitOn (Element it (resumes acc here)) after.assumed waiting
+  case result of
+    Just new => worklist translate b bounds gen acc todo (pushBelow here new next) waiting'
+    Nothing => do
+      put TState (keepFound after before)
+      worklist translate b bounds gen acc todo next waiting'
+worklist translate b bounds gen (Access more) [] [] waiting = pure waiting
+worklist translate b bounds gen (Access more) [] next@(Element _ below :: _) waiting =
   let items := reverse next in
-  pass translate b bounds (chains items) (more (chains items) (MkFollows (anyNonEmpty below) (belowAll items)))
-       (placed (chains items) items Whole) []
+  worklist translate b bounds (chains items) (more (chains items) (MkFollows (anyNonEmpty below) (belowAll items)))
+           (placed (chains items) items Whole) [] waiting
 
-||| A dictionary field the pass matched before any construction site gave
-||| it, which one has given since, and which was not known when the pass
-||| began (a field known then is never taken as unbuilt): what voids a
-||| pass, and what the next pass knows that it did not.
-learnt : (known : SortedSet (ConId, Nat)) -> (st : TS) -> Maybe (ConId, Nat)
-learnt known st = find (\k => contains k (keySet st.dicts) && not (contains k known)) (Prelude.toList st.assumed)
-
-||| The field a pass learnt, as the universe of fields holds it: the link of
+||| The field a round learnt, as the universe of fields holds it: the link of
 ||| its data instance, within the bounds, and its constructor's and
 ||| argument's indices, below the bounds' breadth.
 fieldIn : (b : Bounds) -> TS -> (ConId, Nat) -> Core (Subset DictField (\f => Elem f (Learnable b)))
@@ -336,49 +379,54 @@ fieldIn b st (cid, i) = do
     | Fails _ => unsound fc what ("lies outside the bounds, or beyond their breadth " ++ show b.breadth)
   pure (Element f inside.member)
 
-||| The program's instances from its root, in as many passes as the
-||| dictionary fields matched before they were built need. A pass starts
-||| from the state the last one left (`nextPass`) and requests the root
-||| (`root`); each instance requested is then translated in turn
-||| (`translate`), its chain the state's while it is, a generation at a
-||| time. A pass that a construction site voids still goes on to the end:
-||| an assumption it made only left alternatives out, so all it translates
-||| is in the program, and every construction site it finds is one the
-||| next pass starts from, not only the first.
+||| The program's instances from its root, in as many rounds as the
+||| dictionary fields matched before they were built need. The first round
+||| requests the root (`root`) and translates each instance requested in
+||| turn (`translate`), its chain the state's while it is, a generation at a
+||| time; each round after it takes again the instances waiting on a field
+||| that a construction site has since given, and what they then request.
+||| A round's assumptions only left alternatives out, so all it translates
+||| is in the program, and every construction site it finds is one the next
+||| round knows. An instance taken again keeps its place among the program's
+||| functions (`TS.fnOrder`); one it requests anew is placed when it is.
 |||
-||| Each pass ends (the worklist above), and so do the passes: each learns
-||| a field no pass before it learnt (`learnt`: one not known, and every
-||| field learnt before is known), a field of a data instance within the
-||| bounds at indices below their breadth, so the fields learnt are
-||| distinct members of a finite universe (`Learnable`), and the passes
-||| recurse on the room left in it.
+||| Each round ends (the worklist above), and so do the rounds: each learns
+||| a field no round before it learnt, a field of a data instance within
+||| the bounds at indices below their breadth, so the fields learnt are
+||| distinct members of a finite universe (`Learnable`), and the rounds
+||| recurse on the room left in it. When no waiting instance's field is
+||| given, every instance translated took as never built only fields no
+||| construction site gives.
 export
 translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                 (root : Core (Maybe FnId)) -> (translate : Request -> Core ()) -> Core (Maybe FnId)
 translateFrom root translate = do
+  update TState translating
   start <- get TState
-  update TState nextPass
-  passes start.sizes start.bounds (keySet start.dicts) [] [] [] (wellFounded _)
+  Just inst <- root
+    | Nothing => pure Nothing
+  roots <- requestedUnder start.sizes start.bounds []
+  rounds start.sizes start.bounds [] [] [] (wellFounded _) (rooted start.sizes roots) [<]
+  pure (Just inst)
   where
-    passes : (b : Bounds) -> SortedMap Position Nat -> SortedSet (ConId, Nat) ->
+    rounds : (b : Bounds) -> SortedMap Position Nat ->
              (fields : List DictField) -> (0 _ : NoDup fields) -> (0 _ : All (\f => Elem f (Learnable b)) fields) ->
-             (0 _ : Accessible LT (minus (length (Learnable b)) (length fields))) -> Core (Maybe FnId)
-    passes b bounds known fields nd inside (Access more) = do
-      Just inst <- root
-        | Nothing => pure Nothing
-      roots <- requestedUnder b bounds []
-      pass translate b bounds (chains roots) (generations (chains roots) (firstGeneration b roots))
-           (placed (chains roots) roots Whole) []
+             (0 _ : Accessible LT (minus (length (Learnable b)) (length fields))) ->
+             List (Subset Item (Resumable b)) -> SnocList (Waiting b) -> Core ()
+    rounds b bounds fields nd inside (Access more) items waiting = do
+      waiting' <- worklist translate b bounds (chains items) (generations (chains items) (resumable items))
+                       (placed (chains items) items Whole) [] waiting
       st <- get TState
-      let Just k = learnt known st
-        | Nothing => pure (Just inst)
+      let (woken, still) = wake st.dicts waiting'
+      let (it, k) :: rest = woken <>> []
+        | [] => pure ()
       Element f here <- fieldIn b st k
       case isElem f fields of
-        -- A broken invariant: the field learnt is not known, and every
-        -- field learnt before is known, since a pass's fields join what is
-        -- known (`union`, below).
+        -- A broken invariant: a woken instance took the field as never
+        -- built in this round or one waiting since, and every field learnt
+        -- before was given then, which woke every instance waiting on it,
+        -- and is known to every instance translated after.
         Yes _ => internal EmptyFC ("a dictionary field learnt twice: " ++ show (snd k) ++ " of " ++ show (fst k))
-        No new => do
-          update TState nextPass
-          passes b bounds (union known (keySet st.dicts)) (f :: fields) (new :: nd) (here :: inside)
-                 (more _ (room (new :: nd) (here :: inside)))
+        No new =>
+          rounds b bounds (f :: fields) (new :: nd) (here :: inside) (more _ (room (new :: nd) (here :: inside)))
+                 (it :: map fst rest) still

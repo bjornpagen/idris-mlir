@@ -82,8 +82,7 @@ translateInstance p = do
   after <- get TState
   let tot = fromMaybe False (address >>= \a => lookup a after.loops)
   let facts = MkFacts tot
-  update TState { fns $= insert p.inst (MkTFn p.inst p.key (length params) (fromList params) result body loc facts)
-                , fnOrder $= (:< p.inst) }
+  update TState { fns $= insert p.inst (MkTFn p.inst p.key (length params) (fromList params) result body loc facts) }
   where
     -- The names the definition's type gives its parameters.
     parameterNames : TT vs -> List Name

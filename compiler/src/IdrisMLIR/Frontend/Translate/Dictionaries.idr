@@ -21,14 +21,13 @@
 |||
 ||| The translation is demand-driven, so a match on a constructor can come
 ||| before any construction site of it. The match then takes the field as
-||| never built and its alternative as unreachable, and a construction site
-||| met later in the same pass voids the pass: the translation starts over,
-||| knowing the implementation. A pass that ends without such a site has
-||| seen every construction site the program can reach: the first value of a
-||| constructor is built on a path through no match on that constructor, and
-||| that path was translated. Each void pass fixes one more field, so the
-||| passes are as few as the dictionary fields built after they were matched
-||| (`Finite`).
+||| never built and its alternative as unreachable, and its instance waits
+||| on the field: once a construction site met later gives it, the instance
+||| is translated again, knowing the implementation, and so is what it then
+||| requests (`Finite`). When no waiting instance's field is given, every
+||| construction site the program can reach has been seen: the first value
+||| of a constructor is built on a path through no match on that
+||| constructor, and that path was translated.
 module IdrisMLIR.Frontend.Translate.Dictionaries
 
 import Core.Context
@@ -159,7 +158,8 @@ recordDictionary fc owner cid ty i impl = do
 
 ||| The implementation the dictionary field at argument `i` of a
 ||| constructor holds, where a match binds it; `Nothing` when no
-||| construction site has given one, which the match takes as never built.
+||| construction site has given one, which the match takes as never built
+||| and the instance being translated waits on (`TS.assumed`).
 export
 dictionaryOf : {auto s : Ref TState TS} -> ConId -> Nat -> Core (Maybe ClosedTerm)
 dictionaryOf cid i = do

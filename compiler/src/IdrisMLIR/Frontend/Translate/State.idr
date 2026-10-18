@@ -304,6 +304,10 @@ record TS where
   newtypes : SortedMap DataId Binder
   cons : SortedMap ConId ConLayout
   fns : SortedMap FnId TFn
+  ||| The instances in the order they were first requested, the root first:
+  ||| the order the worklist first takes them in, first in, first out
+  ||| (`Finite`), and so the order of the program's functions. An instance
+  ||| translated again keeps its place.
   fnOrder : SnocList FnId
   seen : SortedSet FnId
   ||| The instances requested since the worklist last took them, in the
@@ -324,21 +328,20 @@ record TS where
   ||| What each case, with and nested block is called, `<parent>.case<k>`,
   ||| by its address, and every definition whose blocks are named, by its
   ||| own origin (`Keys`). A block's name depends only on the definitions,
-  ||| so each is found once and kept from pass to pass.
+  ||| so each is found once.
   blockNames : SortedMap Address String
   ||| The implementation each dictionary field holds, by constructor and
-  ||| position among its arguments; the one part of the state a pass hands
-  ||| to the next (`nextPass`).
+  ||| position among its arguments.
   dicts : SortedMap (ConId, Nat) Dictionary
-  ||| The dictionary fields matched in this pass before any construction
-  ||| site gave their implementation: their alternatives were translated as
-  ||| unreachable, which a construction site seen later in the pass
-  ||| contradicts (`Finite.voidedBy`).
+  ||| The dictionary fields the instance being translated matched before
+  ||| any construction site gave their implementation: it translated their
+  ||| alternatives as unreachable, and is translated again once a
+  ||| construction site gives one (`Finite`), which keeps them per instance.
   assumed : SortedSet (ConId, Nat)
   ||| The request chain of the instance being translated: its own request,
   ||| the one that requested it, back to the root. It leads back to the user
   ||| definition a library instance serves (`Dictionaries.chooser`); the
-  ||| worklist sets it (`Finite.pass`).
+  ||| worklist sets it (`Finite.worklist`).
   chain : List Request
   ||| The type constructors of the interfaces the program loaded, by full
   ||| name: Idris's own table of them, read once, since nothing the
@@ -360,7 +363,7 @@ record TS where
   spelled : SortedSet (ModuleIdent, String)
   ||| Where each module a location names comes from and its source file, by
   ||| the module: facts of the module, found once each (`Errors.toLoc`),
-  ||| which no pass and no rejection changes.
+  ||| which no rejection changes.
   places : SortedMap ModuleIdent (Origin, String)
   ||| What the translation reads of each type constructor's definition
   ||| (`Types.tyConFacts`), by address, found once each.
@@ -396,19 +399,18 @@ initState ifaces fc = MkTS
 ||| graph's components, facts of the program's definitions that
 ||| nothing the translation does changes. An instance its translation
 ||| rejects leaves the state as it was before it but for these
-||| (`Finite.pass`), and a pass starts with them (`nextPass`).
+||| (`Finite.worklist`), and the translation starts with them
+||| (`translating`).
 export
 keepFound : (from : TS) -> TS -> TS
 keepFound from = { rejected := from.rejected, refused := from.refused, places := from.places
                  , tyCons := from.tyCons, readings := from.readings, loops := from.loops
                  , blockNames := from.blockNames }
 
-||| The state a pass of the translation starts from: nothing of the last
-||| pass but the dictionaries it found, the interfaces, what it found that
-||| outlives it (`keepFound`), and the growth check's bounds, which hold for
-||| every pass. A void pass's rejections stay: the first one found is the
-||| one the program is refused with, whichever pass found it.
+||| The state the translation starts from: nothing of the phases before it
+||| but the dictionaries, the interfaces, what they found that outlives
+||| them (`keepFound`), and the growth check's bounds.
 export
-nextPass : TS -> TS
-nextPass st = keepFound st ({ dicts := st.dicts, bounds := st.bounds, sizes := st.sizes }
-                              (initState st.interfaces st.moduleFC))
+translating : TS -> TS
+translating st = keepFound st ({ dicts := st.dicts, bounds := st.bounds, sizes := st.sizes }
+                                 (initState st.interfaces st.moduleFC))

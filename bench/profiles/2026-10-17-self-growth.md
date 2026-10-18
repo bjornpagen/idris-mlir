@@ -44,6 +44,26 @@ error, 1,575 s.
 - Peak resident memory: 5.56 GB.
 - The module is 82,221,964 bytes; the Core dump 78,950,368.
 
+## Gate 3 on the final tree (*measured*, 2026-10-18)
+
+After the method markers, the instance identities with emit's type check,
+the emit speedup and the translate rounds (the commits after the
+checker's): exit 0, no refusal, no internal error, 345 s; the machine
+otherwise lightly loaded (`/tmp/0003c-final/gate3h`).
+
+| Phase | ms |
+| --- | --- |
+| checks | 771 |
+| reachable | 9,400 |
+| growth | 64,680 |
+| translate | 171,828 |
+| emit | 50,816 |
+
+- Peak resident memory: 5.64 GB.
+- The module is 82,476,056 bytes; the Core dump 79,167,595.
+- Translate translates 69,697 instances (one round, then two small ones)
+  where the passes translated 208,563.
+
 ## The growth phase (*measured*, self compile)
 
 - 1,093 s at the first integration that admitted the self compile.
@@ -63,8 +83,8 @@ own `SortedSet` and `SortedMap` uses read a field before the pass that
 builds it, which voids that pass. Option (a)'s method instances add 8.5%
 per pass and the checker's bookkeeping about 8%. Reading each static
 argument once took translate to 565.2 s with Core identical. Translating
-only the instances that relied on a field found built late, instead of
-the whole program again, is separate work.
+again only the instances that relied on a field found built late, instead
+of the whole program, took it to 172 s (the final tree above).
 
 ## What is not measured
 

@@ -164,3 +164,10 @@ export
 generations : {0 lt : Rel a} -> (old : List a) -> All (Accessible lt) old -> Accessible (Follows lt) old
 generations [] [] = none
 generations (x :: xs) (ax :: axs) = union [x] xs (single x ax) (generations xs axs)
+
+||| Each element of an accessible generation is accessible: below one, a
+||| generation of one element follows the generation, and descends.
+export
+elemAccessible : {0 lt : Rel a} -> Accessible (Follows lt) gen -> Elem x gen -> Accessible lt x
+elemAccessible (Access rec) e =
+  Access (\y, below => elemAccessible (rec [y] (MkFollows (elemNonEmpty e) [elemAny e below])) Here)

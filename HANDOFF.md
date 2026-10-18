@@ -1,5 +1,77 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
+# Checkpoint (2026-10-18, the polymorphism checker integrated on the typecheck machine)
+
+Self-hosting's S2.2 is in (3fc4d2e4; proposals/0003-self-host/checker/,
+its integration record in §12). The frontend builds a growth graph of the
+program's type flow and refuses only a cycle that grows a type without
+bound, naming the cycle. The old rule refused any request that grew
+against an earlier one, the compiler's own source among them. The proof
+that the check ends and that an admitted program has finitely many
+instances is Idris (`compiler/src/IdrisMLIR/Proof/`), with no trust point.
+A method call resolves to the implementation's method function. The fork
+fixes five Idris bugs as its own code (50 to 54 under `upstream/`; nothing
+is sent to Idris). A hard cleanup after the night's integration deleted
+the duplicate readings, lists matched by position and evidence-free tests
+it had left.
+
+Gate 3, the self compile's frontend step with no patch, then found one
+regression and three silent miscompiles that HEAD already had. Each has its
+fixture, marked for acceptance:
+- The cleanup's regression (3fc4d2e4): a runtime implicit the unifier
+  computed left its clause covering nothing, so erased indices reached run
+  time (`tests/accept/erased-index-forced-index`).
+- Method markers (3e8ea8f2): a method's runtime arguments, passed through
+  Idris's normaliser as bound machine names, were captured as the field's
+  own binders. In the self compile, 226 calls took a value where its `Ref`
+  goes, `quote` and every TTC writer among them
+  (`tests/programs/interfaces/method-runtime-implicits`).
+- Instance identities (3934cc0c): one type reached two identities, through a
+  lambda's domain and through an eta-redex under a lambda, so a field a
+  writer built was compiled as never built. `map` over a `SortedMap`, and
+  `keySet`, became `unreachable`
+  (`tests/programs/data/sortedmap-map-after-insert`,
+  `tests/programs/data/dependent-pair-family-eta`). Emit now lets a value
+  into a slot only at the slot's type, which is how the last two were
+  found.
+
+Compile time (77a7192b and this checkpoint's commit). The self compile's frontend step went from
+1,494 s to 345 s:
+
+| Phase | Before | After |
+| --- | --- | --- |
+| growth | 1,093 s | 65 s |
+| translate | 553 s | 172 s |
+| emit | 775 s | 51 s |
+
+The emit causes were quadratic list joins and a hash state held as a
+list. Translate now re-translates only the instances whose dictionary
+assumption failed, not the whole program
+(`bench/profiles/2026-10-17-self-growth.md`).
+
+What ran here, needing no LLVM, on the final tree:
+- every fixture of `tests/programs`, `tests/accept` and `tests/reject`
+  (408) through the frontend on Chez, against the gates before each change;
+- the self compile's frontend step: exit 0, 345 s, 5.64 GB, an 82 MB
+  module;
+- the growth check's box;
+- no `assert_total`, `covering`, `believe_me` or `postulate` in the proof
+  or the checker;
+- `make check` 35/35 and `make typecheck` every part.
+
+Owed on the owner's machine, before anything else:
+1. `make bootstrap` if it has not run since the total wave's checkpoint
+   below (patch 24, the simdutf and fast_float pins). Then `make build`,
+   `make test`, `make test-idr`, `make test-unit` and
+   `make test-mlir-tools` on both targets. This one build qualifies
+   everything since c7aa7b62. Accept the files `tests/ACCEPTANCE.md` lists
+   (318), the four fixtures above first.
+2. Then self-hosting's S3 to S5: the pipeline on the self module, which
+   has never been measured, then `make self`.
+
+Next here: the representation wave (proposal 0004 after the renumbering
+that follows this checkpoint), dispatched on top of this.
+
 # Checkpoint (2026-10-15, 0001-sound integrated on the typecheck machine)
 
 Proposal 0001 (sound passes, typed identities, good tests or none; numbered
