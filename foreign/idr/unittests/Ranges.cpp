@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that every range rule holds over its whole box: bounded keeps exactly the bounds inside the small range, rangeOf and boundsOf round-trip, and add, sub, mul, ofInteger and boundsOf hold every member, each present bound small and exact where the rule promises it; and that ofType gives a natural, linear or not, the natural's range, a big none, i8 and index their storage width's whole range, and a string upstream's initialized width-0 maximum range.
 // The box of the range rules (idr::ranges): each rule called on every
 // interval over a domain where its behaviour changes, against the exact value
 // of every member in __int128. A missing bound holds anything; its members
@@ -303,7 +302,8 @@ TEST_F(Ranges, OfType) {
             mlir::IntegerValueRange(ConstantIntRanges::maxRange(8)));
   EXPECT_EQ(ranges::ofType(mlir::IndexType::get(&context)),
             mlir::IntegerValueRange(ConstantIntRanges::maxRange(64)));
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::Value text =
       block.addArgument(idr::StrType::get(&context), mlir::UnknownLoc::get(&context));
   mlir::IntegerValueRange holdsNoInteger = ranges::ofType(text.getType());

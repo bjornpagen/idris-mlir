@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that the program's rules run from its region verifier, so that the pass manager's verification after a program pass refuses a program the pass left wrong and stops the pipeline before the next pass runs.
 // The box of the program's verification between passes: a pass that says
 // every function of a program does nothing, though its root writes to the
 // world, then a pass that only notes it ran. The pass manager verifies the

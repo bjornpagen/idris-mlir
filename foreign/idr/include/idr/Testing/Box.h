@@ -13,6 +13,8 @@
 
 #include "idris_rt.h"
 
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OwningOpRef.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -30,6 +32,19 @@ namespace idr::box {
 
 using i128 = __int128;
 using ranges::Bounds;
+
+// The block a box builds its ops in: the body of a module it owns, since a
+// builder finds its context through the block's region, which a lone
+// block has none of.
+class Scratch {
+public:
+  explicit Scratch(mlir::MLIRContext &context)
+      : module(mlir::ModuleOp::create(mlir::UnknownLoc::get(&context))) {}
+  mlir::Block &block() { return *module->getBody(); }
+
+private:
+  mlir::OwningOpRef<mlir::ModuleOp> module;
+};
 
 // The fixture of each test of a box, googletest's hook around it: SetUp
 // reads the runtime's live cells and TearDown expects them again, and no

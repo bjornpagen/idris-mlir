@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that every constant of the box is the one attribute `get` gives for its value however it was built, that walkFields gives each field once at its index, and that two remaps of one kind that differ only inside a field name its holder differently.
 // The box of a constant constructor's one form (#idr.con) and of the shape
 // a remap decides for a field. Constants: lists along either field of every
 // length to 64, built a cell at a time by `get` and at once by `getRun`;

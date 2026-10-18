@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that a function whose result is a call of a callee outside its component that gives back its argument gives back its own argument when the call returns, as its effects say, and gives back nothing when the call may diverge.
 // The box of giving back (idr::identities::givesBackOf): the component {@f},
 // whose body returns the call of @g, which the solve reads frozen through
 // its outside answer, @g giving back argument 0. Whether the call returns is
@@ -34,10 +33,10 @@ llvm::SmallVector<std::optional<unsigned>> givenBackWith(llvm::StringRef effects
   std::string text = (R"mlir(
 !L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
 idr.program @identities root(@root) stage(first) {
-  idr.func effects<none> @g(%x: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func effects<none> @g(%x: !idr.box<!L>) -> !idr.box<!L> attributes {total} {
     return %x : !idr.box<!L>
   }
-  idr.func @f(%x: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func @f(%x: !idr.box<!L>) -> !idr.box<!L> attributes {total} {
     %r = idr.call @g(%x) )mlir" +
                       effects + R"mlir( : (!idr.box<!L>) -> !idr.box<!L>
     return %r : !idr.box<!L>

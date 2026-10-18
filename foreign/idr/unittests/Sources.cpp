@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that sourceOf says a linear position's entry and use are the same value as their operand, a field read and a case's argument a field of the scrutinee at its constructor and index, a default region's argument the scrutinee again, a borrow its owner, and a parameter, a match's result and a share made where they are.
 // The box of a value's structural source (idr::sourceOf): each value of a
 // function, parsed, against what it is made of. Only the structure is
 // read, so the module is not verified.

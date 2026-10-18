@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that the word op the generated table names for each big op, folded by MLIR on every input of B whose bigs fit, is the runtime's value of the big op: a sum, difference and product with no wrap, a comparison by its signed predicate, a conversion truncating; that the versioning mask keeps every natural not above the small range's top; and that fits32 holds exactly of the ranges within i32.
 // The box of the word each big op narrows to. The table generated from the
 // ODS (BigToWord) names a word op per big op; each is built once with arith
 // on block arguments and folded by MLIR on every small value within 2 of 0
@@ -180,7 +179,8 @@ void checkEachWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
 TEST_F(Words, EachBigOpIsItsWordOp) {
   mlir::MLIRContext context;
   context.loadDialect<arith::ArithDialect>();
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::Type i64 = mlir::IntegerType::get(&context, 64);
   Value a = block.addArgument(i64, mlir::UnknownLoc::get(&context));
   Value b = block.addArgument(i64, mlir::UnknownLoc::get(&context));
@@ -197,7 +197,8 @@ TEST_F(Words, EachBigOpIsItsWordOp) {
 TEST_F(Words, Mask) {
   mlir::MLIRContext context;
   context.loadDialect<arith::ArithDialect>();
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::Type i64 = mlir::IntegerType::get(&context, 64);
   Value a = block.addArgument(i64, mlir::UnknownLoc::get(&context));
   Value b = block.addArgument(i64, mlir::UnknownLoc::get(&context));

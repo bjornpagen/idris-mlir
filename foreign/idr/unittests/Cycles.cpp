@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that CallCycles parts a program's functions into its cycles of calls, callees first, two functions that call each other in one component and a function that calls itself, in tail position or not, alone in one that calls itself; that a declaration is a component of its own on no cycle; and that Escapes::recursive holds of a function on a cycle of calls but not of one whose only call of itself is in tail position.
 // The box of the cycles of calls (idr::CallCycles), as the analysis manager
 // caches them, and of what idr-rc's stack step reads of them
 // (Escapes::recursive): a program of a mutual recursion, a self call in

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that the bounds the range hooks of pred, nat_from_big and nat.to_big state on every interval over D64 hold the runtime's value of every member their operand may be.
 // The box of the range hooks of the big ops of one operand: each op built
 // in a scratch block, its hook called on every interval over D64 as the
 // analysis holds one (rangeOf), and the range it states read as idr-narrow
@@ -52,7 +51,8 @@ void checkUnary(Hooks &box, OpT op, int64_t least, ValueFn value) {
 TEST_F(Hooks, Pred) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect, mlir::arith::ArithDialect>();
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
   mlir::Type nat = idr::NatType::get(&context);
@@ -65,7 +65,8 @@ TEST_F(Hooks, Pred) {
 TEST_F(Hooks, NatFromBig) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect, mlir::arith::ArithDialect>();
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
   auto op = idr::NatFromBigOp::create(builder, loc, idr::NatType::get(&context),
@@ -78,7 +79,8 @@ TEST_F(Hooks, NatFromBig) {
 TEST_F(Hooks, NatToBig) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect, mlir::arith::ArithDialect>();
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
   auto op = idr::NatToBigOp::create(builder, loc, idr::BigType::get(&context),

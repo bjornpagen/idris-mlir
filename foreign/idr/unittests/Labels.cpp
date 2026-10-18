@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that the labels a closure passed to a function's parameter may be are one node of the solve, asked for by the parameter's flow point or by the function's argument: both are the closure's label.
 // The box of the label solve (idr::Labels) at a call: a closure of @inc
 // given to parameter 0 of @call, whose argument the solve reaches by two
 // names, the parameter's point and the block argument, which name one node.

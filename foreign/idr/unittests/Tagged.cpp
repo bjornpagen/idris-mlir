@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that the runtime holds a value in a word exactly inside the small range it declares, and that every pair of B through the runtime's add, sub and mul, and every value of B through neg, pred and nat_from_big, is its exact result, a small word exactly inside the small range and a cell outside it; and that cmp orders every pair as its difference does.
 // The box of the runtime's tagged small paths of arithmetic: each C entry,
 // as the ODS names it for its op, on every small value within 2 of 0 or of
 // a power of two, against exact __int128 arithmetic, read back through the

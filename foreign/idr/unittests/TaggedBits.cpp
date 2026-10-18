@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that every pair of B through the runtime's and, or and xor is the small word of the two's complement operation on its values, and that every value of B shifted by every amount, left or right through shl and shr either way, is value * 2^n or the floor of value / 2^n, a small word exactly inside the small range.
 // The box of the runtime's tagged small paths of the bitwise operations and
 // the shifts: each C entry, as the ODS names it for its op, on every small
 // value within 2 of 0 or of a power of two and every amount where a shift

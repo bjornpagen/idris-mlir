@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that the flow interface's verifier refuses a model that names another op's value in an owned program, admits a region reading back a part of its op's result and refuses the whole, and that every external model of upstream's ops keeps the rule.
 // The box of the flow rule (idr::detail::verifyFlowEdges). An op of ours is
 // held to its model by the interface's verifier at every stage, which a
 // test op whose model names a value it does not make shows. No interface

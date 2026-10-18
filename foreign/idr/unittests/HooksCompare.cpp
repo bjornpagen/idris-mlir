@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that wherever the range hook of big.cmp decides a comparison of two intervals over D64, every member pair the operands may be compares so through the runtime, of Integers and of naturals; and that the range the hook of big.to_int states at 8, 16, 32 and 64 bits holds the runtime's value, wrapped to the width, of every member of every interval over Dw.
 // The box of the range hooks of the big ops whose result is an integer:
 // each op built in a scratch block, its hook called on every interval as the
 // analysis holds one (rangeOf), and the range it states read as the
@@ -58,7 +57,8 @@ std::vector<int64_t> dw(unsigned width) {
 TEST_F(HooksCompare, Cmp) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect, mlir::arith::ArithDialect>();
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
   // Two Integers, of any member, and two naturals, of the members not
@@ -96,7 +96,8 @@ TEST_F(HooksCompare, Cmp) {
 TEST_F(HooksCompare, ToInt) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect, mlir::arith::ArithDialect>();
-  mlir::Block block;
+  idr::box::Scratch scratch(context);
+  mlir::Block &block = scratch.block();
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
   // An Integer, of any member, and a natural, of the members not negative.
