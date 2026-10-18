@@ -40,9 +40,8 @@ void addRc(mlir::OpPassManager &program) {
   // cells: a cell in a frame is neither recycled nor exclusive.
   program.addPass(idr::createIdrRcStack());
   // The owned grades, from the reuses and the borrows decided, written into
-  // every signature before any body is counted.
+  // every signature, and every body counted under them.
   program.addPass(idr::createIdrRcGrades());
-  program.addNestedPass<idr::FuncOp>(idr::createIdrRcPlace());
   // On the dups placement made, which share what they take a reference of;
   // every reference is counted from here on.
   program.addPass(idr::createIdrRcExclusive());

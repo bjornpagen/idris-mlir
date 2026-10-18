@@ -497,7 +497,7 @@ def IdrRcStack : IdrPass<"idr-rc-stack", "::idr::ProgramOp", IdrRoleOptimization
 
 def IdrRcGrades : IdrPass<"idr-rc-grades", "::idr::ProgramOp", IdrRoleLowering,
       IdrStageFirst, IdrStageGraded> {
-  let summary = "Decide reset/reuse and borrowed parameters, and grade every signature owned";
+  let summary = "Decide reset/reuse and borrowed parameters, grade every signature, place the counts";
   let description = [{
     First the boundaries where counting meets upstream's buffer ops, in
     each function: an `idr.own.adopt` takes over the reference of each
@@ -511,37 +511,26 @@ def IdrRcGrades : IdrPass<"idr-rc-grades", "::idr::ProgramOp", IdrRoleLowering,
         needs a reference of its own is a view of the caller's value, and
         its callers keep theirs; every other parameter, every parameter a
         reuse takes apart among them, and every result is `!idr.own<T>`.
-    Those grades go into every signature and entry argument. The Reuses
-    and the symbol table it leaves are what idr-rc-place reads.
+    Those grades go into every signature and entry argument, and every
+    body is placed under them, in parallel: at each site of the Reuses the
+    box is taken apart (`idr.take`), and each `idr.cell.new` that gets its
+    cell becomes `idr.cell.recycle` of the take's token. Then explicit
+    counting: every value that holds references is owned (`!idr.own<T>`,
+    one reference of its own, consumed exactly once on every path) or a
+    view (read while its owner holds its reference, the grade `idr.borrow`
+    gives an owned value): `idr.dup` takes a reference of its own from a
+    view before a use that consumes one, and `idr.drop` gives one up after
+    the last use. Before the counts are placed, a select of values that
+    hold references becomes a match, an owned value that dies in a case
+    region is taken apart there, and a field or an element that needs a
+    reference of its own takes it where it is read. Grading and placement
+    are one pass: a signature graded ahead of its callers' bodies breaks
+    each call of it, so no verifier runs between them.
   }];
   // A cell's size, which reuse compares, is idr-lower's layout.
   let dependentDialects = ["::idr::IdrDialect", "::mlir::LLVM::LLVMDialect"];
   let statistics = [
     Statistic<"numBorrowed", "borrowed", "Parameters borrowed">,
-  ];
-}
-
-def IdrRcPlace : IdrPass<"idr-rc-place", "::idr::FuncOp", IdrRoleLowering,
-      IdrStageGraded, IdrStageGraded> {
-  let summary = "Recycle dead cells and place the counts of one function";
-  let description = [{
-    On one function, once every signature holds its owned grades. At each
-    site of the program's Reuses the box is taken apart (`idr.take`), and
-    each `idr.cell.new` that gets its cell becomes `idr.cell.recycle` of
-    the take's token. Then explicit counting: every value that holds
-    references is owned (`!idr.own<T>`, one reference of its own, consumed
-    exactly once on every path) or a view (read while its owner holds its
-    reference, the grade `idr.borrow` gives an owned value): `idr.dup`
-    takes a reference of its own from a view before a use that consumes
-    one, and `idr.drop` gives one up after the last use. Before the counts
-    are placed, a select of values that hold references becomes a match,
-    an owned value that dies in a case region is taken apart there, and a
-    field or an element that needs a reference of its own takes it where it
-    is read. It reads the Reuses and the symbol table its program holds,
-    and writes nothing outside its function.
-  }];
-  let dependentDialects = ["::idr::IdrDialect"];
-  let statistics = [
     Statistic<"numTakes", "takes", "Dead boxes taken apart for their cells">,
     Statistic<"numReuses", "reuses", "Cells recycled from a dead box">,
     Statistic<"numDups", "dups", "idr.dup added">,

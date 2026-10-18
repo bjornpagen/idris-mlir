@@ -15,7 +15,7 @@
 // size, going into the regions of the ops that decide, and recycles the
 // dead box's cell for it instead: idr.take where the box dies, and
 // idr.cell.recycle of its token in place of the idr.cell.new.
-// idr-rc-place makes both; placement then drops the token on the paths
+// idr-rc-grades makes both; placement then drops the token on the paths
 // that do not recycle it. Inner matches are done first, so that their
 // scrutinees, which die later, get the cells made after them.
 //

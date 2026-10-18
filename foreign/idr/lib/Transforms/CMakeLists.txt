@@ -178,7 +178,7 @@ add_mlir_library(IdrDefunctionalize
 	MLIRUBDialect
 )
 
-# idr-rc's steps (idr-rc-cells, idr-rc-grades, idr-rc-place,
+# idr-rc's steps (idr-rc-cells, idr-rc-grades,
 # idr-rc-exclusive, which nests the commit) and idr-knots.
 add_mlir_library(IdrOwnership
 	Ownership/Cells.cpp
@@ -188,7 +188,6 @@ add_mlir_library(IdrOwnership
 	Ownership/Signatures.cpp
 	Ownership/Share.cpp
 	Ownership/Specialize.cpp
-	Ownership/Place.cpp
 	Ownership/Reuse.cpp
 	Ownership/Take.cpp
 	Ownership/Classes.cpp

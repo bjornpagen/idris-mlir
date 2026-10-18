@@ -10,19 +10,19 @@
 //      the stack, before reuse and exclusivity see it;
 //   3. idr-rc-grades: the boundaries with upstream's buffer ops are marked,
 //      reset/reuse and borrow inference decide on the program, and the
-//      owned grades go into every signature: the program is graded, its
-//      bodies not yet counted;
-//   4. idr-rc-place, on each function: the reuse rewrite at the sites the
-//      program's Reuses holds, then the counts, which read the grades of
-//      the function's own signature and its callees';
-//   5. idr-rc-exclusive: exclusivity, which reads the dups placement made,
+//      owned grades go into every signature; then, on each function, the
+//      reuse rewrite at the sites the program's Reuses holds and the
+//      counts, which read the grades of the function's own signature and
+//      its callees' (one pass: a signature graded ahead of its callers'
+//      bodies breaks their calls);
+//   4. idr-rc-exclusive: exclusivity, which reads the dups placement made,
 //      is solved; grade specialization copies the functions whose callers
 //      disagree on a grade; the excl grades go into every signature, and
 //      each function is committed, nested; every reference is then counted
 //      and graded, the owned stage;
 // then upstream's symbol-dce erases the copies and originals no call
-// reaches any more. Steps 3 and 5 write signatures; steps 4 and 5's commit
-// rewrite bodies while no signature changes, so a function reads only its
+// reaches any more. Steps 3 and 4 write signatures, then rewrite bodies
+// while no signature changes, so a function reads only its
 // own body, its own signature and its callees' signatures, and the
 // functions run in parallel. Below the passes are the steps their units
 // share.
