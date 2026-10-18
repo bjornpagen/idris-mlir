@@ -11,6 +11,10 @@
 - the polymorphism checker replaces the rule, S2.2
   ([checker/](checker/README.md), its integration record in §12).
 
+Still open in S2: the fork's `SyntaxInfo` knot (D3), which the pipeline's
+`cycle` check would refuse at stage 1; it runs in 0004's wave, with D6
+(`tools/self.sh`).
+
 The self-compile's frontend step finishes with no patch and no refusal
 (`bench/profiles/2026-10-17-self-growth.md`); the C++ reader and the
 pipeline on its module are S3, on the owner's build. It takes 0006's

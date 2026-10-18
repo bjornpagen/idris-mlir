@@ -97,8 +97,9 @@ The rules every proposal holds to, each stated in AGENTS.md or here:
   stages:
   - S0: integration fixes, done in 0002.
   - S1: the refusal sweep, here.
-  - S2: fix each refusal in the code, never by loosening a rule. Done:
-    S2.1 writes each data type once, S2.2 is the polymorphism checker.
+  - S2: fix each refusal in the code, never by loosening a rule. S2.1
+    (each data type written once) and S2.2 (the polymorphism checker) are
+    done; the fork's `SyntaxInfo` knot (D3) runs in 0004's wave.
   - S3: the pipeline on the self module (owner's machine).
   - S4 and S5: `make self` on arm64 macOS, then x86_64 Linux, with stage
     2 = stage 3.

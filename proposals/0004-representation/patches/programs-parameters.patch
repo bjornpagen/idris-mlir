@@ -1,0 +1,77 @@
+--- /tmp/0003c-clean-E/pending/Programs.verified.idr	2026-10-17 15:16:30
++++ /tmp/0003c-clean-E/pending/Programs.idr	2026-10-17 15:16:30
+@@ -62,10 +62,7 @@
+                    _ => True
+   (kinds, resTy) <- classify fc owner (length args) (type def) (givenArgs p.kinds)
+   result <- coreType fc owner ValueType !(normaliseClosed resTy)
+-  let params = runtimeParams (parameterNames (type def)) kinds
+-  let env = environment (length params) 0 kinds
+-  when (length env /= length kinds) $
+-    internal fc "the runtime parameters of an instance numbered out of order"
++  let (arity ** (params, env)) = parameters (parameterNames (type def)) kinds
+   tree' <- tree (MkCtx owner fc complete) env !(clauses args (type def) pats) treeCT
+   loc <- toLoc fc
+   -- Each array parameter's dimensions that a size variable fixes, stated
+@@ -82,7 +79,7 @@
+   after <- get TState
+   let tot = fromMaybe False (address >>= \a => lookup a after.loops)
+   let facts = MkFacts tot
+-  update TState { fns $= insert p.inst (MkTFn p.inst p.key (length params) (fromList params) result body loc facts)
++  update TState { fns $= insert p.inst (MkTFn p.inst p.key arity params result body loc facts)
+                 , fnOrder $= (:< p.inst) }
+   where
+     -- The names the definition's type gives its parameters.
+@@ -104,29 +101,31 @@
+         in Let loc (shown "tied") Many (Tie loc (Var loc p) dims)
+                (rename (\x => if x == p then FZ else FS x) inner)
+ 
+-    runtimeParams : List Name -> List PKind -> List (Shown, Binder)
+-    runtimeParams (x :: xs) (k :: ks) = case runtimeBinder k of
+-      Just b => (binderName x, b) :: runtimeParams xs ks
+-      Nothing => runtimeParams xs ks
+-    runtimeParams [] ks = map (\b => (shown "x", b)) (mapMaybe runtimeBinder ks)
+-    runtimeParams _ [] = []
++    -- The instance's runtime parameters, named as the definition's type
++    -- names them, and what each variable of the case tree's scope stands
++    -- for, one per parameter: a type, an implementation or a parameter of
++    -- quantity 0 a compile-time value, and a runtime parameter the next
++    -- Core parameter.
++    parameters : List Name -> List PKind -> (n ** (Vect n (Shown, Binder), List (VarInfo (Fin n))))
++    parameters xs [] = (0 ** ([], []))
++    parameters xs (k :: ks) =
++      let (x, xs') = named xs
++          (n ** (ps, env)) = parameters xs' ks in
++      case k of
++        TypeParam t => (n ** (ps, TypeValue t :: env))
++        DictParam t Nothing => (n ** (ps, Static t Nothing :: env))
++        ErasedParam => (n ** (ps, TypeValue (Erased EmptyFC Placeholder) :: env))
++        FormParam f => (n ** (ps, TypeValue f :: env))
++        DictParam t (Just h) => (S n ** ((x, h.binder) :: ps, Static t (Just (FZ, h)) :: map (map FS) env))
++        ValueParam b shape known =>
++          (S n ** ((x, b) :: ps, maybe (Runtime FZ (Just (typeOf b)) (Just known)) (shaped FZ (typeOf b) known) shape
++                                   :: map (map FS) env))
++      where
++        -- A parameter past the names the type gives is `x`.
++        named : List Name -> (Shown, List Name)
++        named [] = (shown "x", [])
++        named (n :: ns) = (binderName n, ns)
+ 
+-    -- What each variable of the case tree's scope stands for: a runtime
+-    -- parameter is the next Core parameter.
+-    environment : (n : Nat) -> Nat -> List PKind -> List (VarInfo (Fin n))
+-    environment n i [] = []
+-    environment n i (TypeParam t :: ks) = TypeValue t :: environment n i ks
+-    environment n i (DictParam t Nothing :: ks) = Static t Nothing :: environment n i ks
+-    environment n i (ErasedParam :: ks) = TypeValue (Erased EmptyFC Placeholder) :: environment n i ks
+-    environment n i (FormParam f :: ks) = TypeValue f :: environment n i ks
+-    environment n i (DictParam t (Just h) :: ks) = case natToFin i n of
+-      Just x => Static t (Just (x, h)) :: environment n (S i) ks
+-      Nothing => []
+-    environment n i (ValueParam b shape known :: ks) = case natToFin i n of
+-      Just x => maybe (Runtime x (Just (typeOf b)) (Just known)) (shaped x (typeOf b) known) shape
+-                  :: environment n (S i) ks
+-      Nothing => []
+-
+ ||| The program: its data and function instances in the order they were
+ ||| registered. Whether a value of a data instance is boxed is the
+ ||| dialect's to decide, from the whole type graph, once.

@@ -87,6 +87,38 @@ idris-mlir compiles (`tests/reject/` lists the rules):
 - **Unary `Nat`** compiles to a number, but a proof built by recursion on it
   at run time costs its value in steps.
 
+## Map onto MLIR's grain (the owner, 2026-10-17)
+
+"Hard cutover. Don't be afraid to churn massive portions of the codebase to
+be representation first to map well onto MLIR." Representation first, in a
+dialect, means choosing the representation MLIR already has a mechanism
+for, so the branch disappears into MLIR rather than into our C++:
+
+- **One op per semantics.** An optional operand, a unit attribute or an
+  enum that changes what an op means, what it may do or which states are
+  valid is a flag; split the op. Where several sources feed one effect,
+  each source is its own op (as `memref.alloc`, `memref.alloca` and
+  `memref.realloc` are), and the op that consumes them has one meaning.
+- **Shared shape is an interface**, as `LoopLikeOpInterface`,
+  `RegionBranchOpInterface`, `CallOpInterface`, `DestinationStyleOpInterface`
+  and `InferTypeOpInterface` are; never an `isa<A, B>` ladder or a C++
+  concept.
+- **Declare, don't write.** Effects (`MemoryEffects`, `Arg<..., [MemRead]>`),
+  operand and attribute constraints, result types, assembly formats,
+  properties, folders and simple rewrites (DRR/PDLL) live in ODS; a hand
+  `verify` or `getEffects` is a declaration not yet made.
+- **Values and memory at different levels, lowered progressively,** as tensor
+  and bufferization to memref are: a value op stays pure and foldable; memory
+  becomes explicit only at the level that needs it.
+- **Use the infrastructure:** the `AnalysisManager` for cached analyses,
+  `DataFlowSolver` for dataflow, `TypeConverter`/`ConversionTarget` for
+  lowering, `SymbolTable`/`SymbolUserMap` for symbols, `PassInstrumentation`
+  and `Passes.td` for pass facts, `emitError` for diagnostics,
+  `llvm::Error` for the driver's failures, `ub` for unreachable and poison.
+- **Upstream dialects before ours:** where `scf`, `cf`, `arith`, `memref`,
+  `tensor`, `linalg`, `vector` or `llvm` already mean the thing, use them;
+  the `idr` dialect holds only what Idris adds.
+
 ## The guideline, verbatim
 
 ## The owner's guideline: representation first
