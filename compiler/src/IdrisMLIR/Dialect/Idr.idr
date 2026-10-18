@@ -1768,4 +1768,4 @@ ioOp ClockSecond os rs = MkGuarded (MkOp "idr.io.clock_second" os [] [] [] rs) [
 ioOp ClockNanosecond os rs = MkGuarded (MkOp "idr.io.clock_nanosecond" os [] [] [] rs) []
 ioOp HandleFree os rs = MkGuarded (MkOp "idr.io.handle_free" os [] [] [] rs) []
 
--- fingerprint: 4179896296-1522578 2726377924-75455
+-- fingerprint: 3107200547-1524257 2726377924-75455

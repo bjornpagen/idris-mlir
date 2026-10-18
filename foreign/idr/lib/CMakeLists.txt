@@ -157,6 +157,7 @@ add_mlir_library(IdrDriver
 	MLIRFuncInlinerExtension
 	MLIRLLVMIRTransforms
 	MLIRArithToLLVM
+	MLIRComplexToLLVM
 	MLIRControlFlowToLLVM
 	MLIRFuncToLLVM
 	MLIRIndexToLLVM

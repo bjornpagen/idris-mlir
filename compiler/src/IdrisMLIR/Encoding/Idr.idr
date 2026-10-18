@@ -124,4 +124,4 @@ encodeTableBody kind ctors instance = [VarInt (sumKindValue kind), VarInt (lengt
 
 -- Not generated:
 -- attribute DataTable: its member `table` is read by `succeeded(::idr::DataType::readTable($_reader, $_var))`
--- fingerprint: 1316652242-182078 2871451762-4311
+-- fingerprint: 929162703-182426 2871451762-4311

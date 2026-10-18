@@ -267,19 +267,19 @@ def Idr_KeyRaiseAttr : Idr_KeyAttr<"KeyRaise", "key_raise"> {
 // to none and follows no rename. The readable symbol is this key printed;
 // no pass reads it.
 //
-// The arguments are written in brackets, `["Nat"]`, and an instance at
-// none `[]`: a list without delimiters, an ArrayRefParameter's default,
-// cannot be empty.
-def Idr_InstanceArguments
-    : ArrayRefParameter<"::mlir::StringAttr", "the text of each argument of an instance"> {
+// A list of attributes written in brackets, `["Nat"]`, and the empty one
+// `[]`: a list without delimiters, an ArrayRefParameter's default, cannot
+// be empty. The Idris generator reads the class and writes the brackets.
+class Idr_SquareListParameter<string element, string desc>
+    : ArrayRefParameter<element, desc> {
   let parser = [{
-    [&]() -> ::mlir::FailureOr<::llvm::SmallVector<::mlir::StringAttr>> {
-      ::llvm::SmallVector<::mlir::StringAttr> arguments;
+    [&]() -> ::mlir::FailureOr<::llvm::SmallVector<}] # element # [{>> {
+      ::llvm::SmallVector<}] # element # [{> elements;
       if ($_parser.parseCommaSeparatedList(::mlir::AsmParser::Delimiter::Square, [&]() {
-            return $_parser.parseAttribute(arguments.emplace_back());
+            return $_parser.parseAttribute(elements.emplace_back());
           }))
         return ::mlir::failure();
-      return arguments;
+      return elements;
     }()
   }];
   let printer = [{
@@ -288,6 +288,9 @@ def Idr_InstanceArguments
     $_printer << ']'
   }];
 }
+
+def Idr_InstanceArguments
+    : Idr_SquareListParameter<"::mlir::StringAttr", "the text of each argument of an instance">;
 
 def Idr_InstanceAttr : AttrDef<Idr_Dialect, "Instance"> {
   let mnemonic = "instance";

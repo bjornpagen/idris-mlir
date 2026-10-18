@@ -522,7 +522,7 @@ export
 idrAttrText : (t : ty -> String) -> (a : at -> String) -> IdrAttr ty at -> String
 idrAttrText t a (BigAttr value) = fastConcat ["#idr.big<", (show value), ">"]
 idrAttrText t a (ClosureAttr callee captures) = fastConcat ["#idr.closure<", (symbol callee), ", ", (array a captures), ">"]
-idrAttrText t a (InstanceAttr origin arguments) = fastConcat ["#idr.instance<", (utf8 origin), ", ", (commaSeparated (map utf8 arguments)), ">"]
+idrAttrText t a (InstanceAttr origin arguments) = fastConcat ["#idr.instance<", (utf8 origin), ", ", (fastConcat ["[", commaSeparated (map utf8 arguments), "]"]), ">"]
 idrAttrText t a (RefusalAttr rule loc message) = fastConcat ["#idr.refusal<", (ruleSpelling rule), ", ", (location loc), ", ", (utf8 message), ">"]
 idrAttrText t a (RuleAttr value) = fastConcat ["#idr.rule<", (ruleSpelling value), ">"]
 idrAttrText t a WorldSpaceAttr = "#idr.world"
@@ -534,4 +534,4 @@ idrAttrText t a WorldSpaceAttr = "#idr.world"
 -- attribute KeyHoleAttr: the passes' alone (idris = 0)
 -- attribute KeyRaiseAttr: the passes' alone (idris = 0)
 -- attribute SpecKeyAttr: the passes' alone (idris = 0)
--- fingerprint: 4179896296-1522578 906031433-20012
+-- fingerprint: 3107200547-1524257 1571706321-20035

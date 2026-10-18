@@ -1773,11 +1773,16 @@ std::variant<Kind, NotEnum, Omitted> enumKind(Enums &enums, const AttrOrTypePara
 
 // The Idris kind of a parameter the dialect defines once for every
 // attribute that holds one, keyed on that definition: a constructor's tag
-// (Idr_TagParameter), which the Idris side holds as the number it writes.
+// (Idr_TagParameter), which the Idris side holds as the number it writes,
+// and a list written in brackets (Idr_SquareListParameter).
 std::optional<Kind> definedKind(const AttrOrTypeParameter &param) {
   const auto *def = llvm::dyn_cast<llvm::DefInit>(param.getDef());
   if (def && def->getDef()->getName() == "Idr_TagParameter")
     return Kind{"Nat", "show {0}"};
+  // A list its parameter writes in brackets (Idr_SquareListParameter).
+  if (def && def->getDef()->isSubClassOf("Idr_SquareListParameter"))
+    if (std::optional<Kind> list = valueKind(param.getCppType()))
+      return Kind{list->type, "fastConcat [\"[\", " + list->text + ", \"]\"]"};
   return std::nullopt;
 }
 

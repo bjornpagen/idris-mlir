@@ -19,6 +19,7 @@
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
@@ -343,9 +344,10 @@ void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
   mlir::func::registerInlinerExtension(registry);
   mlir::LLVM::registerInlinerInterface(registry);
   // convert-to-llvm takes the patterns of every loaded dialect, and asks
-  // each that promises them: those the pipeline lowers, and index, which
-  // the schedule's linalg transform ops load.
+  // each that promises them: those the pipeline lowers, index, which the
+  // schedule's linalg transform ops load, and complex, which tensor loads.
   mlir::arith::registerConvertArithToLLVMInterface(registry);
+  mlir::registerConvertComplexToLLVMInterface(registry);
   mlir::cf::registerConvertControlFlowToLLVMInterface(registry);
   mlir::registerConvertFuncToLLVMInterface(registry);
   mlir::index::registerConvertIndexToLLVMInterface(registry);
