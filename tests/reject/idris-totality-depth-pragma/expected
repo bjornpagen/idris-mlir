@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that %totality_depth is refused by the parser at its line, as an error of Idris and no rule of ours
 compile: exit 3
 idris: its own error, and no rule of ours
 line: as the header says

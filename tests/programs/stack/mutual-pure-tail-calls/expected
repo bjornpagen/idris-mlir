@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that constant-stack holds after idr-tail-calls of the program root, named as the frontend writes it ($idris-mlir.root)
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

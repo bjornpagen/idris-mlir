@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that a data declaration in an interface body is refused at the declaration, line 12, as an error of Idris and no rule of ours, not at its use
 compile: exit 3
 idris: its own error, and no rule of ours
 line: as the header says
