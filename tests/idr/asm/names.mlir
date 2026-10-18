@@ -37,8 +37,8 @@
 // NAMED: match %{{.*}} : !Point -> (i64) {
 // NAMED-NEXT: case @MkPoint(%px: i64, %py: i64) {
 
-!Prelude.Types.Maybe_Prelude.Types.Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
-!Main.Point = !idr.data<"Main.Point", plain [@MkPoint(i64, i64)]>
+!Prelude_Types_Maybe_Prelude_Types_Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
+!Main_Point = !idr.data<"Main.Point", plain [@MkPoint(i64, i64)]>
 idr.program @names root(@root) stage(higher) {
   idr.func @"Prelude.Show.show[Prelude.Types.Nat]"(%a0: !idr.nat) -> !idr.str {
     idr.crash "no body"
@@ -60,9 +60,9 @@ idr.program @names root(@root) stage(higher) {
     %c2 = idr.constant !idr.nat #idr.big<3>
     %c3 = idr.constant !idr.fn<(i64) -> (i64)> #idr.closure<@inc, []>
     %c4 = idr.constant !idr.lazy<i64> #idr.closure<@later, []>
-    %c5 = idr.constant !Prelude.Types.Maybe_Prelude.Types.Nat_
-        #idr.con<!Prelude.Types.Maybe_Prelude.Types.Nat_, @Nothing, []>
-    %v0 = idr.con !Prelude.Types.Maybe_Prelude.Types.Nat_ @Just(%n : !idr.nat)
+    %c5 = idr.constant !Prelude_Types_Maybe_Prelude_Types_Nat_
+        #idr.con<!Prelude_Types_Maybe_Prelude_Types_Nat_, @Nothing, []>
+    %v0 = idr.con !Prelude_Types_Maybe_Prelude_Types_Nat_ @Just(%n : !idr.nat)
     %v1 = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
     %one = arith.constant 1 : i64
     %v3 = idr.delay %one : i64 -> !idr.lazy<i64>
@@ -72,8 +72,8 @@ idr.program @names root(@root) stage(higher) {
     %v7 = idr.lin.enter %x : !idr.lin<i64>
     %v8 = idr.call @"Prelude.Show.show[Prelude.Types.Nat]"(%n) : (!idr.nat) -> !idr.str
     %v9 = idr.call @inc(%x) : (i64) -> i64
-    %p = idr.con !Main.Point @MkPoint(%x : i64, %x : i64)
-    %r = idr.match %p : !Main.Point -> (i64) {
+    %p = idr.con !Main_Point @MkPoint(%x : i64, %x : i64)
+    %r = idr.match %p : !Main_Point -> (i64) {
     case @MkPoint(%px: i64 loc("px"), %py: i64 loc("py")) {
       %sum = arith.addi %px, %py : i64
       idr.yield %sum : i64

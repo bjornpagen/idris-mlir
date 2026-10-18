@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that a recursion smaller only under six matching constructors is accepted as total with no pragma, and runs; and that what holds of every compilation holds of it (universal: holds)
 compile: exit 0
 artifacts: core module objects executable
 universal: holds

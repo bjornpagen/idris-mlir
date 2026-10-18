@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that a with block called again from its right-hand side, from a local definition and from a record update is accepted, compiles and runs; and that what holds of every compilation holds of it (universal: holds)
 compile: exit 0
 artifacts: core module objects executable
 universal: holds

@@ -32,11 +32,11 @@
 // CHECK: constant !idr.box<!Tree> #idr_value
 // CHECK: constant !idr.box<!Tree> #idr.con<!Tree, @Node, [#idr.con<!Tree, @Leaf, []>, #idr.con<!Tree, @Leaf, []>]>
 
-!Prelude.Types.List_Prelude.Types.Nat_ = !idr.data<"Prelude.Types.List[Prelude.Types.Nat]", list [@Nil() nil, @Cons(!idr.nat, !idr.box<!idr.data<"Prelude.Types.List[Prelude.Types.Nat]">>) cons]>
-!Prelude.Types.Maybe_Prelude.Types.Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
-!Main.Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64)]>
-!A.Pair = !idr.data<"A.Pair", plain [@MkPair(i64, i64)]>
-!B.Pair = !idr.data<"B.Pair", plain [@MkPair(f64, f64)]>
+!Prelude_Types_List_Prelude_Types_Nat_ = !idr.data<"Prelude.Types.List[Prelude.Types.Nat]", list [@Nil() nil, @Cons(!idr.nat, !idr.box<!idr.data<"Prelude.Types.List[Prelude.Types.Nat]">>) cons]>
+!Prelude_Types_Maybe_Prelude_Types_Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
+!Main_Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64)]>
+!A_Pair = !idr.data<"A.Pair", plain [@MkPair(i64, i64)]>
+!B_Pair = !idr.data<"B.Pair", plain [@MkPair(f64, f64)]>
 !Tree = !idr.data<"Tree", plain [@Leaf(), @Node(!idr.box<!idr.data<"Tree">>, !idr.box<!idr.data<"Tree">>)]>
 #t0 = #idr.con<!Tree, @Leaf, []>
 #t1 = #idr.con<!Tree, @Node, [#t0, #t0]>
@@ -50,27 +50,27 @@
 
 
 idr.program @aliases root(@root) stage(owned) {
-  idr.func @owned(%a0: !idr.own<!idr.box<!Prelude.Types.List_Prelude.Types.Nat_>>)
-      -> !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>> {
+  idr.func @owned(%a0: !idr.own<!idr.box<!Prelude_Types_List_Prelude_Types_Nat_>>)
+      -> !idr.q<many, borrow, !idr.box<!Prelude_Types_List_Prelude_Types_Nat_>> {
     idr.crash "no body"
     ub.unreachable
   }
-  idr.func @len(%l: !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>>,
-                        %m: !idr.q<many, borrow, !Prelude.Types.Maybe_Prelude.Types.Nat_>,
-                        %s: !idr.q<many, borrow, !idr.box<!Main.Shape>>)
-      -> !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>> {
-    %n = idr.constant !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>>
-       #idr.con<!Prelude.Types.List_Prelude.Types.Nat_, @Nil, []>
-    %r = idr.field %s : !idr.q<many, borrow, !idr.box<!Main.Shape>> @Circle[0] -> f64
-    return %n : !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>>
+  idr.func @len(%l: !idr.q<many, borrow, !idr.box<!Prelude_Types_List_Prelude_Types_Nat_>>,
+                        %m: !idr.q<many, borrow, !Prelude_Types_Maybe_Prelude_Types_Nat_>,
+                        %s: !idr.q<many, borrow, !idr.box<!Main_Shape>>)
+      -> !idr.q<many, borrow, !idr.box<!Prelude_Types_List_Prelude_Types_Nat_>> {
+    %n = idr.constant !idr.q<many, borrow, !idr.box<!Prelude_Types_List_Prelude_Types_Nat_>>
+       #idr.con<!Prelude_Types_List_Prelude_Types_Nat_, @Nil, []>
+    %r = idr.field %s : !idr.q<many, borrow, !idr.box<!Main_Shape>> @Circle[0] -> f64
+    return %n : !idr.q<many, borrow, !idr.box<!Prelude_Types_List_Prelude_Types_Nat_>>
   }
-  idr.func @pairs(%a: !A.Pair, %b: !B.Pair) {
+  idr.func @pairs(%a: !A_Pair, %b: !B_Pair) {
     return
   }
-  idr.func @trees() -> (!idr.q<many, borrow, !idr.box<!Tree>>, !idr.q<many, borrow, !idr.box<!Tree>>) {
+  idr.func @trees() -> (!idr.box<!Tree>, !idr.box<!Tree>) {
     %big = idr.constant !idr.box<!Tree> #t8
     %small = idr.constant !idr.box<!Tree> #t1
-    return %big, %small : !idr.q<many, borrow, !idr.box<!Tree>>, !idr.q<many, borrow, !idr.box<!Tree>>
+    return %big, %small : !idr.box<!Tree>, !idr.box<!Tree>
   }
   // The program's root, which the functions above are no part of.
   idr.func @root() -> i64 {

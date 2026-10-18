@@ -20,13 +20,15 @@ using namespace idr;
 LogicalResult idr::IdrDialect::verifyOperationAttribute(Operation *op, NamedAttribute attr) {
   if (attr.getName() != getRefusalsAttrHelper().getName())
     return op->emitOpError("has an unknown idr attribute ") << attr.getName();
+  // On a module, not only one without a parent: MLIR's bytecode reader
+  // verifies a file's top-level ops inside a module of its own, which it
+  // removes after. A refused module has a refusal.
   auto refusals = dyn_cast<ArrayAttr>(attr.getValue());
-  if (isa<ModuleOp>(op) && !op->getParentOp() && refusals &&
+  if (isa<ModuleOp>(op) && refusals && !refusals.empty() &&
       llvm::all_of(refusals, llvm::IsaPred<RefusalAttr>))
     return success();
-  return op->emitOpError("has ") << attr.getName()
-                                 << ", which is an array of #idr.refusal on the top-level module "
-                                    "alone";
+  return op->emitOpError("has ")
+         << attr.getName() << ", which is a non-empty array of #idr.refusal on a module alone";
 }
 
 // A parameter's quantity and ownership are its type: the dialect marks no

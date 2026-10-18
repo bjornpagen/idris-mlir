@@ -13,9 +13,9 @@
 // CHECK-DAG: !List = !idr.data<"List", list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!idr.data<"List">>) cons]>
 // CHECK-DAG: !Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !Shape, !idr.box<!List>)]>
 // CHECK-LABEL: module {
-!Main.Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]>
+!Main_Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]>
 !List = !idr.data<"List", list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!idr.data<"List">>) cons]>
-!Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !Main.Shape, !idr.box<!List>)]>
+!Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !Main_Shape, !idr.box<!List>)]>
 idr.program @roundtrip root(@Main.main) stage(higher) {
   idr.func @inc(%k: i64, %x: i64) -> i64 {
     %r = arith.addi %k, %x : i64
@@ -36,11 +36,11 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
 
   // CHECK-LABEL: idr.func @values
   idr.func @values(%x: i64, %d: f64,
-                            %s: !Main.Shape,
+                            %s: !Main_Shape,
                             %l: !idr.box<!List>)
       -> (i64, f64, i64, i64) attributes {total} {
     // CHECK: constant !Shape #idr.con<!Shape, @Rect, [1.000000e+00, 2.000000e+00]>
-    %c0 = idr.constant !Main.Shape #idr.con<!Main.Shape, @Rect, [1.0 : f64, 2.0 : f64]>
+    %c0 = idr.constant !Main_Shape #idr.con<!Main_Shape, @Rect, [1.0 : f64, 2.0 : f64]>
     // CHECK: constant !idr.box<!List> #idr.con<!List, @"$58$$58$", [7, #idr.con<!List, @Nil, []>]>
     %c1 = idr.constant !idr.box<!List> #idr.con<!List, @"$58$$58$", [7 : i64, #idr.con<!List, @Nil, []>]>
     // CHECK: constant !idr.fn<(i64) -> i64> #idr.closure<@inc, [1]>
@@ -50,22 +50,22 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     // CHECK: constant !idr.str "hello\0A"
     %c5 = idr.constant !idr.str "hello\n"
     // CHECK: con !Shape @Circle(%{{.*}} : f64)
-    %v0 = idr.con !Main.Shape @Circle(%d : f64)
+    %v0 = idr.con !Main_Shape @Circle(%d : f64)
     // CHECK: con !idr.box<!List> @"$58$$58$"(%{{.*}} : i64, %{{.*}} : !idr.box<!List>)
     %v1 = idr.con !idr.box<!List> @"$58$$58$"(%x : i64, %l : !idr.box<!List>)
     // CHECK: field %{{.*}} : !Shape @Circle[0] -> f64
-    %f0 = idr.field %s : !Main.Shape @Circle[0] -> f64
+    %f0 = idr.field %s : !Main_Shape @Circle[0] -> f64
     // CHECK: field %{{.*}} : !idr.box<!List> @"$58$$58$"[0] -> i64
     %f1 = idr.field %l : !idr.box<!List> @"$58$$58$"[0] -> i64
     // CHECK: tag %{{.*}} : !Shape
-    %t0 = idr.tag %s : !Main.Shape
+    %t0 = idr.tag %s : !Main_Shape
     // CHECK: tag %{{.*}} : !idr.box<!List>
     %t1 = idr.tag %l : !idr.box<!List>
     return %f1, %f0, %t0, %t1 : i64, f64, i64, i64
   }
 
   // CHECK-LABEL: idr.func @matches
-  idr.func @matches(%s: !Main.Shape,
+  idr.func @matches(%s: !Main_Shape,
                              %n: i64, %c: i32,
                              %b: i1, %t: !idr.str,
                              %g: !idr.big, %w: !idr.world)
@@ -81,7 +81,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     // CHECK-NEXT: ub.unreachable
     // CHECK-NEXT: }
     // CHECK-NEXT: }
-    %r:2 = idr.match %s : !Main.Shape -> (f64, !idr.world) {
+    %r:2 = idr.match %s : !Main_Shape -> (f64, !idr.world) {
     case @Circle(%r: f64) {
       idr.yield %r, %w : f64, !idr.world
     }
@@ -89,7 +89,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
       %a = arith.mulf %x, %y : f64
       idr.yield %a, %w : f64, !idr.world
     }
-    default(%d: !Main.Shape) {
+    default(%d: !Main_Shape) {
       idr.crash "unhandled input for Main.f"
       ub.unreachable
     }
@@ -100,14 +100,14 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     // CHECK-NEXT: idr.yield
     // CHECK-NEXT: }
     // CHECK-NEXT: }
-    idr.match %s : !Main.Shape -> () {
+    idr.match %s : !Main_Shape -> () {
     case @Proven(%v: i64) {
       idr.yield
     }
     }
     // CHECK: match %{{.*}} : !Shape -> (i64) {
     // CHECK-NEXT: }
-    %none = idr.match %s : !Main.Shape -> (i64) {
+    %none = idr.match %s : !Main_Shape -> (i64) {
     }
     // CHECK: match_lit %{{.*}} : i64 -> (i64) {
     // CHECK-NEXT: case 0 {
@@ -219,8 +219,8 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     %f = idr.str.show_sint %x : i64
     // CHECK: idr.str.show_uint %{{.*}} : i8
     %g = idr.str.show_uint %y : i8
-    // CHECK: idr.str.show_double %{{.*}} : f64
-    %h = idr.str.show_double %d : f64
+    // CHECK: idr.str.show_double %{{.*}}{{$}}
+    %h = idr.str.show_double %d
     // CHECK: idr.str.length %{{.*}}
     %i = idr.str.length %s
     // CHECK: idr.str.index %{{.*}}, %{{.*}}
@@ -243,10 +243,10 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     %r = idr.str.cmp gt %s, %s
     // CHECK: idr.str.cmp gte
     %t = idr.str.cmp gte %s, %s
-    // CHECK: idr.str.to_sint %{{.*}} : i64
-    %u = idr.str.to_sint %s : i64
-    // CHECK: idr.str.to_uint %{{.*}} : i8
-    %v = idr.str.to_uint %s : i8
+    // CHECK: idr.str.to_int %{{.*}} : i64
+    %u = idr.str.to_int %s : i64
+    // CHECK: idr.str.to_int %{{.*}} : i8
+    %v = idr.str.to_int %s : i8
     // CHECK: idr.str.to_double %{{.*}}
     %w = idr.str.to_double %s
     return

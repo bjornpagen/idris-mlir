@@ -48,11 +48,14 @@ std::optional<Value> viewedFrom(Value value) {
 // An op that allocates nothing and reads no reference makes its value from
 // nothing a count reaches: a constant, poison, a small big, a pending
 // field, a global's buffer. What is read from such a value, or is such a
-// value at another grade, is no more counted than it.
+// value at another grade, is no more counted than it. An op with regions
+// is no such op, whatever its operands: its value is what its regions
+// yield, which they may read from above, and each yield takes the
+// reference it forwards.
 bool idr::ownership::isStatic(Value value) {
   return llvm::any_of(definitionChain(value, viewedFrom), [](Value at) {
     Operation *def = at.getDefiningOp();
-    return def && isPure(def) &&
+    return def && def->getNumRegions() == 0 && isPure(def) &&
            llvm::none_of(def->getOperandTypes(), [](Type type) { return holdsReferences(type); });
   });
 }

@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that count, which builds n one constructor deeper below the two that Res inspects, is admitted by the growth check through its cap of 3, which the request-chain rule refused, and compiles and runs, its instances Z, S Z and S (S _); and that what holds of every compilation holds of it (universal: holds)
 compile: exit 0
 artifacts: core module objects executable
 universal: holds

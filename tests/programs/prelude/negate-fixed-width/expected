@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that prim__negate at every fixed width compiles and is two's-complement negation (the most negative signed value is its own negation; an unsigned width wraps)
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

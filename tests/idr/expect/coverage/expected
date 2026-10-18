@@ -1,3 +1,2 @@
-NEEDS-ACCEPTANCE: that every property's failing fixture is found, folds-balanced aside
 properties: found
 every property has a fixture where it fails, folds-balanced aside

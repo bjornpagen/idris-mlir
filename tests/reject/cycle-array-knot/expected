@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: where the cycle refusal is now reported. The header keeps line 15 (the definition that makes the array), but the identified-type rule that moved cycle-ioref-knot reports at the first idr.con of a type on the cycle, the Nothing on line 17; set the header to what the compiler says, if it is one of the two
 compile: exit 3
 unsupported (cycle): the only error
 line: as the header says

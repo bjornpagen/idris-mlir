@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: the results equal the base runtime's on both targets: handles.c is new, its lines the base runtime's results (read from its code, and run on arm64 macOS against it), and rc's crash names its cause after the runtime's `idris-mlir: `; confirm every check of rc.c passes and its total reads 101
 rc: built
 rc: exit 0
 stack: 256 KiB

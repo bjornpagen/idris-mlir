@@ -1,0 +1,107 @@
+seed 1, 1000 cases a property
+show_f64: reads back as the double: n=1000 classes=9 f1=0 f1/n=0.0000
+  (10D + 5) * 10^p: 98
+  a tie at 17 digits: 105
+  any bits: 140
+  ends in 5: 160
+  layout edges: 56
+  near one: 132
+  range edges: 61
+  simple: 116
+  subnormal: 132
+show_f64: no shorter text reads back: n=1000 classes=9 f1=0 f1/n=0.0000
+  (10D + 5) * 10^p: 98
+  a tie at 17 digits: 105
+  any bits: 140
+  ends in 5: 160
+  layout edges: 56
+  near one: 132
+  range edges: 61
+  simple: 116
+  subnormal: 132
+show_f64: the nearest of the shortest, ties to the even digit: n=1000 classes=9 f1=0 f1/n=0.0000
+  (10D + 5) * 10^p: 98
+  a tie at 17 digits: 105
+  any bits: 140
+  ends in 5: 160
+  layout edges: 56
+  near one: 132
+  range edges: 61
+  simple: 116
+  subnormal: 132
+show_f64: the runtime's layout: n=1000 classes=9 f1=0 f1/n=0.0000
+  (10D + 5) * 10^p: 98
+  a tie at 17 digits: 105
+  any bits: 140
+  ends in 5: 160
+  layout edges: 56
+  near one: 132
+  range edges: 61
+  simple: 116
+  subnormal: 132
+put_double, double_head: show_f64's text: n=1000 classes=9 f1=0 f1/n=0.0000
+  (10D + 5) * 10^p: 98
+  a tie at 17 digits: 105
+  any bits: 140
+  ends in 5: 160
+  layout edges: 56
+  near one: 132
+  range edges: 61
+  simple: 116
+  subnormal: 132
+str_to_double: strtod's double for every decimal text: n=1000 classes=7 f1=0 f1/n=0.0000
+  a midpoint: 100
+  a midpoint and a 1: 94
+  a midpoint less one: 103
+  a point: 177
+  a point and an exponent: 188
+  an exponent: 153
+  digits: 185
+str_to_double: integer literals of every base read as the nearest double: n=1000 classes=3 f1=0 f1/n=0.0000
+  2^k +- 1: 386
+  below 2^64: 410
+  near 2^53: 204
+str_to_double: inf, infinity and nan in any case, signed: n=1000 classes=3 f1=0 f1/n=0.0000
+  inf: 265
+  infinity: 489
+  nan: 246
+str_to_double: every named malformed text reads as 0.0: n=1000 classes=14 f1=0 f1/n=0.0000
+   1: 63
+  +inf.0: 37
+  .5: 52
+  0x1p3: 92
+  1 : 61
+  1.5e: 63
+  1.e3: 97
+  1/2: 98
+  1E3: 94
+  1_000.5: 117
+  1d3: 75
+  5.: 56
+  nan(1): 64
+  the empty string: 31
+round trip: str_to_double of show_f64: n=1000 classes=9 f1=0 f1/n=0.0000
+  (10D + 5) * 10^p: 98
+  a tie at 17 digits: 105
+  any bits: 140
+  ends in 5: 160
+  layout edges: 56
+  near one: 132
+  range edges: 61
+  simple: 116
+  subnormal: 132
+to_int: truncated toward zero, modulo 2^64: n=1000 classes=9 f1=0 f1/n=0.0000
+  (10D + 5) * 10^p: 98
+  a tie at 17 digits: 105
+  any bits: 140
+  ends in 5: 160
+  layout edges: 56
+  near one: 132
+  range edges: 61
+  simple: 116
+  subnormal: 132
+box: every exponent with the edge significands: box of 2048 inputs
+every operation borrows its argument and returns one owned result: n=1000 classes=3 f1=0 f1/n=0.0000
+  2^k +- 1: 315
+  below 2^64: 468
+  near 2^53: 217

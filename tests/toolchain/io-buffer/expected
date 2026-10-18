@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that the IO units built for a buffer of 4 and of 7 bytes print what the default build prints, and that echo gives back its input
 io: built at the default size, 4 and 7
 echo: stdout is stdin without its line-ending carriage returns, at the default size
 size 4: echo, write and crash print what the default size prints, with the same exit status

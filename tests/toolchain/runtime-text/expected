@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that the pinned clang builds text.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit
 text: built
 show_s, show_u, int_head_s, int_head_u: snprintf's text: ok
 put_int_s, put_int_u: snprintf's text on standard output: ok

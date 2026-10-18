@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that a runtime member compiled for another triple is an internal error of the driver (D1: driver failures are diagnostics, classed by the one verdict fold), the rest as before
 same: exit 0
 spelled: exit 0
 vendor: exit 1

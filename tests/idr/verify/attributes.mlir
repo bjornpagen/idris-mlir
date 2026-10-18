@@ -1,4 +1,4 @@
-// NEEDS-ACCEPTANCE: the texts of the unknown-attribute errors and of the refusals rule, and that the frontend's refusals verify on the top-level module alone; the stack property and the expect.facts marks are gone (S3, mlir-23).
+// NEEDS-ACCEPTANCE: the texts of the unknown-attribute errors and of the refusals rule, and that the frontend's refusals verify on a module alone, never empty; the stack property and the expect.facts marks are gone (S3, mlir-23).
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // No fact of an op is a discardable attribute: every one is the op's own
 // property or a type, so no pass can drop one. MLIR asks the dialect about
@@ -84,14 +84,27 @@ module attributes {idr.refusals = [#idr.refusal<cycle, loc("Main.idr":3:5), "an 
 // -----
 
 // Refusals are held by the module the frontend writes, as refusals.
-// expected-error @+1 {{has "idr.refusals", which is an array of #idr.refusal on the top-level module alone}}
+// expected-error @+1 {{has "idr.refusals", which is a non-empty array of #idr.refusal on a module alone}}
 module attributes {idr.refusals = ["cycle"]} {
 }
 
 // -----
 
+// A refused module has a refusal.
+// expected-error @+1 {{has "idr.refusals", which is a non-empty array of #idr.refusal on a module alone}}
+module attributes {idr.refusals = []} {
+}
+
+// -----
+
+// A module alone holds them, as the bytecode reader's own module holds the
+// frontend's while it verifies it.
 module {
-  // expected-error @+1 {{has "idr.refusals", which is an array of #idr.refusal on the top-level module alone}}
-  module attributes {idr.refusals = []} {
+  // expected-error @+1 {{has "idr.refusals", which is a non-empty array of #idr.refusal on a module alone}}
+  idr.program @p root(@root) stage(higher) attributes {idr.refusals = [#idr.refusal<cycle, loc("Main.idr":3:5), "x">]} {
+    idr.func @root() -> i64 {
+      %z = arith.constant 0 : i64
+      return %z : i64
+    }
   }
 }

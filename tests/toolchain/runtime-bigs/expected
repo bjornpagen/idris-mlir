@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that the pinned clang builds bigs.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit
 bigs: built
 add, sub, mul: the integer GMP computes: ok
 div, mod: Euclidean: a = q*b + r and 0 <= r < |b|: ok

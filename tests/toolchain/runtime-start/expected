@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that the entry names a missing bit no feature names by its number (this processor lacks bit 63), on both targets
 million: exit 0
   stdout | 42
 million, IDRIS_RT_STACK=8388608: exit 1

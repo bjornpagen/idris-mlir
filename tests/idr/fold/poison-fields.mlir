@@ -1,6 +1,5 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-lower -o /dev/null
-// RUN: idris-mlir-opt %s --idr-defunctionalize --canonicalize --idr-lower -o /dev/null
-// NEEDS-ACCEPTANCE: the module only the deleted folds read is gone; the program is read directly, and defunctionalizes and lowers with and without the canonicalizer.
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-rc --idr-lower -o /dev/null
+// RUN: idris-mlir-opt %s --idr-defunctionalize --canonicalize --idr-rc --idr-lower -o /dev/null
 // A constructor, a closure or a suspension of constants folds to a
 // constant, but poison is no constant a value can hold: one with a poison
 // field stays an op, and no constant holds poison. So an apply no label

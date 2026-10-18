@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that up's S n into down and down's match on S m back into up, a cycle of +1 and -1, is admitted by the growth check, which the request-chain rule refused, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
 compile: exit 0
 artifacts: core module objects executable
 universal: holds
