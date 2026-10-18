@@ -13,8 +13,8 @@ macos is a first class target. let's flesh this out."
   (§8), which has a discriminator that can withdraw it.
 - **What P1 holds:** the two references the audit left crossing, decided
   in D9 and D10.
-- **AFTER-SELF:** P2 lands with 0008's stages 3 and 4, P3 with 0011's
-  gates, and P4 with 0005's G1.
+- **AFTER-SELF:** P2 lands with 0009's stages 3 and 4, P3 with 0012's
+  gates, and P4 with 0006's G1.
 
 **Sources.**
 - GoFetch (Chen, Wang, Shome, Fletcher, Kohlbrenner, Paccagnella, Genkin,
@@ -119,7 +119,7 @@ every data type in the dumps, gives the following:
   are references, and 62 of the cells hold nothing else.
 
 Those programs are small. The self-hosted frontend is the large
-pointer-heavy workload: 0010 §2 puts 88% of stage 0 in pointer-chasing
+pointer-heavy workload: 0011 §2 puts 88% of stage 0 in pointer-chasing
 phases. Its `Term.App` holds an `FC` in place, so it is the header, three
 object slots, four `Int`s and two tags: 72 bytes in the 80-byte class. Its
 slots stay within the first 32 bytes, and three of its four placements keep
@@ -271,7 +271,7 @@ Each of these is measured (§3) or read (§1):
   references raw.
 - **Offsets in place of pointers:** relative offsets, or ids into a side
   table. DMP-blind. Ruled out for references (D1). Where a layout holds
-  ids by design, as 0010's tables and 0011's packed internals do, D4 says
+  ids by design, as 0011's tables and 0012's packed internals do, D4 says
   what pays for the loss.
 - **Tags in bits 32 to 55,** such as NaN boxing or a tag above bit 47:
   measured DMP-blind. Ruled out.
@@ -297,7 +297,7 @@ Each of these is measured (§3) or read (§1):
 ## 5. Decisions
 
 - **D1. A reference is the raw address of its cell, on every target and
-  in every layout, 0011's included.** No compression, no offsets in its
+  in every layout, 0012's included.** No compression, no offsets in its
   place, no tag in any bit. *Decision.* Reasons:
   - one representation on both targets;
   - it costs nothing on x86;
@@ -334,7 +334,7 @@ Each of these is measured (§3) or read (§1):
     - `L/lib/Target/AArch64/AArch64Options.td:279`).
   - **Status.** *Decision* that P2 builds it, behind its measurement.
     Where the pass lives, and its distance, are owner decisions (§9).
-- **D4. The 0011 rule** (§6): every reference a layout holds is D1's; a
+- **D4. The 0012 rule** (§6): every reference a layout holds is D1's; a
   layout that holds indices instead is chosen only where its gate is met
   against cells with the DMP active, and its gathers carry D3's prefetch.
   *Decision.*
@@ -351,7 +351,7 @@ Each of these is measured (§3) or read (§1):
   Each would turn the DMP off silently: DIT on M3 and later, a background
   QoS through the efficiency cores. *Decision.* This is the runtime's
   rule. It is written here because it is what keeps D1's benefit, and
-  0015 inherits it: Rust code that sets DIT restores it before it returns.
+  0020 inherits it: Rust code that sets DIT restores it before it returns.
 - **D7. The heap lives in one 4 GiB-aligned region while it fits.** Built
   (efe0ad36, with `tests/toolchain/heap-region` owed acceptance). A larger
   heap grows from snmalloc's platform layer, as before.
@@ -408,21 +408,21 @@ Each of these is measured (§3) or read (§1):
     §3). The representation is reconsidered only if that model wins by
     1.1× natively.
 
-## 6. How it relates to 0011, 0008 and 0010
+## 6. How it relates to 0012, 0009 and 0011
 
-The tension is real but narrow. 0011 removes references where streaming
+The tension is real but narrow. 0012 removes references where streaming
 pays (packed preorder buffers, columns of scalars), and the DMP needs
 references. The two meet in four cases, and in each the choice is the
 same on both targets:
 
-| Access | Layout (0011) | The DMP | Rule |
+| Access | Layout (0012) | The DMP | Rule |
 |---|---|---|---|
 | a tree built once and traversed whole | packed, no internal references (D2, D7) | not needed: a preorder walk is a stream, and the stream prefetcher follows addresses, not values | agreement. The references a buffer holds to cells outside it are D1's, so the DMP follows them as the cursor streams |
 | a collection of boxes traversed in order | columns: a counted leaf is an array of references (F2, F3) | Augury's own pattern, plus D3's prefetch | agreement: columns win on both targets. A list spine gets nothing from the DMP (§3), which is one more reason to hold it as columns |
 | sharing, random access, a DAG | cells (D2's "sharing selects cells", "random access selects cells") | one line of lookahead per touched line, with every reference in the header's line (D2 here) | agreement |
-| a table keyed by ids (0010's tables, 0011's id columns) | indices | blind, measured equal to a masked reference | the one disagreement. D4: an id gather carries D3's prefetch, and a gate against cells is read with the DMP active |
+| a table keyed by ids (0011's tables, 0012's id columns) | indices | blind, measured equal to a masked reference | the one disagreement. D4: an id gather carries D3's prefetch, and a gate against cells is read with the DMP active |
 
-What this asks of 0011, to be written there when its stages start (the
+What this asks of 0012, to be written there when its stages start (the
 text here governs until then):
 - F4's gate ("1.3× faster than cells on both targets") already measures
   against cells on arm64. Cells there include the DMP's 3 to 20% on a
@@ -434,15 +434,15 @@ text here governs until then):
   and NULL is no candidate.
 - D7's "no tagged pointers" stands, now with a measured reason.
 
-**0008.** §20 item 1 asks for an array of boxes priced. §3 is that price in
+**0009.** §20 item 1 asks for an array of boxes priced. §3 is that price in
 C in an arm64 guest. The lever is D3's prefetch, not a second path, so
-D17's one path for counted elements stands. D3 lands where 0008 §7 puts
+D17's one path for counted elements stands. D3 lands where 0009 §7 puts
 gathers: in the arrays stage, on structured loops, with target facts read
-from DLTI as 0008's D20 and D29 read theirs.
+from DLTI as 0009's D20 and D29 read theirs.
 
-**0010.** The self-hosted frontend's trees get the DMP on arm64 today.
-0010's tables replace references with typed ids (D1 there), which the DMP
-cannot follow. 0010's gates are ratios to O0, measured on both targets
+**0011.** The self-hosted frontend's trees get the DMP on arm64 today.
+0011's tables replace references with typed ids (D1 there), which the DMP
+cannot follow. 0011's gates are ratios to O0, measured on both targets
 (D0 there), so the DMP is inside the arm64 baseline already. Where a table
 stage loses on arm64 only, D3's prefetch on the id gather is the fix to
 try first.
@@ -453,7 +453,7 @@ Everything this proposal changes or keeps:
 - the reference's bits (D1);
 - the cell's field order and size (D2);
 - the prefetch, an LLVM intrinsic both targets lower (D3);
-- the 0011 rule (D4);
+- the 0012 rule (D4);
 - the runtime's rules (D6, D7, D9, D10): DIT does not exist on x86, and
   one 4 GiB region for the heap and the stack is address-space layout,
   free there.
@@ -468,9 +468,9 @@ one number cannot serve both targets (§9).
 |---|---|---|---|
 | P0 | nothing built | §3's harness committed as `bench/dmp/`: the C pairs (array, list, tree, stack), the method, and D8's calibration. GoFetch and Augury snapshotted under `sources/papers/` (`chen-2024-gofetch`, `vicarte-2022-augury`), with the owner's approval of exactly these items, as earlier sources passes had. Run natively on the owner's M2 Max (the bench machine), on an M3 or later if there is one, and on x86_64 Linux, with the audit's `dmp.cpp` beside it | **Native arm64:** raw, low tags and top byte within 5% of each other; the region-test failures ≥ 1.5× at work 64; the stack pair ≥ 1.1× at work 32; the audit's activation test at L2 latency for raw, lowtag and tbi and at DRAM latency for none, bit48 and farregion. **x86:** every key within 5% of raw. **If native arm64 shows no effect,** every DMP claim in §3 and §5 is withdrawn and recorded so: D1 and D2 stand on their other reasons, D3 on its own measurement (it gains on both targets), and D9 is dropped |
 | P1 | P0 native; efe0ad36 (built) | D9 in the runtime: one region reserved at start, the stack at its top within the budget, the rest to snmalloc. The census D10 reads: live references at a program's end by the target's place, in a test build | `tests/toolchain/heap-region` extended: the stack's frames and the first cells share bits 32 and up, and a stack over the budget keeps its own mapping. The stack pair of `bench/dmp/` linked against the runtime (`idris_rt_run_on_stack`, cells from `idris_rt_cell`) reads as the mmap version did. The census run on the bench set, the D10 rule applied, and the record committed |
-| P2 **AFTER-SELF** | 0008's stages 3 and 4 (structured gathers) | D3: a prefetch of the element `d` ahead in a structured loop that follows references or indices | Idris fixtures, each with a C counterpart in `bench/c/`: a map with work over an `Array` of boxes, a gather through an array of `Fin n` into a table, and a fold over a cons of boxes for the control. Each must run ≥ 1.3× faster on both targets, and no bench program may run > 2% slower (0008 D35). An `idr-expect` property `prefetched=@f`, stated as a pass guarantee as `fused` is, shows the pass fired |
-| P3 **AFTER-SELF** | 0011's F2 to F4 | D4: 0011's gates read on both targets with D8's calibration; id columns carry P2's prefetch | 0011's own fixtures and gates |
-| P4 **AFTER-SELF** | 0005's G1 | D8 in `bench/run.sh --record` on arm64 | the calibration line in each arm64 record; a record without the DMP is marked and not compared |
+| P2 **AFTER-SELF** | 0009's stages 3 and 4 (structured gathers) | D3: a prefetch of the element `d` ahead in a structured loop that follows references or indices | Idris fixtures, each with a C counterpart in `bench/c/`: a map with work over an `Array` of boxes, a gather through an array of `Fin n` into a table, and a fold over a cons of boxes for the control. Each must run ≥ 1.3× faster on both targets, and no bench program may run > 2% slower (0009 D35). An `idr-expect` property `prefetched=@f`, stated as a pass guarantee as `fused` is, shows the pass fired |
+| P3 **AFTER-SELF** | 0012's F2 to F4 | D4: 0012's gates read on both targets with D8's calibration; id columns carry P2's prefetch | 0012's own fixtures and gates |
+| P4 **AFTER-SELF** | 0006's G1 | D8 in `bench/run.sh --record` on arm64 | the calibration line in each arm64 record; a record without the DMP is marked and not compared |
 
 Owner hardware gives a whole-program measurement that the C pairs cannot:
 on an M3 or later, the same binary run with DIT set and with it clear is a
@@ -533,7 +533,7 @@ Each has its default taken:
 - **Raw, untagged heap references** (D1), with the DMP's measured reason.
 - **Two first-class targets with nothing per target outside the entry**
   (D5). The only facts that may enter an entry are a prefetch distance
-  (§9) and 0008's L1 size.
+  (§9) and 0009's L1 size.
 - **OS calls behind the runtime's platform layer** (D9's reservation),
   and intrinsics through LLVM with no inline asm (D3). DIT, if ever set,
   is set through the platform layer (§9).

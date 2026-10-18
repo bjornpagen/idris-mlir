@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-17, each with its first mark as
-its reason: 318 files. Proposal 0014's culls removed the marks of the
+its reason: 318 files. Proposal 0002's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 

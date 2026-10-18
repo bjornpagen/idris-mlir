@@ -13,12 +13,12 @@
 
 The self-compile's frontend step finishes with no patch and no refusal
 (`bench/profiles/2026-10-17-self-growth.md`); the C++ reader and the
-pipeline on its module are S3, on the owner's build. It takes 0005's
+pipeline on its module are S3, on the owner's build. It takes 0006's
 former §2 (self-hosting's steps 4 to 6) and
 its decisions D10, D11 and D16 (their text at b843d8b5). Goal: the
 frontend (`compiler/src`) and the fork (`compiler/idris`), compiled by
 idris-mlir itself, stages 1 to 3, stage 2 the same as stage 3, on both
-targets. None of 0013's features is needed: stage 0 emitted the whole of
+targets. None of 0014's features is needed: stage 0 emitted the whole of
 the frontend and the fork with no frontend refusal (F0, 44495199,
 `bench/profiles/2026-10-14-f0-stage0.md`; *measured*). Claims are marked
 *read* (the path), *measured* (the record), *recalled*, *conjecture*,
@@ -60,8 +60,8 @@ on Chez: 58,305 functions in 137 s at 9.1 GB (2026-10-10, HANDOFF.md).
 
 Since: the pipeline cutover (c7aa7b62, 5d5f3312) deleted the rounds and
 made defunctionalization total, right after emission; the representation
-wave (bfdcac70) made the frontend's reduction structural; 0002 (d06ed15c)
-made the frontend total and added the guard of §3.2(a); 0001 is
+wave (bfdcac70) made the frontend's reduction structural; 0001 (d06ed15c)
+made the frontend total and added the guard of §3.2(a); 0002 is
 integrating. Nothing has been built or run since c7aa7b62 (*read*,
 proposals/README.md), so every item of §3.2 and §3.3 is unmeasured.
 
@@ -73,12 +73,12 @@ proposals/README.md), so every item of §3.2 and §3.3 is unmeasured.
 | --- | --- | --- |
 | `compiler/src/IdrisMLIR/Frontend/Translate/Closed.idr:33` | `%prefix_record_projections off` in a user module, added by d06ed15c | `user pragma`: `Frontend/Profile.idr:161-162`; only `discharged` (`:125-126`) passes |
 | `compiler/idris/README.md:467-472`; `Idris/Desugar.idr:1189, 1236, 1379`; `TTImp/TTImp.idr:482-490`; `Idris/Syntax.idr:900-920` | `SyntaxInfo` holds terms (`startExpr`, `usingImpl`, an interface's parents and defaults), a term's local block holds `IPragma`, and the desugarer's interface, implementation and `%hide` fixity actions capture `Ref Syn SyntaxInfo`: an IORef whose element type reaches it | `cycle`: `foreign/idr/lib/IR/Verify/Knots.cpp`, a type-graph knot through an array, checked at every verification once defunctionalization makes captures types (`lib/IR/TypeGraph.cpp:18-20`, `Verify/Program.cpp:305`). *Conjecture*, strong: F0 never got past defunctionalize, so this never ran on the fork |
-| `compiler/idris/idris-compiler.ipkg` | `Idris.Host` (0001's lane I, `src/Idris/Host.idr`) is not in its module list | the fork does not install it; the frontend's imports fail |
+| `compiler/idris/idris-compiler.ipkg` | `Idris.Host` (0002's lane I, `src/Idris/Host.idr`) is not in its module list | the fork does not install it; the frontend's imports fail |
 | `compiler/idris-mlir.ipkg:46` | still lists `IdrisMLIR.Frontend.Host`, deleted | the frontend does not build |
 | `tools/policies.txt:33-34, 38-46, 48-54` | name the `assert_total` of `Frontend/Host.idr` and of Finite, and the `covering` definitions of Terms, Cases and `translateInstance`, all gone; Finite's `covering translateFrom` is not named | `tests/spec/no-fuel` requires each listed line in its file |
 
-The last three are 0001's integration (*read*, live tree). With them,
-0001's R4 holds in the live tree: no `assert_total`, `believe_me`, hole or
+The last three are 0002's integration (*read*, live tree). With them,
+0002's R4 holds in the live tree: no `assert_total`, `believe_me`, hole or
 `%MkWorld` in `compiler/src` or `libs/` (*read*, a search), the trust in
 Idris's compiler is the fork's (`Idris/Host.idr`), and the frontend's
 `covering` chain is `Finite.translateFrom` (`Finite.idr:296`),
@@ -105,9 +105,9 @@ and spells no escape hatch (*read*).
   `normalise` sites); S1 counts them.
 - (b) **The request-chain rule**, which refuses a chain that grows once and
   stops (`Frontend/Finite.idr:123-130`, `Polymorphism`; 47f97059), and its
-  data-instance form: never run on the fork (0013, feature 2).
+  data-instance form: never run on the fork (0014, feature 2).
 - (c) **The erased match** (`Translate/Cases.idr:585-590`, `Match`) on
-  `Proof/`, Finite and 0001's typed identities. Their erased matches read
+  `Proof/`, Finite and 0002's typed identities. Their erased matches read
   so far have one constructor (`Finite.idr:247`, `Access`;
   `Proof/Requests.idr:351-352`), which `Cases.idr:579-583` admits, and the
   runtime decision uses `So`, not base's primitive `DecEq`, whose
@@ -146,7 +146,7 @@ packages outside the table (`Registry/Libraries.idr:102`, refused at
 
 ## 4. The plan
 
-- **S0, integration** (typecheck machine; 0001's coordinator). The three
+- **S0, integration** (typecheck machine; 0002's coordinator). The three
   integration rows of §3.1; Closed.idr's pragma deleted, renaming what it
   kept apart (lane I's file). Verified: `make typecheck`, `make check`.
 - **S1, the census** (typecheck machine, no LLVM; this proposal). `make
@@ -158,13 +158,13 @@ packages outside the table (`Registry/Libraries.idr:102`, refused at
   the fork's elaborator in one run (`Profile.idr:240-251`), and when none,
   writes the module. Recorded under `bench/profiles/`: the refusals, and
   once S2 has made it exit 0, the handoff's functions, operations and
-  bytes, the phases, and the frontend's peak memory (0005's old step 4).
+  bytes, the phases, and the frontend's peak memory (0006's old step 4).
 - **S2, the fixes** (typecheck machine; this proposal: the fork is ours,
-  the frontend's files after 0001 releases them). Each S1 refusal, by D2;
+  the frontend's files after 0002 releases them). Each S1 refusal, by D2;
   the `SyntaxInfo` knot, by D3. Verified: S1 again, exit 0; `make
   typecheck`; `make check`; the fork and the frontend still build on the
   stock Idris; no closure in `ImpDecl` captures a cell (review).
-- **S3, the pipeline** (owner's machine, arm64 macOS, after 0002's build
+- **S3, the pipeline** (owner's machine, arm64 macOS, after 0001's build
   and acceptance). `idris-mlir M -o front -mlir-timing` from S1's module
   (a `.mlirbc` input is read, never removed: `lib/Driver/Artifacts.cpp:
   64-66`), with `tools/profile.sh`. A refusal (`cycle`, `uniqueness`) or
@@ -175,12 +175,12 @@ packages outside the table (`Registry/Libraries.idr:102`, refused at
 - **S4, `make self` on arm64 macOS** (owner's machine). `tools/self.sh` as
   D5 and D6 amend it. Verified: stage 2 = stage 3; each stage's time and
   peak memory, and D5's record, in HANDOFF.md.
-- **S5, `make self` on x86_64 Linux** (the Linux machine, after 0005's
+- **S5, `make self` on x86_64 Linux** (the Linux machine, after 0006's
   Linux build and suite). The same, there. `make self` holds then (D8).
 
-After it, not in it: G1 (0005, re-cut to follow `make self`), the test
-machinery under both hosts (D7), the toolchain bump (0004), and
-0013's features, which may start then.
+After it, not in it: G1 (0006, re-cut to follow `make self`), the test
+machinery under both hosts (D7), the toolchain bump (0005), and
+0014's features, which may start then.
 
 ### S2.1 The handoff writes each data type once
 
@@ -652,13 +652,13 @@ Out of S2.1 (*read*, recorded for S3):
   `Idris.Syntax`, cannot name `SyntaxInfo` to take it as an argument
   (`compiler/idris/README.md:470-471`). Verified first by review, then by
   S3's verifier.
-- D4 (was 0005's D10). The diet and the memory are a record, not a gate,
+- D4 (was 0006's D10). The diet and the memory are a record, not a gate,
   unless a stage does not fit the owner's machine or does not finish;
   then the stage the record names is fixed first, where its design is
-  (the frontend's memory: 0010; the optimizer and labels: S3, by the
-  cutover's §10 rule; LLVM: 0007's split before O3). The frontend's and
+  (the frontend's memory: 0011; the optimizer and labels: S3, by the
+  cutover's §10 rule; LLVM: 0008's split before O3). The frontend's and
   the pipeline's peaks are recorded apart (S1, S3).
-- D5 (was 0005's D16). `make self` compares at the default thread count.
+- D5 (was 0006's D16). `make self` compares at the default thread count.
   Thread independence is `tests/determinism` on every suite run and one
   record of stage 3 compiling itself at the counts `tests/lib/
   determinism.sh:14` names (1, 3, 5, 13 and a second process), read from
@@ -672,10 +672,10 @@ Out of S2.1 (*read*, recorded for S3):
   N-1's `idris-mlir-front` alone, then its `idris-mlir` on the `.mlirbc`:
   the driver removes the module when a later step fails (§3.3), and the
   two peaks are D4's. The artifacts compared keep their names.
-- D7 (was 0005's D11, restated). The test machinery also builds and runs
+- D7 (was 0006's D11, restated). The test machinery also builds and runs
   under idris-mlir, and the stock host keeps running it: its process
   creation moves into sh glue and its imports to base. After `make self`;
-  the owner is 0001's X3 and N lanes' successors.
+  the owner is 0002's X3 and N lanes' successors.
 - D8. `make self` holds when stage 2 = stage 3 on both targets, recorded
   in HANDOFF.md. This proposal is deleted then.
 
@@ -807,7 +807,7 @@ list; that the fixes below remove them is *conjecture* until measured).
     in general.
   - Cost: building the graph from TT, the analysis, and its proof ("no
     growing cycle, so finitely many instances", a standard argument far
-    easier than Kruskal's), which replaces 0002's Dickson proof of the
+    easier than Kruskal's), which replaces 0001's Dickson proof of the
     chain relation.
   - It supersedes B2, and takes B1 as its edge rule.
 - **Rejected: admit growth up to a bound derived from the program.** A
