@@ -227,12 +227,18 @@ mutual
       scrutinee : Var vars
       scrutinee = MkVar p
 
+      -- A literal match Idris proved complete has no default: its last
+      -- alternative stands in for one (LitNoDefault), and with no
+      -- alternative at all no value reaches it. An incomplete one's
+      -- default is the missing case's crash.
       literals : Loc -> Fin nv -> Core (Term nv)
       literals loc i = do
         (litAlts, def) <- litAlternatives ctx env cls scrutinee alts
-        let Just def = def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc))
-          | Nothing => reject ctx.fc ctx.owner Match "a literal match without a default"
-        pure (CaseLit loc i (LitDefault litAlts def))
+        pure $ case def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc)) of
+          Just d => CaseLit loc i (LitDefault litAlts d)
+          Nothing => case litAlts of
+            a :: as => CaseLit loc i (LitNoDefault (a ::: as))
+            [] => Unreachable loc
 
       -- The data instance a match's constructors are of, at the value's
       -- type. The Core type names it when it is a declaration the
