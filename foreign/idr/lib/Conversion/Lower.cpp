@@ -179,6 +179,11 @@ LogicalResult lowerFunction(func::FuncOp fn, const FrozenRewritePatternSet &stru
   walkAndApplyPatterns(fn, structure);
   ConversionConfig conversion;
   conversion.allowPatternRollback = false;
+  // Without rollback an op's operands are already the converted values
+  // when the driver would fold it, so an idr op's fold would read an LLVM
+  // value as one of its own types. Every op here has a pattern, and the
+  // optimizer folded what folds before the lowering.
+  conversion.foldingMode = DialectConversionFoldingMode::Never;
   return applyFullConversion(fn, worker.target, worker.patterns, conversion);
 }
 

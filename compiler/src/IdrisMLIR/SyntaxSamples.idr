@@ -90,7 +90,7 @@ int n = IntegerAttr n i64
 
 ||| What a declaration is an instance of: an Idris definition at a type.
 maybeNat : MlirAttr
-maybeNat = idr (InstanceAttr "Maybe" [StringAttr "Nat"])
+maybeNat = idr (InstanceAttr "Maybe" ["Nat"])
 
 types : List MlirType
 types =

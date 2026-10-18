@@ -293,7 +293,7 @@ refusalOf main (ByIdris e) = moduleRefusal Elaboration (fromMaybe main (getError
 ||| refused.
 refusing : {auto c : Ref Ctxt Defs} -> (main : NonEmptyFC) -> (out : String) -> List1 Rejection -> Core ()
 refusing main out rs = do
-  writeRefused out !(traverse (refusalOf main) rs)
+  writeRefused out !(traverseList1 (refusalOf main) rs)
   coreLift (exitWith (ExitFailure 3))
 
 ||| Idris shows an error's location with the lines of the source it read

@@ -28,7 +28,7 @@ import Data.Vect
 
 ||| What a function is an instance of, as text.
 instanceAttr : InstanceKey -> MlirAttr
-instanceAttr key = idr (InstanceAttr key.origin (map StringAttr (argumentsText key.arguments)))
+instanceAttr key = idr (InstanceAttr key.origin (argumentsText key.arguments))
 
 ||| A function, located by its Idris name, each parameter by the name Idris
 ||| gave it, then the functions its lambdas and delays became, in the order

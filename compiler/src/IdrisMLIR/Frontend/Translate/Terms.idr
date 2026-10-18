@@ -134,7 +134,7 @@ apart loc s r x k = go r x (\ren, ns => k ren (ns <>> []))
 onlyCon : {auto s : Ref TState TS} -> FC -> (k : Nat) -> Ty -> Core (Con k)
 onlyCon fc k (DataT inst) = do
   st <- get TState
-  let Just decl = lookup inst st.datas
+  let Just decl = declared inst st
     | Nothing => internal fc ("a value of an undeclared type " ++ show inst)
   let [(k' ** con)] = consOf decl
     | _ => internal fc ("a value of " ++ show inst ++ ", which has not one constructor")
@@ -1021,15 +1021,15 @@ mutual
       arguments loc (_ :: ks) (_ :: xs) = arguments loc ks xs
       arguments loc _ _ = pure []
 
-      isImplementation : TT vars -> Bool
-      isImplementation (Local _ _ idx _) = case getAt idx env of
-        Just (Static _ _) => True
-        _ => False
-      isImplementation _ = False
+      offered : TT vars -> Offer
+      offered (Local _ _ idx _) = case getAt idx env of
+        Just (Static _ _) => AnImplementation
+        _ => AValue
+      offered _ = AValue
 
       argValue : Arg vars nv -> Maybe ArgValue
       argValue x = Just (MkArgValue (closeNormalise afc env x.written) (solved (closeWritten afc env x.written))
-                                    (isImplementation x.written)
+                                    (offered x.written)
                                     (map (\(shape, held) => (shape, map fst held)) <$> Force x.held))
 
       argValues : List (Arg vars nv) -> ArgValues
@@ -1329,7 +1329,7 @@ mutual
             -- An implementation given to a dictionary field is the one the
             -- field holds, for the whole program.
             recorded fc def info info.args kinds xs
-            case lookup inst st.newtypes of
+            case newtypeOf inst st of
               Nothing => do
                 -- Its fields are the call's runtime arguments.
                 let (k ** con) = info.con
@@ -1473,7 +1473,7 @@ mutual
       snocCons : FC -> Ty -> Core Snocs
       snocCons fc (DataT inst) = do
         st <- get TState
-        let Just decl = lookup inst st.datas
+        let Just decl = declared inst st
           | Nothing => internal fc ("extents or coordinates of an undeclared type " ++ show inst)
         let [(0 ** lin), (2 ** snoc)] = consOf decl
           | _ => internal fc ("extents or coordinates of " ++ show inst ++ ", which is not a snoc list of naturals")

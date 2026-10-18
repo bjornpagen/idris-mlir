@@ -569,7 +569,7 @@ ctorParts w c = encodeTableCtor c.name c.role <$> traverse (\t => fst <$> field 
 bodyParts : Writer -> IdrSum MlirType -> W (List Part)
 bodyParts w s = do
   ctors <- traverse (ctorParts w) s.ctors
-  inst <- traverse (\(origin, args) => attrNumber w (idr (InstanceAttr origin (map StringAttr args)))) s.instanceOf
+  inst <- traverse (\(origin, args) => attrNumber w (idr (InstanceAttr origin args))) s.instanceOf
   pure (encodeTableBody s.kind ctors inst)
 
 ||| A writer of a module whose data types are `datas`, in order, each its

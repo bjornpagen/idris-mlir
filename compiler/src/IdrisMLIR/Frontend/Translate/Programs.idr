@@ -129,7 +129,7 @@ translateInstance p = do
 assemble : {auto s : Ref TState TS} -> TFn -> Core Source
 assemble root = do
   st <- get TState
-  let datas = mapMaybe (\n => lookup n st.datas) (st.dataOrder <>> [])
+  let datas = mapMaybe (\n => declared n st) (st.dataOrder <>> [])
   let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
   pure (MkSource datas root fns)
 

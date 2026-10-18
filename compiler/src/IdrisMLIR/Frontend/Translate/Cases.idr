@@ -282,7 +282,7 @@ mutual
               Nothing => do
                 inst <- instanceOf v def
                 st <- get TState
-                if isJust (lookup inst st.newtypes)
+                if isJust (newtypeOf inst st)
                    then newtypeCase ctx env cls scrutinee v inst alts
                    else do
                      every <- coversAll alts
@@ -292,7 +292,7 @@ mutual
                      -- Constructors a tree with no default leaves out are
                      -- impossible when the definition is covering, and
                      -- crash otherwise.
-                     let crashing = case (fallback, ctx.complete, lookup inst st'.datas) of
+                     let crashing = case (fallback, ctx.complete, declared inst st') of
                                       (Absent, False, Just dt) =>
                                         map (\(k ** c) => MkAlt c (replicate k (shown "_")) (missingCase ctx loc))
                                             (filter (\(_ ** c) => not (contains c.id named)) (consOf dt))
