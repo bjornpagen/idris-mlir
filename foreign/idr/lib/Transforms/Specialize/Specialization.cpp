@@ -6,7 +6,8 @@
 //
 // It is built from the key and the owner alone, never from a call that
 // asked for it, so every schedule builds the same function: each op it
-// adds takes the location of the parameter it replaces. A call of the
+// adds takes the location of the parameter it replaces, and a new
+// parameter the function's, unless it is the whole parameter. A call of the
 // owner in it with the node's own key, a fixed parameter passed on
 // unchanged, becomes the node's own call when its first turn redirects it.
 #include "idr/IR/IdrDialect.h"
@@ -41,9 +42,14 @@ FailureOr<idr::FuncOp> buildSpec(idr::FuncOp from, SpecKeyAttr key, StringAttr n
     BlockArgument param = clone.getArgument(static_cast<unsigned>(p));
     unsigned before = static_cast<unsigned>(types.size());
     holeTypes(pattern, param.getType(), types);
+    // A hole that is the whole parameter is that binder, and keeps its
+    // location; a hole inside a pattern is a binder of the pass's, at the
+    // function's location, which no binder of Idris's has, so no check
+    // reads it as the parameter it was taken out of.
+    Location at = isa<KeyHoleAttr>(pattern) ? param.getLoc() : clone.getLoc();
     for (unsigned hole = before; hole < types.size(); ++hole) {
       positions.push_back(arity);
-      locs.push_back(param.getLoc());
+      locs.push_back(at);
     }
   }
   SmallVector<DictionaryAttr> attrs(positions.size(), DictionaryAttr());
