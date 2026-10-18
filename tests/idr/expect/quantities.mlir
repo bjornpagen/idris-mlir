@@ -1,4 +1,3 @@
-// NEEDS-ACCEPTANCE: that quantities-kept holds of the module against itself and against it without @build.trmc, and that each -verify-diagnostics run over a variant passes: widened, bound, lambda and span each fail at the binders the variant changed, the span's error located at @wide's own line once its sed names the variant's file in @wide's spans.
 // RUN: idris-mlir-opt %s --idr-expect=holds=quantities-kept=%s -o /dev/null
 // RUN: cp %s %t.emitted.mlir
 // RUN: sed 's/@consume(%h: !idr.lin<i64>)/@consume(%h: i64)/; s/call @consume(%e) : (!idr.lin<i64>) -> i64/call @consume(%e) : (i64) -> i64/; s/idr.lin.enter %x : !idr.lin<i64>/arith.addi %x, %x : i64/; s#// WIDENED: #// expected-error #' %t.emitted.mlir > %t.widened.mlir

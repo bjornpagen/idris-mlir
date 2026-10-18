@@ -36,12 +36,9 @@ namespace idr::expect {
 namespace {
 
 // The key of a binder at `loc`: its outermost name over the location
-// under every name; none where that location is unknown, which many
-// binders share. A parser position (FileLineColLoc) names the text it
-// was read from, and the module and the emitted module are different
-// texts, so for one only its line and column are the binder's identity;
-// a span Emit wrote (FileLineColRange) names its Idris source, which
-// both sides share.
+// under every name, its line and columns without its file; none where that
+// location is unknown, or is a span no name is over, which many binders
+// share.
 std::optional<Attribute> keyOf(Location loc) {
   StringAttr name;
   if (auto named = dyn_cast<NameLoc>(loc))
@@ -50,11 +47,24 @@ std::optional<Attribute> keyOf(Location loc) {
     loc = named.getChildLoc();
   if (isa<UnknownLoc>(loc))
     return std::nullopt;
+  // A position is keyed without its file: the module and the emitted module
+  // are different texts, and a variant of a module may name its own file. A
+  // parser's position is told from a span by its size (FileLineColLoc is a
+  // view of every FileLineColRange and declares no classof).
   LocationAttr key = loc;
-  if (auto at = dyn_cast<FileLineColLoc>(loc))
-    key = FileLineColLoc::get(at.getContext(), "", at.getLine(), at.getColumn());
+  bool position = isStrictFileLineColLoc(loc);
+  if (auto at = dyn_cast<FileLineColRange>(loc))
+    key = position ? LocationAttr(FileLineColLoc::get(at.getContext(), "", at.getStartLine(),
+                                                     at.getStartColumn()))
+                   : LocationAttr(FileLineColRange::get(StringAttr::get(at.getContext(), ""),
+                                                        at.getStartLine(), at.getStartColumn(),
+                                                        at.getEndLine(), at.getEndColumn()));
   if (name)
     return NameLoc::get(name, key);
+  // A span with no name over it is its definition's, which every binder a
+  // pass makes there carries too: no binder of Idris's is known by it.
+  if (!position && isa<FileLineColRange>(loc))
+    return std::nullopt;
   return key;
 }
 
