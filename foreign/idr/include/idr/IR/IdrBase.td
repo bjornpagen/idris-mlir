@@ -304,10 +304,12 @@ class Idr_AbiWord<string word, Idr_AbiCount count> {
 // Constraints the op families share
 //===----------------------------------------------------------------------===//
 
-// Base's list in a box, which the string ops walk and build: a box of a
-// data type of kind `list`, a nil and a cons of an element and the list,
-// whose element is one of `elements`.
-class Idr_BaseListOf<list<Type> elements> : Type<And<[CPred<"::idr::isBoxed($_self)">,
+// Base's list, which the string ops walk and build: a data type of kind
+// `list`, a nil and a cons of an element and the list, whose element is one
+// of `elements`. The frontend holds it in place, as every type, and
+// layout::fit boxes it with the other cycles, after which the program's
+// verifier holds no type that contains itself in place.
+class Idr_BaseListOf<list<Type> elements> : Type<And<[
     CPred<"::idr::dataTypeOf($_self) && ::idr::dataTypeOf($_self).getKind() == ::idr::SumKind::BaseList">,
     Or<!foreach(e, elements, SubstLeaves<"$_self", "::idr::dataTypeOf($_self).getListElement()", e.predicate>)>]>,
     "base's list of " # !interleave(!foreach(e, elements, e.summary), " or "), "::mlir::Type">;

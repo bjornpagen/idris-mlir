@@ -34,8 +34,12 @@ void reuseAt(RewriterBase &rewriter, ArrayRef<Reuses::Site> sites) {
     TakeOp take = takeAt(rewriter, box, site.tag, blockOf(site.point), firstAt(site.point),
                          site.bound);
     takes.push_back(take);
-    for (CellNewOp cell : site.cells)
+    // Each recycle where its cell was made, not where the take left the
+    // rewriter.
+    for (CellNewOp cell : site.cells) {
+      rewriter.setInsertionPoint(cell);
       rewriter.replaceOpWithNewOp<CellRecycleOp>(cell, cell.getCell().getType(), take.getToken());
+    }
   }
 }
 

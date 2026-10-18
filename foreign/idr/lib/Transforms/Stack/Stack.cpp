@@ -83,6 +83,8 @@ struct Stack : idr::impl::IdrRcStackBase<Stack> {
     unsigned stacked = 0;
     for (idr::CellNewOp cell : toStack)
       stacked += idr::support::perform<StackCellAction>(cell, [&] {
+        // replaceOpWithNewOp builds where the rewriter stands.
+        rewriter.setInsertionPoint(cell);
         rewriter.replaceOpWithNewOp<idr::CellStackOp>(cell, cell.getCell().getType());
       });
     numStackCells += stacked;
