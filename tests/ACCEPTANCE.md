@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-18, each with its first mark as
-its reason: 444 files. Proposal 0002's culls removed the marks of the
+its reason: 445 files. Proposal 0002's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -457,13 +457,14 @@ change that adds or removes a mark lists it here again.
 - `tests/idr/structure/tabulate.mlir`: the lowering of idr.tabulate: a region over words that does nothing beyond compute and crash is one linalg.generic.
 - `tests/idr/structure/transpose.mlir`: idr.transpose's folds and its lowering to a linalg op.
 
-## tests/idr/syntax (5)
+## tests/idr/syntax (6)
 
 - `tests/idr/syntax/constants.mlir`: that a run is spelled with its last cell holding every field, the tail among them, and a constant with its type first; the 10,000-cell run, whose generated module now names its roles and has an i64 root, parses, prints flat and round-trips through text and bytecode. (and 1 more marks in the file)
 - `tests/idr/syntax/facts-roundtrip.mlir`: that a function's effects print before its symbol as `effects<io, crash>`, its other facts after `attributes`, and the text reads back as itself.
 - `tests/idr/syntax/grades-invalid.mlir`: that a grade of the world, at (many, own) or at (one, plain), and a grade of a destination are each refused by the one rule, "which is used exactly once by its type".
 - `tests/idr/syntax/grades.mlir`: that the spelled grades print as their spellings with no world among them, the world being a type of its own that takes no grade.
 - `tests/idr/syntax/inherent-invalid.mlir`: that each restated inherent fact is refused as the op is read, the matches' default regions binding their scrutinees and the constant written with its type first.
+- `tests/idr/syntax/refusal.mlir`: that a refusal the frontend writes round-trips through text and bytecode: its rule (one word, and a phrase of two as a string), its location and its words.
 
 ## tests/idr/tail-calls (4)
 

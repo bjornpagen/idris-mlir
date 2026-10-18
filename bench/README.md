@@ -55,7 +55,7 @@ took 0.8 to 5.4 seconds there; k-nucleotide is the slow one.
 
 How to read them. The run-to-run spread on this Mac reaches 15%, so
 a ratio within that of 1 is parity. The C column itself moved by up to 2x
-between runs on different days (rbtree 0.82 s on one, 1.68 s two days
+between runs on different days (*recalled*, no kept record: rbtree 0.82 s on one, 1.68 s two days
 later), so a ratio is read against its own run's C, and records compare by
 those ratios, never by seconds. ack runs in milliseconds: it measures the
 specialization (Caveats below), not a loop.
@@ -129,14 +129,14 @@ shrunk.
 
 - **unionfind**: path compression threads the array
   through every `find` and gives it back across a non-tail call. Two
-  general changes brought it from 1.4x of C to parity: an array value is
+  general changes brought it from 1.4x of C to parity (*recalled*; the kept record is the measurement): an array value is
   its cell and its length, so a bounds check compares two registers
   instead of loading the length from the cell, a load LLVM cannot hoist
   past the stores into that cell; and a result a function always returns
   as one of its arguments is dropped after lowering, so `find` returns its
   record in registers and the write after the recursion needs no second
   check. Nothing in the compiler knows union-find.
-- **fannkuch-linear** at about 2x of C: the work is the same (the same
+- **fannkuch-linear** at about 2x of C (*recalled*; the kept record has 1.59x, measured on the old `LArray` program): the work is the same (the same
   permutations and flips, the same scaling from n=9 to n=11); clang turns
   the C's copy and rotate loops into `memcpy` and `memmove` calls once
   per permutation, on 40 bytes; built with `-fno-builtin` the same C is
@@ -149,7 +149,7 @@ shrunk.
   loads and tests a tag and every write stores one. The same program over
   the raw primitive takes the same time with Idris's range tests
   (0.253 s) as without (0.256 s), and with the `Maybe` cells alone
-  0.314 s: the tags are the whole gap, the range tests nothing
+  0.314 s (*recalled*, no kept record): the tags are the whole gap, the range tests nothing
   measurable, and `Int` has no spare value for `Nothing` that a layout
   could use. The linear version is a `Linear.Vec`, born fresh, whose
   writes One-Shot bufferization puts in place, so its loops are loads and

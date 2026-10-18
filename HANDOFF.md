@@ -37,10 +37,10 @@ Known owed, which the build will show (each to accept or fix there):
   transcripts' refusal lines may change form.
 - `tests/idr/tie-shape/verify.mlir` was already out of date before the
   wave (its expected texts are not the verifier's).
-- Lane L18's toolchain tests `runtime-container` and `runtime-prepared`
-  (the bitcode's home from the target entry) and the new spec tests its
-  handoff states (driver errors as diagnostics, no extern options, one
-  runTool, one entry symbol, no registerAll) are written in a follow-up.
+- Lane L18's toolchain tests (`runtime-container`, `runtime-prepared`)
+  and the spec test `driver-shape` are written from its handoff, unrun.
+- A spec test of the per-pass stage table (S27: `IdrPassStages.txt`
+  against the pipeline's order, lane L13's list in 0004) is not written.
 - The decisions taken during the run are in 0004's §9 (R1 to R11) for
   review; two questions there are open for the owner.
 
