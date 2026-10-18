@@ -219,15 +219,21 @@ hasMeta = mentions metaTerm
     metaTerm _ = False
 
 ||| The name of marker `i` (`holeMarker`'s): a name of the frontend's own,
-||| which no context holds. It and `markerOf` are the one spelling of it.
+||| which no context holds, nested around a user name no Idris identifier
+||| spells. It is no machine name: Idris's quotation takes a bound machine
+||| name for the binder it made with that number
+||| (`Core.Normalise.Quote.quoteHead`), so a marker under a lambda Idris's
+||| normaliser gives back would become that lambda's variable. This one
+||| passes through every normaliser, under every binder, as itself. It and
+||| `markerOf` are the one spelling of it.
 export
 markerName : Nat -> Name
-markerName i = MN "idris-mlir-hole" (cast i)
+markerName i = Nested (cast i, 0) (UN (Basic "idris-mlir-hole"))
 
 ||| The number of the marker a name is, if it is one (`markerName`'s).
 export
 markerOf : Name -> Maybe Nat
-markerOf (MN "idris-mlir-hole" i) = Just (cast i)
+markerOf (Nested (i, 0) (UN (Basic "idris-mlir-hole"))) = Just (cast i)
 markerOf _ = Nothing
 
 ||| Does a term mention a part that stands for a runtime value, wherever
@@ -243,7 +249,8 @@ hasRuntimePart = mentions part
 
 ||| A closed term with its lambdas applied and the solutions of its
 ||| metavariables filled in, by the normaliser of Idris's that evaluates
-||| nothing else: it unfolds no definition, so it runs none.
+||| nothing else: it unfolds no definition, so it runs none. Its markers
+||| come back as themselves (`markerName`).
 export
 lambdasApplied : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 lambdasApplied tm = do
@@ -369,13 +376,6 @@ holeMarker : Nat -> ClosedTerm
 ||| One of Idris's normalisers, at any scope.
 Normaliser : Type
 Normaliser = {free : _} -> Defs -> Env Term free -> Term free -> Core (Term free)
-
-||| A closed term normalised by one of Idris's normalisers with its markers
-||| bound as the variables of an environment, which no reduction looks into
-||| (`normaliseKeeping`, below with the markers). It runs whatever the term
-||| refers to, so it is asked only of a term whose every definition Idris
-||| proves ends (`normalisedBy`).
-normaliseKeeping : {auto c : Ref Ctxt Defs} -> Normaliser -> ClosedTerm -> Core ClosedTerm
 
 ||| A projection: a definition that matches one of its parameters against
 ||| one constructor and returns one of that constructor's arguments, as
@@ -518,7 +518,8 @@ normalisedBy normaliser tm = do
   filled <- solved tm
   Nothing <- partialIn filled
     | Just n => pure (Left n)
-  Right <$> normaliseKeeping normaliser filled
+  defs <- get Ctxt
+  Right <$> normaliser defs [] filled
 
 ||| A closed term expanded by Idris's normaliser, implementations unfolded
 ||| to their constructors: the form a projection's field is taken from,
@@ -962,58 +963,10 @@ export
 unknownPart : ClosedTerm
 unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
 
--- The marker itself (declared with `normaliseKeeping` above): a bound name
--- that no binder binds, which a translation of the implementation
--- replaces with the value (`Terms.term`, by `refToLocal`, which takes
--- bound names).
+-- The marker itself (declared above): a bound name that no binder binds,
+-- which a translation of the implementation replaces with the value
+-- (`Terms.term`, by `refToLocal`, which takes bound names).
 holeMarker i = Ref EmptyFC Bound (markerName i)
-
-||| The numbers of the markers a term holds.
-holeIndices : TT vars -> List Nat
-holeIndices tm = nub (go tm)
-  where
-    mutual
-      go : TT vs -> List Nat
-      go (Ref _ _ n) = toList (markerOf n)
-      go (Bind _ _ b sc) = binder b ++ go sc
-      go (App _ f a) = go f ++ go a
-      go (As _ _ _ p) = go p
-      go (TDelayed _ _ t) = go t
-      go (TDelay _ _ t a) = go t ++ go a
-      go (TForce _ _ t) = go t
-      go (Meta _ _ _ args) = each args
-      go (Erased _ (Dotted t)) = go t
-      go _ = []
-
-      each : List (TT vs) -> List Nat
-      each [] = []
-      each (t :: ts) = go t ++ each ts
-
-      -- A binder's type, then the value of a `let`.
-      binder : TTBinder (TT vs) -> List Nat
-      binder (Lam _ _ _ ty) = go ty
-      binder (Let _ _ v ty) = go ty ++ go v
-      binder (Pi _ _ _ ty) = go ty
-      binder (PVar _ _ _ ty) = go ty
-      binder (PLet _ _ v ty) = go ty ++ go v
-      binder (PVTy _ _ ty) = go ty
-
--- Normalised with its markers bound (declared above): the open term, each
--- marker a variable of an environment that binds it as a pattern variable,
--- is what Idris's normaliser is given, and the markers stand for the
--- variables again in its normal form.
-normaliseKeeping normaliser tm = do
-  defs <- get Ctxt
-  let holes = map markerName (holeIndices tm)
-  nf <- normaliser defs (mkEnv EmptyFC (holes ++ Scope.empty)) (refsToLocals (bound holes) tm)
-  pure (substs (mkSizeOf holes) (markers holes) nf)
-  where
-    bound : (ns : List Name) -> Bounds ns
-    bound [] = None
-    bound (n :: ns) = Add n n (bound ns)
-    markers : (ns : List Name) -> SubstEnv ns Scope.empty
-    markers [] = []
-    markers (n :: ns) = Ref EmptyFC Bound n :: markers ns
 
 ||| Replaces each marker of the values an implementation closes over with
 ||| the term for its value, by number.

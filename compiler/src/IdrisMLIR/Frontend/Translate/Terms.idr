@@ -228,9 +228,10 @@ Found : Nat -> Type
 Found nv = List (Maybe (Fin nv), ClosedTerm, Core (Term nv))
 
 ||| A value `holed` found, by the order it found them in, before the values
-||| one variable holds are made one; and its marker.
+||| one variable holds are made one; and its marker, a name no normaliser
+||| takes for a binder, as `markerName` is.
 foundName : Nat -> Name
-foundName i = MN "idris-mlir-hole-found" (cast i)
+foundName i = Nested (cast i, 0) (UN (Basic "idris-mlir-hole-found"))
 
 foundMarker : Nat -> ClosedTerm
 foundMarker i = Ref EmptyFC Bound (foundName i)
