@@ -31,6 +31,19 @@ The owner's run, in order, on each target:
    fix (`Walk.capacity`) is in the tree and was tested on small programs
    only. Then `make self`, stages 1 to 3, stage 2 equal to stage 3.
 
+Known owed, which the build will show (each to accept or fix there):
+- `tests/reject/*/expected`: the frontend no longer prints a refusal; the
+  driver prints each from the module's `#idr.refusal` (S25), so the
+  transcripts' refusal lines may change form.
+- `tests/idr/tie-shape/verify.mlir` was already out of date before the
+  wave (its expected texts are not the verifier's).
+- Lane L18's toolchain tests `runtime-container` and `runtime-prepared`
+  (the bitcode's home from the target entry) and the new spec tests its
+  handoff states (driver errors as diagnostics, no extern options, one
+  runTool, one entry symbol, no registerAll) are written in a follow-up.
+- The decisions taken during the run are in 0004's §9 (R1 to R11) for
+  review; two questions there are open for the owner.
+
 # Checkpoint (2026-10-18, the polymorphism checker integrated on the typecheck machine)
 
 Self-hosting's S2.2 is in (3fc4d2e4; proposals/0003-self-host/checker/,

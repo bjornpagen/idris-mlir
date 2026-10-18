@@ -1484,6 +1484,28 @@ earlier P2 to P5; none is settled design until the owner has reviewed it):
 | P4 | analysis-14 (Borrows on `DataFlowSolver`) is in the wave, last in L10 | the owner's directive covers it; L10 lands its other findings first and keeps Borrows' API, so a stalled analysis-14 blocks nothing |
 | P5 | Fixed-width negate is translated, not refused | §7 |
 
+**Decided by the coordinator during the run** (2026-10-18; for the owner's
+review, each recorded where the code holds it):
+
+| ID | Decision | Reason |
+|---|---|---|
+| R1 | A new stage `graded` between `first` and `owned`: idr-rc-grades sets it, idr-rc-place runs at it, idr-rc-exclusive sets `owned`; `StageFacts` gains `grades()` beside `counted()` | between grading and counting the IR is graded but not counted, and the count walk would refuse every owned parameter; the state is real, so it is named, and no nested pipeline returns (mlir-14) |
+| R2 | `setEntry` is deleted; `writeEffects` is the one writer of a function's and its calls' effects | raising a function's effects without its calls' leaves calls the verifier refuses |
+| R3 | `CallCycles` gives every function a component, one without a body its own, on no cycle | lookups are total; no guard at any reader |
+| R4 | `CellType::isCellPointer()` is true; `holdsReferences` and `isCounted` false; `Carriers::of` gives a cell its box's carriers | a cell is one non-null pointer to a cell its producer headed; its flow is its box's |
+| R5 | `ofType` gives a type with no integers upstream's width-0 maximum range | an uninitialized range stops inference for every op reading a box or a string |
+| R6 | Every staged pass is `runOnProgram(ProgramOp program)`, handed the program `StagedPass` found | no pass looks the program up again |
+| R7 | The flow rule admits a part of the op's own result as an edge's `from` | a fold's loop-carried accumulator; escape analysis needs the edge |
+| R8 | Effects print bare: `effects<io, crash>` (upstream's unquoted bit enum) | readable IR, no printer of ours |
+| R9 | `idr.world.new` and `idr.crash_str` lose the primitive mark | neither is an Idris primitive; the frontend has `NewWorld` and `CrashWith` |
+| R10 | The fork's `DLY` cell and the growth check's display are plain data, with the fork's `SyntaxInfo` (selfhost-1) | the pipeline's closure analysis found both on a cycle through a cell; a stored `Core` action is the state the data makes unrepresentable |
+| R11 | Forced reads a clause place through the fork's own `argToPat` (`Idris.Host`) | one reading of what a pattern place tests, Idris's |
+
+Open for the owner: a covering literal match with no default is still
+refused with `match` (the frontend never builds `LitNoDefault`); and the
+fuzz shrinker halves a draw with `divNatNZ`, which never finishes on a
+draw near 2^64 (a fast division with an erased proof, or Bits64 draws).
+
 **Out of this wave** (for the owner's review). Each stays in
 `ownership.json` with its lane, which keeps the base's form, builds nothing
 of the correction and says so in its handoff.
