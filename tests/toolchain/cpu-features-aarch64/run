@@ -81,7 +81,7 @@ test_cpu() {
   test_cpu_target=$2
   shift 2
   # shellcheck disable=SC2046 # the flags are words
-  if bounded "$clang" $(cpu_flags "$test_cpu_target") -I"$root/runtime" -isystem "$work/libc" \
+  if runtime_c bounded "$clang" $(cpu_flags "$test_cpu_target") -I"$root/runtime" -isystem "$work/libc" \
       '-DIDRIS_RT_CPU_FEATURES_FILE="cpu_aarch64.h"' -DIDRIS_RT_PAGE_SIZE=16384 "$@" -S -emit-llvm \
       "$root/runtime/Platform/Aarch64/Cpu.cpp" -o "$work/$test_cpu_name.ll" > "$work/cc.log" 2>&1; then
     say "$test_cpu_name: compiles"

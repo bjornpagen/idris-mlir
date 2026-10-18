@@ -22,9 +22,8 @@ idr.program @"shared-action" root(@root) stage(higher) {
 
   idr.func @twice(%act: !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>,
                    %w: !idr.world) -> !IORes {
-    %c = idr.closure @bind(%act) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
-       -> !idr.fn<(!idr.world) -> (!IORes)>
-    %e = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+    %e = idr.closure @bind(%act) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
+       -> !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
     %io = idr.con !IO @MkIO(%e : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
     %f = idr.field %io : !IO @MkIO[0] -> !idr.fn<(!idr.world) -> (!IORes)>
     %r1 = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!IORes)>
@@ -42,16 +41,14 @@ idr.program @"shared-action" root(@root) stage(higher) {
                           %w: !idr.world) -> !IORes {
     %io = idr.match_lit %k : i64 -> (!IO) {
     case 0 {
-      %c = idr.closure @bind(%a) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
-         -> !idr.fn<(!idr.world) -> (!IORes)>
-      %e = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+      %e = idr.closure @bind(%a) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
+         -> !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
       %x = idr.con !IO @MkIO(%e : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %x : !IO
     }
     default(%d: i64) {
-      %c = idr.closure @bind(%b) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
-         -> !idr.fn<(!idr.world) -> (!IORes)>
-      %e = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+      %e = idr.closure @bind(%b) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
+         -> !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
       %x = idr.con !IO @MkIO(%e : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %x : !IO
     }
@@ -66,9 +63,8 @@ idr.program @"shared-action" root(@root) stage(higher) {
   // Read once and applied once, the closure is the apply's: a call.
   idr.func @once(%act: !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>,
                   %w: !idr.world) -> !IORes {
-    %c = idr.closure @bind(%act) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
-       -> !idr.fn<(!idr.world) -> (!IORes)>
-    %e = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+    %e = idr.closure @bind(%act) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
+       -> !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
     %io = idr.con !IO @MkIO(%e : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
     %f = idr.field %io : !IO @MkIO[0] -> !idr.fn<(!idr.world) -> (!IORes)>
     %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!IORes)>

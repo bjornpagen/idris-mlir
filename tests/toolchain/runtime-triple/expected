@@ -1,6 +1,7 @@
+NEEDS-ACCEPTANCE: that a runtime member compiled for another triple is an internal error of the driver (D1: driver failures are diagnostics, classed by the one verdict fold), the rest as before
 same: exit 0
 spelled: exit 0
 vendor: exit 1
-  | idris-mlir: runtime member vendor.o is compiled for TRIPLE, and programs for TARGET
+  | idris-mlir: internal error: runtime member vendor.o is compiled for TRIPLE, and programs for TARGET
 environment: exit 1
-  | idris-mlir: runtime member environment.o is compiled for TRIPLE, and programs for TARGET
+  | idris-mlir: internal error: runtime member environment.o is compiled for TRIPLE, and programs for TARGET

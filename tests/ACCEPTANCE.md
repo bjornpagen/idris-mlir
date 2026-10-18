@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-18, each with its first mark as
-its reason: 440 files. Proposal 0002's culls removed the marks of the
+its reason: 442 files. Proposal 0002's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -127,7 +127,7 @@ change that adds or removes a mark lists it here again.
 - `tests/idr/bufferize/release-constant.mlir`: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc, the buffer idr-rc later adopts; in-place is read right after idr-bufferize.
 - `tests/idr/bufferize/release-copies.mlir`: the allocation a copy targets: `idr::bufferize::copies` reads a memref.copy into a memref.alloc, the buffer idr-rc later adopts; in-place is read right after idr-bufferize.
 
-## tests/idr/canon (8)
+## tests/idr/canon (9)
 
 - `tests/idr/canon/apply.mlir`: syntax swept to the data-type-first form
 - `tests/idr/canon/array-moves.mlir`: that the element moves out across the call of the pure @bump under idr-optimize and under upstream's canonicalize after idr-effects, which writes the call its callee's effects, and not across a call no pass has given effects; and that under idr-optimize it stays read across output, a call that performs IO, a write in another block, and in a word.
@@ -137,6 +137,7 @@ change that adds or removes a mark lists it here again.
 - `tests/idr/canon/match-regions.mlir`: a match's default region is first and binds the scrutinee (S2): two defaults ("expected '}'"), a default without its argument ("expected '('"), a default that binds another type ("expects a default region that takes the scrutinee back at its type") and `cases` in the attribute dictionary ("inherent attribute 'cases' cannot be parsed from attr-dict") are refused; an exhaustive idr.match, whose default is empty, merges its two equal cases into a default that binds the scrutinee, and its field read moves into its regions (case-of-case), under upstream's canonicalize with region simplification disabled.
 - `tests/idr/canon/output-fusion.mlir`: syntax swept to the data-type-first form
 - `tests/idr/canon/record-eta.mlir`: syntax swept to the data-type-first form
+- `tests/idr/canon/upstream-passes.mlir`: that the six runs pass with the upstream inline of a never-returning callee into a body dropped (a body is one block, S5); the other upstream passes as before.
 
 ## tests/idr/contify (2)
 
@@ -570,7 +571,7 @@ change that adds or removes a mark lists it here again.
 - `tests/reject/polymorphism-nested/expected`: that depth, which calls itself at (a, a), is refused once as polymorphism at its declaration (line 12: TT read from a TTC holds no call-site location), by the growth check, whose message names the cycle and its growth of 1 a round
 - `tests/reject/raw-pointer-malloc/expected`: that malloc is refused once, as a raw pointer, at scratch's declaration (line 12), naming System.FFI.malloc
 
-## tests/toolchain (11)
+## tests/toolchain (12)
 
 - `tests/toolchain/heap-region/expected`: that every cell of a heap under 4 GiB lies in the first cell's 4 GiB region and the heap grows past it, its arrays usable and every cell freed, on both targets
 - `tests/toolchain/io-buffer/expected`: that the IO units built for a buffer of 4 and of 7 bytes print what the default build prints, and that echo gives back its input
@@ -582,6 +583,7 @@ change that adds or removes a mark lists it here again.
 - `tests/toolchain/runtime-start/expected`: that the entry names a missing bit no feature names by its number (this processor lacks bit 63), on both targets
 - `tests/toolchain/runtime-strings/expected`: runtime-strings is new, with the property of the one empty string: confirm that strings.cpp builds through prop_build with no C++ library and that its 9 properties hold on both targets, that runtime-strings/report is written, and set --cases in run
 - `tests/toolchain/runtime-text/expected`: that the pinned clang builds text.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit
+- `tests/toolchain/runtime-triple/expected`: that a runtime member compiled for another triple is an internal error of the driver (D1: driver failures are diagnostics, classed by the one verdict fold), the rest as before
 - `tests/toolchain/runtime-utf8/expected`: runtime-utf8 is new: confirm that utf8.cpp builds through prop_build with no C++ library and that its 7 properties hold on both targets (each target's simdutf kernel), that runtime-utf8/report is written, and set --cases in run
 
 ## tests/two-levels (1)

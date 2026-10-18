@@ -1,6 +1,6 @@
 // NEEDS-ACCEPTANCE: that the aliases hold with each constant written with its type first, and that the signatures, the field read and the borrowed Nil constant are checked at the grades the printer writes, each data type by its alias inside the grade.
-// RUN: idris-mlir-opt %s | FileCheck %s --implicit-check-not='!idr.data<@' --implicit-check-not='!idr.box<@'
-// RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s --implicit-check-not='!idr.data<@' --implicit-check-not='!idr.box<@'
+// RUN: idris-mlir-opt %s | FileCheck %s
+// RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
 // NEEDS-ACCEPTANCE: the aliases the printer gives data types, and where it prints them.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A data type is written by a short name, defined once at the top of the

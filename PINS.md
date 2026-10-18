@@ -372,10 +372,10 @@ which the top-level CMake configure gate reads.
   per level of attribute nesting, so a constant nested a few thousand deep
   overflows an 8 MiB stack with a bare SIGSEGV (6,000 levels of builtin
   array in `mlir-opt`)
-- sites: foreign/idr/include/idr/Support/Stack.h (the tools' stack and its
-  guard), foreign/idr/lib/Driver/Main.cpp, foreign/idr/tools/idris-mlir-opt.cpp,
-  foreign/idr/tools/idris-mlir-reduce.cpp, runtime/Start/Runner.cpp
-  (`idris_rt_run_on_stack`)
+- sites: foreign/idr/include/idr/Support/Stack.h (the tools' stack, its
+  guard and `runTool`); foreign/idr/lib/Driver/Main.cpp,
+  foreign/idr/tools/idris-mlir-opt.cpp, foreign/idr/tools/idris-mlir-reduce.cpp
+  (each through `runTool`); runtime/Start/Runner.cpp (`idris_rt_run_on_stack`)
 - workaround: idris-mlir runs the whole compilation, and idris-mlir-opt and
   idris-mlir-reduce their runs, on the runtime's reserved-stack runner: 2^40
   bytes of address space,

@@ -109,8 +109,8 @@ The rules every proposal holds to, each stated in AGENTS.md or here:
 - [0004](0004-representation/README.md): representation first, onto
   MLIR's grain. A swarm packet of 24 lanes over the C++ and the Idris side
   (197 findings, contracts S0 to S44), its decisions the owner's (§9).
-  Dispatched 2026-10-17 on top of the polymorphism checker; integrated on
-  the typecheck machine, then the owner's build.
+  Landed 2026-10-18 (2c042728 and after): the C++ typechecks, nothing is
+  built; the owner's build qualifies it with the self-host (HANDOFF.md).
 - [0005](0005-toolchain-bump.md): the toolchain bump. Idris 2 alone, then
   CMake and LLVM together, then a fresh survey. Right after `make self`,
   whose stage 2 = stage 3 check is the bump's strongest. It holds the

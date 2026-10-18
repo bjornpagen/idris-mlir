@@ -11,9 +11,15 @@
 - the polymorphism checker replaces the rule, S2.2
   ([checker/](checker/README.md), its integration record in §12).
 
-Still open in S2: the fork's `SyntaxInfo` knot (D3), which the pipeline's
-`cycle` check would refuse at stage 1; it runs in 0004's wave, with D6
-(`tools/self.sh`).
+S2's knots are plain data since 0004's wave: the fork's `SyntaxInfo` knot
+(D3: a pragma is `Pragma`, first-order data that `process` interprets
+through `processPragma`), the fork's `DLY` cell (a delayed elaborator
+captures terms, never a glued value's `Core` actions or the cell) and the
+frontend's growth-check display (first-order `ArgumentText`), each checked
+by a scratch closure-flow analysis over the self compile's Core; S3's
+pipeline run is what confirms them. D6 is done too: `tools/self.sh` runs
+each stage's frontend alone, then the pipeline on the module it kept, and
+`tools/self.sh 1` is S1 and S3 in one command.
 
 The self-compile's frontend step finishes with no patch and no refusal
 (`bench/profiles/2026-10-17-self-growth.md`); the C++ reader and the
@@ -30,10 +36,11 @@ the frontend and the fork with no frontend refusal (F0, 44495199,
 
 ## 1. What it changes
 
-- `tools/self.sh` (D6): each stage runs its frontend alone, then the
-  pipeline on the module it wrote, each half under its own `peak_memory`;
-  each stage builds from a fresh copy of the sources at one path; stages
-  2 and 3 compare the TTCs of `compiler/src` too.
+- `tools/self.sh` (D6, done): each stage copies `compiler/src` afresh
+  into `build/self/src`, runs its frontend alone and keeps its TTCs, then
+  runs the pipeline on the module it wrote, each half under its own
+  `peak_memory` and timeout (1800 s, 7200 s); stages 2 and 3 compare the
+  executable, the module, the Core and the TTCs.
 - The fork and the frontend, wherever idris-mlir refuses them (§3), in
   their own code, representation first. No rule of the compiler changes.
 - Nothing else: the pipeline, the runtime and the rules are what the

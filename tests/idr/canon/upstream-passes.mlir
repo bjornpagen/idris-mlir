@@ -1,17 +1,16 @@
+// NEEDS-ACCEPTANCE: that the six runs pass with the upstream inline of a never-returning callee into a body dropped (a body is one block, S5); the other upstream passes as before.
 // RUN: sed '/^\/\/ -----/,$d' %s > %t.first.mlir
 // RUN: awk '/^\/\/ -----/ { n++; next } n == 1' %s > %t.second.mlir
 // RUN: idris-mlir-opt %t.first.mlir --remove-dead-values --idr-expect=holds=matches=@get,applies=@get,\
 // RUN: calls=@get:@fail,parameters-used=@get,parameters-used=@fail -o /dev/null
 // RUN: idris-mlir-opt %t.first.mlir --inline --idr-expect=holds=returns=@main:8 -o /dev/null
-// RUN: idris-mlir-opt %t.second.mlir --inline --idr-expect=holds=calls=@crash_inlined:@fail,\
-// RUN: never-returns=@crash_in_body,never-calls=@crash_in_body:@fail -o /dev/null
 // RUN: idris-mlir-opt %t.second.mlir --remove-dead-values --idr-expect=holds=parameters-used=@fail -o /dev/null
 // RUN: idris-mlir-opt %s -split-input-file '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // Upstream's remove-dead-values and inline work on matches and closures. A
-// function whose body is a crash ends in ub.unreachable after it; the
-// inliner inlines it into a function body, the block after the call
-// following in a block that nothing reaches, but not into a match region,
-// which is one block (SingleBlock). Remove-dead-values drops a parameter
+// function whose body is a crash ends in ub.unreachable after it; inlining
+// it into a body would leave a block after the call that nothing reaches,
+// which a body of one block cannot hold, so only the compiler's own
+// inlining, which erases that block, inlines it (idr-optimize). Remove-dead-values drops a parameter
 // nothing reads and a result nothing uses, and keeps the match, its apply
 // and its call.
 

@@ -496,7 +496,7 @@ static void stackCells(void) {
   } inner = {{1, box(5, 1) | IDRIS_RT_STACK_CELL}, {cons(3, NULL)}, 42};
   idris_rt_free_cell(&inner);
   check(inner.header.count == 1 && live() == before + 1, "free_cell leaves a stack cell alone");
-  /* Held in a heap cell's slot, which idr-stack never builds, a stack cell
+  /* Held in a heap cell's slot, which idr-rc-stack never builds, a stack cell
    * still keeps its memory when it dies. */
   void *holder = cons(0, &inner);
   idris_rt_dec(holder);
