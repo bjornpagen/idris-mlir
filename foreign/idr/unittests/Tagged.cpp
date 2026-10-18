@@ -6,7 +6,7 @@
 // a power of two, against exact __int128 arithmetic, read back through the
 // runtime.
 
-#include "Box.h"
+#include "idr/Testing/Box.h"
 
 #include "idr/IR/IdrDialect.h"
 

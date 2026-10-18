@@ -5,8 +5,8 @@
 // reduced domains a box walks, the walks over their intervals and members,
 // and the printers a failure is reported with. Each box holds only its own
 // rule's tests.
-#ifndef IDR_UNITTESTS_BOX_H
-#define IDR_UNITTESTS_BOX_H
+#ifndef IDR_TESTING_BOX_H
+#define IDR_TESTING_BOX_H
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
@@ -213,4 +213,4 @@ inline testing::Message &operator<<(testing::Message &m, Bounds b) {
 
 } // namespace idr::box
 
-#endif // IDR_UNITTESTS_BOX_H
+#endif // IDR_TESTING_BOX_H

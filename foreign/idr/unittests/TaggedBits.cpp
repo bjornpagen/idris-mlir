@@ -7,7 +7,7 @@
 // changes behaviour, against the operations of infinite two's complement,
 // exact in __int128, read back through the runtime.
 
-#include "Box.h"
+#include "idr/Testing/Box.h"
 
 #include "idr/IR/IdrDialect.h"
 

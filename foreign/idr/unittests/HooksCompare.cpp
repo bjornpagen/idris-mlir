@@ -6,7 +6,7 @@
 // analysis holds one (rangeOf), and the range it states read as the
 // ConstantIntRanges it is, against the runtime's value of every member.
 
-#include "Box.h"
+#include "idr/Testing/Box.h"
 
 #include "idr/IR/Fold.h"
 #include "idr/IR/IdrDialect.h"

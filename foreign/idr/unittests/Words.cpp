@@ -8,7 +8,7 @@
 // exact __int128 arithmetic. Then the mask a loop is versioned under, and
 // fits32.
 
-#include "Box.h"
+#include "idr/Testing/Box.h"
 
 #include "idr/IR/Fold.h"
 #include "idr/IR/IdrDialect.h"

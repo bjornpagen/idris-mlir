@@ -7,17 +7,20 @@
 # identified type whose body is its declaration, set once: a pattern or a
 # verifier reads the type, never the module. So no declaration op of a
 # data type or of a constructor is left, nor a lookup that finds one by
-# its symbol.
+# its symbol. The one discardable attribute is the frontend's report on a
+# refused program, `idr.refusals`: it sits on a module with no program, on
+# which no pass runs, and the driver alone reads it.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cd "$root" || exit 1
 find foreign/idr/include -name '*.td' | LC_ALL=C sort |
   xargs grep -n 'discardableAttrs' 2> /dev/null |
-  grep -v 'discardableAttrs[[:space:]]*=[[:space:]]*(ins)' > "$work/discardable"
+  grep -v 'discardableAttrs[[:space:]]*=[[:space:]]*(ins)' |
+  grep -v 'discardableAttrs[[:space:]]*=[[:space:]]*(ins "::mlir::ArrayAttr":\$refusals);' > "$work/discardable"
 if [ -s "$work/discardable" ]; then
   say "discardable attributes declared:"
   cat "$work/discardable"
 else
-  say "discardable attributes: none declared"
+  say "discardable attributes: none declared but a refused module's report"
 fi
 find foreign/idr/lib foreign/idr/include -type f \( -name '*.cpp' -o -name '*.h' \) | LC_ALL=C sort |
   xargs grep -nwE 'declarationOf|constructorOf|DataOp|CtorOp' 2> /dev/null > "$work/lookups"

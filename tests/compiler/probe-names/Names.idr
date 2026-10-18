@@ -6,7 +6,6 @@ module Main
 
 import Core.Context
 import IdrisMLIR.Frontend.Walk
-import IdrisMLIR.Proof.Requests
 import Data.List1
 import Data.Vect
 

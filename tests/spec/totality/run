@@ -13,7 +13,8 @@
 #     where it is called;
 #   - every rule a refusal names has its category in the generated list of
 #     the rules (lib/rules.sh): megamorphic, a construct whose choices no
-#     compile-time analysis bounds, or outside the language;
+#     compile-time analysis bounds, outside the language, or a user error
+#     (a program Idris does not elaborate, refused with Idris's message);
 #   - each limit that was lifted has a program among the tests that must
 #     compile and run: a reduction deeper than the old 64 steps, a
 #     constructor of more counted fields than a header counts, a sum of
@@ -69,7 +70,7 @@ if ! rules_lines > "$work/rules"; then
 elif [ ! -s "$work/rules" ]; then
   say "rules: the list names none"
 else
-  awk -F'\t' '$2 != "megamorphic" && $2 != "outside the language" { print "  " $0 }' "$work/rules" > "$work/uncategorized"
+  awk -F'\t' '$2 != "megamorphic" && $2 != "outside the language" && $2 != "user error" { print "  " $0 }' "$work/rules" > "$work/uncategorized"
   if [ -s "$work/uncategorized" ]; then
     say "rules: some have no category:"
     cat "$work/uncategorized"

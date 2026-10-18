@@ -67,7 +67,7 @@ for file in $(find compiler/src -name '*.idr' | sort); do
         after = substr(rest, RSTART + RLENGTH - 1)
         name = substr(rest, RSTART, RLENGTH); gsub(/[^A-Za-z]/, "", name)
         args = after
-        if (name == "LInt") sub(/^[ \t]*[A-Z][A-Za-z0-9]*/, "", args)
+        if (name == "LInt") sub(/^[ \t]*[A-Za-z_][A-Za-z0-9_]*/, "", args)
         ok = match(args, "^[ \t]*" source "([^A-Za-z0-9_]|$)")
         if (!ok) {
           if (conversion) print "conversion" > "/dev/stderr"

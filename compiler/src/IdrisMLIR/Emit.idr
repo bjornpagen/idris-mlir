@@ -100,7 +100,7 @@ refused : File -> List1 ModuleRefusal -> IO (Either String ())
 refused h rs = do
   Right w <- newWriter []
     | Left e => pure (Left e)
-  finish w h [ (At noLoc, \body => { attributes := [("idr.refusals", ArrayAttr (map refusal (forget rs)))] }
+  finish w h [ (At noLoc, \body => { attributes := [Idr.refusalsDiscardable (ArrayAttr (map refusal (forget rs)))] }
                                    (Builtin.moduleOp body)) ]
   where
     refusal : ModuleRefusal -> MlirAttr

@@ -16,7 +16,7 @@ module IdrisMLIR.Frontend.Walk
 
 import Core.Context
 
-import IdrisMLIR.Proof.Requests
+import public IdrisMLIR.Proof.Requests
 
 import Control.WellFounded
 import Data.DPair
@@ -41,10 +41,11 @@ record Placement where
   index : Int
   path : Vect 63 Bool
 
--- The lowest `d` bits of a number, the lowest first.
-bitsOf : (d : Nat) -> Int -> Vect d Bool
-bitsOf Z _ = []
-bitsOf (S k) i = (mod i 2 == 1) :: bitsOf k (div i 2)
+-- The lowest `d` bits of a number, the lowest first, as many as the
+-- type asks for.
+bitsOf : {d : Nat} -> Int -> Vect d Bool
+bitsOf {d = Z} _ = []
+bitsOf {d = S k} i = (mod i 2 == 1) :: bitsOf (div i 2)
 
 ||| The placement of a context index. An `Int` is 64 bits, so a
 ||| non-negative one is its 63 lowest bits, and two indices have two paths.
@@ -53,7 +54,7 @@ bitsOf (S k) i = (mod i 2 == 1) :: bitsOf k (div i 2)
 ||| from being negative, so that case is the problem's, not this type's.
 export
 placementOf : Int -> Maybe Placement
-placementOf i = if i < 0 then Nothing else Just (MkPlacement i (bitsOf 63 i))
+placementOf i = if i < 0 then Nothing else Just (MkPlacement i (bitsOf i))
 
 ||| The placement of a name the context holds; nothing for one it does not.
 export

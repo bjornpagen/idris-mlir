@@ -1,4 +1,3 @@
-NEEDS-ACCEPTANCE: that the driver's shape holds as lane L18 left it (D1, D2, S1, D6, mlir-6 of proposal 0004): each line below, with nothing found
 step failures: every one a diagnostic, Main's parse alone returning its own
 internal errors: spelled by the printer alone (Outcome.cpp)
 options: none extern

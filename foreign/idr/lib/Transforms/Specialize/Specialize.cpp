@@ -215,17 +215,29 @@ FailureOr<std::optional<SpecGrant>> requestSpec(Nodes::State &s, idr::FuncOp req
   SmallVector<Source> sources;
   for (unsigned hole = 0; hole < want.leaves.size(); ++hole)
     sources.push_back(Kept{hole});
-  // Each lift turns a scalar of the key into a hole, so the lifts end.
-  while (true) {
+  // The keys the request is compared with: the owner's earlier ones, and
+  // its chain's when the key is new.
+  auto earlierOf = [&] {
     SmallVector<SpecKeyAttr> earlier(asking.keysOf(owner));
     if (!placed(s, key))
       llvm::append_range(earlier, chainOf(mine, owner));
-    if (llvm::any_of(earlier, [&](SpecKeyAttr e) { return s.order.grows(e, key); }))
-      return std::optional<SpecGrant>();
+    return earlier;
+  };
+  SmallVector<SpecKeyAttr> earlier = earlierOf();
+  auto grows = [&] {
+    return llvm::any_of(earlier, [&](SpecKeyAttr e) { return s.order.grows(e, key); });
+  };
+  auto differing = [&]() -> std::optional<SpecKeyAttr> {
     auto differs =
         llvm::find_if(earlier, [&](SpecKeyAttr e) { return e != key && sameShape(e, key); });
     if (differs == earlier.end())
-      break;
+      return std::nullopt;
+    return *differs;
+  };
+  if (grows())
+    return std::optional<SpecGrant>();
+  // Each lift turns a scalar of the key into a hole, so the lifts end.
+  for (std::optional<SpecKeyAttr> differs = differing(); differs; differs = differing()) {
     SmallVector<Source> lifted;
     key = lift(*differs, key, lifted);
     sources = llvm::map_to_vector(lifted, [&](const Source &source) {
@@ -234,6 +246,9 @@ FailureOr<std::optional<SpecGrant>> requestSpec(Nodes::State &s, idr::FuncOp req
                         source);
     });
     if (llvm::none_of(key.getPatterns(), hasStructure))
+      return std::optional<SpecGrant>();
+    earlier = earlierOf();
+    if (grows())
       return std::optional<SpecGrant>();
   }
   FailureOr<Node *> node = grant(s, requester, mine, key, at);

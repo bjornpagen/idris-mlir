@@ -6,7 +6,7 @@
 // of every member in __int128. A missing bound holds anything; its members
 // are integers outside the small range on that side.
 
-#include "Box.h"
+#include "idr/Testing/Box.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
