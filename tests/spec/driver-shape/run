@@ -1,0 +1,42 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The driver's shape, as the representation wave left it: a step's failure
+# is a diagnostic in MLIR's engine and the one fold of them decides the
+# verdict, so no step returns its own failure code but Main's command-line
+# parse, and only the printer spells an internal error; the command line is
+# parsed once, in Options.cpp, so no option is extern and none is declared
+# elsewhere; the tools run on the runtime's reserved stack through one
+# runTool; the entry symbol is named once; and the compiler registers what
+# it uses, never MLIR's registerAll. Searched with comments left in, as each
+# rule is a fact of the code, not of its prose.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+idr=foreign/idr
+
+check() {
+  # check NAME OK-TEXT HITS: says OK-TEXT when HITS is empty, else the hits.
+  if [ -s "$3" ]; then
+    say "$1: found where it must not be:"
+    cat "$3"
+  else
+    say "$1: $2"
+  fi
+}
+
+grep -rnE 'return (failure|usage)\(' "$idr/lib/Driver" | grep -v '/Main\.cpp:' > "$work/returns"
+check "step failures" "every one a diagnostic, Main's parse alone returning its own" "$work/returns"
+grep -rn '"internal error: ' "$idr/lib/Driver" | grep -v '/Outcome\.cpp:' > "$work/internal"
+check "internal errors" "spelled by the printer alone (Outcome.cpp)" "$work/internal"
+grep -n 'extern' "$idr/include/idr/Driver/Options.h" > "$work/extern"
+check "options" "none extern" "$work/extern"
+grep -rnE 'cl::(opt|list)<' "$idr/lib/Driver" | grep -v '/Options\.cpp:' > "$work/declared"
+check "option declarations" "in Options.cpp alone" "$work/declared"
+grep -rn 'idris_rt_run_on_stack(' "$idr" | grep -v '/Support/Stack\.h:' > "$work/stack"
+check "the reserved stack" "entered through runTool alone (Support/Stack.h)" "$work/stack"
+grep -rn 'idris_rt_gmp_init()' "$idr" | grep -v -e '/Support/Stack\.h:' -e '/unittests/Main\.cpp:' > "$work/gmp"
+check "GMP's allocator" "set by runTool and the unit tests' main alone" "$work/gmp"
+grep -rn '"main"' "$idr" | grep -v '/include/idr/Conversion/Runtime\.h:' > "$work/main"
+check "the entry symbol" "named once (Conversion/Runtime.h)" "$work/main"
+grep -rn 'registerAll' "$idr/lib/Driver" > "$work/registerall"
+check "registration" "what the compiler uses, no registerAll" "$work/registerall"

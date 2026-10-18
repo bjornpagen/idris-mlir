@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-18, each with its first mark as
-its reason: 442 files. Proposal 0002's culls removed the marks of the
+its reason: 444 files. Proposal 0002's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -571,15 +571,20 @@ change that adds or removes a mark lists it here again.
 - `tests/reject/polymorphism-nested/expected`: that depth, which calls itself at (a, a), is refused once as polymorphism at its declaration (line 12: TT read from a TTC holds no call-site location), by the growth check, whose message names the cycle and its growth of 1 a round
 - `tests/reject/raw-pointer-malloc/expected`: that malloc is refused once, as a raw pointer, at scratch's declaration (line 12), naming System.FFI.malloc
 
-## tests/toolchain (12)
+## tests/spec (1)
+
+- `tests/spec/driver-shape/expected`: that the driver's shape holds as lane L18 left it (D1, D2, S1, D6, mlir-6 of proposal 0004): each line below, with nothing found
+
+## tests/toolchain (13)
 
 - `tests/toolchain/heap-region/expected`: that every cell of a heap under 4 GiB lies in the first cell's 4 GiB region and the heap grows past it, its arrays usable and every cell freed, on both targets
 - `tests/toolchain/io-buffer/expected`: that the IO units built for a buffer of 4 and of 7 bytes print what the default build prints, and that echo gives back its input
 - `tests/toolchain/runtime-api/expected`: the results equal the base runtime's on both targets: handles.c is new, its lines the base runtime's results (read from its code, and run on arm64 macOS against it), and rc's crash names its cause after the runtime's `idris-mlir: `; confirm every check of rc.c passes and its total reads 101
 - `tests/toolchain/runtime-bigs/expected`: that the pinned clang builds bigs.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit
+- `tests/toolchain/runtime-container/expected`: that a runtime prepared with no option keeps its bitcode where the target entry says (IDRIS_MLIR_RUNTIME_BITCODE_HOME: the .llvm.lto section on x86_64 Linux, a file beside the object on arm64 macOS), twice the same, and serves a program as the build's does
 - `tests/toolchain/runtime-counting/expected`: that the counting model holds on every case: live cells, each count and exclusivity as idris_rt.h defines them, wide cells, odd words in slots, arrays, view copies and memo cells included
 - `tests/toolchain/runtime-doubles/expected`: runtime-doubles is new: confirm that doubles.cpp builds through prop_build with no C++ library and that its 13 properties hold on both targets (each target's strtod and nextafter are its C library's), that runtime-doubles/report is written, and set --cases in run
-- `tests/toolchain/runtime-prepared/expected`: that every symbol the prepared runtime needs is one its target's allowlist allows (allowed, with linux/allowed or macos/allowed), on both targets, and that rc.c still behaves alike against the archive and the prepared runtime; the per-target symbol lists are gone
+- `tests/toolchain/runtime-prepared/expected`: that a bitcode file with no prepared marks is refused as neither kind of runtime (D3, exit 1); that every symbol the prepared runtime needs is one its target's allowlist allows (allowed, with linux/allowed or macos/allowed), on both targets, and that rc.c still behaves alike against the archive and the prepared runtime; the per-target symbol lists are gone
 - `tests/toolchain/runtime-start/expected`: that the entry names a missing bit no feature names by its number (this processor lacks bit 63), on both targets
 - `tests/toolchain/runtime-strings/expected`: runtime-strings is new, with the property of the one empty string: confirm that strings.cpp builds through prop_build with no C++ library and that its 9 properties hold on both targets, that runtime-strings/report is written, and set --cases in run
 - `tests/toolchain/runtime-text/expected`: that the pinned clang builds text.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit

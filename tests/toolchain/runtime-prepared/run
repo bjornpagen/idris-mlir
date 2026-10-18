@@ -55,6 +55,26 @@ same
 same leak
 same crash
 
+# A bitcode file that is neither the archive --prepare-runtime reads nor a
+# runtime it wrote (it carries no prepared marks) is refused at the read.
+printf 'int idris_flagless(void) { return 0; }\n' > "$work/flagless.c"
+if ! bounded "$pinned_cc" --target="$("$idris_mlir" --print-target-triple)" -c -emit-llvm \
+    "$work/flagless.c" -o "$work/flagless.bc" > "$work/flagless-cc.log" 2>&1; then
+  say "flagless bitcode: the C compiler failed"
+  show "$work/flagless-cc.log"
+else
+  printf 'idr.program @p root(@Prog.main) stage(higher) {\n  idr.func @Prog.main() -> i64 {\n    %%z = arith.constant 0 : i64\n    return %%z : i64\n  }\n}\n' > "$work/flagless.mlir"
+  bounded "$idris_mlir" -c "$work/flagless.mlir" -o "$work/flagless.o" --runtime="$work/flagless.bc" \
+    > /dev/null 2> "$work/flagless.err"
+  flagless_status=$?
+  if grep -q 'is neither the archive --prepare-runtime reads nor a runtime it wrote' "$work/flagless.err"; then
+    say "flagless bitcode: exit $flagless_status, refused as neither kind of runtime"
+  else
+    say "flagless bitcode: exit $flagless_status, not refused as neither kind of runtime"
+    show "$work/flagless.err"
+  fi
+fi
+
 # The allowlist of this host's target, and what the prepared runtime needs,
 # in C names: the object format's prefix, which the build records, taken
 # off. A runtime that needs nothing would hold of any allowlist, so an

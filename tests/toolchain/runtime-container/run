@@ -2,14 +2,13 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The prepared runtime keeps the bitcode that joins every program where the
-# target entry's container says (CMakeLists.txt): in a section of its object
-# that every link leaves out, or in a file beside the object
-# (--runtime-bitcode-section=''). Preparing is deterministic: twice in a
-# row, and as the build did, byte for byte. A runtime prepared either way
-# serves a program alike: its bitcode joins the program from where it is
-# kept, its object alone is on the link line, and the program computes,
-# frees and exits as with the build's runtime; no executable carries
-# bitcode.
+# target entry says (CMakeLists.txt, IDRIS_MLIR_RUNTIME_BITCODE_HOME): in
+# the object's .llvm.lto section, which every link leaves out, or in a file
+# beside the object; no option chooses it. Preparing is deterministic: twice
+# in a row, and as the build did, byte for byte. A prepared runtime serves a
+# program as the build's does: its bitcode joins the program from where it
+# is kept, its object alone is on the link line, and the program computes,
+# frees and exits; no executable carries bitcode.
 step_limit=300
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 runtime=$("$idris_mlir" --print-runtime)
@@ -31,23 +30,34 @@ if cmp -s "$work/again.o" "$runtime"; then
 else
   say "prepared again: differs from the build's runtime"
 fi
-prepare beside --runtime-bitcode-section= || exit 0
-prepare beside2 --runtime-bitcode-section= || exit 0
-if cmp -s "$work/beside.o" "$work/beside2.o" && cmp -s "$work/beside.bc" "$work/beside2.bc"; then
-  say "prepared beside, twice: the same object and bitcode"
+prepare again2 || exit 0
+if [ -f "${runtime%.o}.bc" ]; then
+  # The entry keeps it beside the object: both files, twice the same.
+  if cmp -s "$work/again.o" "$work/again2.o" && cmp -s "$work/again.bc" "$work/again2.bc"; then
+    say "prepared twice: the same object and bitcode"
+  else
+    say "prepared twice: differs"
+  fi
+  # Raw bitcode ('B' 'C' 0xc0 0xde), or the wrapper LLVM writes on Darwin
+  # so that the system archiver reads it (0x0B17C0DE, then the offset and
+  # size); parseBitcodeFile reads both.
+  case $(od -An -tx1 -N4 "$work/again.bc" | tr -d ' \n') in
+    4243c0de | dec0170b) say "bitcode: where the target entry keeps it" ;;
+    *) say "bitcode: not beside the object, where the target entry keeps it" ;;
+  esac
 else
-  say "prepared beside, twice: differs"
+  # The entry keeps it in the object's .llvm.lto section.
+  if cmp -s "$work/again.o" "$work/again2.o"; then
+    say "prepared twice: the same object and bitcode"
+  else
+    say "prepared twice: differs"
+  fi
+  if "$llvm_bin/llvm-readobj" --sections "$work/again.o" 2> /dev/null | grep -q 'Name: \.llvm\.lto'; then
+    say "bitcode: where the target entry keeps it"
+  else
+    say "bitcode: not in the object's .llvm.lto section, where the target entry keeps it"
+  fi
 fi
-# Raw bitcode ('B' 'C' 0xc0 0xde), or the wrapper LLVM writes on Darwin so
-# that the system archiver reads it (0x0B17C0DE, then the offset and size);
-# parseBitcodeFile reads both, so either is the bitcode in a file of its own.
-beside_magic=$(od -An -tx1 -N4 "$work/beside.bc" | tr -d ' \n')
-case $beside_magic in
-  4243c0de | dec0170b)
-    say "beside: the bitcode in a file of its own, next to the object" ;;
-  *)
-    say "beside: no bitcode next to the object" ;;
-esac
 
 cat > "$work/sum.mlir" <<'MLIR'
 !L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
@@ -121,4 +131,4 @@ program() {
   fi
 }
 program built "$runtime"
-program beside "$work/beside.o" --runtime-bitcode-section=
+program again "$work/again.o"
