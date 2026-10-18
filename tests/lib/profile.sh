@@ -211,7 +211,8 @@ registry_shadowed() {
   esac || { say "$rs_key broken: $rs_name not found in $3"; return; }
   compile_program "$@" "$work/$rs_case/Main.idr" prog
   say "$rs_key broken: exit $compiled"
-  if grep -qF "unsupported (hook): the registry's entry $rs_key (" "$work/compile.out" "$work/compile.err" &&
+  if grep -qF "the registry's entry $rs_key (" "$work/compile.out" "$work/compile.err" &&
+     grep -qF "unsupported (hook): " "$work/compile.out" "$work/compile.err" &&
      grep -q "expects .*, but found " "$work/compile.out" "$work/compile.err"; then
     say "$rs_key broken: the error shows the entry, what it expects and what was found"
   else
