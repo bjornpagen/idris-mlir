@@ -217,7 +217,21 @@ void Scheduler::insert(specialize::Node *made) {
   auto scc = std::make_unique<Scc>();
   scc->order = static_cast<unsigned>(set.all.size());
   specialize::Built &built = std::get<specialize::Built>(made->state);
-  auto node = std::make_unique<Node>(built.fn, Node::Made{std::move(built.times)}, *scc);
+  // Its origin is on a cycle of calls when its component holds another
+  // function or its body calls itself.
+  bool ofRecursion = false;
+  if (Node *origin = set.byName.lookup(made->origin)) {
+    StringAttr name = origin->fn.getSymNameAttr();
+    ofRecursion = origin->scc->members.size() > 1 ||
+                  origin->fn.getBody()
+                      .walk([&](CallOp call) {
+                        return call.getCalleeAttr().getAttr() == name ? WalkResult::interrupt()
+                                                                       : WalkResult::advance();
+                      })
+                      .wasInterrupted();
+  }
+  auto node =
+      std::make_unique<Node>(built.fn, Node::Made{std::move(built.times), ofRecursion}, *scc);
   scc->members.push_back(node.get());
   analyses.nodes.insert(*made, analyses.program, *node);
   analyses.symbols.insert(node->fn);

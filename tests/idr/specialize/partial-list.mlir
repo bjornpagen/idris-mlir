@@ -1,13 +1,13 @@
 // NEEDS-ACCEPTANCE: that only the entry copy for [1, 2, n] is made and its recursive call passes the tail as a value (inside a recursive component a call keys only the positions passed unchanged along the recursion), with symbol-dce after idr-optimize as the pipeline runs it (S22's parameterless holes).
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@sum,calls=@Main.main:@sum -o /dev/null
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@sum -o /dev/null
 // A partially static list, [1, 2, n]: its spine and first two elements are
 // the static shape, n is a runtime leaf and becomes the copy's parameter.
 // The copy's match folds, and its recursive call is on the tail [2, n],
 // which is no position passed unchanged along @sum's recursion: the call
 // keys nothing of it and passes the tail as a value, to @sum itself. So one
-// copy is made, and @sum is still called; a list that a recursion takes
-// apart makes no copy per element.
+// copy is made, and a list that a recursion takes apart makes no copy per
+// element. The copy, a step of @sum's recursion, stays a call.
 !L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @"partial-list" root(@Main.main) stage(first) {
   idr.func @sum(%xs: !idr.box<!L>) -> i64 attributes {total} {

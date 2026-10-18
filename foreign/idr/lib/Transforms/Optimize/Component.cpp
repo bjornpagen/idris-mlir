@@ -211,7 +211,8 @@ Finished Scheduler::finish(const Scc &scc) {
   bool shared = scc.members.size() > 1;
   for (Node *member : scc.members)
     done.members.push_back({returnedConstants(member->fn),
-                            inlining::factsOf(member->fn, member->calls(), shared)});
+                            inlining::factsOf(member->fn, member->calls(),
+                                              shared || member->stepOfRecursion())});
   return done;
 }
 

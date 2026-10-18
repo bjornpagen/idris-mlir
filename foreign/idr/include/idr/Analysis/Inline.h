@@ -45,7 +45,8 @@ struct Facts {
 // no idr.call, of at most kLeafSize ops; any other when
 // (calls - 1) * (size - kSmall) <= kProduct. `calls` is the number of the
 // program's idr.call sites naming `fn` when idr-optimize began, 1 for a
-// specialization node, one per request.
+// specialization node, one per request. A specialization node of a
+// recursive function is `shared` (optimize::Node::stepOfRecursion).
 Facts factsOf(idr::FuncOp fn, unsigned calls, bool shared);
 
 // Whether a caller of `callerSize` ops stays at or under kCallerCap with
