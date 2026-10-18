@@ -9,7 +9,7 @@
 // RUN: diff %t.names %t.reversed.names
 // NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as the binding-time rule allows.
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the RUN lines hold as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the RUN lines hold as before.
 // A function the optimizer makes is named from its key, the owner and
 // the static pattern, never from a counter or from the order the work ran
 // in: the same module with its functions in reverse order (the first RUN

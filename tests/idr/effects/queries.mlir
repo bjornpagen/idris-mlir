@@ -23,7 +23,7 @@ idr.program @queries root(@root) stage(first) {
   }
   idr.func @divides(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
-    %r = idr.div signed %x, %y : i64
+    %r = idr.divs %x, %y : i64
     return %r : i64
   }
   idr.func @writes(%x: i64, %w: !idr.world) -> !idr.world attributes {total} {
@@ -67,15 +67,15 @@ idr.program @queries root(@root) stage(first) {
     // expected-remark @below {{facts: [delay]}}
     %y1 = idr.check.nonzero %y, "division by zero" : i64
     // expected-remark @below {{facts: [drop move delay merge]}}
-    %q = idr.div signed %x, %y1 : i64
+    %q = idr.divs %x, %y1 : i64
     // expected-remark @below {{facts: [drop move delay merge]}}
-    %r = idr.div signed %x, %three : i64
+    %r = idr.divs %x, %three : i64
     // expected-remark @below {{facts: [delay]}}
     %n = idr.match_lit %x : i64 -> (i64) {
     case 0 {
       idr.yield %y : i64
     }
-    default {
+    default(%d1: i64) {
       idr.crash "no"
       ub.unreachable
     }

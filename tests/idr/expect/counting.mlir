@@ -72,7 +72,7 @@ idr.program @counting root(@root) stage(first) {
     %m = idr.call @map(%l) : (!idr.box<!L>) -> !idr.box<!L>
     %z = arith.constant 0 : i64
     %s = idr.call @sum(%m, %z) : (!idr.box<!L>, i64) -> i64
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     return %w2 : !idr.world
   }
 }

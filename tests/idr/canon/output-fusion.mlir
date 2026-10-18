@@ -15,9 +15,9 @@
 !Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
 idr.program @"output-fusion" root(@constant_list) stage(first) {
   idr.func @append(%n: i64, %w: !idr.world) -> !idr.world {
-    %a = idr.constant "n = " : !idr.str
-    %nl = idr.constant "\n" : !idr.str
-    %s = idr.str.show signed %n : i64
+    %a = idr.constant !idr.str "n = "
+    %nl = idr.constant !idr.str "\n"
+    %s = idr.str.show_sint %n : i64
     %t = idr.str.append %s, %nl
     %u = idr.str.append %a, %t
     %w1 = idr.io.put_str %u, %w
@@ -37,9 +37,9 @@ idr.program @"output-fusion" root(@constant_list) stage(first) {
   }
 
   idr.func @shows(%b: i8, %d: f64, %w: !idr.world) -> !idr.world {
-    %s = idr.str.show unsigned %b : i8
+    %s = idr.str.show_uint %b : i8
     %w1 = idr.io.put_str %s, %w
-    %t = idr.str.show %d : f64
+    %t = idr.str.show_double %d
     %w2 = idr.io.put_str %t, %w1
     return %w2 : !idr.world
   }
@@ -64,7 +64,7 @@ idr.program @"output-fusion" root(@constant_list) stage(first) {
 
   // putStrLn (pack cs): the line's characters, then its end.
   idr.func @line(%cs: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
-    %nl = idr.constant "\n" : !idr.str
+    %nl = idr.constant !idr.str "\n"
     %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
     %l = idr.str.append %s, %nl
     %w1 = idr.io.put_str %l, %w
@@ -82,7 +82,7 @@ idr.program @"output-fusion" root(@constant_list) stage(first) {
   // what writing its pack wrote: compile-time evaluation can make the list a
   // constant after the output of its pack became a walk.
   idr.func @constant_list(%w: !idr.world) -> !idr.world {
-    %cs = idr.constant #idr.con<!Chars, @Cons, [104 : i32, #idr.con<!Chars, @Cons, [105 : i32, #idr.con<!Chars, @Nil, []>]>]> : !idr.box<!Chars>
+    %cs = idr.constant !idr.box<!Chars> #idr.con<!Chars, @Cons, [104 : i32, #idr.con<!Chars, @Cons, [105 : i32, #idr.con<!Chars, @Nil, []>]>]>
     %w1 = idr.io.put_list %cs, %w : !idr.box<!Chars>
     return %w1 : !idr.world
   }
@@ -101,7 +101,7 @@ idr.program @"output-fusion" root(@constant_list) stage(first) {
     %gt = arith.constant 62 : i32
     %l = idr.con !idr.box<!Chars> @Cons(%gt : i32, %header : !idr.box<!Chars>)
     %s = idr.str.pack %l : !idr.box<!Chars> -> !idr.str
-    %nl = idr.constant "\n" : !idr.str
+    %nl = idr.constant !idr.str "\n"
     %t = idr.str.append %s, %nl
     %w1 = idr.io.put_str %t, %w
     return %w1 : !idr.world
@@ -136,7 +136,7 @@ idr.program @"output-fusion" root(@constant_list) stage(first) {
       idr.yield %p : !idr.str
     }
     default(%d: i64) {
-      %k = idr.constant "none" : !idr.str
+      %k = idr.constant !idr.str "none"
       idr.yield %k : !idr.str
     }
     }

@@ -88,7 +88,7 @@ idr.program @"shared-key" root(@Main.main) stage(higher) {
     %s3 = arith.addi %s2, %r4 : i64
     %s4 = arith.addi %s3, %r5 : i64
     %s5 = arith.addi %s4, %r6 : i64
-    %w2 = idr.io.put_int signed %s5, %w1 : i64
+    %w2 = idr.io.put_sint %s5, %w1 : i64
     return %w2 : !idr.world
   }
 }

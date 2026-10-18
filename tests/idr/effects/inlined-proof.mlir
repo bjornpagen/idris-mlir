@@ -20,7 +20,7 @@ idr.program @"inlined-proof" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %p = idr.call @proved(%x) : (i64) -> i64
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
@@ -35,7 +35,7 @@ idr.program @"inlined-proof" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %p = idr.call @unproved(%x) : (i64) -> i64
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
@@ -50,7 +50,7 @@ idr.program @"inlined-proof" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %y = arith.subi %x, %one : i64
       %z = idr.call @keeps_parent(%y) : (i64) -> i64
@@ -68,7 +68,7 @@ idr.program @"inlined-proof" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %z = idr.call @loses_parent(%x) : (i64) -> i64
       idr.yield %z : i64
     }
@@ -86,7 +86,7 @@ idr.program @"inlined-proof" root(@Main.main) stage(first) {
     %b = idr.call @loses_parent(%a) : (i64) -> i64
     %d = idr.call @keeps(%b, %x) : (i64, i64) -> i64
     %e = idr.call @loses(%d, %x) : (i64, i64) -> i64
-    %w2 = idr.io.put_int signed %e, %w1 : i64
+    %w2 = idr.io.put_sint %e, %w1 : i64
     return %w2 : !idr.world
   }
 }

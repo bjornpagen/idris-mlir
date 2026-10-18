@@ -1,7 +1,7 @@
 // RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// NEEDS-ACCEPTANCE: that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+// NEEDS-ACCEPTANCE: that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 // Doubles printed by the runtime: the shortest digits that read back, an
 // exact tie to the even last digit (1.1258999068426242e15), positional
 // between 1e-3 and 1e10, a subnormal as any other, the special values as

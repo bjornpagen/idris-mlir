@@ -31,7 +31,7 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
   }
   idr.func @divides(%n: i64) -> i64 attributes {total, no_inline} {
     %m = idr.check.nonzero %n, "division by zero" : i64
-    %r = idr.div signed %n, %m : i64
+    %r = idr.divs %n, %m : i64
     return %r : i64
   }
   idr.func @raised_past_call(%b: i64, %c: i64) -> i64 attributes {no_inline} {
@@ -88,7 +88,7 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
     }
     %k = idr.call @divides(%n) : (i64) -> i64
     %w1 = idr.io.put_str %s, %w
-    %w2 = idr.io.put_int signed %k, %w1 : i64
+    %w2 = idr.io.put_sint %k, %w1 : i64
     return %w2 : !idr.world
   }
   idr.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) attributes {no_inline} {
@@ -130,10 +130,10 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
     %m = idr.call @maybe_of(%x) : (i64) -> !Maybe
     %w1 = idr.call @lowered_with_call(%m, %w0) : (!Maybe, !idr.world) -> !idr.world
     %r = idr.call @raised_past_call(%x, %x) : (i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     %w3 = idr.call @lowered_past_crash(%x, %w2) : (i64, !idr.world) -> !idr.world
     %w4, %q = idr.call @across_computing(%x, %x, %w3) : (i64, i64, !idr.world) -> (!idr.world, i64)
-    %w5 = idr.io.put_int signed %q, %w4 : i64
+    %w5 = idr.io.put_sint %q, %w4 : i64
     return %w5 : !idr.world
   }
 }

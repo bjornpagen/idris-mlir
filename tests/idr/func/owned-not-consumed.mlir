@@ -37,10 +37,11 @@ idr.program @"owned-not-consumed" root(@root) stage(owned) {
       %w:3 = idr.take %l : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
       %one = arith.constant 1 : i64
       %h2 = arith.addi %w#1, %one : i64
-      %o = idr.reuse %w#0 !idr.own<!idr.box<!L>> @C(%h2 : i64, %w#2 : !idr.own<!idr.box<!L>>)
+      %oc = idr.cell.recycle %w#0 : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
+      %o = idr.cell.init %oc : !idr.cell<!idr.box<!L>, @C> (%h2 : i64, %w#2 : !idr.own<!idr.box<!L>>)
       idr.yield %o : !idr.own<!idr.box<!L>>
     }
-    default {
+    default(%d: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.yield %l : !idr.own<!idr.box<!L>>
     }
     }

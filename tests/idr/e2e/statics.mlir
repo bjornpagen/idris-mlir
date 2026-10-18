@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --check-prefix=TIMING < %t.timing
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 // A list walked at run time prints the strings it holds. --mlir-timing
 // reports each pass and the LLVM stage.
 // CHECK: 5:five 4:four 3:three 2:two 1:one 
@@ -14,23 +14,23 @@ idr.program @statics root(@Prog.main) stage(higher) {
   idr.func @name(%n: i64) -> !idr.str attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 1 {
-      %s = idr.constant "one" : !idr.str
+      %s = idr.constant !idr.str "one"
       idr.yield %s : !idr.str
     }
     case 2 {
-      %s = idr.constant "two" : !idr.str
+      %s = idr.constant !idr.str "two"
       idr.yield %s : !idr.str
     }
     case 3 {
-      %s = idr.constant "three" : !idr.str
+      %s = idr.constant !idr.str "three"
       idr.yield %s : !idr.str
     }
     case 4 {
-      %s = idr.constant "four" : !idr.str
+      %s = idr.constant !idr.str "four"
       idr.yield %s : !idr.str
     }
     default(%d: i64) {
-      %s = idr.constant "five" : !idr.str
+      %s = idr.constant !idr.str "five"
       idr.yield %s : !idr.str
     }
     }

@@ -3,4 +3,4 @@
 # finds it unshared (a take placed after a call that consumed the node
 # would find it shared, and copy it at every level).
 idr-contify: contified
-idr-rc: resets-unshared
+idr-rc-exclusive: resets-unshared

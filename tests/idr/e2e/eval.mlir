@@ -2,7 +2,7 @@
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
 // NEEDS-ACCEPTANCE: the program compiles and prints its value without dumps.
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 // A closed call of a pure, total function stays in the module and runs at
 // run time.
 // CHECK: 3628800 x-x-x
@@ -46,7 +46,7 @@ idr.program @eval root(@Prog.main) stage(higher) {
     %w1 = idr.io.put_sint %f, %w : i64
     %sp = arith.constant 32 : i32
     %w2 = idr.io.put_char %sp, %w1
-    %x = idr.constant "x" : !idr.str
+    %x = idr.constant !idr.str "x"
     %two = arith.constant 2 : i64
     %s = idr.call @dashes(%x, %two) : (!idr.str, i64) -> !idr.str
     %w3 = idr.io.put_str %s, %w2

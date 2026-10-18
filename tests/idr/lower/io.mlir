@@ -13,14 +13,14 @@
 // processor for no feature, the runtime's word 0.
 idr.program @io root(@Prog.r) stage(owned) {
   idr.func @Prog.r(%w: !idr.world) -> !idr.world {
-    %s = idr.constant "h\C3\A9llo\0A" : !idr.str
+    %s = idr.constant !idr.str "h\C3\A9llo\0A"
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_byte %w1
     %w3 = idr.io.put_char %c, %w2
     %n = arith.constant -42 : i8
-    %w4 = idr.io.put_int signed %n, %w3 : i8
+    %w4 = idr.io.put_sint %n, %w3 : i8
     %u = arith.constant -1 : i16
-    %w5 = idr.io.put_int %u, %w4 : i16
+    %w5 = idr.io.put_uint %u, %w4 : i16
     %d = arith.constant 1.5 : f64
     %w6 = idr.io.put_double %d, %w5
     return %w6 : !idr.world

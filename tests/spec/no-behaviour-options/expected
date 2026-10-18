@@ -1,4 +1,4 @@
 flags: found
 flags: every one an input, an output, a resource or a query
-pass options: the test checks alone, idr-expect's holds and idr-canonicalize's test-convergence
+pass options: the test check alone, idr-expect's holds
 idris-mlir registers no debug counter

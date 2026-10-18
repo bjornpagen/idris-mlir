@@ -9,10 +9,10 @@ idr.program @"fold-nonempty" root(@root) stage(first) {
     %t = idr.str.cons %c, %s
     %g = idr.check.nonempty %t, "head of an empty string" : !idr.str
     %h = idr.str.head %g
-    %abc = idr.constant "abc" : !idr.str
+    %abc = idr.constant !idr.str "abc"
     %g1 = idr.check.nonempty %abc, "tail of an empty string" : !idr.str
     %bc = idr.str.tail %g1
-    %shown = idr.str.show signed %x : i64
+    %shown = idr.str.show_sint %x : i64
     %g2 = idr.check.nonempty %shown, "tail of an empty string" : !idr.str
     %rest = idr.str.tail %g2
     %both = idr.str.append %s, %abc
@@ -22,7 +22,7 @@ idr.program @"fold-nonempty" root(@root) stage(first) {
   }
 
   idr.func @failing() -> i32 {
-    %empty = idr.constant "" : !idr.str
+    %empty = idr.constant !idr.str ""
     %g = idr.check.nonempty %empty, "head of an empty string" : !idr.str
     %h = idr.str.head %g
     return %h : i32

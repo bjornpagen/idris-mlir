@@ -44,13 +44,13 @@ idr.program @alloc root(@root) stage(first) {
     %b = idr.str.append %s, %s
     %d = idr.str.cons %c, %s
     %e = idr.str.from_char %c
-    %f = idr.str.show signed %x : i64
+    %f = idr.str.show_sint %x : i64
     %h = idr.str.substr %s, %x, %x
     %i = idr.str.reverse %s
     %j = idr.big.mul %g, %g
     %k = idr.big.neg %g
     %z = idr.big.pred %nat
-    %m = idr.big.from_int signed %x : i64
+    %m = idr.big.from_sint %x : i64
     %n = idr.big.show %g
     %o = idr.big.from_str %s
     %p = idr.str.length %s
@@ -58,9 +58,9 @@ idr.program @alloc root(@root) stage(first) {
     %r = idr.big.cmp eq %g, %g
     %t = idr.big.to_int %g : i32
     %u = idr.big.to_double %g
-    %v = idr.str.to_int signed %s : i64
+    %v = idr.str.to_int %s : i64
     %w = idr.str.to_double %s
-    %y = idr.int_head signed %x : i64
+    %y = idr.int_head_s %x : i64
     return
   }
   // The program's root, which the functions above are no part of.

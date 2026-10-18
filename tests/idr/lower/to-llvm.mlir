@@ -33,7 +33,7 @@ idr.program @"to-llvm" root(@Prog.main) stage(owned) {
     return %r : i64
   }
   idr.func @Prog.main() -> i64 {
-    %c = idr.constant #idr.con<!Thunk, @add, [40, 2]> : !idr.box<!Thunk>
+    %c = idr.constant !idr.box<!Thunk> #idr.con<!Thunk, @add, [40, 2]>
     %two = arith.constant 2 : i64
     %k = idr.cell.new : !idr.cell<!idr.box<!Thunk>, @add>
     %d = idr.cell.init %k : !idr.cell<!idr.box<!Thunk>, @add> (%two : i64, %two : i64)

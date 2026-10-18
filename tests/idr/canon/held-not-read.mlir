@@ -112,11 +112,11 @@ idr.program @"held-not-read" root(@root) stage(first) {
   // passes the choice on beside an argument that is not constant stays after
   // the match, called once, so the function grows nothing. A call moves only
   // when its own effects say it only computes.
-  idr.func @twice(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
+  idr.func effects<none> @twice(%x: i64) -> i64 attributes {total} {
     %r = arith.addi %x, %x : i64
     return %r : i64
   }
-  idr.func @both(%x: i64, %y: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
+  idr.func effects<none> @both(%x: i64, %y: i64) -> i64 attributes {total} {
     %r = arith.addi %x, %y : i64
     return %r : i64
   }

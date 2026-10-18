@@ -13,7 +13,7 @@
 idr.program @"memo-label" root(@main) stage(first) {
   idr.func @divides(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
-    %r = idr.div signed %x, %y : i64
+    %r = idr.divs %x, %y : i64
     return %r : i64
   }
   idr.func @makes(%x: i64) -> !idr.box<!Lazy> attributes {total} {

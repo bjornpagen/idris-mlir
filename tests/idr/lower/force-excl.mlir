@@ -1,6 +1,6 @@
 // NEEDS-ACCEPTANCE: the memo cell is an idr.cell.new and its idr.cell.init, its box written exclusive (S3); the lowered calls are as before.
 // RUN: idris-mlir-opt %s --idr-lower '--idr-expect=holds=lowered,direct-calls,writes-nothing=@once,calls=@once:@one,calls=@once:@plus,calls-only=@once:[@one,@plus,@idris_rt_free_cell,@idris_rt_crash],crash-sites=@once:1' -o /dev/null
-// NEEDS-ACCEPTANCE: the form a force of an exclusive memo cell takes after idr-rc: its state taken apart and its token freed, with no idr.memo.enter or idr.memo.settle; and the syntax of idr.take of a constructor without fields.
+// NEEDS-ACCEPTANCE: the form a force of an exclusive memo cell takes after idr-rc-exclusive: its state taken apart and its token freed, with no idr.memo.enter or idr.memo.settle; and the syntax of idr.take of a constructor without fields.
 // NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
 // A memo cell nothing else holds is forced once, so nothing is memoized:
 // its captures, or its value, move out of it, its memory goes, and the

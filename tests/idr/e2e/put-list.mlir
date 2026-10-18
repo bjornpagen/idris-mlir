@@ -3,7 +3,7 @@
 // RUN: echo -n "x" | %status 1 %t > %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=OUT < %t.out
 // RUN: FileCheck %s --check-prefix=ERR < %t.err
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 // A list packed or concatenated only to be written is written as it is
 // walked, and its bytes are those of the string built from it where the
 // string is kept: UTF-8 for a character from 128 up, in order with the
@@ -18,7 +18,7 @@ idr.program @"put-list" root(@Prog.main) stage(higher) {
   idr.func @pick(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 121 {
-      %s = idr.constant "y" : !idr.str
+      %s = idr.constant !idr.str "y"
       idr.yield %s : !idr.str
     }
     default(%d: i32) {
@@ -58,8 +58,8 @@ idr.program @"put-list" root(@Prog.main) stage(higher) {
     %w10 = idr.io.put_sint %n, %w9 : i64
     %w11 = idr.io.put_char %newline, %w10
     %snil = idr.con !idr.box<!Strs> @Nil()
-    %ab = idr.constant "ab" : !idr.str
-    %dash = idr.constant "-" : !idr.str
+    %ab = idr.constant !idr.str "ab"
+    %dash = idr.constant !idr.str "-"
     %xs = idr.str.from_char %x
     %s3 = idr.con !idr.box<!Strs> @Cons(%xs : !idr.str, %snil : !idr.box<!Strs>)
     %s2 = idr.con !idr.box<!Strs> @Cons(%dash : !idr.str, %s3 : !idr.box<!Strs>)

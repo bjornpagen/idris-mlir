@@ -18,7 +18,7 @@
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 idr.program @hello root(@Prog.main) stage(higher) {
   idr.func @Prog.main(%w: !idr.world) -> (!Unit, !idr.world) attributes {total} {
-    %s = idr.constant "hello " : !idr.str
+    %s = idr.constant !idr.str "hello "
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_byte %w1
     %w3 = idr.io.put_char %c, %w2
@@ -46,7 +46,7 @@ idr.program @hello root(@Prog.main) stage(higher) {
     %inf = arith.constant 0x7FF0000000000000 : f64
     %w19 = idr.io.put_double %inf, %w18
     %w20 = idr.io.put_char %nl, %w19
-    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
+    %unit = idr.constant !Unit #idr.con<!Unit, @MkUnit, []>
     return %unit, %w20 : !Unit, !idr.world
   }
 }

@@ -9,11 +9,11 @@ idr.program @head root(@root) stage(first) {
   idr.func @heads(%c: i32, %s: !idr.str, %x: i64, %b: i16, %d: f64) -> (i32, i32, i32, i32) {
     %t = idr.str.cons %c, %s
     %h0 = idr.str.head %t
-    %u = idr.str.show signed %x : i64
+    %u = idr.str.show_sint %x : i64
     %h1 = idr.str.head %u
-    %v = idr.str.show unsigned %b : i16
+    %v = idr.str.show_uint %b : i16
     %h2 = idr.str.head %v
-    %e = idr.str.show %d : f64
+    %e = idr.str.show_double %d
     %h3 = idr.str.head %e
     return %h0, %h1, %h2, %h3 : i32, i32, i32, i32
   }

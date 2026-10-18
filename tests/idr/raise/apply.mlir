@@ -48,7 +48,7 @@ idr.program @apply root(@Main.main) stage(higher) {
     %c, %w1 = idr.io.get_byte %w
     %x = arith.extui %c : i32 to i64
     %r = idr.call @use(%x, %x) : (i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

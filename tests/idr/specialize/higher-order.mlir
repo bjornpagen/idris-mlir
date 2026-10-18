@@ -40,7 +40,7 @@ idr.program @"higher-order" root(@Main.main) stage(higher) {
     %xs = idr.call @read(%n) : (i64) -> !idr.box<!L>
     %r = idr.call @use(%n, %xs) : (i64, !idr.box<!L>) -> !idr.box<!L>
     %s = idr.call @first(%r) : (!idr.box<!L>) -> i64
-    %w2 = idr.io.put_int signed %s, %w1 : i64
+    %w2 = idr.io.put_sint %s, %w1 : i64
     return %w2 : !idr.world
   }
   // A list known only at runtime: a loop, which nothing inlines.

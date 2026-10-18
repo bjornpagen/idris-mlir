@@ -59,7 +59,7 @@ idr.program @"llvm-facts" root(@Prog.main) stage(first) {
     return %t : i64
   }
   idr.func @sign(%x: i64) -> i64 {
-    %h = idr.int_head signed %x : i64
+    %h = idr.int_head_s %x : i64
     %w = arith.extui %h : i32 to i64
     return %w : i64
   }
@@ -82,7 +82,7 @@ idr.program @"llvm-facts" root(@Prog.main) stage(first) {
     %p = ub.poison : !idr.box<!List>
     %u = idr.call @unread(%p, %s) : (!idr.box<!List>, i64) -> i64
     %g = idr.call @sign(%u) : (i64) -> i64
-    %str = idr.constant "h\C3\A9llo" : !idr.str
+    %str = idr.constant !idr.str "h\C3\A9llo"
     %k = idr.call @walk(%str, %g) : (!idr.str, i64) -> i64
     return %k : i64
   }

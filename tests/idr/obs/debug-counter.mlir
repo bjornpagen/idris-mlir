@@ -22,7 +22,7 @@ idr.program @"debug-counter" root(@Main.main) stage(higher) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
@@ -37,7 +37,7 @@ idr.program @"debug-counter" root(@Main.main) stage(higher) {
     %n = arith.extui %c : i32 to i64
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
     %r = idr.call @pow(%f, %n, %n) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     %nl = arith.constant 10 : i32
     %w3 = idr.io.put_char %nl, %w2
     return %w3 : !idr.world

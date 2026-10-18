@@ -54,7 +54,7 @@ idr.program @"match-lit" root(@Prog.main) stage(first) {
       idr.yield %n : !idr.big
     }
     default(%d: !idr.big) {
-      %one = idr.constant #idr.big<1> : !idr.big
+      %one = idr.constant !idr.big #idr.big<1>
       %p = idr.big.sub %n, %one
       idr.yield %p : !idr.big
     }
@@ -73,9 +73,9 @@ idr.program @"match-lit" root(@Prog.main) stage(first) {
   idr.func @Prog.main() -> i64 {
     %b = arith.constant 1 : i8
     %r = idr.call @byte(%b) : (i8) -> i64
-    %s = idr.constant "two" : !idr.str
+    %s = idr.constant !idr.str "two"
     %t = idr.call @word(%s) : (!idr.str) -> i64
-    %n = idr.constant #idr.big<3> : !idr.big
+    %n = idr.constant !idr.big #idr.big<3>
     %p = idr.call @nat(%n) : (!idr.big) -> !idr.big
     %e = idr.call @empty(%s) : (!idr.str) -> i64
     %sum = arith.addi %r, %t : i64

@@ -44,8 +44,8 @@ idr.program @counting root(@Prog.main) stage(owned) {
     return %r : i64
   }
   idr.func @static(%x: i64) -> (!idr.own<!idr.box<!L>>, !idr.own<!idr.str>) {
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
-    %s = idr.constant "static" : !idr.str
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
+    %s = idr.constant !idr.str "static"
     %r = idr.match_lit %x : i64 -> (!idr.own<!idr.box<!L>>) {
     case 0 {
       %o = idr.dup %n : !idr.q<many, borrow, !idr.box<!L>>

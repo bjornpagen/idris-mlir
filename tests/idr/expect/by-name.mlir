@@ -13,7 +13,7 @@ idr.program @"by-name" root(@root) stage(first) {
   idr.func @loud() -> i64 attributes {total} {
     %w = idr.world.new
     %c = arith.constant 1 : i64
-    %w1 = idr.io.put_int signed %c, %w : i64
+    %w1 = idr.io.put_sint %c, %w : i64
     return %c : i64
   }
   idr.func @quiet() -> i64 attributes {total} {

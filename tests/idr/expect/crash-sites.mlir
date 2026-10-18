@@ -8,7 +8,7 @@ idr.program @"crash-sites" root(@root) stage(first) {
   // expected-error @below {{expected crash-sites: @divides may crash at 1 places, not 0}}
   idr.func @divides(%x: i64, %y: i64) -> i64 {
     %g = idr.check.nonzero %y, "division by zero" : i64
-    %q = idr.div signed %x, %g : i64
+    %q = idr.divs %x, %g : i64
     return %q : i64
   }
   idr.func @never(%x: i64) -> i64 {

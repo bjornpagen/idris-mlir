@@ -40,7 +40,7 @@ idr.program @crash root(@root) stage(first) {
     %1 = idr.str.head %s1
     %s2 = idr.check.nonempty %lit, "tail of an empty string" : !idr.str
     %2 = idr.str.tail %s2
-    %shown = idr.str.show signed %x : i64
+    %shown = idr.str.show_sint %x : i64
     %s3 = idr.check.nonempty %shown, "tail of an empty string" : !idr.str
     %3 = idr.str.tail %s3
     %appended = idr.str.append %s, %lit

@@ -17,7 +17,7 @@
 idr.program @"static-thunk" root(@Prog.main) stage(first) {
   // ones = 1 :: ones: its tail is the thunk of the definition itself.
   idr.func @ones() -> !idr.box<!Stream> attributes {total} {
-    %s = idr.constant #idr.con<!Stream, @Cons, [1, #idr.con<!Tail, @ones, []>]> : !idr.box<!Stream>
+    %s = idr.constant !idr.box<!Stream> #idr.con<!Stream, @Cons, [1, #idr.con<!Tail, @ones, []>]>
     return %s : !idr.box<!Stream>
   }
   idr.func @Tail.force(%t: !idr.box<!Tail>) -> !idr.box<!Stream> {

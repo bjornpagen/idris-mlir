@@ -133,7 +133,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
   idr.func @crash_after_output(%n: i64, %b: i64, %w: !idr.world) -> (i64, !idr.world) attributes {no_inline} {
     // expected-error @below {{a call of @cmk in @crash_after_output runs where only the regions of a later op use it}}
     %f = idr.call @cmk(%n, %n) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
-    %w1 = idr.io.put_int signed %n, %w : i64
+    %w1 = idr.io.put_sint %n, %w : i64
     %r = idr.match_lit %b : i64 -> (i64) {
     case 0 {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
@@ -148,7 +148,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
   }
   idr.func @pure_after_output(%n: i64, %b: i64, %w: !idr.world) -> (i64, !idr.world) attributes {no_inline} {
     %f = idr.call @pmk(%n, %n) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
-    %w1 = idr.io.put_int signed %n, %w : i64
+    %w1 = idr.io.put_sint %n, %w : i64
     %r = idr.match_lit %b : i64 -> (i64) {
     case 0 {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
@@ -191,7 +191,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
     %t3 = arith.addi %t2, %r4 : i64
     %t4 = arith.addi %t3, %r5 : i64
     %t = arith.addi %t4, %r6 : i64
-    %w5 = idr.io.put_int signed %t, %w4 : i64
+    %w5 = idr.io.put_sint %t, %w4 : i64
     return %w5 : !idr.world
   }
 }

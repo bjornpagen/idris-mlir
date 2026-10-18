@@ -14,7 +14,7 @@ idr.program @"evaluated-memo" root(@Main.main) stage(higher) {
     %n = arith.extui %c : i32 to i64
     %t = idr.delay %n : i64 -> !idr.lazy<i64>
     %v = idr.force %t : !idr.lazy<i64> -> i64
-    %w2 = idr.io.put_int signed %v, %w1 : i64
+    %w2 = idr.io.put_sint %v, %w1 : i64
     return %w2 : !idr.world
   }
 }

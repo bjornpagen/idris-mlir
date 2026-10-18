@@ -22,7 +22,7 @@ idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
     case true {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i1) {
       idr.yield %y : i64
     }
     }
@@ -47,7 +47,7 @@ idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
     case true {
       idr.yield %t : i64
     }
-    default {
+    default(%d: i1) {
       idr.yield %y : i64
     }
     }

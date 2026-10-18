@@ -64,7 +64,7 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
   }
   idr.func @check(%n: i64) -> i64 attributes {total, no_inline} {
     %m = idr.check.nonzero %n, "division by zero" : i64
-    %r = idr.div signed %n, %m : i64
+    %r = idr.divs %n, %m : i64
     return %r : i64
   }
   idr.func @consume(%x: !idr.lin<!idr.str>) -> i64 attributes {total, no_inline} {
@@ -108,7 +108,7 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     %t0 = arith.addi %a, %b : i64
     %t1 = arith.addi %t0, %n1 : i64
     %t = arith.addi %t1, %n2 : i64
-    %w2 = idr.io.put_int signed %t, %w1 : i64
+    %w2 = idr.io.put_sint %t, %w1 : i64
     return %w2 : !idr.world
   }
 }

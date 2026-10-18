@@ -27,7 +27,7 @@ idr.program @"call-effects" root(@root) stage(first) {
   }
   idr.func @crashes(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
-    %r = idr.div signed %x, %y : i64
+    %r = idr.divs %x, %y : i64
     return %r : i64
   }
   idr.func @partial(%x: i64) -> i64 {

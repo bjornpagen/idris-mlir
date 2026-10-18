@@ -13,7 +13,7 @@ idr.program @crash root(@Prog.main) stage(higher) {
   idr.func @pick(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %s = idr.constant "zero" : !idr.str
+      %s = idr.constant !idr.str "zero"
       idr.yield %s : !idr.str
     }
     default(%d: i64) {
@@ -24,13 +24,13 @@ idr.program @crash root(@Prog.main) stage(higher) {
     return %r : !idr.str
   }
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
-    %s = idr.constant "before\n" : !idr.str
+    %s = idr.constant !idr.str "before\n"
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_byte %w1
     %n = arith.extui %c : i32 to i64
     %p = idr.call @pick(%n) : (i64) -> !idr.str
     %w3 = idr.io.put_str %p, %w2
-    %a = idr.constant "after\n" : !idr.str
+    %a = idr.constant !idr.str "after\n"
     %w4 = idr.io.put_str %a, %w3
     return %w4 : !idr.world
   }

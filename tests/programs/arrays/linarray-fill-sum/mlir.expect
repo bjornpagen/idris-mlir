@@ -2,4 +2,4 @@
 # in them, and no count changes, since the vector is moved along its
 # thread. Each access's position is a Fin that the loop's own test against
 # the size gives, so no access is checked again.
-idr-rc: counts-nothing=@Main.fill counts-nothing=@Main.sumTo no-heap-allocation=@Main.fill no-heap-allocation=@Main.sumTo
+idr-rc-exclusive: counts-nothing=@Main.fill counts-nothing=@Main.sumTo no-heap-allocation=@Main.fill no-heap-allocation=@Main.sumTo

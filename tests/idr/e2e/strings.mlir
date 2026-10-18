@@ -2,7 +2,7 @@
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "b" | %t > %t.out
 // RUN: FileCheck %s < %t.out
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 // Operations that allocate nothing, on strings that exist (static data):
 // the length and the characters of a string picked at runtime, and a match
 // on it.
@@ -11,11 +11,11 @@ idr.program @strings root(@Prog.main) stage(higher) {
   idr.func @word(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 97 {
-      %s = idr.constant "apple" : !idr.str
+      %s = idr.constant !idr.str "apple"
       idr.yield %s : !idr.str
     }
     default(%d: i32) {
-      %s = idr.constant "b\C3\A9e" : !idr.str
+      %s = idr.constant !idr.str "b\C3\A9e"
       idr.yield %s : !idr.str
     }
     }

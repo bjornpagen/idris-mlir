@@ -3,4 +3,4 @@
 # threads, with no count changed and nothing allocated; and bufferization
 # writes each of their arrays in place, copying none.
 idr-bufferize: in-place=@Main.rev in-place=@Main.flips in-place=@Main.shift in-place=@Main.copy
-idr-rc: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.shift counts-nothing=@Main.copy counts-nothing=@Main.iota no-heap-allocation=@Main.rev no-heap-allocation=@Main.flips no-heap-allocation=@Main.shift no-heap-allocation=@Main.copy
+idr-rc-exclusive: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.shift counts-nothing=@Main.copy counts-nothing=@Main.iota no-heap-allocation=@Main.rev no-heap-allocation=@Main.flips no-heap-allocation=@Main.shift no-heap-allocation=@Main.copy

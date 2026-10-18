@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-18, each with its first mark as
-its reason: 439 files. Proposal 0002's culls removed the marks of the
+its reason: 440 files. Proposal 0002's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -67,13 +67,14 @@ change that adds or removes a mark lists it here again.
 
 - `tests/bench/smoke/expected`: that fannkuch-linear, qsort and unionfind, now the Linear.Vec programs, print the recorded outputs
 
-## tests/compiler (5)
+## tests/compiler (6)
 
 - `tests/compiler/dialect-syntax/expected`: the regenerated samples write, parse and reprint the same
 - `tests/compiler/fork-loops-terminate/expected`: that the fork's size-change decision judges each component of Loops.idr as expected-stdout says, run through this script against the installed fork
 - `tests/compiler/growth-check/expected`: that check agrees with brute force on every graph of Box.idr and gives each hand case the verdict expected-stdout says, built from compiler/src against the installed fork on Chez
 - `tests/compiler/handoff-readable/expected`: how the printer writes an identified data type (an alias at the head of the module, whose body holds `instance`), which the instance check reads; and how it writes idr.program (`idr.program @<name> root(@<root>) stage(higher) {`), which the program check reads
 - `tests/compiler/handoff-round-trip/expected`: the round trip of bench/rbtree, which replaced tests/programs/data/rbtree, and the fixtures named from the root
+- `tests/compiler/probe-names/expected`: that every probe family reads back as itself through its name, an axis through its term, and names no probe has as none, run by tests/testutils.sh against the installed fork (run privately on Chez against a fork of HEAD: identical)
 
 ## tests/determinism (5)
 
@@ -185,15 +186,15 @@ change that adds or removes a mark lists it here again.
 
 - `tests/idr/e2e/crash-callsite.mlir`: that a crash at a call site whose callee is unknown names its caller's file, line and column, as the report names the place of such a location.
 - `tests/idr/e2e/crash.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, and that the program's output is as before.
-- `tests/idr/e2e/doubles.mlir`: that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+- `tests/idr/e2e/doubles.mlir`: that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 - `tests/idr/e2e/eval.mlir`: the program compiles and prints its value without dumps. (and 1 more marks in the file)
 - `tests/idr/e2e/even-group.mlir`: that a heap cell of a sum's third group, whose group number is even, is matched and freed without the runtime reading its group word as a reference, beside a cell of the first group and one of the second. (and 1 more marks in the file)
 - `tests/idr/e2e/hello.mlir`: syntax swept to the data-type-first form (and 1 more marks in the file)
 - `tests/idr/e2e/loops.mlir`: syntax swept to the data-type-first form (and 1 more marks in the file)
 - `tests/idr/e2e/partial-loop.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, and that the program's output is as before.
-- `tests/idr/e2e/put-list.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
-- `tests/idr/e2e/statics.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
-- `tests/idr/e2e/strings.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+- `tests/idr/e2e/put-list.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
+- `tests/idr/e2e/statics.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
+- `tests/idr/e2e/strings.mlir`: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 
 ## tests/idr/effects (12)
 

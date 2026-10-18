@@ -25,7 +25,7 @@ idr.program @"match-known" root(@root) stage(first) {
   }
 
   idr.func @of_constant() -> f64 {
-    %s = idr.constant #idr.con<!Shape, @Circle, [2.0 : f64]> : !Shape
+    %s = idr.constant !Shape #idr.con<!Shape, @Circle, [2.0 : f64]>
     %r = idr.match %s : !Shape -> (f64) {
     case @Circle(%x: f64) {
       %a = arith.mulf %x, %x : f64
@@ -85,8 +85,8 @@ idr.program @"match-known" root(@root) stage(first) {
   // Literals: integers, strings and bigs.
   idr.func @literals() -> (i64, i64, i64) {
     %n = arith.constant 7 : i64
-    %s = idr.constant "b" : !idr.str
-    %g = idr.constant #idr.big<99999999999999999999> : !idr.big
+    %s = idr.constant !idr.str "b"
+    %g = idr.constant !idr.big #idr.big<99999999999999999999>
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
     %three = arith.constant 3 : i64

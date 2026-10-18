@@ -20,11 +20,11 @@ idr.program @"case-of-case" root(@root) stage(higher) {
   idr.func @put_maybe(%m: !Maybe, %w: !idr.world) -> !idr.world {
     %s = idr.match %m : !Maybe -> (!idr.str) {
     case @Nothing() {
-      %c = idr.constant "none" : !idr.str
+      %c = idr.constant !idr.str "none"
       idr.yield %c : !idr.str
     }
     case @Just(%x: i64) {
-      %t = idr.str.show signed %x : i64
+      %t = idr.str.show_sint %x : i64
       idr.yield %t : !idr.str
     }
     }
@@ -55,11 +55,11 @@ idr.program @"case-of-case" root(@root) stage(higher) {
   idr.func @past_effect(%m: !Maybe, %w: !idr.world) -> !idr.world {
     %s = idr.match %m : !Maybe -> (!idr.str) {
     case @Nothing() {
-      %c = idr.constant "none" : !idr.str
+      %c = idr.constant !idr.str "none"
       idr.yield %c : !idr.str
     }
     case @Just(%x: i64) {
-      %t = idr.str.show signed %x : i64
+      %t = idr.str.show_sint %x : i64
       idr.yield %t : !idr.str
     }
     }
@@ -74,7 +74,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
   idr.func @both_effects(%n: i64, %w: !idr.world) -> !idr.world {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %c = idr.constant "zero" : !idr.str
+      %c = idr.constant !idr.str "zero"
       idr.yield %c : !idr.str
     }
     default(%d: i64) {
@@ -109,11 +109,11 @@ idr.program @"case-of-case" root(@root) stage(higher) {
   idr.func @crash_region(%n: i64, %w: !idr.world) -> !idr.world {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %t = idr.str.show signed %n : i64
+      %t = idr.str.show_sint %n : i64
       idr.yield %t : !idr.str
     }
     case 1 {
-      %c = idr.constant "one" : !idr.str
+      %c = idr.constant !idr.str "one"
       idr.yield %c : !idr.str
     }
     default(%d: i64) {

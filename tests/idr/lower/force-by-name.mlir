@@ -34,7 +34,7 @@ idr.program @"force-by-name" root(@Main.main) stage(owned) {
     return %r : i64
   }
   idr.func @Main.main() -> i64 {
-    %s = idr.constant "loud" : !idr.str
+    %s = idr.constant !idr.str "loud"
     %o = idr.dup %s : !idr.q<many, borrow, !idr.str>
     %k = idr.cell.new : !idr.cell<!idr.box<!Loud>, @shout>
     %t = idr.cell.init %k : !idr.cell<!idr.box<!Loud>, @shout> (%o : !idr.own<!idr.str>)

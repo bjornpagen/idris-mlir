@@ -20,7 +20,7 @@ idr.program @"crash-sites" root(@root) stage(first) {
   // symbol that answers to f all the same.
   idr.func @lam(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
-    %r = idr.div signed %x, %y : i64
+    %r = idr.divs %x, %y : i64
     return %r : i64
   } loc("f")
   idr.func @root() -> i64 attributes {total} {

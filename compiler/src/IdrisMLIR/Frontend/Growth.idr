@@ -253,7 +253,7 @@ refuseCycle fc main b ring growth = do
     FromArgument site argument => do
       (_, within) <- graphDefinition fc site.within
       x <- subject sourceDef sourceName i (sourceOf site node)
-      shown <- argument.shown
+      shown <- showArgument argument.shown
       -- Essential: a data type grows through its fields, a function
       -- through its calls.
       pure (case sourceDef.definition of

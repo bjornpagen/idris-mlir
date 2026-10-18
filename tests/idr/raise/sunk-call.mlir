@@ -70,7 +70,7 @@ idr.program @"sunk-call" root(@Main.main) stage(higher) {
       idr.yield %r : i64
     }
     }
-    %w2 = idr.io.put_int signed %s, %w1 : i64
+    %w2 = idr.io.put_sint %s, %w1 : i64
     return %w2 : !idr.world
   }
 }

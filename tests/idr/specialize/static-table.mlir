@@ -52,7 +52,7 @@ idr.program @"static-table" root(@Main.main) stage(first) {
     %i = arith.extui %c : i32 to i64
     %zero = arith.constant 0 : i64
     %r = idr.call @go(%table, %i, %zero) : (!idr.box<!Table>, i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

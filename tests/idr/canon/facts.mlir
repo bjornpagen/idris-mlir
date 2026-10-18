@@ -21,16 +21,16 @@
 
 !Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
 idr.program @facts root(@root) stage(higher) {
-  idr.func @square(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
+  idr.func effects<none> @square(%x: i64) -> i64 attributes {total} {
     %r = arith.muli %x, %x : i64
     return %r : i64
   }
-  idr.func @partial(%x: i64) -> i64 attributes {effects = #idr.effects<diverge>} {
+  idr.func effects<diverge> @partial(%x: i64) -> i64 {
     %r = arith.muli %x, %x : i64
     return %r : i64
   }
-  idr.func @crashes(%x: i64) -> i64 attributes {total, effects = #idr.effects<crash>} {
-    %r = idr.div signed %x, %x : i64
+  idr.func effects<crash> @crashes(%x: i64) -> i64 attributes {total} {
+    %r = idr.divs %x, %x : i64
     return %r : i64
   }
   idr.func @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
@@ -55,11 +55,11 @@ idr.program @facts root(@root) stage(higher) {
   idr.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %t = idr.str.show signed %x : i64
+      %t = idr.str.show_sint %x : i64
       idr.yield %t : !idr.str
     }
     case 1 {
-      %c = idr.constant "one" : !idr.str
+      %c = idr.constant !idr.str "one"
       idr.yield %c : !idr.str
     }
     default(%d: i64) {
@@ -77,11 +77,11 @@ idr.program @facts root(@root) stage(higher) {
   idr.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %t = idr.str.show signed %x : i64
+      %t = idr.str.show_sint %x : i64
       idr.yield %t : !idr.str
     }
     case 1 {
-      %c = idr.constant "one" : !idr.str
+      %c = idr.constant !idr.str "one"
       idr.yield %c : !idr.str
     }
     default(%d: i64) {
@@ -96,11 +96,11 @@ idr.program @facts root(@root) stage(higher) {
   idr.func @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %t = idr.str.show signed %x : i64
+      %t = idr.str.show_sint %x : i64
       idr.yield %t : !idr.str
     }
     case 1 {
-      %c = idr.constant "one" : !idr.str
+      %c = idr.constant !idr.str "one"
       idr.yield %c : !idr.str
     }
     default(%d: i64) {

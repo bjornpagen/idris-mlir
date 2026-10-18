@@ -10,7 +10,7 @@
 // RUN: diff %t.names %t.edited.names
 // NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as the binding-time rule allows.
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the RUN lines hold as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the RUN lines hold as before.
 // One definition edited leaves every other symbol where it was: the
 // first RUN line changes the body of @scale alone, and every function the
 // optimizer keeps or makes that is not @scale's, the specializations of

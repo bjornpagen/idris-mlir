@@ -152,7 +152,7 @@ idr.program @program root(@a) stage(first) {
       idr.crash "zero"
       ub.unreachable
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }

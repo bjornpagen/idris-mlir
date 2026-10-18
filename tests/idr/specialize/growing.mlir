@@ -38,7 +38,7 @@ idr.program @growing root(@Main.main) stage(higher) {
     %x = arith.extui %c : i32 to i64
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
     %r = idr.call @iter(%f, %x, %x) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

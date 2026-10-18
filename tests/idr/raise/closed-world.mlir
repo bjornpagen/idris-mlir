@@ -12,7 +12,7 @@
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
 idr.program @"closed-world" root(@Main.main) stage(higher) {
   idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
-    %w1 = idr.io.put_int signed %n, %w : i64
+    %w1 = idr.io.put_sint %n, %w : i64
     %u = idr.con !Unit @MkUnit()
     %r = idr.con !IORes @MkIORes(%u : !Unit, %w1 : !idr.world)
     return %r : !IORes

@@ -63,15 +63,15 @@ idr.program @"idr-effects" root(@passes_world) stage(first) {
 
   // A division by a nonzero constant cannot crash, and needs no guard; a
   // stale fact goes.
-  idr.func @divides_safely(%x: i64) -> i64 attributes {total, effects = #idr.effects<io, crash>} {
+  idr.func effects<io, crash> @divides_safely(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 3 : i64
-    %r = idr.div signed %x, %c : i64
+    %r = idr.divs %x, %c : i64
     return %r : i64
   }
 
   idr.func @divides(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
-    %r = idr.div signed %x, %y : i64
+    %r = idr.divs %x, %y : i64
     return %r : i64
   }
 
@@ -80,7 +80,7 @@ idr.program @"idr-effects" root(@passes_world) stage(first) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -142,7 +142,7 @@ idr.program @"idr-effects" root(@passes_world) stage(first) {
     return %c : !fn$0
   }
   idr.func @has_sum_divider() -> !fn$0 attributes {total} {
-    %c = idr.constant #idr.con<!fn$0, @divides, []> : !fn$0
+    %c = idr.constant !fn$0 #idr.con<!fn$0, @divides, []>
     return %c : !fn$0
   }
 

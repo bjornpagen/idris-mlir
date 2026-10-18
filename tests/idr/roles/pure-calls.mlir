@@ -21,7 +21,7 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %a = arith.addi %acc, %n : i64
@@ -36,7 +36,7 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %a = arith.addi %acc, %n : i64
@@ -48,7 +48,7 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
   }
   idr.func @check(%n: i64) -> i64 attributes {total, no_inline} {
     %m = idr.check.nonzero %n, "division by zero" : i64
-    %r = idr.div signed %n, %m : i64
+    %r = idr.divs %n, %m : i64
     return %r : i64
   }
   idr.func @consume(%x: !idr.lin<!idr.str>) -> i64 attributes {total, no_inline} {
@@ -68,11 +68,11 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     %s2 = idr.call @spin(%n, %z) : (i64, i64) -> i64
     %k1 = idr.call @check(%n) : (i64) -> i64
     %k2 = idr.call @check(%n) : (i64) -> i64
-    %txt = idr.str.show signed %n : i64
+    %txt = idr.str.show_sint %n : i64
     %l = idr.lin.enter %txt : !idr.lin<!idr.str>
     %e = idr.call @consume(%l) : (!idr.lin<!idr.str>) -> i64
     %t = arith.addi %a, %b : i64
-    %w2 = idr.io.put_int signed %t, %w1 : i64
+    %w2 = idr.io.put_sint %t, %w1 : i64
     return %w2 : !idr.world
   }
 }

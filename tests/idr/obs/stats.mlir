@@ -24,7 +24,7 @@ idr.program @stats root(@Prog.main) stage(higher) {
       %one = arith.constant 1 : i64
       idr.yield %one : i64
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %f = idr.call @fact(%m) : (i64) -> i64
@@ -37,7 +37,7 @@ idr.program @stats root(@Prog.main) stage(higher) {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %ten = arith.constant 10 : i64
     %f = idr.call @fact(%ten) : (i64) -> i64
-    %w1 = idr.io.put_int signed %f, %w : i64
+    %w1 = idr.io.put_sint %f, %w : i64
     %nl = arith.constant 10 : i32
     %w2 = idr.io.put_char %nl, %w1
     return %w2 : !idr.world

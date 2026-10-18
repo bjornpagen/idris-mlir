@@ -21,7 +21,7 @@ idr.program @"forced-labels" root(@main) stage(higher) {
   }
   idr.func @shout(%n: i64) -> i64 attributes {total} {
     %w = idr.world.new
-    %w1 = idr.io.put_int signed %n, %w : i64
+    %w1 = idr.io.put_sint %n, %w : i64
     return %n : i64
   }
   idr.func @echo(%t: !idr.lazy<i64>) -> i64 attributes {total} {
@@ -35,7 +35,7 @@ idr.program @"forced-labels" root(@main) stage(higher) {
     %v = idr.force %e : !idr.lazy<i64> -> i64
     %b = idr.call @forcesBoom() : () -> i64
     %s2 = arith.addi %v, %b : i64
-    %w1 = idr.io.put_int signed %s2, %w : i64
+    %w1 = idr.io.put_sint %s2, %w : i64
     return %w1 : !idr.world
   }
 }

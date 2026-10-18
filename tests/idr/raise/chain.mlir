@@ -27,7 +27,7 @@ idr.program @chain root(@Main.main) stage(higher) {
     %f = idr.call @mk(%n) : (i64) -> !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
     %g = idr.apply %f(%n) : !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
     %r = idr.apply %g(%n) : !idr.fn<(i64) -> i64>
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

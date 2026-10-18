@@ -101,7 +101,7 @@ idr.program @placement root(@root) stage(first) {
   }
   idr.func @checks_first(%x: i64, %y: i64, %w: !idr.world) -> (i64, !idr.world) {
     %g = idr.check.nonzero %y, "division by zero" : i64
-    %q = idr.div signed %x, %g : i64
+    %q = idr.divs %x, %g : i64
     %s = idr.constant !idr.str "divided"
     %w1 = idr.io.put_str %s, %w
     return %q, %w1 : i64, !idr.world
@@ -111,7 +111,7 @@ idr.program @placement root(@root) stage(first) {
     // expected-error @below {{expected crashes-before-output: idr.io.put_str in @writes_first may write before idr.check.nonzero, which may crash}}
     %w1 = idr.io.put_str %s, %w
     %g = idr.check.nonzero %y, "division by zero" : i64
-    %q = idr.div signed %x, %g : i64
+    %q = idr.divs %x, %g : i64
     return %q, %w1 : i64, !idr.world
   }
   // expected-error @below {{expected parameters-used: parameter 1 of @ignores is not read}}
@@ -153,7 +153,7 @@ idr.program @placement root(@root) stage(first) {
     case 0 {
       // expected-error @below {{expected checks-every-path: idr.check.nonzero in @checks_some runs on some paths only}}
       %g = idr.check.nonzero %y, "division by zero" : i64
-      %q = idr.div signed %x, %g : i64
+      %q = idr.divs %x, %g : i64
       idr.yield %q : i64
     }
     default(%d: i64) {

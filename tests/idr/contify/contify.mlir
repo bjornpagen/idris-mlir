@@ -49,7 +49,7 @@ idr.program @contify root(@root) stage(higher) {
     %g = idr.call @named(%t) : (i64) -> i64
     %v = idr.apply %f(%g) : !idr.fn<(i64) -> (i64)>
     %r = idr.call @step(%v, %c0) : (i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w : i64
+    %w2 = idr.io.put_sint %r, %w : i64
     return %w2 : !idr.world
   }
 }

@@ -15,13 +15,13 @@
 !RevChars = !idr.data<"RevChars", plain [@Cons(i32, !idr.box<!idr.data<"RevChars">>), @Nil()]>
 idr.program @"string-build" root(@root) stage(owned) {
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %cs = idr.constant #idr.con<!Chars, @Nil, []> : !idr.box<!Chars>
-    %ss = idr.constant #idr.con<!Strs, @Nil, []> : !idr.box<!Strs>
+    %cs = idr.constant !idr.box<!Chars> #idr.con<!Chars, @Nil, []>
+    %ss = idr.constant !idr.box<!Strs> #idr.con<!Strs, @Nil, []>
     %a = idr.call @pack(%cs) : (!idr.q<many, borrow, !idr.box<!Chars>>) -> !idr.own<!idr.str>
     %b = idr.call @concat(%ss) : (!idr.q<many, borrow, !idr.box<!Strs>>) -> !idr.own<!idr.str>
     idr.drop %a : !idr.own<!idr.str>
     idr.drop %b : !idr.own<!idr.str>
-    %rs = idr.constant #idr.con<!RevChars, @Nil, []> : !idr.box<!RevChars>
+    %rs = idr.constant !idr.box<!RevChars> #idr.con<!RevChars, @Nil, []>
     %w1 = idr.call @write_chars(%cs, %w) : (!idr.q<many, borrow, !idr.box<!Chars>>, !idr.world) -> !idr.world
     %w2 = idr.call @write_strs(%ss, %w1) : (!idr.q<many, borrow, !idr.box<!Strs>>, !idr.world) -> !idr.world
     %w3 = idr.call @write_rev(%rs, %w2) : (!idr.q<many, borrow, !idr.box<!RevChars>>, !idr.world) -> !idr.world

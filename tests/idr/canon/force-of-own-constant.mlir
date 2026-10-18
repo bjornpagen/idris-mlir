@@ -11,7 +11,7 @@
 // The label forces its own constant.
 idr.program @"force-of-own-constant" root(@other) stage(higher) {
   idr.func @knot() -> i64 {
-    %c = idr.constant #idr.closure<@knot, []> : !idr.lazy<i64>
+    %c = idr.constant !idr.lazy<i64> #idr.closure<@knot, []>
     %v = idr.force %c : !idr.lazy<i64> -> i64
     %one = arith.constant 1 : i64
     %r = arith.addi %v, %one : i64
@@ -24,7 +24,7 @@ idr.program @"force-of-own-constant" root(@other) stage(higher) {
     return %r : i64
   }
   idr.func @mid() -> i64 {
-    %c = idr.constant #idr.closure<@label, []> : !idr.lazy<i64>
+    %c = idr.constant !idr.lazy<i64> #idr.closure<@label, []>
     %v = idr.force %c : !idr.lazy<i64> -> i64
     return %v : i64
   }
@@ -35,7 +35,7 @@ idr.program @"force-of-own-constant" root(@other) stage(higher) {
     return %c : i64
   }
   idr.func @other() -> i64 {
-    %c = idr.constant #idr.closure<@leaf, []> : !idr.lazy<i64>
+    %c = idr.constant !idr.lazy<i64> #idr.closure<@leaf, []>
     %v = idr.force %c : !idr.lazy<i64> -> i64
     return %v : i64
   }

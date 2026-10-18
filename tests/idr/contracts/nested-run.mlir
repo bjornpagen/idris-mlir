@@ -24,7 +24,7 @@ idr.program @"nested-run" root(@root) stage(first) {
       idr.yield %x : i64
     }
     }
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     return %w2 : !idr.world
   }
 }

@@ -7,13 +7,13 @@
 idr.program @guards root(@root) stage(first) {
   idr.func @proved(%x: i64) -> i64 {
     %two = arith.constant 2 : i64
-    %r = idr.div signed %x, %two : i64
+    %r = idr.divs %x, %two : i64
     return %r : i64
   }
   idr.func @kept(%x: i64, %y: i64) -> i64 {
     // expected-error @below {{expected no-guards: idr.check.nonzero is left in @kept}}
     %g = idr.check.nonzero %y, "division by zero" : i64
-    %r = idr.div signed %x, %g : i64
+    %r = idr.divs %x, %g : i64
     return %r : i64
   }
   // The program's root, which the functions above are no part of.

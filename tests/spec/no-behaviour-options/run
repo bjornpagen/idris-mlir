@@ -5,10 +5,8 @@
 # pipeline, and an experiment compares two binaries. So idris-mlir's
 # command line is its input, its outputs, its resources and its queries
 # alone, the flags `kept` names; no pass of the dialect declares an option
-# but the test checks `checks` names, idr-expect's `holds`, which chooses
-# what a test checks, and idr-canonicalize's `test-convergence`, which
-# makes the canonicalizer's unconverged count an error, neither of them
-# how anything compiles; and idris-mlir registers no debug counter, which
+# but the test check `checks` names, idr-expect's `holds`, which chooses
+# what a test checks, not how anything compiles; and idris-mlir registers no debug counter, which
 # skips what a pass would do. idris-mlir-opt keeps upstream's counter, where
 # experiments live, and its contracts (idr-contracts), which check each
 # pass and change nothing; idris-mlir's report (report) is an output. The
@@ -54,8 +52,7 @@ fi
 
 # Every pass option the dialect's ODS declares, and the test checks among
 # them, each as its declaration opens.
-checks='ListOption<"holds", "holds"
-Option<"testConvergence", "test-convergence"'
+checks='ListOption<"holds", "holds"'
 find foreign/idr/include -name '*.td' | LC_ALL=C sort | while IFS= read -r td; do
   grep -nE '(List)?Option<"' "$td" | sed "s|^|$td:|"
 done > "$work/options"
@@ -72,7 +69,7 @@ elif [ -s "$work/pass-options" ]; then
   say "pass options beside the test checks:"
   cat "$work/pass-options"
 else
-  say "pass options: the test checks alone, idr-expect's holds and idr-canonicalize's test-convergence"
+  say "pass options: the test check alone, idr-expect's holds"
 fi
 
 # The counter's registration, spelled in pieces so this test is not its own

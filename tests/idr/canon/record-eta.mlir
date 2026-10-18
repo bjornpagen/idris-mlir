@@ -26,14 +26,14 @@ idr.program @"record-eta" root(@root) stage(first) {
 
   // traverse_ printLn xs, as the Prelude's foldr over IO raises it.
   idr.func @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes {
-    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
+    %unit = idr.constant !Unit #idr.con<!Unit, @MkUnit, []>
     %r = idr.match %xs : !idr.box<!List> -> (!IORes) {
     case @Nil() {
       %done = idr.con !IORes @MkIORes(%unit : !Unit, %w : !idr.world)
       idr.yield %done : !IORes
     }
     case @Cons(%x: i64, %rest: !idr.box<!List>) {
-      %w1 = idr.io.put_int signed %x, %w : i64
+      %w1 = idr.io.put_sint %x, %w : i64
       %next = idr.call @traverse(%rest, %w1) : (!idr.box<!List>, !idr.world) -> !IORes
       %u = idr.field %next : !IORes @MkIORes[0] -> !Unit
       %w2 = idr.field %next : !IORes @MkIORes[1] -> !idr.world

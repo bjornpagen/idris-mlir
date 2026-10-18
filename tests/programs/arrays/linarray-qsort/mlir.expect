@@ -4,4 +4,4 @@
 # array, which bufferization writes in place, copying none. (partition
 # itself is inlined into its one caller.)
 idr-bufferize: in-place=@Main.partitionAux in-place=@Main.qsortAux in-place=@Main.checkSorted
-idr-rc: counts-nothing=@Main.partitionAux counts-nothing=@Main.checkSorted counts-nothing=@Main.qsortAux no-heap-allocation=@Main.partitionAux no-heap-allocation=@Main.checkSorted no-heap-allocation=@Main.qsortAux
+idr-rc-exclusive: counts-nothing=@Main.partitionAux counts-nothing=@Main.checkSorted counts-nothing=@Main.qsortAux no-heap-allocation=@Main.partitionAux no-heap-allocation=@Main.checkSorted no-heap-allocation=@Main.qsortAux

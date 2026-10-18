@@ -110,7 +110,7 @@ idr.program @"specialize-ends" root(@Main.main) stage(higher) {
     %s1 = arith.addi %a, %b : i64
     %s2 = arith.addi %s1, %c : i64
     %s = arith.addi %s2, %d : i64
-    %w1 = idr.io.put_int signed %s, %w : i64
+    %w1 = idr.io.put_sint %s, %w : i64
     %k = idr.call @loopIO(%zero) : (f64) -> !idr.fn<(!idr.world) -> (!IORes)>
     %r = idr.apply %k(%w1) : !idr.fn<(!idr.world) -> (!IORes)>
     return %r : !IORes

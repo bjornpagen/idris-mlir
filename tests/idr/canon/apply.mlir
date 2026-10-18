@@ -30,7 +30,7 @@ idr.program @apply root(@root) stage(higher) {
   }
 
   idr.func @captures_first() -> i64 {
-    %c = idr.constant #idr.closure<@sub, [7 : i64]> : !idr.fn<(i64) -> (i64)>
+    %c = idr.constant !idr.fn<(i64) -> (i64)> #idr.closure<@sub, [7 : i64]>
     %two = arith.constant 2 : i64
     %r = idr.apply %c(%two) : !idr.fn<(i64) -> (i64)>
     return %r : i64
@@ -44,15 +44,15 @@ idr.program @apply root(@root) stage(higher) {
 
   // A constant closure's captures become constants.
   idr.func @of_constant(%y: i64) -> i64 {
-    %c = idr.constant #idr.closure<@add, [5 : i64]> : !idr.fn<(i64) -> (i64)>
+    %c = idr.constant !idr.fn<(i64) -> (i64)> #idr.closure<@add, [5 : i64]>
     %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }
 
   // Captures of every kind of constant.
   idr.func @of_constant_data(%n: i64) -> i64 {
-    %c = idr.constant #idr.closure<@pick, [#idr.con<!S, @MkS, [1 : i64, "a"]>, "b"]>
-       : !idr.fn<(i64) -> (i64)>
+    %c = idr.constant !idr.fn<(i64) -> (i64)>
+       #idr.closure<@pick, [#idr.con<!S, @MkS, [1 : i64, "a"]>, "b"]>
     %r = idr.apply %c(%n) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }
@@ -88,7 +88,7 @@ idr.program @apply root(@root) stage(higher) {
     return %r : i64
   }
   idr.func @of_constant_linear(%y: i64) -> i64 {
-    %c = idr.constant #idr.closure<@once, [5 : i64]> : !idr.fn<(i64) -> (i64)>
+    %c = idr.constant !idr.fn<(i64) -> (i64)> #idr.closure<@once, [5 : i64]>
     %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }

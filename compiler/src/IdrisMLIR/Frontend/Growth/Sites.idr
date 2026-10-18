@@ -50,12 +50,16 @@ import Data.String
 public export
 data Reach = Calls Address | Builds Address | Dispatches Template Root Nat
 
+||| What a message shows an argument by (below).
+export
+data ArgumentText : Type
+
 ||| One argument a site writes, whole: the target's parameter it is at (of
 ||| a dispatched method, its own, in the order its field's lambdas take
 ||| them), its kind, the template written there and its root, as its
-||| kind's one reading gives them (`rooted`), and the argument as a message
-||| shows it. Only a refusal prints that, and most arguments are in none,
-||| so it is the reading itself, run where a message is made.
+||| kind's one reading gives them (`rooted`), and what a message shows it
+||| by. Only a refusal prints that, and most arguments are in none, so it
+||| is read where a message is made (`showArgument`).
 public export
 record Argument where
   constructor MkArgument
@@ -63,7 +67,7 @@ record Argument where
   kind : Static
   template : Template
   root : Root
-  shown : Core String
+  shown : ArgumentText
 
 ||| One site: who wrote it (whose parameters the templates' `Var`s are), the
 ||| definition whose text holds it, what it reaches, the argument written at
@@ -250,16 +254,15 @@ holed env t =
 ||| What the walk knows of the writer: its address, the definition whose
 ||| text holds what it reads (for a field type, the field's constructor),
 ||| its name for the normalisers' messages, its location, which a site with
-||| no location of its own takes, and the names its type gives its
-||| parameters, by which a message shows their markers, read where a
-||| message is made.
+||| no location of its own takes, and its definition, whose type names its
+||| parameters, by which a message shows their markers.
 record At where
   constructor MkAt
   writer : Address
   within : Address
   owner : String
   loc : FC
-  names : Core (List Name)
+  writerDef : GlobalDef
 
 ||| A closed term as a message shows it: each marker of the writer's by the
 ||| name the writer's type gives that parameter.
@@ -276,9 +279,9 @@ named names t = replacing (mapMaybe nameFor (keys (getRefs (UN (Basic "")) t))) 
 ||| was bound with, whatever a match made of it since, and each solved
 ||| metavariable as its solution. A name stands as the text it prints as,
 ||| which is no machine name, so that the solving's quotation keeps it.
-display : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> At -> Pats -> Env vs -> TT vs -> Core String
-display at ps env t =
-  showTT (named !(at.names) (withMarkers ps !(solved (closeWritten EmptyFC (map shownAs (standings env)) t))))
+display : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (names : List Name) -> Pats -> Env vs -> TT vs -> Core String
+display names ps env t =
+  showTT (named names (withMarkers ps !(solved (closeWritten EmptyFC (map shownAs (standings env)) t))))
   where
     shownAs : Standing -> VarInfo ()
     shownAs (_, x, _) = TypeValue (Ref EmptyFC Bound (UN (Basic (show x))))
@@ -294,30 +297,43 @@ nameText a = do
   maybe (pure "_") (\n => show <$> toFullNames n) (nameAt (gamma defs) a)
 
 ||| The name the writer's type gives its parameter i, as a message shows it.
-parameterName : At -> Nat -> Core String
-parameterName at i = maybe "_" show . getAt i <$> at.names
+parameterName : (names : List Name) -> Nat -> String
+parameterName names i = maybe "_" show (getAt i names)
 
 mutual
   ||| A template as a message shows it, each marker by the writer's name for
   ||| its parameter.
-  render : {auto c : Ref Ctxt Defs} -> At -> Template -> Core String
-  render at (Var i _) = parameterName at i
-  render at (Head (Just a) []) = nameText a
-  render at (Head (Just a) cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> nameText a <*> renderAll at cs
-  render at (Head Nothing cs) = (\as => "(" ++ joinBy " -> " as ++ ")") <$> renderAll at cs
-  render at (Leaf _) = pure "_"
-  render at (Token _) = pure "_"
-  render at (Formal _ _) = pure "_"
-  render at (Choice _ ls) = (\as => "{" ++ joinBy " | " as ++ "}") <$> renderAll at ls
-  render at (Opaque a cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> nameText a <*> renderAll at cs
-  render at (Applied i _ cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> parameterName at i <*> renderAll at cs
-  render at (Computing i _ cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> parameterName at i <*> renderAll at cs
-  render at (Field k t) = (\s => s ++ "." ++ show k) <$> render at t
-  render at (Held a p) = (\s => s ++ "." ++ show p) <$> nameText a
+  render : {auto c : Ref Ctxt Defs} -> (names : List Name) -> Template -> Core String
+  render names (Var i _) = pure (parameterName names i)
+  render names (Head (Just a) []) = nameText a
+  render names (Head (Just a) cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> nameText a <*> renderAll names cs
+  render names (Head Nothing cs) = (\as => "(" ++ joinBy " -> " as ++ ")") <$> renderAll names cs
+  render names (Leaf _) = pure "_"
+  render names (Token _) = pure "_"
+  render names (Formal _ _) = pure "_"
+  render names (Choice _ ls) = (\as => "{" ++ joinBy " | " as ++ "}") <$> renderAll names ls
+  render names (Opaque a cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> nameText a <*> renderAll names cs
+  render names (Applied i _ cs) = (\as => "(" ++ unwords (parameterName names i :: as) ++ ")") <$> renderAll names cs
+  render names (Computing i _ cs) = (\as => "(" ++ unwords (parameterName names i :: as) ++ ")") <$> renderAll names cs
+  render names (Field k t) = (\s => s ++ "." ++ show k) <$> render names t
+  render names (Held a p) = (\s => s ++ "." ++ show p) <$> nameText a
 
-  renderAll : {auto c : Ref Ctxt Defs} -> At -> List Template -> Core (List String)
-  renderAll at [] = pure []
-  renderAll at (t :: ts) = (::) <$> render at t <*> renderAll at ts
+  renderAll : {auto c : Ref Ctxt Defs} -> (names : List Name) -> List Template -> Core (List String)
+  renderAll names [] = pure []
+  renderAll names (t :: ts) = (::) <$> render names t <*> renderAll names ts
+
+||| What a message shows an argument by, read where a message is made
+||| (`showArgument`): a template, each marker by the writer's name for its
+||| parameter; a closed term; a term as written, in its scope; or one of
+||| the writer's parameters. It holds the definition the names come from,
+||| never a computation: the sites are kept, and a computation kept with
+||| them is one the pipeline's closure analysis cannot tell from any other
+||| of its type, those that read the translation's state among them.
+data ArgumentText : Type where
+  TemplateText : (writer : GlobalDef) -> Template -> ArgumentText
+  TermText : ClosedTerm -> ArgumentText
+  WrittenText : {vs : Scope} -> (writer : GlobalDef) -> Pats -> Env vs -> TT vs -> ArgumentText
+  ParameterText : (writer : GlobalDef) -> Nat -> ArgumentText
 
 ------------------------------------------------------------------------------
 -- What a type builds
@@ -375,7 +391,7 @@ built at fc a cs = do
   where
     -- A part of a type already read, with no term of its own to root.
     argument : (Nat, Template) -> Argument
-    argument (j, t) = MkArgument j AType t Unrooted (render at t)
+    argument (j, t) = MkArgument j AType t Unrooted (TemplateText at.writerDef t)
 
 mutual
   ||| The sites at every type constructor of a template, at any depth: in a
@@ -523,7 +539,7 @@ mutual
 
 ||| A static argument at a position, read off the closed term its key holds
 ||| at its kind (`rooted`), with how a message shows it.
-readArgument : {auto c : Ref Ctxt Defs} -> Nat -> Static -> ClosedTerm -> Core String -> Core Argument
+readArgument : {auto c : Ref Ctxt Defs} -> Nat -> Static -> ClosedTerm -> ArgumentText -> Core Argument
 readArgument j k t shown = (\(tm, root) => MkArgument j k tm root shown) <$> rooted k t
 
 ||| What the callee of a dictionary that closes over runtime values does
@@ -537,7 +553,7 @@ packing at fc [_] = pure []
 packing at fc (t :: ts@(u :: us)) = do
   rest <- packedType (u ::: us)
   (pair, first, second) <- pairNames
-  halves <- sequence [readArgument 0 AType t (showTT t), readArgument 1 AType rest (showTT rest)]
+  halves <- sequence [readArgument 0 AType t (TermText t), readArgument 1 AType rest (TermText rest)]
   here <- traverse (split halves) [first, second]
   p <- refTo EmptyFC pair
   built <- builds at fc (App EmptyFC (App EmptyFC p t) rest)
@@ -567,7 +583,7 @@ argument at ps env fc g k = do
     ADictionary => do
       d <- solved (withMarkers ps (holed env g.offer.arg.written))
       pure (d, heldIn d >>= packing at fc)
-  x <- readArgument g.position k v (display at ps env g.offer.arg.written)
+  x <- readArgument g.position k v (WrittenText at.writerDef ps env g.offer.arg.written)
   pure (x, !beside)
 
 ||| A site reaching a target at the static arguments of those given, with
@@ -1243,8 +1259,16 @@ parameterNames def = case definition def of
         binderOf _ = Nothing
 
 ||| The writer a definition is, at its address, within another.
-atDefinition : {auto c : Ref Ctxt Defs} -> (writer, within : Address) -> GlobalDef -> At
-atDefinition writer within def = MkAt writer within (show (fullname def)) (location def) (parameterNames def)
+atDefinition : (writer, within : Address) -> GlobalDef -> At
+atDefinition writer within def = MkAt writer within (show (fullname def)) (location def) def
+
+||| An argument as a message shows it.
+export
+showArgument : {auto c : Ref Ctxt Defs} -> ArgumentText -> Core String
+showArgument (TemplateText def t) = render !(parameterNames def) t
+showArgument (TermText t) = showTT t
+showArgument (WrittenText def ps env t) = display !(parameterNames def) ps env t
+showArgument (ParameterText def i) = (\names => parameterName names i) <$> parameterNames def
 
 ||| The writer, by address, and the definition it is.
 writerAt : {auto c : Ref Ctxt Defs} -> (writer, within : Address) -> Core (Maybe (At, GlobalDef))
@@ -1325,7 +1349,7 @@ projectionSite at params p = do
     static (_, Nothing) = Nothing
 
     own : (Nat, Nat, Static, ClosedTerm) -> Core Argument
-    own (q, j, k, t) = readArgument q k t (parameterName at j)
+    own (q, j, k, t) = readArgument q k t (ParameterText at.writerDef j)
 
 ||| What each parameter stands for at a node: a family the node has a head
 ||| for is that type constructor applied to parts of the family's value,

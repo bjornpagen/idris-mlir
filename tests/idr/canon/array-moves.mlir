@@ -116,7 +116,7 @@ idr.program @"array-moves" root(@root) stage(first) {
     %w8 = idr.call @inMatch(%ref, %x, %w7) : (memref<!idr.box<!R>, #idr.world>, i64, !idr.world) -> !idr.world
     %words, %w9 = idr.array.new [], %x, %w8 : i64 -> memref<i64, #idr.world>
     %w10 = idr.call @word(%words, %w9) : (memref<i64, #idr.world>, !idr.world) -> !idr.world
-    %w11 = idr.io.put_int signed %k, %w10 : i64
+    %w11 = idr.io.put_sint %k, %w10 : i64
     return %w11 : !idr.world
   }
 }

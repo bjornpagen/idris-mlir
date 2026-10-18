@@ -7,7 +7,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
   idr.func @nonempty(%x: i64, %c: i32, %s: !idr.str) -> (i64, i64, i64) {
     %zero = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %shown = idr.str.show signed %x : i64
+    %shown = idr.str.show_sint %x : i64
     %a = idr.match_lit %shown : !idr.str -> (i64) {
     case "" {
       idr.yield %zero : i64
@@ -25,7 +25,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
       idr.yield %one : i64
     }
     }
-    %lit = idr.constant "x" : !idr.str
+    %lit = idr.constant !idr.str "x"
     %appended = idr.str.append %s, %lit
     %d = idr.match_lit %appended : !idr.str -> (i64) {
     case "" {
@@ -56,7 +56,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
   idr.func @other_keys(%x: i64) -> i64 {
     %zero = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %shown = idr.str.show signed %x : i64
+    %shown = idr.str.show_sint %x : i64
     %b = idr.match_lit %shown : !idr.str -> (i64) {
     case "1" {
       idr.yield %zero : i64

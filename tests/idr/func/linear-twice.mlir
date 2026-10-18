@@ -19,7 +19,7 @@ idr.func @branch(%b: i64, %x: !idr.lin<i64>) -> i64 {
     %t = idr.call @take(%x) : (!idr.lin<i64>) -> i64
     idr.yield %t : i64
   }
-  default {
+  default(%d: i64) {
     %v = idr.lin.use %x : !idr.lin<i64>
     idr.yield %v : i64
   }
@@ -119,7 +119,7 @@ idr.func @shared(%p: !P) -> i64 {
     %x = arith.addi %b, %b : i64
     idr.yield %x : i64
   }
-  default {
+  default(%d: !P) {
     %z = arith.constant 0 : i64
     idr.yield %z : i64
   }

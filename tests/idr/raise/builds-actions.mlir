@@ -15,7 +15,7 @@
 !L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @"builds-actions" root(@Main.main) stage(higher) {
   idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
-    %w1 = idr.io.put_int signed %n, %w : i64
+    %w1 = idr.io.put_sint %n, %w : i64
     %u = idr.con !Unit @MkUnit()
     %r = idr.con !IORes @MkIORes(%u : !Unit, %w1 : !idr.world)
     return %r : !IORes
@@ -74,8 +74,8 @@ idr.program @"builds-actions" root(@Main.main) stage(higher) {
     %n = arith.extui %c : i32 to i64
     %xs = idr.call @read(%n) : (i64) -> !idr.box<!L>
     %a = idr.call @actions(%xs) : (!idr.box<!L>) -> !IO
-    %w2 = idr.io.put_int signed %n, %w1 : i64
-    %w3 = idr.io.put_int signed %n, %w2 : i64
+    %w2 = idr.io.put_sint %n, %w1 : i64
+    %w3 = idr.io.put_sint %n, %w2 : i64
     %f = idr.field %a : !IO @MkIO[0] -> !idr.fn<(!idr.world) -> (!IORes)>
     %s = idr.apply %f(%w3) : !idr.fn<(!idr.world) -> (!IORes)>
     return %s : !IORes

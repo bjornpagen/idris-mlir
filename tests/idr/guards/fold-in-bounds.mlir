@@ -6,7 +6,7 @@
 // same length, already checked folds too.
 idr.program @"fold-in-bounds" root(@root) stage(first) {
   idr.func @proving() -> i32 {
-    %abc = idr.constant "abc" : !idr.str
+    %abc = idr.constant !idr.str "abc"
     %two = arith.constant 2 : i64
     %n = idr.str.length %abc
     %g = idr.check.in_bounds %two, %abc, "string index out of range" : !idr.str
@@ -15,7 +15,7 @@ idr.program @"fold-in-bounds" root(@root) stage(first) {
   }
 
   idr.func @failing() -> (i32, i32) {
-    %abc = idr.constant "abc" : !idr.str
+    %abc = idr.constant !idr.str "abc"
     %three = arith.constant 3 : i64
     %below = arith.constant -1 : i64
     %n = idr.str.length %abc

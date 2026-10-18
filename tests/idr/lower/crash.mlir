@@ -13,7 +13,7 @@ idr.program @crash root(@Main.main) stage(first) {
   idr.func @Main.name(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 1 {
-      %s = idr.constant "one" : !idr.str
+      %s = idr.constant !idr.str "one"
       idr.yield %s : !idr.str
     }
     default(%d: i64) {
@@ -29,7 +29,7 @@ idr.program @crash root(@Main.main) stage(first) {
   }
   idr.func @Main.half(%a: i64, %b: i64) -> i64 {
     %c = idr.check.nonzero %b, "division by zero" : i64 loc("Main.idr":9:5)
-    %q = idr.div signed %a, %c : i64 loc("Main.idr":9:5)
+    %q = idr.divs %a, %c : i64 loc("Main.idr":9:5)
     return %q : i64
   }
   idr.func @Main.main() -> i64 {

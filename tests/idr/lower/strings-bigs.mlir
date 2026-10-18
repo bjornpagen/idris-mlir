@@ -16,9 +16,9 @@ idr.program @"strings-bigs" root(@Prog.main) stage(first) {
     %a = idr.str.append %s, %s
     %b = idr.str.cons %c, %s
     %f = idr.str.from_char %c
-    %t1 = idr.str.show signed %n : i32
-    %t2 = idr.str.show %n : i32
-    %t3 = idr.str.show %d : f64
+    %t1 = idr.str.show_sint %n : i32
+    %t2 = idr.str.show_uint %n : i32
+    %t3 = idr.str.show_double %d
     %len = idr.str.length %s
     %ix = idr.check.in_bounds %i, %s, "string index out of range" : !idr.str
     %x = idr.str.index %s, %ix
@@ -29,7 +29,7 @@ idr.program @"strings-bigs" root(@Prog.main) stage(first) {
     %sub = idr.str.substr %s, %i, %i
     %r = idr.str.reverse %s
     %lte = idr.str.cmp lte %s, %s
-    %k = idr.str.to_int signed %s : i16
+    %k = idr.str.to_int %s : i16
     %v = idr.str.to_double %s
     return %a, %b, %f, %t1, %t2, %t3, %x, %h, %tl, %sub, %r, %lte, %k, %v
         : !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, i32, i32, !idr.str,
@@ -44,7 +44,7 @@ idr.program @"strings-bigs" root(@Prog.main) stage(first) {
     %m = idr.big.mod %a, %mb
     %n = idr.big.neg %a
     %gt = idr.big.cmp gt %a, %b
-    %u = idr.big.from_int %y : i8
+    %u = idr.big.from_uint %y : i8
     %w = idr.big.to_int %a : i32
     %fdd = idr.check.finite %d, "cast of a non-finite Double"
     %fd = idr.big.from_double %fdd
@@ -58,7 +58,7 @@ idr.program @"strings-bigs" root(@Prog.main) stage(first) {
     %dd = idr.check.finite %d, "cast of a non-finite Double"
     %i = idr.to_int %dd : i8
     %h = idr.double_head %d
-    %g = idr.int_head signed %n : i16
+    %g = idr.int_head_s %n : i16
     return %i, %h, %g : i8, i32, i32
   }
   idr.func @Prog.main() -> i64 {

@@ -10,7 +10,7 @@
 // RUN: FileCheck %s --check-prefix=GROWS < %t.err
 // NEEDS-ACCEPTANCE: that idr-tail-calls is the pipeline's last module pass, and the tree printer's file names.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 // Functions that call one another in tail position, none itself: a
 // recursion that idr-tail-loops makes no loop of, and that the optimizer
 // never inlines, since its functions are on a cycle. idr-tail-calls makes
@@ -164,7 +164,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     %w4 = idr.io.put_char %nl, %w3
     %w5 = idr.io.put_sint %last, %w4 : i64
     %w6 = idr.io.put_char %nl, %w5
-    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
+    %unit = idr.constant !Unit #idr.con<!Unit, @MkUnit, []>
     return %unit, %w6 : !Unit, !idr.world
   }
 }

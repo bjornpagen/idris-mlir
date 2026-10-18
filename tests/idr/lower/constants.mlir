@@ -15,12 +15,12 @@
 idr.program @constants root(@Prog.main) stage(owned) {
   idr.func @values() -> (!idr.str, !idr.str, !idr.big, !idr.big, !idr.box<!List>,
                                   !Num) {
-    %s1 = idr.constant "h\C3\A9!" : !idr.str
-    %s2 = idr.constant "h\C3\A9!" : !idr.str
-    %small = idr.constant #idr.big<-43> : !idr.big
-    %large = idr.constant #idr.big<-36893488147419103231> : !idr.big
-    %l = idr.constant #idr.con<!List, @Cons, [7, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
-    %n = idr.constant #idr.con<!Num, @D, [2.5 : f64]> : !Num
+    %s1 = idr.constant !idr.str "h\C3\A9!"
+    %s2 = idr.constant !idr.str "h\C3\A9!"
+    %small = idr.constant !idr.big #idr.big<-43>
+    %large = idr.constant !idr.big #idr.big<-36893488147419103231>
+    %l = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [7, #idr.con<!List, @Nil, []>]>
+    %n = idr.constant !Num #idr.con<!Num, @D, [2.5 : f64]>
     return %s1, %s2, %small, %large, %l, %n
         : !idr.str, !idr.str, !idr.big, !idr.big, !idr.box<!List>, !Num
   }

@@ -19,7 +19,7 @@ idr.program @contify root(@root) stage(higher) {
     case 1 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i1) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %a = idr.call @twice(%acc) : (i64) -> i64
@@ -48,7 +48,7 @@ idr.program @contify root(@root) stage(higher) {
     %g = idr.call @named(%t) : (i64) -> i64
     %v = idr.apply %f(%g) : !idr.fn<(i64) -> (i64)>
     %r = idr.call @step(%v, %c0) : (i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w : i64
+    %w2 = idr.io.put_sint %r, %w : i64
     return %w2 : !idr.world
   }
 }

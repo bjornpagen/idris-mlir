@@ -54,7 +54,7 @@ idr.program @once root(@Main.main) stage(first) {
     %n = arith.extui %c : i32 to i64
     %a = idr.call @twice(%n) : (i64) -> i64
     %b = idr.call @even(%n, %a) : (i64, i64) -> i64
-    %w2 = idr.io.put_int signed %b, %w1 : i64
+    %w2 = idr.io.put_sint %b, %w1 : i64
     return %w2 : !idr.world
   }
 }

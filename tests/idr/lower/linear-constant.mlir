@@ -7,7 +7,7 @@
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!Step>)]>
 idr.program @"linear-constant" root(@Prog.main) stage(owned) {
   idr.func @action() -> !IO {
-    %c = idr.constant #idr.con<!IO, @MkIO, [#idr.con<!Step, @Bind, [2, 3]>]> : !IO
+    %c = idr.constant !IO #idr.con<!IO, @MkIO, [#idr.con<!Step, @Bind, [2, 3]>]>
     return %c : !IO
   }
   idr.func @Prog.main() -> i64 {

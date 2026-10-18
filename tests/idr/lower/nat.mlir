@@ -19,9 +19,9 @@ idr.program @nat root(@Prog.main) stage(first) {
     return %s, %p, %c, %d, %n, %e : !idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big
   }
   idr.func @Prog.main() -> i64 {
-    %zero = idr.constant #idr.big<0> : !idr.nat
-    %one = idr.constant #idr.big<1> : !idr.nat
-    %i = idr.constant #idr.big<-5> : !idr.big
+    %zero = idr.constant !idr.nat #idr.big<0>
+    %one = idr.constant !idr.nat #idr.big<1>
+    %i = idr.constant !idr.big #idr.big<-5>
     %r:6 = idr.call @naturals(%zero, %one, %i)
         : (!idr.nat, !idr.nat, !idr.big) -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big)
     %x = arith.extui %r#2 : i1 to i64

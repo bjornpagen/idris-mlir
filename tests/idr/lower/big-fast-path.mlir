@@ -23,29 +23,29 @@
 // object format may write.
 idr.program @"big-fast-path" root(@small) stage(first) {
   idr.func @sum(%x: i32, %y: i32) -> i64 {
-    %a = idr.big.from_int signed %x : i32
-    %b = idr.big.from_int signed %y : i32
+    %a = idr.big.from_sint %x : i32
+    %b = idr.big.from_sint %y : i32
     %s = idr.big.add %a, %b
     %r = idr.big.to_int %s : i64
     return %r : i64
   }
   idr.func @difference(%x: i32, %y: i8) -> i64 {
-    %a = idr.big.from_int signed %x : i32
-    %b = idr.big.from_int %y : i8
+    %a = idr.big.from_sint %x : i32
+    %b = idr.big.from_uint %y : i8
     %s = idr.big.sub %a, %b
     %r = idr.big.to_int %s : i64
     return %r : i64
   }
   idr.func @product(%x: i32, %y: i16) -> i64 {
-    %a = idr.big.from_int signed %x : i32
-    %b = idr.big.from_int signed %y : i16
+    %a = idr.big.from_sint %x : i32
+    %b = idr.big.from_sint %y : i16
     %s = idr.big.mul %a, %b
     %r = idr.big.to_int %s : i64
     return %r : i64
   }
   idr.func @compared(%x: i32, %y: i32) -> i1 {
-    %a = idr.big.from_int signed %x : i32
-    %b = idr.big.from_int signed %y : i32
+    %a = idr.big.from_sint %x : i32
+    %b = idr.big.from_sint %y : i32
     %lt = idr.big.cmp lt %a, %b
     %eq = idr.big.cmp eq %a, %b
     %r = arith.xori %lt, %eq : i1
@@ -53,9 +53,9 @@ idr.program @"big-fast-path" root(@small) stage(first) {
   }
   // The clamp of an Integer, one more, and its predecessor: all natural.
   idr.func @naturals(%x: i32) -> i64 {
-    %a = idr.big.from_int signed %x : i32
+    %a = idr.big.from_sint %x : i32
     %n = idr.nat.from_big %a
-    %one = idr.constant #idr.big<1> : !idr.nat
+    %one = idr.constant !idr.nat #idr.big<1>
     %s = idr.big.add %n, %one : !idr.nat
     %p = idr.big.pred %s
     %i = idr.nat.to_big %p
@@ -78,11 +78,11 @@ idr.program @"big-fast-path" root(@small) stage(first) {
     %q = idr.call @compared(%c, %c) : (i32, i32) -> i1
     %n = idr.call @naturals(%c) : (i32) -> i64
     %qi = arith.extui %q : i1 to i64
-    %w2 = idr.io.put_int signed %s, %w1 : i64
-    %w3 = idr.io.put_int signed %d, %w2 : i64
-    %w4 = idr.io.put_int signed %p, %w3 : i64
-    %w5 = idr.io.put_int signed %qi, %w4 : i64
-    %w6 = idr.io.put_int signed %n, %w5 : i64
+    %w2 = idr.io.put_sint %s, %w1 : i64
+    %w3 = idr.io.put_sint %d, %w2 : i64
+    %w4 = idr.io.put_sint %p, %w3 : i64
+    %w5 = idr.io.put_sint %qi, %w4 : i64
+    %w6 = idr.io.put_sint %n, %w5 : i64
     return %w6 : !idr.world
   }
   // The large root: @unknown on two bigs read from input, any size.

@@ -11,7 +11,7 @@
 idr.program @"long-cycle" root(@root) stage(first) {
   idr.func @f0(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
-    %q = idr.div signed %x, %y : i64
+    %q = idr.divs %x, %y : i64
     %r = idr.call @f1(%q) : (i64) -> i64
     return %r : i64
   }

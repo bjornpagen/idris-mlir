@@ -3,7 +3,7 @@
 // RUN: %t > %t.out
 // RUN: FileCheck %s < %t.out
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
-// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_sint wrote, and that the program's output is as before.
 // Loops of every shape idr-tail-loops makes run as the recursion they
 // replace: a count up to a bound (an scf.for), a count down to zero, a
 // fold over a list, output before the decision, an IO fold whose
@@ -107,7 +107,7 @@ idr.program @loops root(@Prog.main) stage(higher) {
     return %r : !idr.world
   }
   idr.func @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes attributes {total} {
-    %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
+    %unit = idr.constant !Unit #idr.con<!Unit, @MkUnit, []>
     %nl = arith.constant 10 : i32
     %r = idr.match %xs : !idr.box<!List> -> (!IORes) {
     case @Nil() {

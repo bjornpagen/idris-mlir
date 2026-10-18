@@ -34,7 +34,7 @@ idr.program @totality root(@Main.main) stage(first) {
     %n = arith.extui %c : i32 to i64
     %u0 = idr.call @f1(%n) : (i64) -> i64
     // REQUESTS
-    %w2 = idr.io.put_int signed %u1025, %w1 : i64
+    %w2 = idr.io.put_sint %u1025, %w1 : i64
     return %w2 : !idr.world
   }
 }

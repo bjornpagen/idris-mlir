@@ -43,7 +43,7 @@ idr.program @dictionary root(@Main.main) stage(higher) {
     %d = idr.con !Num @MkNum(%p : !idr.fn<(i64, i64) -> (i64)>, %n : !idr.fn<(i64) -> (i64)>)
     %z = arith.constant 0 : i64
     %r = idr.call @sumTo(%d, %x, %z) : (!Num, i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

@@ -42,7 +42,7 @@ idr.program @"match-regions" root(@root) stage(first) {
       idr.yield
     }
     // expected-error @+1 {{expected '('}}
-    default {
+    default(%d: !T) {
       idr.yield
     }
     }

@@ -26,7 +26,7 @@ idr.program @entry root(@Prog.main) stage(owned) {
 
 idr.program @entry root(@Prog.main) stage(owned) {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
-    %s = idr.constant "hi\0A" : !idr.str
+    %s = idr.constant !idr.str "hi\0A"
     %w1 = idr.io.put_str %s, %w
     return %w1 : !idr.world
   }
@@ -37,7 +37,7 @@ idr.program @entry root(@Prog.main) stage(owned) {
 !IORes = !idr.data<"IORes", plain [@MkIORes(!idr.data<"Unit", plain [@MkUnit()]>, !idr.world)]>
 idr.program @entry root(@Prog.main) stage(owned) {
   idr.func @Prog.main(%w: !idr.world) -> !IORes {
-    %s = idr.constant "hi\0A" : !idr.str
+    %s = idr.constant !idr.str "hi\0A"
     %w1 = idr.io.put_str %s, %w
     %u = idr.con !idr.data<"Unit", plain [@MkUnit()]> @MkUnit()
     %r = idr.con !IORes @MkIORes(%u : !idr.data<"Unit", plain [@MkUnit()]>, %w1 : !idr.world)

@@ -40,7 +40,7 @@ idr.program @"world-twice" root(@root) stage(first) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
-    default {
+    default(%d: i64) {
       idr.yield %b : i64
     }
     }
@@ -66,7 +66,7 @@ idr.program @"world-twice" root(@root) stage(first) {
       %w1 = idr.io.put_char %c, %w
       idr.yield %w1 : !idr.world
     }
-    default {
+    default(%d: i64) {
       idr.yield %w : !idr.world
     }
     }
