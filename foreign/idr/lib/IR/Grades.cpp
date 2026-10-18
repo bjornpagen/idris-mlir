@@ -76,13 +76,15 @@ Type idr::owned(Type type) {
   return graded(grade, unrestricted(type));
 }
 
-// At the owned stage a value of ours that holds no reference of its own is
-// a borrow, the grade that says so, never plain. A builtin buffer stays
-// plain: upstream's memref ops take no graded operand.
+// At the owned stage a value of ours that holds references but none of its
+// own is a borrow, the grade that says so, never plain. A value that holds
+// no reference at all is a view of nothing, and stays plain, as counting
+// leaves it; so does a builtin buffer: upstream's memref ops take no graded
+// operand.
 Type idr::view(Type type) {
   Type value = unrestricted(type);
-  bool ours = isa<IdrDialect>(value.getDialect());
-  return graded({gradeOf(type).quantity, ours ? Permission::Borrow : Permission::Plain}, value);
+  bool borrows = isa<IdrDialect>(value.getDialect()) && holdsReferences(value);
+  return graded({gradeOf(type).quantity, borrows ? Permission::Borrow : Permission::Plain}, value);
 }
 
 Type idr::atQuantity(Type type, Quantity quantity) {

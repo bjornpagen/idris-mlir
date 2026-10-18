@@ -304,6 +304,20 @@ private:
                                            ctor.fields[static_cast<unsigned>(read.getIndex())]));
         return;
       }
+      // A take's or an unpack's results are inferred from the value it takes
+      // apart, which is graded now: each as inferred, an owned one kept at
+      // the owned grade it has.
+      if (isa<TakeOp, UnpackOp>(op)) {
+        SmallVector<Type> types;
+        if (failed(cast<InferTypeOpInterface>(op).inferReturnTypes(
+                op->getContext(), op->getLoc(), op->getOperands(), op->getRawDictionaryAttrs(),
+                op->getPropertiesStorage(), op->getRegions(), types)))
+          return;
+        for (auto [result, type] : llvm::zip_equal(op->getResults(), types))
+          if (!(isOwned(result.getType()) && isOwned(type)))
+            result.setType(type);
+        return;
+      }
       auto match = dyn_cast<MatchOpInterface>(op);
       if (!match)
         return;
