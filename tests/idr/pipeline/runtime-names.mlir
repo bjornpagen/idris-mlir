@@ -1,9 +1,10 @@
+// NEEDS-ACCEPTANCE: that a program symbol the runtime defines or refers to is a refusal of the program (exit 3, `unsupported (program): `), its message as before.
 // RUN: sed 's/Prog[.]count/idris_rt_live_cells/g' %s > %t.defines.mlir
-// RUN: %status 1 idris-mlir -c %t.defines.mlir -o %t.defines.o 2> %t.defines.err
+// RUN: %status 3 idris-mlir -c %t.defines.mlir -o %t.defines.o 2> %t.defines.err
 // RUN: grep -q 'the program defines idris_rt_live_cells, which the runtime defines too' %t.defines.err
 // RUN: test ! -e %t.defines.o
 // RUN: sed 's/Prog[.]count/write/g' %s > %t.refers.mlir
-// RUN: %status 1 idris-mlir -c %t.refers.mlir -o %t.refers.o 2> %t.refers.err
+// RUN: %status 3 idris-mlir -c %t.refers.mlir -o %t.refers.o 2> %t.refers.err
 // RUN: grep -q 'the program defines write, which the runtime refers to too' %t.refers.err
 // RUN: test ! -e %t.refers.o
 // RUN: idris-mlir -c %s -o %t.o
@@ -22,7 +23,7 @@ idr.program @"runtime-names" root(@Prog.main) stage(higher) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
-    default {
+    default(%d0: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @Prog.count(%m) : (i64) -> i64

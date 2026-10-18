@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // One compilation, timed and profiled as a whole: the frontend and the link
-// as child processes, the pipeline and LLVM in process, each step folded
-// into the compilation's verdict, which its report and its exit status
-// are.
+// as child processes, the pipeline and LLVM in process, on one context
+// whose diagnostic engine every step says its failures in, folded into the
+// compilation's verdict, which its report and its exit status are.
 
 #include "idr/Driver/Compile.h"
 
 #include "idr/Driver/Artifacts.h"
 #include "idr/Driver/Options.h"
-#include "idr/Driver/Report.h"
 #include "idr/Driver/Verdict.h"
 #include "idr/Support/Profile.h"
 
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/Timing.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -21,12 +24,15 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 #include <iterator>
 #include <optional>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -34,17 +40,18 @@ using namespace idr::driver;
 
 // Idris source to the Core and the module the plan names. The frontend
 // reads no environment, so its prefix and package directories are its
-// arguments. It prints Idris's errors and its own rejections as Idris
-// prints them, and exits with this tool's statuses, read back here as the
-// verdict that gives each: 3 is the program's, refused; anything else but
-// 0, or a frontend that did not run or did not finish, is the compiler's.
-static Verdict frontend(llvm::StringRef frontendPath, const FromIdris &idris) {
-  std::vector<std::string> args{frontendPath.str(), "--prefix", idrisPrefix.getValue()};
-  for (const std::string &directory : packagePath)
+// arguments. It prints no refusal: it writes each into the module it
+// leaves (run reads them), so its exit status once it finished is all this
+// returns. One that did not run or did not finish is the compiler's.
+static mlir::FailureOr<int> frontend(llvm::StringRef frontendPath, const FromIdris &idris,
+                                     mlir::MLIRContext &context) {
+  const FrontendArgs &options = idris.frontend;
+  std::vector<std::string> args{frontendPath.str(), "--prefix", options.prefix};
+  for (const std::string &directory : options.packagePath)
     args.insert(args.end(), {"--package-path", directory});
-  for (const std::string &package : packages)
+  for (const std::string &package : options.packages)
     args.insert(args.end(), {"-p", package});
-  if (noPrelude)
+  if (options.noPrelude)
     args.emplace_back("--no-prelude");
   args.insert(args.end(), {"--core", idris.corePath, "-o", idris.modulePath, idris.source});
   std::vector<llvm::StringRef> argv(args.begin(), args.end());
@@ -52,88 +59,82 @@ static Verdict frontend(llvm::StringRef frontendPath, const FromIdris &idris) {
   bool notRun = false;
   int status = llvm::sys::ExecuteAndWait(frontendPath, argv, std::nullopt, {}, 0, 0, &error,
                                          &notRun);
-  if (notRun) {
-    Report() << "cannot run " << frontendPath << ": " << error;
-    return Verdict::Internal;
-  }
-  if (status == ok)
-    return Verdict::Accepted;
-  if (status == rejected)
-    return Verdict::Refused;
+  mlir::Location unknown = mlir::UnknownLoc::get(&context);
+  if (notRun)
+    return mlir::emitError(unknown) << "cannot run " << frontendPath << ": " << error;
+  // A negative status is no exit of the frontend's: it was killed, or not
+  // waited for.
   if (status < 0)
-    Report() << "internal error: " << frontendPath << " did not finish: " << error;
-  else
-    Report() << "internal error: " << frontendPath << " exited with status " << status;
-  return Verdict::Internal;
+    return mlir::emitError(unknown) << frontendPath << " did not finish: " << error;
+  return status;
 }
 
 // The pinned clang links the objects of the program's bins, in their
 // order, and the runtime's (what the program did not inline resolves
 // there) into the executable, for the target the objects were compiled for.
-// A link that fails is the compiler's.
-static Verdict link(const Artifacts &artifacts, const Executable &executable) {
+// The last step: a link that fails is the compiler's error.
+static void link(const Artifacts &artifacts, const Executable &executable,
+                 llvm::StringRef runtime, mlir::MLIRContext &context) {
   std::vector<llvm::StringRef> argv{pinnedCc};
   argv.insert(argv.end(), artifacts.objects.begin(), artifacts.objects.end());
-  argv.insert(argv.end(), {runtimePath.getValue(), "-o", executable.path});
+  argv.insert(argv.end(), {runtime, "-o", executable.path});
   argv.insert(argv.end(), std::begin(linkFlags), std::end(linkFlags));
   std::string error;
   bool notRun = false;
   int status = llvm::sys::ExecuteAndWait(pinnedCc, argv, std::nullopt, {}, 0, 0, &error, &notRun);
-  if (notRun || status != 0) {
-    Report() << "internal error: linking with " << pinnedCc << " failed"
-             << (notRun || status < 0 ? ": " + error : " with status " + std::to_string(status));
-    return Verdict::Internal;
-  }
-  return Verdict::Accepted;
+  if (notRun || status != 0)
+    mlir::emitError(mlir::UnknownLoc::get(&context))
+        << "linking with " << pinnedCc << " failed"
+        << (notRun || status < 0 ? ": " + error : " with status " + std::to_string(status));
 }
 
-// The steps in order, each folded into `outcome`, until one stops the
-// compilation; the exit status of the verdict, or of a usage error, which
-// is the command line's and has no verdict of its own.
-static int chain(llvm::StringRef frontendPath, Artifacts &artifacts, Outcome &outcome,
-                 mlir::TimingScope &rootTiming) {
-  outcome.see(std::visit(llvm::makeVisitor(
-                             [&](const FromIdris &idris) {
-                               IDR_ZONE_IN("frontend", Driver);
-                               mlir::TimingScope frontendTiming = rootTiming.nest("frontend");
-                               return frontend(frontendPath, idris);
-                             },
-                             [](const FromModule &) { return Verdict::Accepted; }),
-                         artifacts.source));
-  if (outcome.verdict() != Verdict::Accepted)
-    return statusOf(outcome.verdict());
-  if (int code = run(artifacts, rootTiming, outcome)) {
-    outcome.failed();
-    return code == usage ? usage : statusOf(outcome.verdict());
+// The steps in order, until one fails, which has said why: the verdict the
+// diagnostics fold into is the compilation's.
+static void chain(llvm::StringRef frontendPath, const Compile &invocation, Artifacts &artifacts,
+                  mlir::MLIRContext &context, Diagnostics &diagnostics,
+                  llvm::ThreadPoolInterface &pool, mlir::TimingScope &rootTiming,
+                  Outcome &outcome) {
+  if (mlir::failed(artifacts.makeDirectories(context)))
+    return;
+  // What made the module: the frontend, as it finished, or the input itself,
+  // which no frontend failed to make.
+  mlir::FailureOr<int> made =
+      std::visit(llvm::makeVisitor(
+                     [&](const FromIdris &idris) {
+                       IDR_ZONE_IN("frontend", Driver);
+                       mlir::TimingScope frontendTiming = rootTiming.nest("frontend");
+                       return frontend(frontendPath, idris, context);
+                     },
+                     [](const FromModule &) { return mlir::FailureOr<int>(ok); }),
+                 artifacts.source);
+  if (mlir::failed(made) || mlir::failed(run(*made, invocation, artifacts, context,
+                                             diagnostics.sources(), pool, rootTiming, outcome)))
+    return;
+  if (const auto *executable = std::get_if<Executable>(&artifacts.product)) {
+    IDR_ZONE_IN("link", Link);
+    mlir::TimingScope linkTiming = rootTiming.nest("link");
+    link(artifacts, *executable, invocation.runtime, context);
   }
-  outcome.see(std::visit(llvm::makeVisitor(
-                             [&](const Executable &executable) {
-                               IDR_ZONE_IN("link", Link);
-                               mlir::TimingScope linkTiming = rootTiming.nest("link");
-                               return link(artifacts, executable);
-                             },
-                             [](const Archive &) { return Verdict::Accepted; }),
-                         artifacts.product));
-  return statusOf(outcome.verdict());
 }
 
-// The report at `path`, kept only once it is written whole.
-static bool writeReport(llvm::StringRef path, const Outcome &outcome) {
+// The report at `path`, kept only once it is written whole; the compiler's
+// error when it cannot be.
+static void writeReport(llvm::StringRef path, const Outcome &outcome,
+                        mlir::MLIRContext &context) {
   std::error_code error;
   llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_Text);
   if (error) {
-    cannotWrite(path, error);
-    return false;
+    cannotWrite(context, path, error);
+    return;
   }
   outcome.write(file.os());
   file.os().flush();
   if (std::error_code written = file.os().error()) {
     file.os().clear_error();
-    cannotWrite(path, written);
-    return false;
+    cannotWrite(context, path, written);
+    return;
   }
   file.keep();
-  return true;
 }
 
 std::string idr::driver::frontendBeside(const char *argv0) {
@@ -144,19 +145,42 @@ std::string idr::driver::frontendBeside(const char *argv0) {
   return path.str().str();
 }
 
-int idr::driver::compile(llvm::StringRef frontendPath, Artifacts &artifacts) {
+int idr::driver::compile(llvm::StringRef frontendPath, Compile invocation) {
   // The compilation as one span of the trace, however it ends.
   IDR_ZONE_IN("compile", Driver);
   mlir::DefaultTimingManager timings;
   mlir::applyDefaultTimingManagerCLOptions(timings);
   mlir::TimingScope rootTiming = timings.getRootScope();
+  // Declared before the context, whose diagnostics fold into it until it
+  // goes.
   Outcome outcome;
-  int status = chain(frontendPath, artifacts, outcome, rootTiming);
-  // Whatever the status: the report says why a compilation failed. One that
+  // The one pool of the compilation, which the function passes and the
+  // bins' code generation run on, sized by --num-threads (every CPU by
+  // default); declared before the context so it outlives it, as upstream's
+  // tools declare theirs. --mlir-disable-threading still wins for the
+  // passes, the context then ignoring it.
+  llvm::ThreadPoolStrategy strategy;
+  strategy.ThreadsRequested = invocation.threads;
+  llvm::StdThreadPool pool(strategy);
+  // Every dialect a compilation meets, so a module of any other fails to
+  // parse. The context runs the function groups over the functions in
+  // parallel unless --mlir-disable-threading; two compiles of one module
+  // are the same bytes either way, since no pass keeps state a worker
+  // thread shares. Created disabled so the pool can be set (setThreadPool
+  // requires it and enables threading itself); --mlir-disable-threading
+  // keeps it disabled, as upstream's tools arrange the same pair.
+  mlir::DialectRegistry registry;
+  registerCompiler(registry);
+  mlir::MLIRContext context(registry, mlir::MLIRContext::Threading::DISABLED);
+  context.setThreadPool(pool);
+  Diagnostics diagnostics(context, outcome);
+  Artifacts artifacts(std::move(invocation.plan));
+  chain(frontendPath, invocation, artifacts, context, diagnostics, pool, rootTiming, outcome);
+  // Whatever the verdict: the report says why a compilation failed. One that
   // cannot be written fails the compilation, which then keeps nothing.
-  if (artifacts.report && !writeReport(*artifacts.report, outcome))
-    return failure;
-  if (status == ok)
+  if (artifacts.report)
+    writeReport(*artifacts.report, outcome, context);
+  if (outcome.verdict() == Verdict::Accepted)
     artifacts.keep();
-  return status;
+  return statusOf(outcome.verdict());
 }

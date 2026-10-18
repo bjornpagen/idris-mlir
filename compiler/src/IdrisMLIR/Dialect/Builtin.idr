@@ -8,6 +8,9 @@ module IdrisMLIR.Dialect.Builtin
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Builtin
 
+import Data.List
+import Data.Vect
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -26,4 +29,4 @@ unrealizedConversionCastOp : (inputs : List Value) -> (outputs : List MlirType) 
 unrealizedConversionCastOp inputs outputs =
   MkOp "builtin.unrealized_conversion_cast" inputs [] [] [] outputs
 
--- fingerprint: 1459662349-601008 1212081816-1191
+-- fingerprint: 967200067-637740 2833944853-1226

@@ -28,11 +28,14 @@
 #define IDR_TRANSFORMS_COLUMNS_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Remake.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <optional>
 
 namespace idr {
 #define GEN_PASS_DECL_IDRCOLUMNS
@@ -93,32 +96,71 @@ public:
   ColumnConverter();
 };
 
-// The patterns of each op that carries an array of records, and the
-// legality that asks for them: those of what carries an array between
+// The patterns of each op that carries an array of records, each added with
+// the legality that asks for it: those of what carries an array between
 // functions and regions (lib/Transforms/Columns/Calls.cpp), of the tensor
-// ops (Tensors.cpp) and of the array ops (ArrayOps.cpp).
+// ops (Tensors.cpp) and of the array ops (ArrayOps.cpp). Every op none of
+// them takes holds an array of records whole, legal as it is.
 void populateColumnPatterns(const mlir::TypeConverter &converter, mlir::RewritePatternSet &patterns,
                             mlir::ConversionTarget &target);
 void populateCallColumnPatterns(const mlir::TypeConverter &converter,
-                                mlir::RewritePatternSet &patterns);
+                                mlir::RewritePatternSet &patterns, mlir::ConversionTarget &target);
 void populateTensorColumnPatterns(const mlir::TypeConverter &converter,
-                                  mlir::RewritePatternSet &patterns);
+                                  mlir::RewritePatternSet &patterns,
+                                  mlir::ConversionTarget &target);
 void populateArrayColumnPatterns(const mlir::TypeConverter &converter,
-                                 mlir::RewritePatternSet &patterns);
+                                 mlir::RewritePatternSet &patterns, mlir::ConversionTarget &target);
+
+// The legality of an op the conversion takes, unless its pattern states
+// another: legal once every type it carries is converted already.
+inline mlir::ConversionTarget::DynamicLegalityCallbackFn
+whole(const mlir::TypeConverter &converter) {
+  return [&converter](mlir::Operation *op) -> std::optional<bool> { return converter.isLegal(op); };
+}
+
+// `Pattern`, and the legality `legal` of each op of `Ops` it converts: that
+// the conversion takes an op is one registration, its pattern and its
+// legality together, as upstream's populate...AndLegality helpers make it.
+template <typename Pattern, typename... Ops>
+void addColumns(const mlir::TypeConverter &converter, mlir::RewritePatternSet &patterns,
+                mlir::ConversionTarget &target,
+                const mlir::ConversionTarget::DynamicLegalityCallbackFn &legal) {
+  patterns.add<Pattern>(converter, patterns.getContext());
+  target.addDynamicallyLegalOp<Ops...>(legal);
+}
 
 // What the patterns share. The values of `ranges`, one after another; the
 // types `types` become, and how many each becomes; `values` cut into
-// consecutive runs of `counts`; and `op` made again with `operands` and
-// `results`, its properties and discardable attributes kept, its regions
-// moved into it.
+// consecutive runs of `counts`.
 llvm::SmallVector<mlir::Value> flatten(llvm::ArrayRef<mlir::ValueRange> ranges);
 mlir::LogicalResult convertEach(const mlir::TypeConverter &converter, mlir::TypeRange types,
                                 llvm::SmallVectorImpl<mlir::Type> &converted,
                                 llvm::SmallVectorImpl<unsigned> &counts);
 llvm::SmallVector<llvm::SmallVector<mlir::Value>> runs(mlir::ValueRange values,
                                                        llvm::ArrayRef<unsigned> counts);
-mlir::Operation *remake(mlir::ConversionPatternRewriter &rewriter, mlir::Operation *op,
-                        mlir::ValueRange operands, mlir::TypeRange results);
+
+// An op that gives each array of records it makes as the columns its
+// regions give: made again on its operands' columns, its regions moved in,
+// each result the run of columns it became. A match, whose regions yield
+// the columns (a yield moves on its operands' columns), and a tabulation,
+// whose region yields the leaves of each record (an idr.array.yield takes
+// each record apart).
+template <typename OpT>
+struct ResultColumns : mlir::OpConversionPattern<OpT> {
+  using mlir::OpConversionPattern<OpT>::OpConversionPattern;
+  mlir::LogicalResult
+  matchAndRewrite(OpT op, typename mlir::OpConversionPattern<OpT>::OneToNOpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<mlir::Type> results;
+    llvm::SmallVector<unsigned> counts;
+    if (mlir::failed(
+            convertEach(*this->getTypeConverter(), op->getResultTypes(), results, counts)))
+      return mlir::failure();
+    mlir::Operation *made = remakeOp(rewriter, op, flatten(adaptor.getOperands()), results);
+    rewriter.replaceOpWithMultiple(op, runs(made->getResults(), counts));
+    return mlir::success();
+  }
+};
 
 } // namespace idr::columns
 

@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# One test of tests/Sem.idr's table, the one the runner names as this
+# script's second argument: tests/Main.idr runs this directory once per
+# entry of Sem.names, as programs/semantics/prim@<name>, and its program
+# and the values every case prints are the runner's, computed from what
+# each primitive means (sem_case, tests/lib/e2e.sh).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+sem_case "$parameter"

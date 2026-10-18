@@ -1,26 +1,29 @@
+// NEEDS-ACCEPTANCE: the printed form of idr.take, idr.cell.recycle and idr.cell.init (S3) and of a default that binds the scrutinee (S2); that the owned stage refuses a box built as a value with fields, a cell never filled, and an exclusive box filled in a cell of the frame, each as its expected-error says.
+// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
 // RUN: sed '/^\/\/ -----/,$d' %s > %t.before.mlir
 // RUN: idris-mlir-opt %t.before.mlir --idr-rc --idr-expect=holds=stage=owned -o /dev/null
-// RUN: awk '/^\/\/ -----/ { n++; next } n == 2' %s > %t.reuse.mlir
-// RUN: idris-mlir-opt %t.reuse.mlir | idris-mlir-opt | FileCheck %s --check-prefix=REUSE
-// NEEDS-ACCEPTANCE: the printed form of idr.take and idr.reuse.
-// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
+// RUN: awk '/^\/\/ -----/ { n++; next } n == 2' %s > %t.recycle.mlir
+// RUN: idris-mlir-opt %t.recycle.mlir | idris-mlir-opt | FileCheck %s --check-prefix=RECYCLE
 // The owned stage is the program's, said by its idr.program: idr-rc counts
 // a program of the first stage and sets the owned one, and the verifier
 // holds every function of the program to the stage's rules, whatever a
 // function happens to hold. A function whose owned value is never consumed
-// is refused. A reuse, the owned stage's own constructor, prints and
-// parses back with the type it builds before the constructor.
-// REUSE-LABEL: idr.func @bump(
-// REUSE: idr.take %{{.*}} : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
-// REUSE: idr.reuse %{{.*}} !idr.own<!idr.box<!L>> @C(%{{.*}} : i64, %{{.*}} : !idr.own<!idr.box<!L>>)
+// is refused. A box whose constructor has fields is built in its cell: a
+// source gives the cell (here the cell of a token, recycled), which is
+// owned, and idr.cell.init fills it, consuming it; each prints and parses
+// back.
+// RECYCLE-LABEL: idr.func @bump(
+// RECYCLE: idr.take %{{.*}} : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
+// RECYCLE: [[CELL:%[^ ]+]] = idr.cell.recycle %{{.*}} : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
+// RECYCLE: idr.cell.init [[CELL]] : !idr.cell<!idr.box<!L>, @C> (%{{.*}} : i64, %{{.*}} : !idr.own<!idr.box<!L>>)
 idr.program @"owned-stage" root(@Prog.main) stage(first) {
   idr.func @size(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
   }
   idr.func @Prog.main() -> i64 {
-    %a = idr.constant "a" : !idr.str
+    %a = idr.constant !idr.str "a"
     %b = idr.str.append %a, %a
     %n = idr.call @size(%b) : (!idr.str) -> i64
     return %n : i64
@@ -54,14 +57,69 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
       %w:3 = idr.take %l : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
       %one = arith.constant 1 : i64
       %h2 = arith.addi %w#1, %one : i64
-      %o = idr.reuse %w#0 !idr.own<!idr.box<!L>> @C(%h2 : i64, %w#2 : !idr.own<!idr.box<!L>>)
+      %c = idr.cell.recycle %w#0 : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
+      %o = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%h2 : i64, %w#2 : !idr.own<!idr.box<!L>>)
       idr.yield %o : !idr.own<!idr.box<!L>>
     }
-    default {
+    default(%d: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.yield %l : !idr.own<!idr.box<!L>>
     }
     }
     return %r : !idr.own<!idr.box<!L>>
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}
+
+// -----
+
+// Past idr-rc a box whose constructor has fields is built in its cell, never
+// as a value: an idr.con of it is refused.
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+  idr.func @cons(%x: i64, %t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
+    // expected-error @+1 {{builds a box with fields as a value in the owned stage; idr-rc makes its cell explicit (idr.cell.new and idr.cell.init)}}
+    %l = idr.con !idr.own<!idr.box<!L>> @C(%x : i64, %t : !idr.own<!idr.box<!L>>)
+    return %l : !idr.own<!idr.box<!L>>
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}
+
+// -----
+
+// A cell is filled exactly once: its type lets it be used once, and the
+// owned stage counts it as the reference it is, which its init consumes.
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+  idr.func @unfilled() -> i64 {
+    // expected-note @+1 {{the value is defined here}}
+    %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
+    %z = arith.constant 0 : i64
+    // expected-error @+1 {{returns while a value still holds a reference}}
+    return %z : i64
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}
+
+// -----
+
+// A cell of the frame is lent to the box filled in it, which is therefore
+// never exclusive.
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+  idr.func @frame(%x: i64, %t: !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>> {
+    %c = idr.cell.stack : !idr.cell<!idr.box<!L>, @C>
+    // expected-error @+1 {{builds an exclusive value in a cell of the frame, which is lent}}
+    %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
+    return %b : !idr.excl<!idr.box<!L>>
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %s --idr-defunctionalize --mlir-disable-threading > %t.serial.mlir
 // RUN: cmp %t.mlir %t.serial.mlir
@@ -52,7 +53,7 @@ idr.program @"sum-names" root(@Main.main) stage(higher) {
     %e = arith.cmpi eq, %r1, %r2 : i64
     %ne = idr.apply %g(%e) : !idr.fn<(i1) -> (i1)>
     %x = arith.extui %ne : i1 to i64
-    %w2 = idr.io.put_int signed %x, %w1 : i64
+    %w2 = idr.io.put_sint %x, %w1 : i64
     return %w2 : !idr.world
   }
 }

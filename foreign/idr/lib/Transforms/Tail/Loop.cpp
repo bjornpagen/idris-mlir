@@ -18,13 +18,13 @@
 #include "idr/Transforms/Tail.h"
 
 #include "idr/Analysis/Tail.h"
-#include "idr/IR/Canon.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/Sequence.h"
 
 using namespace mlir;
 
@@ -57,15 +57,17 @@ struct Loop {
     return types;
   }
 
-  // Ends `block` with `payload` in place of its terminator: the loop's
-  // condition where the function returned, a yield in a match's region.
+  // Ends `block` with `payload`: a match's region yields it, and where the
+  // function returned, the loop's condition takes it, the one terminator
+  // that changes its kind.
   void end(Block &block, ValueRange payload) {
     Operation *terminator = block.getTerminator();
+    if (!isa<ReturnOp>(terminator)) {
+      rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperands(payload); });
+      return;
+    }
     rewriter.setInsertionPoint(terminator);
-    if (isa<ReturnOp>(terminator))
-      scf::ConditionOp::create(rewriter, terminator->getLoc(), payload.front(), payload.drop_front());
-    else
-      YieldOp::create(rewriter, terminator->getLoc(), payload);
+    scf::ConditionOp::create(rewriter, terminator->getLoc(), payload.front(), payload.drop_front());
     rewriter.eraseOp(terminator);
   }
 
@@ -86,7 +88,14 @@ struct Loop {
       return;
     }
     if (prev && isTailMatch(prev) && reachesTailCall(block, fn)) {
-      Operation *match = canon::rebuildMatch(rewriter, prev, payloadTypes());
+      // The match keeps every region and yields the payload.
+      auto tail = cast<MatchOpInterface>(prev);
+      rewriter.setInsertionPoint(prev);
+      Operation *match = tail.rebuild(rewriter, payloadTypes(),
+                                      llvm::to_vector(llvm::seq(tail.getNumCases())),
+                                      &tail.getDefaultRegion());
+      // An exhaustive match's default region is empty, and a region that
+      // ends in ub.unreachable yields nothing.
       for (Region &region : match->getRegions())
         if (!region.empty() && isa<YieldOp>(region.front().getTerminator()))
           rewriteTail(region.front());

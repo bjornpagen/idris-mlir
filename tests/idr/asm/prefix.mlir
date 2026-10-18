@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that the prefix rule holds with the match's default region binding its scrutinee and the signed output op named put_sint.
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
 // Under idr.func the ops of the dialect print without its prefix, as
@@ -15,11 +16,11 @@
 // CHECK-NEXT: {{^ *}}%[[JUST:.*]] = idr.con !M @Just(%[[INC]] : i64)
 // CHECK-NEXT: {{^ *}}idr.yield %[[INC]] : i64
 // CHECK-NEXT: }
-// CHECK-NEXT: default {
+// CHECK-NEXT: default(%{{[^:]*}}: !M) {
 // CHECK-NEXT: {{^ *}}idr.yield
 // CHECK-NEXT: }
 // CHECK-NEXT: }
-// CHECK-NEXT: idr.io.put_int signed
+// CHECK-NEXT: idr.io.put_sint
 // CHECK-NEXT: {{^ *}}%[[OUT:.*]] = call @inc(%applied) : (i64) -> i64
 // CHECK-NEXT: {{^ *}}return %[[OUT]], %{{[^ ]+}} : i64, !idr.world
 
@@ -39,11 +40,11 @@ idr.program @prefix root(@root) stage(higher) {
       %k = idr.con !M @Just(%i : i64)
       idr.yield %i : i64
     }
-    default {
+    default(%d: !M) {
       idr.yield %n : i64
     }
     }
-    %w1 = idr.io.put_int signed %r, %w : i64
+    %w1 = idr.io.put_sint %r, %w : i64
     %t = idr.call @inc(%a) : (i64) -> i64
     return %t, %w1 : i64, !idr.world
   }

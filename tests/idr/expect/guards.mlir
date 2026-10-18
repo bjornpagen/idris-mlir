@@ -1,11 +1,9 @@
+// NEEDS-ACCEPTANCE: that the -verify-diagnostics run passes: no-guards fails exactly at the one guard @kept keeps.
 // RUN: idris-mlir-opt %s --idr-expect=holds=no-guards=@proved -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=no-guards=@kept -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=no-guards=@kept -verify-diagnostics -o /dev/null
 // A function keeps no guard when every condition its partial primitives
 // need is proven where it runs: a division by a nonzero constant needs
 // none (@proved). Each guard left is one error (@kept).
-// CHECK: error: expected no-guards: idr.check.nonzero is left in @kept
-// CHECK-NOT: error:
 idr.program @guards root(@root) stage(first) {
   idr.func @proved(%x: i64) -> i64 {
     %two = arith.constant 2 : i64
@@ -13,6 +11,7 @@ idr.program @guards root(@root) stage(first) {
     return %r : i64
   }
   idr.func @kept(%x: i64, %y: i64) -> i64 {
+    // expected-error @below {{expected no-guards: idr.check.nonzero is left in @kept}}
     %g = idr.check.nonzero %y, "division by zero" : i64
     %r = idr.div signed %x, %g : i64
     return %r : i64

@@ -17,15 +17,15 @@
 // where the tail is the callee's own recursion, which idr-tail-loops makes
 // a loop.
 //
-// It is built from the key alone: the consumer is read back from the form
-// the key holds, and each op it adds takes the location of the terminator
-// it is pushed to.
+// It is built from the key alone: the consumer is the form the key names
+// in the run's table, read and never written, and each op it adds takes the
+// location of the terminator it is pushed to.
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Remake.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Parser/Parser.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -33,21 +33,6 @@ using namespace mlir;
 namespace idr::specialize::detail {
 
 namespace {
-
-// A match like `match`, with its scrutinee, cases and regions, whose
-// results have `types`.
-Operation *retyped(RewriterBase &rewriter, Operation *match, TypeRange types) {
-  rewriter.setInsertionPoint(match);
-  OperationState state(match->getLoc(), match->getName(), match->getOperands(), types,
-                       match->getDiscardableAttrDictionary().getValue());
-  state.propertiesAttr = match->getPropertiesAsAttribute();
-  for (unsigned i = 0; i < match->getNumRegions(); ++i)
-    state.addRegion();
-  Operation *fresh = rewriter.create(state);
-  for (auto [to, from] : llvm::zip(fresh->getRegions(), match->getRegions()))
-    rewriter.inlineRegionBefore(from, to, to.end());
-  return fresh;
-}
 
 // Every op, block argument and nested op of `op` at `loc`.
 void locate(Operation *op, Location loc) {
@@ -69,8 +54,10 @@ void replaceOperand(RewriterBase &rewriter, Operation *op, unsigned index, Value
 
 // Makes the consumer `consumer` take operand `index` of `term`, a return or
 // a yield, where that value is made: through a match whose result it is
-// and that has no other use, in each region that yields; otherwise right
-// before `term`. `extra` stands for the consumer's free values.
+// and that has no other use, in each of its regions that yields (a match's
+// default region is empty when its cases are exhaustive, and has no block
+// to visit); otherwise right before `term`. `extra` stands for the
+// consumer's free values. `consumer` is only read.
 void push(RewriterBase &rewriter, Operation *term, unsigned index, idr::FuncOp consumer,
           ValueRange extra) {
   Block &body = consumer.getBody().front();
@@ -78,17 +65,18 @@ void push(RewriterBase &rewriter, Operation *term, unsigned index, idr::FuncOp c
   Value value = term->getOperand(index);
   auto res = dyn_cast<OpResult>(value);
   Operation *match = res ? res.getOwner() : nullptr;
-  if (match && isa<MatchOp, MatchLitOp>(match) && res.hasOneUse()) {
+  if (match && isa<idr::MatchOpInterface>(match) && res.hasOneUse()) {
     unsigned k = res.getResultNumber();
     for (Region &region : match->getRegions())
-      if (auto yield = dyn_cast<YieldOp>(region.front().getTerminator()))
-        push(rewriter, yield, k, consumer, extra);
+      for (Block &block : region)
+        if (auto yield = dyn_cast<YieldOp>(block.getTerminator()))
+          push(rewriter, yield, k, consumer, extra);
     TypeRange types = match->getResultTypes();
     TypeRange results = last->getOperandTypes();
     SmallVector<Type> fresh(types.take_front(k));
     llvm::append_range(fresh, results);
     llvm::append_range(fresh, types.drop_front(k + 1));
-    Operation *made = retyped(rewriter, match, fresh);
+    Operation *made = idr::remakeOp(rewriter, match, match->getOperands(), fresh);
     unsigned n = static_cast<unsigned>(results.size());
     for (unsigned i = 0; i < match->getNumResults(); ++i)
       if (i != k)
@@ -110,33 +98,19 @@ void push(RewriterBase &rewriter, Operation *term, unsigned index, idr::FuncOp c
 
 } // namespace
 
-FailureOr<idr::FuncOp> buildRaise(idr::FuncOp callee, KeyRaiseAttr key, StringAttr name) {
+idr::FuncOp buildRaise(idr::FuncOp callee, RaiseKey key, StringAttr name, const Forms &forms) {
   MLIRContext *ctx = callee.getContext();
-  // The form is one function, read without the verifier: it is a copy of
-  // ops a verified function held, and only its ops are taken.
-  ParserConfig config(ctx, /*verifyAfterParse=*/false);
-  Block parsed;
-  OwningOpRef<idr::FuncOp> consumer;
-  if (succeeded(parseSourceString(key.getConsumer().getValue(), &parsed, config)) &&
-      llvm::hasSingleElement(parsed))
-    if (auto fn = dyn_cast<idr::FuncOp>(parsed.front())) {
-      fn->remove();
-      consumer = fn;
-    }
-  Region &region = callee.getBody();
-  if (!consumer || !region.hasOneBlock() || !isa<idr::ReturnOp>(region.front().getTerminator()))
-    return callee.emitError() << "internal error: the raise key of @" << callee.getSymName()
-                              << " does not read back as a consumer of its one block";
+  idr::FuncOp consumer = forms.at(key.getForm());
 
   // The copy keeps the callee's location, instance and the facts Idris gave
   // it; what it may do is written once its component is final.
   auto clone = cast<idr::FuncOp>(callee->clone());
   clone.setSymName(name.getValue());
-  clone.removeEffectsAttr();
+  clone.setEffects(::idr::anyEffect);
   clone.removeResAttrsAttr();
 
   // The consumer's free values keep their types, linear ones included.
-  ArrayRef<Type> inputs = consumer->getArgumentTypes();
+  ArrayRef<Type> inputs = consumer.getArgumentTypes();
   unsigned arity = clone.getNumArguments();
   SmallVector<unsigned> positions(inputs.size() - 1, arity);
   SmallVector<Type> types(inputs.drop_front());
@@ -144,11 +118,12 @@ FailureOr<idr::FuncOp> buildRaise(idr::FuncOp callee, KeyRaiseAttr key, StringAt
   SmallVector<Location> locs(positions.size(), clone.getLoc());
   (void)clone.insertArguments(positions, types, attrs, locs);
   clone.setFunctionType(
-      FunctionType::get(ctx, clone.getArgumentTypes(), consumer->getResultTypes()));
+      FunctionType::get(ctx, clone.getArgumentTypes(), consumer.getResultTypes()));
 
+  // The callee returns: its raise key was asked for only then (decide).
   IRRewriter rewriter(ctx);
   auto ret = cast<idr::ReturnOp>(clone.getBody().front().getTerminator());
-  push(rewriter, ret, 0, *consumer, clone.getArguments().drop_front(arity));
+  push(rewriter, ret, 0, consumer, clone.getArguments().drop_front(arity));
   return clone;
 }
 

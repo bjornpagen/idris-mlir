@@ -3,9 +3,10 @@
 // The idr dialect and the enums and classes every other part of its ODS
 // names: the halves of a grade, the kinds of sum a data type is, the rules a
 // refusal of a program names and what kind of program each refuses, the
-// conditions a guard checks and the roles of a sum's constructors, and what
-// an op says once beside itself for idris-mlir-tblgen to generate from: its
-// runtime function and its guards.
+// conditions a guard checks and the roles of a sum's constructors, what an
+// op says once beside itself for idris-mlir-tblgen to generate from (its
+// runtime function, its guards, the C ABI's word of a type it takes), and
+// the constraints the op families share.
 
 #ifndef IDR_BASE
 #define IDR_BASE
@@ -59,12 +60,14 @@ def Idr_Dialect : Dialect {
   // property or a type, where no pass drops it silently.
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
-  // Constants of scalars, regions ending in ub.unreachable, the branch the
-  // inliner's block form of idr.return becomes, and the layouts of cells,
-  // whose sizes the owned stage checks, which are LLVM's. No idr op or
-  // pattern makes a func op.
-  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::cf::ControlFlowDialect",
-                           "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect"];
+  // Constants of scalars, regions ending in ub.unreachable, and the layouts
+  // of cells, whose sizes the owned stage checks, which are LLVM's. No idr
+  // op or pattern makes a func op.
+  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::ub::UBDialect",
+                           "::mlir::LLVM::LLVMDialect"];
+  // The frontend's report to the driver: the refusals it found, which the
+  // driver re-emits and no pass reads (lib/IR/Verify/Attributes.cpp).
+  let discardableAttrs = (ins "::mlir::ArrayAttr":$refusals);
 }
 
 //===----------------------------------------------------------------------===//
@@ -133,18 +136,20 @@ def Idr_CtorRole : I32EnumAttr<"CtorRole", "the part a constructor plays in its 
 // Refusals
 //===----------------------------------------------------------------------===//
 
-// The two kinds of program a refusal names, and the only two: a megamorphic
-// construct, whose choices at a site (the types, instances, implementations
-// or shapes it can meet) no compile-time analysis bounds; and one outside
-// the language this compiler compiles, as %foreign, threads, finalizers and
-// raw pointers are, or one a total analysis proves the program cannot meet
-// (a reference knot counting would never free, an in-place promise shared).
-// No limit of the compiler's is a third kind: a limit is lifted by a
-// representation, never refused.
+// The three kinds of program a refusal names: a megamorphic construct,
+// whose choices at a site (the types, instances, implementations or shapes
+// it can meet) no compile-time analysis bounds; one outside the language
+// this compiler compiles, as %foreign, threads, finalizers and raw pointers
+// are, or one a total analysis proves the program cannot meet (a reference
+// knot counting would never free, an in-place promise shared); and a
+// program Idris itself rejects, which does not elaborate. No limit of the
+// compiler's is a kind: a limit is lifted by a representation, never
+// refused.
 def Idr_Megamorphic : I32EnumAttrCase<"Megamorphic", 0, "megamorphic">;
 def Idr_OutsideLanguage : I32EnumAttrCase<"OutsideLanguage", 1, "outside the language">;
+def Idr_UserError : I32EnumAttrCase<"UserError", 2, "user error">;
 def Idr_RuleCategory : I32EnumAttr<"RuleCategory", "the kind of program a refusal names", [
-    Idr_Megamorphic, Idr_OutsideLanguage]> {
+    Idr_Megamorphic, Idr_OutsideLanguage, Idr_UserError]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
 }
@@ -158,7 +163,9 @@ class Idr_RuleCase<string symbol, int value, string phrase, I32EnumAttrCase kind
 }
 
 // The rules a refusal of a program names, each with the phrase it is shown
-// as, `unsupported (<phrase>): ...`. The frontend's and the pipeline's are
+// as: `unsupported (<phrase>): ...` for a megamorphic construct or one
+// outside the language, while the refusal of a program Idris rejects
+// carries Idris's own message. The frontend's and the pipeline's are
 // one list: C++ reads it from here, and idris-mlir-tblgen writes the Idris
 // side's `Rule` from it. A phrase of two words is no keyword, so the
 // attribute writes it as a string. A value, once given, is never given to
@@ -167,7 +174,6 @@ def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
     Idr_RuleCase<"ProgramShape", 0, "program", Idr_OutsideLanguage>,
     Idr_RuleCase<"TrustedLibrary", 1, "library", Idr_OutsideLanguage>,
     Idr_RuleCase<"WorldUse", 2, "world", Idr_OutsideLanguage>,
-    Idr_RuleCase<"IOPrimitive", 3, "io primitive", Idr_OutsideLanguage>,
     // A type in a runtime position: chosen by a runtime value.
     Idr_RuleCase<"ValueType", 4, "type", Idr_Megamorphic>,
     Idr_RuleCase<"DependentField", 5, "dependent field", Idr_Megamorphic>,
@@ -198,7 +204,6 @@ def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
     // Process creation (`system`, `popen`), outside the language for now.
     Idr_RuleCase<"Process", 22, "process", Idr_OutsideLanguage>,
     Idr_RuleCase<"CompiledModule", 23, "compiled module", Idr_OutsideLanguage>,
-    Idr_RuleCase<"IdentityHook", 24, "identity hook", Idr_OutsideLanguage>,
     Idr_RuleCase<"HookShape", 25, "hook", Idr_OutsideLanguage>,
     // A name Idris has deprecated. The message names its replacement.
     Idr_RuleCase<"Deprecated", 26, "deprecated", Idr_OutsideLanguage>,
@@ -209,7 +214,10 @@ def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
     // question of the module's types, answered whole.
     Idr_RuleCase<"Cycle", 29, "cycle", Idr_OutsideLanguage>,
     // A runtime the compiler cannot link as it is.
-    Idr_RuleCase<"Runtime", 30, "runtime", Idr_OutsideLanguage>]> {
+    Idr_RuleCase<"Runtime", 30, "runtime", Idr_OutsideLanguage>,
+    // A program Idris does not elaborate: the refusal carries Idris's own
+    // message.
+    Idr_RuleCase<"Elaboration", 31, "elaboration", Idr_UserError>]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
   let parameterPrinter = "$_printer.printKeywordOrString(::idr::stringifyRule($_self))";
@@ -220,18 +228,24 @@ def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
 //===----------------------------------------------------------------------===//
 
 // The condition a guard checks (idr.check.*), spelled as its op is named.
-// No case is named as anything in Idris's prelude is: idris-mlir-tblgen
-// writes the cases into Idris as they are.
+// Each case is a def, which a guard op (Idr_CheckOp) and a partial op's
+// mark (Idr_Guarded) take as the record itself, so a kind no case names is
+// TableGen's error, never a search by name. No case is named as anything
+// in Idris's prelude is: idris-mlir-tblgen writes the cases into Idris as
+// they are.
+def Idr_Nonzero : I32EnumAttrCase<"Nonzero", 0, "nonzero">;
+def Idr_InBounds : I32EnumAttrCase<"InBounds", 1, "in_bounds">;
+def Idr_Nonempty : I32EnumAttrCase<"Nonempty", 2, "nonempty">;
+def Idr_Finite : I32EnumAttrCase<"Finite", 4, "finite">;
+def Idr_InRange : I32EnumAttrCase<"InRange", 5, "range">;
 def Idr_CheckKind : I32EnumAttr<"CheckKind", "the condition a guard checks", [
-    I32EnumAttrCase<"Nonzero", 0, "nonzero">, I32EnumAttrCase<"InBounds", 1, "in_bounds">,
-    I32EnumAttrCase<"Nonempty", 2, "nonempty">,
-    I32EnumAttrCase<"Finite", 4, "finite">, I32EnumAttrCase<"InRange", 5, "range">]> {
+    Idr_Nonzero, Idr_InBounds, Idr_Nonempty, Idr_Finite, Idr_InRange]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
 }
 
 //===----------------------------------------------------------------------===//
-// What an op says once, for idris-mlir-tblgen
+// What an op or a type says once
 //===----------------------------------------------------------------------===//
 
 // A primitive op that lowers to a call of the runtime's C function
@@ -246,16 +260,69 @@ class Idr_Runtime<string cSymbol> : NativeOpTrait<"CallsRuntime"> {
   string symbol = cSymbol;
 }
 
-// A partial op's guard: the operand named `guardedOperand` must meet the
-// condition `checkKind` (a case of Idr_CheckKind) or the program crashes
-// with the message `crashCause`. An op guarded on several operands carries
-// one of these per operand. idris-mlir-tblgen writes the guards the
-// frontend builds before each op from these; no C++ is generated from one.
-class Idr_Guarded<string guardedOperand, string checkKind, string crashCause>
+// A grade op whose result is its operand's value, its identity and its
+// exclusivity kept. idr.share carries its operand but forgets
+// exclusivity, so it lacks this.
+def Idr_SameValue : NativeOpTrait<"SameValue"> { let cppNamespace = "::idr"; }
+
+// A partial op's guard: the guard op that checks `checkKind` (a case of
+// Idr_CheckKind) is given the op's values `guardedOperands`, named in the
+// guard op's operand order, the operand it guards first, and the program
+// crashes with the message `crashCause` unless the condition holds. An op
+// guarded on several operands carries one of these per guard.
+// idris-mlir-tblgen generates from these the guards the frontend builds
+// before each op, and, for an op with Idr_GuardedOp, the C++
+// specialization ::idr::Guarded<Op> its folder and its speculation read
+// (IdrDialect.h), so the C++ names no guard by hand.
+class Idr_Guarded<list<string> guardedOperands, I32EnumAttrCase checkKind, string crashCause>
     : GenInternalOpTrait<"Guarded"> {
-  string operand = guardedOperand;
-  string kind = checkKind;
+  list<string> operands = guardedOperands;
+  I32EnumAttrCase kind = checkKind;
   string cause = crashCause;
 }
+
+// How a guard over a value of a type the runtime's C ABI holds as one value
+// has a count of bytes from it: none, the bytes of a string, or the length
+// of an array.
+class Idr_AbiCount;
+def Idr_NoCount : Idr_AbiCount;
+def Idr_BytesOf : Idr_AbiCount;
+def Idr_LengthOf : Idr_AbiCount;
+
+// A type constraint the runtime's C ABI holds as one value, mixed into the
+// constraint where it is defined: `word`, the C ABI's word the value is (a
+// case of idris-mlir-tblgen's words: World, Str, Big, Buffer, ...), and
+// `count`, how a guard over such a value has a count of bytes from it.
+// idris-mlir-tblgen reads both fields, for the runtime's prototypes and for
+// the Idris side's guards, so no table of constraint names says them again.
+class Idr_AbiWord<string word, Idr_AbiCount count> {
+  string abiWord = word;
+  Idr_AbiCount abiCount = count;
+}
+
+//===----------------------------------------------------------------------===//
+// Constraints the op families share
+//===----------------------------------------------------------------------===//
+
+// Base's list in a box, which the string ops walk and build: a box of a
+// data type of kind `list`, a nil and a cons of an element and the list,
+// whose element is one of `elements`.
+class Idr_BaseListOf<list<Type> elements> : Type<And<[CPred<"::idr::isBoxed($_self)">,
+    CPred<"::idr::dataTypeOf($_self) && ::idr::dataTypeOf($_self).getKind() == ::idr::SumKind::BaseList">,
+    Or<!foreach(e, elements, SubstLeaves<"$_self", "::idr::dataTypeOf($_self).getListElement()", e.predicate>)>]>,
+    "base's list of " # !interleave(!foreach(e, elements, e.summary), " or "), "::mlir::Type">;
+
+// What a closure, a suspension or a delay captures: any value but the
+// world, which none of them holds.
+def Idr_Capture : Type<CPred<"!::idr::isWorld($_self)">, "a value other than the world", "::mlir::Type">;
+
+// The constructor tags a match's cases name: never negative.
+def Idr_TagArray : ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>]>;
+
+// The fields of a cell left as holes for destinations to write
+// (idr.cell.init's `holes`): positions, never negative, each after the one
+// before, so a field is a hole at most once.
+def Idr_HolePositions : ConfinedAttr<DenseI32ArrayAttr,
+    [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>;
 
 #endif // IDR_BASE

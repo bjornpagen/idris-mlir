@@ -24,6 +24,8 @@ double fromChars(const char *p, size_t n) {
 
 } // namespace
 
+// The nearest double to the number the string writes, ties to even; any
+// other string is 0.0 (rt::numerals::readNumeral).
 extern "C" double idris_rt_str_to_double(const idris_rt_str *s) {
   const char *p = idris_rt_str_bytes(s);
   size_t n = s->bytes;

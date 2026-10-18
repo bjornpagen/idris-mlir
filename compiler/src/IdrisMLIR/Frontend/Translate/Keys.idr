@@ -15,6 +15,7 @@
 ||| where the print drops part of the identity.
 module IdrisMLIR.Frontend.Translate.Keys
 
+import Algebra
 import Core.Case.CaseTree
 import Core.Context
 import Core.Core
@@ -24,6 +25,7 @@ import Core.TT
 import Libraries.Data.List.Thin
 import Libraries.Data.NameMap
 
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
@@ -136,15 +138,12 @@ mutual
 ||| that mention it), and after the body's, so the blocks a body refers to
 ||| keep their numbers. For a solved metavariable these are its
 ||| solution's.
-referencesOf : {auto c : Ref Ctxt Defs} -> Name -> Core (List Reference)
-referencesOf n = do
-  defs <- get Ctxt
-  Just def <- lookupCtxtExact n (gamma defs)
-    | Nothing => pure []
+referencesOf : GlobalDef -> List Reference
+referencesOf def =
   let body = case definition def of
-               PMDef _ _ tree _ pats => treeRefs [<] tree <>> concatMap patRefs pats
+               PMDef _ _ tree _ pats => treeRefs [<] tree <>> (pats >>= patRefs)
                _ => []
-  pure (body ++ (termRefs [<] (type def) <>> []))
+  in body ++ (termRefs [<] (type def) <>> [])
   where
     patRefs : (vs : Scope ** (Env Term vs, Term vs, Term vs)) -> List Reference
     patRefs (_ ** (_, lhs, rhs)) = termRefs (termRefs [<] lhs) rhs <>> []
@@ -180,11 +179,12 @@ mutual
               (w : Walked) -> (0 _ : NoMore w w0) -> List Reference -> Core (Reached w)
   nameUnder origin ks w0 acc w p [] = pure (MkReached ks w (noMore w))
   nameUnder origin ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
-    defs <- get Ctxt
-    case enter (gamma defs) m w of
+    Just (placement, def) <- resolve m
+      | Nothing => nameUnder origin ks w0 acc w p rest
+    case enter placement w of
       Nothing => nameUnder origin ks w0 acc w p rest
       Just (Element w1 q) => do
-        MkReached ks' w2 q2 <- nameUnder origin ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf m)
+        MkReached ks' w2 q2 <- nameUnder origin ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
         MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
         pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
   nameUnder origin ks w0 acc@(Access rec) w p (ARef r :: rest) = do
@@ -195,21 +195,20 @@ mutual
           Element w1 q1 <- blocksFrom full w0 acc w p
           MkReached ks' w2 q2 <- nameUnder origin ks w0 acc w1 (thenNoMore q1 p) rest
           pure (MkReached ks' w2 (thenNoMore q2 q1))
-    defs <- get Ctxt
-    -- A name the context does not hold has no address and is no block to
-    -- name, as `enter` never enters it.
-    let Just key = definitionAddress (gamma defs) full
+    -- A name no definition has is no block to name.
+    Just (placement, def) <- resolve full
       | Nothing => nameUnder origin ks w0 acc w p rest
+    let key = addressOf placement
     let Nothing = lookup key (!(get TState)).blockNames
       | Just _ => nameUnder origin ks w0 acc w p rest
-    let Just (Element w1 q) = enter (gamma defs) full w
+    let Just (Element w1 q) = enter placement w
       | Nothing => nameUnder origin ks w0 acc w p rest
     let (name, ks') : (String, (Nat, Nat)) = case kind of
                         CaseB => (origin ++ ".case" ++ show cases, (S cases, withs))
                         WithB => (origin ++ ".with" ++ show withs, (cases, S withs))
                         NestedB inner => (origin ++ "." ++ inner, (cases, withs))
     update TState { blockNames $= insert key name }
-    MkReached _ w2 q2 <- nameUnder name (0, 0) w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf full)
+    MkReached _ w2 q2 <- nameUnder name (0, 0) w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
     MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
     pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
 
@@ -219,19 +218,19 @@ mutual
                Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
                (w : Walked) -> (0 _ : NoMore w w0) -> Core (Subset Walked (\w' => NoMore w' w))
   blocksFrom full w0 acc@(Access rec) w p = do
-    defs <- get Ctxt
     let Nothing = blockOf full
       | Just _ => pure (Element w (noMore w))
-    -- Nor is a name the context does not hold a definition to walk.
-    let Just key = definitionAddress (gamma defs) full
+    -- Nor is a name no definition has a definition to walk.
+    Just (placement, def) <- resolve full
       | Nothing => pure (Element w (noMore w))
+    let key = addressOf placement
     let Nothing = lookup key (!(get TState)).blockNames
       | Just _ => pure (Element w (noMore w))
-    let Just (Element w1 q) = enter (gamma defs) full w
+    let Just (Element w1 q) = enter placement w
       | Nothing => pure (Element w (noMore w))
     let origin = plainOrigin full
     update TState { blockNames $= insert key origin }
-    MkReached _ w2 q2 <- nameUnder origin (0, 0) w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf full)
+    MkReached _ w2 q2 <- nameUnder origin (0, 0) w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
     pure (Element w2 (thenNoMore q2 (fewer q)))
 
 ||| Names the blocks of a definition that is no block, once.
@@ -342,9 +341,6 @@ parensIf : Bool -> String -> String
 parensIf True s = "(" ++ s ++ ")"
 parensIf False s = s
 
-quantityPrefix : RigCount -> String
-quantityPrefix rig = if isErased rig then "0 " else if isLinear rig then "1 " else ""
-
 ||| Does a name print with less than it is? A `DN` prints its inner name
 ||| without its display, and a case or with block's name drops its number.
 dropsName : Name -> Bool
@@ -449,7 +445,7 @@ mutual
         asDomain = render w d Domain a
         domain = if dependent then binderAt d ++ " : " ++ fst alone else fst asDomain
         lostA = if dependent then snd alone else snd asDomain
-        inner = quantityPrefix rig ++ domain
+        inner = showCount rig ++ domain
         rest = render w (S d) Alone sc
     in (bound dependent inner info ++ " -> " ++ fst rest, lostA || defaulted info || snd rest)
     where
@@ -483,8 +479,10 @@ argumentText w tm = pure (render w 0 Alone !(toFullNames tm))
 ------------------------------------------------------------------------------
 
 ||| A quantity by its number: 0, 1, many.
-quantity : RigCount -> Fin 3
-quantity q = if isErased q then 0 else if isLinear q then 1 else 2
+quantity : Use -> Fin 3
+quantity Erased = 0
+quantity (Used One) = 1
+quantity (Used Many) = 2
 
 ||| A primitive type by its number.
 primitive : PrimType -> Fin 14
@@ -590,7 +588,7 @@ mutual
   write : Writer -> TT vs -> List (Token Form)
   write w (Local _ _ idx _) = [Node (Shaped Variable) Nothing idx]
   write w (Ref _ _ n) = referenceTo w.context n (markerOf n)
-  write w (Meta _ _ i args) = Node (Shaped Hole) (Just (addressOf i)) (length args) :: writeAll w args
+  write w (Meta _ _ i args) = Node (Shaped Hole) (addressOf <$> placementOf i) (length args) :: writeAll w args
   write w (Bind _ _ b sc) = writeBinder w b ++ write w sc
   write w (App _ f a) = writeApplication w (successorOf w f) f a
   write w (As _ _ a p) = node (Shaped AsPattern) :: (write w a ++ write w p)
@@ -615,17 +613,17 @@ mutual
 
   writeBinder : Writer -> TTBinder (TT vs) -> List (Token Form)
   writeBinder w (Lam _ q info _) = writePassing w Lambda q info
-  writeBinder w (Let _ q v ty) = node (Bound LetIn (quantity q) ByHand) :: (write w v ++ write w ty)
+  writeBinder w (Let _ q v ty) = node (Bound LetIn (quantity (use q)) ByHand) :: (write w v ++ write w ty)
   writeBinder w (Pi _ q info ty) = writePassing w PiType q info ++ write w ty
   writeBinder w (PVar _ q info ty) = writePassing w Pattern q info ++ write w ty
-  writeBinder w (PLet _ q v ty) = node (Bound PatternLet (quantity q) ByHand) :: (write w v ++ write w ty)
-  writeBinder w (PVTy _ q ty) = node (Bound PatternType (quantity q) ByHand) :: write w ty
+  writeBinder w (PLet _ q v ty) = node (Bound PatternLet (quantity (use q)) ByHand) :: (write w v ++ write w ty)
+  writeBinder w (PVTy _ q ty) = node (Bound PatternType (quantity (use q)) ByHand) :: write w ty
 
   writePassing : Writer -> Binding -> RigCount -> PiInfo (TT vs) -> List (Token Form)
-  writePassing w b q Implicit = [node (Bound b (quantity q) ByUnification)]
-  writePassing w b q Explicit = [node (Bound b (quantity q) ByHand)]
-  writePassing w b q AutoImplicit = [node (Bound b (quantity q) BySearch)]
-  writePassing w b q (DefImplicit t) = node (Bound b (quantity q) ByDefault) :: write w t
+  writePassing w b q Implicit = [node (Bound b (quantity (use q)) ByUnification)]
+  writePassing w b q Explicit = [node (Bound b (quantity (use q)) ByHand)]
+  writePassing w b q AutoImplicit = [node (Bound b (quantity (use q)) BySearch)]
+  writePassing w b q (DefImplicit t) = node (Bound b (quantity (use q)) ByDefault) :: write w t
 
 mutual
   ||| The references of a term `write` writes by address, with their
@@ -967,13 +965,25 @@ linkText (MkLink d as) = do
 -- Identities and keys
 ------------------------------------------------------------------------------
 
-||| The positions a key prints, a position that keys nothing as `-`, which
-||| no compile-time value prints as: every position up to the last that
-||| keys the instance. The definition fixes how many positions it has, so
-||| the ones after the last that keys tell no two instances apart, and a
-||| definition that keys nothing prints none.
-keyed : {auto c : Ref Ctxt Defs} -> Writer -> List (Maybe ClosedTerm) -> Core (List (String, Bool))
-keyed w args = traverse (maybe (pure ("-", False)) (argumentText w)) (reverse (dropWhile isNothing (reverse args)))
+||| The positions a key prints: every position up to the last that keys the
+||| instance, one that keys nothing as nothing, and whether a print drops
+||| part of what it prints. The definition fixes how many positions it
+||| has, so the ones after the last that keys tell no two instances apart,
+||| and a definition that keys nothing prints none.
+keyed : {auto c : Ref Ctxt Defs} -> Writer -> List (Maybe ClosedTerm) -> Core (KeyArguments, Bool)
+keyed w args = case lastKeyed args of
+  Nothing => pure (NoArguments, False)
+  Just (before, l) => do
+    printed <- traverse (traverseOpt (argumentText w)) before
+    (text, lost) <- argumentText w l
+    pure (UpTo (map (map fst) printed) text, any (maybe False snd) printed || lost)
+  where
+    -- The positions before the last that keys, and the last, if one keys.
+    lastKeyed : List (Maybe ClosedTerm) -> Maybe (List (Maybe ClosedTerm), ClosedTerm)
+    lastKeyed [] = Nothing
+    lastKeyed (x :: xs) = case lastKeyed xs of
+      Just (before, l) => Just (x :: before, l)
+      Nothing => (\l => ([], l)) <$> x
 
 ||| An instance as a request finds or makes it: its identity, which is its
 ||| link (the definition's address and the compile-time arguments written
@@ -1006,7 +1016,7 @@ instanceKey fc owner n term given = do
   resolved <- traverse (traverseOpt (\x => (x,) <$> toFullNames (term x))) given
   let args' = map (map snd) resolved
   defs <- get Ctxt
-  let Just d = getNameID full (gamma defs)
+  let Just placement = placementIn (gamma defs) full
     | Nothing => reject fc owner CompiledModule ("missing definition " ++ show full)
   -- A broken invariant: a compile-time argument is checked TT, every name
   -- of which the context holds, but the frontend's own markers, which are
@@ -1016,16 +1026,16 @@ instanceKey fc owner n term given = do
                                  ", which the context does not hold")
   writer <- writerOf (catMaybes args')
   let arguments = map (map (\(x, t) => (x, writtenOf writer t))) resolved
-  let link = MkLink (addressOf d) (map (map snd) arguments)
+  let link = MkLink (addressOf placement) (map (map snd) arguments)
   case lookup link (!(get TState)).named of
     Just (symbol, key) => pure (MkInstance link key symbol arguments)
     Nothing => do
       origin <- keyOrigin full
-      printed <- keyed writer args'
-      print <- if any snd printed
+      (printed, lost) <- keyed writer args'
+      print <- if lost
                  then (\t => Lossy (xxh3_128 (utf8 t)).low) <$> linkText link
                  else pure Whole
-      let key = MkInstanceKey origin (map fst printed) print
+      let key = MkInstanceKey origin printed print
       let symbol = keyText key
       -- A broken invariant: the key prints the link whole, or carries 64
       -- bits of the hash of its text where it does not, so two links on

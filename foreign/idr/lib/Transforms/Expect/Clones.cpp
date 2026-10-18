@@ -18,23 +18,22 @@ using namespace mlir;
 
 namespace idr::expect {
 
-LogicalResult oneClone(ModuleOp module, AnalysisManager &analyses, StringRef function) {
-  constexpr StringRef property = "one-clone";
-  StringRef origin = function.ltrim('@');
-  if (origin.empty())
-    return fail(module.getLoc(), property) << "name the function, as one-clone=@f";
-  SymbolTable &symbols = symbolsOf(module, analyses);
+// Every call of @f, or of a copy of it, calls one function.
+LogicalResult oneClone(const Request<Symbol> &request) {
+  const Symbol &origin = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   llvm::SetVector<StringRef> targets;
-  module.walk([&](CallOp call) {
-    auto callee = symbols.lookup<FunctionOpInterface>(call.getCalleeAttr().getAttr());
-    if (call.getCallee() == origin || (callee && names(callee, origin)))
+  request.module->walk([&](CallOp call) {
+    if (callsNamed(call, origin, symbols))
       targets.insert(call.getCallee());
   });
   if (targets.empty())
-    return fail(module.getLoc(), property) << "no call of " << function << " or of a copy of it";
+    return fail(request.module->getLoc(), request.property)
+           << "no call of @" << origin.name << " or of a copy of it";
   if (targets.size() == 1)
     return success();
-  InFlightDiagnostic error = fail(module.getLoc(), property) << "the calls of " << function << " reach";
+  InFlightDiagnostic error = fail(request.module->getLoc(), request.property)
+                             << "the calls of @" << origin.name << " reach";
   for (StringRef target : targets)
     error << " @" << target;
   return failure();
@@ -42,17 +41,11 @@ LogicalResult oneClone(ModuleOp module, AnalysisManager &analyses, StringRef fun
 
 // Every copy of @f, @f aside, calls of @f and its copies only itself and
 // @f.
-LogicalResult specializedOnce(ModuleOp module, AnalysisManager &analyses, StringRef function) {
-  constexpr StringRef property = "specialized-once";
-  StringRef origin = function.ltrim('@');
-  if (origin.empty())
-    return fail(module.getLoc(), property) << "name the function, as specialized-once=@f";
-  SmallVector<FunctionOpInterface> copies = named(module, function, property);
-  if (copies.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult specializedOnce(const Request<Functions> &request) {
+  StringRef origin = request.argument.name;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface copy : copies) {
+  for (FunctionOpInterface copy : request.argument.functions) {
     StringRef self = SymbolTable::getSymbolName(copy).getValue();
     if (self == origin)
       continue;
@@ -61,8 +54,8 @@ LogicalResult specializedOnce(ModuleOp module, AnalysisManager &analyses, String
       auto callee = symbols.lookup<FunctionOpInterface>(call.getCalleeAttr().getAttr());
       if (target == self || target == origin || !callee || !names(callee, origin))
         return;
-      fail(call->getLoc(), property) << where(copy) << ", a copy of " << function << ", calls @"
-                                     << target << ", another copy of it";
+      fail(call->getLoc(), request.property) << where(copy) << ", a copy of @" << origin
+                                             << ", calls @" << target << ", another copy of it";
       held = false;
     });
   }

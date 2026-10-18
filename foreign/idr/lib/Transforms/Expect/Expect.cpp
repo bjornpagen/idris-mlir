@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-expect: checks the properties it is given, by name, and changes
 // nothing. A request is `name` or `name=argument`; an unknown name is an
-// error, so a misspelled property cannot pass.
+// error, so a misspelled property cannot pass, and an argument without the
+// shape its property reads is refused before the property runs.
 
 #include "idr/Transforms/Expect.h"
 
@@ -35,15 +36,17 @@ struct Expect : idr::impl::IdrExpectBase<Expect> {
     // by whichever property asks first.
     AnalysisManager analyses = getAnalysisManager();
     bool failed = false;
+    // A request is read and checked by its row: a failure of either fails
+    // the pass, and the next request is still checked.
     for (StringRef request : holds) {
-      auto [name, argument] = request.split('=');
-      idr::expect::Check check = idr::expect::lookup(name);
-      if (!check) {
+      auto [name, text] = request.split('=');
+      const idr::expect::Property *property = idr::expect::lookup(name);
+      if (!property) {
         module.emitError() << "idr-expect: no property named " << name;
         failed = true;
         continue;
       }
-      failed |= mlir::failed(check(module, analyses, argument));
+      failed |= mlir::failed(property->run(module, analyses, property->name, text));
     }
     markAllAnalysesPreserved();
     if (failed)

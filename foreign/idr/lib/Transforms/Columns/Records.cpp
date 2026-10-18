@@ -21,18 +21,19 @@ namespace {
 
 // Whether the record `data` splits: one plain constructor of at least
 // one field, each an element an array holds whole (no grade, so no linear
-// field and no world, and no array a world orders) or an array of a static
-// shape whose element is no record that splits. A field that is a record
-// that splits is its leaves in turn: a record never holds itself but
-// through a box, so the leaves are found by structure.
+// field; no field used once by its type, as the world is; and no array a
+// world orders) or an array of a static shape whose element is no record
+// that splits. A field that is a record that splits is its leaves in turn:
+// a record never holds itself but through a box, so the leaves are found
+// by structure.
 bool splits(DataType data) {
   if (data.getKind() != SumKind::Plain || data.getCtors().size() != 1)
     return false;
   const Ctor &ctor = data.getCtor(Record::tag);
-  if (ctor.role != CtorRole::Plain || ctor.fields.empty())
+  if (ctor.fields.empty())
     return false;
   return llvm::all_of(ctor.fields, [](Type field) {
-    if (!gradeOf(field).plain() || isa<BaseMemRefType>(field))
+    if (!gradeOf(field).plain() || isLinearByType(field) || isa<BaseMemRefType>(field))
       return false;
     if (auto array = dyn_cast<RankedTensorType>(field))
       return array.hasStaticShape() && !recordOf(array.getElementType());
@@ -85,9 +86,8 @@ SmallVector<Value> takeApart(OpBuilder &b, Location loc, Value value, Record rec
   SmallVector<Value> leaves;
   for (auto [index, field] : llvm::enumerate(record.fields())) {
     auto at = static_cast<unsigned>(index);
-    Value given = con ? con.getField(at) : Value();
-    if (!given)
-      given = FieldOp::create(b, loc, value, Record::tag, at).getResult();
+    Value given =
+        con ? con.getFields()[at] : FieldOp::create(b, loc, value, Record::tag, at).getResult();
     if (std::optional<Record> inner = recordOf(field))
       llvm::append_range(leaves, takeApart(b, loc, given, *inner));
     else
@@ -246,21 +246,6 @@ SmallVector<SmallVector<Value>> runs(ValueRange values, ArrayRef<unsigned> count
     values = values.drop_front(count);
   }
   return out;
-}
-
-Operation *remake(ConversionPatternRewriter &rewriter, Operation *op, ValueRange operands,
-                  TypeRange results) {
-  OperationState state(op->getLoc(), op->getName());
-  state.addOperands(operands);
-  state.addTypes(results);
-  state.addAttributes(op->getDiscardableAttrDictionary().getValue());
-  state.propertiesAttr = op->getPropertiesAsAttribute();
-  for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
-    state.addRegion();
-  Operation *made = rewriter.create(state);
-  for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
-    rewriter.inlineRegionBefore(op->getRegion(i), made->getRegion(i), made->getRegion(i).end());
-  return made;
 }
 
 } // namespace idr::columns

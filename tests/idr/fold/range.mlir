@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: idr.to_char_s, idr.int_head_s and idr.int_head_u state the ranges the flagged ops did.
 // RUN: idris-mlir-opt %s --int-range-optimizations --idr-expect=holds=returns=@ranges:true/true/true/true/true/true,returns=@linear:true,returns=@field:_ -o /dev/null
 // Tags, characters and lengths have known ranges, which
 // upstream's integer range optimizations use.
@@ -12,13 +13,13 @@ idr.program @range root(@root) stage(first) {
     %tag = idr.tag %t : !T
     %a = arith.cmpi ult, %tag, %three : i64
     %max = arith.constant 1114111 : i32
-    %ch = idr.to_char signed %x : i64
+    %ch = idr.to_char_s %x : i64
     %b = arith.cmpi ule, %ch, %max : i32
     %zero = arith.constant 48 : i32
     %minus = arith.constant 45 : i32
-    %ih = idr.int_head signed %x : i64
+    %ih = idr.int_head_s %x : i64
     %c = arith.cmpi sge, %ih, %minus : i32
-    %uh = idr.int_head %u : i8
+    %uh = idr.int_head_u %u : i8
     %e = arith.cmpi sge, %uh, %zero : i32
     %dh = idr.double_head %d
     %f = arith.cmpi sge, %dh, %minus : i32

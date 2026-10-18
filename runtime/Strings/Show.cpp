@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// The decimal text of a signed or an unsigned integer, a new string.
 extern "C" const idris_rt_str *idris_rt_str_show_s(int64_t value) {
   char text[rt::strings::intTextMax];
   char *end = text + sizeof text;
@@ -22,6 +23,8 @@ extern "C" const idris_rt_str *idris_rt_str_show_u(uint64_t value) {
   return rt::strings::asciiOf(start, static_cast<size_t>(end - start));
 }
 
+// The first character of the decimal text of a signed or an unsigned
+// integer.
 extern "C" int32_t idris_rt_int_head_s(int64_t value) {
   char text[rt::strings::intTextMax];
   return *rt::strings::formatSigned(value, text + sizeof text);

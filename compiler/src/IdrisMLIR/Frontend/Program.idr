@@ -80,6 +80,23 @@ writeModule fc path src = do
       ignore (coreLift (fPutStrLn stderr (showSource src)))
       internal fc ("Emit: " ++ msg)
 
+||| A program refused, written where its module would be: a module that
+||| holds each refusal (`Emit.refused`) and no program, which the driver
+||| reads and reports. Not being able to write it is the compiler's failure.
+export
+writeRefused : String -> List1 ModuleRefusal -> Core ()
+writeRefused path refusals = do
+  makeParent path
+  Right h <- coreLift (openFile path WriteTruncate)
+    | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
+  written <- coreLift (refused h refusals)
+  coreLift (closeFile h)
+  case written of
+    Right () => pure ()
+    Left msg => do
+      ignore (coreLift (removeFile path))
+      throw (InternalError ("cannot write " ++ path ++ ": " ++ msg))
+
 ||| Nanoseconds on the monotonic clock.
 export
 now : Core Integer
@@ -95,11 +112,20 @@ reportTimes (Just path) times =
   write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
 
 ||| The registry's entries against the loaded context, once, before
-||| anything uses them.
+||| anything uses them; a broken entry is a refusal, at the module when the
+||| entry has no location.
 validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
-validated = case !validate of
-  Valid => pure ()
-  Wrong at owner msg => reject at owner HookShape msg
+validated = case !(validate (!(get TState)).moduleFC) of
+  Nothing => pure ()
+  Just r => rejectWith r
+
+||| Each of a list's values once, in the order first met.
+firstOfEach : Ord a => List a -> List a
+firstOfEach = go empty
+  where
+    go : SortedSet a -> List a -> List a
+    go seen [] = []
+    go seen (x :: xs) = if contains x seen then go seen xs else x :: go (insert x seen) xs
 
 isUser : Origin -> Bool
 isUser User = True
@@ -135,80 +161,84 @@ entryPoint = do
 ||| Compiles the program Idris has built from its main file, whose path
 ||| names the module `mainFile`, into the Core at `corePath` and the module
 ||| at `mlirPath`, or gives the program's rejections, the first found
-||| first, and writes nothing. The checks of the source and of what the
+||| first, and writes neither. The checks of the source and of what the
 ||| program reaches report every rejection they find, the growth check
 ||| every cause of a type grown without bound, and the translation of a
 ||| program the growth check admits every rejected instance of what the
-||| checks did not refuse. An error that is not a rejection (no main, a
-||| broken registry entry, the compiler's own) is thrown.
+||| checks did not refuse. A refusal that stops the compilation (no main, a
+||| broken registry entry) is one of them; only the compiler's own error is
+||| thrown.
 export
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (timing : Maybe String) ->
-          (corePath, mlirPath : String) -> Core (List Error)
+          (corePath, mlirPath : String) -> Core (List Rejection)
 program mainFile timing corePath mlirPath = do
   t0 <- now
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
   interfaces <- SortedSet.fromList . map fst . ANameMap.toList . (.ifaces) <$> get Syn
-  -- Until main is found, an error is at the main file.
-  s <- newRef TState (initState interfaces (MkFC (PhysicalIdrSrc mainFile) (0, 0) (0, 0)))
-  (main, mainIdent) <- entryPoint
-  defs <- get Ctxt
-  Just mainDef <- lookupCtxtExact main (gamma defs)
-    | Nothing => internal EmptyFC "main has no definition"
-  let fc = location mainDef
-  put TState (initState interfaces fc)
-  validated
-  -- Every module of the project's is one with source, whose pragmas are
-  -- checked. The main file's module is loaded from its TTC as the module of
-  -- no name, and Idris is in its namespace. Library modules outside the
-  -- table may be loaded, but not reached (checkReachable).
-  fileIdent <- nsAsModuleIdent <$> getNS
-  let mods = fileIdent :: mainIdent :: filter (\m => not (null (unsafeUnfoldModuleIdent m))) (map (\(_, (m, _, _)) => m) defs.allImported)
-  user <- filterM (\m => isUser <$> originOf m) (nub mods)
-  sources <- for user $ \m => do
-    path <- moduleSource fc m
-    pure (m, path)
-  let userNames = map (show . fst) (filter (isJust . snd) sources)
-  -- The user's own imports are of user modules or trusted ones, rejected
-  -- at the import itself.
-  for_ sources $ \(m, path) => case path of
-    Just p => do
-      is <- imports m p
-      for_ is $ \(target, at) => do
-        trusted <- covers Trusted <$> originOf (moduleIdent (forget (split (== '.') target)))
-        unless (trusted || elem target userNames) $ noted $
-          reject at (show m) ProgramShape
-                 ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
-    Nothing => pure ()
-  for_ sources $ \(m, path) => noted $ case path of
-    Just p => checkPragmas m p
-    Nothing => reject fc programEntry ProgramShape
-                 ("loads " ++ show m ++ ", a module of the project whose source is missing")
-  t1 <- now
-  checkReachable fc [main]
-  t2 <- now
-  admitted <- checkGrowth fc main
-  t3 <- now
-  let checked = [("checks", t1 - t0), ("reachable", t2 - t1), ("growth", t3 - t2)]
-  -- A program whose growth is refused is not translated: no potential, no
-  -- bound for the translation to stay within. Every refusal found so far
-  -- is reported.
-  True <- pure admitted
-    | False => do
-        reportTimes timing checked
-        rejections
-  Just prog <- translateIOProgram fc main
-    | Nothing => do
-        t4 <- now
-        reportTimes timing (checked ++ [("translate", t4 - t3)])
-        rejections
-  t4 <- now
-  -- The Core is printed once the module is written, so that neither text
-  -- is held while the other is made, and a compilation Emit gives up on
-  -- writes neither.
-  writeModule fc mlirPath prog
-  write corePath (showSource prog)
-  t5 <- now
-  reportTimes timing (checked ++ [("translate", t4 - t3), ("emit", t5 - t4)])
-  pure []
+  -- Until main is found, a refusal is at the main file's start.
+  let fileSite : NonEmptyFC = (PhysicalIdrSrc mainFile, (0, 0), (0, 0))
+  s <- newRef TState (initState interfaces fileSite)
+  noted (compiled t0 fileSite)
+  rejections
+  where
+   compiled : {auto s : Ref TState TS} -> Integer -> NonEmptyFC -> Core ()
+   compiled t0 fileSite = do
+    (main, mainIdent) <- entryPoint
+    defs <- get Ctxt
+    Just mainDef <- lookupCtxtExact main (gamma defs)
+      | Nothing => internal EmptyFC "main has no definition"
+    let fc = location mainDef
+    update TState { moduleFC := fromMaybe fileSite (isNonEmptyFC fc) }
+    validated
+    -- Every module of the project's is one with source, whose pragmas are
+    -- checked. The main file's module is loaded from its TTC as the module of
+    -- no name, and Idris is in its namespace. Library modules outside the
+    -- table may be loaded, but not reached (checkReachable).
+    fileIdent <- nsAsModuleIdent <$> getNS
+    let mods = fileIdent :: mainIdent :: filter (\m => not (null (unsafeUnfoldModuleIdent m))) (map (\(_, (m, _, _)) => m) defs.allImported)
+    user <- filterM (\m => isUser <$> originOf m) (firstOfEach mods)
+    sources <- for user $ \m => do
+      path <- moduleSource fc m
+      pure (m, path)
+    let userNames = SortedSet.fromList (map (show . fst) (filter (isJust . snd) sources))
+    -- The user's own imports are of user modules or trusted ones, rejected
+    -- at the import itself.
+    for_ sources $ \(m, path) => case path of
+      Just p => do
+        is <- imports m p
+        for_ is $ \(target, at) => do
+          trusted <- covers Trusted <$> originOf (moduleIdent (forget (split (== '.') target)))
+          unless (trusted || contains target userNames) $ noted $
+            reject at (show m) ProgramShape
+                   ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
+      Nothing => pure ()
+    for_ sources $ \(m, path) => noted $ case path of
+      Just p => checkPragmas m p
+      Nothing => reject fc programEntry ProgramShape
+                   ("loads " ++ show m ++ ", a module of the project whose source is missing")
+    t1 <- now
+    checkReachable fc [main]
+    t2 <- now
+    admitted <- checkGrowth fc main
+    t3 <- now
+    let checked = [("checks", t1 - t0), ("reachable", t2 - t1), ("growth", t3 - t2)]
+    -- A program whose growth is refused is not translated: no potential, no
+    -- bound for the translation to stay within. Every refusal found so far
+    -- is reported.
+    True <- pure admitted
+      | False => do
+          reportTimes timing checked
+    Just prog <- translateIOProgram fc main
+      | Nothing => do
+          t4 <- now
+          reportTimes timing (checked ++ [("translate", t4 - t3)])
+    t4 <- now
+    -- The Core is printed once the module is written, so that neither text
+    -- is held while the other is made, and a compilation Emit gives up on
+    -- writes neither.
+    writeModule fc mlirPath prog
+    write corePath (showSource prog)
+    t5 <- now
+    reportTimes timing (checked ++ [("translate", t4 - t3), ("emit", t5 - t4)])

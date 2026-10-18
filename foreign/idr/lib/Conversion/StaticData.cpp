@@ -12,6 +12,7 @@
 #include "idr/Conversion/StaticData.h"
 #include "idr/Conversion/Words.h"
 
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectResourceBlobManager.h"
@@ -22,13 +23,40 @@
 #include <variant>
 
 // The runtime's C ABI: a string's and a big's static form is its cells',
-// the runtime itself reads a literal's text, and a cell's kind is its info
-// word's, as the runtime reads it.
+// and the runtime itself reads a literal's text and says which words are
+// small.
 #include "idris_rt.h"
 
 using namespace mlir;
 
 namespace idr::conversion {
+
+namespace {
+
+// A static cell's header, the first two members of its struct, each an i32
+// (idris_rt_header): the count, 0, the runtime's persistent mark, so
+// nothing counts or frees the cell; and the info word.
+SmallVector<Type> headerTypes(MLIRContext *ctx) {
+  Type i32 = IntegerType::get(ctx, 32);
+  return {i32, i32};
+}
+
+SmallVector<Value> header(OpBuilder &b, Location loc, layout::CellInfo info) {
+  return {i32Constant(b, loc, 0), i32Constant(b, loc, info.word())};
+}
+
+// A digest as the words of a key.
+std::string hex(Digest digest) {
+  std::string text;
+  llvm::raw_string_ostream(text) << digest;
+  return text;
+}
+
+// What a datum that holds a global contributes to its holder's key: the
+// global's name.
+std::string referenceTo(LLVM::GlobalOp global) { return "&" + global.getSymName().str(); }
+
+} // namespace
 
 StaticData::StaticData(Location location, const Layouts &l)
     : at(location), layouts(l), scratch(ModuleOp::create(location)) {}
@@ -51,27 +79,57 @@ Value StaticData::message(OpBuilder &b, Location loc, StringRef text) {
   LLVM::GlobalOp message =
       global(named.name, named.key, type, /*isConstant=*/true, IDRIS_RT_WORD_BYTES,
              [&](OpBuilder &init) -> Value {
-               return LLVM::ConstantOp::create(init, at, type,
-                                               init.getStringAttr(text));
+               return LLVM::ConstantOp::create(init, at, type, init.getStringAttr(text));
              });
   return LLVM::AddressOfOp::create(b, loc, message);
 }
 
 SmallVector<Value> StaticData::constant(OpBuilder &b, Location loc, Attribute value, Type type) {
+  return datum(b, loc, value, type).components;
+}
+
+// The one ladder of constants: the world, strings, bigs, scalars, poison,
+// then constructors, in place or in a box.
+StaticData::Datum StaticData::datum(OpBuilder &b, Location loc, Attribute value, Type type) {
   // A linear value is the value itself at runtime; a world is nothing.
   if (isWorld(type))
-    return {};
+    return {"world", {}};
   type = unrestricted(type);
-  if (auto text = dyn_cast<StringAttr>(value))
-    return {string(b, loc, text.getValue())};
-  if (auto number = dyn_cast<BigAttr>(value))
-    return {big(b, loc, number)};
+  if (auto text = dyn_cast<StringAttr>(value)) {
+    LLVM::GlobalOp bytes = string(loc, text.getValue());
+    return {referenceTo(bytes), {LLVM::AddressOfOp::create(b, loc, bytes)}};
+  }
+  if (auto number = dyn_cast<BigAttr>(value)) {
+    Digest key = canonicalHash(value);
+    return {hex(key), {big(b, loc, number, key)}};
+  }
   if (isa<IntegerAttr, FloatAttr>(value))
-    return {LLVM::ConstantOp::create(b, loc, type, cast<TypedAttr>(value))};
+    return {hex(canonicalHash(value)),
+            {LLVM::ConstantOp::create(b, loc, type, cast<TypedAttr>(value))}};
+  // Poison stands for a cell pointer only: of any other value it is each
+  // component's (Cells.cpp).
+  if (isa<ub::PoisonAttr>(value)) {
+    LLVM::GlobalOp cell = nothing(loc);
+    return {referenceTo(cell), {LLVM::AddressOfOp::create(b, loc, cell)}};
+  }
   auto con = cast<ConAttr>(value);
-  if (isa<DataType>(type))
-    return unboxed(b, loc, con);
-  return {LLVM::AddressOfOp::create(b, loc, box(loc, con, type))};
+  if (isa<DataType>(type)) {
+    // An unboxed sum held in place: one cell, its fields' components in its
+    // slots.
+    const Ctor &ctor = con.getCtor();
+    SmallVector<std::string> keys;
+    SmallVector<SmallVector<Value>> components;
+    for (auto [i, field] : llvm::enumerate(con.getFields())) {
+      Datum held = datum(b, loc, field, ctor.fields[i]);
+      keys.push_back(std::move(held.key));
+      components.push_back(std::move(held.components));
+    }
+    SmallVector<ValueRange> fields(components.begin(), components.end());
+    return {hex(cellKey(type, ctor, keys)),
+            unboxedSum(b, loc, layouts.sum(con.getData()), con.getTag(), fields)};
+  }
+  LLVM::GlobalOp cell = box(loc, con, type);
+  return {referenceTo(cell), {LLVM::AddressOfOp::create(b, loc, cell)}};
 }
 
 FailureOr<ConstantArray> ConstantArray::of(memref::GlobalOp global) {
@@ -80,12 +138,6 @@ FailureOr<ConstantArray> ConstantArray::of(memref::GlobalOp global) {
   if (!global.getConstant() || !elements || !holdsWords(global.getType())) {
     global.emitError() << "internal error: idr-lower: @" << global.getSymName()
                        << " is no constant array of words";
-    return failure();
-  }
-  if (std::optional<uint64_t> alignment = global.getAlignment();
-      alignment && *alignment > IDRIS_RT_WORD_BYTES) {
-    global.emitError() << "internal error: idr-lower: @" << global.getSymName()
-                       << " is aligned to " << *alignment << " bytes, past a cell's element";
     return failure();
   }
   return ConstantArray(global.getType(), elements);
@@ -109,9 +161,10 @@ Value StaticData::constantArray(OpBuilder &b, Location loc, const ConstantArray 
   Type element = type.getElementType();
   int64_t count = type.getNumElements();
   auto dataType = LLVM::LLVMArrayType::get(element, static_cast<unsigned>(count));
-  uint32_t info = layout::CellInfo::array(layouts.element(element).stride, 0).word();
-  auto i32 = b.getI32Type(), i64 = b.getI64Type();
-  auto cellType = LLVM::LLVMStructType::getLiteral(b.getContext(), {i32, i32, i64, dataType});
+  layout::CellInfo info = layout::CellInfo::array(layouts.element(element).stride, 0);
+  SmallVector<Type> members = headerTypes(b.getContext());
+  members.append({b.getI64Type(), dataType});
+  auto cellType = LLVM::LLVMStructType::getLiteral(b.getContext(), members);
   LLVM::GlobalOp cell =
       global(named.name, named.key, cellType, /*isConstant=*/true, IDRIS_RT_WORD_BYTES,
              [&](OpBuilder &init) -> Value {
@@ -124,74 +177,128 @@ Value StaticData::constantArray(OpBuilder &b, Location loc, const ConstantArray 
                else
                  flat = DenseElementsAttr::get(flatType,
                                                llvm::to_vector(values.getValues<Attribute>()));
-               return pack(init, at, cellType,
-                           {i32Constant(init, at, 0), i32Constant(init, at, info),
-                            i64Constant(init, at, count),
-                            LLVM::ConstantOp::create(init, at, dataType, flat)});
+               SmallVector<Value> fields = header(init, at, info);
+               fields.append({i64Constant(init, at, count),
+                              LLVM::ConstantOp::create(init, at, dataType, flat)});
+               return pack(init, at, cellType, fields);
              });
   return LLVM::AddressOfOp::create(b, loc, cell);
 }
 
-// An unboxed sum of constant fields.
-SmallVector<Value> StaticData::unboxed(OpBuilder &b, Location loc, ConAttr con) {
-  const Ctor &ctor = con.getCtor();
-  SmallVector<SmallVector<Value>> components;
-  for (auto [i, field] : llvm::enumerate(con.getFields()))
-    components.push_back(constant(b, loc, field, ctor.fields[i]));
-  SmallVector<ValueRange> fields(components.begin(), components.end());
-  return unboxedSum(b, loc, layouts.sum(con.getData()), con.getTag(), fields);
-}
-
-// The global of the box `con` of type `type`, written once however many
-// constants hold it.
+// A box as static data: its cells from the last back to the first, each
+// one before the last holding the address of the next at its spine, so the
+// stack holds one cell however long the run. Cell `k` holds at position `i`
+// the field fieldOfCell(k, i); a cell before the last holds no position for
+// the spine field, which is the next cell's address.
 LLVM::GlobalOp StaticData::box(Location loc, ConAttr con, Type type) {
-  if (con.isRun())
-    return run(loc, con, type);
-  Named named = boxName(loc, con, type);
-  if (std::optional<LLVM::GlobalOp> written = find(named.name))
-    return *written;
-  Tag tag = con.getTag();
-  const Ctor &ctor = con.getCtor();
-  ArrayAttr fields = con.getFields();
-  return staticCell(named, layouts.box(con.getData(), tag), tag, [&](OpBuilder &init, unsigned i) {
-    return constant(init, at, fields[i], ctor.fields[i]);
-  });
-}
-
-// The cells of a run, written from its tail back to its first cell, each
-// pointing at the one written before it: however long the list, the stack
-// holds one cell. A cell already written under its name is the one a
-// constant that names the run from there wrote.
-LLVM::GlobalOp StaticData::run(Location loc, ConAttr con, Type type) {
+  if (auto it = boxes.find({con, type}); it != boxes.end())
+    return it->second;
   DataType data = con.getData();
-  Tag tag = con.getTag();
   const Ctor &ctor = con.getCtor();
-  unsigned spine = con.getSpine();
-  Type spineType = unrestricted(ctor.fields[spine]);
-  ArrayRef<ArrayAttr> cells = con.getRunCells();
-  LLVM::GlobalOp rest = box(loc, cast<ConAttr>(con.getTail()), spineType);
-  SmallVector<Named> named = runNames(loc, con, type);
-  boxNames.try_emplace({con, type}, named.front());
+  ArrayRef<ArrayAttr> cells = con.getCells();
+  std::optional<LLVM::GlobalOp> next;
   for (size_t k = cells.size(); k-- > 0;) {
-    if (std::optional<LLVM::GlobalOp> written = find(named[k].name)) {
-      rest = *written;
-      continue;
-    }
-    rest = staticCell(named[k], layouts.box(data, tag), tag,
-                      [&](OpBuilder &init, unsigned i) -> SmallVector<Value> {
-                        if (i == spine)
-                          return {LLVM::AddressOfOp::create(init, at, rest)};
-                        // A run's cell holds its fields without the spine.
-                        return constant(init, at, cells[k][i < spine ? i : i - 1],
-                                        ctor.fields[i]);
-                      });
+    auto cell = static_cast<unsigned>(k);
+    // The first cell is the constant's; every other is a field's.
+    Type cellType = k == 0 ? type : unrestricted(ctor.fields[con.getSpine()]);
+    next = staticCell(loc, data, con.getTag(), cellType, [&](OpBuilder &init) {
+      SmallVector<Datum> fields(ctor.fields.size());
+      for (auto [position, value] : llvm::enumerate(cells[cell].getValue())) {
+        unsigned field = con.fieldOfCell(cell, static_cast<unsigned>(position));
+        fields[field] = datum(init, at, value, ctor.fields[field]);
+      }
+      if (next)
+        fields[con.getSpine()] = {referenceTo(*next), {LLVM::AddressOfOp::create(init, at, *next)}};
+      return fields;
+    });
   }
-  return rest;
+  boxes.try_emplace({con, type}, *next);
+  return *next;
 }
 
-// Whether a force writes a cell of this layout: a memo cell, by its kind.
-bool StaticData::isMemoCell(const layout::Cell &cell) {
-  return idris_rt_info_kind(cell.info.word()) == IDRIS_RT_KIND_THUNK;
+// A box of the constructor `tag` as static data, count 0: its header, its
+// own words, then the components of each field in the cell's address
+// order. Its global is made before its name, which follows from its fields'
+// keys, so each field is written once, by the walk that names it; a name
+// another constant wrote already keeps that global, and this one goes. A
+// memo cell, whose kind says a force writes it, is the one static cell that
+// is not constant, and the release lists it. It is one per process:
+// constant data holds its address (a stream's tail), which a thread-local
+// global's is not at link time.
+LLVM::GlobalOp StaticData::staticCell(Location loc, DataType data, Tag tag, Type type,
+                                      function_ref<SmallVector<Datum>(OpBuilder &)> fields) {
+  const layout::Cell &cell = layouts.box(data).cell(tag);
+  bool memo = data.isMemo();
+  // A packed struct with the padding as bytes of its own, so that LLVM puts
+  // each word at the offset the layout chose, whatever data layout the
+  // translation is given. After the header, each member is padding, a word
+  // of the cell's own, or a component of a field, in address order: the
+  // own words come before every slot, and `order` is the slots' address
+  // order.
+  MLIRContext *ctx = at.getContext();
+  struct Padding {};
+  struct Component {
+    unsigned field, component;
+  };
+  struct Member {
+    Type type;
+    std::variant<Padding, int64_t, Component> is;
+  };
+  SmallVector<Member> members;
+  unsigned offset = sizeof(idris_rt_header);
+  auto place = [&](unsigned where, Member member) {
+    if (where > offset)
+      members.push_back(
+          {LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), where - offset), Padding{}});
+    offset = where + layouts.sizeOf(member.type);
+    members.push_back(member);
+  };
+  for (const layout::OwnWord &word : cell.words)
+    place(word.offset, {word.type, word.value});
+  for (auto [field, component] : cell.order) {
+    const layout::Slot &slot = cell.fields[field][component];
+    place(slot.offset, {slot.type, Component{field, component}});
+  }
+  if (cell.size > offset)
+    members.push_back(
+        {LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), cell.size - offset), Padding{}});
+  SmallVector<Type> types = headerTypes(ctx);
+  for (const Member &member : members)
+    types.push_back(member.type);
+  auto structType = LLVM::LLVMStructType::getLiteral(ctx, types, /*isPacked=*/true);
+
+  OpBuilder b = OpBuilder::atBlockEnd(scratch->getBody());
+  auto made = LLVM::GlobalOp::create(b, at, structType, /*isConstant=*/!memo,
+                                     LLVM::Linkage::Private, /*name=*/"", Attribute(),
+                                     IDRIS_RT_WORD_BYTES);
+  b.createBlock(&made.getInitializerRegion());
+  SmallVector<Datum> given = fields(b);
+  SmallVector<Value> values = header(b, at, cell.info);
+  for (const Member &member : members)
+    values.push_back(std::visit(
+        llvm::makeVisitor(
+            [&](Padding) -> Value { return LLVM::ZeroOp::create(b, at, member.type); },
+            [&](int64_t word) -> Value {
+              return LLVM::ConstantOp::create(b, at, member.type, word);
+            },
+            [&](Component slot) -> Value {
+              return given[slot.field].components[slot.component];
+            }),
+        member.is));
+  LLVM::ReturnOp::create(b, at, pack(b, at, structType, values));
+
+  SmallVector<std::string> keys =
+      llvm::map_to_vector(given, [](const Datum &field) { return field.key; });
+  Named named = intern(loc, kindOf(data), cellKey(type, data.getCtor(tag), keys));
+  if (std::optional<LLVM::GlobalOp> written = find(named.name)) {
+    made.erase();
+    return *written;
+  }
+  made.setSymName(named.name);
+  globals[named.name] = Written{made, named.key};
+  if (memo)
+    cafs.insert(named.name);
+  return made;
 }
 
 LLVM::GlobalOp StaticData::global(StringRef name, Digest key, Type type, bool isConstant,
@@ -217,114 +324,30 @@ Value StaticData::pack(OpBuilder &b, Location loc, Type structType, ValueRange m
   return value;
 }
 
-// A box of the constructor `tag` as static data, count 0: its header, the
-// count of its object slots when the header cannot hold it, its group when
-// its sum has more constructors than a header's tag holds, then the
-// components of each field in the cell's address order. A memo cell, whose
-// kind says a force writes it, is the one static cell that is not
-// constant, and the release lists it. It is one per process: constant data
-// holds its address (a stream's tail), which a thread-local global's is not
-// at link time.
-LLVM::GlobalOp StaticData::staticCell(
-    const Named &named, const layout::Cell &cell, Tag tag,
-    function_ref<SmallVector<Value>(OpBuilder &, unsigned field)> components) {
-  bool memo = isMemoCell(cell);
-  // A packed struct with the padding as bytes of its own, so that LLVM puts
-  // each word at the offset the layout chose, whatever data layout the
-  // translation is given. Each member is padding, a word of the cell's
-  // own, or a component of a field.
-  MLIRContext *ctx = at.getContext();
-  auto i32 = IntegerType::get(ctx, 32), i64 = IntegerType::get(ctx, 64);
-  struct Padding {};
-  struct OwnWord {
-    int64_t value;
-  };
-  struct Component {
-    unsigned field, component;
-  };
-  struct Member {
-    Type type;
-    std::variant<Padding, OwnWord, Component> is;
-  };
-  SmallVector<Member> members{{i32, OwnWord{0}}, {i32, OwnWord{cell.info.word()}}};
-  unsigned offset = sizeof(idris_rt_header);
-  auto padTo = [&](unsigned next) {
-    if (next > offset)
-      members.push_back(
-          {LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), next - offset), Padding{}});
-    offset = next;
-  };
-  if (cell.countWord()) {
-    members.push_back({i64, OwnWord{static_cast<int64_t>(cell.objs)}});
-    offset += layouts.sizeOf(i64);
-  }
-  // The group word, and each component, in address order.
-  SmallVector<std::pair<unsigned, Member>> placed;
-  if (cell.group)
-    placed.push_back(
-        {cell.group->offset,
-         {cell.group->type, OwnWord{groupWord(tag)}}});
-  for (auto [field, component] : cell.order) {
-    const layout::Slot &slot = cell.fields[field][component];
-    placed.push_back({slot.offset, {slot.type, Component{field, component}}});
-  }
-  llvm::stable_sort(placed, [](const auto &a, const auto &b) { return a.first < b.first; });
-  for (auto &[slotOffset, member] : placed) {
-    padTo(slotOffset);
-    members.push_back(member);
-    offset += layouts.sizeOf(member.type);
-  }
-  padTo(cell.size);
-  auto structType = LLVM::LLVMStructType::getLiteral(
-      ctx, llvm::map_to_vector(members, [](const Member &m) { return m.type; }),
-      /*isPacked=*/true);
-  LLVM::GlobalOp cellGlobal = global(named.name, named.key, structType, /*isConstant=*/!memo,
-                                     IDRIS_RT_WORD_BYTES, [&](OpBuilder &init) -> Value {
-    SmallVector<SmallVector<Value>> fields;
-    for (unsigned field = 0; field < cell.fields.size(); ++field)
-      fields.push_back(components(init, field));
-    SmallVector<Value> values;
-    for (const Member &member : members)
-      values.push_back(std::visit(
-          llvm::makeVisitor(
-              [&](Padding) -> Value { return LLVM::ZeroOp::create(init, at, member.type); },
-              [&](OwnWord word) -> Value {
-                return LLVM::ConstantOp::create(init, at, member.type, word.value);
-              },
-              [&](Component place) -> Value { return fields[place.field][place.component]; }),
-          member.is));
-    return pack(init, at, structType, values);
-  });
-  if (memo)
-    cafs.insert(named.name);
-  return cellGlobal;
-}
-
 // A string: the header (count 0: static data), the byte length and the
 // scalar count, which the runtime computes, then the bytes.
-Value StaticData::string(OpBuilder &b, Location loc, StringRef bytes) {
+LLVM::GlobalOp StaticData::string(Location loc, StringRef bytes) {
   Named named = intern(loc, "str", digestOf(bytes));
-  auto i32 = b.getI32Type(), i64 = b.getI64Type();
-  SmallVector<Type> members{i32, i32, i64, i64};
+  MLIRContext *ctx = at.getContext();
+  Type i64 = IntegerType::get(ctx, 64);
+  SmallVector<Type> members = headerTypes(ctx);
+  members.append({i64, i64});
   if (!bytes.empty())
-    members.push_back(LLVM::LLVMArrayType::get(b.getI8Type(), bytes.size()));
-  auto type = LLVM::LLVMStructType::getLiteral(b.getContext(), members);
+    members.push_back(LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), bytes.size()));
+  auto type = LLVM::LLVMStructType::getLiteral(ctx, members);
   auto scalars = static_cast<int64_t>(idris_rt_utf8_count(bytes.data(), bytes.size()));
   // Whether the string is ASCII is its two counts' agreement, which the
   // runtime reads; the header says nothing of it.
-  uint32_t info = layout::CellInfo::string().word();
   auto write = [&](OpBuilder &init) -> Value {
-    SmallVector<Value> values{i32Constant(init, at, 0), i32Constant(init, at, info),
-                              i64Constant(init, at, static_cast<int64_t>(bytes.size())),
-                              i64Constant(init, at, scalars)};
+    SmallVector<Value> values = header(init, at, layout::CellInfo::string());
+    values.append({i64Constant(init, at, static_cast<int64_t>(bytes.size())),
+                   i64Constant(init, at, scalars)});
     if (!bytes.empty())
       values.push_back(
           LLVM::ConstantOp::create(init, at, members.back(), init.getStringAttr(bytes)));
     return pack(init, at, type, values);
   };
-  LLVM::GlobalOp text =
-      global(named.name, named.key, type, /*isConstant=*/true, IDRIS_RT_WORD_BYTES, write);
-  return LLVM::AddressOfOp::create(b, loc, text);
+  return global(named.name, named.key, type, /*isConstant=*/true, IDRIS_RT_WORD_BYTES, write);
 }
 
 // A big: the runtime reads the decimal text (one semantics for what a
@@ -332,12 +355,12 @@ Value StaticData::string(OpBuilder &b, Location loc, StringRef bytes) {
 // static idris_rt_bignum, its limbs in the same global, named from the
 // literal. The folders' scope holds what the runtime gives and releases it
 // when this returns, counted as theirs are; the limbs are read before then.
-Value StaticData::big(OpBuilder &b, Location loc, BigAttr value) {
+Value StaticData::big(OpBuilder &b, Location loc, BigAttr value, Digest key) {
   fold::Scope scope(b.getContext());
   idris_rt_big word = scope.big(value);
-  if ((word & 1) != 0)
+  if (idris_rt_word_is_small(word))
     return i64Constant(b, loc, word);
-  Named named = intern(loc, "big", canonicalHash(Attribute(value)));
+  Named named = intern(loc, "big", key);
   const auto *number = reinterpret_cast<const idris_rt_bignum *>(word);
   int64_t size = number->size;
   auto count = static_cast<size_t>(size < 0 ? -size : size);
@@ -345,10 +368,11 @@ Value StaticData::big(OpBuilder &b, Location loc, BigAttr value) {
   const auto *digitsOf = reinterpret_cast<const uint64_t *>(number + 1);
   for (size_t i = 0; i < count; ++i)
     limbs.push_back(static_cast<int64_t>(digitsOf[i]));
-  auto i32 = b.getI32Type();
   auto i64 = b.getI64Type();
   auto limbsType = LLVM::LLVMArrayType::get(i64, count);
-  auto type = LLVM::LLVMStructType::getLiteral(b.getContext(), {i32, i32, i64, limbsType});
+  SmallVector<Type> members = headerTypes(b.getContext());
+  members.append({i64, limbsType});
+  auto type = LLVM::LLVMStructType::getLiteral(b.getContext(), members);
   LLVM::GlobalOp digits = global(named.name, named.key, type, /*isConstant=*/true,
                                  IDRIS_RT_WORD_BYTES,
                                  [&](OpBuilder &init) -> Value {
@@ -357,12 +381,25 @@ Value StaticData::big(OpBuilder &b, Location loc, BigAttr value) {
         DenseElementsAttr::get(
             RankedTensorType::get({static_cast<int64_t>(count)}, init.getI64Type()),
             ArrayRef<int64_t>(limbs)));
-    return pack(init, at, type,
-                {i32Constant(init, at, 0), i32Constant(init, at, layout::CellInfo::bignum().word()),
-                 i64Constant(init, at, size), limbsValue});
+    SmallVector<Value> values = header(init, at, layout::CellInfo::bignum());
+    values.append({i64Constant(init, at, size), limbsValue});
+    return pack(init, at, type, values);
   });
   Value address = LLVM::AddressOfOp::create(b, loc, digits);
   return LLVM::PtrToIntOp::create(b, loc, b.getI64Type(), address);
+}
+
+// The null object of a cell pointer: one static cell, a box's header with
+// no object slot and nothing after it, count 0, so counting it changes
+// nothing, and a cell, so every fact of a cell pointer holds of it. Poison
+// is never read, so no field of it is.
+LLVM::GlobalOp StaticData::nothing(Location loc) {
+  Named named = intern(loc, "nothing", digestOf("nothing"));
+  auto type = LLVM::LLVMStructType::getLiteral(at.getContext(), headerTypes(at.getContext()));
+  return global(named.name, named.key, type, /*isConstant=*/true, IDRIS_RT_WORD_BYTES,
+                [&](OpBuilder &init) -> Value {
+                  return pack(init, at, type, header(init, at, layout::CellInfo::box(Tag{0}, 0)));
+                });
 }
 
 } // namespace idr::conversion

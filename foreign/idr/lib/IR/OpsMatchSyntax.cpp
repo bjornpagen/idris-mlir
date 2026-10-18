@@ -1,202 +1,124 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The syntax of idr.match and idr.match_lit: a head they share, then a case
-// per key and a default. An idr.match case is a constructor's tag, written
-// by its name in the scrutinee's data type (CtorRef, Symbols.h), which the
-// head has read. Apart from the matches' rules, which would push that unit
-// past its size.
+// The custom directives of the matches' assembly formats (IdrMatchOps.td):
+// the results' types, the cases of each match and the default, read and
+// written as scf.index_switch's cases are. An idr.match case is a
+// constructor's tag, written by its name in the scrutinee's data type
+// (CtorRef, Symbols.h); an idr.match_lit key is a literal of the
+// scrutinee's type, which the type reads (LiteralTypeInterface).
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/IR/OpImplementation.h"
 
+#include <memory>
+
 using namespace mlir;
 using namespace idr;
 
-namespace {
+namespace idr {
 
-// The attribute dictionary of a match, whose cases its syntax spells: a
-// `cases` in the dictionary would become that property when the op is
-// created, silently in place of the clauses' keys. Check the dictionary's
-// inherent facts first, as the generic parser does, and refuse a restated
-// one.
-ParseResult parseAttrs(OpAsmParser &parser, OperationState &result,
-                       ArrayRef<StringRef> spelled) {
-  SMLoc loc = parser.getCurrentLocation();
-  if (parser.parseOptionalAttrDictWithKeyword(result.attributes))
-    return failure();
-  std::optional<RegisteredOperationName> info = result.name.getRegisteredInfo();
-  if (info && failed(info->verifyInherentAttrs(result.attributes,
-                                               [&]() { return parser.emitError(loc); })))
-    return failure();
-  for (StringRef name : spelled)
-    if (result.attributes.get(name))
-      return parser.emitError(loc, "inherent attribute '")
-             << name << "' cannot be parsed from attr-dict when strict properties in assembly "
-             << "format is enabled";
-  return success();
+// `(R, ...)`, the results' types, none among them: a type directive over a
+// list of types reads one type at least.
+ParseResult parseResultTypes(OpAsmParser &parser, SmallVectorImpl<Type> &types) {
+  return parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren,
+                                        [&] { return parser.parseType(types.emplace_back()); });
 }
 
-//===----------------------------------------------------------------------===//
-// Matches
-//===----------------------------------------------------------------------===//
-
-// Parses `{ case <key> <region> ... default[(<args>)] <region> }`;
-// `parseCase` parses a key and its region. Each case consumes its keyword,
-// so the cases end with the text.
-ParseResult parseMatchBody(OpAsmParser &parser, OperationState &result,
-                           function_ref<ParseResult(Region &)> parseCase) {
-  if (parser.parseLBrace())
-    return failure();
-  while (succeeded(parser.parseOptionalKeyword("case")))
-    if (parseCase(*result.addRegion()))
-      return failure();
-  if (succeeded(parser.parseOptionalKeyword("default"))) {
-    SmallVector<OpAsmParser::Argument> args;
-    if (parser.parseArgumentList(args, OpAsmParser::Delimiter::OptionalParen,
-                                 /*allowType=*/true) ||
-        parser.parseRegion(*result.addRegion(), args))
-      return failure();
-  }
-  return parser.parseRBrace();
-}
-
-// `%v : T -> (R...) attributes {...}`, the part both matches share. The
-// cases are spelled by the case clauses and set as a property by the
-// caller.
-ParseResult parseMatchHead(OpAsmParser &parser, OperationState &result, Type &scrutineeType) {
-  OpAsmParser::UnresolvedOperand scrutinee;
-  SmallVector<Type> resultTypes;
-  if (parser.parseOperand(scrutinee) || parser.parseColonType(scrutineeType) ||
-      parser.parseArrow() ||
-      parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren,
-                                     [&] { return parser.parseType(resultTypes.emplace_back()); }) ||
-      parser.resolveOperand(scrutinee, scrutineeType, result.operands) ||
-      parseAttrs(parser, result, {"cases"}))
-    return failure();
-  result.addTypes(resultTypes);
-  return success();
-}
-
-// Prints a match, each case's key as `printKey` prints it.
-template <idr::detail::MatchLike Match>
-void printMatch(Match op, OpAsmPrinter &printer, function_ref<void(unsigned)> printKey) {
-  printer << ' ' << op.getScrutinee() << " : " << op.getScrutinee().getType() << " -> (";
-  llvm::interleaveComma(op.getResultTypes(), printer);
+void printResultTypes(OpAsmPrinter &printer, Operation *, TypeRange types) {
+  printer << '(';
+  llvm::interleaveComma(types, printer);
   printer << ')';
-  printer.printOptionalAttrDictWithKeyword(op->getAttrs(), {"cases"});
-  printer << " {";
-  for (unsigned i = 0, e = static_cast<unsigned>(op.getCases().size()); i < e; ++i) {
+}
+
+// `case @C(%x: A, ...) {...}` per case, each region's arguments the
+// constructor's fields.
+ParseResult parseMatchCases(OpAsmParser &parser, Type scrutineeType, DenseI32ArrayAttr &cases,
+                            SmallVectorImpl<std::unique_ptr<Region>> &caseRegions) {
+  SmallVector<int32_t> tags;
+  while (succeeded(parser.parseOptionalKeyword("case"))) {
+    IntegerAttr tag;
+    SmallVector<OpAsmParser::Argument> fields;
+    if (parseCtorRef(parser, scrutineeType, tag) ||
+        parser.parseArgumentList(fields, OpAsmParser::Delimiter::Paren, /*allowType=*/true) ||
+        parser.parseRegion(*caseRegions.emplace_back(std::make_unique<Region>()), fields))
+      return failure();
+    tags.push_back(static_cast<int32_t>(tag.getInt()));
+  }
+  cases = parser.getBuilder().getDenseI32ArrayAttr(tags);
+  return success();
+}
+
+void printMatchCases(OpAsmPrinter &printer, Operation *op, Type scrutineeType,
+                     DenseI32ArrayAttr cases, MutableArrayRef<Region> caseRegions) {
+  Builder builder(op->getContext());
+  for (auto [tag, region] : llvm::zip(cases.asArrayRef(), caseRegions)) {
     printer.printNewline();
     printer << "case ";
-    printKey(i);
-    printer << ' ';
-    printer.printRegion(op.getCaseRegion(i), /*printEntryBlockArgs=*/false);
-  }
-  if (Region *fallback = op.getDefaultRegion()) {
-    printer.printNewline();
-    printer << "default";
-    if (fallback->getNumArguments() != 0) {
-      printer << '(';
-      llvm::interleaveComma(fallback->getArguments(), printer,
-                            [&](BlockArgument arg) { printer.printRegionArgument(arg); });
-      printer << ')';
-    }
-    printer << ' ';
-    printer.printRegion(*fallback, /*printEntryBlockArgs=*/false);
-  }
-  printer.printNewline();
-  printer << '}';
-}
-
-} // namespace
-
-// `idr.match %v : T -> (R...) { case @C(%x: A) {...} ... default {...} }`
-ParseResult MatchOp::parse(OpAsmParser &parser, OperationState &result) {
-  Type scrutineeType;
-  SmallVector<int32_t> cases;
-  if (parseMatchHead(parser, result, scrutineeType) ||
-      parseMatchBody(parser, result, [&](Region &region) -> ParseResult {
-        IntegerAttr tag;
-        SmallVector<OpAsmParser::Argument> fields;
-        if (parseCtorRef(parser, scrutineeType, tag) ||
-            parser.parseArgumentList(fields, OpAsmParser::Delimiter::Paren,
-                                     /*allowType=*/true) ||
-            parser.parseRegion(region, fields))
-          return failure();
-        cases.push_back(static_cast<int32_t>(tag.getInt()));
-        return success();
-      }))
-    return failure();
-  result.getOrAddProperties<Properties>().cases = parser.getBuilder().getDenseI32ArrayAttr(cases);
-  return success();
-}
-
-void MatchOp::print(OpAsmPrinter &printer) {
-  printMatch(*this, printer, [&](unsigned index) {
-    printCtorRef(printer, *this, getScrutinee().getType(),
-                 Builder(getContext()).getI32IntegerAttr(getCases()[index]));
+    printCtorRef(printer, op, scrutineeType, builder.getI32IntegerAttr(tag));
     printer << '(';
-    llvm::interleaveComma(getCaseRegion(index).getArguments(), printer,
+    llvm::interleaveComma(region.getArguments(), printer,
                           [&](BlockArgument arg) { printer.printRegionArgument(arg); });
-    printer << ')';
-  });
+    printer << ") ";
+    printer.printRegion(region, /*printEntryBlockArgs=*/false);
+  }
 }
 
-// `idr.match_lit %n : T -> (R...) { case 0 {...} ... default {...} }`
-ParseResult MatchLitOp::parse(OpAsmParser &parser, OperationState &result) {
-  Type type;
-  SmallVector<Attribute> cases;
-  auto parseKey = [&]() -> FailureOr<Attribute> {
-    if (auto integer = dyn_cast<IntegerType>(type)) {
-      if (integer.getWidth() == 1) {
-        if (succeeded(parser.parseOptionalKeyword("true")))
-          return Attribute(IntegerAttr::get(integer, 1));
-        if (succeeded(parser.parseOptionalKeyword("false")))
-          return Attribute(IntegerAttr::get(integer, 0));
-      }
-      APInt value;
-      SMLoc loc = parser.getCurrentLocation();
-      if (parser.parseInteger(value))
-        return failure();
-      unsigned width = integer.getWidth();
-      if ((value.isNegative() ? value.getSignificantBits() : value.getActiveBits()) > width)
-        return parser.emitError(loc, "key does not fit in ") << type;
-      return Attribute(IntegerAttr::get(
-          integer, value.isNegative() ? value.sextOrTrunc(width) : value.zextOrTrunc(width)));
-    }
-    if (isa<StrType>(type)) {
-      std::string bytes;
-      if (parser.parseString(&bytes))
-        return failure();
-      return Attribute(parser.getBuilder().getStringAttr(bytes));
-    }
-    if (!isa<BigType, NatType>(type))
+// `case <literal> {...}` per key, a literal of the value read, whatever its
+// view's grade. Only text can put a key on a type without literals, which
+// its verifier would refuse too.
+ParseResult parseLiteralCases(OpAsmParser &parser, Type scrutineeType, ArrayAttr &cases,
+                              SmallVectorImpl<std::unique_ptr<Region>> &caseRegions) {
+  Type type = unrestricted(scrutineeType);
+  auto literals = dyn_cast<LiteralTypeInterface>(type);
+  SmallVector<Attribute> keys;
+  while (succeeded(parser.parseOptionalKeyword("case"))) {
+    if (!literals)
       return parser.emitError(parser.getCurrentLocation(), "a literal match on ")
              << type << " has no keys";
-    BigAttr big;
-    if (parser.parseAttribute(big))
+    if (literals.parseLiteral(parser, keys.emplace_back()) ||
+        parser.parseRegion(*caseRegions.emplace_back(std::make_unique<Region>())))
       return failure();
-    return Attribute(big);
-  };
-  if (parseMatchHead(parser, result, type))
-    return failure();
-  // A key is a literal of the value read, whatever its view's grade.
-  type = unrestricted(type);
-  if (parseMatchBody(parser, result, [&](Region &region) -> ParseResult {
-        FailureOr<Attribute> key = parseKey();
-        if (failed(key) || parser.parseRegion(region))
-          return failure();
-        cases.push_back(*key);
-        return success();
-      }))
-    return failure();
-  result.getOrAddProperties<Properties>().cases = parser.getBuilder().getArrayAttr(cases);
+  }
+  cases = parser.getBuilder().getArrayAttr(keys);
   return success();
 }
 
-void MatchLitOp::print(OpAsmPrinter &printer) {
-  printMatch(*this, printer,
-             [&](unsigned index) { printer.printAttributeWithoutType(getCases()[index]); });
+void printLiteralCases(OpAsmPrinter &printer, Operation *, Type, ArrayAttr cases,
+                       MutableArrayRef<Region> caseRegions) {
+  for (auto [key, region] : llvm::zip(cases, caseRegions)) {
+    printer.printNewline();
+    printer << "case ";
+    printer.printAttributeWithoutType(key);
+    printer << ' ';
+    printer.printRegion(region, /*printEntryBlockArgs=*/false);
+  }
 }
+
+// `default(%d: T) {...}`, the region and the scrutinee it binds back, when
+// the match has a default that runs; nothing for the empty default of an
+// exhaustive idr.match. A missing idr.match_lit default is its region
+// constraint's to refuse.
+ParseResult parseDefaultCase(OpAsmParser &parser, Region &defaultRegion) {
+  if (failed(parser.parseOptionalKeyword("default")))
+    return success();
+  SmallVector<OpAsmParser::Argument> args;
+  return failure(
+      parser.parseArgumentList(args, OpAsmParser::Delimiter::Paren, /*allowType=*/true) ||
+      parser.parseRegion(defaultRegion, args));
+}
+
+void printDefaultCase(OpAsmPrinter &printer, Operation *, Region &defaultRegion) {
+  if (defaultRegion.empty())
+    return;
+  printer.printNewline();
+  printer << "default(";
+  llvm::interleaveComma(defaultRegion.getArguments(), printer,
+                        [&](BlockArgument arg) { printer.printRegionArgument(arg); });
+  printer << ") ";
+  printer.printRegion(defaultRegion, /*printEntryBlockArgs=*/false);
+}
+
+} // namespace idr

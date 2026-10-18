@@ -1,11 +1,8 @@
-// NEEDS-ACCEPTANCE: that this owned module verifies as written, and that reuses-every-cell fails once, at the drop of the token @drop's take yields.
+// NEEDS-ACCEPTANCE: that this owned module, in this wave's printed forms (the take with its token, idr.cell.recycle and idr.cell.init, a default that binds the scrutinee), verifies as written, and that the -verify-diagnostics run passes.
 // RUN: idris-mlir-opt %s --idr-expect=holds=reuses-every-cell=@rebuild -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=reuses-every-cell=@drop -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 1
-// The cell a take yields for a constructor with fields is built in again
-// (@rebuild), or freed: @drop drops its token, and the cell goes.
-// CHECK-DAG: error: expected reuses-every-cell: the cell of {{.*}} is freed, not reused, in @drop
+// RUN: idris-mlir-opt %s --idr-expect=holds=reuses-every-cell=@drop -verify-diagnostics -o /dev/null
+// The cell a take yields is recycled (@rebuild), or freed: @drop drops its
+// token, and the cell goes.
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @"reuses-every-cell" root(@Prog.main) stage(owned) {
   idr.func @rebuild(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
@@ -13,10 +10,11 @@ idr.program @"reuses-every-cell" root(@Prog.main) stage(owned) {
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {
     case @C(%h: i64, %t: !idr.q<many, borrow, !idr.box<!L>>) {
       %w:3 = idr.take %l : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
-      %c = idr.reuse %w#0 !idr.own<!idr.box<!L>> @C(%w#1 : i64, %w#2 : !idr.own<!idr.box<!L>>)
-      idr.yield %c : !idr.own<!idr.box<!L>>
+      %c = idr.cell.recycle %w#0 : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
+      %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%w#1 : i64, %w#2 : !idr.own<!idr.box<!L>>)
+      idr.yield %b : !idr.own<!idr.box<!L>>
     }
-    default {
+    default(%d: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.yield %l : !idr.own<!idr.box<!L>>
     }
     }
@@ -28,10 +26,11 @@ idr.program @"reuses-every-cell" root(@Prog.main) stage(owned) {
     case @C(%h: i64, %t: !idr.q<many, borrow, !idr.box<!L>>) {
       %w:3 = idr.take %l : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
       idr.drop %w#2 : !idr.own<!idr.box<!L>>
+      // expected-error @below {{expected reuses-every-cell: the cell of @C is freed, not reused, in @drop}}
       idr.drop %w#0 : !idr.own<!idr.token>
       idr.yield %h : i64
     }
-    default {
+    default(%d: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.drop %l : !idr.own<!idr.box<!L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64

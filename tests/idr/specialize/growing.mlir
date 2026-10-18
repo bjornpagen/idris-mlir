@@ -1,11 +1,11 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: one node for @iter, by the rule over recursive components, with symbol-dce after idr-optimize as the pipeline runs it (S2's default argument, S14's two binding times).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@iter -o /dev/null
 // iter f n x = if n == 0 then f x else iter (\y => f (f y)) (n - 1) x: the
 // closure grows on every iteration, so f is no fixed parameter: the
 // entering call keys the closure it is given once, and the recursion keys
 // nothing of the closure it grows, so every call of @iter calls one copy;
 // specializing on each would make a copy per iteration.
-// NEEDS-ACCEPTANCE: one node for @iter, by the rule over recursive components.
 idr.program @growing root(@Main.main) stage(higher) {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
@@ -23,7 +23,7 @@ idr.program @growing root(@Main.main) stage(higher) {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
       idr.yield %y : i64
     }
-    default {
+    default(%d: i64) {
       %g = idr.closure @twice(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64

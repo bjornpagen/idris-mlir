@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)` and `idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=no-closures,labels=@Main.mkInc:result:[@Main.inc],labels=@Main.mkAdd:result:[@Main.add],labels=@Main.use:arg0:[@Main.add,@Main.inc]' -o /dev/null
 // NEEDS-ACCEPTANCE: that each set of labels is its own sum: @Main.mkInc's and @Main.mkAdd's of one label each, @Main.use's of both.
@@ -40,14 +41,14 @@ idr.program @coerce root(@Main.main) stage(higher) {
     case 0 {
       idr.yield %i : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d: i64) {
       idr.yield %a : !idr.fn<(i64) -> (i64)>
     }
     }
     %r3 = idr.apply %j(%n) : !idr.fn<(i64) -> (i64)>
     %s1 = arith.addi %r1, %r2 : i64
     %s = arith.addi %s1, %r3 : i64
-    %w2 = idr.io.put_int signed %s, %w1 : i64
+    %w2 = idr.io.put_sint %s, %w1 : i64
     return %w2 : !idr.world
   }
 }

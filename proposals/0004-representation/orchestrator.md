@@ -15,7 +15,10 @@ records, and you integrate and qualify; you are not a relay.
      reassemble; if D2 is declined, S6 becomes an attribute-backed
      `DefaultValuedAttr` and the risk line goes.
 2. **Dispatch** all 24 lanes at once, each with its `dispatch/<lane>.md` as
-   the whole prompt. Keep a one-line note per lane (agent, state).
+   the whole prompt. Keep a one-line note per lane (agent, state). L25, L26
+   and L27 (added 2026-10-18, base 1e5a8a8e) dispatch together with L23,
+   whose dispatch they share seams with (README §6, §9 A9 to A12, E1 to
+   E10).
 3. **While lanes run.** Answer escalations by correcting the packet (README
    §4, a lane body) and re-dispatching only the affected lane; never let a
    lane widen its writes. Apply hub text from handoffs: CMake (new sources,

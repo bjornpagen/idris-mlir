@@ -18,7 +18,7 @@
 
 cat > "$work/main.mlir" << 'EOF_MODULE'
 idr.program @timing root(@Prog.main) stage(higher) {
-  idr.func @twice(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
+  idr.func effects<none> @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }

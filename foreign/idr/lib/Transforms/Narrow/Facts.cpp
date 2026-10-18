@@ -10,9 +10,9 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 
@@ -22,30 +22,31 @@ using ranges::Bounds;
 
 bool isBig(Type type) { return isa<BigType, NatType>(unrestricted(type)); }
 
+namespace {
+
+// `source`, an integer of at most 64 bits, as an i64, extended by
+// `Extend`.
+template <typename Extend>
+Value widened(OpBuilder &b, Location loc, Value source) {
+  Type i64 = b.getI64Type();
+  if (source.getType() == i64)
+    return source;
+  return Extend::create(b, loc, i64, source).getResult();
+}
+
+} // namespace
+
 // The grade says whether a big holds a reference of its own, and a value
 // that stands for one (a small big, poison) holds none.
 bool Facts::owned(Value value) const {
   return isOwned(value.getType()) && !ownership::isStatic(value);
 }
 
-// Whether counting ran on a program at `stage`: from the owned stage on,
-// every value that holds references and is no view is graded owned.
-static bool counted(Stage stage) {
-  switch (stage) {
-  case Stage::Higher:
-  case Stage::First:
-    return false;
-  case Stage::Owned:
-  case Stage::Lowered:
-    return true;
-  }
-  llvm_unreachable("a stage");
-}
-
+// From the owned stage on, which the passes that read it declare, every
+// value that holds references and is no view is graded owned.
 bool Facts::borrowed(Value value) const {
   Type type = value.getType();
-  return counted(ProgramOp(program).getStage()) && holdsReferences(type) && !isOwned(type) &&
-         !ownership::isStatic(value);
+  return holdsReferences(type) && !isOwned(type) && !ownership::isStatic(value);
 }
 
 Bounds Facts::of(Value value) const {
@@ -58,10 +59,13 @@ Bounds Facts::of(Value value) const {
   std::optional<ConstantIntRanges> range = analysis.rangeOf(value);
   if (!range)
     return {};
-  Bounds bounds = ranges::boundsOf(*range);
-  if (isa<NatType>(value.getType()) && bounds.hi && (!bounds.lo || *bounds.lo < 0))
-    bounds.lo = 0;
-  return bounds;
+  // What the value's type proves holds wherever the analysis lost it, as a
+  // natural's lower bound 0; a type that proves no range leaves the
+  // analysis's as it is.
+  IntegerValueRange proved = ranges::ofType(value.getType());
+  if (!proved.isUninitialized())
+    range = range->intersection(proved.getValue());
+  return ranges::boundsOf(*range);
 }
 
 bool Facts::nonNegative(ValueRange values) const {
@@ -81,13 +85,12 @@ Value Facts::word(OpBuilder &b, Location loc, Value value) {
   }
   if (auto small = value.getDefiningOp<BigSmallOp>())
     return small.getValue();
-  if (auto from = value.getDefiningOp<BigFromIntOp>()) {
-    Value source = from.getValue();
-    if (source.getType() == i64)
-      return source;
-    return from.getIsSigned() ? Value(arith::ExtSIOp::create(b, loc, i64, source))
-                              : Value(arith::ExtUIOp::create(b, loc, i64, source));
-  }
+  // A big made of a narrower integer is that integer, extended as the op
+  // that made it reads it.
+  if (auto from = value.getDefiningOp<BigFromSIntOp>())
+    return widened<arith::ExtSIOp>(b, loc, from.getValue());
+  if (auto from = value.getDefiningOp<BigFromUIntOp>())
+    return widened<arith::ExtUIOp>(b, loc, from.getValue());
   Value converted = BigToIntOp::create(b, loc, i64, value);
   convert(converted.getDefiningOp());
   return converted;

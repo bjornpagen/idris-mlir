@@ -1,7 +1,7 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that the loop is left as one self tail call with no dispatch over a box, after the sums and the cleanup; @bind's closure, capturing two linear actions, is linear by its type (S41) (S2's default argument).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main,no-heap-allocation=@Main.main -o /dev/null
-// NEEDS-ACCEPTANCE: that the loop is left as one self tail call with no dispatch over a box, after the sums and the cleanup.
 // An IO loop, in the shape Emit gives it: @countdown returns the action
 // `put n >>= \_ => countdown (n - 1)`, where @bind runs its first action,
 // then applies the function it is given and runs the action that returns,
@@ -35,13 +35,12 @@ idr.program @"io-loop" root(@Main.main) stage(higher) {
       %io = idr.con !IO @MkIO(%k_lin : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %io : !IO
     }
-    default {
+    default(%d: i64) {
       %p = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!IORes)>
       %then = idr.closure @next(%n) : (i64) -> !idr.fn<(!Unit) -> (!IO)>
       %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
       %then_lin = idr.lin.enter %then : !idr.lin<!idr.fn<(!Unit) -> (!IO)>>
-      %k = idr.closure @bind(%p_lin, %then_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>, !idr.lin<!idr.fn<(!Unit) -> (!IO)>>) -> !idr.fn<(!idr.world) -> (!IORes)>
-      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+      %k_lin = idr.closure @bind(%p_lin, %then_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>, !idr.lin<!idr.fn<(!Unit) -> (!IO)>>) -> !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
       %io = idr.con !IO @MkIO(%k_lin : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %io : !IO
     }

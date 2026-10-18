@@ -4,6 +4,7 @@
 // RUN: echo -n "abc" | %t > %t.out
 // RUN: FileCheck %s < %t.out
 // NEEDS-ACCEPTANCE: that a heap cell of a sum's third group, whose group number is even, is matched and freed without the runtime reading its group word as a reference, beside a cell of the first group and one of the second.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // A sum of 131,073 constructors is three groups of tags of 16 bits: the
 // group, then the tag within it. The first RUN line writes the sum where
 // the line of !Many stands, C0 to C131072, with an i64 field in C0 (group
@@ -31,7 +32,7 @@ idr.program @"even-group" root(@Prog.main) stage(higher) {
       %v = idr.con !idr.box<!Many> @C65536(%x : i64)
       idr.yield %v : !idr.box<!Many>
     }
-    default {
+    default(%d: i32) {
       %v = idr.con !idr.box<!Many> @C131072(%x : i64)
       idr.yield %v : !idr.box<!Many>
     }
@@ -45,19 +46,19 @@ idr.program @"even-group" root(@Prog.main) stage(higher) {
     case @C0(%a: i64) {
       %s = idr.constant "C0 " : !idr.str
       %w3 = idr.io.put_str %s, %w1
-      %w4 = idr.io.put_int signed %a, %w3 : i64
+      %w4 = idr.io.put_sint %a, %w3 : i64
       idr.yield %w4 : !idr.world
     }
     case @C65536(%a: i64) {
       %s = idr.constant "C65536 " : !idr.str
       %w3 = idr.io.put_str %s, %w1
-      %w4 = idr.io.put_int signed %a, %w3 : i64
+      %w4 = idr.io.put_sint %a, %w3 : i64
       idr.yield %w4 : !idr.world
     }
     case @C131072(%a: i64) {
       %s = idr.constant "C131072 " : !idr.str
       %w3 = idr.io.put_str %s, %w1
-      %w4 = idr.io.put_int signed %a, %w3 : i64
+      %w4 = idr.io.put_sint %a, %w3 : i64
       idr.yield %w4 : !idr.world
     }
     default(%d: !idr.box<!Many>) {

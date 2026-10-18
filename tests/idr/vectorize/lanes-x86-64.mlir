@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: idris-mlir -c %s -o %t.o --mlir-disable-threading -mlir-print-ir-module-scope -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.d
 // RUN: sh -c 'for f in squares eighth inexact rows; do cp %t.d/builtin_module_no-symbol-name/func_func_$f/*_idr-narrow-lanes.mlir %t.$f.mlir || exit 1; done'
@@ -150,15 +151,15 @@ idr.program @"lanes-x86-64" root(@root) stage(higher) {
     %v = idr.call @ones(%n) : (index) -> tensor<?xf64>
     %r = idr.call @rows(%n, %v) : (index, tensor<?xf64>) -> tensor<?xf64>
     %s0 = tensor.extract %sq[%c0] : tensor<?xi64>
-    %w2 = idr.io.put_int signed %s0, %w1 : i64
+    %w2 = idr.io.put_sint %s0, %w1 : i64
     %s1 = tensor.extract %e8[%c0] : tensor<?xi64>
-    %w3 = idr.io.put_int signed %s1, %w2 : i64
+    %w3 = idr.io.put_sint %s1, %w2 : i64
     %s2 = tensor.extract %x#0[%c0] : tensor<?xi64>
-    %w4 = idr.io.put_int signed %s2, %w3 : i64
+    %w4 = idr.io.put_sint %s2, %w3 : i64
     %s3 = tensor.extract %x#1[%c0] : tensor<?xi64>
-    %w5 = idr.io.put_int signed %s3, %w4 : i64
+    %w5 = idr.io.put_sint %s3, %w4 : i64
     %s4 = tensor.extract %x#2[%c0] : tensor<?xi64>
-    %w6 = idr.io.put_int signed %s4, %w5 : i64
+    %w6 = idr.io.put_sint %s4, %w5 : i64
     %r0 = tensor.extract %r[%c0] : tensor<?xf64>
     %w7 = idr.io.put_double %r0, %w6
     return %w7 : !idr.world

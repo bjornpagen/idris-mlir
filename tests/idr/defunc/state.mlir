@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)`, `idr.io.put_sint` for the signed `put_int` and `idr.constant` writing its type first), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=no-closures,labels=@Main.twice:arg0:[@Main.tick],labels=@Main.twice:arg1:[@Main.tick],labels=@Main.seq:arg0:[@Main.twice],labels=@Main.seq:arg1:[@Main.loop],labels=@Main.run:result:[@Main.done,@Main.seq]' -o /dev/null
 // NEEDS-ACCEPTANCE: that each closure of the state transformers' one type has the sum of the labels that reach it, none leading back to @Main.seq.
@@ -37,13 +38,13 @@ idr.program @state root(@Main.main) stage(higher) {
     return %t : i64
   }
   idr.func @Main.run(%n: i64) -> !idr.fn<(i64) -> (i64)> {
-    %twice = idr.constant #idr.closure<@Main.twice, [#idr.closure<@Main.tick, []>, #idr.closure<@Main.tick, []>]> : !idr.fn<(i64) -> (i64)>
+    %twice = idr.constant !idr.fn<(i64) -> (i64)> #idr.closure<@Main.twice, [#idr.closure<@Main.tick, []>, #idr.closure<@Main.tick, []>]>
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %d = idr.closure @Main.done() : () -> !idr.fn<(i64) -> (i64)>
       idr.yield %d : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d0: i64) {
       %l = idr.closure @Main.loop(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
       %q = idr.closure @Main.seq(%twice, %l) : (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
       idr.yield %q : !idr.fn<(i64) -> (i64)>
@@ -57,7 +58,7 @@ idr.program @state root(@Main.main) stage(higher) {
     %c0 = arith.constant 0 : i64
     %f = idr.call @Main.run(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %s = idr.apply %f(%c0) : !idr.fn<(i64) -> (i64)>
-    %w2 = idr.io.put_int signed %s, %w1 : i64
+    %w2 = idr.io.put_sint %s, %w1 : i64
     return %w2 : !idr.world
   }
 }

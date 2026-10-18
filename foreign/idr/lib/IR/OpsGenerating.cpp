@@ -10,7 +10,8 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
-#include "llvm/ADT/TypeSwitch.h"
+
+#include <algorithm>
 
 using namespace mlir;
 using namespace idr;
@@ -154,38 +155,24 @@ void TransposeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
 // idr.array.yield
 //===----------------------------------------------------------------------===//
 
-// The world of a tabulation in the world's order goes on to the next step
-// and out; the values after an update's element go out. Nothing else is
-// forwarded: an element goes into an array, which is no successor's input.
+// One rule for every parent, read from what the parent holds
+// (YieldTargetsOpInterface, which the yield's parent rule requires): with
+// k arrays, the j-th value, j < k, moves in at its index of the j-th array,
+// and the values from the k-th on go on to the parent's successor, a world
+// to the next step and out, an update's outs out of the op. The values that
+// move in are the first min(k, n) of the n given: RegionBranchOpInterface's
+// verifier, which runs before the parent's own, may ask a yield of fewer
+// values than arrays, which then forwards none, and the parent's verifier
+// refuses it.
 MutableOperandRange ArrayYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
-  Operation *parent = (*this)->getParentOp();
+  ValueRange targets = cast<YieldTargetsOpInterface>((*this)->getParentOp()).getYieldTargets();
   auto count = static_cast<unsigned>(getValues().size());
-  if (count == 0)
-    return MutableOperandRange(*this, 0, 0);
-  return TypeSwitch<Operation *, MutableOperandRange>(parent)
-      .Case<TabulateOp, FoldLastOp, ScanLastOp>(
-          [&](Operation *) { return MutableOperandRange(*this, 0, 0); })
-      .Case([&](TabulateIOOp) { return MutableOperandRange(*this, count - 1, 1); })
-      .Case([&](UpdateOpInterface) { return MutableOperandRange(*this, 1, count - 1); })
-      .DefaultUnreachable("idr.array.yield ends a region of no array op");
+  unsigned leading = std::min(static_cast<unsigned>(targets.size()), count);
+  return MutableOperandRange(*this, leading, count - leading);
 }
 
-// Each element or cell moves in at its index of the array its position
-// names: the j-th array a tabulation or a scan makes, the j-th result of a
-// fold, the array or buffer an update writes, which takes the first value
-// alone. A world goes on, and what an update gives out leaves it, each
-// forwarded (RegionBranchOpInterface).
 void ArrayYieldOp::getFlowEdges(FlowEdges &edges) {
-  auto into = [&](ValueRange arrays) {
-    for (auto [at, array] : llvm::enumerate(arrays))
-      if (at < getValues().size())
-        edges.flow(atIndex(getValuesMutable()[static_cast<unsigned>(at)]), elementsOf(array));
-  };
-  TypeSwitch<Operation *>((*this)->getParentOp())
-      .Case([&](TabulateOp op) { into(op.getArrays()); })
-      .Case([&](TabulateIOOp op) { into(op.getArrays()); })
-      .Case([&](FoldLastOp op) { into(op.getResults()); })
-      .Case([&](ScanLastOp op) { into(op.getResults()); })
-      .Case([&](UpdateOpInterface op) { into(op.getArray()); })
-      .DefaultUnreachable("idr.array.yield ends a region of no array op");
+  ValueRange targets = cast<YieldTargetsOpInterface>((*this)->getParentOp()).getYieldTargets();
+  for (auto [value, array] : llvm::zip(getValuesMutable(), targets))
+    edges.flow(atIndex(value), elementsOf(array));
 }

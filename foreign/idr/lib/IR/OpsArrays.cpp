@@ -179,29 +179,9 @@ LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
   return success();
 }
 
-// Each op's effects are on the array it touches, in the default resource:
-// a new array is allocated and written with its fill, a read reads it, a
-// write reads the old element, to release it, and writes the new one, and
-// an update reads the element out and writes the new one in. The world
-// orders them with every other effect; an access crashes on no index, the
-// index being its guard's to check.
-void ArrayNewOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  auto array = cast<OpResult>(getArray());
-  effects.emplace_back(MemoryEffects::Allocate::get(), array, SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
-}
-void ArrayGetOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getArrayMutable(),
-                       SideEffects::DefaultResource::get());
-}
-void ArraySetOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  OpOperand *array = &getArrayMutable();
-  effects.emplace_back(MemoryEffects::Read::get(), array, SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
-}
+// An update reads the element out of the array and writes the new one in;
+// its region's effects are its own (updateEffects). The other ops declare
+// theirs in ODS.
 void ArrayUpdateOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   updateEffects(getArrayMutable(), effects);
@@ -257,7 +237,7 @@ void ElementUpdateOp::getFlowEdges(FlowEdges &edges) { updateEdges(*this, edges)
 
 // Any natural may be past the small range, so the conversion may always
 // fail: as the allocation of that many elements would.
-std::optional<StringRef> NatToExtentOp::getCrashCause() { return StringRef("array too large"); }
+StringRef NatToExtentOp::getCrashCause() { return StringRef("array too large"); }
 
 // A constant natural that is small is its extent. One that is not stays,
 // to fail where it runs.

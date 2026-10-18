@@ -2,9 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // How a value moves, as data: the vocabulary an op declares its edges in
 // through the flow interface (IdrFlow.td), and that interface itself, which
-// this header ends with, so that the dialect's header includes this one
-// before its ops. What a branch or a region branch forwards is upstream's
-// to declare, and idr::forwardedValues (Flow.h) reads it.
+// this header ends with. It is a part of the dialect's header, which
+// includes it after the types, which its anchors hold, and before the ops,
+// which hold its interface; include idr/IR/IdrDialect.h, never this one.
+// What a region branch forwards is upstream's to declare, and
+// idr::forwardedValues (Flow.h) reads it.
 //
 // One account serves every reader: an edge says which carriers move along
 // it, and each reader keeps the edges of the carrier it asks about. The
@@ -38,10 +40,6 @@
 
 namespace idr {
 
-// A constructor's tag, which the dialect's header defines before it
-// includes this one.
-enum class Tag : std::uint32_t;
-
 // What a reader follows where a value moves: the labels of a closure or of
 // a suspension, and a reference a count accounts for. A closure or a
 // suspension is a counted cell too, so a value of one carries both.
@@ -55,7 +53,9 @@ public:
 
   // What a value of `type` carries, at any grade: a closure its labels, a
   // suspension its labels, and anything that holds a reference a count
-  // accounts for (idr::holdsReferences) that reference.
+  // accounts for (idr::holdsReferences) that reference. A cell carries what
+  // the box its init makes of it carries: it is that box before it is one,
+  // so whether a box is new to anyone is whether its cell was.
   static Carriers of(mlir::Type type);
 
   // The carriers whose values hold labels, and every carrier.
@@ -81,11 +81,12 @@ private:
 
 // Where a value holds part of what it is, the same place in every value of
 // a kind. The label solve keeps one set of labels per anchor, so what one
-// value of the kind holds there, every value of the kind may.
+// value of the kind holds there, every value of the kind may. Each anchor
+// holds the type it means, so no reader casts one.
 struct FlowAnchor {
-  // A field of a constructor of a data type, the type ungraded and unboxed.
+  // A field of a constructor of a data type.
   struct Field {
-    mlir::Type data;
+    DataType data;
     Tag ctor;
     unsigned index;
     bool operator==(const Field &) const = default;
@@ -95,11 +96,16 @@ struct FlowAnchor {
     mlir::Type element;
     bool operator==(const Elements &) const = default;
   };
-  // The forced state of every suspension of a lazy type, ungraded, or after
-  // idr-defunctionalize of the memo sum it became.
+  // The forced state of every suspension of a lazy type, ungraded.
   struct Forced {
-    mlir::Type lazy;
+    LazyType lazy;
     bool operator==(const Forced &) const = default;
+  };
+  // The forced state of every cell of a memo sum, what idr-defunctionalize
+  // made of a lazy type: its forced constructor's one field.
+  struct MemoState {
+    DataType memo;
+    bool operator==(const MemoState &) const = default;
   };
   // A capture of every closure or suspension of a type, ungraded.
   struct Capture {
@@ -107,23 +113,30 @@ struct FlowAnchor {
     unsigned index;
     bool operator==(const Capture &) const = default;
   };
-  // The hole every destination of a type writes, ungraded.
+  // The hole every destination of a type writes.
   struct Hole {
-    mlir::Type dest;
+    DestType dest;
     bool operator==(const Hole &) const = default;
   };
 
-  std::variant<Field, Elements, Forced, Capture, Hole> place;
+  std::variant<Field, Elements, Forced, MemoState, Capture, Hole> place;
 
-  static FlowAnchor fieldOf(mlir::Type data, Tag ctor, unsigned index) {
+  static FlowAnchor fieldOf(DataType data, Tag ctor, unsigned index) {
     return {Field{data, ctor, index}};
   }
   static FlowAnchor elementsOf(mlir::Type element) { return {Elements{element}}; }
-  static FlowAnchor forcedOf(mlir::Type lazy) { return {Forced{lazy}}; }
-  static FlowAnchor captureOf(mlir::Type closure, unsigned index) {
-    return {Capture{closure, index}};
+  static FlowAnchor forcedOf(LazyType lazy) { return {Forced{lazy}}; }
+  static FlowAnchor memoStateOf(DataType memo) { return {MemoState{memo}}; }
+  static FlowAnchor captureOf(mlir::Type carrier, unsigned index) {
+    return {Capture{carrier, index}};
   }
-  static FlowAnchor holeOf(mlir::Type dest) { return {Hole{dest}}; }
+  static FlowAnchor holeOf(DestType dest) { return {Hole{dest}}; }
+
+  // The type of what every value of the kind holds here, ungraded: a
+  // field's, the element type, a suspension's value, a memo sum's forced
+  // field, the value a hole is written with. None at a capture, which is
+  // its label's parameter, which only the label says.
+  std::optional<mlir::Type> slot() const;
 
   bool operator==(const FlowAnchor &) const = default;
 };
@@ -140,6 +153,7 @@ inline llvm::hash_code hash_value(const FlowAnchor &anchor) {
             return llvm::hash_combine(kind, elements.element);
           },
           [&](const FlowAnchor::Forced &forced) { return llvm::hash_combine(kind, forced.lazy); },
+          [&](const FlowAnchor::MemoState &state) { return llvm::hash_combine(kind, state.memo); },
           [&](const FlowAnchor::Capture &capture) {
             return llvm::hash_combine(kind, capture.carrier, capture.index);
           },
@@ -219,10 +233,10 @@ struct FlowPoint {
   }
 
   // The type of what is held at this point, where the op alone says it: a
-  // use's or a value's, unrestricted, or a part's slot as its anchor says
-  // it; none at a capture or a memo sum's forced state, which only the label
-  // and the body say, and none at a parameter or a result, the function's,
-  // which the symbol user checks (lib/IR/FlowEdges.cpp).
+  // use's or a value's, unrestricted, or a part's slot (FlowAnchor::slot);
+  // none at a capture, which only the label says, and none at a parameter
+  // or a result, the function's, which the symbol user checks
+  // (lib/IR/FlowEdges.cpp).
   std::optional<mlir::Type> type() const;
 
   // The use the op takes over at this point: a use taken, or the use whose
@@ -276,7 +290,8 @@ public:
     mlir::Value to;
   };
   // `use` gives its reference up at the op, which ends it there: a drop
-  // frees it, a reuse builds in its cell, a store hands it to memory no edge
+  // frees it, a recycle makes a new cell of its cell, an unpack of an atom
+  // takes it apart into nothing, a store hands it to memory no edge
   // follows. Never null: release() makes it from a use.
   struct Release {
     mlir::OpOperand *use;
@@ -341,6 +356,21 @@ struct llvm::DenseMapInfo<idr::FlowAnchor> {
   }
   static bool isEqual(const idr::FlowAnchor &a, const idr::FlowAnchor &b) { return a == b; }
 };
+
+namespace idr::detail {
+
+// The rule every op that holds the flow interface keeps, which the
+// interface's verifier holds it to at every stage: each edge its model
+// declares names only ends the op may name, a `from` a use of its own, an
+// operand's value or a part of either, or a part of a result of its own
+// (what a region reads back from an earlier step), a `to` a value it makes,
+// a part of one or of a value it or its parent holds, and either a
+// parameter or a result; and an edge that carries labels joins two places of one carrier
+// type. Fails with an error at the op otherwise (lib/IR/Flow.cpp).
+// Declared before the interface, whose verifier calls it.
+mlir::LogicalResult verifyFlowEdges(mlir::Operation *op);
+
+} // namespace idr::detail
 
 #include "idr/IR/IdrFlow.h.inc"
 

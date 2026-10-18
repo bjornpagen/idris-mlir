@@ -7,8 +7,6 @@
 
 #include "idr/Transforms/Expect.h"
 
-#include "mlir/Parser/Parser.h"
-
 using namespace mlir;
 
 namespace idr::expect {
@@ -24,32 +22,23 @@ int64_t sizeOf(FunctionOpInterface fn) {
 
 } // namespace
 
-// `@f:<file>`: every copy of @f holds at most as many operations as the
-// function of that symbol in the module <file> holds.
-LogicalResult growsNothing(ModuleOp module, AnalysisManager &, StringRef argument) {
-  constexpr StringRef property = "grows-nothing";
-  auto [function, file] = argument.split(':');
-  if (function.ltrim('@').empty() || file.empty())
-    return fail(module.getLoc(), property) << "name the function and the module it started in, as "
-                                              "grows-nothing=@f:<file>";
-  OwningOpRef<ModuleOp> before = parseSourceFile<ModuleOp>(file, module.getContext());
-  if (!before)
-    return fail(module.getLoc(), property) << "cannot read " << file;
-  StringRef f = function.ltrim('@');
+// Every copy of @f holds at most as many operations as the function of
+// that symbol in the module the file holds, which must have one.
+LogicalResult growsNothing(const Request<FunctionsAndModule> &request) {
+  StringRef f = request.argument.function.name;
+  ModuleOp before = *request.argument.module.op;
   FunctionOpInterface was;
-  for (FunctionOpInterface fn : functionsOf(*before))
+  for (FunctionOpInterface fn : functionsOf(before))
     if (SymbolTable::getSymbolName(fn).getValue() == f)
       was = fn;
   if (!was)
-    return fail(module.getLoc(), property) << file << " has no function " << function;
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+    return fail(request.module->getLoc(), request.property)
+           << "the module it started in has no function @" << f;
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.function.functions)
     if (sizeOf(fn) > sizeOf(was)) {
-      fail(fn->getLoc(), property) << where(fn) << " holds " << sizeOf(fn) << " operations, and "
-                                   << sizeOf(was) << " before";
+      fail(fn->getLoc(), request.property) << where(fn) << " holds " << sizeOf(fn)
+                                           << " operations, and " << sizeOf(was) << " before";
       held = false;
     }
   return success(held);

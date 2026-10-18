@@ -96,26 +96,31 @@ request fc owner n kinds = do
                                                (map (\(i, r) => (i, r.height)) read)) }
   pure inst
 
+||| What a call knows of an argument it gives: an implementation known at
+||| compile time, whatever binds it (Idris passes an enclosing function's
+||| constraints to its case and with blocks as explicit arguments), or a
+||| value, whose parameter's type decides what it is.
+public export
+data Offer = AnImplementation | AValue
+
 ||| A compile-time value of an argument, computed on demand: normalised for a
-||| type, as written for an implementation. `dictionary` says the argument is
-||| an implementation known at compile time, whatever binds it: Idris passes
-||| an enclosing function's constraints to its case and with blocks as
-||| explicit arguments. `holed` is the argument as an implementation that
-||| closes over runtime values (`Terms.holed`): its form with a marker for
-||| each value (`holeMarker`), and the values' types, by marker.
+||| type, as written for an implementation, with what the call knows of it
+||| (`Offer`). `holed` is the argument as an implementation that closes over
+||| runtime values (`Terms.holed`): its form with a marker for each value
+||| (`holeMarker`), and the values' types, by marker.
 public export
 record ArgValue where
   constructor MkArgValue
   normalised : Core ClosedTerm
   written : Core ClosedTerm
-  dictionary : Bool
+  offer : Offer
   holed : Core (Maybe (ClosedTerm, List1 ClosedTerm))
 
 ||| A compile-time argument as the instance's call classified it: the
-||| value, and whether it is an implementation.
+||| value, and what the call knows of it.
 export
-known : ClosedTerm -> Bool -> ArgValue
-known t dict = MkArgValue (pure t) (pure t) dict (pure Nothing)
+known : ClosedTerm -> Offer -> ArgValue
+known t offer = MkArgValue (pure t) (pure t) offer (pure Nothing)
 
 ||| The arguments of a call by position: `Nothing` for a runtime argument of
 ||| an instance.
@@ -130,12 +135,12 @@ givenArgs : List PKind -> ArgValues
 givenArgs = map given
   where
     given : PKind -> Maybe ArgValue
-    given (TypeParam t) = Just (known t False)
-    given (DictParam t Nothing) = Just (known t True)
-    given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t True))
+    given (TypeParam t) = Just (known t AValue)
+    given (DictParam t Nothing) = Just (known t AnImplementation)
+    given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t AnImplementation))
     given ErasedParam = Nothing
-    given (FormParam f) = Just (known f False)
-    given (ValueParam _ shape _) = (\t => known t False) <$> shape
+    given (FormParam f) = Just (known f AValue)
+    given (ValueParam _ shape _) = (\t => known t AValue) <$> shape
 
 ||| The argument at the next parameter, and those after it: past the
 ||| arguments given, none.
@@ -197,8 +202,8 @@ argumentShape owner rest arg = do
 data Dependence = Runs | Reduces
 
 ||| How a parameter keys an instance, decided from its binder (its quantity,
-||| its normalised type and the rest of the type) and whether its argument
-||| is an implementation: a type, a type family (a type parameter whose
+||| its normalised type and the rest of the type) and what the call knows
+||| of its argument (`Offer`): a type, a type family (a type parameter whose
 ||| kind is a function into a universe), a form, an implementation, an
 ||| erased value that keys nothing, or a runtime value, by how the rest of
 ||| the type depends on it. The one place `classify` and `staticsOver`
@@ -206,42 +211,43 @@ data Dependence = Runs | Reduces
 data Keying = Typed | Family | Formed | Implemented | Unkeyed | Runtime Dependence
 
 keyingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           RigCount -> ClosedTerm -> TT [x] -> (dictionary : Bool) -> Core Keying
-keyingOf rig a' sc dictionary =
-  if isErased rig
-     then if isTypeLike a' then pure (case a' of
-                                        Bind _ _ (Pi {}) _ => Family
-                                        _ => Typed) else do
-            -- An erased shape of the array language that a value array's
-            -- type needs is its form: a tensor's rank is its type, so it
-            -- keys the instance. Any other erased argument keys nothing.
-            needed <- if isShapeType (shapeOf !(toFullNames a'))
-                        then formNeeded (\x => subst x sc)
-                        else pure False
-            pure (if needed then Formed else Unkeyed)
-     else if !(dictionaryBinder rig a') || dictionary
-             then pure Implemented
-             else pure (Runtime (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
+           RigCount -> ClosedTerm -> TT [x] -> Offer -> Core Keying
+keyingOf rig a' sc offer = case use rig of
+  Erased =>
+    if isTypeLike a' then pure (case a' of
+                                  Bind _ _ (Pi {}) _ => Family
+                                  _ => Typed) else do
+      -- An erased shape of the array language that a value array's
+      -- type needs is its form: a tensor's rank is its type, so it
+      -- keys the instance. Any other erased argument keys nothing.
+      needed <- if isShapeType (shapeOf !(toFullNames a'))
+                  then formNeeded (\x => subst x sc)
+                  else pure False
+      pure (if needed then Formed else Unkeyed)
+  Used _ => case offer of
+    AnImplementation => pure Implemented
+    AValue =>
+      if !(implementationType a')
+         then pure Implemented
+         else pure (Runtime (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
 
 ||| `classify`'s decisions over arguments given as closed terms (over the
-||| growth check's markers, `Growth.Sites`), each with whether it is an
-||| implementation, or `Nothing` for a runtime value: each parameter's
+||| growth check's markers, `Growth.Sites`), each with what the call knows
+||| of it (`Offer`), or `Nothing` for a runtime value: each parameter's
 ||| kind, and the rest of the type. It decides by `keyingOf` and
 ||| `needsShape`, as `classify` does, but computes no value, reads no Core
 ||| type, registers nothing and refuses nothing, so it runs over markers.
 export
 staticsOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> (arity : Nat) -> (callee : ClosedTerm) ->
-              List (Maybe (ClosedTerm, Bool)) -> Core (List (Maybe Static), ClosedTerm)
+              List (Maybe (ClosedTerm, Offer)) -> Core (Vect arity (Maybe Static), ClosedTerm)
 staticsOver owner Z ty _ = pure ([], ty)
 staticsOver owner (S k) ty vals = do
-  Bind _ _ (Pi _ rig _ a) sc <- the (Core ClosedTerm) (case ty of
-                                    Bind _ _ (Pi {}) _ => pure ty
-                                    _ => normaliseClosed ty)
+  Bind _ _ (Pi _ rig _ a) sc <- showingBinder ty
     | _ => internal EmptyFC "more arguments than the type has binders"
   a' <- normaliseClosed a
   let (given, vals') = nextStatic vals
-  kind <- case !(keyingOf rig a' sc (maybe False snd given)) of
+  kind <- case !(keyingOf rig a' sc (maybe AValue snd given)) of
     Typed => pure (Just AType)
     Family => pure (Just AFamily)
     Formed => pure (Just AForm)
@@ -259,21 +265,17 @@ classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            FC -> String -> Nat -> ClosedTerm -> ArgValues ->
            Core (List PKind, ClosedTerm)
 classify fc owner Z ty _ = pure ([], ty)
-classify fc owner (S k) ty vals = case ty of
-  Bind bfc _ (Pi _ rig _ a) sc => parameter bfc rig a sc
-  _ => do
-    -- A type that shows its binders only once normalised, written with a
-    -- name for a function type.
-    Bind bfc _ (Pi _ rig _ a) sc <- normaliseClosed ty
-      | _ => internal fc "more arguments than the type has binders"
-    parameter bfc rig a sc
+classify fc owner (S k) ty vals = do
+  Bind bfc _ (Pi _ rig _ a) sc <- showingBinder ty
+    | _ => internal fc "more arguments than the type has binders"
+  parameter bfc rig a sc
   where
     -- The parameter a binder binds, and the rest of the type after it.
     parameter : FC -> RigCount -> ClosedTerm -> TT [x] -> Core (List PKind, ClosedTerm)
     parameter bfc rig a sc = do
       a' <- normaliseClosed a
       let (given, vals') = nextStatic vals
-      case !(keyingOf rig a' sc (maybe False (.dictionary) given)) of
+      case !(keyingOf rig a' sc (maybe AValue (.offer) given)) of
         Typed => typed given vals'
         -- A family keys its instance as any type does; only the growth
         -- check reads what heads its value.
@@ -326,7 +328,7 @@ classify fc owner (S k) ty vals = case ty of
                     reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
               key <- implementationOf shape
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
-              pure (key, Just (MkHoles tys (MkBinder (quantityOf top) held)))
+              pure (key, Just (MkHoles tys (MkBinder Many held)))
           (rest, res) <- classify fc owner k !(normaliseClosed (subst key sc)) vals'
           pure (DictParam key holes :: rest, res)
         Runtime dependence => do

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: a natural is made only by idr.big.from_uint, so from_sint's result constraint refuses one (mlir-1); constants written type first (ir-ods-8); the default binds the scrutinee (S2).
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // A natural is never negative, and the type is what proves it: no op makes
 // a !idr.nat that could be negative, and a constant cannot be one.
@@ -5,7 +6,7 @@
 idr.program @nat root(@root) stage(first) {
   idr.func @negative_constant() -> !idr.nat {
     // expected-error @+1 {{cannot hold}}
-    %n = idr.constant #idr.big<-1> : !idr.nat
+    %n = idr.constant !idr.nat #idr.big<-1>
     return %n : !idr.nat
   }
   // The program's root, which the functions above are no part of.
@@ -80,11 +81,12 @@ idr.program @nat root(@root) stage(first) {
 
 // -----
 
-// An integer becomes a natural only read as unsigned, which it then is.
+// An integer becomes a natural only read as unsigned, which it then is:
+// only idr.big.from_uint makes one.
 idr.program @nat root(@root) stage(first) {
   idr.func @signed_word(%x: i64) -> !idr.nat {
-    // expected-error @+1 {{makes a natural of a signed integer}}
-    %n = idr.big.from_int signed %x : i64 : !idr.nat
+    // expected-error @+1 {{but got '!idr.nat'}}
+    %n = idr.big.from_sint %x : i64 : !idr.nat
     return %n : !idr.nat
   }
   // The program's root, which the functions above are no part of.
@@ -104,7 +106,7 @@ idr.program @nat root(@root) stage(first) {
       %a = arith.constant 1 : i64
       idr.yield %a : i64
     }
-    default {
+    default(%d: !idr.nat) {
       %b = arith.constant 0 : i64
       idr.yield %b : i64
     }

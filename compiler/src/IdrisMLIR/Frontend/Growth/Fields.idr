@@ -18,7 +18,9 @@ import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Given
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Proof.Requests
 
@@ -30,11 +32,12 @@ import Data.List
 -- return type can say which binder it holds where. Only the match below
 -- reads it, and nothing normalises a term that holds one.
 standIn : Nat -> ClosedTerm
-standIn k = Ref EmptyFC Bound (MN "idris-mlir-field" (cast k))
+standIn k = probeTerm (ProbeStandIn k)
 
 standInOf : ClosedTerm -> Maybe Nat
-standInOf (Ref _ _ (MN "idris-mlir-field" k)) = Just (cast k)
-standInOf _ = Nothing
+standInOf t = case probeOfTerm t of
+  Just (ProbeStandIn k) => Just k
+  _ => Nothing
 
 -- The return type of a constructor's type, each binder its stand-in.
 returned : Given vs -> Nat -> TT vs -> ClosedTerm
@@ -88,9 +91,11 @@ fieldTypes : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              Given vs -> Nat -> List (Nat, ClosedTerm) -> TT vs -> Core (List ClosedTerm)
 fieldTypes g k bound (Bind bfc _ (Pi _ rig _ a) sc) = do
   rest <- fieldTypes (give (fromMaybe (Erased bfc Placeholder) (lookup k bound)) g) (S k) bound sc
-  if isErased rig then pure rest else do
-    a' <- normaliseClosed (close g a)
-    if !(dictionaryBinder rig a') then pure rest else pure (a' :: rest)
+  case use rig of
+    Erased => pure rest
+    Used _ => do
+      a' <- normaliseClosed (close g a)
+      if !(implementationType a') then pure rest else pure (a' :: rest)
 fieldTypes _ _ _ _ = pure []
 
 ||| The sites a type constructor's fields write: each runtime field of each
@@ -105,20 +110,19 @@ fieldTypes _ _ _ _ = pure []
 export
 fieldSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              (t : Address) -> GlobalDef -> (constructors : List Name) -> (represented : List Nat) -> Core (List Site)
-fieldSites t tdef cons rs = concat <$> traverse constructorSites cons
+fieldSites t tdef cons rs = (>>= id) <$> traverse constructorSites cons
   where
-    -- One constructor's sites. Its address is its index in the context,
-    -- from the lookup that finds it, so a constructor found without an
-    -- address cannot happen. A type's constructor names carry no proof of
-    -- their entries: one the context does not hold is the compiler's error.
+    -- One constructor's sites. Its address is its placement, from the
+    -- lookup that finds it, so a constructor found without an address
+    -- cannot happen. A type's constructor names carry no proof of their
+    -- entries: one the context does not hold is the compiler's error.
     constructorSites : Name -> Core (List Site)
     constructorSites cn = do
-      defs <- get Ctxt
-      Just (ci, cdef) <- lookupCtxtExactI cn (gamma defs)
+      Just (placement, cdef) <- resolve cn
         | Nothing => internal (location tdef)
                        ("the context does not hold " ++ show cn ++ ", a constructor of " ++ show (fullname tdef))
       -- The type as written may hide binders behind a definition (`a -@
       -- b`); its normal form shows each one, as the translation reads it.
       ty <- normaliseClosed (type cdef)
       fts <- fieldTypes none 0 (bindings rs (returned none 0 ty)) ty
-      concat <$> traverse (\ft => map (\st => { fc := location cdef } st) <$> sitesIn t (addressOf ci) ft) fts
+      (>>= id) <$> traverse (\ft => map (\st => { fc := location cdef } st) <$> sitesIn t (addressOf placement) ft) fts

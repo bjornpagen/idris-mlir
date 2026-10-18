@@ -3,7 +3,8 @@
 // Output of a list (idr.io.put_list) takes one step of the list it meets: a
 // constant list, the nil among them, is written as the string it folds to,
 // and a cell as its element before the rest. Each step creates ops, which a
-// folder could not.
+// folder could not; output of the nil's empty string then folds away
+// (PutStrOp::fold).
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -18,9 +19,8 @@ using namespace idr;
 namespace {
 
 // Writing a constant list writes the string it packs or concatenates to,
-// which folding builds, and the nil writes nothing. Compile-time evaluation
-// can make the list a constant after output of its pack became
-// idr.io.put_list.
+// which folding builds. Compile-time evaluation can make the list a
+// constant after output of its pack became idr.io.put_list.
 struct PutListOfConstant : OpRewritePattern<PutListOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(PutListOp op, PatternRewriter &rewriter) const final {
@@ -30,10 +30,6 @@ struct PutListOfConstant : OpRewritePattern<PutListOp> {
     auto text = dyn_cast_or_null<StringAttr>(stringOfList(getContext(), list));
     if (!text)
       return failure();
-    if (text.getValue().empty()) {
-      rewriter.replaceOp(op, op.getWorld());
-      return success();
-    }
     Value s = ConstantOp::create(rewriter, op.getLoc(), StrType::get(getContext()), text);
     rewriter.replaceOpWithNewOp<PutStrOp>(op, op.getNext().getType(), s, op.getWorld());
     return success();
@@ -42,17 +38,15 @@ struct PutListOfConstant : OpRewritePattern<PutListOp> {
 
 // Writing a cell writes its element, as put_char or put_str does, then the
 // rest of the list; the cell, built only to be written, is not built. A
-// cell with another use stays, and is written as it is walked, and so does
-// one with a hole, its rest still to be written. The list is base's, whose
-// body says which constructor is its cons, of the element, a character or
-// a string, and the rest.
+// cell with another use stays, and is written as it is walked. The list is
+// base's, whose body says which constructor is its cons, of the element, a
+// character or a string, and the rest.
 struct PutListOfCons : OpRewritePattern<PutListOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(PutListOp op, PatternRewriter &rewriter) const final {
     auto cell = op.getList().getDefiningOp<ConOp>();
     if (!cell || !cell->hasOneUse() ||
-        cell.getDataType().getCtor(cell.getTag()).role != CtorRole::ListCons ||
-        !cell.getHoles().empty())
+        kindOf(cell.getDataType().getCtor(cell.getTag()).role) != CtorRole::ListCons)
       return failure();
     Value head = cell.getFields()[0];
     Type element = head.getType();

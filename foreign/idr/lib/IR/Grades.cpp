@@ -22,10 +22,13 @@ Grade idr::gradeOf(Type type) {
   return q ? q.getGrade() : Grade{};
 }
 
+// The one rule of a type used exactly once by its type: it takes no grade,
+// which QType::verify refuses, so every grade function gives it unchanged.
 Type idr::graded(Grade grade, Type value) {
-  if (auto q = dyn_cast<QType>(value))
-    value = q.getValue();
-  return grade.plain() ? value : QType::get(value.getContext(), grade, value);
+  value = unrestricted(value);
+  if (grade.plain() || isLinearByType(value))
+    return value;
+  return QType::get(value.getContext(), grade, value);
 }
 
 Type idr::unrestricted(Type type) {
@@ -35,17 +38,11 @@ Type idr::unrestricted(Type type) {
 
 Type idr::linear(Type value) { return graded({Quantity::One, Permission::Plain}, value); }
 
-Type idr::world(MLIRContext *ctx) {
-  return graded({Quantity::One, Permission::Plain}, WorldType::get(ctx));
-}
+Type idr::world(MLIRContext *ctx) { return WorldType::get(ctx); }
 
-bool idr::isLinear(Type type) {
-  return gradeOf(type).quantity == Quantity::One && !isWorld(type);
-}
+bool idr::isLinear(Type type) { return gradeOf(type).quantity == Quantity::One; }
 
-// The world is known by its carrier, graded or not: a carrier that a grade
-// was stripped from (unrestricted) is still the value it is.
-bool idr::isWorld(Type type) { return isa<WorldType>(unrestricted(type)); }
+bool idr::isWorld(Type type) { return isa<WorldType>(type); }
 
 bool idr::isClosureType(Type type) { return isa<FnType>(unrestricted(type)); }
 
@@ -81,11 +78,10 @@ Type idr::owned(Type type) {
 
 // At the owned stage a value of ours that holds no reference of its own is
 // a borrow, the grade that says so, never plain. A builtin buffer stays
-// plain: upstream's memref ops take no graded operand, and the world has
-// only its own grade.
+// plain: upstream's memref ops take no graded operand.
 Type idr::view(Type type) {
   Type value = unrestricted(type);
-  bool ours = isa<IdrDialect>(value.getDialect()) && !isWorld(value);
+  bool ours = isa<IdrDialect>(value.getDialect());
   return graded({gradeOf(type).quantity, ours ? Permission::Borrow : Permission::Plain}, value);
 }
 
@@ -113,9 +109,10 @@ Quantity idr::times(Quantity a, Quantity b) {
   llvm_unreachable("a quantity");
 }
 
-// A destination is written exactly once, so it is used exactly once.
+// A type used once by its type takes no grade, so its quantity is its
+// type's; any other type's is its grade's.
 Quantity idr::quantityOf(Type type) {
-  return isa<DestType>(type) ? Quantity::One : gradeOf(type).quantity;
+  return isLinearByType(type) ? Quantity::One : gradeOf(type).quantity;
 }
 
 namespace {
@@ -145,15 +142,41 @@ SmallVector<Value, 4> idr::definitionChain(Value start,
 
 Value idr::throughLinear(Value value) { return definitionChain(value, enteredFrom).back(); }
 
-// A view or a share of an owned array is that array, and so is the array a
-// linear position was entered with: what counting and linearity make of an
-// array changes which value names it, not which cell it is. Every op that
-// only changes a grade says so (ResultCarriesOperand).
+// An op says it keeps its operand's value (Idr_SameValue), and a match
+// says which region is a case of which constructor (knownTag); a default
+// region's argument is the scrutinee by our own rule, since the match
+// declares no predecessor for it: forwarding the scrutinee there would let
+// upstream's region-branch patterns use a linear scrutinee twice.
+Source idr::sourceOf(Value value) {
+  if (auto result = dyn_cast<OpResult>(value)) {
+    Operation *op = result.getOwner();
+    if (op->hasTrait<SameValue>())
+      return Same{op->getOperand(0)};
+    if (auto read = dyn_cast<FieldOp>(op))
+      return Field{read.getValue(), read.getTag(), static_cast<unsigned>(read.getIndex())};
+    return Made{};
+  }
+  auto arg = cast<BlockArgument>(value);
+  Region &region = *arg.getOwner()->getParent();
+  auto match = dyn_cast_or_null<MatchOpInterface>(region.getParentOp());
+  if (!match)
+    return Made{};
+  if (&region == &match.getDefaultRegion())
+    return Same{match.getScrutinee()};
+  // A case of a constructor binds its fields. A case of a literal match has
+  // no constructor, and binds nothing its verifier admits.
+  if (std::optional<Tag> tag = match.knownTag(region))
+    return Field{match.getScrutinee(), *tag, arg.getArgNumber()};
+  return Made{};
+}
+
+// What counting and linearity make of an array changes which value names
+// it, not which cell it is.
 Value idr::arrayRoot(Value array) {
   return definitionChain(array, [](Value value) -> std::optional<Value> {
-           Operation *grade = value.getDefiningOp();
-           if (grade && grade->hasTrait<ResultCarriesOperand>())
-             return grade->getOperand(0);
+           Source source = sourceOf(value);
+           if (auto *same = std::get_if<Same>(&source))
+             return same->value;
            return std::nullopt;
          }).back();
 }
@@ -180,33 +203,7 @@ bool idr::fieldReadOnce(Value value, unsigned index) {
   return reads == 1;
 }
 
-// The operands of a closure or a suspension are its captures.
-bool idr::holdsLinear(Value value) {
-  Operation *made = value.getDefiningOp();
-  return isa_and_nonnull<ClosureOp, SuspendOp>(made) &&
-         llvm::any_of(made->getOperandTypes(),
-                      [](Type type) { return quantityOf(type) == Quantity::One; });
-}
-
-// Not at all, or once: run by its one user, or given a grade of quantity
-// one, which only changes its grade.
-bool idr::takenOnce(Value value) {
-  if (value.use_empty())
-    return true;
-  if (!value.hasOneUse())
-    return false;
-  Operation *user = *value.getUsers().begin();
-  if (auto apply = dyn_cast<ApplyOp>(user))
-    return apply.getCallee() == value;
-  if (auto force = dyn_cast<ForceOp>(user))
-    return force.getSuspension() == value;
-  return user->hasTrait<ResultCarriesOperand>() &&
-         quantityOf(user->getResult(0).getType()) == Quantity::One;
-}
-
 Type idr::fieldType(Type scrutinee, Type field) {
-  if (isWorld(field))
-    return field;
   Type plain = graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::Plain},
                       unrestricted(field));
   // Before counting no value is graded; after it, a field read out of a
@@ -248,8 +245,10 @@ bool isValueArray(Type type) {
 } // namespace
 
 // A runtime value of ours is an element type of memref, which its ODS says
-// beside it, and so a field's type; the dialect's other types (a grade, the
-// world's carrier, a token, a destination) are no values a cell holds.
+// beside it, and so a field's type. The world has no runtime form and is no
+// element, but a constructor holds it (an IO result); the dialect's other
+// types (a grade, a token, a destination, a cell) are no values a cell
+// holds.
 bool idr::isFieldType(Type type) {
   if (isWorld(type))
     return true;

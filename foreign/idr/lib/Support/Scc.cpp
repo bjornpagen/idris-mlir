@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The one walk of ours over llvm::GraphTraits: every graph's components come
+// The one walk over a graph of ours: every such graph's components come
 // through `idr::components`, so this is the one place that shapes a graph
-// of indices for LLVM's iterative Tarjan (scc_iterator).
+// of indices for LLVM's iterative Tarjan (scc_iterator). Upstream's call
+// graph has GraphTraits of its own, which CallCycles walks.
 #include "idr/Support/Scc.h"
 
 #include "llvm/ADT/GraphTraits.h"

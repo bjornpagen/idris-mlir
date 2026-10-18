@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: each constant written with its type first, idr.constant <type> <value>, folds and is read back as before.
 // RUN: idris-mlir-opt %s --canonicalize '--idr-expect=holds=returns=@naturals:#idr.big<18446744073709551621>/#idr.big<92233720368547758080>/true/#idr.big<4>/_/#idr.big<0>/#idr.big<12>/#idr.big<5>' -o /dev/null
 // The runtime folds the operations on constant naturals, as it computes
 // them at runtime, and the results stay naturals: a sum and a product; a
@@ -5,11 +6,11 @@
 // stays as it is); an Integer clamped at 0; a natural as an Integer.
 idr.program @nat root(@root) stage(first) {
   idr.func @naturals() -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.nat, !idr.nat, !idr.big) {
-    %five = idr.constant #idr.big<5> : !idr.nat
-    %zero = idr.constant #idr.big<0> : !idr.nat
-    %large = idr.constant #idr.big<18446744073709551616> : !idr.nat
-    %negative = idr.constant #idr.big<-7> : !idr.big
-    %twelve = idr.constant #idr.big<12> : !idr.big
+    %five = idr.constant !idr.nat #idr.big<5>
+    %zero = idr.constant !idr.nat #idr.big<0>
+    %large = idr.constant !idr.nat #idr.big<18446744073709551616>
+    %negative = idr.constant !idr.big #idr.big<-7>
+    %twelve = idr.constant !idr.big #idr.big<12>
     %s = idr.big.add %five, %large : !idr.nat
     %p = idr.big.mul %five, %large : !idr.nat
     %c = idr.big.cmp lt %five, %large : !idr.nat

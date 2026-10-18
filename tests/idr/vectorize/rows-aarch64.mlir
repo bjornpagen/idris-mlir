@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: idris-mlir -c %s -o %t.o --mlir-disable-threading -mlir-print-ir-module-scope -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.d
 // RUN: sh -c 'cp %t.d/builtin_module_no-symbol-name/func_func_squares/*_transform-interpreter.mlir %t.squares.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_rows/*_transform-interpreter.mlir %t.rows.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_sumf/*_transform-interpreter.mlir %t.sumf.mlir'
@@ -78,7 +79,7 @@ idr.program @"rows-aarch64" root(@root) stage(higher) {
     %n = arith.index_cast %b64 : i64 to index
     %sq = idr.call @squares(%n) : (index) -> tensor<?xi64>
     %s0 = tensor.extract %sq[%c0] : tensor<?xi64>
-    %w2 = idr.io.put_int signed %s0, %w1 : i64
+    %w2 = idr.io.put_sint %s0, %w1 : i64
     %v = idr.call @ones(%n) : (index) -> tensor<?xf64>
     %r = idr.call @rows(%n, %v) : (index, tensor<?xf64>) -> tensor<?xf64>
     %r0 = tensor.extract %r[%c0] : tensor<?xf64>

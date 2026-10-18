@@ -18,7 +18,9 @@ using namespace rt::big;
   return c < 0 ? -1 : c > 0 ? 1 : 0;
 }
 
-// Tagging keeps the order: 2x + 1 < 2y + 1 exactly when x < y. Each integer
+// The order of two bigs, or two naturals: -1, 0 or 1 as the first is less
+// than, equal to or greater than the second. Tagging keeps the order:
+// 2x + 1 < 2y + 1 exactly when x < y. Each integer
 // has one representation, so a large big lies outside the small range:
 // against a small one its sign alone decides, and is never 0, so an
 // equality test with one small operand folds to the words' equality once
@@ -26,9 +28,9 @@ using namespace rt::big;
 extern "C" [[gnu::always_inline]] int32_t idris_rt_big_cmp(idris_rt_big a, idris_rt_big b) {
   if (bothSmall(a, b)) [[likely]]
     return a < b ? -1 : a > b ? 1 : 0;
-  if (isSmall(a))
+  if (idris_rt_word_is_small(a))
     return -signOf(b);
-  if (isSmall(b))
+  if (idris_rt_word_is_small(b))
     return signOf(a);
   return cmpLarge(a, b);
 }

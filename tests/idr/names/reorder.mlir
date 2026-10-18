@@ -9,6 +9,7 @@
 // RUN: diff %t.names %t.reversed.names
 // NEEDS-ACCEPTANCE: the pipeline's output under one thread is byte-identical to its output under the pool.
 // NEEDS-ACCEPTANCE: that the optimizer makes the specialization nodes here, as the binding-time rule allows.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the RUN lines hold as before.
 // A function the optimizer makes is named from its key, the owner and
 // the static pattern, never from a counter or from the order the work ran
 // in: the same module with its functions in reverse order (the first RUN
@@ -20,7 +21,7 @@ idr.program @reorder root(@Main.main) stage(first) {
     case 0 {
       idr.yield %k : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.call @apply(%k, %m) : (i64, i64) -> i64
@@ -35,7 +36,7 @@ idr.program @reorder root(@Main.main) stage(first) {
     case 0 {
       idr.yield %k : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.call @scale(%k, %m) : (i64, i64) -> i64
@@ -56,7 +57,7 @@ idr.program @reorder root(@Main.main) stage(first) {
     %d = idr.call @scale(%k3, %n) : (i64, i64) -> i64
     %ab = arith.addi %a, %b : i64
     %r = arith.addi %ab, %d : i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

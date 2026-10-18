@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that the printer's names hold with each constant written with its type first.
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s --mlir-use-nameloc-as-prefix | FileCheck %s --check-prefix=NAMED
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
@@ -12,12 +13,12 @@
 // asked to. A repeated name is numbered apart, which no check reads.
 // CHECK-LABEL: idr.func @values(
 // CHECK-SAME: %w: !idr.world, %s: !idr.lin<!idr.str>, %n: !idr.big, %[[N:n_[0-9]+]]: !idr.nat, %f: !idr.fn<(i64) -> i64>, %lazy: !idr.lazy<i64>, %tok: !idr.token, %[[X:[a-z0-9_]+]]: i64)
-// CHECK: %str = constant "a" : !idr.str
-// CHECK: %big = constant #idr.big<5> : !idr.big
-// CHECK: %nat = constant #idr.big<3> : !idr.nat
-// CHECK: %clo = constant #idr.closure<@inc, []> : !idr.fn<(i64) -> i64>
-// CHECK: %thunk = constant #idr.closure<@later, []> : !idr.lazy<i64>
-// CHECK: %nothing = constant #idr.con<!Maybe_Nat, @Nothing, []> : !Maybe_Nat
+// CHECK: %str = constant !idr.str "a"
+// CHECK: %big = constant !idr.big #idr.big<5>
+// CHECK: %nat = constant !idr.nat #idr.big<3>
+// CHECK: %clo = constant !idr.fn<(i64) -> i64> #idr.closure<@inc, []>
+// CHECK: %thunk = constant !idr.lazy<i64> #idr.closure<@later, []>
+// CHECK: %nothing = constant !Maybe_Nat #idr.con<!Maybe_Nat, @Nothing, []>
 // CHECK: %just = con {{.*}}@Just(%[[N]] : {{[^)]*}})
 // CHECK: %clo{{_[0-9]+}} = closure @inc()
 // CHECK: %thunk{{_[0-9]+}} = delay %{{.*}} : i64 -> !idr.lazy<i64>
@@ -54,13 +55,13 @@ idr.program @names root(@root) stage(higher) {
                            %f: !idr.fn<(i64) -> (i64)>, %l: !idr.lazy<i64>, %t: !idr.token,
                            %x: i64 loc("count"))
       -> (!idr.world, i64, !idr.str) {
-    %c0 = idr.constant "a" : !idr.str
-    %c1 = idr.constant #idr.big<5> : !idr.big
-    %c2 = idr.constant #idr.big<3> : !idr.nat
-    %c3 = idr.constant #idr.closure<@inc, []> : !idr.fn<(i64) -> (i64)>
-    %c4 = idr.constant #idr.closure<@later, []> : !idr.lazy<i64>
-    %c5 = idr.constant #idr.con<!Prelude.Types.Maybe_Prelude.Types.Nat_, @Nothing, []>
-        : !Prelude.Types.Maybe_Prelude.Types.Nat_
+    %c0 = idr.constant !idr.str "a"
+    %c1 = idr.constant !idr.big #idr.big<5>
+    %c2 = idr.constant !idr.nat #idr.big<3>
+    %c3 = idr.constant !idr.fn<(i64) -> (i64)> #idr.closure<@inc, []>
+    %c4 = idr.constant !idr.lazy<i64> #idr.closure<@later, []>
+    %c5 = idr.constant !Prelude.Types.Maybe_Prelude.Types.Nat_
+        #idr.con<!Prelude.Types.Maybe_Prelude.Types.Nat_, @Nothing, []>
     %v0 = idr.con !Prelude.Types.Maybe_Prelude.Types.Nat_ @Just(%n : !idr.nat)
     %v1 = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
     %one = arith.constant 1 : i64

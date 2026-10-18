@@ -19,10 +19,10 @@ idr.program @exclusive root(@root) stage(first) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
       idr.yield %e : !idr.box<!L>
     }
-    default {
+    default(%d0: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
@@ -33,7 +33,7 @@ idr.program @exclusive root(@root) stage(first) {
     return %r : !idr.box<!L>
   }
   idr.func @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %n : !idr.box<!L>
@@ -49,7 +49,7 @@ idr.program @exclusive root(@root) stage(first) {
     return %r : !idr.box<!L>
   }
   idr.func @bump2(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %n : !idr.box<!L>
@@ -98,11 +98,11 @@ idr.program @exclusive root(@root) stage(first) {
     %q = idr.call @build(%c3) : (i64) -> !idr.box<!L>
     %r = idr.call @bump2(%q) : (!idr.box<!L>) -> !idr.box<!L>
     %s5 = idr.call @sum(%r, %z) : (!idr.box<!L>, i64) -> i64
-    %w1 = idr.io.put_int signed %s1, %w : i64
-    %w2 = idr.io.put_int signed %s2, %w1 : i64
-    %w3 = idr.io.put_int signed %s3, %w2 : i64
-    %w4 = idr.io.put_int signed %s4, %w3 : i64
-    %w5 = idr.io.put_int signed %s5, %w4 : i64
+    %w1 = idr.io.put_sint %s1, %w : i64
+    %w2 = idr.io.put_sint %s2, %w1 : i64
+    %w3 = idr.io.put_sint %s3, %w2 : i64
+    %w4 = idr.io.put_sint %s4, %w3 : i64
+    %w5 = idr.io.put_sint %s5, %w4 : i64
     return %w5 : !idr.world
   }
 }

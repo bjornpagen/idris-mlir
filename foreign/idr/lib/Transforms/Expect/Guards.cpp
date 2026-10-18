@@ -14,15 +14,12 @@ namespace idr::expect {
 
 // The function the argument names keeps no guard of any kind: every
 // condition its partial primitives need is proven where it runs.
-LogicalResult noGuards(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "no-guards";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult noGuards(const Request<Functions> &request) {
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.functions)
     fn->walk([&](GuardOpInterface guard) {
-      fail(guard->getLoc(), property) << guard->getName() << " is left in " << where(guard);
+      fail(guard->getLoc(), request.property)
+          << guard->getName() << " is left in " << where(guard);
       held = false;
     });
   return success(held);

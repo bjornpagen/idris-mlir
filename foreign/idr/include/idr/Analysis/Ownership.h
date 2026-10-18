@@ -24,18 +24,20 @@
 //     never left a view: the buffer may be written while the view is read.
 // idr.dup gives a view one reference of its own, which one use consumes.
 //
-// Every analysis here is a value idr-rc builds where it is used, and is
-// read-only once built, so the function passes idr-rc runs nested may read
-// it from any thread.
+// Reuses and Borrows are analyses the program's analysis manager caches,
+// which idr-rc's steps read; Exclusivity is a value its solve returns, as
+// it is solved twice over the copies grade specialization makes. Each is
+// read-only once built, so the function passes of idr-rc may read it from
+// any thread.
 #ifndef IDR_ANALYSIS_OWNERSHIP_H
 #define IDR_ANALYSIS_OWNERSHIP_H
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Layout.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -139,7 +141,9 @@ FieldOp onlyReads(mlir::Value box);
 FieldOp onlyReads(mlir::Type type, llvm::ArrayRef<mlir::OpOperand *> uses);
 
 // The values whose cell graph exclusivity follows: owned boxes and unboxed
-// sums (whose slots may hold boxes), and the tokens of their cells.
+// sums (whose slots may hold boxes), the tokens of their cells, and the
+// cells themselves, which have no grade: a box built in a cell is new to
+// anyone exactly when its cell is.
 bool followed(mlir::Value value);
 
 // Whether `value` holds references: its type does (holdsReferences), and
@@ -191,8 +195,8 @@ template <> struct llvm::DenseMapInfo<idr::ownership::After> {
 namespace idr {
 
 // Reset/reuse insertion's decisions: in each function, the dead boxes that
-// are taken apart where they die and the constructors after each that are
-// built in its cell. Each function's sites depend on its body, the data
+// are taken apart where they die and the heap cells made after each that
+// recycle its cell. Each function's sites depend on its body, the data
 // types and the layouts alone.
 class Reuses {
 public:
@@ -202,25 +206,27 @@ public:
   struct TakenField {
     unsigned site;
     unsigned field;
+    bool operator==(const TakenField &) const = default;
   };
 
-  // A take and the constructors that reuse its cell. The take goes at
-  // `point`; `bound` are the fields of the case region that bound the box's
-  // fields, none when no case region did. The box is a value of the
-  // function, or a field of an earlier take. It was built by the
-  // constructor `tag` of `data`.
+  // A take and the cells that recycle its cell. The take goes at `point`;
+  // `bound` are the fields of the case region that bound the box's fields,
+  // none when no case region did. The box is a value of the function, or a
+  // field of an earlier take. It was built by the constructor `tag` of
+  // `data`. Each of `cells` is an idr.cell.new idr-rc's place step
+  // replaces by an idr.cell.recycle of the take's token.
   struct Site {
     std::variant<mlir::Value, TakenField> box;
     DataType data;
     Tag tag;
     ownership::Point point;
     llvm::SmallVector<mlir::BlockArgument> bound;
-    llvm::SmallVector<ConOp> cons;
+    llvm::SmallVector<CellNewOp> cells;
   };
 
   // The sites of every function of `program`, on the layouts the target
   // gives.
-  Reuses(ProgramOp program, const Layouts &layouts);
+  Reuses(mlir::Operation *program, mlir::AnalysisManager &am);
 
   // The sites of `fn`, a function of the program, in the order they are
   // rewritten.
@@ -237,7 +243,9 @@ class Borrows {
 public:
   enum class Param : uint8_t { Untracked, Borrowed, Owned };
 
-  Borrows(ProgramOp program, const mlir::SymbolTable &symbols, const Reuses &reuses);
+  // The inference over `program`, from the reuses decided, the program's
+  // cycles of calls and its symbols, each cached beside it.
+  Borrows(mlir::Operation *program, mlir::AnalysisManager &am);
 
   // Each parameter of `fn`, a function of the program.
   llvm::ArrayRef<Param> params(FuncOp fn) const { return paramsOf.find(fn)->second; }
@@ -283,12 +291,13 @@ public:
   // given or of its copy: the copy or the original. None for any other
   // call.
   std::optional<FuncOp> target(CallOp call) const;
-  // Every call of `fn`, when the solve sees them all, each to where the
-  // solve sent it.
-  std::optional<llvm::ArrayRef<mlir::Operation *>> callers(FuncOp fn) const;
-  // Every return of `fn` the solve reached, when it sees them all from a
-  // call of it.
-  std::optional<llvm::ArrayRef<mlir::Operation *>> returns(FuncOp fn) const;
+  // The calls the solve sent to `fn`, from the blocks that run of the
+  // functions that run; none exactly when the solve does not see every
+  // call of it (its callers are not all the program's).
+  std::optional<llvm::ArrayRef<CallOp>> callers(FuncOp fn) const;
+  // The returns of `fn` the solve reached, when a call that runs goes to
+  // it; empty when none does. Every function of the program has its entry.
+  llvm::ArrayRef<ReturnOp> returns(FuncOp fn) const { return returnsOf.at(fn); }
 
 private:
   Exclusivity() = default;
@@ -296,10 +305,20 @@ private:
   llvm::DenseMap<mlir::Value, Sharing> sharing;
   llvm::DenseSet<mlir::Block *> liveBlocks;
   llvm::DenseMap<mlir::Operation *, FuncOp> targets;
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>> callersOf;
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>> returnsOf;
+  llvm::DenseMap<FuncOp, llvm::SmallVector<CallOp>> callersOf;
+  llvm::DenseMap<FuncOp, llvm::SmallVector<ReturnOp>> returnsOf;
 };
 
 } // namespace idr
+
+// A taken field is a key of Reuses' tables, as a point is of idr-rc's.
+template <> struct llvm::DenseMapInfo<idr::Reuses::TakenField> {
+  static unsigned getHashValue(const idr::Reuses::TakenField &field) {
+    return DenseMapInfo<std::pair<unsigned, unsigned>>::getHashValue({field.site, field.field});
+  }
+  static bool isEqual(const idr::Reuses::TakenField &a, const idr::Reuses::TakenField &b) {
+    return a == b;
+  }
+};
 
 #endif // IDR_ANALYSIS_OWNERSHIP_H

@@ -273,7 +273,7 @@ installed before the profile instrumentation:
   names a rule's category, which `IdrRules.txt` gives and a reader joins on
   the rule, nor the pass, which MLIR does not tell a diagnostic handler; then `statistic:
   <pass>.<name>=<summed value>` for every statistic, zeros included, sorted
-  bytewise. A frontend refusal writes `verdict: refused` alone.
+  bytewise.
 - **F09.** The input's content decides, with no flag: the parse registry is the
   handoff dialects plus LLVM and DLTI; a module with an `idr.program` is a
   handoff module; one without must be all LLVM dialect and runs only the LLVM

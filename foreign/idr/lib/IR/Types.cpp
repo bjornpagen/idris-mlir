@@ -4,9 +4,9 @@
 // with the storage of a data type, which they need complete, and what
 // touches it: the body, made with the type, and the facts of what its
 // values hold, kept beside it under the context's lock; the canonical forms
-// of !idr.q, the destination's carrier, and the names the printer gives a
-// value of each type. A graded value takes its carrier's name, so a world
-// is %w and a linear string %s. How a body is checked and written is
+// of !idr.q, the literals of the scalar types of ours, and the names the
+// printer gives a value of each type. A graded value takes its carrier's
+// name, so a linear string is %s. How a body is checked and written is
 // lib/IR/DataBody.cpp's, and what a value holds lib/IR/ValueFacts.cpp's.
 
 #include "idr/IR/IdrDialect.h"
@@ -64,8 +64,7 @@ struct DataTypeStorage : TypeStorage {
     SmallVector<Ctor> copied;
     copied.reserve(body.ctors.size());
     for (const Ctor &ctor : body.ctors)
-      copied.push_back(
-          {ctor.name, allocator.copyInto(ctor.fields), ctor.byName, ctor.role, ctor.fn});
+      copied.push_back({ctor.name, allocator.copyInto(ctor.fields), ctor.role});
     ctors = allocator.copyInto(ArrayRef<Ctor>(copied));
     SmallVector<Tag> order = llvm::to_vector(llvm::map_range(
         llvm::seq<uint32_t>(0, static_cast<uint32_t>(ctors.size())),
@@ -73,7 +72,7 @@ struct DataTypeStorage : TypeStorage {
     llvm::sort(order, [&](Tag a, Tag b) { return name(a) < name(b); });
     byName = allocator.copyInto(ArrayRef<Tag>(order));
     for (auto [tag, ctor] : llvm::enumerate(ctors))
-      roleTags[static_cast<size_t>(ctor.role)] = Tag{static_cast<uint32_t>(tag)};
+      roleTags[static_cast<size_t>(kindOf(ctor.role))] = Tag{static_cast<uint32_t>(tag)};
     kind = body.kind;
     instance = body.instance;
     initialized = true;
@@ -154,14 +153,17 @@ std::optional<Tag> DataType::getTag(StringRef ctor) const {
 
 Tag DataType::roleTag(CtorRole role) const {
   std::optional<Tag> tag = getImpl()->roleTags[static_cast<size_t>(role)];
-  assert(tag && getCtor(*tag).role == role && "a role the data type has one constructor of");
+  assert(tag && kindOf(getCtor(*tag).role) == role &&
+         "a role the data type has one constructor of");
   return *tag;
 }
 
+bool DataType::isAtom(Tag tag) const { return !isMemo() && getCtor(tag).fields.empty(); }
+
 void DataType::walkLabels(DataType type, function_ref<void(Attribute)> walk) {
   for (const Ctor &ctor : type.getCtors())
-    if (ctor.fn)
-      walk(ctor.fn);
+    if (const auto *label = std::get_if<role::Label>(&ctor.role))
+      walk(label->fn);
 }
 
 // A body is set once, so a label's function cannot be replaced inside the
@@ -173,9 +175,10 @@ void DataType::walkLabels(DataType type, function_ref<void(Attribute)> walk) {
 Type DataType::replaceLabels(DataType type, ArrayRef<Attribute> labels) {
   ArrayRef<Attribute> rest = labels;
   for (const Ctor &ctor : type.getCtors()) {
-    if (!ctor.fn)
+    const auto *label = std::get_if<role::Label>(&ctor.role);
+    if (!label)
       continue;
-    if (rest.empty() || rest.front() != ctor.fn)
+    if (rest.empty() || rest.front() != label->fn)
       llvm::reportFatalInternalError(
           "the label @" + ctor.name.getValue() + " of the data type \"" + type.getName() +
           "\" renamed in place; a renamed label's data types are remade (DataRemap)");
@@ -205,14 +208,15 @@ LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, co
 }
 
 FailureOr<DataType> DataType::define(MLIRContext *context, StringRef identifier,
-                                     function_ref<Body(DataType self)> body) {
+                                     function_ref<FailureOr<Body>(DataType self)> body) {
   auto emitError = [&] {
     return mlir::emitError(UnknownLoc::get(context)) << "internal error: ";
   };
   if (identifier.empty())
     return emitError() << "a data type has no name";
   DataType type = get(context, identifier);
-  if (failed(type.setBody(emitError, body(type))))
+  FailureOr<Body> made = body(type);
+  if (failed(made) || failed(type.setBody(emitError, *made)))
     return failure();
   return type;
 }
@@ -223,22 +227,10 @@ FailureOr<DataType> DataType::define(MLIRContext *context, StringRef identifier,
 
 namespace {
 
-// The world, written whole: a !idr.q of the world's carrier, which is only
-// ever at (one, plain).
-bool isGradedWorld(Type type) { return isa<QType>(type) && isWorld(type); }
-
 // The dialect's spellings of a value at a grade, read and written from this
-// one table: a whole type, or a grade over any value. Any other grade is
-// the generated `!idr.q<quantity, permission, value>`, as is every grade
-// when written out; the world's carrier alone is `!idr.world_carrier`. The
-// wholes come first: the world is (one, plain) too.
-struct Whole {
-  StringRef keyword;
-  Type (*make)(MLIRContext *);
-  bool (*is)(Type);
-};
-constexpr Whole wholes[] = {{"world", idr::world, isGradedWorld}};
-
+// one table: a grade over any value. Any other grade is the generated
+// `!idr.q<quantity, permission, value>`, as is every grade when written
+// out.
 struct Over {
   StringRef keyword;
   Grade grade;
@@ -252,9 +244,6 @@ constexpr Over overs[] = {{"lin", {Quantity::One, Permission::Plain}},
 Type IdrDialect::parseType(DialectAsmParser &parser) const {
   llvm::SMLoc loc = parser.getCurrentLocation();
   MLIRContext *ctx = parser.getContext();
-  for (const Whole &whole : wholes)
-    if (succeeded(parser.parseOptionalKeyword(whole.keyword)))
-      return whole.make(ctx);
   for (const Over &over : overs)
     if (succeeded(parser.parseOptionalKeyword(over.keyword))) {
       Type value;
@@ -273,11 +262,6 @@ Type IdrDialect::parseType(DialectAsmParser &parser) const {
 }
 
 void IdrDialect::printType(Type type, DialectAsmPrinter &printer) const {
-  for (const Whole &whole : wholes)
-    if (whole.is(type)) {
-      printer << whole.keyword;
-      return;
-    }
   if (auto q = dyn_cast<QType>(type))
     for (const Over &over : overs)
       if (q.getGrade() == over.grade) {
@@ -289,13 +273,15 @@ void IdrDialect::printType(Type type, DialectAsmPrinter &printer) const {
 }
 
 //===----------------------------------------------------------------------===//
-// Grades and destinations
+// Grades
 //===----------------------------------------------------------------------===//
 
 // The canonical forms: a plain type is (many, plain) and is never written
-// as a grade; a grade is of a carrier, never of a grade; the world is at
-// (one, plain) only, and so is a tensor, an array value, whose one grade is
-// the quantity Idris proved of it; any other grade is of a runtime type.
+// as a grade; a grade is of a carrier, never of a grade; a type used
+// exactly once by its type (the world, a destination, a cell) takes none;
+// a tensor, an array value, is at (one, plain) only, the quantity Idris
+// proved of it, since bufferization owns its memory; any other grade is of
+// a runtime type.
 LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Quantity quantity,
                             Permission permission, Type value) {
   Grade grade{quantity, permission};
@@ -303,25 +289,57 @@ LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Quanti
     return emitError() << "expects a grade other than (many, plain), which is the plain type";
   if (isa<QType>(value))
     return emitError() << "expects a grade of a plain type, got one of " << value;
-  if (isa<WorldType, RankedTensorType>(value)) {
-    if (grade != Grade{Quantity::One, Permission::Plain})
-      return emitError() << "expects " << value << " at (one, plain)";
-    if (isa<RankedTensorType>(value) && !isFieldType(value))
-      return emitError() << "expects a grade of a runtime type, got " << value;
-    return success();
-  }
+  if (idr::isLinearByType(value))
+    return emitError() << "expects no grade of " << value
+                       << ", which is used exactly once by its type";
+  if (isa<RankedTensorType>(value) && grade != Grade{Quantity::One, Permission::Plain})
+    return emitError() << "expects " << value << " at (one, plain)";
   // A runtime type: one a field may have, or a token, which is owned.
   if (!isFieldType(value) && !isa<TokenType>(value))
     return emitError() << "expects a grade of a runtime type, got " << value;
   return success();
 }
 
-// A destination is one word of a cell that a box's reference fills: a
-// field of box type.
-LogicalResult DestType::verify(function_ref<InFlightDiagnostic()> emitError, Type value) {
-  if (!isa<BoxType>(value))
-    return emitError() << "expects !idr.dest of a box type, got " << value;
+//===----------------------------------------------------------------------===//
+// Literals
+//===----------------------------------------------------------------------===//
+
+// A string's literal is a string attribute with no type: a typed one
+// (`"x" : !idr.str`) is another attribute of the same text, which no
+// literal of ours is, so one string has one literal.
+bool StrType::isLiteral(Attribute literal) const {
+  auto text = dyn_cast<StringAttr>(literal);
+  return text && isa<NoneType>(text.getType());
+}
+
+ParseResult StrType::parseLiteral(AsmParser &parser, Attribute &literal) const {
+  std::string bytes;
+  if (parser.parseString(&bytes))
+    return failure();
+  literal = parser.getBuilder().getStringAttr(bytes);
   return success();
+}
+
+bool BigType::isLiteral(Attribute literal) const { return isa<BigAttr>(literal); }
+
+ParseResult BigType::parseLiteral(AsmParser &parser, Attribute &literal) const {
+  BigAttr big;
+  if (parser.parseAttribute(big))
+    return failure();
+  literal = big;
+  return success();
+}
+
+// A natural is never negative, which its type proves: the one place a
+// natural's literal is said. It is written as a big's, and a negative one
+// is no literal of it, which the op that holds it is refused for.
+bool NatType::isLiteral(Attribute literal) const {
+  auto big = dyn_cast<BigAttr>(literal);
+  return big && !big.getValue().isNegative();
+}
+
+ParseResult NatType::parseLiteral(AsmParser &parser, Attribute &literal) const {
+  return BigType::get(getContext()).parseLiteral(parser, literal);
 }
 
 void QType::getAsmName(OpAsmSetNameFn setNameFn) const {

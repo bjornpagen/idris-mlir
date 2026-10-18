@@ -12,12 +12,12 @@
 namespace idr::conversion {
 
 // What of a function may point into its frame: its slots (llvm.alloca, the
-// cells idr-stack put there), what is computed from them, and what is read
+// cells idr-rc-stack put there), what is computed from them, and what is read
 // through them, since a slot may hold a pointer to another. A pointer into
 // the frame may also have left it through memory, written somewhere that is
 // not the frame: then any pointer a call takes may lead back to the frame.
-// What a call does with a pointer it takes is idr-stack's to know: it puts on
-// the stack only a cell that no callee keeps.
+// What a call does with a pointer it takes is idr-rc-stack's to know: it puts
+// on the stack only a cell that no callee keeps.
 struct Frame {
   llvm::DenseSet<mlir::Value> bound;
   bool leaked = false;

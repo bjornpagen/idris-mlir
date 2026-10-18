@@ -8,10 +8,11 @@
 // once it has more components than registers.
 //
 // Which results drop is a question about every function at once, so the
-// module pass answers it (Returned); the rewrite is per function and runs
-// nested: each function sets its own type and returns, and rewrites the
-// calls in its own body of functions whose results drop, reading only the
-// answer, so no function reads a sibling while that sibling changes.
+// module pass answers it (Returned, an analysis of the module); the rewrite
+// is per function and runs nested (idr-returned-arguments-drop): each
+// function sets its own type and returns, and rewrites the calls in its own
+// body of functions whose results drop, reading only the module's answer,
+// so no function reads a sibling while that sibling changes.
 //
 //===----------------------------------------------------------------------===//
 
@@ -27,8 +28,12 @@
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 #include "llvm/ADT/BitVector.h"
 
+#include <functional>
+#include <optional>
+
 namespace idr {
 #define GEN_PASS_DEF_IDRRETURNEDARGUMENTS
+#define GEN_PASS_DEF_IDRRETURNEDARGUMENTSDROP
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 
@@ -95,21 +100,19 @@ struct DropFromReturn : OpRewritePattern<func::ReturnOp> {
   SmallVector<unsigned> kept;
 };
 
-// The rewrite of one function. It runs only inside idr-returned-arguments,
-// which solves Returned on the module right before it and holds it for as
-// long as the nested run reads it.
-struct DropReturned : PassWrapper<DropReturned, OperationPass<func::FuncOp>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DropReturned)
-
-  explicit DropReturned(const Returned &returned) : returned(returned) {}
-
-  StringRef getArgument() const final { return "idr-returned-arguments-drop"; }
-  StringRef getDescription() const final {
-    return "Drop the results Returned found from one function, its returns and its calls";
-  }
-
+// The rewrite of one function, on the Returned its module holds, which
+// idr-returned-arguments solves right before it runs this nested.
+struct DropReturned : impl::IdrReturnedArgumentsDropBase<DropReturned> {
   void runOnOperation() override {
     func::FuncOp fn = getOperation();
+    std::optional<std::reference_wrapper<Returned>> solved = getCachedParentAnalysis<Returned>();
+    // The module's answer is its parent's to solve, which this step reads
+    // and cannot make: a run without it is a pipeline's bug.
+    if (!solved) {
+      fn.emitError("internal error: idr-returned-arguments-drop: no Returned of the module");
+      return signalPassFailure();
+    }
+    const Returned &returned = *solved;
     if (!returned.changes(fn.getSymNameAttr()))
       return markAllAnalysesPreserved();
     MLIRContext *ctx = &getContext();
@@ -125,18 +128,16 @@ struct DropReturned : PassWrapper<DropReturned, OperationPass<func::FuncOp>> {
     }
     walkAndApplyPatterns(fn, FrozenRewritePatternSet(std::move(patterns)));
   }
-
-  const Returned &returned;
 };
 
 struct ReturnedArguments : impl::IdrReturnedArgumentsBase<ReturnedArguments> {
   void runOnOperation() override {
-    const Returned returned(getOperation());
+    const Returned &returned = getAnalysis<Returned>();
     if (returned.dropped() == 0)
       return markAllAnalysesPreserved();
     numDropped += returned.dropped();
     OpPassManager nested(ModuleOp::getOperationName());
-    nested.addNestedPass<func::FuncOp>(std::make_unique<DropReturned>(returned));
+    nested.addNestedPass<func::FuncOp>(createIdrReturnedArgumentsDrop());
     if (failed(runPipeline(nested, getOperation())))
       return signalPassFailure();
     // No symbol was inserted or erased.

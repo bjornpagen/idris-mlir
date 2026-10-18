@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Every diagnostic idris-mlir prints of its own. One shape: the tool's
-// name, the message, a newline. The exit status is the caller's; a signal
-// handler cannot use this, and writes the same words itself.
+// The command line's usage errors, which idris-mlir prints itself before
+// any compilation has a diagnostic engine: the tool's name, the message, a
+// newline. Every later failure is a diagnostic of MLIR's engine, which the
+// driver's printer writes in this same shape (Diagnostics, Compile.h). The
+// exit status is the caller's; a signal handler cannot use this, and
+// writes the same words itself.
 #ifndef IDR_DRIVER_REPORT_H
 #define IDR_DRIVER_REPORT_H
 
 #include "llvm/Support/raw_ostream.h"
-
-#include <system_error>
 
 namespace idr::driver {
 
@@ -26,13 +27,6 @@ struct Report {
     return *this;
   }
 };
-
-// `idris-mlir: cannot write <path>: <reason>`. `path` is whatever the
-// call streamed before: a string, a path, the output option.
-template <typename Path>
-void cannotWrite(const Path &path, const std::error_code &error) {
-  Report() << "cannot write " << path << ": " << error.message();
-}
 
 } // namespace idr::driver
 

@@ -5,6 +5,7 @@
 // PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Platform/Platform.h"
+#include "Strings/Strings.h"
 #include "idris_rt.h"
 
 #include <errno.h>
@@ -54,7 +55,8 @@ extern "C" void idris_rt_io_dir_remove(const idris_rt_str *path) {
 }
 
 // opendir's: the directory at the path, open for reading its entries, as a
-// new directory handle; null when it cannot be opened.
+// new directory handle, made with the slot of its entries' names, which
+// holds the empty string until the first; null when it cannot be opened.
 extern "C" int64_t idris_rt_io_dir_open(const idris_rt_str *path) {
   rt::io::Scratch text;
   rt::platform::Directory *stream = rt::platform::openDirectory(rt::io::cText(text, path));
@@ -63,7 +65,9 @@ extern "C" int64_t idris_rt_io_dir_open(const idris_rt_str *path) {
     return rt::io::nullHandle;
   }
   int64_t handle = rt::io::newSlot(rt::io::Kind::Directory);
-  rt::io::slotOf(handle)->directory = {stream, rt::io::nullHandle};
+  int64_t entry = rt::io::newSlot(rt::io::Kind::KeptString);
+  rt::io::slotOf(entry).string = &rt::strings::emptyString;
+  rt::io::slotOf(handle).directory = {stream, entry};
   return handle;
 }
 
@@ -88,8 +92,6 @@ extern "C" int64_t idris_rt_io_dir_entry(int64_t dir) {
   rt::io::saveError();
   if (name == nullptr)
     return rt::io::nullHandle;
-  int64_t entry = rt::io::keepString(slot->directory.entry,
-                                     idris_rt_str_from_bytes(name, strlen(name)));
-  rt::io::slotOf(dir)->directory.entry = entry;
-  return entry;
+  rt::io::keepString(slot->directory.entry, idris_rt_str_from_bytes(name, strlen(name)));
+  return slot->directory.entry;
 }

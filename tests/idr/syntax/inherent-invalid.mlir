@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that each restated inherent fact is refused as the op is read, the matches' default regions binding their scrutinees and the constant written with its type first.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // A fact an op's syntax already spells (a match's cases, a constant's
 // value) is inherent, set as a property by the custom parsers. Restated
@@ -14,7 +15,7 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
     case @A(%x: i64) {
       idr.yield %x : i64
     }
-    default {
+    default(%d: !T) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
@@ -39,7 +40,7 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
       %z = arith.constant 1 : i64
       idr.yield %z : i64
     }
-    default {
+    default(%d: !T) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
@@ -62,7 +63,7 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
     case 0 {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i64) {
       idr.yield %n : i64
     }
     }
@@ -84,7 +85,7 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
     case 0 {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i64) {
       idr.yield %n : i64
     }
     }
@@ -102,7 +103,7 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
 idr.program @"inherent-invalid" root(@root) stage(first) {
   idr.func @f() -> !idr.str {
     // expected-error @+1 {{inherent attribute 'value' cannot be parsed from attr-dict when strict properties in assembly format is enabled}}
-    %s = idr.constant "hi" : !idr.str {value = 1 : i64}
+    %s = idr.constant !idr.str "hi" {value = 1 : i64}
     return %s : !idr.str
   }
   // The program's root, which the functions above are no part of.

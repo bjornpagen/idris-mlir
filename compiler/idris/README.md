@@ -466,22 +466,37 @@ merge; each says what changed in its interface.
   `handleUnifyElab`, the variants of `tryUnify` and `handleUnify` for what
   elaborates). A delayed elaborator (`DelayedElab`) is a function given
   that cell when it is retried, and the elaborator `delayOnFailure` and
-  `delayElab` take is given it too, rather than capturing the cell of its
-  caller: upstream's closures captured `Ref UST UState`, so the cell's
-  type reached itself. The case block's delayed part is
-  `checkCaseDelayed`, a function of its own, because a local definition
-  is applied to everything its parent binds, and one used in the lambda
-  would capture the parent's cell. A pragma's action (`IPragma`) is given
-  the cell too, when `process` runs it: a delayed elaborator holds terms,
-  a term's local block holds declarations, and the actions desugaring
-  makes for interfaces, implementations and `%foreign_impl` elaborate, so
-  one that captured the cell would let it reach itself. Desugaring itself
-  is not given the cell, and cannot change it. `SyntaxInfo` still reaches
-  itself that way: it holds terms (an interface's parents and default
-  methods, `usingImpl`, `startExpr`), and the interface, implementation,
-  `%foreign_impl` and `%hide` fixity actions capture `Ref Syn
-  SyntaxInfo`, which `TTImp.TTImp`, below `Idris.Syntax`, cannot name to
-  give it. The other
+  `delayElab` take is given it too, with the expected type, rather than
+  capturing either: upstream's closures captured `Ref UST UState`, so the
+  cell's type reached itself, and a glued type holds computations, which
+  the pipeline's closure analysis merges with every computation of their
+  type, those that read the cell among them. A retry is given the type's
+  term, taken when the elaborator was delayed, evaluated again (`gnf`),
+  as upstream's record and ambiguity elaborators recomputed it for their
+  second attempt, where its case, delay and record check reused the
+  glued type they were first given. Each
+  elaborator is a function of its own (`checkCaseDelayed`,
+  `checkUpdateDelayed`, `checkDefaultDelayed`, `checkAlternativeDelayed`,
+  `checkRewriteDelayed`, `checkDelayDelayed`), and the stored closure
+  sets the holes its elaborator may not solve through `withNoSolve`,
+  because a local definition (a case, an `if`, a record update) is
+  applied to everything its parent binds, and one in the closure would
+  capture the parent's cell. For the same reason the function a nested
+  name holds (`applyEnv` in `elabImplementation`) names no local
+  definition. A pragma
+  (`IPragma`) holds `Pragma` data (`TTImp.TTImp`), one constructor per
+  action desugaring makes, with that action's arguments and no function,
+  where upstream's held the action as a closure over the cells desugaring
+  had. `process` interprets
+  it through `processPragma`, declared in `TTImp.ProcessDecls` and
+  defined in `Idris.Desugar`, above the interface and implementation
+  elaborators, with every cell in hand, `Ref Syn SyntaxInfo` among them,
+  which `TTImp.TTImp`, below `Idris.Syntax`, cannot name. A cell holds
+  terms (the delayed elaborators do, and `SyntaxInfo` holds an
+  interface's parents and default methods, `usingImpl` and `startExpr`)
+  and a term's local block holds declarations, so no declaration holds a
+  closure, and no cell's type reaches itself through one. `Pass`, which
+  the implementation's action takes, lives in `TTImp.TTImp` for it. The other
   cells (`Defs`, `EState`, `Metadata`, `REPLOpts`, `PostSession`) hold no
   closure that reaches them.
 - `Core` is a function of the world (`PrimIO`), not a record over IO, and

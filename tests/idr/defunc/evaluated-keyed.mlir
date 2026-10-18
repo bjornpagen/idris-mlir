@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s -split-input-file --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir -split-input-file --idr-expect=holds=no-closures -o /dev/null
 // An evaluated suspension holds its value in the forced state of its cell,
@@ -18,7 +19,7 @@ idr.program @"evaluated-keyed" root(@Main.main) stage(higher) {
     %t = idr.delay %f : !idr.fn<(i64) -> (i64)> -> !idr.lazy<!idr.fn<(i64) -> (i64)>>
     %g = idr.force %t : !idr.lazy<!idr.fn<(i64) -> (i64)>> -> !idr.fn<(i64) -> (i64)>
     %r = idr.apply %g(%n) : !idr.fn<(i64) -> (i64)>
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }
@@ -38,7 +39,7 @@ idr.program @"evaluated-keyed" root(@Main.main) stage(higher) {
     %t = idr.delay %s : !idr.lazy<i64> -> !idr.lazy<!idr.lazy<i64>>
     %u = idr.force %t : !idr.lazy<!idr.lazy<i64>> -> !idr.lazy<i64>
     %v = idr.force %u : !idr.lazy<i64> -> i64
-    %w1 = idr.io.put_int signed %v, %w : i64
+    %w1 = idr.io.put_sint %v, %w : i64
     return %w1 : !idr.world
   }
 }

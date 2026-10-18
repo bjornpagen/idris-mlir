@@ -16,12 +16,13 @@ fuzz_cases=30
 # its stdin, and four checks, a line each:
 #   - the build compiles, runs, exits 0 and writes nothing on stderr, and
 #     no case ran out of its tape;
-#   - each case's lines (d, j, r, s, with or without L) print one value;
+#   - each case's lines (d, j, r, s) print one value;
 #   - after idr-optimize no op of main computes on constants alone
 #     (folded=@Main.main), so the folders computed every d line;
-#   - each case the model covers prints the value its m line states.
-# The first case that disagrees or misses its model is shrunk (fuzz_shrink)
-# under its check's line.
+#   - each case the model covers prints the value its integers mean.
+# The runner reads the output against the cases it generates
+# (runtests --fuzz-check). The first case that disagrees or misses its
+# model is shrunk (fuzz_shrink) under its check's line.
 fuzz() {
   fuzz_seed=$1
   if ! fuzz_threads=$("$runtests" --fuzz-program threads "$fuzz_seed"); then
@@ -43,23 +44,31 @@ fuzz() {
   done
 }
 
-# fuzz_check PART: the program of $fuzz_seed for PART, its stdin and its
-# model generated, compiled, run and checked, its problems in the files fuzz
+# fuzz_checked FILE HOW REQUEST... [STDOUT]: what runtests --fuzz-check HOW
+# says of REQUEST's cases, appended to FILE, or a line saying it could
+# not check.
+fuzz_checked() {
+  fuzz_checked_file=$1
+  shift
+  "$runtests" --fuzz-check "$@" >> "$fuzz_checked_file" 2> "$work/fuzz-check.err" || {
+    say "$fuzz_seed: no $1 check"
+    show "$work/fuzz-check.err"
+  } >> "$fuzz_checked_file"
+}
+
+# fuzz_check PART: the program of $fuzz_seed for PART and its stdin
+# generated, compiled, run and checked, its problems in the files fuzz
 # reports, and in $fuzz_failing the first failing case and how it fails.
 fuzz_check() {
   fuzz_dir=$work/fuzz-$1-$fuzz_seed
   mkdir -p "$fuzz_dir/prog"
-  for fuzz_file in main stdin model; do
+  for fuzz_file in main stdin; do
     if ! "$runtests" --fuzz-program program "$fuzz_seed" "$fuzz_cases" "$1" "$fuzz_file" > "$fuzz_dir/$fuzz_file"; then
       say "$fuzz_seed: no $fuzz_file" >> "$work/fuzz.compiled"
       return
     fi
   done
-  # A case whose tape ran out is a valid case, but not the one its seed
-  # drew: the derivation of the tape's length fell short.
-  case $(head -n 1 "$fuzz_dir/main") in
-    '-- overran'*) say "$fuzz_seed: $(head -n 1 "$fuzz_dir/main" | sed 's/^-- //')" >> "$work/fuzz.compiled" ;;
-  esac
+  fuzz_checked "$work/fuzz.compiled" overran program "$fuzz_seed" "$fuzz_cases" "$1"
   cp "$fuzz_dir/main" "$fuzz_dir/prog/Main.idr"
   fuzz_dumps=$fuzz_dir/prog/build/exec/prog.dump
   # shellcheck disable=SC2046 # the dump options are words
@@ -81,48 +90,9 @@ fuzz_check() {
     say "$fuzz_seed: main computes on constants after idr-optimize" >> "$work/fuzz.folded"
     show "$work/expect.log" >> "$work/fuzz.folded"
   fi
-  fuzz_failing=$(fuzz_compare "$work/prog.out" "$fuzz_dir/model" "$fuzz_cases" "$work/fuzz.agree" "$work/fuzz.model")
-}
-
-# fuzz_compare OUTPUT MODEL CASES AGREE MISSED: the problems of a program's
-# OUTPUT, of CASES cases, against its MODEL (lines `m<n> <value>`): in
-# AGREE, a case whose lines print two values; in MISSED, a case the model
-# covers that prints another value, or nothing. Prints the first failing
-# case, `<n> agree` or `<n> model` (a disagreement first), or nothing. A
-# value may hold NUL (a cast to Char of a value that is no scalar gives
-# 0), at which awk would end it: NUL is read as the byte \377, which no
-# UTF-8 text holds.
-fuzz_compare() {
-  LC_ALL=C tr '\000' '\377' < "$1" |
-    LC_ALL=C awk -v seed="$fuzz_seed" -v cases="$3" -v agree="$4" -v missed="$5" '
-      FILENAME == ARGV[1] { model[substr($1, 2)] = $2; next }
-      $1 ~ /^[djrs]L?[0-9]+$/ {
-        label = $1; n = label; sub(/^[djrs]L?/, "", n)
-        value = $0; sub(/^[^ ]* /, "", value)
-        if (!(n in first)) { first[n] = value; firstLabel[n] = label }
-        else if (value != first[n] && !(n in disagrees)) {
-          disagrees[n] = 1
-          printf "%s: case %s: %s %s, but %s %s\n", seed, n, firstLabel[n], first[n], label, value >> agree
-        }
-        if ((n in model) && value != model[n] && !(n in misses)) {
-          misses[n] = 1
-          printf "%s: case %s: m%s %s, but %s %s\n", seed, n, n, model[n], label, value >> missed
-        }
-      }
-      END {
-        for (i = 1; i <= cases; i++) {
-          n = i ""
-          if ((n in model) && !(n in first)) {
-            misses[n] = 1
-            printf "%s: case %s: m%s %s, but no line\n", seed, n, n, model[n] >> missed
-          }
-        }
-        for (i = 1; i <= cases; i++) {
-          n = i ""
-          if (n in disagrees) { print n " agree"; exit }
-          if (n in misses) { print n " model"; exit }
-        }
-      }' "$2" -
+  fuzz_checked "$work/fuzz.agree" agree program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
+  fuzz_checked "$work/fuzz.model" model program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
+  fuzz_failing=$("$runtests" --fuzz-check first program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out")
 }
 
 # fuzz_shrink PART CASE HOW: case CASE of the seed's PART program fails
@@ -160,16 +130,17 @@ fuzz_shrink() {
     done < "$work/fuzz.candidates"
   done
   sed -n '/^c1 :/,/^$/p' "$work/fuzz.smallest.idr" | sed '/^$/d; s/^/  | /'
-  LC_ALL=C tr '\000' '\377' < "$work/fuzz.smallest.out" | LC_ALL=C grep -E '^[djrs]L?1 ' | sed 's/^/  | /'
+  LC_ALL=C tr '\000' '\377' < "$work/fuzz.smallest.out" | LC_ALL=C grep -E '^[djrs]1 ' | sed 's/^/  | /'
 }
 
 # fuzz_fails_as PART TAPE HOW: the one-case program of TAPE (--fuzz-program
-# replay) compiles, runs to an exit of 0, and its case fails as HOW says;
-# its source is $work/fuzz-try/Main.idr and its output $work/try.out.
+# replay) compiles, runs to an exit of 0, and its case fails as HOW says
+# (--fuzz-check first); its source is $work/fuzz-try/Main.idr and its
+# output $work/try.out.
 fuzz_fails_as() {
   rm -rf "$work/fuzz-try"
   mkdir -p "$work/fuzz-try"
-  for fuzz_file in main stdin model; do
+  for fuzz_file in main stdin; do
     "$runtests" --fuzz-program replay "$2" "$1" "$fuzz_file" > "$work/fuzz-try/$fuzz_file" || return 1
   done
   cp "$work/fuzz-try/main" "$work/fuzz-try/Main.idr"
@@ -177,7 +148,7 @@ fuzz_fails_as() {
   [ "$compiled" -eq 0 ] || return 1
   run_ours try "$work/fuzz-try/build/exec/prog" "$work/fuzz-try/stdin"
   [ "$ran" -eq 0 ] || return 1
-  [ "$(fuzz_compare "$work/try.out" "$work/fuzz-try/model" 1 /dev/null /dev/null)" = "1 $3" ]
+  [ "$("$runtests" --fuzz-check first replay "$2" "$1" "$work/try.out")" = "1 $3" ]
 }
 
 # fuzz_report TEXT CHECK: TEXT, then `ok`, or `failed` and the problems

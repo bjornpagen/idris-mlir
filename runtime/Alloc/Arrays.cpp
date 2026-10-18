@@ -23,8 +23,8 @@ static_assert(offsetof(idris_rt_memref, offset) == 2 * IDRIS_RT_WORD_BYTES);
 namespace {
 
 [[noreturn]] void tooLarge() {
-  static constexpr char message[] = "idris runtime: array too large\n";
-  idris_rt_crash(message, sizeof message - 1);
+  static constexpr char cause[] = "array too large";
+  idris_rt_crash(cause, sizeof cause - 1);
 }
 
 // A descriptor's sizes, then its strides, right after its three words.
@@ -88,6 +88,13 @@ char *firstOf(const idris_rt_memref *view, ptrdiff_t bytes) {
 
 } // namespace
 
+// A new array cell of `count` elements with the header `info` (kind
+// IDRIS_RT_KIND_ARRAY), counted as idris_rt_cell counts a cell. When its
+// elements hold objects, every byte of them is 0, so every object slot is
+// NULL until a store; otherwise they are not written. The first element is
+// aligned to IDRIS_RT_WORD_BYTES. Exhausted memory, and a count whose cell
+// would not fit the address space (UINT64_MAX, for an element of a byte or
+// more), end the process with a crash.
 extern "C" idris_rt_array *idris_rt_array_new(uint64_t count, uint32_t info) {
   uint64_t stride = idris_rt_info_tag(info);
   // The cell's size must fit a size_t with the header and length before it.
@@ -104,6 +111,14 @@ extern "C" idris_rt_array *idris_rt_array_new(uint64_t count, uint32_t info) {
   return array;
 }
 
+// memref.copy, where idr-lower does not copy the bytes itself: each element
+// of the view `from` assigned to the same place of the view `to`, in
+// row-major order. Both have rank `rank` and from's sizes. The element is
+// the one to's cell describes, and from's cell holds the same: each object
+// slot copied gains one reference, then the slot it overwrites loses one,
+// then the element's bytes are moved. So a cell fresh from
+// idris_rt_array_new may be the target as it is, and a view copied onto
+// itself, the one overlap allowed, is left as it was.
 extern "C" void idris_rt_memref_copy(int64_t rank, const idris_rt_memref *from,
                                      const idris_rt_memref *to) {
   uint32_t info = to->allocated->header.info;

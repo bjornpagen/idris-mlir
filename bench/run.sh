@@ -33,7 +33,7 @@
 # what this checkout installed for it (`make bench` makes both). Every
 # build and run is killed after 1800 seconds, and a benchmark that times
 # out fails: the Chez runs at the game's sizes are the slow ones
-# (fannkuch-redux took 1163 s in the 2026-10-07 record).
+# (fannkuch-redux took 1219 s in the 2026-10-13 record).
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -64,10 +64,7 @@ compared='this compiler|clang -O2'
 #   packages    installed Idris packages the program uses (those of libs/),
 #               for this compiler and for Chez alike;
 #   reference   the name of another benchmark whose C version is this one's
-#               reference (fannkuch-linear's is fannkuch-redux);
-#   rejected    the reason this compiler gives for rejecting the program
-#               today; its column then reads n/a and the C version's output
-#               is the reference.
+#               reference (fannkuch-linear's is fannkuch-redux).
 # The C version is bench/c/<name>.c; a missing one is skipped. Every input
 # is large enough that start-up does not matter.
 all=$(cd "$bench" && for d in */; do [ -f "$d/Main.idr" ] && { [ -f "$d/input" ] || [ -f "$d/input-from" ]; } && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')
@@ -156,12 +153,10 @@ revision=$(git -C "$root" describe --always --dirty 2> /dev/null) || revision=un
 } > "$record/about"
 cat "$record/about" >&2
 
-# idris_sources DIR: the benchmark's Idris source, and bench/lib's, in DIR.
+# idris_sources DIR: the benchmark's Idris source, its Main.idr, in DIR.
 idris_sources() {
   mkdir "$1"
-  for source in "$bench"/lib/*.idr "$bench/$name/Main.idr"; do
-    [ -f "$source" ] && cp "$source" "$1/"
-  done
+  cp "$bench/$name/Main.idr" "$1/"
 }
 
 # build LABEL: the command that runs the benchmark built one way, in $cmd,
@@ -171,7 +166,6 @@ build() {
   missing=
   case $1 in
     'this compiler')
-      if [ -f "$bench/$name/rejected" ]; then missing=yes; return; fi
       idris_sources "$work/ours"
       compile_start=$(now_ns)
       # shellcheck disable=SC2086 # the packages are words

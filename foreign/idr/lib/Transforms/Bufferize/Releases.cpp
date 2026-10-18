@@ -27,7 +27,6 @@
 #include "idr/Support/Worklist.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -112,20 +111,9 @@ bool idr::bufferize::mayRunAfter(Operation *later, Operation *earlier, Value val
     return first == earlier || !insideMutuallyExclusiveRegions(earlier, later);
   }
 
-  // Between blocks, along the edges of the region, never back through the
-  // block that defines `value`.
-  Block *from = first->getBlock();
-  Block *to = second->getBlock();
-  Block *definingBlock = value.getParentBlock();
-  llvm::SmallPtrSet<Block *, 16> redefining;
-  if (definingBlock->getParent() == common)
-    redefining.insert(definingBlock);
-  if (from == to) {
-    if (first->isBeforeInBlock(second))
-      return true;
-    return from != definingBlock && from->isReachable(from, std::move(redefining));
-  }
-  return from->isReachable(to, std::move(redefining));
+  // In the region's one block: a function's body is one block, and so is
+  // every region of the ops counting meets in it.
+  return first->isBeforeInBlock(second);
 }
 
 bool idr::bufferize::isRelease(OpOperand &operand, const AnalysisState &state) {

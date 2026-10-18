@@ -2,6 +2,7 @@
 // RUN: FileCheck %s --check-prefix=TIMING < %t.timing
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // A list walked at run time prints the strings it holds. --mlir-timing
 // reports each pass and the LLVM stage.
 // CHECK: 5:five 4:four 3:three 2:two 1:one 
@@ -28,7 +29,7 @@ idr.program @statics root(@Prog.main) stage(higher) {
       %s = idr.constant "four" : !idr.str
       idr.yield %s : !idr.str
     }
-    default {
+    default(%d: i64) {
       %s = idr.constant "five" : !idr.str
       idr.yield %s : !idr.str
     }
@@ -41,7 +42,7 @@ idr.program @statics root(@Prog.main) stage(higher) {
       %nil = idr.con !idr.box<!List> @Nil()
       idr.yield %nil : !idr.box<!List>
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %rest = idr.call @range(%m) : (i64) -> !idr.box<!List>
@@ -55,7 +56,7 @@ idr.program @statics root(@Prog.main) stage(higher) {
   idr.func @walk(%l: !idr.box<!List>, %w: !idr.world) -> !idr.world attributes {no_inline} {
     %r = idr.match %l : !idr.box<!List> -> (!idr.world) {
     case @Cons(%n: i64, %s: !idr.str, %t: !idr.box<!List>) {
-      %w1 = idr.io.put_int signed %n, %w : i64
+      %w1 = idr.io.put_sint %n, %w : i64
       %colon = arith.constant 58 : i32
       %w2 = idr.io.put_char %colon, %w1
       %w3 = idr.io.put_str %s, %w2
@@ -64,7 +65,7 @@ idr.program @statics root(@Prog.main) stage(higher) {
       %w5 = idr.call @walk(%t, %w4) : (!idr.box<!List>, !idr.world) -> !idr.world
       idr.yield %w5 : !idr.world
     }
-    default {
+    default(%d: !idr.box<!List>) {
       idr.yield %w : !idr.world
     }
     }

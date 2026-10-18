@@ -44,7 +44,7 @@ void placeElement(OpBuilder &b, Location loc, Runtime &runtime, Value address,
     runtime.store(b, loc, address, elementAlignment(element), element.slots, value);
     return;
   }
-  Value cell = runtime.allocate(b, loc, *element.boxed, Tag{0});
+  Value cell = runtime.allocate(b, loc, *element.boxed);
   runtime.store(b, loc, cell, cellAlignment(), element.boxed->fields.front(), value);
   runtime.store(b, loc, address, elementAlignment(element), element.slots, cell);
 }
@@ -52,11 +52,11 @@ void placeElement(OpBuilder &b, Location loc, Runtime &runtime, Value address,
 void writeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
                   Value address, const layout::Element &element, Type type, ValueRange value) {
   if (element.boxed) {
-    runtime.dec(b, loc, boxOf(b, loc, runtime, address, element), {true});
+    runtime.dec(b, loc, boxOf(b, loc, runtime, address, element));
   } else {
-    SmallVector<bool> counted = layouts.counted(type);
-    if (llvm::is_contained(counted, true))
-      runtime.dec(b, loc, readElement(b, loc, runtime, address, element), counted);
+    SmallVector<layout::Component> components = layouts.components(type);
+    if (llvm::any_of(components, [](const layout::Component &c) { return c.counted; }))
+      runtime.dec(b, loc, references(components, readElement(b, loc, runtime, address, element)));
   }
   placeElement(b, loc, runtime, address, element, value);
 }
@@ -75,10 +75,10 @@ SmallVector<Value> takeElement(OpBuilder &b, Location loc, Runtime &runtime,
   auto alone = scf::IfOp::create(b, loc, runtime.exclusive(b, loc, cell), /*withElseRegion=*/true);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(alone.thenBlock());
-  runtime.perform(b, loc, "idris_rt_free_cell", cell);
+  runtime.call(b, loc, idr::runtime::helper::freeCell, cell);
   b.setInsertionPointToStart(alone.elseBlock());
-  runtime.inc(b, loc, value, layouts.counted(type));
-  runtime.dec(b, loc, cell, {true});
+  runtime.inc(b, loc, references(layouts.components(type), value));
+  runtime.dec(b, loc, cell);
   return value;
 }
 

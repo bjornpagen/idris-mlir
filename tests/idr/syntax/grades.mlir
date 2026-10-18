@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that the spelled grades print as their spellings with no world among them, the world being a type of its own that takes no grade.
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
 // A grade is `!idr.q<quantity, permission, value>`, which is how the
@@ -8,10 +9,10 @@
 
 // The long forms of the spelled grades print as their spellings.
 // CHECK-LABEL: idr.func @spelled(
-// CHECK-SAME: %{{[^:]*}}: !idr.lin<!idr.str>, %{{[^:]*}}: !idr.own<!idr.big>, %{{[^:]*}}: !idr.excl<!idr.box<!T>>, %{{[^:]*}}: !idr.world)
+// CHECK-SAME: %{{[^:]*}}: !idr.lin<!idr.str>, %{{[^:]*}}: !idr.own<!idr.big>, %{{[^:]*}}: !idr.excl<!idr.box<!T>>)
 !T = !idr.data<"T", plain [@A()]>
 idr.program @grades root(@root) stage(owned) {
-  idr.func @spelled(%a0: !idr.q<one, plain, !idr.str>, %a1: !idr.q<many, own, !idr.big>, %a2: !idr.q<many, excl, !idr.box<!T>>, %a3: !idr.q<one, plain, !idr.world_carrier>) {
+  idr.func @spelled(%a0: !idr.q<one, plain, !idr.str>, %a1: !idr.q<many, own, !idr.big>, %a2: !idr.q<many, excl, !idr.box<!T>>) {
     idr.crash "no body"
     ub.unreachable
   }

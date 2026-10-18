@@ -52,17 +52,13 @@ record Search where
   onStack : SortedSet Address
   found : List (List Member)
 
-||| A definition as a node, with its calls to definitions that exist.
-memberOf : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe Member)
-memberOf n = do
-  defs <- get Ctxt
-  Just def <- lookupCtxtExact n (gamma defs)
-    | Nothing => pure Nothing
+||| A definition resolved as a node, with its calls to definitions that
+||| exist.
+memberOf : {auto c : Ref Ctxt Defs} -> Placement -> GlobalDef -> Core Member
+memberOf placement def = do
   full <- toFullNames (fullname def)
-  let Just address = definitionAddress (gamma defs) full
-    | Nothing => pure Nothing
   calls <- traverse (\call => pure ({ fnCall := !(toFullNames call.fnCall) } call)) (sizeChange def)
-  pure (Just (MkMember full address calls))
+  pure (MkMember full (addressOf placement) calls)
 
 mutual
   ||| Visits a definition the walk has just entered: its component is found
@@ -91,18 +87,16 @@ mutual
                List Name -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w))
   successors done key w0 acc w p [] s = pure (s, Element w (noMore w))
   successors done key w0 acc@(Access rec) w p (x :: xs) s = do
-    defs <- get Ctxt
-    let Just xkey = definitionAddress (gamma defs) x
+    Just (placement, def) <- resolve x
       | Nothing => successors done key w0 acc w p xs s
+    let xkey = addressOf placement
     let False = isJust (lookup xkey done)
       | True => successors done key w0 acc w p xs s
-    let Just (Element w1 q) = enter (gamma defs) x w
+    -- Entered already: met before in this search.
+    let Just (Element w1 q) = enter placement w
       | Nothing => successors done key w0 acc w p xs (maybe s (\n => if contains xkey s.onStack then lower key n s else s)
                                                            (lookup xkey s.number))
-    Just xn <- memberOf x
-      | Nothing => do
-          (s', Element w2 q2) <- successors done key w0 acc w1 (thenNoMore (fewer q) p) xs s
-          pure (s', Element w2 (thenNoMore q2 (fewer q)))
+    xn <- memberOf placement def
     (after, Element w2 q2) <- visit done xn w1 (rec w1 (fewerThen q p)) s
     let s' = maybe after (\n => lower key n after) (lookup xkey after.low)
     (s'', Element w3 q3) <- successors done key w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) xs s'
@@ -132,14 +126,10 @@ export
 checkRecursion : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core ()
 checkRecursion n = do
   st <- get TState
-  full <- toFullNames n
-  defs <- get Ctxt
-  let Just key = definitionAddress (gamma defs) full
+  Just (placement, def) <- resolve !(toFullNames n)
     | Nothing => pure ()
-  unless (isJust (lookup key st.loops)) $ do
-    let Just (Element w _) = enter (gamma defs) full start
-      | Nothing => pure ()
-    Just member <- memberOf full
-      | Nothing => pure ()
+  unless (isJust (lookup (addressOf placement) st.loops)) $ do
+    let w = startAt placement
+    member <- memberOf placement def
     (result, _) <- visit st.loops member w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
     for_ result.found checkComponent

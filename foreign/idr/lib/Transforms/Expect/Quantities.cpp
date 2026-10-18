@@ -24,7 +24,6 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Location.h"
-#include "mlir/Parser/Parser.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -35,8 +34,6 @@ using namespace mlir;
 namespace idr::expect {
 
 namespace {
-
-constexpr StringRef property = "quantities-kept";
 
 // The key of a binder at `loc`: its outermost name over the location
 // under every name; none where that location is unknown, which many
@@ -63,13 +60,13 @@ std::optional<Attribute> keyOf(Location loc) {
 
 // Whether `block`'s arguments are binders Idris proved quantities of: a
 // function's parameters (a lambda's are its function's, as Emit writes
-// it), and the fields a match's region binds (its default region's
-// scrutinee too). A loop's iteration state is the pass's.
+// it), and the fields a match's case binds, and the scrutinee its default
+// binds back. A loop's iteration state is the pass's.
 bool bindsProved(Block &block) {
   Operation *parent = block.getParentOp();
   if (auto fn = dyn_cast<FuncOp>(parent))
     return &block == &fn.getBody().front();
-  return isa<MatchOp, MatchLitOp>(parent);
+  return isa<MatchOpInterface>(parent);
 }
 
 // The quantity of `arg`, a binder: a function parameter's from its
@@ -92,17 +89,14 @@ StringRef spelled(Quantity q) {
 
 } // namespace
 
-LogicalResult quantitiesKept(ModuleOp module, AnalysisManager &, StringRef emitted) {
-  if (emitted.empty())
-    return fail(module.getLoc(), property) << "name the emitted module, as quantities-kept=<file>";
-  OwningOpRef<ModuleOp> reference = parseSourceFile<ModuleOp>(emitted, module.getContext());
-  if (!reference)
-    return fail(module.getLoc(), property) << "cannot read " << emitted;
-
+// The module stated of is the request's, the module of reference its
+// argument: the emitted module read from its file, or, for the contracts,
+// the module as it was before a pass.
+LogicalResult quantitiesKept(const Request<Module> &request) {
   // A key the emitted module gives two quantities says nothing of either
   // binder, and is dropped.
   llvm::DenseMap<Attribute, std::optional<Quantity>> proved;
-  reference->walk([&](Block *block) {
+  (*request.argument.op)->walk([&](Block *block) {
     if (!bindsProved(*block))
       return;
     for (BlockArgument arg : block->getArguments()) {
@@ -116,7 +110,7 @@ LogicalResult quantitiesKept(ModuleOp module, AnalysisManager &, StringRef emitt
     }
   });
   bool held = true;
-  module.walk([&](Block *block) {
+  request.module->walk([&](Block *block) {
     if (!bindsProved(*block))
       return;
     Operation *parent = block->getParentOp();
@@ -128,10 +122,10 @@ LogicalResult quantitiesKept(ModuleOp module, AnalysisManager &, StringRef emitt
       Quantity now = quantityOfBinder(arg);
       if (*was->second == now)
         continue;
-      fail(arg.getLoc(), property) << (isa<MatchOp, MatchLitOp>(parent) ? "bound field " : "parameter ")
-                                   << arg.getArgNumber() << " of " << where(parent)
-                                   << " has quantity " << spelled(now) << ", and Idris proved "
-                                   << spelled(*was->second);
+      fail(arg.getLoc(), request.property)
+          << (isa<MatchOpInterface>(parent) ? "bound field " : "parameter ") << arg.getArgNumber()
+          << " of " << where(parent) << " has quantity " << spelled(now) << ", and Idris proved "
+          << spelled(*was->second);
       held = false;
     }
   });

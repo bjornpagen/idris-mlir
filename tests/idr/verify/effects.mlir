@@ -1,15 +1,16 @@
+// NEEDS-ACCEPTANCE: the text of the program verifier's effects error, and that a covered pair verifies, with the effects printed before a function's symbol and after a call's arguments (S6), each call holding its own.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
-// NEEDS-ACCEPTANCE: the text of the program verifier's effects error, and that a covered pair verifies.
 // A function's declared effects cover what its body may do: what the body
 // does itself (IO where a parameter may hold a world, a crash where an op
-// may crash, not returning unless Idris proved it total) and what each
-// function it calls declares. A solve says too much, never too little, so
-// a set that misses a bit is the compiler's error, reported with the bits
-// it misses. A function without `effects` declares everything.
+// may crash, not returning unless Idris proved it total) and what each call
+// it makes declares, which holds its callee's. A solve says too much, never
+// too little, so a set that misses a bit is the compiler's error, reported
+// with the bits it misses. A function or a call without `effects` declares
+// everything.
 
 idr.program @effects root(@root) stage(first) {
   // expected-error @+1 {{declares the effects none, which do not cover what its body may do: io}}
-  idr.func @writes(%s: !idr.str, %w: !idr.world) -> !idr.world attributes {total, effects = #idr.effects<none>} {
+  idr.func effects<none> @writes(%s: !idr.str, %w: !idr.world) -> !idr.world attributes {total} {
     %w1 = idr.io.put_str %s, %w
     return %w1 : !idr.world
   }
@@ -22,13 +23,13 @@ idr.program @effects root(@root) stage(first) {
 // -----
 
 idr.program @effects root(@root) stage(first) {
-  idr.func @checks(%x: i64) -> i64 attributes {total, effects = #idr.effects<crash>} {
+  idr.func effects<crash> @checks(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64
   }
   // expected-error @+1 {{declares the effects none, which do not cover what its body may do: crash}}
-  idr.func @calls(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
-    %r = idr.call @checks(%x) : (i64) -> i64
+  idr.func effects<none> @calls(%x: i64) -> i64 attributes {total} {
+    %r = idr.call @checks(%x) effects<crash> : (i64) -> i64
     return %r : i64
   }
   idr.func @root() -> i64 {
@@ -41,7 +42,7 @@ idr.program @effects root(@root) stage(first) {
 
 idr.program @effects root(@root) stage(first) {
   // expected-error @+1 {{declares the effects none, which do not cover what its body may do: diverge}}
-  idr.func @partial(%x: i64) -> i64 attributes {effects = #idr.effects<none>} {
+  idr.func effects<none> @partial(%x: i64) -> i64 {
     return %x : i64
   }
   idr.func @root() -> i64 {
@@ -52,15 +53,16 @@ idr.program @effects root(@root) stage(first) {
 
 // -----
 
-// Covered: a function that is not total says it may not return, its caller
-// says what it calls may do, and a function without `effects` calls anything.
+// Covered: a function that is not total says it may not return, its call
+// and its caller say what it may do, and a function without `effects` calls
+// anything.
 idr.program @effects root(@root) stage(first) {
-  idr.func @checks(%x: i64) -> i64 attributes {effects = #idr.effects<crash, diverge>} {
+  idr.func effects<crash, diverge> @checks(%x: i64) -> i64 {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64
   }
-  idr.func @calls(%x: i64) -> i64 attributes {total, effects = #idr.effects<crash, diverge>} {
-    %r = idr.call @checks(%x) : (i64) -> i64
+  idr.func effects<crash, diverge> @calls(%x: i64) -> i64 attributes {total} {
+    %r = idr.call @checks(%x) effects<crash, diverge> : (i64) -> i64
     return %r : i64
   }
   idr.func @root() -> i64 {

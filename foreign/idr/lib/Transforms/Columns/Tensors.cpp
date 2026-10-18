@@ -13,6 +13,8 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 
+#include <utility>
+
 using namespace mlir;
 
 namespace idr::columns {
@@ -91,7 +93,7 @@ struct PerColumn : ConversionPattern {
       SmallVector<Type> columnTypes;
       for (unsigned r = 0, e = op->getNumResults(); r < e; ++r)
         columnTypes.push_back(types[r * columns + j]);
-      Operation *made = remake(rewriter, op, columnOperands, columnTypes);
+      Operation *made = remakeOp(rewriter, op, columnOperands, columnTypes);
       for (unsigned r = 0, e = op->getNumResults(); r < e; ++r)
         replaced[r].push_back(made->getResult(r));
     }
@@ -230,16 +232,34 @@ struct InsertColumns : OpConversionPattern<tensor::InsertOp> {
 
 } // namespace
 
-void populateTensorColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns) {
+// Every op here is legal once the types it carries are converted, but a
+// select: a choice by a condition per element is no choice of whole arrays,
+// and stays as it is.
+void populateTensorColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns,
+                                  ConversionTarget &target) {
   MLIRContext *ctx = patterns.getContext();
-  patterns.add<DimColumns, ExtractSliceColumns, InsertSliceColumns, CollapseColumns,
-               ExpandColumns, ExtractColumns, InsertColumns>(converter, ctx);
-  for (StringRef name :
-       {tensor::EmptyOp::getOperationName(), tensor::CastOp::getOperationName(),
-        TieShapeOp::getOperationName(), LinEnterOp::getOperationName(),
-        LinUseOp::getOperationName(), arith::SelectOp::getOperationName(),
-        ub::PoisonOp::getOperationName()})
+  ConversionTarget::DynamicLegalityCallbackFn legal = whole(converter);
+  addColumns<DimColumns, tensor::DimOp>(converter, patterns, target, legal);
+  addColumns<ExtractSliceColumns, tensor::ExtractSliceOp>(converter, patterns, target, legal);
+  addColumns<InsertSliceColumns, tensor::InsertSliceOp>(converter, patterns, target, legal);
+  addColumns<CollapseColumns, tensor::CollapseShapeOp>(converter, patterns, target, legal);
+  addColumns<ExpandColumns, tensor::ExpandShapeOp>(converter, patterns, target, legal);
+  addColumns<ExtractColumns, tensor::ExtractOp>(converter, patterns, target, legal);
+  addColumns<InsertColumns, tensor::InsertOp>(converter, patterns, target, legal);
+  ConversionTarget::DynamicLegalityCallbackFn select =
+      [&converter](Operation *op) -> std::optional<bool> {
+    return isa<ShapedType>(cast<arith::SelectOp>(op).getCondition().getType()) ||
+           converter.isLegal(op);
+  };
+  std::pair<StringRef, ConversionTarget::DynamicLegalityCallbackFn> perColumn[] = {
+      {tensor::EmptyOp::getOperationName(), legal}, {tensor::CastOp::getOperationName(), legal},
+      {TieShapeOp::getOperationName(), legal},      {LinEnterOp::getOperationName(), legal},
+      {LinUseOp::getOperationName(), legal},        {arith::SelectOp::getOperationName(), select},
+      {ub::PoisonOp::getOperationName(), legal}};
+  for (auto &[name, legality] : perColumn) {
     patterns.add<PerColumn>(converter, name, ctx);
+    target.addDynamicallyLegalOp(OperationName(name, ctx), legality);
+  }
 }
 
 } // namespace idr::columns

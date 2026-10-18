@@ -74,7 +74,7 @@ mutual
   deepest j (Field _ t) = deepest j t
   deepest j (Leaf _) = Just 0
   deepest j (Token _) = Just 0
-  deepest j (Formal _ _ _) = Just 0
+  deepest j (Formal _ _) = Just 0
   deepest j (Held _ _) = Just 0
 
   deepestIn : (j : Nat) -> List Template -> Maybe Nat
@@ -137,11 +137,7 @@ capFrom j t = S <$> deepest j t
 -- a function of the parameter's value.
 binder : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (ClosedTerm, ClosedTerm -> ClosedTerm)
 binder ty = do
-  -- A type that shows its binders only once normalised, written with a
-  -- name for a function type.
-  Bind _ _ (Pi _ _ _ a) sc <- the (Core ClosedTerm) (case ty of
-                                   Bind _ _ (Pi {}) _ => pure ty
-                                   _ => normaliseClosed ty)
+  Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
     | _ => internal EmptyFC "more parameters than the type has binders"
   pure (a, \v => subst v sc)
 
@@ -167,17 +163,14 @@ export
 capOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         Address -> (j : Nat) -> Core (Maybe Nat)
 capOf addr j = do
-  defs <- get Ctxt
-  -- Every address the frontend holds came from `addressOf`, so both
-  -- lookups find a definition.
-  let Just n = nameAt (gamma defs) addr
-    | Nothing => internal EmptyFC "an address with no definition"
-  Just def <- lookupCtxtExact n (gamma defs)
+  -- Every address the frontend holds came from `addressOf`, so the lookup
+  -- finds a definition.
+  Just def <- definitionAt addr
     | Nothing => internal EmptyFC "an address with no definition"
   let owner = show (fullname def)
-  (kinds, _) <- staticsOver owner (S j) (type def) [Just (markerAt i 0, False) | i <- [0 .. j]]
-  case getAt j kinds of
-    Just (Just AShape) => do
+  (kinds, _) <- staticsOver owner (S j) (type def) [Just (markerAt i 0, AValue) | i <- [0 .. j]]
+  case Vect.last kinds of
+    Just AShape => do
       (a, rest) <- parameterAt j (type def)
       -- `tyConFacts`' `natness` is the one reading of whether a shape is a
       -- run of successors, read as a data instance reads its type; a type

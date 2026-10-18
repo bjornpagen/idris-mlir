@@ -8,117 +8,139 @@ module IdrisMLIR.Frontend.Translate.Primitives
 import Core.TT
 
 import IdrisMLIR.Dialect.Idr as Idr
-import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Ids
+import IdrisMLIR.Loc
+import IdrisMLIR.Registry
 import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Term
 import IdrisMLIR.Types
+
+import Data.Vect
 
 %default total
 
-scalar : PrimType -> Maybe Scalar
-scalar CharType = Just SChar
-scalar DoubleType = Just SDouble
-scalar t = SInt <$> intTy t
+||| The fixed-width integer or character a primitive type is, if it is
+||| one.
+integral : PrimTy -> Maybe IntLike
+integral (IntP it) = Just (SInt it)
+integral CharP = Just SChar
+integral _ = Nothing
 
-||| Double arithmetic and the C library's functions.
-double : PrimFn k -> Maybe Prim
-double (Add DoubleType) = Just (FloatOp FAdd)
-double (Sub DoubleType) = Just (FloatOp FSub)
-double (Mul DoubleType) = Just (FloatOp FMul)
-double (Div DoubleType) = Just (FloatOp FDiv)
-double (Neg DoubleType) = Just Negate
-double DoubleExp = Just (Math Exp)
-double DoubleLog = Just (Math Log)
-double DoublePow = Just (Math Pow)
-double DoubleSin = Just (Math Sin)
-double DoubleCos = Just (Math Cos)
-double DoubleTan = Just (Math Tan)
-double DoubleASin = Just (Math ASin)
-double DoubleACos = Just (Math ACos)
-double DoubleATan = Just (Math ATan)
-double DoubleSqrt = Just (Math Sqrt)
-double DoubleFloor = Just (Math Floor)
-double DoubleCeiling = Just (Math Ceiling)
-double _ = Nothing
+||| The fixed-width scalar a primitive type is, if it is one.
+scalar : PrimTy -> Maybe Scalar
+scalar DoubleP = Just SDouble
+scalar t = SIntegral <$> integral t
 
-||| A cast between types that exist at runtime; `Char` and `Double` are not
-||| cast to each other.
-runtimeCast : Scalar -> Scalar -> Maybe Prim
-runtimeCast SChar SDouble = Nothing
-runtimeCast SDouble SChar = Nothing
-runtimeCast a b = Just (Cast a b)
+||| What a string is read as, if it can be read as this type: a number.
+numeric : PrimTy -> Maybe Numeric
+numeric (IntP it) = Just (NInt it)
+numeric DoubleP = Just NDouble
+numeric _ = Nothing
 
-arith : PrimFn k -> Maybe (ArithOp, PrimType)
-arith (Add t) = Just (Add, t)
-arith (Sub t) = Just (Sub, t)
-arith (Mul t) = Just (Mul, t)
-arith (Div t) = Just (Div, t)
-arith (Mod t) = Just (Mod, t)
-arith (BAnd t) = Just (And, t)
-arith (BOr t) = Just (Or, t)
-arith (BXOr t) = Just (Xor, t)
-arith _ = Nothing
-
-comparison : PrimFn k -> Maybe (CmpPredicate, PrimType)
-comparison (LT t) = Just (CmpPredicate.Lt, t)
-comparison (LTE t) = Just (CmpPredicate.Lte, t)
-comparison (EQ t) = Just (CmpPredicate.Eq, t)
-comparison (GTE t) = Just (CmpPredicate.Gte, t)
-comparison (GT t) = Just (CmpPredicate.Gt, t)
-comparison _ = Nothing
-
-||| Integer primitives: `idr.big.*`.
-integer : PrimFn k -> Maybe Prim
-integer (Add IntegerType) = Just (Op BigAdd)
-integer (Sub IntegerType) = Just (Op BigSub)
-integer (Mul IntegerType) = Just (Op BigMul)
-integer (Div IntegerType) = Just (Op BigDiv)
-integer (Mod IntegerType) = Just (Op BigMod)
-integer (BAnd IntegerType) = Just (Op BigAnd)
-integer (BOr IntegerType) = Just (Op BigOr)
-integer (BXOr IntegerType) = Just (Op BigXor)
-integer (ShiftL IntegerType) = Just (Op BigShl)
-integer (ShiftR IntegerType) = Just (Op BigShr)
-integer (Neg IntegerType) = Just (Op BigNeg)
-integer (Cast IntegerType StringType) = Just (Op BigShow)
-integer (Cast StringType IntegerType) = Just (Op BigFromStr)
-integer (Cast IntegerType to) = FromBig <$> scalar to
-integer (Cast from IntegerType) = ToBig <$> scalar from
-integer p = case comparison p of
-  Just (op, IntegerType) => Just (BigCompare op)
+||| Arithmetic of two operands of one type, by the type: a fixed width's
+||| op, Integer's (`integer`), or Double's when it has one.
+arith : ArithOp -> Maybe FArith -> (integer : Prim 2) -> PrimType -> Maybe (Prim 2)
+arith op double integer t = case primTy t of
+  IntP it => Just (IntOp op it)
+  IntegerP => Just integer
+  DoubleP => FloatOp <$> double
   _ => Nothing
 
-||| A cast from a string: to a number. A string has no `Char` cast.
-fromString : PrimType -> Maybe Prim
-fromString CharType = Nothing
-fromString to = FromStr <$> scalar to
-
-export
-primOp : PrimFn k -> Maybe Prim
-primOp p = case (integer p, double p, arith p, comparison p, p) of
-  (Just b, _, _, _, _) => Just b
-  (_, Just d, _, _, _) => Just d
-  (_, _, Just (op, t), _, _) => IntOp op <$> intTy t
-  (_, _, _, _, ShiftL t) => IntShift ShiftLeft <$> intTy t
-  (_, _, _, _, ShiftR t) => IntShift ShiftRight <$> intTy t
-  (_, _, _, Just (op, StringType), _) => Just (StrCompare op)
-  (_, _, _, Just (op, t), _) => Compare op <$> scalar t
-  (_, _, _, _, Cast StringType to) => fromString to
-  (_, _, _, _, Cast from StringType) => ToStr <$> scalar from
-  (_, _, _, _, Cast from to) => join (runtimeCast <$> scalar from <*> scalar to)
-  (_, _, _, _, StrLength) => Just (Op Idr.StrLength)
-  (_, _, _, _, StrHead) => Just (Op Idr.StrHead)
-  (_, _, _, _, StrTail) => Just (Op Idr.StrTail)
-  (_, _, _, _, StrIndex) => Just (Op Idr.StrIndex)
-  (_, _, _, _, StrCons) => Just (Op Idr.StrCons)
-  (_, _, _, _, StrAppend) => Just (Op Idr.StrAppend)
-  (_, _, _, _, StrReverse) => Just (Op Idr.StrReverse)
-  (_, _, _, _, StrSubstr) => Just (Op Idr.StrSubstr)
+||| A shift, by the type: a fixed width's op or Integer's.
+shift : Shift -> (integer : Prim 2) -> PrimType -> Maybe (Prim 2)
+shift s integer t = case primTy t of
+  IntP it => Just (IntShift s it)
+  IntegerP => Just integer
   _ => Nothing
 
-||| Idris's arguments of a primitive in the order its op takes them:
+||| A comparison, by the type of its operands.
+comparison : CmpPredicate -> PrimType -> Maybe (Prim 2)
+comparison op t = case primTy t of
+  IntegerP => Just (BigCompare op)
+  StringP => Just (StrCompare op)
+  WorldP => Nothing
+  ty => Compare op <$> scalar ty
+
+||| A cast, by the types it is between, giving a value of `result`:
+||| Integer's to and from a string and a scalar, a string's to a number and
+||| from a scalar, and a scalar's to another (`Conversion`, which has no
+||| cast between a `Char` and a `Double`).
+conversion : (result : Ty) -> PrimTy -> PrimTy -> Maybe (Prim 1)
+conversion result IntegerP StringP = Just (Op BigShow result)
+conversion result StringP IntegerP = Just (Op BigFromStr result)
+conversion result IntegerP to = FromBig <$> scalar to
+conversion result from IntegerP = ToBig <$> scalar from
+conversion result StringP to = FromStr <$> numeric to
+conversion result from StringP = ToStr <$> scalar from
+conversion result (IntP a) DoubleP = Just (Cast (IntToDouble a))
+conversion result DoubleP (IntP b) = Just (Cast (DoubleToInt b))
+conversion result from to = (\a, b => Cast (IntToInt a b)) <$> integral from <*> integral to
+
+||| Each primitive's op, by its operation and the type it is at, of the
+||| result type given. A fixed width has no negation of one operand:
+||| `primTerm` subtracts it from 0.
+primOp : (result : Ty) -> PrimFn k -> Maybe (Prim k)
+primOp result (Add t) = arith Add (Just FAdd) (Op BigAdd result) t
+primOp result (Sub t) = arith Sub (Just FSub) (Op BigSub result) t
+primOp result (Mul t) = arith Mul (Just FMul) (Op BigMul result) t
+primOp result (Div t) = arith Div (Just FDiv) (Op BigDiv result) t
+primOp result (Mod t) = arith Mod Nothing (Op BigMod result) t
+primOp result (BAnd t) = arith And Nothing (Op BigAnd result) t
+primOp result (BOr t) = arith Or Nothing (Op BigOr result) t
+primOp result (BXOr t) = arith Xor Nothing (Op BigXor result) t
+primOp result (ShiftL t) = shift ShiftLeft (Op BigShl result) t
+primOp result (ShiftR t) = shift ShiftRight (Op BigShr result) t
+primOp result (Neg t) = case primTy t of
+  IntegerP => Just (Op BigNeg result)
+  DoubleP => Just Negate
+  _ => Nothing
+primOp result (LT t) = comparison CmpPredicate.Lt t
+primOp result (LTE t) = comparison CmpPredicate.Lte t
+primOp result (EQ t) = comparison CmpPredicate.Eq t
+primOp result (GTE t) = comparison CmpPredicate.Gte t
+primOp result (GT t) = comparison CmpPredicate.Gt t
+primOp result StrLength = Just (Op Idr.StrLength result)
+primOp result StrHead = Just (Op Idr.StrHead result)
+primOp result StrTail = Just (Op Idr.StrTail result)
+primOp result StrIndex = Just (Op Idr.StrIndex result)
+primOp result StrCons = Just (Op Idr.StrCons result)
+primOp result StrAppend = Just (Op Idr.StrAppend result)
+primOp result StrReverse = Just (Op Idr.StrReverse result)
+primOp result StrSubstr = Just (Op Idr.StrSubstr result)
+primOp result DoubleExp = Just (Math1 Exp)
+primOp result DoubleLog = Just (Math1 Log)
+primOp result DoublePow = Just Pow
+primOp result DoubleSin = Just (Math1 Sin)
+primOp result DoubleCos = Just (Math1 Cos)
+primOp result DoubleTan = Just (Math1 Tan)
+primOp result DoubleASin = Just (Math1 ASin)
+primOp result DoubleACos = Just (Math1 ACos)
+primOp result DoubleATan = Just (Math1 ATan)
+primOp result DoubleSqrt = Just (Math1 Sqrt)
+primOp result DoubleFloor = Just (Math1 Floor)
+primOp result DoubleCeiling = Just (Math1 Ceiling)
+primOp result (Cast from to) = conversion result (primTy from) (primTy to)
+-- The escape hatches are no op: the translation decides each where it
+-- meets it.
+primOp result BelieveMe = Nothing
+primOp result Crash = Nothing
+
+||| A primitive's op on its operands, in Idris's order.
+applied : {k : Nat} -> Loc -> Maybe (Prim k) -> Maybe ({0 m : Nat} -> Vect k (Term m) -> Term m)
+applied loc (Just p) = Just (\xs => PrimApp loc p Nothing xs)
+applied loc Nothing = Nothing
+
+||| The one translation of an Idris primitive, on its operands in Idris's
+||| order, of the result type given. A fixed width's negation is its
+||| subtraction from 0, as the prelude's `negate` writes it, and
 ||| `prim__strSubstr` takes the start, the length and then the string,
-||| which `idr.str.substr` takes first.
+||| which `idr.str.substr` takes first. `Nothing` only for what Idris
+||| never builds.
 export
-opOrder : PrimFn k -> List a -> List a
-opOrder StrSubstr [start, len, s] = [s, start, len]
-opOrder _ xs = xs
+primTerm : {k : Nat} -> Loc -> (result : Ty) -> PrimFn k -> Maybe ({0 m : Nat} -> Vect k (Term m) -> Term m)
+primTerm loc result (Neg t) with (primTy t)
+  primTerm loc result (Neg t) | IntP it = Just (\[x] => PrimApp loc (IntOp Sub it) Nothing [Literal loc (LInt it 0), x])
+  primTerm loc result (Neg t) | _ = applied loc (primOp result (Neg t))
+primTerm loc result StrSubstr = Just (\[start, len, s] => PrimApp loc (Op Idr.StrSubstr result) Nothing [s, start, len])
+primTerm loc result op = applied loc (primOp result op)

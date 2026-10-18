@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that a function's effects print before its symbol as `effects<io, crash>`, its other facts after `attributes`, and the text reads back as itself.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
 // RUN: sed '/^\/\/ -----/,$d' %s > %t.facts.mlir
 // RUN: idris-mlir-opt %t.facts.mlir -o %t.once.mlir
@@ -6,20 +7,21 @@
 // RUN: FileCheck %s --implicit-check-not=idr.call --implicit-check-not=idr.return < %t.once.mlir
 // What is known of a function is idr.func's own: Idris's proof (total),
 // what the frontend and the passes decide (no_inline, effects) and what it
-// is an instance of, each an inherent attribute, so no pass drops one
-// without changing the op. They print after `attributes`, by name, and read
-// back as themselves; the ops of the body print without the dialect's
-// prefix. A fact of the wrong kind is refused when the op is read.
-// CHECK-LABEL: idr.func @f(
-// CHECK-SAME: attributes {effects = #idr.effects<io, crash>, instance = #idr.instance<"Prelude.f", ["Prelude.Types.Nat"]>, no_inline, total} {
+// is an instance of, each inherent, so no pass drops one without changing
+// the op. The effects, a property, print before the symbol; the others
+// print after `attributes`, by name; each reads back as itself, and the ops
+// of the body print without the dialect's prefix. A fact of the wrong kind
+// is refused when the op is read.
+// CHECK-LABEL: idr.func effects<io, crash> @f(
+// CHECK-SAME: attributes {instance = #idr.instance<"Prelude.f", ["Prelude.Types.Nat"]>, no_inline, total} {
 // CHECK-NEXT: {{^ *}}return %{{.*}} : i64
 // CHECK-LABEL: idr.func @g(
 // CHECK-NEXT: {{^ *}}%[[R:.*]] = call @f(%{{.*}}) : (i64) -> i64
 // CHECK-NEXT: {{^ *}}return %[[R]] : i64
 
 idr.program @"facts-roundtrip" root(@root) stage(first) {
-  idr.func @f(%x: i64) -> i64
-      attributes {total, no_inline, effects = #idr.effects<io, crash>,
+  idr.func effects<io, crash> @f(%x: i64) -> i64
+      attributes {total, no_inline,
                   instance = #idr.instance<"Prelude.f", ["Prelude.Types.Nat"]>} {
     return %x : i64
   }

@@ -80,42 +80,6 @@ ctorRoleValue CtorRole.Label = 3
 ctorRoleValue CtorRole.Running = 4
 ctorRoleValue CtorRole.Forced = 5
 
-namespace Effect
-  ||| what a call of a function may do
-  public export
-  data Effect = Io | Crash | Diverge
-
-export
-Prelude.EqOrd.Eq Effect where
-  Effect.Io == Effect.Io = True
-  Effect.Crash == Effect.Crash = True
-  Effect.Diverge == Effect.Diverge = True
-  _ == _ = False
-
-export
-Show Effect where
-  show Effect.Io = "io"
-  show Effect.Crash = "crash"
-  show Effect.Diverge = "diverge"
-
-||| The value of each Effect.
-export
-effectValue : Effect -> Nat
-effectValue Effect.Io = 1
-effectValue Effect.Crash = 2
-effectValue Effect.Diverge = 4
-
--- How the syntax below spells each Effect.
-effectSpelling : Effect -> String
-effectSpelling Effect.Io = "io"
-effectSpelling Effect.Crash = "crash"
-effectSpelling Effect.Diverge = "diverge"
-
--- How the syntax below spells a set of Effect: its bits, apart.
-effectSpellings : List Effect -> String
-effectSpellings [] = "none"
-effectSpellings es = separated ", " (map effectSpelling es)
-
 namespace Permission
   ||| what a value owns
   public export
@@ -181,14 +145,13 @@ quantitySpelling Quantity.Many = "many"
 namespace Rule
   ||| the rule a refusal of a program names
   public export
-  data Rule = ProgramShape | TrustedLibrary | WorldUse | IOPrimitive | ValueType | DependentField | DictionaryField | DataType | DefinitionShape | Match | StaticArgument | Polymorphism | Primitive | StringPrimitive | RuntimeClosure | EscapeHatch | UserPragma | Threads | Finalizer | RawPointer | Signal | Process | CompiledModule | IdentityHook | HookShape | Deprecated | Uniqueness | Cycle | Runtime
+  data Rule = ProgramShape | TrustedLibrary | WorldUse | ValueType | DependentField | DictionaryField | DataType | DefinitionShape | Match | StaticArgument | Polymorphism | Primitive | StringPrimitive | RuntimeClosure | EscapeHatch | UserPragma | Threads | Finalizer | RawPointer | Signal | Process | CompiledModule | HookShape | Deprecated | Uniqueness | Cycle | Runtime | Elaboration
 
 export
 Prelude.EqOrd.Eq Rule where
   Rule.ProgramShape == Rule.ProgramShape = True
   Rule.TrustedLibrary == Rule.TrustedLibrary = True
   Rule.WorldUse == Rule.WorldUse = True
-  Rule.IOPrimitive == Rule.IOPrimitive = True
   Rule.ValueType == Rule.ValueType = True
   Rule.DependentField == Rule.DependentField = True
   Rule.DictionaryField == Rule.DictionaryField = True
@@ -208,12 +171,12 @@ Prelude.EqOrd.Eq Rule where
   Rule.Signal == Rule.Signal = True
   Rule.Process == Rule.Process = True
   Rule.CompiledModule == Rule.CompiledModule = True
-  Rule.IdentityHook == Rule.IdentityHook = True
   Rule.HookShape == Rule.HookShape = True
   Rule.Deprecated == Rule.Deprecated = True
   Rule.Uniqueness == Rule.Uniqueness = True
   Rule.Cycle == Rule.Cycle = True
   Rule.Runtime == Rule.Runtime = True
+  Rule.Elaboration == Rule.Elaboration = True
   _ == _ = False
 
 export
@@ -221,7 +184,6 @@ Show Rule where
   show Rule.ProgramShape = "program"
   show Rule.TrustedLibrary = "library"
   show Rule.WorldUse = "world"
-  show Rule.IOPrimitive = "io primitive"
   show Rule.ValueType = "type"
   show Rule.DependentField = "dependent field"
   show Rule.DictionaryField = "dictionary field"
@@ -241,12 +203,12 @@ Show Rule where
   show Rule.Signal = "signal"
   show Rule.Process = "process"
   show Rule.CompiledModule = "compiled module"
-  show Rule.IdentityHook = "identity hook"
   show Rule.HookShape = "hook"
   show Rule.Deprecated = "deprecated"
   show Rule.Uniqueness = "uniqueness"
   show Rule.Cycle = "cycle"
   show Rule.Runtime = "runtime"
+  show Rule.Elaboration = "elaboration"
 
 ||| The value of each Rule.
 export
@@ -254,7 +216,6 @@ ruleValue : Rule -> Nat
 ruleValue Rule.ProgramShape = 0
 ruleValue Rule.TrustedLibrary = 1
 ruleValue Rule.WorldUse = 2
-ruleValue Rule.IOPrimitive = 3
 ruleValue Rule.ValueType = 4
 ruleValue Rule.DependentField = 5
 ruleValue Rule.DictionaryField = 6
@@ -274,19 +235,18 @@ ruleValue Rule.RawPointer = 20
 ruleValue Rule.Signal = 21
 ruleValue Rule.Process = 22
 ruleValue Rule.CompiledModule = 23
-ruleValue Rule.IdentityHook = 24
 ruleValue Rule.HookShape = 25
 ruleValue Rule.Deprecated = 26
 ruleValue Rule.Uniqueness = 28
 ruleValue Rule.Cycle = 29
 ruleValue Rule.Runtime = 30
+ruleValue Rule.Elaboration = 31
 
 -- How the syntax below spells each Rule.
 ruleSpelling : Rule -> String
 ruleSpelling Rule.ProgramShape = "program"
 ruleSpelling Rule.TrustedLibrary = "library"
 ruleSpelling Rule.WorldUse = "world"
-ruleSpelling Rule.IOPrimitive = "\"io primitive\""
 ruleSpelling Rule.ValueType = "type"
 ruleSpelling Rule.DependentField = "\"dependent field\""
 ruleSpelling Rule.DictionaryField = "\"dictionary field\""
@@ -306,44 +266,48 @@ ruleSpelling Rule.RawPointer = "\"raw pointer\""
 ruleSpelling Rule.Signal = "signal"
 ruleSpelling Rule.Process = "process"
 ruleSpelling Rule.CompiledModule = "\"compiled module\""
-ruleSpelling Rule.IdentityHook = "\"identity hook\""
 ruleSpelling Rule.HookShape = "hook"
 ruleSpelling Rule.Deprecated = "deprecated"
 ruleSpelling Rule.Uniqueness = "uniqueness"
 ruleSpelling Rule.Cycle = "cycle"
 ruleSpelling Rule.Runtime = "runtime"
+ruleSpelling Rule.Elaboration = "elaboration"
 
 namespace RuleCategory
   ||| the kind of program a refusal names
   public export
-  data RuleCategory = Megamorphic | OutsideLanguage
+  data RuleCategory = Megamorphic | OutsideLanguage | UserError
 
 export
 Prelude.EqOrd.Eq RuleCategory where
   RuleCategory.Megamorphic == RuleCategory.Megamorphic = True
   RuleCategory.OutsideLanguage == RuleCategory.OutsideLanguage = True
+  RuleCategory.UserError == RuleCategory.UserError = True
   _ == _ = False
 
 export
 Show RuleCategory where
   show RuleCategory.Megamorphic = "megamorphic"
   show RuleCategory.OutsideLanguage = "outside the language"
+  show RuleCategory.UserError = "user error"
 
 ||| The value of each RuleCategory.
 export
 ruleCategoryValue : RuleCategory -> Nat
 ruleCategoryValue RuleCategory.Megamorphic = 0
 ruleCategoryValue RuleCategory.OutsideLanguage = 1
+ruleCategoryValue RuleCategory.UserError = 2
 
 namespace Stage
   ||| what the functions of a program may hold
   public export
-  data Stage = Higher | First | Owned | Lowered
+  data Stage = Higher | First | Graded | Owned | Lowered
 
 export
 Prelude.EqOrd.Eq Stage where
   Stage.Higher == Stage.Higher = True
   Stage.First == Stage.First = True
+  Stage.Graded == Stage.Graded = True
   Stage.Owned == Stage.Owned = True
   Stage.Lowered == Stage.Lowered = True
   _ == _ = False
@@ -352,6 +316,7 @@ export
 Show Stage where
   show Stage.Higher = "higher"
   show Stage.First = "first"
+  show Stage.Graded = "graded"
   show Stage.Owned = "owned"
   show Stage.Lowered = "lowered"
 
@@ -360,8 +325,9 @@ export
 stageValue : Stage -> Nat
 stageValue Stage.Higher = 0
 stageValue Stage.First = 1
-stageValue Stage.Owned = 2
-stageValue Stage.Lowered = 3
+stageValue Stage.Graded = 2
+stageValue Stage.Owned = 3
+stageValue Stage.Lowered = 4
 
 namespace SumKind
   ||| what sum a data type is
@@ -400,7 +366,6 @@ ruleCategory : Rule -> RuleCategory
 ruleCategory Rule.ProgramShape = RuleCategory.OutsideLanguage
 ruleCategory Rule.TrustedLibrary = RuleCategory.OutsideLanguage
 ruleCategory Rule.WorldUse = RuleCategory.OutsideLanguage
-ruleCategory Rule.IOPrimitive = RuleCategory.OutsideLanguage
 ruleCategory Rule.ValueType = RuleCategory.Megamorphic
 ruleCategory Rule.DependentField = RuleCategory.Megamorphic
 ruleCategory Rule.DictionaryField = RuleCategory.Megamorphic
@@ -420,29 +385,26 @@ ruleCategory Rule.RawPointer = RuleCategory.OutsideLanguage
 ruleCategory Rule.Signal = RuleCategory.OutsideLanguage
 ruleCategory Rule.Process = RuleCategory.OutsideLanguage
 ruleCategory Rule.CompiledModule = RuleCategory.OutsideLanguage
-ruleCategory Rule.IdentityHook = RuleCategory.OutsideLanguage
 ruleCategory Rule.HookShape = RuleCategory.OutsideLanguage
 ruleCategory Rule.Deprecated = RuleCategory.OutsideLanguage
 ruleCategory Rule.Uniqueness = RuleCategory.OutsideLanguage
 ruleCategory Rule.Cycle = RuleCategory.OutsideLanguage
 ruleCategory Rule.Runtime = RuleCategory.OutsideLanguage
+ruleCategory Rule.Elaboration = RuleCategory.UserError
 
 ------------------------------------------------------------------------------
 -- Types
 ------------------------------------------------------------------------------
 
 ||| One constructor of a data type's body, as the module's table of data
-||| types holds it: its name, its fields' types, whether every force of it
-||| runs it, the part it plays in its sum, and the function it names, which
-||| only a label names.
+||| types holds it: its name, its fields' types, and the part it plays in
+||| its sum, never a label's, which the frontend's table does not hold.
 public export
 record IdrCtor ty where
   constructor MkIdrCtor
   name : String
   fields : List ty
-  byName : Bool
   role : CtorRole
-  fn : Maybe String
 
 ||| A data type's body, as the module's table of data types holds it: what
 ||| sum it is, its constructors in tag order, and the Idris instance it is
@@ -478,13 +440,13 @@ data IdrType : (ty : Type) -> Type where
   StrType : IdrType ty
   ||| `!idr.token`: the memory of a cell whose fields idr.take moved out, or null
   TokenType : IdrType ty
-  ||| `!idr.world_carrier`: the IO world token
+  ||| `!idr.world`: the IO world token, used exactly once by its type
   WorldType : IdrType ty
 
 ||| The mnemonics of the idr dialect's types.
 export
 idrTypeMnemonics : List String
-idrTypeMnemonics = ["big", "box", "data", "dest", "fn", "lazy", "nat", "q", "str", "token", "world_carrier"]
+idrTypeMnemonics = ["big", "box", "data", "dest", "fn", "lazy", "nat", "q", "str", "token", "world"]
 
 ||| The mnemonic of each of the idr dialect's types.
 export
@@ -499,7 +461,7 @@ idrTypeMnemonic NatType = "nat"
 idrTypeMnemonic (QType _ _ _) = "q"
 idrTypeMnemonic StrType = "str"
 idrTypeMnemonic TokenType = "token"
-idrTypeMnemonic WorldType = "world_carrier"
+idrTypeMnemonic WorldType = "world"
 
 ||| The text of each of the idr dialect's types, the types it
 ||| holds written by `t`.
@@ -515,7 +477,7 @@ idrTypeText t NatType = "!idr.nat"
 idrTypeText t (QType quantity permission value) = fastConcat ["!idr.q<", (quantitySpelling quantity), ", ", (permissionSpelling permission), ", ", (t value), ">"]
 idrTypeText t StrType = "!idr.str"
 idrTypeText t TokenType = "!idr.token"
-idrTypeText t WorldType = "!idr.world_carrier"
+idrTypeText t WorldType = "!idr.world"
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -530,40 +492,28 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   BigAttr : (value : Integer) -> IdrAttr ty at
   ||| `#idr.closure`: a closure of a function with its captures as attributes
   ClosureAttr : (callee : String) -> (captures : List at) -> IdrAttr ty at
-  ||| `#idr.effects`: what a call of a function may do
-  EffectAttr : (value : List Effect) -> IdrAttr ty at
   ||| `#idr.instance`: the Idris definition and arguments a function or data type is an instance of
-  InstanceAttr : (origin : String) -> (arguments : List at) -> IdrAttr ty at
-  ||| `#idr.key_con`: the constructor `tag` in a key, over the patterns of its fields
-  KeyConAttr : (tag : Nat) -> (fields : List at) -> IdrAttr ty at
-  ||| `#idr.key_hole`: a runtime leaf of a key: the clone's parameter that holds it
-  KeyHoleAttr : (index : Nat) -> IdrAttr ty at
-  ||| `#idr.key_raise`: the key of a clone that dispatches on its callee's result
-  KeyRaiseAttr : (callee : String) -> (consumer : String) -> IdrAttr ty at
+  InstanceAttr : (origin : String) -> (arguments : List String) -> IdrAttr ty at
+  ||| `#idr.refusal`: a refusal of the program the frontend found, which the driver reports
+  RefusalAttr : (rule : Rule) -> (loc : Location) -> (message : String) -> IdrAttr ty at
   ||| `#idr.rule`: the rule a refusal of a program names
   RuleAttr : (value : Rule) -> IdrAttr ty at
-  ||| `#idr.spec_key`: the key of a clone that specializes
-  SpecKeyAttr : (origin : String) -> (patterns : List at) -> IdrAttr ty at
   ||| `#idr.world`: the memory of an array a world orders
   WorldSpaceAttr : IdrAttr ty at
 
 ||| The mnemonics of the idr dialect's attributes.
 export
 idrAttrMnemonics : List String
-idrAttrMnemonics = ["big", "closure", "effects", "instance", "key_con", "key_hole", "key_raise", "rule", "spec_key", "world"]
+idrAttrMnemonics = ["big", "closure", "instance", "refusal", "rule", "world"]
 
 ||| The mnemonic of each of the idr dialect's attributes.
 export
 idrAttrMnemonic : IdrAttr ty at -> String
 idrAttrMnemonic (BigAttr _) = "big"
 idrAttrMnemonic (ClosureAttr _ _) = "closure"
-idrAttrMnemonic (EffectAttr _) = "effects"
 idrAttrMnemonic (InstanceAttr _ _) = "instance"
-idrAttrMnemonic (KeyConAttr _ _) = "key_con"
-idrAttrMnemonic (KeyHoleAttr _) = "key_hole"
-idrAttrMnemonic (KeyRaiseAttr _ _) = "key_raise"
+idrAttrMnemonic (RefusalAttr _ _ _) = "refusal"
 idrAttrMnemonic (RuleAttr _) = "rule"
-idrAttrMnemonic (SpecKeyAttr _ _) = "spec_key"
 idrAttrMnemonic WorldSpaceAttr = "world"
 
 ||| The text of each of the idr dialect's attributes, the types it
@@ -572,15 +522,16 @@ export
 idrAttrText : (t : ty -> String) -> (a : at -> String) -> IdrAttr ty at -> String
 idrAttrText t a (BigAttr value) = fastConcat ["#idr.big<", (show value), ">"]
 idrAttrText t a (ClosureAttr callee captures) = fastConcat ["#idr.closure<", (symbol callee), ", ", (array a captures), ">"]
-idrAttrText t a (EffectAttr value) = fastConcat ["#idr.effects<", (effectSpellings value), ">"]
-idrAttrText t a (InstanceAttr origin arguments) = fastConcat ["#idr.instance<", (utf8 origin), ", ", (array a arguments), ">"]
-idrAttrText t a (KeyConAttr tag fields) = fastConcat ["#idr.key_con<", (show tag), ", ", (array a fields), ">"]
-idrAttrText t a (KeyHoleAttr index) = fastConcat ["#idr.key_hole<", (show index), ">"]
-idrAttrText t a (KeyRaiseAttr callee consumer) = fastConcat ["#idr.key_raise<", (utf8 callee), ", ", (utf8 consumer), ">"]
+idrAttrText t a (InstanceAttr origin arguments) = fastConcat ["#idr.instance<", (utf8 origin), ", ", (commaSeparated (map utf8 arguments)), ">"]
+idrAttrText t a (RefusalAttr rule loc message) = fastConcat ["#idr.refusal<", (ruleSpelling rule), ", ", (location loc), ", ", (utf8 message), ">"]
 idrAttrText t a (RuleAttr value) = fastConcat ["#idr.rule<", (ruleSpelling value), ">"]
-idrAttrText t a (SpecKeyAttr origin patterns) = fastConcat ["#idr.spec_key<", (utf8 origin), ", ", (array a patterns), ">"]
 idrAttrText t a WorldSpaceAttr = "#idr.world"
 
 -- Not generated:
+-- type CellType: its syntax is C++
 -- attribute ConAttr: its syntax is C++
--- fingerprint: 2009807748-1411435 784468251-21848
+-- attribute KeyConAttr: the passes' alone (idris = 0)
+-- attribute KeyHoleAttr: the passes' alone (idris = 0)
+-- attribute KeyRaiseAttr: the passes' alone (idris = 0)
+-- attribute SpecKeyAttr: the passes' alone (idris = 0)
+-- fingerprint: 4179896296-1522578 906031433-20012

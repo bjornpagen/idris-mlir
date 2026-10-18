@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that the module verifies with the literal match's default region binding its scrutinee.
 // RUN: idris-mlir-opt %s -o /dev/null
 // NEEDS-ACCEPTANCE: the module verifies; the FileCheck of its own function names is gone.
 // Worlds used once on each path are accepted.
@@ -41,7 +42,7 @@ idr.program @"world-once" root(@chain) stage(first) {
     case 0 {
       idr.yield %w : !idr.world
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }

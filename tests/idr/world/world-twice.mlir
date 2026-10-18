@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that each world used twice on one path is refused, with the matches' default regions binding their scrutinees.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // A world used twice on one path is rejected, wherever the second use is.
 // Each idr.func verifies its own body.
@@ -61,7 +62,7 @@ idr.func @f(%b: !B,
     %w1 = idr.io.put_char %c, %w
     idr.yield %w1 : !idr.world
   }
-  default {
+  default(%d: !B) {
     idr.yield %w : !idr.world
   }
   }
@@ -88,7 +89,7 @@ idr.func @f(%n: i64, %w: !idr.world) -> !idr.world {
     %w2 = idr.io.put_char %c, %w
     idr.yield %w2 : !idr.world
   }
-  default {
+  default(%d: i64) {
     idr.yield %w : !idr.world
   }
   }

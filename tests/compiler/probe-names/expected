@@ -1,0 +1,2 @@
+NEEDS-ACCEPTANCE: that every probe family reads back as itself through its name, an axis through its term, and names no probe has as none, run by tests/testutils.sh against the installed fork (run privately on Chez against a fork of HEAD: identical)
+probe-names: every probe read back as itself

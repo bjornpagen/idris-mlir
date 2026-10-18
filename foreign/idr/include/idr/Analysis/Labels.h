@@ -55,28 +55,6 @@ inline bool carriesLabels(mlir::Type type) {
   return !(Carriers::of(type) & Carriers::labels()).empty();
 }
 
-// The index in its constructor of field `i` of a run's cell, which holds
-// every field but the spine.
-inline unsigned cellField(unsigned i, unsigned spine) { return i < spine ? i : i + 1; }
-
-// Calls `visit(field, index)` for each field of `con` with its index in the
-// constructor: a plain con's fields, or a run's cells, each without its
-// spine field, which is the next cell, and then its tail, which fills the
-// last cell's spine. A run is walked by its cells, never through its spine,
-// which builds the rest of the run at each step.
-inline void eachField(ConAttr con, llvm::function_ref<void(mlir::Attribute, unsigned)> visit) {
-  if (!con.isRun()) {
-    for (auto [i, field] : llvm::enumerate(con.getFields()))
-      visit(field, static_cast<unsigned>(i));
-    return;
-  }
-  unsigned spine = con.getSpine();
-  for (mlir::ArrayAttr cell : con.getRunCells())
-    for (auto [i, field] : llvm::enumerate(cell))
-      visit(field, cellField(static_cast<unsigned>(i), spine));
-  visit(con.getTail(), spine);
-}
-
 // Which parts of the program's constants hold a closure, each part answered
 // once: a closure does, a constructor does when one of its fields does, and
 // nothing else does.
@@ -110,20 +88,32 @@ using Firing = std::pair<Dispatch, Label>;
 // labels, all made by the program's finitely many ops and constants.
 using Work = std::variant<Arrival, Firing>;
 
-// How a flow joins its two points: a lazy carrier's two points hold one
+// How a flow joins its two points: a suspension's two points hold one
 // cell, so they are one class; any other carrier's source is included in
 // its target.
 enum class Link : std::uint8_t { Include, Unify };
+
+// The link of a flow of `carriers`: Unify when they hold a suspension. The
+// one link rule, for an edge an op declares and for a label's edges at a
+// dispatch.
+Link linkOf(Carriers carriers);
+
+// A point, normalized to one key whatever an edge names it through: the
+// value of a use or of a whole value (a function's parameter is its entry
+// argument), the anchor of a part, or a function's result by its name and
+// position.
+using ResultKey = std::pair<mlir::StringAttr, unsigned>;
+using PointKey = std::variant<mlir::Value, FlowAnchor, ResultKey>;
 
 // What the solve leaves: the node of every point an edge named, the labels
 // of each node, and the one sink of each operand. It is never written once
 // made, so it is read from any thread.
 class Solution {
 public:
-  mlir::ArrayAttr labelsOf(const FlowPoint &point) const;
-  mlir::ArrayAttr labelsOf(const FlowAnchor &anchor) const;
-  // The empty set, the labels of a point no label reaches.
-  mlir::ArrayAttr none() const { return empty; }
+  // The labels at the point `key`; the empty set where no label reaches.
+  mlir::ArrayAttr labelsOf(const PointKey &key) const;
+  // The key of `point`: the one place a point is read.
+  PointKey keyOf(const FlowPoint &point) const;
   std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const;
   FuncOp function(mlir::StringAttr label) const { return table.lookup<FuncOp>(label); }
 
@@ -131,15 +121,14 @@ private:
   friend class Graph;
   explicit Solution(const mlir::SymbolTable &table);
 
-  std::optional<Node> lookup(const FlowPoint &point) const;
-  std::optional<Node> lookup(const FlowAnchor &anchor) const;
+  // The node of `key`; none for a point no edge named, which holds the
+  // empty set.
+  std::optional<Node> lookup(const PointKey &key) const;
 
   const mlir::SymbolTable &table;
   mlir::ArrayAttr empty;
   // The points that have nodes.
-  llvm::DenseMap<mlir::Value, Node> values;
-  llvm::DenseMap<std::pair<mlir::StringAttr, unsigned>, Node> results;
-  llvm::DenseMap<FlowAnchor, Node> anchors;
+  llvm::DenseMap<PointKey, Node> nodes;
   // Each operand's one sink.
   llvm::DenseMap<mlir::OpOperand *, FlowPoint> sinks;
   // Each node's labels in name order, one uniqued attribute per set.
@@ -170,8 +159,7 @@ private:
 
   // Building.
   void add(mlir::Operation *op, const FlowEdges::Edge &edge);
-  Node nodeOf(const FlowPoint &point);
-  Node nodeOf(const FlowAnchor &anchor);
+  Node nodeOf(const PointKey &key);
   Node fresh();
   Node find(Node node);
   Label labelId(mlir::FlatSymbolRefAttr label);
@@ -227,13 +215,17 @@ public:
   // no label reaches. A point whose carrier carries no label holds the
   // empty set. Two equal sets are one attribute. A part of a value is its
   // anchor, the same for every value of its kind.
-  mlir::ArrayAttr labelsOf(mlir::Value value) const;
-  mlir::ArrayAttr labelsOf(const FlowPoint &point) const { return solution.labelsOf(point); }
+  mlir::ArrayAttr labelsOf(mlir::Value value) const { return solution.labelsOf(value); }
+  mlir::ArrayAttr labelsOf(const FlowPoint &point) const {
+    return solution.labelsOf(solution.keyOf(point));
+  }
   mlir::ArrayAttr labelsOf(const FlowAnchor &anchor) const { return solution.labelsOf(anchor); }
 
-  // The labels `op` runs: an idr.apply those of its callee, an idr.force
-  // those of its cell; the empty set for any other op.
-  mlir::ArrayAttr runs(mlir::Operation *op) const;
+  // The labels `runner` runs: those of the closure or suspension it
+  // carries (an idr.apply's callee, an idr.force's cell).
+  mlir::ArrayAttr runs(RunsLabelsOpInterface runner) const {
+    return labelsOf(runner.getLabelCarrier());
+  }
 
   // The one point `operand` moves its value into at its op, or nothing: an
   // operand of a carrier that carries no label, and the callee and the

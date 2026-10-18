@@ -7,7 +7,9 @@
 
 #include <stdint.h>
 
-// |x| = m * 2^e, truncated by shifting; then the sign, modulo 2^64.
+// A double truncated toward zero, modulo 2^64. It is finite: idr-lower
+// checks it first. |x| = m * 2^e, truncated by shifting; then the sign,
+// modulo 2^64.
 extern "C" int64_t idris_rt_to_int(double x) {
   using namespace rt::doubles;
   uint64_t bits = bitsOf(x);

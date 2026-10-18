@@ -31,6 +31,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <optional>
+#include <variant>
 
 using namespace mlir;
 
@@ -49,22 +50,25 @@ Value rebuildIn(OpBuilder &b, Location loc, Type to, Value value) {
   DataType source = dataTypeOf(from), target = dataTypeOf(to);
   if (!source || !target || !source.isClosures() || !target.isClosures())
     return nullptr;
+  // Every constructor of a closure sum is a label, by the body's rule.
+  auto fnOf = [](const Ctor &ctor) { return std::get<role::Label>(ctor.role).fn; };
   llvm::DenseMap<Attribute, Tag> tagOf;
   for (auto [tag, ctor] : llvm::zip_equal(target.getTags(), target.getCtors()))
-    tagOf.try_emplace(ctor.fn, tag);
+    tagOf.try_emplace(fnOf(ctor), tag);
   ArrayRef<Ctor> ctors = source.getCtors();
   SmallVector<Tag> tags;
   for (const Ctor &ctor : ctors) {
-    auto it = tagOf.find(ctor.fn);
+    auto it = tagOf.find(fnOf(ctor));
     if (it == tagOf.end() || target.getCtor(it->second).fields.size() != ctor.fields.size())
       return nullptr;
     tags.push_back(it->second);
   }
   OpBuilder::InsertionGuard guard(b);
+  // A case per constructor of the source, and no default.
   auto cases = llvm::to_vector(source.getTags());
-  auto made = MatchOp::create(b, loc, TypeRange{to}, value, ArrayRef<Tag>(cases),
-                              static_cast<unsigned>(ctors.size()));
-  for (auto [ctor, tag, region] : llvm::zip_equal(ctors, tags, made.getRegions())) {
+  auto made = MatchOp::create(b, loc, TypeRange{to}, value, ArrayRef<Tag>(cases));
+  for (auto [index, ctor, tag] : llvm::enumerate(ctors, tags)) {
+    Region &region = made.getCaseRegion(static_cast<unsigned>(index));
     SmallVector<Type> bound;
     for (Type field : ctor.fields)
       bound.push_back(fieldType(from, field));

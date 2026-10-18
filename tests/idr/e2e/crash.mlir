@@ -3,6 +3,7 @@
 // RUN: %status 1 %t > %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=OUT < %t.out
 // RUN: FileCheck %s --check-prefix=ERR < %t.err
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, and that the program's output is as before.
 // A crash writes pending output, then its message with the Idris location
 // to stderr, and exits with status 1; nothing after it runs.
 // OUT: before
@@ -15,7 +16,7 @@ idr.program @crash root(@Prog.main) stage(higher) {
       %s = idr.constant "zero" : !idr.str
       idr.yield %s : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "unhandled input for Main.pick" loc("Main.idr":7:1)
       ub.unreachable
     }

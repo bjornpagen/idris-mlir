@@ -1,24 +1,23 @@
-// RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@unread,not-called=@consume,calls-distinct=@Main.main:@sum,calls-read=@Main.main:@sum,calls=@Main.main:@spin,calls=@Main.main:@check -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-distinct=@Main.main:@spin -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-read=@Main.main:@spin -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-distinct=@Main.main:@check -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-read=@Main.main:@check -o /dev/null
+// NEEDS-ACCEPTANCE: that once idr-effects writes each call's effects (mlir-12), upstream canonicalize and cse alone erase the unread calls of pure callees, one that takes a linear value among them, and merge @sum's identical ones, keep every call of @spin and @check, and keep @fresh's two calls, each giving a fresh linear value, two; that the inner pipeline of idr-optimize, upstream's canonicalize and cse on calls whose effects it writes, does the same; that each call left is reported at its line (mlir-22); and that counting then releases the linear string the erased call took (S2's default argument, S21's show_sint).
+// RUN: idris-mlir-opt %s --idr-effects --canonicalize --cse -o %t.upstream.mlir
+// RUN: idris-mlir-opt %t.upstream.mlir --idr-expect=holds=not-called=@unread,not-called=@consume,calls-distinct=@Main.main:@sum,calls-read=@Main.main:@sum,calls=@Main.main:@spin,calls=@Main.main:@check,calls-read=@Main.main:@fresh -o /dev/null
+// RUN: idris-mlir-opt %s --idr-effects --canonicalize --cse --idr-expect=holds=calls-distinct=@Main.main:@spin,calls-read=@Main.main:@spin,calls-distinct=@Main.main:@check,calls-read=@Main.main:@check,calls-distinct=@Main.main:@fresh -verify-diagnostics -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@unread,not-called=@consume,calls-distinct=@Main.main:@sum,calls-read=@Main.main:@sum,calls=@Main.main:@spin,calls=@Main.main:@check,calls-read=@Main.main:@fresh -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-rc --idr-expect=holds=stage=owned -o /dev/null
-// RUN: idris-mlir-opt %s --idr-effects --canonicalize --idr-expect=holds=calls=@Main.main:@unread -o /dev/null
-// NEEDS-ACCEPTANCE: that idr-pure-calls erases the unread calls of pure callees, one that takes a linear value among them, and merges the identical ones, and keeps every other call; and that counting then releases the linear string the erased call took.
-// A call holds no effects, so canonicalize and CSE, which read the call
-// alone, keep every call: canonicalize alone, effects solved or not, has
-// no table, and keeps every call (the last RUN line). idr-pure-calls, the
-// step of idr-optimize's inner pipeline after canonicalize, reads the
-// callee's summary instead, once the callee is final: a call of a callee
-// that does nothing but compute goes when nothing reads its results, and
-// is the earlier call's results when an identical call dominates it. Every callee here stays a call: @sum and
-// @spin each on a cycle of its own, the rest marked never to inline.
-//   - @unread is pure and its one call unread: it goes, and so does @unread.
+// A call says what it may do by its own effects, as an llvm.call holds its
+// memory effects: idr-effects writes each call's with its callee's, and
+// idr-optimize writes them once the callee is final. Upstream canonicalize
+// and cse read the call alone, so they do for a call what they do for any
+// op: a call of a callee that does nothing but compute goes when nothing
+// reads its results, and is the earlier call's results when an identical
+// call dominates it. A call that gives a linear value says it makes a
+// fresh one, so two such calls stay two, and one nothing reads still goes.
+// Every callee here stays a call: @sum and @spin each on a cycle of their
+// own, the rest marked never to inline.
+//   - @unread is pure and its one call unread: it goes.
 //   - @sum is total and pure: of its two identical calls, the second is the
-//     first's results (idr-pure-calls's `merged`), and its third call,
-//     unread, goes (`erased`).
+//     first's results, and its third call, unread, goes.
 //   - @spin is @sum without Idris's proof that it ends: each call may
 //     diverge, and stays, the two identical ones and the unread ones.
 //   - @check may crash: both its calls stay, identical and unread.
@@ -26,6 +25,8 @@
 //     A linear value is used at most once on every path, and one unused is
 //     released, so the string the call took is released where the call
 //     was, as the owned verifier checks after idr-rc counts the program.
+//   - @fresh is pure and gives a linear string: its two identical calls,
+//     each read, stay two.
 idr.program @"pure-call" root(@Main.main) stage(first) {
   idr.func @unread(%n: i64) -> i64 attributes {total, no_inline} {
     %r = arith.muli %n, %n : i64
@@ -36,7 +37,7 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %a = arith.addi %acc, %n : i64
@@ -51,7 +52,7 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %a = arith.addi %acc, %n : i64
@@ -71,6 +72,11 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     %r = idr.str.length %s
     return %r : i64
   }
+  idr.func @fresh(%n: i64) -> !idr.lin<!idr.str> attributes {total, no_inline} {
+    %s = idr.str.show_sint %n : i64
+    %l = idr.lin.enter %s : !idr.lin<!idr.str>
+    return %l : !idr.lin<!idr.str>
+  }
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
@@ -79,14 +85,29 @@ idr.program @"pure-call" root(@Main.main) stage(first) {
     %a = idr.call @sum(%n, %z) : (i64, i64) -> i64
     %b = idr.call @sum(%n, %z) : (i64, i64) -> i64
     %d = idr.call @sum(%n, %n) : (i64, i64) -> i64
+    // expected-error @below {{calls @spin and reads nothing it gives}}
     %s1 = idr.call @spin(%n, %z) : (i64, i64) -> i64
+    // expected-error @below {{calls @spin again on what an earlier call took}}
+    // expected-error @below {{calls @spin and reads nothing it gives}}
     %s2 = idr.call @spin(%n, %z) : (i64, i64) -> i64
+    // expected-error @below {{calls @check and reads nothing it gives}}
     %k1 = idr.call @check(%n) : (i64) -> i64
+    // expected-error @below {{calls @check again on what an earlier call took}}
+    // expected-error @below {{calls @check and reads nothing it gives}}
     %k2 = idr.call @check(%n) : (i64) -> i64
-    %txt = idr.str.show signed %n : i64
+    %txt = idr.str.show_sint %n : i64
     %l = idr.lin.enter %txt : !idr.lin<!idr.str>
     %e = idr.call @consume(%l) : (!idr.lin<!idr.str>) -> i64
-    %t = arith.addi %a, %b : i64
+    %f1 = idr.call @fresh(%n) : (i64) -> !idr.lin<!idr.str>
+    // expected-error @below {{calls @fresh again on what an earlier call took}}
+    %f2 = idr.call @fresh(%n) : (i64) -> !idr.lin<!idr.str>
+    %u1 = idr.lin.use %f1 : !idr.lin<!idr.str>
+    %n1 = idr.str.length %u1
+    %u2 = idr.lin.use %f2 : !idr.lin<!idr.str>
+    %n2 = idr.str.length %u2
+    %t0 = arith.addi %a, %b : i64
+    %t1 = arith.addi %t0, %n1 : i64
+    %t = arith.addi %t1, %n2 : i64
     %w2 = idr.io.put_int signed %t, %w1 : i64
     return %w2 : !idr.world
   }

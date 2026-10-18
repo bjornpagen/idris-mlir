@@ -8,6 +8,8 @@ import Core.Normalise
 import Core.UnifyState
 import Core.Value
 
+import Idris.Syntax.Pragmas
+
 import public Data.List1
 import Data.SortedSet
 
@@ -461,6 +463,77 @@ mutual
     opts : List (FnOpt' nm)
     type : ImpTy' nm
 
+  -- For noting the pass we're in when desugaring a mutual block
+  -- TODO: Decide whether we want mutual blocks!
+  public export
+  data Pass = Single | AsType | AsDef
+
+  export
+  Eq Pass where
+    Single == Single = True
+    AsType == AsType = True
+    AsDef == AsDef = True
+    _ == _ = False
+
+  export
+  typePass : Pass -> Bool
+  typePass p = p == Single || p == AsType
+
+  export
+  defPass : Pass -> Bool
+  defPass p = p == Single || p == AsDef
+
+  -- What a pragma does: one constructor per action desugaring makes, holding
+  -- that action's arguments (its location is the IPragma's). The actions
+  -- need the session's cells, which this module is below and cannot all
+  -- name, so processPragma (TTImp.ProcessDecls) interprets each one with
+  -- the cells process holds.
+  public export
+  data Pragma : Type where
+       InterfacePragma : WithDefault Visibility Private ->
+                         (constraints : List (Maybe Name, RawImp)) ->
+                         Name ->
+                         (params : List (Name, (RigCount, RawImp))) ->
+                         (dets : Maybe (List1 Name)) ->
+                         (conName : Maybe (WithDocFC Name)) ->
+                         List ImpDecl -> Pragma
+       ImplementationPragma : Visibility -> List FnOpt -> Pass ->
+                              (implicits : List (WithFCRigName (PiBindData RawImp))) ->
+                              (constraints : List (Maybe Name, RawImp)) ->
+                              Name ->
+                              (ps : List RawImp) ->
+                              (namedimpl : Bool) ->
+                              (implName : Name) ->
+                              (nusing : List Name) ->
+                              Maybe (List ImpDecl) -> Pragma
+       -- The foreign calls, desugared
+       ForeignImplPragma : Name -> List RawImp -> Pragma
+       HideNamePragma : Name -> Pragma
+       HideFixityPragma : Fixity -> Name -> Pragma
+       UnhidePragma : Name -> Pragma
+       LazyPragma : Bool -> Pragma
+       UnboundImplicitsPragma : Bool -> Pragma
+       PrefixRecordProjectionsPragma : Bool -> Pragma
+       AmbigDepthPragma : Nat -> Pragma
+       AutoImplicitDepthPragma : Nat -> Pragma
+       NFMetavarThresholdPragma : Nat -> Pragma
+       SearchTimeoutPragma : Integer -> Pragma
+       PairNamesPragma : Name -> Name -> Name -> Pragma
+       RewriteNamePragma : Name -> Name -> Pragma
+       PrimIntegerPragma : Name -> Pragma
+       PrimStringPragma : Name -> Pragma
+       PrimCharPragma : Name -> Pragma
+       PrimDoublePragma : Name -> Pragma
+       PrimTTImpPragma : Name -> Pragma
+       PrimNamePragma : Name -> Pragma
+       PrimDeclsPragma : Name -> Pragma
+       CGActionPragma : String -> String -> Pragma
+       NamesPragma : Name -> List String -> Pragma
+       StartExprPragma : Pragma
+       OverloadablePragma : Name -> Pragma
+       ExtensionPragma : LangExt -> Pragma
+       DefaultTotalityPragma : TotalReq -> Pragma
+
   public export
   data ImpDecl' : Type -> Type where
        IClaim : WithFC (IClaimData nm) -> ImpDecl' nm
@@ -482,12 +555,11 @@ mutual
        IPragma : FC -> List Name -> -- pragmas might define names that wouldn't
                                     -- otherwise be spotted in 'definedInBlock' so they
                                     -- can be flagged here.
-                 -- The action is given the cell of delayed elaborators
-                 -- rather than capturing it: a delayed elaborator holds
-                 -- terms, whose local blocks hold pragmas, so a captured
-                 -- cell would reach itself (see DelayedElab).
-                 ({vars : _} -> Ref DLY DelayedElabs ->
-                  NestedNames vars -> Env Term vars -> Core ()) ->
+                 -- What the pragma does is data, never a closure: a cell
+                 -- holds terms, a term's local block holds declarations,
+                 -- and a declaration holding a closure over a cell would
+                 -- let the cell's type reach itself.
+                 Pragma ->
                  ImpDecl' nm
        ILog : Maybe (List String, Nat) -> ImpDecl' nm
        IBuiltin : FC -> BuiltinType -> Name -> ImpDecl' nm

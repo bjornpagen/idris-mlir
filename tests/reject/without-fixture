@@ -5,8 +5,6 @@
 # no source program reaches the refusal. `elsewhere`: another pool reaches
 # it. `owed`: a source program reaches it; its fixture is written when a
 # build shows one.
-io primitive	unreachable	no site raises it: no reject in compiler/src names it and no Rule::IOPrimitive is in foreign/idr; registry entries name it only in their rules lists (Registry/Primitives.idr:75, 92, 158, 175, 341, 348)
-identity hook	unreachable	no site raises it: registry entries name it only in their rules lists (Registry/Recognized.idr:32, 126, 162, 200)
 compiled module	unreachable	raised when the compiled module the frontend reads lacks a definition or a constructor it names (Translate/Closed.idr:1118, Translate/Keys.idr:791, Translate/Types.idr:663, Translate/Cases.idr:734, 769), which no module Idris checked lacks
 runtime	unreachable	raised by the driver when the runtime object it links lacks a member (foreign/idr/lib/Driver/ReadRuntime.cpp:166): the toolchain's object, not a program
 library	unreachable	never alone: user code reaches an untrusted package's definition only through an import of its module, refused as program at the import (Frontend/Program.idr:174-178); the definitions PrimIO does not admit are types no value of user code has (GCPtr, GCAnyPtr, ThreadID)
@@ -16,3 +14,4 @@ string primitive	unreachable	raised for a literal match on a constant that is no
 hook	elsewhere	raised when a registry entry does not match the library definition it names (Frontend/Profile.idr:329, Frontend/Program.idr:99, Translate/Terms.idr:419, 856, 860, Translate/Cases.idr:511); a program reaches it by shadowing a library module, as tests/registry/base-surface and tests/registry/broken-entry do
 static argument	owed	raised for a type parameter, shape or implementation no compile-time analysis fixes, or one partially applied (Translate/Instances.idr:164, 179, 191, Translate/Terms.idr:705, Translate/Cases.idr:676)
 match	owed	raised for a match on an erased value between several alternatives (Translate/Cases.idr:580); the literal match without a default (:485) cannot occur, as Idris never finds a match on literals complete
+elaboration	owed	raised for a program Idris itself rejects: the frontend reports each of Idris's errors as a refusal of this rule (the user-error category), whose message is Idris's own; tests/reject/idris-interface-body states three, and its header names the rule once a build shows them

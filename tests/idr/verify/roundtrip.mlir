@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the wave's spellings round-trip: constants type first (ir-ods-8), a default that binds the scrutinee (S2), one op per signedness (mlir-1: divs, modu, to_char_s, int_head_s/_u, str.show_sint/_uint/_double, str.to_sint/_uint, big.from_sint, io.put_sint).
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
 // RUN: idris-mlir-opt %s --mlir-print-op-generic | idris-mlir-opt | FileCheck %s
@@ -38,16 +39,16 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
                             %s: !Main.Shape,
                             %l: !idr.box<!List>)
       -> (i64, f64, i64, i64) attributes {total} {
-    // CHECK: constant #idr.con<!Shape, @Rect, [1.000000e+00, 2.000000e+00]> : !Shape
-    %c0 = idr.constant #idr.con<!Main.Shape, @Rect, [1.0 : f64, 2.0 : f64]> : !Main.Shape
-    // CHECK: constant #idr.con<!List, @"$58$$58$", [7, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
-    %c1 = idr.constant #idr.con<!List, @"$58$$58$", [7 : i64, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
-    // CHECK: constant #idr.closure<@inc, [1]> : !idr.fn<(i64) -> i64>
-    %c2 = idr.constant #idr.closure<@inc, [1 : i64]> : !idr.fn<(i64) -> (i64)>
-    // CHECK: constant #idr.big<-123456789012345678901234567890> : !idr.big
-    %c3 = idr.constant #idr.big<-123456789012345678901234567890> : !idr.big
-    // CHECK: constant "hello\0A" : !idr.str
-    %c5 = idr.constant "hello\n" : !idr.str
+    // CHECK: constant !Shape #idr.con<!Shape, @Rect, [1.000000e+00, 2.000000e+00]>
+    %c0 = idr.constant !Main.Shape #idr.con<!Main.Shape, @Rect, [1.0 : f64, 2.0 : f64]>
+    // CHECK: constant !idr.box<!List> #idr.con<!List, @"$58$$58$", [7, #idr.con<!List, @Nil, []>]>
+    %c1 = idr.constant !idr.box<!List> #idr.con<!List, @"$58$$58$", [7 : i64, #idr.con<!List, @Nil, []>]>
+    // CHECK: constant !idr.fn<(i64) -> i64> #idr.closure<@inc, [1]>
+    %c2 = idr.constant !idr.fn<(i64) -> (i64)> #idr.closure<@inc, [1 : i64]>
+    // CHECK: constant !idr.big #idr.big<-123456789012345678901234567890>
+    %c3 = idr.constant !idr.big #idr.big<-123456789012345678901234567890>
+    // CHECK: constant !idr.str "hello\0A"
+    %c5 = idr.constant !idr.str "hello\n"
     // CHECK: con !Shape @Circle(%{{.*}} : f64)
     %v0 = idr.con !Main.Shape @Circle(%d : f64)
     // CHECK: con !idr.box<!List> @"$58$$58$"(%{{.*}} : i64, %{{.*}} : !idr.box<!List>)
@@ -75,7 +76,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     // CHECK-NEXT: }
     // CHECK-NEXT: case @Rect(%[[W:.*]]: f64, %[[H:.*]]: f64) {
     // CHECK-NEXT: arith.mulf %[[W]], %[[H]] : f64
-    // CHECK: default {
+    // CHECK: default(%{{[^:]*}}: !Shape) {
     // CHECK-NEXT: crash "unhandled input for Main.f"
     // CHECK-NEXT: ub.unreachable
     // CHECK-NEXT: }
@@ -88,7 +89,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
       %a = arith.mulf %x, %y : f64
       idr.yield %a, %w : f64, !idr.world
     }
-    default {
+    default(%d: !Main.Shape) {
       idr.crash "unhandled input for Main.f"
       ub.unreachable
     }
@@ -111,7 +112,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     // CHECK: match_lit %{{.*}} : i64 -> (i64) {
     // CHECK-NEXT: case 0 {
     // CHECK: case -9223372036854775808 {
-    // CHECK: default {
+    // CHECK: default(%{{[^:]*}}: i64) {
     %i = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %n : i64
@@ -119,7 +120,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     case -9223372036854775808 {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i64) {
       idr.yield %n : i64
     }
     }
@@ -130,7 +131,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     case 955 {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i32) {
       idr.yield %n : i64
     }
     }
@@ -140,7 +141,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     case true {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i1) {
       idr.yield %n : i64
     }
     }
@@ -154,7 +155,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     case "a\nb" {
       idr.yield %n : i64
     }
-    default {
+    default(%d: !idr.str) {
       idr.yield %n : i64
     }
     }
@@ -164,7 +165,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     case #idr.big<0> {
       idr.yield %n : i64
     }
-    default {
+    default(%d: !idr.big) {
       idr.yield %n : i64
     }
     }
@@ -185,20 +186,20 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
   // CHECK-LABEL: idr.func @scalars
   idr.func @scalars(%x: i64, %y: i8,
                              %d: f64) {
-    // CHECK: div signed %{{.*}}, %{{.*}} : i64
-    %a = idr.div signed %x, %x : i64
-    // CHECK: mod %{{.*}}, %{{.*}} : i8
-    %b = idr.mod unsigned %y, %y : i8
-    // CHECK: to_char signed %{{.*}} : i64
-    %c = idr.to_char signed %x : i64
+    // CHECK: divs %{{.*}}, %{{.*}} : i64
+    %a = idr.divs %x, %x : i64
+    // CHECK: modu %{{.*}}, %{{.*}} : i8
+    %b = idr.modu %y, %y : i8
+    // CHECK: to_char_s %{{.*}} : i64
+    %c = idr.to_char_s %x : i64
     // CHECK: to_int %{{.*}} : i32
     %e = idr.to_int %d : i32
     // CHECK: double_head %{{.*}}
     %f = idr.double_head %d
-    // CHECK: int_head signed %{{.*}} : i64
-    %g = idr.int_head signed %x : i64
-    // CHECK: int_head %{{.*}} : i8
-    %h = idr.int_head %y : i8
+    // CHECK: int_head_s %{{.*}} : i64
+    %g = idr.int_head_s %x : i64
+    // CHECK: int_head_u %{{.*}} : i8
+    %h = idr.int_head_u %y : i8
     // CHECK: may_loop
     idr.may_loop
     return
@@ -214,12 +215,12 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     %b = idr.str.cons %c, %s
     // CHECK: idr.str.from_char %{{.*}}
     %e = idr.str.from_char %c
-    // CHECK: idr.str.show signed %{{.*}} : i64
-    %f = idr.str.show signed %x : i64
-    // CHECK: idr.str.show %{{.*}} : i8
-    %g = idr.str.show unsigned %y : i8
-    // CHECK: idr.str.show %{{.*}} : f64
-    %h = idr.str.show %d : f64
+    // CHECK: idr.str.show_sint %{{.*}} : i64
+    %f = idr.str.show_sint %x : i64
+    // CHECK: idr.str.show_uint %{{.*}} : i8
+    %g = idr.str.show_uint %y : i8
+    // CHECK: idr.str.show_double %{{.*}} : f64
+    %h = idr.str.show_double %d : f64
     // CHECK: idr.str.length %{{.*}}
     %i = idr.str.length %s
     // CHECK: idr.str.index %{{.*}}, %{{.*}}
@@ -242,10 +243,10 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     %r = idr.str.cmp gt %s, %s
     // CHECK: idr.str.cmp gte
     %t = idr.str.cmp gte %s, %s
-    // CHECK: idr.str.to_int signed %{{.*}} : i64
-    %u = idr.str.to_int signed %s : i64
-    // CHECK: idr.str.to_int %{{.*}} : i8
-    %v = idr.str.to_int unsigned %s : i8
+    // CHECK: idr.str.to_sint %{{.*}} : i64
+    %u = idr.str.to_sint %s : i64
+    // CHECK: idr.str.to_uint %{{.*}} : i8
+    %v = idr.str.to_uint %s : i8
     // CHECK: idr.str.to_double %{{.*}}
     %w = idr.str.to_double %s
     return
@@ -278,8 +279,8 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     %s1 = idr.big.shr %a, %a
     // CHECK: idr.big.cmp gte %{{.*}}, %{{.*}}
     %9 = idr.big.cmp gte %a, %a
-    // CHECK: idr.big.from_int signed %{{.*}} : i64
-    %10 = idr.big.from_int signed %x : i64
+    // CHECK: idr.big.from_sint %{{.*}} : i64
+    %10 = idr.big.from_sint %x : i64
     // CHECK: idr.big.to_int %{{.*}} : i32
     %11 = idr.big.to_int %a : i32
     // CHECK: idr.big.from_double %{{.*}}
@@ -297,8 +298,8 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
   // and give Integers only.
   // CHECK-LABEL: idr.func @naturals
   idr.func @naturals(%n: !idr.nat, %a: !idr.big) {
-    // CHECK: constant #idr.big<3> : !idr.nat
-    %three = idr.constant #idr.big<3> : !idr.nat
+    // CHECK: constant !idr.nat #idr.big<3>
+    %three = idr.constant !idr.nat #idr.big<3>
     // CHECK: idr.big.add %{{.*}}, %{{.*}} : !idr.nat
     %0 = idr.big.add %n, %three : !idr.nat
     // CHECK: idr.big.mul %{{.*}}, %{{.*}} : !idr.nat
@@ -333,7 +334,7 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
 
   // CHECK-LABEL: idr.func @Main.main
   idr.func @Main.main(%w0: !idr.world) -> !idr.world attributes {total} {
-    %s = idr.constant "hi" : !idr.str
+    %s = idr.constant !idr.str "hi"
     %c = arith.constant 65 : i32
     %n = arith.constant -1 : i64
     %d = arith.constant 1.5 : f64
@@ -341,8 +342,8 @@ idr.program @roundtrip root(@Main.main) stage(higher) {
     %w1 = idr.io.put_str %s, %w0
     // CHECK: idr.io.put_char %{{.*}}, %{{.*}}
     %w2 = idr.io.put_char %c, %w1
-    // CHECK: idr.io.put_int signed %{{.*}}, %{{.*}} : i64
-    %w3 = idr.io.put_int signed %n, %w2 : i64
+    // CHECK: idr.io.put_sint %{{.*}}, %{{.*}} : i64
+    %w3 = idr.io.put_sint %n, %w2 : i64
     // CHECK: idr.io.put_double %{{.*}}, %{{.*}}
     %w4 = idr.io.put_double %d, %w3
     // CHECK: %{{.*}}, %{{.*}} = idr.io.get_byte %{{.*}}

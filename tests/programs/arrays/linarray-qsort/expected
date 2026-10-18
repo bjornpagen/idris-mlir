@@ -1,4 +1,4 @@
-NEEDS-ACCEPTANCE: that the port to the size-indexed vector, positions checked against the size where they are used, prints the same and keeps its loops count-free, allocation-free and in place
+NEEDS-ACCEPTANCE: that the port to the size-indexed vector, positions checked against the size where they are used, prints the same and keeps its loops count-free, allocation-free and in place; and that the fixture, now built from bench/qsort's Main.idr and packages, holds the same
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

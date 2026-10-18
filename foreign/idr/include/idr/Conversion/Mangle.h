@@ -16,7 +16,10 @@ namespace idr::conversion {
 // a code point in [A-Za-z0-9_.] is itself, and every other code point of the
 // UTF-8 name, `$` included, is `$`, its decimal value, `$`. Injective, so two
 // symbols stay two, and the identity on a C identifier, so a runtime name is
-// its own mangling.
+// its own mangling. Every `$` of a mangling is one of an escape's two, so
+// the first is followed by a digit; the compiler's own names
+// (idr::reservedName) have a letter after their first `$`, so no mangling
+// is one of them.
 std::string mangle(llvm::StringRef name);
 
 } // namespace idr::conversion

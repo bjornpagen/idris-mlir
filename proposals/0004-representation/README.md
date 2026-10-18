@@ -17,7 +17,10 @@ root cause, one correction, deletion, discriminator, write set and risk:
 [findings/](findings/). This packet selects one representation per root
 cause, merges the 21 findings that share one, fixes every seam two lanes
 share (§4), and gives each finding one owning lane (§3, `ownership.json`).
-Twenty-four lanes start together on disjoint files (§6).
+Twenty-four lanes started together on disjoint files (§6); three more,
+added on 2026-10-18 (L25, legacy tests and benchmarks; L26, the fork's
+`SyntaxInfo` knot; L27, `tools/self.sh`), start with L23 at their own
+dispatch.
 
 ## 0. Engagement
 
@@ -247,6 +250,16 @@ primary's correction and owner. The owner column equals `ownership.json`.
 | ir-verify-17 | case-of-case's profit rule is a ladder over consumer kinds that restates each consumer's canonicalization | L01 |  |
 | ir-verify-18 | the owned walk's view of a value is three overlapping predicates over three maps | L15 |  |
 | ir-verify-19 | knot reporting keeps three parallel lists matched by position | L15 |  |
+| legacy-1 | `bench/ackdyn` is an ablation twin of `bench/ack` that no suite needs | L25 |  |
+| legacy-2 | nine benchmark programs are held twice, as `bench/<name>/Main.idr` and as a fixture's copy, three of them drifted apart | L25 |  |
+| legacy-3 | `io/system-info` keeps a per-target table for seven systems on a tree with two targets | L25 |  |
+| legacy-4 | bench/'s script and documents describe what is gone | L25 |  |
+| legacy-5 | two tools live in tests/ and look like tests | L25 |  |
+| legacy-6 | tests/README.md's layout omits what the tree holds | L25 |  |
+| legacy-7 | tests/fuzz/two-hosts takes its expected output from the stock host at run time | L23 |  |
+| legacy-8 | the 72 semantics chunk directories, as the survey measured them | L23 | idris-frontend-9 |
+| legacy-9 | test helpers kept for features that are gone | L23 |  |
+| legacy-10 | the libm symbol list is held five times | L23 |  |
 | lists-1 | lists used for position, key, appends or membership in Core and Emit | L20 |  |
 | lists-2 | lists used for position, key, appends or membership in frontend translation | L21 |  |
 | lists-3 | lists used for position, key, appends or membership in frontend state and the checker | L22 |  |
@@ -274,6 +287,8 @@ primary's correction and owner. The owner column equals `ownership.json`.
 | mlir-21 | Exclusivity's `Entry` analysis repeats upstream's rule for public callables | L10 |  |
 | mlir-22 | failing properties and the one remark-emitting pass are checked by FileCheck on stderr, where `-verify-diagnostics` checks place and count | L14 |  |
 | mlir-23 | `facts-as-marked` is `expected-remark` written as a discardable attribute on the op under test | L14 |  |
+| selfhost-1 | `SyntaxInfo` reaches its own cell through a pragma's closure | L26 |  |
+| selfhost-2 | `tools/self.sh` reuses stage 1's TTCs, runs the frontend and the pipeline as one, and bounds neither | L27 |  |
 | transforms-a-1 | idr-expect's properties take their argument as text, and each property parses it itself | L14 |  |
 | transforms-a-2 | The two match ops share no interface, so 25 sites ask `isa<MatchOp, MatchLitOp>` (crosses into IR) | L01 | ir-ods-1 |
 | transforms-a-3 | A binding time has five cases, and specialization reads one bit (crosses into analysis) | L09 | analysis-1 |
@@ -1259,7 +1274,11 @@ L24.
 ## 6. Lanes (all start at dispatch)
 
 Every lane starts at dispatch; the contracts each consumes are fixed in §4,
-so none waits on another. The table is generated from `ownership.json`.
+so none waits on another. L25, L26 and L27 were added on 2026-10-18, after
+L01 to L22 were dispatched; they and L23 start together at their own
+dispatch, against base 1e5a8a8e, and the seams L23 and L25 share (P, Y, T,
+B) are fixed in both lanes' bodies. The table is generated from
+`ownership.json`.
 
 <!-- lanes-table -->
 | Lane | Outcome | Exclusive writes | Findings |
@@ -1286,18 +1305,23 @@ so none waits on another. The table is generated from `ownership.json`.
 | L20 | Idris Core and Emit: Core keeps what the frontend knew | `compiler/src/IdrisMLIR/Emit/**`, `compiler/src/IdrisMLIR/Emit.idr`, `compiler/src/IdrisMLIR/Term.idr`, `compiler/src/IdrisMLIR/Types.idr`, `compiler/src/IdrisMLIR/MLIR/**`, `compiler/src/IdrisMLIR/MLIR.idr`, `compiler/src/IdrisMLIR/Loc.idr`, `compiler/src/IdrisMLIR/Ids.idr`, `compiler/src/IdrisMLIR/Registry/**`, `compiler/src/IdrisMLIR/Registry.idr`, `compiler/src/IdrisMLIR/Facts.idr`, `compiler/src/IdrisMLIR/SyntaxSamples.idr`, `tests/compiler/**` | idris-emit-1, idris-emit-2, idris-emit-3, idris-emit-4, idris-emit-5, idris-emit-6, idris-emit-7, idris-emit-10, idris-emit-11, idris-emit-12, idris-emit-13, idris-emit-14, idris-emit-16, idris-emit-17, idris-emit-18, idris-emit-19, idris-frontend-13, idris-emit-8, idris-frontend-18, lists-1, mlir-7 |
 | L21 | Frontend translation: shapes, primitives, refusals and terms by their types | `compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Errors.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Forced.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Given.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Primitives.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Shapes.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr`, `compiler/src/IdrisMLIR/Frontend/Resolve.idr`, `compiler/src/IdrisMLIR/Frontend/Translate.idr`, `compiler/idris/src/Idris/Host.idr` | idris-frontend-1, idris-frontend-2, idris-frontend-3, idris-frontend-14, lists-2 |
 | L22 | Frontend state and checker: one place per definition, quantities by one view | `compiler/src/IdrisMLIR/Frontend/Growth/**`, `compiler/src/IdrisMLIR/Frontend/Growth.idr`, `compiler/src/IdrisMLIR/Frontend/Finite.idr`, `compiler/src/IdrisMLIR/Frontend/Program.idr`, `compiler/src/IdrisMLIR/Frontend/Profile.idr`, `compiler/src/IdrisMLIR/Frontend/Driver.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Closed.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Keys.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Recursion.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/State.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Types.idr`, `compiler/src/IdrisMLIR/Proof/**`, `compiler/src/IdrisMLIR/Frontend/Walk.idr`, `compiler/src/IdrisMLIR/Frontend/Translate/Dictionaries.idr` | idris-frontend-5, idris-frontend-6, idris-frontend-12, lists-3, idris-frontend-11, cleanup-1 |
-| L23 | Idris libraries and test machinery: typed primitives, identities by name, one source of tests | `tests/Fuzz.idr`, `tests/Gen.idr`, `tests/Lock.idr`, `tests/Main.idr`, `tests/Prims.idr`, `tests/Runner.idr`, `tests/Sem.idr`, `tests/TwoLevels.idr`, `tests/lib/**`, `tests/runner/**`, `libs/**`, `tests/two-levels/**` | idris-frontend-4, idris-frontend-7, idris-frontend-8, idris-frontend-9, idris-frontend-10, idris-frontend-15, idris-frontend-16, idris-frontend-17, lists-4 |
+| L23 | Idris libraries and test machinery: typed primitives, identities by name, one source of tests | `tests/Fuzz.idr`, `tests/Gen.idr`, `tests/Lock.idr`, `tests/Main.idr`, `tests/Prims.idr`, `tests/Runner.idr`, `tests/Sem.idr`, `tests/TwoLevels.idr`, `tests/lib/**`, `tests/runner/**`, `libs/**`, `tests/two-levels/**`, `tests/fuzz/**` | idris-frontend-4, idris-frontend-7, idris-frontend-8, idris-frontend-9, idris-frontend-10, idris-frontend-15, idris-frontend-16, idris-frontend-17, lists-4, legacy-7, legacy-8, legacy-9, legacy-10 |
 | L24 | Array, closure, IO and platform ops: one yield rule, linear captures, the world's operands | `foreign/idr/include/idr/IR/IdrArrayOps.td`, `foreign/idr/include/idr/IR/IdrClosureOps.td`, `foreign/idr/include/idr/IR/IdrIOOps.td`, `foreign/idr/include/idr/IR/IdrPlatformOps.td`, `foreign/idr/include/idr/IR/Arrays.h`, `foreign/idr/lib/IR/OpsArrays.cpp`, `foreign/idr/lib/IR/OpsClosures.cpp`, `foreign/idr/lib/IR/OpsGenerating.cpp`, `foreign/idr/lib/IR/OpsPlatform.cpp`, `foreign/idr/lib/IR/OpsTabulate.cpp`, `tests/idr/tie-shape/**`, `foreign/idr/lib/IR/OpsFolds.cpp`, `tests/idr/arrays/**` | ir-ops-2, transforms-b-13 |
+| L25 | Legacy tests and benchmarks: one program per benchmark, one fixture per table, tools out of tests/ | `bench/**`, `tests/bench/**`, `tests/programs/**`, `tests/README.md`, `tests/upstream-idris/**`, `tests/compile-times.sh`, `tools/upstream-idris/**`, `tools/compile-times.sh`, `tests/determinism/rbtree/**`, `tests/determinism/threads-rbtree/**` | legacy-1, legacy-2, legacy-3, legacy-4, legacy-5, legacy-6 |
+| L26 | The fork's SyntaxInfo knot: a pragma is first-order data the processor interprets | `compiler/idris/src/TTImp/TTImp.idr`, `compiler/idris/src/TTImp/ProcessDecls.idr`, `compiler/idris/src/Idris/Desugar.idr`, `compiler/idris/src/Idris/Syntax.idr`, `compiler/idris/README.md` | selfhost-1 |
+| L27 | tools/self.sh: a stage is the frontend, then the pipeline on its kept module | `tools/self.sh` | selfhost-2 |
 <!-- /lanes-table -->
 
-The coordinator owns the hubs (CMake, ipkg, `Makefile`, `tools/**`,
-`PINS.md`, `upstream/**`, `tests/spec/**`, `tests/upstream/**`,
-`tests/ACCEPTANCE.md`), the generated Idris modules, `proposals/**`,
-`HANDOFF.md` and `bench/**`, `IdrDialect.h` and `IdrBytecode.td` (S28: each
-lane's hunk comes in its handoff), and integration (§8). Not owned by any
-lane, and so the coordinator's if a lane's change reaches them:
-`tests/programs/**`, `tests/accept/**`, `tests/reject/**`, `tests/fuzz/**`,
-`tests/toolchain/**` other than L19's directories above, `tests/bench/**`.
+The coordinator owns the hubs (CMake, ipkg, `Makefile`, `tools/**` less
+L27's `tools/self.sh` and the two tools L25 moves there, `PINS.md`,
+`upstream/**`, `tests/spec/**`, `tests/upstream/**`, `tests/ACCEPTANCE.md`),
+the generated Idris modules, `proposals/**`, `HANDOFF.md`, `IdrDialect.h`
+and `IdrBytecode.td` (S28: each lane's hunk comes in its handoff), and
+integration (§8). Since 2026-10-18, `bench/**`, `tests/bench/**` and
+`tests/programs/**` are L25's and `tests/fuzz/**` is L23's. Not owned by
+any lane, and so the coordinator's if a lane's change reaches them:
+`tests/accept/**`, `tests/reject/**`, `tests/toolchain/**` other than
+L19's directories above, `tests/determinism/**` other than L25's two.
 
 ## 7. Latent bugs (each a lane obligation with a discriminator)
 
@@ -1404,11 +1428,32 @@ dispatch.
 | A6 | 2026-10-17 | mlir-5 adopted: `idr.take` splits into one op per meaning over the three operand kinds mlir-5 names, each with its own declared effects | S4 |
 | A7 | 2026-10-17 | S25's transport: the frontend writes each refusal as a typed attribute in its module (`#idr.refusal<rule, loc, message>`, L17 declares it); the driver re-emits each through `idr::refuse(loc, rule)`, so the existing `foldDiagnostics` alone decides the verdict and writes the report; no text lines are parsed | S25 |
 | A8 | 2026-10-17 | The owner's direction: "hard cutover. don't be afraid to churn massive portions of the codebase to be representation first to map well onto mlir", and "push the heavy lifting to mlir, and push harder on our types" | the whole packet |
+| A9 | 2026-10-18 | `tests/spec/time-trace` is deleted; the coordinator deletes it, and `.gitignore:8`, itself | coordinator |
+| A10 | 2026-10-18 | The 72 generated `programs/semantics/prim-*` directories fold into one fixture driven by `Sem.idr`'s list | legacy-8, idris-frontend-9, seam P (L23, L25) |
+| A11 | 2026-10-18 | `tests/fuzz/two-hosts` becomes seeded programs with committed expected output derived from each program's meaning, never a run-time comparison against Chez | legacy-7 (L23) |
+| A12 | 2026-10-18 | The test runner's dependency on `contrib` and `test` (`tests/tests.ipkg`) is an open item after this wave, in no lane | none |
 
 **0002's D13 is reversed.** D13 ("calls hold no effects": a call's effects
 kept only on its callee, transforms-b's kept list) was recorded in 0002 as a
 decision; it was never the owner's ruling. Ruling A5 replaces it: a call
 holds its own effects, verified to contain its callee's.
+
+**Decided by the coordinator on 2026-10-18 for L23 and L25 to L27, not yet
+reviewed by the owner** (the defaults the rulings A9 to A12 left, and how
+the drafter carried out 0003's decided D3 and D6):
+
+| ID | Decision | Where |
+|---|---|---|
+| E1 | `bench/ackdyn` is deleted everywhere; the kept record keeps its rows, as measured | legacy-1 |
+| E2 | The six benchmark programs copied as fixtures build from `bench/<name>/Main.idr`, one program per benchmark; the three drifted linear ones settle on `Linear.Vec`, the form `bench/README.md` states | legacy-2 |
+| E3 | `io/system-info` loses its BSD and Windows arms: two arms over `tools/host.sh`'s host names, its count `ncpu_total` | legacy-3 |
+| E4 | The stale documents are cut to the tree (`bench/README.md`, `bench/profiles/README.md`, `bench/run.sh`'s citation, `bench/lib` copy and `rejected` mark, `tests/README.md`'s layout) | legacy-4, legacy-6 |
+| E5 | `tests/upstream-idris/` and `tests/compile-times.sh` move to `tools/` | legacy-5 |
+| E6 | `tests/registry/registry-only` and `tests/idr/stack/hot-loop` stay where they are | none |
+| E7 | The libm list is one list, `libm_symbols` in `tests/lib/heap.sh`, allowed to every test; the pools' `symbols` files go (their other four names are the runtime's imports) | legacy-10 |
+| E8 | A11 is carried out as one fixture whose program prints `Fuzz.twoHosts` (Gen's checks and the generators' output for fixed seeded requests), its `expected-stdout` committed after a review of each section against its definition; the fixture runs no stock host | legacy-7 |
+| E9 | D3 is carried out as `Pragma`, first-order data in `TTImp.TTImp`, interpreted by `processPragma`, declared in `TTImp.ProcessDecls` and defined in `Idris.Desugar` (the mechanism `TTImp.Elab.Check.processDecl` already uses); `Pass` moves to `TTImp.TTImp` | selfhost-1 |
+| E10 | `tools/self.sh`'s limits: the frontend half 1800 s (about five times the measured 345 s; debt for the native stages), the pipeline half 7200 s (debt: never measured) | selfhost-2 |
 
 **Still the owner's to decide:**
 

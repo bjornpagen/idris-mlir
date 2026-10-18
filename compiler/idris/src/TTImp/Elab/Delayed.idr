@@ -50,11 +50,32 @@ deeper elab
          put EST ({ delayDepth := d } est)
          pure res
 
+-- Run an elaborator with the holes it must not solve set to the given ones,
+-- and the unification state's own restored after. It is a function of its
+-- own, not code in the closure delayOnFailure and delayElab store: a record
+-- update is a local definition, applied to everything its parent binds,
+-- and there that is the cell of delayed elaborators the closure is stored
+-- in.
+withNoSolve : {auto u : Ref UST UState} ->
+              IntMap () -> Core a -> Core a
+withNoSolve nos elab
+    = do ust <- get UST
+         let nos' = noSolve ust
+         put UST ({ noSolve := nos } ust)
+         res <- elab
+         ust <- get UST
+         put UST ({ noSolve := nos' } ust)
+         pure res
+
 -- Try the given elaborator; if it fails, and the error matches the
 -- predicate, make a hole and try it again later when more holes might
 -- have been resolved.
--- The elaborator is given the cell of delayed elaborators, the first time
--- and when it is retried, rather than capturing it (see DelayedElab).
+-- The elaborator is given the cell of delayed elaborators and the expected
+-- type, rather than capturing either (see DelayedElab): the first time the
+-- type as the caller has it, and when it is retried the type's term
+-- evaluated again, since we might know more by then. A glued type holds
+-- the computations that make its term and its normal form, and the closure
+-- the retry is stored as holds no computation, only the term.
 export
 delayOnFailure : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
@@ -63,22 +84,22 @@ delayOnFailure : {vars : _} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
                  FC -> RigCount -> Env Term vars ->
-                 (expected : Maybe (Glued vars)) ->
+                 (expected : Glued vars) ->
                  (Error -> Bool) ->
                  (pri : DelayReason) ->
-                 (Ref DLY DelayedElabs -> Bool -> Core (Term vars, Glued vars)) ->
+                 (Ref DLY DelayedElabs -> Bool -> Glued vars -> Core (Term vars, Glued vars)) ->
                  Core (Term vars, Glued vars)
-delayOnFailure fc rig env exp pred pri elab
+delayOnFailure fc rig env expected pred pri elab
     = do ust <- get UST
          let nos = noSolve ust -- remember the holes we shouldn't solve
-         handle (elab dl False)
+         handle (elab dl False expected)
           (\err =>
               do est <- get EST
-                 expected <- mkExpected exp
                  if pred err
                     then
                       do nm <- genName "delayed"
-                         (ci, dtm) <- newDelayed fc linear env nm !(getTerm expected)
+                         ty <- getTerm expected
+                         (ci, dtm) <- newDelayed fc linear env nm ty
                          logGlueNF "elab.delay" 5 ("Postponing elaborator " ++ show nm ++
                                       " at " ++ show fc ++
                                       " for") env expected
@@ -88,25 +109,13 @@ delayOnFailure fc rig env exp pred pri elab
                                  ((pri, ci, localHints defs,
                                    MkDelayedElab $ \dl =>
                                    mkClosedElab fc env
-                                      (deeper
-                                        (do ust <- get UST
-                                            let nos' = noSolve ust
-                                            put UST ({ noSolve := nos } ust)
-                                            res <- elab dl True
-                                            ust <- get UST
-                                            put UST ({ noSolve := nos' } ust)
-                                            pure res))) :: )
+                                      (deeper (withNoSolve nos (elab dl True (gnf env ty))))) :: )
                          pure (dtm, expected)
                     else throw err)
-  where
-    mkExpected : Maybe (Glued vars) -> Core (Glued vars)
-    mkExpected (Just ty) = pure ty
-    mkExpected Nothing
-        = do nm <- genName "delayTy"
-             u <- uniVar fc
-             ty <- metaVar fc erased env nm (TType fc u)
-             pure (gnf env ty)
 
+-- Make a hole and elaborate it later. The elaborator is given the cell of
+-- delayed elaborators and the expected type, if there is one, as
+-- delayOnFailure's retry is.
 export
 delayElab : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
@@ -117,28 +126,24 @@ delayElab : {vars : _} ->
             FC -> RigCount -> Env Term vars ->
             (expected : Maybe (Glued vars)) ->
             (pri : DelayReason) ->
-            (Ref DLY DelayedElabs -> Core (Term vars, Glued vars)) ->
+            (Ref DLY DelayedElabs -> Maybe (Glued vars) -> Core (Term vars, Glued vars)) ->
             Core (Term vars, Glued vars)
 delayElab {vars} fc rig env exp pri elab
     = do ust <- get UST
          let nos = noSolve ust -- remember the holes we shouldn't solve
          nm <- genName "delayed"
          expected <- mkExpected exp
-         (ci, dtm) <- newDelayed fc linear env nm !(getTerm expected)
+         ty <- getTerm expected
+         (ci, dtm) <- newDelayed fc linear env nm ty
          logGlueNF "elab.delay" 5 ("Postponing elaborator " ++ show nm ++
                       " for") env expected
+         let given = map (const ty) exp
          defs <- get Ctxt
          update DLY
                  ((pri, ci, localHints defs,
                    MkDelayedElab $ \dl =>
                                  mkClosedElab fc env
-                                              (do ust <- get UST
-                                                  let nos' = noSolve ust
-                                                  put UST ({ noSolve := nos } ust)
-                                                  res <- elab dl
-                                                  ust <- get UST
-                                                  put UST ({ noSolve := nos' } ust)
-                                                  pure res)) :: )
+                                   (withNoSolve nos (elab dl (map (gnf env) given)))) :: )
          pure (dtm, expected)
   where
     mkExpected : Maybe (Glued vars) -> Core (Glued vars)

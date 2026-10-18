@@ -91,9 +91,9 @@ bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
 // The first natural argument of `loop` that only descends and that the
 // analysis does not already prove small, or none.
 std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts) {
-  // Once counting ran, a slot that carries a borrowed value passes it out of
-  // the loop borrowed, which a branch between two copies of the loop would
-  // have to take owned: such a loop stays one loop.
+  // A slot that carries a borrowed value passes it out of the loop
+  // borrowed, which a branch between two copies of the loop would have to
+  // take owned: such a loop stays one loop.
   if (llvm::any_of(loop.getInits(), [&](Value init) { return facts.borrowed(init); }))
     return std::nullopt;
   Block &before = loop.getBefore().front();

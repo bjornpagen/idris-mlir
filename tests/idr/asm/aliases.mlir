@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that the aliases hold with each constant written with its type first, and that the signatures, the field read and the borrowed Nil constant are checked at the grades the printer writes, each data type by its alias inside the grade.
 // RUN: idris-mlir-opt %s | FileCheck %s --implicit-check-not='!idr.data<@' --implicit-check-not='!idr.box<@'
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s --implicit-check-not='!idr.data<@' --implicit-check-not='!idr.box<@'
 // NEEDS-ACCEPTANCE: the aliases the printer gives data types, and where it prints them.
@@ -20,16 +21,16 @@
 // CHECK-DAG: !Tree = !idr.data<"Tree", plain [@Leaf(), @Node(!idr.box<!idr.data<"Tree">>, !idr.box<!idr.data<"Tree">>)]>
 // CHECK-DAG: #idr_value = #idr.con<!Tree, @Node, [#idr.con<!Tree, @Node,
 // CHECK-LABEL: idr.func @owned(
-// CHECK-SAME: : !idr.own<!idr.box<!List_Nat>>) -> !idr.box<!List_Nat>
+// CHECK-SAME: : !idr.own<!idr.box<!List_Nat>>) -> !idr.q<many, borrow, !idr.box<!List_Nat>>
 // CHECK-LABEL: idr.func @len(
-// CHECK-SAME: %{{.*}}: !idr.box<!List_Nat>, %{{.*}}: !Maybe_Nat, %{{.*}}: !idr.box<!Shape>) -> !idr.box<!List_Nat>
-// CHECK: constant #idr.con<!List_Nat, @Nil, []> : !idr.box<!List_Nat>
-// CHECK: field %{{.*}} : !idr.box<!Shape> @Circle[0] -> f64
+// CHECK-SAME: %{{[^:]*}}: !idr.q<many, borrow, !idr.box<!List_Nat>>, %{{[^:]*}}: !idr.q<many, borrow, !Maybe_Nat>, %{{[^:]*}}: !idr.q<many, borrow, !idr.box<!Shape>>) -> !idr.q<many, borrow, !idr.box<!List_Nat>>
+// CHECK: constant !idr.q<many, borrow, !idr.box<!List_Nat>> #idr.con<!List_Nat, @Nil, []>
+// CHECK: field %{{[^ ]*}} : !idr.q<many, borrow, !idr.box<!Shape>> @Circle[0] -> f64
 // CHECK-LABEL: idr.func @pairs(
 // CHECK-SAME: %{{.*}}: ![[A]], %{{.*}}: ![[B]])
 // CHECK-LABEL: idr.func @trees(
-// CHECK: constant #idr_value : !idr.box<!Tree>
-// CHECK: constant #idr.con<!Tree, @Node, [#idr.con<!Tree, @Leaf, []>, #idr.con<!Tree, @Leaf, []>]> : !idr.box<!Tree>
+// CHECK: constant !idr.box<!Tree> #idr_value
+// CHECK: constant !idr.box<!Tree> #idr.con<!Tree, @Node, [#idr.con<!Tree, @Leaf, []>, #idr.con<!Tree, @Leaf, []>]>
 
 !Prelude.Types.List_Prelude.Types.Nat_ = !idr.data<"Prelude.Types.List[Prelude.Types.Nat]", list [@Nil() nil, @Cons(!idr.nat, !idr.box<!idr.data<"Prelude.Types.List[Prelude.Types.Nat]">>) cons]>
 !Prelude.Types.Maybe_Prelude.Types.Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
@@ -58,8 +59,8 @@ idr.program @aliases root(@root) stage(owned) {
                         %m: !idr.q<many, borrow, !Prelude.Types.Maybe_Prelude.Types.Nat_>,
                         %s: !idr.q<many, borrow, !idr.box<!Main.Shape>>)
       -> !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>> {
-    %n = idr.constant #idr.con<!Prelude.Types.List_Prelude.Types.Nat_, @Nil, []>
-       : !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>>
+    %n = idr.constant !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>>
+       #idr.con<!Prelude.Types.List_Prelude.Types.Nat_, @Nil, []>
     %r = idr.field %s : !idr.q<many, borrow, !idr.box<!Main.Shape>> @Circle[0] -> f64
     return %n : !idr.q<many, borrow, !idr.box<!Prelude.Types.List_Prelude.Types.Nat_>>
   }
@@ -67,8 +68,8 @@ idr.program @aliases root(@root) stage(owned) {
     return
   }
   idr.func @trees() -> (!idr.q<many, borrow, !idr.box<!Tree>>, !idr.q<many, borrow, !idr.box<!Tree>>) {
-    %big = idr.constant #t8 : !idr.box<!Tree>
-    %small = idr.constant #t1 : !idr.box<!Tree>
+    %big = idr.constant !idr.box<!Tree> #t8
+    %small = idr.constant !idr.box<!Tree> #t1
     return %big, %small : !idr.q<many, borrow, !idr.box<!Tree>>, !idr.q<many, borrow, !idr.box<!Tree>>
   }
   // The program's root, which the functions above are no part of.

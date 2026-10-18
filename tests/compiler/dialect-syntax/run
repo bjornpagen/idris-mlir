@@ -5,13 +5,12 @@
 # readers read: syntax-samples writes one module, MLIR bytecode as the
 # frontend hands the driver every program, that holds one of every type
 # and attribute of the sums generated from the dialects' ODS, in the forms
-# the frontend writes, and one of every op the frontend builds.
-# idris-mlir-opt reads it and prints it in the dialects' own syntax: the
-# transcript is that print, how the module reads back (in the spellings
-# the dialect prints, a closure's one result without parentheses, nested
-# constructors as the run they form, the empty set of effects as `none`;
-# nothing erased is among the samples, since nothing erased exists). That
-# print reads back to the same text.
+# the frontend writes, and one of every op the frontend builds (it exits 1,
+# writing nothing, when a generated sum has a mnemonic no sample has).
+# idris-mlir-opt reads it and prints it in the dialects' own syntax, and
+# that print reads back to the same text. The print itself is no part of
+# the check: what the samples are is the program's, and how the dialects
+# spell them their own fixtures'.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 bounded "$root/compiler/build/exec/syntax-samples" "$work/samples.mlirbc" \
   > "$work/samples.out" 2> "$work/samples.err"
@@ -23,11 +22,7 @@ bounded "$idris_mlir_opt" --mlir-disable-threading "$work/samples.mlirbc" -o "$w
   > "$work/parse.err" 2>&1
 status=$?
 say "parse: exit $status"
-if [ "$status" -eq 0 ]; then
-  cat "$work/printed.mlir"
-else
-  show "$work/parse.err"
-fi
+[ "$status" -eq 0 ] || show "$work/parse.err"
 
 bounded "$idris_mlir_opt" --mlir-disable-threading "$work/printed.mlir" -o "$work/reprinted.mlir" \
   > "$work/reprint.err" 2>&1

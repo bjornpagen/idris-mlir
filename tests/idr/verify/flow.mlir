@@ -1,5 +1,5 @@
+// NEEDS-ACCEPTANCE: the texts of the flow rule's errors, as verifyFlow and verifyFlowEdges write them; idr.io.put_sint (mlir-1).
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the texts of the flow rule's errors, as verifyFlow and verifyFlowEdges write them.
 // Every op that holds, takes or gives a closure or a suspension declares
 // how it moves, through the flow interface or through upstream's branch
 // and region-branch interfaces, and the verifier refuses one that does
@@ -24,7 +24,7 @@ idr.program @flow root(@Main.main) stage(higher) {
     // expected-error @+1 {{closure or suspension}}
     %t = arith.select %b, %x, %y : !idr.lazy<i64>
     %v = idr.force %t : !idr.lazy<i64> -> i64
-    %w2 = idr.io.put_int signed %v, %w1 : i64
+    %w2 = idr.io.put_sint %v, %w1 : i64
     return %w2 : !idr.world
   }
 }

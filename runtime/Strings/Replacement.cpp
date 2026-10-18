@@ -53,6 +53,13 @@ size_t maximalSubpart(const char *p, size_t n) {
 
 } // namespace
 
+// The string of any n bytes at p, decoded as UTF-8: how bytes from outside
+// the program become a string. Well-formed sequences are their scalars, and
+// each maximal subpart of an ill-formed one, the longest prefix of a
+// well-formed sequence at that point or else one byte, is one U+FFFD, as the
+// Unicode Standard recommends (chapter 3). A new string, or the persistent
+// empty one.
+//
 // Each maximal subpart becomes one U+FFFD, and decoding goes on after it. A
 // truncated sequence is one replacement, and a byte that no well-formed
 // sequence starts with, or that cannot follow what precedes it, is one of
@@ -69,8 +76,6 @@ size_t maximalSubpart(const char *p, size_t n) {
 // than its string, which freeing never reads. Well-formed input, nearly
 // every input, is the first run whole and fills its cell exactly.
 extern "C" const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n) {
-  if (n == 0)
-    return &rt::strings::emptyString;
   const simdutf::implementation &utf8 = rt::strings::implementation();
   simdutf::utf8_result first = utf8.validate_utf8_with_counts(p, n);
   if (first.error == simdutf::SUCCESS) {

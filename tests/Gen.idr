@@ -20,10 +20,14 @@
 module Gen
 
 import Prelude
+import Control.WellFounded
 import Data.Bits
+import Data.DPair
 import Data.Fin
 import Data.List
 import Data.Nat
+import Data.Nat.Views
+import Data.SnocList
 import Data.So
 import Data.Vect
 
@@ -162,25 +166,59 @@ weightsOf ws = case isItSucc (weightSum ws) of
   Yes nonzero => Just (MkWeights ws)
   No _ => Nothing
 
+||| The weights themselves.
+public export
+weightsOf' : Weights n -> Vect n Nat
+weightsOf' (MkWeights ws) = ws
+
+||| What is at least a successor is a successor.
+0 above : LTE (S k) w -> IsSucc w
+above (LTESucc _) = ItIsSucc
+
 mutual
-  ||| The option whose span of the running total holds `r`: an earlier
-  ||| option for a smaller draw, so 0 is the first option of weight above 0.
-  pickIn : (ws : Vect n Nat) -> Fin (weightSum ws) -> Fin n
+  ||| The option whose span of the running total holds `r`, with the proof
+  ||| that its weight is above 0: an earlier option for a smaller draw, so
+  ||| 0 is the first option of weight above 0.
+  pickIn : (ws : Vect n Nat) -> Fin (weightSum ws) -> Subset (Fin n) (\i => IsSucc (index i ws))
   pickIn [] FZ impossible
   pickIn [] (FS _) impossible
-  pickIn (w :: ws) r = pickFrom w ws r
+  pickIn (w :: ws) r = pickFrom w ws reflexive r
 
-  ||| The option whose span holds `r`, of an option with `u` of its span
-  ||| left and the options `ws` after it.
-  pickFrom : (u : Nat) -> (ws : Vect n Nat) -> Fin (u + weightSum ws) -> Fin (S n)
-  pickFrom Z ws r = FS (pickIn ws r)
-  pickFrom (S _) _ FZ = FZ
-  pickFrom (S u) ws (FS r) = pickFrom u ws r
+  ||| The option whose span holds `r`, of an option of weight `w` with `u`
+  ||| of its span left and the options `ws` after it: the option itself
+  ||| when `r` is in what is left of its span, which is then not empty.
+  pickFrom : (u : Nat) -> {0 w : Nat} -> (ws : Vect n Nat) -> (0 _ : LTE u w) ->
+             Fin (u + weightSum ws) -> Subset (Fin (S n)) (\i => IsSucc (index i (w :: ws)))
+  pickFrom Z ws _ r = let Element i positive = pickIn ws r in Element (FS i) positive
+  pickFrom (S _) _ left FZ = Element FZ (above left)
+  pickFrom (S u) ws left (FS r) = pickFrom u ws (lteSuccLeft left) r
 
-||| An option, each as likely as its weight.
+||| An option, each as likely as its weight, which is above 0.
 export
-weighted : Weights n -> Gen (Fin n)
+weighted : (w : Weights n) -> Gen (Subset (Fin n) (\i => IsSucc (index i (weightsOf' w))))
 weighted (MkWeights ws) = pickIn ws <$> draw (weightSum ws)
+
+coin : Fin 2 -> Nat -> Nat
+coin FZ x = x
+coin (FS _) _ = 0
+
+||| The weights, each zeroed by its coin, but the kept option's.
+zeroed : Fin m -> Vect m (Fin 2) -> Vect m Nat -> Vect m Nat
+zeroed FZ (_ :: cs) (x :: xs) = x :: zipWith coin cs xs
+zeroed (FS i) (c :: cs) (x :: xs) = coin c x :: zeroed i cs xs
+
+||| `zeroed` keeps the kept option's weight.
+0 keeps : (i : Fin m) -> (cs : Vect m (Fin 2)) -> (xs : Vect m Nat) -> index i (zeroed i cs xs) = index i xs
+keeps FZ (_ :: _) (_ :: _) = Refl
+keeps (FS i) (_ :: cs) (_ :: xs) = keeps i cs xs
+
+||| An option of weight above 0 makes the weights' sum above 0.
+0 positiveSum : (i : Fin m) -> (xs : Vect m Nat) -> IsSucc (index i xs) -> IsSucc (weightSum xs)
+positiveSum FZ (S _ :: _) ItIsSucc = ItIsSucc
+positiveSum (FS i) (x :: xs) positive = after x (positiveSum i xs positive)
+  where
+    after : (a : Nat) -> IsSucc b -> IsSucc (a + b)
+    after a {b = S k} ItIsSucc = rewrite sym (plusSuccRightSucc a k) in ItIsSucc
 
 ||| Swarm testing: each weight zeroed with probability one half, but one
 ||| option, drawn by the weights, which keeps its own, so the result is a
@@ -188,22 +226,10 @@ weighted (MkWeights ws) = pickIn ws <$> draw (weightSum ws)
 export
 swarm : Weights n -> Gen (Weights n)
 swarm w@(MkWeights ws) = do
-  keep <- weighted w
+  Element keep positive <- weighted w
   coins <- traverse (\_ => draw 2) ws
-  let ws' = zeroed keep coins ws
-  -- The option kept has a weight above 0 (`weighted` picks no other), so
-  -- the sum is above 0 and `No` cannot happen.
-  pure $ case isItSucc (weightSum ws') of
-    Yes nonzero => MkWeights ws'
-    No _ => w
-  where
-    coin : Fin 2 -> Nat -> Nat
-    coin FZ x = x
-    coin (FS _) _ = 0
-
-    zeroed : Fin m -> Vect m (Fin 2) -> Vect m Nat -> Vect m Nat
-    zeroed FZ (_ :: cs) (x :: xs) = x :: zipWith coin cs xs
-    zeroed (FS i) (c :: cs) (x :: xs) = coin c x :: zeroed i cs xs
+  pure (MkWeights (zeroed keep coins ws)
+          {nonzero = positiveSum keep (zeroed keep coins ws) (rewrite keeps keep coins ws in positive)})
 
 ------------------------------------------------------------------------------
 -- Running a generator
@@ -320,46 +346,196 @@ shortlex a b = case compare (length a) (length b) of
   EQ => a < b
   GT => False
 
-||| The powers of two from the largest not above `n` down to 1.
-spans : Nat -> List Nat
-spans n = go n 1 []
-  where
-    -- Doubling `p` until it passes `n`, each power kept before the larger
-    -- ones. `n` bounds the doublings structurally (2^n passes n), so the
-    -- bound is never what ends them.
-    go : Nat -> Nat -> List Nat -> List Nat
-    go Z _ acc = acc
-    go (S bound) p acc = if p > n then acc else go bound (2 * p) (p :: acc)
+||| A span of `S k` cells written as its `k`: twice the span, so written.
+twice : Nat -> Nat
+twice k = S (k + k)
 
-||| Smaller tapes than `t`, each strictly before it in shortlex order, in
-||| the order a shrinker tries them: every span deleted, the longest first;
-||| every span holding a value above 0 zeroed; every value halved; every
-||| value above 1 decremented. Each pass is one sweep, left to right.
+||| The spans a shrinker takes from a tape of `n` cells: the powers of two
+||| up to `n`, the largest first, each `S k` written as its `k`, so that no
+||| span is empty. None for no cell; else twice those up to half of `n`,
+||| then one.
+spans : (n : Nat) -> SnocList Nat
+spans n with (halfRec n)
+  spans 0 | HalfRecZ = [<]
+  spans (k + k) | HalfRecEven k rec = map twice (spans k | rec) :< 0
+  spans (S (k + k)) | HalfRecOdd k rec = map twice (spans k | rec) :< 0
+
+||| The values of a tape, summed: a structural sum, which proofs reduce.
 export
-candidates : List Nat -> List (List Nat)
+tapeSum : List Nat -> Nat
+tapeSum [] = 0
+tapeSum (v :: vs) = v + tapeSum vs
+
+||| What every candidate of a tape makes smaller: its length plus its sum.
+export
+measure : List Nat -> Nat
+measure t = length t + tapeSum t
+
+||| A candidate of `t` is smaller in its measure.
+public export
+Below : List Nat -> List Nat -> Type
+Below t c = LT (measure c) (measure t)
+
+0 shuffle : (a, b, c : Nat) -> a + (b + c) = b + (a + c)
+shuffle a b c =
+  rewrite plusAssociative a b c in
+  rewrite plusCommutative a b in
+  sym (plusAssociative b a c)
+
+0 measureCons : (v : Nat) -> (vs : List Nat) -> measure (v :: vs) = S (v + measure vs)
+measureCons v vs = cong S (shuffle (length vs) v (tapeSum vs))
+
+0 measureAppend : (xs, ys : List Nat) -> measure (xs ++ ys) = measure xs + measure ys
+measureAppend [] ys = Refl
+measureAppend (x :: xs) ys =
+  trans (measureCons x (xs ++ ys)) $
+  trans (cong (\m => S (x + m)) (measureAppend xs ys)) $
+  trans (cong S (plusAssociative x (measure xs) (measure ys))) $
+  cong (+ measure ys) (sym (measureCons x xs))
+
+0 shorter : (mb, ms', ms, ma : Nat) -> LTE (S ms') ms -> LTE (S (mb + (ms' + ma))) (mb + (ms + ma))
+shorter mb ms' ms ma smaller =
+  rewrite plusSuccRightSucc mb (ms' + ma) in
+  plusLteMonotoneLeft mb (S (ms' + ma)) (ms + ma) (plusLteMonotoneRight ma (S ms') ms smaller)
+
+||| A span replaced by a smaller one makes the tape around it smaller.
+0 replaced : (b, s, s', a : List Nat) -> LT (measure s') (measure s) ->
+             LT (measure (b ++ s' ++ a)) (measure (b ++ s ++ a))
+replaced b s s' a smaller =
+  replace {p = \m => LT m (measure (b ++ s ++ a))}
+          (sym (trans (measureAppend b (s' ++ a)) (cong (measure b +) (measureAppend s' a)))) $
+  replace {p = \m => LT (measure b + (measure s' + measure a)) m}
+          (sym (trans (measureAppend b (s ++ a)) (cong (measure b +) (measureAppend s a)))) $
+  shorter (measure b) (measure s') (measure s) (measure a) smaller
+
+||| A cell made smaller makes its span smaller.
+0 cellBelow : (h, y : Nat) -> (ys : List Nat) -> LT h y -> LT (measure (h :: ys)) (measure (y :: ys))
+cellBelow h y ys smaller =
+  replace {p = \m => LT m (measure (y :: ys))} (sym (measureCons h ys)) $
+  replace {p = \m => LT (S (h + measure ys)) m} (sym (measureCons y ys)) $
+  LTESucc (plusLteMonotoneRight (measure ys) (S h) y smaller)
+
+||| A span zeroed is smaller when it held a value above 0.
+0 zeroedBelow : (s : List Nat) -> IsSucc (tapeSum s) -> LT (measure (replicate (length s) 0)) (measure s)
+zeroedBelow s positive =
+  replace {p = \m => LT m (measure s)}
+          (sym (trans (cong2 (+) (lengthReplicate {x = Z} (length s)) (zeros (length s)))
+                      (plusZeroRightNeutral (length s)))) $
+  lessThanPlus (length s) positive
+  where
+    zeros : (n : Nat) -> tapeSum (replicate n 0) = 0
+    zeros Z = Refl
+    zeros (S n) = zeros n
+    lessThanPlus : (n : Nat) -> IsSucc m -> LT n (n + m)
+    lessThanPlus n {m = S j} ItIsSucc = rewrite sym (plusSuccRightSucc n j) in LTESucc (lteAddRight n)
+
+||| `div' fuel c 1`, which is `c` halved with enough fuel, is never above `c`.
+0 halfAtMost : (fuel, c : Nat) -> LTE (div' fuel c 1) c
+halfAtMost Z _ = LTEZero
+halfAtMost (S _) Z = LTEZero
+halfAtMost (S _) (S Z) = LTEZero
+halfAtMost (S fuel) (S (S c)) =
+  LTESucc (lteSuccRight (replace {p = \m => LTE (div' fuel m 1) c} (sym (minusZeroRight c)) (halfAtMost fuel c)))
+
+||| A value above 0, halved, is smaller.
+0 halfBelow : (k : Nat) -> LT (divNatNZ (S k) 2 ItIsSucc) (S k)
+halfBelow Z = LTESucc LTEZero
+halfBelow (S j) =
+  LTESucc (LTESucc (replace {p = \m => LTE (div' (S j) m 1) j} (sym (minusZeroRight j)) (halfAtMost (S j) j)))
+
+||| A tape cut around a span of at least one cell: the cells before it, the
+||| span's first cell and the rest of it, and the cells after it.
+data Cut : List Nat -> Type where
+  MkCut : {0 t : List Nat} -> (before : List Nat) -> (first : Nat) -> (rest : List Nat) -> (after : List Nat) ->
+          (0 whole : before ++ first :: rest ++ after = t) -> Cut t
+
+||| A tape's first cells, at least one, and the cells after them.
+data Front : List Nat -> Type where
+  MkFront : {0 t : List Nat} -> (first : Nat) -> (rest : List Nat) -> (after : List Nat) ->
+            (0 whole : first :: rest ++ after = t) -> Front t
+
+||| The first `S k` cells of a tape, when it has that many.
+front : (k : Nat) -> (t : List Nat) -> Maybe (Front t)
+front _ [] = Nothing
+front Z (x :: xs) = Just (MkFront x [] xs Refl)
+front (S k) (x :: xs) = map (\(MkFront y ys a whole) => MkFront x (y :: ys) a (cong (x ::) whole)) (front k xs)
+
+||| A cut of a tape, of that tape with one more cell before it.
+behind : (x : Nat) -> Cut t -> Cut (x :: t)
+behind x (MkCut b y ys a whole) = MkCut (x :: b) y ys a (cong (x ::) whole)
+
+||| Every cut of a tape around a span of `S k` cells: the span from the
+||| first cell, then from each cell after, while the tape holds it.
+windows : (k : Nat) -> (t : List Nat) -> List (Cut t)
+windows _ [] = []
+windows k (x :: xs) = case front k (x :: xs) of
+  Nothing => []
+  Just (MkFront y ys a whole) => MkCut [] y ys a whole :: map (behind x) (windows k xs)
+
+||| The span deleted.
+deleted : Cut t -> Subset (List Nat) (Below t)
+deleted (MkCut b y ys a whole) =
+  Element (b ++ a) (replace {p = \u => Below u (b ++ a)} whole (replaced b (y :: ys) [] a (LTESucc LTEZero)))
+
+||| The span zeroed, when it holds a value above 0.
+zeroedSpan : Cut t -> Maybe (Subset (List Nat) (Below t))
+zeroedSpan (MkCut b y ys a whole) = case isItSucc (tapeSum (y :: ys)) of
+  Yes positive => Just (Element (b ++ replicate (length (y :: ys)) 0 ++ a)
+                         (replace {p = \u => Below u (b ++ replicate (length (y :: ys)) 0 ++ a)} whole
+                                  (replaced b (y :: ys) (replicate (length (y :: ys)) 0) a (zeroedBelow (y :: ys) positive))))
+  No _ => Nothing
+
+||| The span's first cell halved, when it is above 0.
+halved : Cut t -> Maybe (Subset (List Nat) (Below t))
+halved (MkCut b Z ys a whole) = Nothing
+halved (MkCut b (S k) ys a whole) =
+  Just (Element (b ++ half k :: ys ++ a)
+                (replace {p = \u => Below u (b ++ half k :: ys ++ a)} whole
+                         (replaced b (S k :: ys) (half k :: ys) a (cellBelow (half k) (S k) ys (halfBelow k)))))
+  where
+    half : Nat -> Nat
+    half k = divNatNZ (S k) 2 ItIsSucc
+
+||| The span's first cell less one, when it is above 1.
+decremented : Cut t -> Maybe (Subset (List Nat) (Below t))
+decremented (MkCut b (S (S k)) ys a whole) =
+  Just (Element (b ++ S k :: ys ++ a)
+                (replace {p = \u => Below u (b ++ S k :: ys ++ a)} whole
+                         (replaced b (S (S k) :: ys) (S k :: ys) a (cellBelow (S k) (S (S k)) ys reflexive))))
+decremented _ = Nothing
+
+||| Smaller tapes than `t`, each with the proof that its length plus its
+||| sum is smaller, in the order a shrinker tries them: every span deleted,
+||| the longest first; every span holding a value above 0 zeroed; every
+||| value above 0 halved; every value above 1 decremented. Each pass is one
+||| sweep, left to right. Each is also before `t` in shortlex order.
+export
+candidates : (t : List Nat) -> List (Subset (List Nat) (Below t))
 candidates t =
-  let n = length t
-      ls = spans n
-  in [ take i t ++ drop (i + l) t | l <- ls, i <- [0 .. minus n l] ]
-     ++ [ take i t ++ replicate l 0 ++ drop (i + l) t
-        | l <- ls, i <- [0 .. minus n l], any (> 0) (take l (drop i t)) ]
-     ++ [ take i t ++ div v 2 :: drop (S i) t | (i, v) <- zip [0 .. n] t, v > 0 ]
-     ++ [ take i t ++ minus v 1 :: drop (S i) t | (i, v) <- zip [0 .. n] t, v > 1 ]
+  let ks = spans (length t) <>> []
+      cells = windows 0 t in
+  (ks >>= \k => map deleted (windows k t))
+  ++ (ks >>= \k => mapMaybe zeroedSpan (windows k t))
+  ++ mapMaybe halved cells
+  ++ mapMaybe decremented cells
+
+||| Tapes sized by their measure, which every candidate makes smaller.
+public export
+[byMeasure] Sized (List Nat) where
+  size = measure
 
 ||| The smallest failing tape the candidates reach from `t`: the first
 ||| candidate that still fails is kept and the passes start again, until
-||| none fails. Each tape kept is smaller in `length + sum` by at least 1,
-||| so that sum bounds the rounds: it is the proof that shrinking ends,
-||| never the reason it stops.
+||| none fails. Each tape kept is smaller in its length plus its sum, which
+||| its candidate proves: that is why shrinking ends.
 export
 shrink : (stillFails : List Nat -> Bool) -> List Nat -> List Nat
-shrink stillFails t = go (length t + sum t) t
+shrink stillFails t = go t (sizeAccessible @{Gen.byMeasure} t)
   where
-    go : Nat -> List Nat -> List Nat
-    go Z u = u
-    go (S bound) u = case find stillFails (candidates u) of
+    go : (u : List Nat) -> (0 _ : SizeAccessible @{Gen.byMeasure} u) -> List Nat
+    go u (Access rec) = case find (stillFails . fst) (candidates u) of
       Nothing => u
-      Just smaller => go bound smaller
+      Just (Element smaller below) => go smaller (rec smaller below)
 
 ------------------------------------------------------------------------------
 -- Gen's own checks
@@ -404,11 +580,11 @@ mixed = do
   a <- draw 5
   b <- weighted (MkWeights [1, 3, 0, 2])
   c <- draw (S (finToNat a))
-  pure (finToNat a, finToNat b, finToNat c)
+  pure (finToNat a, finToNat b.fst, finToNat c)
 
 ||| The values of the options a generator of options gives over every tape.
-options : Box (Fin n) -> List Nat
-options box = map finToNat box.values
+options : Box (Subset (Fin n) p) -> List Nat
+options box = map (finToNat . fst) box.values
 
 ||| Gen's checks, each a name and whether it holds. Both hosts run them, so
 ||| what idris-mlir computes of Bits64 and of a tape is held to the stock
@@ -437,15 +613,15 @@ checks =
   , ("weighted picks by the running total, never an option of weight 0",
      options (exhaustive 2 100 (weighted (MkWeights [2, 0, 1]))) == [0, 0, 2])
   , ("swarm zeroes every option on some tape and keeps it on another",
-     let results = map (\(MkWeights ws) => toList ws) (exhaustive 8 1000 (swarm (MkWeights [1, 1, 1]))).values
-     in all (\i => any (\ws => getAt i ws == Just 0) results && any (\ws => getAt i ws == Just 1) results)
-            (the (List Nat) [0, 1, 2]))
+     let results = map weightsOf' (exhaustive 8 1000 (swarm (MkWeights [1, 1, 1]))).values
+     in all (\i => any (\ws => index i ws == 0) results && any (\ws => index i ws == 1) results)
+            (the (List (Fin 3)) [0, 1, 2]))
   , ("every candidate is before its tape in shortlex order",
-     all (\t => all (\c => shortlex c t) (candidates t)) (the (List (List Nat)) [[7, 0, 9, 4], [0, 0, 1], [3]]))
+     all (\t => all (\c => shortlex c.fst t) (candidates t)) (the (List (List Nat)) [[7, 0, 9, 4], [0, 0, 1], [3]]))
   , ("shrinking ends at a failing tape no candidate of which fails",
      let fails = \t => sum t >= 10
          small = shrink fails [7, 0, 9, 4]
-     in fails small && not (any fails (candidates small)))
+     in fails small && not (any (fails . fst) (candidates small)))
   , ("a draw's loop sums the same seeded and replayed",
      let loop = MkGen (drawLoop 20 7 0)
          d = seeded 20 5 loop

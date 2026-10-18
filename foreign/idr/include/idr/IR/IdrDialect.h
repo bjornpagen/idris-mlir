@@ -15,6 +15,7 @@
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/SymbolTable.h"
@@ -32,11 +33,14 @@
 #include "llvm/ADT/Sequence.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
-#include <concepts>
 #include <functional>
 #include <optional>
 #include <string>
+#include <tuple>
+#include <utility>
+#include <variant>
 
 // The enums, then the grades over them: the generated type builders name
 // ::idr::Grade.
@@ -81,11 +85,11 @@ struct ReferenceResource : mlir::SideEffects::Resource::Base<ReferenceResource> 
 // Whether `operand`'s position takes over the reference its value holds,
 // as the edges of its op's flow say (lib/IR/Effects.cpp): a use the op
 // moves on or ends, a forwarded value, or an argument whose parameter owns
-// it, which the program's stage says how to read. Given `callees`, a call's
-// parameter is read from its callee's signature, as placement asks before the
-// operands take their parameters' grades; without, from the operand's grade.
-struct CalleeEffects;
-bool consumes(mlir::OpOperand &operand, const CalleeEffects *callees = nullptr);
+// it, which the program's stage says how to read. Given `callees`, the
+// program's symbol table, a call's parameter is read from its callee's
+// signature, as placement asks before the operands take their parameters'
+// grades; without, from the operand's grade.
+bool consumes(mlir::OpOperand &operand, const mlir::SymbolTable *callees = nullptr);
 
 // A Free of ReferenceResource on each operand of `op` that `consumes`
 // names and whose grade is own or excl; nothing before idr-rc.
@@ -148,53 +152,15 @@ private:
   template <typename, template <typename> class...> friend class mlir::Op;
 };
 
-// An op that may crash writes the crash resource and the IO
-// resource, and is speculatable exactly when it can neither crash nor
-// allocate. All of it follows from the op's `getCrashCause` and from whether
-// it allocates its result (`Idr_MayCrash`).
-template <bool Allocates> struct MayCrash {
-  template <typename ConcreteType>
-  class Impl : public mlir::OpTrait::TraitBase<ConcreteType, Impl> {
-  public:
-    void getEffects(
-        llvm::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
-            &effects) {
-      if constexpr (Allocates)
-        effects.emplace_back(mlir::MemoryEffects::Allocate::get(),
-                             this->getOperation()->getOpResult(0),
-                             mlir::SideEffects::DefaultResource::get());
-      if (self().getCrashCause()) {
-        effects.emplace_back(mlir::MemoryEffects::Write::get(), CrashResource::get());
-        effects.emplace_back(mlir::MemoryEffects::Write::get(), IOResource::get());
-      }
-    }
-    mlir::Speculation::Speculatability getSpeculatability() {
-      return Allocates || self().getCrashCause() ? mlir::Speculation::NotSpeculatable
-                                                 : mlir::Speculation::Speculatable;
-    }
-
-  private:
-    Impl() = default;
-    friend ConcreteType;
-    template <typename, template <typename> class...> friend class mlir::Op;
-
-    ConcreteType self() { return *static_cast<ConcreteType *>(this); }
-  };
-};
-
 // The trait behind Idr_ConsumesOnly: an op whose only effect is what it
-// takes over, which its flow says, reports that (consumedEffects). The
-// operand groups it is written with say nothing more.
-template <unsigned... Groups>
-struct ConsumesOperands {
-  template <typename ConcreteType>
-  class Impl : public mlir::OpTrait::TraitBase<ConcreteType, Impl> {
-  public:
-    void getEffects(llvm::SmallVectorImpl<
-        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects) {
-      consumedEffects(this->getOperation(), effects);
-    }
-  };
+// takes over, which its flow says, reports that (consumedEffects).
+template <typename ConcreteType>
+class ConsumesOperands : public mlir::OpTrait::TraitBase<ConcreteType, ConsumesOperands> {
+public:
+  void getEffects(llvm::SmallVectorImpl<
+      mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects) {
+    consumedEffects(this->getOperation(), effects);
+  }
 };
 
 // The result is the operand's value at whatever grade the result has: an
@@ -211,19 +177,93 @@ public:
   }
 };
 
-// The facts that rule out a crash: a constant other than zero
-// (an integer or a big), a finite Double constant, and a string that cannot
-// be empty (a non-empty constant, or a string built with a character or a
-// number in it).
-bool knownNonZero(mlir::Value value);
-bool knownFinite(mlir::Value value);
-bool knownNonEmpty(mlir::Value value);
+// A grade op whose result is its operand's value, its identity and its
+// exclusivity kept (Idr_SameValue), which a value's source looks through
+// (sourceOf). idr.share carries its operand but forgets exclusivity, so it
+// lacks this.
+template <typename ConcreteType>
+class SameValue : public mlir::OpTrait::TraitBase<ConcreteType, SameValue> {};
 
-// Whether output of `str` writes the pieces it is built from and never the
-// string (the output fusion of the canonicalization's rewrites): a
-// concatenation, a character before a string, one character, a number, or
-// a list packed or concatenated for that output alone.
-bool writtenInPieces(mlir::Value str);
+// The op has no runtime form: its result is its first operand at run time,
+// a change of grade, linearity or kind (Idr_NoRuntimeForm), which idr-lower
+// lowers to the operand's components, by one pattern for every op with the
+// trait.
+template <typename ConcreteType>
+class NoRuntimeForm : public mlir::OpTrait::TraitBase<ConcreteType, NoRuntimeForm> {};
+
+// A guard a pure total op takes (Idr_Guarded): the guard op `GuardOp`, and
+// the indices of the op's operands it is given, in the guard op's operand
+// order, the one it guards first. All of it is the type; nothing is stored.
+template <typename GuardOp, unsigned... Operands>
+struct Guard {};
+
+// The guards of the op `Op`, in the order its ODS lists them:
+// `using Guards = std::tuple<Guard<...>...>`, which idris-mlir-tblgen
+// generates from the op's Idr_Guarded marks (IdrGuards.inc) for every op
+// with Idr_GuardedOp. No definition here, so an op that lists the trait and
+// has no generated guards does not compile.
+template <typename Op>
+struct Guarded;
+
+// A pure total op whose guards read its own operands (Idr_GuardedOp). Its
+// folder and its speculatability ask each guard op's own condition (its
+// `holds`) on the op's operands at the guard's indices, read from
+// Guarded<ConcreteType> at compile time: no op names its guard again, and
+// nothing is looked up by op at run time. MLIR supplies an interface
+// method from a trait so, as AlwaysSpeculatableImplTrait supplies
+// getSpeculatability.
+template <typename ConcreteType>
+class GuardedOp : public mlir::OpTrait::TraitBase<ConcreteType, GuardedOp> {
+public:
+  // Whether every guard's condition holds of the constants the op's fold
+  // adaptor `adaptor` holds at the operands the guard is given: what the
+  // op's folder asks first, `if (!guardHolds(adaptor)) return {};`. Where
+  // one fails, the guard crashes first, at run time, and the op computes
+  // nothing.
+  template <typename Adaptor>
+  static bool guardHolds(Adaptor adaptor) {
+    llvm::ArrayRef<mlir::Attribute> constants = adaptor.getOperands();
+    auto holds = [&]<typename G, unsigned... Given>(Guard<G, Given...>) {
+      std::array<mlir::Attribute, sizeof...(Given)> given{constants[Given]...};
+      return G::holds(typename G::FoldAdaptor(given));
+    };
+    return std::apply([&](auto... guards) { return (holds(guards) && ...); },
+                      typename Guarded<ConcreteType>::Guards{});
+  }
+
+  // Speculatable when every guard is passed: the operand it guards is the
+  // result of the same guard op given the op's own other operands, which
+  // has checked it, or the constants the operands are pass its condition.
+  // A guard proved away by the path that reaches the op so leaves the op
+  // below that path. An op that speculates lists ConditionallySpeculatable
+  // beside the trait and takes this as its own.
+  mlir::Speculation::Speculatability getSpeculatability() {
+    mlir::Operation *op = this->getOperation();
+    auto constantOf = [](mlir::Value value) {
+      mlir::Attribute constant;
+      mlir::matchPattern(value, mlir::m_Constant(&constant));
+      return constant;
+    };
+    auto passed = [&]<typename G, unsigned Checked, unsigned... Others>(
+                      Guard<G, Checked, Others...>) {
+      std::array<mlir::Value, sizeof...(Others)> others{op->getOperand(Others)...};
+      auto guard = op->getOperand(Checked).getDefiningOp<G>();
+      if (guard && llvm::equal(guard->getOperands().drop_front(), others))
+        return true;
+      std::array<mlir::Attribute, 1 + sizeof...(Others)> constants{
+          constantOf(op->getOperand(Checked)), constantOf(op->getOperand(Others))...};
+      return G::holds(typename G::FoldAdaptor(constants));
+    };
+    bool all = std::apply([&](auto... guards) { return (passed(guards) && ...); },
+                          typename Guarded<ConcreteType>::Guards{});
+    return all ? mlir::Speculation::Speculatable : mlir::Speculation::NotSpeculatable;
+  }
+};
+
+// A string that cannot be empty beyond what a constant shows: a non-empty
+// constant, a string its builder says is never empty (one built with a
+// character or a number in it), or an append of one.
+bool knownNonEmpty(mlir::Value value);
 
 namespace detail {
 struct DataTypeStorage;
@@ -234,15 +274,14 @@ struct DataTypeStorage;
 class DataType;
 
 // What a value of a data type holds, the facts ValueFactsTypeInterface asks
-// of the type that its body decides: a reference held in place, a world or
-// a closure anywhere a value reaches. The type computes them once and keeps
-// them beside its body (lib/IR/ValueFacts.cpp).
+// of the type that its body decides: a reference held in place, a world
+// anywhere a value reaches. The type computes them once and keeps them
+// beside its body (lib/IR/ValueFacts.cpp).
 enum class Held : uint8_t {
   Nothing = 0,
   References = 1,
   World = 2,
-  Closure = 4,
-  LLVM_MARK_AS_BITMASK_ENUM(Closure)
+  LLVM_MARK_AS_BITMASK_ENUM(World)
 };
 LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
 
@@ -258,21 +297,41 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, Tag tag) {
   return os << static_cast<uint32_t>(tag);
 }
 
-// One constructor of a data type's body (DataType). Its tag is its
-// position in the body, and its name is unique there. `role` is what the
-// constructor is to the passes that read it: base's nil or cons, a label of
-// a closure or memo sum, a memo cell's Running or Forced state, or plain.
-// `fn` is the label's function, exactly when the role is Label, so a label
-// is never found by its name. `byName`: a memo sum's label whose function
-// reaches an observable effect, so that the effect happens where the value
-// is demanded: its cell is never written, and every force runs the
-// function.
+// The part a constructor plays in its sum, by role and never by position,
+// each role holding what only it has: a label names the function it runs
+// and, in a memo sum, whether every force runs it (`byName`: the function
+// reaches an observable effect, so the cell is never written). In
+// CtorRole's order, the case the syntax, the bytecode and KindRule name.
+namespace role {
+struct Plain { bool operator==(const Plain &) const = default; };
+struct ListNil { bool operator==(const ListNil &) const = default; };
+struct ListCons { bool operator==(const ListCons &) const = default; };
+struct Label {
+  mlir::FlatSymbolRefAttr fn;
+  bool byName = false;
+  bool operator==(const Label &) const = default;
+};
+struct Running { bool operator==(const Running &) const = default; };
+struct Forced { bool operator==(const Forced &) const = default; };
+} // namespace role
+using Role = std::variant<role::Plain, role::ListNil, role::ListCons, role::Label,
+                          role::Running, role::Forced>;
+static_assert(std::variant_size_v<Role> == getMaxEnumValForCtorRole() + 1,
+              "a role per CtorRole case, in its order");
+inline CtorRole kindOf(const Role &role) { return static_cast<CtorRole>(role.index()); }
+// The role of case `kind` with nothing of its own yet: each alternative
+// made empty, in CtorRole's order, so no case is written out. A reader
+// that finds a label reads its payload after its case.
+inline Role emptyRole(CtorRole kind) {
+  static const auto empty = []<std::size_t... Case>(std::index_sequence<Case...>) {
+    return std::array<Role, sizeof...(Case)>{Role(std::in_place_index<Case>)...};
+  }(std::make_index_sequence<std::variant_size_v<Role>>());
+  return empty[static_cast<std::size_t>(kind)];
+}
 struct Ctor {
   mlir::StringAttr name;
   llvm::ArrayRef<mlir::Type> fields;
-  bool byName = false;
-  CtorRole role = CtorRole::Plain;
-  mlir::FlatSymbolRefAttr fn;
+  Role role;
   bool operator==(const Ctor &) const = default;
 };
 
@@ -285,18 +344,21 @@ struct Ctor {
 
 #include "idr/IR/IdrDialect.h.inc"
 
-// How a value moves, and the flow interface every op that moves one holds,
-// which the ops name.
-#include "idr/IR/FlowEdges.h"
-
 #include "idr/IR/IdrInterfaces.h.inc"
 #include "idr/IR/IdrTypeInterfaces.h.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.h.inc"
 
+// How a value moves, and the flow interface every op that moves one holds,
+// which the ops name: after the types, which its anchors hold.
+#include "idr/IR/FlowEdges.h"
+
 #define GET_OP_CLASSES
 #include "idr/IR/IdrOps.h.inc"
+
+// Each guarded op's guards (Guarded), generated from its marks.
+#include "idr/IR/IdrGuards.inc"
 
 namespace idr {
 
@@ -306,29 +368,6 @@ namespace idr {
 inline constexpr llvm::StringLiteral memoRunning = "running";
 inline constexpr llvm::StringLiteral memoForced = "forced";
 
-// Whether the pure total op that reads `guarded` may run before the guard
-// `Guard` that its ODS names (Idr_Guarded): `guarded` is the result of such
-// a guard whose other operands are `against`, the op's own operands its
-// condition reads beside it (for a string index, the string), or a
-// constant the condition holds of with them. A guard proved away by the
-// path that reaches the op so leaves the op below that path.
-mlir::Speculation::Speculatability
-guardedSpeculatability(mlir::Value guarded, mlir::ValueRange against,
-                       llvm::function_ref<bool(mlir::Operation *)> isGuard,
-                       llvm::function_ref<bool(llvm::ArrayRef<mlir::Attribute>)> holds);
-template <typename Guard>
-concept GuardOp = requires(mlir::Operation *op, llvm::ArrayRef<mlir::Attribute> constants) {
-  { mlir::isa<Guard>(op) } -> std::convertible_to<bool>;
-  { Guard::holds(constants) } -> std::convertible_to<bool>;
-};
-template <GuardOp Guard>
-mlir::Speculation::Speculatability guardedSpeculatability(mlir::Value guarded,
-                                                          mlir::ValueRange against = {}) {
-  return guardedSpeculatability(
-      guarded, against, [](mlir::Operation *op) { return mlir::isa<Guard>(op); },
-      &Guard::holds);
-}
-
 // The most static data a folded constant may take: a folded op whose result
 // can outgrow its operands (a big shifted left). A larger one would make the
 // executable larger than computing it at runtime does, and the compilation
@@ -336,21 +375,44 @@ mlir::Speculation::Speculatability guardedSpeculatability(mlir::Value guarded,
 // the size and the speed.
 inline constexpr uint64_t constantBytes = uint64_t{1} << 20;
 
-// `unsupported (<phrase>)`: the words every refusal of a program begins
-// with, the phrase the rule's ODS case spells. The one place they are
-// written.
+// The words a refusal by `rule` begins with, its separator included:
+// `unsupported (<phrase>): ` for a construct this compiler does not compile,
+// none for a program Idris itself rejects (the user-error category), whose
+// message is Idris's own. The one place they are written.
 std::string refusalHead(Rule rule);
 
 // A refusal of the program by `rule`: an error at `loc`, or at `op`, whose
-// message begins with refusalHead(rule) and ": ", the caller streaming what
-// was found after it. The rule is the diagnostic's metadata, data a handler
-// reads (refusalRule), not printed text.
+// message begins with refusalHead(rule), the caller streaming what was found
+// after it. The rule is the diagnostic's metadata, data a handler reads
+// (refusalRule), not printed text.
 mlir::InFlightDiagnostic refuse(mlir::Location loc, Rule rule);
 mlir::InFlightDiagnostic refuse(mlir::Operation *op, Rule rule);
 
 // The rule a diagnostic refuses the program by; nothing for any other
 // diagnostic.
 std::optional<Rule> refusalRule(mlir::Diagnostic &diagnostic);
+
+// The custom directives of the matches' assembly formats (IdrMatchOps.td),
+// defined in lib/IR/OpsMatchSyntax.cpp, which the generated parsers and
+// printers call by name.
+mlir::ParseResult parseResultTypes(mlir::OpAsmParser &parser,
+                                   llvm::SmallVectorImpl<mlir::Type> &types);
+void printResultTypes(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::TypeRange types);
+mlir::ParseResult
+parseMatchCases(mlir::OpAsmParser &parser, mlir::Type scrutineeType,
+                mlir::DenseI32ArrayAttr &cases,
+                llvm::SmallVectorImpl<std::unique_ptr<mlir::Region>> &caseRegions);
+void printMatchCases(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::Type scrutineeType,
+                     mlir::DenseI32ArrayAttr cases,
+                     llvm::MutableArrayRef<mlir::Region> caseRegions);
+mlir::ParseResult
+parseLiteralCases(mlir::OpAsmParser &parser, mlir::Type scrutineeType, mlir::ArrayAttr &cases,
+                  llvm::SmallVectorImpl<std::unique_ptr<mlir::Region>> &caseRegions);
+void printLiteralCases(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::Type scrutineeType,
+                       mlir::ArrayAttr cases, llvm::MutableArrayRef<mlir::Region> caseRegions);
+mlir::ParseResult parseDefaultCase(mlir::OpAsmParser &parser, mlir::Region &defaultRegion);
+void printDefaultCase(mlir::OpAsmPrinter &printer, mlir::Operation *op,
+                      mlir::Region &defaultRegion);
 
 namespace detail {
 // Adds the dialect's asm interface: the aliases of its data types and of
@@ -361,32 +423,17 @@ void addAsmInterface(IdrDialect &dialect);
 // of IdrBytecode.td, and the module's table of data types read.
 void addBytecodeInterface(IdrDialect &dialect);
 
-// What idr.match and idr.match_lit share, which their rules and their
-// syntax are written once over: a scrutinee, a key per case region, and a
-// default region or none.
-template <typename Match>
-concept MatchLike = requires(Match op, unsigned index) {
-  op.getScrutinee();
-  op.getCases();
-  { op.getCaseRegion(index) } -> std::same_as<mlir::Region &>;
-  { op.getDefaultRegion() } -> std::same_as<mlir::Region *>;
-};
-
 // What the ops that hold a constructor's tag share (lib/IR/OpsCon.cpp): the
 // constructor `tag` of the data type of a value of `type`, or failure after
-// an error at `op`; the rule of the holes of a constructor built with `fields`
-// values given and `dests` destinations given back; and, for a constructor
-// built with `fields` and `holes`, the value given for field `index`, or
-// null for a hole, and the destination of a hole, or null for a field
-// given.
+// an error at `op`.
 mlir::FailureOr<std::reference_wrapper<const Ctor>> ctorAt(mlir::Operation *op, mlir::Type type,
                                                            Tag tag);
-mlir::LogicalResult verifyHoles(mlir::Operation *op, const Ctor &ctor,
-                                llvm::ArrayRef<int32_t> holes, size_t fields,
-                                mlir::TypeRange dests);
-mlir::Value givenField(mlir::ValueRange fields, llvm::ArrayRef<int32_t> holes, unsigned index);
-mlir::Value holeDest(mlir::ResultRange dests, llvm::ArrayRef<int32_t> holes, unsigned index);
-mlir::Type destOf(const Ctor &ctor, int32_t index);
+
+// Whether the fields `op` writes are its cell's constructor's, in order,
+// the holes aside, each at the field's type or owned: idr.cell.init's
+// declared constraint, which its generated verifier calls
+// (lib/IR/OpsCon.cpp).
+bool fillsCell(CellInitOp op);
 } // namespace detail
 
 } // namespace idr

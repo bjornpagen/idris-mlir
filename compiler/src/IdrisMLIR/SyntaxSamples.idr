@@ -16,7 +16,8 @@
 ||| (tests/compiler/dialect-syntax) has idris-mlir-opt read the file and
 ||| print it, so that what the Idris side writes is what MLIR reads. Every
 ||| grade a frontend writes long is sampled, the ones the dialect spells
-||| shorter among them.
+||| shorter among them. A cell exists only from counting on, so the program
+||| of the higher stage holds no op of one, and its type is sampled alone.
 |||
 ||| A generated sum that gains a constructor gains a mnemonic: this program
 ||| exits 1, naming every mnemonic of a sum MLIR.idr holds that no sample
@@ -34,6 +35,7 @@ import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.UB
 
 import Data.List
+import Data.SortedSet
 import Data.String
 import System
 import System.File
@@ -50,11 +52,11 @@ i64 : MlirType
 i64 = IntegerType 64
 
 world : MlirType
-world = idr (QType One Plain (idr WorldType))
+world = idr WorldType
 
 ||| A constructor of no part a pass needs.
 plainCtor : String -> List MlirType -> IdrCtor MlirType
-plainCtor name fields = MkIdrCtor name fields False CtorRole.Plain Nothing
+plainCtor name fields = MkIdrCtor name fields CtorRole.Plain
 
 ||| A list of naturals: base's list, recursive through itself, which its
 ||| own body names by its name, as every type does: the dialect boxes what
@@ -67,23 +69,18 @@ natList = idr (DataType "List[Nat]")
 dataT : MlirType
 dataT = idr (DataType "T")
 
-||| Each kind of sum the dialect has, and each part a constructor plays: a
-||| label names its function.
+||| Each kind of sum the frontend's table holds beyond a plain one and
+||| base's list: a sum rebuilt in place. Only defunctionalization makes the
+||| others, never in the table.
 kinds : List (String, IdrSum MlirType)
-kinds =
-  [ ("Pairs", MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64)]] Nothing)
-  , ("fn$sample", MkIdrSum Closures [MkIdrCtor "callee" [i64] False CtorRole.Label (Just "callee")] Nothing)
-  , ("lazy$sample", MkIdrSum Memo [ MkIdrCtor "callee" [] True CtorRole.Label (Just "callee")
-                                  , MkIdrCtor "running" [] False CtorRole.Running Nothing
-                                  , MkIdrCtor "forced" [i64] False CtorRole.Forced Nothing ] Nothing)
-  ]
+kinds = [("Pairs", MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64)]] Nothing)]
 
 ||| The bodies of the data types the samples name, the module's table.
 table : List (String, IdrSum MlirType)
 table =
   ( "List[Nat]"
-  , MkIdrSum BaseList [ MkIdrCtor "Nil" [] False CtorRole.ListNil Nothing
-                      , MkIdrCtor "Cons" [idr NatType, natList] False CtorRole.ListCons Nothing ]
+  , MkIdrSum BaseList [ MkIdrCtor "Nil" [] CtorRole.ListNil
+                      , MkIdrCtor "Cons" [idr NatType, natList] CtorRole.ListCons ]
              (Just ("Prelude.Types.List", ["Prelude.Types.Nat"])) )
   :: ("T", MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)
   :: kinds
@@ -111,12 +108,11 @@ types =
   , idr (QType One Plain str)
   , idr (QType Many Own big)
   , idr (QType Many Excl (idr (BoxType natList)))
-  , world
   , idr (QType One Own str)
   , idr (QType Many Borrow str)
   , str
   , idr TokenType
-  , idr WorldType
+  , world
   , RankedTensorType [Dynamic, Static 3] F64Type
   , RankedTensorType [] i64
   , RankedTensorType [Dynamic] (idr NatType)
@@ -126,21 +122,14 @@ types =
   , IndexType
   ] ++ map (\(name, _) => idr (DataType name)) kinds
 
-key : MlirAttr
-key = idr (SpecKeyAttr "f" [idr (KeyHoleAttr 0), int 7])
-
 attrs : List MlirAttr
 attrs =
   [ idr (BigAttr (-12345678901234567890))
   , idr (ClosureAttr "g" [int 1, StringAttr "two"])
-  , idr (EffectAttr [])
-  , idr (EffectAttr [Io, Crash])
   , maybeNat
-  , idr (KeyRaiseAttr "f" "idr.match")
   , idr (RuleAttr Rule.Cycle)
-  , idr (KeyConAttr 1 [idr (KeyHoleAttr 2), idr (KeyConAttr 0 [])])
-  , idr (KeyHoleAttr 3)
-  , key
+    -- A refusal, at no location, as the frontend writes one.
+  , idr (RefusalAttr Rule.Cycle (At noLoc) "a cycle of types")
   , idr WorldSpaceAttr
   , arith (FastMathFlagsAttr [])
   , arith (FastMathFlagsAttr [Nnan, Ninf])
@@ -170,7 +159,8 @@ unsampled =
   where
     missing : String -> List String -> List String -> List String
     missing what mnemonics sampled =
-      map (\m => what ++ " " ++ m) (filter (\m => not (elem m sampled)) mnemonics)
+      let seen = SortedSet.fromList sampled in
+      map (\m => what ++ " " ++ m) (filter (\m => not (contains m seen)) mnemonics)
     idrType : MlirType -> Maybe String
     idrType (Idr x _) = Just (idrTypeMnemonic x)
     idrType _ = Nothing
@@ -238,8 +228,8 @@ sample =
                  -- A field and constructors, each named by its tag: of
                  -- none and of fields, one of another type.
                , binding "%field" (Idr.fieldOp v 0 0 i64)
-               , binding "%nil" (Idr.conOp 0 [] natList [])
-               , binding "%a" (Idr.conOp 0 [n, MkValue "%nil" natList] dataT [])
+               , binding "%nil" (Idr.conOp 0 [] natList)
+               , binding "%a" (Idr.conOp 0 [n, MkValue "%nil" natList] dataT)
                , binding "%checked" (Idr.checkNonzeroOp n "div" i64)
                , binding "%cmp" (Idr.strCmpOp CmpPredicate.Lt s s (IntegerType 1))
                , binding "%lin" (Idr.linEnterOp n lin)
@@ -250,13 +240,14 @@ sample =
                , binding "%lazy" (Idr.suspendOp "thunk" [n] lazy)
                , binding "%held" (Idr.delayOp n lazy)
                , binding "%applied" (Idr.applyOp (MkValue "%f" fn) [n] [i64])
-                 -- A match whose region uses a value from above and holds a
-                 -- match of its own.
-               , binding "%m" (Idr.matchOp v [0, 1]
+                 -- A match of every constructor, with no default, whose
+                 -- region uses a value from above and holds a match of its
+                 -- own, on a literal, whose default binds the scrutinee.
+               , binding "%m" (Idr.matchOp v [0, 1] NoBlocks
                                  [ block [MkValue "%y" i64, MkValue "%ys" natList]
                                      [ binding "%inner" (Idr.matchLitOp n [int 0]
-                                         [ block [] [stmt (Idr.yieldOp [MkValue "%y" i64])]
-                                         , block [] [stmt (Idr.yieldOp [n])] ] [i64])
+                                         (block [MkValue "%d" i64] [stmt (Idr.yieldOp [MkValue "%d" i64])])
+                                         [ block [] [stmt (Idr.yieldOp [MkValue "%y" i64])] ] [i64])
                                      , stmt (Idr.yieldOp [MkValue "%inner" i64]) ]
                                  , block [] [stmt (Idr.yieldOp [MkValue "%checked" i64])] ] [i64])
                  -- An array made from its indices, written, read, sliced,

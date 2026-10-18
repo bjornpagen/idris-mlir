@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime components of the value types of a module, which of them a
-// cell's header counts, and the layouts of the sums held in place they are
-// made of.
+// The runtime components of the value types of a module, each with whether
+// it is counted, the plan of a memref's descriptor, and the layouts of the
+// sums held in place they are made of.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -13,7 +13,12 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <string>
 
 using namespace mlir;
 
@@ -24,44 +29,48 @@ namespace {
 using Sums = llvm::DenseMap<DataType, std::unique_ptr<SumLayout>>;
 
 // The layout of the sum `type`, every sum its fields hold in place already
-// in `sums`.
+// in `sums`: the tag, when the sum has one, then the words its fields take.
+// A constructor's fields take the words before them that no field of the
+// same constructor took, of the same type and countedness, so two
+// constructors share their words.
 SumLayout sumLayout(DataType type, const Sums &sums) {
   SumLayout layout;
   ArrayRef<Ctor> ctors = type.getCtors();
   if (ctors.size() >= 2) {
     unsigned width = ctors.size() <= 256 ? 8u : ctors.size() <= 65536 ? 16u : 32u;
     layout.tag = IntegerType::get(type.getContext(), width);
+    layout.words.push_back(Component{*layout.tag, false});
   }
+  // The words fields take are those from here on: the tag is no field's.
+  auto firstField = static_cast<unsigned>(layout.words.size());
   for (const Ctor &ctor : ctors) {
-    // The free slots of each component, counted and not, in slot order.
-    // Built once per constructor: searching the slots again for every field
+    // The free words of each component, counted and not, in word order.
+    // Built once per constructor: searching the words again for every field
     // is quadratic in a wide sum.
     struct Free {
-      DenseMap<Type, SmallVector<unsigned>> slots;
+      DenseMap<Type, SmallVector<unsigned>> words;
       DenseMap<Type, unsigned> cursor;
     };
     Free free[2];
-    for (unsigned i = 0, n = static_cast<unsigned>(layout.slots.size()); i < n; ++i)
-      free[layout.counted[i]].slots[layout.slots[i]].push_back(i);
+    for (unsigned i = firstField, n = static_cast<unsigned>(layout.words.size()); i < n; ++i)
+      free[layout.words[i].counted].words[layout.words[i].type].push_back(i);
     SmallVector<SmallVector<unsigned>> perField;
     for (Type fieldType : ctor.fields) {
-      SmallVector<unsigned> slots;
-      for (auto [component, isCounted] :
-           llvm::zip_equal(componentsOf(fieldType, sums), countedOf(fieldType, sums))) {
-        Free &index = free[isCounted];
-        SmallVector<unsigned> &bucket = index.slots[component];
-        unsigned &at = index.cursor[component];
+      SmallVector<unsigned> taken;
+      for (const Component &component : components(fieldType, sums)) {
+        Free &index = free[component.counted];
+        SmallVector<unsigned> &bucket = index.words[component.type];
+        unsigned &at = index.cursor[component.type];
         unsigned chosen;
         if (at < bucket.size())
           chosen = bucket[at++];
         else {
-          chosen = static_cast<unsigned>(layout.slots.size());
-          layout.slots.push_back(component);
-          layout.counted.push_back(isCounted);
+          chosen = static_cast<unsigned>(layout.words.size());
+          layout.words.push_back(component);
         }
-        slots.push_back(chosen);
+        taken.push_back(chosen);
       }
-      perField.push_back(std::move(slots));
+      perField.push_back(std::move(taken));
     }
     layout.fields.push_back(std::move(perField));
   }
@@ -91,22 +100,63 @@ const SumLayout &sumIn(const Sums &sums, DataType type) {
                                  "computed, or which holds itself in place");
 }
 
-// The fields of an array's descriptor that its type does not fix, after
-// the cell: the offset of a strided layout, when it is dynamic; each
-// dynamic size; and each dynamic stride of a strided layout. An identity
-// layout's offset is 0 and its strides are those of its sizes, computed
-// where they are needed.
-unsigned descriptorWords(ShapedType array) {
-  unsigned words = static_cast<unsigned>(llvm::count_if(array.getShape(), ShapedType::isDynamic));
-  auto memref = dyn_cast<MemRefType>(array);
-  if (auto strided = memref ? dyn_cast<StridedLayoutAttr>(memref.getLayout()) : nullptr) {
-    words += ShapedType::isDynamic(strided.getOffset()) ? 1 : 0;
-    words += static_cast<unsigned>(llvm::count_if(strided.getStrides(), ShapedType::isDynamic));
-  }
-  return words;
+// Whether a value of `type` holds no component, `met` the data types the
+// walk is inside of.
+bool holdsNone(Type type, llvm::DenseSet<DataType> &met) {
+  if (isWorld(type))
+    return true;
+  auto data = dyn_cast<DataType>(unrestricted(type));
+  if (!data || data.getCtors().size() > 1 || !met.insert(data).second)
+    return false;
+  bool none = llvm::all_of(data.getCtors(), [&](const Ctor &ctor) {
+    return llvm::all_of(ctor.fields, [&](Type field) { return holdsNone(field, met); });
+  });
+  met.erase(data);
+  return none;
+}
+
+DescriptorField fieldOf(int64_t value) {
+  if (ShapedType::isDynamic(value))
+    return Carried{};
+  return Fixed{value};
+}
+
+unsigned carriedIn(ArrayRef<DescriptorField> fields) {
+  return static_cast<unsigned>(llvm::count_if(fields, [](const DescriptorField &field) {
+    return std::holds_alternative<Carried>(field);
+  }));
 }
 
 } // namespace
+
+bool holdsNoComponent(Type type) {
+  llvm::DenseSet<DataType> met;
+  return holdsNone(type, met);
+}
+
+unsigned DescriptorFields::carried() const {
+  return carriedIn(offset) + carriedIn(sizes) + (strides ? carriedIn(*strides) : 0u);
+}
+
+DescriptorFields DescriptorFields::of(ShapedType type) {
+  DescriptorFields fields{Fixed{0}, llvm::map_to_vector(type.getShape(), fieldOf), std::nullopt};
+  auto memref = dyn_cast<MemRefType>(type);
+  // A tensor and an identity layout carry no stride: the sizes say them.
+  if (!memref || memref.getLayout().isIdentity())
+    return fields;
+  SmallVector<int64_t> steps;
+  int64_t start;
+  if (failed(memref.getStridesAndOffset(steps, start))) {
+    std::string text;
+    llvm::raw_string_ostream(text) << memref;
+    llvm::reportFatalInternalError(llvm::Twine("the layout of ") + text +
+                                   " has no strides, and the program's verifier refuses a memref "
+                                   "value whose layout is not strided");
+  }
+  fields.offset = fieldOf(start);
+  fields.strides = llvm::map_to_vector(steps, fieldOf);
+  return fields;
+}
 
 // Callees first along "holds in place", so each sum reads only sums made
 // before it: containment in place is acyclic once layout::fit has made the
@@ -120,55 +170,35 @@ Sums sumsOf(ArrayRef<DataType> types) {
   return sums;
 }
 
-// An array is its cell and what of its descriptor its type leaves to the
-// value. A bounds check compares two registers, so the one a program's own
-// test made redundant folds away, where a load of the length from the cell,
-// which the stores into the cell may alias, would stay in every loop.
-SmallVector<Type> componentsOf(Type type, const Sums &sums) {
-  MLIRContext *ctx = type.getContext();
-  // Linearity is a fact for the passes; at runtime the value is itself. A
-  // world is no value at all.
-  if (isWorld(type))
+// A component is counted where the value it is holds a reference itself: a
+// cell's address, a big's word, an array's cell; a sum's words are counted
+// as its layout says. An array is its cell and what of its descriptor its
+// type leaves to the value. A bounds check compares two registers, so the
+// one a program's own test made redundant folds away, where a load of the
+// length from the cell, which the stores into the cell may alias, would
+// stay in every loop.
+SmallVector<Component> components(Type type, const Sums &sums) {
+  if (holdsNoComponent(type))
     return {};
+  MLIRContext *ctx = type.getContext();
+  // A grade is a fact for the passes; at runtime the value is itself.
   type = unrestricted(type);
   if (auto data = dyn_cast<DataType>(type))
-    return sumIn(sums, data).types();
+    return sumIn(sums, data).words;
   if (isa<RankedTensorType, MemRefType>(type)) {
-    SmallVector<Type> out{LLVM::LLVMPointerType::get(ctx)};
-    out.append(descriptorWords(cast<ShapedType>(type)), IntegerType::get(ctx, 64));
+    SmallVector<Component> out{{LLVM::LLVMPointerType::get(ctx), true}};
+    out.append(DescriptorFields::of(cast<ShapedType>(type)).carried(),
+               Component{IntegerType::get(ctx, 64), false});
     return out;
   }
   // A big's word is a small integer or a cell's address. Every other value
-  // that holds a reference is the address of its cell, and a destination
-  // the address of the word it fills.
+  // that holds a reference is the address of its cell, a destination the
+  // address of the word it fills, and a cell the address of its memory.
   if (isa<BigType, NatType>(type))
-    return {IntegerType::get(ctx, 64)};
-  if (holdsReferences(type) || isa<DestType>(type))
-    return {LLVM::LLVMPointerType::get(ctx)};
-  return {type};
-}
-
-// A component is counted where the value it is holds a reference itself: a
-// cell's address, a big's word, an array's cell. A sum's slots are counted
-// as its layout says.
-SmallVector<bool> countedOf(Type type, const Sums &sums) {
-  if (isWorld(type))
-    return {};
-  type = unrestricted(type);
-  if (auto data = dyn_cast<DataType>(type)) {
-    const SumLayout &layout = sumIn(sums, data);
-    SmallVector<bool> all;
-    if (layout.tag)
-      all.push_back(false);
-    all.append(layout.counted.begin(), layout.counted.end());
-    return all;
-  }
-  if (isa<RankedTensorType, MemRefType>(type)) {
-    SmallVector<bool> out{true};
-    out.append(descriptorWords(cast<ShapedType>(type)), false);
-    return out;
-  }
-  return {holdsReferences(type)};
+    return {{IntegerType::get(ctx, 64), holdsReferences(type)}};
+  if (holdsReferences(type) || isa<DestType, CellType>(type))
+    return {{LLVM::LLVMPointerType::get(ctx), holdsReferences(type)}};
+  return {{type, holdsReferences(type)}};
 }
 
 } // namespace idr::layout

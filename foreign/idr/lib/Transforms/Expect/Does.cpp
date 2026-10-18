@@ -4,7 +4,7 @@
 // forces a suspension, builds a value or reads a field, whether it can
 // return at all, and whom it calls. A test states what canonicalization
 // left a function doing, or no longer doing, instead of matching the ops
-// that show it; every copy of the function is asked (`named`).
+// that show it; every copy of the function is asked (`names`).
 
 #include "idr/Transforms/Expect.h"
 
@@ -27,13 +27,16 @@ struct Action {
 };
 
 // A match on a constructor or on a literal.
-bool takesApart(Operation *op) { return isa<MatchOp, MatchLitOp>(op); }
+bool takesApart(Operation *op) { return isa<MatchOpInterface>(op); }
 // A force of a suspension.
 bool forces(Operation *op) { return isa<ForceOp>(op); }
-// A value built at run time: a constructor, in a fresh cell or a reused
-// one, a closure, a suspension, an evaluated suspension. A constant is
-// static data and is built by no one.
-bool builds(Operation *op) { return isa<ConOp, ReuseOp, ClosureOp, SuspendOp, DelayOp>(op); }
+// A value built at run time: a constructor, as a value or written into its
+// cell (whichever op gave the cell, which only allocates it), a closure, a
+// suspension, an evaluated suspension. A constant is static data and is
+// built by no one.
+bool builds(Operation *op) {
+  return isa<ConOp, CellInitOp, ClosureOp, SuspendOp, DelayOp>(op);
+}
 // A read of one field of a constructor value.
 bool readsField(Operation *op) { return isa<FieldOp>(op); }
 // An application of a closure.
@@ -45,13 +48,10 @@ constexpr Action building{"builds a value", builds};
 constexpr Action reading{"reads a field", readsField};
 constexpr Action applying{"applies a closure", appliesClosure};
 
-// The functions `function` names do `action` somewhere (`wanted`), or
+// The functions the request names do `action` somewhere (`wanted`), or
 // nowhere.
-LogicalResult performs(ModuleOp module, StringRef function, StringRef property, Action action,
-                       bool wanted) {
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult performs(const Request<Functions> &request, Action action, bool wanted) {
+  ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   bool held = true, found = false;
   for (FunctionOpInterface fn : functions)
     fn->walk([&](Operation *op) {
@@ -60,33 +60,23 @@ LogicalResult performs(ModuleOp module, StringRef function, StringRef property, 
       found = true;
       if (wanted)
         return;
-      fail(op->getLoc(), property) << op->getName() << " " << action.doing << " in " << where(op);
+      fail(op->getLoc(), request.property) << op->getName() << " " << action.doing << " in "
+                                           << where(op);
       held = false;
     });
   if (wanted && !found) {
-    fail(functions.front()->getLoc(), property) << "nothing in " << function << " "
-                                                << action.doing;
+    fail(functions.front()->getLoc(), request.property)
+        << "nothing in @" << request.argument.name << " " << action.doing;
     held = false;
   }
   return success(held);
-}
-
-// `@f:@g`, split; an error of `property` when either is missing.
-std::optional<std::pair<StringRef, StringRef>> callerAndCallee(ModuleOp module, StringRef argument,
-                                                               StringRef property) {
-  auto [caller, callee] = argument.split(':');
-  if (caller.ltrim('@').empty() || callee.ltrim('@').empty()) {
-    fail(module.getLoc(), property) << "name the caller and the callee, as " << property << "=@f:@g";
-    return std::nullopt;
-  }
-  return std::make_pair(caller, callee.ltrim('@'));
 }
 
 // The calls in `fn` of `callee` or of a copy of it: idr.call before
 // lowering, a call of the func or LLVM dialect after it, of the program's
 // functions or the runtime's.
 SmallVector<CallOpInterface> callsOf(SymbolTable &symbols, FunctionOpInterface fn,
-                                     StringRef callee) {
+                                     const Symbol &callee) {
   SmallVector<CallOpInterface> out;
   fn->walk([&](CallOpInterface call) {
     if (callsNamed(call, callee, symbols))
@@ -103,109 +93,90 @@ StringRef calleeName(CallOpInterface call) {
 
 } // namespace
 
-LogicalResult matches(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "matches", matching, true);
+LogicalResult matches(const Request<Functions> &request) {
+  return performs(request, matching, true);
 }
-LogicalResult matchesNothing(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "matches-nothing", matching, false);
+LogicalResult matchesNothing(const Request<Functions> &request) {
+  return performs(request, matching, false);
 }
-LogicalResult forcesSome(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "forces", forcing, true);
+LogicalResult forcesSome(const Request<Functions> &request) {
+  return performs(request, forcing, true);
 }
-LogicalResult forcesNothing(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "forces-nothing", forcing, false);
+LogicalResult forcesNothing(const Request<Functions> &request) {
+  return performs(request, forcing, false);
 }
-LogicalResult buildsSome(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "builds", building, true);
+LogicalResult buildsSome(const Request<Functions> &request) {
+  return performs(request, building, true);
 }
-LogicalResult buildsNothing(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "builds-nothing", building, false);
+LogicalResult buildsNothing(const Request<Functions> &request) {
+  return performs(request, building, false);
 }
-LogicalResult readsFields(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "reads-fields", reading, true);
+LogicalResult readsFields(const Request<Functions> &request) {
+  return performs(request, reading, true);
 }
-LogicalResult readsNoFields(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "reads-no-fields", reading, false);
+LogicalResult readsNoFields(const Request<Functions> &request) {
+  return performs(request, reading, false);
 }
 
-LogicalResult applies(ModuleOp module, AnalysisManager &, StringRef function) {
-  return performs(module, function, "applies", applying, true);
+LogicalResult applies(const Request<Functions> &request) {
+  return performs(request, applying, true);
 }
 
 // No block of the body ends in a return: every path crashes or never ends.
-LogicalResult neverReturns(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "never-returns";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult neverReturns(const Request<Functions> &request) {
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.functions)
     for (Block &block : fn.getFunctionBody())
       if (!block.empty() && block.back().hasTrait<OpTrait::ReturnLike>()) {
-        fail(block.back().getLoc(), property) << where(fn) << " returns";
+        fail(block.back().getLoc(), request.property) << where(fn) << " returns";
         held = false;
       }
   return success(held);
 }
 
-LogicalResult calls(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "calls";
-  auto pair = callerAndCallee(module, argument, property);
-  if (!pair)
-    return failure();
-  SmallVector<FunctionOpInterface> functions = named(module, pair->first, property);
-  if (functions.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
-  for (FunctionOpInterface fn : functions)
-    if (!callsOf(symbols, fn, pair->second).empty())
+LogicalResult calls(const Request<Pair> &request) {
+  const Pair &pair = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
+  for (FunctionOpInterface fn : pair.caller.functions)
+    if (!callsOf(symbols, fn, pair.callee).empty())
       return success();
-  return fail(functions.front()->getLoc(), property) << pair->first << " calls no @" << pair->second;
+  return fail(pair.caller.functions.front()->getLoc(), request.property)
+         << "@" << pair.caller.name << " calls no @" << pair.callee.name;
 }
 
-LogicalResult neverCalls(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "never-calls";
-  auto pair = callerAndCallee(module, argument, property);
-  if (!pair)
-    return failure();
-  SmallVector<FunctionOpInterface> functions = named(module, pair->first, property);
-  if (functions.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult neverCalls(const Request<Pair> &request) {
+  const Pair &pair = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : functions)
-    for (CallOpInterface call : callsOf(symbols, fn, pair->second)) {
-      fail(call->getLoc(), property) << where(call) << " still calls @" << pair->second << ", as @"
-                                     << calleeName(call);
+  for (FunctionOpInterface fn : pair.caller.functions)
+    for (CallOpInterface call : callsOf(symbols, fn, pair.callee)) {
+      fail(call->getLoc(), request.property) << where(call) << " still calls @"
+                                             << pair.callee.name << ", as @" << calleeName(call);
       held = false;
     }
   return success(held);
 }
 
 // Every call is closed: compile-time evaluation has all it needs.
-LogicalResult callsClosed(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "calls-closed";
-  auto pair = callerAndCallee(module, argument, property);
-  if (!pair)
-    return failure();
-  SmallVector<FunctionOpInterface> functions = named(module, pair->first, property);
-  if (functions.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult callsClosed(const Request<Pair> &request) {
+  const Pair &pair = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true, called = false;
-  for (FunctionOpInterface fn : functions)
-    for (CallOpInterface call : callsOf(symbols, fn, pair->second)) {
+  for (FunctionOpInterface fn : pair.caller.functions)
+    for (CallOpInterface call : callsOf(symbols, fn, pair.callee)) {
       called = true;
       for (Value operand : call.getArgOperands())
         if (!matchPattern(operand, m_Constant())) {
-          fail(call->getLoc(), property) << "a call of @" << pair->second << " in " << where(call)
-                                        << " takes an argument that is not a constant";
+          fail(call->getLoc(), request.property) << "a call of @" << pair.callee.name << " in "
+                                                 << where(call)
+                                                 << " takes an argument that is not a constant";
           held = false;
           break;
         }
     }
   if (!called) {
-    fail(functions.front()->getLoc(), property) << pair->first << " calls no @" << pair->second;
+    fail(pair.caller.functions.front()->getLoc(), request.property)
+        << "@" << pair.caller.name << " calls no @" << pair.callee.name;
     held = false;
   }
   return success(held);

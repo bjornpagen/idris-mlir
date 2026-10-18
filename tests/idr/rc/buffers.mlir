@@ -11,7 +11,7 @@
 idr.program @buffers root(@main) stage(first) {
   idr.func @fill(%n: index, %x: i64) -> memref<?x!idr.box<!L>> {
     %a = memref.alloc(%n) : memref<?x!idr.box<!L>>
-    %nil = idr.constant #idr.con<!L, @Nil, []> : !idr.box<!L>
+    %nil = idr.constant !idr.box<!L> #idr.con<!L, @Nil, []>
     %c = idr.con !idr.box<!L> @Cons(%x : i64, %nil : !idr.box<!L>)
     %c0 = arith.constant 0 : index
     memref.store %c, %a[%c0] : memref<?x!idr.box<!L>>

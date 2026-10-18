@@ -8,6 +8,9 @@ module IdrisMLIR.Dialect.UB
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.UB
 
+import Data.List
+import Data.Vect
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -26,4 +29,4 @@ unreachableOp : Op
 unreachableOp =
   MkOp "ub.unreachable" [] [] [] [] []
 
--- fingerprint: 3887727318-539143 2328564067-859
+-- fingerprint: 3288351428-575875 3318086738-894

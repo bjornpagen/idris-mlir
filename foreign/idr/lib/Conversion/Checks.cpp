@@ -18,6 +18,9 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+// The runtime's C ABI: the small Integer word's encoding.
+#include "idris_rt.h"
+
 using namespace mlir;
 
 namespace idr::conversion {
@@ -35,14 +38,16 @@ Value compare(OpBuilder &b, Location loc, arith::CmpIPredicate predicate, Value 
 
 // Where each guard fails.
 
-// The integer 0, or the big 0, which is the small word 1.
+// The integer 0, or the big 0, the runtime's small word of 0: a divisor is
+// an integer or a big, each with its own zero.
 Value fails(CheckNonzeroOp op, Converted<CheckNonzeroOp> in, OpBuilder &b, Location loc,
             Runtime &) {
   Value value = in.getValue().front();
   Type type = op.getValue().getType();
   Value zero = isa<IntegerType>(type)
                    ? Value(arith::ConstantOp::create(b, loc, b.getIntegerAttr(type, 0)))
-                   : Value(arith::ConstantIntOp::create(b, loc, 1, 64));
+                   : Value(arith::ConstantIntOp::create(
+                         b, loc, static_cast<int64_t>(idris_rt_small_word(0)), 64));
   return compare(b, loc, arith::CmpIPredicate::eq, value, zero);
 }
 
@@ -55,14 +60,16 @@ Value fails(CheckInBoundsOp op, Converted<CheckInBoundsOp> in, OpBuilder &b, Loc
   ValueRange what = in.getIndexed();
   auto array = dyn_cast<MemRefType>(indexed);
   Value length = array ? asWord(b, loc, unpack(b, loc, array, what).sizes.front())
-                       : runtime.call(b, loc, "idris_rt_str_length", b.getI64Type(), what.front());
+                       : runtime.call(b, loc, idr::runtime::Abi<StrLengthOp>::entry, what.front())
+                             .getResult();
   return compare(b, loc, arith::CmpIPredicate::uge, in.getIndex().front(), length);
 }
 
 // A string of no characters.
 Value fails(CheckNonemptyOp, Converted<CheckNonemptyOp> in, OpBuilder &b, Location loc,
             Runtime &runtime) {
-  Value length = runtime.call(b, loc, "idris_rt_str_length", b.getI64Type(), in.getStr().front());
+  Value length =
+      runtime.call(b, loc, idr::runtime::Abi<StrLengthOp>::entry, in.getStr().front()).getResult();
   return compare(b, loc, arith::CmpIPredicate::eq, length,
                  arith::ConstantIntOp::create(b, loc, 0, 64));
 }

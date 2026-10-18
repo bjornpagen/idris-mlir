@@ -52,12 +52,13 @@ using Bind = function_ref<SmallVector<Value>(OpBuilder &, Block *, unsigned)>;
 using Yield = function_ref<SmallVector<Value>(ArrayRef<Value>)>;
 
 // The linalg op over the first `dims` dimensions of `op`'s domain, whose
-// body is `op`'s region, moved: its inputs the region's reads, its outputs
-// `outputs` at `outputMaps`. The rewriter's insertion point is kept, after
-// the op made.
+// body is `op`'s region, moved, which gives values of the types `given`:
+// its inputs the region's reads, its outputs `outputs` at `outputMaps`. The
+// rewriter's insertion point is kept, after the op made.
 linalg::GenericOp genericOf(RewriterBase &rewriter, Operation *op, unsigned dims,
                             TypeRange results, ValueRange outputs, ArrayRef<AffineMap> outputMaps,
-                            ArrayRef<utils::IteratorType> iterators, Bind bind, Yield yielded) {
+                            ArrayRef<utils::IteratorType> iterators, TypeRange given, Bind bind,
+                            Yield yielded) {
   Location loc = op->getLoc();
   SmallVector<Read> reads = readsOf(op, dims);
   Inputs inputs = inputsOf(reads);
@@ -71,8 +72,7 @@ linalg::GenericOp genericOf(RewriterBase &rewriter, Operation *op, unsigned dims
   SmallVector<Location> locs(types.size(), loc);
   Block *body = rewriter.createBlock(&generic.getRegion(), generic.getRegion().end(), types, locs);
   SmallVector<Value> args = bind(rewriter, body, static_cast<unsigned>(inputs.arrays.size()));
-  std::optional<SmallVector<Value>> given = inlineRegion(rewriter, op, args);
-  linalg::YieldOp::create(rewriter, loc, yielded(*given));
+  linalg::YieldOp::create(rewriter, loc, yielded(inlineRegion(rewriter, op, args, given)));
   for (auto [read, input] : llvm::zip_equal(reads, inputs.of))
     rewriter.replaceOp(read.op, body->getArgument(input));
   // An index the body does not read is none of its work.
@@ -123,23 +123,26 @@ void lowerParallel(RewriterBase &rewriter, Operation *op) {
     outputs.push_back(emptyOf(rewriter, loc, cast<RankedTensorType>(type), dims));
   SmallVector<AffineMap> maps(outputs.size(),
                               AffineMap::getMultiDimIdentityMap(rank, op->getContext()));
+  SmallVector<Type> cells = tabulate.getCellTypes();
   linalg::GenericOp generic = genericOf(
       rewriter, op, rank, tabulate.getArrays().getTypes(), outputs, maps,
-      SmallVector<utils::IteratorType>(rank, utils::IteratorType::parallel),
+      SmallVector<utils::IteratorType>(rank, utils::IteratorType::parallel), cells,
       [&](OpBuilder &b, Block *, unsigned) { return indicesOf(b, loc, rank); }, same);
   rewriter.replaceOp(op, generic.getResults());
 }
 
-void lowerReduction(RewriterBase &rewriter, FoldLastOp op) {
-  Location loc = op.getLoc();
-  MLIRContext *ctx = op.getContext();
+void lowerReduction(RewriterBase &rewriter, LastAxisFoldOpInterface op) {
+  Location loc = op->getLoc();
+  MLIRContext *ctx = op->getContext();
   unsigned frame = op.getFrameRank();
   rewriter.setInsertionPoint(op);
   SmallVector<AffineMap> maps(op.getInits().size(), leading(frame + 1, frame, ctx));
   SmallVector<utils::IteratorType> iterators(frame, utils::IteratorType::parallel);
   iterators.push_back(utils::IteratorType::reduction);
+  // Held apart from the region, which the linalg op takes.
+  SmallVector<Type> accumulators(ValueRange(op.getAccumulators()).getTypes());
   linalg::GenericOp generic = genericOf(
-      rewriter, op, frame + 1, op.getResults().getTypes(), op.getInits(), maps, iterators,
+      rewriter, op, frame + 1, op->getResultTypes(), op.getInits(), maps, iterators, accumulators,
       [&](OpBuilder &b, Block *body, unsigned inputs) {
         SmallVector<Value> args = indicesOf(b, loc, frame + 1);
         llvm::append_range(args, body->getArguments().drop_front(inputs));
@@ -149,13 +152,13 @@ void lowerReduction(RewriterBase &rewriter, FoldLastOp op) {
   rewriter.replaceOp(op, generic.getResults());
 }
 
-void lowerInterchange(RewriterBase &rewriter, Operation *op) {
+void lowerInterchange(RewriterBase &rewriter, LastAxisFoldOpInterface op) {
   Location loc = op->getLoc();
   MLIRContext *ctx = op->getContext();
   bool scan = isa<ScanLastOp>(op);
-  ValueRange inits = scan ? cast<ScanLastOp>(op).getInits() : cast<FoldLastOp>(op).getInits();
-  Value length = scan ? cast<ScanLastOp>(op).getLength() : cast<FoldLastOp>(op).getLength();
-  unsigned frame = scan ? cast<ScanLastOp>(op).getFrameRank() : cast<FoldLastOp>(op).getFrameRank();
+  ValueRange inits = op.getInits();
+  Value length = op.getLength();
+  unsigned frame = op.getFrameRank();
   auto count = static_cast<unsigned>(inits.size());
   rewriter.setInsertionPoint(op);
   SmallVector<OpFoldResult> extents = extentsOf(rewriter, op, frame + 1);
@@ -187,9 +190,11 @@ void lowerInterchange(RewriterBase &rewriter, Operation *op) {
         rewriter, loc, cast<RankedTensorType>(init.getType()), result, offsets, sizes, strides));
   }
   SmallVector<AffineMap> maps(outputs.size(), AffineMap::getMultiDimIdentityMap(frame, ctx));
+  // Held apart from the region, which the linalg op takes.
+  SmallVector<Type> stepTypes(ValueRange(op.getAccumulators()).getTypes());
   linalg::GenericOp generic = genericOf(
       rewriter, op, frame, ValueRange(outputs).getTypes(), outputs, maps,
-      SmallVector<utils::IteratorType>(frame, utils::IteratorType::parallel),
+      SmallVector<utils::IteratorType>(frame, utils::IteratorType::parallel), stepTypes,
       [&](OpBuilder &b, Block *body, unsigned inputs) {
         SmallVector<Value> args = indicesOf(b, loc, frame);
         args.push_back(loop.getInductionVar());

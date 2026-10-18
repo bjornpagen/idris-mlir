@@ -9,7 +9,8 @@
 // conversion, so LLVM emulates the one and scalarizes the other, where
 // 32-bit lanes have both. Upstream's narrowing reaches an index lane
 // through index casts, as it reaches a word. Each vectorized loop that
-// computes on lanes of integers wider than 32 bits, outside the
+// computes on lanes of integers wider than 32 bits (laneWidth: a select or
+// a cast only moves lanes, and costs the same at any width), outside the
 // accumulations it carries round (a sum is as wide as the program made
 // it), becomes two versions: where every integer it reads from outside
 // (the sizes, the tile bound) is at most B, a copy in which every integer
@@ -27,7 +28,7 @@
 // binary search over the exponent, one try per bit of the span, since a
 // smaller bound fits whatever a larger one does), the analysis run on it
 // each time, and the largest B kept at which
-// every elementwise integer op in it wider than 32 bits, but an
+// every integer op in it that computes wider than 32 bits, but an
 // accumulation, fits. Interval arithmetic over the body is what the
 // analysis computes, so the body's own arithmetic decides the bound. The
 // narrowing then runs on that copy under the analysis of the chosen B, and

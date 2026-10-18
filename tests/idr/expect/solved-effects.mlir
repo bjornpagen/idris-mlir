@@ -1,19 +1,18 @@
-// NEEDS-ACCEPTANCE: that effects reads each function's declared set, which covers its body as the program's verifier asks, and fails once for each function given another set.
+// NEEDS-ACCEPTANCE: that effects reads each function's declared set, which covers its body as the program's verifier asks, written as this wave prints a function's effects (`idr.func effects<...> @f`); and that the -verify-diagnostics run passes, one error at each function given another set.
 // RUN: idris-mlir-opt %s --idr-expect=holds=effects=@pure:none,effects=@divides:crash,effects=@unsolved:io+crash+diverge -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=effects=@pure:crash,effects=@divides:none -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 2
+// RUN: idris-mlir-opt %s --idr-expect=holds=effects=@pure:crash,effects=@divides:none -verify-diagnostics -o /dev/null
 // What a function may do is the set it holds: none for one that only
 // computes and is total (@pure), crash for one whose guard may (@divides),
-// and everything for one no pass solved, which holds no set (@unsolved).
-// CHECK-DAG: error: expected effects: @pure may do {{.*}}, not {{.*}}
-// CHECK-DAG: error: expected effects: @divides may do {{.*}}, not {{.*}}
+// and everything for one no pass solved, which holds the default
+// (@unsolved).
 idr.program @"solved-effects" root(@root) stage(first) {
-  idr.func @pure(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
+  // expected-error @below {{expected effects: @pure may do none, not crash}}
+  idr.func effects<none> @pure(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func @divides(%x: i64, %y: i64) -> i64 attributes {total, effects = #idr.effects<crash>} {
+  // expected-error @below {{expected effects: @divides may do crash, not none}}
+  idr.func effects<crash> @divides(%x: i64, %y: i64) -> i64 attributes {total} {
     %g = idr.check.nonzero %y, "division by zero" : i64
     %q = idr.div signed %x, %g : i64
     return %q : i64

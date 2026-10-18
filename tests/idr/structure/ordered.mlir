@@ -16,7 +16,7 @@ idr.program @ordered root(@root) stage(first) {
     return %y : i64
   }
   idr.func @writes(%x: i64, %w: !idr.world) -> !idr.world attributes {total} {
-    %w1 = idr.io.put_int signed %x, %w : i64
+    %w1 = idr.io.put_sint %x, %w : i64
     return %w1 : !idr.world
   }
   idr.func @crashes(%n: index, %d: i64) -> tensor<?xi64> {
@@ -24,7 +24,7 @@ idr.program @ordered root(@root) stage(first) {
     ^bb0(%i: index):
       %x = arith.index_cast %i : index to i64
       %g = idr.check.nonzero %d, "division by zero" : i64
-      %q = idr.div signed %x, %g : i64
+      %q = idr.divs %x, %g : i64
       idr.array.yield %q : i64
     } : tensor<?xi64>
     return %t : tensor<?xi64>
@@ -42,7 +42,7 @@ idr.program @ordered root(@root) stage(first) {
     %t, %w1 = idr.tabulate_io [%n], %w {
     ^bb0(%i: index, %v: !idr.world):
       %x = arith.index_cast %i : index to i64
-      %v1 = idr.io.put_int signed %x, %v : i64
+      %v1 = idr.io.put_sint %x, %v : i64
       idr.array.yield %x, %v1 : i64, !idr.world
     } : tensor<?xi64>
     return %t, %w1 : tensor<?xi64>, !idr.world

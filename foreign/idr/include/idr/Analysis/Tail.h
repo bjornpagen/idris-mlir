@@ -17,15 +17,19 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
-#include <variant>
 
 namespace idr::tail {
+
+// Whether `block` ends a tail position: its terminator is the function's
+// idr.return, or the idr.yield of a match in tail position. The one test
+// of where a tail ends.
+bool endsTail(mlir::Block &block);
 
 // Whether the results of `op` pass unchanged to its function's return.
 bool inTailPosition(mlir::Operation *op);
 
-// Whether `terminator` ends a tail position and passes on exactly the
-// results of the op before it.
+// Whether `terminator` is a return or a match's yield and passes on
+// exactly the results of the op before it.
 bool passesOnPrevious(mlir::Operation *terminator);
 
 // Whether `op` is a match whose regions may hold tail positions.
@@ -37,29 +41,24 @@ mlir::Operation *tailMatch(mlir::Operation *terminator);
 // Whether `op` is a call of `fn` itself, by name.
 bool isSelfCall(mlir::Operation *op, FuncOp fn);
 
-// A box a tail builds: a constructor, or one built in a reused cell. Both
-// have the same fields, holes and destinations, so what reads one reads
-// either.
-using Built = std::variant<ConOp, ReuseOp>;
-
-// The op of `built`.
-mlir::Operation *opOf(const Built &built);
-
 // A tail modulo constructor: the self call whose result is field `index`
-// of the box `built`, which the block's terminator passes on. The result
-// may change its grade on its way to the field (`grades`, nearest the
-// field first): a grade has no runtime form, and goes with the call.
+// of the box `built` writes into its cell, which the block's terminator
+// passes on. idr-trmc runs after idr-rc, when every box a constructor with
+// fields builds is a cell written by idr.cell.init. The result may change
+// its grade on its way to the field (`grades`, nearest the field first): a
+// grade has no runtime form, and goes with the call.
 struct Modulo {
   CallOp call;
-  Built built;
+  CellInitOp built;
   unsigned index;
   llvm::SmallVector<mlir::Operation *, 2> grades;
 };
 
-// The tail modulo constructor of `block` in `fn`: the constructor of a box
-// right before its terminator, and a self call in the block whose one
+// The tail modulo constructor of `block` in `fn`: the box written into its
+// cell right before its terminator, and a self call in the block whose one
 // result reaches a field of it, with only ops between them that neither
-// touch memory nor can fail, which the call then moves past.
+// touch memory nor can fail, or the cell's own producer, which the call
+// then moves past.
 std::optional<Modulo> moduloAt(mlir::Block &block, FuncOp fn);
 
 // Whether `call` is the self call of a tail modulo constructor in a block

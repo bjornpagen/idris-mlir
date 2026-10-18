@@ -351,6 +351,7 @@ fittingUnder xs ys one fx fy =
 -- numbers (`samePosition`, `==` on naturals), and every proof that the
 -- comparison means equality is erased, so a decision costs its comparisons.
 
+export
 sameNat : (k, k' : Nat) -> Decision (k = k')
 sameNat k k' = case choose (k == k') of
   Left same => Holds (irrelevantEq (equalSo same))
@@ -362,7 +363,8 @@ sameForm f g = case decEq f g of
   Yes eq => Holds eq
   No ne => Fails ne
 
--- Two addresses are one exactly when their bytes are.
+||| Two addresses are one exactly when their bytes are.
+export
 decideAddress : (a, b : Vect k (Fin 256)) -> Decision (a = b)
 decideAddress [] [] = Holds Refl
 decideAddress (x :: xs) (y :: ys) = case samePosition x y of
@@ -378,19 +380,8 @@ sameAddress a b = case decideAddress a b of
   Holds _ => True
   Fails _ => False
 
+||| Two optional parts are one when both are absent, or both present and one.
 export
-0 sameAddressSound : (a, b : Vect k (Fin 256)) -> So (sameAddress a b) -> a = b
-sameAddressSound a b so with (decideAddress a b)
-  sameAddressSound a b so | Holds eq = eq
-  sameAddressSound a b so | Fails _ = absurd so
-
-export
-0 sameAddressSelf : (a : Vect k (Fin 256)) -> So (sameAddress a a)
-sameAddressSelf a with (decideAddress a a)
-  sameAddressSelf a | Holds _ = Oh
-  sameAddressSelf a | Fails ne = absurd (ne Refl)
-
--- Two optional parts are one when both are absent, or both present and one.
 sameMaybe : ((x, y : a) -> Decision (x = y)) -> (m, m' : Maybe a) -> Decision (m = m')
 sameMaybe same Nothing Nothing = Holds Refl
 sameMaybe same (Just x) (Just y) = case same x y of
@@ -399,7 +390,8 @@ sameMaybe same (Just x) (Just y) = case same x y of
 sameMaybe same Nothing (Just _) = Fails (\case Refl impossible)
 sameMaybe same (Just _) Nothing = Fails (\case Refl impossible)
 
--- Two lists are one when they are as long and one at every place.
+||| Two lists are one when they are as long and one at every place.
+export
 sameList : ((x, y : a) -> Decision (x = y)) -> (xs, ys : List a) -> Decision (xs = ys)
 sameList same [] [] = Holds Refl
 sameList same (x :: xs) (y :: ys) = case same x y of

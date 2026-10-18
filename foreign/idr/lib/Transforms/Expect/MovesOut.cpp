@@ -18,17 +18,14 @@ namespace idr::expect {
 
 // In the function the argument names and its clones, or anywhere, some
 // element is rebuilt in its place.
-LogicalResult movesOut(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "moves-out";
-  SmallVector<Operation *> roots = rootsOf(module, function, property);
-  if (roots.empty())
-    return failure();
+LogicalResult movesOut(const Request<Roots> &request) {
+  SmallVector<Operation *> roots = request.argument.roots(request.module);
   bool moved = false;
   for (Operation *root : roots)
     root->walk([&](UpdateOpInterface) { moved = true; });
   if (!moved)
-    fail(roots.front()->getLoc(), property) << "no element of an array is rebuilt in its place"
-                                            << (function.empty() ? "" : " in ") << function;
+    fail(roots.front()->getLoc(), request.property)
+        << "no element of an array is rebuilt in its place" << request.argument.in();
   return success(moved);
 }
 

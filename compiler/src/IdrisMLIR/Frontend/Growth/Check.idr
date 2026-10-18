@@ -49,8 +49,9 @@ import Data.Vect
 ||| Why a graph grows.
 public export
 data Cause : Graph -> Type where
-  ||| A cycle of finite arcs whose gains exceed its losses.
-  Cycle : (c : List (Fin g.size)) -> (as : List (Fin (length g.arcs))) -> Positive g c as -> Cause g
+  ||| A cycle of finite arcs whose gains exceed its losses: its arcs, each
+  ||| leaving the position the one before entered.
+  Cycle : (as : List (Fin (length g.arcs))) -> Positive g as -> Cause g
   ||| A Stuck arc no growing cycle reaches.
   Unbounded : (a : Fin (length g.arcs)) -> StuckArc g a -> Cause g
 
@@ -384,35 +385,33 @@ record Edge (g : Graph) where
   to : Fin g.size
   gain : Nat
   loss : Nat
-  0 present : Present (Finite gain loss)
-  0 is : arc g at = MkArc (Just from) to (Finite gain loss) present
+  0 is : arc g at = MkArc from to (Measured gain loss)
 
-0 weightIs : (e : Edge g) -> (arc g e.at).weight = Finite e.gain e.loss
-weightIs e = cong (.weight) e.is
+0 labelIs : (e : Edge g) -> (arc g e.at).label = Measured e.gain e.loss
+labelIs e = cong (.label) e.is
 
-0 finiteEdge : (e : Edge g) -> IsFinite (arc g e.at).weight
-finiteEdge e = replace {p = IsFinite} (sym (weightIs e)) ItIsFinite
+0 finiteEdge : (e : Edge g) -> IsFinite (arc g e.at).label
+finiteEdge e = replace {p = IsFinite} (sym (labelIs e)) ItIsFinite
 
 ||| Edges as heaviest walks read them.
 entries : (es : List (Edge g)) -> Looked g (map (.at) es)
 entries [] = []
-entries (e :: es) = MkEntry (Just e.from) e.to e.gain e.loss e.present e.is :: entries es
+entries (e :: es) = MkEntry e.from e.to e.gain e.loss e.is :: entries es
 
-||| The Stuck arcs of a list of arcs: none, and so every arc is Finite, or
-||| some, each with its source and its cause, in the arcs' order.
+||| The Unmeasured arcs of a list of arcs: none, and so every arc is
+||| Measured, or some, each with its source and its cause, in the arcs'
+||| order.
 data Stucks : (g : Graph) -> List (Fin (length g.arcs)) -> Type where
-  None : (0 _ : All IsFinite (weights g as)) -> Stucks g as
-  Some : List1 (Maybe (Fin g.size), Cause g) -> Stucks g as
+  None : (0 _ : All IsFinite (labels g as)) -> Stucks g as
+  Some : List1 (Fin g.size, Cause g) -> Stucks g as
 
-||| The arcs as the check reads them: each position's Finite edges out and
-||| its links (the targets of every arc out of it, Finite or Stuck, which
-||| the components and the reach follow), the floor the origin's arcs raise
-||| each position to, and the Stuck arcs.
+||| The arcs as the check reads them: each position's Measured edges out and
+||| its links (the targets of every arc out of it, Measured or not, which
+||| the components and the reach follow), and the Unmeasured arcs.
 record Sorted (g : Graph) (d : Nat) (as : List (Fin (length g.arcs))) where
   constructor MkSorted
   out : Table d (List (Edge g))
   links : Table d (List (Fin g.size))
-  floor : Table d Nat
   stucks : Stucks g as
 
 ||| Reads each arc once, in one pass over the arcs (`lookUp`): each comes
@@ -421,32 +420,26 @@ record Sorted (g : Graph) (d : Nat) (as : List (Fin (length g.arcs))) where
 ||| square of their number in all. Each position's arcs are in the arcs'
 ||| order.
 sortArcs : (g : Graph) -> Places g.size d -> (as : List (Fin (length g.arcs))) -> At g as -> Sorted g d as
-sortArcs g pl [] [] = MkSorted (Every []) (Every []) (Every 0) (None [])
+sortArcs g pl [] [] = MkSorted (Every []) (Every []) (None [])
 sortArcs g pl (a :: as) ((::) x eq xs) = place x eq (sortArcs g pl as xs)
   where
-    finiteToo : (0 _ : IsFinite (arc g a).weight) -> Stucks g as -> Stucks g (a :: as)
+    finiteToo : (0 _ : IsFinite (arc g a).label) -> Stucks g as -> Stucks g (a :: as)
     finiteToo f (None fs) = None (f :: fs)
     finiteToo f (Some ss) = Some ss
 
-    stuckList : Stucks g as -> List (Maybe (Fin g.size), Cause g)
+    stuckList : Stucks g as -> List (Fin g.size, Cause g)
     stuckList (None _) = []
     stuckList (Some ss) = forget ss
 
-    -- An arc by what it is: a Finite arc from a position is an edge out of
-    -- it and a link; a cap's Finite arc, from the origin, which holds 0,
-    -- raises its target's floor, where the potential starts; a Stuck arc
-    -- is a link, and a cause of its own.
+    -- An arc by what it is: a Measured arc is an edge out of its source
+    -- and a link; an Unmeasured one is a link, and a cause of its own.
     place : (x : Arc g.size) -> (0 _ : x = arc g a) -> Sorted g d as -> Sorted g d (a :: as)
-    place (MkArc (Just q) p (Finite gain loss) pr) eq (MkSorted out links floor stucks) =
-      MkSorted (update pl q (MkEdge a q p gain loss pr (sym eq) ::) out) (update pl q (p ::) links) floor
-               (finiteToo (replace {p = \y => IsFinite y.weight} eq ItIsFinite) stucks)
-    place (MkArc Nothing p (Finite gain loss) pr) eq (MkSorted out links floor stucks) =
-      MkSorted out links (update pl p (max (minus gain loss)) floor)
-               (finiteToo (replace {p = \y => IsFinite y.weight} eq ItIsFinite) stucks)
-    place (MkArc q p Stuck pr) eq (MkSorted out links floor stucks) =
-      MkSorted out (maybe links (\q' => update pl q' (p ::) links) q) floor
-               (Some ((q, Unbounded a (ItIsStuck (cong (.weight) (sym eq)))) ::: stuckList stucks))
-    place (MkArc _ _ Absent pr) _ _ = void (presentNotAbsent pr)
+    place (MkArc q p (Measured gain loss)) eq (MkSorted out links stucks) =
+      MkSorted (update pl q (MkEdge a q p gain loss (sym eq) ::) out) (update pl q (p ::) links)
+               (finiteToo (replace {p = \y => IsFinite y.label} eq ItIsFinite) stucks)
+    place (MkArc q p Unmeasured) eq (MkSorted out links stucks) =
+      MkSorted out (update pl q (p ::) links)
+               (Some ((q, Unbounded a (ItIsStuck (cong (.label) (sym eq)))) ::: stuckList stucks))
 
 ------------------------------------------------------------------------------
 -- One component
@@ -507,33 +500,38 @@ walkBack pl (S r) inner start ws = case at pl ws start of
 ||| built by putting an edge before the walk at its target, but the table
 ||| does not tie an entry to its place, so the chain is compared here, once.
 ring : (first : Fin g.size) -> (e : Edge g) -> (w : Walk g) ->
-       Decision (Ring g first e.from (map (\s => s.edge.from) w) (e.at :: map (\s => s.edge.at) w))
+       Decision (Ring g first e.from (e.at :: map (\s => s.edge.at) w))
 ring first e [] = case samePosition e.to first of
   Holds t => Holds (Last (cong (.from) e.is) (trans (cong (.to) e.is) t))
   Fails nt => Fails (\(Last _ t) => nt (trans (sym (cong (.to) e.is)) t))
 ring first e (s :: w) = case samePosition e.to s.edge.from of
-  Fails nt => Fails (\(Next _ t _) => nt (trans (sym (cong (.to) e.is)) t))
+  Fails nt => Fails (\(Next _ t r) => nt (trans (sym (cong (.to) e.is)) (trans t (startsAt s r))))
   Holds t => case ring first s.edge w of
     Holds r => Holds (Next (cong (.from) e.is) (trans (cong (.to) e.is) t) r)
-    Fails nr => Fails (\(Next _ _ r) => nr r)
+    Fails nr => Fails (\(Next _ _ r) => nr (replace {p = \x => Ring g first x (s.edge.at :: map (\s' => s'.edge.at) w)}
+                                                   (startsAt s r) r))
+  where
+    -- A ring whose first arc is a steady edge starts at the edge's source.
+    0 startsAt : (s : Steady g) -> Ring g first here (s.edge.at :: as) -> here = s.edge.from
+    startsAt s r = trans (sym (ringStart r)) (cong (.from) s.edge.is)
 
-0 finiteAll : (e : Edge g) -> (w : Walk g) -> All IsFinite (weights g (e.at :: map (\s => s.edge.at) w))
+0 finiteAll : (e : Edge g) -> (w : Walk g) -> All IsFinite (labels g (e.at :: map (\s => s.edge.at) w))
 finiteAll e [] = [finiteEdge e]
 finiteAll e (s :: w) = finiteEdge e :: finiteAll s.edge w
 
 -- What steady edges sum to: no more lost than gained.
-0 steadySum : (w : Walk g) -> LTE (losses (weights g (map (\s => s.edge.at) w))) (gains (weights g (map (\s => s.edge.at) w)))
+0 steadySum : (w : Walk g) -> LTE (losses (labels g (map (\s => s.edge.at) w))) (gains (labels g (map (\s => s.edge.at) w)))
 steadySum [] = LTEZero
 steadySum (s :: w) =
-  replace {p = \x => LTE (lossOf x + losses (weights g (map (\s => s.edge.at) w))) (gainOf x + gains (weights g (map (\s => s.edge.at) w)))}
-          (sym (weightIs s.edge)) (plusLteMonotone s.holds (steadySum w))
+  replace {p = \x => LTE (lossOf x + losses (labels g (map (\s => s.edge.at) w))) (gainOf x + gains (labels g (map (\s => s.edge.at) w)))}
+          (sym (labelIs s.edge)) (plusLteMonotone s.holds (steadySum w))
 
 -- A gaining edge and steady ones gain more than they lose.
 0 rises : (e : Gaining g) -> (w : Walk g) ->
-          LT (losses (weights g (e.edge.at :: map (\s => s.edge.at) w))) (gains (weights g (e.edge.at :: map (\s => s.edge.at) w)))
+          LT (losses (labels g (e.edge.at :: map (\s => s.edge.at) w))) (gains (labels g (e.edge.at :: map (\s => s.edge.at) w)))
 rises e w =
-  replace {p = \x => LT (lossOf x + losses (weights g (map (\s => s.edge.at) w))) (gainOf x + gains (weights g (map (\s => s.edge.at) w)))}
-          (sym (weightIs e.edge)) (plusLteMonotone e.rises (steadySum w))
+  replace {p = \x => LT (lossOf x + losses (labels g (map (\s => s.edge.at) w))) (gainOf x + gains (labels g (map (\s => s.edge.at) w)))}
+          (sym (labelIs e.edge)) (plusLteMonotone e.rises (steadySum w))
 
 ||| The first gaining edge of `es` whose walk back from its target to its
 ||| source closes a cycle: it grows, the other edges being steady.
@@ -542,8 +540,7 @@ cycleThrough g pl rounds inner [] = Nothing
 cycleThrough g pl rounds inner (e :: es) =
   case walkBack pl rounds inner e.edge.to (put pl e.edge.from (Just []) (Every Nothing)) of
     Just w => case ring e.edge.from e.edge w of
-      Holds r => Just (Cycle (e.edge.from :: map (\s => s.edge.from) w) (e.edge.at :: map (\s => s.edge.at) w)
-                             (Sums r (finiteAll e.edge w) (rises e w)))
+      Holds r => Just (Cycle (e.edge.at :: map (\s => s.edge.at) w) (Sums r (finiteAll e.edge w) (rises e w)))
       -- A walk that does not chain is no cycle the check can name. If no
       -- candidate's does, the component is settled as bounded, the
       -- potential fails `feasibleIn`, and `heaviest` over every arc still
@@ -591,8 +588,8 @@ settle g pl arcs comp st (k, members) =
       -- nothing, so only heaviest walks decide such a component, over the
       -- edges as read.
       Nothing => case heaviestOver (entries inner) (listed pl st.pot) of
-        Left (c ** cs ** pf) => Left (Cycle c cs pf)
-        Right (pot ** _) => Right (tabled pl pot st.pot)
+        Left (as ** pf) => Left (Cycle as pf)
+        Right fitted => Right (tabled pl fitted.pot st.pot)
       -- With no such arc, every cycle through an arc that gains grows, and
       -- the walk back finds one at the cost of the component's own arcs.
       Just steady =>
@@ -608,15 +605,19 @@ settle g pl arcs comp st (k, members) =
     marked : Table d Bool -> Table d Bool
     marked r = foldl (\r', q => foldl (\r'', p => put pl p True r'') (put pl q True r') (at pl arcs.links q)) r members
 
-||| A Stuck arc is a cause of its own unless a growing component reaches
-||| its source. The origin is reached by nothing.
-cause : Places g.size d -> Table d Bool -> (Maybe (Fin g.size), Cause g) -> Maybe (Cause g)
-cause pl marks (Just q, c) = if at pl marks q then Nothing else Just c
-cause pl marks (Nothing, c) = Just c
+||| An Unmeasured arc is a cause of its own unless a growing component
+||| reaches its source.
+cause : Places g.size d -> Table d Bool -> (Fin g.size, Cause g) -> Maybe (Cause g)
+cause pl marks (q, c) = if at pl marks q then Nothing else Just c
 
-||| The arcs, read once, and the components settled callers first: the one
-||| fold that both `check` and `dagPotential` read, over tables whose places
-||| hold the graph's positions.
+||| The least potential the caps ask: each capped position's floor
+||| (`floorOf`), where the potential starts.
+floors : (g : Graph) -> Vect g.size Nat
+floors g = map (floorOf g.constant) g.caps
+
+||| The arcs, read once, and the components settled callers first, from the
+||| caps' floors: the one fold that both `check` and `dagPotential` read,
+||| over tables whose places hold the graph's positions.
 settled : (g : Graph) -> Places g.size d -> (Sorted g d (everyArc g), State g d)
 settled g pl =
   let arcs = sortArcs g pl (everyArc g) (lookUp g (everyArc g))
@@ -624,7 +625,7 @@ settled g pl =
       -- 0 is no position's number in the end: `roots` visits every
       -- position, so every position is in a component.
       comp = foldl (\v, (k, ms) => foldl (\v', p => put pl p k v') v ms) (the (Table d Nat) (Every 0)) cs in
-  (arcs, foldl (settle g pl arcs comp) (MkState arcs.floor (Every False) []) cs)
+  (arcs, foldl (settle g pl arcs comp) (MkState (tabled pl (floors g) (Every 0)) (Every False) []) cs)
   where
     counted : Nat -> List a -> List (Nat, a)
     counted k [] = []
@@ -634,28 +635,26 @@ settled g pl =
 -- The potential, checked where the table holds it
 ------------------------------------------------------------------------------
 
-||| An arc's source value in a table of values: the origin's is 0.
-sourceIn : Places n d -> Table d Nat -> Maybe (Fin n) -> Nat
-sourceIn pl t Nothing = 0
-sourceIn pl t (Just q) = at pl t q
-
-0 potentialListed : {n : Nat} -> (pl : Places n d) -> (t : Table d Nat) -> (q : Maybe (Fin n)) ->
-                    potentialAt (listed pl t) q = sourceIn pl t q
-potentialListed pl t Nothing = Refl
-potentialListed pl t (Just q) = indexListed pl t q
+||| A potential raised to at least another, position by position.
+raised : (pot, lo : Vect n Nat) -> Subset (Vect n Nat) (Below lo)
+raised [] [] = Element [] []
+raised (v :: vs) (l :: ls) =
+  let Element rest below = raised vs ls in
+  case choose (l <= v) of
+    Left le => Element (v :: rest) (lteSo le :: below)
+    Right _ => Element (l :: rest) (reflexive :: below)
 
 ||| Whether one arc fits the potential a table holds, read at its ends:
 ||| `index` into the listed potential would walk the positions before each
 ||| end, for every arc.
 satisfiesIn : {n : Nat} -> (pl : Places n d) -> (t : Table d Nat) -> (a : Arc n) -> Decision (Satisfies (listed pl t) a)
-satisfiesIn pl t (MkArc q p Absent pr) = void (presentNotAbsent pr)
--- No potential bounds a Stuck arc. `check` asks only of a graph whose arcs
--- are all Finite, but reads them here as the graph holds them.
-satisfiesIn pl t (MkArc q p Stuck _) = Fails (\case _ impossible)
-satisfiesIn pl t (MkArc q p (Finite gain loss) _) = case choose (sourceIn pl t q + gain <= at pl t p + loss) of
-  Left le => Holds (MkSatisfies (rewrite potentialListed pl t q in rewrite indexListed pl t p in lteSo le))
-  Right nle => Fails (\(MkSatisfies le) => notLteSo nle (the (LTE (sourceIn pl t q + gain) (at pl t p + loss))
-                                                            (rewrite sym (potentialListed pl t q) in
+-- No potential bounds an Unmeasured arc. `check` asks only of a graph
+-- whose arcs are all Measured, but reads them here as the graph holds them.
+satisfiesIn pl t (MkArc q p Unmeasured) = Fails (\case _ impossible)
+satisfiesIn pl t (MkArc q p (Measured gain loss)) = case choose (at pl t q + gain <= at pl t p + loss) of
+  Left le => Holds (MkSatisfies (rewrite indexListed pl t q in rewrite indexListed pl t p in lteSo le))
+  Right nle => Fails (\(MkSatisfies le) => notLteSo nle (the (LTE (at pl t q + gain) (at pl t p + loss))
+                                                            (rewrite sym (indexListed pl t q) in
                                                              rewrite sym (indexListed pl t p) in le)))
 
 satisfyAllIn : {n : Nat} -> (pl : Places n d) -> (t : Table d Nat) -> (as : List (Arc n)) -> Decision (All (Satisfies (listed pl t)) as)
@@ -667,11 +666,13 @@ satisfyAllIn pl t (a :: as) = case satisfiesIn pl t a of
     Holds fs => Holds (f :: fs)
 
 ||| Whether a table's potential is feasible: every arc of the graph, its
-||| ends read in the table.
+||| ends read in the table, and every cap.
 feasibleIn : (g : Graph) -> (pl : Places g.size d) -> (t : Table d Nat) -> Decision (Feasible g (listed pl t))
 feasibleIn g pl t = case satisfyAllIn pl t g.arcs of
-  Holds fs => Holds (MkFeasible fs)
-  Fails nfs => Fails (\(MkFeasible fs) => nfs fs)
+  Fails nfs => Fails (\(MkFeasible fs _) => nfs fs)
+  Holds fs => case capsHold g.constant g.caps (listed pl t) of
+    Fails ncs => Fails (\(MkFeasible _ cs) => ncs cs)
+    Holds cs => Holds (MkFeasible fs cs)
 
 ||| The potential over the components, before `check` rechecks it.
 export
@@ -696,7 +697,12 @@ check g =
       -- The potential over the components is the least one when they are
       -- right, so a failure here is this module's own bug, which the
       -- exhaustive box shows. `heaviest` over every arc still answers with
-      -- a certificate.
-      Fails _ => case heaviest g (everyArc g) fin (listed pl st.pot) of
-        Left (c ** as ** pf) => Grows (Cycle c as pf ::: [])
-        Right (pot' ** fits) => Bounded pot' (everyFits fits)
+      -- a certificate, from a start no lower than the caps' floors, which
+      -- it only raises.
+      Fails _ =>
+        let start = raised (listed pl st.pot) (floors g) in
+        case heaviest g (everyArc g) fin start.fst of
+          Left (as ** pf) => Grows (Cycle as pf ::: [])
+          Right fitted =>
+            Bounded fitted.pot (everyFits fitted.fits
+                                 (capsAbove (capsAbove (floorsHold g.constant g.caps) start.snd) fitted.above))

@@ -4,8 +4,8 @@
 ||| losses, or a potential every arc satisfies.
 |||
 ||| Bellman-Ford on heaviest walks. A walk starts at a position with the
-||| start potential's value there, or at the origin with 0, and follows the
-||| listed arcs, its weight kept as what it gains and what it loses. After k
+||| start potential's value there and follows the listed arcs, its weight
+||| kept as what it gains and what it loses. After k
 ||| rounds each position holds the weight of a walk of at most k arcs that
 ||| ends there, with the walk, and no walk of at most k arcs ends there
 ||| heavier: a round reads only the round before, so this holds by
@@ -164,34 +164,29 @@ indexColumn f (FS i) (_ :: bs) = indexColumn f i bs
 -- Walks and paths
 
 ||| A walk through the listed arcs, from the start potential's implicit arc
-||| into its first position, or from the origin, to the position it ends at.
+||| into its first position, to the position it ends at.
 data Walk : (g : Graph) -> (inner : List (Fin (length g.arcs))) -> (start : Vect g.size Nat) -> Fin g.size -> Type where
   Start : (v : Fin g.size) -> Walk g inner start v
-  Enter : (a : Fin (length g.arcs)) -> (v : Fin g.size) -> (0 _ : Elem a inner) -> (0 _ : (arc g a).from = Nothing) ->
-          (0 _ : (arc g a).to = v) -> (0 _ : IsFinite (arc g a).weight) -> Walk g inner start v
   Extend : (u : Fin g.size) -> Walk g inner start u -> (a : Fin (length g.arcs)) -> (v : Fin g.size) -> (0 _ : Elem a inner) ->
-           (0 _ : (arc g a).from = Just u) -> (0 _ : (arc g a).to = v) -> (0 _ : IsFinite (arc g a).weight) -> Walk g inner start v
+           (0 _ : (arc g a).from = u) -> (0 _ : (arc g a).to = v) -> (0 _ : IsFinite (arc g a).label) -> Walk g inner start v
 
 steps : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 v : Fin g.size} -> Walk g inner start v -> Nat
 steps (Start _) = 0
-steps (Enter _ _ _ _ _ _) = 1
 steps (Extend _ w _ _ _ _ _ _) = S (steps w)
 
 rise : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 v : Fin g.size} -> Walk g inner start v -> Nat
 rise (Start v) = index v start
-rise (Enter a _ _ _ _ _) = gainOf (arc g a).weight
-rise (Extend _ w a _ _ _ _ _) = rise w + gainOf (arc g a).weight
+rise (Extend _ w a _ _ _ _ _) = rise w + gainOf (arc g a).label
 
 fall : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 v : Fin g.size} -> Walk g inner start v -> Nat
 fall (Start v) = 0
-fall (Enter a _ _ _ _ _) = lossOf (arc g a).weight
-fall (Extend _ w a _ _ _ _ _) = fall w + lossOf (arc g a).weight
+fall (Extend _ w a _ _ _ _ _) = fall w + lossOf (arc g a).label
 
 ||| A path through the listed arcs, from x to y.
 data Path : (g : Graph) -> (inner : List (Fin (length g.arcs))) -> (x, y : Fin g.size) -> Type where
   Stay : Path g inner x x
-  Step : (a : Fin (length g.arcs)) -> (t : Fin g.size) -> (0 _ : Elem a inner) -> (0 _ : (arc g a).from = Just x) ->
-         (0 _ : (arc g a).to = t) -> (0 _ : IsFinite (arc g a).weight) -> Path g inner t y -> Path g inner x y
+  Step : (a : Fin (length g.arcs)) -> (t : Fin g.size) -> (0 _ : Elem a inner) -> (0 _ : (arc g a).from = x) ->
+         (0 _ : (arc g a).to = t) -> (0 _ : IsFinite (arc g a).label) -> Path g inner t y -> Path g inner x y
 
 targets : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 x, y : Fin g.size} -> Path g inner x y -> List (Fin g.size)
 targets Stay = []
@@ -200,12 +195,6 @@ targets (Step _ t _ _ _ _ p) = t :: targets p
 arcsOf : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 x, y : Fin g.size} -> Path g inner x y -> List (Fin (length g.arcs))
 arcsOf Stay = []
 arcsOf (Step a _ _ _ _ _ p) = a :: arcsOf p
-
--- The positions a closed path visits after its first, before it closes.
-inside : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 x, y : Fin g.size} -> Path g inner x y -> List (Fin g.size)
-inside Stay = []
-inside (Step _ _ _ _ _ _ Stay) = []
-inside (Step _ t _ _ _ _ p@(Step _ _ _ _ _ _ _)) = t :: inside p
 
 append : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {x : Fin g.size} -> {0 y : Fin g.size} ->
          Walk g inner start x -> Path g inner x y -> Walk g inner start y
@@ -218,24 +207,24 @@ appendSteps w Stay = sym (plusZeroRightNeutral _)
 appendSteps {x} w (Step a t e l q f p) = trans (appendSteps (Extend x w a t e l q f) p) (plusSuccRightSucc _ _)
 
 0 appendRise : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {x : Fin g.size} -> {0 y : Fin g.size} ->
-               (w : Walk g inner start x) -> (p : Path g inner x y) -> rise (append w p) = rise w + gains (weights g (arcsOf p))
+               (w : Walk g inner start x) -> (p : Path g inner x y) -> rise (append w p) = rise w + gains (labels g (arcsOf p))
 appendRise w Stay = sym (plusZeroRightNeutral _)
 appendRise {x} w (Step a t e l q f p) = trans (appendRise (Extend x w a t e l q f) p) (sym (plusAssociative _ _ _))
 
 0 appendFall : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {x : Fin g.size} -> {0 y : Fin g.size} ->
-               (w : Walk g inner start x) -> (p : Path g inner x y) -> fall (append w p) = fall w + losses (weights g (arcsOf p))
+               (w : Walk g inner start x) -> (p : Path g inner x y) -> fall (append w p) = fall w + losses (labels g (arcsOf p))
 appendFall w Stay = sym (plusZeroRightNeutral _)
 appendFall {x} w (Step a t e l q f p) = trans (appendFall (Extend x w a t e l q f) p) (sym (plusAssociative _ _ _))
 
-0 gainsAppend : (ws, vs : List Weight) -> gains (ws ++ vs) = gains ws + gains vs
+0 gainsAppend : (ws, vs : List Label) -> gains (ws ++ vs) = gains ws + gains vs
 gainsAppend [] vs = Refl
 gainsAppend (w :: ws) vs = rewrite gainsAppend ws vs in plusAssociative _ _ _
 
-0 lossesAppend : (ws, vs : List Weight) -> losses (ws ++ vs) = losses ws + losses vs
+0 lossesAppend : (ws, vs : List Label) -> losses (ws ++ vs) = losses ws + losses vs
 lossesAppend [] vs = Refl
 lossesAppend (w :: ws) vs = rewrite lossesAppend ws vs in plusAssociative _ _ _
 
-0 pathFinite : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 x, y : Fin g.size} -> (p : Path g inner x y) -> All IsFinite (weights g (arcsOf p))
+0 pathFinite : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 x, y : Fin g.size} -> (p : Path g inner x y) -> All IsFinite (labels g (arcsOf p))
 pathFinite Stay = []
 pathFinite (Step _ _ _ _ _ f p) = f :: pathFinite p
 
@@ -255,7 +244,7 @@ targetsIn (Step _ _ _ _ _ _ p) (There e) = targetsIn p e
 -- The cycle's certificate
 
 0 ringOf : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 here, first : Fin g.size} -> (p : Path g inner here first) -> NonEmpty (targets p) ->
-           Ring g first here (inside p) (arcsOf p)
+           Ring g first here (arcsOf p)
 ringOf Stay ne = absurd ne
 ringOf (Step a t _ l q _ Stay) _ = Last l q
 ringOf (Step a t _ l q _ p@(Step _ _ _ _ _ _ _)) _ = Next l q (ringOf p IsNonEmpty)
@@ -337,7 +326,6 @@ initialEntry v = startEntry 0 start Refl (\i => Refl) (\i => Refl) v
                      Dominates {g} {inner} {start} 0 (initial g inner start)
 dominatesInitial (Start v) _ =
   rewrite initialEntry {g} {inner} {start} v in lteAddRight _
-dominatesInitial (Enter _ _ _ _ _ _) le = absurd le
 dominatesInitial (Extend _ _ _ _ _ _ _ _) le = absurd le
 
 weaken : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 k : Nat} -> {0 v : Fin g.size} ->
@@ -382,56 +370,39 @@ initialValues start = startColumn {at = \i => i} 0 start Refl (\i => Refl) (\i =
 public export
 record Entry (g : Graph) (a : Fin (length g.arcs)) where
   constructor MkEntry
-  src : Maybe (Fin g.size)
+  src : Fin g.size
   dst : Fin g.size
   up : Nat
   down : Nat
-  0 present : Present (Finite up down)
-  0 is : arc g a = MkArc src dst (Finite up down) present
+  0 is : arc g a = MkArc src dst (Measured up down)
 
 ||| The listed arcs, looked up once: one finite entry per listed arc.
 public export
 Looked : (g : Graph) -> List (Fin (length g.arcs)) -> Type
 Looked g = All (Entry g)
 
-0 notFiniteStuck : IsFinite Stuck -> Void
+0 notFiniteStuck : IsFinite Unmeasured -> Void
 notFiniteStuck ItIsFinite impossible
 
--- The precondition makes every listed arc finite, so a Stuck weight met
--- here is `void` of it, and no arc is Absent.
-look : (g : Graph) -> (as : List (Fin (length g.arcs))) -> (0 _ : All IsFinite (weights g as)) -> Looked g as
+-- The precondition makes every listed arc finite, so an Unmeasured label
+-- met here is `void` of it.
+look : (g : Graph) -> (as : List (Fin (length g.arcs))) -> (0 _ : All IsFinite (labels g as)) -> Looked g as
 look g as fin = entries as (lookUp g as) fin
   where
-    entries : (as : List (Fin (length g.arcs))) -> At g as -> (0 _ : All IsFinite (weights g as)) -> Looked g as
+    entries : (as : List (Fin (length g.arcs))) -> At g as -> (0 _ : All IsFinite (labels g as)) -> Looked g as
     entries [] [] _ = []
-    entries (a :: as) ((::) (MkArc q p (Finite gn ls) pr) eq xs) fs = MkEntry q p gn ls pr (sym eq) :: entries as xs (All.tail fs)
-    entries (a :: as) ((::) (MkArc q p Stuck _) eq xs) fs =
-      void (notFiniteStuck (replace {p = IsFinite} (cong (.weight) (sym eq)) (All.head fs)))
-    entries (a :: as) ((::) (MkArc q p Absent pr) eq xs) fs = void (presentNotAbsent pr)
+    entries (a :: as) ((::) (MkArc q p (Measured gn ls)) eq xs) fs = MkEntry q p gn ls (sym eq) :: entries as xs (All.tail fs)
+    entries (a :: as) ((::) (MkArc q p Unmeasured) eq xs) fs =
+      void (notFiniteStuck (replace {p = IsFinite} (cong (.label) (sym eq)) (All.head fs)))
 
--- An arc's source value: the origin's is 0.
-source : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 k : Nat} ->
-         Values g inner start k -> Maybe (Fin g.size) -> Nat
-source t Nothing = 0
-source t (Just u) = (entry u t).value
-
-0 arcFinite : {g : Graph} -> {a : Fin (length g.arcs)} -> {0 q : Maybe (Fin g.size)} -> {0 p : Fin g.size} -> {0 gn, ls : Nat} ->
-              {0 pr : Present (Finite gn ls)} -> arc g a = MkArc q p (Finite gn ls) pr -> IsFinite (arc g a).weight
+0 arcFinite : {g : Graph} -> {a : Fin (length g.arcs)} -> {0 q, p : Fin g.size} -> {0 gn, ls : Nat} ->
+              arc g a = MkArc q p (Measured gn ls) -> IsFinite (arc g a).label
 arcFinite eq = rewrite eq in ItIsFinite
-
--- The candidate an origin arc gives.
-enterBest : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 k : Nat} ->
-            (a : Fin (length g.arcs)) -> (0 _ : Elem a inner) -> (p : Fin g.size) -> (gn, ls : Nat) ->
-            {0 pr : Present (Finite gn ls)} -> (0 eq : arc g a = MkArc Nothing p (Finite gn ls) pr) -> (0 _ : LTE ls gn) ->
-            Best g inner start (S k) p
-enterBest a e p gn ls eq le =
-  MkBest (minus gn ls) (Enter {start} a p e (cong (.from) eq) (cong (.to) eq) (arcFinite {g} {a} eq)) (LTESucc LTEZero)
-         (rewrite eq in relaxedExact {s = 0} {f = 0} Refl le)
 
 -- The candidate an arc from a position gives: its source's walk, one arc on.
 extendBest : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 k : Nat} ->
              (old : Values g inner start k) -> (a : Fin (length g.arcs)) -> (0 _ : Elem a inner) -> (u, p : Fin g.size) -> (gn, ls : Nat) ->
-             {0 pr : Present (Finite gn ls)} -> (0 eq : arc g a = MkArc (Just u) p (Finite gn ls) pr) -> (0 _ : LTE ls ((entry u old).value + gn)) ->
+             (0 eq : arc g a = MkArc u p (Measured gn ls)) -> (0 _ : LTE ls ((entry u old).value + gn)) ->
              Best g inner start (S k) p
 extendBest old a e u p gn ls eq le =
   MkBest (minus ((entry u old).value + gn) ls)
@@ -443,10 +414,7 @@ extendBest old a e u p gn ls eq le =
 relax : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 k : Nat} ->
         (old : Values g inner start k) -> (a : Fin (length g.arcs)) -> (0 _ : Elem a inner) -> Entry g a ->
         Values g inner start (S k) -> Values g inner start (S k)
-relax old a e (MkEntry Nothing p gn ls pr eq) acc with (choose ((entry p acc).value + ls < 0 + gn))
-  _ | Right _ = acc
-  _ | Left lt = put p (enterBest a e p gn ls eq (below (ltSo lt))) acc
-relax old a e (MkEntry (Just u) p gn ls pr eq) acc with (choose ((entry p acc).value + ls < (entry u old).value + gn))
+relax old a e (MkEntry u p gn ls eq) acc with (choose ((entry p acc).value + ls < (entry u old).value + gn))
   _ | Right _ = acc
   _ | Left lt = put p (extendBest old a e u p gn ls eq (below (ltSo lt))) acc
 
@@ -460,10 +428,7 @@ raisesPut val j y t le i with (decEq i j)
                 (old : Values g inner start k) -> (a : Fin (length g.arcs)) -> (0 e : Elem a inner) -> (x : Entry g a) ->
                 (acc : Values g inner start (S k)) -> (i : Fin g.size) ->
                 LTE (entry i acc).value (entry i (relax old a e x acc)).value
-relaxRaises old a e (MkEntry Nothing p gn ls pr eq) acc i with (choose ((entry p acc).value + ls < 0 + gn))
-  _ | Right _ = reflexive
-  _ | Left lt = raisesPut {p = Best g inner start (S k)} (\b => b.value) p _ acc (underMinus (ltSo lt)) i
-relaxRaises old a e (MkEntry (Just u) p gn ls pr eq) acc i with (choose ((entry p acc).value + ls < (entry u old).value + gn))
+relaxRaises old a e (MkEntry u p gn ls eq) acc i with (choose ((entry p acc).value + ls < (entry u old).value + gn))
   _ | Right _ = reflexive
   _ | Left lt = raisesPut {p = Best g inner start (S k)} (\b => b.value) p _ acc (underMinus (ltSo lt)) i
 
@@ -474,12 +439,8 @@ atPut val j y t le = rewrite entryPut j y t in le
 0 relaxFits : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 k : Nat} ->
               (old : Values g inner start k) -> (a : Fin (length g.arcs)) -> (0 e : Elem a inner) -> (x : Entry g a) ->
               (acc : Values g inner start (S k)) ->
-              LTE (source old x.src + x.up) ((entry x.dst (relax old a e x acc)).value + x.down)
-relaxFits old a e (MkEntry Nothing p gn ls pr eq) acc with (choose ((entry p acc).value + ls < 0 + gn))
-  _ | Right nlt = notLTImpliesGTE (notLtSo nlt)
-  _ | Left lt = atPut {p = Best g inner start (S k)} {z = 0 + gn} {d = ls} (\b => b.value) p (enterBest a e p gn ls eq (below (ltSo lt))) acc
-                  (rewrite plusMinusLte ls gn (below (ltSo lt)) in reflexive)
-relaxFits old a e (MkEntry (Just u) p gn ls pr eq) acc with (choose ((entry p acc).value + ls < (entry u old).value + gn))
+              LTE ((entry x.src old).value + x.up) ((entry x.dst (relax old a e x acc)).value + x.down)
+relaxFits old a e (MkEntry u p gn ls eq) acc with (choose ((entry p acc).value + ls < (entry u old).value + gn))
   _ | Right nlt = notLTImpliesGTE (notLtSo nlt)
   _ | Left lt = atPut {p = Best g inner start (S k)} {z = (entry u old).value + gn} {d = ls} (\b => b.value) p
                   (extendBest old a e u p gn ls eq (below (ltSo lt))) acc
@@ -509,10 +470,10 @@ relaxAllRaises old (a :: as) (x :: xs) sub acc i =
                  (old : Values g inner start k) -> (as : List (Fin (length g.arcs))) -> (xs : Looked g as) ->
                  (0 sub : {b : Fin (length g.arcs)} -> Elem b as -> Elem b inner) ->
                  (acc : Values g inner start (S k)) -> {b : Fin (length g.arcs)} -> Elem b as ->
-                 IsFinite (arc g b).weight ->
-                 LTE (source old (arc g b).from + gainOf (arc g b).weight)
-                     ((entry (arc g b).to (relaxAll old as xs sub acc)).value + lossOf (arc g b).weight)
-relaxAllFits old (a :: as) (x@(MkEntry q p gn ls pr eq) :: xs) sub acc Here _ =
+                 IsFinite (arc g b).label ->
+                 LTE ((entry (arc g b).from old).value + gainOf (arc g b).label)
+                     ((entry (arc g b).to (relaxAll old as xs sub acc)).value + lossOf (arc g b).label)
+relaxAllFits old (a :: as) (x@(MkEntry q p gn ls eq) :: xs) sub acc Here _ =
   rewrite eq in
   transitive (relaxFits old a (sub Here) x acc)
              (plusLteMonotoneRight ls _ _ (relaxAllRaises old as xs (\e => sub (There e)) _ p))
@@ -536,12 +497,9 @@ roundRaises xs old i = rewrite sym (liftValue old i) in relaxAllRaises old inner
                    (xs : Looked g inner) -> (old : Values g inner start k) -> Dominates k old -> Dominates (S k) (round xs old)
 roundDominates xs old dom (Start v) _ =
   transitive (dom (Start v) LTEZero) (plusLteMonotoneRight 0 _ _ (roundRaises xs old v))
-roundDominates xs old dom (Enter a v e l q f) _ =
-  let fits = relaxAllFits old inner xs (\e => e) (lift old) e f in
-  rewrite sym q in replace {p = \x => LTE (source old x + gainOf (arc g a).weight) ((entry (arc g a).to (round xs old)).value + lossOf (arc g a).weight)} l fits
 roundDominates xs old dom (Extend u w a v e l q f) (LTESucc le) =
   let fits = relaxAllFits old inner xs (\e => e) (lift old) e f
-      fits' = replace {p = \x => LTE (source old x + gainOf (arc g a).weight) ((entry (arc g a).to (round xs old)).value + lossOf (arc g a).weight)} l fits
+      fits' = replace {p = \x => LTE ((entry x old).value + gainOf (arc g a).label) ((entry (arc g a).to (round xs old)).value + lossOf (arc g a).label)} l fits
   in rewrite sym q in extends (dom w le) fits'
 
 ------------------------------------------------------------------------------
@@ -552,30 +510,25 @@ data Settled : {g : Graph} -> {inner : List (Fin (length g.arcs))} -> {start : V
   Relaxes : {0 g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 k : Nat} ->
             {0 t : Values g inner start k} -> {0 as : List (Fin (length g.arcs))} ->
             (a : Fin (length g.arcs)) -> (0 _ : Elem a as) -> (x : Entry g a) ->
-            (0 _ : LT ((entry x.dst t).value + x.down) (source t x.src + x.up)) -> Settled t as
+            (0 _ : LT ((entry x.dst t).value + x.down) ((entry x.src t).value + x.up)) -> Settled t as
   Settles : {0 g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 k : Nat} ->
             {0 t : Values g inner start k} -> {0 as : List (Fin (length g.arcs))} ->
             All (Satisfies (values t)) (map (arc g) as) -> Settled t as
-
-0 sourceAt : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 k : Nat} ->
-             (t : Values g inner start k) -> (q : Maybe (Fin g.size)) -> potentialAt (values t) q = source t q
-sourceAt t Nothing = Refl
-sourceAt t (Just u) = indexColumn {p = Best g inner start k} (\_, b => b.value) u t
 
 -- One comparison per arc: the first that fails is the arc that relaxes,
 -- and if none does, the comparisons are the potential's evidence.
 settle : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {0 start : Vect g.size Nat} -> {0 k : Nat} ->
          (t : Values g inner start k) -> (as : List (Fin (length g.arcs))) -> Looked g as -> Settled t as
 settle t [] [] = Settles []
-settle t (a :: as) (x :: xs) = case choose ((entry x.dst t).value + x.down < source t x.src + x.up) of
+settle t (a :: as) (x :: xs) = case choose ((entry x.dst t).value + x.down < (entry x.src t).value + x.up) of
   Left lt => Relaxes a Here x (ltSo lt)
   Right nlt => case settle t as xs of
     Relaxes b e y r => Relaxes b (There e) y r
     Settles fs => Settles (satisfied x (notLTImpliesGTE (notLtSo nlt)) :: fs)
   where
-    satisfied : (x : Entry g a) -> (0 _ : LTE (source t x.src + x.up) ((entry x.dst t).value + x.down)) -> Satisfies (values t) (arc g a)
-    satisfied (MkEntry q p gn ls pr eq) le =
-      rewrite eq in MkSatisfies (rewrite sourceAt t q in
+    satisfied : (x : Entry g a) -> (0 _ : LTE ((entry x.src t).value + x.up) ((entry x.dst t).value + x.down)) -> Satisfies (values t) (arc g a)
+    satisfied (MkEntry q p gn ls eq) le =
+      rewrite eq in MkSatisfies (rewrite indexColumn {p = Best g inner start k} (\_, b => b.value) q t in
                                  rewrite indexColumn {p = Best g inner start k} (\_, b => b.value) p t in le)
 
 ------------------------------------------------------------------------------
@@ -605,13 +558,13 @@ record Split (g : Graph) (inner : List (Fin (length g.arcs))) (start : Vect g.si
   rest : Path g inner at v
   0 nonEmpty : NonEmpty (targets cycle)
   0 short : LTE (steps before + length (targets rest)) (length inner)
-  0 riseIs : rise before + (gains (weights g (arcsOf cycle)) + gains (weights g (arcsOf rest))) = r
-  0 fallIs : fall before + (losses (weights g (arcsOf cycle)) + losses (weights g (arcsOf rest))) = f
+  0 riseIs : rise before + (gains (labels g (arcsOf cycle)) + gains (labels g (arcsOf rest))) = r
+  0 fallIs : fall before + (losses (labels g (arcsOf cycle)) + losses (labels g (arcsOf rest))) = f
 
-0 splitSums : {g : Graph} -> (sum : List Weight -> Nat) -> ((ws, vs : List Weight) -> sum (ws ++ vs) = sum ws + sum vs) ->
+0 splitSums : {g : Graph} -> (sum : List Label -> Nat) -> ((ws, vs : List Label) -> sum (ws ++ vs) = sum ws + sum vs) ->
               (as, bs, cs : List (Fin (length g.arcs))) -> as = bs ++ cs ->
-              sum (weights g as) = sum (weights g bs) + sum (weights g cs)
-splitSums sum app as bs cs eq = rewrite eq in rewrite mapAppend (\a => (arc g a).weight) bs cs in app _ _
+              sum (labels g as) = sum (labels g bs) + sum (labels g cs)
+splitSums sum app as bs cs eq = rewrite eq in rewrite mapAppend (\a => (arc g a).label) bs cs in app _ _
 
 0 nonEmptyLength : {xs : List a} -> NonEmpty xs -> LTE 1 (length xs)
 nonEmptyLength {xs = _ :: _} IsNonEmpty = LTESucc LTEZero
@@ -620,19 +573,13 @@ nonEmptyLength {xs = _ :: _} IsNonEmpty = LTESucc LTEZero
 found : {g : Graph} -> {inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 v : Fin g.size} ->
         (x : Fin g.size) -> (pre : Walk g inner start x) -> (suf : Path g inner x v) -> Elem x (targets suf) ->
         (0 count : steps pre + length (targets suf) = S (length inner)) ->
-        Split g inner start v (rise pre + gains (weights g (arcsOf suf))) (fall pre + losses (weights g (arcsOf suf)))
+        Split g inner start v (rise pre + gains (labels g (arcsOf suf))) (fall pre + losses (labels g (arcsOf suf)))
 found x pre suf el count =
   let MkCut up rest as ts ne = cut suf el in
   MkSplit x pre up rest ne
     (shorter (replace {p = \z => steps pre + z = S (length inner)} ts count) (nonEmptyLength ne))
     (cong (rise pre +) (sym (splitSums gains gainsAppend _ _ _ as)))
     (cong (fall pre +) (sym (splitSums losses lossesAppend _ _ _ as)))
-
-0 enterIn : {g : Graph} -> {inner : List (Fin (length g.arcs))} -> {0 x, v : Fin g.size} ->
-            (a : Fin (length g.arcs)) -> Elem a inner -> (arc g a).to = x -> (suf : Path g inner x v) ->
-            (t : Fin g.size) -> Elem t (x :: targets suf) -> Elem t (universe g inner)
-enterIn a e q suf t Here = rewrite sym q in elemMap (\b => (arc g b).to) e
-enterIn a e q suf t (There e') = targetsIn suf e'
 
 -- Peel the walk's arcs onto a suffix whose targets are distinct, until the
 -- position the walk has reached is among them. The suffix cannot outgrow
@@ -641,16 +588,13 @@ enterIn a e q suf t (There e') = targetsIn suf e'
 peel : {g : Graph} -> {inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 v : Fin g.size} ->
        (x : Fin g.size) -> (pre : Walk g inner start x) -> (suf : Path g inner x v) ->
        (0 nd : NoDup (targets suf)) -> (0 count : steps pre + length (targets suf) = S (length inner)) ->
-       Split g inner start v (rise pre + gains (weights g (arcsOf suf))) (fall pre + losses (weights g (arcsOf suf)))
+       Split g inner start v (rise pre + gains (labels g (arcsOf suf))) (fall pre + losses (labels g (arcsOf suf)))
 peel x (Start x) suf nd count = void (tooLong (targets suf) nd (\t, e => targetsIn suf e) count)
-peel x (Enter a x e l q f) suf nd count = case find x (targets suf) of
-  Holds el => found x (Enter a x e l q f) suf el count
-  Fails nel => void (tooLong (x :: targets suf) (nel :: nd) (enterIn a e q suf) count)
 peel x (Extend u w a x e l q f) suf nd count = case find x (targets suf) of
   Holds el => found x (Extend u w a x e l q f) suf el count
   Fails nel =>
-    rewrite sym (plusAssociative (rise w) (gainOf (arc g a).weight) (gains (weights g (arcsOf suf)))) in
-    rewrite sym (plusAssociative (fall w) (lossOf (arc g a).weight) (losses (weights g (arcsOf suf)))) in
+    rewrite sym (plusAssociative (rise w) (gainOf (arc g a).label) (gains (labels g (arcsOf suf)))) in
+    rewrite sym (plusAssociative (fall w) (lossOf (arc g a).label) (losses (labels g (arcsOf suf)))) in
     peel u w (Step a x e l q f suf) (nel :: nd) (trans (sym (plusSuccRightSucc _ _)) count)
 
 ------------------------------------------------------------------------------
@@ -665,7 +609,7 @@ exactly le nle = antisymmetric le (notLTEImpliesGT nle)
 
 extendWalk : {g : Graph} -> {0 inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 k : Nat} ->
              (t : Values g inner start k) -> (a : Fin (length g.arcs)) -> (0 _ : Elem a inner) -> (u, p : Fin g.size) ->
-             {0 pr : Present (Finite gn ls)} -> (0 eq : arc g a = MkArc (Just u) p (Finite gn ls) pr) -> Walk g inner start p
+             (0 eq : arc g a = MkArc u p (Measured gn ls)) -> Walk g inner start p
 extendWalk t a e u p eq = Extend u (entry u t).walk a p e (cong (.from) eq) (cong (.to) eq) (arcFinite {g} {a} eq)
 
 ||| The arc that still relaxes after as many rounds as there are listed
@@ -675,12 +619,9 @@ extendWalk t a e u p eq = Extend u (entry u t).walk a p e (cong (.from) eq) (con
 climb : {g : Graph} -> {inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} -> {0 k : Nat} ->
         (0 _ : k = length inner) -> (t : Values g inner start k) -> (0 dom : Dominates k t) ->
         (a : Fin (length g.arcs)) -> (0 _ : Elem a inner) -> (x : Entry g a) ->
-        (0 _ : LT ((entry x.dst t).value + x.down) (source t x.src + x.up)) ->
-        (c ** as ** Positive g c as)
-climb kIs t dom a e (MkEntry Nothing p gn ls pr eq) rel =
-  let 0 d = dom (Enter {start} a p e (cong (.from) eq) (cong (.to) eq) (arcFinite {g} {a} eq)) (rewrite kIs in elemLength e) in
-  void (succNotLTEpred (transitive rel (replace {p = \w => LTE (0 + gainOf w) ((entry p t).value + lossOf w)} (cong (.weight) eq) d)))
-climb kIs t dom a e (MkEntry (Just u) p gn ls pr eq) rel =
+        (0 _ : LT ((entry x.dst t).value + x.down) ((entry x.src t).value + x.up)) ->
+        (as ** Positive g as)
+climb kIs t dom a e (MkEntry u p gn ls eq) rel =
   let 0 relW : LT ((entry p t).value + fall (extendWalk t a e u p eq)) (rise (extendWalk t a e u p eq))
       relW = rewrite eq in relaxes (entry u t).exact rel
   in case choose (steps (extendWalk t a e u p eq) <= length inner) of
@@ -689,12 +630,12 @@ climb kIs t dom a e (MkEntry (Just u) p gn ls pr eq) rel =
       let MkSplit x before cyc rest ne short riseIs fallIs =
             peel p (extendWalk t a e u p eq) Stay []
                  (trans (plusZeroRightNeutral _) (exactly (rewrite sym kIs in LTESucc (entry u t).within) (notLteSo nle))) in
-      case choose (losses (weights g (arcsOf cyc)) < gains (weights g (arcsOf cyc))) of
-        Left lt => (x :: inside cyc ** arcsOf cyc ** Sums (ringOf cyc ne) (pathFinite cyc) (ltSo lt))
+      case choose (losses (labels g (arcsOf cyc)) < gains (labels g (arcsOf cyc))) of
+        Left lt => (arcsOf cyc ** Sums (ringOf cyc ne) (pathFinite cyc) (ltSo lt))
         Right nlt =>
           void (noCycle {rb = rise before} {fb = fall before} {d = (entry p t).value}
-                        {gc = gains (weights g (arcsOf cyc))} {lc = losses (weights g (arcsOf cyc))}
-                        {ga = gains (weights g (arcsOf rest))} {la = losses (weights g (arcsOf rest))}
+                        {gc = gains (labels g (arcsOf cyc))} {lc = losses (labels g (arcsOf cyc))}
+                        {ga = gains (labels g (arcsOf rest))} {la = losses (labels g (arcsOf rest))}
                         (notLTImpliesGTE (notLtSo nlt))
                         (rewrite sym (appendRise before rest) in rewrite sym (appendFall before rest) in
                          dom (append before rest) (rewrite kIs in rewrite appendSteps before rest in short))
@@ -702,15 +643,29 @@ climb kIs t dom a e (MkEntry (Just u) p gn ls pr eq) rel =
                          rewrite plusZeroRightNeutral (rise (extendWalk t a e u p eq)) in
                          rewrite plusZeroRightNeutral (fall (extendWalk t a e u p eq)) in relW))
 
--- Structural on the rounds left, with k + left = length inner.
+||| A potential the listed arcs fit, nowhere below the start: Bellman-Ford
+||| only raises values.
+public export
+record Fitted (g : Graph) (inner : List (Fin (length g.arcs))) (start : Vect g.size Nat) where
+  constructor MkFitted
+  pot : Vect g.size Nat
+  fits : All (Satisfies pot) (map (arc g) inner)
+  0 above : Below start pot
+
+-- Structural on the rounds left, with k + left = length inner; every value
+-- no lower than the start's.
 loop : {g : Graph} -> {inner : List (Fin (length g.arcs))} -> {start : Vect g.size Nat} ->
        Looked g inner -> (left : Nat) -> (0 k : Nat) -> (t : Values g inner start k) -> (0 _ : Dominates k t) ->
+       (0 _ : (i : Fin g.size) -> LTE (index i start) (entry i t).value) ->
        (0 _ : k + left = length inner) ->
-       Either (c ** as ** Positive g c as) (pot ** All (Satisfies pot) (map (arc g) inner))
-loop xs left k t dom count = case settle t inner xs of
-  Settles fs => Right (values t ** fs)
+       Either (as ** Positive g as) (Fitted g inner start)
+loop xs left k t dom above count = case settle t inner xs of
+  Settles fs =>
+    Right (MkFitted (values t) fs
+                    (belowAt (\i => rewrite indexColumn {p = Best g inner start k} (\_, b => b.value) i t in above i)))
   Relaxes a e x rel => case left of
-    S left' => loop xs left' (S k) (round xs t) (roundDominates xs t dom) (trans (plusSuccRightSucc k left') count)
+    S left' => loop xs left' (S k) (round xs t) (roundDominates xs t dom) (\i => transitive (above i) (roundRaises xs t i))
+                    (trans (plusSuccRightSucc k left') count)
     Z => Left (climb (trans (sym (plusZeroRightNeutral k)) count) t dom a e x rel)
 
 ||| Lemma 2 on arcs already looked up, by Bellman-Ford on heaviest walks:
@@ -719,12 +674,14 @@ loop xs left k t dom count = case settle t inner xs of
 ||| relaxes after the last round closes a cycle that rises.
 export
 heaviestOver : {g : Graph} -> {inner : List (Fin (length g.arcs))} -> Looked g inner -> (start : Vect g.size Nat) ->
-               Either (c ** as ** Positive g c as) (pot ** All (Satisfies pot) (map (arc g) inner))
-heaviestOver xs start = loop xs (length inner) 0 (initial g inner start) dominatesInitial Refl
+               Either (as ** Positive g as) (Fitted g inner start)
+heaviestOver xs start =
+  loop xs (length inner) 0 (initial g inner start) dominatesInitial
+       (\i => rewrite initialEntry {g} {inner} {start} i in reflexive) Refl
 
 ||| Lemma 2: `heaviestOver` on the listed arcs, each looked up once.
 export
-heaviest : (g : Graph) -> (inner : List (Fin (length g.arcs))) -> (0 _ : All IsFinite (weights g inner)) ->
+heaviest : (g : Graph) -> (inner : List (Fin (length g.arcs))) -> (0 _ : All IsFinite (labels g inner)) ->
            (start : Vect g.size Nat) ->
-           Either (c ** as ** Positive g c as) (pot ** All (Satisfies pot) (map (arc g) inner))
+           Either (as ** Positive g as) (Fitted g inner start)
 heaviest g inner fin start = heaviestOver (look g inner fin) start

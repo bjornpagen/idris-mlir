@@ -4,7 +4,7 @@
 // RUN: builds-nothing=@match_of_match,matches=@match_of_match,builds-nothing=@uses_later,\
 // RUN: builds-nothing=@nested,reads-fields=@nested,builds-nothing=@never_yields,reads-no-fields=@never_yields,\
 // RUN: never-returns=@taken_never_completes,no-closures=@taken_never_completes -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // Case-of-case: the single consumer of a match's result moves into every
 // region that yields, when in some region it meets a value it folds or
 // canonicalizes against. Each function states what is left: no string
@@ -38,7 +38,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
     case 0 {
       idr.yield %p : !P
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %two = arith.constant 2 : i64
       %c = idr.con !P @MkP(%one : i64, %two : i64)
@@ -77,7 +77,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
       %c = idr.constant "zero" : !idr.str
       idr.yield %c : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -116,7 +116,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
       %c = idr.constant "one" : !idr.str
       idr.yield %c : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -135,7 +135,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
       %j = idr.con !Maybe @Just(%one : i64)
       idr.yield %j : !Maybe
     }
-    default {
+    default(%d: i64) {
       %n = idr.con !Maybe @Nothing()
       idr.yield %n : !Maybe
     }
@@ -163,7 +163,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
       %j = idr.con !Maybe @Just(%one : i64)
       idr.yield %j : !Maybe
     }
-    default {
+    default(%d: i64) {
       %n = idr.con !Maybe @Nothing()
       idr.yield %n : !Maybe
     }
@@ -195,7 +195,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
         %x = idr.con !P @MkP(%one : i64, %two : i64)
         idr.yield %x : !P
       }
-      default {
+      default(%d: i64) {
         %three = arith.constant 3 : i64
         %four = arith.constant 4 : i64
         %y = idr.con !P @MkP(%three : i64, %four : i64)
@@ -204,7 +204,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
       }
       idr.yield %inner : !P
     }
-    default {
+    default(%d1: i64) {
       idr.yield %p : !P
     }
     }
@@ -224,14 +224,14 @@ idr.program @"case-of-case" root(@root) stage(higher) {
         idr.crash "zero"
         ub.unreachable
       }
-      default {
+      default(%d: i64) {
         idr.crash "other"
         ub.unreachable
       }
       }
       idr.yield %inner : !P
     }
-    default {
+    default(%d1: i64) {
       %one = arith.constant 1 : i64
       %two = arith.constant 2 : i64
       %x = idr.con !P @MkP(%one : i64, %two : i64)
@@ -253,7 +253,7 @@ idr.program @"case-of-case" root(@root) stage(higher) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
-    default {
+    default(%d: i64) {
       idr.crash "taken"
       ub.unreachable
     }

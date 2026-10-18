@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Worlds and !idr.lin values: every value of quantity one is used at most
-// once on every path. Its type says where it may go; this says how often.
-// One walk numbers the body; each linear value then costs its holders.
+// Values of quantity one, by their type (a world, a destination, a cell)
+// or by their grade (!idr.lin): each is used at most once on every path.
+// Its type says where it may go; this says how often. One walk numbers the
+// body; each linear value then costs its holders.
 // Which regions of an op exclude each other is the owned walk's question
 // too: both ask RegionBranchOpInterface, here.
 
@@ -66,9 +67,7 @@ private:
 
 // The uses of one linear value, counted on the worst path. The regions of
 // a match, and of any op whose regions exclude each other, are alternative
-// paths; a region that may run repeatedly counts twice. A region of several
-// blocks, which a function body is only after the inliner takes in a callee
-// that ends in ub.unreachable, counts every use in it.
+// paths; a region that may run repeatedly counts twice.
 class LinearUses {
 public:
   LinearUses(Value value, const Numbering &numbering) : value(value) {

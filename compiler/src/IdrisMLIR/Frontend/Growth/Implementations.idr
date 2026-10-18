@@ -16,7 +16,9 @@ import Libraries.Data.List.Thin
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Instances
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Proof.Requests
 
@@ -66,13 +68,14 @@ fieldRead (Plain t r) = (t, r)
 ||| which Idris writes as a lambda wrapping the method's own function.
 data Role = Reads Static | Wrapped
 
-||| A binder's role. `dictionaryBinder` decides on the binder's type in any
-||| scope, as it does for a function's parameters and a constructor's
-||| fields, so the binders before it need no stand-ins.
+||| A binder's role, by its quantity, then, for a used binder, by whether
+||| its type is an implementation's (`implementationType`), which decides
+||| in any scope, as it does for a function's parameters and a
+||| constructor's fields, so the binders before it need no stand-ins.
 roleOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> RigCount -> TT vs -> Core Role
-roleOf rig a = branchZero (pure (Reads AType))
-                          ((\dict => if dict then Reads ADictionary else Wrapped) <$> dictionaryBinder rig a)
-                          rig
+roleOf rig a = case use rig of
+  Erased => pure (Reads AType)
+  Used _ => (\dict => if dict then Reads ADictionary else Wrapped) <$> implementationType a
 
 ||| What stands for each parameter of an implementation in its body, the
 ||| first first, as the translation binds it: its marker where the
@@ -84,13 +87,13 @@ roleOf rig a = branchZero (pure (Reads AType))
 marks : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         (owner : String) -> GlobalDef -> (arity : Nat) -> Core (List (VarInfo ()))
 marks owner def arity = do
-  (kinds, _) <- staticsOver owner arity (type def) (map (\i => Just (markerAt i 0, False)) (iterateN arity S 0))
-  pure (standing 0 kinds (type def))
+  (kinds, _) <- staticsOver owner arity (type def) (map (\i => Just (markerAt i 0, AValue)) (iterateN arity S 0))
+  pure (standing 0 (toList kinds) (type def))
   where
     standing : Nat -> List (Maybe Static) -> TT vs -> List (VarInfo ())
     standing i (Just _ :: ks) (Bind _ _ (Pi {}) sc) = TypeValue (markerAt i 0) :: standing (S i) ks sc
     standing i (Nothing :: ks) (Bind _ _ (Pi _ rig _ _) sc) =
-      TypeValue (Erased EmptyFC (branchZero Placeholder Impossible rig)) :: standing (S i) ks sc
+      TypeValue (Erased EmptyFC (case use rig of Erased => Placeholder; Used _ => Impossible)) :: standing (S i) ks sc
     standing _ _ _ = []
 
 ||| What a method's field passes the function it applies, at one argument:
@@ -157,15 +160,14 @@ leadingOf passed = mapMaybe at (zip (iterateN (length passed) S 0) passed)
 methodField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> ClosedTerm -> Core Field
 methodField owner field = do
-  defs <- get Ctxt
   let Just (m, passed, own) = etaWrapper Refl 0 field
     | Nothing => pure (Plain (Leaf 1) Unrooted)
-  Just (i, mdef) <- lookupCtxtExactI m (gamma defs)
+  Just (placement, mdef) <- resolve m
     | Nothing => pure (Plain (Leaf 1) Unrooted)
-  let am = addressOf i
+  let am = addressOf placement
   let xs = map value passed
-  (kinds, _) <- staticsOver owner (length xs) (type mdef) (map (\x => Just (x, False)) xs)
-  ts <- traverse (\(k, x) => templateOf k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip kinds xs))
+  (kinds, _) <- staticsOver owner (length xs) (type mdef) (map (\x => Just (x, AValue)) xs)
+  ts <- traverse (\(k, x) => templateOf k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList kinds) xs))
   pure (Method am (Head (Just am) ts) own (leadingOf passed))
   where
     value : Passed -> ClosedTerm
@@ -210,7 +212,7 @@ implementationFields def args body = do
   fs <- fieldsAlong owner !(normaliseClosed (type cdef)) cargs
   pure (Just fs)
 
-||| The fields of the definition at an address, over its parameters. An
+||| The fields of a definition, over its parameters. An
 ||| implementation, a definition with one right-hand side whose type is an
 ||| implementation's, gives the fields of the constructor it builds. A
 ||| constructor, of data or of an interface, gives its own parameters: so a
@@ -218,17 +220,10 @@ implementationFields def args body = do
 ||| dictionary built by hand is one of the constructor's variables, as a
 ||| field of an implementation over its parameters is. Anything else (a
 ||| function that matches, a primitive, a type constructor) holds no
-||| dictionary's fields, and nor does an address the context has no
-||| definition at.
+||| dictionary's fields.
 export
-fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Core (Maybe Fields)
-fieldsOf a = do
-  defs <- get Ctxt
-  let Just n = nameAt (gamma defs) a
-    | Nothing => pure Nothing
-  Just def <- lookupCtxtExact n (gamma defs)
-    | Nothing => pure Nothing
-  case definition def of
+fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> GlobalDef -> Core (Maybe Fields)
+fieldsOf def = case definition def of
     DCon _ arity _ =>
       pure (Just (map (\j => Plain (Var j 0) (Parameter j 0)) (iterateN arity S 0)))
     PMDef _ args (STerm _ body) _ _ => do

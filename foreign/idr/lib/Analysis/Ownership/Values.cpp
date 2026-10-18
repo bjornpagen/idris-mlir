@@ -15,10 +15,14 @@ using namespace mlir;
 namespace idr::ownership {
 
 // Owned boxes and unboxed sums, whose slots may hold boxes, and the tokens
-// of their cells: what a take hands out or a reuse builds in.
+// of their cells: what a take hands out or a recycled cell is made of. A
+// cell is memory, not a reference, so it has no grade to say it is owned;
+// the box its init gives is its cell's, new to anyone when the cell is (a
+// fresh or recycled cell) and not when it is the frame's (idr.cell.stack).
 bool followed(Value value) {
   Type type = value.getType();
-  return isOwned(type) && isa<BoxType, DataType, TokenType>(unrestricted(type));
+  return isa<CellType>(type) ||
+         (isOwned(type) && isa<BoxType, DataType, TokenType>(unrestricted(type)));
 }
 
 // The type answers, a data type from its body, made once: asking again

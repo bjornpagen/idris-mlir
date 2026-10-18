@@ -34,6 +34,36 @@ checkDelayed rig elabinfo nest env fc r tm exp
          (tm', gty) <- check rig elabinfo nest env tm (Just (gType fc u))
          pure (TDelayed fc r tm', gty)
 
+-- The elaborator of a delay, given the cell of delayed elaborators and the
+-- expected type, which a retry evaluates again (see delayOnFailure). It is
+-- a function of its own rather than the body of a lambda in checkDelay: a
+-- local definition is applied to everything its parent binds, so one used
+-- in the lambda would capture checkDelay's cell.
+checkDelayDelayed : {vars : _} ->
+                    {auto c : Ref Ctxt Defs} ->
+                    {auto m : Ref MD Metadata} ->
+                    {auto u : Ref UST UState} ->
+                    {auto dl : Ref DLY DelayedElabs} ->
+                    {auto e : Ref EST (EState vars)} ->
+                    {auto s : Ref Syn SyntaxInfo} ->
+                    {auto o : Ref ROpts REPLOpts} ->
+                    RigCount -> ElabInfo ->
+                    NestedNames vars -> Env Term vars ->
+                    FC -> RawImp -> (expected : Glued vars) ->
+                    Core (Term vars, Glued vars)
+checkDelayDelayed rig elabinfo nest env fc tm expected
+    = case !(getNF expected) of
+           NDelayed _ r expnf =>
+              do defs <- get Ctxt
+                 (tm', gty) <- check rig elabinfo nest env tm
+                                     (Just (glueBack defs env expnf))
+                 tynf <- getNF gty
+                 ty <- getTerm gty
+                 pure (TDelay fc r ty tm',
+                       glueBack defs env (NDelayed fc r tynf))
+           ty => do logNF "elab.delay" 5 "Expected delay type" env ty
+                    throw (GenericMsg fc ("Can't infer delay type"))
+
 export
 checkDelay : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
@@ -59,19 +89,8 @@ checkDelay rig elabinfo nest env fc tm mexpected
          solveConstraints solvemode Normal
          -- Can only check if we know the expected type already because we
          -- need to infer the delay reason
-         delayOnFailure fc rig env (Just expected) delayError LazyDelay
-            (\dl, delayed =>
-                 case !(getNF expected) of
-                      NDelayed _ r expnf =>
-                         do defs <- get Ctxt
-                            (tm', gty) <- check {dl} rig elabinfo nest env tm
-                                                (Just (glueBack defs env expnf))
-                            tynf <- getNF gty
-                            ty <- getTerm gty
-                            pure (TDelay fc r ty tm',
-                                  glueBack defs env (NDelayed fc r tynf))
-                      ty => do logNF "elab.delay" 5 "Expected delay type" env ty
-                               throw (GenericMsg fc ("Can't infer delay type")))
+         delayOnFailure fc rig env expected delayError LazyDelay
+            (\dl, delayed, exp => checkDelayDelayed {dl} rig elabinfo nest env fc tm exp)
   where
     delayError : Error -> Bool
     delayError (GenericMsg {}) = True

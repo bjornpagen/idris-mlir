@@ -1,35 +1,35 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The checks of the dialect's attributes beyond their syntax: a big has one
-// width, and an instance key is text. And refusals: the one place their
-// words are written, with the rule carried as data in the diagnostic.
+// The check of the dialect's attributes beyond their syntax: a big has one
+// width. And refusals: the one place their words are written, with the rule
+// carried as data in the diagnostic.
 
 #include "idr/IR/IdrDialect.h"
+
+// categoryOf: the kind of program each rule refuses, written from the
+// category each case of Idr_Rule names in its ODS (idris-mlir-tblgen
+// -gen-rule-categories).
+#include "idr/IR/IdrRuleCategories.inc"
 
 using namespace mlir;
 using namespace idr;
 
 // One width per integer, its fewest signed bits, so that equal bigs are
 // equal attributes.
-LogicalResult BigAttr::verify(function_ref<InFlightDiagnostic()> emitError, APInt value, Type) {
+LogicalResult BigAttr::verify(function_ref<InFlightDiagnostic()> emitError, APInt value) {
   if (value.getBitWidth() != value.getSignificantBits())
     return emitError() << "expects a big at its fewest signed bits, "
                        << value.getSignificantBits() << ", got " << value.getBitWidth();
   return success();
 }
 
-// Every argument is the text the frontend prints for a type, an
-// implementation or a shape: the key names, and refers to no symbol, so it
-// keeps nothing alive and follows no rename.
-LogicalResult InstanceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                                   StringAttr, ArrayAttr arguments) {
-  if (!llvm::all_of(arguments, llvm::IsaPred<StringAttr>))
-    return emitError() << "expects every argument of #idr.instance to be a string";
-  return success();
-}
-
+// The two kinds of words a refusal begins with are the problem's: a
+// construct this compiler does not compile is named by its rule, and a
+// program Idris rejects is refused in Idris's own words alone.
 std::string idr::refusalHead(Rule rule) {
-  return ("unsupported (" + stringifyRule(rule) + ")").str();
+  if (categoryOf(rule) == RuleCategory::UserError)
+    return "";
+  return ("unsupported (" + stringifyRule(rule) + "): ").str();
 }
 
 // The rule rides in the diagnostic's metadata, which no handler prints, so
@@ -40,7 +40,7 @@ InFlightDiagnostic idr::refuse(Location loc, Rule rule) {
   if (Diagnostic *underlying = diagnostic.getUnderlyingDiagnostic())
     underlying->getMetadata().push_back(
         DiagnosticArgument(RuleAttr::get(loc->getContext(), rule)));
-  diagnostic << refusalHead(rule) << ": ";
+  diagnostic << refusalHead(rule);
   return diagnostic;
 }
 

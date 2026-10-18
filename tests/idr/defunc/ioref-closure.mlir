@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // An IORef of functions is an array of rank 0, made with no size and
@@ -24,7 +25,7 @@ idr.program @"ioref-closure" root(@Main.main) stage(higher) {
     %w3 = idr.array.set %r[], %g, %w2 : memref<!idr.fn<(i64) -> (i64)>, #idr.world>, !idr.fn<(i64) -> (i64)>
     %h, %w4 = idr.array.get %r[], %w3 : memref<!idr.fn<(i64) -> (i64)>, #idr.world> -> !idr.fn<(i64) -> (i64)>
     %y = idr.apply %h(%n) : !idr.fn<(i64) -> (i64)>
-    %w5 = idr.io.put_int signed %y, %w4 : i64
+    %w5 = idr.io.put_sint %y, %w4 : i64
     return %w5 : !idr.world
   }
 }

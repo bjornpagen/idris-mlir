@@ -79,8 +79,8 @@ int main(int argc, char **argv) {
     writeEach();
   else if (strcmp(mode, "crash") == 0) {
     writeEach();
-    static const char message[] = "io: crashed\n";
-    idris_rt_crash(message, sizeof message - 1);
+    static const char cause[] = "io: crashed";
+    idris_rt_crash(cause, sizeof cause - 1);
   } else
     return 2;
   idris_rt_main_return();

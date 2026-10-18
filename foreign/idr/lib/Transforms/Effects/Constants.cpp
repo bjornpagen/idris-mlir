@@ -12,7 +12,9 @@
 //
 // The summaries are on the nodes of idr-optimize's ready set for the run,
 // which the step is given when it is made; a function never reads another
-// function's body.
+// function's body. A call of a callee not final, of the function's own
+// component, assumes nothing of it: unknown at every result, the state
+// upstream's solve starts a value it cannot see from.
 #include "idr/Transforms/Effects.h"
 
 #include "idr/Analysis/Constants.h"
@@ -28,6 +30,9 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
+#include <variant>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRCONSTANTS
@@ -169,9 +174,14 @@ struct IdrConstantsPass : idr::impl::IdrConstantsBase<IdrConstantsPass> {
 
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
-    auto constantsOf = [&](StringAttr callee) -> const idr::ConstantResults * {
-      const idr::optimize::Summary *summary = set.summaryOf(callee);
-      return summary ? &summary->constants : nullptr;
+    // The scheduler runs the pipeline on the functions of its ready set.
+    const idr::optimize::Node *reader = set.nodeOf(fn.getSymNameAttr());
+    assert(reader && "the inner pipeline runs on a function of the ready set");
+    auto constantsOf = [&](idr::CallOp call) -> idr::ConstantResults {
+      idr::optimize::Callee callee = set.callee(*reader, call.getCalleeAttr().getAttr());
+      if (const auto *known = std::get_if<idr::optimize::Final>(&callee))
+        return known->summary.constants;
+      return idr::ConstantResults(call->getNumResults(), ConstantValue::getUnknownConstant());
     };
     // A function holds no symbol table, so the solve resolves no callee:
     // every call is the hook's.

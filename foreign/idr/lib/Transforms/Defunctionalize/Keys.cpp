@@ -93,25 +93,13 @@ Slot Slots::keyAt(const FlowPoint &point) const {
       point.at);
 }
 
-// The key of what every value of a kind holds at `anchor`. What a closure
-// or a suspension holds as a capture, and what a hole is written with, is
-// moved as a reference alone: a capture's labels are its label's
-// parameter's, and a hole is made after this pass.
+// The key of what every value of a kind holds at `anchor`: its slot's, as
+// the anchor says what it holds. A capture has no slot of its own: what a
+// closure or a suspension holds is moved as a reference alone, and its
+// labels are its label's parameter's. A hole holds a box, which carries no
+// label, and is made after this pass.
 Slot Slots::anchorKey(const FlowAnchor &anchor) const {
-  std::optional<Type> carrier = std::visit(
-      llvm::makeVisitor(
-          [](const FlowAnchor::Field &field) -> std::optional<Type> {
-            return cast<DataType>(field.data).getCtor(field.ctor).fields[field.index];
-          },
-          [](const FlowAnchor::Elements &elements) -> std::optional<Type> {
-            return elements.element;
-          },
-          [](const FlowAnchor::Forced &forced) -> std::optional<Type> {
-            return cast<LazyType>(forced.lazy).getValue();
-          },
-          [](const FlowAnchor::Capture &) -> std::optional<Type> { return std::nullopt; },
-          [](const FlowAnchor::Hole &) -> std::optional<Type> { return std::nullopt; }),
-      anchor.place);
+  std::optional<Type> carrier = anchor.slot();
   if (!carrier || !carriesLabels(*carrier))
     return std::nullopt;
   return Key{unrestricted(*carrier), analysis.labelsOf(anchor)};
@@ -136,7 +124,7 @@ Slot Slots::fieldKey(DataType data, Tag tag, unsigned index) const {
 Slot Slots::elementKey(Type element) const { return anchorKey(FlowAnchor::elementsOf(element)); }
 
 Slot Slots::forcedKey(Type lazy) const {
-  return anchorKey(FlowAnchor::forcedOf(unrestricted(lazy)));
+  return anchorKey(FlowAnchor::forcedOf(cast<LazyType>(unrestricted(lazy))));
 }
 
 const Signature &Slots::signature(StringAttr fn) const {
@@ -182,7 +170,7 @@ void Slots::noteData(DataType data) {
 // A closure's captures are its label's parameters, whose keys every
 // signature has noted.
 void Slots::noteSlot(const Slot &slot) {
-  if (!slot || !sums.insert({*slot, Sum()}).second)
+  if (!slot || !keys.insert(*slot))
     return;
   if (!slot->isLazy())
     return;

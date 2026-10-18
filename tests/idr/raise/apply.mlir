@@ -1,6 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that the call of @pick is raised, as a call whose result a dispatch consumes is, with the raise key holding its consumer's form by digest (S22) and symbol-dce after idr-optimize as the pipeline runs it (S2's default argument).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@pick,not-called=@add,not-called=@sub -o /dev/null
-// NEEDS-ACCEPTANCE: that the call of @pick is raised, as a call whose result a dispatch consumes is.
 // A call whose result is applied at once, with only an op without effects
 // between them: after defunctionalization the apply is a dispatch on the
 // call's result. @pick loops, so it is never inlined, and the call and the
@@ -28,7 +28,7 @@ idr.program @apply root(@Main.main) stage(higher) {
       %f = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %f : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %a, %c1 : i64
       %f = idr.call @pick(%m) : (i64) -> !idr.fn<(i64) -> (i64)>

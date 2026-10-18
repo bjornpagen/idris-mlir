@@ -2,6 +2,7 @@
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
 // NEEDS-ACCEPTANCE: the program compiles and prints its value without dumps.
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // A closed call of a pure, total function stays in the module and runs at
 // run time.
 // CHECK: 3628800 x-x-x
@@ -12,7 +13,7 @@ idr.program @eval root(@Prog.main) stage(higher) {
       %one = arith.constant 1 : i64
       idr.yield %one : i64
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %f = idr.call @fact(%m) : (i64) -> i64
@@ -27,7 +28,7 @@ idr.program @eval root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %s : !idr.str
     }
-    default {
+    default(%k: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %rest = idr.call @dashes(%s, %m) : (!idr.str, i64) -> !idr.str
@@ -42,7 +43,7 @@ idr.program @eval root(@Prog.main) stage(higher) {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %ten = arith.constant 10 : i64
     %f = idr.call @fact(%ten) : (i64) -> i64
-    %w1 = idr.io.put_int signed %f, %w : i64
+    %w1 = idr.io.put_sint %f, %w : i64
     %sp = arith.constant 32 : i32
     %w2 = idr.io.put_char %sp, %w1
     %x = idr.constant "x" : !idr.str

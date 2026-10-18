@@ -16,19 +16,15 @@ namespace idr::expect {
 
 // A function the module never had is not called either, so a test states
 // the property of a function its emitted module calls.
-LogicalResult notCalled(ModuleOp module, AnalysisManager &analyses, StringRef function) {
-  constexpr StringRef property = "not-called";
-  StringRef f = function.ltrim('@');
-  if (f.empty())
-    return fail(module.getLoc(), property) << "name the function, as not-called=@f";
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult notCalled(const Request<Symbol> &request) {
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  module.walk([&](CallOp call) {
-    auto callee = symbols.lookup<FunctionOpInterface>(call.getCalleeAttr().getAttr());
-    if (call.getCallee() != f && !(callee && names(callee, f)))
+  request.module->walk([&](CallOp call) {
+    if (!callsNamed(call, request.argument, symbols))
       return;
-    fail(call.getLoc(), property) << function << " is still called, as @" << call.getCallee()
-                                  << ", in " << where(call);
+    fail(call.getLoc(), request.property) << "@" << request.argument.name
+                                          << " is still called, as @" << call.getCallee() << ", in "
+                                          << where(call);
     held = false;
   });
   return success(held);

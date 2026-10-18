@@ -24,7 +24,8 @@
 // by another copy's result gets that result exclusive. That solve is the
 // program's once the calls went where it sent them, so the grades come
 // from it. A function whose callers the solver does not all see, the root
-// among them, keeps them.
+// among them, keeps them. A copy no call kept, and an original every call
+// of which went to its copy, is upstream's symbol-dce's, after this.
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -33,12 +34,11 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/SymbolTable.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/Support/Debug.h"
 
 #include <string>
 
-#define DEBUG_TYPE "idr-rc"
+#define DEBUG_TYPE "idr-rc-exclusive"
 
 using namespace mlir;
 using Sharing = idr::Exclusivity::Sharing;
@@ -55,21 +55,16 @@ bool givesExclusive(const Exclusivity &solved, FuncOp fn, CallOp call) {
   return true;
 }
 
-// Whether `fn` takes a followed parameter shared, and the solve sees every
-// call of it: a copy could take that parameter exclusive.
-bool sharesAParameter(const Exclusivity &solved, FuncOp fn) {
-  return solved.callers(fn) && llvm::any_of(fn.getArguments(), [&](BlockArgument param) {
-           return followed(param) && solved.of(param) == Sharing::Shared;
-         });
-}
-
-// Whether some live call of `fn` gives every followed parameter an
-// exclusive value.
-bool calledExclusive(const Exclusivity &solved, FuncOp fn) {
-  return llvm::any_of(*solved.callers(fn), [&](Operation *pred) {
-    auto call = dyn_cast<CallOp>(pred);
-    return call && solved.live(call->getBlock()) && givesExclusive(solved, fn, call);
-  });
+// The calls of `fn`, when the solve sees every one and `fn` takes a
+// followed parameter shared: a copy could take that parameter exclusive.
+// None otherwise.
+std::optional<ArrayRef<CallOp>> copyable(const Exclusivity &solved, FuncOp fn) {
+  std::optional<ArrayRef<CallOp>> callers = solved.callers(fn);
+  if (callers && llvm::any_of(fn.getArguments(), [&](BlockArgument param) {
+        return followed(param) && solved.of(param) == Sharing::Shared;
+      }))
+    return callers;
+  return std::nullopt;
 }
 
 // The copy's name, from its key: the original, and the positions of the
@@ -99,11 +94,14 @@ FailureOr<Copies> specializeOnGrade(ProgramOp program, const Exclusivity &solved
   // then the keys the copies ask for, each function once.
   OnceWorklist<FuncOp> keys;
   for (FuncOp fn : program.getOps<FuncOp>())
-    if (sharesAParameter(solved, fn) && calledExclusive(solved, fn))
+    if (std::optional<ArrayRef<CallOp>> callers = copyable(solved, fn);
+        callers && llvm::any_of(*callers, [&](CallOp call) {
+          return givesExclusive(solved, fn, call);
+        }))
       (void)keys.push(fn);
   while (std::optional<FuncOp> key = keys.pop())
     key->walk([&](CallOp call) {
-      if (FuncOp callee = calleeOf(call, symbols); sharesAParameter(solved, callee))
+      if (FuncOp callee = calleeOf(call, symbols); copyable(solved, callee))
         (void)keys.push(callee);
     });
 
@@ -114,14 +112,14 @@ FailureOr<Copies> specializeOnGrade(ProgramOp program, const Exclusivity &solved
   for (FuncOp fn : keys.entered()) {
     std::string name = copyName(fn);
     if (symbols.lookup(name))
-      return fn.emitError("idr-rc: internal error: the name @")
+      return fn.emitError("internal error: idr-rc-exclusive: the name @")
              << name << " of the exclusive copy of @" << fn.getSymName() << " is taken";
     FuncOp copy = fn.clone();
     copy.setSymName(name);
     symbols.insert(copy, std::next(fn->getIterator()));
     copies.of.insert({fn, copy});
   }
-  LLVM_DEBUG(llvm::dbgs() << "idr-rc: " << copies.of.size() << " exclusive copies\n");
+  LLVM_DEBUG(llvm::dbgs() << "idr-rc-exclusive: " << copies.of.size() << " exclusive copies\n");
   return copies;
 }
 
@@ -135,36 +133,7 @@ void redirectCalls(ProgramOp program, const Exclusivity &solved) {
   });
   for (auto [call, target] : moves)
     call.setCalleeAttr(FlatSymbolRefAttr::get(target.getSymNameAttr()));
-  LLVM_DEBUG(llvm::dbgs() << "idr-rc: " << moves.size() << " calls redirected\n");
-}
-
-// What stays is what a function idr-rc left alone, or anything but a
-// function, uses, and what that calls in turn, among the originals and the
-// copies, each once. A copy no call kept, with the copies only it called,
-// goes, and so does an original every call of which went to its copy.
-void eraseUnused(ProgramOp program, SymbolTable &symbols, const Copies &copies) {
-  llvm::SetVector<Operation *> changed;
-  for (auto [original, copy] : copies.of) {
-    changed.insert(original);
-    changed.insert(copy);
-  }
-  SymbolTableCollection collection;
-  SymbolUserMap users(collection, program);
-  OnceWorklist<Operation *> kept;
-  for (Operation *fn : changed)
-    for (Operation *user : users.getUsers(fn)) {
-      auto owner = user->getParentOfType<FuncOp>();
-      if (!owner || !changed.contains(owner))
-        (void)kept.push(fn);
-    }
-  while (std::optional<Operation *> fn = kept.pop())
-    (*fn)->walk([&](CallOp call) {
-      if (FuncOp callee = calleeOf(call, symbols); changed.contains(callee))
-        (void)kept.push(callee);
-    });
-  for (Operation *fn : changed)
-    if (!kept.contains(fn))
-      symbols.erase(fn);
+  LLVM_DEBUG(llvm::dbgs() << "idr-rc-exclusive: " << moves.size() << " calls redirected\n");
 }
 
 } // namespace idr::ownership

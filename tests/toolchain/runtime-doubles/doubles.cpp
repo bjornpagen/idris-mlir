@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Doubles as text and text as doubles, held to IEEE 754 and to idris_rt.h's
+// Doubles as text and text as doubles, held to IEEE 754 and to the runtime's
 // own words. show_f64 writes the fewest significant digits that read back
-// as the double, the nearest of those, ties to the even digit, in
-// idris_rt.h's layout; str_to_double reads every decimal text as the C
+// as the double, the nearest of those, ties to the even digit, in the
+// runtime's layout; str_to_double reads every decimal text as the C
 // library's strtod does, integer literals of every base as their nearest
 // double, IEEE 754's words, and anything else as 0.0; to_int truncates
 // modulo 2^64. Every claim about digits is judged on the exact interval of
@@ -143,7 +143,7 @@ struct Interval {
   }
 };
 
-// The longest text idris_rt.h's layout writes: a sign, a digit, a point,
+// The longest text the runtime's layout writes: a sign, a digit, a point,
 // 16 more digits, then `e-308` (24 bytes); a positional text is shorter.
 constexpr size_t longestText = 24;
 
@@ -221,7 +221,7 @@ bool readDecimal(const char *t, size_t n, Decimal &d) {
   return true;
 }
 
-// The text idris_rt.h's layout writes for (sign, D, E): positional when E
+// The text the runtime's layout writes for (sign, D, E): positional when E
 // is in [-3, 9], which is "from 1e-3 up to 1e10" (and Printing.cpp's
 // choice), with a digit after the point; else D's first digit, the rest
 // after a point when there is a rest, `e` and E. Returns its length; out
@@ -261,7 +261,7 @@ size_t layout(const Decimal &d, char *out) {
   return at;
 }
 
-// The text IEEE 754 and idris_rt.h fix for a double with no digits to
+// The text IEEE 754 and the runtime fix for a double with no digits to
 // choose: a NaN, whatever its sign; an infinity; a zero, with its sign.
 const char *wordFor(double x) {
   if (x != x)
@@ -424,7 +424,7 @@ bool nearestOfShortest(double x) {
   });
 }
 
-// 4. The text is idris_rt.h's: the fixed word of a NaN, an infinity or a
+// 4. The text is the runtime's: the fixed word of a NaN, an infinity or a
 // zero; else the text written again from its sign, D and E, with the
 // double's sign.
 bool inLayout(double x) {
@@ -827,7 +827,7 @@ constexpr Base bases[] = {{"", 10}, {"0b", 2}, {"0o", 8}, {"0x", 16}, {"0X", 16}
 // with an underscore between every two, and the end.
 constexpr size_t literalRoom = 1 + 2 + 2 * static_cast<size_t>(largestPower) + 1;
 
-// An integer literal as idris_rt.h's grammar writes one, and the decimal
+// An integer literal as the runtime's grammar writes one, and the decimal
 // text of its value, which strtod reads to the nearest double, ties to
 // even, an infinity past the largest.
 struct IntegerLiteral {
@@ -955,7 +955,7 @@ int main(int argc, char **argv) {
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, noShorter); });
   run.property("show_f64: the nearest of the shortest, ties to the even digit",
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, nearestOfShortest); });
-  run.property("show_f64: idris_rt.h's layout",
+  run.property("show_f64: the runtime's layout",
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, inLayout); });
   run.property("put_double, double_head: show_f64's text", [](FuzzedDataProvider &p, prop::Tally &tally) {
     double xs[prop::caseBytes];

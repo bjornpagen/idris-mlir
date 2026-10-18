@@ -4,7 +4,6 @@
 // (Data.Buffer's transfers), and the text base writes and reads.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
-#include "Platform/Platform.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
@@ -12,47 +11,32 @@
 
 namespace rt::io {
 
-int64_t writeBytes(int64_t handle, const char *p, size_t n) {
-  if (handle == 1) {
-    putBytes(p, n);
-    return static_cast<int64_t>(n);
-  }
-  if (handle == 2) {
-    idris_rt_flush();
-    rt::platform::writeAll(2, p, n);
-    return static_cast<int64_t>(n);
-  }
-  rt::platform::File *file = fileOf(handle);
-  if (file == nullptr)
-    return -1;
-  size_t written = rt::platform::writeFile(file, p, n);
-  if (written < n)
-    saveError();
-  return static_cast<int64_t>(written);
+size_t writeBytes(int64_t handle, const char *p, size_t n) {
+  return streamOf(handle).write(p, n).count;
 }
 
-int64_t readBytes(int64_t handle, char *p, size_t n) {
-  if (handle == 0)
-    return static_cast<int64_t>(readInput(p, n));
-  rt::platform::File *file = fileOf(handle);
-  if (file == nullptr)
-    return -1;
-  size_t got = rt::platform::readFile(file, p, n);
-  if (got < n && rt::platform::fileFailed(file))
-    saveError();
-  return static_cast<int64_t>(got);
-}
+size_t readBytes(int64_t handle, char *p, size_t n) { return streamOf(handle).read(p, n); }
 
 } // namespace rt::io
 
-extern "C" int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *, char *bytes, int64_t,
-                                           int64_t offset, int64_t count) {
-  int64_t written = rt::io::writeBytes(handle, bytes + offset, static_cast<size_t>(count));
-  return written < 0 ? 0 : written;
+// Writes the bytes [offset, offset + count) of a byte array to a handle's
+// stream, in order with every other write to it: standard output through its
+// buffer, standard error after what standard output has pending, a file
+// through its stream. Gives the count written: fewer when the write failed,
+// and 0 when the handle is no stream to write to.
+extern "C" int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *buffer, int64_t offset,
+                                           int64_t count) {
+  char *bytes = idris_rt_array_bytes(buffer) + offset;
+  return static_cast<int64_t>(rt::io::writeBytes(handle, bytes, static_cast<size_t>(count)));
 }
 
-extern "C" int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *, char *bytes, int64_t,
-                                          int64_t offset, int64_t count) {
-  int64_t got = rt::io::readBytes(handle, bytes + offset, static_cast<size_t>(count));
-  return got < 0 ? 0 : got;
+// Reads bytes from a handle's stream into [offset, offset + count) of a byte
+// array, waiting until that many or the end of its input: standard input
+// through the buffer idris_rt_io_get_line reads too, a file through its
+// stream. Gives the count read: fewer at the end of input or when the read
+// failed, and 0 when the handle is no stream to read from.
+extern "C" int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *buffer, int64_t offset,
+                                          int64_t count) {
+  char *bytes = idris_rt_array_bytes(buffer) + offset;
+  return static_cast<int64_t>(rt::io::readBytes(handle, bytes, static_cast<size_t>(count)));
 }

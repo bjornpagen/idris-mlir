@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the fixture built from bench/rbtree's Main.idr compiles, prints expected-stdout and holds its mlir.expect
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

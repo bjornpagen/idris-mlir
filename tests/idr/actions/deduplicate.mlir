@@ -38,7 +38,7 @@ idr.program @merge root(@root) stage(higher) {
     case 1 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d0: i1) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %s = arith.addi %acc, %n : i64
@@ -55,7 +55,7 @@ idr.program @merge root(@root) stage(higher) {
     case 1 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d1: i1) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %s = arith.addi %acc, %n : i64
@@ -77,7 +77,7 @@ idr.program @merge root(@root) stage(higher) {
     %r0 = idr.call @B.down(%e, %z) : (i64, i64) -> i64
     %r1 = idr.call @A.twice(%r0) : (i64) -> i64
     %r = idr.call @B.twice(%r1) : (i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w : i64
+    %w2 = idr.io.put_sint %r, %w : i64
     return %w2 : !idr.world
   }
 }

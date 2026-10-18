@@ -231,6 +231,32 @@ needType (InRHS _ _ err) = needType err
 needType (WhenUnifying _ _ _ _ _ err) = needType err
 needType _ = False
 
+-- The elaborator of a record update, given the cell of delayed elaborators
+-- and the record's type (evaluated again on a retry, see delayOnFailure),
+-- and whether the update was checked against that type. It is a function
+-- of its own rather than the body of a lambda in checkUpdate: a local
+-- definition is applied to everything its parent binds, so one used in the
+-- lambda would capture checkUpdate's cell.
+checkUpdateDelayed : {vars : _} ->
+                     {auto c : Ref Ctxt Defs} ->
+                     {auto m : Ref MD Metadata} ->
+                     {auto u : Ref UST UState} ->
+                     {auto dl : Ref DLY DelayedElabs} ->
+                     {auto e : Ref EST (EState vars)} ->
+                     {auto s : Ref Syn SyntaxInfo} ->
+                     {auto o : Ref ROpts REPLOpts} ->
+                     RigCount -> ElabInfo ->
+                     NestedNames vars -> Env Term vars ->
+                     FC -> List IFieldUpdate -> RawImp -> UnifyInfo ->
+                     (given : Bool) -> (delayed : Bool) -> (recty : Glued vars) ->
+                     Core (Term vars, Glued vars)
+checkUpdateDelayed rig elabinfo nest env fc upds rec solvemode given delayed recty
+    = do solveConstraints solvemode Normal
+         logGlueNF "elab.record" 5 (show delayed ++ " record type " ++ show rec) env recty
+         rcase <- recUpdate rig elabinfo fc nest env upds rec recty
+         log "elab.record" 5 $ "Record update: " ++ show rcase
+         check rig elabinfo nest env rcase (if given then Just recty else Nothing)
+
 export
 checkUpdate : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
@@ -253,16 +279,9 @@ checkUpdate rig elabinfo nest env fc upds rec expected
          let solvemode = case elabMode elabinfo of
                               InLHS c => inLHS
                               _ => inTerm
-         delayOnFailure fc rig env (Just recty) needType RecordUpdate $
-           \dl, delayed =>
-             do solveConstraints solvemode Normal
-                exp <- getTerm recty
-                -- We can't just use the old NF on the second attempt,
-                -- because we might know more now, so recalculate it
-                let recty' = if delayed
-                                then gnf env exp
-                                else recty
-                logGlueNF "elab.record" 5 (show delayed ++ " record type " ++ show rec) env recty'
-                rcase <- recUpdate rig elabinfo fc nest env upds rec recty'
-                log "elab.record" 5 $ "Record update: " ++ show rcase
-                check {dl} rig elabinfo nest env rcase expected
+         let given = case expected of
+                          Just _ => True
+                          Nothing => False
+         delayOnFailure fc rig env recty needType RecordUpdate $
+           \dl, delayed, recty' =>
+             checkUpdateDelayed {dl} rig elabinfo nest env fc upds rec solvemode given delayed recty'

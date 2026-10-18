@@ -15,7 +15,7 @@
 // is.
 //
 // The function must also only compute: each op only allocates its results
-// (a call as its callee's effects say), or is a match whose regions only
+// (a call as its own effects say), or is a match whose regions only
 // compute, or a call assumed to give back what it is passed that it may
 // rely on. A region that ends in ub.unreachable and does nothing else on
 // the way is one Idris proved is never taken. A function of a program in
@@ -24,13 +24,12 @@
 //
 // The walk leaves how each value is built, what each match's regions
 // yield, the returns with the matches around them, and the calls that do
-// not only compute. It reads the function's own body, the data types its
-// values are of, the entries of the component's members, the callees'
-// effects and what `outside` says of every other callee, and writes
-// nothing outside the record.
+// not only compute. It reads the function's own body and the data types
+// its values are of, and writes nothing outside the record: what a call
+// does, and whether it returns, is the call's own property.
 #include "idr/Analysis/Identities.h"
 
-#include "idr/Analysis/Effects.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -60,7 +59,7 @@ bool memoType(Type type) {
 // `match` names, which its default region therefore takes, if there is one.
 std::optional<Tag> remaining(MatchOp match) {
   DataType data = match.getDataType();
-  auto cases = static_cast<unsigned>(match.getCases().size());
+  unsigned cases = match.getNumCases();
   if (data.getCtors().size() != cases + 1)
     return std::nullopt;
   SmallVector<Tag> named;
@@ -74,21 +73,17 @@ std::optional<Tag> remaining(MatchOp match) {
 
 } // namespace
 
-// The one walk, into `out`. It reads the function's own body, the data
-// types its values are of, the entries of the component's members and what
-// `outside` says of every other callee.
+// The one walk, into `out`. It reads the function's own body and the data
+// types its values are of.
 class Record::Walker {
 public:
-  Walker(FuncOp fn, const Members &members, Outside outside, const CalleeEffects &effects,
-         Record &out)
-      : fn(fn), members(members), outside(outside), effects(effects), out(out) {}
+  Walker(FuncOp fn, Record &out) : fn(fn), out(out) {}
 
   bool scan(Region &region);
 
 private:
   Id place(Value value, Build build);
   Id intern(Value value);
-  Id internArg(BlockArgument arg);
   Id defineCall(CallOp call);
   Id internJoin(Operation *op, unsigned number);
   Id internResult(OpResult result);
@@ -98,16 +93,11 @@ private:
   bool accept(Operation &op);
 
   FuncOp fn;
-  const Members &members;
-  Outside outside;
-  const CalleeEffects &effects;
   Record &out;
   llvm::DenseMap<Value, Id> ids;
 };
 
-std::optional<Record> Record::walk(FuncOp fn, ArrayRef<unsigned> candidates,
-                                   const Members &members, Outside outside,
-                                   const CalleeEffects &effects) {
+std::optional<Record> Record::walk(FuncOp fn, ArrayRef<unsigned> candidates) {
   if (candidates.empty())
     return std::nullopt;
   Record out;
@@ -119,7 +109,7 @@ std::optional<Record> Record::walk(FuncOp fn, ArrayRef<unsigned> candidates,
   // A terminator this question cannot keep, or an op that does not only
   // compute, ends the walk: nothing is given back, under any argument and
   // any later assumptions, so the rest of the body is not needed.
-  if (!Walker(fn, members, outside, effects, out).scan(fn.getBody()))
+  if (!Walker(fn, out).scan(fn.getBody()))
     return std::nullopt;
   return out;
 }
@@ -131,43 +121,43 @@ Record::Id Record::Walker::place(Value value, Build build) {
   return id;
 }
 
+// The function's entry arguments are its arguments; any other value is
+// what idr::sourceOf says it is made of: the same value as another, a
+// field of a scrutinee, or made here. A memo cell's field is opaque: a
+// memo cell is written when it is forced, so no part of it is a part of
+// anything. A block argument made here is a value of a region this
+// question does not look into.
 Record::Id Record::Walker::intern(Value value) {
   if (auto it = ids.find(value); it != ids.end())
     return it->second;
-  if (auto arg = dyn_cast<BlockArgument>(value))
-    return internArg(arg);
-  return internResult(cast<OpResult>(value));
-}
-
-// The entry block's arguments are the function's; a case's are the fields
-// of the scrutinee, and the default region's is the scrutinee itself.
-Record::Id Record::Walker::internArg(BlockArgument arg) {
-  Block *block = arg.getOwner();
-  if (block == &fn.getBody().front())
+  if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getOwner() == &fn.getBody().front())
     return place(arg, Entry{arg.getArgNumber()});
-  auto match = dyn_cast_or_null<MatchOp>(block->getParentOp());
-  if (!match || memoType(match.getScrutinee().getType()))
-    return place(arg, Opaque{});
-  Id scrutinee = intern(match.getScrutinee());
-  Region *region = block->getParent();
-  if (region == match.getDefaultRegion())
-    return place(arg, Same{scrutinee});
-  return place(arg, Field{scrutinee, match.getCaseTag(region->getRegionNumber()),
-                          arg.getArgNumber(), arg.getType()});
+  return std::visit(
+      llvm::makeVisitor(
+          [&](const idr::Same &same) { return place(value, Same{intern(same.value)}); },
+          [&](const idr::Field &field) {
+            if (memoType(field.scrutinee.getType()))
+              return place(value, Opaque{});
+            return place(value,
+                         Field{intern(field.scrutinee), field.tag, field.index, value.getType()});
+          },
+          [&](const idr::Made &) {
+            if (auto result = dyn_cast<OpResult>(value))
+              return internResult(result);
+            return place(value, Opaque{});
+          }),
+      sourceOf(value));
 }
 
-// A callee of the component is known by its own entry; any other by what
-// `outside` says of it.
+// Every callee by its call alone: whether the call returns is its own
+// effects', which contain its callee's.
 Record::Id Record::Walker::defineCall(CallOp call) {
   for (Value result : call.getResults())
     if (auto it = ids.find(result); it != ids.end())
       return it->second;
   Call made;
   made.callee = call.getCalleeAttr().getAttr();
-  if (FuncOp member = members.lookup(made.callee))
-    made.returns = !bitEnumContainsAny(member.getEffects(), Effect::diverge);
-  else
-    made.returns = outside(made.callee).returns;
+  made.returns = !bitEnumContainsAny(call.getEffects(), Effect::diverge);
   for (Value operand : call.getArgs())
     made.args.push_back(intern(operand));
   auto id = Id(static_cast<unsigned>(out.nodes.size()));
@@ -193,43 +183,35 @@ Record::Id Record::Walker::internJoin(Operation *op, unsigned number) {
   return *wanted;
 }
 
+// The regions that run. A match's region ends in ub.unreachable or in a
+// yield (its verifier); the empty default region of an exhaustive match
+// never runs, and gives no arm.
 SmallVector<Record::Arm, 2> Record::Walker::armsOf(Operation *op) {
   SmallVector<Arm, 2> arms;
   for (Region &region : op->getRegions()) {
-    if (region.empty()) {
-      arms.push_back(Fails{});
+    if (region.empty())
       continue;
-    }
     Operation *end = region.front().getTerminator();
     if (isa<ub::UnreachableOp>(end)) {
       arms.push_back(Unreachable{});
-    } else if (isa<YieldOp>(end)) {
-      Yields yields;
-      yields.frames = framesAt(end);
-      for (Value operand : end->getOperands())
-        yields.values.push_back(intern(operand));
-      arms.push_back(std::move(yields));
-    } else {
-      arms.push_back(Fails{});
+      continue;
     }
+    Yields yields;
+    yields.frames = framesAt(end);
+    for (Value operand : end->getOperands())
+      yields.values.push_back(intern(operand));
+    arms.push_back(std::move(yields));
   }
   return arms;
 }
 
+// What a result is built of, where idr::sourceOf found it made here.
 Record::Id Record::Walker::internResult(OpResult result) {
   Operation *op = result.getOwner();
-  if (isa<MatchOp, MatchLitOp>(op))
+  if (isa<MatchOpInterface>(op))
     return internJoin(op, result.getResultNumber());
   if (auto call = dyn_cast<CallOp>(op))
     return defineCall(call);
-  if (op->hasTrait<ResultCarriesOperand>())
-    return place(result, Same{intern(op->getOperand(0))});
-  if (auto read = dyn_cast<FieldOp>(op)) {
-    if (memoType(read.getValue().getType()))
-      return place(result, Opaque{});
-    return place(result, Field{intern(read.getValue()), read.getTag(),
-                               static_cast<unsigned>(read.getIndex()), read.getType()});
-  }
   if (auto pred = dyn_cast<BigPredOp>(op))
     return place(result, Pred{intern(pred.getValue())});
   if (auto con = dyn_cast<ConOp>(op)) {
@@ -255,8 +237,7 @@ Record::Id Record::Walker::internResult(OpResult result) {
   if (!matchPattern(result, m_Constant(&constant)))
     return place(result, Opaque{});
   std::optional<Tag> fieldless;
-  if (auto con = dyn_cast<ConAttr>(constant);
-      con && !con.isRun() && con.getData().getCtor(con.getTag()).fields.empty())
+  if (auto con = dyn_cast<ConAttr>(constant); con && con.getData().isAtom(con.getTag()))
     fieldless = con.getTag();
   return place(result, Constant{constant, result.getType(), fieldless});
 }
@@ -270,17 +251,17 @@ Record::Frames Record::Walker::framesAt(Operation *at) {
     Operation *parent = region->getParentOp();
     if (parent == fn.getOperation())
       break;
+    // A default region's fact is "none of the cases", which only a match
+    // on a constructor turns into one: the one constructor left.
     if (auto match = dyn_cast<MatchOp>(parent)) {
       std::optional<Tag> tag =
-          region == match.getDefaultRegion()
-              ? remaining(match)
-              : std::optional<Tag>(match.getCaseTag(region->getRegionNumber()));
+          region == &match.getDefaultRegion() ? remaining(match) : match.knownTag(*region);
       if (tag)
         frames.push_back({intern(match.getScrutinee()), KnownTag{*tag}});
     } else if (auto literal = dyn_cast<MatchLitOp>(parent)) {
-      if (region != literal.getDefaultRegion())
+      if (region != &literal.getDefaultRegion())
         frames.push_back({intern(literal.getScrutinee()),
-                          KnownLiteral{literal.getCases()[region->getRegionNumber()]}});
+                          KnownLiteral{literal.getCases()[literal.caseOf(*region)]}});
     }
   }
   return frames;
@@ -314,7 +295,7 @@ bool Record::Walker::accept(Operation &op) {
       return record(ret);
     return isa<YieldOp, ub::UnreachableOp>(op);
   }
-  if (isa<MatchOp, MatchLitOp>(op)) {
+  if (isa<MatchOpInterface>(op)) {
     for (Region &region : op.getRegions())
       if (!scan(region))
         return false;
@@ -324,13 +305,13 @@ bool Record::Walker::accept(Operation &op) {
   }
   if (auto call = dyn_cast<CallOp>(op)) {
     Id id = defineCall(call);
-    if (!onlyAllocates(call, &effects))
+    if (!onlyAllocates(call))
       out.reliant.push_back(id);
     return true;
   }
   // An op with regions that only computes holds no return: idr.return is
   // only ever in the function's own body.
-  if (!onlyAllocates(&op, &effects))
+  if (!onlyAllocates(&op))
     return false;
   for (Value result : op.getResults())
     intern(result);

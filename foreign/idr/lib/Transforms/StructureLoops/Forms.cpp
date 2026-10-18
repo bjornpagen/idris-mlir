@@ -8,14 +8,15 @@
 // lets it run in any order. A float sum keeps its order on every target.
 //
 // The facts each form rests on are the IR's: effects through
-// MemoryEffectOpInterface and a callee's final effects, the laws through
-// the combining op, and the equality of sizes through value bounds, which
-// idr.tie_shape carries across calls.
+// MemoryEffectOpInterface, a call's its own, the laws through the combining
+// op, and the equality of sizes through value bounds, which idr.tie_shape
+// carries across calls.
 
 #include "idr/Transforms/StructureLoops.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -36,16 +37,20 @@ bool notWords(Type type) {
 }
 
 // Whether `op` itself does no more than compute, allocate its own results
-// and crash. A call does what its callee's final effects say. A crash
+// and crash, as it declares (a call declares its own effects). A crash
 // writes the crash resource, and the IO resource to keep its order with
-// output, which is its own and no output.
-bool atMostCrashes(Operation *op, const CalleeEffects &callees) {
-  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = ownEffects(op, &callees);
-  if (!effects)
-    return false;
-  auto crash = dyn_cast<MayCrashOpInterface>(op);
-  bool crashes = crash && crash.getCrashCause().has_value();
-  return llvm::all_of(*effects, [&](const MemoryEffects::EffectInstance &effect) {
+// output, which is its own and no output. An op that declares no effects of
+// its own has its regions' (each of their ops asked on its own), or may do
+// anything when MLIR knows none: the two ways MLIR leaves an op's effects
+// undeclared.
+bool atMostCrashes(Operation *op) {
+  auto declared = dyn_cast<MemoryEffectOpInterface>(op);
+  if (!declared)
+    return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>();
+  SmallVector<MemoryEffects::EffectInstance> effects;
+  declared.getEffects(effects);
+  bool crashes = isa<MayCrashOpInterface>(op);
+  return llvm::all_of(effects, [&](const MemoryEffects::EffectInstance &effect) {
     if (isa<MemoryEffects::Allocate>(effect.getEffect())) {
       auto made = dyn_cast_or_null<OpResult>(effect.getValue());
       return made && made.getOwner() == op;
@@ -59,14 +64,13 @@ bool atMostCrashes(Operation *op, const CalleeEffects &callees) {
 
 // Whether the region of `op` returns, and does no more than compute and
 // crash, its every op asked on its own.
-bool computes(Operation *op, const CalleeEffects &callees) {
+bool computes(Operation *op) {
   Region &region = op->getRegion(0);
   if (!isa<ArrayYieldOp>(region.front().getTerminator()))
     return false;
   return !region
               .walk([&](Operation *inner) {
-                return atMostCrashes(inner, callees) ? WalkResult::advance()
-                                                     : WalkResult::interrupt();
+                return atMostCrashes(inner) ? WalkResult::advance() : WalkResult::interrupt();
               })
               .wasInterrupted();
 }
@@ -155,7 +159,7 @@ SmallVector<Read> readsOf(Operation *op, unsigned dims) {
   return reads;
 }
 
-Form formOf(Operation *op, const CalleeEffects &callees) {
+Form formOf(Operation *op) {
   if (auto transpose = dyn_cast<TransposeOp>(op))
     return isWord(transpose.getType().getElementType()) ? Form::Parallel : Form::Ordered;
   // A world carried from step to step is an order no linalg op keeps.
@@ -165,7 +169,7 @@ Form formOf(Operation *op, const CalleeEffects &callees) {
   auto generating = cast<GeneratingOpInterface>(op);
   SmallVector<Iteration> iterations = generating.getIterations();
   auto frame = static_cast<unsigned>(llvm::count(iterations, Iteration::Parallel));
-  if (!computes(op, callees) || !overWords(op, generating.getHeldArrays().getTypes(), frame))
+  if (!computes(op) || !overWords(op, generating.getHeldArrays().getTypes(), frame))
     return Form::Ordered;
   if (frame == iterations.size())
     return Form::Parallel;

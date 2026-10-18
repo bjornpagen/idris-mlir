@@ -86,46 +86,38 @@ void describe(Type type, raw_ostream &os) {
 
 } // namespace
 
-// The replacement of every type at a place: a box of its data's new type,
-// a data type's new type (a box of it where it is held outside one), a
-// leaf's at that place; the parts of anything else. What a leaf gives is
-// looked inside, so a data type a leaf's replacement holds is remade too. A
-// constant constructor names its data type as its identity, never boxed,
-// and its cells are values met anywhere but in a body. A reference to a
-// renamed function names the new one; a data type is never entered, so a
-// label is renamed only by remaking its type.
-void DataRemap::addReplacements(AttrTypeReplacer &into, std::optional<FieldPlace> place) {
-  into.addReplacement([this](SymbolRefAttr ref) -> std::optional<std::pair<Attribute, WalkResult>> {
-    StringAttr renamed = renames.lookup(ref.getRootReference());
-    if (!renamed)
-      return std::make_pair(Attribute(ref), WalkResult::skip());
-    return std::make_pair(Attribute(SymbolRefAttr::get(renamed, ref.getNestedReferences())),
-                          WalkResult::skip());
-  });
-  into.addReplacement([this](ConAttr con) -> std::optional<std::pair<Attribute, WalkResult>> {
-    SmallVector<ArrayAttr> cells;
-    for (ArrayAttr cell : con.getCells())
-      cells.push_back(cast<ArrayAttr>(replacer.replace(cell)));
-    DataType data = mapData(con.getData());
-    Attribute rebuilt =
-        con.isRun() ? Attribute(ConAttr::getRun(context, data, con.getTag(), con.getSpine(),
-                                                cells, replacer.replace(con.getTail())))
-                    : Attribute(ConAttr::get(context, data, con.getTag(), cells.front()));
-    return std::make_pair(rebuilt, WalkResult::skip());
-  });
-  into.addReplacement([this, place](Type type) -> std::optional<std::pair<Type, WalkResult>> {
-    if (auto box = dyn_cast<BoxType>(type))
-      return std::make_pair(Type(BoxType::get(mapData(box.getData()))), WalkResult::skip());
-    if (auto data = dyn_cast<DataType>(type)) {
-      DataType mapped = mapData(data);
-      if (boxed.contains(data))
-        return std::make_pair(Type(BoxType::get(mapped)), WalkResult::skip());
-      return std::make_pair(Type(mapped), WalkResult::skip());
-    }
-    if (std::optional<Type> replaced = leafAt(type, place))
+// What a type becomes, decided once: its shape, the type with each box and
+// leaf applied at `place` (a data type of `boxed` held outside a box
+// becomes a box of it; any other type the leaf replaces becomes what it
+// gives, which is looked inside in turn) and every data type still by its
+// old name, which the key of a remade type writes; then, remadeOf, each
+// data type in the shape its new type. A box is kept as it is: what it
+// holds is boxed already. A replacer of its own per call, since its leaves
+// are the place's and its cache would hold them.
+Type DataRemap::shapeAt(Type type, std::optional<FieldPlace> place) {
+  AttrTypeReplacer shape;
+  shape.addReplacement([&](Type part) -> std::optional<std::pair<Type, WalkResult>> {
+    if (isa<BoxType>(part))
+      return std::make_pair(part, WalkResult::skip());
+    if (auto data = dyn_cast<DataType>(part))
+      return std::make_pair(boxed.contains(data) ? Type(BoxType::get(data)) : Type(data),
+                            WalkResult::skip());
+    if (std::optional<Type> replaced = leafAt(part, place))
       return std::make_pair(*replaced, WalkResult::advance());
     return std::nullopt;
   });
+  return shape.replace(type);
+}
+
+// A replacer of its own per call too: remaking a data type remakes, inside
+// it, the types its shapes hold, and a shared replacer would answer a shape
+// still being remade with itself.
+Type DataRemap::remadeOf(Type shape) {
+  AttrTypeReplacer remade;
+  remade.addReplacement([this](DataType data) -> std::optional<std::pair<Type, WalkResult>> {
+    return std::make_pair(Type(mapData(data)), WalkResult::skip());
+  });
+  return remade.replace(shape);
 }
 
 FailureOr<std::unique_ptr<DataRemap>> DataRemap::create(Operation *root, StringRef kind,
@@ -139,11 +131,35 @@ FailureOr<std::unique_ptr<DataRemap>> DataRemap::create(Operation *root, StringR
   return remap;
 }
 
+// The replacement of everything met anywhere but in a body, once every new
+// body is made. A reference to a renamed function names the new one; a data
+// type is never entered, so a label is renamed only by remaking its type. A
+// constant constructor names its data type as its identity, never boxed,
+// and its cells are values met anywhere but in a body. Every type is
+// replaced whole, by its shape there remade.
 DataRemap::DataRemap(Operation *root, Leaf leafFn, ArrayRef<DataType> boxedTypes,
                      Renames renamed)
     : context(root->getContext()), leaf(std::move(leafFn)), renames(std::move(renamed)),
       boxed(boxedTypes.begin(), boxedTypes.end()), at(root->getLoc()) {
-  addReplacements(replacer, std::nullopt);
+  replacer.addReplacement(
+      [this](SymbolRefAttr ref) -> std::optional<std::pair<Attribute, WalkResult>> {
+        StringAttr renamedFn = renames.lookup(ref.getRootReference());
+        if (!renamedFn)
+          return std::make_pair(Attribute(ref), WalkResult::skip());
+        return std::make_pair(Attribute(SymbolRefAttr::get(renamedFn, ref.getNestedReferences())),
+                              WalkResult::skip());
+      });
+  replacer.addReplacement([this](ConAttr con) -> std::optional<std::pair<Attribute, WalkResult>> {
+    SmallVector<ArrayAttr> cells;
+    for (ArrayAttr cell : con.getCells())
+      cells.push_back(cast<ArrayAttr>(replacer.replace(cell)));
+    return std::make_pair(Attribute(ConAttr::getRun(context, mapData(con.getData()), con.getTag(),
+                                                    con.getSpine(), cells)),
+                          WalkResult::skip());
+  });
+  replacer.addReplacement([this](Type type) -> std::optional<std::pair<Type, WalkResult>> {
+    return std::make_pair(remadeOf(shapeAt(type, std::nullopt)), WalkResult::skip());
+  });
 }
 
 void DataRemap::remakeAll(Operation *root, StringRef kind) {
@@ -169,49 +185,34 @@ void DataRemap::remakeAll(Operation *root, StringRef kind) {
       for (Type field : ctor.fields)
         walker.walk(field);
 
-  // A type changes where a field does (a leaf replaced at the field, a type
-  // of `boxed` held outside a box, a data type that changes) or where a
-  // label's function is renamed. `holders` is the reverse of "a body
-  // names", along which a change spreads; `held` is "a body names" itself.
+  // Each field's shape, decided once. A type changes where a shape is not
+  // its field (a box or a leaf applied anywhere in it) or where a label's
+  // function is renamed, and where a data type it holds changes. `holders`
+  // is the reverse of "a body names", along which a change spreads; `held`
+  // is "a body names" itself: the data types in its shapes.
   llvm::DenseMap<DataType, SmallVector<DataType>> holders, held;
   idr::OnceWorklist<DataType> spreading;
   for (DataType data : types) {
     bool direct = llvm::any_of(data.getCtors(), [&](const Ctor &ctor) {
-      return ctor.fn && renames.contains(ctor.fn.getAttr());
+      const auto *label = std::get_if<role::Label>(&ctor.role);
+      return label && renames.contains(label->fn.getAttr());
     });
-    for (Tag tag : data.getTags())
+    std::vector<SmallVector<Type>> &bodyShapes = shapes[data];
+    for (Tag tag : data.getTags()) {
+      SmallVector<Type> &ctorShapes = bodyShapes.emplace_back();
       for (auto [index, field] : llvm::enumerate(data.getCtor(tag).fields)) {
-        FieldPlace place{data, tag, static_cast<unsigned>(index)};
-        AttrTypeWalker fields;
-        fields.addWalk([&](Type part) -> WalkResult {
-          if (auto box = dyn_cast<BoxType>(part)) {
-            holders[box.getData()].push_back(data);
-            held[data].push_back(box.getData());
-            return WalkResult::skip();
-          }
-          if (auto inner = dyn_cast<DataType>(part)) {
-            holders[inner].push_back(data);
-            held[data].push_back(inner);
-            direct |= boxed.contains(inner);
-            return WalkResult::skip();
-          }
-          // What a leaf gives is looked inside: the data types it names
-          // are named by the body too.
-          if (std::optional<Type> replaced = leafAt(part, place)) {
-            direct = true;
-            AttrTypeWalker inside;
-            inside.addWalk([&](DataType inner) {
-              holders[inner].push_back(data);
-              held[data].push_back(inner);
-              return WalkResult::skip();
-            });
-            inside.walk(*replaced);
-            return WalkResult::skip();
-          }
-          return WalkResult::advance();
+        Type shape = shapeAt(field, FieldPlace{data, tag, static_cast<unsigned>(index)});
+        direct |= shape != field;
+        ctorShapes.push_back(shape);
+        AttrTypeWalker named;
+        named.addWalk([&](DataType inner) {
+          holders[inner].push_back(data);
+          held[data].push_back(inner);
+          return WalkResult::skip();
         });
-        fields.walk<WalkOrder::PreOrder>(field);
+        named.walk(shape);
       }
+    }
     if (direct)
       spreading.push(data);
   }
@@ -225,30 +226,22 @@ void DataRemap::remakeAll(Operation *root, StringRef kind) {
   }
   llvm::sort(changing, [](DataType a, DataType b) { return a.getName() < b.getName(); });
 
-  // Each type's own key: its new body, every data type in it by its old
-  // name, so a cycle of new types needs no name first.
+  // Each type's own key: its new body, its shapes, every data type in them
+  // by its old name, so a cycle of new types needs no name first.
   llvm::DenseMap<DataType, std::string> own;
   for (DataType data : changing) {
     std::string &key = own[data];
     llvm::raw_string_ostream os(key);
+    const std::vector<SmallVector<Type>> &bodyShapes = shapes.at(data);
     for (Tag tag : data.getTags()) {
       const Ctor &ctor = data.getCtor(tag);
       os << '@' << ctor.name.getValue() << '(';
-      for (auto [index, field] : llvm::enumerate(ctor.fields)) {
-        if (index != 0)
-          os << ", ";
-        FieldPlace place{data, tag, static_cast<unsigned>(index)};
-        auto inner = dyn_cast<DataType>(unrestricted(field));
-        bool boxes = inner && boxed.contains(inner);
-        std::optional<Type> replaced = leafAt(field, place);
-        os << (boxes ? "!idr.box<" : "");
-        describe(replaced ? *replaced : field, os);
-        os << (boxes ? ">" : "");
-      }
+      llvm::interleaveComma(bodyShapes[static_cast<uint32_t>(tag)], os,
+                            [&](Type shape) { describe(shape, os); });
       os << ')';
-      if (ctor.fn) {
-        StringAttr renamedFn = renames.lookup(ctor.fn.getAttr());
-        os << " @" << (renamedFn ? renamedFn : ctor.fn.getAttr()).getValue();
+      if (const auto *label = std::get_if<role::Label>(&ctor.role)) {
+        StringAttr renamedFn = renames.lookup(label->fn.getAttr());
+        os << " @" << (renamedFn ? renamedFn : label->fn.getAttr()).getValue();
       }
     }
   }
@@ -298,28 +291,27 @@ DataType DataRemap::remake(DataType old) {
   if (DataType known = next.lookup(old))
     return known;
   // The new fields of each constructor, which the body views until define
-  // sets it.
+  // sets it: each field's shape with its data types remade.
   std::vector<SmallVector<Type>> fields(old.getCtors().size());
-  FailureOr<DataType> remade = DataType::define(context, names.lookup(old), [&](DataType self) {
-    next[old] = self;
-    DataType::Body body{old.getKind(), {}, old.getInstance()};
-    for (Tag tag : old.getTags()) {
-      const Ctor &ctor = old.getCtor(tag);
-      SmallVector<Type> &newFields = fields[static_cast<uint32_t>(tag)];
-      for (auto [index, field] : llvm::enumerate(ctor.fields)) {
-        // A field's leaves are keyed by the field, so each field has a
-        // replacer of its own.
-        AttrTypeReplacer atField;
-        addReplacements(atField, FieldPlace{old, tag, static_cast<unsigned>(index)});
-        newFields.push_back(atField.replace(field));
-      }
-      FlatSymbolRefAttr fn = ctor.fn;
-      if (StringAttr renamedFn = fn ? renames.lookup(fn.getAttr()) : StringAttr())
-        fn = FlatSymbolRefAttr::get(renamedFn);
-      body.ctors.push_back({ctor.name, newFields, ctor.byName, ctor.role, fn});
-    }
-    return body;
-  });
+  const std::vector<SmallVector<Type>> &bodyShapes = shapes.at(old);
+  FailureOr<DataType> remade = DataType::define(
+      context, names.lookup(old), [&](DataType self) -> FailureOr<DataType::Body> {
+        next[old] = self;
+        DataType::Body body{old.getKind(), {}, old.getInstance()};
+        for (Tag tag : old.getTags()) {
+          const Ctor &ctor = old.getCtor(tag);
+          SmallVector<Type> &newFields = fields[static_cast<uint32_t>(tag)];
+          for (Type shape : bodyShapes[static_cast<uint32_t>(tag)])
+            newFields.push_back(remadeOf(shape));
+          // A label names its function's new name where it is renamed.
+          Role played = ctor.role;
+          if (auto *label = std::get_if<role::Label>(&played))
+            if (StringAttr renamedFn = renames.lookup(label->fn.getAttr()))
+              label->fn = FlatSymbolRefAttr::get(renamedFn);
+          body.ctors.push_back({ctor.name, newFields, played});
+        }
+        return body;
+      });
   if (succeeded(remade))
     return *remade;
   emitError(at) << "internal error: remaking the data type \"" << old.getName() << "\"";

@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-/* The runtime's C interface.
+/* The runtime's C interface: the layouts lowered code and the runtime
+ * share, which idr-lower writes constants of into static data; the ownership
+ * rules every entry point keeps; the ABI's constants; and the prototypes of
+ * the functions lowered code does not call. idris_rt_ops.h, generated from
+ * the dialect's ODS, declares every function idr-lower calls. A function's
+ * meaning is documented beside its definition, in runtime/.
  *
- * Every helper that idr-lower calls is here. A program inlines the
- * runtime's bitcode where that pays and links the rest natively, so what a
- * program does not call is not in its executable. idris-mlir links the
- * same code natively: the folders of the string and big ops call it, so a
- * primitive has one implementation at compile time and at runtime.
+ * Every function the runtime exports is named by a C identifier, with no
+ * `$`: each name the compiler reserves for a symbol of its own has a `$`
+ * followed by a letter, so none of them is a runtime function's.
  *
- * The layouts below are shared with idr-lower (foreign/idr/lib/Lower), which
- * writes constants of them into static data. */
+ * A program inlines the runtime's bitcode where that pays and links the rest
+ * natively, so what a program does not call is not in its executable.
+ * idris-mlir links the same code natively: the folders of the string and big
+ * ops call it, so a primitive has one implementation at compile time and at
+ * runtime. */
 #ifndef IDRIS_RT_H
 #define IDRIS_RT_H
 
@@ -161,6 +167,17 @@ typedef int64_t idris_rt_big;
 #define IDRIS_RT_SMALL_MIN (-(INT64_C(1) << 62))
 #define IDRIS_RT_SMALL_MAX ((INT64_C(1) << 62) - 1)
 
+/* Whether a word is small, by its low bit, and the value a small one holds:
+ * a small value's word is 2v + 1 (idris_rt_small_word, the function of
+ * idr.big.small), and a large big's is even. */
+#ifdef __cplusplus
+constexpr bool idris_rt_word_is_small(idris_rt_big word) { return (word & 1) != 0; }
+constexpr int64_t idris_rt_small_value(idris_rt_big word) { return word >> 1; }
+#else
+static inline bool idris_rt_word_is_small(idris_rt_big word) { return (word & 1) != 0; }
+static inline int64_t idris_rt_small_value(idris_rt_big word) { return word >> 1; }
+#endif
+
 /* A big outside the small range: the header (kind IDRIS_RT_KIND_BIGNUM), the
  * signed number of limbs (GMP's convention: its sign is the integer's, its
  * magnitude the count), then the limbs, least significant first, in the same
@@ -197,6 +214,18 @@ typedef struct idris_rt_array {
   uint64_t length;
 } idris_rt_array;
 
+/* The bytes of a byte array (a Data.Buffer), right after its length. A byte
+ * array passes as its cell; every span an entry point reads or writes lies in
+ * it, idr.check.range having tested it before the call, and an address in it
+ * need not be aligned. */
+#ifdef __cplusplus
+inline char *idris_rt_array_bytes(idris_rt_array *cell) {
+  return reinterpret_cast<char *>(cell + 1);
+}
+#else
+static inline char *idris_rt_array_bytes(idris_rt_array *cell) { return (char *)(cell + 1); }
+#endif
+
 /* A memref's descriptor, as LLVM lays one out for a memref of rank R: the
  * allocated pointer, the cell; the aligned pointer, always the cell's first
  * element, right after its header; the offset of the view's first element
@@ -216,346 +245,75 @@ typedef struct idris_rt_memref {
  * fields, in a cell as large as its largest state. A cell holds no code
  * address. Their field layouts are idr-lower's. */
 
-/* The functions each op that calls the runtime names (its Idr_Runtime),
- * declared from the dialect's ODS, so that a definition here that does not
- * take its op's operands and give its op's result fails to compile. Each
- * one's meaning is documented below with the runtime's other functions. */
+/* The functions idr-lower calls, the ops' (their Idr_Runtime) and the cell,
+ * array, counting, string-building, crash and entry functions, declared from
+ * the dialect's ODS, so that a definition in runtime/ that does not take what
+ * lowered code passes and give what it expects fails to compile. */
 #include "idris_rt_ops.h"
 
-/* Reference counting. Every entry point below but idris_rt_is_unique takes
- * NULL, an odd word and a persistent object too, and then does nothing: an
- * object slot may hold any of them, so callers need no test first. */
-
-/* A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,
- * with the matching info, anything else the runtime frees): its header is
- * count 1 and `info`, and it counts as a live cell. Exhausted memory ends
- * the process with a crash. The size is a constant at every call idr-lower
- * makes, so once the runtime's bitcode is inlined, snmalloc's size class
- * folds to a constant and the allocation is a free-list pop. */
-void *idris_rt_cell(size_t size, uint32_t info);
-
-/* A new array cell of `count` elements with the header `info` (kind
- * IDRIS_RT_KIND_ARRAY), counted as idris_rt_cell counts a cell. When its
- * elements hold objects, every byte of them is 0, so every object slot is
- * NULL until a store; otherwise they are not written. The first element is
- * aligned to IDRIS_RT_WORD_BYTES. Exhausted memory, and a count whose cell
- * would not fit the address space (UINT64_MAX, for an element of a byte or
- * more), end the process with a crash. */
-idris_rt_array *idris_rt_array_new(uint64_t count, uint32_t info);
-
-/* memref.copy, where idr-lower does not copy the bytes itself: each element
- * of the view `from` assigned to the same place of the view `to`, in
- * row-major order. Both have rank `rank` and from's sizes. The element is
- * the one to's cell describes, and from's cell holds the same: each object
- * slot copied gains one reference, then the slot it overwrites loses one,
- * then the element's bytes are moved. So a cell fresh from
- * idris_rt_array_new may be the target as it is, and a view copied onto
- * itself, the one overlap allowed, is left as it was. */
-void idris_rt_memref_copy(int64_t rank, const idris_rt_memref *from, const idris_rt_memref *to);
-
-/* One more owned reference; a count that would reach UINT32_MAX saturates
- * there. */
-void idris_rt_inc(void *o);
-
-/* One owned reference less. At 0 the object is released: a box's or a
- * thunk's object slots lose a reference each, and then its memory is freed
- * (a stack cell's is not). Objects that reach 0
- * in turn are released the same way, from a worklist that runs through the
- * dying cells themselves: no recursion and no allocation, so freeing takes
- * constant stack however deep the structure is. */
-void idris_rt_dec(void *o);
-
-/* Releases what a persistent memo cell holds (its object slots), once,
- * when the program ends: @__idr_release_cafs calls it on each of the
- * module's static thunks. A cell that was never forced holds only
- * persistent captures, and then nothing is released. */
-void idris_rt_caf_release(void *cell);
-
-/* Whether a cell is exclusive: count 1, and not a stack cell, so never a
- * persistent one. It takes a cell, never a word that may be NULL or a small
- * value: the caller knows which it holds, and a cell is what it asks
- * about. */
-bool idris_rt_is_unique(const idris_rt_header *cell);
-
-/* Frees the memory of a counted heap cell, and nothing else: the caller has
- * already moved out what it owns, having found it exclusive
- * (idris_rt_is_unique), and reuses the memory of such a cell for one of the
- * same size, rewriting the header, or frees it here. A stack cell's memory
- * is its frame's, so a stack cell is left alone too. */
-void idris_rt_free_cell(void *o);
-
-/* The heap cells the runtime allocated (idris_rt_cell, strings and bignums)
- * and has not freed yet, counted by the calling thread: a program is
- * single-threaded, and idris-mlir reads it before and after each fold, on
- * the thread that folds, with no atomic operation on the allocation path. */
-uint64_t idris_rt_live_cells(void);
-
-/* Ownership at the other entry points. A primitive (the string, big, output,
- * show and parse operations below, which the folders call too) borrows its
+/* Reference counting's entry points take NULL, an odd word and a persistent
+ * object too, and then do nothing, but for its test of exclusivity, which
+ * takes a cell: an object slot may hold any of them, so callers need no test
+ * first.
+ *
+ * Ownership at the other entry points. A primitive (the string, big, output,
+ * show and parse operations, which the folders call too) borrows its
  * arguments: it neither releases nor keeps them. A primitive that returns an
  * object returns an owned reference: a new object (count 1), a persistent
- * one, or one of its arguments with one more reference. */
-
-/* Standard output and input. They borrow their arguments.
- * Output goes through one static buffer, flushed when it fills, before every
- * read, before a crash's message, and when main returns. */
-void idris_rt_flush(void);
-/* What @main calls right before it returns: writes pending output and
- * releases the handle table (its files, directories, and the strings the
- * runtime holds for environment and directory handles, which are then not
- * counted as live), then, when the environment variable IDRIS_RT_LIVE is
- * exactly "1", writes the line "idris-rt: live cells N\n" (N in decimal,
- * idris_rt_live_cells) to standard error, so a test can check that a program
- * frees every cell it allocates. A crash reports nothing, and neither does
- * idris_rt_io_exit. */
-void idris_rt_main_return(void);
-/* idris_rt_io_put_str writes a string's bytes. idris_rt_io_put_char writes
- * the UTF-8 encoding of a character: the Prelude's putChar, and what writing
- * a one-character string writes. A Char is a Unicode scalar value, so it is
- * written whole, where both stock backends call C's putchar, as the Prelude
- * declares putChar, and write its low byte. idris_rt_io_put_int_s and
- * idris_rt_io_put_int_u write the decimal text of a signed or an unsigned
- * integer, which idr-lower extends to 64 bits as its type's signedness says.
- * idris_rt_io_put_double writes the text of a double, as
- * idris_rt_str_show_f64 writes it. */
-/* A string built in place by idr.str.pack and idr.str.concat, which know
- * its size from a first pass: a new string of `bytes` bytes and `scalars`
- * scalar values, whose bytes the caller then writes in order, a
- * character's UTF-8 or a string's bytes at an offset, each giving the next
- * offset. The empty string is shared and never written. */
-idris_rt_str *idris_rt_str_alloc(int64_t bytes, int64_t scalars);
-int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c);
-int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part);
-/* idris_rt_io_get_byte reads one byte, or gives 255 at the end of input.
- * idris_rt_io_get_line reads a line of input without its end, the Prelude's
- * getLine: the bytes up to the next '\n', which is consumed, without that
- * '\n' or the "\r\n" it ends; the rest of the input when no '\n' is left,
- * and the empty string at the end of input. The bytes are decoded as
- * idris_rt_str_from_bytes decodes them. A new string. */
-/* A byte array (a Data.Buffer) is passed as its cell, its first byte (the
- * cell's first element, which idr-lower computes at the call) and its size.
- * Only the first byte is read: every span lies in the array, since
- * idr.check.range tests it against the size before the call, and an address
- * in the array is `bytes + offset`, which need not be aligned. */
-/* idris_rt_io_write_bytes writes the bytes [offset, offset + count) of a
- * byte array to a handle: 1 is standard output, through the output buffer
- * and in order with every other write to it; 2 is standard error; any other
- * is a file the program opened (idris_rt_io_file_open). Gives the count
- * written.
- * idris_rt_io_read_bytes reads bytes from a handle into [offset, offset +
- * count) of a byte array: 0 is standard input, through the input buffer
- * idris_rt_io_get_line reads too, and any other a file the program opened.
- * Gives the count read, 0 at the end of input.
- * idris_rt_io_eof gives 1 once a read on the handle met the end of its
- * input, as C's feof reports it, else 0: standard input, or a file the
- * program opened.
- * idris_rt_io_n_processors gives how many processors are online, read when
- * asked; -1 when the system does not say, which System.Info.getNProcessors
- * turns into Nothing.
- * idris_rt_io_buffer_copy copies `len` bytes from one byte array to
- * another. The ranges may overlap.
- * idris_rt_io_buffer_set_string writes a string's bytes at `offset`. The
- * span is the string's byte length.
- * idris_rt_io_buffer_get_string gives the bytes [offset, offset + len) of a
- * byte array as a string. Ill-formed UTF-8 is replaced as
- * idris_rt_str_from_bytes replaces it. A new string. */
-
-/* Base's files, directories, process, terminal, errors and clocks
- * (System.File, System.Directory, System, System.Term, System.Errno,
- * System.Clock): each is the op idr.io.<name> or idr.handle.<name>, whose
- * one meaning is documented beside its definition, the same on both
- * targets. Their arguments are borrowed, and a string they return is new.
+ * one, or one of its arguments with one more reference.
  *
- * A pointer of base is a handle, an int64_t: 0, 1 and 2 are the standard
- * streams, -1 is null, and any other is a slot of the runtime's handle table,
- * which holds a file, a directory, a file time or a string. A string handle
- * read from a file (idris_rt_io_file_read_line, idris_rt_io_file_read_chars)
- * or naming the current directory (idris_rt_io_dir_current) is the
- * program's, which frees it (idris_rt_io_handle_free); one from
- * idris_rt_io_env_get, idris_rt_io_env_pair or idris_rt_io_dir_entry is the
+ * Strings are immutable; each operation borrows its arguments and returns an
+ * owned string: a new one, a persistent one (the empty string), or an
+ * argument with one more reference (appending the empty string, reversing an
+ * empty one).
+ *
+ * Bigs: Integer, and the Nat-like types. Each operation borrows its
+ * arguments and returns an owned result: a small word, or a new bignum.
+ *
+ * Base's files, directories, process, terminal, errors and clocks
+ * (System.File, System.Directory, System, System.Term, System.Errno,
+ * System.Clock) borrow their arguments, and a string they return is new. */
+
+/* A pointer of base is a handle, an int64_t: -1 is null; 0, 1 and 2 are
+ * standard input, output and error, slots of the handle table made with it
+ * and never freed; any other is a slot the program opened. A string handle
+ * read from a file or naming the current directory is the program's, which
+ * frees it; one of the environment or of a directory's entries is the
  * runtime's, as getenv's and readdir's bytes are the C library's: the next
  * call of its kind, or closing its directory, releases it, and freeing its
- * handle does nothing. An OSClock is seconds << 30 | nanoseconds, or -1 when
- * it is not valid. A failing call sets the runtime's saved errno, which
- * idris_rt_io_errno and idris_rt_io_file_errno read.
- * idris_rt_io_exit writes pending output and ends the process with the
- * status, reporting no live cells. idris_rt_handle_is_null gives 1 when the
- * handle is null (-1), else 0. idris_rt_handle_string gives the string a
- * string handle holds, with one more reference. */
-/* Writes pending output, then the len bytes of msg to standard error, then
- * ends the process with status IDRIS_RT_CRASHED: lowered code crashes
- * through it alone. */
-IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
-/* idris_rt_crash_str ends the program with "idris-mlir: " and the string's
- * bytes. */
+ * handle does nothing.
+ *
+ * An OSClock is seconds << 30 | nanoseconds, or -1 when it is not valid.
+ *
+ * A failing call sets the runtime's saved errno, which base's errno and
+ * file errors read. */
 
-/* The exit status of a program that the runtime ends with a message on
- * standard error ("idris-mlir: <cause>"): a crash, the stack running out, a
- * CPU without the features the program was compiled to use, a system whose
- * page size is not the one the runtime is built for. */
+/* The exit status of a program the runtime ends with a message on standard
+ * error, `idris-mlir: `, the cause idris_rt_crash is given, and a newline: a
+ * crash, the stack running out, a processor without the features the
+ * program was compiled to use, a system whose page size is not the one the
+ * runtime is built for. */
 #define IDRIS_RT_CRASHED 1
 
-/* The program's entry, which @main calls with the program, the
- * IDRIS_RT_CPU_FEATURES bits its target enables (cpu_features.h), and its
- * own argc and argv, which the runtime keeps for idris_rt_io_arg_count and
- * idris_rt_io_arg. First,
- * when the system's page size is not the target's the runtime is built for,
- * it names both and ends the process with IDRIS_RT_CRASHED. When the
- * CPU lacks one of them, it names them, a bit no feature names by its
- * number, and ends the process with IDRIS_RT_CRASHED before the program
- * runs; it is compiled for the target's baseline, and idris-mlir
- * keeps it there. Otherwise it points GMP at the runtime's allocator
- * (idris_rt_gmp_init) and runs body on a reserved stack
- * (idris_rt_run_on_stack) of the number of bytes the environment variable
- * IDRIS_RT_STACK says, or else of a gibibyte, or of the stack limit when
- * that is larger, up to 2^44 bytes (an unlimited one is that ceiling); when
- * that stack runs out, the output written so far is flushed,
- * "idris-mlir: stack exhausted" is written to standard error, and the
- * process ends with IDRIS_RT_CRASHED. What body returns is the exit status:
- * it returns a status from 0 to 255, and ends the process as a crash that
- * names any other value, which no parent could tell from its low 8 bits. */
-int idris_rt_start(int64_t (*body)(void), uint64_t cpu_features, int argc, char **argv);
+/* The mark of what runs before the processor test (the page-size check, the
+ * test, and what they write and how they end the process): idris-mlir finds
+ * a function annotated with it by this name, and keeps it compiled for the
+ * target's baseline, where it raises every other to the program's CPU. */
+#define IDRIS_RT_BASELINE_MARK "idris-rt-baseline"
+#define IDRIS_RT_BASELINE __attribute__((annotate(IDRIS_RT_BASELINE_MARK)))
 
-/* The reserved-stack runner, which programs and idris-mlir share: runs
- * fn(arg) on a new thread whose stack is reserved address space, committed
- * as it is touched, of the largest size from `most` bytes down by halves to
- * 64 MiB (or `most`, when smaller) that the machine grants, with `guard`
- * inaccessible bytes below it. Both are rounded up to whole pages, and the
- * guard is at least one. A fault on the guard is the stack running out:
- * exhausted() runs, on a signal stack of its own, and must end the process
- * with only async-signal-safe calls. Any other fault gets the action it had
- * before. One runner runs at a time in a process. It checks the page size
- * first, as idris_rt_start does. Returns 0 once fn has returned, or -1 when
- * no stack could be reserved. */
+/* The functions lowered code does not call: idris-mlir calls them natively
+ * (its folders, its tools, idr-lower's static data), and so do the runtime's
+ * tests. */
+uint64_t idris_rt_live_cells(void);
+void idris_rt_flush(void);
 int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
                           void (*exhausted)(void));
-
-/* Doubles. idris_rt_to_int gives a double truncated toward zero, modulo
- * 2^64; the double is finite (idr-lower checks it first).
- * idris_rt_double_head gives the first character of the text of a double
- * (idris_rt_str_show_f64): '-', a digit, or the 'i' of inf or the 'n' of
- * nan. idris_rt_int_head_s and idris_rt_int_head_u give the first character
- * of the decimal text of a signed or unsigned integer. */
-
-/* Strings. Strings are immutable; each operation borrows its arguments and
- * returns an owned string: a new one, a persistent one (the empty string), or
- * an argument with one more reference (appending the empty string, reversing
- * an empty one). Preconditions, which idr-lower
- * checks and crashes on before the call: idris_rt_str_index needs
- * 0 <= index < length, idris_rt_str_head and idris_rt_str_tail a nonempty
- * string.
- * - idris_rt_str_append, idris_rt_str_cons, idris_rt_str_from_char: the
- *   concatenation of two strings, a character before a string, the string
- *   of one character.
- * - idris_rt_str_show_s, idris_rt_str_show_u: the decimal text of a signed
- *   or an unsigned integer.
- * - idris_rt_str_show_f64: the text of a double, which reads back as it
- *   (idris_rt_str_to_double): the fewest significant digits that do, the
- *   nearest of those to the double, and of two equally near the one whose
- *   last digit is even; positional from 1e-3 up to 1e10, with a digit after
- *   the point (0.001, 100.0), else in scientific notation (1e21, 1.5e-7,
- *   5e-324); inf, -inf and nan, a NaN whatever its sign; -0.0 with its sign.
- * - idris_rt_str_length: the number of scalar values; idris_rt_str_index,
- *   idris_rt_str_head: the scalar at an index, the first; idris_rt_str_tail:
- *   the string without its first scalar; idris_rt_str_reverse: its scalars
- *   in reverse order.
- * - idris_rt_str_substr: the Prelude's substr, the scalars from `start`, at
- *   most `length` of them; "" when the start is past the end, and only
- *   those left when fewer than `length` are. A negative start or length,
- *   which only a call of the primitive itself passes, counts as 0. */
-/* A string by byte offset, as the linear string iterator walks it. Every
- * offset has a meaning: it is clamped to [0, bytes], and one inside a
- * scalar's encoding stands for the start of that scalar.
- * - idris_rt_str_scalar_at: the scalar that starts there; 0 at the end.
- * - idris_rt_str_drop_bytes: the scalars from there on: the string itself
- *   (one more reference) from 0, the persistent empty one at the end, and
- *   otherwise a new string of those bytes.
- * And the iterator's step past the scalar it read:
- * - idris_rt_str_scalar_bytes: the number of bytes of a character's UTF-8,
- *   1 to 4; for an int32_t that is no scalar value, the length its
- *   encoding as idris_rt_str_from_char writes it has. */
-/* idris_rt_str_cmp gives negative, zero or positive as its first string is
- * before, equal to or after its second in the order of their scalar values,
- * Unicode's code point order, which is the byte order of their UTF-8. */
-/* `cast` from String (idris_rt_str_to_int, idris_rt_str_to_double,
- * idris_rt_big_from_str): the whole string is an optional sign (`+` or `-`)
- * and a literal of the target type as Idris writes it; any other string
- * is 0.
- * - to an integer: an integer literal, decimal digits or 0b, 0o, 0x or 0X
- *   and digits of that base, single underscores between digits allowed,
- *   gives that integer, exactly;
- * - to Double: an integer literal, digits, a point and digits with an
- *   optional exponent (`e`, an optional sign, digits), or digits and an
- *   exponent, give the nearest double, ties to even (so every text
- *   idris_rt_str_show_f64 writes reads back as its double), an exponent
- *   out of range an infinity or a zero; `inf`, `infinity` and `nan`, in any
- *   case, give an infinity and NaN.
- * idris_rt_str_to_int returns the result modulo 2^64; idr-lower wraps it to
- * the op's width. */
-/* The string of n bytes of well-formed UTF-8 at p: a new string, or the
- * persistent empty one. */
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
-/* The string of any n bytes at p, decoded as UTF-8: how bytes from outside
- * the program become a string. Well-formed sequences are their scalars, and
- * each maximal subpart of an ill-formed one, the longest prefix of a
- * well-formed sequence at that point or else one byte, is one U+FFFD, as the
- * Unicode Standard recommends (chapter 3). A new string, or the persistent
- * empty one. */
 const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);
-
-/* Bigs: Integer, and the Nat-like types. Each operation borrows its
- * arguments and returns an owned result: a small word, or a new bignum.
- * Division and modulus are Euclidean, the remainder in [0, |b|), and the
- * bitwise operations and the shifts are those of the infinite two's
- * complement representation, as upstream Idris's test suite requires of
- * every backend (its integers test of Chez, RefC and Node); the divisor is
- * nonzero (idr-lower checks it first).
- * - idris_rt_big_add, _sub, _mul, _div, _mod, _and, _or, _xor, _neg: the
- *   arithmetic and the bitwise operations.
- * - idris_rt_big_shl, idris_rt_big_shr: a value moved `amount` places, left
- *   or right, the other way when the amount is negative, as Scheme's ash
- *   moves it: a left shift is value * 2^amount, a right shift the floor of
- *   value / 2^amount, so it fills with the sign. A shift toward zero, and
- *   any shift of 0, is defined for every amount. A left shift whose result
- *   no integer can hold (more than 2^31 - 1 limbs) ends the process as
- *   exhausted memory does.
- * - idris_rt_big_pred: the value minus 1, for a natural that is not zero.
- * - idris_rt_nat_from_big: an Integer as a natural, 0 if it is negative,
- *   else itself (Idris's integerToNat).
- * - idris_rt_big_cmp: negative, zero or positive as its first operand is
- *   less than, equal to or greater than its second.
- * - idris_rt_big_from_int_s, idris_rt_big_from_int_u: a signed or an
- *   unsigned integer as a big.
- * - idris_rt_big_to_int: the value modulo 2^64; idr-lower wraps it to the
- *   op's width.
- * - idris_rt_big_from_double: a double truncated toward zero; it is finite
- *   (idr-lower checks it first).
- * - idris_rt_big_to_double: the double nearest to the value, ties to even,
- *   an infinity past the largest: the conversion of IEEE 754 under its
- *   default rounding.
- * - idris_rt_big_show: its decimal text, a new string.
- * - idris_rt_big_from_str: the integer cast of idris_rt_str_to_int, without
- *   the wrapping. */
-
-/* Dropping the reference an operation returned, for callers that own it and
- * hold a string or a big rather than a pointer: the compiler's folders, which
- * turn each result into an attribute. Both are idris_rt_dec. */
 void idris_rt_str_release(const idris_rt_str *s);
 void idris_rt_big_release(idris_rt_big a);
-
-/* The number of scalar values in n bytes of well-formed UTF-8, over
- * simdutf: what a string's scalar count is, for a string idr-lower writes
- * into static data. */
 size_t idris_rt_utf8_count(const char *p, size_t n);
-
-/* Points GMP's memory functions at the runtime's allocator, so that GMP's
- * scratch integers come from snmalloc and exhausted memory is the runtime's
- * crash. idris_rt_start calls it before the program runs, while no other
- * thread can use GMP. A process that runs big operations without
- * idris_rt_start (idris-mlir, whose folders call them) may call it before
- * it starts any thread that does; GMP otherwise allocates through the C
- * library, which is as correct, since every integer GMP allocates is freed
- * before the operation that made it returns. */
 void idris_rt_gmp_init(void);
 
 #ifdef __cplusplus

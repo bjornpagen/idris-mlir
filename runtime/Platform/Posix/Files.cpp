@@ -5,6 +5,7 @@
 // fields of a stat's times, one function holds it.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
+#include "idris_rt.h"
 
 #include <errno.h>
 #include <stddef.h>
@@ -87,7 +88,7 @@ bool isTerminal(int fd) noexcept { return isatty(fd) == 1; }
 
 // A write a signal interrupts before it wrote anything is tried again, as
 // musl's stdio does; any other failure abandons the rest.
-[[clang::annotate("idris-rt-baseline")]] void writeAll(int fd, const char *p, size_t n) noexcept {
+IDRIS_RT_BASELINE void writeAll(int fd, const char *p, size_t n) noexcept {
   while (n > 0) {
     ssize_t written = write(fd, p, n);
     if (written < 0 && errno == EINTR)
@@ -97,6 +98,14 @@ bool isTerminal(int fd) noexcept { return isatty(fd) == 1; }
     p += written;
     n -= static_cast<size_t>(written);
   }
+}
+
+IDRIS_RT_BASELINE void writeCrash(const Piece *pieces, size_t count) noexcept {
+  static constexpr char prefix[] = "idris-mlir: ";
+  writeAll(2, prefix, sizeof prefix - 1);
+  for (size_t i = 0; i < count; ++i)
+    writeAll(2, pieces[i].bytes, pieces[i].length);
+  writeAll(2, "\n", 1);
 }
 
 int64_t readSome(int fd, char *p, size_t n) noexcept { return static_cast<int64_t>(read(fd, p, n)); }

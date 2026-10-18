@@ -8,11 +8,13 @@ module IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Term
 import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.SnocList
 import Data.SortedMap
+import Data.Vect
 
 %default total
 
@@ -28,10 +30,10 @@ record ES where
   ||| code is from.
   owner : FnId
   definition : Shown
-  ||| Those functions, in the order their bodies were finished, and the key
-  ||| of each by its symbol, the name MLIR is given, so that two contents
-  ||| on one name are found: one function per key.
-  lifted : SnocList Statement
+  ||| Those functions, each with its symbol, in the order their bodies were
+  ||| finished, and the key of each by its symbol, the name MLIR is given,
+  ||| so that two contents on one name are found: one function per key.
+  lifted : SnocList (String, Statement)
   keys : SortedMap String String
 
 ||| The state before the function `owner` of the program, from the
@@ -80,53 +82,55 @@ linear One WorldT = False
 linear One _ = True
 linear Many _ = False
 
-mutual
-  ||| How a value in scope is held: as the one SSA value its name names, or
-  ||| as a constructor a match took apart, which a reference builds again
-  ||| from its fields as the region holds them. A match uses a linear
-  ||| scrutinee, so a variable naming it inside a case region names the
-  ||| constructor of the fields the region bound. Taken apart, a value's
-  ||| `name` is a key no operation defines, which `matched` (Bodies) renames
-  ||| by.
-  public export
-  data Parts = Whole | Taken ConId (List Val)
+||| A value: its SSA name, its type, and how often it may be used.
+public export
+record Val where
+  constructor MkVal
+  name : String
+  type : Ty
+  use : Quantity
 
-  ||| A value in scope: its SSA name, its type, how often it may be used,
-  ||| and how it is held.
-  public export
-  record Val where
-    constructor MkVal
-    name : String
-    type : Ty
-    use : Quantity
-    parts : Parts
+||| What a variable in scope stands for: one SSA value, or a constructor a
+||| match took apart, which a use builds again from its fields as the region
+||| holds them. A match uses a linear scrutinee, so a variable naming it
+||| inside a case region names the constructor of the fields the region
+||| bound. A constructor taken apart is no SSA value: its key, which no
+||| operation defines, is what `matched` (Bodies) renames by.
+public export
+data InScope : Type where
+  Whole : Val -> InScope
+  Taken : {k : Nat} -> Con k -> Vect k InScope -> String -> InScope
 
+||| The variable a context binds a value to: its name, and the quantity it
+||| holds the value at.
+public export
+record Binding where
+  constructor MkBinding
+  name : Shown
+  held : Quantity
+
+||| What a context wants of the value a term gives: the type it expects, if
+||| it knows it, and the variable it binds the value to, if it binds one.
+public export
+record Wanted where
+  constructor MkWanted
+  type : Maybe Ty
+  binder : Maybe Binding
+
+||| A context that expects a value of a type, if it knows it, and binds it
+||| to no variable: an operand's, a region's, a function's.
 export
-val : String -> Ty -> Quantity -> Val
-val name type use = MkVal name type use Whole
+expecting : Maybe Ty -> Wanted
+expecting t = MkWanted t Nothing
 
-||| What the newest operation of the region defines, if it defines anything.
+||| Where an op that makes a value of type `t`, held as `u`, stands: at the
+||| name of the variable the value is bound to, when the variable holds it
+||| as it is made, so that MLIR names the SSA value after the Idris
+||| variable (an op's result has the op's location, the one place MLIR keeps
+||| a result's name); else at `l`. A value made at another quantity than
+||| its variable's is entered or used into it by an op of its own, which
+||| stands at the name.
 export
-newest : E (Maybe String)
-newest = gets (\st => case st.ops of
-  _ :< s => s.result
-  [<] => Nothing)
-
-||| The value a binder names: if the newest operation defines `v`, and did
-||| not already when `newest` read `before`, it is at the binder's name over
-||| its own span, so the printer names the SSA value after the Idris
-||| variable. An op's result has the op's location, the one place MLIR keeps
-||| a result's name. A `let` of a variable or of a block argument defines no
-||| new value, and the value keeps the location it has.
-export
-atBinder : Shown -> Maybe String -> Val -> E ()
-atBinder name before v = when (before /= Just v.name) (modify { ops $= rename })
-  where
-    spanOf : Location -> Loc
-    spanOf (At l) = l
-    spanOf (Named _ l) = l
-    rename : SnocList Statement -> SnocList Statement
-    rename (rest :< s) =
-      if s.result == Just v.name then rest :< MkStatement s.result s.op (Named name (spanOf s.at))
-                                     else rest :< s
-    rename [<] = [<]
+madeAt : Maybe Binding -> Loc -> Ty -> Quantity -> Location
+madeAt (Just b) l t u = if linear u t == linear b.held t then Named b.name l else At l
+madeAt Nothing l t u = At l

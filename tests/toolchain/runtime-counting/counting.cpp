@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Reference counting and arrays against a model of what idris_rt.h says
+// Reference counting and arrays against a model of what the runtime says
 // they mean. Each case makes up to eight objects (boxes and thunks of a few
 // object slots or of more than the header's objs field counts, arrays whose
 // elements hold objects) and runs operations on them as compiled code does:

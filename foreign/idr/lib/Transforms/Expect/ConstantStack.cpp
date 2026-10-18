@@ -71,17 +71,13 @@ private:
 // its caller's frame; so before idr-tail-calls none may be on a cycle at
 // all: every recursion became a loop. Functions without a body in the
 // module call nothing back.
-LogicalResult constantStack(ModuleOp module, AnalysisManager &analyses, StringRef function) {
-  constexpr StringRef property = "constant-stack";
-  SymbolTable &symbols = symbolsOf(module, analyses);
-  SmallVector<FunctionOpInterface> starts = named(module, function, property);
-  if (starts.empty())
-    return failure();
+LogicalResult constantStack(const Request<Functions> &request) {
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   // Every function the named ones may call, themselves included, each
   // taken once.
   Graph graph(symbols);
   OnceWorklist<Operation *> reached;
-  for (FunctionOpInterface fn : starts)
+  for (FunctionOpInterface fn : request.argument.functions)
     reached.push(fn);
   while (std::optional<Operation *> next = reached.pop())
     for (Reference ref : graph.of(*next))
@@ -96,7 +92,7 @@ LogicalResult constantStack(ModuleOp module, AnalysisManager &analyses, StringRe
         grows |= members.contains(ref.target) && !ref.tailCall;
     if (!grows)
       continue;
-    InFlightDiagnostic error = fail(cycle.front()->getLoc(), property)
+    InFlightDiagnostic error = fail(cycle.front()->getLoc(), request.property)
                                << "the stack grows with the recursion of";
     for (Operation *fn : cycle)
       error << " " << where(fn);
@@ -108,35 +104,26 @@ LogicalResult constantStack(ModuleOp module, AnalysisManager &analyses, StringRe
 // `@f:@g`: every copy of @f calls @g or a copy of it, and each such call
 // is a guaranteed tail call, which replaces the caller's frame: marked
 // musttail, and followed by the return, as LLVM's rule for one asks.
-LogicalResult tailCalls(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "tail-calls";
-  auto [function, callee] = splitAt(module, argument, property);
-  if (function.empty())
-    return failure();
-  StringRef g = callee.ltrim('@');
-  if (g.empty())
-    return fail(module.getLoc(), property) << "name both functions, as tail-calls=@f:@g";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult tailCalls(const Request<Pair> &request) {
+  const Pair &pair = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : functions) {
+  for (FunctionOpInterface fn : pair.caller.functions) {
     bool some = false;
     fn->walk([&](LLVM::CallOp call) {
-      if (!callsNamed(call, g, symbols))
+      if (!callsNamed(call, pair.callee, symbols))
         return;
       some = true;
       if (call.getTailCallKind() == LLVM::tailcallkind::TailCallKind::MustTail &&
           isa_and_nonnull<LLVM::ReturnOp>(call->getNextNode()))
         return;
-      fail(call->getLoc(), property) << where(fn) << " calls " << callee
-                                     << " and keeps its frame";
+      fail(call->getLoc(), request.property) << where(fn) << " calls @" << pair.callee.name
+                                             << " and keeps its frame";
       held = false;
     });
     if (some)
       continue;
-    fail(fn->getLoc(), property) << where(fn) << " makes no call of " << callee;
+    fail(fn->getLoc(), request.property) << where(fn) << " makes no call of @" << pair.callee.name;
     held = false;
   }
   return success(held);

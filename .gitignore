@@ -5,7 +5,6 @@
 build/
 # What a golden test printed (tests/Main.idr); `expected` is what it must print.
 /tests/**/output
-/tests/**/report
 __pycache__/
 *.pyc
 .DS_Store

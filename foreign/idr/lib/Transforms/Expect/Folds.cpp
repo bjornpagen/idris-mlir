@@ -16,11 +16,12 @@ namespace idr::expect {
 // The folders released every reference they took from the runtime: no
 // fold, on any thread, left a cell live. idr-expect loads the idr dialect,
 // which holds the count.
-LogicalResult foldsBalanced(ModuleOp module, AnalysisManager &, StringRef) {
+LogicalResult foldsBalanced(const Request<Nothing> &request) {
+  ModuleOp module = request.module;
   int64_t left = module->getContext()->getLoadedDialect<IdrDialect>()->foldLeakCount();
   if (left == 0)
     return success();
-  fail(module.getLoc(), "folds-balanced") << left << " cells the folders left live";
+  fail(module.getLoc(), request.property) << left << " cells the folders left live";
   return failure();
 }
 

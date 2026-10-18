@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The canonicalization patterns written in DRR, generated next to the
-# library that registers them (Canon/Output.cpp includes the file by name).
-set(LLVM_TARGET_DEFINITIONS Canon/Canonicalize.td)
-mlir_tablegen(IdrCanonicalize.inc -gen-rewriters)
-add_public_tablegen_target(IdrCanonicalizeIncGen)
-
 # The dialect: its types, attributes and ops with their hooks (verifiers,
 # folders, canonicalizations, effects, asm names), the flow models of every
 # op, the rules of a function and of the program, the grades, the layouts
@@ -86,7 +80,6 @@ add_mlir_dialect_library(IdrIR
 
 	DEPENDS
 	IdrOpsIncGen
-	IdrCanonicalizeIncGen
 
 	LINK_LIBS PUBLIC
 	IdrSupport

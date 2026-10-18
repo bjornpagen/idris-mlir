@@ -7,6 +7,7 @@
 // PIN(runtime-quarantine), PIN(simdutf-dispatch) — see PINS.md
 #include "Platform/CpuBits.h"
 #include "Platform/Platform.h"
+#include "idris_rt.h"
 
 #include <stdint.h>
 
@@ -14,7 +15,7 @@
 
 namespace rt::platform {
 
-[[clang::annotate("idris-rt-baseline")]] uint64_t cpuFeatures() noexcept {
+IDRIS_RT_BASELINE uint64_t cpuFeatures() noexcept {
   __builtin_cpu_init();
   return cpuFeatureBits();
 }

@@ -6,9 +6,8 @@
 # object it is linked with, so the list follows the runtime): the bodies
 # the program did not inline, which resolve there, and what the runtime
 # itself imports, which the bodies it did inline call; the calls code
-# generation makes by itself; and what a `symbols` file next to the tests
-# adds for them (tests/programs/prelude/symbols: libm, for Doubles).
-# Anything else is a call the program should not make.
+# generation makes by itself; and libm's, the one list below
+# (libm_symbols). Anything else is a call the program should not make.
 #
 # A file `heap-free` in a test's directory marks a program whose
 # values the compiler keeps off the heap: no op of the module that is
@@ -49,26 +48,30 @@ runtime_symbols() {
     sort -u | c_names "$1"
 }
 
-# allowed_symbols TEST CODEGEN PREFIX: the calls allowed to the program of
-# the test directory TEST, the code generation's calls CODEGEN among them.
+# The calls code generation makes for Doubles: libm's functions, and those
+# LLVM substitutes for `pow` (exp2, ldexp). Any program may hold a Double,
+# so every program is allowed them. The runtime's own imports (write,
+# read, _exit and getenv, which runtime/Platform/Posix/Files.cpp and
+# Process.cpp call) need no list: runtime_symbols reads them off the
+# runtime object.
+libm_symbols='exp log pow sin cos tan asin acos atan sqrt floor ceil exp2 ldexp'
+
+# allowed_symbols CODEGEN PREFIX: the calls allowed to a program: the code
+# generation's calls CODEGEN, the runtime's, and libm's.
 allowed_symbols() {
-  allowed_tests=$(cd "$1/.." && pwd)
-  say "$2"
-  runtime_symbols "$3"
-  [ -f "$allowed_tests/symbols" ] && sed '/^#/d' "$allowed_tests/symbols"
-  return 0
+  say "$1"
+  runtime_symbols "$2"
+  # shellcheck disable=SC2086 # the list is words
+  printf '%s\n' $libm_symbols
 }
 
-# object_imports TEST OBJECT...: the undefined symbols (llvm-nm) of the
-# objects a build wrote, one per bin, or the members of the archive -c
-# wrote, are among those allowed to the program of the test directory TEST.
-# A symbol one object defines and another uses is the program's own, so
-# what the objects import is what any of them leaves undefined, less what
-# any of them defines.
+# object_imports OBJECT...: the undefined symbols (llvm-nm) of the objects
+# a build wrote, one per bin, or the members of the archive -c wrote, are
+# among those allowed to a program. A symbol one object defines and
+# another uses is the program's own, so what the objects import is what
+# any of them leaves undefined, less what any of them defines.
 # Its status is 0 when they are, 1 when anything else is printed.
 object_imports() {
-  object_test=$1
-  shift
   if [ $# -eq 0 ]; then
     say "object: none written"
     return 1
@@ -88,7 +91,7 @@ object_imports() {
   grep -v -e '^$' -e ':$' "$work/nm.defined" | c_names "$object_prefix" | LC_ALL=C sort -u > "$work/nm.own"
   grep -v -e '^$' -e ':$' "$work/nm.raw" | c_names "$object_prefix" | LC_ALL=C sort -u |
     LC_ALL=C comm -23 - "$work/nm.own" > "$work/nm.out"
-  object_allowed=" $(allowed_symbols "$object_test" "$object_codegen" "$object_prefix" | tr '\n' ' ') "
+  object_allowed=" $(allowed_symbols "$object_codegen" "$object_prefix" | tr '\n' ' ') "
   object_extra=
   for object_symbol in $(cat "$work/nm.out"); do
     case $object_allowed in

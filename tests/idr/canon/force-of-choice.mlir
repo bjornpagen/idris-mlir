@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=forces-nothing=@choose,builds-nothing=@choose,\
 // RUN: calls=@choose:@else,calls=@choose:@then,forces=@constant,calls=@constant:@then,\
 // RUN: forces=@shared,builds=@shared,calls=@shared:@then -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // `if b then f x else g x` takes its branches as suspensions: the match
 // chooses one, and it is forced after the match. The force moves into the
 // match's regions, where it meets the suspension its region built, built
@@ -25,7 +25,7 @@ idr.program @"force-of-choice" root(@root) stage(higher) {
       %t = idr.suspend @else(%x) : (i64) -> !idr.lazy<i64>
       idr.yield %t : !idr.lazy<i64>
     }
-    default {
+    default(%d: i64) {
       %t = idr.suspend @then(%x) : (i64) -> !idr.lazy<i64>
       idr.yield %t : !idr.lazy<i64>
     }
@@ -44,7 +44,7 @@ idr.program @"force-of-choice" root(@root) stage(higher) {
       %t = idr.suspend @else(%c3) : (i64) -> !idr.lazy<i64>
       idr.yield %t : !idr.lazy<i64>
     }
-    default {
+    default(%d: i64) {
       %t = idr.suspend @then(%x) : (i64) -> !idr.lazy<i64>
       idr.yield %t : !idr.lazy<i64>
     }
@@ -63,7 +63,7 @@ idr.program @"force-of-choice" root(@root) stage(higher) {
       %u = idr.force %t : !idr.lazy<i64> -> i64
       idr.yield %t, %u : !idr.lazy<i64>, i64
     }
-    default {
+    default(%d: i64) {
       %t = idr.suspend @then(%x) : (i64) -> !idr.lazy<i64>
       %c0 = arith.constant 0 : i64
       idr.yield %t, %c0 : !idr.lazy<i64>, i64

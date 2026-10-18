@@ -1,23 +1,30 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr.program and idr.func: the closed program, whose root is its property
-// and whose symbol-use verifier runs the program's rules; a function's
-// text, with no visibility written, since its program's root decides it;
-// and the rules of one function at its program's stage, which run after the
-// ops of its body are verified and in parallel with every other
-// function's; and what a body does of itself.
+// and whose region verifier checks the root and runs the program's rules; a
+// function's text, its effects before its symbol and no visibility written,
+// since its program's root decides it; and the rules of one function at its
+// program's stage, which run after the ops of its body are verified and in
+// parallel with every other function's. Then what a body does, of itself
+// and with its calls; the one writer of a function's effects; the table of
+// what each effect bit is to MLIR; and the rule of the root.
 
 #include "idr/IR/Func.h"
-#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Verify.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/FunctionImplementation.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 using namespace idr;
@@ -51,23 +58,28 @@ FuncOp idr::ProgramOp::lookupRoot() {
       mlir::SymbolTable::lookupSymbolIn(getOperation(), getRootAttr().getAttr()));
 }
 
-// The root is a function of the program, an idr.func until the program
-// is lowered and upstream's function after: every idr.func's visibility is
-// read from it. Only the op and its block are read, after its ops are
-// verified.
+// The root, checked once: a function of the program of the kind its stage
+// holds (an idr.func until the program is lowered, upstream's func.func
+// after, which are two kinds of function), whose type rootKind accepts at
+// the stage. Then the program's rules. MLIR runs this after every op of the
+// program is verified and, by the program's symbol table, every call's
+// symbol uses (a call's effects contain its callee's); on one thread; when
+// the module is read and after every pass on the program, so a program pass
+// that breaks a rule fails where it breaks it.
 LogicalResult idr::ProgramOp::verifyRegions() {
-  if (!isa_and_nonnull<FunctionOpInterface>(
-          mlir::SymbolTable::lookupSymbolIn(getOperation(), getRootAttr().getAttr())))
-    return emitOpError("has root ") << getRootAttr() << ", which is no function of the program";
-  return success();
-}
-
-// The program's rules run once per verification of the module that holds
-// it, after every op of it is verified: MLIR calls this only from the
-// module's own verification, on one thread, so no pass manager verifying
-// the program or one function meets the rules, nor reads a function
-// another thread rewrites.
-LogicalResult idr::ProgramOp::verifySymbolUses(SymbolTableCollection &) {
+  Operation *root = mlir::SymbolTable::lookupSymbolIn(getOperation(), getRootAttr().getAttr());
+  bool idrFunctions = stageFacts(getStage()).idrFunctions();
+  if (idrFunctions ? !isa_and_nonnull<FuncOp>(root) : !isa_and_nonnull<func::FuncOp>(root))
+    return emitOpError("has root ")
+           << getRootAttr() << ", which is no "
+           << (idrFunctions ? FuncOp::getOperationName() : func::FuncOp::getOperationName())
+           << " of the program";
+  auto type = cast<FunctionType>(cast<FunctionOpInterface>(root).getFunctionType());
+  if (!rootKind(type, getStage()))
+    return root->emitOpError("is the root, so its type must be () -> i64, or before lowering "
+                             "(!idr.world) -> (...) with no result holding a runtime value, "
+                             "or lowered () -> (); not ")
+           << type;
   return verify::program(*this);
 }
 
@@ -84,9 +96,19 @@ bool idr::FuncOp::isRoot() {
 }
 
 // func.func's syntax without its visibility, which the program's root
-// decides: the facts print as the remaining inherent attributes after
-// `attributes`, and the body's ops without the dialect's prefix.
+// decides, and with its effects before its symbol, `idr.func effects<io>
+// @f(...)`, written only when they are not the default: a property, which
+// no attribute dictionary holds, so parseFunctionOp, which reads the
+// other facts from `attributes`, cannot read it. Then the body's ops
+// without the dialect's prefix.
 ParseResult idr::FuncOp::parse(OpAsmParser &parser, OperationState &result) {
+  if (succeeded(parser.parseOptionalKeyword("effects"))) {
+    FailureOr<Effect> effects = failure();
+    if (parser.parseLess() || failed(effects = FieldParser<Effect>::parse(parser)) ||
+        parser.parseGreater())
+      return failure();
+    result.getOrAddProperties<Properties>().effects = *effects;
+  }
   auto buildFuncType = [](Builder &builder, ArrayRef<Type> inputs, ArrayRef<Type> results,
                           function_interface_impl::VariadicFlag, std::string &) {
     return FunctionType::get(builder.getContext(), inputs, results);
@@ -108,22 +130,11 @@ ParseResult idr::FuncOp::parse(OpAsmParser &parser, OperationState &result) {
 }
 
 void idr::FuncOp::print(OpAsmPrinter &printer) {
+  if (getEffects() != anyEffect)
+    printer << " effects<" << getEffects() << '>';
   function_interface_impl::printFunctionOp(printer, *this, /*isVariadic=*/false,
                                            getFunctionTypeAttrName(), getArgAttrsAttrName(),
                                            getResAttrsAttrName());
-}
-
-// Every function of the program is defined in it, and its effects have one
-// form: everything, the default, is the attribute's absence, so that two
-// functions that may do the same compare equal whoever wrote them. Only the
-// op is read.
-LogicalResult idr::FuncOp::verify() {
-  if (getBody().empty())
-    return emitOpError("expects a body: every function of the program is defined in it");
-  if (EffectAttr effects = getEffectsAttr(); effects && effects.getValue() == anyEffect)
-    return emitOpError("stores its effects at the default, everything, whose one form is "
-                       "the attribute's absence");
-  return success();
 }
 
 // The interface's own body check has matched the entry block to the type,
@@ -131,18 +142,110 @@ LogicalResult idr::FuncOp::verify() {
 // formed. The rest is the function's rules at its program's stage.
 LogicalResult idr::FuncOp::verifyRegions() { return verify::function(*this); }
 
+//===----------------------------------------------------------------------===//
+// What a body does
+//===----------------------------------------------------------------------===//
+
 // A world reaches a function only through a parameter, so IO is read off
 // the signature, and off the body only where it forges a world, IO no
-// parameter announces.
+// parameter announces. An op that runs a label runs a function no symbol
+// names, which may do anything.
 Effect idr::bodyEffect(FuncOp fn) {
   Effect own = fn.getTotal() ? Effect::none : Effect::diverge;
   if (llvm::any_of(fn.getArgumentTypes(), idr::holdsWorld))
     own = own | Effect::io;
   fn.getBody().walk([&](Operation *op) {
-    if (auto mayCrash = dyn_cast<MayCrashOpInterface>(op); mayCrash && mayCrash.getCrashCause())
+    if (isa<MayCrashOpInterface>(op))
       own = own | Effect::crash;
     if (isa<WorldNewOp>(op))
       own = own | Effect::io;
+    if (isa<RunsLabelsOpInterface>(op))
+      own = own | anyEffect;
   });
   return own;
+}
+
+// A call of a member is no edge out of the component: the member's own
+// part is in the sum, and the solve gives the members one set. Every call
+// of the closed world names an idr.func of the program.
+Effect idr::componentEffects(ArrayRef<FuncOp> component, const SymbolTable &symbols) {
+  llvm::SmallPtrSet<Operation *, 8> members;
+  for (FuncOp member : component)
+    members.insert(member.getOperation());
+  Effect sum = Effect::none;
+  for (FuncOp member : component) {
+    sum = sum | bodyEffect(member);
+    member.getBody().walk([&](CallOp call) {
+      if (!members.contains(symbols.lookup(call.getCalleeAttr().getAttr())))
+        sum = sum | call.getEffects();
+    });
+  }
+  return sum;
+}
+
+// A symbol's users are its calls and the values that name it (a closure's
+// constant names its function), which hold no effects: only a call is
+// written.
+void idr::writeEffects(FuncOp fn, Effect effects, const SymbolUserMap &users) {
+  fn.setEffects(effects);
+  for (Operation *user : users.getUsers(fn))
+    if (auto call = dyn_cast<CallOp>(user))
+      call.setEffects(effects);
+}
+
+namespace {
+
+// One row of the table: a bit, and one effect on one resource it stands
+// for, as the op that has it declares it.
+template <typename Access, typename Resource>
+void appendEffect(SmallVectorImpl<MemoryEffects::EffectInstance> &instances) {
+  instances.emplace_back(Access::get(), Resource::get());
+}
+
+struct Row {
+  Effect bit;
+  void (*append)(SmallVectorImpl<MemoryEffects::EffectInstance> &);
+};
+
+// IO reads and writes the IO resource, as the idr.io ops declare it; a
+// crash writes the crash resource and the IO resource, as idr.crash and
+// every check declare it (Idr_MayCrash); not returning writes the
+// divergence resource, as idr.may_loop declares it.
+constexpr Row rows[] = {
+    {Effect::io, appendEffect<MemoryEffects::Read, IOResource>},
+    {Effect::io, appendEffect<MemoryEffects::Write, IOResource>},
+    {Effect::crash, appendEffect<MemoryEffects::Write, CrashResource>},
+    {Effect::crash, appendEffect<MemoryEffects::Write, IOResource>},
+    {Effect::diverge, appendEffect<MemoryEffects::Write, DivergenceResource>},
+};
+
+} // namespace
+
+void idr::effectInstances(Effect effects,
+                          SmallVectorImpl<MemoryEffects::EffectInstance> &instances) {
+  for (const Row &row : rows)
+    if (bitEnumContainsAll(effects, row.bit))
+      row.append(instances);
+}
+
+//===----------------------------------------------------------------------===//
+// The root
+//===----------------------------------------------------------------------===//
+
+// Before lowering an IO root takes the world and gives back what holds no
+// runtime value (the world, a unit, an IO result of a unit); lowered, the
+// world and those results have no form, and it takes and gives nothing.
+// The two stages are two levels of the IR, each with its own form.
+std::optional<RootKind> idr::rootKind(FunctionType type, Stage stage) {
+  if (type.getNumInputs() == 0 && type.getNumResults() == 1 &&
+      type.getResult(0) == Builder(type.getContext()).getI64Type())
+    return RootKind::Status;
+  bool io = stageFacts(stage).idrFunctions()
+                ? type.getNumInputs() == 1 && isWorld(type.getInput(0)) &&
+                      llvm::all_of(type.getResults(),
+                                   [](Type result) { return layout::holdsNoComponent(result); })
+                : type.getNumInputs() == 0 && type.getNumResults() == 0;
+  if (io)
+    return RootKind::IO;
+  return std::nullopt;
 }

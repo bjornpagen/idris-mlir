@@ -24,10 +24,10 @@ idr.program @"dies-apart" root(@root) stage(first) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
       idr.yield %e : !idr.box<!L>
     }
-    default {
+    default(%d0: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
@@ -130,7 +130,7 @@ idr.program @"dies-apart" root(@root) stage(first) {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %three = arith.constant 3 : i64
     %two = arith.constant 2 : i64
-    %nn = idr.constant #idr.con<!LL, @NN, []> : !idr.box<!LL>
+    %nn = idr.constant !idr.box<!LL> #idr.con<!LL, @NN, []>
     %a = idr.call @build(%three) : (i64) -> !idr.box<!L>
     %r = idr.call @sumAfterTag(%a) : (!idr.box<!L>) -> !idr.box<!L>
     // Kept by its caller across the call: shared.
@@ -152,7 +152,7 @@ idr.program @"dies-apart" root(@root) stage(first) {
     %nu = idr.call @numbers(%two) : (i64) -> i64
     %hn = arith.addi %ho, %nu : i64
     %all = arith.addi %s, %hn : i64
-    %w2 = idr.io.put_int signed %all, %w : i64
+    %w2 = idr.io.put_sint %all, %w : i64
     return %w2 : !idr.world
   }
 }

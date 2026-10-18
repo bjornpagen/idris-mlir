@@ -70,7 +70,8 @@ std::optional<Value> otherOperand(BigAddOp add, Value operand) {
 }
 
 // Whether the default region of a countdown computes `f(n - 1) + 1` and
-// yields it.
+// yields it, `n` the function's argument `arg`, which the region also has
+// back as its own argument: either is the scrutinee.
 bool addsOneToPredecessor(Block &block, FuncOp fn, BlockArgument arg) {
   BigPredOp pred;
   CallOp call;
@@ -94,7 +95,7 @@ bool addsOneToPredecessor(Block &block, FuncOp fn, BlockArgument arg) {
       return false;
     }
   }
-  if (!pred || !call || !add || pred.getValue() != arg)
+  if (!pred || !call || !add || (pred.getValue() != arg && pred.getValue() != block.getArgument(0)))
     return false;
   if (!isSelfCall(call, fn) || call.getArgs().size() != 1 || call.getArgs()[0] != pred.getResult())
     return false;
@@ -164,7 +165,7 @@ void clearBlock(RewriterBase &rewriter, Block &block) {
 // The constants may sit in the function or in the branch: simplification
 // lifts them out of the match.
 bool isCountdown(FuncOp fn) {
-  if (!fn.getBody().hasOneBlock() || fn.getNumArguments() != 1 || fn.getNumResults() != 1)
+  if (fn.getNumArguments() != 1 || fn.getNumResults() != 1)
     return false;
   BlockArgument arg = fn.getArgument(0);
   if (!isa<NatType>(arg.getType()) || !isa<NatType, BigType>(fn.getResultTypes()[0]))
@@ -185,20 +186,16 @@ bool isCountdown(FuncOp fn) {
   if (!match || !ret || match.getNumResults() != 1 || match.getScrutinee() != arg ||
       ret.getNumOperands() != 1 || ret.getOperand(0) != match.getResult(0))
     return false;
-  if (match.getCases().size() != 1 || !match.getDefaultRegion())
+  if (match.getCases().size() != 1)
     return false;
   auto zeroCase = dyn_cast<BigAttr>(match.getCases()[0]);
   if (!zeroCase || !zeroCase.getValue().isZero())
     return false;
 
-  Region &zero = match.getCaseRegion(0);
-  if (!zero.hasOneBlock())
-    return false;
-  std::optional<Value> zeroValue = yieldedPastConstants(zero.front());
+  std::optional<Value> zeroValue = yieldedPastConstants(match.getCaseRegion(0).front());
   if (!zeroValue || !isZero(*zeroValue))
     return false;
-  Region &other = *match.getDefaultRegion();
-  return other.hasOneBlock() && addsOneToPredecessor(other.front(), fn, arg);
+  return addsOneToPredecessor(match.getDefaultRegion().front(), fn, arg);
 }
 
 void returnArgument(FuncOp fn, RewriterBase &rewriter) {
@@ -212,7 +209,7 @@ void returnArgument(FuncOp fn, RewriterBase &rewriter) {
 }
 
 SmallVector<Site> accumulatorSites(FuncOp fn) {
-  if (!fn.getBody().hasOneBlock() || fn.getNumResults() != 1 || !refersToItselfOnlyByCall(fn))
+  if (fn.getNumResults() != 1 || !refersToItselfOnlyByCall(fn))
     return {};
   SmallVector<Site> sites;
   WalkResult walk = fn.walk([&](CallOp call) {

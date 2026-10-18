@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the signed and unsigned division ops, idr.divs, idr.mods and idr.divu, fold to the same values as the flagged ops did, and a division by zero still does not fold.
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns=@divfold:-4/1/-9223372036854775808/0/35/_ -o /dev/null
 idr.program @division root(@root) stage(first) {
   // A division by zero is not folded: its guard crashes before it runs, and
@@ -11,12 +12,12 @@ idr.program @division root(@root) stage(first) {
     %c0 = arith.constant 0 : i64
     %u250 = arith.constant 250 : i8
     %u7 = arith.constant 7 : i8
-    %a = idr.div signed %m7, %c2 : i64
-    %b = idr.mod signed %m7, %m2 : i64
-    %c = idr.div signed %min, %m1 : i64
-    %d = idr.mod signed %min, %m1 : i64
-    %e = idr.div %u250, %u7 : i8
-    %z = idr.div signed %c2, %c0 : i64
+    %a = idr.divs %m7, %c2 : i64
+    %b = idr.mods %m7, %m2 : i64
+    %c = idr.divs %min, %m1 : i64
+    %d = idr.mods %min, %m1 : i64
+    %e = idr.divu %u250, %u7 : i8
+    %z = idr.divs %c2, %c0 : i64
     return %a, %b, %c, %d, %e, %z : i64, i64, i64, i64, i8, i64
   }
   // The program's root, which the functions above are no part of.

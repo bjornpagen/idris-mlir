@@ -19,14 +19,11 @@
 #include "idr/Conversion/Runtime.h"
 #include "idr/Conversion/Words.h"
 
+#include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Utils/MemRefUtils.h"
 #include "mlir/Transforms/DialectConversion.h"
-
-// The runtime's C ABI: an array's header says how many object slots each
-// element starts with.
-#include "idris_rt.h"
 
 using namespace mlir;
 
@@ -59,16 +56,25 @@ Value inFrame(OpBuilder &b, Location loc, Operation *op, Value descriptor) {
   return slot;
 }
 
-// The address of the element a memref.load or memref.store names.
+// The address of the element a memref.load or memref.store names:
+// upstream's strided address over the buffer's descriptor, at the indices
+// as words.
 template <typename OpT>
 std::pair<Value, layout::Element> elementAt(OpT op,
                                             typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                             ConversionPatternRewriter &rewriter,
-                                            const Layouts &layouts) {
+                                            const Layouts &layouts, const Runtime &runtime) {
+  Location loc = op.getLoc();
   MemRefType type = op.getMemRefType();
   layout::Element element = layouts.element(type.getElementType());
-  Value address = bufferElementAddress(rewriter, op.getLoc(), type, adaptor.getMemref(),
-                                       adaptor.getIndices(), element.stride);
+  SmallVector<Value> indices;
+  for (ValueRange index : adaptor.getIndices())
+    indices.push_back(indexWord(rewriter, loc, index.front()));
+  const LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
+  Value descriptor =
+      descriptorOf(rewriter, loc, descriptors.convertType(type), type, adaptor.getMemref());
+  Value address = LLVM::getStridedElementPtr(rewriter, loc, descriptors, type, descriptor,
+                                             indices, LLVM::GEPNoWrapFlags::inbounds);
   return {address, std::move(element)};
 }
 
@@ -81,7 +87,7 @@ struct LowerElementLoad : IdrPattern<memref::LoadOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     if (holdsWords(op.getMemRefType()))
       return rewriter.notifyMatchFailure(op, "a word is upstream's");
-    auto [at, element] = elementAt(op, adaptor, rewriter, layouts);
+    auto [at, element] = elementAt(op, adaptor, rewriter, layouts, runtime);
     rewriter.replaceOpWithMultiple(op, {readElement(rewriter, op.getLoc(), runtime, at, element)});
     return success();
   }
@@ -94,7 +100,7 @@ struct LowerElementStore : IdrPattern<memref::StoreOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     if (holdsWords(op.getMemRefType()))
       return rewriter.notifyMatchFailure(op, "a word is upstream's");
-    auto [at, element] = elementAt(op, adaptor, rewriter, layouts);
+    auto [at, element] = elementAt(op, adaptor, rewriter, layouts, runtime);
     writeElement(rewriter, op.getLoc(), runtime, layouts, at, element,
                  op.getValueToStore().getType(), adaptor.getValue());
     rewriter.eraseOp(op);
@@ -105,8 +111,7 @@ struct LowerElementStore : IdrPattern<memref::StoreOp> {
 // A copy whose elements hold references, or that no memcpy covers: the
 // runtime's, which reads both descriptors from the frame and counts each
 // element it copies and each it overwrites. A contiguous copy of elements
-// whose places hold no object slot, as the array's header says, is
-// upstream's memcpy.
+// whose places hold no counted slot is upstream's memcpy.
 struct LowerRuntimeCopy : IdrPattern<memref::CopyOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(memref::CopyOp op, OneToNOpAdaptor adaptor,
@@ -115,7 +120,8 @@ struct LowerRuntimeCopy : IdrPattern<memref::CopyOp> {
     auto from = cast<MemRefType>(op.getSource().getType());
     auto to = cast<MemRefType>(op.getTarget().getType());
     layout::Element element = layouts.element(from.getElementType());
-    bool slotFree = idris_rt_info_objs(element.info.word()) == 0;
+    bool slotFree =
+        llvm::none_of(element.slots, [](const layout::Slot &slot) { return slot.counted; });
     if (slotFree && contiguous(from) && contiguous(to))
       return rewriter.notifyMatchFailure(op, "a memcpy is upstream's");
     const LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
@@ -125,8 +131,8 @@ struct LowerRuntimeCopy : IdrPattern<memref::CopyOp> {
     Value toSlot = inFrame(
         rewriter, loc, op,
         descriptorOf(rewriter, loc, descriptors.convertType(to), to, adaptor.getTarget()));
-    runtime.perform(rewriter, loc, "idris_rt_memref_copy",
-                    ValueRange{i64Constant(rewriter, loc, from.getRank()), fromSlot, toSlot});
+    runtime.call(rewriter, loc, idr::runtime::helper::memrefCopy,
+                 ValueRange{i64Constant(rewriter, loc, from.getRank()), fromSlot, toSlot});
     rewriter.eraseOp(op);
     return success();
   }
@@ -141,7 +147,6 @@ void populateMemrefPatterns(RewritePatternSet &patterns, const TypeConverter &co
   MLIRContext *ctx = patterns.getContext();
   patterns.add<LowerElementLoad, LowerElementStore, LowerRuntimeCopy>(converter, ctx, layouts,
                                                                       runtime, ownLowering);
-  patterns.add<LowerAsItself<TieShapeOp>>(converter, ctx, layouts, runtime);
 }
 
 } // namespace idr::conversion

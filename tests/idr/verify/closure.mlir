@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: a world captured is refused by the capture's operand constraint (Idr_Capture, S17), with the message ODS writes for it.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 
 idr.program @closure root(@root) stage(higher) {
@@ -60,7 +61,7 @@ idr.program @closure root(@f) stage(higher) {
     ub.unreachable
   }
   idr.func @f(%w: !idr.world) {
-    // expected-error @+1 {{captures a world; a world passes only as an argument or result}}
+    // expected-error @+1 {{operand #0 must be variadic of a value other than the world, but got '!idr.world'}}
     %c = idr.closure @g(%w) : (!idr.world) -> !idr.fn<() -> (!idr.world)>
     return
   }

@@ -11,6 +11,7 @@
 
 #include "idr/Target/Target.h"
 
+#include "idr/IR/Symbols.h"
 #include "idr/Support/Scc.h"
 #include "idr/Support/Worklist.h"
 
@@ -49,16 +50,14 @@ using idr::target::binInstructions;
 
 namespace {
 
-// The prefix no C name has, under which a symbol another bin reads is named.
-constexpr StringLiteral reservedPrefix = "__idr.";
-
 // A part closes its bin when its hash, read as a fraction of 2^64, is below
 // its share of the target: hash / (2^64 / target) < size says exactly that
 // when the target is a power of two.
 static_assert(std::has_single_bit(binInstructions));
 constexpr std::uint64_t hashPerInstruction = ~std::uint64_t{0} / binInstructions + 1;
 
-Error internal(const Twine &what) { return createStringError("internal error: " + what); }
+// An error of the partition's, which its caller reports as the compiler's.
+Error internal(const Twine &what) { return createStringError(what); }
 
 // What a function's body and operands (personality, prefix, prologue), a
 // variable's initializer, an alias's aliasee or an ifunc's resolver names,
@@ -117,7 +116,18 @@ std::string nameOf(std::uint64_t hash) {
   return name;
 }
 
-enum class Kind : unsigned char { Declared, Node, Copied, Alias };
+// What a symbol of the optimized module is to the partition: declared only,
+// a copied constant, one of the reference graph's nodes, which a bin
+// defines, or an alias, which stands for the node of the object it aliases,
+// if any. A declared role and a copied one are the homes of the same name
+// (Partition::Declared, Partition::Copied).
+struct Node {
+  unsigned index;
+};
+struct Alias {
+  // The symbol of the object it aliases, or none.
+  std::optional<unsigned> base;
+};
 
 // The components that stay together, and what the cut reads of them.
 struct Part {
@@ -151,12 +161,13 @@ Expected<Partition> Partition::of(Module &module) {
   for (GlobalAlias &alias : module.aliases())
     aliased.insert(alias.getAliaseeObject());
 
-  // Kinds: an available_externally body is the runtime's native half's,
-  // which no bin defines, and none survives O3.
+  // Roles: an available_externally body is the runtime's native half's,
+  // which no bin defines, and none survives O3. Each symbol's role is
+  // written once, here.
   Partition partition;
   partition.symbols.resize(at.size());
-  std::vector<Kind> kind(at.size(), Kind::Declared);
-  std::vector<std::optional<unsigned>> nodeOf(at.size());
+  using SymbolRole = std::variant<Partition::Declared, Partition::Copied, Node, Alias>;
+  std::vector<SymbolRole> role(at.size(), Partition::Declared{});
   std::vector<unsigned> nodes;
   for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
     GlobalValue *value = at[symbol];
@@ -164,26 +175,35 @@ Expected<Partition> Partition::of(Module &module) {
       partition.symbols[symbol].refs.push_back(place.lookup(named));
     if (value->isDeclaration() || value->hasAvailableExternallyLinkage())
       continue;
-    auto *variable = dyn_cast<GlobalVariable>(value);
-    bool copied = variable && variable->isConstant() && variable->hasLocalLinkage() &&
-                  variable->hasAtLeastLocalUnnamedAddr() && !variable->hasComdat() &&
-                  !aliased.contains(variable);
-    kind[symbol] = isa<GlobalAlias>(value) ? Kind::Alias : copied ? Kind::Copied : Kind::Node;
-    if (copied)
-      partition.symbols[symbol].home = Partition::Copied{};
-    if (kind[symbol] == Kind::Node) {
-      nodeOf[symbol] = static_cast<unsigned>(nodes.size());
-      nodes.push_back(symbol);
+    if (auto *alias = dyn_cast<GlobalAlias>(value)) {
+      const GlobalObject *object = alias->getAliaseeObject();
+      role[symbol] = Alias{object ? std::optional<unsigned>(place.lookup(object)) : std::nullopt};
+      continue;
     }
+    auto *variable = dyn_cast<GlobalVariable>(value);
+    if (variable && variable->isConstant() && variable->hasLocalLinkage() &&
+        variable->hasAtLeastLocalUnnamedAddr() && !variable->hasComdat() &&
+        !aliased.contains(variable)) {
+      role[symbol] = Partition::Copied{};
+      continue;
+    }
+    role[symbol] = Node{static_cast<unsigned>(nodes.size())};
+    nodes.push_back(symbol);
   }
-  // The node a symbol is or an alias stands for, or none.
+  // The node a symbol is, or an alias stands for; none for any other.
   auto baseOf = [&](unsigned symbol) -> std::optional<unsigned> {
-    if (kind[symbol] != Kind::Alias)
-      return nodeOf[symbol];
-    const GlobalObject *base = cast<GlobalAlias>(at[symbol])->getAliaseeObject();
-    if (!base)
-      return std::nullopt;
-    return nodeOf[place.lookup(base)];
+    return std::visit(makeVisitor([](Node node) -> std::optional<unsigned> { return node.index; },
+                                  [&](Alias alias) -> std::optional<unsigned> {
+                                    if (!alias.base)
+                                      return std::nullopt;
+                                    if (const auto *node = std::get_if<Node>(&role[*alias.base]))
+                                      return node->index;
+                                    return std::nullopt;
+                                  },
+                                  [](const auto &) -> std::optional<unsigned> {
+                                    return std::nullopt;
+                                  }),
+                      role[symbol]);
   };
   // Each symbol `from` names, a copied constant standing for what it names.
   // Each symbol enters once.
@@ -191,14 +211,14 @@ Expected<Partition> Partition::of(Module &module) {
     idr::OnceWorklist<unsigned> work;
     for (unsigned named : partition.symbols[from].refs)
       work.push(named);
-    while (std::optional<unsigned> named = work.pop()) {
-      if (kind[*named] != Kind::Copied) {
-        visit(*named);
-        continue;
-      }
-      for (unsigned next : partition.symbols[*named].refs)
-        work.push(next);
-    }
+    while (std::optional<unsigned> named = work.pop())
+      std::visit(makeVisitor(
+                     [&](Partition::Copied) {
+                       for (unsigned next : partition.symbols[*named].refs)
+                         work.push(next);
+                     },
+                     [&](const auto &) { visit(*named); }),
+                 role[*named]);
   };
 
   // Components of the reference graph, then joined.
@@ -224,12 +244,12 @@ Expected<Partition> Partition::of(Module &module) {
     if (const Comdat *comdat = object->getComdat())
       join(node, comdatNode.try_emplace(comdat, node).first->second);
     if (auto *ifunc = dyn_cast<GlobalIFunc>(object); ifunc && ifunc->getResolverFunction())
-      join(node, nodeOf[place.lookup(ifunc->getResolverFunction())]);
+      join(node, baseOf(place.lookup(ifunc->getResolverFunction())));
     if (auto *function = dyn_cast<Function>(object))
       for (const Instruction &instruction : instructions(*function))
         if (auto *call = dyn_cast<CallInst>(&instruction); call && call->isMustTailCall())
           if (const Function *callee = call->getCalledFunction())
-            join(node, nodeOf[place.lookup(callee)]);
+            join(node, baseOf(place.lookup(callee)));
   }
 
   // The parts, numbered as their first node comes in module order.
@@ -299,16 +319,26 @@ Expected<Partition> Partition::of(Module &module) {
     for (unsigned index : named[bin].second)
       for (unsigned node : parts[index].nodes) {
         binOfNode[node] = bin;
-        partition.symbols[nodes[node]].home = Partition::Defined{bin};
         partition.members[bin].push_back(nodes[node]);
       }
   }
-  for (unsigned symbol = 0; symbol < at.size(); ++symbol)
-    if (std::optional<unsigned> base = baseOf(symbol); kind[symbol] == Kind::Alias && base) {
-      unsigned bin = binOfNode[*base];
-      partition.symbols[symbol].home = Partition::Defined{bin};
-      partition.members[bin].push_back(symbol);
-    }
+  // Each symbol's home, derived once from its role: a node lives in its
+  // bin, an alias in its base's, with that bin's own symbols, and an alias
+  // of nothing a bin defines is declared only.
+  for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
+    std::optional<unsigned> base = baseOf(symbol);
+    partition.symbols[symbol].home = std::visit(
+        makeVisitor([](Partition::Declared) -> Home { return Partition::Declared{}; },
+                    [](Partition::Copied) -> Home { return Partition::Copied{}; },
+                    [&](Node node) -> Home { return Partition::Defined{binOfNode[node.index]}; },
+                    [&](Alias) -> Home {
+                      if (!base)
+                        return Partition::Declared{};
+                      partition.members[binOfNode[*base]].push_back(symbol);
+                      return Partition::Defined{binOfNode[*base]};
+                    }),
+        role[symbol]);
+  }
 
   // The linkage every bin reads: a local symbol another bin names, directly
   // or through a copy it holds, is defined once and named across objects.
@@ -327,12 +357,10 @@ Expected<Partition> Partition::of(Module &module) {
     StringRef name = GlobalValue::dropLLVMManglingEscape(value->getName());
     if (name.empty())
       return internal("an unnamed symbol is read by two bins, and a symbol across objects needs a name");
-    std::string wanted = name.starts_with(reservedPrefix) ? name.str() : (reservedPrefix + name).str();
-    if (wanted != value->getName()) {
-      if (module.getNamedValue(wanted))
-        return internal("the reserved name " + wanted + " of " + value->getName() + " is taken");
-      value->setName(wanted);
-    }
+    // A name of its own, reserved for a symbol two bins read: no mangled
+    // name, no C name and no other reserved name is one (idr::reservedName),
+    // and two distinct names give two.
+    value->setName(idr::reservedName("bin", name));
     value->setLinkage(GlobalValue::ExternalLinkage);
     value->setVisibility(GlobalValue::HiddenVisibility);
     value->setDSOLocal(true);

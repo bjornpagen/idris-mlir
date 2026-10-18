@@ -1,7 +1,7 @@
-// NEEDS-ACCEPTANCE: that skipping every idr-narrow-version, idr-narrow-joint, idr-narrow-word, idr-narrow-fold and idr-narrow-erase action leaves the module as idr-narrow received it, and that idr-narrow changes it otherwise.
+// NEEDS-ACCEPTANCE: that skipping every idr-narrow-version, idr-narrow-joint, idr-narrow-word and idr-narrow-fold action leaves the module as idr-narrow received it, and that idr-narrow changes it otherwise.
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)))' -o %t.in.mlir
 // RUN: idris-mlir-opt %t.in.mlir -o %t.none.mlir
-// RUN: idris-mlir-opt %t.in.mlir --pass-pipeline='builtin.module(idr.program(idr-narrow))' --mlir-disable-threading -mlir-debug-counter=idr-narrow-version-count=0,idr-narrow-joint-count=0,idr-narrow-word-count=0,idr-narrow-fold-count=0,idr-narrow-erase-count=0 -o %t.skipped.mlir
+// RUN: idris-mlir-opt %t.in.mlir --pass-pipeline='builtin.module(idr.program(idr-narrow))' --mlir-disable-threading -mlir-debug-counter=idr-narrow-version-count=0,idr-narrow-joint-count=0,idr-narrow-word-count=0,idr-narrow-fold-count=0 -o %t.skipped.mlir
 // RUN: diff %t.none.mlir %t.skipped.mlir
 // RUN: idris-mlir-opt %t.in.mlir --pass-pipeline='builtin.module(idr.program(idr-narrow))' -o %t.done.mlir
 // RUN: not diff %t.none.mlir %t.done.mlir
@@ -11,7 +11,7 @@ idr.program @descending root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %odd : i1
     }
-    default {
+    default(%d0: !idr.nat) {
       %k = idr.big.pred %n
       %true = arith.constant true
       %flip = arith.xori %odd, %true : i1
@@ -26,9 +26,9 @@ idr.program @descending root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %acc : !idr.nat
     }
-    default {
+    default(%d1: !idr.nat) {
       %k = idr.big.pred %n
-      %two = idr.constant #idr.big<2> : !idr.nat
+      %two = idr.constant !idr.nat #idr.big<2>
       %more = idr.big.add %acc, %two : !idr.nat
       %s = idr.call @count(%k, %more) : (!idr.nat, !idr.nat) -> !idr.nat
       idr.yield %s : !idr.nat
@@ -39,7 +39,7 @@ idr.program @descending root(@root) stage(first) {
   idr.func @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
     %false = arith.constant false
     %p = idr.call @parity(%n, %false) : (!idr.nat, i1) -> i1
-    %zero = idr.constant #idr.big<0> : !idr.nat
+    %zero = idr.constant !idr.nat #idr.big<0>
     %c = idr.call @count(%n, %zero) : (!idr.nat, !idr.nat) -> !idr.nat
     return %p, %c : i1, !idr.nat
   }

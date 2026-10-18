@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that bench/rbtree, which this now compiles, gives the same module, statistics and remarks under one thread and under many
 compile: exit 0
 module: identical under one thread and under many
 module: identical under many, again

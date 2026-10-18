@@ -20,20 +20,11 @@ namespace idr::expect {
 
 // `@f:@g`: from every copy of @f, the functions named by symbol, followed
 // from body to body, include @g or a copy of it.
-LogicalResult reaches(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "reaches";
-  auto [from, to] = splitAt(module, argument, property);
-  if (from.empty())
-    return failure();
-  StringRef target = to.ltrim('@');
-  if (target.empty())
-    return fail(module.getLoc(), property) << "name both functions, as reaches=@f:@g";
-  SmallVector<FunctionOpInterface> starts = named(module, from, property);
-  if (starts.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult reaches(const Request<Pair> &request) {
+  StringRef target = request.argument.callee.name;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface start : starts) {
+  for (FunctionOpInterface start : request.argument.caller.functions) {
     // Every function reached from the body of `start`, each once.
     OnceWorklist<Operation *> reached;
     for (Operation *callee : callees(symbols, start))
@@ -48,7 +39,8 @@ LogicalResult reaches(ModuleOp module, AnalysisManager &analyses, StringRef argu
           return names(cast<FunctionOpInterface>(fn), target);
         }))
       continue;
-    fail(start->getLoc(), property) << where(start) << " reaches no function made from " << to;
+    fail(start->getLoc(), request.property)
+        << where(start) << " reaches no function made from @" << target;
     held = false;
   }
   return success(held);

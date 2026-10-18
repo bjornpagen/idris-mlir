@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A big's word: a small value, tagged, or a large one's cell. The accessors
-// are inline in Big/Big.h; the layout they read is checked here.
+// A big's word: a small value, tagged, or a large one's cell. The small
+// value's word is made here and read by idris_rt.h's inline tests; the
+// accessors of a large one are inline in Big/Big.h, and the layout they read
+// is checked here.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Big/Big.h"
 #include "idris_rt.h"
@@ -21,4 +23,15 @@ static_assert(sizeof(idris_rt_bignum) == 2 * IDRIS_RT_WORD_BYTES &&
 static_assert(sizeof(idris_rt_big) == sizeof(void *) && alignof(idris_rt_header) % 2 == 0,
               "an even big word is exactly a cell address");
 
+// A small value's word, 2v + 1, for a v in the small range: idr.big.small's,
+// whose operand narrowing proved small, and every small result's. Always
+// inlined wherever the runtime's bitcode is joined, so the word is a shift
+// and an or in the caller.
+extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_small_word(int64_t value) {
+  return static_cast<idris_rt_big>(static_cast<uint64_t>(value) << 1 | 1);
+}
+
+// Drops the reference an operation returned, for a caller that owns it and
+// holds a big rather than a pointer: the compiler's folders, which turn each
+// result into an attribute. It is idris_rt_dec.
 extern "C" void idris_rt_big_release(idris_rt_big a) { rt::big::release(a); }

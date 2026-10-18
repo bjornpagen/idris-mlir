@@ -1,0 +1,125 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# One upstream test. Prints one result line:
+#   pass|fail|skip <tab> GROUP/NAME <tab> detail
+# Usage: one GROUP/NAME
+# The test passes when its run script, given this compiler, prints the
+# test's expected file, as upstream's own runner decides. The detail of a
+# failure is the first error, or the first line of output that disagrees
+# with expected. Threads, finalizers, raw pointers, unsafePerformIO,
+# network, packages this compiler does not implement and other backends
+# are skipped.
+root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
+. "$root/tools/toolchain.sh"
+. "$root/tests/lib/idris-lex.sh"
+. "$root/tools/upstream-idris/common.sh"
+
+name=${1:?usage: one GROUP/NAME}
+upstream=$root/third_party/Idris2/tests
+src=$upstream/$name
+[ -f "$src/run" ] || {
+  printf 'fail\t%s\t%s\n' "$name" "no run script"
+  exit 0
+}
+if [ -z "$timeout_cmd" ]; then
+  printf 'fail\t%s\t%s\n' "$name" "$timeout_missing"
+  exit 0
+fi
+
+reason=$(skip_reason "$src")
+if [ -n "$reason" ]; then
+  printf 'skip\t%s\t%s\n' "$name" "$reason"
+  exit 0
+fi
+
+limit=240
+as_idris=$root/tools/upstream-idris/as-idris
+
+# prepare DEST: the upstream tests tree, so a script's `../../testutils.sh`
+# resolves. A script may write its own expected file before it compares.
+prepare() {
+  prep=$1/tests/$name
+  mkdir -p "$prep"
+  cp -R "$src/." "$prep/"
+  cp "$upstream/testutils.sh" "$1/tests/testutils.sh"
+}
+
+# run_compiler DEST: the test's run script in DEST, given this compiler,
+# its stdout, stderr and exit status beside DEST.
+run_compiler() {
+  (
+    cd "$1/tests/$name" || exit 97
+    unset PREFIX_CHANGED IDRIS2_PACKAGE_PATH IDRIS2_LIBS IDRIS2_DATA IDRIS2_CG IDRIS2_PATH
+    export IDRIS2_PREFIX=$checkout_prefix
+    # Upstream's testutils.sh puts packages at $IDRIS2_PREFIX/$NAME_VERSION.
+    # The Idris makefile exports that; a test invoked on its own does not.
+    if [ -z "${NAME_VERSION-}" ]; then
+      idris_version_dir=$(find "$checkout_prefix" -mindepth 1 -maxdepth 1 -type d -name 'idris2-*' | head -n 1)
+      NAME_VERSION=${idris_version_dir##*/}
+      IDRIS2_VERSION=${NAME_VERSION#idris2-}
+    fi
+    export NAME_VERSION IDRIS2_VERSION
+    "$timeout_cmd" -k 10 "$limit" sh ./run "$as_idris" > "$1.out" 2> "$1.err"
+  )
+  printf '%s\n' $? > "$1.status"
+}
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-upstream.XXXXXX") || exit 1
+trap 'rm -rf "$work"' EXIT
+prepare "$work/ours"
+run_compiler "$work/ours"
+ours_status=$(cat "$work/ours.status")
+expected=$work/ours/tests/$name/expected
+
+# Cap what a comparison reads. A longer transcript is a failure either way.
+if [ "$(wc -c < "$work/ours.out" | tr -d ' ')" -gt 262144 ]; then
+  head -c 262144 "$work/ours.out" > "$work/ours.cut"
+  mv "$work/ours.cut" "$work/ours.out"
+  printf '\n%s\n' "output cut at 256 KiB" >> "$work/ours.out"
+fi
+
+normalize() {
+  sed -e 's/\r$//' -e '/^With codegen for:/d' -e 's/[[:space:]]*$//' "$1"
+}
+normalize "$work/ours.out" > "$work/ours.norm"
+
+ours_text=$(cat "$work/ours.out" "$work/ours.err")
+refused=$(rejection_skip "$ours_text")
+if [ -n "$refused" ]; then
+  printf 'skip\t%s\t%s\n' "$name" "$refused"
+  exit 0
+fi
+
+detail=
+if [ "$ours_status" -eq 124 ]; then
+  detail="timed out after ${limit}s"
+elif [ ! -f "$expected" ]; then
+  detail="no expected file"
+else
+  normalize "$expected" > "$work/expected.norm"
+  if ! cmp -s "$work/expected.norm" "$work/ours.norm"; then
+    err=$(printf '%s\n' "$ours_text" | grep -m 1 -E 'unsupported \(|^Error:|Uncaught error:|internal error:' || true)
+    if [ -n "$err" ] && ! grep -qxF "$err" "$work/expected.norm"; then
+      detail=$err
+    else
+      detail=$(awk '
+        NR == FNR { expected[NR] = $0; n = NR; next }
+        { if ($0 != expected[FNR]) {
+            printf "stdout mismatch: line %d: expected \"%s\" / ours \"%s\"\n", FNR, expected[FNR], $0
+            found = 1
+            exit
+          }
+          m = FNR
+        }
+        END { if (!found && n != m) printf "stdout mismatch: %d lines against %d\n", n + 0, m + 0 }
+      ' "$work/expected.norm" "$work/ours.norm")
+    fi
+  fi
+fi
+
+if [ -z "$detail" ]; then
+  printf 'pass\t%s\t\n' "$name"
+else
+  printf 'fail\t%s\t%s\n' "$name" "$(one_line "$detail")"
+fi

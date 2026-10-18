@@ -1,6 +1,9 @@
-// RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics -o /dev/null
+// NEEDS-ACCEPTANCE: the knot rule runs as the pass idr-knots (mlir-4), not in the verifier: the programs of the first stage are refused by it with the same texts, the last program verifies and is refused only once idr-defunctionalize has made its closures data; a knot only a library makes, whose type the program's own code builds nowhere, is reported at the program (the base expected it at the library's function, which knots never names); constants type first (ir-ods-8), idr.io.put_sint (mlir-1).
+// RUN: awk '/^\/\/ -----$/ { n++ } { line[NR] = $0; part[NR] = n } END { for (i = 1; i <= NR; i++) if (part[i] < n) print line[i] }' %s > %t.first.mlir
+// RUN: idris-mlir-opt %t.first.mlir -split-input-file --idr-knots -verify-diagnostics -o /dev/null
 // RUN: awk '/^\/\/ -----$/ { n = 0; next } { line[++n] = $0 } END { for (i = 1; i <= n; i++) print line[i] }' %s > %t.knot.mlir
-// RUN: not idris-mlir-opt %t.knot.mlir --idr-defunctionalize -o /dev/null 2>&1 | FileCheck %s
+// RUN: idris-mlir-opt %t.knot.mlir -o /dev/null
+// RUN: not idris-mlir-opt %t.knot.mlir --idr-defunctionalize --idr-knots -o /dev/null 2>&1 | FileCheck %s
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Idris is strict and its data immutable, so the heap is acyclic, which is
 // what lets counting free everything: an object only points at objects
@@ -9,10 +12,12 @@
 // of types: a program in which one can is refused, at the first array made
 // of such a type, naming each type on the cycle. Data that is only built,
 // a box of arrays of words or a list, holds no knot, nor does a memo cell,
-// which is written once with a value computed from older captures. Before
+// which is written once with a value computed from older captures. The
+// rule refuses the user's program, so a pass holds it, idr-knots, which
+// runs once closures are data; the verifier holds no knot. Before
 // idr-defunctionalize a closure names no type yet, so the last program
-// passes; after it, the closures in its array are a sum whose label holds
-// that array, and the program is refused.
+// verifies; after it, the closures in its array are a sum whose label holds
+// that array, and idr-knots refuses it.
 // CHECK: error: unsupported (cycle): an array of {{.*}} can hold a reference to itself through
 
 !Node = !idr.data<"Node", plain [@MkNode(memref<?x!idr.box<!idr.data<"Node">>, #idr.world>)]>
@@ -51,10 +56,11 @@ idr.program @cycle root(@Prog.main) stage(first) {
 // A library's code has no place in a source file, only its name: the
 // prefix installs no library sources. A knot whose array only a library
 // makes, as base's newIORef makes an IORef, is reported at the program's
-// own type on the cycle, which closes the knot.
+// own type on the cycle, which closes the knot; and where the program's own
+// code builds none either, as here, at the program.
 !Node = !idr.data<"Node", plain [@MkNode(memref<!idr.box<!idr.data<"Node">>, #idr.world>)]>
+// expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
 idr.program @cycle root(@Prog.main) stage(first) {
-  // expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
   idr.func @newIORef(%node: !idr.box<!Node>, %w: !idr.world) -> (memref<!idr.box<!Node>, #idr.world>, !idr.world) {
     %r, %w1 = idr.array.new [], %node, %w : !idr.box<!Node> -> memref<!idr.box<!Node>, #idr.world> loc(unknown)
     return %r, %w1 : memref<!idr.box<!Node>, #idr.world>, !idr.world
@@ -90,7 +96,7 @@ idr.program @cycle root(@Prog.main) stage(first) {
     %row, %w1 = idr.array.new [%two], %zero, %w : i64 -> memref<?xi64, #idr.world>
     %rows, %w2 = idr.array.new [%two], %row, %w1 : memref<?xi64, #idr.world> -> memref<?xmemref<?xi64, #idr.world>, #idr.world>
     %g = idr.con !idr.box<!Grid> @MkGrid(%rows : memref<?xmemref<?xi64, #idr.world>, #idr.world>)
-    %l = idr.constant #idr.con<!List, @Cons, [1, #idr.con<!List, @Nil, []>]> : !idr.box<!List>
+    %l = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [1, #idr.con<!List, @Nil, []>]>
     return %w2 : !idr.world
   }
 }
@@ -101,7 +107,7 @@ idr.program @cycle root(@Prog.main) stage(first) {
 !Stream = !idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream">>) forced]>>)]>
 idr.program @cycle root(@Prog.main) stage(first) {
   idr.func @ones() -> !idr.box<!Stream> attributes {total} {
-    %s = idr.constant #idr.con<!Stream, @Cons, [1, #idr.con<!lazy$0, @ones, []>]> : !idr.box<!Stream>
+    %s = idr.constant !idr.box<!Stream> #idr.con<!Stream, @Cons, [1, #idr.con<!lazy$0, @ones, []>]>
     return %s : !idr.box<!Stream>
   }
   idr.func @Prog.main() -> i64 {
@@ -141,7 +147,7 @@ idr.program @cycle root(@Prog.main) stage(higher) {
     %i = idr.check.in_bounds %z, %a, "array index out of bounds" : memref<?x!idr.fn<() -> (i64)>, #idr.world>
     %w2 = idr.array.set %a[%i], %c, %w1 : memref<?x!idr.fn<() -> (i64)>, #idr.world>, !idr.fn<() -> (i64)>
     %r = idr.call @first(%a) : (memref<?x!idr.fn<() -> (i64)>, #idr.world>) -> i64
-    %w3 = idr.io.put_int signed %r, %w2 : i64
+    %w3 = idr.io.put_sint %r, %w2 : i64
     return %w3 : !idr.world
   }
 }

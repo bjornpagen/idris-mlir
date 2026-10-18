@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the match's default binds its scrutinee (S2); the lowered checks are as before.
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,signature=@push:(i64,!llvm.ptr)->!llvm.ptr,signature=@first:(!llvm.ptr)->i64,calls-only=@push:[@idris_rt_cell],calls-only=@first:[],writes-nothing=@first,aligned-access' -o /dev/null
 // NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
@@ -18,7 +19,7 @@ idr.program @box root(@Prog.main) stage(first) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       idr.yield %h : i64
     }
-    default {
+    default(%d: !idr.box<!List>) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }

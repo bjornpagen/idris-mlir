@@ -61,6 +61,7 @@ import Control.WellFounded
 import Data.DPair
 import Data.Fin
 import Data.List
+import Data.List1
 import Data.SortedMap
 import Data.Vect
 
@@ -89,9 +90,9 @@ data Template
   | Applied Nat Nat (List Template)     -- the writer's family Var i d applied, which every instance beta-reduces
   | Computing Nat Nat (List Template)   -- the writer's family Var i d applied where its value, or an argument, computes
                                         -- from what it is given: what beta makes there nothing bounds
-  | Formal Nat Nat Nat                  -- argument j of a family's value, at depth d (always 0: nothing matches one
-                                        -- deeper), taking a arguments of its own: what beta substitutes, a leaf of
-                                        -- height 1 until it does
+  | Formal Nat Nat                      -- argument j of a family's value, taking a arguments of its own: what beta
+                                        -- substitutes, a leaf of height 1 until it does; nothing matches one, so it
+                                        -- has no depth
   | Field Nat Template                  -- field k (a method or a superclass) of a dictionary not yet a constructor
   | Held Address Nat                    -- the dictionary data constructor C holds at field p, matched out of a value
                                         -- (SortedDMap's Ord)
@@ -110,38 +111,32 @@ data Root = Rooted Address
 -- The markers
 ------------------------------------------------------------------------------
 
--- The walk's own markers: bound names that no binder binds and no context
--- holds. Idris's quotation rebinds a bound `MN` name to the binder its
--- number matches (Quote.idr), so none is an `MN` name. Each passes through
--- every normaliser as itself (a bound reference stays applied, Eval.idr).
--- None is a hole marker, since a request's key holds those for runtime
--- values.
+-- The walk's own markers are probes (`Walk`): bound names that no binder
+-- binds and no context holds, each passing through every normaliser as
+-- itself (a bound reference stays applied, Eval.idr). None is a hole
+-- marker, since a request's key holds those for runtime values.
 
 ||| The marker `Var i d` reads back from: the writer's parameter i, matched
 ||| d constructors deep.
 export
 markerAt : (i, d : Nat) -> ClosedTerm
-markerAt i d = Ref EmptyFC Bound (Nested (cast i, cast d) (UN (Basic "idris-mlir-var")))
+markerAt i d = probeTerm (ProbeVar i d)
 
 ||| The parameter and depth of `markerAt`'s name, and of no other.
 export
 markerOf : Name -> Maybe (Nat, Nat)
-markerOf (Nested (i, d) (UN (Basic "idris-mlir-var"))) = Just (cast i, cast d)
-markerOf _ = Nothing
+markerOf n = case probeOf n of
+  Just (ProbeVar i d) => Just (i, d)
+  _ => Nothing
 
-||| The marker `Formal j 0 a` reads back from: argument j of a family's
+||| The marker `Formal j a` reads back from: argument j of a family's
 ||| value, which takes a arguments of its own. A lambda's variable is one,
 ||| and so is each argument a definition given fewer than its parameters
 ||| lacks, so that what the value computes from its arguments is read where
 ||| beta puts them. Nothing matches it deeper: a match on it leaves the
 ||| value as written (`walk`).
 formalAt : (j, a : Nat) -> Term vs
-formalAt j a = Ref EmptyFC Bound (Nested (cast j, cast a) (UN (Basic "idris-mlir-formal")))
-
-||| The argument and arity of `formalAt`'s name, and of no other.
-formalOf : Name -> Maybe (Nat, Nat)
-formalOf (Nested (j, a) (UN (Basic "idris-mlir-formal"))) = Just (cast j, cast a)
-formalOf _ = Nothing
+formalAt j a = probeTerm (ProbeFormal j a)
 
 ||| What a site binds a match on a field of the dictionary marker `Var i d`
 ||| to, by its path: the dictionary's field first, then a field of that
@@ -150,52 +145,14 @@ formalOf _ = Nothing
 export
 fieldAt : (i, d : Nat) -> (path : List Nat) -> ClosedTerm
 fieldAt i d [] = markerAt i d
-fieldAt i d path@(_ :: _) = Ref EmptyFC Bound (Nested (cast i, cast d) (steps path))
-  where
-    steps : List Nat -> Name
-    steps [] = UN (Basic "idris-mlir-field")
-    steps (k :: ks) = Nested (cast k, 0) (steps ks)
-
-||| The marker, depth and path of `fieldAt`'s name for a non-empty path.
-fieldOf : Name -> Maybe (Nat, Nat, List Nat)
-fieldOf (Nested (i, d) n@(Nested _ _)) = (\path => (cast i, cast d, path)) <$> steps n
-  where
-    steps : Name -> Maybe (List Nat)
-    steps (UN (Basic "idris-mlir-field")) = Just []
-    steps (Nested (k, 0) rest) = (cast k ::) <$> steps rest
-    steps _ = Nothing
-fieldOf _ = Nothing
+fieldAt i d (k :: ks) = probeTerm (ProbeFieldPath i d (k ::: ks))
 
 ||| What a site binds the dictionary a data constructor holds at field p
 ||| to, when a match takes it out of a value: the constructor's address, its
 ||| own eight bytes, and the field.
 export
 heldAt : Address -> Nat -> ClosedTerm
-heldAt [b0, b1, b2, b3, b4, b5, b6, b7] p =
-  Ref EmptyFC Bound
-      (Nested (byte b0, byte b1) (Nested (byte b2, byte b3) (Nested (byte b4, byte b5)
-        (Nested (byte b6, byte b7) (Nested (cast p, 0) (UN (Basic "idris-mlir-held")))))))
-  where
-    byte : Fin 256 -> Int
-    byte b = cast (finToNat b)
-
-||| The constructor and field of `heldAt`'s name.
-heldOf : Name -> Maybe (Address, Nat)
-heldOf (Nested (b0, b1) (Nested (b2, b3) (Nested (b4, b5)
-         (Nested (b6, b7) (Nested (p, 0) (UN (Basic "idris-mlir-held"))))))) =
-  Just (map byte [b0, b1, b2, b3, b4, b5, b6, b7], cast p)
-  where
-    -- Each is a byte `heldAt` wrote, so its low bits are all of it.
-    byte : Int -> Fin 256
-    byte b = lowBits 8 (cast b)
-heldOf _ = Nothing
-
-||| What one of the walk's markers reads as, by its family's one reader.
-familyOf : Name -> Maybe Template
-familyOf n =
-  (uncurry Var <$> Template.markerOf n)
-    <|> ((\(i, d, path) => foldl (\t, k => Field k t) (Var i d) path) <$> fieldOf n)
-    <|> (uncurry Held <$> heldOf n)
+heldAt a p = probeTerm (ProbeHeld a p)
 
 ||| The marker `Var i d` a term is, when it is one, unapplied.
 bareMarker : ClosedTerm -> Maybe (Nat, Nat)
@@ -294,17 +251,19 @@ data Reference = HoleMarker Nat
                | Defined Address
 
 referenceOf : Context -> NameType -> Name -> Reference
-referenceOf ctx nt n = case Closed.markerOf n of
-  Just i => HoleMarker i
-  Nothing => case formalOf n of
-    Just (j, a) => FormalMarker j a
-    Nothing => case familyOf n of
-      Just t => WalkMarker t
-      Nothing => case nt of
-        Bound => RuntimePart
-        DataCon _ _ => DataConstructor (definitionAddress ctx n)
-        TyCon _ => TypeConstructor (definitionAddress ctx n)
-        Func => maybe RuntimePart Defined (definitionAddress ctx n)
+referenceOf ctx nt n = case probeOf n of
+  Just (ProbeHole i) => HoleMarker i
+  Just (ProbeFormal j a) => FormalMarker j a
+  Just (ProbeVar i d) => WalkMarker (Var i d)
+  Just (ProbeFieldPath i d path) => WalkMarker (foldl (\t, k => Field k t) (Var i d) path)
+  Just (ProbeHeld a p) => WalkMarker (Held a p)
+  -- Any other name, a probe of another family's included, is what its
+  -- reference says it is.
+  _ => case nt of
+    Bound => RuntimePart
+    DataCon _ _ => DataConstructor (definitionAddress ctx n)
+    TyCon _ => TypeConstructor (definitionAddress ctx n)
+    Func => maybe RuntimePart Defined (definitionAddress ctx n)
 
 ||| The role a constructor has in a Nat-like type, if any.
 roleOf : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe NatRole)
@@ -312,30 +271,24 @@ roleOf n = do
   defs <- get Ctxt
   pure (natRole =<< !(lookupCtxtExact n (gamma defs)))
 
-||| A closed run, as `Keys.toZero` takes one: n >= 1 applications of one
-||| successor, the same definition at each step, ending in a zero. Its
+||| A closed run, as `Keys.successorRun` reads one: n >= 1 applications of
+||| one successor, the same definition at each step, ending in a zero. Its
 ||| count n; the run's template is `Leaf (S n)`, the model's height of
 ||| `S^n Z`, so that a template's explicit successors over a marker are
 ||| never shorter than the run they close to. A run that ends in anything
 ||| else is read node by node.
 export
 closedRun : {auto c : Ref Ctxt Defs} -> TT vs -> Core (Maybe Nat)
-closedRun (App _ (Ref _ (DataCon _ _) s) a) = do
-  Just Succ <- roleOf s
-    | _ => pure Nothing
-  defs <- get Ctxt
-  case definitionAddress (gamma defs) s of
-    Nothing => pure Nothing
-    Just sa => down (gamma defs) sa a 1
+closedRun t@(App _ (Ref _ (DataCon _ _) _) _) = do
+  w <- writerOf (heads t)
+  pure ((\(k, _, _) => k) <$> successorRun w t)
   where
-    down : Context -> Address -> TT vs -> Nat -> Core (Maybe Nat)
-    down ctx sa (Ref _ (DataCon _ _) z) k = do
-      Just Zero <- roleOf z
-        | _ => pure Nothing
-      pure (Just k)
-    down ctx sa (App _ (Ref _ (DataCon _ _) s') a') k =
-      if definitionAddress ctx s' == Just sa then down ctx sa a' (S k) else pure Nothing
-    down _ _ _ _ = pure Nothing
+    -- The constructors down a run's spine: the only names its reading asks
+    -- the roles of.
+    heads : TT vs -> List (TT vs)
+    heads (App _ f@(Ref _ (DataCon _ _) _) a) = f :: heads a
+    heads z@(Ref _ (DataCon _ _) _) = [z]
+    heads _ = []
 closedRun _ = pure Nothing
 
 ||| A constant, read off the tokens `Keys.writeConstant` writes for it, so
@@ -495,7 +448,7 @@ mutual
   height (Held _ _) = 0
   height (Leaf h) = h
   height (Token _) = 1
-  height (Formal _ _ _) = 1
+  height (Formal _ _) = 1
   height (Head _ ts) = S (tallest ts)
   height (Opaque _ ts) = S (tallest ts)
   height (Applied _ _ ts) = S (tallest ts)
@@ -624,7 +577,7 @@ substituted Placeholding = Erased EmptyFC Placeholder
 ||| placeholder's height, so that every part it is substituted into stays
 ||| closed.
 substituteTemplate : Substitute -> Template
-substituteTemplate (FormalArgument j k) = Formal j 0 k
+substituteTemplate (FormalArgument j k) = Formal j k
 substituteTemplate Placeholding = Leaf 1
 
 ||| Arguments j, j + 1, ... of a family's value, as many as asked, each
@@ -718,7 +671,7 @@ mutual
     defs <- get Ctxt
     case referenceOf (gamma defs) nt n of
       HoleMarker i => part m (Token (S i)) args
-      FormalMarker j k => part m (Formal j 0 k) args
+      FormalMarker j k => part m (Formal j k) args
       WalkMarker t => marked t args
       RuntimePart => part m (Leaf 1) args
       DataConstructor a => Head a <$> readings args
@@ -760,17 +713,16 @@ mutual
   applied : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
             Name -> Address -> List Arg -> Core Template
   applied r w acc@(Access rec) n a args = do
-    defs <- get Ctxt
     let folded = kept r a args
-    Just def <- lookupCtxtExact n (gamma defs)
+    Just (placement, def) <- resolve n
       | Nothing => folded
     case definition def of
       PMDef _ pargs tree _ _ =>
         let terms = map (\x => Force x.value) args in
         case (bindParams pargs terms, tree) of
-          (Nothing, _) => given r w acc n a terms (type def) pargs tree folded
+          (Nothing, _) => given r w acc placement a terms (type def) pargs tree folded
           (Just _, STerm {}) => folded
-          (Just (env, extras), _) => case enter (gamma defs) n w of
+          (Just (env, extras), _) => case enter placement w of
             Nothing => Opaque a <$> readings args
             Just (Element w' less) => do
               Nothing <- structural r w' (rec w' less) a terms env tree extras
@@ -787,18 +739,17 @@ mutual
   ||| each parameter it lacks. A skeleton keeps it as written: no value's
   ||| skeleton is applied.
   given : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Name -> Address -> List ClosedTerm -> (type : ClosedTerm) -> (pargs : Scope) -> CaseTree pargs ->
+          Placement -> Address -> List ClosedTerm -> (type : ClosedTerm) -> (pargs : Scope) -> CaseTree pargs ->
           Core Template -> Core Template
-  given AsShape w acc n a terms ty pargs tree folded = folded
-  given AsType w acc@(Access rec) n a terms ty pargs tree folded = do
-    defs <- get Ctxt
+  given AsShape w acc placement a terms ty pargs tree folded = folded
+  given AsType w acc@(Access rec) placement a terms ty pargs tree folded = do
     arities <- binderArities ty
     let lacking = formalsFrom 0 (drop (length terms) arities) (minus (length pargs) (length terms))
     case bindParams pargs (terms ++ map substituted lacking) of
       Nothing => folded
       -- Met again on its own unfolding: as written, or a recursion through
       -- the arguments it lacks, which nothing bounds.
-      Just (env, extras) => case enter (gamma defs) n w of
+      Just (env, extras) => case enter placement w of
         Nothing => do
           written <- folded
           pure (Choice (Leaf 1) [written, Opaque a (map substituteTemplate lacking)])
@@ -877,7 +828,7 @@ mutual
       -- which nothing bounds (`beta` says the value computes).
       OnFormal j k => do
         written <- folded
-        pure (Just (Choice (Formal j 0 k) [written, Opaque self [Formal j 0 k]]))
+        pure (Just (Choice (Formal j k) [written, Opaque self [Formal j k]]))
       AtRuntime => Just <$> folded
       -- A constructor's argument is a part of the value, so the value
       -- bounds it.
@@ -996,7 +947,7 @@ mutual
   arity (Leaf _) = 0
   arity (Token _) = 0
   arity (Held _ _) = 0
-  arity (Formal _ _ _) = 0
+  arity (Formal _ _) = 0
 
 ||| What beta makes of the family values a template holds, each read as
 ||| its meaning (lambdas' variables and the parameters a definition lacks
@@ -1022,7 +973,7 @@ mutual
   holdsFormal (t :: ts) = formalIn t || holdsFormal ts
 
   formalIn : Template -> Bool
-  formalIn (Formal _ _ _) = True
+  formalIn (Formal _ _) = True
   formalIn (Head _ ts) = holdsFormal ts
   formalIn (Opaque _ ts) = holdsFormal ts
   formalIn (Applied _ _ ts) = holdsFormal ts
@@ -1039,9 +990,9 @@ mutual
   export
   beta : Template -> Beta
   beta (Opaque _ ts) = if holdsFormal ts then Computes else betaAll ts
-  beta (Head Nothing (Formal _ _ k@(S _) :: args)) =
+  beta (Head Nothing (Formal _ k@(S _) :: args)) =
     if length args /= k || holdsFormal args then Computes else betaAll args
-  beta (Formal _ _ (S _)) = Computes
+  beta (Formal _ (S _)) = Computes
   beta (Head _ ts) = betaAll ts
   beta (Choice _ ts) = betaAll ts
   beta (Applied _ _ ts) = betaAll ts
@@ -1051,7 +1002,7 @@ mutual
   beta (Leaf _) = Inert
   beta (Token _) = Inert
   beta (Held _ _) = Inert
-  beta (Formal _ _ Z) = Inert
+  beta (Formal _ Z) = Inert
 
   betaAll : List Template -> Beta
   betaAll [] = Inert
@@ -1148,7 +1099,7 @@ mutual
   withClosedFamilies c t@(Leaf _) = t
   withClosedFamilies c t@(Token _) = t
   withClosedFamilies c t@(Held _ _) = t
-  withClosedFamilies c t@(Formal _ _ _) = t
+  withClosedFamilies c t@(Formal _ _) = t
 
   allWithClosed : (landing : Nat -> Landing) -> List Template -> List Template
   allWithClosed c [] = []
@@ -1172,7 +1123,7 @@ mutual
   selfBounded (Computing _ _ _) = False
   selfBounded (Field _ _) = False
   selfBounded (Held _ _) = False
-  selfBounded (Formal _ _ _) = True
+  selfBounded (Formal _ _) = True
 
   allSelfBounded : List Template -> Bool
   allSelfBounded [] = True
@@ -1209,7 +1160,7 @@ mutual
   weightsAt e (Leaf _) m = m
   weightsAt e (Token _) m = m
   weightsAt e (Held _ _) m = m
-  weightsAt e (Formal _ _ _) m = m
+  weightsAt e (Formal _ _) m = m
 
   weightsAll : (e : Nat) -> List Template -> SortedMap Nat Weight -> SortedMap Nat Weight
   weightsAll e [] m = m
@@ -1228,7 +1179,7 @@ mutual
   stuckAt (Leaf _) m = m
   stuckAt (Token _) m = m
   stuckAt (Held _ _) m = m
-  stuckAt (Formal _ _ _) m = m
+  stuckAt (Formal _ _) m = m
 
   stuckAll : List Template -> SortedMap Nat Weight -> SortedMap Nat Weight
   stuckAll [] m = m
@@ -1262,7 +1213,7 @@ mutual
   heaviest (Var _ _) = 0
   heaviest (Leaf _) = 0
   heaviest (Held _ _) = 0
-  heaviest (Formal _ _ _) = 0
+  heaviest (Formal _ _) = 0
 
 ------------------------------------------------------------------------------
 -- Roots and requests
@@ -1313,13 +1264,13 @@ mutual
   unfoldedBuilt : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                   Name -> List Piece -> Core (Maybe (Name, List Piece))
   unfoldedBuilt w acc@(Access rec) n args = do
-    defs <- get Ctxt
-    Just def <- lookupCtxtExact n (gamma defs)
+    Just (placement, def) <- resolve n
       | Nothing => pure Nothing
     case definition def of
       PMDef _ pargs (STerm _ body) _ _ => case bindParams pargs args of
         Nothing => pure Nothing
-        Just (env, extras) => case enter (gamma defs) n w of
+        -- Entered already: met again on its own unfolding.
+        Just (env, extras) => case enter placement w of
           Nothing => pure Nothing
           Just (Element w' less) =>
             let written : Piece -> ClosedTerm

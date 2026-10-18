@@ -41,21 +41,21 @@ std::string keyText(ContentNames &names, const Key &key) {
 // key's under `lazy$`, which no Idris name holds; two keys on one name are
 // the compiler's error, raised where the name is interned.
 LogicalResult Slots::name() {
-  ContentNames names;
-  for (auto &[key, sum] : sums) {
-    FailureOr<StringAttr> name = names.intern(program.getLoc(), key.isLazy() ? "lazy$" : "fn$",
-                                              "sum", keyText(names, key));
+  ContentNames content;
+  for (const Key &key : keys) {
+    FailureOr<StringAttr> name = content.intern(program.getLoc(), key.isLazy() ? "lazy$" : "fn$",
+                                                "sum", keyText(content, key));
     if (failed(name))
       return failure();
-    sum.name = *name;
+    names[key] = *name;
   }
   return success();
 }
 
 unsigned Slots::numConstructors() const {
   unsigned count = 0;
-  for (const auto &entry : sums)
-    count += static_cast<unsigned>(entry.first.labels.size());
+  for (const Key &key : keys)
+    count += static_cast<unsigned>(key.labels.size());
   return count;
 }
 

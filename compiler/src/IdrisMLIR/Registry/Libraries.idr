@@ -8,6 +8,8 @@ module IdrisMLIR.Registry.Libraries
 
 import IdrisMLIR.Registry.Name
 
+import Data.SortedSet
+
 %default total
 
 ||| The libraries the compiler knows: `Builtin` and `PrimIO`, the rest of
@@ -116,8 +118,8 @@ defaultPackages = ["prelude", "base"]
 ||| pointers, which are the runtime's handles, with their operations.
 ||| Threads and collector finalizers are outside the language, refused by
 ||| name; anything else of `PrimIO` is not admitted.
-admittedFromPrimIO : List String
-admittedFromPrimIO =
+admittedFromPrimIO : SortedSet String
+admittedFromPrimIO = SortedSet.fromList
   [ "IORes", "MkIORes", "PrimIO", "IO", "MkIO", "prim__io_pure", "io_pure"
   , "prim__io_bind", "io_bind", "fromPrim", "toPrim", "unsafePerformIO"
   , "unsafeCreateWorld", "unsafeDestroyWorld", "AnyPtr", "Ptr", "prim__nullAnyPtr"
@@ -130,7 +132,7 @@ admittedFromPrimIO =
 ||| first.
 export
 admits : Origin -> QName -> Bool
-admits o q = covers Admitted o || (q.space == ["PrimIO"] && elem q.name admittedFromPrimIO)
+admits o q = covers Admitted o || (q.space == ["PrimIO"] && contains q.name admittedFromPrimIO)
 
 ||| A totality assertion, an escape hatch that changes no value.
 ||| A trusted library's own are trusted; the user's are rejected on Idris's

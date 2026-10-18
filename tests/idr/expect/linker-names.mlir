@@ -1,19 +1,14 @@
-// NEEDS-ACCEPTANCE: that linker-names holds of the lowered module pulled out of the CLEAN lines and fails once, at the symbol with a `-` in it.
-// RUN: sed -n 's|^// CLEAN: ||p' %s > %t.clean.mlir
-// RUN: idris-mlir-opt %t.clean.mlir --idr-expect=holds=linker-names -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=linker-names -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 1
+// NEEDS-ACCEPTANCE: that the -verify-diagnostics run passes: linker-names fails at the symbol with a `-` in it, and at no other.
+// RUN: idris-mlir-opt %s --idr-expect=holds=linker-names -verify-diagnostics -o /dev/null
 // From idr-lower on a symbol is the name the linker takes, written in
 // letters, digits, `_`, `.` and `$`, the alphabet idr-lower spells every
-// other character in (the CLEAN module); a `-` itself is outside it.
-// CHECK-DAG: error: expected linker-names: @Main.a-b is written outside the linker's alphabet
-// CLEAN: module {
-// CLEAN:   func.func @Main.a$2d$b(%x: i64) -> i64 {
-// CLEAN:     return %x : i64
-// CLEAN:   }
-// CLEAN: }
+// other character in (@Main.a$2d$b, which raises no error); a `-` itself is
+// outside it.
 module {
+  func.func @Main.a$2d$b(%x: i64) -> i64 {
+    return %x : i64
+  }
+  // expected-error @below {{expected linker-names: @Main.a-b is written outside the linker's alphabet}}
   func.func @"Main.a-b"(%x: i64) -> i64 {
     return %x : i64
   }

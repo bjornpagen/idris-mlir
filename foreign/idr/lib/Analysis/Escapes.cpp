@@ -1,26 +1,31 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The escape analysis of boxes: which cells can outlive the frame that
-// builds them.
+// The escape analysis of cells: which cells idr.cell.new makes can outlive
+// the frame that makes them.
 //
-// The rules, by use, for a value that may hold a cell, read from the
-// reference edges of the use's op (idr/IR/Flow.h):
+// The rules, by use, for a value that may hold a cell's address, read from
+// the reference edges of the use's op (idr/IR/Flow.h):
 //   - moved or read whole into a value (forwarded by a branch or a region
-//     branch, chosen by a select, handed into or out of a linear type):
-//     what reaches the value it goes to, in the same way. Linearity has no
-//     runtime form, and a value used once may still be used where it
-//     escapes;
+//     branch, chosen by a select, a cell made into its box by
+//     idr.cell.init): what reaches the value it goes to, in the same way;
+//   - handed on by an op whose result is its operand's value at another
+//     grade (a view, a share, a linear position): what reaches the result,
+//     in the same way. This rule stands in place of the op's reference
+//     edges, which say what becomes of a reference, not of an address: a
+//     share gives its operand's reference up, but its result is the same
+//     cell. Linearity has no runtime form, and a value used once may still
+//     be used where it escapes;
 //   - read out of as a part (a field read, the fields a match binds): what
-//     is reachable from it reaches what the read gives; its own reference
+//     is reachable from it reaches what the read gives; its own address
 //     reaches nothing;
 //   - moved into a part of a value (stored in a constructor): everything
-//     reachable from it, its own reference too, is reachable from that
+//     reachable from it, its own address too, is reachable from that
 //     value. A part of a value this analysis does not follow (an array, a
 //     tensor) is memory it cannot see, so the cell escapes;
 //   - only read while the op runs (a use its op declares no edge for, as
 //     idr.tag's): nothing;
 //   - dispatched on by a match of quantity one: the match leaves the cell to
-//     build in again, so its own reference goes with it;
+//     build in again, so its own address goes with it;
 //   - passed to a call: it escapes when that parameter's summary does. A
 //     cell passed to a parameter that does not escape is live only while
 //     the call runs, inside the caller's frame;
@@ -28,24 +33,25 @@
 //     escapes. A returned cell is in a frame that is gone whatever the
 //     caller does with it, so the return is never the callers' to decide.
 //
-// The cell an idr.con builds lives in one stack slot per con, in its
-// function's entry block. So it also escapes when the con may run again in
-// the same frame while the cell is live: the cell must not be forwarded by
-// a terminator of a loop around the con, a region branch whose region
-// holding the terminator runs again, which carries values to the next
-// iteration or out of the loop. Nor may it be passed to a call in tail
-// position of a function on the same cycle of calls: such a call must be a
-// tail call (idr-tail-calls) for the cycle to run in constant stack, or the
-// next iteration of a loop (idr-tail-loops) when it is a self call, and
-// either way the frame is gone when the callee runs. A function off the
-// cycle never calls back round to this frame's function, so a call of it in
-// tail position may stay a call that keeps the frame. A con counts only in
-// a function body of one block whose regions on the way are of one block
-// each and belong to region branches whose runs never overlap (none holds
-// its region as parallel): a match's case runs at most once, a loop's body
-// one iteration at a time. Anywhere else it escapes.
+// A cell on the stack lives in one slot per cell op, in its function's
+// frame. So it also escapes when the op may run again in the same frame
+// while the cell is live: the cell must not be forwarded by a terminator of
+// a loop around the op, a region branch whose region holding the terminator
+// runs again, which carries values to the next iteration or out of the
+// loop. Nor may it be passed to a call in tail position of a function on
+// the same cycle of calls: such a call must be a tail call (idr-tail-calls)
+// for the cycle to run in constant stack, or the next iteration of a loop
+// (idr-tail-loops) when it is a self call, and either way the frame is gone
+// when the callee runs. A function off the cycle never calls back round to
+// this frame's function, so a call of it in tail position may stay a call
+// that keeps the frame. A cell op counts only where the regions on the way
+// up to its function's body, which is one block by its type, are of one
+// block each and belong to region branches whose runs never overlap (none
+// holds its region as parallel): a match's case runs at most once, a loop's
+// body one iteration at a time. Anywhere else it escapes.
 #include "idr/Analysis/EscapesDetail.h"
 
+#include "idr/Analysis/CallCycles.h"
 #include "idr/Analysis/Tail.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -54,6 +60,7 @@
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/IR/Iterators.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
@@ -77,26 +84,16 @@ Escape lost() {
   return all;
 }
 
-// Whether `a` and `b` are on one cycle of calls: each may call the other,
-// through any calls. A function is on one with itself.
-bool together(const DenseMap<Operation *, unsigned> &component, Operation *a, Operation *b) {
-  if (a == b)
-    return true;
-  auto at = component.find(a), bt = component.find(b);
-  return at != component.end() && bt != component.end() && at->second == bt->second;
-}
-
 // The rules above, on upstream's backward base. The base forwards along
-// branches and region branches; every other op's uses are what its edges
-// say, and a call's are the callee's summaries.
+// branches and region branches, and hands every call to visitExternalCall,
+// since the solver enters no callee; every other op's uses are what its
+// edges say, and a call's are the callee's summaries.
 class Solve : public SparseBackwardDataFlowAnalysis<EscapeLattice> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Solve)
 
-  Solve(DataFlowSolver &solver, SymbolTableCollection &unresolved, SymbolTable &symbols,
-        const DenseMap<Operation *, unsigned> &component)
-      : SparseBackwardDataFlowAnalysis(solver, unresolved), symbols(symbols),
-        component(component) {}
+  Solve(DataFlowSolver &solver, SymbolTableCollection &tables, const CallCycles &cycles)
+      : SparseBackwardDataFlowAnalysis(solver, tables), tables(tables), cycles(cycles) {}
 
   LogicalResult initialize(Operation *top) override;
   LogicalResult visit(ProgramPoint *point) override;
@@ -105,6 +102,12 @@ public:
   void visitBranchOperand(OpOperand &operand) override;
   void visitCallOperand(OpOperand &operand) override;
   void visitNonControlFlowArguments(RegionSuccessor &, ArrayRef<BlockArgument>) override {}
+
+  // After defunctionalization every call the base resolves is an idr.call.
+  void visitExternalCall(CallOpInterface call, ArrayRef<EscapeLattice *>,
+                         ArrayRef<const EscapeLattice *>) override {
+    visitCall(cast<CallOp>(call.getOperation()));
+  }
 
   using SparseBackwardDataFlowAnalysis::setToExitState;
   void setToExitState(EscapeLattice *lattice) override { reach(lattice, lost()); }
@@ -124,8 +127,8 @@ private:
   void flow(Operation *op, const FlowEdges::Flow &move);
   void visitCall(CallOp call);
 
-  SymbolTable &symbols;
-  const DenseMap<Operation *, unsigned> &component;
+  SymbolTableCollection &tables;
+  const CallCycles &cycles;
 };
 
 LogicalResult Solve::initialize(Operation *top) {
@@ -137,7 +140,7 @@ LogicalResult Solve::initialize(Operation *top) {
     propagateIfChanged(live, live->setToLive());
   });
   // Every op once, users before what they use, through this analysis's own
-  // visit, so that the base never takes an idr.call by its rule.
+  // visit, which adds the loop rule to the base's.
   WalkResult walked = top->walk<WalkOrder::PostOrder, ReverseIterator>([&](Operation *op) {
     if (op == top || succeeded(visit(getProgramPointAfter(op))))
       return WalkResult::advance();
@@ -149,16 +152,12 @@ LogicalResult Solve::initialize(Operation *top) {
 LogicalResult Solve::visit(ProgramPoint *point) {
   if (point->isBlockStart())
     return success();
-  Operation *op = point->getPrevOp();
-  if (auto call = dyn_cast<CallOp>(op)) {
-    visitCall(call);
-    return success();
-  }
   if (failed(AbstractSparseBackwardDataFlowAnalysis::visit(point)))
     return failure();
   // A terminator of a region that runs again carries what it forwards into
-  // its loop's next iteration, where a con in the loop writes its slot
+  // its loop's next iteration, where a cell op in the loop writes its slot
   // again, or out of the loop.
+  Operation *op = point->getPrevOp();
   auto loop = dyn_cast_or_null<RegionBranchOpInterface>(op->getParentOp());
   if (!loop || !op->hasTrait<OpTrait::IsTerminator>() ||
       !loop.isRepetitiveRegion(op->getParentRegion()->getRegionNumber()))
@@ -198,7 +197,7 @@ void Solve::follow(Operation *op, const FlowEdges::Edge &edge) {
 
 // What a flow makes of the value it moves or reads, from the state of where
 // it goes. A value goes whole into another (what reaches that one reaches
-// it, its own reference as that one's own), into a part of another (all of
+// it, its own address as that one's own), into a part of another (all of
 // it is reachable from that one), or out of a part of it (only what is
 // reachable from it reaches what the read gives). Into a parameter or a
 // result it goes where this frame does not follow.
@@ -223,14 +222,19 @@ void Solve::flow(Operation *op, const FlowEdges::Flow &move) {
   Escape update;
   update.deep = there.deep;
   if (!outOfPart)
-    update.shallow = std::holds_alternative<FlowPoint::Part>(move.to.at)
-                         ? there.deep
-                         : part(*target, there, Mode::Shallow);
+    update.shallow = std::holds_alternative<FlowPoint::Part>(move.to.at) ? there.deep
+                                                                          : own(*target, there);
   reach(lattice, update);
 }
 
 LogicalResult Solve::visitOperation(Operation *op, ArrayRef<EscapeLattice *> operands,
                                     ArrayRef<const EscapeLattice *>) {
+  // The address of the operand is the result's, whatever the op does with
+  // the reference (the rule above): one whole flow, in place of the edges.
+  if (op->hasTrait<ResultCarriesOperand>()) {
+    flow(op, {FlowPoint::of(op->getOperand(0)), FlowPoint::of(op->getResult(0))});
+    return success();
+  }
   if (!declaresFlow(op)) {
     for (auto [operand, lattice] : llvm::zip(op->getOperands(), operands))
       if (holdsCells(operand.getType()))
@@ -276,7 +280,7 @@ void Solve::visitBranchOperand(OpOperand &operand) {
   for (const FlowEdges::Edge &edge : edges.edges())
     if (edge.carries(Carrier::Reference) && from(edge))
       follow(op, edge);
-  if (isa<RegionBranchOpInterface>(op) && isBox(value.getType()) &&
+  if (isa<RegionBranchOpInterface>(op) && holdsOwnAddress(value.getType()) &&
       quantityOf(value.getType()) == Quantity::One) {
     Escape update;
     update.shallow.escapes = true;
@@ -289,12 +293,13 @@ void Solve::visitCallOperand(OpOperand &operand) {
     setToExitState(getLatticeElement(operand.get()));
 }
 
-// Every callee is a function of the program with a body: a call's symbol
-// use is verified, and no function is without one.
+// Every callee is a function of the program with a body, found through the
+// table the base resolved the call by: a call's symbol use is verified, and
+// no function is without one.
 void Solve::visitCall(CallOp call) {
-  auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
-  bool ends = tail::inTailPosition(call) &&
-              together(component, call->getParentOfType<FuncOp>(), callee);
+  auto callee = cast<FuncOp>(call.resolveCallableInTable(&tables));
+  bool ends =
+      tail::inTailPosition(call) && cycles.together(call->getParentOfType<FuncOp>(), callee);
   ProgramPoint *after = getProgramPointAfter(call);
   for (auto [index, operand] : llvm::enumerate(call.getArgs())) {
     if (!holdsCells(operand.getType()))
@@ -305,7 +310,7 @@ void Solve::visitCall(CallOp call) {
     BlockArgument param = callee.getArgument(static_cast<unsigned>(index));
     const Escape &summary = getOrCreateFor<EscapeLattice>(after, param)->getValue();
     Escape update;
-    update.shallow.escapes = part(param, summary, Mode::Shallow).escapes;
+    update.shallow.escapes = own(param, summary).escapes;
     update.deep.escapes = summary.deep.escapes;
     update.shallow.tailCalled = ends;
     update.deep.tailCalled = ends;
@@ -316,10 +321,11 @@ void Solve::visitCall(CallOp call) {
 } // namespace
 
 Escapes::Escapes(Operation *op, AnalysisManager &am) : program(op) {
-  findCycles(am);
-  // One solve over the program: the parameters' summaries, the cons and the
-  // loops are one fixpoint, so nothing is solved twice.
-  solver.load<Solve>(unresolved, am.getAnalysis<SymbolTable>(), component);
+  const CallCycles &cycles = am.getAnalysis<CallCycles>();
+  findCycles(cycles);
+  // One solve over the program: the parameters' summaries, the cell ops and
+  // the loops are one fixpoint, so nothing is solved twice.
+  solver.load<Solve>(tables, cycles);
   // MLIR's solver fails only where an analysis's visit does, and every
   // visit of Solve succeeds.
   [[maybe_unused]] LogicalResult ran = solver.initializeAndRun(op);

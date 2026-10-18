@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)`, `idr.io.put_sint` for the signed `put_int` and a function's effects as the property printed before its symbol), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=apart=@A.tot:@B.tot,apart=@A.eff:@B.eff,apart=@A.inc:@B.dec,apart=@A.ping:@B.ping -o /dev/null
 // NEEDS-ACCEPTANCE: the two functions that are not total declare diverge, as the verifier's effect rule asks; they are still kept apart.
 // What is not one function twice over stays twice: a pair of which only
@@ -16,11 +17,11 @@ idr.program @"keep-apart" root(@root) stage(higher) {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func @A.eff(%x: i64) -> i64 attributes {effects = #idr.effects<diverge>} {
+  idr.func effects<diverge> @A.eff(%x: i64) -> i64 {
     %y = arith.muli %x, %x : i64
     return %y : i64
   }
-  idr.func @B.eff(%x: i64) -> i64 attributes {effects = #idr.effects<crash, diverge>} {
+  idr.func effects<crash, diverge> @B.eff(%x: i64) -> i64 {
     %y = arith.muli %x, %x : i64
     return %y : i64
   }
@@ -39,7 +40,7 @@ idr.program @"keep-apart" root(@root) stage(higher) {
     case 0 {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.call @B.ping(%m) : (i64) -> i64
@@ -53,7 +54,7 @@ idr.program @"keep-apart" root(@root) stage(higher) {
     case 0 {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.call @A.ping(%m) : (i64) -> i64
@@ -71,7 +72,7 @@ idr.program @"keep-apart" root(@root) stage(higher) {
     %g = idr.call @A.inc(%f) : (i64) -> i64
     %h = idr.call @B.dec(%g) : (i64) -> i64
     %r = idr.call @A.ping(%h) : (i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w : i64
+    %w2 = idr.io.put_sint %r, %w : i64
     return %w2 : !idr.world
   }
 }

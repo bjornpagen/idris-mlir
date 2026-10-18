@@ -9,7 +9,7 @@
 module Lock
 
 import Data.List
-import Data.Maybe
+import Data.SortedMap
 import Data.String
 import Language.JSON
 import System
@@ -17,35 +17,59 @@ import System.File
 
 %default covering
 
-text : String -> JSON -> Maybe String
-text key (JObject fields) = case lookup key fields of
-  Just (JString s) => Just s
-  _ => Nothing
-text _ _ = Nothing
+||| How a tool's pinned commit is named: by its release tag, or by
+||| `git describe`.
+data PinRef = Tag String | Describe String
+
+||| One tool's entry, read.
+record Pin where
+  constructor MkPin
+  revision, repository, version : String
+  ref : PinRef
+  accept : Maybe String
 
 hexRevision : String -> Bool
 hexRevision s = length s == 40 && all (\c => isDigit c || (c >= 'a' && c <= 'f')) (unpack s)
 
-||| What is wrong with one tool's entry.
-problems : JSON -> List String
-problems entry =
-  (if maybe False hexRevision (text "revision" entry) then [] else ["revision is not 40 hex digits"])
-    ++ [ key ++ " is missing" | key <- ["repository", "version"], maybe True (== "") (text key entry) ]
-    ++ (if isJust (text "tag" entry) || isJust (text "describe" entry)
-           then [] else ["neither tag nor describe"])
+||| Two readings side by side: both values, or the problems of each.
+both : Either (List String) (a -> b) -> Either (List String) a -> Either (List String) b
+both (Right f) (Right x) = Right (f x)
+both (Left p) (Left q) = Left (p ++ q)
+both (Left p) (Right _) = Left p
+both (Right _) (Left q) = Left q
+
+||| One tool's entry: its pin, or the line that says what is wrong with it.
+pin : (String, JSON) -> Either (List String) Pin
+pin (name, JObject fields) =
+  either (\problems => Left [name ++ ": " ++ joinBy "; " problems]) Right $
+    both (both (both (both (MkPin <$> revision) (given "repository")) (given "version")) ref)
+         (Right (textAt "accept"))
+  where
+    byKey : SortedMap String JSON
+    byKey = fromList fields
+    textAt : String -> Maybe String
+    textAt key = case lookup key byKey of
+      Just (JString s) => Just s
+      _ => Nothing
+    revision : Either (List String) String
+    revision = case textAt "revision" of
+      Just r => if hexRevision r then Right r else Left ["revision is not 40 hex digits"]
+      Nothing => Left ["revision is not 40 hex digits"]
+    given : String -> Either (List String) String
+    given key = case textAt key of
+      Just v => if v == "" then Left [key ++ " is missing"] else Right v
+      Nothing => Left [key ++ " is missing"]
+    ref : Either (List String) PinRef
+    ref = case (textAt "tag", textAt "describe") of
+      (Just t, Nothing) => Right (Tag t)
+      (Nothing, Just d) => Right (Describe d)
+      (Nothing, Nothing) => Left ["neither tag nor describe"]
+      (Just _, Just _) => Left ["both tag and describe"]
+pin (name, _) = Left [name ++ ": not an object"]
 
 ||| Whether the accepted series, if any, holds the version.
-accepted : JSON -> Bool
-accepted entry = fromMaybe True $ do
-  series <- text "accept" entry
-  version <- text "version" entry
-  pure (series `isPrefixOf` version)
-
-||| The tools: the entries that are objects.
-objects : List (String, JSON) -> List (String, JSON)
-objects [] = []
-objects ((name, entry@(JObject _)) :: rest) = (name, entry) :: objects rest
-objects (_ :: rest) = objects rest
+accepted : Pin -> Bool
+accepted p = maybe True (`isPrefixOf` p.version) p.accept
 
 report : String -> List String -> IO ()
 report verdict [] = putStrLn verdict
@@ -62,8 +86,11 @@ check root = do
   putStrLn $ case lookup "schema_version" fields of
     Just (JNumber n) => "schema_version: " ++ show (the Integer (cast n))
     _ => "schema_version: missing"
-  let tools = objects fields
+  -- Every entry but the schema's is a tool's.
+  let tools = map (\entry => (fst entry, pin entry)) (filter ((/= "schema_version") . fst) fields)
   report "every tool is pinned by revision, repository, version, and tag or describe"
-    [ name ++ ": " ++ joinBy "; " bad | (name, entry) <- tools, let bad = problems entry, not (null bad) ]
+    (tools >>= \(_, read) => either id (const []) read)
   report "every accepted release series holds its tool's pinned version"
-    [ name ++ ": version outside the accepted series" | (name, entry) <- tools, not (accepted entry) ]
+    (tools >>= \(name, read) => case read of
+       Right p => if accepted p then [] else [name ++ ": version outside the accepted series"]
+       Left _ => [])

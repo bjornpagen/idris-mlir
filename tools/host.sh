@@ -136,7 +136,7 @@ peak_memory() {
   peak_memory_file=$1
   shift
   python3 -I -c '
-import os, sys
+import os, signal, sys
 path, unit, argv = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
 pid = os.fork()
 if pid == 0:
@@ -145,13 +145,12 @@ if pid == 0:
     except OSError as error:
         print(f"{argv[0]}: {error.strerror}", file=sys.stderr)
     os._exit(127)
-while True:
-    try:
-        _, status, usage = os.wait4(pid, 0)
-        break
-    except KeyboardInterrupt:
-        # The interrupt reached CMD too, which ends as it handles it.
-        continue
+# An interrupt, a termination or a hangup goes on to CMD, whose own
+# handling decides when it ends: timeout(1) puts itself in a process group
+# of its own, so a terminal signal would not reach it otherwise.
+for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(signum, lambda signum, frame: os.kill(pid, signum))
+_, status, usage = os.wait4(pid, 0)
 with open(path, "w") as out:
     print(usage.ru_maxrss // unit, file=out)
 sys.exit(128 + os.WTERMSIG(status) if os.WIFSIGNALED(status) else os.WEXITSTATUS(status))

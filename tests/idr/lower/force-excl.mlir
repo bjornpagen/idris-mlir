@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the memo cell is an idr.cell.new and its idr.cell.init, its box written exclusive (S3); the lowered calls are as before.
 // RUN: idris-mlir-opt %s --idr-lower '--idr-expect=holds=lowered,direct-calls,writes-nothing=@once,calls=@once:@one,calls=@once:@plus,calls-only=@once:[@one,@plus,@idris_rt_free_cell,@idris_rt_crash],crash-sites=@once:1' -o /dev/null
 // NEEDS-ACCEPTANCE: the form a force of an exclusive memo cell takes after idr-rc: its state taken apart and its token freed, with no idr.memo.enter or idr.memo.settle; and the syntax of idr.take of a constructor without fields.
 // NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
@@ -45,7 +46,8 @@ idr.program @"force-excl" root(@Main.main) stage(owned) {
   }
   idr.func @Main.main() -> i64 {
     %two = arith.constant 2 : i64
-    %t = idr.con !idr.excl<!idr.box<!Thunk>> @plus(%two : i64)
+    %k = idr.cell.new : !idr.cell<!idr.box<!Thunk>, @plus>
+    %t = idr.cell.init %k : !idr.cell<!idr.box<!Thunk>, @plus> (%two : i64) -> !idr.excl<!idr.box<!Thunk>>
     %v = idr.call @once(%t) : (!idr.excl<!idr.box<!Thunk>>) -> i64
     return %v : i64
   }

@@ -1,9 +1,7 @@
-// RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that idr-identity, the first step of each function's cleanup, rewrites the calls of each recursive function that gives back its argument, as the identities are solved per component; and that not-called reports each call of @loops, @drift and @flip left, at the line of the call as written (an inlined call keeps its own line), once @main and @leans are inlined and symbol-dce has taken them; the root is an IO root S38 admits, which hands every result to @observe (S2's default argument, ir-ods-8's type-first constant).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@weaken,not-called=@weakenTerm,not-called=@weakenUnder,not-called=@weakenTree,not-called=@weakenForest,not-called=@carry,not-called=@same,not-called=@second -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@loops -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@drift -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@flip -o /dev/null
-// NEEDS-ACCEPTANCE: that idr-identity, the first step of each function's cleanup, rewrites the calls of each recursive function that gives back its argument, as the identities are solved per component.
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce),idr-expect{holds=not-called=@loops,not-called=@drift,not-called=@flip})' -verify-diagnostics -o /dev/null
 // A function that only rebuilds its argument gives it back, and every call
 // of it becomes the argument. The optimizer finds this per component of
 // the call graph, callee first, and its cleanup of each caller replaces
@@ -28,13 +26,13 @@ idr.program @identity root(@root) stage(first) {
   idr.func @weaken(%i: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %i : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
-      %z = idr.constant #idr.big<0> : !idr.nat
+      %z = idr.constant !idr.nat #idr.big<0>
       idr.yield %z : !idr.nat
     }
-    default {
+    default(%d2: !idr.nat) {
       %k = idr.big.pred %i
       %w = idr.call @weaken(%k) : (!idr.nat) -> !idr.nat
-      %one = idr.constant #idr.big<1> : !idr.nat
+      %one = idr.constant !idr.nat #idr.big<1>
       %s = idr.big.add %w, %one : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -81,7 +79,7 @@ idr.program @identity root(@root) stage(first) {
       idr.yield %c : !idr.box<!Term>
     }
     case @Lam(%b: !idr.box<!Term>) {
-      %one = idr.constant #idr.big<1> : !idr.nat
+      %one = idr.constant !idr.nat #idr.big<1>
       %d1 = idr.big.add %d, %one : !idr.nat
       %b2 = idr.call @weakenUnder(%d1, %b) : (!idr.nat, !idr.box<!Term>) -> !idr.box<!Term>
       %c = idr.con !idr.box<!Term> @Lam(%b2 : !idr.box<!Term>)
@@ -101,7 +99,7 @@ idr.program @identity root(@root) stage(first) {
       case #idr.big<0> {
         ub.unreachable
       }
-      default {
+      default(%d2: !idr.nat) {
         %j = idr.call @weaken(%i) : (!idr.nat) -> !idr.nat
         %v = idr.con !idr.box<!Tree> @Leaf(%j : !idr.nat)
         idr.yield %v : !idr.box<!Tree>
@@ -152,7 +150,7 @@ idr.program @identity root(@root) stage(first) {
     case 0 {
       idr.yield %x : !idr.box<!Forest>
     }
-    default {
+    default(%d2: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %y = idr.call @carry(%m, %x) : (i64, !idr.box<!Forest>) -> !idr.box<!Forest>
@@ -164,6 +162,7 @@ idr.program @identity root(@root) stage(first) {
   // Calls itself on its whole argument, as @carry does, but never ends,
   // and Idris did not prove it does.
   idr.func @loops(%x: !idr.box<!Forest>) -> !idr.box<!Forest> {
+    // expected-error @below {{@loops is still called}}
     %r = idr.call @loops(%x) : (!idr.box<!Forest>) -> !idr.box<!Forest>
     return %r : !idr.box<!Forest>
   }
@@ -173,9 +172,10 @@ idr.program @identity root(@root) stage(first) {
     case 0 {
       idr.yield %x : !idr.box<!Forest>
     }
-    default {
+    default(%d2: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
+      // expected-error @below {{@drift is still called}}
       %y = idr.call @drift(%m, %x) : (i64, !idr.box<!Forest>) -> !idr.box<!Forest>
       idr.yield %y : !idr.box<!Forest>
     }
@@ -197,11 +197,11 @@ idr.program @identity root(@root) stage(first) {
   idr.func @zero(%i: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %i : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
-      %z = idr.constant #idr.big<0> : !idr.nat
+      %z = idr.constant !idr.nat #idr.big<0>
       idr.yield %z : !idr.nat
     }
-    default {
-      %z = idr.constant #idr.big<0> : !idr.nat
+    default(%d2: !idr.nat) {
+      %z = idr.constant !idr.nat #idr.big<0>
       idr.yield %z : !idr.nat
     }
     }
@@ -210,12 +210,14 @@ idr.program @identity root(@root) stage(first) {
   idr.func @flip(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
     %r = idr.match %t : !idr.box<!Term> -> (!idr.box<!Term>) {
     case @App(%f: !idr.box<!Term>, %a: !idr.box<!Term>) {
+      // expected-error @below {{@flip is still called}}
       %f2 = idr.call @flip(%f) : (!idr.box<!Term>) -> !idr.box<!Term>
+      // expected-error @below {{@flip is still called}}
       %a2 = idr.call @flip(%a) : (!idr.box<!Term>) -> !idr.box<!Term>
       %c = idr.con !idr.box<!Term> @App(%a2 : !idr.box<!Term>, %f2 : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
-    default {
+    default(%d2: !idr.box<!Term>) {
       idr.yield %t : !idr.box<!Term>
     }
     }
@@ -227,11 +229,12 @@ idr.program @identity root(@root) stage(first) {
   idr.func @leans(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
     %r = idr.match %t : !idr.box<!Term> -> (!idr.box<!Term>) {
     case @App(%f: !idr.box<!Term>, %a: !idr.box<!Term>) {
+      // expected-error @below {{@flip is still called}}
       %f2 = idr.call @flip(%f) : (!idr.box<!Term>) -> !idr.box<!Term>
       %c = idr.con !idr.box<!Term> @App(%f2 : !idr.box<!Term>, %a : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
-    default {
+    default(%d2: !idr.box<!Term>) {
       idr.yield %t : !idr.box<!Term>
     }
     }
@@ -248,11 +251,14 @@ idr.program @identity root(@root) stage(first) {
     %j = idr.call @weaken(%i) : (!idr.nat) -> !idr.nat
     %fl = idr.lin.enter %f : !idr.lin<!idr.box<!Forest>>
     %f2 = idr.call @same(%fl) : (!idr.lin<!idr.box<!Forest>>) -> !idr.box<!Forest>
+    // expected-error @below {{@loops is still called}}
     %f3 = idr.call @loops(%f) : (!idr.box<!Forest>) -> !idr.box<!Forest>
     %f4 = idr.call @crashes(%f) : (!idr.box<!Forest>) -> !idr.box<!Forest>
     %z = idr.call @zero(%i) : (!idr.nat) -> !idr.nat
+    // expected-error @below {{@flip is still called}}
     %s = idr.call @flip(%t) : (!idr.box<!Term>) -> !idr.box<!Term>
     %c = idr.call @carry(%k, %f) : (i64, !idr.box<!Forest>) -> !idr.box<!Forest>
+    // expected-error @below {{@drift is still called}}
     %r = idr.call @drift(%k, %f) : (i64, !idr.box<!Forest>) -> !idr.box<!Forest>
     %l = idr.call @leans(%t) : (!idr.box<!Term>) -> !idr.box<!Term>
     %g = idr.call @second(%f4, %f) : (!idr.box<!Forest>, !idr.box<!Forest>) -> !idr.box<!Forest>
@@ -262,11 +268,11 @@ idr.program @identity root(@root) stage(first) {
   idr.func @term(%k: i64) -> !idr.box<!Term> {
     %r = idr.match_lit %k : i64 -> (!idr.box<!Term>) {
     case 0 {
-      %z = idr.constant #idr.big<0> : !idr.nat
+      %z = idr.constant !idr.nat #idr.big<0>
       %v = idr.con !idr.box<!Term> @Var(%z : !idr.nat)
       idr.yield %v : !idr.box<!Term>
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %a = idr.call @term(%m) : (i64) -> !idr.box<!Term>
@@ -282,10 +288,10 @@ idr.program @identity root(@root) stage(first) {
       %v = idr.con !idr.box<!Forest> @Done()
       idr.yield %v : !idr.box<!Forest>
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
-      %z = idr.constant #idr.big<0> : !idr.nat
+      %z = idr.constant !idr.nat #idr.big<0>
       %l = idr.con !idr.box<!Tree> @Leaf(%z : !idr.nat)
       %rest = idr.call @forest(%m) : (i64) -> !idr.box<!Forest>
       %v = idr.con !idr.box<!Forest> @More(%l : !idr.box<!Tree>, %rest : !idr.box<!Forest>)
@@ -294,14 +300,20 @@ idr.program @identity root(@root) stage(first) {
     }
     return %r : !idr.box<!Forest>
   }
-  idr.func @root(%w: !idr.world) -> (!idr.world, !idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>) {
+  // Takes every result of @main, so that no call of it is dead; never
+  // inlined, and its world orders it, so it stays.
+  idr.func @observe(%w: !idr.world, %t1: !idr.box<!Term>, %t2: !idr.box<!Term>, %f1: !idr.box<!Forest>, %j: !idr.nat, %f2: !idr.box<!Forest>, %f3: !idr.box<!Forest>, %f4: !idr.box<!Forest>, %z: !idr.nat, %s: !idr.box<!Term>, %c: !idr.box<!Forest>, %r: !idr.box<!Forest>, %l: !idr.box<!Term>, %g: !idr.box<!Forest>) -> !idr.world attributes {total, no_inline} {
+    return %w : !idr.world
+  }
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %k = arith.extui %c : i32 to i64
     %t = idr.call @term(%k) : (i64) -> !idr.box<!Term>
     %f = idr.call @forest(%k) : (i64) -> !idr.box<!Forest>
-    %i = idr.constant #idr.big<2> : !idr.nat
-    %d = idr.constant #idr.big<1> : !idr.nat
+    %i = idr.constant !idr.nat #idr.big<2>
+    %d = idr.constant !idr.nat #idr.big<1>
     %r:13 = idr.call @main(%t, %f, %i, %d, %k) : (!idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.nat, i64) -> (!idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>)
-    return %w1, %r#0, %r#1, %r#2, %r#3, %r#4, %r#5, %r#6, %r#7, %r#8, %r#9, %r#10, %r#11, %r#12 : !idr.world, !idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>
+    %w2 = idr.call @observe(%w1, %r#0, %r#1, %r#2, %r#3, %r#4, %r#5, %r#6, %r#7, %r#8, %r#9, %r#10, %r#11, %r#12) : (!idr.world, !idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>) -> !idr.world
+    return %w2 : !idr.world
   }
 }

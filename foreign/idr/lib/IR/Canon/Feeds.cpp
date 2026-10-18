@@ -113,11 +113,12 @@ bool foldsWith(OpOperand &use, Attribute constant) {
 }
 
 // Whether some region of the match that defines `result` ends in a yield
-// whose value as that result satisfies `holds`.
+// whose value as that result satisfies `holds`. An empty default yields
+// nothing.
 template <typename Pred>
 bool someYield(OpResult result, Pred holds) {
   return llvm::any_of(result.getOwner()->getRegions(), [&](Region &region) {
-    auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
+    auto yield = region.empty() ? YieldOp() : dyn_cast<YieldOp>(region.front().getTerminator());
     return yield && holds(yield.getOperand(result.getResultNumber()));
   });
 }
@@ -133,7 +134,7 @@ bool yieldsFeeding(OpResult result, OpOperand &use) {
     if (feedsUse(value))
       return true;
     auto inner = dyn_cast<OpResult>(value);
-    return inner && isa<MatchOp, MatchLitOp>(inner.getOwner()) && someYield(inner, feedsUse);
+    return inner && isa<MatchOpInterface>(inner.getOwner()) && someYield(inner, feedsUse);
   });
 }
 
@@ -143,17 +144,18 @@ namespace idr::canon {
 
 // A call's result meets the elimination that raising moves into a clone of
 // the callee once the two meet. A string builder meets output that writes
-// it in pieces (writtenInPieces) and the first character, which reads the
-// string through the guard that it is not empty: the guard folds away on a
-// string built with a character or a number in it, and the head after it.
-// Output meets the empty string, which it does not write. Output of a list
-// meets a constant list, which it writes as its string; not a cell, though
-// it writes one a step at a time where it finds one: moved into the regions
-// of a match for a cell, it would follow a chain of choices, each consing
-// onto the list the one before built, into every region of each. A
-// constant, a constructor or a closure meets what reads it and a call it
-// is passed to as a function; a constant also meets what folds with it,
-// and a call it closes.
+// it in pieces and the first character it knows, which reads the string
+// through the guard that it is not empty: the guard folds away on a string
+// built with a character or a number in it, and the head after it; each is
+// what the builder says of itself (StrBuilderOpInterface). Output meets the
+// empty string, which it does not write. Output of a list meets a constant
+// list, which it writes as its string; not a cell, though it writes one a
+// step at a time where it finds one: moved into the regions of a match for
+// a cell, it would follow a chain of choices, each consing onto the list
+// the one before built, into every region of each. A constant, a
+// constructor or a closure meets what reads it and a call it is passed to
+// as a function; a constant also meets what folds with it, and a call it
+// closes.
 //
 // A suspension, built there or constant, meets a force when nothing else
 // uses it, as a closure meets its apply: the force is then the call. A
@@ -176,21 +178,16 @@ bool feeds(Value value, OpOperand &use) {
   // what reads the use sees through the pair.
   value = throughLinear(value);
   Operation *def = value.getDefiningOp();
-  // A closure holding a linear value has one use, which applies it or
-  // enters it into a linear type (its verifier's rule): moved to where the
-  // closure is made, such a use is not a profit but its place.
-  if (isa_and_nonnull<ClosureOp>(def) && holdsLinear(value) &&
-      (isa<ApplyOp>(use.getOwner()) || regrades(use)))
-    return true;
   OpOperand &read = reader(use);
   Operation *consumer = read.getOwner();
   Attribute constant;
   matchPattern(value, m_Constant(&constant));
+  auto builder = dyn_cast_or_null<StrBuilderOpInterface>(def);
   if (isa<PutStrOp>(consumer)) {
     auto text = dyn_cast_or_null<StringAttr>(constant);
-    return writtenInPieces(value) || (text && text.getValue().empty());
+    return (builder && builder.writesInPieces()) || (text && text.getValue().empty());
   }
-  if (isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def)) {
+  if (builder && builder.knowsFirstChar()) {
     if (auto guard = dyn_cast<CheckNonemptyOp>(consumer))
       return llvm::any_of(guard->getUsers(), llvm::IsaPred<StrHeadOp>);
     return isa<StrHeadOp>(consumer);
@@ -202,7 +199,7 @@ bool feeds(Value value, OpOperand &use) {
            (constant || isa_and_nonnull<SuspendOp>(def)) && value.hasOneUse();
   if (!constant && !isa_and_nonnull<ConOp, ClosureOp>(def))
     return false;
-  if (eliminationAt(use) || isa<MatchOp, MatchLitOp, FieldOp, TagOp>(consumer))
+  if (eliminationAt(use) || isa<MatchOpInterface, FieldOp, TagOp>(consumer))
     return true;
   if (isa<idr::CallOp>(consumer))
     return isClosureType(value.getType()) || (constant && closedWith(read));

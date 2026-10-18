@@ -29,17 +29,17 @@ rewriting = Pi M0 TypeOfTypes (Pi M0 Hole (Pi M0 Hole (Pi M0 Hole (Pi M0 equal (
 
 ||| `replace` and `rewrite__impl`, which `rewrite` elaborates to.
 identity : String -> Entry
-identity name = MkEntry (Def (MkQName ["Builtin"] name)) (Typed rewriting) IdentityOnLastArgument [IdentityHook]
+identity name = MkEntry (Def (MkQName ["Builtin"] name)) (Typed rewriting) IdentityOnLastArgument
 
 ||| A world operation of `PrimIO`, reachable only through the program root.
 rootOnly : String -> Shape -> Entry
-rootOnly name shape = MkEntry (Def (MkQName ["PrimIO"] name)) (Typed shape) (Forbidden WorldUse) [WorldUse]
+rootOnly name shape = MkEntry (Def (MkQName ["PrimIO"] name)) (Typed shape) (Forbidden WorldUse)
 
 ||| An escape hatch as the user can write it. Idris evaluates
 ||| `prim__believe_me` applied to a constructor while elaborating, so it can
 ||| vanish from TT; the source is scanned instead.
 spelling : String -> Entry
-spelling s = MkEntry (Spelling s) Written (Forbidden EscapeHatch) [EscapeHatch]
+spelling s = MkEntry (Spelling s) Written (Forbidden EscapeHatch)
 
 ------------------------------------------------------------------------------
 -- Naturals
@@ -63,17 +63,17 @@ intToBool = MkQName ["Prelude", "Basics"] "intToBool"
 ||| `Nat` instead of by their unary recursions (the Prelude's `natHack`), and
 ||| `Data.Nat`'s tests, which are `compareNat` in another form.
 natural : List String -> String -> Shape -> NatMeaning -> Entry
-natural ns name shape m = MkEntry (Def (MkQName ns name)) (Typed shape) (NatOperation m) [HookShape]
+natural ns name shape m = MkEntry (Def (MkQName ns name)) (Typed shape) (NatOperation m)
 
 ||| The functions on naturals.
 naturals : List Entry
 naturals =
-  [ natural types "natToInteger" (Pi Mw nat (Prim IntegerP)) (Primitive (Op NatToBig))
-  , natural types "integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op NatFromBig))
-  , natural types "prim__integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op NatFromBig))
-  , natural types "plus" (binary nat) (Primitive (Op BigAdd))
-  , natural types "mult" (binary nat) (Primitive (Op BigMul))
-  , natural types "minus" (binary nat) (Clamped (Op BigSub))
+  [ natural types "natToInteger" (Pi Mw nat (Prim IntegerP)) (Primitive (Op NatToBig BigT))
+  , natural types "integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op NatFromBig NatT))
+  , natural types "prim__integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op NatFromBig NatT))
+  , natural types "plus" (binary nat) (Primitive (Op BigAdd NatT))
+  , natural types "mult" (binary nat) (Primitive (Op BigMul NatT))
+  , natural types "minus" (binary nat) (Clamped (Op BigSub BigT))
   , natural types "equalNat" (binary bool) (Tested CmpPredicate.Eq intToBool)
   , natural types "compareNat" (binary (Head (Def (MkQName ["Prelude", "EqOrd"] "Ordering")) []))
             (OnIntegers (MkQName ["Prelude", "EqOrd"] "compareInteger"))
@@ -118,12 +118,12 @@ larrayCore = arrayCore ++ ["LArray"]
 ||| A function of the generating set, by its namespace and name: a bodiless
 ||| `%extern`, whose own type says what its calls take and give.
 generating : List String -> String -> ArrayPrim -> Entry
-generating ns name p = MkEntry (Def (MkQName ns name)) Bodiless (Generating p) [HookShape]
+generating ns name p = MkEntry (Def (MkQName ns name)) Bodiless (Generating p)
 
 ||| A function of the array language that is the identity on its array: a
 ||| bodiless `%extern` too, since only `Array.Core` sees how an array is held.
 identityOn : List String -> String -> Entry
-identityOn ns name = MkEntry (Def (MkQName ns name)) Bodiless IdentityOnLastArgument [IdentityHook]
+identityOn ns name = MkEntry (Def (MkQName ns name)) Bodiless IdentityOnLastArgument
 
 ||| The array language's two value types, whose shape type the entries pin;
 ||| its generating set and the operations of its linear arrays, whose calls
@@ -132,9 +132,9 @@ identityOn ns name = MkEntry (Def (MkQName ns name)) Bodiless IdentityOnLastArgu
 arrayLanguage : List Entry
 arrayLanguage =
   [ MkEntry (Def (MkQName arrayCore "Array")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
-            ArrayValueType [HookShape]
+            ArrayValueType
   , MkEntry (Def (MkQName arrayCore "LArray")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
-            ArrayValueType [HookShape]
+            ArrayValueType
   , generating arrayCore "shape" AShape
   , generating arrayCore "tabulate" ATabulate
   , generating arrayCore "!!" AIndex
@@ -159,34 +159,26 @@ arrayLanguage =
   , generating larrayCore "grow" AGrow
   , MkEntry (Def (MkQName ["Data", "Fin"] "natToFinLT"))
             (Typed (arg nat (implicits 2 (Head (Def (MkQName ["Data", "Fin"] "Fin")) [Hole]))))
-            IdentityOnLastArgument [IdentityHook] ]
+            IdentityOnLastArgument ]
 
 ------------------------------------------------------------------------------
--- What data plays and promises
+-- What data promises
 ------------------------------------------------------------------------------
 
 ||| Base's list, a sum whose nil and cons the string builders take apart:
-||| its kind and its constructors' parts are the registry's, never guessed
-||| from their shape.
+||| its kind is the registry's, never guessed from its shape; its nil and
+||| its cons are its constructors of no field and of two.
 baseList : List Entry
 baseList =
-  [ MkEntry (Def (MkQName ["Prelude", "Basics"] "List")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
-            (SumOf BaseList) [HookShape]
-  , MkEntry (Def (MkQName ["Prelude", "Basics"] "Nil")) (Typed (implicits 1 (list Hole))) (Plays CtorRole.ListNil) [HookShape]
-  , MkEntry (Def (MkQName ["Prelude", "Basics"] "::")) (Typed (implicits 1 (arg Hole (arg (list Hole) (list Hole)))))
-            (Plays CtorRole.ListCons) [HookShape] ]
-  where
-    list : Shape -> Shape
-    list a = Head (Def (MkQName ["Prelude", "Basics"] "List")) [a]
+  [ MkEntry (Def (MkQName ["Prelude", "Basics"] "List")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) ListType ]
 
 ||| The types of `mlir-linear` whose cells are rebuilt in place and held
 ||| exclusive: a promise of the library's types, which every program that
 ||| uses them is checked against, never a choice of the command line.
 inPlace : List Entry
 inPlace =
-  [ MkEntry (Def (MkQName ["Linear", "List"] "LList")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
-            (SumOf InPlace) [HookShape]
-  , MkEntry (Def (MkQName ["Linear", "Nat"] "LNat")) (Typed TypeOfTypes) (SumOf InPlace) [HookShape] ]
+  [ MkEntry (Def (MkQName ["Linear", "List"] "LList")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) InPlaceType
+  , MkEntry (Def (MkQName ["Linear", "Nat"] "LNat")) (Typed TypeOfTypes) InPlaceType ]
 
 ------------------------------------------------------------------------------
 -- Pointers and the exit
@@ -197,7 +189,7 @@ inPlace =
 ||| points to, so the cast is the identity on its one runtime argument.
 pointerCast : String -> Shape -> Entry
 pointerCast name shape =
-  MkEntry (Def (MkQName ["PrimIO"] name)) (Typed (Pi M0 TypeOfTypes shape)) IdentityOnLastArgument [IdentityHook]
+  MkEntry (Def (MkQName ["PrimIO"] name)) (Typed (Pi M0 TypeOfTypes shape)) IdentityOnLastArgument
 
 ||| `exitWith : HasIO io => ExitCode -> io a`, at its two erased types, its
 ||| `HasIO` and the status. Its body gives the action of `prim__exit` any
@@ -205,7 +197,7 @@ pointerCast name shape =
 exitWith : Entry
 exitWith = MkEntry (Def (MkQName ["System"] "exitWith"))
                    (Typed (Pi M0 Hole (Pi M0 Hole (Pi Mw Hole (Pi Mw exitCode Hole)))))
-                   (Exits Exit) [IOPrimitive]
+                   (Exits Exit)
   where
     exitCode : Shape
     exitCode = Head (Def (MkQName ["System"] "ExitCode")) []
@@ -219,7 +211,7 @@ exitWith = MkEntry (Def (MkQName ["System"] "exitWith"))
 ||| validation checks that the library still defines it.
 ruledOut : List String -> String -> Rule -> Entry
 ruledOut ns name rule =
-  MkEntry (Def (MkQName ns name)) (Typed Hole) (Forbidden rule) [rule]
+  MkEntry (Def (MkQName ns name)) (Typed Hole) (Forbidden rule)
 
 ||| Threads: `Prelude.IO`'s `fork` and `threadWait` and the primitives they
 ||| call, and all of `System.Concurrency`, whose every public function calls
@@ -303,4 +295,4 @@ recognized =
   -- corrupt length). The spelling above still rejects it in user source,
   -- and a user definition that reaches the function is rejected because
   -- the reach is not from a trusted definition.
-  , MkEntry (Def (MkQName ["Builtin"] "idris_crash")) (Typed Hole) LibraryCrash [] ]
+  , MkEntry (Def (MkQName ["Builtin"] "idris_crash")) (Typed Hole) LibraryCrash ]

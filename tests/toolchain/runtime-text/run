@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The runtime's integer text holds to its meaning in idris_rt.h, on every
+# The runtime's integer text holds to its meaning in the runtime, on every
 # case a property draws and every input of its box: show and put write
 # snprintf's decimal text and big_show GMP's, `cast` from String to an
 # integer reads what its grammar generates as its value and every other

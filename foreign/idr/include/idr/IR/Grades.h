@@ -15,14 +15,20 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
+#include <cstdint>
 #include <iterator>
 #include <optional>
+#include <variant>
 
 // A grade is a pair of two of the enums (IdrBase.td). The generated file has
 // no guard of its own, so this header is where the dialect includes it.
 #include "idr/IR/IdrEnums.h.inc"
 
 namespace idr {
+
+// A constructor's tag, defined with the dialect (IdrDialect.h): a value's
+// source below names one.
+enum class Tag : std::uint32_t;
 
 // A grade: the quantity is the number of uses Idris allows, one or many
 // (Quantity); the permission is what the value owns, plain (nothing to
@@ -43,17 +49,17 @@ inline llvm::hash_code hash_value(Grade grade) {
 // The grade of a type: its own for !idr.q, (many, plain) for a plain type.
 Grade gradeOf(mlir::Type type);
 
-// The type `value` at `grade`, in canonical form: `value` itself at
-// (many, plain), and never a grade of a graded type.
+// The type `value` at `grade`, in canonical form: never a grade of a
+// graded type, and `value` itself at (many, plain) or when `value` is used
+// exactly once by its type (isLinearByType), which takes no grade.
 mlir::Type graded(Grade grade, mlir::Type value);
 
-// The spellings: !idr.lin<T> and !idr.world.
+// The spelling !idr.lin<T>, and the world's type, !idr.world.
 mlir::Type linear(mlir::Type value);
 mlir::Type world(mlir::MLIRContext *ctx);
 
-// Whether a type is a linear value other than the world (one that entered
-// its grade and is used out of it), which its grade says; or the world,
-// which its carrier says, graded or stripped.
+// Whether a type is a linear value (one that entered its grade and is used
+// out of it), which its grade says; and whether it is the world.
 bool isLinear(mlir::Type type);
 bool isWorld(mlir::Type type);
 
@@ -83,8 +89,9 @@ mlir::Type exclusive(mlir::Type type);
 // many.
 Quantity times(Quantity a, Quantity b);
 
-// How often a value may be used, as its type says: exactly once
-// (!idr.lin<T> and the world), or any number of times.
+// How often a value may be used, as its type says: exactly once (by the
+// type alone, as the world, a destination and a cell are, or by a grade of
+// quantity one, as !idr.lin<T> is), or any number of times.
 Quantity quantityOf(mlir::Type type);
 
 // The type of the value itself: T for !idr.lin<T>, the type otherwise.
@@ -110,8 +117,29 @@ definitionChain(mlir::Value start, llvm::function_ref<std::optional<mlir::Value>
 // may take a linear part of it is the reader's to decide.
 mlir::Value throughLinear(mlir::Value value);
 
-// The array an access reads or writes: a view or a share of an owned array
-// is that array, and so is the array a linear position was entered with.
+// What a value is made of, structurally: the same value as another (the
+// result of an op that keeps its operand's value, its identity and its
+// exclusivity, Idr_SameValue; the scrutinee a match's default region binds
+// again), a field of a constructor value (an idr.field, a memo cell's
+// included; an argument of a match's case region), or made here (anything
+// else: an op's own result, a parameter, a region's argument). idr.share
+// keeps its operand's value but forgets its exclusivity, so its result is
+// made here: following it would prove a shared cell exclusive.
+struct Made {};
+struct Same {
+  mlir::Value value;
+};
+struct Field {
+  mlir::Value scrutinee;
+  Tag tag;
+  unsigned index;
+};
+using Source = std::variant<Made, Same, Field>;
+Source sourceOf(mlir::Value value);
+
+// The array an access reads or writes: a view of an owned array is that
+// array, and so is the array a linear position was entered with, each the
+// same value (sourceOf).
 mlir::Value arrayRoot(mlir::Value array);
 
 // Whether two accesses name the same element: the same array, seen through
@@ -126,24 +154,13 @@ bool sameElement(mlir::Value array, mlir::ValueRange indices, mlir::Value otherA
 // that index moves into its one read.
 bool fieldReadOnce(mlir::Value value, unsigned index);
 
-// A closure or a suspension that captures a linear value is used once, as
-// what it holds is: by the op that runs it where it is made (an apply of
-// the closure, a force of the suspension), or by entering a linear type,
-// whose one use the linearity check then follows. Any other use could run
-// it twice and use the capture twice. Whether `value` is such a closure or
-// suspension, and whether the uses of `value` are none or such a one. A
-// rewrite that would give one the uses of another value asks it of that
-// value.
-bool holdsLinear(mlir::Value value);
-bool takenOnce(mlir::Value value);
-
 // The type at which a region of a match binds a field of its scrutinee:
 // the field's value at the product of the scrutinee's quantity and the
 // field's, as Idris binds a pattern variable (a linear field of a value
 // used many times is used many times; a field of a linear value is used as
 // the field says). Once counting has graded the scrutinee, the field is a
-// view of it, as view() gives one. The world, which is only ever at its own
-// grade, stays the world.
+// view of it, as view() gives one. A field used once by its type takes no
+// grade (graded).
 mlir::Type fieldType(mlir::Type scrutinee, mlir::Type field);
 
 // `value` held as `type`, its own type at another quantity: entered into a
@@ -165,13 +182,14 @@ bool sameCarriers(Expected &&expected, Actual &&actual) {
   });
 }
 
-// What a value of `type` holds, as the type's ValueFactsTypeInterface
+// What a value of `type` holds, and whether the type alone makes every
+// value of it used exactly once, as the type's ValueFactsTypeInterface
 // answers (IdrInterfaces.td): every type of the dialect and every builtin
 // type a value may have answers it. A type of another dialect, which only
 // the lowering makes, is no value of the program and holds none of these.
 bool holdsReferences(mlir::Type type);
 bool holdsWorld(mlir::Type type);
-bool holdsClosure(mlir::Type type);
+bool isLinearByType(mlir::Type type);
 bool isCounted(mlir::Type type);
 bool isCellPointer(mlir::Type type);
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's bigs held to their meaning in idris_rt.h: each operation
+// The runtime's bigs held to their meaning (runtime/Big): each operation
 // against what GMP's arithmetic states it is (the integer, a defining
 // property, a bit-by-bit restatement, an exact comparison), laws between the
 // operations, each entry's small path against its large one, the edges

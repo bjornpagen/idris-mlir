@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: each constant written with its type first, idr.constant <type> <value>, folds and is read back as before.
 // RUN: idris-mlir-opt %s --canonicalize '--idr-expect=holds=returns=@folded:#idr.big<-4>/#idr.big<-4>/#idr.big<18446744073709551616>/#idr.big<0>/#idr.big<-1>/#idr.big<0>,returns=@too_large:_/_' -o /dev/null
 // idr.big.shl and idr.big.shr fold by calling the runtime: a left shift
 // multiplies by 2^amount, a right shift is the floor of the quotient, a
@@ -7,13 +8,13 @@
 
 idr.program @"big-shift" root(@root) stage(first) {
   idr.func @folded() -> (!idr.big, !idr.big, !idr.big, !idr.big, !idr.big, !idr.big) {
-    %m7 = idr.constant #idr.big<-7> : !idr.big
-    %one = idr.constant #idr.big<1> : !idr.big
-    %m1 = idr.constant #idr.big<-1> : !idr.big
-    %c0 = idr.constant #idr.big<0> : !idr.big
-    %c64 = idr.constant #idr.big<64> : !idr.big
-    %huge = idr.constant #idr.big<100000000000000000000> : !idr.big
-    %mhuge = idr.constant #idr.big<-100000000000000000000> : !idr.big
+    %m7 = idr.constant !idr.big #idr.big<-7>
+    %one = idr.constant !idr.big #idr.big<1>
+    %m1 = idr.constant !idr.big #idr.big<-1>
+    %c0 = idr.constant !idr.big #idr.big<0>
+    %c64 = idr.constant !idr.big #idr.big<64>
+    %huge = idr.constant !idr.big #idr.big<100000000000000000000>
+    %mhuge = idr.constant !idr.big #idr.big<-100000000000000000000>
     // -7 >> 1 is the floor of -3.5.
     %a = idr.big.shr %m7, %one
     // A negative amount shifts the other way.
@@ -28,10 +29,10 @@ idr.program @"big-shift" root(@root) stage(first) {
   }
 
   idr.func @too_large() -> (!idr.big, !idr.big) {
-    %one = idr.constant #idr.big<1> : !idr.big
+    %one = idr.constant !idr.big #idr.big<1>
     // One bit past 8 * 2^20.
-    %n = idr.constant #idr.big<8388609> : !idr.big
-    %mn = idr.constant #idr.big<-18446744073709551616> : !idr.big
+    %n = idr.constant !idr.big #idr.big<8388609>
+    %mn = idr.constant !idr.big #idr.big<-18446744073709551616>
     %a = idr.big.shl %one, %n
     // A right shift by a negative amount grows.
     %b = idr.big.shr %one, %mn

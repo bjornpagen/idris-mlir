@@ -5,7 +5,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@unknown -o /dev/null 2> %t.unknown.err
 // RUN: FileCheck %s --check-prefix=UNKNOWN < %t.unknown.err
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@reindex -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Record eta: a constructor rebuilt from the fields of a value of that
 // constructor, each read once, is the value. An IO fold returns the IORes

@@ -8,13 +8,13 @@
 // rule extends linearity, which counts uses on the worst path, to exact
 // counts: a walk follows the references every owned value holds along the
 // ops. This unit holds the walk's entry and its state: what a value is to
-// it, and the references in scope. What one op without regions does to
-// that state is OwnedOps.cpp; blocks and the ops with regions are
+// it (its role), and the references in scope. What one op without regions
+// does to that state is OwnedOps.cpp; blocks and the ops with regions are
 // OwnedRegions.cpp.
 //
 // The walk runs in idr.func's region verifier, on one of the verifier's
-// threads; what it asks of a type it reads from the type, once per
-// distinct type, and keeps the answer for this verify only.
+// threads; what it asks of a value it reads from the value's type and
+// definition, once per value, and keeps the answer for this verify only.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -22,10 +22,13 @@
 #include "idr/IR/Verify.h"
 #include "idr/Support/Worklist.h"
 
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <optional>
+#include <variant>
 
 using namespace mlir;
 using namespace idr;
@@ -44,10 +47,18 @@ idr::verify::OwnedWalk::OwnedWalk(FuncOp fn) : fn(fn) {}
 LogicalResult idr::verify::OwnedWalk::check() {
   Block &entry = fn.getBody().front();
   for (BlockArgument arg : entry.getArguments()) {
-    if (tracked(arg))
+    switch (roleOf(arg)) {
+    case Role::Owned:
       set(arg, 1);
-    else if (isView(arg))
+      break;
+    case Role::View:
       viewOf(arg, {});
+      break;
+    // A parameter is never Carried: only a result an op allocates is.
+    case Role::Carried:
+    case Role::Untracked:
+      break;
+    }
   }
   FailureOr<Reach> reached = walk(entry);
   if (failed(reached))
@@ -55,31 +66,60 @@ LogicalResult idr::verify::OwnedWalk::check() {
   if (*reached == Reach::Ends)
     return success();
   for (const Change &change : log)
-    if (!change.old && held.lookup(change.value) != 0)
+    if (!change.old && references(change.value) != 0)
       return fail(entry.back(), change.value, "returns while a value still holds a reference");
   return success();
 }
 
-bool idr::verify::OwnedWalk::counts(Type type) {
-  auto [it, fresh] = counted.try_emplace(type, false);
-  if (fresh)
-    it->second = holdsReferences(type);
-  return it->second;
+// A value's role, from its type and its definition alone, so that it is
+// the same wherever the walk meets the value. In this order:
+// - a value that carries no reference, as its flow edges move it
+//   (Carriers, the fact useOf reads: a cell carries its box's), or static
+//   data, which no count reaches, is Untracked;
+// - an owned grade holds a reference of its own, and so does a cell, which
+//   its type lets be used once and its init consumes: a cell is decided
+//   here, before the allocation its source declares;
+// - a result its op allocates carries the fresh reference, and so does
+//   idr.own.give's, which it hands to a store. An op that only changes a
+//   grade (ResultCarriesOperand) is the one kind whose allocation is no
+//   memory: lin.enter's and lin.use's keep two linear values from merging,
+//   and the result is the operand's value, its role as its type says;
+// - anything else is a view.
+idr::verify::Role idr::verify::OwnedWalk::roleOf(Value value) {
+  if (auto known = roles.find(value); known != roles.end())
+    return known->second;
+  Role role = [&] {
+    Type type = value.getType();
+    if (!Carriers::of(type).contains(Carrier::Reference) || ownership::isStatic(value))
+      return Role::Untracked;
+    if (isOwned(type) || isLinearByType(type))
+      return Role::Owned;
+    if (auto result = dyn_cast<OpResult>(value)) {
+      Operation *op = result.getOwner();
+      if (isa<OwnGiveOp>(op) || (!op->hasTrait<ResultCarriesOperand>() &&
+                                 hasEffect<MemoryEffects::Allocate>(op, value)))
+        return Role::Carried;
+    }
+    return Role::View;
+  }();
+  roles.try_emplace(value, role);
+  return role;
 }
 
-// Whether `value` holds a reference the walk follows: it is owned, and
-// not a value that stands for one without holding it (poison, a pending
-// field, a small big).
-bool idr::verify::OwnedWalk::tracked(Value value) {
-  return isOwned(value.getType()) && !ownership::isStatic(value);
+// The references an Owned or Carried value holds here: none once consumed,
+// or before it is made.
+int idr::verify::OwnedWalk::references(Value value) const {
+  auto it = slots.find(value);
+  if (it == slots.end())
+    return 0;
+  const auto *state = std::get_if<References>(&it->second);
+  return state ? state->count : 0;
 }
 
-bool idr::verify::OwnedWalk::carried(Value value) { return transit.contains(value); }
-
-// Whether `value` is a view: it holds references but not one of its own.
-bool idr::verify::OwnedWalk::isView(Value value) {
-  return counts(value.getType()) && !isOwned(value.getType()) && !ownership::isStatic(value) &&
-         !carried(value);
+// What a view was read from, once the walk has seen it made.
+const idr::verify::OwnedWalk::Viewing *idr::verify::OwnedWalk::viewing(Value value) const {
+  auto it = slots.find(value);
+  return it == slots.end() ? nullptr : std::get_if<Viewing>(&it->second);
 }
 
 // Whether `value` may be used here: every reference it holds or was read
@@ -89,44 +129,50 @@ bool idr::verify::OwnedWalk::alive(Value value) {
   OnceWorklist<Value> work;
   work.push(value);
   while (std::optional<Value> at = work.pop()) {
-    if (tracked(*at) || carried(*at)) {
-      if (held.lookup(*at) < 1)
+    switch (roleOf(*at)) {
+    case Role::Owned:
+    case Role::Carried:
+      if (references(*at) < 1)
         return false;
-      continue;
+      break;
+    case Role::View: {
+      const Viewing *view = viewing(*at);
+      if (!view)
+        return false;
+      for (Value owner : view->owners)
+        work.push(owner);
+      break;
     }
-    if (!isView(*at))
-      continue;
-    auto from = owners.find(*at);
-    if (from == owners.end())
-      return false;
-    for (Value owner : from->second)
-      work.push(owner);
+    case Role::Untracked:
+      break;
+    }
   }
   return true;
 }
 
-void idr::verify::OwnedWalk::set(Value value, int references) {
-  auto it = held.find(value);
-  log.push_back({value, it == held.end() ? std::nullopt : std::optional<int>(it->second)});
-  held[value] = references;
-}
-
-void idr::verify::OwnedWalk::carry(Value value) {
-  transit.insert(value);
-  set(value, 1);
+// Only an Owned or Carried value is set, and its slot is References from
+// its first set on: the log records whether it had one, for undo.
+void idr::verify::OwnedWalk::set(Value value, int count) {
+  auto [it, fresh] = slots.try_emplace(value, Slot(References{count}));
+  if (fresh) {
+    log.push_back({value, std::nullopt});
+    return;
+  }
+  log.push_back({value, std::get<References>(it->second)});
+  it->second = References{count};
 }
 
 void idr::verify::OwnedWalk::viewOf(Value value, ArrayRef<Value> from) {
-  owners[value].assign(from.begin(), from.end());
+  slots.insert_or_assign(value, Slot(Viewing{llvm::to_vector<1>(from)}));
 }
 
 // The changes since `mark`, undone last first.
 void idr::verify::OwnedWalk::undo(size_t mark) {
   for (const Change &change : llvm::reverse(ArrayRef<Change>(log).drop_front(mark))) {
     if (change.old)
-      held[change.value] = *change.old;
+      slots.insert_or_assign(change.value, Slot(*change.old));
     else
-      held.erase(change.value);
+      slots.erase(change.value);
   }
   log.truncate(mark);
 }
@@ -139,7 +185,7 @@ llvm::MapVector<Value, int> idr::verify::OwnedWalk::changesSince(size_t mark) {
   for (size_t i = mark; i < log.size(); ++i) {
     if (!seen.insert(log[i].value).second || !log[i].old)
       continue;
-    changes[log[i].value] = held.lookup(log[i].value);
+    changes[log[i].value] = references(log[i].value);
   }
   return changes;
 }
@@ -151,11 +197,11 @@ InFlightDiagnostic idr::verify::OwnedWalk::fail(Operation &op, Value value, cons
 }
 
 LogicalResult idr::verify::OwnedWalk::consume(Operation &op, Value value) {
-  int references = held.lookup(value);
-  if (references < 1)
+  int count = references(value);
+  if (count < 1)
     return fail(op, value, "consumes a reference that the value does not hold here: it was "
                            "consumed before on this path");
-  set(value, references - 1);
+  set(value, count - 1);
   return success();
 }
 
@@ -165,10 +211,12 @@ LogicalResult idr::verify::OwnedWalk::use(Operation &op, Value value) {
   return success();
 }
 
-// Every value `block` defines holds no reference at its end.
+// Every value `block` defines holds no reference at its end: an Owned or
+// Carried value is the one kind whose state counts references, and a cell
+// is Owned, so one never filled is refused here.
 LogicalResult idr::verify::OwnedWalk::settled(Block &block, Operation &at) {
   auto check = [&](Value value) -> LogicalResult {
-    if ((tracked(value) || carried(value)) && held.lookup(value) != 0)
+    if (references(value) != 0)
       return fail(at, value, "ends a path on which a value still holds a reference");
     return success();
   };

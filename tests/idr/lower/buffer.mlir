@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the runtime's copy takes each buffer as its cell alone (driver-runtime-T2), and a word's address is upstream's strided address over the buffer's descriptor (mlir-15); the calls are as before.
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,signature=@load:(!llvm.ptr,i64,i64)->i16,signature=@store:(!llvm.ptr,i64,i64,i16)->(),crash-sites=@load:1,crash-sites=@store:1,crash-sites=@copy:2' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@load:[@idris_rt_crash],calls-only=@store:[@idris_rt_crash],call-order=@copy:[@idris_rt_crash,@idris_rt_crash,@idris_rt_io_buffer_copy],calls-only=@copy:[@idris_rt_crash,@idris_rt_io_buffer_copy]' -o /dev/null
@@ -6,9 +7,9 @@
 // the offset crashes unless the word's bytes lie in the buffer, and the
 // access then tests nothing and asks the runtime for nothing but that
 // crash. A copy is the runtime's, after the guards of both of its ranges,
-// and the runtime is given each buffer as its cell, its first byte and its
-// size, so no address in a buffer is asked of it: the arguments of the
-// runtime's copy are its C interface.
+// and the runtime is given each buffer as its cell, which holds its size
+// and its bytes, so no address in a buffer is asked of it: the arguments
+// of the runtime's copy are its C interface.
 idr.program @buffer root(@root) stage(owned) {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 8 : i64

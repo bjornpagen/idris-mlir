@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the recycled cell's size rule reported at its idr.cell.recycle (L03's Program.cpp), the cell ops, and every match's default binding its scrutinee
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // The owned stage's rule: every reference is consumed exactly once on every
@@ -111,7 +112,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
       idr.drop %s : !idr.own<!idr.str>
       idr.yield %z : i64
     }
-    default {
+    default(%d0: i1) {
       idr.yield %z : i64
     }
     }
@@ -164,7 +165,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // -----
 
-// A reuse builds in a cell of its own size.
+// A recycled cell is one of its own size.
 !L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>), @One(i64)]>
 idr.program @verify root(@Prog.main) stage(owned) {
   idr.func @swap(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
@@ -173,11 +174,12 @@ idr.program @verify root(@Prog.main) stage(owned) {
     case @C(%h: i64, %t: !idr.q<many, borrow, !idr.box<!L>>) {
       %w:3 = idr.take %l : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
       // expected-error @+1 {{builds a cell of 16 bytes in the 24-byte cell of @C}}
-      %o = idr.reuse %w#0 !idr.own<!idr.box<!L>> @One(%w#1 : i64)
+      %c = idr.cell.recycle %w#0 : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @One>
+      %o = idr.cell.init %c : !idr.cell<!idr.box<!L>, @One> (%w#1 : i64)
       idr.drop %w#2 : !idr.own<!idr.box<!L>>
       idr.yield %o : !idr.own<!idr.box<!L>>
     }
-    default {
+    default(%d1: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.yield %l : !idr.own<!idr.box<!L>>
     }
     }
@@ -204,7 +206,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
       idr.drop %t2 : !idr.own<!idr.box<!L>>
       idr.yield %h2 : i64
     }
-    default {
+    default(%d2: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.drop %l : !idr.own<!idr.box<!L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64
@@ -232,7 +234,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
       // expected-error @+1 {{ends a path on which a value still holds a reference}}
       idr.yield %h2 : i64
     }
-    default {
+    default(%d3: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.drop %l : !idr.own<!idr.box<!L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64
@@ -276,13 +278,13 @@ idr.program @verify root(@Prog.main) stage(owned) {
 !P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>
 idr.program @verify root(@Prog.main) stage(owned) {
   idr.func @empty() -> !idr.excl<!P> {
-    %c = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @N, []>, #idr.con<!L, @N, []>]> : !P
+    %c = idr.constant !P #idr.con<!P, @MkPair, [#idr.con<!L, @N, []>, #idr.con<!L, @N, []>]>
     %p = idr.dup %c : !idr.q<many, borrow, !P> -> !idr.excl<!P>
     return %p : !idr.excl<!P>
   }
   idr.func @one() -> !idr.excl<!P> {
     // expected-note @+1 {{the value is defined here}}
-    %c = idr.constant #idr.con<!P, @MkPair, [#idr.con<!L, @C, [1 : i64, #idr.con<!L, @N, []>]>, #idr.con<!L, @N, []>]> : !P
+    %c = idr.constant !P #idr.con<!P, @MkPair, [#idr.con<!L, @C, [1 : i64, #idr.con<!L, @N, []>]>, #idr.con<!L, @N, []>]>
     // expected-error @+1 {{takes an exclusive reference to a value that reaches cells other than atoms, which it shares}}
     %p = idr.dup %c : !idr.q<many, borrow, !P> -> !idr.excl<!P>
     return %p : !idr.excl<!P>

@@ -6,6 +6,7 @@
 // hold.
 #include "idr/Analysis/Identities.h"
 
+#include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Worklist.h"
@@ -22,7 +23,7 @@ namespace idr::identities {
 
 SmallVector<unsigned, 1> candidates(FuncOp fn) {
   SmallVector<unsigned, 1> found;
-  if (fn.getNumResults() != 1 || fn.getProgram().getStage() >= Stage::Owned)
+  if (fn.getNumResults() != 1 || stageFacts(fn.getProgram().getStage()).counted())
     return found;
   ArrayRef<Type> arguments = fn.getArgumentTypes();
   Type result = fn.getResultTypes().front();
@@ -34,8 +35,7 @@ SmallVector<unsigned, 1> candidates(FuncOp fn) {
   return found;
 }
 
-SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Outside outside,
-                                                 const CalleeEffects &effects) {
+SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Outside outside) {
   Members members;
   for (FuncOp fn : component)
     members[fn.getSymNameAttr()] = fn;
@@ -57,7 +57,7 @@ SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Out
       StringAttr callee = call.getCalleeAttr().getAttr();
       if (members.contains(callee) || assumed.contains(callee))
         return;
-      if (std::optional<unsigned> given = outside(callee).givesBack)
+      if (std::optional<unsigned> given = outside(callee))
         assumed[callee] = {*given};
     });
 
@@ -75,8 +75,7 @@ SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Out
     FuncOp fn = component[at];
     Walked &each = walked.emplace_back();
     each.name = fn.getSymNameAttr();
-    each.record =
-        Record::walk(fn, assumed.find(each.name)->second, members, outside, effects);
+    each.record = Record::walk(fn, assumed.find(each.name)->second);
     fn.walk([&](CallOp call) {
       StringAttr callee = call.getCalleeAttr().getAttr();
       if (members.contains(callee))

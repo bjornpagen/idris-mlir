@@ -20,7 +20,8 @@ namespace idr::expect {
 // The users are counted as idr-contify counts them, by upstream's map of
 // symbol users. The root is called by no function of the program, so it
 // is no continuation.
-LogicalResult contified(ModuleOp module, AnalysisManager &, StringRef) {
+LogicalResult contified(const Request<Nothing> &request) {
+  ModuleOp module = request.module;
   SymbolTableCollection tables;
   SymbolUserMap users(tables, programOf(module));
   bool held = true;
@@ -35,7 +36,7 @@ LogicalResult contified(ModuleOp module, AnalysisManager &, StringRef) {
     if (llvm::none_of(users.getUsers(caller),
                       [&](Operation *user) { return user->getParentOfType<FuncOp>() == fn; }))
       continue;
-    fail(call.getLoc(), "contified") << where(fn) << " is called once, from " << where(call)
+    fail(call.getLoc(), request.property) << where(fn) << " is called once, from " << where(call)
                                       << ", and is still a function";
     held = false;
   }

@@ -1,8 +1,8 @@
-// NEEDS-ACCEPTANCE: that skipping every idr-stack-cell action leaves the module as idr-stack received it, and that idr-stack changes it otherwise.
-// RUN: idris-mlir-opt %s -o %t.none.mlir
-// RUN: idris-mlir-opt %s --idr-stack --mlir-disable-threading -mlir-debug-counter=idr-stack-cell-count=0 -o %t.skipped.mlir
+// NEEDS-ACCEPTANCE: that skipping every idr-stack-cell action leaves the module as idr-rc-stack received it from idr-rc-cells, and that idr-rc-stack changes it otherwise.
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-rc-cells)))' -o %t.none.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-rc-cells),idr-rc-stack))' --mlir-disable-threading -mlir-debug-counter=idr-stack-cell-count=0 -o %t.skipped.mlir
 // RUN: diff %t.none.mlir %t.skipped.mlir
-// RUN: idris-mlir-opt %s --idr-stack -o %t.done.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-rc-cells),idr-rc-stack))' -o %t.done.mlir
 // RUN: not diff %t.none.mlir %t.done.mlir
 !Big = !idr.data<"Big", plain [@Big(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
 !Huge = !idr.data<"Huge", plain [@Huge(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
@@ -51,7 +51,7 @@ idr.program @budget root(@Prog.main) stage(first) {
     case 0 {
       idr.yield %a : i64
     }
-    default {
+    default(%d0: i64) {
       %x0 = idr.call @head(%c0) : (!idr.box<!List>) -> i64
       %x1 = idr.call @head(%c1) : (!idr.box<!List>) -> i64
       %x2 = idr.call @head(%c2) : (!idr.box<!List>) -> i64
@@ -71,7 +71,7 @@ idr.program @budget root(@Prog.main) stage(first) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       idr.yield %h : i64
     }
-    default {
+    default(%d1: !idr.box<!List>) {
       %zero = arith.constant 0 : i64
       idr.yield %zero : i64
     }

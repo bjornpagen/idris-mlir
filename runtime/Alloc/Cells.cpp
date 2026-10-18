@@ -16,6 +16,7 @@
 // global configuration is HeapConfig below, which places the heap.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "Platform/Address.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 
@@ -134,6 +135,10 @@ using Config = rt::alloc::HeapConfig;
 
 static_assert(snmalloc::DefaultPal::address_bits <= rt::alloc::heapAddressBits,
               "every heap address fits the bits the dying list keeps");
+// The target's user space lies within what snmalloc's platform layer
+// addresses, so a stack address is bounded as a heap address is.
+static_assert(rt::platform::userAddressBits <= snmalloc::DefaultPal::address_bits,
+              "snmalloc's platform covers the target's user address space");
 // snmalloc decommits and zeroes by its own page, which must be the target
 // entry's (rt::platform checks that one against the system's at startup):
 // POSIX platforms take it from SNMALLOC_PAGESIZE, which the build sets to
@@ -156,8 +161,8 @@ thread_local uint64_t liveCells = 0;
 namespace rt::alloc {
 
 void outOfMemory() {
-  static constexpr char message[] = "idris runtime: out of memory\n";
-  idris_rt_crash(message, sizeof message - 1);
+  static constexpr char cause[] = "out of memory";
+  idris_rt_crash(cause, sizeof cause - 1);
 }
 
 [[gnu::always_inline]] void *allocate(size_t size) {
@@ -193,8 +198,18 @@ void release(void *block) { snmalloc::dealloc(block); }
 
 } // namespace rt::alloc
 
+// A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,
+// with the matching info, anything else the runtime frees): its header is
+// count 1 and `info`, and it counts as a live cell. Exhausted memory ends
+// the process with a crash. The size is a constant at every call idr-lower
+// makes, so once the runtime's bitcode is inlined, snmalloc's size class
+// folds to a constant and the allocation is a free-list pop.
 extern "C" [[gnu::always_inline]] void *idris_rt_cell(size_t size, uint32_t info) {
   return rt::alloc::newCell(size, info);
 }
 
+// The heap cells the runtime allocated (idris_rt_cell, strings and bignums)
+// and has not freed yet, counted by the calling thread: a program is
+// single-threaded, and idris-mlir reads it before and after each fold, on
+// the thread that folds, with no atomic operation on the allocation path.
 extern "C" uint64_t idris_rt_live_cells(void) { return liveCells; }

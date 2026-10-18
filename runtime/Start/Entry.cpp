@@ -4,6 +4,7 @@
 // arguments, its stack, and its exit status. rt::io reads the program's
 // arguments from here, so rt::start does not use rt::io.
 // PIN(runtime-quarantine) — see PINS.md
+#include "Platform/Address.h"
 #include "Platform/Platform.h"
 #include "Start/Start.h"
 #include "Strings/Strings.h"
@@ -24,12 +25,16 @@ char **argumentText = nullptr;
 // A program's stack: the number of bytes IDRIS_RT_STACK says, when it is
 // set; else a gibibyte, which lets a non-tail recursion go tens of millions
 // deep, or the process's stack limit (ulimit -s) when that is larger, up to
-// 2^44 bytes: a quarter of the address space Darwin grants a process, so
-// that the heap keeps the rest. An unlimited limit, larger than any, is
-// that ceiling, and one the system cannot report, 0, raises nothing.
+// an eighth of the user address space, so that the heap keeps the rest:
+// 2^44 bytes on both target entries. An unlimited limit, larger than any, is
+// that ceiling, and one the system cannot report, 0, raises nothing. The
+// eighth is debt: it keeps the 2^44 bytes the ceiling had, taken for a
+// quarter of the address space Darwin grants a process, where the SDK's
+// MACH_VM_MAX_ADDRESS puts Darwin's user space at 2^47, so the share has no
+// derivation of its own.
 size_t programStack() {
   constexpr size_t gibibyte = size_t{1} << 30;
-  constexpr size_t ceiling = size_t{1} << 44;
+  constexpr size_t ceiling = size_t{1} << (rt::platform::userAddressBits - 3);
   if (const char *text = rt::platform::environment("IDRIS_RT_STACK")) {
     size_t bytes = 0;
     bool valid = *text != '\0';
@@ -39,9 +44,8 @@ size_t programStack() {
       bytes = bytes * 10 + digit;
     }
     if (!valid || bytes == 0) {
-      static constexpr char message[] =
-          "idris-mlir: IDRIS_RT_STACK is not a number of bytes above 0\n";
-      idris_rt_crash(message, sizeof message - 1);
+      static constexpr char cause[] = "IDRIS_RT_STACK is not a number of bytes above 0";
+      idris_rt_crash(cause, sizeof cause - 1);
     }
     return bytes;
   }
@@ -69,13 +73,19 @@ void runProgram(void *argument) {
   uint64_t missing = required & ~rt::platform::cpuFeatures();
   if (missing == 0)
     return;
-  static constexpr char prefix[] = "idris-mlir: this processor lacks";
-  static constexpr char suffix[] = ", which the program was compiled to use\n";
-  rt::platform::writeAll(2, prefix, sizeof prefix - 1);
+  static constexpr char lacks[] = "this processor lacks";
+  static constexpr char bitText[] = " bit ";
+  static constexpr char suffix[] = ", which the program was compiled to use";
+  // The cause's pieces: its first and its last, and between them one for
+  // each feature missing and two for each bit no feature names, at most two
+  // for each of the requirement's 64 bits.
+  rt::platform::Piece cause[2 + 2 * 64];
+  char digits[64][rt::strings::intTextMax];
+  size_t pieces = 0;
+  cause[pieces++] = {lacks, sizeof lacks - 1};
 #define IDRIS_RT_CPU_NAME(bit, test, name)                                                       \
-  if ((missing >> (bit) & 1) != 0) {                                                             \
-    rt::platform::writeAll(2, " " name, sizeof(name));                                           \
-  }
+  if ((missing >> (bit) & 1) != 0)                                                               \
+    cause[pieces++] = {" " name, sizeof(name)};
   IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_NAME)
 #undef IDRIS_RT_CPU_NAME
   // The requirement is the program's word, which may hold a bit the
@@ -85,24 +95,22 @@ void runProgram(void *argument) {
   constexpr uint64_t named = 0 IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_BIT);
 #undef IDRIS_RT_CPU_BIT
   for (uint64_t unnamed = missing & ~named; unnamed != 0; unnamed &= unnamed - 1) {
-    static constexpr char bitText[] = " bit ";
-    char digits[rt::strings::intTextMax];
-    char *end = digits + sizeof digits;
-    char *start = rt::strings::formatUnsigned(static_cast<uint64_t>(__builtin_ctzll(unnamed)), end);
-    rt::platform::writeAll(2, bitText, sizeof bitText - 1);
-    rt::platform::writeAll(2, start, static_cast<size_t>(end - start));
+    auto bit = static_cast<unsigned>(__builtin_ctzll(unnamed));
+    char *end = digits[bit] + sizeof digits[bit];
+    char *start = rt::strings::formatUnsigned(bit, end);
+    cause[pieces++] = {bitText, sizeof bitText - 1};
+    cause[pieces++] = {start, static_cast<size_t>(end - start)};
   }
-  rt::platform::writeAll(2, suffix, sizeof suffix - 1);
+  cause[pieces++] = {suffix, sizeof suffix - 1};
+  rt::platform::writeCrash(cause, pieces);
   rt::platform::exitProcess(IDRIS_RT_CRASHED);
 }
 
-// What the program's runner does when its stack runs out: what a crash does,
-// from the fault handler, where writing and exiting are safe.
+// What the program's runner does when its stack runs out: a crash, from the
+// fault handler, where its flush, write and exit are safe.
 [[noreturn]] void programExhausted() {
-  static constexpr char message[] = "idris-mlir: stack exhausted\n";
-  idris_rt_flush();
-  rt::platform::writeAll(2, message, sizeof message - 1);
-  rt::platform::exitProcess(IDRIS_RT_CRASHED);
+  static constexpr char cause[] = "stack exhausted";
+  idris_rt_crash(cause, sizeof cause - 1);
 }
 
 } // namespace
@@ -112,22 +120,22 @@ namespace rt::start {
 void checkStatus(int64_t status, Ending ending) {
   if (status >= 0 && status <= 255)
     return;
-  static constexpr char mainReturned[] = "idris-mlir: main returned ";
-  static constexpr char exited[] = "idris-mlir: exit with ";
-  static_assert(sizeof exited <= sizeof mainReturned, "the message has room for either");
-  static constexpr char suffix[] = ", which is not an exit status (0 to 255)\n";
-  char message[sizeof mainReturned - 1 + rt::strings::intTextMax + sizeof suffix - 1];
+  static constexpr char mainReturned[] = "main returned ";
+  static constexpr char exited[] = "exit with ";
+  static_assert(sizeof exited <= sizeof mainReturned, "the cause has room for either");
+  static constexpr char suffix[] = ", which is not an exit status (0 to 255)";
+  char cause[sizeof mainReturned - 1 + rt::strings::intTextMax + sizeof suffix - 1];
   char number[rt::strings::intTextMax];
   char *digits = rt::strings::formatSigned(status, number + sizeof number);
   size_t n = 0;
   for (const char *c = ending == Ending::mainReturned ? mainReturned : exited; *c != '\0'; ++c)
-    message[n++] = *c;
+    cause[n++] = *c;
   for (char *d = digits; d != number + sizeof number; ++d)
-    message[n++] = *d;
+    cause[n++] = *d;
   for (char c : suffix)
     if (c != '\0')
-      message[n++] = c;
-  idris_rt_crash(message, n);
+      cause[n++] = c;
+  idris_rt_crash(cause, n);
 }
 
 int64_t argumentCount() { return argumentTotal; }
@@ -139,10 +147,26 @@ const idris_rt_str *argument(int64_t i) {
 
 } // namespace rt::start
 
-extern "C" [[gnu::noinline, clang::annotate("idris-rt-baseline")]] int
+// The program's entry, which @main calls with the program, the
+// IDRIS_RT_CPU_FEATURES bits its target enables (cpu_features.h), and its
+// own argc and argv, which the runtime keeps for idris_rt_io_arg_count and
+// idris_rt_io_arg. First, when the system's page size is not the target's
+// the runtime is built for, it names both and ends the process with
+// IDRIS_RT_CRASHED: before the processor test and before any reservation, a
+// runtime built for another page size must not run at all. When the
+// processor lacks one of the features, it names them, a bit no feature names
+// by its number, and ends the process with IDRIS_RT_CRASHED before the
+// program runs; it is compiled for the target's baseline, and idris-mlir
+// keeps it there. Otherwise it points GMP at the runtime's allocator
+// (idris_rt_gmp_init) and runs body on a reserved stack
+// (idris_rt_run_on_stack) of programStack's bytes; when that stack runs out,
+// the output written so far is flushed and the process ends as a crash whose
+// cause is "stack exhausted".
+// What body returns is the exit status: it returns a status from 0 to 255,
+// and ends the process as a crash that names any other value, which no
+// parent could tell from its low 8 bits.
+extern "C" [[gnu::noinline]] IDRIS_RT_BASELINE int
 idris_rt_start(int64_t (*body)(void), uint64_t cpu, int argc, char **argv) {
-  // Before the processor test and before any reservation: a runtime built
-  // for another page size than this system's must not run at all.
   rt::platform::checkPageSize();
   checkCpu(cpu);
   argumentTotal = argc;
@@ -151,8 +175,8 @@ idris_rt_start(int64_t (*body)(void), uint64_t cpu, int argc, char **argv) {
   Program program{body, 0};
   if (idris_rt_run_on_stack(runProgram, &program, programStack(), size_t{1} << 20,
                             programExhausted) != 0) {
-    static constexpr char message[] = "idris-mlir: no stack could be reserved for the program\n";
-    idris_rt_crash(message, sizeof message - 1);
+    static constexpr char cause[] = "no stack could be reserved for the program";
+    idris_rt_crash(cause, sizeof cause - 1);
   }
   rt::start::checkStatus(program.status, rt::start::Ending::mainReturned);
   return static_cast<int>(program.status);

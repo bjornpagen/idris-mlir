@@ -5,9 +5,10 @@
 ||| version 6, the pinned reader's current one; each data type written once,
 ||| its body in the module's table of data types, attribute entry 0, and
 ||| every other occurrence of it naming its member there; each type and
-||| attribute that can hold a data type an entry of its dialect's bytecode
-||| encoding (IdrisMLIR.Encoding.*), which refers to what it holds by
-||| entry, and every other entry its text, the bytecode's own fallback;
+||| attribute that can hold a data type, each location and each string an
+||| entry of its dialect's bytecode encoding (IdrisMLIR.Encoding.*), which
+||| refers to what it holds by entry, and every other entry its text, the
+||| bytecode's own fallback;
 ||| every op name recorded as registered, as it is where the file is read;
 ||| every op's inherent attributes in its one attribute dictionary, with its
 ||| discardable ones. Creating an op moves each inherent attribute into its
@@ -30,6 +31,8 @@ module IdrisMLIR.MLIR.Bytecode
 
 import IdrisMLIR.Encoding.Builtin
 import IdrisMLIR.Encoding.Idr
+import IdrisMLIR.Ids
+import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Parts
 
@@ -236,27 +239,21 @@ Ord Payload where
 Entry : Type
 Entry = (Nat, Payload)
 
-||| What an attribute's entry is found by: what the entry holds; or a string
-||| attribute's string, or a symbol reference's names, whose text is the
-||| entry's, made once, the first time it is numbered. Only a string
-||| attribute's text is a quoted string and only a symbol reference's starts
-||| with `@`, and each text spells exactly one of them, so a key finds the
-||| entry its text would.
-data AttrKey = Holding Entry | StringKey String | SymbolKey String (List String)
+||| What an attribute's entry is found by: what the entry holds; or a symbol
+||| reference's names, whose text is the entry's, made once, the first time
+||| it is numbered. Only a symbol reference's text starts with `@`, so a
+||| key finds the entry its text would.
+data AttrKey = Holding Entry | SymbolKey String (List String)
 
 Eq AttrKey where
   Holding a == Holding b = a == b
-  StringKey a == StringKey b = a == b
   SymbolKey a as == SymbolKey b bs = a == b && as == bs
   _ == _ = False
 
 Ord AttrKey where
   compare (Holding a) (Holding b) = compare a b
-  compare (Holding _) _ = LT
-  compare _ (Holding _) = GT
-  compare (StringKey a) (StringKey b) = compare a b
-  compare (StringKey _) (SymbolKey _ _) = LT
-  compare (SymbolKey _ _) (StringKey _) = GT
+  compare (Holding _) (SymbolKey _ _) = LT
+  compare (SymbolKey _ _) (Holding _) = GT
   compare (SymbolKey a as) (SymbolKey b bs) = compare (a, as) (b, bs)
 
 ||| The strings, dialects (by their name's string), op names (by dialect
@@ -316,30 +313,30 @@ encoded w (p :: ps) = (++) <$> partBytes w p <*> encoded w ps
 joined : List (List a) -> List a
 joined = foldr (++) []
 
-||| A dialect whose types and attributes the handoff encodes natively: its
-||| name, and the code a field of the table starts with that is one of its
+||| A dialect whose types and attributes the handoff encodes natively.
+data Dialect = IdrDialect | BuiltinDialect
+
+||| A dialect's name.
+dialectName : Dialect -> String
+dialectName IdrDialect = "idr"
+dialectName BuiltinDialect = "builtin"
+
+||| The code a field of the table starts with that is one of a dialect's
 ||| type records written in place.
-record Dialect where
-  constructor MkDialect
-  name : String
-  fieldCode : Nat
-
-idrDialect : Dialect
-idrDialect = MkDialect "idr" 2
-
-builtinDialect : Dialect
-builtinDialect = MkDialect "builtin" 3
+inPlaceCode : Dialect -> Nat
+inPlaceCode IdrDialect = fieldIdrCode
+inPlaceCode BuiltinDialect = fieldBuiltinCode
 
 ||| The type entry of `d` that `parts` encode.
 typeEntry : Writer -> Dialect -> List Part -> W TypeRef
 typeEntry w d parts = do
-  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w d.name <*> encoded w parts
+  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w (dialectName d) <*> encoded w parts
   MkTypeRef <$> number w.typeTable e (pure e)
 
 ||| The attribute entry of `d` that `parts` encode.
 attrEntry : Writer -> Dialect -> List Part -> W AttrRef
 attrEntry w d parts = do
-  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w d.name <*> encoded w parts
+  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w (dialectName d) <*> encoded w parts
   MkAttrRef <$> number w.attrTable (Holding e) (pure e)
 
 ||| An attribute's entry as its text, of its dialect.
@@ -352,20 +349,63 @@ typeTextEntry w t = do
   e <- (\n => (n, Textual (typeText t))) <$> dialectNumber w (typeDialect t)
   MkTypeRef <$> number w.typeTable e (pure e)
 
-||| An attribute's entry as its text: a string's and a symbol reference's
-||| found by their value, so that their text is made once.
+||| An attribute's entry as its text: a symbol reference's found by its
+||| names, so that its text is made once.
 attrTextEntry : Writer -> MlirAttr -> W AttrRef
-attrTextEntry w a@(StringAttr s) = MkAttrRef <$> number w.attrTable (StringKey s) (textual w a)
 attrTextEntry w a@(SymbolRefAttr r) = MkAttrRef <$> number w.attrTable (SymbolKey r.root r.nested) (textual w a)
 attrTextEntry w a = do
   e <- textual w a
   MkAttrRef <$> number w.attrTable (Holding e) (pure e)
 
-||| A location is a builtin attribute, written as its text.
+||| A string attribute's entry, builtin's record.
+stringAttrNumber : Writer -> String -> W AttrRef
+stringAttrNumber w s = attrEntry w BuiltinDialect (encodeStringAttr s)
+
+||| A span of a file, builtin's records: one point (`FileLineColLoc`), or a
+||| range (`FileLineColRange`), whose numbers upstream writes by hand
+||| (`writeFileLineColRangeLocs`): their count, then the start line and
+||| column and the end column, on one line, or the end line and column,
+||| across lines; 1-based, as MLIR's text is.
+spanNumber : Writer -> String -> Span -> W AttrRef
+spanNumber w file s = do
+  f <- stringAttrNumber w file
+  let sl = number1 s.startLine
+      sc = number1 s.startCol
+      el = number1 s.endLine
+      ec = number1 s.endCol
+  attrEntry w BuiltinDialect $
+    if sl == el && sc == ec then encodeFileLineColLoc f sl sc
+    else if sl == el then [VarInt fileLineColRangeCode, AttrAt f, VarInt 3, VarInt sl, VarInt sc, VarInt ec]
+    else [VarInt fileLineColRangeCode, AttrAt f, VarInt 4, VarInt sl, VarInt sc, VarInt el, VarInt ec]
+  where
+    -- A 0-based line or column as MLIR numbers it, from 1.
+    number1 : Int -> Nat
+    number1 n = cast (n + 1)
+
+||| Where code is, as a location of builtin's records: a span of a file; or,
+||| in no file, `UnknownLoc`, since a location names a file.
+placeNumber : Writer -> Located -> W AttrRef
+placeNumber w (InModule _ (Just file) s) = spanNumber w file s
+placeNumber w (InPackage file s) = spanNumber w file s
+placeNumber w (InModule _ Nothing _) = attrEntry w BuiltinDialect encodeUnknownLoc
+placeNumber w Unlocated = attrEntry w BuiltinDialect encodeUnknownLoc
+
+||| A location of code from a library whose diagnostics are reported at the
+||| user's caller (the registry's *Report at caller* column) fused with the
+||| metadata `"library"`; any other as it is.
+library : Writer -> Loc -> AttrRef -> W AttrRef
+library w l inner =
+  if inLibrary l
+    then attrEntry w BuiltinDialect (encodeFusedLocWithMetadata [inner] !(stringAttrNumber w "library"))
+    else pure inner
+
+||| A location, builtin's records: a span, or a name at one (`NameLoc`).
 locationNumber : Writer -> Location -> W AttrRef
-locationNumber w at = do
-  e <- (\n => (n, Textual (location at))) <$> dialectNumber w builtinDialect.name
-  MkAttrRef <$> number w.attrTable (Holding e) (pure e)
+locationNumber w (At l) = library w l !(placeNumber w l.located)
+locationNumber w (Named n l) = do
+  name <- stringAttrNumber w (show n)
+  child <- placeNumber w l.located
+  library w l !(attrEntry w BuiltinDialect (encodeNameLoc name child))
 
 ------------------------------------------------------------------------------
 -- Types and attributes
@@ -411,30 +451,30 @@ mutual
   ||| The one switch over the kinds of type: how `t` is written in `place`.
   native : Writer -> Place -> MlirType -> W Native
   native w pl (Idr (DataType name) _) = Member <$> member w name
-  native w pl (Idr (QType q p v) _) = recordOf idrDialect (encodeQType q p) <$> held w pl v
-  native w pl (Idr (FnType sig) _) = recordOf idrDialect encodeFnType <$> heldSignature w pl sig
-  native w pl (Idr (LazyType v) _) = recordOf idrDialect encodeLazyType <$> held w pl v
-  native w pl (Idr (BoxType v) _) = recordOf idrDialect encodeBoxType <$> held w pl v
-  native w pl (Idr (DestType v) _) = recordOf idrDialect encodeDestType <$> held w pl v
-  native w pl (FunctionType sig) = recordOf builtinDialect id <$> functionType w pl sig
+  native w pl (Idr (QType q p v) _) = recordOf IdrDialect (encodeQType q p) <$> held w pl v
+  native w pl (Idr (FnType sig) _) = recordOf IdrDialect encodeFnType <$> heldSignature w pl sig
+  native w pl (Idr (LazyType v) _) = recordOf IdrDialect encodeLazyType <$> held w pl v
+  native w pl (Idr (BoxType v) _) = recordOf IdrDialect encodeBoxType <$> held w pl v
+  native w pl (Idr (DestType v) _) = recordOf IdrDialect encodeDestType <$> held w pl v
+  native w pl (FunctionType sig) = recordOf BuiltinDialect id <$> functionType w pl sig
   native w pl (RankedTensorType ds e) =
-    recordOf builtinDialect (encodeRankedTensorType (map extent ds)) <$> held w pl e
+    recordOf BuiltinDialect (encodeRankedTensorType (map extent ds)) <$> held w pl e
   -- Upstream has a record for a memref in the default memory space and one
   -- for a memref in another; each names its identity layout.
   native w pl (MemRefType ds e Nothing) = do
     layout <- attrTextEntry w (IdentityMap (length ds))
-    recordOf builtinDialect (\x => encodeMemRefType (map extent ds) x layout) <$> held w pl e
+    recordOf BuiltinDialect (\x => encodeMemRefType (map extent ds) x layout) <$> held w pl e
   native w pl (MemRefType ds e (Just space)) = do
     s <- attrNumber w space
     layout <- attrTextEntry w (IdentityMap (length ds))
-    recordOf builtinDialect (\x => encodeMemRefTypeWithMemSpace s (map extent ds) x layout) <$> held w pl e
+    recordOf BuiltinDialect (\x => encodeMemRefTypeWithMemSpace s (map extent ds) x layout) <$> held w pl e
   native w pl _ = pure AsText
 
   ||| A type's entry. A data type's names the table and its member.
   export
   typeNumber : Writer -> MlirType -> W TypeRef
   typeNumber w t = case !(native w InEntry t) of
-    Member k => typeEntry w idrDialect (encodeDataType tableRef k)
+    Member k => typeEntry w IdrDialect (encodeDataType tableRef k)
     Record d parts _ => typeEntry w d parts
     AsText => typeTextEntry w t
 
@@ -443,9 +483,9 @@ mutual
   ||| record in place, of its dialect's code; any other is its entry.
   field : Writer -> MlirType -> W (List Part, Bool)
   field w t = case !(native w InTable t) of
-    Member k => pure ([VarInt 1, VarInt k], True)
-    Record d parts True => pure (VarInt d.fieldCode :: parts, True)
-    _ => (\r => ([VarInt 0, TypeAt r], False)) <$> typeNumber w t
+    Member k => pure ([VarInt fieldMemberCode, VarInt k], True)
+    Record d parts True => pure (VarInt (inPlaceCode d) :: parts, True)
+    _ => (\r => ([VarInt fieldEntryCode, TypeAt r], False)) <$> typeNumber w t
 
   ||| A type a record holds, written as `place` says.
   held : Writer -> Place -> MlirType -> W (List Part, Bool)
@@ -465,7 +505,7 @@ mutual
 
   ||| A builtin function type's entry, from its signature.
   functionEntry : Writer -> Signature MlirType -> W TypeRef
-  functionEntry w sig = typeEntry w builtinDialect (fst !(functionType w InEntry sig))
+  functionEntry w sig = typeEntry w BuiltinDialect (fst !(functionType w InEntry sig))
 
   ||| The builtin function type a closure's record holds, written as `held`
   ||| writes a type. The generated `FnType` holds its signature, not that
@@ -475,21 +515,22 @@ mutual
   heldSignature w InEntry sig = (\r => ([TypeAt r], False)) <$> functionEntry w sig
   heldSignature w InTable sig = do
     (parts, below) <- functionType w InTable sig
-    if below then pure (VarInt builtinDialect.fieldCode :: parts, True)
-      else (\r => ([VarInt 0, TypeAt r], False)) <$> functionEntry w sig
+    if below then pure (VarInt (inPlaceCode BuiltinDialect) :: parts, True)
+      else (\r => ([VarInt fieldEntryCode, TypeAt r], False)) <$> functionEntry w sig
 
   ||| An attribute's entry: an array, a dictionary and a type, which can
   ||| hold a data type, are builtin's records; every other is its text.
   attrNumber : Writer -> MlirAttr -> W AttrRef
   attrNumber w (ArrayAttr as) = do
     rs <- attrNumbers w as
-    attrEntry w builtinDialect (encodeArrayAttr rs)
+    attrEntry w BuiltinDialect (encodeArrayAttr rs)
   attrNumber w (DictionaryAttr es) = do
     rs <- namedNumbers w es
-    attrEntry w builtinDialect (encodeDictionaryAttr rs)
+    attrEntry w BuiltinDialect (encodeDictionaryAttr rs)
   attrNumber w (TypeAttr t) = do
     r <- typeNumber w t
-    attrEntry w builtinDialect (encodeTypeAttr [TypeAt r])
+    attrEntry w BuiltinDialect (encodeTypeAttr [TypeAt r])
+  attrNumber w (StringAttr s) = stringAttrNumber w s
   attrNumber w a = attrTextEntry w a
 
   attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)
@@ -501,7 +542,7 @@ mutual
   namedNumbers : Writer -> List (String, MlirAttr) -> W (List (AttrRef, AttrRef))
   namedNumbers w [] = pure []
   namedNumbers w ((name, a) :: es) =
-    (\n, v, rest => (n, v) :: rest) <$> attrTextEntry w (StringAttr name) <*> attrNumber w a <*> namedNumbers w es
+    (\n, v, rest => (n, v) :: rest) <$> stringAttrNumber w name <*> attrNumber w a <*> namedNumbers w es
 
 ------------------------------------------------------------------------------
 -- The table of data types
@@ -518,22 +559,18 @@ membersOf = go 0 SortedMap.empty
       Just _ => throwE ("two data types are named " ++ name)
       Nothing => go (S k) (insert name k m) rest
 
-||| A constructor of a body: its name, its role, whether every force runs
-||| it, the function a label names, and its fields.
+||| A constructor of a body, its table record: its name, its role, and its
+||| fields.
 ctorParts : Writer -> IdrCtor MlirType -> W (List Part)
-ctorParts w c = do
-  fn <- traverse (\f => attrNumber w (SymbolRefAttr (MkSymbolRef f []))) c.fn
-  fields <- traverse (\t => fst <$> field w t) c.fields
-  pure ([Str c.name, VarInt (ctorRoleValue c.role), Flag c.byName, OptionalAttrAt fn, VarInt (length fields)]
-        ++ joined fields)
+ctorParts w c = encodeTableCtor c.name c.role <$> traverse (\t => fst <$> field w t) c.fields
 
-||| A body: its kind of sum, its constructors in tag order, and the Idris
-||| instance it is of.
+||| A body, its table record: its kind of sum, its constructors in tag
+||| order, and the Idris instance it is of.
 bodyParts : Writer -> IdrSum MlirType -> W (List Part)
 bodyParts w s = do
   ctors <- traverse (ctorParts w) s.ctors
   inst <- traverse (\(origin, args) => attrNumber w (idr (InstanceAttr origin (map StringAttr args)))) s.instanceOf
-  pure ([VarInt (sumKindValue s.kind), VarInt (length ctors)] ++ joined ctors ++ [OptionalAttrAt inst])
+  pure (encodeTableBody s.kind ctors inst)
 
 ||| A writer of a module whose data types are `datas`, in order, each its
 ||| name and body: the table, attribute entry 0, written first, its fields
@@ -549,7 +586,7 @@ newWriter datas = runEitherT $ do
   -- what they hold, and put first once they are written.
   writeIORef w.attrTable.count 1
   bodies <- traverse (bodyParts w . snd) datas
-  idr <- dialectNumber w idrDialect.name
+  idr <- dialectNumber w (dialectName IdrDialect)
   table <- encoded w ([VarInt dataTableCode, VarInt (length datas)] ++ map (Str . fst) datas ++ joined bodies)
   modifyIORef w.attrTable.entries ([< (idr, Encoded table)] ++)
   pure w
@@ -563,17 +600,17 @@ newWriter datas = runEitherT $ do
 Scope : Type
 Scope = SortedMap String Nat
 
-||| The values a region defines directly: its block's arguments, then its
-||| ops' results in order.
-definedIn : Region -> Nat
-definedIn r = length r.arguments + sum (map (\s => length s.op.results) r.statements)
+||| The values a block defines directly: its arguments, then its ops'
+||| results in order.
+definedIn : List Argument -> List Statement -> Nat
+definedIn arguments statements = length arguments + sum (map (\s => length s.op.results) statements)
 
-||| The scope inside a region whose values start at `base`.
-bindRegion : Scope -> Nat -> Region -> Scope
-bindRegion scope base r =
-  let args = map (.value.name) r.arguments
+||| The scope inside a block whose values start at `base`.
+bindRegion : Scope -> Nat -> List Argument -> List Statement -> Scope
+bindRegion scope base arguments statements =
+  let args = map (.value.name) arguments
       withArgs = foldl (\m, (n, i) => insert n i m) scope (zip args [base .. base + length args])
-  in bindStatements withArgs (base + length args) r.statements
+  in bindStatements withArgs (base + length args) statements
   where
     bindStatements : Scope -> Nat -> List Statement -> Scope
     bindStatements m next [] = m
@@ -637,11 +674,12 @@ mutual
     encodeRegion w out scope base r
     encodeRegions w out scope base rs
 
-  ||| A region of one block, its values from `base`.
+  ||| A region: of no blocks, or of one block, its values from `base`.
   encodeRegion : Writer -> Bytes -> Scope -> Nat -> Region -> W ()
-  encodeRegion w out scope base r@(MkRegion arguments statements) = do
-    let n = definedIn r
-        inner = bindRegion scope base r
+  encodeRegion w out scope base NoBlocks = varint out 0
+  encodeRegion w out scope base (MkRegion arguments statements) = do
+    let n = definedIn arguments statements
+        inner = bindRegion scope base arguments statements
     varint out 1
     varint out n
     varintFlag out (length statements) (not (null arguments))

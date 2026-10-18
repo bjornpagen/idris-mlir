@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Bytes as a string, held to the Unicode Standard (idris_rt.h:
+// Bytes as a string, held to the Unicode Standard (the runtime's
 // idris_rt_str_from_bytes, idris_rt_str_from_utf8, idris_rt_utf8_count).
 // The model (utf8model.h) is first checked against the Standard's own
 // example, then judges the runtime: random byte strings, every string of
@@ -285,7 +285,7 @@ bool standardsExample() {
 }
 
 // One owned result: a new string (count 1, one more live cell) or, with
-// no byte, the persistent empty one (count 0, no cell), as idris_rt.h's
+// no byte, the persistent empty one (count 0, no cell), as the runtime's
 // from_bytes and from_utf8 say; released, the live cells are as they were.
 template <typename Make> bool oneOwnedResult(const char *operation, Make make) {
   uint64_t before = idris_rt_live_cells();

@@ -361,9 +361,10 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
 
 
 -- The delayed elaborator of a case block. It is a function of its own,
--- given the cell of delayed elaborators, rather than the body of a lambda
--- in checkCase: a local definition is applied to everything its parent
--- binds, so one used in the lambda would capture checkCase's cell.
+-- given the cell of delayed elaborators and the expected type, rather than
+-- the body of a lambda in checkCase: a local definition is applied to
+-- everything its parent binds, so one used in the lambda would capture
+-- checkCase's cell, and the lambda holds no glued type (see delayElab).
 checkCaseDelayed : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
                    {auto m : Ref MD Metadata} ->
@@ -464,5 +465,5 @@ checkCase : {vars : _} ->
             Maybe (Glued vars) ->
             Core (Term vars, Glued vars)
 checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
-    = delayElab fc rig env exp CaseBlock $ \dl =>
-        checkCaseDelayed {dl} rig elabinfo nest env fc opts scr scrty_in alts exp
+    = delayElab fc rig env exp CaseBlock $ \dl, exp' =>
+        checkCaseDelayed {dl} rig elabinfo nest env fc opts scr scrty_in alts exp'

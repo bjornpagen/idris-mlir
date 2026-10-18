@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The patches this repository carries on the pinned upstreams, in one
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2026 Bjorn Pagen
 # place: sourced, with $root set to the repository and host.sh's sha256,
 # by tools/bootstrap.sh, which applies them and records them in the inputs
 # and stamps of the steps they change, and by tools/verify-pins.sh, which

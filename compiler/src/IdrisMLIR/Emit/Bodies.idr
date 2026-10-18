@@ -22,6 +22,7 @@ import IdrisMLIR.Types
 import Control.Monad.State
 import Data.Fin
 import Data.List
+import Data.List1
 import Data.Maybe
 import Data.SnocList
 import Data.SortedMap
@@ -31,51 +32,52 @@ import Data.Vect
 
 %default total
 
-||| What the fold makes of a term in scope `nv`: given the values of its
-||| variables and the type its context expects, if known, it appends the
-||| term's operations and returns its value, or `Nothing` when the term
-||| never returns (its region then ends in `ub.unreachable`).
+||| What the fold makes of a term in scope `nv`: given what its variables
+||| stand for and what its context wants (the type it expects, if known,
+||| and the variable it binds the value to, if any), it appends the term's
+||| operations and returns its value, or `Nothing` when the term never
+||| returns (its region then ends in `ub.unreachable`).
 public export
 Em : Nat -> Type
-Em nv = (Fin nv -> Val) -> Maybe Ty -> E (Maybe Val)
+Em nv = (Fin nv -> InScope) -> Wanted -> E (Maybe Val)
 
-||| The values of a binder's variables, over those outside.
-bind : {k : Nat} -> Vect k Val -> (Fin nv -> Val) -> Fin (Under k nv) -> Val
+||| What a binder's variables stand for, over those outside.
+bind : {k : Nat} -> Vect k InScope -> (Fin nv -> InScope) -> Fin (Under k nv) -> InScope
 bind vs env v = case splitUnder {k} v of
   Left i => index i vs
   Right x => env x
 
 mutual
   ||| The most times one run of a term uses the variable `v`: along a path
-  ||| the uses add, across a match's alternatives the most of any counts, a
-  ||| match uses its scrutinee once (its regions name what stands for it),
-  ||| and a use in a region that runs once per index counts as many.
+  ||| the uses add, across a match's arms the most of any counts, a match
+  ||| uses its scrutinee once (its regions name what stands for it), and a
+  ||| use in a region that runs once per index counts as many.
   export
   mostUses : Fin n -> Term n -> Nat
   mostUses v (Var _ x) = if v == x then 1 else 0
   mostUses v (Literal _ _) = 0
-  mostUses v (PrimApp _ _ _ as) = allUses v as
+  mostUses v (PrimApp _ _ _ as) = vectUses v as
   mostUses v (Effect _ _ _ as _) = allUses v as
   mostUses v (Call _ _ _ as) = allUses v as
-  mostUses v (ConApp _ _ as) = allUses v as
+  mostUses v (ConApp _ _ as) = vectUses v as
   mostUses v (Let _ _ _ x b) = mostUses v x + mostUses (FS v) b
-  mostUses v (Case _ x alts d) = if v == x then 1 else max (altUses v alts) (defaultUses v d)
-  mostUses v (CaseLit _ x alts d) = if v == x then 1 else max (litUses v alts) (mostUses v d)
-  mostUses v (CaseNat _ x z _ s) = (if v == x then 1 else 0) + max (mostUses v z) (mostUses (FS v) s)
+  mostUses v (Case _ x arms) = if v == x then 1 else armsUses v arms
+  mostUses v (CaseLit _ x arms) = if v == x then 1 else litArmsUses v arms
+  mostUses v (CaseNat _ x arms) = (if v == x then 1 else 0) + natArmsUses v arms
   mostUses v (Lam _ _ _ body) = mostUses (FS v) body
   mostUses v (App _ f x) = mostUses v f + mostUses v x
   mostUses v (Suspend _ body) = mostUses v body
   mostUses v (Resume _ e) = mostUses v e
   mostUses v (Unreachable _) = 0
   mostUses v (Crash _ _) = 0
+  mostUses v (CrashWith _ m) = mostUses v m
   mostUses v (NewWorld _) = 0
-  mostUses v (SystemOs _) = 0
-  mostUses v (Tensor _ _ _ as) = allUses v as
+  mostUses v (Tensor _ _ op) = opUses v op
   mostUses v (Tabulate {k} _ _ es body) = vectUses v es + many (mostUses (Free {k} v) body)
   mostUses v (TabulateIO {k} _ _ es w body _ _) =
     vectUses v es + mostUses v w + many (mostUses (Free {k = S k} v) body)
   mostUses v (Reduce _ _ _ _ _ z x body) = mostUses v z + mostUses v x + many (mostUses (Free {k = 2} v) body)
-  mostUses v (Tie _ x ds) = mostUses v x + dimUses v ds
+  mostUses v (Tie _ x ds) = mostUses v x + statedUses v ds
 
   allUses : Fin n -> List (Term n) -> Nat
   allUses v [] = 0
@@ -85,21 +87,45 @@ mutual
   vectUses v [] = 0
   vectUses v (t :: ts) = mostUses v t + vectUses v ts
 
-  defaultUses : Fin n -> Maybe (Term n) -> Nat
-  defaultUses v Nothing = 0
-  defaultUses v (Just t) = mostUses v t
+  opUses : Fin n -> TensorOp (Term n) -> Nat
+  opUses v (Extent _ x) = mostUses v x
+  opUses v (Extract x cs) = mostUses v x + allUses v cs
+  opUses v (Insert x e cs) = mostUses v x + mostUses v e + allUses v cs
+  opUses v (Take _ k x) = mostUses v k + mostUses v x
+  opUses v (Drop _ k x) = mostUses v k + mostUses v x
+  opUses v (Concat _ x y) = mostUses v x + mostUses v y
+  opUses v (Transpose _ x) = mostUses v x
+  opUses v (Reshape x es) = mostUses v x + allUses v es
+  opUses v (Pad _ lo hi e x) = mostUses v lo + mostUses v hi + mostUses v e + mostUses v x
 
-  dimUses : Fin n -> List (Maybe (Term n)) -> Nat
-  dimUses v [] = 0
-  dimUses v (d :: ds) = defaultUses v d + dimUses v ds
+  statedUses : Fin n -> List (Nat, Stated (Term n)) -> Nat
+  statedUses v [] = 0
+  statedUses v ((_, SameAs t) :: ds) = mostUses v t + statedUses v ds
+  statedUses v ((_, Natural t) :: ds) = mostUses v t + statedUses v ds
+
+  altUse : Fin n -> Alt n -> Nat
+  altUse v (MkAlt {k} _ _ body) = mostUses (Free {k} v) body
 
   altUses : Fin n -> List (Alt n) -> Nat
   altUses v [] = 0
-  altUses v (MkAlt {k} _ _ body :: alts) = max (mostUses (Free {k} v) body) (altUses v alts)
+  altUses v (alt :: alts) = max (altUse v alt) (altUses v alts)
+
+  armsUses : Fin n -> CaseArms n -> Nat
+  armsUses v (Defaulted alts d) = max (altUses v alts) (mostUses v d)
+  armsUses v (Exhaustive (alt ::: alts)) = max (altUse v alt) (altUses v alts)
 
   litUses : Fin n -> List (Lit, Term n) -> Nat
   litUses v [] = 0
   litUses v ((_, t) :: alts) = max (mostUses v t) (litUses v alts)
+
+  litArmsUses : Fin n -> LitArms n -> Nat
+  litArmsUses v (LitDefault alts d) = max (litUses v alts) (mostUses v d)
+  litArmsUses v (LitNoDefault ((_, t) ::: alts)) = max (mostUses v t) (litUses v alts)
+
+  natArmsUses : Fin n -> NatArms n -> Nat
+  natArmsUses v (OnlyZero z) = mostUses v z
+  natArmsUses v (OnlySucc _ s) = mostUses (FS v) s
+  natArmsUses v (Both z _ s) = max (mostUses v z) (mostUses (FS v) s)
 
   many : Nat -> Nat
   many Z = Z
@@ -120,55 +146,76 @@ export
 holdFor : Index -> Loc -> Lazy Nat -> Val -> E Val
 holdFor ix l uses v = coerce ix l (heldAs v.use uses) v
 
-||| Operands, left to right, each checked against the type its position
-||| expects and held as it binds them; `Nothing` once one never returns.
-operands : Index -> Loc -> (Fin nv -> Val) -> List (Sub Em nv) -> List Binder -> E (Maybe (List Val))
-operands ix l env [] _ = pure (Just [])
-operands ix l env (a :: as) slots = do
-  Just v <- a.result env (typeOf <$> head' slots)
+||| What a layer's operands give, left to right: the next is written only
+||| when the one before it returns, so that nothing follows a value that
+||| never does (its region has ended in `ub.unreachable`).
+record Operands a where
+  constructor MkOperands
+  written : E (Maybe a)
+
+Functor Operands where
+  map f (MkOperands x) = MkOperands (map (map f) x)
+
+Applicative Operands where
+  pure x = MkOperands (pure (Just x))
+  MkOperands f <*> MkOperands x = MkOperands $ do
+    Just g <- f
+      | Nothing => pure Nothing
+    map g <$> x
+
+||| A subterm's value where a slot takes it: checked against the type the
+||| slot expects, if it says one, and held as the slot binds it, plainly
+||| where it says nothing; bound to no variable.
+operand1 : Index -> Loc -> (Fin nv -> InScope) -> Maybe Binder -> Sub Em nv -> Operands Val
+operand1 ix l env slot a = MkOperands $ do
+  Just v <- a.result env (expecting (typeOf <$> slot))
     | Nothing => pure Nothing
-  v' <- coerce ix l (maybe Many (\b => b.quantity) (head' slots)) !(fit ix l (typeOf <$> head' slots) v)
-  map (map (v' ::)) (operands ix l env as (drop 1 slots))
+  Just <$> coerce ix l (maybe Many (.quantity) slot) !(fit ix l (typeOf <$> slot) v)
+
+||| A layer's operands, each in its slot, left to right; `Nothing` once one
+||| never returns.
+operands : Traversable t => Index -> Loc -> (Fin nv -> InScope) -> t (Maybe Binder, Sub Em nv) -> E (Maybe (t Val))
+operands ix l env xs = (traverse (\(slot, a) => operand1 ix l env slot a) xs).written
+
+||| Operands that no slot types: each at its own type, held plainly.
+unslotted : Functor t => t (Sub Em nv) -> t (Maybe Binder, Sub Em nv)
+unslotted = map (\a => (Nothing, a))
 
 ||| A value as a region or a function returns it: as itself, never linear.
 export
 plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
 plain ix l act = act >>= traverse (coerce ix l Many)
 
+||| What a match renames a variable's value by: an SSA value's name, or the
+||| key of a constructor taken apart.
+keyOf : InScope -> String
+keyOf (Whole v) = v.name
+keyOf (Taken _ _ k) = k
+
 mutual
-  ||| `v`, with every value named as `before` is, itself or a field of it,
-  ||| replaced by `after`.
-  renamed : (before, after : Val) -> Val -> Val
-  renamed before after (MkVal n t u r) =
-    if n == before.name then after else MkVal n t u (renamedIn before after r)
+  ||| `s`, with what is keyed `before`, itself or a field of it, replaced by
+  ||| `after`.
+  renamed : (before : String) -> (after : InScope) -> InScope -> InScope
+  renamed before after (Whole v) = if v.name == before then after else Whole v
+  renamed before after (Taken c fs k) = if k == before then after else Taken c (renamedAll before after fs) k
 
-  renamedIn : (before, after : Val) -> Parts -> Parts
-  renamedIn before after Whole = Whole
-  renamedIn before after (Taken c fs) = Taken c (renamedAll before after fs)
-
-  renamedAll : (before, after : Val) -> List Val -> List Val
+  renamedAll : (before : String) -> (after : InScope) -> Vect k InScope -> Vect k InScope
   renamedAll before after [] = []
   renamedAll before after (v :: vs) = renamed before after v :: renamedAll before after vs
 
 ||| The scope of a match's regions. A match takes a linear scrutinee apart,
 ||| so inside the regions every variable that named it (a catch-all's, or an
 ||| outer clause's after a nested match) names what stands for it there:
-||| the value the default region gets back, or the constructor rebuilt from
-||| the fields a case bound. SSA names are unique within a function, so the
-||| name says which variables those are; the fields of a rebuilt
+||| the value the default region binds, or the constructor rebuilt from the
+||| fields a case bound. SSA names and keys are unique within a function,
+||| so the key says which variables those are; the fields of a rebuilt
 ||| constructor are renamed the same way, as an inner match takes them
 ||| apart in turn.
-matched : Val -> Val -> (b -> Val) -> b -> Val
-matched before after env y = renamed before after (env y)
-
-||| Is a term a branch Idris proved impossible? It is left out.
-excluded : Sub Em nv -> Bool
-excluded s = case s.term of
-  Unreachable _ => True
-  _ => False
+matched : InScope -> InScope -> (b -> InScope) -> b -> InScope
+matched before after env y = renamed (keyOf before) after (env y)
 
 ||| An arm of a match: the arguments of its region, its operations, and its
-||| value, which it yields. A match's op takes its arms' keys apart.
+||| value, which it yields.
 record Arm where
   constructor MkArm
   arguments : List Argument
@@ -179,28 +226,46 @@ record Arm where
 ||| returns has ended in `ub.unreachable` already.
 yielding : Index -> Loc -> Maybe Val -> E (List Statement)
 yielding ix l Nothing = pure []
-yielding ix l (Just v) = pure [MkStatement Nothing (Idr.yieldOp [!(operand ix v)]) (At l)]
+yielding ix l (Just v) = pure [MkStatement Nothing (Idr.yieldOp [operand v]) (At l)]
 
-||| A match, from its arms, with the builder of its op over its regions and
-||| results: results when an arm yields, and none, followed by
-||| `ub.unreachable`, when no arm returns. The arms join at the type the
-||| context expects, else the first arm's; an arm's array of another
-||| static shape is cast to it.
-match : Index -> Loc -> Maybe Ty -> (List MLIR.Region -> List MlirType -> Op) -> List Arm -> E (Maybe Val)
-match ix l expected build arms =
-  case expected <|> map (.type) (head' (mapMaybe (.result) arms)) of
-    Just t => if all (\a => isNothing a.result) arms then never else do
-      regions <- traverse (close t) arms
-      Just <$> value ix l t (\r => build regions [r])
+||| A match, from its arms, with the builder of its op over its default
+||| region, its case regions and its results: results when an arm yields,
+||| and none, followed by `ub.unreachable`, when no arm returns. The default
+||| region is empty when the cases are exhaustive. The arms join at the type
+||| the context expects, else the first case's, else the default's; an
+||| arm's array of another static shape is cast to it.
+match : Index -> Loc -> Wanted -> (MLIR.Region -> List MLIR.Region -> List MlirType -> Op)
+     -> CaseArmsOf Arm Arm -> E (Maybe Val)
+match ix l w build arms =
+  case w.type <|> map (.type) (head' (mapMaybe (.result) cases) <|> fallback) of
+    Just t => if all (\a => isNothing a.result) cases && isNothing fallback then never else do
+      cs <- traverse (close t) cases
+      d <- case arms of
+        Defaulted _ d => close t d
+        Exhaustive _ => pure NoBlocks
+      Just <$> value {binder = w.binder} ix l t (\r => build d cs [r])
     Nothing => never
   where
+    cases : List Arm
+    cases = case arms of
+      Defaulted cs _ => cs
+      Exhaustive cs => forget cs
+    fallback : Maybe Val
+    fallback = case arms of
+      Defaulted _ d => d.result
+      Exhaustive _ => Nothing
+    unclosed : Arm -> MLIR.Region
+    unclosed a = MkRegion a.arguments a.statements
     close : Ty -> Arm -> E MLIR.Region
     close t a = do
       (v, cast) <- collect (traverse (fit ix l (Just t)) a.result)
       pure (MkRegion a.arguments (a.statements ++ cast ++ !(yielding ix l v)))
     never : E (Maybe Val)
     never = do
-      statement l (build (map (\a => MkRegion a.arguments a.statements) arms) [])
+      let d = case arms of
+                Defaulted _ d => unclosed d
+                Exhaustive _ => NoBlocks
+      statement l (build d (map unclosed cases) [])
       statement l UB.unreachableOp
       pure Nothing
 
@@ -229,25 +294,19 @@ inFunction act = do
 ||| returns ends.
 export
 epilogue : Index -> Loc -> Maybe Val -> List Statement -> E (List Statement)
-epilogue ix l (Just v) ops = pure (ops ++ [MkStatement Nothing (Idr.returnOp [!(operand ix v)]) (At l)])
+epilogue ix l (Just v) ops = pure (ops ++ [MkStatement Nothing (Idr.returnOp [operand v]) (At l)])
 epilogue ix l Nothing ops = pure ops
 
 mutual
-  ||| A value held plainly, and, if it is a constructor a match took apart,
-  ||| rebuilt from plain values into fields none of which is linear.
-  plainHeld : Index -> Val -> Bool
-  plainHeld ix (MkVal _ t u Whole) = not (linear u t)
-  plainHeld ix (MkVal _ t u (Taken c fs)) =
-    not (linear u t) && plainFields && allPlain ix fs
-    where
-      plainFields : Bool
-      plainFields = case lookup c ix.cons of
-        Just k => all (\f => f.quantity == Many) k.fields
-        Nothing => False
+  ||| A value held plainly, or a constructor a match took apart, rebuilt
+  ||| from plain values into fields none of which is linear.
+  plainHeld : InScope -> Bool
+  plainHeld (Whole v) = not (linear v.use v.type)
+  plainHeld (Taken c fs _) = all (\f => f.quantity == Many) c.fields && allPlain fs
 
-  allPlain : Index -> List Val -> Bool
-  allPlain ix [] = True
-  allPlain ix (v :: vs) = plainHeld ix v && allPlain ix vs
+  allPlain : Vect k InScope -> Bool
+  allPlain [] = True
+  allPlain (v :: vs) = plainHeld v && allPlain vs
 
 mutual
   ||| Whether a suspended term is a value already, so that forcing it would
@@ -256,184 +315,161 @@ mutual
   ||| which is linear; or a constructor of such values, none of its fields
   ||| linear. Its ops are then only constants and constructors of plain
   ||| values, and the suspension holds the value itself.
-  evaluated : Index -> (Fin n -> Val) -> Term n -> Bool
-  evaluated ix env (Var _ x) = plainHeld ix (env x)
-  evaluated ix env (Literal _ _) = True
-  evaluated ix env (ConApp _ c as) = case lookup c ix.cons of
-    Just k => all (\f => f.quantity == Many) k.fields && allEvaluated ix env as
-    Nothing => False
-  evaluated ix env _ = False
+  evaluated : (Fin n -> InScope) -> Term n -> Bool
+  evaluated env (Var _ x) = plainHeld (env x)
+  evaluated env (Literal _ _) = True
+  evaluated env (ConApp _ c as) = all (\f => f.quantity == Many) c.fields && allEvaluated env as
+  evaluated env _ = False
 
-  allEvaluated : Index -> (Fin n -> Val) -> List (Term n) -> Bool
-  allEvaluated ix env [] = True
-  allEvaluated ix env (t :: ts) = evaluated ix env t && allEvaluated ix env ts
+  allEvaluated : (Fin n -> InScope) -> Vect k (Term n) -> Bool
+  allEvaluated env [] = True
+  allEvaluated env (t :: ts) = evaluated env t && allEvaluated env ts
 
 ||| A closure or a suspension of a function, made by `build` at type `t`
-||| over `captures`. One that holds a linear value is used once, as what it
-||| holds: it is entered into its linear type at once.
-holding : Index -> Loc -> Ty -> List Value -> (MlirType -> Op) -> E Val
-holding ix l t captures build = do
-  made <- value ix l t build
-  if any linearType captures then coerce ix l One made else pure made
+||| over `captures`, the variable `binder` bound to it. One that holds a
+||| linear value is used once, as what it holds: its op makes it at its
+||| linear type.
+holding : Index -> Loc -> Maybe Binding -> Ty -> List Value -> (MlirType -> Op) -> E Val
+holding ix l binder t captures build =
+  -- Essential: the dialect gives the closure's type the quantity of its
+  -- captures (a type rule of the op), which the op's result type states.
+  if any linearType captures
+    then do
+      r <- mlirValueAt (madeAt binder l t One) (heldType One t) build
+      pure (MkVal r.name t One)
+    else value {binder} ix l t build
   where
     linearType : Value -> Bool
     linearType v = case v.type of
       Idr (QType One _ _) _ => True
       _ => False
 
-||| A call, a constructor application or a case passes as many values as
-||| what it applies or takes apart takes. A count that differs is a
-||| position the translator did not drop; nothing is written for it.
+||| A call passes as many values as its callee takes. A count that differs
+||| is a position the translator did not drop; nothing is written for it.
 saturated : Index -> Loc -> Term n -> String -> (given, taken : Nat) -> E ()
 saturated ix l term what given taken =
   unless (given == taken) $
     internal (fastConcat [show l, ": ", what, " passes ", show given, " values; it takes ",
                           show taken, ": ", showBody (names ix) term 0])
 
-||| The algebra: one layer of `Term` to its emitter.
+||| The algebra: one layer of `Term` to its emitter. A layer whose value is
+||| a subterm's (a `let`'s body, a match of one possible arm) passes what
+||| its context wants on to it; every other subterm is an operand or a
+||| region's, bound to no variable.
 export
 alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
-alg ix (VarF l x) env _ = Just <$> force ix l (env x)
-alg ix (LiteralF l x) env _ = Just <$> literal ix l x
--- A trusted library's crash of a string ends the program and does not
--- return. The string is the cause the runtime prints.
-alg ix (PrimAppF l (Op CrashStr) _ as) env _ = do
-  Just [s] <- operands ix l env as [MkBinder Many StrT]
-    | _ => pure Nothing
-  statement l (Idr.crashStrOp !(operand ix s))
-  statement l UB.unreachableOp
-  pure Nothing
-alg ix (PrimAppF l p _ as) env _ = do
-  Just vs <- operands ix l env as (map (MkBinder Many) (primArgs p))
+alg ix (VarF l x) env w = Just <$> force {binder = w.binder} ix l (env x)
+alg ix (LiteralF l x) env w = Just <$> literal {binder = w.binder} ix l x
+alg ix (PrimAppF l p _ as) env w = do
+  Just vs <- operands ix l env (zip (map (map (MkBinder Many)) (slots p)) as)
     | Nothing => pure Nothing
-  Just <$> prim ix l p vs
--- An IO primitive takes its operands at their own types, and its op is
--- at the types its call fixes.
-alg ix (EffectF l p tys as res) env _ = do
-  Just vs <- operands ix l env as []
+  Just <$> prim w.binder ix l p vs
+-- An IO primitive takes its operands at their own types.
+alg ix (EffectF l p gives as res) env w = do
+  Just vs <- operands ix l env (unslotted as)
     | Nothing => pure Nothing
-  effect ix l p tys vs res
-alg ix (CallF l fn stands as) env expected = do
+  effect w.binder ix l p gives vs res
+alg ix (CallF l fn stands as) env w = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
-  sym <- fnSymbol ix fn
-  saturated ix l (Call l fn stands (map (.term) as)) ("a call of " ++ sym) (length as) f.arity
-  Just vs <- operands ix l env as (map snd (toList f.params))
+  saturated ix l (Call l fn stands (map (.term) as)) ("a call of " ++ fn.name) (length as) f.arity
+  Just vs <- operands ix l env (zip (map (Just . snd) (toList f.params)) as)
     | Nothing => pure Nothing
-  args <- traverse (operand ix) vs
-  Just <$> fit ix l expected !(value ix l f.result (\r => Idr.callOp sym args [r]))
-alg ix (ConAppF l c as) env _ = do
-  Just k <- pure (lookup c ix.cons)
-    | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
-  saturated ix l (ConApp l c (map (.term) as)) ("an application of " ++ k.name) (length as) (length k.fields)
-  Just vs <- operands ix l env as k.fields
+  Just <$> fitted {binder = w.binder} ix l w.type f.result (\r => Idr.callOp fn.name (map operand vs) [r])
+alg ix (ConAppF l c as) env w = do
+  Just vs <- operands ix l env (zip (map Just c.fields) as)
     | Nothing => pure Nothing
-  Just <$> con ix l k vs
--- A `let` binds an SSA value; its type is its value's, and its location
--- the variable's name.
-alg ix (LetF l name q v b) env expected = do
-  before <- newest
-  Just x <- v.result env Nothing
+  Just <$> con {binder = w.binder} ix l c vs
+-- A `let` binds an SSA value; its type is its value's, and the op that
+-- makes it as the variable holds it stands at the variable's name.
+alg ix (LetF l name q v b) env w = do
+  let held = heldAs q (mostUses FZ b.term)
+      binding = Just (MkBinding name held)
+  Just x <- v.result env (MkWanted Nothing binding)
     | Nothing => pure Nothing
-  x' <- coerce ix l (heldAs q (mostUses FZ b.term)) x
-  atBinder name before x'
-  b.result (bind [x'] env) expected
+  x' <- coerce {binder = binding} ix l held x
+  b.result (bind [Whole x'] env) w
 -- A match takes its scrutinee at its grade: a linear one is used by the
 -- match, whose cases bind the fields as the constructor holds them and
 -- whose default gets the value back; a plain one is read, its fields plain
--- (the product of the quantities, as Idris binds pattern variables).
-alg ix (CaseF l x alts def) env expected = do
+-- (the product of the quantities, as Idris binds pattern variables), and
+-- its default binds it again. Inside every region the scrutinee is what
+-- the region binds.
+alg ix (CaseF l x arms) env w = do
   let before = env x
   scrut <- force ix l before
-  DataT d <- pure scrut.type
+  DataT _ <- pure scrut.type
     | t => internal ("a match on a value of type " ++ show t)
-  Just decl <- pure (lookup d ix.datas)
-    | Nothing => internal ("a match on " ++ show d ++ ", which is not declared")
-  let takenApart = linear scrut.use scrut.type
-  cases <- traverse (alternative before scrut) (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
-  dflt <- case def of
-    Just e => if excluded e then pure [] else do
-      (args, inner) <- the (E (List Argument, Fin nv -> Val)) $ if takenApart
-        then do
-          back <- (\r => val r scrut.type One) <$> fresh
-          arg <- operand ix back
-          pure ([MkArgument arg (At l)], matched before back env)
-        else pure ([], env)
-      (res, ops) <- collect (plain ix l (e.result inner expected))
-      pure [MkArm args res ops]
-    Nothing => pure []
-  case map snd cases ++ dflt of
-    [] => do
-      statement l UB.unreachableOp
-      pure Nothing
-    arms => match ix l expected (Idr.matchOp !(operand ix scrut) (map fst cases)) arms
+  (tags, shape) <- the (E (List Nat, CaseArmsOf Arm Arm)) $ case arms of
+    Defaulted alts d => do
+      cs <- traverse (alternative before scrut) alts
+      pure (map fst cs, Defaulted (map snd cs) !(defaultArm before scrut d))
+    Exhaustive alts => do
+      cs <- traverse (alternative before scrut) alts
+      pure (forget (map fst cs), Exhaustive (map snd cs))
+  match ix l w (\d, cs, ts => Idr.matchOp (operand scrut) tags d cs ts) shape
   where
     -- A case is its constructor's tag, each field a block argument at its
     -- pattern variable's name.
-    alternative : Val -> Val -> AltF (Sub Em) nv -> E (Nat, Arm)
+    alternative : InScope -> Val -> AltF (Sub Em) nv -> E (Nat, Arm)
     alternative before scrut (MkAltF {k} c fs body) = do
-      Just ctor <- pure (lookup c ix.cons)
-        | Nothing => internal ("a case of " ++ show c ++ ", which is not declared")
-      saturated ix l body.term ("a case of " ++ ctor.name) k (length ctor.fields)
       let takenApart = linear scrut.use scrut.type
       let use = if takenApart then (\b : Binder => b.quantity) else const Many
-      bound <- traverse (\(_, f) => freshVal ix (typeOf f) (use f)) fs
-      let args = map (\((field, _), (_, o)) => MkArgument o (Named field l)) (toList (zip fs bound))
+      bound <- traverse (\f => freshVal (typeOf f) (use f)) c.fields
+      let args = toList (zipWith (\field, (_, o) => MkArgument o (Named field l)) fs bound)
       (res, ops) <- collect $ do
-        vals <- traverse (\(i, (v, _)) => holdFor ix l (mostUses (Bound {n = nv} i) body.term) v)
+        vals <- traverse (\(i, (v, _)) => Whole <$> holdFor ix l (mostUses (Bound {n = nv} i) body.term) v)
                          (zip range bound)
         -- Inside a case of a linear scrutinee, the scrutinee is the
         -- constructor of the fields the case bound.
         inner <- if takenApart
-          then (\r => matched before (MkVal r scrut.type Many (Taken c (toList vals))) env) <$> fresh
+          then (\r => matched before (Taken c vals r) env) <$> fresh
           else pure env
-        plain ix l (body.result (bind vals inner) expected)
-      pure (ctor.tag, MkArm args res ops)
-alg ix (CaseLitF l x alts def) env expected = do
-  let live = filter (not . excluded . snd) alts
-  -- A default Idris proved impossible is left out: the last possible
-  -- alternative stands for it.
-  let (cases, final) = if excluded def
-                          then case reverse live of
-                                 ((_, e) :: rest) => (reverse rest, Just e)
-                                 [] => ([], Nothing)
-                          else (live, Just def)
-  case (cases, final) of
-    (_, Nothing) => do
-      statement l UB.unreachableOp
-      pure Nothing
-    ([], Just e) => e.result env expected
-    (_, Just e) => do
-      scrut <- coerce ix l Many !(force ix l (env x))
-      let inner = matched (env x) scrut env
-      arms <- traverse (\(_, c) => do
-                          (res, ops) <- collect (plain ix l (c.result inner expected))
-                          pure (MkArm [] res ops)) cases
-      (res, ops) <- collect (plain ix l (e.result inner expected))
-      match ix l expected (Idr.matchLitOp !(operand ix scrut) (map (key . fst) cases))
-            (arms ++ [MkArm [] res ops])
--- The predecessor exists only where the value is not zero: the successor's
--- region computes it, and only it binds it.
-alg ix (CaseNatF l x z predName s) env expected =
-  case (excluded z, excluded s) of
-    (True, True) => do
-      statement l UB.unreachableOp
-      pure Nothing
-    (False, True) => z.result env expected
-    (True, False) => successor !(coerce ix l Many !(force ix l (env x)))
-    (False, False) => do
-      n <- coerce ix l Many !(force ix l (env x))
-      (zr, zops) <- collect (plain ix l (z.result env expected))
-      (sr, sops) <- collect (plain ix l (successor n))
-      match ix l expected (Idr.matchLitOp !(operand ix n) [key (LNat 0)])
-            [MkArm [] zr zops, MkArm [] sr sops]
+        plain ix l (body.result (bind vals inner) (expecting w.type))
+      pure (c.tag, MkArm args res ops)
+    -- The default binds the scrutinee at its held type: a linear one given
+    -- back, a plain one again.
+    defaultArm : InScope -> Val -> Sub Em nv -> E Arm
+    defaultArm before scrut d = do
+      (back, arg) <- freshVal scrut.type scrut.use
+      (res, ops) <- collect (plain ix l (d.result (matched before (Whole back) env) (expecting w.type)))
+      pure (MkArm [MkArgument arg (At l)] res ops)
+-- `idr.match_lit` has no exhaustive form: when Idris proved the default
+-- impossible, the last possible alternative stands for it, and a match of
+-- one is that alternative.
+alg ix (CaseLitF l x arms) env w = case arms of
+  LitDefault alts d => literals alts d
+  LitNoDefault alts => literals (init alts) (snd (last alts))
   where
-    successor : Val -> E (Maybe Val)
-    successor n = do
-      before <- newest
-      p <- value ix l NatT (Idr.bigPredOp !(operand ix n))
-      atBinder predName before p
-      s.result (bind [p] env) expected
+    literals : List (Lit, Sub Em nv) -> Sub Em nv -> E (Maybe Val)
+    literals [] d = d.result env w
+    literals cases d = do
+      scrut <- coerce ix l Many !(force ix l (env x))
+      let inner = matched (env x) (Whole scrut) env
+      arms <- traverse (\(_, c) => do
+                          (res, ops) <- collect (plain ix l (c.result inner (expecting w.type)))
+                          pure (MkArm [] res ops)) cases
+      (back, arg) <- freshVal scrut.type Many
+      (res, ops) <- collect (plain ix l (d.result (matched (env x) (Whole back) env) (expecting w.type)))
+      match ix l w (\dr, cs, ts => Idr.matchLitOp (operand scrut) (map (key . fst) cases) dr cs ts)
+            (Defaulted arms (MkArm [MkArgument arg (At l)] res ops))
+-- The predecessor exists only where the value is not zero: the successor's
+-- arm computes it from the value it binds, and only it binds it.
+alg ix (CaseNatF l x arms) env w = case arms of
+  OnlyZero z => z.result env w
+  OnlySucc p s => successor p s env w !(coerce ix l Many !(force ix l (env x)))
+  Both z p s => do
+    n <- coerce ix l Many !(force ix l (env x))
+    (zr, zops) <- collect (plain ix l (z.result env (expecting w.type)))
+    (back, arg) <- freshVal NatT Many
+    (sr, sops) <- collect (plain ix l (successor p s (matched (env x) (Whole back) env) (expecting w.type) back))
+    match ix l w (\dr, cs, ts => Idr.matchLitOp (operand n) [key (LNat 0)] dr cs ts)
+          (Defaulted [MkArm [] zr zops] (MkArm [MkArgument arg (At l)] sr sops))
+  where
+    successor : Shown -> Sub Em (Under 1 nv) -> (Fin nv -> InScope) -> Wanted -> Val -> E (Maybe Val)
+    successor p s scope w' n = do
+      pv <- value {binder = Just (MkBinding p Many)} ix l NatT (Idr.bigPredOp (operand n))
+      s.result (bind [Whole pv] scope) w'
 -- A lambda is a closure of a function of its own, and a `Delay` a
 -- suspension of one, each over the values its body uses from where it is
 -- written: the body is written first, as a region, and the function made
@@ -441,111 +477,112 @@ alg ix (CaseNatF l x z predName s) env expected =
 -- lambda's parameter and result are at the types the context expects of
 -- them, the parameter cast inside to its binder's own: a closure's type
 -- holds the extents its values are made at dynamic.
-alg ix (LamF l name b body) env expected = do
-  let (param, result) = case expected of
+alg ix (LamF l name b body) env w = do
+  let (param, result) = case w.type of
                           Just (FunT a r) => (typeOf a, Just r)
                           _ => (typeOf b, Nothing)
-  (p, arg) <- freshVal ix param b.quantity
+  (p, arg) <- freshVal param b.quantity
   (r, ops) <- collect $ do
     inner <- coerce ix l (heldAs b.quantity (mostUses FZ body.term)) !(fit ix l (Just (typeOf b)) p)
-    plain ix l (body.result (bind [inner] env) result) >>= traverse (fit ix l result)
+    plain ix l (body.result (bind [Whole inner] env) (expecting result)) >>= traverse (fit ix l result)
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a lambda whose body never returns"
   let rt = mlirType t
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedLambda [MkArgument arg (Named name l)] ops' [rt]
-  Just <$> holding ix l (FunT (MkBinder b.quantity param) t) captures (Idr.closureOp sym captures)
-alg ix (AppF l f x) env expected = do
-  Just fv <- plain ix l (f.result env Nothing)
+  Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures (Idr.closureOp sym captures)
+alg ix (AppF l f x) env w = do
+  Just fv <- plain ix l (f.result env (expecting Nothing))
     | Nothing => pure Nothing
   FunT a r <- pure fv.type
     | t => internal ("an application of a value of type " ++ show t)
-  Just v <- x.result env (Just (typeOf a))
+  Just v <- x.result env (expecting (Just (typeOf a)))
     | Nothing => pure Nothing
   xv <- coerce ix l a.quantity !(fit ix l (Just (typeOf a)) v)
-  callee <- operand ix fv
-  arg <- operand ix xv
-  Just <$> fit ix l expected !(value ix l r (\t => Idr.applyOp callee [arg] [t]))
-alg ix (SuspendF l body) env expected = do
-  let result = case expected of
+  Just <$> fitted {binder = w.binder} ix l w.type r (\t => Idr.applyOp (operand fv) [operand xv] [t])
+alg ix (SuspendF l body) env w = do
+  let result = case w.type of
                  Just (LazyT r) => Just r
                  _ => Nothing
-  if evaluated ix env body.term
+  if evaluated env body.term
     then do
-      Just v <- plain ix l (body.result env result)
+      Just v <- plain ix l (body.result env (expecting result))
         | Nothing => internal "a suspended value that never returns"
-      Just <$> value ix l (LazyT v.type) (Idr.delayOp !(operand ix v))
+      Just <$> value {binder = w.binder} ix l (LazyT v.type) (Idr.delayOp (operand v))
     else do
-      (r, ops) <- collect (plain ix l (body.result env result) >>= traverse (fit ix l result))
+      (r, ops) <- collect (plain ix l (body.result env (expecting result)) >>= traverse (fit ix l result))
       Just t <- pure (result <|> map (.type) r)
         | Nothing => internal "the result type of a Delay whose body never returns"
       let rt = mlirType t
       ops' <- epilogue ix l r ops
       (sym, captures) <- lift l LiftedDelay [] ops' [rt]
-      Just <$> holding ix l (LazyT t) captures (Idr.suspendOp sym captures)
-alg ix (ResumeF l e) env expected = do
-  Just ev <- plain ix l (e.result env Nothing)
+      Just <$> holding ix l w.binder (LazyT t) captures (Idr.suspendOp sym captures)
+alg ix (ResumeF l e) env w = do
+  Just ev <- plain ix l (e.result env (expecting Nothing))
     | Nothing => pure Nothing
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
-  callee <- operand ix ev
-  Just <$> fit ix l expected !(value ix l r (Idr.forceOp callee))
+  Just <$> fitted {binder = w.binder} ix l w.type r (Idr.forceOp (operand ev))
 -- The array language: each operand bound once, in order, by the frontend;
 -- each body a region of the array op Emit.Tensors writes.
-alg ix (TensorF l op rt as) env _ = do
-  Just vs <- operands ix l env as []
+alg ix (TensorF l rt op) env w = do
+  Just vs <- operands ix l env (unslotted op)
     | Nothing => pure Nothing
-  Just <$> tensorOp ix l op rt vs
-alg ix (TabulateF {k} l rt es body) env _ = do
-  Just extents <- operands ix l env (toList es) []
+  Just <$> tensorOp ix l w.binder rt vs
+alg ix (TabulateF {k} l rt es body) env w = do
+  Just extents <- operands ix l env (unslotted es)
     | Nothing => pure Nothing
-  Just ev <- pure (toVect k extents)
-    | Nothing => internal "a tabulation of fewer extents than it binds"
-  tabulate ix l rt ev (\coords => plain ix l (body.result (bind coords env) Nothing))
-alg ix (ReduceF l r acc el rt z x body) env _ = do
-  Just [zv, xv] <- operands ix l env [z, x] []
+  tabulate ix l w.binder rt extents
+           (\coords => plain ix l (body.result (bind (map Whole coords) env) (expecting Nothing)))
+alg ix (ReduceF l r acc el rt z x body) env w = do
+  Just zv <- (operand1 ix l env Nothing z).written
     | Nothing => pure Nothing
-    | Just _ => internal "a reduction of other than its accumulators and its array"
-  reduce ix l r acc el rt zv xv (\a, e => plain ix l (body.result (bind [a, e] env) (Just acc)))
-alg ix (TieF l x ds) env _ = do
-  Just xv <- plain ix l (x.result env Nothing)
+  Just xv <- (operand1 ix l env Nothing x).written
+    | Nothing => pure Nothing
+  reduce ix l w.binder r acc el rt zv xv
+         (\a, e => plain ix l (body.result (bind [Whole a, Whole e] env) (expecting (Just acc))))
+alg ix (TieF l x ds) env w = do
+  Just xv <- plain ix l (x.result env (expecting Nothing))
     | Nothing => pure Nothing
   Just dims <- statedAll ds
     | Nothing => pure Nothing
-  Just <$> tie ix l xv dims
+  Just <$> tie ix l w.binder xv dims
   where
-    -- A size an array's extent gives is exact; any other natural is
-    -- converted as an extent.
-    stated : Sub Em nv -> E (Maybe Stated)
-    stated d = do
-      Just v <- plain ix l (d.result env (Just NatT))
-        | Nothing => pure Nothing
-      pure (Just (case d.term of
-                    Tensor _ (Extent _) _ _ => OfArray v
-                    _ => OfNatural v))
-    statedAll : List (Maybe (Sub Em nv)) -> E (Maybe (List (Maybe Stated)))
+    -- Each statement a natural.
+    natural : Sub Em nv -> E (Maybe Val)
+    natural d = plain ix l (d.result env (expecting (Just NatT)))
+    statedAll : List (Nat, Stated (Sub Em nv)) -> E (Maybe (List (Nat, Stated Val)))
     statedAll [] = pure (Just [])
-    statedAll (Nothing :: rest) = map (Nothing ::) <$> statedAll rest
-    statedAll (Just d :: rest) = do
-      Just s <- stated d
+    statedAll ((a, SameAs d) :: rest) = do
+      Just v <- natural d
         | Nothing => pure Nothing
-      map (Just s ::) <$> statedAll rest
-alg ix (TabulateIOF {k} l rt es w body step done) env _ = do
-  Just extents <- operands ix l env (toList es) []
+      map ((a, SameAs v) ::) <$> statedAll rest
+    statedAll ((a, Natural d) :: rest) = do
+      Just v <- natural d
+        | Nothing => pure Nothing
+      map ((a, Natural v) ::) <$> statedAll rest
+alg ix (TabulateIOF {k} l rt es w body step done) env wanted = do
+  Just extents <- operands ix l env (unslotted es)
     | Nothing => pure Nothing
-  Just ev <- pure (toVect k extents)
-    | Nothing => internal "a tabulation of fewer extents than it binds"
-  Just world <- w.result env (Just WorldT)
+  Just world <- w.result env (expecting (Just WorldT))
     | Nothing => pure Nothing
-  tabulateIO ix l rt ev world
-             (\coords, wv => plain ix l (body.result (bind (snoc coords wv) env) Nothing)) step done
+  tabulateIO ix l wanted.binder rt extents world
+             (\coords, wv => plain ix l (body.result (bind (snoc (map Whole coords) (Whole wv)) env) (expecting Nothing)))
+             step done
 alg ix (UnreachableF l) env _ = do
   statement l UB.unreachableOp
   pure Nothing
--- A crash reports its message and never returns.
+-- A crash reports its message and never returns: fixed, or computed (a
+-- trusted library's crash of a string, whose string is the cause the
+-- runtime prints).
 alg ix (CrashF l msg) env _ = do
   statement l (Idr.crashOp msg)
   statement l UB.unreachableOp
   pure Nothing
-alg ix (NewWorldF l) env _ = Just <$> value ix l WorldT Idr.worldNewOp
-alg ix (SystemOsF l) env _ = Just <$> value ix l StrT Idr.osOp
+alg ix (CrashWithF l m) env _ = do
+  Just s <- (operand1 ix l env (Just (MkBinder Many StrT)) m).written
+    | Nothing => pure Nothing
+  statement l (Idr.crashStrOp (operand s))
+  statement l UB.unreachableOp
+  pure Nothing
+alg ix (NewWorldF l) env w = Just <$> value {binder = w.binder} ix l WorldT Idr.worldNewOp

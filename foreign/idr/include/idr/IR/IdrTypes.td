@@ -68,12 +68,13 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     // The data type named `identifier`, with the body `body` gives for it: the
     // type it is handed is the one being made, which the body may hold, as
     // may the body of a type `body` defines in turn. A type of that name
-    // with this body already is that type. Failure, after an internal error
-    // at no location of the context, when the body is no well-formed sum or
-    // the name has another body.
-    static ::mlir::FailureOr<DataType> define(::mlir::MLIRContext *context,
-                                              ::llvm::StringRef identifier,
-                                              ::llvm::function_ref<Body(DataType self)> body);
+    // with this body already is that type. Failure when `body` fails, after
+    // its own error, before any body is set; or, after an internal error at
+    // no location of the context, when the body is no well-formed sum or the
+    // name has another body.
+    static ::mlir::FailureOr<DataType> define(
+        ::mlir::MLIRContext *context, ::llvm::StringRef identifier,
+        ::llvm::function_ref<::mlir::FailureOr<Body>(DataType self)> body);
 
     // The module's table of data types in bytecode (its layout is above
     // DataTable in IdrBytecode.td): readTable reads it into a TypeAttr of
@@ -103,6 +104,10 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     std::optional<::idr::Tag> getTag(::llvm::StringRef ctor) const;
     bool isMemo() const { return getKind() == ::idr::SumKind::Memo; }
     bool isClosures() const { return getKind() == ::idr::SumKind::Closures; }
+    // Whether the constructor `tag` is an atom: it has no fields and is no
+    // state of a memo sum, whose cell a force writes, so a value of it
+    // needs no cell of its own.
+    bool isAtom(::idr::Tag tag) const;
     // The constructor of each role a sum has exactly one of: a memo sum's
     // states, base list's nil and cons. Asked of a sum of another kind, it
     // is the caller's error.
@@ -217,13 +222,17 @@ def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface,
   ];
 }
 
+// A string's literal is a quoted string, a big's and a natural's a
+// #idr.big, a natural's never negative (Idr_LiteralTypeInterface).
 def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface,
-    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
+    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>,
+    DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface>]>, Idr_AbiWord<"Str", Idr_BytesOf> {
   let summary = "a string (UTF-8)";
 }
 
 def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface,
-    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
+    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>,
+    DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface>]>, Idr_AbiWord<"Big", Idr_NoCount> {
   let summary = "an Integer";
 }
 
@@ -231,12 +240,12 @@ def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface,
 // unary successor, Fin among them): a big at runtime, never negative. Every
 // op that produces one keeps it non-negative (a sum, a product, a
 // predecessor of a value that is not zero), and the only way in from an
-// Integer, idr.nat.from_big, clamps, so the type itself proves the range.
-// Integer range analysis is to seed [0, +inf) from this type in its entry
-// state (setToEntryState), for block arguments and results it cannot see
-// computed.
+// Integer, idr.nat.from_big, clamps, so the type itself proves the range,
+// which idr::ranges::ofType states: integer range analysis seeds [0, +inf)
+// from it for block arguments and results it cannot see computed.
 def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface,
-    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
+    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>,
+    DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface>]>, Idr_AbiWord<"Big", Idr_NoCount> {
   let summary = "a natural number: a non-negative big";
 }
 
@@ -244,12 +253,13 @@ def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface,
 // operation keeps naturals natural.
 def Idr_BigOrNat : AnyTypeOf<[Idr_BigType, Idr_NatType]>;
 
-// The carrier of the world: the IO world token, which only ever appears
-// at grade (one, plain), the type spelled !idr.world. The carrier itself
-// is !idr.world_carrier.
-def Idr_WorldCarrier : Idr_Type<"World", "world_carrier", [
-    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
-  let summary = "the IO world token";
+// The IO world token. Every world is used exactly once, which its type
+// says (isLinearByType), as a destination's and a cell's do: it takes no
+// grade. It has no runtime form.
+def Idr_WorldType : Idr_Type<"World", "world", [
+    DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]>,
+    Idr_AbiWord<"World", Idr_NoCount> {
+  let summary = "the IO world token, used exactly once by its type";
 }
 
 // A grade lives in the type, where no pass can drop it. It is a pair
@@ -258,12 +268,13 @@ def Idr_WorldCarrier : Idr_Type<"World", "world_carrier", [
 // plain type T is (many, plain) and is never written as !idr.q. The type
 // is `!idr.q<quantity, permission, value>`, and the common grades have
 // spellings, which the dialect reads and writes from one table
-// (lib/IR/Dialect.cpp): !idr.lin<T> is (one, plain) of T,
-// !idr.own<T> and !idr.excl<T> are (many, own) and (many, excl) of T, and
-// !idr.world is (one, plain) of the world. A value of quantity one is used
-// at most once on every path; its one use is idr.lin.use, or a position
-// that is linear itself (a parameter, a field, a capture or a result of
-// the same type).
+// (lib/IR/Types.cpp): !idr.lin<T> is (one, plain) of T, and !idr.own<T>
+// and !idr.excl<T> are (many, own) and (many, excl) of T. A value of
+// quantity one is used at most once on every path; its one use is
+// idr.lin.use, or a position that is linear itself (a parameter, a field,
+// a capture or a result of the same type). A type whose every value is used
+// exactly once by the type alone (the world, a destination, a cell:
+// isLinearByType) takes no grade: its quantity is its type's.
 def Idr_QType : Idr_Type<"Q", "q", [
     DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
   let summary = "a value at a grade: its quantity and what it owns";
@@ -281,25 +292,33 @@ def Idr_QType : Idr_Type<"Q", "q", [
   }];
 }
 
-// The positions that take a grade: the world, and a linear value other
-// than the world (one that entered its grade, and is used out of it).
-def Idr_WorldType : Type<CPred<"::idr::isWorld($_self)">, "the world", "::idr::QType"> {
-  let builderCall = "::idr::world($_builder.getContext())";
-}
-def Idr_LinType : Type<CPred<"::idr::isLinear($_self)">,
-                       "a value of quantity 1 other than the world", "::idr::QType">;
+// A linear value: one that entered its grade, and is used out of it.
+def Idr_LinType : Type<CPred<"::idr::isLinear($_self)">, "a value graded at quantity 1",
+                       "::idr::QType">;
 
 def Idr_SumType : AnyTypeOf<[Idr_DataType, Idr_BoxType]>;
 def Idr_Int : AnyTypeOf<[I8, I16, I32, I64]>;
+// An integer an op reads as Idris's IntN or as its BitsN: one op per
+// signedness, as arith's divsi and divui are, and the C ABI's word extends
+// it as the op reads it.
+def Idr_SInt : AnyTypeOf<[I8, I16, I32, I64], "an integer read as signed">,
+               Idr_AbiWord<"Signed", Idr_NoCount>;
+def Idr_UInt : AnyTypeOf<[I8, I16, I32, I64], "an integer read as unsigned">,
+               Idr_AbiWord<"Unsigned", Idr_NoCount>;
 
 // A value of a type at any grade: what an op that makes one produces,
 // plain before idr-rc and owned after it.
 class Idr_AtAnyGrade<string cppType, string name>
     : Type<CPred<"::llvm::isa<" # cppType # ">(::idr::unrestricted($_self))">, name, "::mlir::Type">;
-def Idr_StrValue : Idr_AtAnyGrade<"::idr::StrType", "a string at any grade">;
-def Idr_BigValue : Idr_AtAnyGrade<"::idr::BigType", "an Integer at any grade">;
-def Idr_NatValue : Idr_AtAnyGrade<"::idr::NatType", "a natural at any grade">;
-def Idr_BigOrNatValue : Idr_AtAnyGrade<"::idr::BigType, ::idr::NatType", "an Integer or a natural at any grade">;
+def Idr_StrValue : Idr_AtAnyGrade<"::idr::StrType", "a string at any grade">,
+                   Idr_AbiWord<"Str", Idr_BytesOf>;
+def Idr_BigValue : Idr_AtAnyGrade<"::idr::BigType", "an Integer at any grade">,
+                   Idr_AbiWord<"Big", Idr_NoCount>;
+def Idr_NatValue : Idr_AtAnyGrade<"::idr::NatType", "a natural at any grade">,
+                   Idr_AbiWord<"Big", Idr_NoCount>;
+def Idr_BigOrNatValue : Idr_AtAnyGrade<"::idr::BigType, ::idr::NatType",
+                                       "an Integer or a natural at any grade">,
+                        Idr_AbiWord<"Big", Idr_NoCount>;
 def Idr_BoxValue : Idr_AtAnyGrade<"::idr::BoxType", "a box at any grade">;
 // The cell, plain before idr-rc and owned after it. The value inside stays
 // the carrier: ownership is the grade of this reference, not a second type.
@@ -311,12 +330,12 @@ def Idr_SumView : Type<And<[Idr_SumValue.predicate, CPred<"!::idr::isOwned($_sel
                        "a constructor value at any quantity, not owned", "::mlir::Type">;
 
 // A destination: a field of a cell built without it (idr.dest.of), the
-// word a later write fills.
+// word a later write fills with a box's reference, so the field is a box.
+// It is written exactly once, which its type says (isLinearByType).
 def Idr_DestType : Idr_Type<"Dest", "dest"> {
   let summary = "a field of a cell built without it, to be written exactly once";
-  let parameters = (ins "::mlir::Type":$value);
-  let assemblyFormat = "`<` $value `>`";
-  let genVerifyDecl = 1;
+  let parameters = (ins "::idr::BoxType":$value);
+  let assemblyFormat = "`<` qualified($value) `>`";
 }
 
 #endif // IDR_TYPES

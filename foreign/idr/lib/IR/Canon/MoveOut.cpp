@@ -25,12 +25,11 @@
 // than compute moves past only ops that only compute, so every effect keeps
 // its order.
 //
-// A call does what its callee's effects say, the one copy, read through the
-// program's symbol table where the canonicalizer has one (CalleePattern):
-// idr-effects and idr-optimize write them between waves, never while the
-// patterns of a function run. Without a table a call may do anything, and
-// keeps the read as it is. The pattern rewrites the read and the write, two
-// ops, which a folder of either could not.
+// A call does what its own effects say, which idr-effects and idr-optimize
+// write between waves, never while the patterns of a function run; a call
+// whose effects no pass has found may do anything, and keeps the read as it
+// is. The pattern rewrites the read and the write, two ops, which a folder
+// of either could not.
 //
 // The pattern is tried at the write and at the read, each reached from the
 // other through the world: the driver tells a rewrite to the op it changes,
@@ -44,6 +43,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -62,13 +62,13 @@ enum class Does : uint8_t { Computes, Effects, Touches };
 // What `root` does toward an array of type `array`: it reads the IO
 // resource (IO may reach any cell, a call through what it is given), it
 // reads or writes a value of the array's type, nothing says what it does
-// (an op without the interface), or it holds a force. A call's effects on
-// the IO, crash and divergence resources are its callee's where `callees`
-// says them; what it does to its operands is its own. The ops in a region
-// count where their op's effects are its regions' (RecursiveMemoryEffects),
-// as upstream gathers them; an op that never runs (ub.unreachable) does
-// nothing.
-Does doesOf(Operation *root, Type array, const CalleeEffects *callees) {
+// (an op without MemoryEffectOpInterface whose effects are not its
+// regions'), or it holds a force. The ops in a region count where their
+// op's effects are its regions' (RecursiveMemoryEffects), as upstream
+// gathers them. An op that never runs (ub.unreachable) does nothing, though
+// it declares no effects: so this walk is not upstream's
+// getEffectsRecursively, which counts it as doing anything.
+Does doesOf(Operation *root, Type array) {
   auto of = [&](const MemoryEffects::EffectInstance &effect) {
     Value on = effect.getValue();
     if ((isa<MemoryEffects::Read>(effect.getEffect()) &&
@@ -82,17 +82,22 @@ Does doesOf(Operation *root, Type array, const CalleeEffects *callees) {
   };
   Does does = Does::Computes;
   root->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = ownEffects(op, callees);
-    if (isa<ForceOp>(op) || !effects) {
+    if (isa<ub::UnreachableOp>(op))
+      return WalkResult::advance();
+    bool recursive = op->hasTrait<OpTrait::HasRecursiveMemoryEffects>();
+    auto declared = dyn_cast<MemoryEffectOpInterface>(op);
+    if (isa<ForceOp>(op) || (!declared && !recursive)) {
       does = Does::Touches;
       return WalkResult::interrupt();
     }
-    for (const MemoryEffects::EffectInstance &effect : *effects)
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    if (declared)
+      declared.getEffects(effects);
+    for (const MemoryEffects::EffectInstance &effect : effects)
       does = std::max(does, of(effect));
     if (does == Does::Touches)
       return WalkResult::interrupt();
-    return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ? WalkResult::advance()
-                                                             : WalkResult::skip();
+    return recursive ? WalkResult::advance() : WalkResult::skip();
   });
   return does;
 }
@@ -139,12 +144,10 @@ ArraySetOp writeOf(ArrayGetOp get) {
 // block, with nothing between that may touch the array, becomes the
 // element's update; tried at the write and at the read, `Root`.
 template <typename Root>
-struct MoveOut : canon::CalleePattern {
-  MoveOut(MLIRContext *context, const CalleeEffects *callees)
-      : CalleePattern(Root::getOperationName(), "idr-move-out", context, callees) {}
-
-  std::unique_ptr<CalleePattern> withCallees(const CalleeEffects *table) const final {
-    return std::make_unique<MoveOut>(getContext(), table);
+struct MoveOut : RewritePattern {
+  explicit MoveOut(MLIRContext *context)
+      : RewritePattern(Root::getOperationName(), PatternBenefit(1), context) {
+    setDebugName("idr-move-out");
   }
 
   LogicalResult matchAndRewrite(Operation *root, PatternRewriter &rewriter) const final {
@@ -166,7 +169,7 @@ struct MoveOut : canon::CalleePattern {
     SmallVector<Operation *> moved;
     SmallVector<bool> computes;
     for (Operation *op = get->getNextNode(); op != set.getOperation(); op = op->getNextNode()) {
-      Does does = doesOf(op, array, callees);
+      Does does = doesOf(op, array);
       if (does == Does::Touches)
         return failure();
       computes.push_back(does == Does::Computes);
@@ -208,7 +211,7 @@ struct MoveOut : canon::CalleePattern {
 
     // The read did more than compute, and so may a moved op; each op
     // between was walked above.
-    retryBetween(rewriter, {std::next(get->getIterator()), set->getIterator()});
+    canon::retryBetween(rewriter, {std::next(get->getIterator()), set->getIterator()});
     Location loc = rewriter.getFusedLoc({get.getLoc(), set.getLoc()});
     rewriter.setInsertionPoint(set);
     auto update = ArrayUpdateOp::create(rewriter, loc, ValueRange(leaving).getTypes(),
@@ -241,7 +244,7 @@ struct MoveOut : canon::CalleePattern {
 namespace idr::canon {
 
 void addMoveOutPatterns(RewritePatternSet &results, MLIRContext *context) {
-  results.add<MoveOut<ArraySetOp>, MoveOut<ArrayGetOp>>(context, /*callees=*/nullptr);
+  results.add<MoveOut<ArraySetOp>, MoveOut<ArrayGetOp>>(context);
 }
 
 } // namespace idr::canon

@@ -22,17 +22,13 @@
 
 #include "llvm/ADT/STLExtras.h"
 
+#include <variant>
+
 using namespace mlir;
 
 namespace idr::defunctionalize {
 
-void Slots::defineForces() {
-  for (auto &[key, sum] : sums)
-    if (key.isLazy())
-      table.insert(defineForce(key, sum.type));
-}
-
-FuncOp Slots::defineForce(const Key &key, DataType sum) {
+FailureOr<FuncOp> Slots::defineForce(const Key &key, DataType sum) {
   FlatSymbolRefAttr name = forceOf(key);
   const Signature &sig = signature(name.getAttr());
   Location loc = NameLoc::get(name.getAttr());
@@ -49,44 +45,59 @@ FuncOp Slots::defineForce(const Key &key, DataType sum) {
   Block *entry = b.createBlock(&fn.getBody(), {}, cellType, loc);
   Value cell = entry->getArgument(0);
 
+  // A case per constructor of the sum, and no default.
   ArrayRef<Ctor> ctors = sum.getCtors();
   auto tags = llvm::to_vector(sum.getTags());
-  auto match = MatchOp::create(b, loc, TypeRange(valueType), cell, ArrayRef<Tag>(tags),
-                               static_cast<unsigned>(ctors.size()));
-  for (auto [ctor, region] : llvm::zip_equal(ctors, match.getRegions())) {
+  auto match = MatchOp::create(b, loc, TypeRange(valueType), cell, ArrayRef<Tag>(tags));
+  for (auto [index, ctor] : llvm::enumerate(ctors)) {
+    Region &region = match.getCaseRegion(static_cast<unsigned>(index));
     SmallVector<Type> bound;
     for (Type field : ctor.fields)
       bound.push_back(fieldType(cellType, field));
     Block *state =
         b.createBlock(&region, region.end(), bound, SmallVector<Location>(bound.size(), loc));
-    switch (ctor.role) {
-    case CtorRole::Label: {
-      const Signature &label = signature(ctor.fn.getAttr());
-      SmallVector<Value> args;
-      for (auto [capture, param] :
-           llvm::zip_equal(state->getArguments(), label.converted.getInputs()))
-        args.push_back(heldAs(b, loc, capture, param));
-      if (!ctor.byName)
-        MemoEnterOp::create(b, loc, cell);
-      auto call = CallOp::create(b, loc, label.converted.getResults(), ctor.fn, args,
-                                 /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
-      Value value = heldAs(b, loc, call.getResult(0), valueType);
-      if (!ctor.byName)
-        MemoSettleOp::create(b, loc, cell, value);
-      YieldOp::create(b, loc, value);
-      break;
-    }
-    case CtorRole::Running:
-      CrashOp::create(b, loc, "a suspension forced itself");
-      ub::UnreachableOp::create(b, loc);
-      break;
-    case CtorRole::Forced:
-      YieldOp::create(b, loc, heldAs(b, loc, state->getArgument(0), valueType));
-      break;
-    case CtorRole::Plain:
-    case CtorRole::ListNil:
-    case CtorRole::ListCons:
-      llvm_unreachable("a memo sum holds its labels and its two states");
+    // The body states no typed view of a memo sum: its constructors are
+    // its labels and its two states by the body's rule, which is the type's
+    // and checked when it was made, and a constructor of any other role is
+    // the compiler's error, named here.
+    LogicalResult filled = std::visit(
+        llvm::makeVisitor(
+            [&](const role::Label &label) -> LogicalResult {
+              const Signature &run = signature(label.fn.getAttr());
+              SmallVector<Value> args;
+              for (auto [capture, param] :
+                   llvm::zip_equal(state->getArguments(), run.converted.getInputs()))
+                args.push_back(heldAs(b, loc, capture, param));
+              if (!label.byName)
+                MemoEnterOp::create(b, loc, cell);
+              auto call = CallOp::create(b, loc, run.converted.getResults(), label.fn, args,
+                                         /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
+              Value value = heldAs(b, loc, call.getResult(0), valueType);
+              if (!label.byName)
+                MemoSettleOp::create(b, loc, cell, value);
+              YieldOp::create(b, loc, value);
+              return success();
+            },
+            [&](const role::Running &) -> LogicalResult {
+              CrashOp::create(b, loc, "a suspension forced itself");
+              ub::UnreachableOp::create(b, loc);
+              return success();
+            },
+            [&](const role::Forced &) -> LogicalResult {
+              YieldOp::create(b, loc, heldAs(b, loc, state->getArgument(0), valueType));
+              return success();
+            },
+            [&](const auto &) -> LogicalResult {
+              return emitError(loc) << "internal error: idr-defunctionalize: the memo sum \""
+                                    << sum.getName() << "\" has a constructor @"
+                                    << ctor.name.getValue() << " of role "
+                                    << stringifyCtorRole(kindOf(ctor.role))
+                                    << ", which is no label and no state";
+            }),
+        ctor.role);
+    if (failed(filled)) {
+      fn->erase();
+      return failure();
     }
   }
   b.setInsertionPointToEnd(entry);

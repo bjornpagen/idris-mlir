@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // When a call may be raised, the consumer a raise node takes in as code,
-// and the one decision on a call that requests and idr-redirect share.
+// the run's table of consumer forms, and the one decision on a call that
+// requests and idr-redirect share.
 //
 // Raising moves the consumer of a call's result into the callee's tails:
 // the dispatch that is all its one use does with it, the match an apply
 // became. Nothing may run between the call and the dispatch that could
 // tell: the dispatch and its steps are in the call's block, and either the
-// call only computes (its callee performs no IO, cannot crash and returns;
-// building actions is no IO), or every op between it and the dispatch only
-// computes. A call that passes a world is never raised: the callee's body
-// would take part in the world chain.
+// call only computes (its effects say it performs no IO, cannot crash and
+// returns; building actions is no IO), or every op between it and the
+// dispatch only computes. A call that passes a world is never raised: the
+// callee's body would take part in the world chain.
 //
 // A raise node is keyed by its callee and its consumer's form: the consumer
 // written as a function of the call's result and the values it reads from
-// outside, in canonical text. The node is built from that text, so it is a
-// function of its key, whichever call asked for it.
+// outside, held once in the run's table and named there by the digest of
+// its canonical text. The node is built from that form, so it is a function
+// of its key, whichever call asked for it.
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Symbols.h"
 #include "idr/IR/Grades.h"
 #include "idr/Transforms/Deduplicate.h"
@@ -27,13 +30,15 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <string>
 
 using namespace mlir;
 
 namespace idr::specialize::detail {
 
-std::optional<Consumer> consumerOf(idr::CallOp call, idr::FuncOp callee,
-                                   const CalleeEffects &effects) {
+std::optional<Consumer> consumerOf(idr::CallOp call) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse())
     return std::nullopt;
   // The operands have the callee's parameter types, so a world one of them
@@ -45,12 +50,11 @@ std::optional<Consumer> consumerOf(idr::CallOp call, idr::FuncOp callee,
     return std::nullopt;
   // A call that only computes may run later, after anything between it and
   // its consumer; any other only after ops that only compute. What a call
-  // does is its callee's entry, final here; what one between does is its
-  // own callee's.
-  if (callee.getEffects() != idr::Effect::none)
+  // does is its own effects, each op between's its own.
+  if (call.getEffects() != idr::Effect::none)
     for (Operation *op = call->getNextNode(); op != e->dispatch.getOperation();
          op = op->getNextNode())
-      if (!idr::onlyAllocates(op, &effects))
+      if (!idr::onlyAllocates(op))
         return std::nullopt;
   return e;
 }
@@ -107,57 +111,66 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
 
 // Two consumers have one form exactly when they are one function: equal
 // code on equal values, which is what idr-deduplicate compares. So a
-// consumer is printed only when no consumer met before is it.
-StringAttr Forms::formOf(OwningOpRef<idr::FuncOp> consumer) {
+// consumer is printed, for the digest that names its form, only when no
+// form met before is it; the print is outside the lock.
+FailureOr<StringAttr> Forms::intern(Location at, OwningOpRef<idr::FuncOp> consumer) {
   unsigned hash = static_cast<unsigned>(
       static_cast<size_t>(idr::deduplicate::hashFunction(*consumer)));
-  auto known = [&]() -> StringAttr {
-    auto bucket = byHash.find(hash);
-    if (bucket == byHash.end())
-      return {};
-    for (auto &[met, form] : bucket->second)
-      if (idr::deduplicate::sameFunction(*met, *consumer))
+  // Under the lock: the form interned before that `consumer` is, if one is.
+  auto met = [&]() -> std::optional<StringAttr> {
+    for (StringAttr form : byHash[hash])
+      if (idr::deduplicate::sameFunction(byForm.at(form).get(), *consumer))
         return form;
-    return {};
+    return std::nullopt;
   };
   {
     std::lock_guard lock(mutex);
-    if (StringAttr form = known())
-      return form;
+    if (std::optional<StringAttr> form = met())
+      return *form;
   }
-  StringAttr form = StringAttr::get(consumer->getContext(), canonicalText(consumer->getOperation()));
+  std::string digest;
+  llvm::raw_string_ostream(digest) << digestOf(canonicalText(consumer->getOperation()));
+  StringAttr name = StringAttr::get(consumer->getContext(), digest);
   std::lock_guard lock(mutex);
-  if (StringAttr met = known())
-    return met;
-  byHash[hash].emplace_back(std::move(consumer), form);
-  return form;
+  // Another worker may have interned it since.
+  if (std::optional<StringAttr> form = met())
+    return *form;
+  if (!byForm.try_emplace(name, std::move(consumer)).second)
+    return emitError(at) << "internal error: two consumer forms have the digest " << digest;
+  byHash[hash].push_back(name);
+  return name;
 }
 
-std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp callee,
-                           const Node *calleeNode, ArrayRef<BindingTime> seen,
-                           const CalleeEffects &effects, Forms &forms) {
+idr::FuncOp Forms::at(StringAttr form) const {
+  std::lock_guard lock(mutex);
+  return byForm.at(form).get();
+}
+
+FailureOr<std::optional<Want>> decide(idr::CallOp call, const Node *requester,
+                                      idr::FuncOp callee, const Node *calleeNode,
+                                      ArrayRef<BindingTime> seen, Forms &forms) {
   MLIRContext *ctx = call.getContext();
   StringAttr name = call.getCalleeAttr().getAttr();
 
   // A spec node raises nothing; a raise node only with its own consumer,
   // where its callee's tails meet it again; any other function freely. The
-  // callee returns from its one block, where the consumer is pushed.
+  // callee returns from its one block, where the consumer is pushed; one
+  // that never returns has no tail to push it to.
   const Key *own = requester ? &requester->key : nullptr;
-  Region &body = callee.getBody();
-  if (!(own && std::holds_alternative<SpecKeyAttr>(*own)) && body.hasOneBlock() &&
-      isa<idr::ReturnOp>(body.front().getTerminator()))
-    if (std::optional<Consumer> consumer = consumerOf(call, callee, effects)) {
+  if (!(own && std::holds_alternative<SpecKeyAttr>(*own)) &&
+      isa<idr::ReturnOp>(callee.getBody().front().getTerminator()))
+    if (std::optional<Consumer> consumer = consumerOf(call)) {
       SmallVector<Value> free;
-      StringAttr form = forms.formOf(consumerFunction(call, *consumer, free));
-      const auto *ownRaise = own ? std::get_if<KeyRaiseAttr>(own) : nullptr;
-      if (!ownRaise || ownRaise->getConsumer() == form) {
-        Want want;
-        want.key = KeyRaiseAttr::get(ctx, name, form);
-        want.owner = name;
+      FailureOr<StringAttr> form =
+          forms.intern(call.getLoc(), consumerFunction(call, *consumer, free));
+      if (failed(form))
+        return failure();
+      const auto *ownRaise = own ? std::get_if<RaiseKey>(own) : nullptr;
+      if (!ownRaise || ownRaise->getForm() == *form) {
+        RaiseWant want{KeyRaiseAttr::get(ctx, name, *form), *consumer, {}};
         llvm::append_range(want.operands, call.getArgs());
         llvm::append_range(want.operands, free);
-        want.consumer = consumer;
-        return want;
+        return std::optional<Want>(std::move(want));
       }
     }
 
@@ -167,12 +180,8 @@ std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp 
     spec = *calleeSpec;
   std::optional<Composed> composed = composeKey(call, spec, seen);
   if (!composed)
-    return std::nullopt;
-  Want want;
-  want.key = composed->key;
-  want.owner = composed->key.getOrigin();
-  want.operands = std::move(composed->values);
-  return want;
+    return std::optional<Want>();
+  return std::optional<Want>(SpecWant{composed->key, std::move(composed->values)});
 }
 
 } // namespace idr::specialize::detail

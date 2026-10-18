@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: one op per signedness (mlir-1), each refusing a width Idris has not: idr.divs, idr.to_char_u, idr.io.put_uint.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // The integers of Idris are 8, 16, 32 and 64 bits wide, and so is every
 // integer an idr op computes on (idr.match_lit also branches on a
@@ -6,7 +7,7 @@
 idr.program @widths root(@root) stage(first) {
   idr.func @f(%a: i7, %b: i7) -> i7 {
     // expected-error @+1 {{but got 'i7'}}
-    %q = idr.div signed %a, %b : i7
+    %q = idr.divs %a, %b : i7
     return %q : i7
   }
   // The program's root, which the functions above are no part of.
@@ -21,7 +22,7 @@ idr.program @widths root(@root) stage(first) {
 idr.program @widths root(@root) stage(first) {
   idr.func @f(%a: i1) -> i32 {
     // expected-error @+1 {{but got 'i1'}}
-    %c = idr.to_char unsigned %a : i1
+    %c = idr.to_char_u %a : i1
     return %c : i32
   }
   // The program's root, which the functions above are no part of.
@@ -51,7 +52,7 @@ idr.program @widths root(@root) stage(first) {
 idr.program @widths root(@root) stage(first) {
   idr.func @f(%a: i1, %w: !idr.world) -> !idr.world {
     // expected-error @+1 {{but got 'i1'}}
-    %w1 = idr.io.put_int unsigned %a, %w : i1
+    %w1 = idr.io.put_uint %a, %w : i1
     return %w1 : !idr.world
   }
   // The program's root, which the functions above are no part of.

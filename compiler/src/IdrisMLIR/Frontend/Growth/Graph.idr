@@ -51,14 +51,13 @@ import Data.Vect
 
 %default total
 
-||| What made an arc: the site and the argument whose template gave it; an
-||| implementation's method field, which placed the implementation's
+||| What made an arc: the site and the argument whose template gave it, or
+||| an implementation's method field, which placed the implementation's
 ||| parameter, the arc's source, among the method function's (a leading
-||| arc); or a cap, whose one arc enters the position it caps.
+||| arc).
 public export
 data Wrote = FromArgument Site Argument
            | FromField
-           | FromCap
 
 ||| The graph, and what its numbers stand for: the position each `Fin` is,
 ||| what made each arc, and the sizes the worklist's universe needs beside
@@ -135,13 +134,13 @@ kindOf a def = case definition def of
     pure (n :: length cs :: (arities >>= id), do
             js <- represented def
             fs <- fieldSites a def cs js
-            rd <- readingOf a
+            rd <- readingOf a def
             pure ({ sites $= (fs ++) } rd, js))
   PMDef _ params _ _ _ => pure ([length params], plain)
   _ => pure ([], plain)
   where
     plain : Core (Reading, List Nat)
-    plain = (, []) <$> readingOf a
+    plain = (, []) <$> readingOf a def
 
 -- The definition a site enters, when it names one: a call or a build. A
 -- dispatch reaches the method functions of the implementations its
@@ -157,10 +156,10 @@ callee (Dispatches _ _ _) = Nothing
 -- fields, with the definitions its sites name, to enter next. A name that
 -- no definition of the context has is no place, and is not entered.
 keep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-       Address -> Core (Reading, List Nat) -> Entered -> Core (Entered, List Name)
-keep a reading r = do
+       Address -> GlobalDef -> Core (Reading, List Nat) -> Entered -> Core (Entered, List Name)
+keep a def reading r = do
   (rd, js) <- reading
-  fs <- fieldsOf a
+  fs <- fieldsOf def
   defs <- get Ctxt
   let ss = rd.sites
   pure ( { sites $= insert a ss
@@ -185,20 +184,17 @@ level refused w0 acc@(Access rec) w p r [] Idle = pure r
 level refused w0 acc@(Access rec) w p r [] (Queued lt next) =
   level refused w (rec w lt) w (noMore w) r (next <>> []) Idle
 level refused w0 acc@(Access rec) w p r (n :: rest) pending = do
-  defs <- get Ctxt
-  Just def <- lookupCtxtExact n (gamma defs)
+  -- What tells definitions apart is their place in the context; a name no
+  -- definition has is never entered.
+  Just (placement, def) <- resolve n
     | Nothing => level refused w0 acc w p r rest pending
-  let full = fullname def
-  -- What tells definitions apart is their address in the context; a name
-  -- with none has no place, and is never entered.
-  let Just a = definitionAddress (gamma defs) full
-    | Nothing => level refused w0 acc w p r rest pending
+  let a = addressOf placement
   -- Entered already: walked once.
-  let Just (Element w1 q) = enter (gamma defs) full w
+  let Just (Element w1 q) = enter placement w
     | Nothing => level refused w0 acc w p r rest pending
   (counts, reading) <- kindOf a def
   let measured = { breadth $= \b => foldl (\m, k => max m (S k)) b counts } r
-  (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a [] } measured), the (List Name) []) else keep a reading measured
+  (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a [] } measured), the (List Name) []) else keep a def reading measured
   level refused w0 acc w1 (thenNoMore (fewer q) p) r' rest (Queued (fewerThen q p) (queued pending <>< next))
 
 definitions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core Entered
@@ -210,42 +206,34 @@ definitions main = do
 -- The universe of nodes, and novelty
 ------------------------------------------------------------------------------
 
--- Two nodes compared as the machine compares their parts.
-sameHeads : List (Nat, Address) -> List (Nat, Address) -> Bool
-sameHeads [] [] = True
-sameHeads ((i, a) :: hs) ((j, b) :: ks) = i == j && sameAddress a b && sameHeads hs ks
-sameHeads _ _ = False
-
-sameNode : Node -> Node -> Bool
-sameNode x y = sameAddress x.definition y.definition && sameHeads x.heads y.heads
-
-0 sameHeadsSelf : (hs : List (Nat, Address)) -> So (sameHeads hs hs)
-sameHeadsSelf [] = Oh
-sameHeadsSelf ((i, a) :: hs) = andSo (Proof.Growth.equalSelf i, andSo (sameAddressSelf a, sameHeadsSelf hs))
-
-0 sameNodeSelf : (x : Node) -> So (sameNode x x)
-sameNodeSelf (MkNode d hs) = andSo (sameAddressSelf d, sameHeadsSelf hs)
+-- Two nodes, as the machine compares their parts: the definition's
+-- address by its bytes, then each head by its parameter and its address.
+decideNode : (x, y : Node) -> Decision (x = y)
+decideNode (MkNode d hs) (MkNode d' hs') = case decideAddress d d' of
+  Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
+  Proof.Growth.Holds Refl => case sameList decideHead hs hs' of
+    Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
+    Proof.Growth.Holds Refl => Proof.Growth.Holds Refl
+  where
+    decideHead : (h, h' : (Nat, Address)) -> Decision (h = h')
+    decideHead (i, a) (j, b) = case sameNat i j of
+      Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
+      Proof.Growth.Holds Refl => case decideAddress a b of
+        Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
+        Proof.Growth.Holds Refl => Proof.Growth.Holds Refl
 
 -- A node not yet in a list, with the erased proof.
 data IsNew : Node -> List Node -> Type where
   New : (0 _ : Not (Elem x xs)) -> IsNew x xs
 
-0 differ : So (not (sameNode x y)) -> Not (x = y)
-differ no eq = case eq of
-  Refl => soNotToVoid no (sameNodeSelf x)
-  where
-    soNotToVoid : So (not b) -> So b -> Void
-    soNotToVoid {b = True} n _ = absurd n
-    soNotToVoid {b = False} _ s = absurd s
-
 -- Whether a node is new to a list: its proof, or nothing when it is there.
 novel : (x : Node) -> (xs : List Node) -> Maybe (IsNew x xs)
 novel x [] = Just (New (\case _ impossible))
-novel x (y :: ys) = case choose (sameNode x y) of
-  Left _ => Nothing
-  Right no => case novel x ys of
+novel x (y :: ys) = case decideNode x y of
+  Proof.Growth.Holds _ => Nothing
+  Proof.Growth.Fails no => case novel x ys of
     Nothing => Nothing
-    Just (New notIn) => Just (New (\case Here => differ no Refl; There e => notIn e))
+    Just (New notIn) => Just (New (\case Here => no Refl; There e => notIn e))
 
 conses : List a -> List (List a) -> List (List a)
 conses [] _ = []
@@ -437,24 +425,22 @@ headBound fs ss = S (foldl (foldl placedIn) (foldl (foldl written) 0 ss) (values
 -- The arcs
 ------------------------------------------------------------------------------
 
--- An arc between positions, before they are numbered: never Absent, by its
--- proof, with what made it.
+-- An arc between positions, before they are numbered, with what made it.
 record Drawn where
   constructor MkDrawn
-  from : Maybe Position
+  from : Position
   to : Position
-  weight : Weight
-  0 present : Present weight
+  label : Label
   wrote : Wrote
 
 -- An argument's arc from a position of its writer: the one match on a
--- weight another module gives, where an Absent weight is no arc. Every
--- other arc is of a weight known to be Finite, and is made with its proof
--- where it is written, so nothing downstream checks for Absent.
+-- weight a template gives, where an Absent weight is no arc. Essential:
+-- a template carries a parameter or does not, and only what it carries is
+-- an arc.
 place : (from, to : Position) -> Site -> Argument -> Weight -> Maybe Drawn
 place q p s x Absent = Nothing
-place q p s x (Finite g l) = Just (MkDrawn (Just q) p (Finite g l) Measured (FromArgument s x))
-place q p s x Stuck = Just (MkDrawn (Just q) p Stuck Unmeasured (FromArgument s x))
+place q p s x (Finite g l) = Just (MkDrawn q p (Measured g l) (FromArgument s x))
+place q p s x Stuck = Just (MkDrawn q p Unmeasured (FromArgument s x))
 
 -- A held dictionary's write (the projection rule): an arc from every
 -- position of every node of the root J that built it into the position
@@ -547,7 +533,7 @@ mutual
   carriedAt fs fl w d (Var _ _) = none
   carriedAt fs fl w d (Leaf _) = none
   carriedAt fs fl w d (Template.Token _) = none
-  carriedAt fs fl w d (Formal _ _ _) = none
+  carriedAt fs fl w d (Formal _ _) = none
 
   carriedAll : SortedMap Address Fields -> Flow -> Node -> Weight -> List Template -> Carried
   carriedAll fs fl w d [] = none
@@ -606,7 +592,7 @@ written = eachPlaced (\m, _, _, callee, pl => put (callee, pl.parameter) (landin
 
 -- Where a writer no template states lands as well, so nothing there is
 -- closed: at a leading arc's position, what J's own writers gave J; at a
--- capped position, the origin's every value of the cap's height.
+-- capped position, every value of the cap's height.
 opened : List Position -> SortedMap Position Landing -> SortedMap Position Landing
 opened ps m = foldl (\acc, p => put p Open acc) m ps
 
@@ -734,13 +720,6 @@ argument fs fl ls w s at arg r =
   , arity $= max (Template.arity t)
   , heaviest $= max (Template.heaviest t) } r
 
--- Two heads at a parameter agree: none on either side, or one
--- implementation on both. A dictionary without a root has no head.
-sameRoot : Maybe Address -> Maybe Address -> Bool
-sameRoot Nothing Nothing = True
-sameRoot (Just a) (Just b) = sameAddress a b
-sameRoot _ _ = False
-
 -- The leading arcs of a dispatch that reached M through implementation
 -- J's method field. The parameters of M its `leading` placement names
 -- hold J's own, which the writers of J gave it, so each walked node of J
@@ -750,11 +729,18 @@ sameRoot _ _ = False
 -- without these M's leading positions would have no arc into them.
 leadingArcs : SortedMap Address (List Node) -> (m : Node) -> (j : Address) -> List (Nat, Nat) -> List Drawn
 leadingArcs nodes m j leading =
-  [ MkDrawn (Just (jn, p)) (m, q) (Finite 0 0) Measured FromField
+  [ MkDrawn (jn, p) (m, q) (Measured 0 0) FromField
   | jn <- fromMaybe [] (lookup j nodes), agrees jn, (p, q) <- leading ]
   where
+    -- Two heads at a parameter agree: none on either side, or one
+    -- implementation on both. A dictionary without a root has no head.
+    agreesAt : Node -> (Nat, Nat) -> Bool
+    agreesAt jn (p, q) = case sameMaybe decideAddress (lookup p jn.heads) (lookup q m.heads) of
+      Proof.Growth.Holds _ => True
+      Proof.Growth.Fails _ => False
+
     agrees : Node -> Bool
-    agrees jn = all (\(p, q) => sameRoot (lookup p jn.heads) (lookup q m.heads)) leading
+    agrees jn = all (agreesAt jn) leading
 
 -- Every walked edge's arguments, each at the callee parameter `reaches`
 -- placed it at, and the leading arcs of every method function's node a
@@ -776,7 +762,7 @@ byDefinition key = foldr (\x => insertWith (++) (key x) [x]) empty
 
 -- An arc's ends.
 ends : Drawn -> List Position
-ends pl = pl.to :: toList pl.from
+ends pl = [pl.to, pl.from]
 
 -- Each of the positions that is capped, with its cap. A cap is asked once
 -- per definition and parameter, since a definition's nodes share its type.
@@ -794,8 +780,8 @@ capsOf named = snd <$> foldlC ask (empty, empty) named
 numbered : SortedMap Position (Fin n) -> Drawn -> Maybe (Arc n, Wrote)
 numbered index pl = do
   to <- lookup pl.to index
-  from <- traverse (\q => lookup q index) pl.from
-  pure (MkArc from to pl.weight pl.present, pl.wrote)
+  from <- lookup pl.from index
+  pure (MkArc from to pl.label, pl.wrote)
 
 -- What made each arc, in the arcs' order.
 wrotes : (arcs : List (Arc n, Wrote)) -> Vect (length (map Builtin.fst arcs)) Wrote
@@ -854,14 +840,12 @@ nameOf a = do
 export
 build : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : Name) -> Core Built
 build main = do
-  defs <- get Ctxt
   -- main is where an internal error of the graph is located, and its node,
   -- with no heads, is where the walk over nodes starts.
-  Just mainDef <- lookupCtxtExact main (gamma defs)
+  Just (placement, mainDef) <- resolve main
     | Nothing => internal EmptyFC "the growth graph's main has no definition"
   let fc = location mainDef
-  let Just root = definitionAddress (gamma defs) (fullname mainDef)
-    | Nothing => internal fc "the growth graph's main has no address"
+  let root = addressOf placement
   entered <- definitions main
   -- Lists are joined by bind, which is linear: base's `concat` and
   -- `concatMap` on a list fold `++` from the left, so every join copies
@@ -884,11 +868,10 @@ build main = do
   let leads = leadsOf walked
   -- The positions the arguments name, with what lands at each.
   let placed = written walked
-  -- A capped position's arcs are replaced by its one origin arc, of weight
-  -- at least cap - K, whether or not any arc entered it: so no listed site
-  -- targets a capped position, and every capped position has its origin
-  -- arc. A position only a data type's arguments give is a type argument,
-  -- which no cap applies to.
+  -- A capped position takes no arc: its cap, which the graph holds and a
+  -- feasible potential meets, stands for every value of its height, so no
+  -- listed site targets it. A position only a data type's arguments give
+  -- is a type argument, which no cap applies to.
   capped <- capsOf (keys placed)
   let lands = landings nodes leads walked (opened (leadingPositions leads ++ keys capped) placed)
   let r = raw entered.fields fl lands nodes leads walked
@@ -898,8 +881,7 @@ build main = do
   let byPosition = byDefinition (\p => (fst p).definition) (Prelude.toList positions)
   let projected = r.projections >>= \pr => mapMaybe (\q => place q pr.to pr.site pr.argument pr.weight)
                                                      (fromMaybe [] (lookup pr.root byPosition))
-  let origins = map (\(p, k) => MkDrawn Nothing p (Finite k r.constant) Measured FromCap) (SortedMap.toList capped)
-  let arcs = filter (\pl => isNothing (lookup pl.to capped)) (r.drawn ++ projected) ++ origins
+  let arcs = filter (\pl => isNothing (lookup pl.to capped)) (r.drawn ++ projected)
   -- The one numbering: the positions in order, each once, and each arc's
   -- ends looked up in it.
   let ps = Prelude.toList positions

@@ -1,9 +1,6 @@
-// NEEDS-ACCEPTANCE: that the idr.tabulate beside a linalg op is the one place @left fails, in the words StructuredLoops.cpp prints.
+// NEEDS-ACCEPTANCE: that structured-loops holds of @done and @ordered, and that the -verify-diagnostics run passes: @left fails at its idr.tabulate beside a linalg op, and @none, which holds no structured op, at the function.
 // RUN: idris-mlir-opt %s --idr-expect=holds=structured-loops=@done -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=structured-loops=@left -o /dev/null 2> %t.left.err
-// RUN: FileCheck %s --check-prefix=LEFT < %t.left.err
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=structured-loops=@none -o /dev/null 2> %t.none.err
-// RUN: FileCheck %s --check-prefix=NONE < %t.none.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=structured-loops=@left,structured-loops=@none -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %s --idr-expect=holds=structured-loops=@ordered -o /dev/null
 // No op is left that idr-structure-loops lowers, and a structured op is
 // there. Which ops it lowers is the pass's own test, its generating set: an
@@ -11,8 +8,6 @@
 // of the set, a float fold kept in its order, holds beside one (@ordered).
 // A function with no structured op at all fails, so the property cannot
 // hold of a module that never had an array.
-// LEFT: error: expected structured-loops: idr.tabulate is left unlowered in @left
-// NONE: error: expected structured-loops: no structured op in @none
 #map = affine_map<(d0) -> (d0)>
 idr.program @"structured-loops" root(@root) stage(first) {
   idr.func @done(%x: tensor<?xi64>) -> tensor<?xi64> {
@@ -37,6 +32,7 @@ idr.program @"structured-loops" root(@root) stage(first) {
       %s = arith.addi %a, %a : i64
       linalg.yield %s : i64
     } -> tensor<?xi64>
+    // expected-error @below {{expected structured-loops: idr.tabulate is left unlowered in @left}}
     %t = idr.tabulate [%m] {
     ^bb0(%i: index):
       %v = arith.index_cast %i : index to i64
@@ -64,6 +60,7 @@ idr.program @"structured-loops" root(@root) stage(first) {
     }
     return %y, %sum : tensor<?xf64>, f64
   }
+  // expected-error @below {{expected structured-loops: no structured op in @none}}
   idr.func @none(%x: i64) -> i64 {
     return %x : i64
   }

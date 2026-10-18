@@ -7,69 +7,65 @@
 // A function waits on what it calls. Once the program is first-order that
 // is all it runs, a force being a call of its memo sum's dispatch function,
 // so upstream's call graph is the whole graph: the components and their
-// order are its, a function of the program alone.
+// order are its cycles of calls (CallCycles), a function of the program
+// alone.
 
 #include "idr/Transforms/Optimize.h"
 
-#include "idr/Analysis/Effects.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/Analysis/CallGraph.h"
 #include "mlir/IR/Threading.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <cassert>
 #include <utility>
 
 using namespace mlir;
 
 namespace idr::optimize {
 
-ReadySet::ReadySet(ProgramOp program) {
+ReadySet::ReadySet(ProgramOp program, const CallCycles &cycles) {
   SmallVector<FuncOp> fns(program.getOps<FuncOp>());
   unsigned n = static_cast<unsigned>(fns.size());
-  llvm::DenseMap<Operation *, unsigned> index;
-  for (auto [at, fn] : llvm::enumerate(fns))
-    index.try_emplace(fn, static_cast<unsigned>(at));
 
-  // calls(f): every call site naming f now, frozen for the run. Each body
-  // is counted on a worker into its own slot; the merge, in program order,
-  // makes the counts the same however many threads counted.
+  // The callees of every function now, frozen for the run: each body is
+  // walked on a worker into its own slot; what is read off them in program
+  // order is the same however many threads walked.
   SmallVector<SmallVector<StringAttr>> callees(n);
   parallelFor(program.getContext(), 0, n, [&](size_t at) {
     fns[at].getBody().walk([&](CallOp call) { callees[at].push_back(call.getCalleeAttr().getAttr()); });
   });
+  // calls(f): every call site naming f.
   llvm::DenseMap<StringAttr, unsigned> calls;
   for (const SmallVector<StringAttr> &slot : callees)
     for (StringAttr callee : slot)
       ++calls[callee];
 
   // The components first, so that each node is made in its own; its
-  // members come in program order.
-  mlir::CallGraph graph(program);
-  SmallVector<Scc *> sccOf(n);
-  for (const SmallVector<FuncOp> &part : callGraphComponents(graph)) {
+  // members come in program order. A first-order program's callables are
+  // its functions.
+  llvm::DenseMap<Operation *, Scc *> sccOf;
+  for (const CallCycles::Component &part : cycles.components()) {
     auto scc = std::make_unique<Scc>();
     scc->order = static_cast<unsigned>(sccs.size());
-    for (FuncOp fn : part)
-      sccOf[index.at(fn)] = scc.get();
+    for (Operation *fn : part)
+      sccOf.try_emplace(fn, scc.get());
     sccs.push_back(std::move(scc));
   }
-  for (auto [fn, scc] : llvm::zip_equal(fns, sccOf)) {
-    auto node = std::make_unique<Node>(fn, Node::Held{calls.lookup(fn.getSymNameAttr())}, *scc);
-    scc->members.push_back(node.get());
+  for (FuncOp fn : fns) {
+    Scc &scc = *sccOf.at(fn);
+    auto node = std::make_unique<Node>(fn, Node::Held{calls.lookup(fn.getSymNameAttr())}, scc);
+    scc.members.push_back(node.get());
     byName.try_emplace(fn.getSymNameAttr(), node.get());
     all.push_back(std::move(node));
   }
+  // Each edge between two components once, in program order of its caller
+  // and walk order of its calls.
   llvm::DenseSet<std::pair<Scc *, Scc *>> linked;
-  for (unsigned at = 0; at < n; ++at) {
-    CallGraphNode *node = graph.lookupNode(&fns[at].getBody());
-    for (const CallGraphNode::Edge &out : *node) {
-      if (!out.isCall() || out.getTarget()->isExternal())
-        continue;
-      Scc *from = sccOf[at];
-      Scc *into = sccOf[index.at(out.getTarget()->getCallableRegion()->getParentOp())];
+  for (auto [fn, slot] : llvm::zip_equal(fns, callees)) {
+    Scc *from = sccOf.at(fn);
+    for (StringAttr callee : slot) {
+      Scc *into = byName.at(callee)->scc;
       if (from == into || !linked.insert({from, into}).second)
         continue;
       into->callers.push_back(from->members.front());
@@ -80,43 +76,43 @@ ReadySet::ReadySet(ProgramOp program) {
 
 ReadySet::~ReadySet() = default;
 
-FuncOp ReadySet::lookup(StringAttr name) const {
-  Node *node = byName.lookup(name);
-  return node ? node->fn : FuncOp();
-}
+bool ReadySet::holds(StringAttr name) const { return byName.contains(name); }
 
-FuncOp ReadySet::finalFunction(StringAttr name) const {
-  Node *node = byName.lookup(name);
-  return node && node->isFinal() ? node->fn : FuncOp();
+// A node the table made and has not placed is no node of the ready set yet,
+// and not final.
+std::optional<specialize::FinalCallee> ReadySet::finalCallee(StringAttr name) const {
+  const Node *node = byName.lookup(name);
+  if (!node || !node->isFinal())
+    return std::nullopt;
+  return specialize::FinalCallee{node->fn, node->published->times};
 }
 
 bool ReadySet::sameComponent(StringAttr a, StringAttr b) const {
-  Node *x = byName.lookup(a), *y = byName.lookup(b);
-  return x && y && x->sharesComponentWith(*y);
+  return byName.at(a)->sharesComponentWith(*byName.at(b));
 }
 
-const Summary *ReadySet::summaryOf(StringAttr name) const {
-  Node *node = byName.lookup(name);
-  return node ? node->summary() : nullptr;
-}
-
-ArrayRef<BindingTime> ReadySet::of(StringAttr fn) const {
-  const Summary *summary = summaryOf(fn);
-  assert(summary && "binding times are read of a final function");
-  return summary->times;
-}
-
-// A final callee's is its summary's; one of the reader's own component's,
-// what the component solved when it took the callee up.
-std::optional<unsigned> ReadySet::givesBack(const Node &reader, StringAttr callee) const {
-  Node *node = byName.lookup(callee);
-  if (!node)
-    return std::nullopt;
-  if (const Summary *summary = node->summary())
-    return summary->givesBack;
-  if (!node->sharesComponentWith(reader))
-    return std::nullopt;
-  return node->solved ? node->solved->givesBack : std::nullopt;
+// A final callee's is its summary; a callee of the reader's own component
+// taken up, what the component solved when it took it up; anything else is
+// pending. A call the reader's redirect step made of a node the table made
+// in this wave names no node of the ready set until the wave ends: the
+// steps after the redirect read that call, and it is pending.
+Callee ReadySet::callee(const Node &reader, StringAttr name) const {
+  const Node *found = byName.lookup(name);
+  if (!found)
+    return Pending{};
+  const Node &node = *found;
+  if (node.isFinal())
+    return Final{node.fn, *node.published};
+  if (!node.sharesComponentWith(reader))
+    return Pending{};
+  return std::visit(llvm::makeVisitor([](const Node::Waiting &) -> Callee { return Pending{}; },
+                                      [](const Node::Parked &parked) -> Callee {
+                                        return Sibling{parked.solved};
+                                      },
+                                      [](const Node::Done &done) -> Callee {
+                                        return Sibling{done.solved};
+                                      }),
+                    node.state);
 }
 
 } // namespace idr::optimize

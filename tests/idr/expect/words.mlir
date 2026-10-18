@@ -1,12 +1,9 @@
-// NEEDS-ACCEPTANCE: that word-loop holds of a loop on words and fails once of @naturals, whose one loop carries a natural.
+// NEEDS-ACCEPTANCE: that word-loop holds of a loop on words, that the constant prints in this wave's form (`idr.constant T <attr>`), and that the -verify-diagnostics run passes: @naturals, whose one loop carries a natural, fails at the function.
 // RUN: idris-mlir-opt %s --idr-expect=holds=word-loop=@words -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=word-loop=@naturals -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 1
+// RUN: idris-mlir-opt %s --idr-expect=holds=word-loop=@naturals -verify-diagnostics -o /dev/null
 // A loop computes on words alone when nothing it defines or binds is a big
 // or a natural (@words); one that carries a natural round computes on
 // bigs (@naturals).
-// CHECK-DAG: error: expected word-loop: @naturals computes on bigs in each of its loops
 idr.program @words root(@root) stage(first) {
   idr.func @words(%n: index) -> i64 {
     %c0 = arith.constant 0 : index
@@ -19,10 +16,11 @@ idr.program @words root(@root) stage(first) {
     }
     return %r : i64
   }
+  // expected-error @below {{expected word-loop: @naturals computes on bigs in each of its loops}}
   idr.func @naturals(%n: index, %acc: !idr.nat) -> !idr.nat {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %two = idr.constant #idr.big<2> : !idr.nat
+    %two = idr.constant !idr.nat #idr.big<2>
     %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %acc) -> (!idr.nat) {
       %b = idr.big.add %a, %two : !idr.nat
       scf.yield %b : !idr.nat

@@ -1,6 +1,7 @@
 // RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
+// NEEDS-ACCEPTANCE: that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // Doubles printed by the runtime: the shortest digits that read back, an
 // exact tie to the even last digit (1.1258999068426242e15), positional
 // between 1e-3 and 1e10, a subnormal as any other, the special values as
@@ -48,18 +49,18 @@ idr.program @doubles root(@Prog.main) stage(higher) {
     %x = arith.constant -2.75 : f64
     %xr = idr.call @pass(%x) : (f64) -> f64
     %i = idr.to_int %xr : i64
-    %w10 = idr.io.put_int signed %i, %w9 : i64
+    %w10 = idr.io.put_sint %i, %w9 : i64
     %sp = arith.constant 32 : i32
     %w11 = idr.io.put_char %sp, %w10
     %big = arith.constant 1.8446744073709552e19 : f64
     %br = idr.call @pass(%big) : (f64) -> f64
     %j = idr.to_int %br : i8
-    %w12 = idr.io.put_int signed %j, %w11 : i8
+    %w12 = idr.io.put_sint %j, %w11 : i8
     %w13 = idr.io.put_char %sp, %w12
     %seven = arith.constant 7.9 : f64
     %sr = idr.call @pass(%seven) : (f64) -> f64
     %k = idr.to_int %sr : i16
-    %w14 = idr.io.put_int signed %k, %w13 : i16
+    %w14 = idr.io.put_sint %k, %w13 : i16
     %nl = arith.constant 10 : i32
     %w15 = idr.io.put_char %nl, %w14
     return %w15 : !idr.world

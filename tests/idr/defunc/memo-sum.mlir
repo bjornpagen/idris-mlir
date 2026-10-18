@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)` and `idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A Lazy value picked at runtime and forced later: its type's key becomes a
@@ -25,13 +26,13 @@ idr.program @"memo-sum" root(@Main.main) stage(higher) {
       %a = idr.suspend @one() : () -> !idr.lazy<i64>
       idr.yield %a : !idr.lazy<i64>
     }
-    default {
+    default(%d: i64) {
       %b = idr.suspend @twice(%n) : (i64) -> !idr.lazy<i64>
       idr.yield %b : !idr.lazy<i64>
     }
     }
     %v = idr.force %t : !idr.lazy<i64> -> i64
-    %w2 = idr.io.put_int signed %v, %w1 : i64
+    %w2 = idr.io.put_sint %v, %w1 : i64
     return %w2 : !idr.world
   }
 }

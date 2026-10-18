@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-stack: the cells of boxes that never leave their frame, built on the
-// stack.
+// idr-rc-stack: the cells that never leave their frame, put on the stack,
+// a step of idr-rc (Ownership.h).
 #ifndef IDR_TRANSFORMS_STACK_H
 #define IDR_TRANSFORMS_STACK_H
 
@@ -9,7 +9,7 @@
 
 namespace idr {
 
-#define GEN_PASS_DECL_IDRSTACK
+#define GEN_PASS_DECL_IDRRCSTACK
 #include "idr/Transforms/Passes.h.inc"
 
 } // namespace idr

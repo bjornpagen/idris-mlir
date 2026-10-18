@@ -10,7 +10,8 @@
 // its inner pipeline, rewrites one function's calls on what is solved.
 //
 // The function stays: this pass sees one function, and another may still
-// call the callee. idr-optimize erases it once nothing names it.
+// call the callee. The symbol-dce after idr-optimize erases it once nothing
+// names it.
 #include "idr/Transforms/Identity.h"
 
 #include "idr/IR/Grades.h"
@@ -44,8 +45,11 @@ struct GiveBack : OpRewritePattern<idr::CallOp> {
            unsigned &calls)
       : OpRewritePattern(ctx), set(set), reader(reader), calls(calls) {}
 
+  // A final callee's summary or, of the reader's own component, its turn's
+  // solve says what it gives back; nothing is read of a pending one.
   LogicalResult matchAndRewrite(idr::CallOp call, PatternRewriter &rewriter) const override {
-    std::optional<unsigned> given = set.givesBack(reader, call.getCalleeAttr().getAttr());
+    std::optional<unsigned> given =
+        idr::optimize::givenBack(set.callee(reader, call.getCalleeAttr().getAttr()));
     if (!given)
       return failure();
     if (!idr::support::perform<IdentityCallAction>(call, [&] {

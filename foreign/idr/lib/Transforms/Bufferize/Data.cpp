@@ -80,12 +80,14 @@ struct HeapReadModel : BufferizableOpInterface::ExternalModel<HeapReadModel, idr
 };
 
 // The regions of a match that end in idr.yield; a case that crashes ends in
-// ub.unreachable and gives no value.
+// ub.unreachable and gives no value, and an exhaustive match's default
+// region is empty and never runs.
 SmallVector<idr::YieldOp> yields(Operation *match) {
   SmallVector<idr::YieldOp> found;
   for (Region &region : match->getRegions())
-    if (auto yield = dyn_cast<idr::YieldOp>(region.front().getTerminator()))
-      found.push_back(yield);
+    if (!region.empty())
+      if (auto yield = dyn_cast<idr::YieldOp>(region.front().getTerminator()))
+        found.push_back(yield);
   return found;
 }
 
@@ -163,7 +165,8 @@ struct MatchModel : BufferizableOpInterface::ExternalModel<MatchModel<Match>, Ma
     for (auto [from, to] : llvm::zip_equal(op->getRegions(), bufferized->getRegions()))
       rewriter.inlineRegionBefore(from, to, to.end());
     for (Region &region : bufferized->getRegions())
-      if (failed(bufferizeBlockSignature(&region.front(), rewriter, options, state)))
+      if (!region.empty() &&
+          failed(bufferizeBlockSignature(&region.front(), rewriter, options, state)))
         return failure();
     replaceOpWithBufferizedValues(rewriter, op, bufferized->getResults());
     return success();

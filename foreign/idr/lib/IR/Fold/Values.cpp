@@ -48,7 +48,7 @@ Attribute compared(MLIRContext *ctx, CmpPredicate predicate, int32_t order) {
 std::optional<SmallVector<Attribute>> listElements(Attribute list) {
   SmallVector<Attribute> elements;
   for (auto con = dyn_cast_or_null<ConAttr>(list); con;) {
-    switch (con.getCtor().role) {
+    switch (kindOf(con.getCtor().role)) {
     case CtorRole::ListNil:
       return elements;
     case CtorRole::ListCons:
@@ -59,11 +59,15 @@ std::optional<SmallVector<Attribute>> listElements(Attribute list) {
     case CtorRole::Forced:
       return std::nullopt;
     }
-    if (con.isRun() && con.getSpine() == 1) {
-      // Each cell holds the cons's fields but the spine: its element.
-      for (ArrayAttr cell : con.getRunCells())
+    // A run along the rest is read cell by cell, which keeps a long list
+    // linear to read: reading the rest as a field would build the run from
+    // the next cell at each step. Every cell but the last holds the
+    // element; the last holds the element and the rest.
+    if (con.getSpine() == 1) {
+      ArrayRef<ArrayAttr> cells = con.getCells();
+      for (ArrayAttr cell : cells)
         elements.push_back(cell[0]);
-      con = dyn_cast_or_null<ConAttr>(con.getTail());
+      con = dyn_cast_or_null<ConAttr>(cells.back()[1]);
       continue;
     }
     // One cell, or a run along the element, whose first element is then a

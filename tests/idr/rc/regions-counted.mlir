@@ -62,7 +62,7 @@ idr.program @"regions-counted" root(@root) stage(first) {
       scf.yield %u : !idr.str
     }
     default {
-      %e = idr.constant "" : !idr.str
+      %e = idr.constant !idr.str ""
       scf.yield %e : !idr.str
     }
     return %r : !idr.str

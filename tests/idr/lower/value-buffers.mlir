@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: each element of a buffer is addressed by upstream's strided address over its descriptor (mlir-15); the calls are as before.
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@alloc2:[@idris_rt_array_new],call-order=@alloc2:[@idris_rt_array_new],calls-only=@copyStrings:[@idris_rt_memref_copy],calls-only=@copyWords:[],calls-only=@copyStrided:[@idris_rt_memref_copy]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@loadString:[],calls-only=@storeString:[@idris_rt_dec],calls-only=@extent:[@idris_rt_crash],crash-sites=@extent:1,calls-only=@tied:[],lowered=@tied' -o /dev/null
@@ -12,8 +13,8 @@
 // reference (counting places it); a store releases the element it
 // overwrites. A natural too large to be an extent is the crash `array too
 // large`. A tie is no op at run time. Static data is named by its content
-// under __idr, and a descriptor of a cell holds the cell, never upstream's
-// marker of a pointer that was not allocated.
+// under a reserved name, and a descriptor of a cell holds the cell, never
+// upstream's marker of a pointer that was not allocated.
 idr.program @"value-buffers" root(@root) stage(first) {
   idr.func @alloc2(%a: index, %b: index) -> memref<?x?xf64> {
     %m = memref.alloc(%a, %b) : memref<?x?xf64>

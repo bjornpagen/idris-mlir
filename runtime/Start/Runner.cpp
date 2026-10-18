@@ -48,12 +48,24 @@ void runTask(void *argument) {
 
 } // namespace
 
+// The reserved-stack runner, which programs and idris-mlir share: runs
+// fn(arg) on a new thread whose stack is reserved address space, committed
+// as it is touched, of the largest size from `most` bytes down by halves to
+// 64 MiB (or `most`, when smaller) that the machine grants, with `guard`
+// inaccessible bytes below it. Both are rounded up to whole pages, and the
+// guard is at least one. A fault on the guard is the stack running out:
+// exhausted() runs, on a signal stack of its own, and must end the process
+// with only async-signal-safe calls. Any other fault gets the action it had
+// before. One runner runs at a time in a process. It checks the page size
+// first, as idris_rt_start does: the compiler's tools run here without
+// idris_rt_start. Returns 0 once fn has returned, or -1 when no stack could
+// be reserved.
+//
 // The region is [alternate stack | guard | stack], each a whole number of
 // the target's pages: the guard is never less than a page, whatever the
 // caller asks, so a fault anywhere on it is caught, and the stack is at
 // least `most` bytes rounded up to a page, as pthread_attr_setstack requires
-// on Darwin. The compiler's tools run here without idris_rt_start, so the
-// page size is checked here too.
+// on Darwin.
 extern "C" int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
                                      void (*exhausted)(void)) {
   rt::platform::checkPageSize();

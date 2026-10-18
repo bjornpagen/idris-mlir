@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the match's default binds its scrutinee (S2); the crash sites are as before.
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,crash-sites=@Main.name:1,crash-sites=@Main.never:1,never-returns=@Main.never,crash-sites=@Main.half:1,calls-only=@Main.half:[@idris_rt_crash]' -o /dev/null
 // NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded, so the checks are of the counted program; confirm them against it.
@@ -15,7 +16,7 @@ idr.program @crash root(@Main.main) stage(first) {
       %s = idr.constant "one" : !idr.str
       idr.yield %s : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "unhandled input for Main.name" loc("Main.idr":3:1)
       ub.unreachable
     }

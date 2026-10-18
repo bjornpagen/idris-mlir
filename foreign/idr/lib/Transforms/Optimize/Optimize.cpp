@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-optimize: the ready set over the program, then the functions nothing
-// names any more erased, by upstream's symbol-dce.
+// idr-optimize: the ready set over the program. The functions nothing names
+// any more are upstream's symbol-dce's, which the pipeline runs after it.
 //
 // A pass on the program, as upstream's inliner is on its module: inlining
 // reads a sibling of the function it rewrites, which a nested pass may
@@ -16,22 +16,22 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
-#include "idr/Transforms/Canonicalize.h"
+#include "idr/Analysis/CallCycles.h"
+#include "idr/Analysis/Inline.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Identity.h"
 #include "idr/Transforms/Optimize.h"
+#include "idr/Transforms/Pipeline.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "mlir/IR/Remarks.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 
 #include <algorithm>
-#include <cassert>
-#include <optional>
 
 namespace idr {
 #define GEN_PASS_DEF_IDROPTIMIZE
@@ -43,8 +43,8 @@ using namespace mlir;
 // A pass statistic must have the layout the MLIR library gives it, which
 // holds the count: the pinned LLVM is built with LLVM_FORCE_ENABLE_STATS,
 // so its llvm-config.h says statistics count in our Release build too, and
-// idr-optimize's counts of what it inlined, capped, erased and made are
-// read off them.
+// idr-optimize's counts of what it inlined, capped and made are read off
+// them.
 static_assert(LLVM_ENABLE_STATS, "pass statistics need an LLVM built with LLVM_FORCE_ENABLE_STATS");
 
 void idr::optimize::buildInnerPipeline(OpPassManager &pm, const InnerRun &run) {
@@ -53,11 +53,16 @@ void idr::optimize::buildInnerPipeline(OpPassManager &pm, const InnerRun &run) {
   // taken up: a call of a function that only rebuilds its argument is gone
   // before anything weighs it.
   pm.addPass(createIdentity(run.set, counts.identityCalls));
-  pm.addPass(idr::createCanonicalizerPass(&run.effects));
-  // A call is opaque to canonicalize and CSE, which cannot read its callee;
-  // the summaries can, so the calls of pure callees go or merge here, and
-  // CSE then merges what their operands' merging made equal.
-  pm.addPass(createPureCalls(run.set, counts.pureErased, counts.pureMerged));
+  // Upstream's, which read a call's own effects: a call of a callee that
+  // only computes goes when nothing reads it, and merges with an equal one
+  // that dominates it. Region simplification would re-simplify the region
+  // tree after every pattern iteration, on every run of this pipeline on a
+  // body, at a cost that grows with the bodies inlining builds, for what
+  // cse and remove-dead-values already remove. The worklist is seeded top
+  // down, as upstream's canonicalizer seeds it.
+  pm.addPass(createCanonicalizerPass(
+      GreedyRewriteConfig().setUseTopDownTraversal().setRegionSimplificationLevel(
+          GreedySimplifyRegionLevel::Disabled)));
   pm.addPass(createCSEPass());
   // On what canonicalization and CSE left: a call whose arguments are
   // known constructors asks for its specialization and calls it.
@@ -74,19 +79,14 @@ namespace {
 // them and the statistics of this pass it counts into. The dialects the
 // steps make are this pass's to load, which it declares.
 struct Optimize : idr::impl::IdrOptimizeBase<Optimize> {
-  void runOnOperation() override {
-    idr::ProgramOp program = getOperation();
+  void runOnProgram(idr::ProgramOp program) override {
     SymbolTable &symbols = getAnalysis<SymbolTable>();
-    // What a call does is its callee's, found through the program's table,
-    // which the run keeps current.
-    const idr::CalleeEffects effects{symbols};
-    idr::optimize::ReadySet set(program);
-    // The ready set is the node table's schedule and its binding times.
-    const idr::specialize::Nodes nodes(set, set, effects);
-    const idr::optimize::InnerCounts counts{numIdentityCalls, numPureErased, numPureMerged,
-                                            numRedirected, numConstants, numNotConverged,
-                                            numCSE, numDCE};
-    const idr::optimize::InnerRun inner{set, nodes, effects, counts};
+    idr::optimize::ReadySet set(program, getAnalysis<idr::CallCycles>());
+    // The ready set is the node table's schedule.
+    const idr::specialize::Nodes nodes(set);
+    const idr::optimize::InnerCounts counts{numIdentityCalls, numRedirected, numConstants, numCSE,
+                                            numDCE};
+    const idr::optimize::InnerRun inner{set, nodes, counts};
     // Every function's analysis manager exists before any task, so a
     // pipeline's own nesting finds it instead of inserting it.
     for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
@@ -103,20 +103,10 @@ struct Optimize : idr::impl::IdrOptimizeBase<Optimize> {
     if (failed(ran))
       return signalPassFailure();
 
+    // Every function is final once the run succeeded.
     int64_t largest = 0;
     for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
-      if (const idr::optimize::Summary *summary = set.summaryOf(fn.getSymNameAttr()))
-        largest = std::max(largest, summary->facts.size);
-    // Every function no symbol use reaches from the root goes, by
-    // upstream's symbol-dce: a function's visibility is read off the
-    // program's root, public for it and private for every other.
-    auto functions = [&] { return llvm::range_size(program.getOps<idr::FuncOp>()); };
-    size_t before = functions();
-    OpPassManager dead(idr::ProgramOp::getOperationName());
-    dead.addPass(createSymbolDCEPass());
-    if (failed(runPipeline(dead, program)))
-      return signalPassFailure();
-    numErased += before - functions();
+      largest = std::max(largest, idr::inlineSize(fn));
     if (remark::detail::InFlightRemark finished = remark::analysis(
             program.getLoc(), remark::RemarkOpts::name("finished").category("idr-optimize")))
       finished << remark::metric("nodes", set.nodeCount()) << remark::metric("made", scheduler.made())

@@ -1,0 +1,8 @@
+NEEDS-ACCEPTANCE: that each test of Sem.names, run as programs/semantics/prim@<name>, compiles, prints the values its table computes and allocates nothing on the heap
+compile: exit 0
+artifacts: core module objects executable
+run: exit status as expected
+stdout: as expected
+stderr: empty
+universal: holds
+heap: nothing is allocated on the heap

@@ -11,19 +11,22 @@
 // In the owned stage a reference is duplicated only by idr.dup, so
 // exclusivity is provenance, read from the reference edges of each op
 // (idr/IR/Flow.h): a value is exclusive when its op makes it new and every
-// cell moved into a part of it is exclusive (a constructor of exclusive
-// fields), when a use of an exclusive value moves into it whole or out of
-// one of its parts (a change of quantity; a field an exclusive value was
-// taken apart into, and the token of that take), when it is a call's
-// result that every return makes exclusive or a parameter every caller
-// passes exclusive, or when it is a copy of static data built only of
-// atoms. So the pair of empty lists that span and splitAt give at the end
-// of their input joins the pair they build around an exclusive one, and
-// the join stays exclusive. Any other copy, a constant, a stack cell (the
-// frame's, so not new to anyone), a value no flow explains (a share's,
-// which forgets what its operand alone reached) and a value from a caller
-// the program does not show are shared, and so is every result of an op
-// that declares no flow. The analysis is a sparse forward dataflow on
+// cell moved into a part of it is exclusive (an unboxed constructor of
+// exclusive fields), when a use of an exclusive value moves into it whole
+// or out of one of its parts (a change of quantity; a field an exclusive
+// value was taken apart into, and the token of that take; the box
+// idr.cell.init writes into its cell, of exclusive fields), when it is a
+// call's result that every return makes exclusive or a parameter every
+// caller passes exclusive, or when it is a copy of static data built only
+// of atoms. A cell is new when idr.cell.new makes it or idr.cell.recycle
+// gives it the token's. So the pair of empty lists that span and splitAt
+// give at the end of their input joins the pair they build around an
+// exclusive one, and the join stays exclusive. Any other copy, a constant,
+// a cell of the frame (idr.cell.stack: the frame's, so not new to anyone,
+// and so neither is the box built in it), a value no flow explains (a
+// share's, which forgets what its operand alone reached) and a value from
+// a caller the program does not show are shared, and so is every result of
+// an op that declares no flow. The analysis is a sparse forward dataflow on
 // MLIR's solver, optimistic as SCCP is: a value is exclusive until a path
 // shares it, which is sound by induction on the run. It reads the dups
 // placement made, so it runs after placement; what it proves idr-rc writes
@@ -68,7 +71,7 @@ using Sharing = Exclusivity::Sharing;
 FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Copies &copies) {
   exclusivity::Calls calls(program, copies);
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
-  exclusivity::loadAnalyses(solver, program, calls);
+  exclusivity::loadAnalyses(solver, calls);
   if (mlir::failed(solver.initializeAndRun(program)))
     return failure();
 
@@ -94,12 +97,14 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
   // ran (a function only ever starts to run) but the program never does:
   // nothing of it is live, and none of its calls is any function's caller.
   OnceWorklist<FuncOp> reached;
-  for (FuncOp fn : program.getOps<FuncOp>())
+  for (FuncOp fn : program.getOps<FuncOp>()) {
+    out.returnsOf.try_emplace(fn);
     if (const auto *callers = solver.lookupState<PredecessorState>(solver.getProgramPointAfter(fn));
         callers && !callers->allPredecessorsKnown())
       (void)reached.push(fn);
+  }
   // The calls that run, by the function each runs.
-  DenseMap<Operation *, SmallVector<Operation *>> runsFrom;
+  DenseMap<FuncOp, SmallVector<CallOp>> runsFrom;
   while (std::optional<FuncOp> fn = reached.pop())
     fn->walk([&](Block *block) {
       if (!executable(block))
@@ -127,10 +132,10 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
               solver.lookupState<PredecessorState>(solver.getProgramPointAfter(named));
           return callers && callers->allPredecessorsKnown();
         }))
-      out.callersOf[fn] = from == runsFrom.end() ? SmallVector<Operation *>() : from->second;
+      out.callersOf[fn] = from == runsFrom.end() ? SmallVector<CallOp>() : from->second;
     if (from == runsFrom.end())
       continue;
-    SmallVector<Operation *> &returns = out.returnsOf[fn];
+    SmallVector<ReturnOp> &returns = out.returnsOf[fn];
     for (ReturnOp ret : calls.returns(fn))
       if (out.liveBlocks.contains(ret->getBlock()))
         returns.push_back(ret);
@@ -146,9 +151,10 @@ Sharing Exclusivity::of(Value value) const {
 // A value its op moves one of its uses into whole, at the use's carrier
 // (a change of quantity), is that use's value, and is proved as that is,
 // solved or made after the solve. A share's value is reached whole by
-// nothing, so the solve found it shared.
+// nothing, so the solve found it shared. Only an owned value takes the
+// grade: a cell is followed but has none.
 bool Exclusivity::proves(Value value) const {
-  if (!ownership::followed(value))
+  if (!isOwned(value.getType()) || !ownership::followed(value))
     return false;
   if (auto flow = dyn_cast_or_null<FlowOpInterface>(value.getDefiningOp())) {
     FlowEdges edges;
@@ -173,18 +179,11 @@ std::optional<FuncOp> Exclusivity::target(CallOp call) const {
   return it->second;
 }
 
-std::optional<ArrayRef<Operation *>> Exclusivity::callers(FuncOp fn) const {
+std::optional<ArrayRef<CallOp>> Exclusivity::callers(FuncOp fn) const {
   auto it = callersOf.find(fn);
   if (it == callersOf.end())
     return std::nullopt;
-  return ArrayRef<Operation *>(it->second);
-}
-
-std::optional<ArrayRef<Operation *>> Exclusivity::returns(FuncOp fn) const {
-  auto it = returnsOf.find(fn);
-  if (it == returnsOf.end())
-    return std::nullopt;
-  return ArrayRef<Operation *>(it->second);
+  return ArrayRef<CallOp>(it->second);
 }
 
 } // namespace idr

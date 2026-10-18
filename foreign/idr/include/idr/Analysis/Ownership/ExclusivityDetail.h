@@ -72,8 +72,8 @@ inline mlir::Block *entryOf(FuncOp fn) { return &fn.getBody().front(); }
 // by either name: such a call runs the copy when every value it passes at a
 // followed parameter is exclusive, and the original otherwise. A verified
 // call names a function of the program, so every name a call holds is
-// here. What each function returns from is the idr.return ending a block
-// of its body.
+// here. What each function returns from is the idr.return ending its body,
+// none when the body ends in ub.unreachable.
 class Calls {
 public:
   struct Pair {
@@ -99,12 +99,11 @@ private:
   llvm::DenseMap<FuncOp, llvm::SmallVector<ReturnOp>> returnsOf;
 };
 
-// Loads into `solver` the analyses of one solve of `program`, whose calls
-// go as `calls` says, which must outlive the solver's run: the run fills a
-// CellsLattice for each value and a Runs for each function, beside
-// upstream's Executable for each block and PredecessorState for each
-// function.
-void loadAnalyses(mlir::DataFlowSolver &solver, ProgramOp program, const Calls &calls);
+// Loads into `solver` the analyses of one solve, whose calls go as `calls`
+// says, which must outlive the solver's run: the run fills a CellsLattice
+// for each value and a Runs for each function, beside upstream's Executable
+// for each block and PredecessorState for each function.
+void loadAnalyses(mlir::DataFlowSolver &solver, const Calls &calls);
 
 } // namespace idr::detail::exclusivity
 

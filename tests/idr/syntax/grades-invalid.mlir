@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that a grade of the world, at (many, own) or at (one, plain), and a grade of a destination are each refused by the one rule, "which is used exactly once by its type".
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // A grade written out is checked as any other: the verifier's canonical
 // forms, and the parser's spellings of a quantity.
@@ -17,9 +18,43 @@ idr.program @"grades-invalid" root(@root) stage(first) {
 
 // -----
 
+// A type whose every value is used exactly once by the type alone takes
+// no grade, whichever grade is written: one rule for the world and a
+// destination.
 idr.program @"grades-invalid" root(@root) stage(owned) {
-  // expected-error @+1 {{expects the world at (one, plain)}}
-  idr.func @world(%a0: !idr.q<many, own, !idr.world_carrier>) {
+  // expected-error @+1 {{which is used exactly once by its type}}
+  idr.func @world(%a0: !idr.q<many, own, !idr.world>) {
+    idr.crash "no body"
+    ub.unreachable
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @"grades-invalid" root(@root) stage(first) {
+  // expected-error @+1 {{which is used exactly once by its type}}
+  idr.func @world(%a0: !idr.lin<!idr.world>) {
+    idr.crash "no body"
+    ub.unreachable
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+!T = !idr.data<"T", plain [@A()]>
+idr.program @"grades-invalid" root(@root) stage(first) {
+  // expected-error @+1 {{which is used exactly once by its type}}
+  idr.func @dest(%a0: !idr.lin<!idr.dest<!idr.box<!T>>>) {
     idr.crash "no body"
     ub.unreachable
   }

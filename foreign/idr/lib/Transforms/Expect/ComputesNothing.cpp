@@ -18,19 +18,15 @@ namespace idr::expect {
 
 // Every op left in every copy of @f is a guard, an op that never returns,
 // ub.unreachable or a block's terminator.
-LogicalResult computesNothing(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "computes-nothing";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult computesNothing(const Request<Functions> &request) {
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.functions)
     for (Block &block : fn.getFunctionBody())
       for (Operation &op : block) {
         if (isa<GuardOpInterface, ub::UnreachableOp>(op) || op.hasTrait<NoReturn>() ||
             op.hasTrait<OpTrait::IsTerminator>())
           continue;
-        fail(op.getLoc(), property) << op.getName() << " is left in " << where(fn);
+        fail(op.getLoc(), request.property) << op.getName() << " is left in " << where(fn);
         held = false;
       }
   return success(held);

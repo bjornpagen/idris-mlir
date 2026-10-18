@@ -122,19 +122,21 @@ e2e_io() {
   fi
 
   # shellcheck disable=SC2046 # one path per object, none with a space
-  universal "$here" "$io_module" "$io_dumps" $(artifact_files "$work/ours" prog objects)
+  universal "$io_module" "$io_dumps" $(artifact_files "$work/ours" prog objects)
   heap_free "$io_fixture" "$io_dumps"
   module_checks "$io_fixture" "$io_module" "$io_dumps" "$(artifact_file "$work/ours" prog core)"
 }
 
-# sem_case NAME: the generated semantics test NAME, an e2e fixture built in
-# the work directory: its Prog.idr and its expected-stdout are the runner's
-# (tests/Sem.idr), which computes every case's value from what the
-# primitive means and states once what the program prints when all agree,
-# and its Main.idr prints Prog.result. Main is partial: Prog.result may
-# divide, and Idris does not hold a primitive division covering, since its
-# divisor may be 0. Its cases are comparisons of fixed-width integers, which
-# never need a heap cell (heap-free).
+# sem_case NAME: the generated semantics test NAME, one run of
+# tests/programs/semantics/prim, which the runner runs once per test of
+# tests/Sem.idr's table, NAME its parameter: an e2e fixture built in the
+# work directory, whose Prog.idr and expected-stdout are the runner's,
+# which computes every case's value from what the primitive means and
+# states once what the program prints when all agree, and whose Main.idr
+# prints Prog.result. Main is partial: Prog.result may divide, and Idris
+# does not hold a primitive division covering, since its divisor may be 0.
+# Its cases are comparisons of fixed-width integers, which never need a
+# heap cell (heap-free).
 sem_case() {
   mkdir "$work/sem"
   if ! "$runtests" --sem-program "$1" > "$work/sem/Prog.idr" 2> "$work/sem.err" ||
@@ -158,12 +160,11 @@ MAIN
 }
 
 # module_checks FIXTURE EMITTED DUMPS CORE: every check of the
-# compilation's modules that the fixture holds: translate.check, FileChecked
-# on full Core (CORE); mlir.check (check_mlir); mlir.expect (check_expect);
-# covers, the prelude module whose every export the program uses
-# (covers_prelude, on the program's Core and its source).
+# compilation's modules that the fixture holds: mlir.check (check_mlir);
+# mlir.expect (check_expect); covers, the prelude module whose every
+# export the program uses (covers_prelude, on the program's Core, CORE,
+# and its source).
 module_checks() {
-  [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "$4"
   [ -f "$1/mlir.check" ] && check_mlir "$1/mlir.check" "$2" "$3"
   [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
   [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "$4" "$1"

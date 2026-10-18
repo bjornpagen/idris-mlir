@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.constant` writing its type first), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
@@ -27,7 +28,7 @@ idr.program @"unreached-cell" root(@Prog.main) stage(higher) {
     return %r : i64
   }
   idr.func @Prog.main() -> i64 {
-    %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
+    %nil = idr.constant !idr.box<!List> #idr.con<!List, @Nil, []>
     %c = arith.constant 7 : i64
     %r = idr.call @first(%nil, %c) : (!idr.box<!List>, i64) -> i64
     return %r : i64

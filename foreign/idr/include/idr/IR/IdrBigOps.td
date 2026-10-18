@@ -33,8 +33,9 @@ class Idr_BigBinaryOp<string mnemonic, string what, list<Trait> traits = []>
   let arguments = (ins Idr_BigRead:$lhs, Idr_BigRead:$rhs);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<BigRead>($lhs, type($lhs)) `,` custom<BigRead>($rhs, type($rhs)) attr-dict
-    custom<BigResult>(type($result))
+    custom<Read>($lhs, type($lhs), "::idr::BigType::get($_ctxt)") `,`
+    custom<Read>($rhs, type($rhs), "::idr::BigType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::BigType::get($_ctxt)")
   }];
 }
 
@@ -56,7 +57,7 @@ class Idr_BigNaturalOp<string mnemonic, string what, string wordOp>
   // The operands' type, written for naturals; the result's when it is
   // the operands' at another grade: `-> !idr.own<!idr.nat>`.
   let assemblyFormat = [{
-    $lhs `,` $rhs attr-dict custom<BigResult>(type($lhs))
+    $lhs `,` $rhs attr-dict custom<ResultAtGrade>(type($lhs), "::idr::BigType::get($_ctxt)")
     custom<NaturalResult>(type($result), ref(type($lhs)))
   }];
 }
@@ -69,15 +70,12 @@ def Idr_BigAndOp : Idr_BigBinaryOp<"and", "the bitwise and">;
 def Idr_BigOrOp : Idr_BigBinaryOp<"or", "the bitwise or">;
 def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
 
-// Integer's shifts: the value's infinite two's complement moved by the
-// amount, left or right, the other way when the amount is negative. A left
-// shift is value * 2^amount and a right shift the floor of value / 2^amount,
-// so every amount has a value, and a shift toward zero or of 0 has one for
-// any amount; one too large to hold is exhausted memory, unmodelled as it is
-// for idr.big.mul, so the ops get no Idr_MayCrash. The amount is an Integer,
-// as Idris types the primitive; base's Bits Integer passes a Nat's. A left
-// shift's result may be far larger than its operands, so its folder folds
-// only a constant within idr::constantBytes.
+// Integer's shifts. Every amount has a value, the runtime's; one too large
+// to hold is exhausted memory, unmodelled as it is for idr.big.mul, so the
+// ops get no Idr_MayCrash. The amount is an Integer, as Idris types the
+// primitive; base's Bits Integer passes a Nat's. A left shift's result may
+// be far larger than its operands, so its folder folds only a constant
+// within idr::constantBytes.
 class Idr_BigShiftOp<string mnemonic, bit isLeft>
     : Idr_Op<"big." # mnemonic, [Idr_Runtime<"idris_rt_big_" # mnemonic>, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
@@ -85,8 +83,9 @@ class Idr_BigShiftOp<string mnemonic, bit isLeft>
   let arguments = (ins Idr_BigRead:$value, Idr_BigRead:$amount);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<BigRead>($value, type($value)) `,` custom<BigRead>($amount, type($amount)) attr-dict
-    custom<BigResult>(type($result))
+    custom<Read>($value, type($value), "::idr::BigType::get($_ctxt)") `,`
+    custom<Read>($amount, type($amount), "::idr::BigType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::BigType::get($_ctxt)")
   }];
   let extraClassDeclaration = "static constexpr bool left = "
                               # !if(isLeft, "true", "false") # ";";
@@ -102,15 +101,17 @@ def Idr_BigShrOp : Idr_BigShiftOp<"shr", 0> {
 // The divisor is not zero: idr.check.nonzero guards it.
 class Idr_BigDivisionOp<string mnemonic, string what>
     : Idr_Op<"big." # mnemonic, [Idr_Runtime<"idris_rt_big_" # mnemonic>, Idr_Primitive,
-                                 Idr_Guarded<"rhs", "Nonzero", "division by zero">]> {
+                                 Idr_Guarded<["rhs"], Idr_Nonzero, "division by zero">,
+                                 Idr_GuardedOp]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs, as Integer's div and mod, by a divisor that is not zero";
   let arguments = (ins Idr_BigRead:$lhs, Idr_BigRead:$rhs);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<BigRead>($lhs, type($lhs)) `,` custom<BigRead>($rhs, type($rhs)) attr-dict
-    custom<BigResult>(type($result))
+    custom<Read>($lhs, type($lhs), "::idr::BigType::get($_ctxt)") `,`
+    custom<Read>($rhs, type($rhs), "::idr::BigType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::BigType::get($_ctxt)")
   }];
 }
 
@@ -124,7 +125,8 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_Runtime<"idris_rt_big_neg">, Idr_Primi
   let arguments = (ins Idr_BigRead:$value);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<BigRead>($value, type($value)) attr-dict custom<BigResult>(type($result))
+    custom<Read>($value, type($value), "::idr::BigType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::BigType::get($_ctxt)")
   }];
 }
 
@@ -142,7 +144,8 @@ def Idr_BigPredOp : Idr_Op<"big.pred", [Idr_Runtime<"idris_rt_big_pred">,
   let arguments = (ins Idr_NatRead:$value);
   let results = (outs Res<Idr_NatValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<NatRead>($value, type($value)) attr-dict custom<NatResult>(type($result))
+    custom<Read>($value, type($value), "::idr::NatType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::NatType::get($_ctxt)")
   }];
 }
 
@@ -157,13 +160,16 @@ def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_Runtime<"idris_rt_big_cmp">,
   let arguments = (ins Idr_CmpPredicate:$predicate, Idr_BigOrNatRead:$lhs,
                        Idr_BigOrNatRead:$rhs);
   let results = (outs I1:$result);
-  let assemblyFormat = "$predicate $lhs `,` $rhs attr-dict custom<BigResult>(type($lhs))";
+  let assemblyFormat = [{
+    $predicate $lhs `,` $rhs attr-dict
+    custom<ResultAtGrade>(type($lhs), "::idr::BigType::get($_ctxt)")
+  }];
 }
 
 // A natural as the Integer it is (Nat's natToInteger): the same big under
-// another type. It costs nothing at runtime, and hands its operand's
+// another type, so it has no runtime form, and it hands its operand's
 // reference to its result.
-def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Idr_ConsumesOnly<"0">, Idr_Primitive,
+def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Idr_ConsumesOnly, Idr_NoRuntimeForm, Idr_Primitive,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     TypesMatchWith<"the Integer is the natural at its grade", "value", "result",
                    "::idr::graded(::idr::gradeOf($_self), ::idr::BigType::get($_self.getContext()))">,
@@ -173,7 +179,9 @@ def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Idr_ConsumesOnly<"0">, Idr_Primitive,
   let summary = "a natural as an Integer";
   let arguments = (ins Idr_NatValue:$value);
   let results = (outs Idr_BigValue:$result);
-  let assemblyFormat = "$value attr-dict custom<NatResult>(type($value))";
+  let assemblyFormat = [{
+    $value attr-dict custom<ResultAtGrade>(type($value), "::idr::NatType::get($_ctxt)")
+  }];
 }
 
 // The only op that makes a natural of an Integer, so the one that must
@@ -187,24 +195,36 @@ def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_Runtime<"idris_rt_nat_from_bi
   let arguments = (ins Idr_BigRead:$value);
   let results = (outs Res<Idr_NatValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<BigRead>($value, type($value)) attr-dict custom<NatResult>(type($result))
+    custom<Read>($value, type($value), "::idr::BigType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::NatType::get($_ctxt)")
   }];
 }
 
-// An integer as an Integer, or, read as unsigned, as a natural: an unsigned
-// integer is never negative, so the verifier admits a natural result only
-// for one (idr-narrow writes it where a natural leaves a word).
-def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_Runtime<"idris_rt_big_from_int">, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+// An integer as an Integer, read as the op's signedness says, to which the
+// operand's constraint extends its C word. An unsigned integer is never
+// negative, so from_uint may also give a natural (idr-narrow writes one
+// where a natural leaves a word); from_sint gives only an Integer, so a
+// natural of a signed integer cannot be written.
+class Idr_BigFromIntOp<string mnemonic, bit isSigned>
+    : Idr_Op<"big." # mnemonic, [Idr_Runtime<"idris_rt_big_from_int" # !if(isSigned, "_s", "_u")>,
+        DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
-  let hasVerifier = 1;
-  let summary = "an integer as a big or, unsigned, as a natural";
-  let arguments = (ins UnitAttr:$is_signed, Idr_Int:$value);
-  let results = (outs Res<Idr_BigOrNatValue, "", [MemAlloc]>:$result);
+  let arguments = (ins !if(isSigned, Idr_SInt, Idr_UInt):$value);
+  let results = (outs Res<!if(isSigned, Idr_BigValue, Idr_BigOrNatValue), "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<Signedness>($is_signed) `` $value attr-dict `:` type($value)
-    custom<BigResult>(type($result))
+    $value attr-dict `:` type($value)
+    custom<ResultAtGrade>(type($result), "::idr::BigType::get($_ctxt)")
   }];
+  let extraClassDeclaration = "static constexpr bool isSigned = "
+                              # !if(isSigned, "true", "false") # ";";
+}
+
+def Idr_BigFromSIntOp : Idr_BigFromIntOp<"from_sint", 1> {
+  let summary = "a signed integer as a big";
+}
+def Idr_BigFromUIntOp : Idr_BigFromIntOp<"from_uint", 0> {
+  let summary = "an unsigned integer as a big or a natural";
 }
 
 // The big or natural of a word proved to fit the small range: idr-narrow
@@ -212,7 +232,8 @@ def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_Runtime<"idris_rt_big_from_in
 // no reference and allocates nothing, so counting has nothing to do for it.
 // A word outside the small range has no big here, as an overflowing nsw add
 // has no sum: the pass that writes the op is the proof.
-def Idr_BigSmallOp : Idr_Op<"big.small", [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_BigSmallOp : Idr_Op<"big.small", [Pure, Idr_Runtime<"idris_rt_small_word">,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let hasFolder = 1;
   let summary = "the small big or natural of a word that fits";
   let arguments = (ins I64:$value);
@@ -228,17 +249,23 @@ def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_Runtime<"idris_rt_big_to_in
   let summary = "a big or a natural as an integer, wrapped to its width";
   let arguments = (ins Idr_BigOrNatRead:$value);
   let results = (outs Idr_Int:$result);
-  let assemblyFormat = "$value attr-dict `:` type($result) custom<BigResult>(type($value))";
+  let assemblyFormat = [{
+    $value attr-dict `:` type($result) custom<ResultAtGrade>(type($value), "::idr::BigType::get($_ctxt)")
+  }];
 }
 
 // The Double is finite: idr.check.finite guards it.
-def Idr_BigFromDoubleOp : Idr_Op<"big.from_double", [Idr_Runtime<"idris_rt_big_from_double">, Idr_Guarded<"value", "Finite", "cast of a non-finite Double">, Idr_Primitive]> {
+def Idr_BigFromDoubleOp : Idr_Op<"big.from_double", [Idr_Runtime<"idris_rt_big_from_double">,
+    Idr_Guarded<["value"], Idr_Finite, "cast of a non-finite Double">, Idr_GuardedOp,
+    Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "a finite Double truncated to a big";
   let arguments = (ins F64:$value);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict custom<BigResult>(type($result))";
+  let assemblyFormat = [{
+    $value attr-dict custom<ResultAtGrade>(type($result), "::idr::BigType::get($_ctxt)")
+  }];
 }
 
 def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_Runtime<"idris_rt_big_to_double">, Idr_Primitive]> {
@@ -247,17 +274,19 @@ def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_Runtime<"idris_rt_big
   let summary = "a big as the nearest Double";
   let arguments = (ins Idr_BigRead:$value);
   let results = (outs F64:$result);
-  let assemblyFormat = "custom<BigRead>($value, type($value)) attr-dict";
+  let assemblyFormat = "custom<Read>($value, type($value), \"::idr::BigType::get($_ctxt)\") attr-dict";
 }
 
-def Idr_BigShowOp : Idr_Op<"big.show", [Idr_Runtime<"idris_rt_big_show">, Idr_Primitive]> {
+def Idr_BigShowOp : Idr_Op<"big.show", [Idr_Runtime<"idris_rt_big_show">, Idr_Primitive,
+    DeclareOpInterfaceMethods<Idr_StrBuilderOpInterface>]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "the decimal text of a big";
   let arguments = (ins Idr_BigRead:$value);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<BigRead>($value, type($value)) attr-dict custom<StrResult>(type($result))
+    custom<Read>($value, type($value), "::idr::BigType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::StrType::get($_ctxt)")
   }];
 }
 
@@ -268,16 +297,28 @@ def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_Runtime<"idris_rt_big_from_st
   let arguments = (ins Idr_StrRead:$str);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
-    custom<StrRead>($str, type($str)) attr-dict custom<BigResult>(type($result))
+    custom<Read>($str, type($str), "::idr::StrType::get($_ctxt)") attr-dict
+    custom<ResultAtGrade>(type($result), "::idr::BigType::get($_ctxt)")
   }];
 }
 
 def Idr_ArrayValue : Type<CPred<"::idr::isArray(::idr::unrestricted($_self))">,
                           "an array a world orders, memref<?xE, #idr.world> or memref<E, #idr.world>, at any grade",
                           "::mlir::Type">;
-// What has a length: an array a world orders of one dimension, as a buffer is.
+// What has a length: an array a world orders of one dimension, as a buffer
+// is. The runtime's C ABI holds one as its cell, whose length a guard
+// counts.
 def Idr_Rank1ArrayValue : Type<CPred<"::idr::isRank1Array(::idr::unrestricted($_self))">,
                                "an array a world orders of one dimension at any grade",
-                               "::mlir::Type">;
+                               "::mlir::Type">,
+                          Idr_AbiWord<"Buffer", Idr_LengthOf>;
+// A buffer: an array a world orders of one dimension whose elements are
+// bytes, as every buffer op reads and writes them.
+def Idr_ByteBuffer : Type<And<[Idr_Rank1ArrayValue.predicate,
+                               CPred<"::llvm::cast<::mlir::MemRefType>(::idr::unrestricted($_self))"
+                                     ".getElementType().isInteger(8)">]>,
+                          "a buffer of bytes, an array a world orders of i8 of one dimension, at any grade",
+                          "::mlir::Type">,
+                     Idr_AbiWord<"Buffer", Idr_LengthOf>;
 
 #endif // IDR_BIG_OPS

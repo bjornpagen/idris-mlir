@@ -62,7 +62,7 @@ struct ForceInOneCase : OpRewritePattern<SuspendOp> {
     for (OpOperand &use : suspend.getResult().getUses()) {
       auto force = dyn_cast<ForceOp>(use.getOwner());
       Operation *parent = force ? force->getParentOp() : nullptr;
-      if (!force || !isa<MatchOp, MatchLitOp>(parent) || (match && match != parent))
+      if (!force || !isa<MatchOpInterface>(parent) || (match && match != parent))
         return failure();
       match = parent;
       forces.push_back(force);
@@ -87,38 +87,12 @@ struct ForceInOneCase : OpRewritePattern<SuspendOp> {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// idr.delay
-//===----------------------------------------------------------------------===//
-
-// The cell holds the operand's value; a world is never held.
-LogicalResult DelayOp::verify() {
-  if (isWorld(getValue().getType()))
-    return emitOpError("holds a world; a world passes only as an argument or result");
-  Type value = cast<LazyType>(unrestricted(getResult().getType())).getValue();
-  if (unrestricted(value) != unrestricted(getValue().getType()))
-    return emitOpError("holds ") << getValue().getType() << " in " << getResult().getType();
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // idr.closure
 //===----------------------------------------------------------------------===//
 
-// Worlds pass only as arguments and results, never
-// in a closure.
-LogicalResult ClosureOp::verify() {
-  if (llvm::any_of(getCaptures().getTypes(), isWorld))
-    return emitOpError("captures a world; a world passes only as an argument or result");
-  // A closure holding a linear value is used once as well: applied where
-  // it is made, or entered into a linear type (holdsLinear).
-  if (holdsLinear(getResult()) && !takenOnce(getResult()))
-    return emitOpError("captures a linear value, so its one use must apply it or enter it "
-                       "into a linear type");
-  return success();
-}
-
 // The callee's leading parameters are the captures, and the rest of its
-// signature is the closure's type.
+// signature is the closure's carrier, whatever quantity the captures give
+// it (Idr_LinearWhenACaptureIs).
 LogicalResult ClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(*this, getCalleeAttr());
   if (!fn)
@@ -131,7 +105,7 @@ LogicalResult ClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
            << getCaptures().getTypes() << ", which are not the leading parameters of "
            << getCalleeAttr();
   auto expected = FnType::get(getContext(), inputs.drop_front(captures), fn.getResultTypes());
-  if (expected != getType())
+  if (expected != unrestricted(getType()))
     return emitOpError("has type ") << getType() << ", but a closure of " << getCalleeAttr()
                                     << " with these captures is " << expected;
   return success();
@@ -152,19 +126,8 @@ OpFoldResult ClosureOp::fold(FoldAdaptor adaptor) {
 // idr.suspend
 //===----------------------------------------------------------------------===//
 
-LogicalResult SuspendOp::verify() {
-  if (llvm::any_of(getCaptures().getTypes(), isWorld))
-    return emitOpError("captures a world; a world passes only as an argument or result");
-  // A suspension holding a linear value is used once as well: forced
-  // where it is made, or entered into a linear type (holdsLinear).
-  if (holdsLinear(getResult()) && !takenOnce(getResult()))
-    return emitOpError("captures a linear value, so its one use must force it or enter it "
-                       "into a linear type");
-  return success();
-}
-
 // Every parameter is a capture, and the function's one result is the
-// suspension's value. A world never is a capture.
+// suspension's value.
 LogicalResult SuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(*this, getCalleeAttr());
   if (!fn)
@@ -198,26 +161,6 @@ OpFoldResult SuspendOp::fold(FoldAdaptor adaptor) {
 // idr.force
 //===----------------------------------------------------------------------===//
 
-// The value a suspension holds.
-LogicalResult ForceOp::verify() {
-  Type value = cast<LazyType>(unrestricted(getSuspension().getType())).getValue();
-  if (unrestricted(getResult().getType()) != unrestricted(value))
-    return emitOpError("forces ") << getSuspension().getType() << " to " << getResult().getType();
-  return success();
-}
-
-// A force is strict, as a call is: its first entry runs a function nothing
-// here bounds, which may crash or not return, each ordered with output as a
-// call that may do either is. The write that shares the value is the
-// force's own, not a second effect. Not speculatable, so it is not moved
-// onto a path that did not force.
-void ForceOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), DivergenceResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
-}
-
 // The force of an evaluated suspension is the value it holds. A linear
 // value is taken this way only by the suspension's one force, which would
 // otherwise use it twice.
@@ -235,19 +178,4 @@ OpFoldResult ForceOp::fold(FoldAdaptor) {
 
 void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   results.add<ForceOfOneUse, ForceInOneCase>(context);
-}
-
-//===----------------------------------------------------------------------===//
-// idr.memo.settle
-//===----------------------------------------------------------------------===//
-
-// The value is what the cell's Forced state holds: the one field the
-// body's rules give that state, in the memo sum the cell's type is of.
-LogicalResult MemoSettleOp::verify() {
-  DataType memo = cast<BoxType>(unrestricted(getCell().getType())).getData();
-  Type forced = memo.getCtor(memo.getForcedTag()).fields.front();
-  if (unrestricted(getValue().getType()) != unrestricted(forced))
-    return emitOpError("settles ") << getCell().getType() << " with " << getValue().getType()
-                                   << ", where its Forced state holds " << forced;
-  return success();
 }

@@ -5,46 +5,31 @@
 // a quantity Idris proved, or widens what a function may do, would pass
 // unnoticed until something downstream miscompiles. MLIR's pass
 // instrumentation sees every pass at its boundary: before a pass on the
-// module or on its idr.program it keeps a snapshot of the module, and
-// after the pass it checks the relations no correct pass breaks between
-// the snapshot and the module, failing the pass and naming it when one is
-// broken. A relation idr-expect states is idr-expect's definition, called;
-// the others compare what the functions the pass kept declare. A pass on
-// each function is checked as the group its nest runs on the program.
-// idris-mlir-opt installs it under --idr-contracts; idris-mlir never does.
+// module or on its idr.program it keeps a copy of the module, and after
+// the pass it checks the relations no correct pass breaks between the copy
+// and the module, failing the pass and naming it when one is broken. A
+// relation idr-expect states is idr-expect's typed check, called with the
+// copy; the others compare each function the pass kept with its copy. A
+// pass on each function is checked as the group its nest runs on the
+// program. idris-mlir-opt installs it under --idr-contracts; idris-mlir
+// never does.
 #ifndef IDR_TRANSFORMS_CONTRACTS_H
 #define IDR_TRANSFORMS_CONTRACTS_H
 
-#include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Expect.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/FileUtilities.h"
 
-#include <memory>
 #include <mutex>
-#include <string>
 
 namespace idr {
 
-// What a function declares that every pass keeping it keeps: what a run
-// of it may do, and the quantity of each parameter and each result.
-struct FunctionFacts {
-  idr::Effect effects;
-  llvm::SmallVector<idr::Quantity> parameters, results;
-};
-
-// The module before one run of a pass: the pass, the module printed with
-// its locations to a file that goes when the snapshot goes (the form
-// idr-expect's quantities-kept reads), and the facts of each function of
-// its program, by symbol.
+// The module before one run of a pass: the pass, and a clone of the module,
+// the one copy of the state before it, which goes when the snapshot goes.
 struct Snapshot {
   mlir::Pass *pass = nullptr;
-  std::unique_ptr<llvm::FileRemover> printed;
-  std::string path;
-  llvm::DenseMap<mlir::StringAttr, FunctionFacts> functions;
+  expect::Module before;
 };
 
 class ContractInstrumentation final : public mlir::PassInstrumentation {

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The passes of the two summaries. idr-effects writes what each function
-// of a first-order program may do, as its `effects`, with the driver the
-// ready set runs on each component. idr-constants is the last step of
-// idr-optimize's inner pipeline (InnerPasses.td): one function's
-// constants, its calls' results taken from their callees' summaries.
+// of a first-order program may do, as its `effects` and every call's of it,
+// with the driver the ready set runs on each component. idr-constants is
+// the last step of idr-optimize's inner pipeline (InnerPasses.td): one
+// function's constants, its calls' results taken from their callees'
+// summaries.
 #ifndef IDR_TRANSFORMS_EFFECTS_H
 #define IDR_TRANSFORMS_EFFECTS_H
 

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)` and `idr.constant` writing its type first), parses and passes as before.
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops),idr-narrow))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=word-loop=@parity -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)),idr-expect{holds=word-loop=@parity})' -o /dev/null 2> %t.tagged.err
@@ -18,7 +19,7 @@ idr.program @descending root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %odd : i1
     }
-    default {
+    default(%d: !idr.nat) {
       %k = idr.big.pred %n
       %true = arith.constant true
       %flip = arith.xori %odd, %true : i1
@@ -33,9 +34,9 @@ idr.program @descending root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %acc : !idr.nat
     }
-    default {
+    default(%d: !idr.nat) {
       %k = idr.big.pred %n
-      %two = idr.constant #idr.big<2> : !idr.nat
+      %two = idr.constant !idr.nat #idr.big<2>
       %more = idr.big.add %acc, %two : !idr.nat
       %s = idr.call @count(%k, %more) : (!idr.nat, !idr.nat) -> !idr.nat
       idr.yield %s : !idr.nat
@@ -46,7 +47,7 @@ idr.program @descending root(@root) stage(first) {
   idr.func @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
     %false = arith.constant false
     %p = idr.call @parity(%n, %false) : (!idr.nat, i1) -> i1
-    %zero = idr.constant #idr.big<0> : !idr.nat
+    %zero = idr.constant !idr.nat #idr.big<0>
     %c = idr.call @count(%n, %zero) : (!idr.nat, !idr.nat) -> !idr.nat
     return %p, %c : i1, !idr.nat
   }

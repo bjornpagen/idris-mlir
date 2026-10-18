@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the memo cell is an idr.cell.new and its idr.cell.init (S3); upstream still takes the program to the LLVM dialect alone.
 // RUN: idris-mlir-opt %s --idr-lower --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=in-llvm,lowered,direct-calls,calls=@Thunk.force:@add,calls=@Prog.main:@Thunk.force -o /dev/null
 // NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle and the dispatch idr-defunctionalize makes.
@@ -34,7 +35,8 @@ idr.program @"to-llvm" root(@Prog.main) stage(owned) {
   idr.func @Prog.main() -> i64 {
     %c = idr.constant #idr.con<!Thunk, @add, [40, 2]> : !idr.box<!Thunk>
     %two = arith.constant 2 : i64
-    %d = idr.con !idr.own<!idr.box<!Thunk>> @add(%two : i64, %two : i64)
+    %k = idr.cell.new : !idr.cell<!idr.box<!Thunk>, @add>
+    %d = idr.cell.init %k : !idr.cell<!idr.box<!Thunk>, @add> (%two : i64, %two : i64)
     %e = idr.borrow %d : !idr.own<!idr.box<!Thunk>>
     %r = idr.call @Thunk.force(%c) : (!idr.q<many, borrow, !idr.box<!Thunk>>) -> i64
     %s = idr.call @Thunk.force(%e) : (!idr.q<many, borrow, !idr.box<!Thunk>>) -> i64

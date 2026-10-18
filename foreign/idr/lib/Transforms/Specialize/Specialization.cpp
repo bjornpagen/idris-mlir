@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // A specialization node's function: its owner's final body with the static
 // parts of the key substituted for its parameters, whose new parameters
-// are the key's holes, parameter i holding hole i.
+// are the key's holes, parameter i holding the i-th hole in pre-order.
 //
 // It is built from the key and the owner alone, never from a call that
 // asked for it, so every schedule builds the same function: each op it
@@ -32,7 +32,7 @@ FailureOr<idr::FuncOp> buildSpec(idr::FuncOp from, SpecKeyAttr key, StringAttr n
   // it; what it may do is written once its component is final.
   auto clone = cast<idr::FuncOp>(from->clone());
   clone.setSymName(name.getValue());
-  clone.removeEffectsAttr();
+  clone.setEffects(::idr::anyEffect);
 
   SmallVector<unsigned> positions;
   SmallVector<Type> types;
@@ -52,9 +52,10 @@ FailureOr<idr::FuncOp> buildSpec(idr::FuncOp from, SpecKeyAttr key, StringAttr n
   Block &entry = clone.getBody().front();
   SmallVector<Value> holes(entry.getArguments().drop_front(arity));
   OpBuilder b = OpBuilder::atBlockBegin(&entry);
+  unsigned next = 0;
   for (auto [p, pattern] : llvm::enumerate(patterns)) {
     BlockArgument param = entry.getArgument(static_cast<unsigned>(p));
-    param.replaceAllUsesWith(rebuild(b, param.getLoc(), pattern, param.getType(), holes));
+    param.replaceAllUsesWith(rebuild(b, param.getLoc(), pattern, param.getType(), holes, next));
   }
   llvm::BitVector originals(clone.getNumArguments());
   originals.set(0, arity);

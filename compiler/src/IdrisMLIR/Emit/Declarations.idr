@@ -28,22 +28,22 @@ import Data.Vect
 
 ||| What a function is an instance of, as text.
 instanceAttr : InstanceKey -> MlirAttr
-instanceAttr key = idr (InstanceAttr key.origin (map StringAttr key.arguments))
+instanceAttr key = idr (InstanceAttr key.origin (map StringAttr (argumentsText key.arguments)))
 
 ||| A function, located by its Idris name, each parameter by the name Idris
 ||| gave it, then the functions its lambdas and delays became, in the order
-||| their bodies were finished. Which one is the root is the program's to
-||| say, not the function's. What Idris proved of it is its own property:
-||| `total` when every loop of its body is one Idris proved terminating. It
-||| is written from the state `initial` makes for it.
+||| their bodies were finished, each with its symbol. Which one is the root
+||| is the program's to say, not the function's. What Idris proved of it is
+||| its own property: `total` when every loop of its body is one Idris
+||| proved terminating. It is written from the state `initial` makes for it.
 export
-function : Index -> TFn -> E (List Statement)
+function : Index -> TFn -> E (List (String, Statement))
 function ix f = do
-  sym <- fnSymbol ix f.id
+  let sym = f.id.name
   ((args, res), ops) <- inFunction $ do
-    bound <- traverse (\(_, b) => freshVal ix (typeOf b) b.quantity) f.params
+    bound <- traverse (\(_, b) => freshVal (typeOf b) b.quantity) f.params
     held <- traverse (\(i, (v, _)) => holdFor ix f.loc (mostUses i f.body) v) (zip range bound)
-    res <- plain' (para alg' f.body (\i => index i held) (Just f.result))
+    res <- plain' (para alg' f.body (\i => Whole (index i held)) (expecting (Just f.result)))
     res' <- traverse (fit ix f.loc (Just f.result)) res
     let args = map (\((name, _), (_, o)) => MkArgument o (Named name f.loc)) (toList (zip f.params bound))
     pure (args, res')
@@ -60,7 +60,7 @@ function ix f = do
                       (FunctionType (MkSignature (map (\a : Argument => a.value.type) args) [rt]))
                       (MkRegion args body)
   lifted <- gets (.lifted)
-  pure (MkStatement Nothing fn (Named (shown f.key.origin) f.loc) :: (lifted <>> []))
+  pure ((sym, MkStatement Nothing fn (Named (shown f.key.origin) f.loc)) :: (lifted <>> []))
   where
     lazyResult : Ty -> Bool
     lazyResult (LazyT _) = True

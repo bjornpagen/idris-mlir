@@ -11,6 +11,8 @@
 
 #include "llvm/ADT/SetVector.h"
 
+#include <variant>
+
 using namespace mlir;
 
 namespace idr::expect {
@@ -39,28 +41,29 @@ SmallVector<std::pair<StringAttr, bool>> labelsOf(ModuleOp module, SymbolTable &
   SmallVector<std::pair<StringAttr, bool>> out;
   for (DataType sum : sums)
     for (const Ctor &ctor : sum.getCtors()) {
-      if (ctor.role != CtorRole::Label || !ctor.fn)
+      const auto *label = std::get_if<role::Label>(&ctor.role);
+      if (!label)
         continue;
-      auto fn = symbols.lookup<FunctionOpInterface>(ctor.fn.getAttr());
-      if (ctor.fn.getValue() == f || (fn && names(fn, f)))
-        out.push_back({ctor.name, ctor.byName});
+      auto fn = symbols.lookup<FunctionOpInterface>(label->fn.getAttr());
+      if (label->fn.getValue() == f || (fn && names(fn, f)))
+        out.push_back({ctor.name, label->byName});
     }
   return out;
 }
 
-LogicalResult byNameIs(ModuleOp module, AnalysisManager &analyses, StringRef function, bool wanted,
-                       StringRef property) {
-  StringRef f = function.ltrim('@');
-  if (f.empty())
-    return fail(module.getLoc(), property) << "name the label's function, as " << property << "=@f";
-  SmallVector<std::pair<StringAttr, bool>> labels = labelsOf(module, symbolsOf(module, analyses), f);
+LogicalResult byNameIs(const Request<Symbol> &request, bool wanted) {
+  StringRef f = request.argument.name;
+  SmallVector<std::pair<StringAttr, bool>> labels =
+      labelsOf(request.module, symbolsOf(request.module, request.analyses), f);
   if (labels.empty())
-    return fail(module.getLoc(), property) << "no memo label of the program names " << function;
+    return fail(request.module->getLoc(), request.property)
+           << "no memo label of the program names @" << f;
   bool held = true;
   for (auto [name, byName] : labels)
     if (byName != wanted) {
-      fail(module.getLoc(), property) << "the label @" << name.getValue() << " of " << function
-                                      << (byName ? " is" : " is not") << " by_name";
+      fail(request.module->getLoc(), request.property)
+          << "the label @" << name.getValue() << " of @" << f << (byName ? " is" : " is not")
+          << " by_name";
       held = false;
     }
   return success(held);
@@ -70,11 +73,7 @@ LogicalResult byNameIs(ModuleOp module, AnalysisManager &analyses, StringRef fun
 
 // Every memo label of the program whose function @f names is by name, and
 // there is one; or none is.
-LogicalResult byName(ModuleOp module, AnalysisManager &analyses, StringRef function) {
-  return byNameIs(module, analyses, function, true, "by-name");
-}
-LogicalResult notByName(ModuleOp module, AnalysisManager &analyses, StringRef function) {
-  return byNameIs(module, analyses, function, false, "not-by-name");
-}
+LogicalResult byName(const Request<Symbol> &request) { return byNameIs(request, true); }
+LogicalResult notByName(const Request<Symbol> &request) { return byNameIs(request, false); }
 
 } // namespace idr::expect

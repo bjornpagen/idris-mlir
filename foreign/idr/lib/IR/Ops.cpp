@@ -3,7 +3,7 @@
 // The idr ops, as TableGen defines them, with what the generated code calls
 // by name and so must find declared before it: the custom directives of the
 // ops' assembly formats (a constructor's name is Symbols.h's CtorRef), and
-// the folders idr.div and idr.mod, and idr.shl and idr.shr, share through
+// the folders the divisions and remainders, and the shifts, share through
 // IdrScalarOps.td. Every other hook of an op is defined in the unit of its
 // family.
 
@@ -26,24 +26,9 @@ using namespace idr;
 
 namespace {
 
-// `signed`, `unsigned` or nothing: how an op reads its integer operand. Only
-// `signed` is kept, as a unit attribute, and printed.
-ParseResult parseSignedness(OpAsmParser &parser, UnitAttr &isSigned) {
-  if (succeeded(parser.parseOptionalKeyword("signed")))
-    isSigned = parser.getBuilder().getUnitAttr();
-  else
-    (void)parser.parseOptionalKeyword("unsigned");
-  return success();
-}
-
-void printSignedness(OpAsmPrinter &printer, Operation *, UnitAttr isSigned) {
-  if (isSigned)
-    printer << "signed ";
-}
-
 // A type written only when it is not the plain type the op has by default
-// (a big, a string, a natural): `: !idr.nat` on a big op that computes on
-// naturals, `: !idr.own<!idr.str>`.
+// (a big, a string, a natural), which the format gives as C++: `: !idr.nat`
+// on a big op that computes on naturals, `: !idr.own<!idr.str>`.
 ParseResult parseResultAtGrade(OpAsmParser &parser, Type &type, Type plain) {
   if (succeeded(parser.parseOptionalColon()))
     return parser.parseType(type);
@@ -51,24 +36,9 @@ ParseResult parseResultAtGrade(OpAsmParser &parser, Type &type, Type plain) {
   return success();
 }
 
-void printResultAtGrade(OpAsmPrinter &printer, Type type, Type plain) {
+void printResultAtGrade(OpAsmPrinter &printer, Operation *, Type type, Type plain) {
   if (type != plain)
     printer << ": " << type;
-}
-
-// A parenthesized list of result types, which may be empty: `()`.
-ParseResult parseResultTypes(OpAsmParser &parser, SmallVectorImpl<Type> &types) {
-  if (parser.parseLParen())
-    return failure();
-  if (succeeded(parser.parseOptionalRParen()))
-    return success();
-  return failure(parser.parseTypeList(types) || parser.parseRParen());
-}
-
-void printResultTypes(OpAsmPrinter &printer, Operation *, TypeRange types) {
-  printer << '(';
-  llvm::interleaveComma(types, printer);
-  printer << ')';
 }
 
 // The result of a dup: the value owned, unless written, `-> T`, at another
@@ -99,75 +69,50 @@ void printNaturalResult(OpAsmPrinter &printer, Operation *, Type type, Type oper
     printer << "-> " << type;
 }
 
-ParseResult parseStrResult(OpAsmParser &parser, Type &type) {
-  return parseResultAtGrade(parser, type, StrType::get(parser.getContext()));
-}
-
-void printStrResult(OpAsmPrinter &printer, Operation *, Type type) {
-  printResultAtGrade(printer, type, StrType::get(type.getContext()));
-}
-
-ParseResult parseBigResult(OpAsmParser &parser, Type &type) {
-  return parseResultAtGrade(parser, type, BigType::get(parser.getContext()));
-}
-
-void printBigResult(OpAsmPrinter &printer, Operation *, Type type) {
-  printResultAtGrade(printer, type, BigType::get(type.getContext()));
-}
-
-ParseResult parseNatResult(OpAsmParser &parser, Type &type) {
-  return parseResultAtGrade(parser, type, NatType::get(parser.getContext()));
-}
-
-void printNatResult(OpAsmPrinter &printer, Operation *, Type type) {
-  printResultAtGrade(printer, type, NatType::get(type.getContext()));
-}
-
 // A value an op reads in place: its operand, after `borrow` when it is the
-// view the owned stage grades Borrow, and plain otherwise.
+// view the owned stage grades Borrow, and plain otherwise, its plain type
+// the one the format gives as C++. The grade alone says what is printed.
 ParseResult parseRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand, Type &type,
                       Type plain) {
   type = succeeded(parser.parseOptionalKeyword("borrow")) ? view(plain) : plain;
   return parser.parseOperand(operand);
 }
 
-void printRead(OpAsmPrinter &printer, Value operand, Type type) {
+void printRead(OpAsmPrinter &printer, Operation *, Value operand, Type type, Type /*plain*/) {
   if (gradeOf(type).permission == Permission::Borrow)
     printer << "borrow ";
   printer << operand;
 }
 
-ParseResult parseStrRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand,
-                         Type &type) {
-  return parseRead(parser, operand, type, StrType::get(parser.getContext()));
+// `%a : A`: a field given, with its type.
+ParseResult parseField(OpAsmParser &parser,
+                       SmallVectorImpl<OpAsmParser::UnresolvedOperand> &fields,
+                       SmallVectorImpl<Type> &types) {
+  return failure(parser.parseOperand(fields.emplace_back()) ||
+                 parser.parseColonType(types.emplace_back()));
 }
 
-void printStrRead(OpAsmPrinter &printer, Operation *, Value operand, Type type) {
-  printRead(printer, operand, type);
+// `(%a : A, %b : B)`: the fields of a constructor value, every one given
+// with its type (idr.con).
+ParseResult parseFields(OpAsmParser &parser,
+                        SmallVectorImpl<OpAsmParser::UnresolvedOperand> &fields,
+                        SmallVectorImpl<Type> &types) {
+  return parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren,
+                                        [&]() { return parseField(parser, fields, types); });
 }
 
-ParseResult parseBigRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand,
-                         Type &type) {
-  return parseRead(parser, operand, type, BigType::get(parser.getContext()));
+void printFields(OpAsmPrinter &printer, Operation *, OperandRange fields, TypeRange types) {
+  printer << '(';
+  llvm::interleaveComma(llvm::zip_equal(fields, types), printer, [&](auto field) {
+    printer << std::get<0>(field) << " : " << std::get<1>(field);
+  });
+  printer << ')';
 }
 
-void printBigRead(OpAsmPrinter &printer, Operation *, Value operand, Type type) {
-  printRead(printer, operand, type);
-}
-
-ParseResult parseNatRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand,
-                         Type &type) {
-  return parseRead(parser, operand, type, NatType::get(parser.getContext()));
-}
-
-void printNatRead(OpAsmPrinter &printer, Operation *, Value operand, Type type) {
-  printRead(printer, operand, type);
-}
-
-// `(%a : A, dest, %b : B)`: the fields of a constructor, each given with its
-// type, and a hole, a field written later through its destination, as
-// `dest`. `holes` are the holes' field indices, ascending, held only when
-// there is one.
+// `(%a : A, dest, %b : B)`: the fields a cell's init writes, each given with
+// its type, and a hole, a field written later through its destination, as
+// `dest` (idr.cell.init). `holes` are the holes' field indices, ascending,
+// and empty when there is none, so the destinations' directive reads them.
 ParseResult parseFields(OpAsmParser &parser,
                         SmallVectorImpl<OpAsmParser::UnresolvedOperand> &fields,
                         SmallVectorImpl<Type> &types, DenseI32ArrayAttr &holes) {
@@ -176,15 +121,13 @@ ParseResult parseFields(OpAsmParser &parser,
   if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&]() -> ParseResult {
         if (succeeded(parser.parseOptionalKeyword("dest")))
           at.push_back(index);
-        else if (parser.parseOperand(fields.emplace_back()) ||
-                 parser.parseColonType(types.emplace_back()))
+        else if (failed(parseField(parser, fields, types)))
           return failure();
         ++index;
         return success();
       }))
     return failure();
-  if (!at.empty())
-    holes = parser.getBuilder().getDenseI32ArrayAttr(at);
+  holes = parser.getBuilder().getDenseI32ArrayAttr(at);
   return success();
 }
 
@@ -206,23 +149,38 @@ void printFields(OpAsmPrinter &printer, Operation *, OperandRange fields, TypeRa
   printer << ')';
 }
 
-// Nothing: each destination is the word of its hole, a field of the
-// constructor `tag` of `type`, which the parser reads off the type. A hole
-// the constructor does not have gives no destination, and the verifier
-// refuses the op.
-ParseResult parseDests(OpAsmParser &, SmallVectorImpl<Type> &dests, Type type, IntegerAttr tag,
-                       DenseI32ArrayAttr holes) {
-  DataType data = dataTypeOf(type);
-  if (!holes || !data || !tag || tag.getValue().getZExtValue() >= data.getCtors().size())
-    return success();
-  const Ctor &ctor = data.getCtor(Tag{static_cast<uint32_t>(tag.getValue().getZExtValue())});
-  for (int32_t hole : holes.asArrayRef())
-    if (hole >= 0 && static_cast<size_t>(hole) < ctor.fields.size())
-      dests.push_back(idr::detail::destOf(ctor, hole));
+// The box a cell's init gives: the box of its cell's type, owned, unless
+// written, `-> T`: an init whose result is another grade of that box (the
+// plain box the cells step makes at stage first, the exclusive one the
+// commit writes) prints it. The cell's type is checked here, before the
+// destinations' directive reads it: the text may name any type there, and
+// only a cell has a box and fields.
+ParseResult parseCellResult(OpAsmParser &parser, Type &type, Type cell) {
+  auto cellType = dyn_cast<CellType>(cell);
+  if (!cellType)
+    return parser.emitError(parser.getCurrentLocation(), "expected a cell's type, not ") << cell;
+  if (succeeded(parser.parseOptionalArrow()))
+    return parser.parseType(type);
+  type = owned(cellType.getBox());
   return success();
 }
 
-void printDests(OpAsmPrinter &, Operation *, TypeRange, Type, IntegerAttr, DenseI32ArrayAttr) {}
+void printCellResult(OpAsmPrinter &printer, Operation *, Type type, Type cell) {
+  if (type != owned(cast<CellType>(cell).getBox()))
+    printer << " -> " << type;
+}
+
+// Nothing: each destination is the one its hole's field has, which the
+// init's own rule gives from the cell's type and the holes
+// (CellInitOp::destTypes). The cell's type is one, its result's directive
+// having read it first.
+ParseResult parseCellDests(OpAsmParser &, SmallVectorImpl<Type> &dests, Type cell,
+                           DenseI32ArrayAttr holes) {
+  llvm::append_range(dests, CellInitOp::destTypes(cast<CellType>(cell), holes.asArrayRef()));
+  return success();
+}
+
+void printCellDests(OpAsmPrinter &, Operation *, TypeRange, Type, DenseI32ArrayAttr) {}
 
 //===----------------------------------------------------------------------===//
 // Division and shifts, shared through IdrScalarOps.td
@@ -249,27 +207,29 @@ std::pair<APInt, APInt> idrisDivMod(const APInt &a, const APInt &b, bool isSigne
 }
 
 template <typename Division>
-concept DivisionOp = requires(Division op) {
+concept DivisionOp = requires(Division op, typename Division::FoldAdaptor adaptor) {
   { Division::quotient } -> std::convertible_to<bool>;
+  { Division::isSigned } -> std::convertible_to<bool>;
+  { Division::guardHolds(adaptor) } -> std::convertible_to<bool>;
   op.getLhs();
   op.getRhs();
-  op.getIsSigned();
 };
 
 // Nothing by a divisor its guard refuses: the program never divides by it,
-// since the guard crashes first, and APInt would abort the compiler.
+// since the guard crashes first, and APInt would abort the compiler. Where
+// the guard holds, the divisor is a constant, an integer's, not zero.
 template <DivisionOp Division>
 OpFoldResult foldDivision(Division op, typename Division::FoldAdaptor adaptor) {
-  auto rhs = dyn_cast_or_null<IntegerAttr>(adaptor.getRhs());
-  if (!rhs || !CheckNonzeroOp::holds(adaptor.getRhs()))
+  if (!Division::guardHolds(adaptor))
     return {};
+  auto rhs = cast<IntegerAttr>(adaptor.getRhs());
   if (rhs.getValue().isOne())
     return Division::quotient ? OpFoldResult(op.getLhs())
                               : OpFoldResult(IntegerAttr::get(op.getType(), 0));
   auto lhs = dyn_cast_or_null<IntegerAttr>(adaptor.getLhs());
   if (!lhs)
     return {};
-  auto [q, r] = idrisDivMod(lhs.getValue(), rhs.getValue(), op.getIsSigned());
+  auto [q, r] = idrisDivMod(lhs.getValue(), rhs.getValue(), Division::isSigned);
   return IntegerAttr::get(op.getType(), Division::quotient ? q : r);
 }
 
@@ -300,9 +260,9 @@ APInt idrisShift(const APInt &a, const APInt &amount, bool left, bool isSigned) 
 template <typename Shift>
 concept ShiftOp = requires(Shift op) {
   { Shift::left } -> std::convertible_to<bool>;
+  { Shift::isSigned } -> std::convertible_to<bool>;
   op.getLhs();
   op.getRhs();
-  op.getIsSigned();
 };
 
 template <ShiftOp Shift>
@@ -314,7 +274,7 @@ OpFoldResult foldShift(Shift op, typename Shift::FoldAdaptor adaptor) {
   if (!lhs || !rhs)
     return {};
   return IntegerAttr::get(op.getType(),
-                          idrisShift(lhs.getValue(), rhs.getValue(), Shift::left, op.getIsSigned()));
+                          idrisShift(lhs.getValue(), rhs.getValue(), Shift::left, Shift::isSigned));
 }
 
 } // namespace

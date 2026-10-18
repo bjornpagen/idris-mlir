@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)` and `idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=no-closures,labels=@pick:result:[@add,@dbl],calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null
 // NEEDS-ACCEPTANCE: that @pick's sum holds the labels of @add and @dbl, and that the dispatch in @Main.main calls each.
@@ -21,7 +22,7 @@ idr.program @choice root(@Main.main) stage(higher) {
       %f = idr.closure @add(%c1) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %f : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d: i64) {
       %g = idr.closure @dbl() : () -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
@@ -33,7 +34,7 @@ idr.program @choice root(@Main.main) stage(higher) {
     %n = arith.extui %c : i32 to i64
     %f = call @pick(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %r = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

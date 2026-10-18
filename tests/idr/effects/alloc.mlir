@@ -1,6 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-expect=holds=facts-as-marked -o /dev/null
+// NEEDS-ACCEPTANCE: each op's answers, which test-idr-facts reports, are its own declared effects; check each mark against them.
+// RUN: idris-mlir-opt %s --test-idr-facts -verify-diagnostics=only-expected -o /dev/null
 // RUN: idris-mlir-opt %s --cse --canonicalize --idr-expect=holds=computes-nothing=@dead -o /dev/null
-// NEEDS-ACCEPTANCE: each op's answers are its own declared effects; check each mark against them.
 // Ops that allocate their result (a box's idr.con, string builders, big
 // ops) are two values when they are written twice, so that no two cells
 // become one: they may move, and an unused one is dead code, but two equal
@@ -12,20 +12,30 @@
 !L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @alloc root(@root) stage(first) {
   idr.func @merged(%x: i64) -> (!P, !P) {
-    %a = idr.con !P @MkP(%x : i64, %x : i64) {expect.facts = "move delay merge"}
-    %b = idr.con !P @MkP(%x : i64, %x : i64) {expect.facts = "move delay merge"}
+    // expected-remark @below {{facts: [move delay merge]}}
+    %a = idr.con !P @MkP(%x : i64, %x : i64)
+    // expected-remark @below {{facts: [move delay merge]}}
+    %b = idr.con !P @MkP(%x : i64, %x : i64)
     return %a, %b : !P, !P
   }
   idr.func @cells(%x: i64, %l: !idr.box<!L>, %s: !idr.str, %g: !idr.big, %nat: !idr.nat)
       -> (!idr.box<!L>, !idr.box<!L>, !idr.str, !idr.str, !idr.big, !idr.big, !idr.nat, !idr.nat) {
-    %a = idr.con !idr.box<!L> @Cons(%x : i64, %l : !idr.box<!L>) {expect.facts = "move delay"}
-    %b = idr.con !idr.box<!L> @Cons(%x : i64, %l : !idr.box<!L>) {expect.facts = "move delay"}
-    %c = idr.str.append %s, %s {expect.facts = "move delay"}
-    %d = idr.str.append %s, %s {expect.facts = "move delay"}
-    %e = idr.big.add %g, %g {expect.facts = "move delay"}
-    %f = idr.big.add %g, %g {expect.facts = "move delay"}
-    %p = idr.big.pred %nat {expect.facts = "move delay"}
-    %q = idr.big.pred %nat {expect.facts = "move delay"}
+    // expected-remark @below {{facts: [move delay]}}
+    %a = idr.con !idr.box<!L> @Cons(%x : i64, %l : !idr.box<!L>)
+    // expected-remark @below {{facts: [move delay]}}
+    %b = idr.con !idr.box<!L> @Cons(%x : i64, %l : !idr.box<!L>)
+    // expected-remark @below {{facts: [move delay]}}
+    %c = idr.str.append %s, %s
+    // expected-remark @below {{facts: [move delay]}}
+    %d = idr.str.append %s, %s
+    // expected-remark @below {{facts: [move delay]}}
+    %e = idr.big.add %g, %g
+    // expected-remark @below {{facts: [move delay]}}
+    %f = idr.big.add %g, %g
+    // expected-remark @below {{facts: [move delay]}}
+    %p = idr.big.pred %nat
+    // expected-remark @below {{facts: [move delay]}}
+    %q = idr.big.pred %nat
     return %a, %b, %c, %d, %e, %f, %p, %q
         : !idr.box<!L>, !idr.box<!L>, !idr.str, !idr.str, !idr.big, !idr.big, !idr.nat, !idr.nat
   }

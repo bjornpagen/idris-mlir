@@ -27,10 +27,6 @@ Value i32Constant(OpBuilder &b, Location loc, int64_t value) {
   return LLVM::ConstantOp::create(b, loc, b.getI32Type(), value);
 }
 
-int64_t groupWord(Tag tag) {
-  return static_cast<int64_t>(static_cast<uint32_t>(tag) / IDRIS_RT_TAG_LIMIT) * 2 + 1;
-}
-
 Value groupBase(OpBuilder &b, Location loc, Value word) {
   Value group = LLVM::LShrOp::create(b, loc, word, i64Constant(b, loc, 1));
   return LLVM::MulOp::create(b, loc, group, i64Constant(b, loc, IDRIS_RT_TAG_LIMIT));
@@ -53,25 +49,33 @@ Value nullComponent(OpBuilder &b, Location loc, Type component) {
   return LLVM::ConstantOp::create(b, loc, component, 0);
 }
 
+SmallVector<Value> references(ArrayRef<layout::Component> components, ValueRange values) {
+  SmallVector<Value> counted;
+  for (auto [component, value] : llvm::zip_equal(components, values))
+    if (component.counted)
+      counted.push_back(value);
+  return counted;
+}
+
 SmallVector<Value> unboxedSum(OpBuilder &b, Location loc, const layout::SumLayout &layout,
                               Tag tag, ArrayRef<ValueRange> fields) {
-  SmallVector<std::optional<Value>> given(layout.slots.size());
-  for (auto [index, values] : llvm::enumerate(fields))
-    for (auto [slot, value] :
-         llvm::zip_equal(layout.slotsOf(tag, static_cast<unsigned>(index)), values))
-      given[slot] = value;
-  SmallVector<Value> out;
+  SmallVector<std::optional<Value>> given(layout.words.size());
   if (layout.tag)
-    out.push_back(LLVM::ConstantOp::create(b, loc, *layout.tag, static_cast<uint32_t>(tag)));
-  for (auto [slot, value] : llvm::enumerate(given))
-    out.push_back(value ? *value : LLVM::ZeroOp::create(b, loc, layout.slots[slot]).getResult());
+    given.front() =
+        LLVM::ConstantOp::create(b, loc, *layout.tag, static_cast<uint32_t>(tag)).getResult();
+  for (auto [index, values] : llvm::enumerate(fields))
+    for (auto [word, value] :
+         llvm::zip_equal(layout.slotsOf(tag, static_cast<unsigned>(index)), values))
+      given[word] = value;
+  SmallVector<Value> out;
+  for (auto [word, value] : llvm::zip_equal(layout.words, given))
+    out.push_back(value ? *value : LLVM::ZeroOp::create(b, loc, word.type).getResult());
   return out;
 }
 
 SmallVector<Value> unboxedField(const layout::SumLayout &layout, ValueRange sum, Tag tag,
                                 unsigned index) {
-  return llvm::map_to_vector(layout.slotsOf(tag, index),
-                             [&](unsigned slot) { return sum[layout.offset() + slot]; });
+  return llvm::map_to_vector(layout.slotsOf(tag, index), [&](unsigned word) { return sum[word]; });
 }
 
 } // namespace idr::conversion

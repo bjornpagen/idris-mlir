@@ -1,17 +1,12 @@
+// NEEDS-ACCEPTANCE: that idr::bufferize::copies answers for this copy into a fresh memref.alloc, and that the -verify-diagnostics run passes: in-place fails at @copied's memref.copy and at @none, which holds no buffer.
 // RUN: idris-mlir-opt %s --idr-expect=holds=in-place=@written,in-place=@appended -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=in-place=@copied -o /dev/null 2> %t.copied.err
-// RUN: FileCheck %s --check-prefix=COPIED < %t.copied.err
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=in-place=@none -o /dev/null 2> %t.none.err
-// RUN: FileCheck %s --check-prefix=NONE < %t.none.err
-// NEEDS-ACCEPTANCE: that idr::bufferize::copies answers for this copy into a fresh memref.alloc.
+// RUN: idris-mlir-opt %s --idr-expect=holds=in-place=@copied,in-place=@none -verify-diagnostics -o /dev/null
 // After bufferization nothing copies a buffer: a write lands in the buffer
 // it was given (@written). A copy into a cell made for it is a write that
 // could not be in place (@copied); a copy into a view of a live buffer is
 // what the program asked, an array appended into its place (@appended),
 // and no lost write. A function without a buffer fails, so the property
 // cannot hold of a module before bufferization.
-// COPIED: error: expected in-place: memref.copy copies a buffer in @copied
-// NONE: error: expected in-place: no buffer in @none
 idr.program @"in-place" root(@root) stage(first) {
   idr.func @written(%m: memref<?xi64>, %i: index, %v: i64) -> memref<?xi64> {
     memref.store %v, %m[%i] : memref<?xi64>
@@ -21,6 +16,7 @@ idr.program @"in-place" root(@root) stage(first) {
     %c0 = arith.constant 0 : index
     %n = memref.dim %m, %c0 : memref<?xi64>
     %a = memref.alloc(%n) : memref<?xi64>
+    // expected-error @below {{expected in-place: memref.copy copies a buffer in @copied}}
     memref.copy %m, %a : memref<?xi64> to memref<?xi64>
     memref.store %v, %a[%i] : memref<?xi64>
     return %a : memref<?xi64>
@@ -32,6 +28,7 @@ idr.program @"in-place" root(@root) stage(first) {
     memref.copy %x, %view : memref<?xi64> to memref<?xi64, strided<[1], offset: ?>>
     return %m : memref<?xi64>
   }
+  // expected-error @below {{expected in-place: no buffer in @none}}
   idr.func @none(%x: i64) -> i64 {
     return %x : i64
   }

@@ -67,7 +67,7 @@ struct CallColumns : OpConversionPattern<CallOp> {
     SmallVector<unsigned> argCounts = llvm::map_to_vector(
         adaptor.getArgs(), [](ValueRange arg) { return static_cast<unsigned>(arg.size()); });
     auto made = cast<CallOp>(
-        remake(rewriter, call, flatten(adaptor.getOperands()), results));
+        remakeOp(rewriter, call, flatten(adaptor.getOperands()), results));
     rewriter.modifyOpInPlace(made, [&] {
       if (ArrayAttr attrs = made.getArgAttrsAttr())
         made.setArgAttrsAttr(expand(attrs, argCounts));
@@ -93,29 +93,26 @@ struct TerminatorColumns : OpConversionPattern<OpT> {
   }
 };
 
-// A match gives each array of records its region yields as the columns
-// they yield.
-template <typename OpT>
-struct MatchColumns : OpConversionPattern<OpT> {
-  using OpConversionPattern<OpT>::OpConversionPattern;
-  LogicalResult matchAndRewrite(OpT op, typename OpConversionPattern<OpT>::OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> results;
-    SmallVector<unsigned> counts;
-    if (failed(convertEach(*this->getTypeConverter(), op->getResultTypes(), results, counts)))
-      return failure();
-    Operation *made = remake(rewriter, op, flatten(adaptor.getOperands()), results);
-    SmallVector<SmallVector<Value>> replaced = runs(made->getResults(), counts);
-    rewriter.replaceOpWithMultiple(op, replaced);
-    return success();
-  }
-};
-
 } // namespace
 
-void populateCallColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns) {
-  patterns.add<FuncColumns, CallColumns, TerminatorColumns<ReturnOp>, TerminatorColumns<YieldOp>,
-               MatchColumns<MatchOp>, MatchColumns<MatchLitOp>>(converter, patterns.getContext());
+// A match gives each array of records its regions yield as the columns
+// they yield (ResultColumns). A match's regions bind the fields of its
+// constructors, which a data type holds whole, so only what it gives is
+// converted. A function is legal once its signature and its body are.
+void populateCallColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns,
+                                ConversionTarget &target) {
+  ConversionTarget::DynamicLegalityCallbackFn legal = whole(converter);
+  addColumns<FuncColumns, FuncOp>(converter, patterns, target,
+                                  [&converter](Operation *op) -> std::optional<bool> {
+                                    auto fn = cast<FuncOp>(op);
+                                    return converter.isSignatureLegal(fn.getFunctionType()) &&
+                                           converter.isLegal(&fn.getBody());
+                                  });
+  addColumns<CallColumns, CallOp>(converter, patterns, target, legal);
+  addColumns<TerminatorColumns<ReturnOp>, ReturnOp>(converter, patterns, target, legal);
+  addColumns<TerminatorColumns<YieldOp>, YieldOp>(converter, patterns, target, legal);
+  addColumns<ResultColumns<MatchOp>, MatchOp>(converter, patterns, target, legal);
+  addColumns<ResultColumns<MatchLitOp>, MatchLitOp>(converter, patterns, target, legal);
 }
 
 } // namespace idr::columns

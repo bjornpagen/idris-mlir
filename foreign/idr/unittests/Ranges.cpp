@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// NEEDS-ACCEPTANCE: that every range rule holds over its whole box: bounded keeps exactly the bounds inside the small range, rangeOf and boundsOf round-trip, and add, sub, mul, ofInteger and boundsOf hold every member, each present bound small and exact where the rule promises it.
+// NEEDS-ACCEPTANCE: that every range rule holds over its whole box: bounded keeps exactly the bounds inside the small range, rangeOf and boundsOf round-trip, and add, sub, mul, ofInteger and boundsOf hold every member, each present bound small and exact where the rule promises it; and that ofType gives a natural, linear or not, the natural's range, a big none, i8 and index their storage width's whole range, and a string upstream's initialized width-0 maximum range.
 // The box of the range rules (idr::ranges): each rule called on every
 // interval over a domain where its behaviour changes, against the exact value
 // of every member in __int128. A missing bound holds anything; its members
 // are integers outside the small range on that side.
 
+#include "Box.h"
+
+#include "idr/IR/Grades.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
 
 #include "idris_rt.h"
 
+#include "mlir/IR/Block.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
@@ -22,53 +30,16 @@
 #include <optional>
 #include <vector>
 
-using idr::ranges::Bounds;
 using llvm::APInt;
 using mlir::ConstantIntRanges;
 
 namespace ranges = idr::ranges;
 
+using namespace idr::box;
+
 namespace {
 
-using i128 = __int128;
-
-// The fixture of each test, googletest's hook around it: SetUp reads the
-// runtime's live cells and TearDown expects them again, and no failing
-// input. A box can fail on millions of inputs, and an assertion reports
-// each; googletest has none that counts, so `check` counts them and reports
-// the first with every operand.
-class Ranges : public testing::Test {
-public:
-  template <typename Operands>
-  void check(bool holds, Operands operands) {
-    if (!holds && failures++ == 0)
-      ADD_FAILURE() << operands();
-  }
-
-protected:
-  void SetUp() override { live = idris_rt_live_cells(); }
-  void TearDown() override {
-    EXPECT_EQ(failures, 0u);
-    EXPECT_EQ(idris_rt_live_cells(), live);
-  }
-
-private:
-  uint64_t live = 0;
-  unsigned failures = 0;
-};
-
-// D64: each end of the small range with two neighbours inside it, and 0 with
-// two either side. The rules act only where a bound leaves the small range
-// (bounded), a product leaves i64 (checkedMul) or a sign changes (the corners
-// of a product).
-constexpr int64_t d64[] = {
-    IDRIS_RT_SMALL_MIN,     IDRIS_RT_SMALL_MIN + 1, IDRIS_RT_SMALL_MIN + 2, -2, -1, 0, 1, 2,
-    IDRIS_RT_SMALL_MAX - 2, IDRIS_RT_SMALL_MAX - 1, IDRIS_RT_SMALL_MAX};
-
-// OUT: what a missing bound stands for, below the small range and above it:
-// the nearest integer outside it and the end of i64.
-constexpr int64_t out[] = {IDRIS_RT_SMALL_MIN - 1, INT64_MIN, IDRIS_RT_SMALL_MAX + 1,
-                           INT64_MAX};
+class Ranges : public Box<Ranges> {};
 
 // Every exact result in this box, of one or two values of at most 64 bits,
 // is at most 2^126 in magnitude: a search for the least and the greatest
@@ -76,66 +47,31 @@ constexpr int64_t out[] = {IDRIS_RT_SMALL_MIN - 1, INT64_MIN, IDRIS_RT_SMALL_MAX
 constexpr i128 above = (i128{1} << 126) + 1;
 constexpr i128 below = -above;
 
-bool small(i128 v) { return v >= IDRIS_RT_SMALL_MIN && v <= IDRIS_RT_SMALL_MAX; }
-
 // The bound a value is, in the coordinate Bounds keeps: itself inside the
 // small range, none outside it.
 std::optional<int64_t> asBound(i128 v) {
-  return small(v) ? std::optional<int64_t>(static_cast<int64_t>(v)) : std::nullopt;
+  return inside(v) ? std::optional<int64_t>(static_cast<int64_t>(v)) : std::nullopt;
 }
-
-// Whether `v` is within `b`: a missing bound holds anything.
-bool within(i128 v, Bounds b) { return (!b.lo || *b.lo <= v) && (!b.hi || v <= *b.hi); }
 
 // Whether every bound `b` gives is inside the small range, as Bounds states.
-bool boundsSmall(Bounds b) { return (!b.lo || small(*b.lo)) && (!b.hi || small(*b.hi)); }
+bool boundsSmall(Bounds b) { return (!b.lo || inside(*b.lo)) && (!b.hi || inside(*b.hi)); }
 
 bool sameBounds(Bounds a, Bounds b) { return a.lo == b.lo && a.hi == b.hi; }
-
-// Bounds has no printer, and its namespace, where googletest looks for one,
-// is not this unit's.
-testing::Message &operator<<(testing::Message &m, Bounds b) {
-  return m << "[" << b.lo << ", " << b.hi << "]";
-}
-
-// Every interval over D64: each bound a point or none, ordered when both are
-// given.
-template <typename Fn>
-void eachInterval(Fn fn) {
-  std::vector<std::optional<int64_t>> ends{std::nullopt};
-  ends.insert(ends.end(), std::begin(d64), std::end(d64));
-  for (std::optional<int64_t> lo : ends)
-    for (std::optional<int64_t> hi : ends)
-      // An empty interval is no interval of a value.
-      if (!lo || !hi || *lo <= *hi)
-        fn(Bounds{lo, hi});
-}
-
-// The members of an interval: the points of D64 and of OUT within it.
-template <typename Fn>
-void eachMember(Bounds b, Fn fn) {
-  for (int64_t v : d64)
-    if (within(v, b))
-      fn(v);
-  for (int64_t v : out)
-    if (within(v, b))
-      fn(v);
-}
 
 // `bounds` on every pair of intervals over D64: its result holds `op` of
 // every member pair and each of its present bounds is small; `exact` then
 // gets the operands, the result and the least and greatest of `op`.
 template <typename BoundsFn, typename Op, typename Exact>
 void checkArithmetic(Ranges &box, BoundsFn bounds, Op op, Exact exact) {
-  eachInterval([&](Bounds a) {
-    eachInterval([&](Bounds b) {
+  eachInterval(d64, [&](Bounds a) {
+    eachInterval(d64, [&](Bounds b) {
       Bounds r = bounds(a, b);
       box.check(boundsSmall(r), [&] {
         return testing::Message() << "a " << a << ", b " << b << ": " << r;
       });
       i128 least = above, greatest = below;
-      eachMember(a, [&](int64_t x) {
-        eachMember(b, [&](int64_t y) {
+      eachMember(d64, a, INT64_MIN, [&](int64_t x) {
+        eachMember(d64, b, INT64_MIN, [&](int64_t y) {
           i128 e = op(i128{x}, i128{y});
           least = std::min(least, e);
           greatest = std::max(greatest, e);
@@ -162,11 +98,11 @@ TEST_F(Ranges, Bounded) {
 }
 
 TEST_F(Ranges, RangeOfRoundTrips) {
-  eachInterval([&](Bounds b) {
+  eachInterval(d64, [&](Bounds b) {
     ConstantIntRanges r = ranges::rangeOf(b);
     auto operands = [&] { return testing::Message() << "b " << b << ": " << r; };
     check(sameBounds(ranges::boundsOf(r), b), operands);
-    eachMember(b, [&](int64_t v) {
+    eachMember(d64, b, INT64_MIN, [&](int64_t v) {
       APInt word(64, static_cast<uint64_t>(v), /*isSigned=*/true);
       check(r.smin().getBitWidth() == 64 && r.smin().sle(word) && word.sle(r.smax()), operands);
     });
@@ -259,13 +195,6 @@ std::vector<APInt> candidates(unsigned width) {
   return values;
 }
 
-// A member of a range: a value of its width within both its unsigned and its
-// signed bounds.
-bool member(const ConstantIntRanges &r, const APInt &v) {
-  return r.umin().getBitWidth() == v.getBitWidth() && r.umin().ule(v) && v.ule(r.umax()) &&
-         r.smin().sle(v) && v.sle(r.smax());
-}
-
 // Every range over `values` with a member.
 template <typename Fn>
 void eachFree(const std::vector<APInt> &values, Fn fn) {
@@ -355,6 +284,31 @@ TEST_F(Ranges, BoundsOf) {
     for (const Reading &made : readings)
       eachMade(values, made, [&](const ConstantIntRanges &r) { states(values, r); });
   }
+}
+
+// The range a type proves, whatever its grade (ofType): at least 0 for a
+// natural, none for a big, its storage width's whole range for an integer
+// or an index, and for a type that holds no integer upstream's maximum
+// range of a value of it, the initialized width-0 one.
+TEST_F(Ranges, OfType) {
+  mlir::MLIRContext context;
+  context.loadDialect<idr::IdrDialect>();
+  mlir::Type nat = idr::NatType::get(&context);
+  mlir::IntegerValueRange natural(ranges::rangeOf(ranges::natural()));
+  EXPECT_EQ(ranges::ofType(nat), natural);
+  EXPECT_EQ(ranges::ofType(idr::linear(nat)), natural);
+  EXPECT_EQ(ranges::ofType(idr::BigType::get(&context)),
+            mlir::IntegerValueRange(ranges::rangeOf({})));
+  EXPECT_EQ(ranges::ofType(mlir::IntegerType::get(&context, 8)),
+            mlir::IntegerValueRange(ConstantIntRanges::maxRange(8)));
+  EXPECT_EQ(ranges::ofType(mlir::IndexType::get(&context)),
+            mlir::IntegerValueRange(ConstantIntRanges::maxRange(64)));
+  mlir::Block block;
+  mlir::Value text =
+      block.addArgument(idr::StrType::get(&context), mlir::UnknownLoc::get(&context));
+  mlir::IntegerValueRange holdsNoInteger = ranges::ofType(text.getType());
+  EXPECT_FALSE(holdsNoInteger.isUninitialized());
+  EXPECT_EQ(holdsNoInteger, mlir::IntegerValueRange::getMaxRange(text));
 }
 
 } // namespace

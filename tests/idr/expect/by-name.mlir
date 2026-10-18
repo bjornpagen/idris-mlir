@@ -1,14 +1,13 @@
-// NEEDS-ACCEPTANCE: that by-name and not-by-name read the memo labels of a sum a parameter holds, and fail once each where the label's flag is the other, and once where no label names the function.
+// NEEDS-ACCEPTANCE: that by-name and not-by-name read the memo labels of a sum a parameter holds (the label written in the data type's body as this wave prints a role), and that the -verify-diagnostics run passes: one error each where the label's flag is the other, and one where no label names the function, all at the module.
 // RUN: idris-mlir-opt %s --idr-expect=holds=by-name=@loud,not-by-name=@quiet -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=by-name=@quiet,not-by-name=@loud,by-name=@hold -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 3
+// RUN: idris-mlir-opt %s --idr-expect=holds=by-name=@quiet,not-by-name=@loud,by-name=@hold -verify-diagnostics -o /dev/null
+// expected-error @-4 {{expected by-name: the label @quiet of @quiet is not by_name}}
+// expected-error @-5 {{expected not-by-name: the label @loud of @loud is by_name}}
+// expected-error @-6 {{expected by-name: no memo label of the program names @hold}}
 // A memo label runs again at every force when it is by_name, as one whose
 // run the outside sees is (@loud), and keeps its value otherwise (@quiet);
-// a function no label names (@hold) is neither.
-// CHECK-DAG: error: expected by-name: the label {{.*}} of @quiet is not by_name
-// CHECK-DAG: error: expected not-by-name: the label {{.*}} of @loud is by_name
-// CHECK-DAG: error: expected by-name: no memo label of the program names @hold
+// a function no label names (@hold) is neither. Each error is the
+// module's, which has no line: the file's line 0.
 !M = !idr.data<"M", memo [@loud() label @loud by_name, @quiet() label @quiet, @running() running, @forced(i64) forced]>
 idr.program @"by-name" root(@root) stage(first) {
   idr.func @loud() -> i64 attributes {total} {

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: constants written type first, their values holding no type of ours (ir-ods-8), each refused as before.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // NEEDS-ACCEPTANCE: the unknown-constructor errors as the constructor reference parser writes them
@@ -150,7 +151,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{cannot hold 1 : i64 as 'i64'}}
-    %c = idr.constant 1 : i64
+    %c = idr.constant i64 1
     return
   }
   // The program's root, which the functions above are no part of.
@@ -165,22 +166,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{cannot hold "x" as '!idr.big'}}
-    %c = idr.constant "x" : !idr.big
-    return
-  }
-  // The program's root, which the functions above are no part of.
-  idr.func @root() -> i64 {
-    %zero = arith.constant 0 : i64
-    return %zero : i64
-  }
-}
-
-// -----
-
-idr.program @values root(@root) stage(first) {
-  idr.func @f() {
-    // expected-error @+1 {{expects a value followed by `:` and its type}}
-    %c = idr.constant #idr.effects<io>
+    %c = idr.constant !idr.big "x"
     return
   }
   // The program's root, which the functions above are no part of.
@@ -195,7 +181,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{expects a big in canonical decimal, got "-0"}}
-    %c = idr.constant #idr.big<-0> : !idr.big
+    %c = idr.constant !idr.big #idr.big<-0>
     return
   }
   // The program's root, which the functions above are no part of.
@@ -210,7 +196,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{expects a big in canonical decimal, got "007"}}
-    %c = idr.constant #idr.big<007> : !idr.big
+    %c = idr.constant !idr.big #idr.big<007>
     return
   }
   // The program's root, which the functions above are no part of.
@@ -226,7 +212,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{has a constant 1 : i32 where 'i64' is expected}}
-    %c = idr.constant #idr.con<!T, @A, [1 : i32, "x"]> : !T
+    %c = idr.constant !T #idr.con<!T, @A, [1 : i32, "x"]>
     return
   }
   // The program's root, which the functions above are no part of.
@@ -242,7 +228,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{has a constant with 1 fields or captures where 2 are expected}}
-    %c = idr.constant #idr.con<!T, @A, [1 : i64]> : !T
+    %c = idr.constant !T #idr.con<!T, @A, [1 : i64]>
     return
   }
   // The program's root, which the functions above are no part of.
@@ -260,7 +246,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{has a constant "x" : !idr.str where '!idr.str' is expected}}
-    %c = idr.constant #idr.con<!T, @A, ["x" : !idr.str]> : !T
+    %c = idr.constant !T #idr.con<!T, @A, ["x" : !idr.str]>
     return
   }
   // The program's root, which the functions above are no part of.
@@ -276,7 +262,7 @@ idr.program @values root(@root) stage(first) {
 idr.program @values root(@root) stage(first) {
   idr.func @f() {
     // expected-error @+1 {{the data type "T" has no constructor @B}}
-    %c = idr.constant #idr.con<!T, @B, []> : !T
+    %c = idr.constant !T #idr.con<!T, @B, []>
     return
   }
   // The program's root, which the functions above are no part of.
@@ -295,7 +281,7 @@ idr.program @values root(@root) stage(higher) {
   }
   idr.func @f() {
     // expected-error @+1 {{has a closure of @g, of type '!idr.fn<(i64) -> i64>', where '!idr.fn<(i64, i64) -> i64>' is expected}}
-    %c = idr.constant #idr.closure<@g, [1 : i64]> : !idr.fn<(i64, i64) -> (i64)>
+    %c = idr.constant !idr.fn<(i64, i64) -> (i64)> #idr.closure<@g, [1 : i64]>
     return
   }
   // The program's root, which the functions above are no part of.
@@ -310,7 +296,7 @@ idr.program @values root(@root) stage(higher) {
 idr.program @values root(@root) stage(higher) {
   idr.func @f() {
     // expected-error @+1 {{has a closure of an unknown function @nowhere}}
-    %c = idr.constant #idr.closure<@nowhere, []> : !idr.fn<() -> ()>
+    %c = idr.constant !idr.fn<() -> ()> #idr.closure<@nowhere, []>
     return
   }
   // The program's root, which the functions above are no part of.

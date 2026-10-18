@@ -44,11 +44,8 @@ std::optional<ValueRange> indicesOf(Operation *op) {
 
 // In the function the argument names, no index of a tensor access is a
 // guard's result, and it accesses a tensor at least once.
-LogicalResult typedReads(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "typed-reads";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult typedReads(const Request<Functions> &request) {
+  ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   bool held = true, accessed = false;
   for (FunctionOpInterface fn : functions)
     fn->walk([&](Operation *op) {
@@ -58,13 +55,15 @@ LogicalResult typedReads(ModuleOp module, AnalysisManager &, StringRef function)
       accessed = true;
       for (Value index : *indices)
         if (Operation *guard = guardOf(index)) {
-          fail(op->getLoc(), property) << op->getName() << " in " << where(op)
-                                       << " takes an index " << guard->getName() << " checked";
+          fail(op->getLoc(), request.property) << op->getName() << " in " << where(op)
+                                               << " takes an index " << guard->getName()
+                                               << " checked";
           held = false;
         }
     });
   if (!accessed) {
-    fail(functions.front()->getLoc(), property) << "no tensor is accessed in " << function;
+    fail(functions.front()->getLoc(), request.property)
+        << "no tensor is accessed in @" << request.argument.name;
     held = false;
   }
   return success(held);

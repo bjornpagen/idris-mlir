@@ -23,11 +23,13 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cstddef>
 #include <optional>
@@ -39,6 +41,7 @@ namespace idr {
 #define GEN_PASS_DECL_IDRTRMC
 #define GEN_PASS_DECL_IDRTAILLOOPS
 #define GEN_PASS_DECL_IDRRETURNEDARGUMENTS
+#define GEN_PASS_DECL_IDRRETURNEDARGUMENTSDROP
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 
@@ -74,7 +77,7 @@ mlir::FailureOr<mlir::StringAttr> copyName(FuncOp fn, llvm::StringRef kind, mlir
 // again: the match whose results it returns, the region of it that ends in
 // the self tail call, and the one that reaches none.
 struct Decision {
-  mlir::Operation &match;
+  MatchOpInterface match;
   mlir::Region &loops;
   mlir::Region &exits;
 };
@@ -126,44 +129,43 @@ llvm::SmallVector<Site> accumulatorSites(FuncOp fn);
 // Returned arguments
 //===----------------------------------------------------------------------===//
 
-// Which result of which lowered function is always one of its arguments.
-// Only a private func.func every use of which is a direct call is
-// eligible: its signature is the pass's to change. The fixpoint from the
-// optimistic start over every eligible function, computed once, callees
-// first over the call graph; a function's own rewrite and its callers'
-// read only this, by name, so none reads a sibling while that sibling may
-// be changing.
+// Which result of which lowered function is always one of its arguments:
+// an analysis of the module, one sparse forward dataflow solved by
+// upstream's solver. Only a private func.func every use of which is a
+// direct call is eligible to drop one: its signature is the rewrite's to
+// change. A function's own rewrite and its callers' read only this, by
+// name, so none reads a sibling while that sibling may be changing.
 class Returned {
 public:
-  // What a result is known to be: unconstrained yet (what every result
-  // starts as, the bottom), the argument at an index, or no one argument
-  // (the top). What two paths give joins to what they agree on, and a
-  // result moves up at most twice.
+  // What a value is known to be: unconstrained yet (what every value
+  // starts as, the bottom, and what a value only code that never runs
+  // gives stays), the argument at an index of its function, or no one
+  // argument (the top). What two paths give joins to what they agree on.
   class Known {
   public:
-    static constexpr std::size_t kHeight = 2;
-
     Known() = default;
     static Known arg(unsigned index) { return Known(State(std::in_place_index<1>, index)); }
     static Known none() { return Known(State(NoOne{})); }
 
-    // The argument the result is, when it is one.
+    // The argument the value is, when it is one.
     std::optional<unsigned> argument() const {
       if (const unsigned *index = std::get_if<unsigned>(&state))
         return *index;
       return std::nullopt;
     }
 
-    // Joins what another path gives; whether this changed.
-    bool join(const Known &other) {
-      if (std::holds_alternative<Unconstrained>(other.state) || *this == other ||
-          std::holds_alternative<NoOne>(state))
-        return false;
-      state = std::holds_alternative<Unconstrained>(state) ? other.state : State(NoOne{});
-      return true;
+    // What two paths give, together.
+    static Known join(const Known &a, const Known &b) {
+      if (std::holds_alternative<Unconstrained>(a.state) || a == b)
+        return b;
+      if (std::holds_alternative<Unconstrained>(b.state))
+        return a;
+      return none();
     }
 
     bool operator==(const Known &) const = default;
+
+    void print(llvm::raw_ostream &os) const;
 
   private:
     struct Unconstrained {
@@ -194,7 +196,8 @@ public:
     llvm::SmallVector<unsigned> kept() const;
   };
 
-  explicit Returned(mlir::ModuleOp module);
+  // The solve of `module`, a builtin.module of func.func.
+  Returned(mlir::Operation *module, mlir::AnalysisManager &am);
 
   // The function named `name` when it drops a result, or null.
   const Function *dropping(mlir::StringAttr name) const;

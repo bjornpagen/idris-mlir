@@ -1,5 +1,5 @@
+NEEDS-ACCEPTANCE: that fannkuch-linear, qsort and unionfind, now the Linear.Vec programs, print the recorded outputs
 ack: prints the recorded output
-ackdyn: prints the recorded output
 binary-trees: prints the recorded output
 cfold: prints the recorded output
 collatz: prints the recorded output

@@ -105,6 +105,7 @@ def Idr_TabulateOp : Idr_GeneratingOp<"tabulate", [HasParallelRegion, Idr_MakesA
   let extraClassDeclaration = generatingDeclarations # [{
     unsigned getRank() { return getBody()->getNumArguments(); }
     ::mlir::ValueRange getHeldArrays() { return getArrays(); }
+    ::mlir::ValueRange getYieldTargets() { return getArrays(); }
     // What the region yields for each array: its element, or its cell.
     ::llvm::SmallVector<::mlir::Type> getCellTypes();
   }];
@@ -126,6 +127,7 @@ def Idr_TabulateIOOp : Idr_GeneratingOp<"tabulate_io", [Idr_PerformsIO, Idr_Make
   let extraClassDeclaration = generatingDeclarations # [{
     unsigned getRank() { return getBody()->getNumArguments() - 1; }
     ::mlir::ValueRange getHeldArrays() { return getArrays(); }
+    ::mlir::ValueRange getYieldTargets() { return getArrays(); }
     // What the region yields for each array, before the world.
     ::llvm::SmallVector<::mlir::Type> getCellTypes();
     ::mlir::BlockArgument getWorldArgument() { return getBody()->getArguments().back(); }
@@ -139,7 +141,7 @@ def Idr_TabulateIOOp : Idr_GeneratingOp<"tabulate_io", [Idr_PerformsIO, Idr_Make
 // leading dimensions; the results have the inits' types. A rank-0 init is
 // an accumulator of no frame.
 def Idr_FoldLastOp : Idr_GeneratingOp<"fold_last", [HasParallelRegion, Idr_FoldsAnAccumulator,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface>]> {
+    Idr_LastAxisFoldOpInterface, DeclareOpInterfaceMethods<RegionBranchOpInterface>]> {
   let summary = "for each index of a frame, a left fold along one more dimension";
   let arguments = (ins Variadic<AnyRankedTensor>:$inits, Index:$length);
   let results = (outs Variadic<AnyRankedTensor>:$results);
@@ -152,6 +154,7 @@ def Idr_FoldLastOp : Idr_GeneratingOp<"fold_last", [HasParallelRegion, Idr_Folds
     }
     unsigned getFrameRank() { return getRank() - 1; }
     ::mlir::ValueRange getHeldArrays() { return getInits(); }
+    ::mlir::ValueRange getYieldTargets() { return getResults(); }
     ::mlir::Block::BlockArgListType getAccumulators() {
       return getBody()->getArguments().drop_front(getRank());
     }
@@ -163,7 +166,7 @@ def Idr_FoldLastOp : Idr_GeneratingOp<"fold_last", [HasParallelRegion, Idr_Folds
 // that step. The result's dimensions are the frame's, then `length`, then
 // the init's cell's.
 def Idr_ScanLastOp : Idr_GeneratingOp<"scan_last", [HasParallelRegion, Idr_FoldsAnAccumulator,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface>]> {
+    Idr_LastAxisFoldOpInterface, DeclareOpInterfaceMethods<RegionBranchOpInterface>]> {
   let summary = "for each index of a frame, every accumulator of a left fold";
   let arguments = (ins Variadic<AnyRankedTensor>:$inits, Index:$length);
   let results = (outs Variadic<AnyRankedTensor>:$results);
@@ -176,6 +179,7 @@ def Idr_ScanLastOp : Idr_GeneratingOp<"scan_last", [HasParallelRegion, Idr_Folds
     }
     unsigned getFrameRank() { return getRank() - 1; }
     ::mlir::ValueRange getHeldArrays() { return getInits(); }
+    ::mlir::ValueRange getYieldTargets() { return getResults(); }
     ::mlir::Block::BlockArgListType getAccumulators() {
       return getBody()->getArguments().drop_front(getRank());
     }
@@ -200,15 +204,16 @@ def Idr_TransposeOp : Idr_Op<"transpose", [Pure,
 }
 
 // The end of a region of an array op: what it gives at its index, each
-// value moving on with the reference it holds. An element, or the elements
-// of a cell, move into the array the value's position names (its flow
-// edges). Of a tabulation in the world's order the last value is the world
-// after the step, which goes on to the next step and out of the op; of an
-// update, the values after the element leave the op as its results (the
-// forwarding). Nothing else goes on.
+// value moving on with the reference it holds. Its leading values move into
+// the arrays its parent holds for them (YieldTargetsOpInterface), one each,
+// an element or the elements of a cell (its flow edges); the values after
+// them go on (the forwarding): of a tabulation in the world's order, the
+// world after the step, to the next step and out of the op; of an update,
+// the values after the element, out of the op as its results. Its parent is
+// an op that holds such arrays.
 def Idr_ArrayYieldOp : Idr_Op<"array.yield", [Pure, Terminator,
-    ParentOneOf<["TabulateOp", "TabulateIOOp", "FoldLastOp", "ScanLastOp", "ArrayUpdateOp",
-                 "ElementUpdateOp"]>,
+    PredOpTrait<"its parent holds the arrays it yields into", CPred<
+        "::llvm::isa_and_nonnull<::idr::YieldTargetsOpInterface>($_op.getParentOp())">>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface,
                               ["getMutableSuccessorOperands"]>]> {
@@ -257,12 +262,13 @@ def Idr_ValueBuffer : Type<And<[AnyMemRef.predicate,
 // or writes the array's cell in that order. Their effects are on the array
 // they touch, not on the IO resource: the world operand already orders them
 // with every other effect, and an effect on the array lets alias reasoning
-// tell two arrays apart. An element moves in with its reference, which the
-// op takes over, and out with one of its own: the flow edges of each op say
-// which (lib/IR/OpsArrays.cpp).
+// tell two arrays apart. Each op declares its own on the array it makes or
+// takes; an access crashes on no index, the index being its guard's to
+// check. An element moves in with its reference, which the op takes over,
+// and out with one of its own: the flow edges of each op say which
+// (lib/IR/OpsArrays.cpp).
 class Idr_ArrayOp<string mnemonic, list<Trait> traits = []>
     : Idr_Op<"array." # mnemonic, !listconcat(traits, [Idr_PerformsIO,
-        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
         DeclareOpInterfaceMethods<Idr_FlowOpInterface>])>;
 
 // A new array of the given sizes, one per dimension, each element the
@@ -273,12 +279,12 @@ class Idr_ArrayOp<string mnemonic, list<Trait> traits = []>
 // place, and a write's release of the old element always releases one. The
 // array's shape is known from its sizes (ReifyRankedShapedTypeOpInterface),
 // so `memref.dim` of it folds, as upstream folds the dimension of a
-// `memref.alloc`.
+// `memref.alloc`. It allocates the array and writes its fill.
 def Idr_ArrayNewOp : Idr_ArrayOp<"new", [Idr_Primitive,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
   let summary = "a new array of the given sizes, each element `fill`";
   let arguments = (ins Variadic<I64>:$sizes, AnyType:$fill, Idr_WorldType:$world);
-  let results = (outs Idr_ArrayValue:$array, Idr_WorldType:$next);
+  let results = (outs Res<Idr_ArrayValue, "", [MemAlloc, MemWrite]>:$array, Idr_WorldType:$next);
   let assemblyFormat = [{
     ` ` `[` $sizes `]` `,` $fill `,` $world attr-dict `:` type($fill) `->` type($array)
   }];
@@ -300,11 +306,12 @@ def Idr_ArrayNewOp : Idr_ArrayOp<"new", [Idr_Primitive,
 // no index, so its accesses have nothing to guard.
 
 // The element at `indices`, one per dimension, which are within the array,
-// with a reference of its own: the array keeps its.
+// with a reference of its own: the array keeps its. It reads the array.
 def Idr_ArrayGetOp : Idr_ArrayOp<"get", [Idr_Primitive,
-    Idr_Guarded<"indices, array", "InBounds", "array index out of bounds">]> {
+    Idr_Guarded<["indices", "array"], Idr_InBounds, "array index out of bounds">]> {
   let summary = "the element of an array at an index";
-  let arguments = (ins Idr_ArrayValue:$array, Variadic<I64>:$indices, Idr_WorldType:$world);
+  let arguments = (ins Arg<Idr_ArrayValue, "", [MemRead]>:$array, Variadic<I64>:$indices,
+                       Idr_WorldType:$world);
   let results = (outs AnyType:$value, Idr_WorldType:$next);
   let assemblyFormat = [{
     $array `[` $indices `]` `,` $world attr-dict `:` type($array) `->` type($value)
@@ -318,12 +325,13 @@ def Idr_ArrayGetOp : Idr_ArrayOp<"get", [Idr_Primitive,
 }
 
 // Writes `value`, which moves in, over the element at `indices`, which are
-// within the array; the old element is released.
+// within the array; the old element is released. It reads the old element,
+// to release it, and writes the new one.
 def Idr_ArraySetOp : Idr_ArrayOp<"set", [Idr_Primitive,
-    Idr_Guarded<"indices, array", "InBounds", "array index out of bounds">]> {
+    Idr_Guarded<["indices", "array"], Idr_InBounds, "array index out of bounds">]> {
   let summary = "writes an element of an array at an index";
-  let arguments = (ins Idr_ArrayValue:$array, Variadic<I64>:$indices, AnyType:$value,
-                       Idr_WorldType:$world);
+  let arguments = (ins Arg<Idr_ArrayValue, "", [MemRead, MemWrite]>:$array,
+                       Variadic<I64>:$indices, AnyType:$value, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = [{
     $array `[` $indices `]` `,` $value `,` $world attr-dict `:` type($array) `,` type($value)
@@ -351,7 +359,7 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set", [Idr_Primitive,
 // the op's own effects, on the array; the region's are its own
 // (RecursiveMemoryEffects).
 def Idr_ArrayUpdateOp : Idr_ArrayOp<"update", [RecursiveMemoryEffects, SingleBlock,
-    Idr_UpdateOpInterface,
+    Idr_UpdateOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<RegionBranchOpInterface,
                               ["getSuccessorInputs", "getRegionInvocationBounds"]>]> {
   let summary = "an element of an array rebuilt in its place";
@@ -369,6 +377,9 @@ def Idr_ArrayUpdateOp : Idr_ArrayOp<"update", [RecursiveMemoryEffects, SingleBlo
     }
     // The element moved out, which the region rebuilds.
     ::mlir::BlockArgument getElement() { return getBody()->getArgument(0); }
+    // The array the region's first value moves back into: the operand's
+    // range, which outlives the call.
+    ::mlir::ValueRange getYieldTargets() { return getODSOperands(0); }
   }];
 }
 
@@ -407,6 +418,9 @@ def Idr_ElementUpdateOp : Idr_Op<"element.update", [RecursiveMemoryEffects, Sing
     ::mlir::MemRefType getArrayType() { return getArray().getType(); }
     // The element moved out, which the region rebuilds.
     ::mlir::BlockArgument getElement() { return getBody()->getArgument(0); }
+    // The buffer the region's first value moves back into: the operand's
+    // range, which outlives the call.
+    ::mlir::ValueRange getYieldTargets() { return getODSOperands(0); }
   }];
 }
 
@@ -421,7 +435,7 @@ def Idr_ElementUpdateOp : Idr_Op<"element.update", [RecursiveMemoryEffects, Sing
 // A small natural is itself; one that is not small is past every
 // allocation either target can make, so it is the allocation's failure,
 // here, where the extent is made.
-def Idr_NatToExtentOp : Idr_Op<"nat.to_extent", [Idr_MayCrash<>,
+def Idr_NatToExtentOp : Idr_Op<"nat.to_extent", [Idr_MayCrash,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "a natural as the extent of an array to be made";
   let arguments = (ins Idr_NatRead:$natural);
@@ -443,8 +457,10 @@ def Idr_NatToExtentOp : Idr_Op<"nat.to_extent", [Idr_MayCrash<>,
 // an optimization, never a meaning: the equality is Idris's and holds
 // whether or not the op is there. An array a world orders is never tied:
 // its length is its own, read with memref.dim. The result is a view of its
-// operand (ViewLikeOpInterface): the same array.
-def Idr_TieShapeOp : Idr_Op<"tie_shape", [Pure, AllTypesMatch<["value", "result"]>,
+// operand (ViewLikeOpInterface): the same array, which is what it is at run
+// time (Idr_NoRuntimeForm).
+def Idr_TieShapeOp : Idr_Op<"tie_shape", [Pure, Idr_NoRuntimeForm,
+    AllTypesMatch<["value", "result"]>,
     DeclareOpInterfaceMethods<ViewLikeOpInterface>,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>]> {

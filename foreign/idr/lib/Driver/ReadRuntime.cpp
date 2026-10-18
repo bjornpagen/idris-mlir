@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime read from what --runtime names: prepared bitcode, or the
-// archive's members, each checked and stripped of what only separate
-// compilation needs, linked into one module.
+// The runtime read from the file a compilation names, once, into the kind
+// it is: the archive's members, each checked, stripped of what only
+// separate compilation needs and marked with what it was compiled for,
+// linked into one module; or prepared bitcode, with the CPU its native
+// half is compiled for.
 
 #include "idr/Driver/Options.h"
-#include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/IR/IdrDialect.h"
+
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
@@ -21,11 +26,12 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/Object/Archive.h"
+#include "llvm/Object/Error.h"
 #include "llvm/Object/IRObjectFile.h"
-#include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -35,7 +41,6 @@
 
 #include <memory>
 #include <string>
-#include <optional>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -55,39 +60,35 @@ struct Member {
 // Every member of the runtime archive carries its bitcode as the target
 // entry's flags compile it (a fat LTO object's section, say), where LLVM's
 // object reader finds it whatever the object's format; this is the bitcode
-// of each, or nothing after a report.
-static std::optional<std::vector<Member>> readMembers(const llvm::MemoryBuffer &archiveBuffer) {
+// of each.
+static mlir::FailureOr<std::vector<Member>>
+readMembers(llvm::StringRef path, const llvm::MemoryBuffer &archiveBuffer, mlir::Location at) {
   auto archive = llvm::object::Archive::create(archiveBuffer.getMemBufferRef());
-  if (!archive) {
-    Report() << "runtime " << runtimePath << ": " << llvm::toString(archive.takeError());
-    return std::nullopt;
-  }
+  if (!archive)
+    return mlir::emitError(at) << "runtime " << path << ": " << llvm::toString(archive.takeError());
   std::vector<Member> members;
   llvm::Error error = llvm::Error::success();
   for (const llvm::object::Archive::Child &child : (*archive)->children(error)) {
     auto name = child.getName();
     auto buffer = child.getMemoryBufferRef();
     if (!name || !buffer) {
-      Report() << "runtime " << runtimePath << ": unreadable member";
       llvm::consumeError(name.takeError());
       llvm::consumeError(buffer.takeError());
       llvm::consumeError(std::move(error));
-      return std::nullopt;
+      return mlir::emitError(at) << "runtime " << path << ": unreadable member";
     }
     auto bitcode = llvm::object::IRObjectFile::findBitcodeInMemBuffer(*buffer);
     if (!bitcode) {
-      Report() << "runtime member " << *name
-               << " carries no bitcode, which every member of the runtime's archive must: "
-               << llvm::toString(bitcode.takeError());
       llvm::consumeError(std::move(error));
-      return std::nullopt;
+      return mlir::emitError(at)
+             << "runtime member " << *name
+             << " carries no bitcode, which every member of the runtime's archive must: "
+             << llvm::toString(bitcode.takeError());
     }
     members.push_back({name->str(), *bitcode});
   }
-  if (error) {
-    Report() << "runtime " << runtimePath << ": " << llvm::toString(std::move(error));
-    return std::nullopt;
-  }
+  if (error)
+    return mlir::emitError(at) << "runtime " << path << ": " << llvm::toString(std::move(error));
   return members;
 }
 
@@ -101,6 +102,16 @@ static bool sameTarget(const llvm::Triple &a, const llvm::Triple &b) {
          a.getVendor() == b.getVendor() && a.getOS() == b.getOS() &&
          a.getOSVersion() == b.getOSVersion() && a.getEnvironment() == b.getEnvironment() &&
          a.getObjectFormat() == b.getObjectFormat();
+}
+
+// The runtime module `name` is compiled for the triple programs are.
+static mlir::LogicalResult onProgramTriple(const llvm::Module &module, llvm::StringRef name,
+                                             mlir::Location at) {
+  if (!sameTarget(module.getTargetTriple(), llvm::Triple(targetTriple)))
+    return mlir::emitError(at) << "runtime member " << name << " is compiled for "
+                               << module.getTargetTriple().str() << ", and programs for "
+                               << targetTriple;
+  return mlir::success();
 }
 
 // Turns the runtime's annotations of a member's functions, which
@@ -134,14 +145,12 @@ static void markAnnotated(llvm::Module &member) {
 // so constructors would run in every program, and `used` would keep dead
 // runtime code (and its libc calls) in every executable: constructors are
 // rejected, `used` markers dropped. Annotations become marks, then are
-// dropped too. Prepared bitcode passes through unchanged: it is a member
-// that was prepared already.
-static bool prepareMember(llvm::Module &member, llvm::StringRef name) {
-  if (!sameTarget(member.getTargetTriple(), llvm::Triple(targetTriple))) {
-    Report() << "runtime member " << name << " is compiled for " << member.getTargetTriple().str()
-             << ", and programs for " << targetTriple;
-    return false;
-  }
+// dropped too. Each definition is marked with what it was compiled for,
+// before anything raises it.
+static mlir::LogicalResult prepareMember(llvm::Module &member, llvm::StringRef name,
+                                         mlir::Location at) {
+  if (mlir::failed(onProgramTriple(member, name, at)))
+    return mlir::failure();
   markAnnotated(member);
   if (llvm::GlobalVariable *annotations = member.getNamedGlobal("llvm.global.annotations"))
     annotations->eraseFromParent();
@@ -149,64 +158,52 @@ static bool prepareMember(llvm::Module &member, llvm::StringRef name) {
   // units, lists none.
   for (llvm::StringRef array : {"llvm.global_ctors", "llvm.global_dtors"})
     if (llvm::GlobalVariable *global = member.getNamedGlobal(array)) {
-      if (llvm::cast<llvm::ArrayType>(global->getValueType())->getNumElements() == 0) {
-        global->eraseFromParent();
-        continue;
-      }
-      Report() << "runtime member " << name
-               << " has static constructors or destructors; the runtime must be "
-                  "constant-initialized";
-      return false;
+      if (llvm::cast<llvm::ArrayType>(global->getValueType())->getNumElements() != 0)
+        return mlir::emitError(at) << "runtime member " << name
+                                   << " has static constructors or destructors; the runtime "
+                                      "must be constant-initialized";
+      global->eraseFromParent();
     }
   for (llvm::StringRef array : {"llvm.used", "llvm.compiler.used"})
     if (llvm::GlobalVariable *global = member.getNamedGlobal(array))
       global->eraseFromParent();
   for (const llvm::GlobalVariable &global : member.globals())
-    if (global.hasAppendingLinkage()) {
-      Report() << idr::refusalHead(idr::Rule::Runtime) << ": runtime member " << name
-               << " defines the appending global " << global.getName();
-      return false;
+    if (global.hasAppendingLinkage())
+      return idr::refuse(at, idr::Rule::Runtime)
+             << "runtime member " << name << " defines the appending global " << global.getName();
+  for (llvm::Function &function : member)
+    if (!function.isDeclaration()) {
+      function.addFnAttr(cpuMark, function.getFnAttribute("target-cpu").getValueAsString());
+      function.addFnAttr(featuresMark,
+                         function.getFnAttribute("target-features").getValueAsString());
     }
-  return true;
+  return mlir::success();
 }
 
-// The prepared runtime's bitcode, where its container keeps it: a bitcode
-// file is itself; an object, of any format LLVM's object reader knows,
-// holds it in the section the container names, or, with none named, the
-// file beside it does, which `beside` then holds.
+// The prepared runtime's bitcode: the file itself when it is bitcode, else
+// its object's bitcode section, where LLVM's object reader finds it
+// (.llvm.lto on ELF), or the file beside the object exactly when the object
+// has none, which `beside` then holds.
 static llvm::Expected<llvm::MemoryBufferRef>
-preparedBitcode(llvm::MemoryBufferRef file, std::unique_ptr<llvm::MemoryBuffer> &beside) {
-  if (llvm::identify_magic(file.getBuffer()) == llvm::file_magic::bitcode)
-    return file;
-  return std::visit(
-      llvm::makeVisitor(
-          [&](BesideObject) -> llvm::Expected<llvm::MemoryBufferRef> {
-            std::string path = besideObject(runtimePath);
-            auto read = llvm::MemoryBuffer::getFile(path, /*IsText=*/false,
-                                                    /*RequiresNullTerminator=*/false);
-            if (!read)
-              return llvm::createStringError(read.getError(), "cannot read " + path);
-            beside = std::move(*read);
-            return beside->getMemBufferRef();
-          },
-          [&](InSection home) -> llvm::Expected<llvm::MemoryBufferRef> {
-            auto object = llvm::object::ObjectFile::createObjectFile(file);
-            if (!object)
-              return object.takeError();
-            for (const llvm::object::SectionRef &section : (*object)->sections()) {
-              llvm::Expected<llvm::StringRef> name = section.getName();
-              if (!name)
-                return name.takeError();
-              if (*name != home.name)
-                continue;
-              llvm::Expected<llvm::StringRef> contents = section.getContents();
-              if (!contents)
-                return contents.takeError();
-              return llvm::MemoryBufferRef(*contents, file.getBufferIdentifier());
-            }
-            return llvm::createStringError("the object has no section " + home.name);
-          }),
-      runtimeBitcodeHome());
+preparedBitcode(llvm::MemoryBufferRef file, llvm::StringRef path,
+                std::unique_ptr<llvm::MemoryBuffer> &beside) {
+  return llvm::handleExpected(
+      llvm::object::IRObjectFile::findBitcodeInMemBuffer(file),
+      [&]() -> llvm::Expected<llvm::MemoryBufferRef> {
+        std::string besidePath = besideObject(path);
+        auto read = llvm::MemoryBuffer::getFile(besidePath, /*IsText=*/false,
+                                                /*RequiresNullTerminator=*/false);
+        if (!read)
+          return llvm::createStringError(read.getError(), "cannot read " + besidePath);
+        beside = std::move(*read);
+        return beside->getMemBufferRef();
+      },
+      [](const llvm::ECError &error) -> llvm::Error {
+        std::error_code code = error.convertToErrorCode();
+        if (code == llvm::object::object_error::bitcode_section_not_found)
+          return llvm::Error::success();
+        return llvm::errorCodeToError(code);
+      });
 }
 
 std::string idr::driver::besideObject(llvm::StringRef object) {
@@ -215,56 +212,81 @@ std::string idr::driver::besideObject(llvm::StringRef object) {
   return path.str().str();
 }
 
-std::unique_ptr<llvm::Module> idr::driver::readRuntime(llvm::LLVMContext &context,
-                                                       const llvm::Triple &triple,
-                                                       const llvm::DataLayout &layout) {
-  auto buffer = llvm::MemoryBuffer::getFile(runtimePath, /*IsText=*/false,
+// The archive's members, each prepared, joined into one module.
+static mlir::FailureOr<std::variant<Archived, Prepared>>
+readArchive(llvm::StringRef path, const llvm::MemoryBuffer &buffer, llvm::LLVMContext &llvmContext,
+            const llvm::Triple &triple, const llvm::DataLayout &layout, mlir::Location at) {
+  mlir::FailureOr<std::vector<Member>> members = readMembers(path, buffer, at);
+  if (mlir::failed(members))
+    return mlir::failure();
+  auto runtime = std::make_unique<llvm::Module>("idris-mlir-runtime", llvmContext);
+  runtime->setTargetTriple(triple);
+  runtime->setDataLayout(layout);
+  llvm::Linker runtimeLinker(*runtime);
+  for (const Member &member : *members) {
+    auto module = llvm::parseBitcodeFile(member.bitcode, llvmContext);
+    if (!module)
+      return mlir::emitError(at) << "runtime member " << member.name << ": "
+                                 << llvm::toString(module.takeError());
+    if (mlir::failed(prepareMember(**module, member.name, at)))
+      return mlir::failure();
+    if (runtimeLinker.linkInModule(std::move(*module)))
+      return mlir::emitError(at) << "runtime member " << member.name
+                                 << " does not link with the members before it";
+  }
+  return std::variant<Archived, Prepared>(Archived{std::move(runtime)});
+}
+
+// What --prepare-runtime wrote: its bitcode, with the flags that say what
+// its native half is compiled for; a file that holds no bitcode, or bitcode
+// without both flags, is neither kind of runtime.
+static mlir::FailureOr<std::variant<Archived, Prepared>>
+readPrepared(llvm::StringRef path, const llvm::MemoryBuffer &buffer,
+             llvm::LLVMContext &llvmContext, mlir::Location at) {
+  auto neither = [&]() -> mlir::InFlightDiagnostic {
+    mlir::InFlightDiagnostic diagnostic = mlir::emitError(at);
+    diagnostic << "runtime " << path
+               << " is neither the archive --prepare-runtime reads nor a runtime it wrote: ";
+    return diagnostic;
+  };
+  std::unique_ptr<llvm::MemoryBuffer> beside;
+  auto bitcode = preparedBitcode(buffer.getMemBufferRef(), path, beside);
+  if (!bitcode)
+    return neither() << llvm::toString(bitcode.takeError());
+  auto module = llvm::parseBitcodeFile(*bitcode, llvmContext);
+  if (!module)
+    return mlir::emitError(at) << "runtime " << path << ": " << llvm::toString(module.takeError());
+  if (mlir::failed(onProgramTriple(**module, path, at)))
+    return mlir::failure();
+  // The CPU and features --prepare-runtime records the native half is
+  // compiled for, as the module's flags.
+  auto *cpu = llvm::dyn_cast_or_null<llvm::MDString>((*module)->getModuleFlag(preparedCpuFlag));
+  auto *features =
+      llvm::dyn_cast_or_null<llvm::MDString>((*module)->getModuleFlag(preparedFeaturesFlag));
+  if (!cpu || !features)
+    return neither() << "its bitcode records no CPU it was prepared for";
+  PreparedFor target{cpu->getString().str(), features->getString().str()};
+  return std::variant<Archived, Prepared>(Prepared{std::move(*module), std::move(target)});
+}
+
+mlir::FailureOr<std::variant<Archived, Prepared>>
+idr::driver::readRuntime(llvm::StringRef path, llvm::LLVMContext &llvmContext,
+                         const llvm::Triple &triple, const llvm::DataLayout &layout,
+                         mlir::MLIRContext &context) {
+  mlir::Location at = mlir::UnknownLoc::get(&context);
+  auto buffer = llvm::MemoryBuffer::getFile(path, /*IsText=*/false,
                                             /*RequiresNullTerminator=*/false);
-  if (!buffer) {
-    Report() << "cannot read runtime " << runtimePath << ": " << buffer.getError().message();
-    return nullptr;
-  }
-  std::unique_ptr<llvm::Module> runtime;
-  if (llvm::identify_magic((*buffer)->getBuffer()) != llvm::file_magic::archive) {
-    std::unique_ptr<llvm::MemoryBuffer> beside;
-    auto bitcode = preparedBitcode((*buffer)->getMemBufferRef(), beside);
-    if (!bitcode) {
-      Report() << "runtime " << runtimePath
-               << " carries no bitcode where its container keeps it; the runtime is what "
-                  "--prepare-runtime wrote, or the archive it reads: "
-               << llvm::toString(bitcode.takeError());
-      return nullptr;
-    }
-    auto module = llvm::parseBitcodeFile(*bitcode, context);
-    if (!module) {
-      Report() << "runtime " << runtimePath << ": " << llvm::toString(module.takeError());
-      return nullptr;
-    }
-    if (!prepareMember(**module, runtimePath))
-      return nullptr;
-    runtime = std::move(*module);
-  } else {
-    std::optional<std::vector<Member>> members = readMembers(**buffer);
-    if (!members)
-      return nullptr;
-    runtime = std::make_unique<llvm::Module>("idris-mlir-runtime", context);
-    runtime->setTargetTriple(triple);
-    runtime->setDataLayout(layout);
-    llvm::Linker runtimeLinker(*runtime);
-    for (const Member &member : *members) {
-      auto module = llvm::parseBitcodeFile(member.bitcode, context);
-      if (!module) {
-        Report() << "runtime member " << member.name << ": " << llvm::toString(module.takeError());
-        return nullptr;
-      }
-      if (!prepareMember(**module, member.name))
-        return nullptr;
-      if (runtimeLinker.linkInModule(std::move(*module))) {
-        Report() << "runtime member " << member.name << " does not link with the members before it";
-        return nullptr;
-      }
-    }
-  }
-  llvm::StripDebugInfo(*runtime);
+  if (!buffer)
+    return mlir::emitError(at) << "cannot read runtime " << path << ": "
+                               << buffer.getError().message();
+  // The file's kind, read off it once: an archive, or what
+  // --prepare-runtime wrote.
+  mlir::FailureOr<std::variant<Archived, Prepared>> runtime =
+      llvm::identify_magic((*buffer)->getBuffer()) == llvm::file_magic::archive
+          ? readArchive(path, **buffer, llvmContext, triple, layout, at)
+          : readPrepared(path, **buffer, llvmContext, at);
+  if (mlir::failed(runtime))
+    return mlir::failure();
+  std::visit([](auto &read) { llvm::StripDebugInfo(*read.module); }, *runtime);
   return runtime;
 }

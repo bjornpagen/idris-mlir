@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)` and `idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A Lazy value picked at runtime, stored in a field and forced later: the
@@ -21,7 +22,7 @@ idr.program @lazy root(@Main.main) stage(higher) {
       %a = idr.closure @now() : () -> !idr.fn<() -> (i64)>
       idr.yield %a : !idr.fn<() -> (i64)>
     }
-    default {
+    default(%d: i64) {
       %b = idr.closure @later(%n) : (i64) -> !idr.fn<() -> (i64)>
       idr.yield %b : !idr.fn<() -> (i64)>
     }
@@ -29,7 +30,7 @@ idr.program @lazy root(@Main.main) stage(higher) {
     %box = idr.con !Box @MkBox(%s : !idr.fn<() -> (i64)>)
     %l = idr.field %box : !Box @MkBox[0] -> !idr.fn<() -> (i64)>
     %r = idr.apply %l() : !idr.fn<() -> (i64)>
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

@@ -18,20 +18,16 @@ using namespace mlir;
 namespace idr::expect {
 
 // Anywhere or in @f, every LLVM load and store states its alignment.
-LogicalResult alignedAccess(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "aligned-access";
-  SmallVector<Operation *> roots = rootsOf(module, function, property);
-  if (roots.empty())
-    return failure();
+LogicalResult alignedAccess(const Request<Roots> &request) {
   bool held = true;
   auto check = [&](Operation *op, std::optional<uint64_t> alignment) {
     if (alignment && *alignment != 0)
       return;
-    fail(op->getLoc(), property) << op->getName() << " in " << where(op)
-                                 << " states no alignment";
+    fail(op->getLoc(), request.property) << op->getName() << " in " << where(op)
+                                         << " states no alignment";
     held = false;
   };
-  for (Operation *root : roots)
+  for (Operation *root : request.argument.roots(request.module))
     root->walk([&](Operation *op) {
       if (auto load = dyn_cast<LLVM::LoadOp>(op))
         check(op, load.getAlignment());
@@ -46,13 +42,9 @@ namespace {
 // No op of any copy of the functions `function` names but a call has an
 // effect of kind `Effect` on memory outside its own frame.
 template <typename Effect>
-LogicalResult touchesNothing(ModuleOp module, StringRef function, StringRef property,
-                             StringRef doing) {
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult touchesNothing(const Request<Functions> &request, StringRef doing) {
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.functions)
     fn->walk([&](MemoryEffectOpInterface effects) {
       if (isa<CallOpInterface>(effects.getOperation()))
         return;
@@ -63,8 +55,8 @@ LogicalResult touchesNothing(ModuleOp module, StringRef function, StringRef prop
                    !isa<SideEffects::AutomaticAllocationScopeResource>(effect.getResource());
           }))
         return;
-      fail(effects->getLoc(), property) << effects->getName() << " " << doing << " memory in "
-                                        << where(effects);
+      fail(effects->getLoc(), request.property) << effects->getName() << " " << doing
+                                                << " memory in " << where(effects);
       held = false;
     });
   return success(held);
@@ -72,12 +64,12 @@ LogicalResult touchesNothing(ModuleOp module, StringRef function, StringRef prop
 
 } // namespace
 
-LogicalResult readsNothing(ModuleOp module, AnalysisManager &, StringRef function) {
-  return touchesNothing<MemoryEffects::Read>(module, function, "reads-nothing", "reads");
+LogicalResult readsNothing(const Request<Functions> &request) {
+  return touchesNothing<MemoryEffects::Read>(request, "reads");
 }
 
-LogicalResult writesNothing(ModuleOp module, AnalysisManager &, StringRef function) {
-  return touchesNothing<MemoryEffects::Write>(module, function, "writes-nothing", "writes");
+LogicalResult writesNothing(const Request<Functions> &request) {
+  return touchesNothing<MemoryEffects::Write>(request, "writes");
 }
 
 } // namespace idr::expect

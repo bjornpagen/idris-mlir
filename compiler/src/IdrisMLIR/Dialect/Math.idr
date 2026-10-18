@@ -8,6 +8,9 @@ module IdrisMLIR.Dialect.Math
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Math
 
+import Data.List
+import Data.Vect
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -290,4 +293,4 @@ truncOp : {default Nothing fastmath : Maybe MlirAttr} -> (operand : Value) -> (r
 truncOp operand result =
   MkOp "math.trunc" [operand] (attrIf "fastmath" id fastmath) [] [] [result]
 
--- fingerprint: 2935998903-838914 1956693955-12939
+-- fingerprint: 2885527541-875646 3009803814-12974

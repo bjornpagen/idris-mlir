@@ -1,25 +1,34 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # What the ODS says beside its ops for the rest of the tree, written by
-# idris-mlir-tblgen: the runtime's C functions the ops call, as C declares
-# them (idris_rt_ops.h, which runtime/idris_rt.h includes) and as the
-# lowering and the folders read them (IdrRuntimeAbi.inc); the word op of
+# idris-mlir-tblgen: the runtime's C functions the ops and the lowering call,
+# as C declares them (idris_rt_ops.h, which runtime/idris_rt.h includes) and
+# as the lowering and the folders read them (IdrRuntimeAbi.inc), from the
+# ops' marks and the records beside them (IdrRuntime.td); the word op of
 # each big op (IdrBigToWord.inc); the rules a refusal names, with their
-# categories, for the tests (IdrRules.txt); the role of each pass (IdrPassRoles.txt). They come first, so that the
-# ops' headers' target, made after them, depends on them, and everything
-# that waits on the ops' headers waits on these too.
+# categories, for the tests (IdrRules.txt) and for refusalHead
+# (IdrRuleCategories.inc); each guarded op's guards (IdrGuards.inc); the
+# codes of a field of the bytecode's table of data types (IdrTable.h.inc);
+# the role and the stage of each pass, for the tests (IdrPassRoles.txt,
+# IdrPassStages.txt). They come first, so that the ops' headers' target,
+# made after them, depends on them, and everything that waits on the ops'
+# headers waits on these too.
 set(TABLEGEN_OUTPUT "")
 set(IDR_TABLEGEN_EXE idris-mlir-tblgen)
 set(IDR_TABLEGEN_TARGET idris-mlir-tblgen)
-set(LLVM_TARGET_DEFINITIONS IdrOps.td)
+set(LLVM_TARGET_DEFINITIONS IdrRuntime.td)
 tablegen(IDR idris_rt_ops.h -gen-runtime-abi-decls)
 tablegen(IDR IdrRuntimeAbi.inc -gen-runtime-abi-defs)
+set(LLVM_TARGET_DEFINITIONS IdrOps.td)
 tablegen(IDR IdrBigToWord.inc -gen-big-to-word)
 tablegen(IDR IdrRules.txt -gen-rule-list)
-# The role of each pass, read from the passes' declarations, beside the
-# rules for the tests (IdrPassRoles.txt).
+tablegen(IDR IdrRuleCategories.inc -gen-rule-categories)
+tablegen(IDR IdrGuards.inc -gen-guards)
+set(LLVM_TARGET_DEFINITIONS IdrBytecode.td)
+tablegen(IDR IdrTable.h.inc -gen-idr-table-codes)
 set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/../Transforms/Passes.td)
 tablegen(IDR IdrPassRoles.txt -gen-pass-roles)
+tablegen(IDR IdrPassStages.txt -gen-pass-stages)
 add_public_tablegen_target(IdrRuntimeAbiIncGen)
 set(TABLEGEN_OUTPUT "")
 

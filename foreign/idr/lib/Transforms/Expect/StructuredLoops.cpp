@@ -17,11 +17,8 @@ namespace idr::expect {
 // In the function the argument names or anywhere, no op is left that
 // idr-structure-loops lowers, and there is at least one structured op, so
 // the property cannot hold of a module that never had an array.
-LogicalResult structuredLoops(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "structured-loops";
-  SmallVector<Operation *> roots = rootsOf(module, function, property);
-  if (roots.empty())
-    return failure();
+LogicalResult structuredLoops(const Request<Roots> &request) {
+  SmallVector<Operation *> roots = request.argument.roots(request.module);
   bool held = true, structured = false;
   for (Operation *root : roots)
     root->walk([&](Operation *op) {
@@ -29,12 +26,13 @@ LogicalResult structuredLoops(ModuleOp module, AnalysisManager &, StringRef func
         structured = true;
       if (!structure::structurable(op))
         return;
-      fail(op->getLoc(), property) << op->getName() << " is left unlowered in " << where(op);
+      fail(op->getLoc(), request.property) << op->getName() << " is left unlowered in "
+                                           << where(op);
       held = false;
     });
   if (!structured) {
-    fail(roots.front()->getLoc(), property) << "no structured op"
-                                            << (function.empty() ? "" : " in ") << function;
+    fail(roots.front()->getLoc(), request.property) << "no structured op"
+                                                    << request.argument.in();
     held = false;
   }
   return success(held);

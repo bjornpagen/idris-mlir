@@ -19,11 +19,8 @@ namespace idr::expect {
 // In the function the argument names or anywhere, nothing copies a buffer,
 // and a buffer is there, so the property cannot hold of a module before
 // bufferization or without an array.
-LogicalResult inPlace(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "in-place";
-  SmallVector<Operation *> roots = rootsOf(module, function, property);
-  if (roots.empty())
-    return failure();
+LogicalResult inPlace(const Request<Roots> &request) {
+  SmallVector<Operation *> roots = request.argument.roots(request.module);
   bool held = true, buffer = false;
   // A linear buffer is a buffer in its grade's wrapper.
   auto isBuffer = [](Type type) { return isa<MemRefType>(unrestricted(type)); };
@@ -33,12 +30,11 @@ LogicalResult inPlace(ModuleOp module, AnalysisManager &, StringRef function) {
                llvm::any_of(op->getOperandTypes(), isBuffer);
       if (!bufferize::copies(op))
         return;
-      fail(op->getLoc(), property) << op->getName() << " copies a buffer in " << where(op);
+      fail(op->getLoc(), request.property) << op->getName() << " copies a buffer in " << where(op);
       held = false;
     });
   if (!buffer) {
-    fail(roots.front()->getLoc(), property) << "no buffer" << (function.empty() ? "" : " in ")
-                                            << function;
+    fail(roots.front()->getLoc(), request.property) << "no buffer" << request.argument.in();
     held = false;
   }
   return success(held);

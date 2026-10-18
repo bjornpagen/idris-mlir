@@ -14,25 +14,18 @@ using namespace mlir;
 
 namespace idr::expect {
 
-// `@f:@g`: some function is made from @f and some from @g, and none from
-// both.
-LogicalResult apart(ModuleOp module, AnalysisManager &, StringRef argument) {
-  constexpr StringRef property = "apart";
-  auto [first, second] = splitAt(module, argument, property);
-  if (first.empty())
-    return failure();
-  SmallVector<FunctionOpInterface> fs = named(module, first, property);
-  SmallVector<FunctionOpInterface> gs = named(module, second, property);
-  if (fs.empty() || gs.empty())
-    return failure();
+// Some function is made from @f and some from @g, which the argument's
+// parser found, and none from both.
+LogicalResult apart(const Request<TwoFunctions> &request) {
+  const TwoFunctions &pair = request.argument;
   llvm::DenseSet<Operation *> fromFirst;
-  for (FunctionOpInterface fn : fs)
+  for (FunctionOpInterface fn : pair.first.functions)
     fromFirst.insert(fn);
   bool held = true;
-  for (FunctionOpInterface fn : gs)
+  for (FunctionOpInterface fn : pair.second.functions)
     if (fromFirst.contains(fn)) {
-      fail(fn->getLoc(), property) << where(fn) << " is made from both " << first << " and "
-                                   << second;
+      fail(fn->getLoc(), request.property) << where(fn) << " is made from both @"
+                                           << pair.first.name << " and @" << pair.second.name;
       held = false;
     }
   return success(held);

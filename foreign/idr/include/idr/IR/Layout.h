@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // How idr values are represented at runtime, as the runtime (idris_rt.h)
-// reads them: the cells of boxes, memo sums and arrays and the slots of
-// sums held in place, decided once per module for its target (Layouts); and
-// the boxes that make every type that contains itself finite (fit), decided
+// reads them: the components of every value type, each with whether it is
+// counted; the cells of boxes, memo sums and arrays and the slots of sums
+// held in place, decided once per module for its target (Layouts); and the
+// boxes that make every type that contains itself finite (fit), decided
 // from the module's types. Every value has a layout: a cell whose header
 // cannot count its object slots counts them in a word after the header, a
 // sum of more constructors than a header's tag holds keeps its constructor's
@@ -17,6 +18,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
@@ -27,6 +29,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <variant>
 
 namespace idr::layout {
 
@@ -75,26 +78,41 @@ private:
   uint32_t bits;
 };
 
-// Whether the word right after a cell's header holds the number of its
-// object slots, `objs`, the header's objs field being IDRIS_RT_OBJS_WIDE:
-// for more object slots than the field counts, and in every cell of a sum
-// with a group, so that the group is where every cell of the sum has it.
-inline bool countWord(unsigned objs, bool grouped) { return grouped || objs > mostObjects; }
+// One runtime component of a value, and whether it is counted: a value that
+// holds a reference itself (a cell's address, a big's word, an array's
+// cell), or a counted slot of a sum. The type and the bit are one fact, so
+// no reader pairs two lists by position.
+struct Component {
+  mlir::Type type;
+  bool counted;
+};
 
-// One component of a value stored in a heap cell or static data.
-struct Slot {
+// A component placed in a cell or an element, at its offset from the start.
+struct Slot : Component {
+  unsigned offset;
+};
+
+// A word after the header that a cell holds of itself, by value: the count
+// of its object slots where the header cannot count them, and its
+// constructor's group in a sum of more constructors than a header's tag
+// holds. The header itself is no OwnWord: its count is 1 on the heap and in
+// a frame and 0 in static data, and its info word is the cell's own, the
+// same marked as a stack cell's, or a memo state's or'ed with the stack mark
+// the cell has, so each writer gives the header as its parameter.
+struct OwnWord {
   mlir::Type type;
   unsigned offset;
+  int64_t value;
 };
 
 // A box, or a memo cell in one of its states: a cell is the header
 // (idris_rt_header: the count, then the info word, IDRIS_RT_WORD_BYTES
-// together), then, when the header cannot count the object slots, the word
-// that does, then its object slots, one pointer-sized word each, then its
-// other components, each at the size and alignment the target's data layout
-// gives its type. The object slots are the group of a sum of more
-// constructors than a header's tag holds, then the counted components. A
-// cell starts and ends on a word boundary, and holds no code address.
+// together), then its own words, then its object slots, one pointer-sized
+// word each, then its other components, each at the size and alignment the
+// target's data layout gives its type. The object slots are the group of a
+// sum of more constructors than a header's tag holds, then the counted
+// components. A cell starts and ends on a word boundary, and holds no code
+// address.
 struct Cell {
   // For each field of the constructor, the slots of its components.
   llvm::SmallVector<llvm::SmallVector<Slot>> fields;
@@ -103,21 +121,32 @@ struct Cell {
   unsigned size = IDRIS_RT_WORD_BYTES;
   // The number of object slots, the group's among them.
   unsigned objs = 0;
-  // Every component, (field, component) in address order.
+  // Every component, (field, component), in address order.
   llvm::SmallVector<std::pair<unsigned, unsigned>> order;
   // The header's info word.
   CellInfo info;
-  // For a sum of more constructors than a header's tag holds, the slot of
-  // the constructor's group, its first object slot (an i64): the tag is the
-  // group times IDRIS_RT_TAG_LIMIT plus the header's tag. The slot holds the
-  // group as a small integer does, `group * 2 + 1`, an odd word, which the
-  // runtime releases as it releases any small Integer: not at all. It is at
-  // one offset in every cell of the sum, so a match reads it before it
-  // knows the constructor.
-  std::optional<Slot> group;
+  // The words after the header the cell holds of itself, in address order:
+  // the count of its object slots (an i64, `objs`) where the header cannot
+  // count them, then, for a sum of more constructors than a header's tag
+  // holds, the constructor's group (an i64), held as a small Integer holds
+  // its value, so the runtime releases it as it releases any small Integer:
+  // not at all.
+  llvm::SmallVector<OwnWord> words;
+};
 
-  // Whether the word right after the header holds `objs`, an i64.
-  bool countWord() const { return layout::countWord(objs, group.has_value()); }
+// The cells of a data type some value holds in a box, each constructor's at
+// its allocation size: a memo sum's every state at its largest state's,
+// since a memo cell is allocated in one state and written into another.
+struct BoxLayout {
+  // For a sum of more constructors than a header's tag holds, the offset of
+  // the group word, one offset in every cell of the sum, so a match reads
+  // it before it knows the constructor: the tag is the group times
+  // IDRIS_RT_TAG_LIMIT plus the header's tag.
+  std::optional<unsigned> group;
+  // By tag.
+  llvm::SmallVector<Cell> cells;
+
+  const Cell &cell(Tag tag) const { return cells[static_cast<uint32_t>(tag)]; }
 };
 
 // An element of an array (idris_rt_array): its components in their slots,
@@ -134,34 +163,63 @@ struct Element {
   std::optional<Cell> boxed;
 };
 
-// A sum held in place, spread over scalar slots. A slot that holds a
+// A sum held in place, spread over its words: the tag, when the sum has
+// one, then the slots of its constructors' fields. A slot that holds a
 // counted component in one constructor (a pointer to a cell, or a big)
 // holds one in every constructor that uses it, and null in those that do
-// not, so that the references of a sum are exactly its counted slots.
+// not, so that the references of a sum are exactly its counted words.
 struct SumLayout {
-  // The integer the constructor's tag is held in, for a sum of two
-  // constructors or more; a sum of fewer has no tag to hold.
+  // The integer the constructor's tag is held in, words[0], for a sum of
+  // two constructors or more; a sum of fewer has no tag to hold.
   std::optional<mlir::IntegerType> tag;
-  llvm::SmallVector<mlir::Type> slots;
-  llvm::SmallVector<bool> counted; // for each slot
-  // For each constructor, by tag: for each field, the slots of its
-  // components.
+  llvm::SmallVector<Component> words;
+  // For each constructor, by tag: for each field, the words of its
+  // components, as indices into `words`.
   llvm::SmallVector<llvm::SmallVector<llvm::SmallVector<unsigned>>> fields;
 
-  // The tag, if any, then the slots.
-  llvm::SmallVector<mlir::Type> types() const {
-    llvm::SmallVector<mlir::Type> all;
-    if (tag)
-      all.push_back(*tag);
-    all.append(slots.begin(), slots.end());
-    return all;
-  }
-  unsigned offset() const { return tag ? 1 : 0; }
-  // The slots of the components of field `field` of the constructor `tag`.
+  // The words of the components of field `field` of the constructor `ctor`.
   llvm::ArrayRef<unsigned> slotsOf(Tag ctor, unsigned field) const {
     return fields[static_cast<uint32_t>(ctor)][field];
   }
 };
+
+// A field of a memref's descriptor (offset, size or stride): a number its
+// type fixes, or carried by the value as a component of its own.
+struct Fixed {
+  int64_t value;
+};
+struct Carried {};
+using DescriptorField = std::variant<Fixed, Carried>;
+
+// What a memref's (or a tensor's) descriptor holds besides its cell, as its
+// type says, decided once from the type: every walk over the descriptor
+// (taking components apart, packing them, Layouts::components) iterates
+// this plan, so they cannot disagree on which fields a value carries.
+// `strides` is none for an identity layout and a tensor, whose strides are
+// the row-major products of the sizes, computed where they are needed:
+// carrying them would take registers for what the sizes say.
+struct DescriptorFields {
+  DescriptorField offset;
+  llvm::SmallVector<DescriptorField> sizes;
+  std::optional<llvm::SmallVector<DescriptorField>> strides;
+
+  // How many fields the value carries: its components after the cell.
+  unsigned carried() const;
+
+  // The plan of `type`. A layout other than the identity is read through
+  // getStridesAndOffset, a strided layout and an affine map alike; one it
+  // cannot read is an internal error, since the program's verifier refuses
+  // a memref value whose layout is not strided.
+  static DescriptorFields of(mlir::ShapedType type);
+};
+
+// Whether a value of `type` has no runtime component at all: the world, and
+// a data type held in place of at most one constructor whose every field
+// holds none (a unit, a pair of the world and a unit). A data type met again
+// on the way holds one: a containment cycle, which fit boxes. The one
+// decision of "no runtime form": components gives none by it, and nothing
+// else does.
+bool holdsNoComponent(mlir::Type type);
 
 // Makes finite every data type that contains itself: each data type on a
 // cycle of containment in place (TypeGraph::containsItself) becomes a box
@@ -185,8 +243,8 @@ namespace idr {
 
 // The layouts of the values of a module, on the components of its value
 // types, placed as its target lays them out: what idr-lower builds values
-// in, and what the owned stage and idr-stack size cells by. Every sum and
-// every boxed constructor's cell is computed by the constructor, and
+// in, and what the owned stage and idr-rc size cells by. Every sum and
+// every boxed data type's cells are computed by the constructor, and
 // nothing changes after it, so passes running in parallel read it without
 // a lock. A data type's body never changes, so it holds while the module's
 // values keep their types. The components of a value type are the same on
@@ -205,18 +263,14 @@ public:
     return !pa.isPreserved<Layouts>();
   }
 
-  // The runtime components of a value type: none for !idr.world, the slots
+  // The runtime components of a value type, each with whether it is
+  // counted: none for a type that holds none (holdsNoComponent), the words
   // of a sum held in place, one i64 for bigs, one pointer for every other
   // value that holds a reference (strings, boxes, memo cells included,
-  // closures, suspensions, reuse tokens) and for a destination, the type
-  // itself for scalars; for an array, the fields of its descriptor its type
-  // does not fix: the cell, then the offset of a strided layout's that is
-  // dynamic, each dynamic size, and each dynamic stride of a strided layout
-  // (the element-0 pointer is the cell's past its header, never carried).
-  llvm::SmallVector<mlir::Type> components(mlir::Type type) const;
-  // For each of those components, whether it is counted: a value that holds
-  // a reference itself, an array's cell, or a counted slot of a sum.
-  llvm::SmallVector<bool> counted(mlir::Type type) const;
+  // closures, suspensions, tokens) and for a destination and a cell,
+  // the type itself for scalars; for an array, its cell, then the fields of
+  // its descriptor its type does not fix (DescriptorFields).
+  llvm::SmallVector<layout::Component> components(mlir::Type type) const;
   // The layout of the sum `type` held in place.
   const layout::SumLayout &sum(DataType type) const;
 
@@ -228,17 +282,10 @@ public:
   // header can describe it, else boxed.
   layout::Element element(mlir::Type element) const;
 
-  // The cell of the constructor `tag` of `type`, a data type some value
-  // holds in a box. A memo sum's constructor gives the cell in that state,
-  // at the size of the sum's largest state, which every cell of the sum is
-  // allocated at.
-  const layout::Cell &box(DataType type, Tag tag) const;
+  // The cells of `type`, a data type some value holds in a box.
+  const layout::BoxLayout &box(DataType type) const;
 
 private:
-  // The number of counted components of a value of `type`, and of values
-  // of `types` side by side: the object slots they take in a cell.
-  unsigned objects(mlir::Type type) const;
-  unsigned objects(llvm::ArrayRef<mlir::Type> types) const;
   // The alignment a component of type `component` is placed at.
   unsigned alignmentOf(mlir::Type component) const;
 
@@ -256,7 +303,7 @@ private:
   // measured once with the root's data layout, whose own answers are
   // remembered as they are asked and so cannot be shared between threads.
   llvm::DenseMap<mlir::Type, std::pair<unsigned, unsigned>> measures;
-  llvm::DenseMap<std::pair<DataType, Tag>, layout::Cell> boxes;
+  llvm::DenseMap<DataType, layout::BoxLayout> boxes;
 };
 
 namespace layout {
@@ -266,12 +313,10 @@ namespace layout {
 // place: each computed from the components of its fields, once.
 llvm::DenseMap<DataType, std::unique_ptr<SumLayout>> sumsOf(llvm::ArrayRef<DataType> types);
 
-// The answers of Layouts::components and Layouts::counted, each sum read
-// from `sums`, which holds every sum a value of `type` holds in place.
-llvm::SmallVector<mlir::Type>
-componentsOf(mlir::Type type, const llvm::DenseMap<DataType, std::unique_ptr<SumLayout>> &sums);
-llvm::SmallVector<bool>
-countedOf(mlir::Type type, const llvm::DenseMap<DataType, std::unique_ptr<SumLayout>> &sums);
+// The answer of Layouts::components, each sum read from `sums`, which holds
+// every sum a value of `type` holds in place.
+llvm::SmallVector<Component>
+components(mlir::Type type, const llvm::DenseMap<DataType, std::unique_ptr<SumLayout>> &sums);
 
 } // namespace layout
 

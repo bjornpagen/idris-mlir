@@ -112,6 +112,7 @@ add_mlir_library(IdrDriver
 	DEPENDS
 	IdrOpsIncGen
 	IdrPassesIncGen
+	IdrRuntimeAbiIncGen
 
 	LINK_LIBS PUBLIC
 	IdrPipeline
@@ -130,14 +131,50 @@ add_mlir_library(IdrDriver
 	MLIRTensorDialect
 	MLIRSCFDialect
 	MLIRLLVMToLLVMIRTranslation
-	MLIRRegisterAllDialects
-	MLIRRegisterAllExtensions
-	MLIRRegisterAllPasses
 	MLIRArithDialect
 	MLIRMathDialect
 	MLIRUBDialect
 	MLIRMemRefDialect
 	MLIRLLVMDialect
+	# What the compiler registers (Driver/Run.cpp, registerCompiler): the dialects
+	# its pipeline reaches, their external models and the passes it runs.
+	MLIRFuncDialect
+	MLIRControlFlowDialect
+	MLIRLinalgDialect
+	MLIRBufferizationDialect
+	MLIRAffineDialect
+	MLIRVectorDialect
+	MLIRTransformDialect
+	MLIRDLTIDialect
+	MLIRArithTransforms
+	MLIRArithValueBoundsOpInterfaceImpl
+	MLIRBufferizationTransforms
+	MLIRLinalgTransforms
+	MLIRSCFTransforms
+	MLIRTensorTransforms
+	MLIRTensorInferTypeOpInterfaceImpl
+	MLIRCastInterfaces
+	MLIRFuncInlinerExtension
+	MLIRLLVMIRTransforms
+	MLIRArithToLLVM
+	MLIRControlFlowToLLVM
+	MLIRFuncToLLVM
+	MLIRIndexToLLVM
+	MLIRMathToLLVM
+	MLIRMemRefToLLVM
+	MLIRUBToLLVM
+	MLIRVectorToLLVM
+	MLIRLinalgTransformOps
+	MLIRVectorTransformOps
+	MLIRTransforms
+	MLIRTransformDialectTransforms
+	MLIRVectorToSCF
+	MLIRMemRefTransforms
+	MLIRAffineToStandard
+	MLIRSCFToControlFlow
+	MLIRVectorToLLVMPass
+	MLIRConvertToLLVMPass
+	MLIRReconcileUnrealizedCasts
 	LLVMObject
 	LLVMBitReader
 	LLVMBitWriter

@@ -20,8 +20,6 @@ namespace idr::expect {
 
 namespace {
 
-constexpr StringRef property = "no-heap-allocation";
-
 // What `op` allocates, or nothing. An op says so by an Allocate effect; a
 // closure is the one exception, Pure as a value but built in a cell at
 // runtime.
@@ -31,7 +29,7 @@ std::optional<std::string> allocation(Operation *op) {
   if (auto suspend = dyn_cast<SuspendOp>(op))
     return "a suspension of @" + suspend.getCallee().str() + " is built";
   // idr.lin.enter and idr.lin.use allocate a new value, not memory; a cell
-  // idr-stack keeps in its frame is stack memory.
+  // in its function's frame (idr.cell.stack) is stack memory.
   if (auto effects = dyn_cast<MemoryEffectOpInterface>(op)) {
     SmallVector<MemoryEffects::EffectInstance> all;
     effects.getEffects(all);
@@ -49,38 +47,32 @@ std::optional<std::string> allocation(Operation *op) {
 
 // In one function's scope, what it may call is in scope too: every
 // function its body names, by a call or a closure, each taken once.
-LogicalResult noHeapAllocation(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+LogicalResult noHeapAllocation(const Request<Roots> &request) {
+  ModuleOp module = request.module;
+  const std::optional<Functions> &scope = request.argument.scope;
   OnceWorklist<Operation *> reached;
-  SymbolTable *symbols = nullptr;
-  if (function.empty()) {
-    for (FunctionOpInterface fn : functionsOf(module))
-      reached.push(fn);
-  } else {
-    SmallVector<FunctionOpInterface> starts = named(module, function, property);
-    if (starts.empty())
-      return failure();
-    for (FunctionOpInterface fn : starts)
-      reached.push(fn);
-    symbols = &symbolsOf(module, analyses);
-  }
+  for (FunctionOpInterface fn : scope ? scope->functions : functionsOf(module))
+    reached.push(fn);
+  SymbolTable *symbols = scope ? &symbolsOf(module, request.analyses) : nullptr;
   bool held = true;
   while (std::optional<Operation *> next = reached.pop()) {
     auto fn = cast<FunctionOpInterface>(*next);
     if (fn.isExternal()) {
       if (symbols) {
-        fail(fn->getLoc(), property) << where(fn) << " may be called, and its body is not in the module";
+        fail(fn->getLoc(), request.property)
+            << where(fn) << " may be called, and its body is not in the module";
         held = false;
       }
       continue;
     }
     fn->walk([&](Operation *op) {
       if (std::optional<std::string> found = allocation(op)) {
-        fail(op->getLoc(), property) << *found << " in " << where(op);
+        fail(op->getLoc(), request.property) << *found << " in " << where(op);
         held = false;
       }
       auto apply = dyn_cast<ApplyOp>(op);
       if (symbols && apply && !matchPattern(apply.getCallee(), m_Constant())) {
-        fail(op->getLoc(), property) << where(op) << " applies a closure made outside it";
+        fail(op->getLoc(), request.property) << where(op) << " applies a closure made outside it";
         held = false;
       }
     });

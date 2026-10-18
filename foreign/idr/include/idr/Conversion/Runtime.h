@@ -13,8 +13,9 @@
 #include "idr/IR/Layout.h"
 #include "idr/Conversion/StaticData.h"
 
-// The runtime functions the ops call, generated from the ops' marks: for
-// each op class, its functions and how each takes the op's operands.
+// The runtime's C functions idr-lower calls, generated from the ODS: an
+// op's, Abi<Op>::entry, and the lowering's own, helper::<name>, each with
+// how it takes its operands and gives its result.
 #include "idr/IR/IdrRuntimeAbi.inc"
 
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
@@ -25,30 +26,25 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringMap.h"
-
-#include <optional>
+#include "llvm/ADT/StringRef.h"
 
 namespace idr::conversion {
 
-// The function among an op's runtime functions `functions` (one, or one
-// per kind of the operand that has several) that takes the op's operands
-// of `operands`' types: a double as a double, an integer as `isSigned`
-// says.
-const idr::runtime::Function &functionTaking(llvm::ArrayRef<idr::runtime::Function> functions,
-                                             mlir::TypeRange operands,
-                                             std::optional<bool> isSigned);
+// The C symbol of the program's entry, which idr-entry defines and the
+// driver keeps when it internalizes the rest: the lowering owns the entry,
+// so its name is said here once.
+inline constexpr llvm::StringLiteral entrySymbol = "main";
 
-// The runtime function `op` calls, as the table generated from the ops'
-// marks says (IdrRuntimeAbi.inc).
-template <typename OpT>
-const idr::runtime::Function &runtimeFunctionOf(OpT op) {
-  std::optional<bool> isSigned;
-  if constexpr (requires { op.getIsSigned(); })
-    isSigned = op.getIsSigned();
-  return functionTaking(idr::runtime::Abi<OpT>::functions, op->getOperandTypes(), isSigned);
-}
+// The declaration of the runtime function `function`, detached, in no
+// module: the one declaration builder, which merge and idr-entry use. Its
+// type is the function's kinds'; a Bool parameter or result is zeroext, as
+// the C ABI extends a bool in its caller and its callee, and a function
+// that does not return is noreturn, so LLVM treats what follows a call as
+// unreachable.
+mlir::LLVM::LLVMFuncOp runtimeDeclaration(mlir::Location loc,
+                                          const idr::runtime::Function &function);
 
 class Runtime {
 public:
@@ -65,24 +61,22 @@ public:
   mlir::LLVMTypeConverter &llvmTypeConverter() { return llvmTypes; }
   const mlir::LLVMTypeConverter &llvmTypeConverter() const { return llvmTypes; }
 
-  // Calls the runtime function `name`, which gives a `result`, with `args`.
-  // The call names its callee; merge declares it.
-  mlir::Value call(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name, mlir::Type result,
-                   mlir::ValueRange args);
+  // Calls `function` with `args`, C values already of its kinds (a World
+  // operand of an op's function has none). The call is typed by the
+  // function, and names its callee, which merge declares once with the same
+  // type, so MLIR's verification of the call's symbol use checks each call
+  // against the one declaration. A caller wanting the result takes
+  // `.getResult()`.
+  mlir::LLVM::CallOp call(mlir::OpBuilder &b, mlir::Location loc,
+                          const idr::runtime::Function &function, mlir::ValueRange args);
 
-  // Calls the runtime function `name`, which gives nothing, with `args`.
-  void perform(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
-               mlir::ValueRange args);
-
-  // Calls `function`, a runtime function of `op`, with `operands`, the
+  // Calls `function`, the runtime function of `op`, with `operands`, the
   // components of the op's operands in order, each passed as the function
-  // takes it (runtime::Kind): an integer of the op's width widened as its
-  // kind says, a buffer as its cell, its first byte and its size, a world as
-  // nothing. Gives the result as the function gives it, none when its
-  // result is Void.
-  std::optional<mlir::Value> call(mlir::OpBuilder &b, mlir::Operation *op,
-                                  const idr::runtime::Function &function,
-                                  llvm::ArrayRef<mlir::ValueRange> operands);
+  // takes it: the world as nothing, an integer of the op's width extended
+  // to 64 bits as Signed or Unsigned says, any other as its one component.
+  mlir::LLVM::CallOp call(mlir::OpBuilder &b, mlir::Operation *op,
+                          const idr::runtime::Function &function,
+                          llvm::ArrayRef<mlir::ValueRange> operands);
 
   // A crash at `loc` reporting `cause`: idris_rt_crash, which does not
   // return.
@@ -96,32 +90,31 @@ public:
   // removes, and LLVM keeps too, so a loop that may not terminate stays.
   void mayLoop(mlir::OpBuilder &b, mlir::Location loc);
 
-  // A new cell of the constructor `tag` laid out as `cell`: count 1 and
-  // its info (idris_rt_cell), then the words after the header the layout
-  // has.
-  mlir::Value allocate(mlir::OpBuilder &b, mlir::Location loc, const layout::Cell &cell,
-                       Tag tag);
+  // A new cell laid out as `cell`: count 1 and its info (idris_rt_cell),
+  // then the cell's own words after the header.
+  mlir::Value allocate(mlir::OpBuilder &b, mlir::Location loc, const layout::Cell &cell);
 
-  // Writes the header of the cell at `address`, of the constructor `tag`
-  // laid out as `cell`: count 1, `info` (the cell's own, or the same cell in
-  // a stack frame), and the words after the header the layout has.
+  // Writes the header of the cell at `address`, laid out as `cell`: count
+  // 1, `info` (the cell's own, or the same cell in a stack frame), and the
+  // cell's own words after the header.
   void storeHeader(mlir::OpBuilder &b, mlir::Location loc, mlir::Value address,
-                   const layout::Cell &cell, Tag tag, layout::CellInfo info);
+                   const layout::Cell &cell, layout::CellInfo info);
 
-  // Writes the words after the header a cell of the constructor `tag` laid
-  // out as `cell` has: the count of its object slots, where the header
-  // cannot hold it, and its constructor's group, for a sum of more
-  // constructors than a header's tag holds.
+  // Writes the words after the header a cell laid out as `cell` has, each
+  // with its value: the count of its object slots, where the header cannot
+  // hold it, and its constructor's group, for a sum of more constructors
+  // than a header's tag holds.
   void storeCellWords(mlir::OpBuilder &b, mlir::Location loc, mlir::Value address,
-                      const layout::Cell &cell, Tag tag);
+                      const layout::Cell &cell);
 
   // The tag of a box of `data`: its header's, and its group's where the sum
   // has more constructors than a header's tag holds; an i64.
   mlir::Value loadTag(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, DataType data,
                       const Layouts &layouts);
 
-  // The info word of a cell's header (offset 4), and its write: a memo
-  // cell's state is written there.
+  // The info word of a cell's header, at its offset in the runtime's header
+  // (offsetof(idris_rt_header, info)), and its write: a memo cell's state is
+  // written there.
   mlir::Value loadInfo(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
   void storeInfo(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, mlir::Value info);
 
@@ -135,15 +128,13 @@ public:
   // Writes a word at the address of a word of a cell, a destination.
   void storeWord(mlir::OpBuilder &b, mlir::Location loc, mlir::Value address, mlir::Value value);
 
-  // One more, or one less, reference for each counted component of a value
-  // (idris_rt_inc, idris_rt_dec); `counted` says which components are.
-  // Static data holds no count, so a component that is the address of a
-  // global or a constant word takes no call: nothing would change at run
-  // time.
-  void inc(mlir::OpBuilder &b, mlir::Location loc, mlir::ValueRange components,
-           llvm::ArrayRef<bool> counted);
-  void dec(mlir::OpBuilder &b, mlir::Location loc, mlir::ValueRange components,
-           llvm::ArrayRef<bool> counted);
+  // One more, or one less, reference for each of `references`, the counted
+  // components of a value, which the caller selects (a lone cell is the
+  // cell): idris_rt_inc, idris_rt_dec. Static data holds no count, so a
+  // component that is the address of a global or a constant word takes no
+  // call: nothing would change at run time.
+  void inc(mlir::OpBuilder &b, mlir::Location loc, mlir::ValueRange references);
+  void dec(mlir::OpBuilder &b, mlir::Location loc, mlir::ValueRange references);
 
   // Whether the cell holds the only reference to itself, where it may be
   // reused, as the runtime decides it (idris_rt_is_unique); an i1.
@@ -161,38 +152,29 @@ public:
 
   // What every worker wrote, into `program` through `symbols`, its table,
   // once every function is lowered: one declaration per runtime function
-  // the functions call, in name order, then one global per name of static
-  // data, in name order, at the start of the program; then
-  // @__idr_release_cafs, which releases what the program's static memo
-  // cells hold when it ends (idris_rt_caf_release on each, in name order),
-  // made in every program so that the entry calls it without asking. Fails,
-  // having reported it, when one function is called with two types or one
-  // name holds two contents.
+  // the functions call, in symbol order, then one global per name of
+  // static data, in name order, at the start of the program; then the
+  // release function (idr::releaseCafsName()), which releases what the
+  // program's static memo cells hold when it ends (idris_rt_caf_release on
+  // each, in name order), made in every program so that the entry calls it
+  // without asking. Fails, having reported it, when one name of static data
+  // holds two contents, or a runtime function's C name is a symbol of the
+  // program.
   static mlir::LogicalResult merge(mlir::Operation *program, mlir::SymbolTable &symbols,
                                    llvm::ArrayRef<Runtime *> workers);
 
 private:
-  // What a runtime function is declared as: the type its calls have, and
-  // whether it returns.
-  struct Callee {
-    mlir::LLVM::LLVMFunctionType type;
-    bool noreturn = false;
-  };
-
-  // The call of the runtime function `name`, by name, which gives `result`
-  // or nothing.
-  mlir::LLVM::CallOp callOp(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
-                            std::optional<mlir::Type> result, mlir::ValueRange args,
-                            bool noreturn);
-
-  // Calls `name` on the pointer of each counted component.
-  void countEach(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
-                 mlir::ValueRange components, llvm::ArrayRef<bool> counted);
+  // Calls `function`, idris_rt_inc or idris_rt_dec, on the pointer of each
+  // of `references` that is no static datum.
+  void countEach(mlir::OpBuilder &b, mlir::Location loc, const idr::runtime::Function &function,
+                 mlir::ValueRange references);
 
   mlir::LLVMTypeConverter llvmTypes;
   StaticData statics;
-  llvm::StringMap<Callee> called;
-  bool mistyped = false;
+  // The runtime functions this worker's calls name, by their entries in
+  // the generated table: one entry per function, so its address is its
+  // identity.
+  llvm::SmallPtrSet<const idr::runtime::Function *, 16> called;
 };
 
 } // namespace idr::conversion

@@ -12,7 +12,7 @@ idr.program @arrays root(@root) stage(first) {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 3 : i64
     %i = arith.constant 1 : i64
-    %s = idr.constant "s" : !idr.str
+    %s = idr.constant !idr.str "s"
     %a, %w1 = idr.call @make(%n, %s, %w) : (i64, !idr.str, !idr.world) -> (memref<?x!Opt, #idr.world>, !idr.world)
     %v, %w2 = idr.call @read(%a, %i, %w1) : (memref<?x!Opt, #idr.world>, i64, !idr.world) -> (!Opt, !idr.world)
     %w3 = idr.call @write(%a, %s, %i, %w2) : (memref<?x!Opt, #idr.world>, !idr.str, i64, !idr.world) -> !idr.world

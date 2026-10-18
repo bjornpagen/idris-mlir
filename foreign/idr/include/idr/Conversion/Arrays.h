@@ -89,19 +89,6 @@ mlir::Value asWord(mlir::OpBuilder &b, mlir::Location loc, mlir::OpFoldResult fi
 // memref descriptor's aligned pointer.
 mlir::Value elementsOf(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell);
 
-// The address of the element at `indices` (i64 values, one per dimension)
-// of a memref whose elements are `stride` bytes apart.
-mlir::Value elementAddress(mlir::OpBuilder &b, mlir::Location loc, const Descriptor &descriptor,
-                           mlir::ValueRange indices, unsigned stride);
-
-// The address of the element of a buffer of `type`, its components
-// `buffer`, at `indices`, the components of `index` operands, one per
-// dimension, whose elements are `stride` bytes apart: what a memref.load
-// and a memref.store of a buffer name.
-mlir::Value bufferElementAddress(mlir::OpBuilder &b, mlir::Location loc, mlir::MemRefType type,
-                                 mlir::ValueRange buffer,
-                                 llvm::ArrayRef<mlir::ValueRange> indices, unsigned stride);
-
 // An index operand (an `index`) as an i64, and a field as an `index`.
 mlir::Value indexWord(mlir::OpBuilder &b, mlir::Location loc, mlir::Value index);
 mlir::Value asIndex(mlir::OpBuilder &b, mlir::Location loc, mlir::OpFoldResult field);

@@ -21,7 +21,6 @@ namespace idr {
 
 using fold::compared;
 using fold::listElements;
-using fold::runtimeOfWord;
 using fold::Scope;
 using fold::strBinary;
 using fold::strUnary;
@@ -51,18 +50,31 @@ OpFoldResult StrFromCharOp::fold(FoldAdaptor adaptor) {
   return scope.attr(fold::runtime<StrFromCharOp>(static_cast<int32_t>(c.getInt())));
 }
 
-// A Double, or an integer as the op reads it: the op has a function of the
-// runtime for each.
-OpFoldResult StrShowOp::fold(FoldAdaptor adaptor) {
-  if (auto d = dyn_cast_or_null<FloatAttr>(adaptor.getValue())) {
-    Scope scope(getContext());
-    return scope.attr(runtime::Abi<StrShowOp>::doubleFunction(d.getValueAsDouble()));
-  }
+// The text of a number by the op's own function: an integer extended to the
+// function's word as the op reads it, sign-extended when signed and
+// zero-extended when not.
+OpFoldResult StrShowSIntOp::fold(FoldAdaptor adaptor) {
   auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!n)
     return {};
   Scope scope(getContext());
-  return scope.attr(runtimeOfWord<StrShowOp>(n, getIsSigned()));
+  return scope.attr(fold::runtime<StrShowSIntOp>(n.getValue().getSExtValue()));
+}
+
+OpFoldResult StrShowUIntOp::fold(FoldAdaptor adaptor) {
+  auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
+  if (!n)
+    return {};
+  Scope scope(getContext());
+  return scope.attr(fold::runtime<StrShowUIntOp>(n.getValue().getZExtValue()));
+}
+
+OpFoldResult StrShowDoubleOp::fold(FoldAdaptor adaptor) {
+  auto d = dyn_cast_or_null<FloatAttr>(adaptor.getValue());
+  if (!d)
+    return {};
+  Scope scope(getContext());
+  return scope.attr(fold::runtime<StrShowDoubleOp>(d.getValueAsDouble()));
 }
 
 OpFoldResult StrSubstrOp::fold(FoldAdaptor adaptor) {
@@ -81,21 +93,12 @@ OpFoldResult StrReverseOp::fold(FoldAdaptor adaptor) {
   });
 }
 
-namespace {
-
-// Nothing for a string the guard of head and tail refuses, the empty one:
-// the program never takes its head or tail, since the guard crashes first.
-template <typename Fn>
-OpFoldResult strNonEmpty(MLIRContext *ctx, Attribute operand, Fn fn) {
-  if (!CheckNonemptyOp::holds({operand}))
-    return {};
-  return strUnary(ctx, operand, fn);
-}
-
-} // namespace
-
+// Nothing for a string the guard refuses, the empty one: the program never
+// takes its tail, since the guard crashes first.
 OpFoldResult StrTailOp::fold(FoldAdaptor adaptor) {
-  return strNonEmpty(getContext(), adaptor.getStr(), [](Scope &scope, const idris_rt_str *s) {
+  if (!guardHolds(adaptor))
+    return {};
+  return strUnary(getContext(), adaptor.getStr(), [](Scope &scope, const idris_rt_str *s) {
     return scope.attr(fold::runtime<StrTailOp>(s));
   });
 }
@@ -155,19 +158,30 @@ OpFoldResult StrScalarBytesOp::fold(FoldAdaptor adaptor) {
 // Nothing at an index the guard refuses, outside the string, where the
 // program never reads.
 OpFoldResult StrIndexOp::fold(FoldAdaptor adaptor) {
-  Attribute index = adaptor.getIndex();
-  if (!CheckInBoundsOp::holds({index, adaptor.getStr()}))
+  if (!guardHolds(adaptor))
     return {};
   Type type = getType();
-  int64_t at = cast<IntegerAttr>(index).getInt();
+  int64_t at = cast<IntegerAttr>(adaptor.getIndex()).getInt();
   return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
     return wrapped(type, fold::runtime<StrIndexOp>(s, at));
   });
 }
 
+// The head of a str.cons is the character it put first, read on the cons's
+// string or through the guard that it is not empty, which Emit puts before
+// a head and which folds away on a cons. Otherwise nothing for a string the
+// guard refuses, the empty one: the program never takes its head, since the
+// guard crashes first.
 OpFoldResult StrHeadOp::fold(FoldAdaptor adaptor) {
+  Value str = getStr();
+  if (auto guard = str.getDefiningOp<CheckNonemptyOp>())
+    str = guard.getStr();
+  if (auto cons = str.getDefiningOp<StrConsOp>())
+    return cons.getHead();
+  if (!guardHolds(adaptor))
+    return {};
   Type type = getType();
-  return strNonEmpty(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
+  return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
     return wrapped(type, fold::runtime<StrHeadOp>(s));
   });
 }
@@ -231,11 +245,20 @@ OpFoldResult DoubleHeadOp::fold(FoldAdaptor adaptor) {
   return wrapped(getType(), fold::runtime<DoubleHeadOp>(d.getValueAsDouble()));
 }
 
-OpFoldResult IntHeadOp::fold(FoldAdaptor adaptor) {
+// The head of an integer's text, by the op's own function, as show_sint and
+// show_uint extend it.
+OpFoldResult IntHeadSOp::fold(FoldAdaptor adaptor) {
   auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!n)
     return {};
-  return wrapped(getType(), runtimeOfWord<IntHeadOp>(n, getIsSigned()));
+  return wrapped(getType(), fold::runtime<IntHeadSOp>(n.getValue().getSExtValue()));
+}
+
+OpFoldResult IntHeadUOp::fold(FoldAdaptor adaptor) {
+  auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
+  if (!n)
+    return {};
+  return wrapped(getType(), fold::runtime<IntHeadUOp>(n.getValue().getZExtValue()));
 }
 
 } // namespace idr

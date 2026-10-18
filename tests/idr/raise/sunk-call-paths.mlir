@@ -1,14 +1,12 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@every_crash:@cmk,calls-where-used=@every_diverge:@dmk,\
-// RUN: calls-where-used=@pure_after_output:@pmk,crashes-before-output=@crash_after_output,calls-where-used=@one_linear:@lmk -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@one_crash:@cmk -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@crash_after_output:@cmk -o /dev/null
+// NEEDS-ACCEPTANCE: that a call that may crash or not return sinks only into every region, past nothing but computing, reading the call's own effects (mlir-12), and that a pure call taking a linear value sinks onto fewer paths, its value released where unused; calls-where-used reports each @cmk call that stays at its line (mlir-22) (S2's default argument, S21's show_sint).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@every_crash:@cmk,calls-where-used=@every_diverge:@dmk,calls-where-used=@pure_after_output:@pmk,crashes-before-output=@crash_after_output,calls-where-used=@one_linear:@lmk -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce),idr-expect{holds=calls-where-used=@one_crash:@cmk,calls-where-used=@crash_after_output:@cmk})' -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-rc --idr-expect=holds=stage=owned -o /dev/null
-// NEEDS-ACCEPTANCE: that a call that may crash or not return sinks only into every region, past nothing but computing, and that a pure call taking a linear value sinks onto fewer paths, its value released where unused.
-// A call does what its callee's effects say, which idr-optimize's
-// canonicalizer reads through the program's symbol table. A call that only
-// computes moves into the regions of a later match that use its result,
-// past anything (@pure_after_output, past output). One that may crash
+// A call does what its own effects say, its callee's written on it once
+// the callee is final, which the canonicalizer reads off the call. A call
+// that only computes moves into the regions of a later match that use its
+// result, past anything (@pure_after_output, past output). One that may crash
 // (@cmk) or not return (@dmk) moves only when every region uses it and only
 // computing comes between (@every_crash, @every_diverge), so that every
 // path still runs it before anything it could hide: used by one region it
@@ -32,7 +30,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %v = idr.call @pmk(%a, %m) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
@@ -47,7 +45,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %v = idr.call @dmk(%a, %m) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
@@ -62,7 +60,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d2: i64) {
       %d = idr.check.nonzero %a, "division by zero" : i64
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
@@ -80,7 +78,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %v = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %l1 = idr.lin.enter %s : !idr.lin<!idr.str>
@@ -97,7 +95,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d2: i64) {
       %z = idr.apply %f(%b) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
@@ -105,13 +103,14 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
     return %r : i64
   }
   idr.func @one_crash(%n: i64, %b: i64) -> i64 attributes {no_inline} {
+    // expected-error @below {{a call of @cmk in @one_crash runs where only the regions of a later op use it}}
     %f = idr.call @cmk(%n, %n) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
     %r = idr.match_lit %b : i64 -> (i64) {
     case 0 {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d2: i64) {
       idr.yield %n : i64
     }
     }
@@ -124,7 +123,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d2: i64) {
       %z = idr.apply %f(%b) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
@@ -132,6 +131,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
     return %r : i64
   }
   idr.func @crash_after_output(%n: i64, %b: i64, %w: !idr.world) -> (i64, !idr.world) attributes {no_inline} {
+    // expected-error @below {{a call of @cmk in @crash_after_output runs where only the regions of a later op use it}}
     %f = idr.call @cmk(%n, %n) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
     %w1 = idr.io.put_int signed %n, %w : i64
     %r = idr.match_lit %b : i64 -> (i64) {
@@ -139,7 +139,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d2: i64) {
       %z = idr.apply %f(%b) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
@@ -154,14 +154,14 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d2: i64) {
       idr.yield %n : i64
     }
     }
     return %r, %w1 : i64, !idr.world
   }
   idr.func @one_linear(%n: i64, %b: i64) -> i64 attributes {no_inline} {
-    %s = idr.str.show signed %n : i64
+    %s = idr.str.show_sint %n : i64
     %l = idr.lin.enter %s : !idr.lin<!idr.str>
     %f = idr.call @lmk(%l, %n) : (!idr.lin<!idr.str>, i64) -> !idr.fn<(i64) -> (i64)>
     %r = idr.match_lit %b : i64 -> (i64) {
@@ -169,7 +169,7 @@ idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d2: i64) {
       idr.yield %n : i64
     }
     }

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)` and `idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: awk '/^ *\/\/ LABELS$/ { for (i = 1; i <= 65536; i++) printf "  idr.func @l%d(%%k: !idr.fn<(i64) -> (i64)>, %%x: i64) -> i64 attributes {total} {\n    return %%x : i64\n  }\n", i; next } /^ *\/\/ CASES$/ { for (i = 1; i <= 65536; i++) printf "    case %d {\n      %%v = idr.closure @l%d(%%k) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>\n      idr.yield %%v : !idr.fn<(i64) -> (i64)>\n    }\n", i, i; next } { print }' %s > %t.labels.mlir
 // RUN: idris-mlir-opt %t.labels.mlir --idr-defunctionalize --idr-expect=holds=stage=first,no-closures,forces-nothing=@Main.main -o /dev/null
 // NEEDS-ACCEPTANCE: that a sum of more than 2^16 constructors is a two-level sum and that the 65,537-label module defunctionalizes within the suite's time bound on both targets.
@@ -18,7 +19,7 @@ idr.program @"tag-limit" root(@Main.main) stage(higher) {
   idr.func @grow(%k: !idr.fn<(i64) -> (i64)>, %n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     // CASES
-    default {
+    default(%d: i64) {
       idr.yield %k : !idr.fn<(i64) -> (i64)>
     }
     }
@@ -30,7 +31,7 @@ idr.program @"tag-limit" root(@Main.main) stage(higher) {
       %y = idr.apply %k(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %y : i64
     }
-    default {
+    default(%d: i64) {
       %g = idr.call @grow(%k, %n) : (!idr.fn<(i64) -> (i64)>, i64) -> !idr.fn<(i64) -> (i64)>
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
@@ -45,7 +46,7 @@ idr.program @"tag-limit" root(@Main.main) stage(higher) {
     %n = arith.extui %c : i32 to i64
     %b = idr.closure @base() : () -> !idr.fn<(i64) -> (i64)>
     %r = idr.call @loop(%b, %n) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

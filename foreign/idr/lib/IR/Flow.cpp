@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The reading of the flow vocabulary (FlowEdges.h, whose behaviour is
-// lib/IR/FlowEdges.cpp): forwardedValues reads what upstream's branch and
-// region branch interfaces forward, flowEdgesOf joins that to what each op
-// declares (lib/IR/FlowOps.cpp), so a branch's edges are said once, by
-// upstream. The verifier refuses a closure or a suspension that no
-// declaration moves.
+// lib/IR/FlowEdges.cpp): forwardedValues reads what upstream's region
+// branch interface forwards, flowEdgesOf joins that to what each op
+// declares (lib/IR/FlowOps.cpp), so a region branch's edges are said once,
+// by upstream. The flow interface's verifier holds each op's own edges to
+// their rule, and the function's verifier refuses a closure or a suspension
+// that no declaration moves.
 
 #include "idr/IR/Flow.h"
 
+#include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
@@ -52,14 +54,6 @@ void forwardFrom(RegionBranchOpInterface branch, RegionBranchPoint point,
 } // namespace
 
 void idr::forwardedValues(Operation *op, function_ref<void(OpOperand &, Value)> each) {
-  if (auto branch = dyn_cast<BranchOpInterface>(op))
-    for (unsigned s = 0, n = op->getNumSuccessors(); s < n; ++s) {
-      SuccessorOperands operands = branch.getSuccessorOperands(s);
-      auto args = op->getSuccessor(s)->getArguments().drop_front(
-          operands.getProducedOperandCount());
-      for (auto [use, arg] : llvm::zip_equal(usesOf(operands.getForwardedOperands()), args))
-        each(use, arg);
-    }
   if (auto branch = dyn_cast<RegionBranchOpInterface>(op))
     forwardFrom(branch, RegionBranchPoint::parent(), each);
   if (auto terminator = dyn_cast<RegionBranchTerminatorOpInterface>(op))
@@ -68,7 +62,7 @@ void idr::forwardedValues(Operation *op, function_ref<void(OpOperand &, Value)> 
 }
 
 bool idr::declaresFlow(Operation *op) {
-  if (isa<FlowOpInterface, BranchOpInterface, RegionBranchOpInterface, SelectLikeOpInterface>(op))
+  if (isa<FlowOpInterface, RegionBranchOpInterface, SelectLikeOpInterface>(op))
     return true;
   return isa<RegionBranchTerminatorOpInterface>(op) &&
          isa_and_nonnull<RegionBranchOpInterface>(op->getParentOp());
@@ -122,9 +116,11 @@ bool ownValue(Operation *op, Value value) {
   return cast<BlockArgument>(value).getOwner()->getParentOp() == op;
 }
 
+} // namespace
+
 // The ends each edge `op`'s model declares may name, and the one carrier
 // type of an edge that carries labels.
-LogicalResult verifyEdges(Operation *op, FlowOpInterface flow) {
+LogicalResult idr::detail::verifyFlowEdges(Operation *op) {
   auto operandValue = [&](Value value) { return llvm::is_contained(op->getOperands(), value); };
   // A terminator moves into a part of what its parent makes or writes.
   auto parentValue = [&](Value value) {
@@ -135,18 +131,28 @@ LogicalResult verifyEdges(Operation *op, FlowOpInterface flow) {
   };
   using End = std::variant<FlowPoint::Taken, FlowPoint::Whole>;
   // A `from` names a use of the op, an operand's value or a part of either,
-  // or a parameter or a result.
+  // a part of one of its results, or a parameter or a result.
   auto fromEnd = [&](const End &end) {
     return std::visit(
         llvm::makeVisitor([&](FlowPoint::Taken taken) { return taken.use->getOwner() == op; },
                           [&](FlowPoint::Whole whole) { return operandValue(whole.value); }),
         end);
   };
+  // A region reads back what an earlier step wrote into the op's result (a
+  // fold's next accumulator): a part of a result of its own, never the
+  // whole, which the op has not made yet.
+  auto ownPart = [&](const End &end) {
+    const auto *whole = std::get_if<FlowPoint::Whole>(&end);
+    auto result = whole ? dyn_cast<OpResult>(whole->value) : OpResult();
+    return result && result.getOwner() == op;
+  };
   auto from = [&](const FlowPoint &point) {
     return std::visit(
         llvm::makeVisitor([&](FlowPoint::Taken taken) { return fromEnd(taken); },
                           [&](FlowPoint::Whole whole) { return fromEnd(whole); },
-                          [&](const FlowPoint::Part &part) { return fromEnd(part.of); },
+                          [&](const FlowPoint::Part &part) {
+                            return fromEnd(part.of) || ownPart(part.of);
+                          },
                           [](FlowPoint::Parameter) { return true; },
                           [](FlowPoint::Result) { return true; }),
         point.at);
@@ -173,7 +179,7 @@ LogicalResult verifyEdges(Operation *op, FlowOpInterface flow) {
   };
   using Ends = std::pair<const FlowPoint *, const FlowPoint *>;
   FlowEdges edges;
-  flow.getFlowEdges(edges);
+  cast<FlowOpInterface>(op).getFlowEdges(edges);
   for (const FlowEdges::Edge &edge : edges.edges()) {
     bool named = std::visit(
         llvm::makeVisitor(
@@ -215,10 +221,11 @@ LogicalResult verifyEdges(Operation *op, FlowOpInterface flow) {
   return success();
 }
 
-// One op's part of the rule.
-LogicalResult verifyOp(Operation *op) {
-  if (auto flow = dyn_cast<FlowOpInterface>(op))
-    return verifyEdges(op, flow);
+namespace {
+
+// The part of the rule of an op that does not hold the flow interface,
+// whose moves only upstream's interfaces say.
+LogicalResult verifyUndeclared(Operation *op) {
   // A first-order op moves no label, and has nothing to declare.
   bool regions = llvm::any_of(op->getRegions(), [](Region &region) {
     return llvm::any_of(region.getArguments(), holdsLabels);
@@ -270,7 +277,6 @@ LogicalResult verifyOp(Operation *op) {
     if (holdsLabels(result) && !inputs.contains(result.getAsOpaquePointer()))
       return op->emitOpError("gives a closure or a suspension as result #")
              << result.getResultNumber() << ", and declares no edge for it";
-  // The argument of a block a branch goes to is that branch's to declare.
   for (Region &region : op->getRegions())
     for (BlockArgument arg : region.getArguments())
       if (holdsLabels(arg) && !inputs.contains(arg.getAsOpaquePointer()))
@@ -284,11 +290,14 @@ LogicalResult verifyOp(Operation *op) {
 
 LogicalResult idr::verifyFlow(FuncOp fn) {
   // Past `higher` no closure or suspension is left, and no label moves.
-  auto program = fn->getParentOfType<ProgramOp>();
-  if (!program || program.getStage() != Stage::Higher)
+  if (!stageFacts(fn.getProgram().getStage()).closures())
     return success();
+  // An op that holds the flow interface is its verifier's: the two kinds
+  // of op say their moves in two ways.
   WalkResult walked = fn.getBody().walk([](Operation *op) {
-    return failed(verifyOp(op)) ? WalkResult::interrupt() : WalkResult::advance();
+    if (isa<FlowOpInterface>(op))
+      return WalkResult::advance();
+    return failed(verifyUndeclared(op)) ? WalkResult::interrupt() : WalkResult::advance();
   });
   return failure(walked.wasInterrupted());
 }

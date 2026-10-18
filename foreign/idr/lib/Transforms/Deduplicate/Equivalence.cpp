@@ -12,12 +12,13 @@
 // it: the first is the fixpoint of its body, and the other is that body
 // applied to the first, the same function.
 //
-// The facts are every attribute of the function but its name and
-// `instance`. The name is what differs; `instance` is where the function
-// came from, which no pass reads, and two copies of one function from two
-// definitions are one function. Every other attribute (the type, the
+// The facts are every property and attribute of the function but its name
+// and `instance`. The name is what differs; `instance` is where the
+// function came from, which no pass reads, and two copies of one function
+// from two definitions are one function. Every other one (the type, the
 // quantities in it, the arguments' and results' attributes, `total`,
-// `effects`) is something a merge must not lose, so it must be the same.
+// `effects`, a property that is no attribute) is something a merge must
+// not lose, so it must be the same.
 
 #include "idr/Transforms/Deduplicate.h"
 
@@ -58,13 +59,17 @@ private:
   AttrTypeReplacer replacer;
 };
 
-// A function's facts: its attributes but its name and where it came from,
-// in the dictionary's sorted order.
+// A function's facts: its properties, read as attributes (the dictionary
+// an op's attributes leave out a property that is no attribute, such as its
+// effects), then its discardable attributes, each in its dictionary's
+// sorted order, but its name and where it came from.
 SmallVector<NamedAttribute> factsOf(idr::FuncOp fn) {
   StringAttr name = fn.getSymNameAttrName();
   StringAttr instance = fn.getInstanceAttrName();
+  auto properties = cast<DictionaryAttr>(fn->getPropertiesAsAttribute());
   SmallVector<NamedAttribute> facts;
-  for (NamedAttribute attr : fn->getAttrDictionary())
+  for (NamedAttribute attr : llvm::concat<const NamedAttribute>(
+           properties.getValue(), fn->getDiscardableAttrDictionary().getValue()))
     if (attr.getName() != name && attr.getName() != instance)
       facts.push_back(attr);
   return facts;

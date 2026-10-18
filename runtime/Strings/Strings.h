@@ -24,7 +24,7 @@ namespace rt::strings {
 inline constexpr uint32_t stringInfo = idris_rt_info(0, 0, IDRIS_RT_KIND_STRING);
 
 // The one empty string, persistent: the result of every operation whose
-// result is empty, never written.
+// result is empty, newString's for no bytes, never written.
 inline constexpr idris_rt_str emptyString{{0, stringInfo}, 0, 0};
 
 // Every byte ASCII. A scalar takes one byte exactly when it is ASCII, so the
@@ -41,8 +41,9 @@ inline const idris_rt_str *shared(const idris_rt_str *s) {
 // Where a string's bytes go, after its lengths in the same cell.
 inline char *mutableBytes(idris_rt_str *s) { return reinterpret_cast<char *>(s + 1); }
 
-// A new string of `bytes` bytes that the caller fills, with its scalar count
-// (Making.cpp).
+// A string of `bytes` bytes that the caller fills, with its scalar count
+// (Making.cpp): a new one, or for no bytes the empty one, which a fill of no
+// bytes leaves unwritten.
 idris_rt_str *newString(uint64_t bytes, uint64_t scalars);
 
 // A string from bytes that are well-formed UTF-8.

@@ -6,7 +6,7 @@
 // RUN: idris-mlir-opt %t.second.mlir --inline --idr-expect=holds=calls=@crash_inlined:@fail,\
 // RUN: never-returns=@crash_in_body,never-calls=@crash_in_body:@fail -o /dev/null
 // RUN: idris-mlir-opt %t.second.mlir --remove-dead-values --idr-expect=holds=parameters-used=@fail -o /dev/null
-// RUN: idris-mlir-opt %s -split-input-file --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s -split-input-file '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // Upstream's remove-dead-values and inline work on matches and closures. A
 // function whose body is a crash ends in ub.unreachable after it; the
 // inliner inlines it into a function body, the block after the call
@@ -34,7 +34,7 @@ idr.program @"upstream-passes" root(@main) stage(higher) {
       %y = idr.apply %c(%d) : !idr.fn<(i64) -> (i64)>
       idr.yield %y, %unused : i64, i64
     }
-    default {
+    default(%d1: !Maybe) {
       %f = idr.call @fail(%d) : (i64) -> i64
       idr.yield %f, %d : i64, i64
     }
@@ -61,7 +61,7 @@ idr.program @"upstream-passes" root(@root) stage(first) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %f = idr.call @fail(%x) : (i64) -> i64
       idr.yield %f : i64
     }

@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What a data type's body says, read from a value's type, and the
-// elimination of a value at one of its uses. The data types a pass remakes
-// where a body would change are lib/IR/DataRemap.cpp's, and the names from
-// content lib/IR/ContentNames.cpp's.
+// What a data type's body says, read from a value's type, the elimination
+// of a value at one of its uses, and the names the lowering reserves. The
+// data types a pass remakes where a body would change are
+// lib/IR/DataRemap.cpp's, and the names from content
+// lib/IR/ContentNames.cpp's.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
+#include "llvm/ADT/Twine.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
@@ -59,3 +61,9 @@ SmallVector<Operation *> idr::Elimination::steps() const {
     out.push_back(*use);
   return out;
 }
+
+std::string idr::reservedName(StringRef kind, StringRef discriminator) {
+  return ("__idr$" + kind + "$" + discriminator).str();
+}
+
+std::string idr::releaseCafsName() { return reservedName("release", "cafs"); }

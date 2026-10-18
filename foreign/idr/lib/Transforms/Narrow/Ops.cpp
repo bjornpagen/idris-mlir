@@ -44,7 +44,9 @@ void replaceBig(RewriterBase &rewriter, Facts &facts, Operation *op, Value word)
 }
 
 // A match on a big that fits is a match on its word, when every key is a
-// word too.
+// word too. Its default region binds the scrutinee, so it binds the word
+// now, and what read the big there reads the big of the word, a small big
+// that owns nothing, with the scrutinee's bounds.
 bool narrowMatch(RewriterBase &rewriter, Facts &facts, MatchLitOp match) {
   Value scrutinee = match.getScrutinee();
   if (!facts.fits(scrutinee))
@@ -56,12 +58,19 @@ bool narrowMatch(RewriterBase &rewriter, Facts &facts, MatchLitOp match) {
       return false;
     keys.push_back(rewriter.getI64IntegerAttr(value.getSExtValue()));
   }
+  ranges::Bounds bounds = facts.of(scrutinee);
   rewriter.setInsertionPoint(match);
   Value word = facts.word(rewriter, match.getLoc(), scrutinee);
+  BlockArgument rebound = match.getDefaultRegion().getArgument(0);
+  Type big = rebound.getType();
   rewriter.modifyOpInPlace(match, [&] {
     match->setOperand(0, word);
     match.setCasesAttr(rewriter.getArrayAttr(keys));
+    rebound.setType(word.getType());
   });
+  rewriter.setInsertionPointToStart(rebound.getOwner());
+  Value same = facts.big(rewriter, rebound.getLoc(), big, rebound, bounds);
+  rewriter.replaceAllUsesExcept(rebound, same, same.getDefiningOp());
   return true;
 }
 

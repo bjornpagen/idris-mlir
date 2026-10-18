@@ -14,7 +14,7 @@ idr.program @"recursive-value" root(@root) stage(first) {
     case 0 {
       idr.yield %a : tensor<?xi64>
     }
-    default {
+    default(%d0: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %k, %one : i64
       %i = arith.index_cast %j : i64 to index

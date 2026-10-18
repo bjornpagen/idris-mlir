@@ -110,30 +110,37 @@ struct TailUpliftAction : support::TaggedAction<TailUpliftAction> {
   static constexpr llvm::StringLiteral tag = "idr-tail-loops-uplift";
 };
 
-// The decision that `fn`'s body is, or none: a match of two regions, one
-// that ends in the self tail call and one that reaches none.
+// The decision that `fn`'s body is, or none: a match of two regions that
+// run, one that ends in the self tail call and one that reaches none. (An
+// exhaustive match's default region is empty and never runs.)
 std::optional<Decision> decisionOf(FuncOp fn) {
   Operation *ret = fn.getBody().front().getTerminator();
-  Operation *match = tailMatch(ret);
-  if (!match || match->getNumRegions() != 2 ||
-      llvm::any_of(match->getRegions(), [](Region &region) { return region.empty(); }))
+  auto match = dyn_cast_or_null<MatchOpInterface>(tailMatch(ret));
+  if (!match)
     return std::nullopt;
-  auto loops = [&](Region &region) {
-    Operation *end = region.front().getTerminator();
+  SmallVector<Region *, 2> regions;
+  for (Region &region : match->getRegions())
+    if (!region.empty())
+      regions.push_back(&region);
+  if (regions.size() != 2)
+    return std::nullopt;
+  auto loops = [&](Region *region) {
+    Operation *end = region->front().getTerminator();
     return isa<YieldOp>(end) && passesOnPrevious(end) && isSelfCall(end->getPrevNode(), fn);
   };
-  auto exits = [&](Region &region) { return !loops(region) && !reachesTailCall(region.front(), fn); };
-  MutableArrayRef<Region> regions = match->getRegions();
+  auto exits = [&](Region *region) {
+    return !loops(region) && !reachesTailCall(region->front(), fn);
+  };
   auto looping = llvm::find_if(regions, loops);
   auto exiting = llvm::find_if(regions, exits);
   if (looping == regions.end() || exiting == regions.end())
     return std::nullopt;
-  // The loop tests an integer against the one key of its case, or the
+  // The loop tests an integer against the one key of its case (a literal
+  // match that runs two regions has one case besides its default), or the
   // constructor of a value.
-  if (auto lit = dyn_cast<MatchLitOp>(match))
-    if (!isa<IntegerType>(lit.getScrutinee().getType()) || lit.getCases().size() != 1)
-      return std::nullopt;
-  return Decision{*match, *looping, *exiting};
+  if (isa<MatchLitOp>(match) && !isa<IntegerType>(match.getScrutinee().getType()))
+    return std::nullopt;
+  return Decision{match, **looping, **exiting};
 }
 
 // Whether `op`, in a loop, may run once before it instead: it has no

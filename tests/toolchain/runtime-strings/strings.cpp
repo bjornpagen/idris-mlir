@@ -3,8 +3,8 @@
 // The runtime's string operations held to a model (idris_rt.h's strings):
 // a string is its scalars, and its bytes are their UTF-8
 // (utf8model::encode). Every result is the model's, canonical (its lengths
-// are its bytes' and its scalars' counts), owned as idris_rt.h says, and
-// every operand only borrowed. An operand is a persistent constant, laid
+// are its bytes' and its scalars' counts), owned as idris_rt.h says, every
+// operand only borrowed, and every empty result the one empty string. An operand is a persistent constant, laid
 // out as idr-lower writes a string into static data, or a counted string.
 #include "idris_rt.h"
 #include "prop.h"
@@ -46,7 +46,7 @@ struct Encoded {
   }
 };
 
-// The operations, as idris_rt.h states them of scalars.
+// The operations, as the runtime states them of scalars.
 Model tailOf(const Model &s) {
   Model r;
   for (size_t i = 1; i < s.length; ++i)
@@ -446,6 +446,62 @@ bool scalarOperationsBorrow(const Operand &a, const Operand &b) {
   return holds;
 }
 
+// The one empty string: every operation that gives a string of no bytes,
+// and does not give an operand back, gives the same string, persistent
+// (count 0), and allocates nothing for it. On an operand: the constructors
+// given no bytes of it (from_utf8, from_bytes, str_alloc, a byte array's
+// get_string at either end), and the operations whose result is empty
+// (substr from the end and of no scalars, tail of one scalar, drop_bytes
+// to the end of a string that is not empty).
+bool emptiesAreOne(const Operand &s) {
+  auto bytes = static_cast<int64_t>(s.string->bytes);
+  auto length = static_cast<int64_t>(s.model.length);
+  idris_rt_array *buffer =
+      idris_rt_array_new(static_cast<uint64_t>(bytes), idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY));
+  memcpy(idris_rt_array_bytes(buffer), idris_rt_str_bytes(s.string), s.string->bytes);
+  uint64_t live = idris_rt_live_cells();
+  struct Made {
+    const char *operation;
+    const idris_rt_str *string;
+  };
+  Made made[11];
+  size_t count = 0;
+  auto add = [&](const char *operation, const idris_rt_str *string) { made[count++] = {operation, string}; };
+  add("from_utf8 of no bytes", idris_rt_str_from_utf8(idris_rt_str_bytes(s.string), 0));
+  add("from_bytes of no bytes", idris_rt_str_from_bytes(idris_rt_str_bytes(s.string), 0));
+  add("str_alloc of no bytes", idris_rt_str_alloc(0, 0));
+  add("buffer_get_string of no bytes at 0", idris_rt_io_buffer_get_string(buffer, 0, 0));
+  add("buffer_get_string of no bytes at the end", idris_rt_io_buffer_get_string(buffer, bytes, 0));
+  add("substr from the end", idris_rt_str_substr(s.string, length, 1));
+  add("substr past the end", idris_rt_str_substr(s.string, length + 1, length));
+  add("substr of no scalars", idris_rt_str_substr(s.string, 0, 0));
+  if (length == 1)
+    add("tail of one scalar", idris_rt_str_tail(s.string));
+  // drop_bytes from 0 gives the string itself back, so an empty one is not
+  // made.
+  if (bytes > 0) {
+    add("drop_bytes to the end", idris_rt_str_drop_bytes(s.string, bytes));
+    add("drop_bytes past the end", idris_rt_str_drop_bytes(s.string, INT64_MAX));
+  }
+  bool holds = idris_rt_live_cells() == live;
+  if (!holds)
+    prop::explain("an empty string allocated a cell");
+  const idris_rt_str *one = made[0].string;
+  holds = holds && one->header.count == 0 && one->bytes == 0 && one->scalars == 0 &&
+          one->header.info == idris_rt_info(0, 0, IDRIS_RT_KIND_STRING);
+  for (size_t i = 0; i < count; ++i) {
+    const Made &m = made[i];
+    if (holds && m.string != one) {
+      prop::explain("%s: a string of %llu bytes and count %u, not the one empty string", m.operation,
+                    static_cast<unsigned long long>(m.string->bytes), m.string->header.count);
+      holds = false;
+    }
+    idris_rt_str_release(m.string);
+  }
+  idris_rt_dec(buffer);
+  return holds;
+}
+
 // Every string of at most 3 of them: 1 + 4 + 16 + 64.
 constexpr uint64_t boxStrings = 1 + letters + letters * letters + letters * letters * letters;
 // The string numbered `index` in bijective base 4: 0 is the empty string,
@@ -518,6 +574,12 @@ int main(int argc, char **argv) {
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Case k(p, tally);
                  return stringOperations(k.a, k.b, k.arguments, Borrows{}) && scalarOperationsBorrow(k.a, k.b);
+               });
+
+  run.property("the empty string: every operation that makes one gives the one persistent empty string",
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
+                 Case k(p, tally);
+                 return emptiesAreOne(k.a) && emptiesAreOne(k.b);
                });
 
   return run.finish();

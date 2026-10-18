@@ -12,24 +12,17 @@
 
 namespace {
 
-// The check's text, built inline into it so that nothing it calls leaves
-// the baseline.
-[[gnu::always_inline]] inline char *text(char *at, const char *part) {
-  while (*part != '\0')
-    *at++ = *part++;
-  return at;
-}
-
-[[gnu::always_inline]] inline char *number(char *at, size_t value) {
-  char digits[20];
-  size_t d = 0;
+// A number's decimal digits, written backwards from the end of `digits`,
+// which has room for the 20 of the largest size_t; inline in the check, so
+// that nothing it calls leaves the baseline.
+[[gnu::always_inline]] inline rt::platform::Piece number(char (&digits)[20], size_t value) {
+  char *end = digits + sizeof digits;
+  char *at = end;
   do {
-    digits[d++] = static_cast<char>('0' + value % 10);
+    *--at = static_cast<char>('0' + value % 10);
     value /= 10;
   } while (value != 0);
-  while (d > 0)
-    *at++ = digits[--d];
-  return at;
+  return {at, static_cast<size_t>(end - at)};
 }
 
 } // namespace
@@ -43,24 +36,25 @@ namespace rt::platform {
 // mprotect round to (on Darwin, hw.pagesize and vm_page_size alike: 16 KiB
 // for an arm64 process). When the two disagree it names both and ends the
 // process, so a runtime built for another page size refuses to start. It
-// allocates nothing and writes with writeAll, not rt::io, which is above
+// allocates nothing and writes with writeCrash, not rt::io, which is above
 // it. It runs before the processor test, so it and what it calls stay
-// compiled for the target's baseline: its text is built inline, and
-// writeAll and exitProcess are marked as it is.
-[[clang::annotate("idris-rt-baseline")]] void checkPageSize() noexcept {
+// compiled for the target's baseline: its digits are written inline, and
+// writeCrash and exitProcess are marked as it is.
+IDRIS_RT_BASELINE void checkPageSize() noexcept {
   size_t system = static_cast<size_t>(sysconf(_SC_PAGESIZE));
   if (system == pageSize())
     return;
-  static constexpr char built[] = "idris-mlir: the runtime is built for a ";
+  static constexpr char built[] = "the runtime is built for a ";
   static constexpr char has[] = "-byte page, and this system has a ";
-  static constexpr char page[] = "-byte page\n";
-  char message[sizeof built + sizeof has + sizeof page + 2 * 20];
-  char *at = text(message, built);
-  at = number(at, pageSize());
-  at = text(at, has);
-  at = number(at, system);
-  at = text(at, page);
-  writeAll(2, message, static_cast<size_t>(at - message));
+  static constexpr char page[] = "-byte page";
+  char builtDigits[20];
+  char systemDigits[20];
+  const Piece cause[] = {{built, sizeof built - 1},
+                         number(builtDigits, pageSize()),
+                         {has, sizeof has - 1},
+                         number(systemDigits, system),
+                         {page, sizeof page - 1}};
+  writeCrash(cause, sizeof cause / sizeof cause[0]);
   exitProcess(IDRIS_RT_CRASHED);
 }
 

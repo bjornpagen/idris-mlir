@@ -14,12 +14,12 @@
 namespace {
 
 // A string of the environment's, in the runtime's one environment slot,
-// which the next environment call refills, or null.
+// which the next environment call refills, or null when the C library gave
+// none.
 int64_t environmentString(const char *text) {
   if (text == nullptr)
     return rt::io::nullHandle;
-  rt::io::environmentHandle = rt::io::keepString(
-      rt::io::environmentHandle, idris_rt_str_from_bytes(text, strlen(text)));
+  rt::io::keepString(rt::io::environmentHandle, idris_rt_str_from_bytes(text, strlen(text)));
   return rt::io::environmentHandle;
 }
 

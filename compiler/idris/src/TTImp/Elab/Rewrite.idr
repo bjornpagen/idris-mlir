@@ -101,6 +101,63 @@ elabRewrite loc env expected rulety
              throw (RewriteNoChange loc env rulety exptm)
          pure (MkLemma lemn pred predty)
 
+-- The elaborator of a rewrite, given the cell of delayed elaborators and
+-- the expected type, which a retry evaluates again (see delayOnFailure). It
+-- is a function of its own rather than the body of a lambda in
+-- checkRewrite: a local definition is applied to everything its parent
+-- binds, so one used in the lambda would capture checkRewrite's cell.
+checkRewriteDelayed : {vars : _} ->
+                      {auto c : Ref Ctxt Defs} ->
+                      {auto m : Ref MD Metadata} ->
+                      {auto u : Ref UST UState} ->
+                      {auto dl : Ref DLY DelayedElabs} ->
+                      {auto e : Ref EST (EState vars)} ->
+                      {auto s : Ref Syn SyntaxInfo} ->
+                      {auto o : Ref ROpts REPLOpts} ->
+                      RigCount -> ElabInfo ->
+                      NestedNames vars -> Env Term vars ->
+                      FC -> RawImp -> RawImp ->
+                      (delayed : Bool) -> (expected : Glued vars) ->
+                      Core (Term vars, Glued vars)
+checkRewriteDelayed {vars} rigc elabinfo nest env ifc rule tm delayed expected
+    = do let vfc = virtualiseFC ifc
+
+         constart <- getNextEntry
+         (rulev, grulet) <- check erased elabinfo nest env rule Nothing
+         solveConstraintsAfter constart inTerm Normal
+
+         rulet <- getTerm grulet
+         expTy <- getTerm expected
+         when delayed $ log "elab.rewrite" 5 "Retrying rewrite"
+         lemma <- elabRewrite vfc env expTy rulet
+
+         rname <- genVarName "_"
+         pname <- genVarName "_"
+
+         let pbind = Let vfc erased lemma.pred lemma.predTy
+         let rbind = Let vfc erased (weaken rulev) (weaken rulet)
+
+         let env' = rbind :: pbind :: env
+
+         -- Nothing we do in this last part will affect the EState,
+         -- we're only doing the application this way to make sure the
+         -- implicits for the rewriting lemma are in the right place. But,
+         -- we still need the right type for the EState, so weaken it once
+         -- for each of the let bindings above.
+         (rwtm, grwty) <-
+            inScope vfc (pbind :: env) $ \e' =>
+              inScope {e=e'} vfc env' $ \e'' =>
+                let offset = mkSizeOf [rname, pname] in
+                check {e = e''} rigc elabinfo (weakenNs offset nest) env'
+                  (apply (IVar vfc lemma.name)
+                    [ IVar vfc pname
+                    , IVar vfc rname
+                    , tm ])
+                  (Just (gnf env' (weakenNs offset expTy)))
+         rwty <- getTerm grwty
+         let binding = Bind vfc pname pbind . Bind vfc rname rbind
+         pure (binding rwtm, gnf env (binding rwty))
+
 export
 checkRewrite : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
@@ -116,42 +173,6 @@ checkRewrite : {vars : _} ->
                Core (Term vars, Glued vars)
 checkRewrite rigc elabinfo nest env fc rule tm Nothing
     = throw (GenericMsg fc "Can't infer a type for rewrite")
-checkRewrite {vars} rigc elabinfo nest env ifc rule tm (Just expected)
-    = delayOnFailure ifc rigc env (Just expected) rewriteErr Rewrite $ \dl, delayed =>
-        do let vfc = virtualiseFC ifc
-
-           constart <- getNextEntry
-           (rulev, grulet) <- check {dl} erased elabinfo nest env rule Nothing
-           solveConstraintsAfter constart inTerm Normal
-
-           rulet <- getTerm grulet
-           expTy <- getTerm expected
-           when delayed $ log "elab.rewrite" 5 "Retrying rewrite"
-           lemma <- elabRewrite vfc env expTy rulet
-
-           rname <- genVarName "_"
-           pname <- genVarName "_"
-
-           let pbind = Let vfc erased lemma.pred lemma.predTy
-           let rbind = Let vfc erased (weaken rulev) (weaken rulet)
-
-           let env' = rbind :: pbind :: env
-
-           -- Nothing we do in this last part will affect the EState,
-           -- we're only doing the application this way to make sure the
-           -- implicits for the rewriting lemma are in the right place. But,
-           -- we still need the right type for the EState, so weaken it once
-           -- for each of the let bindings above.
-           (rwtm, grwty) <-
-              inScope vfc (pbind :: env) $ \e' =>
-                inScope {e=e'} vfc env' $ \e'' =>
-                  let offset = mkSizeOf [rname, pname] in
-                  check {dl} {e = e''} rigc elabinfo (weakenNs offset nest) env'
-                    (apply (IVar vfc lemma.name)
-                      [ IVar vfc pname
-                      , IVar vfc rname
-                      , tm ])
-                    (Just (gnf env' (weakenNs offset expTy)))
-           rwty <- getTerm grwty
-           let binding = Bind vfc pname pbind . Bind vfc rname rbind
-           pure (binding rwtm, gnf env (binding rwty))
+checkRewrite rigc elabinfo nest env ifc rule tm (Just expected)
+    = delayOnFailure ifc rigc env expected rewriteErr Rewrite $ \dl, delayed, exp =>
+        checkRewriteDelayed {dl} rigc elabinfo nest env ifc rule tm delayed exp

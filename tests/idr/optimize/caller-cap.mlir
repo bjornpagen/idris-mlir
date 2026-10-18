@@ -1,9 +1,9 @@
-// RUN: awk '/^ *\/\/ CHAIN$/ { for (f = 1; f <= 12; f++) { printf "  idr.func @f%d(%%x: i64) -> i64 attributes {total} {\n    %%v0 = arith.addi %%x, %%x : i64\n", f; for (i = 1; i < 2000; i++) printf "    %%v%d = arith.addi %%v%d, %%x : i64\n", i, i - 1; if (f < 12) printf "    %%r = idr.call @f%d(%%v1999) : (i64) -> i64\n    return %%r : i64\n  }\n", f + 1; else printf "    return %%v1999 : i64\n  }\n" } next } { print }' %s > %t.chain.mlir
-// RUN: idris-mlir-opt %t.chain.mlir --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: the chain's sizes against the cap as idr::inlineSize counts them, and the run time of the 24,000-op module; symbol-dce after idr-optimize, as the pipeline runs it, takes the functions the root absorbed, so the call left is one the cap kept; before the optimizer, largest-function reports each function of the chain at its own line of the written module, where the first RUN line writes its annotation (mlir-22).
+// RUN: awk '/^ *\/\/ CHAIN$/ { for (f = 1; f <= 12; f++) { printf "  // expected-error @below {{expected largest-function: @f%d holds}}\n  idr.func @f%d(%%x: i64) -> i64 attributes {total} {\n    %%v0 = arith.addi %%x, %%x : i64\n", f, f; for (i = 1; i < 2000; i++) printf "    %%v%d = arith.addi %%v%d, %%x : i64\n", i, i - 1; if (f < 12) printf "    %%r = idr.call @f%d(%%v1999) : (i64) -> i64\n    return %%r : i64\n  }\n", f + 1; else printf "    return %%v1999 : i64\n  }\n" } next } { print }' %s > %t.chain.mlir
+// RUN: idris-mlir-opt %t.chain.mlir --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=largest-function=10000 -o /dev/null
 // RUN: grep -q 'call @f[0-9]*(' %t.mlir
-// RUN: %status 1 idris-mlir-opt %t.chain.mlir --idr-expect=holds=largest-function=1000 -o /dev/null
-// NEEDS-ACCEPTANCE: the chain's sizes against the cap as idr::inlineSize counts them, and the run time of the 24,000-op module.
+// RUN: idris-mlir-opt %t.chain.mlir --idr-expect=holds=largest-function=1000 -verify-diagnostics -o /dev/null
 // A chain of twelve functions, each called once and each of about 2,000
 // operations (the first RUN line writes them where the CHAIN line
 // stands): every one is worth inlining by the rule, so without a bound the

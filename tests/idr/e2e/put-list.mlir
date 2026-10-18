@@ -3,6 +3,7 @@
 // RUN: echo -n "x" | %status 1 %t > %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=OUT < %t.out
 // RUN: FileCheck %s --check-prefix=ERR < %t.err
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // A list packed or concatenated only to be written is written as it is
 // walked, and its bytes are those of the string built from it where the
 // string is kept: UTF-8 for a character from 128 up, in order with the
@@ -20,7 +21,7 @@ idr.program @"put-list" root(@Prog.main) stage(higher) {
       %s = idr.constant "y" : !idr.str
       idr.yield %s : !idr.str
     }
-    default {
+    default(%d: i32) {
       idr.crash "done"
       ub.unreachable
     }
@@ -54,7 +55,7 @@ idr.program @"put-list" root(@Prog.main) stage(higher) {
     %w8 = idr.io.put_char %close, %w7
     %w9 = idr.io.put_char %space, %w8
     %n = idr.str.length %built
-    %w10 = idr.io.put_int signed %n, %w9 : i64
+    %w10 = idr.io.put_sint %n, %w9 : i64
     %w11 = idr.io.put_char %newline, %w10
     %snil = idr.con !idr.box<!Strs> @Nil()
     %ab = idr.constant "ab" : !idr.str
@@ -74,7 +75,7 @@ idr.program @"put-list" root(@Prog.main) stage(higher) {
     %w18 = idr.io.put_char %close, %w17
     %w19 = idr.io.put_char %space, %w18
     %m = idr.str.length %kept
-    %w20 = idr.io.put_int signed %m, %w19 : i64
+    %w20 = idr.io.put_sint %m, %w19 : i64
     %w21 = idr.io.put_char %newline, %w20
     %p = idr.call @pick(%x) : (i32) -> !idr.str
     %w22 = idr.io.put_str %p, %w21

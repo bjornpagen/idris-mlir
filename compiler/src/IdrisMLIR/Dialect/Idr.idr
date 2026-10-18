@@ -8,7 +8,53 @@ module IdrisMLIR.Dialect.Idr
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Idr
 
+import Data.List
+import Data.Vect
+
 %default total
+
+------------------------------------------------------------------------------
+-- Discardable attributes
+------------------------------------------------------------------------------
+
+||| The discardable attribute `idr.refusals`.
+export
+refusalsDiscardable : MlirAttr -> NamedAttr
+refusalsDiscardable a = ("idr.refusals", a)
+
+------------------------------------------------------------------------------
+-- Guards
+------------------------------------------------------------------------------
+
+||| How a guard has a count of bytes it checks: an operand of the op, the
+||| size of a word of the type given, the bytes of a string, or the length
+||| of an array.
+public export
+data Count = CountOf Value | WordOf MlirType | BytesOf Value | LengthOf Value
+
+||| What a guard checks of the operand it guards (CheckKind), with what else
+||| its guard op takes: an operand of the op as it is, and each count.
+public export
+data Check = Nonzero | InBounds Value | Nonempty | Finite | InRange Count Count
+
+||| A guard an op takes, an op `idr.check.*`: the position of
+||| the operand it guards, whose value the guard's result stands for in the
+||| op, what it checks, and the cause its crash reports.
+public export
+record Guard where
+  constructor MkGuard
+  operand : Nat
+  check : Check
+  cause : String
+
+||| An op and the guards it takes, which are placed before it: what a
+||| partial op's builder gives, so that no partial op is placed without its
+||| guards.
+public export
+record Guarded where
+  constructor MkGuarded
+  op : Op
+  guards : List Guard
 
 ------------------------------------------------------------------------------
 -- Ops
@@ -18,31 +64,33 @@ import IdrisMLIR.Syntax.Idr
 export
 applyOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> (callee : Value) -> (args : List Value) -> (results : List MlirType) -> Op
 applyOp callee args results =
-  MkOp "idr.apply" (concat [[callee], args]) (attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs) [] [] results
+  MkOp "idr.apply" ([callee] ++ args) (attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs) [] [] results
 
 ||| `idr.array.get`: the element of an array at an index
 export
-arrayGetOp : (array' : Value) -> (indices : List Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
+arrayGetOp : (array' : Value) -> (indices : List Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Guarded
 arrayGetOp array' indices world value next =
-  MkOp "idr.array.get" (concat [[array'], indices, [world]]) [] [] [] [value, next]
+  MkGuarded (MkOp "idr.array.get" ([array'] ++ indices ++ [world]) [] [] [] [value, next])
+    (map (\v => MkGuard v (InBounds array') "array index out of bounds") (iterateN (length indices) S 1))
 
 ||| `idr.array.new`: a new array of the given sizes, each element `fill`
 export
 arrayNewOp : (sizes : List Value) -> (fill : Value) -> (world : Value) -> (array' : MlirType) -> (next : MlirType) -> Op
 arrayNewOp sizes fill world array' next =
-  MkOp "idr.array.new" (concat [sizes, [fill], [world]]) [] [] [] [array', next]
+  MkOp "idr.array.new" (sizes ++ [fill, world]) [] [] [] [array', next]
 
 ||| `idr.array.set`: writes an element of an array at an index
 export
-arraySetOp : (array' : Value) -> (indices : List Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
+arraySetOp : (array' : Value) -> (indices : List Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Guarded
 arraySetOp array' indices value world next =
-  MkOp "idr.array.set" (concat [[array'], indices, [value], [world]]) [] [] [] [next]
+  MkGuarded (MkOp "idr.array.set" ([array'] ++ indices ++ [value, world]) [] [] [] [next])
+    (map (\v => MkGuard v (InBounds array') "array index out of bounds") (iterateN (length indices) S 1))
 
 ||| `idr.array.update`: an element of an array rebuilt in its place
 export
 arrayUpdateOp : (array' : Value) -> (indices : List Value) -> (world : Value) -> (region : Region) -> (outs : List MlirType) -> (next : MlirType) -> Op
 arrayUpdateOp array' indices world region outs next =
-  MkOp "idr.array.update" (concat [[array'], indices, [world]]) [] [region] [] (concat [outs, [next]])
+  MkOp "idr.array.update" ([array'] ++ indices ++ [world]) [] [region] [] (outs ++ [next])
 
 ||| `idr.array.yield`: ends a region of an array op with what it gives at its index
 export
@@ -70,21 +118,23 @@ bigCmpOp predicate lhs rhs result =
 
 ||| `idr.big.div`: the quotient of two bigs, as Integer's div and mod, by a divisor that is not zero
 export
-bigDivOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+bigDivOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
 bigDivOp lhs rhs result =
-  MkOp "idr.big.div" [lhs, rhs] [] [] [] [result]
+  MkGuarded (MkOp "idr.big.div" [lhs, rhs] [] [] [] [result])
+    [MkGuard 1 Nonzero "division by zero"]
 
 ||| `idr.big.from_double`: a finite Double truncated to a big
 export
-bigFromDoubleOp : (value : Value) -> (result : MlirType) -> Op
+bigFromDoubleOp : (value : Value) -> (result : MlirType) -> Guarded
 bigFromDoubleOp value result =
-  MkOp "idr.big.from_double" [value] [] [] [] [result]
+  MkGuarded (MkOp "idr.big.from_double" [value] [] [] [] [result])
+    [MkGuard 0 Finite "cast of a non-finite Double"]
 
-||| `idr.big.from_int`: an integer as a big or, unsigned, as a natural
+||| `idr.big.from_sint`: a signed integer as a big
 export
-bigFromIntOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
-bigFromIntOp value result =
-  MkOp "idr.big.from_int" [value] (unitIf "is_signed" isSigned) [] [] [result]
+bigFromSintOp : (value : Value) -> (result : MlirType) -> Op
+bigFromSintOp value result =
+  MkOp "idr.big.from_sint" [value] [] [] [] [result]
 
 ||| `idr.big.from_str`: a string as a big, as prim__cast_StringInteger reads it
 export
@@ -92,11 +142,18 @@ bigFromStrOp : (str : Value) -> (result : MlirType) -> Op
 bigFromStrOp str result =
   MkOp "idr.big.from_str" [str] [] [] [] [result]
 
+||| `idr.big.from_uint`: an unsigned integer as a big or a natural
+export
+bigFromUintOp : (value : Value) -> (result : MlirType) -> Op
+bigFromUintOp value result =
+  MkOp "idr.big.from_uint" [value] [] [] [] [result]
+
 ||| `idr.big.mod`: the remainder of two bigs, as Integer's div and mod, by a divisor that is not zero
 export
-bigModOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+bigModOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
 bigModOp lhs rhs result =
-  MkOp "idr.big.mod" [lhs, rhs] [] [] [] [result]
+  MkGuarded (MkOp "idr.big.mod" [lhs, rhs] [] [] [] [result])
+    [MkGuard 1 Nonzero "division by zero"]
 
 ||| `idr.big.mul`: the product of two bigs or two naturals
 export
@@ -182,6 +239,30 @@ callOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing 
 callOp callee args results =
   MkOp "idr.call" args ([("callee", SymbolRefAttr (MkSymbolRef callee []))] ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs) [] [] results
 
+||| `idr.cell.init`: writes the fields of a cell's constructor into it, giving the box
+export
+cellInitOp : {default Nothing holes : Maybe (List Nat)} -> (cell : Value) -> (fields : List Value) -> (result : MlirType) -> (dests : List MlirType) -> Op
+cellInitOp cell fields result dests =
+  MkOp "idr.cell.init" ([cell] ++ fields) (attrIf "holes" DenseI32ArrayAttr holes) [] [] ([result] ++ dests)
+
+||| `idr.cell.new`: a fresh cell on the heap, its header written
+export
+cellNewOp : (cell : MlirType) -> Op
+cellNewOp cell =
+  MkOp "idr.cell.new" [] [] [] [] [cell]
+
+||| `idr.cell.recycle`: the cell of a token, or a fresh cell on the heap when it is null
+export
+cellRecycleOp : (token : Value) -> (cell : MlirType) -> Op
+cellRecycleOp token cell =
+  MkOp "idr.cell.recycle" [token] [] [] [] [cell]
+
+||| `idr.cell.stack`: a cell in its function's frame, its header written
+export
+cellStackOp : (cell : MlirType) -> Op
+cellStackOp cell =
+  MkOp "idr.cell.stack" [] [] [] [] [cell]
+
 ||| `idr.check.finite`: the value, which must be neither NaN nor infinite, else the program crashes
 export
 checkFiniteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
@@ -220,9 +301,9 @@ closureOp callee captures result =
 
 ||| `idr.con`: builds a constructor value
 export
-conOp : {default Nothing holes : Maybe (List Nat)} -> {default False stack : Bool} -> (tag : Integer) -> (fields : List Value) -> (result : MlirType) -> (dests : List MlirType) -> Op
-conOp tag fields result dests =
-  MkOp "idr.con" fields ([("tag", IntegerAttr tag (IntegerType 32))] ++ attrIf "holes" DenseI32ArrayAttr holes ++ unitIf "stack" stack) [] [] (concat [[result], dests])
+conOp : (tag : Integer) -> (fields : List Value) -> (result : MlirType) -> Op
+conOp tag fields result =
+  MkOp "idr.con" fields [("tag", IntegerAttr tag (IntegerType 32))] [] [] [result]
 
 ||| `idr.constant`: a constant: a constructor, closure, string or big
 export
@@ -254,11 +335,19 @@ destWriteOp : (dest : Value) -> (value : Value) -> Op
 destWriteOp dest value =
   MkOp "idr.dest.write" [dest, value] [] [] [] []
 
-||| `idr.div`: Idris div: Euclidean when signed, of a divisor that is not zero
+||| `idr.divs`: Idris div of a signed integer: Euclidean, by a divisor that is not zero
 export
-divOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
-divOp lhs rhs result =
-  MkOp "idr.div" [lhs, rhs] (unitIf "is_signed" isSigned) [] [] [result]
+divsOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
+divsOp lhs rhs result =
+  MkGuarded (MkOp "idr.divs" [lhs, rhs] [] [] [] [result])
+    [MkGuard 1 Nonzero "division by zero"]
+
+||| `idr.divu`: Idris div of an unsigned integer, by a divisor that is not zero
+export
+divuOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
+divuOp lhs rhs result =
+  MkGuarded (MkOp "idr.divu" [lhs, rhs] [] [] [] [result])
+    [MkGuard 1 Nonzero "division by zero"]
 
 ||| `idr.double_head`: the first character of a Double's text
 export
@@ -282,7 +371,7 @@ dupOp value result =
 export
 elementUpdateOp : (array' : Value) -> (indices : List Value) -> (region : Region) -> (outs : List MlirType) -> Op
 elementUpdateOp array' indices region outs =
-  MkOp "idr.element.update" (concat [[array'], indices]) [] [region] [] outs
+  MkOp "idr.element.update" ([array'] ++ indices) [] [region] [] outs
 
 ||| `idr.field`: reads a field of a constructor value
 export
@@ -294,7 +383,7 @@ fieldOp value tag index result =
 export
 foldLastOp : (inits : List Value) -> (length' : Value) -> (region : Region) -> (results : List MlirType) -> Op
 foldLastOp inits length' region results =
-  MkOp "idr.fold_last" (concat [inits, [length']]) [] [region] [] results
+  MkOp "idr.fold_last" (inits ++ [length']) [] [region] [] results
 
 ||| `idr.force`: the value of a suspension, computed on the first force and shared
 export
@@ -304,9 +393,9 @@ forceOp suspension result =
 
 ||| `idr.func`: a function of the program, with the facts known of it
 export
-funcOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default False total' : Bool} -> {default False noInline : Bool} -> {default Nothing effects : Maybe MlirAttr} -> {default Nothing instance : Maybe MlirAttr} -> (symName : String) -> (functionType : MlirType) -> (body : Region) -> Op
+funcOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default False total' : Bool} -> {default False noInline : Bool} -> {default Nothing instance : Maybe MlirAttr} -> (symName : String) -> (functionType : MlirType) -> (body : Region) -> Op
 funcOp symName functionType body =
-  MkOp "idr.func" [] ([("sym_name", StringAttr symName), ("function_type", TypeAttr functionType)] ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ unitIf "total" total' ++ unitIf "no_inline" noInline ++ attrIf "effects" id effects ++ attrIf "instance" id instance) [body] [] []
+  MkOp "idr.func" [] ([("sym_name", StringAttr symName), ("function_type", TypeAttr functionType)] ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ unitIf "total" total' ++ unitIf "no_inline" noInline ++ attrIf "instance" id instance) [body] [] []
 
 ||| `idr.handle.is_null`: 1 when a handle is null, else 0
 export
@@ -320,11 +409,17 @@ handleStringOp : (handle : Value) -> (str : MlirType) -> Op
 handleStringOp handle str =
   MkOp "idr.handle.string" [handle] [] [] [] [str]
 
-||| `idr.int_head`: the first character of an integer's decimal text
+||| `idr.int_head_s`: the first character of a signed integer's decimal text
 export
-intHeadOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
-intHeadOp value result =
-  MkOp "idr.int_head" [value] (unitIf "is_signed" isSigned) [] [] [result]
+intHeadSOp : (value : Value) -> (result : MlirType) -> Op
+intHeadSOp value result =
+  MkOp "idr.int_head_s" [value] [] [] [] [result]
+
+||| `idr.int_head_u`: the first character of an unsigned integer's decimal text
+export
+intHeadUOp : (value : Value) -> (result : MlirType) -> Op
+intHeadUOp value result =
+  MkOp "idr.int_head_u" [value] [] [] [] [result]
 
 ||| `idr.io.arg`: the program's argument at an index, a new string
 export
@@ -340,33 +435,38 @@ ioArgCountOp world result next =
 
 ||| `idr.io.buffer_copy`: bytes copied from one buffer into another
 export
-ioBufferCopyOp : (src : Value) -> (srcOffset : Value) -> (len : Value) -> (dst : Value) -> (dstOffset : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioBufferCopyOp : (src : Value) -> (srcOffset : Value) -> (len : Value) -> (dst : Value) -> (dstOffset : Value) -> (world : Value) -> (next : MlirType) -> Guarded
 ioBufferCopyOp src srcOffset len dst dstOffset world next =
-  MkOp "idr.io.buffer_copy" [src, srcOffset, len, dst, dstOffset, world] [] [] [] [next]
+  MkGuarded (MkOp "idr.io.buffer_copy" [src, srcOffset, len, dst, dstOffset, world] [] [] [] [next])
+    [MkGuard 1 (InRange (CountOf len) (LengthOf src)) "a byte range outside the buffer", MkGuard 4 (InRange (CountOf len) (LengthOf dst)) "a byte range outside the buffer"]
 
 ||| `idr.io.buffer_get_string`: a buffer's bytes read as a string
 export
-ioBufferGetStringOp : (buffer : Value) -> (offset : Value) -> (len : Value) -> (world : Value) -> (str : MlirType) -> (next : MlirType) -> Op
+ioBufferGetStringOp : (buffer : Value) -> (offset : Value) -> (len : Value) -> (world : Value) -> (str : MlirType) -> (next : MlirType) -> Guarded
 ioBufferGetStringOp buffer offset len world str next =
-  MkOp "idr.io.buffer_get_string" [buffer, offset, len, world] [] [] [] [str, next]
+  MkGuarded (MkOp "idr.io.buffer_get_string" [buffer, offset, len, world] [] [] [] [str, next])
+    [MkGuard 1 (InRange (CountOf len) (LengthOf buffer)) "a byte range outside the buffer"]
 
 ||| `idr.io.buffer_load`: a machine word read from a buffer at a byte offset
 export
-ioBufferLoadOp : (buffer : Value) -> (offset : Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
+ioBufferLoadOp : (buffer : Value) -> (offset : Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Guarded
 ioBufferLoadOp buffer offset world value next =
-  MkOp "idr.io.buffer_load" [buffer, offset, world] [] [] [] [value, next]
+  MkGuarded (MkOp "idr.io.buffer_load" [buffer, offset, world] [] [] [] [value, next])
+    [MkGuard 1 (InRange (WordOf value) (LengthOf buffer)) "a byte range outside the buffer"]
 
 ||| `idr.io.buffer_set_string`: a string's bytes written into a buffer
 export
-ioBufferSetStringOp : (buffer : Value) -> (offset : Value) -> (str : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioBufferSetStringOp : (buffer : Value) -> (offset : Value) -> (str : Value) -> (world : Value) -> (next : MlirType) -> Guarded
 ioBufferSetStringOp buffer offset str world next =
-  MkOp "idr.io.buffer_set_string" [buffer, offset, str, world] [] [] [] [next]
+  MkGuarded (MkOp "idr.io.buffer_set_string" [buffer, offset, str, world] [] [] [] [next])
+    [MkGuard 1 (InRange (BytesOf str) (LengthOf buffer)) "a byte range outside the buffer"]
 
 ||| `idr.io.buffer_store`: a machine word written into a buffer at a byte offset
 export
-ioBufferStoreOp : (buffer : Value) -> (offset : Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioBufferStoreOp : (buffer : Value) -> (offset : Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Guarded
 ioBufferStoreOp buffer offset value world next =
-  MkOp "idr.io.buffer_store" [buffer, offset, value, world] [] [] [] [next]
+  MkGuarded (MkOp "idr.io.buffer_store" [buffer, offset, value, world] [] [] [] [next])
+    [MkGuard 1 (InRange (WordOf value.type) (LengthOf buffer)) "a byte range outside the buffer"]
 
 ||| `idr.io.clock_gc_cpu`: the collector's CPU time: never valid
 export
@@ -680,17 +780,17 @@ ioPutDoubleOp : (value : Value) -> (world : Value) -> (next : MlirType) -> Op
 ioPutDoubleOp value world next =
   MkOp "idr.io.put_double" [value, world] [] [] [] [next]
 
-||| `idr.io.put_int`
-export
-ioPutIntOp : {default False isSigned : Bool} -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
-ioPutIntOp value world next =
-  MkOp "idr.io.put_int" [value, world] (unitIf "is_signed" isSigned) [] [] [next]
-
 ||| `idr.io.put_list`: writes the characters or the strings of a list, in order
 export
 ioPutListOp : (list : Value) -> (world : Value) -> (next : MlirType) -> Op
 ioPutListOp list world next =
   MkOp "idr.io.put_list" [list, world] [] [] [] [next]
+
+||| `idr.io.put_sint`
+export
+ioPutSintOp : (value : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioPutSintOp value world next =
+  MkOp "idr.io.put_sint" [value, world] [] [] [] [next]
 
 ||| `idr.io.put_str`
 export
@@ -698,11 +798,18 @@ ioPutStrOp : (str : Value) -> (world : Value) -> (next : MlirType) -> Op
 ioPutStrOp str world next =
   MkOp "idr.io.put_str" [str, world] [] [] [] [next]
 
+||| `idr.io.put_uint`
+export
+ioPutUintOp : (value : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioPutUintOp value world next =
+  MkOp "idr.io.put_uint" [value, world] [] [] [] [next]
+
 ||| `idr.io.read_bytes`
 export
-ioReadBytesOp : (handle : Value) -> (buffer : Value) -> (offset : Value) -> (count : Value) -> (world : Value) -> (read : MlirType) -> (next : MlirType) -> Op
+ioReadBytesOp : (handle : Value) -> (buffer : Value) -> (offset : Value) -> (count : Value) -> (world : Value) -> (read : MlirType) -> (next : MlirType) -> Guarded
 ioReadBytesOp handle buffer offset count world read next =
-  MkOp "idr.io.read_bytes" [handle, buffer, offset, count, world] [] [] [] [read, next]
+  MkGuarded (MkOp "idr.io.read_bytes" [handle, buffer, offset, count, world] [] [] [] [read, next])
+    [MkGuard 2 (InRange (CountOf count) (LengthOf buffer)) "a byte range outside the buffer"]
 
 ||| `idr.io.sleep`: waits a number of seconds
 export
@@ -760,9 +867,10 @@ ioUsleepOp microseconds world next =
 
 ||| `idr.io.write_bytes`
 export
-ioWriteBytesOp : (handle : Value) -> (buffer : Value) -> (offset : Value) -> (count : Value) -> (world : Value) -> (written : MlirType) -> (next : MlirType) -> Op
+ioWriteBytesOp : (handle : Value) -> (buffer : Value) -> (offset : Value) -> (count : Value) -> (world : Value) -> (written : MlirType) -> (next : MlirType) -> Guarded
 ioWriteBytesOp handle buffer offset count world written next =
-  MkOp "idr.io.write_bytes" [handle, buffer, offset, count, world] [] [] [] [written, next]
+  MkGuarded (MkOp "idr.io.write_bytes" [handle, buffer, offset, count, world] [] [] [] [written, next])
+    [MkGuard 2 (InRange (CountOf count) (LengthOf buffer)) "a byte range outside the buffer"]
 
 ||| `idr.lin.enter`: a value handed to a linear position
 export
@@ -778,15 +886,15 @@ linUseOp linear result =
 
 ||| `idr.match`: branches on the constructor of a sum or box, taking it apart at its grade
 export
-matchOp : (scrutinee : Value) -> (cases : List Nat) -> (regions : List Region) -> (results : List MlirType) -> Op
-matchOp scrutinee cases regions results =
-  MkOp "idr.match" [scrutinee] [("cases", DenseI32ArrayAttr cases)] regions [] results
+matchOp : (scrutinee : Value) -> (cases : List Nat) -> (defaultRegion : Region) -> (caseRegions : List Region) -> (results : List MlirType) -> Op
+matchOp scrutinee cases defaultRegion caseRegions results =
+  MkOp "idr.match" [scrutinee] [("cases", DenseI32ArrayAttr cases)] ([defaultRegion] ++ caseRegions) [] results
 
-||| `idr.match_lit`: branches on the value of a condition, integer, string, big or natural
+||| `idr.match_lit`: branches on the value of a scalar, string, big or natural
 export
-matchLitOp : (scrutinee : Value) -> (cases : List MlirAttr) -> (regions : List Region) -> (results : List MlirType) -> Op
-matchLitOp scrutinee cases regions results =
-  MkOp "idr.match_lit" [scrutinee] [("cases", ArrayAttr cases)] regions [] results
+matchLitOp : (scrutinee : Value) -> (cases : List MlirAttr) -> (defaultRegion : Region) -> (caseRegions : List Region) -> (results : List MlirType) -> Op
+matchLitOp scrutinee cases defaultRegion caseRegions results =
+  MkOp "idr.match_lit" [scrutinee] [("cases", ArrayAttr cases)] ([defaultRegion] ++ caseRegions) [] results
 
 ||| `idr.may_loop`: marks one iteration of a loop that may not terminate
 export
@@ -806,11 +914,19 @@ memoSettleOp : (cell : Value) -> (value : Value) -> Op
 memoSettleOp cell value =
   MkOp "idr.memo.settle" [cell, value] [] [] [] []
 
-||| `idr.mod`: Idris mod: Euclidean when signed, of a divisor that is not zero
+||| `idr.mods`: Idris mod of a signed integer: Euclidean, by a divisor that is not zero
 export
-modOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
-modOp lhs rhs result =
-  MkOp "idr.mod" [lhs, rhs] (unitIf "is_signed" isSigned) [] [] [result]
+modsOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
+modsOp lhs rhs result =
+  MkGuarded (MkOp "idr.mods" [lhs, rhs] [] [] [] [result])
+    [MkGuard 1 Nonzero "division by zero"]
+
+||| `idr.modu`: Idris mod of an unsigned integer, by a divisor that is not zero
+export
+moduOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
+moduOp lhs rhs result =
+  MkGuarded (MkOp "idr.modu" [lhs, rhs] [] [] [] [result])
+    [MkGuard 1 Nonzero "division by zero"]
 
 ||| `idr.nat.from_big`: an Integer as a natural, 0 if it is negative
 export
@@ -860,17 +976,11 @@ returnOp : (operands : List Value) -> Op
 returnOp operands =
   MkOp "idr.return" operands [] [] [] []
 
-||| `idr.reuse`: builds a boxed constructor in a token's cell, or in a new one when it is null
-export
-reuseOp : {default Nothing holes : Maybe (List Nat)} -> (token : Value) -> (tag : Integer) -> (fields : List Value) -> (result : MlirType) -> (dests : List MlirType) -> Op
-reuseOp token tag fields result dests =
-  MkOp "idr.reuse" (concat [[token], fields]) ([("tag", IntegerAttr tag (IntegerType 32))] ++ attrIf "holes" DenseI32ArrayAttr holes) [] [] (concat [[result], dests])
-
 ||| `idr.scan_last`: for each index of a frame, every accumulator of a left fold
 export
 scanLastOp : (inits : List Value) -> (length' : Value) -> (region : Region) -> (results : List MlirType) -> Op
 scanLastOp inits length' region results =
-  MkOp "idr.scan_last" (concat [inits, [length']]) [] [region] [] results
+  MkOp "idr.scan_last" (inits ++ [length']) [] [region] [] results
 
 ||| `idr.share`: gives an owned value on as owned, whatever it alone reached
 export
@@ -878,17 +988,29 @@ shareOp : (value : Value) -> (result : MlirType) -> Op
 shareOp value result =
   MkOp "idr.share" [value] [] [] [] [result]
 
-||| `idr.shl`: Idris shiftL: defined for every amount, wrapped to the width
+||| `idr.shls`: Idris shiftL of a signed integer: defined for every amount, wrapped to the width
 export
-shlOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
-shlOp lhs rhs result =
-  MkOp "idr.shl" [lhs, rhs] (unitIf "is_signed" isSigned) [] [] [result]
+shlsOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+shlsOp lhs rhs result =
+  MkOp "idr.shls" [lhs, rhs] [] [] [] [result]
 
-||| `idr.shr`: Idris shiftR: arithmetic, defined for every amount
+||| `idr.shlu`: Idris shiftL of an unsigned integer: defined for every amount, wrapped to the width
 export
-shrOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
-shrOp lhs rhs result =
-  MkOp "idr.shr" [lhs, rhs] (unitIf "is_signed" isSigned) [] [] [result]
+shluOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+shluOp lhs rhs result =
+  MkOp "idr.shlu" [lhs, rhs] [] [] [] [result]
+
+||| `idr.shrs`: Idris shiftR of a signed integer: filling with its sign, defined for every amount
+export
+shrsOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+shrsOp lhs rhs result =
+  MkOp "idr.shrs" [lhs, rhs] [] [] [] [result]
+
+||| `idr.shru`: Idris shiftR of an unsigned integer: filling with zeros, defined for every amount
+export
+shruOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+shruOp lhs rhs result =
+  MkOp "idr.shru" [lhs, rhs] [] [] [] [result]
 
 ||| `idr.str.append`: the concatenation of two strings
 export
@@ -934,15 +1056,17 @@ strFromCharOp value result =
 
 ||| `idr.str.head`: the first character of a string that is not empty
 export
-strHeadOp : (str : Value) -> (result : MlirType) -> Op
+strHeadOp : (str : Value) -> (result : MlirType) -> Guarded
 strHeadOp str result =
-  MkOp "idr.str.head" [str] [] [] [] [result]
+  MkGuarded (MkOp "idr.str.head" [str] [] [] [] [result])
+    [MkGuard 0 Nonempty "head of an empty string"]
 
 ||| `idr.str.index`: the character at an index within the string
 export
-strIndexOp : (str : Value) -> (index : Value) -> (result : MlirType) -> Op
+strIndexOp : (str : Value) -> (index : Value) -> (result : MlirType) -> Guarded
 strIndexOp str index result =
-  MkOp "idr.str.index" [str, index] [] [] [] [result]
+  MkGuarded (MkOp "idr.str.index" [str, index] [] [] [] [result])
+    [MkGuard 1 (InBounds str) "string index out of range"]
 
 ||| `idr.str.length`: the number of characters of a string
 export
@@ -974,11 +1098,23 @@ strScalarBytesOp : (value : Value) -> (result : MlirType) -> Op
 strScalarBytesOp value result =
   MkOp "idr.str.scalar_bytes" [value] [] [] [] [result]
 
-||| `idr.str.show`: the text of a number, as prim__cast_TString writes it
+||| `idr.str.show_double`: the text of a Double, as prim__cast_DoubleString writes it
 export
-strShowOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
-strShowOp value result =
-  MkOp "idr.str.show" [value] (unitIf "is_signed" isSigned) [] [] [result]
+strShowDoubleOp : (value : Value) -> (result : MlirType) -> Op
+strShowDoubleOp value result =
+  MkOp "idr.str.show_double" [value] [] [] [] [result]
+
+||| `idr.str.show_sint`: the decimal text of a signed integer
+export
+strShowSintOp : (value : Value) -> (result : MlirType) -> Op
+strShowSintOp value result =
+  MkOp "idr.str.show_sint" [value] [] [] [] [result]
+
+||| `idr.str.show_uint`: the decimal text of an unsigned integer
+export
+strShowUintOp : (value : Value) -> (result : MlirType) -> Op
+strShowUintOp value result =
+  MkOp "idr.str.show_uint" [value] [] [] [] [result]
 
 ||| `idr.str.substr`: the characters of a string from a start, at most a length
 export
@@ -988,9 +1124,10 @@ strSubstrOp str start length' result =
 
 ||| `idr.str.tail`: a string without its first character, of a string that is not empty
 export
-strTailOp : (str : Value) -> (result : MlirType) -> Op
+strTailOp : (str : Value) -> (result : MlirType) -> Guarded
 strTailOp str result =
-  MkOp "idr.str.tail" [str] [] [] [] [result]
+  MkGuarded (MkOp "idr.str.tail" [str] [] [] [] [result])
+    [MkGuard 0 Nonempty "tail of an empty string"]
 
 ||| `idr.str.to_double`: a string as a Double, as prim__cast_StringDouble reads it
 export
@@ -1000,9 +1137,9 @@ strToDoubleOp str result =
 
 ||| `idr.str.to_int`: a string as an integer, as prim__cast_StringT reads it
 export
-strToIntOp : {default False isSigned : Bool} -> (str : Value) -> (result : MlirType) -> Op
+strToIntOp : (str : Value) -> (result : MlirType) -> Op
 strToIntOp str result =
-  MkOp "idr.str.to_int" [str] (unitIf "is_signed" isSigned) [] [] [result]
+  MkOp "idr.str.to_int" [str] [] [] [] [result]
 
 ||| `idr.suspend`: a suspension of a function: every parameter is a capture
 export
@@ -1020,7 +1157,7 @@ tabulateOp sizes region arrays =
 export
 tabulateIoOp : (sizes : List Value) -> (world : Value) -> (region : Region) -> (arrays : List MlirType) -> (next : MlirType) -> Op
 tabulateIoOp sizes world region arrays next =
-  MkOp "idr.tabulate_io" (concat [sizes, [world]]) [] [region] [] (concat [arrays, [next]])
+  MkOp "idr.tabulate_io" (sizes ++ [world]) [] [region] [] (arrays ++ [next])
 
 ||| `idr.tag`: the constructor tag of a value
 export
@@ -1028,35 +1165,48 @@ tagOp : (value : Value) -> (result : MlirType) -> Op
 tagOp value result =
   MkOp "idr.tag" [value] [] [] [] [result]
 
-||| `idr.take`: consumes a constructor value, each of its fields keeping a reference of its own
+||| `idr.take`: consumes a box with a cell, each of its fields keeping a reference of its own
 export
-takeOp : (value : Value) -> (tag : Integer) -> (results : List MlirType) -> Op
-takeOp value tag results =
-  MkOp "idr.take" [value] [("tag", IntegerAttr tag (IntegerType 32))] [] [] results
+takeOp : (value : Value) -> (tag : Integer) -> (token : MlirType) -> (fields : List MlirType) -> Op
+takeOp value tag token fields =
+  MkOp "idr.take" [value] [("tag", IntegerAttr tag (IntegerType 32))] [] [] ([token] ++ fields)
 
 ||| `idr.tie_shape`: an array whose dynamic dimensions are the given sizes
 export
 tieShapeOp : (value : Value) -> (dims : List Value) -> (result : MlirType) -> Op
 tieShapeOp value dims result =
-  MkOp "idr.tie_shape" (concat [[value], dims]) [] [] [] [result]
+  MkOp "idr.tie_shape" ([value] ++ dims) [] [] [] [result]
 
-||| `idr.to_char`: an integer as a Char: itself if a scalar value, else 0
+||| `idr.to_char_s`: a signed integer as a Char: itself if a scalar value, else 0
 export
-toCharOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
-toCharOp value result =
-  MkOp "idr.to_char" [value] (unitIf "is_signed" isSigned) [] [] [result]
+toCharSOp : (value : Value) -> (result : MlirType) -> Op
+toCharSOp value result =
+  MkOp "idr.to_char_s" [value] [] [] [] [result]
+
+||| `idr.to_char_u`: an unsigned integer as a Char: itself if a scalar value, else 0
+export
+toCharUOp : (value : Value) -> (result : MlirType) -> Op
+toCharUOp value result =
+  MkOp "idr.to_char_u" [value] [] [] [] [result]
 
 ||| `idr.to_int`: a finite Double as an integer, truncated and wrapped
 export
-toIntOp : (value : Value) -> (result : MlirType) -> Op
+toIntOp : (value : Value) -> (result : MlirType) -> Guarded
 toIntOp value result =
-  MkOp "idr.to_int" [value] [] [] [] [result]
+  MkGuarded (MkOp "idr.to_int" [value] [] [] [] [result])
+    [MkGuard 0 Finite "cast of a non-finite Double"]
 
 ||| `idr.transpose`: an array with its dimensions permuted
 export
 transposeOp : (input : Value) -> (permutation : List Integer) -> (result : MlirType) -> Op
 transposeOp input permutation result =
   MkOp "idr.transpose" [input] [("permutation", DenseI64ArrayAttr permutation)] [] [] [result]
+
+||| `idr.unpack`: consumes a constructor value with no cell of its own, giving its fields
+export
+unpackOp : (value : Value) -> (tag : Integer) -> (fields : List MlirType) -> Op
+unpackOp value tag fields =
+  MkOp "idr.unpack" [value] [("tag", IntegerAttr tag (IntegerType 32))] [] [] fields
 
 ||| `idr.world.new`: a forged world, the first of a chain of its own
 export
@@ -1074,10 +1224,11 @@ yieldOp results =
 -- Primitives
 ------------------------------------------------------------------------------
 
-||| The dialect's primitives (ops with Idr_Primitive and no region), one
-||| constructor each, named after the op's C++ class without `Op`.
+||| The dialect's pure primitives (ops with Idr_Primitive, no region and no
+||| Idr_PerformsIO), one constructor each, named after the op's C++ class
+||| without `Op`.
 public export
-data IdrPrim
+data PurePrim
   = BigAdd
   | BigSub
   | BigMul
@@ -1096,7 +1247,6 @@ data IdrPrim
   | BigToDouble
   | BigShow
   | BigFromStr
-  | CrashStr
   | ToInt
   | DoubleHead
   | StrAppend
@@ -1104,7 +1254,6 @@ data IdrPrim
   | StrFromChar
   | StrPack
   | StrConcat
-  | PutList
   | StrSubstr
   | StrReverse
   | StrTail
@@ -1116,6 +1265,167 @@ data IdrPrim
   | StrIndex
   | StrHead
   | StrToDouble
+  | Os
+  | HandleIsNull
+  | HandleString
+
+||| How many operands a pure primitive takes: its op's, one value each.
+public export
+primArity : PurePrim -> Nat
+primArity BigAdd = 2
+primArity BigSub = 2
+primArity BigMul = 2
+primArity BigAnd = 2
+primArity BigOr = 2
+primArity BigXor = 2
+primArity BigShl = 2
+primArity BigShr = 2
+primArity BigDiv = 2
+primArity BigMod = 2
+primArity BigNeg = 1
+primArity NatToBig = 1
+primArity NatFromBig = 1
+primArity BigToInt = 1
+primArity BigFromDouble = 1
+primArity BigToDouble = 1
+primArity BigShow = 1
+primArity BigFromStr = 1
+primArity ToInt = 1
+primArity DoubleHead = 1
+primArity StrAppend = 2
+primArity StrCons = 2
+primArity StrFromChar = 1
+primArity StrPack = 1
+primArity StrConcat = 1
+primArity StrSubstr = 3
+primArity StrReverse = 1
+primArity StrTail = 1
+primArity StrLength = 1
+primArity StrBytesLength = 1
+primArity StrScalarAt = 2
+primArity StrDropBytes = 2
+primArity StrScalarBytes = 1
+primArity StrIndex = 2
+primArity StrHead = 1
+primArity StrToDouble = 1
+primArity Os = 0
+primArity HandleIsNull = 1
+primArity HandleString = 1
+
+||| The name of the op of each PurePrim.
+public export
+pureName : PurePrim -> String
+pureName BigAdd = "idr.big.add"
+pureName BigSub = "idr.big.sub"
+pureName BigMul = "idr.big.mul"
+pureName BigAnd = "idr.big.and"
+pureName BigOr = "idr.big.or"
+pureName BigXor = "idr.big.xor"
+pureName BigShl = "idr.big.shl"
+pureName BigShr = "idr.big.shr"
+pureName BigDiv = "idr.big.div"
+pureName BigMod = "idr.big.mod"
+pureName BigNeg = "idr.big.neg"
+pureName NatToBig = "idr.nat.to_big"
+pureName NatFromBig = "idr.nat.from_big"
+pureName BigToInt = "idr.big.to_int"
+pureName BigFromDouble = "idr.big.from_double"
+pureName BigToDouble = "idr.big.to_double"
+pureName BigShow = "idr.big.show"
+pureName BigFromStr = "idr.big.from_str"
+pureName ToInt = "idr.to_int"
+pureName DoubleHead = "idr.double_head"
+pureName StrAppend = "idr.str.append"
+pureName StrCons = "idr.str.cons"
+pureName StrFromChar = "idr.str.from_char"
+pureName StrPack = "idr.str.pack"
+pureName StrConcat = "idr.str.concat"
+pureName StrSubstr = "idr.str.substr"
+pureName StrReverse = "idr.str.reverse"
+pureName StrTail = "idr.str.tail"
+pureName StrLength = "idr.str.length"
+pureName StrBytesLength = "idr.str.bytes_length"
+pureName StrScalarAt = "idr.str.scalar_at"
+pureName StrDropBytes = "idr.str.drop_bytes"
+pureName StrScalarBytes = "idr.str.scalar_bytes"
+pureName StrIndex = "idr.str.index"
+pureName StrHead = "idr.str.head"
+pureName StrToDouble = "idr.str.to_double"
+pureName Os = "idr.os"
+pureName HandleIsNull = "idr.handle.is_null"
+pureName HandleString = "idr.handle.string"
+
+||| The op of a pure primitive on its operands, with its result types (a
+||| primitive has no inherent attribute), and the guards it takes.
+export
+pureOp : (p : PurePrim) -> Vect (primArity p) Value -> List MlirType -> Guarded
+pureOp BigAdd os rs = MkGuarded (MkOp "idr.big.add" (toList os) [] [] [] rs) []
+pureOp BigSub os rs = MkGuarded (MkOp "idr.big.sub" (toList os) [] [] [] rs) []
+pureOp BigMul os rs = MkGuarded (MkOp "idr.big.mul" (toList os) [] [] [] rs) []
+pureOp BigAnd os rs = MkGuarded (MkOp "idr.big.and" (toList os) [] [] [] rs) []
+pureOp BigOr os rs = MkGuarded (MkOp "idr.big.or" (toList os) [] [] [] rs) []
+pureOp BigXor os rs = MkGuarded (MkOp "idr.big.xor" (toList os) [] [] [] rs) []
+pureOp BigShl os rs = MkGuarded (MkOp "idr.big.shl" (toList os) [] [] [] rs) []
+pureOp BigShr os rs = MkGuarded (MkOp "idr.big.shr" (toList os) [] [] [] rs) []
+pureOp BigDiv os@[lhs, rhs] rs =
+  MkGuarded (MkOp "idr.big.div" (toList os) [] [] [] rs)
+    [MkGuard 1 Nonzero "division by zero"]
+pureOp BigMod os@[lhs, rhs] rs =
+  MkGuarded (MkOp "idr.big.mod" (toList os) [] [] [] rs)
+    [MkGuard 1 Nonzero "division by zero"]
+pureOp BigNeg os rs = MkGuarded (MkOp "idr.big.neg" (toList os) [] [] [] rs) []
+pureOp NatToBig os rs = MkGuarded (MkOp "idr.nat.to_big" (toList os) [] [] [] rs) []
+pureOp NatFromBig os rs = MkGuarded (MkOp "idr.nat.from_big" (toList os) [] [] [] rs) []
+pureOp BigToInt os rs = MkGuarded (MkOp "idr.big.to_int" (toList os) [] [] [] rs) []
+pureOp BigFromDouble os@[value] rs =
+  MkGuarded (MkOp "idr.big.from_double" (toList os) [] [] [] rs)
+    [MkGuard 0 Finite "cast of a non-finite Double"]
+pureOp BigToDouble os rs = MkGuarded (MkOp "idr.big.to_double" (toList os) [] [] [] rs) []
+pureOp BigShow os rs = MkGuarded (MkOp "idr.big.show" (toList os) [] [] [] rs) []
+pureOp BigFromStr os rs = MkGuarded (MkOp "idr.big.from_str" (toList os) [] [] [] rs) []
+pureOp ToInt os@[value] rs =
+  MkGuarded (MkOp "idr.to_int" (toList os) [] [] [] rs)
+    [MkGuard 0 Finite "cast of a non-finite Double"]
+pureOp DoubleHead os rs = MkGuarded (MkOp "idr.double_head" (toList os) [] [] [] rs) []
+pureOp StrAppend os rs = MkGuarded (MkOp "idr.str.append" (toList os) [] [] [] rs) []
+pureOp StrCons os rs = MkGuarded (MkOp "idr.str.cons" (toList os) [] [] [] rs) []
+pureOp StrFromChar os rs = MkGuarded (MkOp "idr.str.from_char" (toList os) [] [] [] rs) []
+pureOp StrPack os rs = MkGuarded (MkOp "idr.str.pack" (toList os) [] [] [] rs) []
+pureOp StrConcat os rs = MkGuarded (MkOp "idr.str.concat" (toList os) [] [] [] rs) []
+pureOp StrSubstr os rs = MkGuarded (MkOp "idr.str.substr" (toList os) [] [] [] rs) []
+pureOp StrReverse os rs = MkGuarded (MkOp "idr.str.reverse" (toList os) [] [] [] rs) []
+pureOp StrTail os@[str] rs =
+  MkGuarded (MkOp "idr.str.tail" (toList os) [] [] [] rs)
+    [MkGuard 0 Nonempty "tail of an empty string"]
+pureOp StrLength os rs = MkGuarded (MkOp "idr.str.length" (toList os) [] [] [] rs) []
+pureOp StrBytesLength os rs = MkGuarded (MkOp "idr.str.bytes_length" (toList os) [] [] [] rs) []
+pureOp StrScalarAt os rs = MkGuarded (MkOp "idr.str.scalar_at" (toList os) [] [] [] rs) []
+pureOp StrDropBytes os rs = MkGuarded (MkOp "idr.str.drop_bytes" (toList os) [] [] [] rs) []
+pureOp StrScalarBytes os rs = MkGuarded (MkOp "idr.str.scalar_bytes" (toList os) [] [] [] rs) []
+pureOp StrIndex os@[str, index] rs =
+  MkGuarded (MkOp "idr.str.index" (toList os) [] [] [] rs)
+    [MkGuard 1 (InBounds str) "string index out of range"]
+pureOp StrHead os@[str] rs =
+  MkGuarded (MkOp "idr.str.head" (toList os) [] [] [] rs)
+    [MkGuard 0 Nonempty "head of an empty string"]
+pureOp StrToDouble os rs = MkGuarded (MkOp "idr.str.to_double" (toList os) [] [] [] rs) []
+pureOp Os os rs = MkGuarded (MkOp "idr.os" (toList os) [] [] [] rs) []
+pureOp HandleIsNull os rs = MkGuarded (MkOp "idr.handle.is_null" (toList os) [] [] [] rs) []
+pureOp HandleString os rs = MkGuarded (MkOp "idr.handle.string" (toList os) [] [] [] rs) []
+
+||| What an IO primitive gives besides the next world: nothing, or a value
+||| first and the world after it.
+public export
+data IOResult = WorldOnly | ValueThenWorld
+
+||| The dialect's IO primitives (ops with Idr_Primitive and Idr_PerformsIO),
+||| one constructor each, named after the op's C++ class without `Op`. Such a
+||| primitive takes the world as its last operand and gives the next as its
+||| last result, except one without operands, which makes a world: it takes
+||| none and gives one.
+public export
+data IOPrim
+  = PutList
   | PutStr
   | PutChar
   | PutDouble
@@ -1125,13 +1435,11 @@ data IdrPrim
   | ReadBytes
   | Eof
   | NProcessors
-  | Os
   | BufferLoad
   | BufferStore
   | BufferCopy
   | BufferSetString
   | BufferGetString
-  | WorldNew
   | ArrayNew
   | ArrayGet
   | ArraySet
@@ -1191,307 +1499,273 @@ data IdrPrim
   | ClockValid
   | ClockSecond
   | ClockNanosecond
-  | HandleIsNull
-  | HandleString
   | HandleFree
 
-||| Whether the primitive performs IO (Idr_PerformsIO). Such a primitive
-||| takes the world as its last operand and gives the next as its last
-||| result, except one without operands, which makes a world: it takes
-||| none and gives one.
-export
-primPerformsIO : IdrPrim -> Bool
-primPerformsIO BigAdd = False
-primPerformsIO BigSub = False
-primPerformsIO BigMul = False
-primPerformsIO BigAnd = False
-primPerformsIO BigOr = False
-primPerformsIO BigXor = False
-primPerformsIO BigShl = False
-primPerformsIO BigShr = False
-primPerformsIO BigDiv = False
-primPerformsIO BigMod = False
-primPerformsIO BigNeg = False
-primPerformsIO NatToBig = False
-primPerformsIO NatFromBig = False
-primPerformsIO BigToInt = False
-primPerformsIO BigFromDouble = False
-primPerformsIO BigToDouble = False
-primPerformsIO BigShow = False
-primPerformsIO BigFromStr = False
-primPerformsIO CrashStr = False
-primPerformsIO ToInt = False
-primPerformsIO DoubleHead = False
-primPerformsIO StrAppend = False
-primPerformsIO StrCons = False
-primPerformsIO StrFromChar = False
-primPerformsIO StrPack = False
-primPerformsIO StrConcat = False
-primPerformsIO PutList = True
-primPerformsIO StrSubstr = False
-primPerformsIO StrReverse = False
-primPerformsIO StrTail = False
-primPerformsIO StrLength = False
-primPerformsIO StrBytesLength = False
-primPerformsIO StrScalarAt = False
-primPerformsIO StrDropBytes = False
-primPerformsIO StrScalarBytes = False
-primPerformsIO StrIndex = False
-primPerformsIO StrHead = False
-primPerformsIO StrToDouble = False
-primPerformsIO PutStr = True
-primPerformsIO PutChar = True
-primPerformsIO PutDouble = True
-primPerformsIO GetByte = True
-primPerformsIO GetLine = True
-primPerformsIO WriteBytes = True
-primPerformsIO ReadBytes = True
-primPerformsIO Eof = True
-primPerformsIO NProcessors = True
-primPerformsIO Os = False
-primPerformsIO BufferLoad = True
-primPerformsIO BufferStore = True
-primPerformsIO BufferCopy = True
-primPerformsIO BufferSetString = True
-primPerformsIO BufferGetString = True
-primPerformsIO WorldNew = True
-primPerformsIO ArrayNew = True
-primPerformsIO ArrayGet = True
-primPerformsIO ArraySet = True
-primPerformsIO FileOpen = True
-primPerformsIO FileClose = True
-primPerformsIO FileError = True
-primPerformsIO FileErrno = True
-primPerformsIO FileReadLine = True
-primPerformsIO FileReadChars = True
-primPerformsIO FileReadChar = True
-primPerformsIO FileWriteLine = True
-primPerformsIO FileFlush = True
-primPerformsIO FileSeekLine = True
-primPerformsIO FileRemove = True
-primPerformsIO FileSize = True
-primPerformsIO FilePoll = True
-primPerformsIO FileIsTty = True
-primPerformsIO FileTime = True
-primPerformsIO FileAtimeSec = True
-primPerformsIO FileAtimeNsec = True
-primPerformsIO FileMtimeSec = True
-primPerformsIO FileMtimeNsec = True
-primPerformsIO FileCtimeSec = True
-primPerformsIO FileCtimeNsec = True
-primPerformsIO FileChmod = True
-primPerformsIO DirCurrent = True
-primPerformsIO DirChange = True
-primPerformsIO DirCreate = True
-primPerformsIO DirRemove = True
-primPerformsIO DirOpen = True
-primPerformsIO DirClose = True
-primPerformsIO DirEntry = True
-primPerformsIO ArgCount = True
-primPerformsIO Arg = True
-primPerformsIO EnvGet = True
-primPerformsIO EnvPair = True
-primPerformsIO EnvSet = True
-primPerformsIO EnvUnset = True
-primPerformsIO Sleep = True
-primPerformsIO Usleep = True
-primPerformsIO Time = True
-primPerformsIO Pid = True
-primPerformsIO Exit = True
-primPerformsIO TermRaw = True
-primPerformsIO TermReset = True
-primPerformsIO TermSetup = True
-primPerformsIO TermCols = True
-primPerformsIO TermLines = True
-primPerformsIO Errno = True
-primPerformsIO Strerror = True
-primPerformsIO ClockMonotonic = True
-primPerformsIO ClockUtc = True
-primPerformsIO ClockProcess = True
-primPerformsIO ClockThread = True
-primPerformsIO ClockGcCpu = True
-primPerformsIO ClockGcReal = True
-primPerformsIO ClockValid = True
-primPerformsIO ClockSecond = True
-primPerformsIO ClockNanosecond = True
-primPerformsIO HandleIsNull = False
-primPerformsIO HandleString = False
-primPerformsIO HandleFree = True
-
-||| The operation of a primitive on operands, with its result types
-||| (a primitive has no inherent attribute).
-export
-primOp : IdrPrim -> List Value -> List MlirType -> Op
-primOp BigAdd operands results = MkOp "idr.big.add" operands [] [] [] results
-primOp BigSub operands results = MkOp "idr.big.sub" operands [] [] [] results
-primOp BigMul operands results = MkOp "idr.big.mul" operands [] [] [] results
-primOp BigAnd operands results = MkOp "idr.big.and" operands [] [] [] results
-primOp BigOr operands results = MkOp "idr.big.or" operands [] [] [] results
-primOp BigXor operands results = MkOp "idr.big.xor" operands [] [] [] results
-primOp BigShl operands results = MkOp "idr.big.shl" operands [] [] [] results
-primOp BigShr operands results = MkOp "idr.big.shr" operands [] [] [] results
-primOp BigDiv operands results = MkOp "idr.big.div" operands [] [] [] results
-primOp BigMod operands results = MkOp "idr.big.mod" operands [] [] [] results
-primOp BigNeg operands results = MkOp "idr.big.neg" operands [] [] [] results
-primOp NatToBig operands results = MkOp "idr.nat.to_big" operands [] [] [] results
-primOp NatFromBig operands results = MkOp "idr.nat.from_big" operands [] [] [] results
-primOp BigToInt operands results = MkOp "idr.big.to_int" operands [] [] [] results
-primOp BigFromDouble operands results = MkOp "idr.big.from_double" operands [] [] [] results
-primOp BigToDouble operands results = MkOp "idr.big.to_double" operands [] [] [] results
-primOp BigShow operands results = MkOp "idr.big.show" operands [] [] [] results
-primOp BigFromStr operands results = MkOp "idr.big.from_str" operands [] [] [] results
-primOp CrashStr operands results = MkOp "idr.crash_str" operands [] [] [] results
-primOp ToInt operands results = MkOp "idr.to_int" operands [] [] [] results
-primOp DoubleHead operands results = MkOp "idr.double_head" operands [] [] [] results
-primOp StrAppend operands results = MkOp "idr.str.append" operands [] [] [] results
-primOp StrCons operands results = MkOp "idr.str.cons" operands [] [] [] results
-primOp StrFromChar operands results = MkOp "idr.str.from_char" operands [] [] [] results
-primOp StrPack operands results = MkOp "idr.str.pack" operands [] [] [] results
-primOp StrConcat operands results = MkOp "idr.str.concat" operands [] [] [] results
-primOp PutList operands results = MkOp "idr.io.put_list" operands [] [] [] results
-primOp StrSubstr operands results = MkOp "idr.str.substr" operands [] [] [] results
-primOp StrReverse operands results = MkOp "idr.str.reverse" operands [] [] [] results
-primOp StrTail operands results = MkOp "idr.str.tail" operands [] [] [] results
-primOp StrLength operands results = MkOp "idr.str.length" operands [] [] [] results
-primOp StrBytesLength operands results = MkOp "idr.str.bytes_length" operands [] [] [] results
-primOp StrScalarAt operands results = MkOp "idr.str.scalar_at" operands [] [] [] results
-primOp StrDropBytes operands results = MkOp "idr.str.drop_bytes" operands [] [] [] results
-primOp StrScalarBytes operands results = MkOp "idr.str.scalar_bytes" operands [] [] [] results
-primOp StrIndex operands results = MkOp "idr.str.index" operands [] [] [] results
-primOp StrHead operands results = MkOp "idr.str.head" operands [] [] [] results
-primOp StrToDouble operands results = MkOp "idr.str.to_double" operands [] [] [] results
-primOp PutStr operands results = MkOp "idr.io.put_str" operands [] [] [] results
-primOp PutChar operands results = MkOp "idr.io.put_char" operands [] [] [] results
-primOp PutDouble operands results = MkOp "idr.io.put_double" operands [] [] [] results
-primOp GetByte operands results = MkOp "idr.io.get_byte" operands [] [] [] results
-primOp GetLine operands results = MkOp "idr.io.get_line" operands [] [] [] results
-primOp WriteBytes operands results = MkOp "idr.io.write_bytes" operands [] [] [] results
-primOp ReadBytes operands results = MkOp "idr.io.read_bytes" operands [] [] [] results
-primOp Eof operands results = MkOp "idr.io.eof" operands [] [] [] results
-primOp NProcessors operands results = MkOp "idr.io.n_processors" operands [] [] [] results
-primOp Os operands results = MkOp "idr.os" operands [] [] [] results
-primOp BufferLoad operands results = MkOp "idr.io.buffer_load" operands [] [] [] results
-primOp BufferStore operands results = MkOp "idr.io.buffer_store" operands [] [] [] results
-primOp BufferCopy operands results = MkOp "idr.io.buffer_copy" operands [] [] [] results
-primOp BufferSetString operands results = MkOp "idr.io.buffer_set_string" operands [] [] [] results
-primOp BufferGetString operands results = MkOp "idr.io.buffer_get_string" operands [] [] [] results
-primOp WorldNew operands results = MkOp "idr.world.new" operands [] [] [] results
-primOp ArrayNew operands results = MkOp "idr.array.new" operands [] [] [] results
-primOp ArrayGet operands results = MkOp "idr.array.get" operands [] [] [] results
-primOp ArraySet operands results = MkOp "idr.array.set" operands [] [] [] results
-primOp FileOpen operands results = MkOp "idr.io.file_open" operands [] [] [] results
-primOp FileClose operands results = MkOp "idr.io.file_close" operands [] [] [] results
-primOp FileError operands results = MkOp "idr.io.file_error" operands [] [] [] results
-primOp FileErrno operands results = MkOp "idr.io.file_errno" operands [] [] [] results
-primOp FileReadLine operands results = MkOp "idr.io.file_read_line" operands [] [] [] results
-primOp FileReadChars operands results = MkOp "idr.io.file_read_chars" operands [] [] [] results
-primOp FileReadChar operands results = MkOp "idr.io.file_read_char" operands [] [] [] results
-primOp FileWriteLine operands results = MkOp "idr.io.file_write_line" operands [] [] [] results
-primOp FileFlush operands results = MkOp "idr.io.file_flush" operands [] [] [] results
-primOp FileSeekLine operands results = MkOp "idr.io.file_seek_line" operands [] [] [] results
-primOp FileRemove operands results = MkOp "idr.io.file_remove" operands [] [] [] results
-primOp FileSize operands results = MkOp "idr.io.file_size" operands [] [] [] results
-primOp FilePoll operands results = MkOp "idr.io.file_poll" operands [] [] [] results
-primOp FileIsTty operands results = MkOp "idr.io.file_is_tty" operands [] [] [] results
-primOp FileTime operands results = MkOp "idr.io.file_time" operands [] [] [] results
-primOp FileAtimeSec operands results = MkOp "idr.io.file_atime_sec" operands [] [] [] results
-primOp FileAtimeNsec operands results = MkOp "idr.io.file_atime_nsec" operands [] [] [] results
-primOp FileMtimeSec operands results = MkOp "idr.io.file_mtime_sec" operands [] [] [] results
-primOp FileMtimeNsec operands results = MkOp "idr.io.file_mtime_nsec" operands [] [] [] results
-primOp FileCtimeSec operands results = MkOp "idr.io.file_ctime_sec" operands [] [] [] results
-primOp FileCtimeNsec operands results = MkOp "idr.io.file_ctime_nsec" operands [] [] [] results
-primOp FileChmod operands results = MkOp "idr.io.file_chmod" operands [] [] [] results
-primOp DirCurrent operands results = MkOp "idr.io.dir_current" operands [] [] [] results
-primOp DirChange operands results = MkOp "idr.io.dir_change" operands [] [] [] results
-primOp DirCreate operands results = MkOp "idr.io.dir_create" operands [] [] [] results
-primOp DirRemove operands results = MkOp "idr.io.dir_remove" operands [] [] [] results
-primOp DirOpen operands results = MkOp "idr.io.dir_open" operands [] [] [] results
-primOp DirClose operands results = MkOp "idr.io.dir_close" operands [] [] [] results
-primOp DirEntry operands results = MkOp "idr.io.dir_entry" operands [] [] [] results
-primOp ArgCount operands results = MkOp "idr.io.arg_count" operands [] [] [] results
-primOp Arg operands results = MkOp "idr.io.arg" operands [] [] [] results
-primOp EnvGet operands results = MkOp "idr.io.env_get" operands [] [] [] results
-primOp EnvPair operands results = MkOp "idr.io.env_pair" operands [] [] [] results
-primOp EnvSet operands results = MkOp "idr.io.env_set" operands [] [] [] results
-primOp EnvUnset operands results = MkOp "idr.io.env_unset" operands [] [] [] results
-primOp Sleep operands results = MkOp "idr.io.sleep" operands [] [] [] results
-primOp Usleep operands results = MkOp "idr.io.usleep" operands [] [] [] results
-primOp Time operands results = MkOp "idr.io.time" operands [] [] [] results
-primOp Pid operands results = MkOp "idr.io.pid" operands [] [] [] results
-primOp Exit operands results = MkOp "idr.io.exit" operands [] [] [] results
-primOp TermRaw operands results = MkOp "idr.io.term_raw" operands [] [] [] results
-primOp TermReset operands results = MkOp "idr.io.term_reset" operands [] [] [] results
-primOp TermSetup operands results = MkOp "idr.io.term_setup" operands [] [] [] results
-primOp TermCols operands results = MkOp "idr.io.term_cols" operands [] [] [] results
-primOp TermLines operands results = MkOp "idr.io.term_lines" operands [] [] [] results
-primOp Errno operands results = MkOp "idr.io.errno" operands [] [] [] results
-primOp Strerror operands results = MkOp "idr.io.strerror" operands [] [] [] results
-primOp ClockMonotonic operands results = MkOp "idr.io.clock_monotonic" operands [] [] [] results
-primOp ClockUtc operands results = MkOp "idr.io.clock_utc" operands [] [] [] results
-primOp ClockProcess operands results = MkOp "idr.io.clock_process" operands [] [] [] results
-primOp ClockThread operands results = MkOp "idr.io.clock_thread" operands [] [] [] results
-primOp ClockGcCpu operands results = MkOp "idr.io.clock_gc_cpu" operands [] [] [] results
-primOp ClockGcReal operands results = MkOp "idr.io.clock_gc_real" operands [] [] [] results
-primOp ClockValid operands results = MkOp "idr.io.clock_valid" operands [] [] [] results
-primOp ClockSecond operands results = MkOp "idr.io.clock_second" operands [] [] [] results
-primOp ClockNanosecond operands results = MkOp "idr.io.clock_nanosecond" operands [] [] [] results
-primOp HandleIsNull operands results = MkOp "idr.handle.is_null" operands [] [] [] results
-primOp HandleString operands results = MkOp "idr.handle.string" operands [] [] [] results
-primOp HandleFree operands results = MkOp "idr.io.handle_free" operands [] [] [] results
-
-------------------------------------------------------------------------------
--- Guards
-------------------------------------------------------------------------------
-
-||| How a guard has a count of bytes it checks: the operand at a position,
-||| the size of the word the op loads or stores, the bytes of the string at
-||| a position, or the length of the array at a position.
+||| What each IO primitive gives besides the world.
 public export
-data Count = CountAt Nat | WordSize | BytesOf Nat | LengthOf Nat
+ioResult : IOPrim -> IOResult
+ioResult PutList = WorldOnly
+ioResult PutStr = WorldOnly
+ioResult PutChar = WorldOnly
+ioResult PutDouble = WorldOnly
+ioResult GetByte = ValueThenWorld
+ioResult GetLine = ValueThenWorld
+ioResult WriteBytes = ValueThenWorld
+ioResult ReadBytes = ValueThenWorld
+ioResult Eof = ValueThenWorld
+ioResult NProcessors = ValueThenWorld
+ioResult BufferLoad = ValueThenWorld
+ioResult BufferStore = WorldOnly
+ioResult BufferCopy = WorldOnly
+ioResult BufferSetString = WorldOnly
+ioResult BufferGetString = ValueThenWorld
+ioResult ArrayNew = ValueThenWorld
+ioResult ArrayGet = ValueThenWorld
+ioResult ArraySet = WorldOnly
+ioResult FileOpen = ValueThenWorld
+ioResult FileClose = WorldOnly
+ioResult FileError = ValueThenWorld
+ioResult FileErrno = ValueThenWorld
+ioResult FileReadLine = ValueThenWorld
+ioResult FileReadChars = ValueThenWorld
+ioResult FileReadChar = ValueThenWorld
+ioResult FileWriteLine = ValueThenWorld
+ioResult FileFlush = ValueThenWorld
+ioResult FileSeekLine = ValueThenWorld
+ioResult FileRemove = ValueThenWorld
+ioResult FileSize = ValueThenWorld
+ioResult FilePoll = ValueThenWorld
+ioResult FileIsTty = ValueThenWorld
+ioResult FileTime = ValueThenWorld
+ioResult FileAtimeSec = ValueThenWorld
+ioResult FileAtimeNsec = ValueThenWorld
+ioResult FileMtimeSec = ValueThenWorld
+ioResult FileMtimeNsec = ValueThenWorld
+ioResult FileCtimeSec = ValueThenWorld
+ioResult FileCtimeNsec = ValueThenWorld
+ioResult FileChmod = ValueThenWorld
+ioResult DirCurrent = ValueThenWorld
+ioResult DirChange = ValueThenWorld
+ioResult DirCreate = ValueThenWorld
+ioResult DirRemove = WorldOnly
+ioResult DirOpen = ValueThenWorld
+ioResult DirClose = WorldOnly
+ioResult DirEntry = ValueThenWorld
+ioResult ArgCount = ValueThenWorld
+ioResult Arg = ValueThenWorld
+ioResult EnvGet = ValueThenWorld
+ioResult EnvPair = ValueThenWorld
+ioResult EnvSet = ValueThenWorld
+ioResult EnvUnset = ValueThenWorld
+ioResult Sleep = WorldOnly
+ioResult Usleep = WorldOnly
+ioResult Time = ValueThenWorld
+ioResult Pid = ValueThenWorld
+ioResult Exit = WorldOnly
+ioResult TermRaw = ValueThenWorld
+ioResult TermReset = WorldOnly
+ioResult TermSetup = WorldOnly
+ioResult TermCols = ValueThenWorld
+ioResult TermLines = ValueThenWorld
+ioResult Errno = ValueThenWorld
+ioResult Strerror = ValueThenWorld
+ioResult ClockMonotonic = ValueThenWorld
+ioResult ClockUtc = ValueThenWorld
+ioResult ClockProcess = ValueThenWorld
+ioResult ClockThread = ValueThenWorld
+ioResult ClockGcCpu = ValueThenWorld
+ioResult ClockGcReal = ValueThenWorld
+ioResult ClockValid = ValueThenWorld
+ioResult ClockSecond = ValueThenWorld
+ioResult ClockNanosecond = ValueThenWorld
+ioResult HandleFree = WorldOnly
 
-||| What a guard checks of the operand it guards (CheckKind), with what else
-||| its guard op takes: each operand of the op it takes as it is, by its
-||| position among the op's, and each count.
+||| The name of the op of each IOPrim.
 public export
-data Check = Nonzero | InBounds Nat | Nonempty | Finite | InRange Count Count
+ioName : IOPrim -> String
+ioName PutList = "idr.io.put_list"
+ioName PutStr = "idr.io.put_str"
+ioName PutChar = "idr.io.put_char"
+ioName PutDouble = "idr.io.put_double"
+ioName GetByte = "idr.io.get_byte"
+ioName GetLine = "idr.io.get_line"
+ioName WriteBytes = "idr.io.write_bytes"
+ioName ReadBytes = "idr.io.read_bytes"
+ioName Eof = "idr.io.eof"
+ioName NProcessors = "idr.io.n_processors"
+ioName BufferLoad = "idr.io.buffer_load"
+ioName BufferStore = "idr.io.buffer_store"
+ioName BufferCopy = "idr.io.buffer_copy"
+ioName BufferSetString = "idr.io.buffer_set_string"
+ioName BufferGetString = "idr.io.buffer_get_string"
+ioName ArrayNew = "idr.array.new"
+ioName ArrayGet = "idr.array.get"
+ioName ArraySet = "idr.array.set"
+ioName FileOpen = "idr.io.file_open"
+ioName FileClose = "idr.io.file_close"
+ioName FileError = "idr.io.file_error"
+ioName FileErrno = "idr.io.file_errno"
+ioName FileReadLine = "idr.io.file_read_line"
+ioName FileReadChars = "idr.io.file_read_chars"
+ioName FileReadChar = "idr.io.file_read_char"
+ioName FileWriteLine = "idr.io.file_write_line"
+ioName FileFlush = "idr.io.file_flush"
+ioName FileSeekLine = "idr.io.file_seek_line"
+ioName FileRemove = "idr.io.file_remove"
+ioName FileSize = "idr.io.file_size"
+ioName FilePoll = "idr.io.file_poll"
+ioName FileIsTty = "idr.io.file_is_tty"
+ioName FileTime = "idr.io.file_time"
+ioName FileAtimeSec = "idr.io.file_atime_sec"
+ioName FileAtimeNsec = "idr.io.file_atime_nsec"
+ioName FileMtimeSec = "idr.io.file_mtime_sec"
+ioName FileMtimeNsec = "idr.io.file_mtime_nsec"
+ioName FileCtimeSec = "idr.io.file_ctime_sec"
+ioName FileCtimeNsec = "idr.io.file_ctime_nsec"
+ioName FileChmod = "idr.io.file_chmod"
+ioName DirCurrent = "idr.io.dir_current"
+ioName DirChange = "idr.io.dir_change"
+ioName DirCreate = "idr.io.dir_create"
+ioName DirRemove = "idr.io.dir_remove"
+ioName DirOpen = "idr.io.dir_open"
+ioName DirClose = "idr.io.dir_close"
+ioName DirEntry = "idr.io.dir_entry"
+ioName ArgCount = "idr.io.arg_count"
+ioName Arg = "idr.io.arg"
+ioName EnvGet = "idr.io.env_get"
+ioName EnvPair = "idr.io.env_pair"
+ioName EnvSet = "idr.io.env_set"
+ioName EnvUnset = "idr.io.env_unset"
+ioName Sleep = "idr.io.sleep"
+ioName Usleep = "idr.io.usleep"
+ioName Time = "idr.io.time"
+ioName Pid = "idr.io.pid"
+ioName Exit = "idr.io.exit"
+ioName TermRaw = "idr.io.term_raw"
+ioName TermReset = "idr.io.term_reset"
+ioName TermSetup = "idr.io.term_setup"
+ioName TermCols = "idr.io.term_cols"
+ioName TermLines = "idr.io.term_lines"
+ioName Errno = "idr.io.errno"
+ioName Strerror = "idr.io.strerror"
+ioName ClockMonotonic = "idr.io.clock_monotonic"
+ioName ClockUtc = "idr.io.clock_utc"
+ioName ClockProcess = "idr.io.clock_process"
+ioName ClockThread = "idr.io.clock_thread"
+ioName ClockGcCpu = "idr.io.clock_gc_cpu"
+ioName ClockGcReal = "idr.io.clock_gc_real"
+ioName ClockValid = "idr.io.clock_valid"
+ioName ClockSecond = "idr.io.clock_second"
+ioName ClockNanosecond = "idr.io.clock_nanosecond"
+ioName HandleFree = "idr.io.handle_free"
 
-||| A guard a partial op takes, an op `idr.check.*`: the position
-||| of the operand it guards, whose value the guard's result stands for in
-||| the op, what it checks, and the cause its crash reports.
-public export
-record Guard where
-  constructor MkGuard
-  operand : Nat
-  check : Check
-  cause : String
-
--- The `count` positions from `start`.
-positions : Nat -> Nat -> List Nat
-positions start Z = []
-positions start (S count) = start :: positions (S start) count
-
-||| The guards an op takes before it, in the order its ODS lists them;
-||| none for a total op or an op of another dialect.
+||| The op of an IO primitive on its operands, the world last, with its
+||| result types and the guards it takes. A list of operands of a length the
+||| op does not take gives the op without guards, which MLIR refuses where
+||| it reads the module.
 export
-guardsOf : Op -> List Guard
-guardsOf (MkOp "idr.array.get" os _ _ _ _) = map (\i => MkGuard i (InBounds 0) "array index out of bounds") (positions 1 (minus (length os) 2))
-guardsOf (MkOp "idr.array.set" os _ _ _ _) = map (\i => MkGuard i (InBounds 0) "array index out of bounds") (positions 1 (minus (length os) 3))
-guardsOf (MkOp "idr.big.div" _ _ _ _ _) = [MkGuard 1 Nonzero "division by zero"]
-guardsOf (MkOp "idr.big.from_double" _ _ _ _ _) = [MkGuard 0 Finite "cast of a non-finite Double"]
-guardsOf (MkOp "idr.big.mod" _ _ _ _ _) = [MkGuard 1 Nonzero "division by zero"]
-guardsOf (MkOp "idr.div" _ _ _ _ _) = [MkGuard 1 Nonzero "division by zero"]
-guardsOf (MkOp "idr.io.buffer_copy" _ _ _ _ _) = concat [[MkGuard 1 (InRange (CountAt 2) (LengthOf 0)) "a byte range outside the buffer"], [MkGuard 4 (InRange (CountAt 2) (LengthOf 3)) "a byte range outside the buffer"]]
-guardsOf (MkOp "idr.io.buffer_get_string" _ _ _ _ _) = [MkGuard 1 (InRange (CountAt 2) (LengthOf 0)) "a byte range outside the buffer"]
-guardsOf (MkOp "idr.io.buffer_load" _ _ _ _ _) = [MkGuard 1 (InRange WordSize (LengthOf 0)) "a byte range outside the buffer"]
-guardsOf (MkOp "idr.io.buffer_set_string" _ _ _ _ _) = [MkGuard 1 (InRange (BytesOf 2) (LengthOf 0)) "a byte range outside the buffer"]
-guardsOf (MkOp "idr.io.buffer_store" _ _ _ _ _) = [MkGuard 1 (InRange WordSize (LengthOf 0)) "a byte range outside the buffer"]
-guardsOf (MkOp "idr.io.read_bytes" _ _ _ _ _) = [MkGuard 2 (InRange (CountAt 3) (LengthOf 1)) "a byte range outside the buffer"]
-guardsOf (MkOp "idr.io.write_bytes" _ _ _ _ _) = [MkGuard 2 (InRange (CountAt 3) (LengthOf 1)) "a byte range outside the buffer"]
-guardsOf (MkOp "idr.mod" _ _ _ _ _) = [MkGuard 1 Nonzero "division by zero"]
-guardsOf (MkOp "idr.str.head" _ _ _ _ _) = [MkGuard 0 Nonempty "head of an empty string"]
-guardsOf (MkOp "idr.str.index" _ _ _ _ _) = [MkGuard 1 (InBounds 0) "string index out of range"]
-guardsOf (MkOp "idr.str.tail" _ _ _ _ _) = [MkGuard 0 Nonempty "tail of an empty string"]
-guardsOf (MkOp "idr.to_int" _ _ _ _ _) = [MkGuard 0 Finite "cast of a non-finite Double"]
-guardsOf _ = []
+ioOp : IOPrim -> List Value -> List MlirType -> Guarded
+ioOp PutList os rs = MkGuarded (MkOp "idr.io.put_list" os [] [] [] rs) []
+ioOp PutStr os rs = MkGuarded (MkOp "idr.io.put_str" os [] [] [] rs) []
+ioOp PutChar os rs = MkGuarded (MkOp "idr.io.put_char" os [] [] [] rs) []
+ioOp PutDouble os rs = MkGuarded (MkOp "idr.io.put_double" os [] [] [] rs) []
+ioOp GetByte os rs = MkGuarded (MkOp "idr.io.get_byte" os [] [] [] rs) []
+ioOp GetLine os rs = MkGuarded (MkOp "idr.io.get_line" os [] [] [] rs) []
+ioOp WriteBytes os@[handle, buffer, offset, count, world] rs =
+  MkGuarded (MkOp "idr.io.write_bytes" os [] [] [] rs)
+    [MkGuard 2 (InRange (CountOf count) (LengthOf buffer)) "a byte range outside the buffer"]
+ioOp WriteBytes os rs = MkGuarded (MkOp "idr.io.write_bytes" os [] [] [] rs) []
+ioOp ReadBytes os@[handle, buffer, offset, count, world] rs =
+  MkGuarded (MkOp "idr.io.read_bytes" os [] [] [] rs)
+    [MkGuard 2 (InRange (CountOf count) (LengthOf buffer)) "a byte range outside the buffer"]
+ioOp ReadBytes os rs = MkGuarded (MkOp "idr.io.read_bytes" os [] [] [] rs) []
+ioOp Eof os rs = MkGuarded (MkOp "idr.io.eof" os [] [] [] rs) []
+ioOp NProcessors os rs = MkGuarded (MkOp "idr.io.n_processors" os [] [] [] rs) []
+ioOp BufferLoad os@[buffer, offset, world] rs@[value, next] =
+  MkGuarded (MkOp "idr.io.buffer_load" os [] [] [] rs)
+    [MkGuard 1 (InRange (WordOf value) (LengthOf buffer)) "a byte range outside the buffer"]
+ioOp BufferLoad os rs = MkGuarded (MkOp "idr.io.buffer_load" os [] [] [] rs) []
+ioOp BufferStore os@[buffer, offset, value, world] rs =
+  MkGuarded (MkOp "idr.io.buffer_store" os [] [] [] rs)
+    [MkGuard 1 (InRange (WordOf value.type) (LengthOf buffer)) "a byte range outside the buffer"]
+ioOp BufferStore os rs = MkGuarded (MkOp "idr.io.buffer_store" os [] [] [] rs) []
+ioOp BufferCopy os@[src, srcOffset, len, dst, dstOffset, world] rs =
+  MkGuarded (MkOp "idr.io.buffer_copy" os [] [] [] rs)
+    [MkGuard 1 (InRange (CountOf len) (LengthOf src)) "a byte range outside the buffer", MkGuard 4 (InRange (CountOf len) (LengthOf dst)) "a byte range outside the buffer"]
+ioOp BufferCopy os rs = MkGuarded (MkOp "idr.io.buffer_copy" os [] [] [] rs) []
+ioOp BufferSetString os@[buffer, offset, str, world] rs =
+  MkGuarded (MkOp "idr.io.buffer_set_string" os [] [] [] rs)
+    [MkGuard 1 (InRange (BytesOf str) (LengthOf buffer)) "a byte range outside the buffer"]
+ioOp BufferSetString os rs = MkGuarded (MkOp "idr.io.buffer_set_string" os [] [] [] rs) []
+ioOp BufferGetString os@[buffer, offset, len, world] rs =
+  MkGuarded (MkOp "idr.io.buffer_get_string" os [] [] [] rs)
+    [MkGuard 1 (InRange (CountOf len) (LengthOf buffer)) "a byte range outside the buffer"]
+ioOp BufferGetString os rs = MkGuarded (MkOp "idr.io.buffer_get_string" os [] [] [] rs) []
+ioOp ArrayNew os rs = MkGuarded (MkOp "idr.array.new" os [] [] [] rs) []
+ioOp ArrayGet os@(array' :: rest) rs =
+  MkGuarded (MkOp "idr.array.get" os [] [] [] rs)
+    (map (\v => MkGuard v (InBounds array') "array index out of bounds") (iterateN (minus (length rest) 1) S 1))
+ioOp ArrayGet os rs = MkGuarded (MkOp "idr.array.get" os [] [] [] rs) []
+ioOp ArraySet os@(array' :: rest) rs =
+  MkGuarded (MkOp "idr.array.set" os [] [] [] rs)
+    (map (\v => MkGuard v (InBounds array') "array index out of bounds") (iterateN (minus (length rest) 2) S 1))
+ioOp ArraySet os rs = MkGuarded (MkOp "idr.array.set" os [] [] [] rs) []
+ioOp FileOpen os rs = MkGuarded (MkOp "idr.io.file_open" os [] [] [] rs) []
+ioOp FileClose os rs = MkGuarded (MkOp "idr.io.file_close" os [] [] [] rs) []
+ioOp FileError os rs = MkGuarded (MkOp "idr.io.file_error" os [] [] [] rs) []
+ioOp FileErrno os rs = MkGuarded (MkOp "idr.io.file_errno" os [] [] [] rs) []
+ioOp FileReadLine os rs = MkGuarded (MkOp "idr.io.file_read_line" os [] [] [] rs) []
+ioOp FileReadChars os rs = MkGuarded (MkOp "idr.io.file_read_chars" os [] [] [] rs) []
+ioOp FileReadChar os rs = MkGuarded (MkOp "idr.io.file_read_char" os [] [] [] rs) []
+ioOp FileWriteLine os rs = MkGuarded (MkOp "idr.io.file_write_line" os [] [] [] rs) []
+ioOp FileFlush os rs = MkGuarded (MkOp "idr.io.file_flush" os [] [] [] rs) []
+ioOp FileSeekLine os rs = MkGuarded (MkOp "idr.io.file_seek_line" os [] [] [] rs) []
+ioOp FileRemove os rs = MkGuarded (MkOp "idr.io.file_remove" os [] [] [] rs) []
+ioOp FileSize os rs = MkGuarded (MkOp "idr.io.file_size" os [] [] [] rs) []
+ioOp FilePoll os rs = MkGuarded (MkOp "idr.io.file_poll" os [] [] [] rs) []
+ioOp FileIsTty os rs = MkGuarded (MkOp "idr.io.file_is_tty" os [] [] [] rs) []
+ioOp FileTime os rs = MkGuarded (MkOp "idr.io.file_time" os [] [] [] rs) []
+ioOp FileAtimeSec os rs = MkGuarded (MkOp "idr.io.file_atime_sec" os [] [] [] rs) []
+ioOp FileAtimeNsec os rs = MkGuarded (MkOp "idr.io.file_atime_nsec" os [] [] [] rs) []
+ioOp FileMtimeSec os rs = MkGuarded (MkOp "idr.io.file_mtime_sec" os [] [] [] rs) []
+ioOp FileMtimeNsec os rs = MkGuarded (MkOp "idr.io.file_mtime_nsec" os [] [] [] rs) []
+ioOp FileCtimeSec os rs = MkGuarded (MkOp "idr.io.file_ctime_sec" os [] [] [] rs) []
+ioOp FileCtimeNsec os rs = MkGuarded (MkOp "idr.io.file_ctime_nsec" os [] [] [] rs) []
+ioOp FileChmod os rs = MkGuarded (MkOp "idr.io.file_chmod" os [] [] [] rs) []
+ioOp DirCurrent os rs = MkGuarded (MkOp "idr.io.dir_current" os [] [] [] rs) []
+ioOp DirChange os rs = MkGuarded (MkOp "idr.io.dir_change" os [] [] [] rs) []
+ioOp DirCreate os rs = MkGuarded (MkOp "idr.io.dir_create" os [] [] [] rs) []
+ioOp DirRemove os rs = MkGuarded (MkOp "idr.io.dir_remove" os [] [] [] rs) []
+ioOp DirOpen os rs = MkGuarded (MkOp "idr.io.dir_open" os [] [] [] rs) []
+ioOp DirClose os rs = MkGuarded (MkOp "idr.io.dir_close" os [] [] [] rs) []
+ioOp DirEntry os rs = MkGuarded (MkOp "idr.io.dir_entry" os [] [] [] rs) []
+ioOp ArgCount os rs = MkGuarded (MkOp "idr.io.arg_count" os [] [] [] rs) []
+ioOp Arg os rs = MkGuarded (MkOp "idr.io.arg" os [] [] [] rs) []
+ioOp EnvGet os rs = MkGuarded (MkOp "idr.io.env_get" os [] [] [] rs) []
+ioOp EnvPair os rs = MkGuarded (MkOp "idr.io.env_pair" os [] [] [] rs) []
+ioOp EnvSet os rs = MkGuarded (MkOp "idr.io.env_set" os [] [] [] rs) []
+ioOp EnvUnset os rs = MkGuarded (MkOp "idr.io.env_unset" os [] [] [] rs) []
+ioOp Sleep os rs = MkGuarded (MkOp "idr.io.sleep" os [] [] [] rs) []
+ioOp Usleep os rs = MkGuarded (MkOp "idr.io.usleep" os [] [] [] rs) []
+ioOp Time os rs = MkGuarded (MkOp "idr.io.time" os [] [] [] rs) []
+ioOp Pid os rs = MkGuarded (MkOp "idr.io.pid" os [] [] [] rs) []
+ioOp Exit os rs = MkGuarded (MkOp "idr.io.exit" os [] [] [] rs) []
+ioOp TermRaw os rs = MkGuarded (MkOp "idr.io.term_raw" os [] [] [] rs) []
+ioOp TermReset os rs = MkGuarded (MkOp "idr.io.term_reset" os [] [] [] rs) []
+ioOp TermSetup os rs = MkGuarded (MkOp "idr.io.term_setup" os [] [] [] rs) []
+ioOp TermCols os rs = MkGuarded (MkOp "idr.io.term_cols" os [] [] [] rs) []
+ioOp TermLines os rs = MkGuarded (MkOp "idr.io.term_lines" os [] [] [] rs) []
+ioOp Errno os rs = MkGuarded (MkOp "idr.io.errno" os [] [] [] rs) []
+ioOp Strerror os rs = MkGuarded (MkOp "idr.io.strerror" os [] [] [] rs) []
+ioOp ClockMonotonic os rs = MkGuarded (MkOp "idr.io.clock_monotonic" os [] [] [] rs) []
+ioOp ClockUtc os rs = MkGuarded (MkOp "idr.io.clock_utc" os [] [] [] rs) []
+ioOp ClockProcess os rs = MkGuarded (MkOp "idr.io.clock_process" os [] [] [] rs) []
+ioOp ClockThread os rs = MkGuarded (MkOp "idr.io.clock_thread" os [] [] [] rs) []
+ioOp ClockGcCpu os rs = MkGuarded (MkOp "idr.io.clock_gc_cpu" os [] [] [] rs) []
+ioOp ClockGcReal os rs = MkGuarded (MkOp "idr.io.clock_gc_real" os [] [] [] rs) []
+ioOp ClockValid os rs = MkGuarded (MkOp "idr.io.clock_valid" os [] [] [] rs) []
+ioOp ClockSecond os rs = MkGuarded (MkOp "idr.io.clock_second" os [] [] [] rs) []
+ioOp ClockNanosecond os rs = MkGuarded (MkOp "idr.io.clock_nanosecond" os [] [] [] rs) []
+ioOp HandleFree os rs = MkGuarded (MkOp "idr.io.handle_free" os [] [] [] rs) []
 
--- fingerprint: 2009807748-1411435 1935744548-66391
+-- fingerprint: 4179896296-1522578 2726377924-75455

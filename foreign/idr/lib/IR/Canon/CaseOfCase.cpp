@@ -6,9 +6,7 @@
 // consumer moves past no op that does more than compute, and still runs
 // exactly once on every path. When it cannot move up to the match, a match
 // that only computes moves down to it instead, past the ops between them.
-// A call between them, or in the match, does what its callee's effects say
-// where the canonicalizer has the program's table (CalleePattern), and may
-// do anything where it has none.
+// A call between them, or in the match, does what its own effects say.
 //
 // The driver attempts this again for the same match whenever anything
 // under it changes. Each attempt asks the question again: it costs the
@@ -22,6 +20,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/RegionUtils.h"
+#include "llvm/ADT/Sequence.h"
 
 using namespace mlir;
 using namespace idr;
@@ -34,23 +33,21 @@ namespace {
 // consumer that does more than compute leaves the ops between the match
 // and its place, and those ops whose own question spans it are tried
 // again.
-struct SinkConsumer : canon::CalleePattern {
-  SinkConsumer(MLIRContext *context, const CalleeEffects *callees)
-      : CalleePattern(MatchAnyOpTypeTag(), "idr-sink-consumer", context, callees) {}
-
-  std::unique_ptr<CalleePattern> withCallees(const CalleeEffects *table) const final {
-    return std::make_unique<SinkConsumer>(getContext(), table);
+struct SinkConsumer : RewritePattern {
+  explicit SinkConsumer(MLIRContext *context)
+      : RewritePattern(MatchAnyOpTypeTag(), PatternBenefit(1), context) {
+    setDebugName("idr-sink-consumer");
   }
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const final {
-    if (isa<MatchOp, MatchLitOp>(op))
+    if (auto match = dyn_cast<MatchOpInterface>(op))
       for (OpResult result : op->getResults())
-        if (Operation *consumer = candidate(result); consumer && moves(op, consumer, rewriter))
+        if (Operation *consumer = candidate(result); consumer && moves(match, consumer, rewriter))
           return success();
     for (Value operand : op->getOperands()) {
       auto result = dyn_cast<OpResult>(operand);
-      if (result && isa<MatchOp, MatchLitOp>(result.getOwner()) && candidate(result) == op &&
-          moves(result.getOwner(), op, rewriter))
+      auto match = result ? dyn_cast<MatchOpInterface>(result.getOwner()) : MatchOpInterface();
+      if (match && candidate(result) == op && moves(match, op, rewriter))
         return success();
     }
     return failure();
@@ -71,14 +68,15 @@ private:
 
   // Moves `consumer` into `match`, raising the one or lowering the other;
   // whether it could.
-  bool moves(Operation *match, Operation *consumer, PatternRewriter &rewriter) const {
+  static bool moves(MatchOpInterface match, Operation *consumer, PatternRewriter &rewriter) {
     if (canRaise(match, consumer)) {
       // A consumer that does more than compute stood between each op it
       // moves across and a partner after it. It moves only past ops that
       // compute, which canRaise walked already. A match moved down only
       // computes, and stood between nothing.
-      if (!onlyAllocates(consumer, callees))
-        retryBetween(rewriter, {std::next(match->getIterator()), consumer->getIterator()});
+      if (!onlyAllocates(consumer))
+        canon::retryBetween(rewriter,
+                            {std::next(match->getIterator()), consumer->getIterator()});
       sink(match, consumer, rewriter);
       return true;
     }
@@ -92,7 +90,7 @@ private:
   // Whether `consumer` can move up to the match: its other operands, and the
   // values its regions use from outside, are the match's results or exist
   // before the match, and every op between them only computes.
-  bool canRaise(Operation *match, Operation *consumer) const {
+  static bool canRaise(Operation *match, Operation *consumer) {
     Block *block = match->getBlock();
     auto before = [&](Value value) {
       Operation *def = value.getDefiningOp();
@@ -108,7 +106,7 @@ private:
       return false;
     for (Operation *between = match->getNextNode(); between != consumer;
          between = between->getNextNode())
-      if (!onlyAllocates(between, callees))
+      if (!onlyAllocates(between))
         return false;
     return true;
   }
@@ -116,8 +114,8 @@ private:
   // Whether the match can move down to `consumer`: it only computes, and
   // nothing between them uses its results. Its operands and the values its
   // regions use exist before it, so they exist before the consumer too.
-  bool canLower(Operation *match, Operation *consumer) const {
-    if (!onlyAllocates(match, callees))
+  static bool canLower(Operation *match, Operation *consumer) {
+    if (!onlyAllocates(match))
       return false;
     return llvm::all_of(match->getUsers(), [&](Operation *user) {
       Operation *at = match->getBlock()->findAncestorOpInBlock(*user);
@@ -125,13 +123,18 @@ private:
     });
   }
 
-  static void sink(Operation *match, Operation *consumer, PatternRewriter &rewriter) {
+  // The match with the consumer's results after its own, and a copy of the
+  // consumer before each yield. An empty default runs nothing, and a region
+  // that ends in ub.unreachable yields nothing to consume.
+  static void sink(MatchOpInterface match, Operation *consumer, PatternRewriter &rewriter) {
     unsigned kept = match->getNumResults();
     SmallVector<Type> types(match->getResultTypes());
     llvm::append_range(types, consumer->getResultTypes());
-    Operation *fresh = canon::rebuildMatch(rewriter, match, types);
+    Operation *fresh =
+        match.rebuild(rewriter, types, llvm::to_vector(llvm::seq(match.getNumCases())),
+                      &match.getDefaultRegion());
     for (Region &region : fresh->getRegions()) {
-      auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
+      auto yield = region.empty() ? YieldOp() : dyn_cast<YieldOp>(region.front().getTerminator());
       if (!yield)
         continue;
       IRMapping mapping;
@@ -152,7 +155,7 @@ private:
 namespace idr::canon {
 
 void addCaseOfCase(RewritePatternSet &results, MLIRContext *context) {
-  results.add<SinkConsumer>(context, /*callees=*/nullptr);
+  results.add<SinkConsumer>(context);
 }
 
 } // namespace idr::canon

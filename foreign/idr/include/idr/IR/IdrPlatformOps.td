@@ -45,7 +45,9 @@ class Idr_PathOp<string mnemonic, string what> : Idr_PlatformIOOp<mnemonic> {
   let summary = what;
   let arguments = (ins Idr_StrRead:$path, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<Read>($path, type($path), "::idr::StrType::get($_ctxt)") `,` $world attr-dict
+  }];
 }
 
 // An op of the world alone, giving an Int.
@@ -73,8 +75,8 @@ def Idr_FileOpenOp : Idr_PlatformIOOp<"file_open"> {
   let arguments = (ins Idr_StrRead:$path, Idr_StrRead:$mode, Idr_WorldType:$world);
   let results = (outs I64:$file, Idr_WorldType:$next);
   let assemblyFormat = [{
-    custom<StrRead>($path, type($path)) `,` custom<StrRead>($mode, type($mode)) `,` $world
-    attr-dict
+    custom<Read>($path, type($path), "::idr::StrType::get($_ctxt)") `,`
+    custom<Read>($mode, type($mode), "::idr::StrType::get($_ctxt)") `,` $world attr-dict
   }];
 }
 
@@ -110,7 +112,9 @@ def Idr_FileWriteLineOp : Idr_PlatformIOOp<"file_write_line"> {
   let summary = "writes a string to a file";
   let arguments = (ins I64:$file, Idr_StrRead:$line, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "$file `,` custom<StrRead>($line, type($line)) `,` $world attr-dict";
+  let assemblyFormat = [{
+    $file `,` custom<Read>($line, type($line), "::idr::StrType::get($_ctxt)") `,` $world attr-dict
+  }];
 }
 
 def Idr_FileFlushOp : Idr_HandleQueryOp<"file_flush",
@@ -151,7 +155,9 @@ def Idr_FileChmodOp : Idr_PlatformIOOp<"file_chmod"> {
   let summary = "sets the mode of the file at a path";
   let arguments = (ins Idr_StrRead:$path, I64:$mode, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $mode `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<Read>($path, type($path), "::idr::StrType::get($_ctxt)") `,` $mode `,` $world attr-dict
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -171,14 +177,18 @@ def Idr_DirRemoveOp : Idr_PlatformIOOp<"dir_remove"> {
   let summary = "removes the directory at a path";
   let arguments = (ins Idr_StrRead:$path, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
-  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<Read>($path, type($path), "::idr::StrType::get($_ctxt)") `,` $world attr-dict
+  }];
 }
 
 def Idr_DirOpenOp : Idr_PlatformIOOp<"dir_open"> {
   let summary = "opens the directory at a path: a directory handle, or null";
   let arguments = (ins Idr_StrRead:$path, Idr_WorldType:$world);
   let results = (outs I64:$dir, Idr_WorldType:$next);
-  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<Read>($path, type($path), "::idr::StrType::get($_ctxt)") `,` $world attr-dict
+  }];
 }
 
 def Idr_DirCloseOp : Idr_PlatformIOOp<"dir_close"> {
@@ -205,7 +215,9 @@ def Idr_ArgOp : Idr_PlatformIOOp<"arg"> {
   let summary = "the program's argument at an index, a new string";
   let arguments = (ins I64:$index, Idr_WorldType:$world);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str, Idr_WorldType:$next);
-  let assemblyFormat = "$index `,` $world attr-dict custom<StrResult>(type($str))";
+  let assemblyFormat = [{
+    $index `,` $world attr-dict custom<ResultAtGrade>(type($str), "::idr::StrType::get($_ctxt)")
+  }];
 }
 
 // The value is a string the runtime owns, as getenv's bytes are the C
@@ -214,7 +226,9 @@ def Idr_EnvGetOp : Idr_PlatformIOOp<"env_get"> {
   let summary = "the value of an environment variable, as a string handle, or null";
   let arguments = (ins Idr_StrRead:$name, Idr_WorldType:$world);
   let results = (outs I64:$value, Idr_WorldType:$next);
-  let assemblyFormat = "custom<StrRead>($name, type($name)) `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<Read>($name, type($name), "::idr::StrType::get($_ctxt)") `,` $world attr-dict
+  }];
 }
 
 def Idr_EnvPairOp : Idr_PlatformIOOp<"env_pair"> {
@@ -230,8 +244,9 @@ def Idr_EnvSetOp : Idr_PlatformIOOp<"env_set"> {
                        Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
   let assemblyFormat = [{
-    custom<StrRead>($name, type($name)) `,` custom<StrRead>($value, type($value)) `,` $overwrite
-    `,` $world attr-dict
+    custom<Read>($name, type($name), "::idr::StrType::get($_ctxt)") `,`
+    custom<Read>($value, type($value), "::idr::StrType::get($_ctxt)") `,` $overwrite `,` $world
+    attr-dict
   }];
 }
 
@@ -239,7 +254,9 @@ def Idr_EnvUnsetOp : Idr_PlatformIOOp<"env_unset"> {
   let summary = "removes an environment variable";
   let arguments = (ins Idr_StrRead:$name, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "custom<StrRead>($name, type($name)) `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<Read>($name, type($name), "::idr::StrType::get($_ctxt)") `,` $world attr-dict
+  }];
 }
 
 def Idr_SleepOp : Idr_PlatformIOOp<"sleep"> {
@@ -299,7 +316,9 @@ def Idr_StrerrorOp : Idr_Op<"io.strerror", [Idr_PerformsIO, Idr_Runtime<"idris_r
   let summary = "the text of an error number, a new string";
   let arguments = (ins I64:$code, Idr_WorldType:$world);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str, Idr_WorldType:$next);
-  let assemblyFormat = "$code `,` $world attr-dict custom<StrResult>(type($str))";
+  let assemblyFormat = [{
+    $code `,` $world attr-dict custom<ResultAtGrade>(type($str), "::idr::StrType::get($_ctxt)")
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -349,7 +368,9 @@ def Idr_HandleStringOp : Idr_Op<"handle.string", [Idr_Runtime<"idris_rt_handle_s
   let summary = "the string a string handle holds, with a reference of its own";
   let arguments = (ins I64:$handle);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str);
-  let assemblyFormat = "$handle attr-dict custom<StrResult>(type($str))";
+  let assemblyFormat = [{
+    $handle attr-dict custom<ResultAtGrade>(type($str), "::idr::StrType::get($_ctxt)")
+  }];
 }
 
 // Base's free of a pointer (System.FFI). The string a program-owned string

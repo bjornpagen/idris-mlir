@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.call and idr.return. A call's callee is read through a symbol table:
-// once per module verify, from the collection MLIR shares among every
-// symbol user, and by every pass that asks what a call may do, through a
-// CalleeEffects (idr::ownEffects). The callee's effects are the one copy;
-// the call holds none. What a call takes over is its flow's: each argument
-// moves into its callee's parameter, which owns it or not.
-//
-// To a question asked without a symbol table, the effects an upstream pass
-// reads off the op, a call may do anything a function may: IO, a read and a
-// write of the IO resource as the idr.io ops declare it; a crash, a write
-// of the crash resource; and not returning, a write of the divergence
-// resource, as idr.crash and idr.may_loop declare theirs. So no such pass
-// drops, merges or reorders a call; the passes that know the callee do,
-// through their CalleeEffects.
+// idr.call and idr.return. A call holds what it may do, its `effects`, as
+// llvm.call holds its memory effects, and declares to MLIR what they stand
+// for, so every pass, upstream's among them, reads a call alone. Its
+// symbol-use verifier, run once per verification of its program from the
+// collection MLIR shares among every symbol user, holds the call to its
+// callee: its types are the callee's signature, and its effects contain the
+// callee's. What a call takes over is its flow's: each argument moves into
+// its callee's parameter, which owns it or not.
 
 #include "idr/IR/Func.h"
 
@@ -29,7 +23,7 @@ using namespace idr;
 void idr::CallOp::build(OpBuilder &builder, OperationState &state, FuncOp callee,
                         ValueRange args) {
   build(builder, state, callee.getResultTypes(), FlatSymbolRefAttr::get(callee.getSymNameAttr()),
-        args, /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
+        args, /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr, callee.getEffects());
 }
 
 LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
@@ -55,16 +49,26 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
     if (std::get<0>(pair) != std::get<1>(pair))
       return emitOpError("expects ") << std::get<0>(pair) << " as result " << index << " of "
                                      << name << ", which returns " << std::get<1>(pair);
+  // What the call may do is at least what its callee may, so that what a
+  // pass reads off the call alone never says too little.
+  if (!bitEnumContainsAll(getEffects(), fn.getEffects()))
+    return emitOpError("holds the effects ")
+           << stringifyEffect(getEffects()) << ", which do not contain those of " << name
+           << ": " << stringifyEffect(fn.getEffects() & ~getEffects());
   return success();
 }
 
+// What its effects stand for, then what it takes over, then a fresh value
+// for each linear result, which no pass may merge with another's (CSE keeps
+// two calls that each give one) and which a call nothing uses may still drop
+// (an allocation of its own result).
 void idr::CallOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), DivergenceResource::get());
+  effectInstances(getEffects(), effects);
   consumedEffects(getOperation(), effects);
+  for (OpResult result : getResults())
+    if (isLinear(result.getType()))
+      effects.emplace_back(MemoryEffects::Allocate::get(), result, LinResource::get());
 }
 
 LogicalResult idr::ReturnOp::verify() {

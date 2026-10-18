@@ -7,14 +7,10 @@
 #define IDR_TRANSFORMS_INLINE_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Optimize.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
-
-namespace idr::optimize {
-class Node;
-} // namespace idr::optimize
 
 namespace idr::inlining {
 
@@ -24,19 +20,14 @@ struct Step {
   unsigned capped = 0;
 };
 
-// Whether `callee`'s body may take the place of `call`: a body of several
-// blocks, or one whose terminator does not return to the call (it ends in
-// ub.unreachable), goes in as blocks of its own, which only a region that
-// may hold several blocks can take, as upstream's inliner decides it.
-bool fitsRegion(mlir::InlinerInterface &interface, idr::CallOp call, idr::FuncOp callee);
-
 // Inlines, in walk order, each idr.call `caller` holds when the step
-// starts whose callee's node, as `nodeOf` answers it, is final and worth
-// inlining, while the caller stays within the cap. A body that needs
-// blocks of its own goes nowhere a single block must hold it. The caller
-// loses Idris's proof of termination where it takes in a body without one.
+// starts whose callee, as `callee` answers it, is final and inlined by the
+// rule, while the caller stays within the cap. The caller loses Idris's
+// proof of termination where it takes in a body without one. A callee that
+// never returns leaves the rest of its call's block unreachable, which goes
+// once the step's calls are all taken.
 Step inlineCalls(idr::FuncOp caller,
-                 llvm::function_ref<const optimize::Node *(mlir::StringAttr)> nodeOf);
+                 llvm::function_ref<optimize::Callee(mlir::StringAttr)> callee);
 
 } // namespace idr::inlining
 

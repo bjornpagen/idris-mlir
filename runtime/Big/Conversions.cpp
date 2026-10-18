@@ -12,9 +12,9 @@
 
 using namespace rt::big;
 
-// A machine integer as a big, and a big as one, are always inlined, their
-// small paths as Big/Big.h says. A narrower integer, extended to 64 bits,
-// is always small, which the inlined range test then shows.
+// A signed or an unsigned integer as a big, and a big as one, are always
+// inlined, their small paths as Big/Big.h says. A narrower integer, extended
+// to 64 bits, is always small, which the inlined range test then shows.
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_s(int64_t value) {
   return ofInt64(value);
 }
@@ -27,23 +27,25 @@ extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_s(int64_t v
 
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_u(uint64_t value) {
   if (value <= static_cast<uint64_t>(IDRIS_RT_SMALL_MAX)) [[likely]]
-    return small(static_cast<int64_t>(value));
+    return idris_rt_small_word(static_cast<int64_t>(value));
   return fromUnsignedLarge(value);
 }
 
-// Inline whole: a large big's low 64 bits are one load from its cell.
+// The value modulo 2^64, which idr-lower wraps to the op's width. Inline
+// whole: a large big's low 64 bits are one load from its cell.
 extern "C" [[gnu::always_inline]] int64_t idris_rt_big_to_int(idris_rt_big a) {
-  if (isSmall(a)) [[likely]]
-    return smallValue(a);
+  if (idris_rt_word_is_small(a)) [[likely]]
+    return idris_rt_small_value(a);
   // The low limb and the sign, read from the cell: a large big has a limb.
   const idris_rt_bignum *b = bignum(a);
   uint64_t low = limbsOf(b)[0];
   return static_cast<int64_t>(b->size < 0 ? 0 - low : low);
 }
 
+// A double truncated toward zero. It is finite: idr-lower checks it first.
 extern "C" idris_rt_big idris_rt_big_from_double(double x) {
   if (x > -smallBound && x < smallBound)
-    return small(static_cast<int64_t>(x));
+    return idris_rt_small_word(static_cast<int64_t>(x));
   Result r;
   mpz_set_d(r.get(), x);
   return r.finish();
@@ -55,8 +57,8 @@ extern "C" idris_rt_big idris_rt_big_from_double(double x) {
 // sticky bit for any bit below them, convert with one correct rounding, and
 // the scaling by a power of two is exact or overflows to the infinity.
 extern "C" double idris_rt_big_to_double(idris_rt_big a) {
-  if (isSmall(a))
-    return static_cast<double>(smallValue(a));
+  if (idris_rt_word_is_small(a))
+    return static_cast<double>(idris_rt_small_value(a));
   Operand x(a);
   mpz_srcptr z = x.get();
   size_t bits = mpz_sizeinbase(z, 2);

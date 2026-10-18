@@ -16,9 +16,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Rewrite/PatternApplicator.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -80,7 +78,9 @@ FailureOr<std::unique_ptr<DataFlowSolver>> Copy::analyse(unsigned exponent) {
 // The stand-ins before the copied loop read the inputs, which fit nothing.
 // Whether an op's 32-bit form computes the same is the narrowing's to
 // decide: it leaves wide an op whose 32-bit form would compute something
-// else, and an accumulation, which fits under no bound. The set of ops
+// else, and an accumulation, which fits under no bound. An op that computes
+// on no integer wider than 32 bits (laneWidth) is not asked, a select among
+// them: it moves lanes, and costs the same at any width. The set of ops
 // tried does not depend on the bound, so a smaller bound still fits
 // whatever a larger one does.
 bool Copy::fits(DataFlowSolver &solver) {
@@ -93,7 +93,7 @@ bool Copy::fits(DataFlowSolver &solver) {
   llvm::DenseSet<Operation *> carried = accumulations(copy);
   return !copy
               ->walk([&](Operation *op) {
-                if (widthOf(op) == Width::Narrow || carried.contains(op) ||
+                if (laneWidth(op).bits <= 32 || carried.contains(op) ||
                     (llvm::all_of(op->getOperands(), fit) && llvm::all_of(op->getResults(), fit)))
                   return WalkResult::advance();
                 return WalkResult::interrupt();
@@ -101,22 +101,18 @@ bool Copy::fits(DataFlowSolver &solver) {
               .wasInterrupted();
 }
 
-// Upstream's narrowing patterns, each op of the copy tried once, in one
-// ordered walk, the solver told of the ops they erase. Users come first
-// (the walk runs back from the copy's end), so that a comparison still
-// finds the ranges of its operands, which are the values analysed. A
-// pattern replaces only the op it matched, by an op on 32 bits whose
-// results no analysis ranged, and casts, which no pattern of the set
-// narrows: so the walk's one visit of each op is every narrowing there
-// is, and it ends with the walk. Then, defs first, the index casts fold:
-// a narrowed op's operand cast from a value that a later narrowing made a
-// cast back is the cast's own source, and with defs first the source of
-// each cast is final when it is reached, a chain of any length folding in
-// the one walk. Then what no one reads goes, users first, inner ops
-// before the op that holds them. No folding and no region
-// simplification, as in upstream's own int-range-optimizations: those can
-// erase a block argument without a word to the solver, and a new one at
-// its address would take its range.
+// Upstream's narrowing patterns under upstream's driver, configured as its
+// own passes configure it: users first (its int-range-narrowing's
+// bottom-up traversal), so that a comparison still finds the ranges of its
+// operands, which are the values analysed; the solver told of every op the
+// driver erases; and no folding and no region simplification (its
+// int-range-optimizations), which can erase a block argument without a
+// word to the solver, so that a new one at its address would take its
+// range. The driver folds the index cast chains the narrowing leaves (the
+// set holds that pattern) and erases what no one reads. It stops at
+// upstream's default iteration budget, and its result is not read: a
+// budget spent leaves the copy less narrowed, its other lanes wide, never
+// wrong.
 void Copy::narrow(DataFlowSolver &solver) {
   struct Listener : RewriterBase::Listener {
     explicit Listener(DataFlowSolver &s) : solver(s) {}
@@ -127,40 +123,14 @@ void Copy::narrow(DataFlowSolver &solver) {
     }
     DataFlowSolver &solver;
   } listener(solver);
-  MLIRContext *ctx = module->getContext();
-  RewritePatternSet patterns(ctx);
+  RewritePatternSet patterns(module->getContext());
   arith::populateIntRangeNarrowingPatterns(patterns, solver, {32});
-  FrozenRewritePatternSet frozen(std::move(patterns));
-  PatternApplicator applicator(frozen);
-  applicator.applyDefaultCostModel();
-  PatternRewriter rewriter(ctx);
-  rewriter.setListener(&listener);
-
-  // The ops of the copy's function, parents before the ops they hold.
-  auto ops = [&] {
-    SmallVector<Operation *> found;
-    function.getBody().walk<WalkOrder::PreOrder>([&](Operation *op) { found.push_back(op); });
-    return found;
-  };
-  // Each op of `order` tried once. A pattern erases only the op it
-  // matched, so every op after it in `order` is still there.
-  auto applyOnce = [&](auto &&order) {
-    for (Operation *op : order) {
-      rewriter.setInsertionPoint(op);
-      (void)applicator.matchAndRewrite(op, rewriter);
-    }
-  };
-  SmallVector<Operation *> narrowed = ops();
-  applyOnce(llvm::reverse(narrowed));
-  SmallVector<Operation *> casts = ops();
-  llvm::erase_if(casts, [](Operation *op) { return !isa<arith::IndexCastOp, arith::IndexCastUIOp>(op); });
-  applyOnce(casts);
-  // An op that holds others comes after them, so it is erased only once
-  // they were asked, and none is asked after it.
-  SmallVector<Operation *> swept = ops();
-  for (Operation *op : llvm::reverse(swept))
-    if (isOpTriviallyDead(op))
-      rewriter.eraseOp(op);
+  (void)applyPatternsGreedily(function, std::move(patterns),
+                              GreedyRewriteConfig()
+                                  .setUseTopDownTraversal(false)
+                                  .enableFolding(false)
+                                  .setRegionSimplificationLevel(GreedySimplifyRegionLevel::Disabled)
+                                  .setListener(&listener));
 
   // The narrowing widens a result back with arith.extui, and knows the word
   // it widens is non-negative (its range, kept on the cast); the flag says

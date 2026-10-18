@@ -25,10 +25,12 @@
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/Support/Actions.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 
 #include <optional>
@@ -73,7 +75,8 @@ CallOp retarget(RewriterBase &rewriter, CallOp call, FuncOp clone, Value carried
 // The clone's tails, whose ops `mapping` gives for `sites` of the
 // function: an addition becomes the sum carried into the call, which takes
 // the addition's place at the tail, and a tail that returns a value adds
-// the sum to it. Zero, the identity, is the sum itself.
+// the sum to it. An addition of zero, the identity, folds to the sum
+// itself.
 void rewriteClone(RewriterBase &rewriter, FuncOp clone, ArrayRef<Site> sites, const IRMapping &mapping, Value acc) {
   for (Site site : sites) {
     auto call = cast<CallOp>(mapping.lookup(site.call.getOperation()));
@@ -84,10 +87,9 @@ void rewriteClone(RewriterBase &rewriter, FuncOp clone, ArrayRef<Site> sites, co
     }
     auto add = cast<BigAddOp>(mapping.lookup(site.addition->add.getOperation()));
     rewriter.setInsertionPoint(add);
-    auto sum = BigAddOp::create(rewriter, add.getLoc(), add.getResult().getType(), acc,
-                                mapping.lookup(site.addition->addend));
-    rewriter.setInsertionPointAfter(sum);
-    CallOp neu = retarget(rewriter, call, clone, sum.getResult());
+    Value sum = rewriter.createOrFold<BigAddOp>(add.getLoc(), add.getResult().getType(), acc,
+                                                mapping.lookup(site.addition->addend));
+    CallOp neu = retarget(rewriter, call, clone, sum);
     // The call's place was before the addition; its result had no other use.
     rewriter.replaceOp(add, neu.getOperation());
     rewriter.eraseOp(call);
@@ -102,15 +104,12 @@ void rewriteClone(RewriterBase &rewriter, FuncOp clone, ArrayRef<Site> sites, co
     Value value = terminator->getOperand(0);
     if (isSelfCall(value.getDefiningOp(), clone))
       continue;
-    if (isZero(value)) {
-      rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperand(0, acc); });
-      if (Operation *def = value.getDefiningOp(); def && def->use_empty())
-        rewriter.eraseOp(def);
-      continue;
-    }
     rewriter.setInsertionPoint(terminator);
-    auto sum = BigAddOp::create(rewriter, terminator->getLoc(), acc.getType(), acc, value);
-    rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperand(0, sum.getResult()); });
+    Value sum = rewriter.createOrFold<BigAddOp>(terminator->getLoc(), acc.getType(), acc, value);
+    rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperand(0, sum); });
+    // What only the tail read, a zero the addition folded away, goes.
+    if (Operation *def = value.getDefiningOp(); def && isOpTriviallyDead(def))
+      rewriter.eraseOp(def);
   }
 }
 
@@ -170,8 +169,7 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
 }
 
 struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
-  void runOnOperation() override {
-    ProgramOp program = getOperation();
+  void runOnProgram(ProgramOp program) override {
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     // Every function is planned on the program as it stands, before any
     // changes: a plan reads its own function alone.

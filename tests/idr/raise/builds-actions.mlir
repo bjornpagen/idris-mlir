@@ -1,6 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that the call of @actions carries @actions's entry, none, once @actions is final (idr.call's effects, mlir-12), so it is raised across the output, with symbol-dce after idr-optimize as the pipeline runs it (S2's default argument).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@actions -o /dev/null
-// NEEDS-ACCEPTANCE: that the effects summary gives @actions no effect, so its call is raised across the output.
 // A callee that only builds an IO action performs no IO when it runs: it
 // makes constructors of @put's closure, which writes, and calls nothing
 // that writes, so its effects summary is none. @actions builds
@@ -59,7 +59,7 @@ idr.program @"builds-actions" root(@Main.main) stage(higher) {
       %nil = idr.con !idr.box<!L> @Nil()
       idr.yield %nil : !idr.box<!L>
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %t = idr.call @read(%m) : (i64) -> !idr.box<!L>

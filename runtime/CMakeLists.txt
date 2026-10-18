@@ -176,6 +176,8 @@ function(idris_rt_compile target)
 		# with the system's (Platform/Posix/Memory.cpp). The target entry's one
 		# number.
 		IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
+		# The target's user address width (Platform/Address.h), the entry's.
+		IDRIS_RT_USER_ADDRESS_BITS=${IDRIS_MLIR_USER_ADDRESS_BITS}
 	)
 	target_link_libraries(${target} PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
 endfunction()

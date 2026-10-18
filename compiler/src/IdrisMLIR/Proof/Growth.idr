@@ -5,14 +5,15 @@
 |||
 ||| A position is a static argument of a definition. An arc says how far a
 ||| value written at its target can stand above the value at its source: a
-||| weight `Finite gain loss` raises it by at most gain - loss, and `Stuck`
-||| by nothing anyone can bound. A cap's one arc leaves the origin, which
-||| holds 0.
+||| label `Measured gain loss` raises it by at most gain - loss, and
+||| `Unmeasured` by nothing anyone can bound. A capped position's type looks
+||| only so deep: its cap is the most its values can be, which a potential
+||| meets by standing no more than K below it.
 |||
 ||| The check answers with one of three certificates, each a type only a
 ||| true answer inhabits:
-||| - a cycle of positions, its finite arcs chained by index, whose gains
-|||   exceed its losses: a static argument grows each round;
+||| - a cycle, its finite arcs chained by index, whose gains exceed its
+|||   losses: a static argument grows each round;
 ||| - a Stuck arc: a type-level recursion nothing bounds;
 ||| - a potential every arc satisfies: a bound on every position.
 ||| The check builds each from the machine's comparisons of naturals, and the
@@ -98,9 +99,10 @@ samePosition x y = case choose (finToNat x == finToNat y) of
 -- Weights
 ------------------------------------------------------------------------------
 
-||| What an arc raises a value by: Absent where there is no arc, gain - loss,
-||| or Stuck, by nothing anyone can bound. A finite weight is two naturals,
-||| so that every comparison of two is one of naturals, by cross-addition.
+||| What a template carries a value up by: Absent where it carries none,
+||| gain - loss, or Stuck, by nothing anyone can bound. A finite weight is
+||| two naturals, so that every comparison of two is one of naturals, by
+||| cross-addition. A graph's arcs are labelled (`Label`), never Absent.
 public export
 data Weight = Absent | Finite Nat Nat | Stuck
 
@@ -126,30 +128,22 @@ join (Finite g l) (Finite g' l') = if g + l' <= g' + l then Finite g' l' else Fi
 -- The graph
 ------------------------------------------------------------------------------
 
-||| A weight an arc can carry: an absent label is no arc.
+||| What an arc raises a value by: gain - loss, or nothing anyone can bound.
+||| A weight Absent is no arc, so a label has no such case.
 public export
-data Present : Weight -> Type where
-  Measured : Present (Finite g l)
-  Unmeasured : Present Stuck
+data Label = Measured Nat Nat | Unmeasured
 
-export
-0 presentNotAbsent : Present Absent -> Void
-presentNotAbsent Measured impossible
-presentNotAbsent Unmeasured impossible
-
-||| An arc from a position, or from the origin (`Nothing`, a cap's one arc),
-||| to a position.
+||| An arc from a position to a position.
 public export
 record Arc (n : Nat) where
   constructor MkArc
-  from : Maybe (Fin n)
+  from : Fin n
   to : Fin n
-  weight : Weight
-  0 present : Present weight
+  label : Label
 
 ||| The positions `Fin size`, the arcs between them, the tallest constant K
 ||| of any template, and each position's cap, where its type inspects its
-||| value to a fixed depth.
+||| value to a fixed depth: the one place a cap is held.
 public export
 record Graph where
   constructor MkGraph
@@ -165,8 +159,8 @@ arc : (g : Graph) -> Fin (length g.arcs) -> Arc g.size
 arc g = index' g.arcs
 
 public export
-weights : (g : Graph) -> List (Fin (length g.arcs)) -> List Weight
-weights g = map (\a => (arc g a).weight)
+labels : (g : Graph) -> List (Fin (length g.arcs)) -> List Label
+labels g = map (\a => (arc g a).label)
 
 ------------------------------------------------------------------------------
 -- Reading many arcs in one pass
@@ -239,81 +233,164 @@ lookUp g as = go 0 g.arcs Refl as
 ------------------------------------------------------------------------------
 
 ||| Arcs that chain from `here` around to `first`: each leaves the position
-||| the one before entered, and the last enters `first`. Indexed by the
-||| positions after `here`, in order, and by the arcs.
+||| the one before entered, and the last enters `first`. One list, of the
+||| arcs: each position on the ring is the source of the arc that leaves it.
 public export
-data Ring : (g : Graph) -> (first, here : Fin g.size) -> List (Fin g.size) -> List (Fin (length g.arcs)) -> Type where
-  Last : (0 _ : (arc g a).from = Just here) -> (0 _ : (arc g a).to = first) -> Ring g first here [] [a]
-  Next : (0 _ : (arc g a).from = Just here) -> (0 _ : (arc g a).to = next) ->
-         Ring g first next ps as -> Ring g first here (next :: ps) (a :: as)
+data Ring : (g : Graph) -> (first, here : Fin g.size) -> List (Fin (length g.arcs)) -> Type where
+  Last : (0 _ : (arc g a).from = here) -> (0 _ : (arc g a).to = first) -> Ring g first here [a]
+  Next : {0 next : Fin g.size} -> (0 _ : (arc g a).from = here) -> (0 _ : (arc g a).to = next) ->
+         Ring g first next as -> Ring g first here (a :: as)
 
 public export
-data IsFinite : Weight -> Type where
-  ItIsFinite : IsFinite (Finite g l)
+data IsFinite : Label -> Type where
+  ItIsFinite : IsFinite (Measured g l)
 
 public export
-gainOf : Weight -> Nat
-gainOf (Finite g _) = g
-gainOf _ = 0
+gainOf : Label -> Nat
+gainOf (Measured g _) = g
+gainOf Unmeasured = 0
 
 public export
-lossOf : Weight -> Nat
-lossOf (Finite _ l) = l
-lossOf _ = 0
+lossOf : Label -> Nat
+lossOf (Measured _ l) = l
+lossOf Unmeasured = 0
 
-||| What a list of weights adds: the gains of its finite weights.
+||| What a list of labels adds: the gains of its finite ones.
 public export
-gains : List Weight -> Nat
+gains : List Label -> Nat
 gains [] = 0
 gains (w :: ws) = gainOf w + gains ws
 
-||| What a list of weights takes away: the losses of its finite weights.
+||| What a list of labels takes away: the losses of its finite ones.
 public export
-losses : List Weight -> Nat
+losses : List Label -> Nat
 losses [] = 0
 losses (w :: ws) = lossOf w + losses ws
 
-||| A cycle from p back to p, of finite arcs, whose gains exceed their
-||| losses. A Stuck arc is never on one: it is a `StuckArc` of its own.
+||| A cycle of finite arcs from a position back to it, whose gains exceed
+||| their losses. An Unmeasured arc is never on one: it is a `StuckArc` of
+||| its own.
 public export
-data Positive : (g : Graph) -> List (Fin g.size) -> List (Fin (length g.arcs)) -> Type where
-  Sums : (0 _ : Ring g p p ps as) -> (0 _ : All IsFinite (weights g as)) ->
-         (0 _ : LT (losses (weights g as)) (gains (weights g as))) -> Positive g (p :: ps) as
+data Positive : (g : Graph) -> List (Fin (length g.arcs)) -> Type where
+  Sums : {0 p : Fin g.size} -> (0 _ : Ring g p p as) -> (0 _ : All IsFinite (labels g as)) ->
+         (0 _ : LT (losses (labels g as)) (gains (labels g as))) -> Positive g as
 
 ------------------------------------------------------------------------------
 -- A Stuck arc
 ------------------------------------------------------------------------------
 
+||| A ring's first arc leaves where the ring starts.
+export
+0 ringStart : Ring g first here (a :: as) -> (arc g a).from = here
+ringStart (Last l _) = l
+ringStart (Next l _ _) = l
+
 public export
 data StuckArc : (g : Graph) -> Fin (length g.arcs) -> Type where
-  ItIsStuck : (0 _ : (arc g a).weight = Stuck) -> StuckArc g a
+  ItIsStuck : (0 _ : (arc g a).label = Unmeasured) -> StuckArc g a
 
 ------------------------------------------------------------------------------
 -- A feasible potential
 ------------------------------------------------------------------------------
 
-||| A potential at an arc's end, the origin's 0.
-public export
-potentialAt : Vect n Nat -> Maybe (Fin n) -> Nat
-potentialAt pot = maybe 0 (\q => index q pot)
-
-||| One arc satisfied: the potential at its source, raised by its weight, is
-||| at most the potential at its target. Only a Finite arc has the
-||| constructor, so a feasible graph has no Stuck arc.
+||| One arc satisfied: the potential at its source, raised by its label, is
+||| at most the potential at its target. Only a Measured arc has the
+||| constructor, so a feasible graph has no Unmeasured arc.
 public export
 data Satisfies : Vect n Nat -> Arc n -> Type where
-  MkSatisfies : (0 _ : LTE (potentialAt pot q + gain) (index p pot + loss)) ->
-                Satisfies pot (MkArc q p (Finite gain loss) pr)
+  MkSatisfies : (0 _ : LTE (index q pot + gain) (index p pot + loss)) ->
+                Satisfies pot (MkArc q p (Measured gain loss))
 
+||| A position's cap met: none, or one no more than K above its potential.
+public export
+data CapHolds : (constant : Nat) -> Maybe Nat -> Nat -> Type where
+  Uncapped : CapHolds k Nothing v
+  Within : (0 _ : LTE c (k + v)) -> CapHolds k (Just c) v
+
+namespace CapsHold
+  ||| Every position's cap met, position by position.
+  public export
+  data CapsHold : (constant : Nat) -> Vect n (Maybe Nat) -> Vect n Nat -> Type where
+    Nil : CapsHold k [] []
+    (::) : CapHolds k c v -> CapsHold k cs vs -> CapsHold k (c :: cs) (v :: vs)
+
+||| A potential every arc satisfies and every cap meets.
 public export
 data Feasible : (g : Graph) -> Vect g.size Nat -> Type where
-  MkFeasible : All (Satisfies pot) g.arcs -> Feasible g pot
+  MkFeasible : All (Satisfies pot) g.arcs -> (0 _ : CapsHold g.constant g.caps pot) -> Feasible g pot
 
-||| The bound a feasible potential gives a position: K above its potential,
-||| and no more than its cap.
+||| The cap a position meets.
+export
+0 capAt : CapsHold k cs vs -> (p : Fin n) -> index p cs = Just c -> LTE c (k + index p vs)
+capAt (Within le :: _) FZ Refl = le
+capAt (Uncapped :: _) FZ eq = absurd eq
+capAt (_ :: hs) (FS p) eq = capAt hs p eq
+
+||| Whether every cap holds under a potential, position by position: the
+||| machine's comparison at each capped position.
+export
+capsHold : (k : Nat) -> (cs : Vect n (Maybe Nat)) -> (vs : Vect n Nat) -> Decision (CapsHold k cs vs)
+capsHold k [] [] = Holds []
+capsHold k (c :: cs) (v :: vs) = case capHolds c of
+  Fails no => Fails (\(h :: _) => no h)
+  Holds h => case capsHold k cs vs of
+    Fails no => Fails (\(_ :: hs) => no hs)
+    Holds hs => Holds (h :: hs)
+  where
+    capHolds : (c : Maybe Nat) -> Decision (CapHolds k c v)
+    capHolds Nothing = Holds Uncapped
+    capHolds (Just c) = case choose (c <= k + v) of
+      Left le => Holds (Within (lteSo le))
+      Right nle => Fails (\(Within le) => notLteSo nle le)
+
+namespace Below
+  ||| One vector nowhere above another.
+  public export
+  data Below : Vect n Nat -> Vect n Nat -> Type where
+    Nil : Below [] []
+    (::) : (0 _ : LTE a b) -> Below as bs -> Below (a :: as) (b :: bs)
+
+||| A vector below another at every position is below it.
+export
+0 belowAt : {n : Nat} -> {lo, hi : Vect n Nat} -> ((i : Fin n) -> LTE (index i lo) (index i hi)) -> Below lo hi
+belowAt {lo = []} {hi = []} f = []
+belowAt {lo = _ :: _} {hi = _ :: _} f = f FZ :: belowAt (\i => f (FS i))
+
+||| Caps met under a potential are met under one no lower.
+export
+0 capsAbove : CapsHold k cs lo -> Below lo hi -> CapsHold k cs hi
+capsAbove [] [] = []
+capsAbove (Uncapped :: hs) (_ :: bs) = Uncapped :: capsAbove hs bs
+capsAbove (Within le :: hs) (b :: bs) = Within (transitive le (plusLteMonotoneLeft k _ _ b)) :: capsAbove hs bs
+
+||| The least potential a cap asks of its position: the cap less K.
+public export
+floorOf : (constant : Nat) -> Maybe Nat -> Nat
+floorOf k Nothing = 0
+floorOf k (Just c) = minus c k
+
+||| Every cap holds at its floor.
+export
+0 floorsHold : (k : Nat) -> (cs : Vect n (Maybe Nat)) -> CapsHold k cs (map (floorOf k) cs)
+floorsHold k [] = []
+floorsHold k (Nothing :: cs) = Uncapped :: floorsHold k cs
+floorsHold k (Just c :: cs) = Within (atFloor k c) :: floorsHold k cs
+  where
+    atFloor : (k, c : Nat) -> LTE c (k + minus c k)
+    atFloor Z c = rewrite minusZeroRight c in reflexive
+    atFloor (S k) Z = LTEZero
+    atFloor (S k) (S c) = LTESucc (atFloor k c)
+
+||| A position's bound from its potential and its cap: K above the
+||| potential, and no more than the cap.
+public export
+capped : (constant, potential : Nat) -> (cap : Maybe Nat) -> Nat
+capped k pi cap = maybe (k + pi) (min (k + pi)) cap
+
+||| The bound a feasible potential gives a position.
 public export
 bound : (g : Graph) -> Vect g.size Nat -> Fin g.size -> Nat
-bound g pot p = maybe (g.constant + index p pot) (min (g.constant + index p pot)) (index p g.caps)
+bound g pot p = capped g.constant (index p pot) (index p g.caps)
 
 ------------------------------------------------------------------------------
 -- Every arc, in one pass
@@ -360,8 +437,9 @@ mapIndicesFrom ys k (x :: xs) eq d =
 0 mapIndices : (xs : List a) -> map (index' xs) (indices xs) = xs
 mapIndices xs = mapIndicesFrom xs 0 xs Refl Refl
 
-||| A potential that satisfies every arc, by index, is feasible: the form
-||| `heaviest` returns on `everyArc g`.
+||| A potential that satisfies every arc, by index, and meets every cap is
+||| feasible: the form `heaviest` returns on `everyArc g`.
 export
-everyFits : {g : Graph} -> {0 pot : Vect g.size Nat} -> All (Satisfies pot) (map (arc g) (everyArc g)) -> Feasible g pot
-everyFits fs = MkFeasible (replace {p = All (Satisfies pot)} (mapIndices g.arcs) fs)
+everyFits : {g : Graph} -> {0 pot : Vect g.size Nat} -> All (Satisfies pot) (map (arc g) (everyArc g)) ->
+            (0 _ : CapsHold g.constant g.caps pot) -> Feasible g pot
+everyFits fs caps = MkFeasible (replace {p = All (Satisfies pot)} (mapIndices g.arcs) fs) caps

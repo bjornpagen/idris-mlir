@@ -31,11 +31,12 @@ using ConstantResults = llvm::SmallVector<mlir::dataflow::ConstantValue, 1>;
 // and its component's end.
 ConstantResults returnedConstants(idr::FuncOp fn);
 
-// The results of the function named `callee` as its callers may read them:
-// null while its component is not final, so that a call within a component
-// assumes nothing of its callee and no answer depends on the order in which
-// a component's members ran.
-using ConstantsOf = llvm::function_ref<const ConstantResults *(mlir::StringAttr callee)>;
+// The results of `call` as its caller may read them: its callee's
+// returnedConstants once the callee's component is final, and unknown at
+// every result of `call` before, so that a call within a component assumes
+// nothing of its callee and no answer depends on the order in which a
+// component's members ran. Unknown is what upstream's entry state joins.
+using ConstantsOf = llvm::function_ref<ConstantResults(idr::CallOp call)>;
 
 // Upstream's sparse constant propagation on one function, with a call's
 // results taken from its callee's summary: the hook upstream gives a solve

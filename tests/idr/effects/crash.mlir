@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the constants written type first, as idr.constant now reads them; the crashes and guards as before.
 // RUN: idris-mlir-opt %s --canonicalize --cse --idr-expect=holds=computes-nothing=@may_crash,crash-sites=@may_crash:8,computes-nothing=@cannot_crash,no-guards=@cannot_crash,crash-sites=@past_end:1,crash-sites=@crash:1 -o /dev/null
 // A primitive that may crash is its guard and the op it guards, as Emit
 // writes it. When its result is unused the op goes, since it only
@@ -29,7 +30,7 @@ idr.program @crash root(@root) stage(first) {
   // The same primitives on operands that rule out the crash are dead code,
   // guards and all.
   idr.func @cannot_crash(%s: !idr.str, %c: i32, %x: i64, %b: !idr.big) {
-    %lit = idr.constant "h\C3\A9!" : !idr.str
+    %lit = idr.constant !idr.str "h\C3\A9!"
     %two = arith.constant 2 : i64
     %n = idr.str.length %lit
     %i0 = idr.check.in_bounds %two, %lit, "string index out of range" : !idr.str
@@ -45,7 +46,7 @@ idr.program @crash root(@root) stage(first) {
     %appended = idr.str.append %s, %lit
     %s4 = idr.check.nonempty %appended, "head of an empty string" : !idr.str
     %4 = idr.str.head %s4
-    %seven = idr.constant #idr.big<-7> : !idr.big
+    %seven = idr.constant !idr.big #idr.big<-7>
     %b5 = idr.check.nonzero %seven, "division by zero" : !idr.big
     %5 = idr.big.div %b, %b5
     %b6 = idr.check.nonzero %seven, "division by zero" : !idr.big
@@ -60,7 +61,7 @@ idr.program @crash root(@root) stage(first) {
 
   // An index past the last character (not the last byte) may crash.
   idr.func @past_end() {
-    %lit = idr.constant "h\C3\A9!" : !idr.str
+    %lit = idr.constant !idr.str "h\C3\A9!"
     %three = arith.constant 3 : i64
     %n = idr.str.length %lit
     %i0 = idr.check.in_bounds %three, %lit, "string index out of range" : !idr.str

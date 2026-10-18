@@ -8,6 +8,9 @@
 
 #include "idr/Transforms/StructureLoops.h"
 
+#include "idr/Transforms/Pipeline.h"
+
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -28,9 +31,9 @@ void lower(RewriterBase &rewriter, Operation *op, Form form) {
   case Form::Parallel:
     return lowerParallel(rewriter, op);
   case Form::Reduction:
-    return lowerReduction(rewriter, cast<FoldLastOp>(op));
+    return lowerReduction(rewriter, cast<LastAxisFoldOpInterface>(op));
   case Form::Interchange:
-    return lowerInterchange(rewriter, op);
+    return lowerInterchange(rewriter, cast<LastAxisFoldOpInterface>(op));
   case Form::Ordered:
     return lowerOrdered(rewriter, op);
   }
@@ -40,20 +43,15 @@ void lower(RewriterBase &rewriter, Operation *op, Form form) {
 namespace {
 
 struct StructureLoops : idr::impl::IdrStructureLoopsBase<StructureLoops> {
-  void runOnOperation() override {
+  void runOnProgram(ProgramOp) override {
     SmallVector<Operation *> ops;
     getOperation()->walk<WalkOrder::PostOrder>([&](Operation *op) {
       if (structurable(op))
         ops.push_back(op);
     });
-    if (ops.empty())
-      return;
-    // The program's table, built once per function that holds an array op.
-    SymbolTable symbols(getOperation()->getParentOp());
-    CalleeEffects callees{symbols};
     IRRewriter rewriter(&getContext());
     for (Operation *op : ops) {
-      Form form = formOf(op, callees);
+      Form form = formOf(op);
       lower(rewriter, op, form);
       ++counterOf(form);
     }

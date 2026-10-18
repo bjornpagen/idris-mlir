@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The attributes of the idr dialect: its constants, what a call may do,
-// the keys of specializations, the instances a function or data type is
-// of, and the rule a refusal names.
+// The attributes of the idr dialect: its constants, the keys of
+// specializations, the instances a function or data type is of, the rule a
+// refusal names and a refusal the frontend found.
 
 #ifndef IDR_ATTRS
 #define IDR_ATTRS
@@ -38,34 +38,33 @@ def Idr_TagParameter : AttrParameter<"::idr::Tag", "a constructor's tag"> {
 // Constant attributes
 //===----------------------------------------------------------------------===//
 
-// A value, written untyped: its type is that of the idr.constant holding it,
-// or of the field or capture it fills. The self type exists only because
-// MLIR's parser reads the `: T` after an attribute into the attribute; the
-// verifiers accept only NoneType there.
+// A value, which holds no type of its own: its type is that of the
+// idr.constant holding it, written before it, or of the field or capture it
+// fills.
 class Idr_Attr<string name, string attrMnemonic, dag params = (ins)>
-    : AttrDef<Idr_Dialect, name, [TypedAttrInterface]> {
+    : AttrDef<Idr_Dialect, name> {
   let mnemonic = attrMnemonic;
-  let parameters = !con(params, (ins AttributeSelfTypeParameter<"">:$type));
+  let parameters = params;
 }
 
-// A constructor with its fields, plain, or a run: n >= 2 cells of one
-// constructor linked through one field, the spine, and ending in a tail,
-// held flat, so that a list constant is one level deep to the printer, the
-// parser, bytecode and every walk, however long it is. A walker that follows
-// the spine steps through getRunCells and then getTail, never through
-// getFields, which builds the rest of the run at each step. One value has one
-// attribute: `get` makes a run exactly where repeated cells form one, and the
-// verifier rejects any other run. What is stored is the cells: a plain con is
-// one cell holding all its fields, with a null tail and spine 0; a run is its
-// cells, each holding its fields without the spine field, then its tail and
-// the spine's index. The generated walk and replace see each cell as an
-// ArrayAttr and the tail as itself, so a run is one level deep to them. A
-// replace rebuilds from the replaced parameters (Base::get) without
-// canonicalizing, so it can make a run that is not canonical, which the
-// verifier rejects.
+// A constructor with its fields, held as a run of its cells: one or more
+// cells of one constructor, each linked to the next through one field, the
+// spine, held flat, so that a list constant is one level deep to the
+// printer, the parser, bytecode and every walk, however long it is. Every
+// cell but the last holds the constructor's fields without the spine field,
+// which is the next cell; the last holds all of them. A plain constructor
+// is the run of one cell, whose spine is 0: one cell is a length, never a
+// form of its own. A walker steps through the cells (walkFields,
+// fieldOfCell), never through getFields along the spine, which builds the
+// rest of the run at each step. One value has one attribute: `get` makes
+// the longest run its cells form, and the verifier rejects any other. The
+// generated walk and replace see each cell as an ArrayAttr, so a run is one
+// level deep to them. A replace rebuilds from the replaced parameters
+// (Base::get) without canonicalizing, so it can make a run that is not
+// canonical, which the verifier rejects.
 //
 // The constructor is its tag in its data type, which the attribute holds:
-// a constant is untyped, and the cells of a run are one type's, so two
+// a constant holds no type, and the cells of a run are one type's, so two
 // constructors in two types (the `Just` of a `Maybe (Maybe Int)` and of its
 // `Maybe Int`) never join. A constant of a label is a use of the label's
 // function through its data type, whose sub-elements the labels are. The
@@ -73,81 +72,69 @@ class Idr_Attr<string name, string attrMnemonic, dag params = (ins)>
 // be a box of it.
 //
 // It is written as it is stored, the constructor by its name: a plain
-// constructor as its one cell, `<!T, @C, [fields]>`, and a run as its
-// cells, its tail and the field it runs along, `<!T, @C, [a], [b] tail t
-// along 1>`, `along 0` left out (lib/IR/ConAttr.cpp). Any form is read into
-// the attribute `get` gives for the same value, however it was written.
+// constructor as its one cell, `<!T, @C, [fields]>`, and a run as its cells
+// and the field it runs along, `<!T, @C, [1], [2], [3, #idr.con<!T, @Nil,
+// []>] along 1>`, `along 0` left out (lib/IR/ConAttr.cpp). Any form is read
+// into the attribute `get` gives for the same value, however it was written.
 def Idr_ConAttr : Idr_Attr<"Con", "con",
     (ins "::idr::DataType":$data, Idr_TagParameter:$tag,
          ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
-         OptionalParameter<"::mlir::Attribute">:$tail,
          DefaultValuedParameter<"unsigned", "0">:$spine)> {
   let summary = "a constructor of a sum or box, its fields as attributes, a list's cells flat";
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
   let skipDefaultBuilders = 1;
   let builders = [
-    // A run when one field is a run of the constructor along that field, or
-    // the second cell of one; otherwise the plain con.
+    // The longest run its cells form: a run when one field is a run of the
+    // constructor along that field, or a cell that continues it; otherwise
+    // the one cell.
     AttrBuilder<(ins "::idr::DataType":$data, "::idr::Tag":$tag, "::mlir::ArrayAttr":$fields)>
   ];
   let extraClassDeclaration = [{
-    // What repeated `get` gives for the cells `cells` (each one's fields
-    // without the spine field) linked through field `spine` and ending in
-    // `tail`, built in O(n).
+    // What repeated `get` gives for the cells `cells`, every one but the
+    // last without the spine field, linked through field `spine`, built in
+    // O(n) and canonical however they were linked.
     static ConAttr getRun(::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
-                          unsigned spine, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
-                          ::mlir::Attribute tail);
+                          unsigned spine, ::llvm::ArrayRef<::mlir::ArrayAttr> cells);
     // The constructor, in its data type's body. Out of line: the data type is
     // declared after the attributes, whose instances its body holds.
     const ::idr::Ctor &getCtor() const;
-    // A run has a tail; a plain con has none.
-    bool isRun() const { return static_cast<bool>(getTail()); }
-    // The number of cells: 1 for a plain con.
+    // The number of cells: 1 for a plain constructor.
     unsigned getRunLength() const { return static_cast<unsigned>(getCells().size()); }
-    // A run's cells' fields without the spine field; empty for a plain con,
-    // whose one cell is its fields (getFields).
-    ::llvm::ArrayRef<::mlir::ArrayAttr> getRunCells() const {
-      return isRun() ? getCells() : ::llvm::ArrayRef<::mlir::ArrayAttr>();
+    // The index in the constructor of position `position` of cell `cell`:
+    // the last cell holds every field, so its position is the field; every
+    // other cell holds every field but the spine.
+    unsigned fieldOfCell(unsigned cell, unsigned position) const {
+      return cell + 1 == getRunLength() || position < getSpine() ? position : position + 1;
     }
+    // Every field of every cell, in order, with its index in the
+    // constructor: the run walked by its cells, never through its spine.
+    void walkFields(::llvm::function_ref<void(::mlir::Attribute, unsigned)> each) const;
     // Field `index` of the first cell: O(1) off the spine, and on it the run
     // from the second cell.
     ::mlir::Attribute getField(unsigned index) const;
-    // The first cell's fields, for both forms: O(n) on a run, which builds
-    // the rest of the run.
+    // The first cell's fields: O(n) on a run, which builds the rest of the
+    // run.
     ::mlir::ArrayAttr getFields() const;
     // The attribute of a constructor written as its stored parameters, as
-    // the parser reads them: what `get` gives for the value they say, a run
-    // where its cells form one, or null after an error.
+    // the parser reads them: what `get` gives for the value they say, or
+    // null after an error.
     static ConAttr getChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                               ::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
-                              ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
-                              unsigned spine, ::mlir::Type type);
+                              ::llvm::ArrayRef<::mlir::ArrayAttr> cells, unsigned spine);
   private:
-    // The attribute of stored parameters that get, getRun and the parser
-    // have made canonical. ODS completes the storage only in the unit that
-    // registers it, so these reach Base::get and Base::getChecked there.
+    // The attribute of stored parameters that get and getRun have made
+    // canonical. ODS completes the storage only in the unit that registers
+    // it, so this reaches Base::get there.
     static ConAttr getStored(::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
-                             ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
-                             unsigned spine, ::mlir::Type type);
-    static ConAttr getStoredChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                                    ::mlir::MLIRContext *context, ::idr::DataType data,
-                                    ::idr::Tag tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
-                                    ::mlir::Attribute tail, unsigned spine, ::mlir::Type type);
+                             ::llvm::ArrayRef<::mlir::ArrayAttr> cells, unsigned spine);
   public:
   }];
   let extraClassDefinition = [{
     $cppClass $cppClass::getStored(::mlir::MLIRContext *context, ::idr::DataType data,
                                    ::idr::Tag tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
-                                   ::mlir::Attribute tail, unsigned spine, ::mlir::Type type) {
-      return Base::get(context, data, tag, cells, tail, spine, type);
-    }
-    $cppClass $cppClass::getStoredChecked(
-        ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-        ::mlir::MLIRContext *context, ::idr::DataType data, ::idr::Tag tag,
-        ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail, unsigned spine,
-        ::mlir::Type type) {
-      return Base::getChecked(emitError, context, data, tag, cells, tail, spine, type);
+                                   unsigned spine) {
+      return Base::get(context, data, tag, cells, spine);
     }
   }];
 }
@@ -156,11 +143,6 @@ def Idr_ClosureAttr : Idr_Attr<"Closure", "closure",
     (ins "::mlir::FlatSymbolRefAttr":$callee, "::mlir::ArrayAttr":$captures)> {
   let summary = "a closure of a function with its captures as attributes";
   let assemblyFormat = "`<` $callee `,` $captures `>`";
-  let builders = [
-    AttrBuilder<(ins "::mlir::FlatSymbolRefAttr":$callee, "::mlir::ArrayAttr":$captures), [{
-      return $_get($_ctxt, callee, captures, ::mlir::NoneType::get($_ctxt));
-    }]>
-  ];
 }
 
 // An integer at its fewest signed bits, so that equal integers are equal
@@ -180,11 +162,13 @@ def Idr_IntegerParameter : APIntParameter<"an integer at its fewest signed bits"
 def Idr_BigAttr : Idr_Attr<"Big", "big", (ins Idr_IntegerParameter:$value)> {
   let summary = "an integer of any size";
   let assemblyFormat = "`<` $value `>`";
+  // One `get` of an integer, which takes any width: the default builder
+  // would be a second, which no call could choose between.
+  let skipDefaultBuilders = 1;
   let builders = [
     // `value` at its fewest signed bits, the one width the attribute holds.
     AttrBuilder<(ins "const ::llvm::APInt &":$value), [{
-      return $_get($_ctxt, value.sextOrTrunc(value.getSignificantBits()),
-                   ::mlir::NoneType::get($_ctxt));
+      return $_get($_ctxt, value.sextOrTrunc(value.getSignificantBits()));
     }]>
   ];
   let genVerifyDecl = 1;
@@ -204,11 +188,15 @@ def Idr_CmpPredicate : I64EnumAttr<"CmpPredicate",
 
 // What a run of a function may do besides computing its results: `io`,
 // perform IO; `crash`, end the program with a crash; `diverge`, never
-// return. It is a fact of an idr.func alone, its `effects`: what its body
-// does of itself, which idr::bodyEffect decides, and what each function it
-// calls may do. Its absence means every effect. Optimization only removes
-// what a function reaches, so a stale value says too much, never too
-// little.
+// return. An idr.func holds it as its `effects` property, what its body
+// does of itself (idr::bodyEffect) and what each function it calls may do,
+// and so does each idr.call, at least its callee's. The property's default,
+// anyEffect, is every effect: a function or call nothing has narrowed may
+// do anything. The property prints itself (NamedEnumProp), its bits bare
+// and comma-separated, `effects<io, crash>`, and `effects<none>` for none,
+// so no attribute holds the enum and no printer of ours writes it.
+// Optimization only removes what a function reaches, so a stale value says
+// too much, never too little.
 def Idr_Effect : I32BitEnumAttr<"Effect", "what a call of a function may do", [
       I32BitEnumAttrCaseNone<"none">,
       I32BitEnumAttrCaseBit<"io", 0>,
@@ -216,26 +204,29 @@ def Idr_Effect : I32BitEnumAttr<"Effect", "what a call of a function may do", [
       I32BitEnumAttrCaseBit<"diverge", 2>]> {
   let cppNamespace = "::idr";
   let separator = ", ";
+  let printBitEnumQuoted = 0;
   let genSpecializedAttr = 0;
 }
-
-def Idr_EffectAttr : EnumAttr<Idr_Dialect, Idr_Effect, "effects">;
 
 //===----------------------------------------------------------------------===//
 // Specialization keys
 //===----------------------------------------------------------------------===//
 
 // The keys of the functions specialization makes, which a pass prints
-// into a name from content. The labels in a key are names, not symbol
-// uses: a key keeps no function alive and refers to none.
+// into a name from content. They are attributes for MLIR's uniquing, which
+// the specializer's memo tables key on; no op holds one, so the Idris side
+// has no syntax for them (`idris`, which idris-mlir-tblgen reads). The
+// labels in a key are names, not symbol uses: a key keeps no function alive
+// and refers to none.
 class Idr_KeyAttr<string name, string attrMnemonic> : AttrDef<Idr_Dialect, name> {
   let mnemonic = attrMnemonic;
+  bit idris = 0;
 }
 
+// A hole is its place: the i-th hole of a key, in pre-order, is the
+// clone's parameter i, so it holds no index.
 def Idr_KeyHoleAttr : Idr_KeyAttr<"KeyHole", "key_hole"> {
-  let summary = "a runtime leaf of a key: the clone's parameter that holds it";
-  let parameters = (ins "unsigned":$index);
-  let assemblyFormat = "`<` $index `>`";
+  let summary = "a runtime leaf of a key: the clone's parameter at its pre-order place";
 }
 
 // A constructor in a key is its tag, as everywhere: the key's position
@@ -255,12 +246,13 @@ def Idr_SpecKeyAttr : Idr_KeyAttr<"SpecKey", "spec_key"> {
 }
 
 // A clone made by raising: its callee and the dispatch that consumes the
-// callee's result, by the match's printed form, which says what each case
-// does with the label it takes.
+// callee's result, by reference to its uniqued form: `form` is the digest
+// name the run's table of consumer forms gives it, which names its entry
+// there, never the consumer's text.
 def Idr_KeyRaiseAttr : Idr_KeyAttr<"KeyRaise", "key_raise"> {
   let summary = "the key of a clone that dispatches on its callee's result";
-  let parameters = (ins "::mlir::StringAttr":$callee, "::mlir::StringAttr":$consumer);
-  let assemblyFormat = "`<` $callee `,` $consumer `>`";
+  let parameters = (ins "::mlir::StringAttr":$callee, "::mlir::StringAttr":$form);
+  let assemblyFormat = "`<` $callee `,` $form `>`";
 }
 
 //===----------------------------------------------------------------------===//
@@ -274,12 +266,34 @@ def Idr_KeyRaiseAttr : Idr_KeyAttr<"KeyRaise", "key_raise"> {
 // the specialization keys are: an instance keeps no function alive, refers
 // to none and follows no rename. The readable symbol is this key printed;
 // no pass reads it.
+//
+// The arguments are written in brackets, `["Nat"]`, and an instance at
+// none `[]`: a list without delimiters, an ArrayRefParameter's default,
+// cannot be empty.
+def Idr_InstanceArguments
+    : ArrayRefParameter<"::mlir::StringAttr", "the text of each argument of an instance"> {
+  let parser = [{
+    [&]() -> ::mlir::FailureOr<::llvm::SmallVector<::mlir::StringAttr>> {
+      ::llvm::SmallVector<::mlir::StringAttr> arguments;
+      if ($_parser.parseCommaSeparatedList(::mlir::AsmParser::Delimiter::Square, [&]() {
+            return $_parser.parseAttribute(arguments.emplace_back());
+          }))
+        return ::mlir::failure();
+      return arguments;
+    }()
+  }];
+  let printer = [{
+    $_printer << '[';
+    ::llvm::interleaveComma($_self, $_printer);
+    $_printer << ']'
+  }];
+}
+
 def Idr_InstanceAttr : AttrDef<Idr_Dialect, "Instance"> {
   let mnemonic = "instance";
   let summary = "the Idris definition and arguments a function or data type is an instance of";
-  let parameters = (ins "::mlir::StringAttr":$origin, "::mlir::ArrayAttr":$arguments);
+  let parameters = (ins "::mlir::StringAttr":$origin, Idr_InstanceArguments:$arguments);
   let assemblyFormat = "`<` $origin `,` $arguments `>`";
-  let genVerifyDecl = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -289,5 +303,17 @@ def Idr_InstanceAttr : AttrDef<Idr_Dialect, "Instance"> {
 // The rule a refusal names, held in the refusal's diagnostic as data
 // (idr::refuse), so the driver reads the rule and never the text.
 def Idr_RuleAttr : EnumAttr<Idr_Dialect, Idr_Rule, "rule">;
+
+// A refusal of the program the frontend found, which it writes into the
+// module it gives the driver: the rule, where, and the words for a human.
+// The driver re-emits each through idr::refuse, the one printer of a
+// refusal, so the verdict is read from the rule, never from text.
+def Idr_RefusalAttr : AttrDef<Idr_Dialect, "Refusal"> {
+  let mnemonic = "refusal";
+  let summary = "a refusal of the program the frontend found, which the driver reports";
+  let parameters = (ins EnumParameter<Idr_Rule>:$rule, "::mlir::LocationAttr":$loc,
+                        StringRefParameter<"what was found, for a human">:$message);
+  let assemblyFormat = "`<` $rule `,` $loc `,` $message `>`";
+}
 
 #endif // IDR_ATTRS

@@ -6,6 +6,12 @@
 // inline, so a body copied in brings calls the step does not see: those
 // the callee kept, which the rule already weighed, and those its cleanup
 // exposes, which the next step of the caller's loop sees.
+//
+// A callee that ends in ub.unreachable never returns: the inliner keeps
+// its terminator and leaves the rest of the call's block unreachable, a
+// second block of the caller. It goes once, after every call the step took
+// is inlined or kept: a call taken before may sit in it, inlined there to
+// no effect, and an erase between two inlines would leave that call freed.
 
 #include "idr/Transforms/Inline.h"
 
@@ -14,11 +20,15 @@
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/Inliner.h"
 #include "mlir/Transforms/InliningUtils.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <variant>
 
 using namespace mlir;
 
@@ -32,19 +42,9 @@ struct InlineAction : idr::support::TaggedAction<InlineAction> {
 
 } // namespace
 
-bool idr::inlining::fitsRegion(InlinerInterface &interface, CallOp call, FuncOp callee) {
-  Region &body = callee.getBody();
-  bool needsBlocks =
-      llvm::hasNItemsOrMore(body, /*N=*/2) || !interface.allowSingleBlockOptimization(body);
-  if (!needsBlocks)
-    return true;
-  Operation *parent = call->getParentOp();
-  return parent->getName() == callee->getName() || !parent->mightHaveTrait<OpTrait::SingleBlock>();
-}
-
 idr::inlining::Step
 idr::inlining::inlineCalls(FuncOp caller,
-                           llvm::function_ref<const optimize::Node *(StringAttr)> nodeOf) {
+                           llvm::function_ref<optimize::Callee(StringAttr)> callee) {
   Step step;
   SmallVector<CallOp> calls;
   caller.getBody().walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
@@ -54,15 +54,15 @@ idr::inlining::inlineCalls(FuncOp caller,
   InlinerInterface interface(caller.getContext());
   InlinerConfig config;
   for (CallOp call : calls) {
-    const optimize::Node *callee = nodeOf(call.getCalleeAttr().getAttr());
+    optimize::Callee answer = callee(call.getCalleeAttr().getAttr());
     // A callee that is not final is a member of the caller's own
-    // component: never inlined, and never read.
-    const optimize::Summary *summary = callee ? callee->summary() : nullptr;
-    if (!summary)
+    // component, or one it waits on: never inlined, and never read.
+    const auto *known = std::get_if<optimize::Final>(&answer);
+    if (!known)
       continue;
-    FuncOp fn = callee->fn;
-    const Facts &facts = summary->facts;
-    if (!worthInlining(facts, fn.getNoInline()) || !fitsRegion(interface, call, fn))
+    FuncOp fn = known->fn;
+    const Facts &facts = known->summary.facts;
+    if (!facts.inlines)
       continue;
     if (!fitsCap(size, facts.size)) {
       ++step.capped;
@@ -77,6 +77,11 @@ idr::inlining::inlineCalls(FuncOp caller,
       size += facts.size - 1;
       ++step.inlined;
     });
+  }
+  // Only an inline leaves a block unreachable.
+  if (step.inlined != 0) {
+    IRRewriter rewriter(caller.getContext());
+    (void)eraseUnreachableBlocks(rewriter, caller.getBody());
   }
   return step;
 }

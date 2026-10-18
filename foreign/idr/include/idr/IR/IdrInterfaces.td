@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What an op or a type of the idr dialect declares once, for every pass to
 // derive from: the resources of an op's effects, its base class, and its
-// traits and interfaces, whose C++ halves are in IdrDialect.h; and what a
-// value of a type holds, which every type answers.
+// traits and interfaces, whose C++ halves are in IdrDialect.h; what a value
+// of a type holds, which every type answers; and what a literal of a type
+// is.
 
 #ifndef IDR_INTERFACES
 #define IDR_INTERFACES
@@ -24,8 +25,9 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
   let cppNamespace = "::idr";
   let description = [{
     What a value of the type holds: a reference a count accounts for, the
-    world, a closure; whether the owned stage counts the value; and whether
-    the value is one pointer to a cell.
+    world; whether the type alone makes every value of it used exactly
+    once; whether the owned stage counts the value; and whether the value is
+    one pointer to a cell.
   }];
   let methods = [
     InterfaceMethod<[{
@@ -39,10 +41,10 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
         elements. A closure or a suspension never captures one.
       }], "bool", "holdsWorld">,
     InterfaceMethod<[{
-        Whether a value of the type may hold a closure: it is one, or a
-        constructor of a sum of closures, or holds a value that may, in
-        place, in a box or in an array's elements.
-      }], "bool", "holdsClosure">,
+        Whether every value of the type is used exactly once by the type
+        alone, as the world, a destination and a cell are: no grade states
+        it, and a grade of such a type is refused.
+      }], "bool", "isLinearByType">,
     InterfaceMethod<[{
         Whether the owned stage counts a value of the type: it holds a
         reference and lives where counts reach it. A value array holds its
@@ -59,6 +61,23 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
         several words.
       }], "bool", "isCellPointer">,
   ];
+}
+
+//===----------------------------------------------------------------------===//
+// What a literal of a type is
+//===----------------------------------------------------------------------===//
+
+// What a literal of a type is, asked of the type: which attributes are its
+// literals, and how one is read. The types a literal match takes and a
+// constant builds answer it, the builtin integers as external models, so
+// neither the match nor the constant lists the types that have literals.
+def Idr_LiteralTypeInterface : TypeInterface<"LiteralTypeInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"Whether the attribute is a literal of this type.", "bool", "isLiteral",
+                    (ins "::mlir::Attribute":$literal)>,
+    InterfaceMethod<"Reads a literal of this type.", "::mlir::ParseResult", "parseLiteral",
+                    (ins "::mlir::AsmParser &":$parser, "::mlir::Attribute &":$literal)>];
 }
 
 //===----------------------------------------------------------------------===//
@@ -80,26 +99,21 @@ def Idr_ReferenceResource : Resource<"::idr::ReferenceResource">;
 class Idr_Op<string mnemonic, list<Trait> traits = []>
     : Op<Idr_Dialect, mnemonic, traits>;
 
-// An op that may end the program. Its cause is the text of the crash
-// message; its effects and speculatability follow.
+// An op that may end the program, and what its crash reports, the text of
+// the crash message. An op that cannot crash does not hold it.
 def Idr_MayCrashOpInterface : OpInterface<"MayCrashOpInterface"> {
   let cppNamespace = "::idr";
   let description = "An op that may end the program with a crash.";
   let methods = [
-    InterfaceMethod<"What the crash reports, or nothing when the op cannot crash.",
-                    "std::optional<::llvm::StringRef>", "getCrashCause">,
+    InterfaceMethod<"What the crash reports.", "::llvm::StringRef", "getCrashCause">,
   ];
 }
 
-// `allocates`: the op also allocates its result (MemAlloc).
-class Idr_MayCrashTrait<bit allocates>
-    : ParamNativeOpTrait<"MayCrash", !if(allocates, "true", "false")> {
-  let cppNamespace = "::idr";
-}
-
-class Idr_MayCrash<bit allocates = 0> : TraitList<[Idr_MayCrashTrait<allocates>,
-    DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>,
-    MemoryEffectsOpInterface, ConditionallySpeculatable]>;
+// An op that may crash: it writes the crash resource and the IO resource,
+// so no pass drops it or moves it across output, and it is not
+// speculatable, which an op without ConditionallySpeculatable is to MLIR.
+def Idr_MayCrash : TraitList<[DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>,
+    MemoryEffects<[MemWrite<Idr_CrashResource>, MemWrite<Idr_IOResource>]>]>;
 
 // What a pass asks of any guard, so that none lists the guards: the
 // condition it checks, and the operand it guards.
@@ -113,6 +127,72 @@ def Idr_GuardOpInterface : OpInterface<"GuardOpInterface"> {
   ];
 }
 
+// A pure total op whose guards (Idr_Guarded) read only its own operands, one
+// value each: the trait ::idr::GuardedOp supplies `guardHolds(adaptor)`,
+// which its folder asks before computing on constants, and
+// `getSpeculatability()`, which an op that lists ConditionallySpeculatable
+// beside it takes as its own, as AlwaysSpeculatableImplTrait supplies an
+// always speculatable op's. Both read the guards from the specialization
+// ::idr::Guarded<Op> idris-mlir-tblgen generates from the op's marks, at
+// compile time. The IO buffer ops and the array accesses, whose guards read
+// a count of bytes or a group of indices, do not carry it: they neither fold
+// nor speculate.
+def Idr_GuardedOp : NativeOpTrait<"GuardedOp"> { let cppNamespace = "::idr"; }
+
+// What a pass asks of a match, so that none lists the match ops: the value
+// it takes apart, the region of each case and the default, and how to
+// remake it with fewer cases. Which region a constant scrutinee takes is
+// RegionBranchOpInterface's getEntrySuccessorRegions, not a method of this.
+def Idr_MatchOpInterface : OpInterface<"MatchOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "A match: a region per case of its scrutinee, and a default.";
+  let methods = [
+    InterfaceMethod<"The value the match takes apart.", "::mlir::Value", "getScrutinee">,
+    InterfaceMethod<"The number of its cases.", "unsigned", "getNumCases">,
+    InterfaceMethod<"The region of case `index`.", "::mlir::Region &", "getCaseRegion",
+                    (ins "unsigned":$index)>,
+    InterfaceMethod<[{The default region: empty when an idr.match's cases are
+                      exhaustive, else one block binding the scrutinee.}],
+                    "::mlir::Region &", "getDefaultRegion">,
+    InterfaceMethod<[{The index of `region`, one of its case regions. The default
+                      is no case: a caller tests for it first.}],
+                    "unsigned", "caseOf", (ins "::mlir::Region &":$region)>,
+    InterfaceMethod<[{The constructor the case region `region` is entered at; none
+                      for the default and for every region of idr.match_lit.}],
+                    "std::optional<::idr::Tag>", "knownTag", (ins "::mlir::Region &":$region)>,
+    InterfaceMethod<[{The same match with `results`, the cases `keptCases` in
+                      their order and `defaultRegion` as its default, built with
+                      `rewriter` in its place.}],
+                    "::mlir::Operation *", "rebuild",
+                    (ins "::mlir::RewriterBase &":$rewriter, "::mlir::TypeRange":$results,
+                         "::llvm::ArrayRef<unsigned>":$keptCases,
+                         "::mlir::Region *":$defaultRegion)>,
+  ];
+}
+
+// What a pass asks of an op that runs the function a label names, so that
+// none lists them: the value whose label decides what runs.
+def Idr_RunsLabelsOpInterface : OpInterface<"RunsLabelsOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "An op that runs the function a closure's or a suspension's label names.";
+  let methods = [
+    InterfaceMethod<"The closure applied or the suspension forced.", "::mlir::Value",
+                    "getLabelCarrier">,
+  ];
+}
+
+// What an idr.array.yield asks of the op it ends a region of, so that it
+// lists none: the arrays its leading values move into, one each. The yield
+// forwards the values after them.
+def Idr_YieldTargetsOpInterface : OpInterface<"YieldTargetsOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "An op whose region yields values into arrays it holds.";
+  let methods = [
+    InterfaceMethod<"The arrays the yield's leading values move into, one each.",
+                    "::mlir::ValueRange", "getYieldTargets">,
+  ];
+}
+
 // What a pass asks of any op of the array language's generating set, so
 // that none lists them: a region that binds the indices of an iteration
 // domain first and runs once per index, how each dimension of the domain is
@@ -120,7 +200,8 @@ def Idr_GuardOpInterface : OpInterface<"GuardOpInterface"> {
 // parallel dimensions. The size is given twice, as code and as a term of
 // value bounds, because a term makes nothing and code needs a value: both
 // are read from the one place the op holds the size.
-def Idr_GeneratingOpInterface : OpInterface<"GeneratingOpInterface"> {
+def Idr_GeneratingOpInterface : OpInterface<"GeneratingOpInterface",
+                                             [Idr_YieldTargetsOpInterface]> {
   let cppNamespace = "::idr";
   let description = "An op of the generating set: a region run once per index of a domain.";
   let methods = [
@@ -148,7 +229,7 @@ def Idr_GeneratingOpInterface : OpInterface<"GeneratingOpInterface"> {
 // region binds, which moves out with the reference its place held, and the
 // values the region gives after the element, which leave the op. The
 // region's first value moves back in over the place the element left.
-def Idr_UpdateOpInterface : OpInterface<"UpdateOpInterface"> {
+def Idr_UpdateOpInterface : OpInterface<"UpdateOpInterface", [Idr_YieldTargetsOpInterface]> {
   let cppNamespace = "::idr";
   let description = "An element of an array or of a value array's buffer rebuilt in its place.";
   let methods = [
@@ -160,6 +241,46 @@ def Idr_UpdateOpInterface : OpInterface<"UpdateOpInterface"> {
                     "getElement">,
     InterfaceMethod<"The values the region gives after the element.", "::mlir::ResultRange",
                     "getOuts">,
+  ];
+}
+
+// What a pass asks of a fold along an array's last axis, so that none tells
+// a fold from a scan to read one: the accumulators' first values, the
+// length of the axis, how many leading axes each step's frame has, and the
+// accumulators the region binds.
+def Idr_LastAxisFoldOpInterface : OpInterface<"LastAxisFoldOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "A fold or a scan of accumulators along an array's last axis.";
+  let methods = [
+    InterfaceMethod<"The accumulators' first values.", "::mlir::OperandRange", "getInits">,
+    InterfaceMethod<"The length of the axis folded.", "::mlir::Value", "getLength">,
+    InterfaceMethod<"The rank of the frame each step reads.", "unsigned", "getFrameRank">,
+    InterfaceMethod<"The accumulators the region binds.", "::mlir::Block::BlockArgListType",
+                    "getAccumulators">,
+  ];
+}
+
+// What a pass asks of an op that builds a string, so that none lists the
+// builders: whether the string is never empty, whether output of it may
+// write the pieces it is built of instead, and whether its first character
+// is known without building it. Each builder beside a predicate is called
+// only when the predicate holds, so a pass weighing a rewrite asks without
+// building.
+def Idr_StrBuilderOpInterface : OpInterface<"StrBuilderOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "An op that builds a string from pieces.";
+  let methods = [
+    InterfaceMethod<"Whether the string it builds is never empty.", "bool", "nonEmpty">,
+    InterfaceMethod<"Whether output of the string may write its pieces instead.", "bool",
+                    "writesInPieces">,
+    InterfaceMethod<[{Writes its pieces with `b` after `world`, and gives the world
+                      after; only where writesInPieces holds.}],
+                    "::mlir::Value", "writePieces",
+                    (ins "::mlir::OpBuilder &":$b, "::mlir::Value":$world)>,
+    InterfaceMethod<"Whether its first character is known without building the string.", "bool",
+                    "knowsFirstChar">,
+    InterfaceMethod<"Builds its first character with `b`; only where knowsFirstChar holds.",
+                    "::mlir::Value", "firstChar", (ins "::mlir::OpBuilder &":$b)>,
   ];
 }
 
@@ -184,25 +305,27 @@ def Idr_ObservableIO : NativeOpTrait<"ObservableIO"> {
 // An op whose only effect is what it takes over: after idr-rc it reports a
 // Free of what it takes owned (idr::consumedEffects), so that no pass drops
 // it as dead. What it takes over is its flow's (IdrFlow.td), which
-// idr::consumes reads; `groups`, the ODS operand groups written with it, say
-// nothing more. The trait is ::idr::ConsumesOperands<groups>::Impl: a
-// ParamNativeOpTrait names ::mlir::OpTrait:: unless its class sets the
-// namespace, as Idr_MayCrashTrait does.
-class Idr_ConsumesOperandsTrait<string groups>
-    : ParamNativeOpTrait<"ConsumesOperands", groups> {
-  let cppNamespace = "::idr";
-}
-class Idr_ConsumesOnly<string groups>
-    : TraitList<[Idr_ConsumesOperandsTrait<groups>, MemoryEffectsOpInterface,
-                 AlwaysSpeculatable]>;
+// idr::consumes reads. The effects are ::idr::ConsumesOperands's.
+def Idr_ConsumesOperands : NativeOpTrait<"ConsumesOperands"> { let cppNamespace = "::idr"; }
+def Idr_ConsumesOnly : TraitList<[Idr_ConsumesOperands, MemoryEffectsOpInterface,
+                                  AlwaysSpeculatable]>;
 
 // An op Idris names as a primitive: idris-mlir-tblgen generates its
 // constructor of `IdrPrim` (or `IdrRegionPrim`) for the Idris side.
 def Idr_Primitive : NativeOpTrait<"Primitive"> { let cppNamespace = "::idr"; }
 
-// The result is the operand's value, at whatever grade the result has.
-def Idr_ResultCarriesOperand : NativeOpTrait<"ResultCarriesOperand"> {
-  let cppNamespace = "::idr";
-}
+// An op whose result is its operand at run time: a change of grade, of
+// linearity or of kind, which idr-lower lowers to its operand's components
+// (::idr::NoRuntimeForm).
+def Idr_NoRuntimeForm : NativeOpTrait<"NoRuntimeForm"> { let cppNamespace = "::idr"; }
+
+// The result is the operand's value, at whatever grade the result has
+// (::idr::ResultCarriesOperand, which verifies it), which a pass looks
+// through. Held through Idr_ResultCarriesOperand.
+def Idr_CarriesOperand : NativeOpTrait<"ResultCarriesOperand"> { let cppNamespace = "::idr"; }
+
+// An op that carries its operand is its operand at run time, so carrying
+// says Idr_NoRuntimeForm with it, once.
+def Idr_ResultCarriesOperand : TraitList<[Idr_CarriesOperand, Idr_NoRuntimeForm]>;
 
 #endif // IDR_INTERFACES

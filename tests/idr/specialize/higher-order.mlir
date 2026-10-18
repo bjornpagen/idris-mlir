@@ -1,6 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that @map is specialized on the known constructor of @add with its capture a hole, with symbol-dce after idr-optimize as the pipeline runs it (S2's default argument, S22's parameterless holes).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@map,not-called=@add -o /dev/null
-// NEEDS-ACCEPTANCE: that @map is specialized on the known constructor of @add with its capture a hole.
 // A closure passed to a recursive map, whose function is a fixed
 // parameter. After defunctionalization it is a constructor of its sum
 // whose label is static and whose capture is a runtime leaf: the copy of
@@ -50,7 +50,7 @@ idr.program @"higher-order" root(@Main.main) stage(higher) {
       %nil = idr.con !idr.box<!L> @Nil()
       idr.yield %nil : !idr.box<!L>
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %t = idr.call @read(%m) : (i64) -> !idr.box<!L>

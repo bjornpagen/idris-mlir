@@ -16,32 +16,31 @@ using namespace mlir;
 namespace idr::expect {
 
 // The function the argument names tests no count and no null: every take
-// in it is of an exclusive value, every reuse builds in an exclusive
-// cell, and there is at least one take.
-LogicalResult testsNothing(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "tests-nothing";
-  SmallVector<FunctionOpInterface> functions =
-      named(module, function, property);
-  if (functions.empty())
-    return failure();
+// in it is of an exclusive value, every cell it recycles is an exclusive
+// token's, and there is at least one take.
+LogicalResult testsNothing(const Request<Functions> &request) {
+  ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   bool held = true, taken = false;
+  auto tested = [&](Operation *op, Value value) {
+    if (isExclusive(value.getType()))
+      return;
+    fail(op->getLoc(), request.property) << op->getName() << " in " << where(op)
+                                         << " tests a value of " << value.getType()
+                                         << ", which is not exclusive";
+    held = false;
+  };
   for (FunctionOpInterface fn : functions)
     fn->walk([&](Operation *op) {
-      Value cell;
       if (auto take = dyn_cast<TakeOp>(op)) {
         taken = true;
-        cell = take.getValue();
-      } else if (auto reuse = dyn_cast<ReuseOp>(op)) {
-        cell = reuse.getToken();
+        tested(op, take.getValue());
+      } else if (auto recycle = dyn_cast<CellRecycleOp>(op)) {
+        tested(op, recycle.getToken());
       }
-      if (!cell || isExclusive(cell.getType()))
-        return;
-      fail(op->getLoc(), property) << op->getName() << " in " << where(op) << " tests a value of "
-                                   << cell.getType() << ", which is not exclusive";
-      held = false;
     });
   if (!taken) {
-    fail(functions.front()->getLoc(), property) << "nothing is taken apart in " << function;
+    fail(functions.front()->getLoc(), request.property)
+        << "nothing is taken apart in @" << request.argument.name;
     held = false;
   }
   return success(held);
@@ -49,19 +48,15 @@ LogicalResult testsNothing(ModuleOp module, AnalysisManager &, StringRef functio
 
 // Some copy of @f takes every parameter that holds references at the
 // exclusive grade, and takes one.
-LogicalResult exclusiveCopy(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "exclusive-copy";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult exclusiveCopy(const Request<Functions> &request) {
   auto exclusiveOnly = [](FunctionOpInterface fn) {
     auto references = llvm::make_filter_range(fn.getArgumentTypes(), holdsReferences);
     return !references.empty() && llvm::all_of(references, isExclusive);
   };
-  if (llvm::any_of(functions, exclusiveOnly))
+  if (llvm::any_of(request.argument.functions, exclusiveOnly))
     return success();
-  return fail(module.getLoc(), property)
-         << "no copy of " << function << " takes its references exclusive";
+  return fail(request.module->getLoc(), request.property)
+         << "no copy of @" << request.argument.name << " takes its references exclusive";
 }
 
 } // namespace idr::expect

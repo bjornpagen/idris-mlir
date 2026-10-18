@@ -11,6 +11,7 @@ import Core.Context
 import Core.Core
 import Core.Directory
 import Core.Env
+import Core.FC
 import Core.Name.Namespace
 import Core.Options
 import Core.TT
@@ -144,6 +145,30 @@ moduleSource fc ident = do
     else pure named
 
 ------------------------------------------------------------------------------
+-- Refusals
+------------------------------------------------------------------------------
+
+||| A program the compiler refuses, from the moment the refusal is made: the
+||| rule that refuses it, Idris's location of what it refuses, which a
+||| refusal always has, and the message, which names what is refused.
+public export
+record Refusal where
+  constructor MkRefusal
+  rule : Rule
+  site : NonEmptyFC
+  message : String
+
+export
+Eq Refusal where
+  r == r' = r.rule == r'.rule && r.site == r'.site && r.message == r'.message
+
+||| Why a program is not compiled: a refusal, or an error Idris raised,
+||| held as Idris gave it until the driver renders its message (rendering
+||| needs Idris's printing options, which only the driver has).
+public export
+data Rejection = Refused Refusal | ByIdris Error
+
+------------------------------------------------------------------------------
 -- Hooks
 ------------------------------------------------------------------------------
 
@@ -153,22 +178,38 @@ hooksOf : Name -> Hooks
 hooksOf n = hooks (Def (qname n))
 
 ||| What the registry makes of a `%foreign` definition, by its full name and
-||| the specs Idris recorded for it: nothing, its hook, or the message of
-||| a shape mismatch when another definition declares an entry's spec.
+||| the specs Idris recorded for it, at the site that reaches it: its hooks,
+||| or the refusal of it, a shape mismatch when another definition declares
+||| an entry's spec, or an escape hatch when no entry names a spec (`owner`
+||| reaches it, `via` the path that does).
 export
-foreignHookOf : Name -> List String -> Maybe (Either String Hooks)
-foreignHookOf n specs = map (mapFst (\(e, m) => mismatch e m)) (foreignHook (qname n) specs)
+foreignHookOf : NonEmptyFC -> (owner : String) -> (via : String) -> Name -> List String -> Either Refusal Hooks
+foreignHookOf site owner via n specs = case foreignHook (qname n) specs of
+  Just (Right hs) => Right hs
+  Just (Left (e, m)) => Left (MkRefusal HookShape site (show n ++ ": " ++ mismatch e m))
+  Nothing => Left (MkRefusal EscapeHatch site (owner ++ ": %foreign " ++ show n ++ via))
 
 ------------------------------------------------------------------------------
 -- Shapes
 ------------------------------------------------------------------------------
 
-||| How a runtime value bound with multiplicity 1 or ω is used. A binder of
-||| multiplicity 0 binds no runtime value, so it has no quantity: whoever
-||| meets one leaves the position out.
+||| How a binder's value is used at run time: not at all (quantity 0, a
+||| binder of no runtime value, whose position whoever meets it leaves
+||| out), or as a quantity says.
+public export
+data Use = Erased | Used Quantity
+
+||| The use a binder's multiplicity gives its value.
 export
-quantityOf : RigCount -> Quantity
-quantityOf rig = if isLinear rig then One else Many
+use : RigCount -> Use
+use = elimSemi Erased (Used One) (const (Used Many))
+
+||| A use as the registry writes a binder's multiplicity.
+export
+multiplicity : Use -> Multiplicity
+multiplicity Erased = M0
+multiplicity (Used One) = M1
+multiplicity (Used Many) = Mw
 
 ||| The product of two quantities, as Idris uses a field through the
 ||| binder that holds its value: one is the unit, and many absorbs.
@@ -177,31 +218,30 @@ quantityTimes : Quantity -> Quantity -> Quantity
 quantityTimes One q = q
 quantityTimes Many _ = Many
 
-primTy : PrimType -> Maybe PrimTy
-primTy IntType = Just (IntP IdrisInt)
-primTy Int8Type = Just (IntP SInt8)
-primTy Int16Type = Just (IntP SInt16)
-primTy Int32Type = Just (IntP SInt32)
-primTy Int64Type = Just (IntP SInt64)
-primTy Bits8Type = Just (IntP UInt8)
-primTy Bits16Type = Just (IntP UInt16)
-primTy Bits32Type = Just (IntP UInt32)
-primTy Bits64Type = Just (IntP UInt64)
-primTy IntegerType = Just IntegerP
-primTy StringType = Just StringP
-primTy CharType = Just CharP
-primTy DoubleType = Just DoubleP
-primTy Primitive.WorldType = Just WorldP
+||| A primitive type as the registry has it.
+export
+primTy : PrimType -> PrimTy
+primTy IntType = IntP IdrisInt
+primTy Int8Type = IntP SInt8
+primTy Int16Type = IntP SInt16
+primTy Int32Type = IntP SInt32
+primTy Int64Type = IntP SInt64
+primTy Bits8Type = IntP UInt8
+primTy Bits16Type = IntP UInt16
+primTy Bits32Type = IntP UInt32
+primTy Bits64Type = IntP UInt64
+primTy IntegerType = IntegerP
+primTy StringType = StringP
+primTy CharType = CharP
+primTy DoubleType = DoubleP
+primTy Primitive.WorldType = WorldP
 
 ||| The shape of a normalised type whose names are full. What no shape
 ||| describes (a variable, an erased or delayed term) is a hole.
 export
 shapeOf : Term vars -> Shape
-shapeOf (Bind _ _ (Pi _ rig _ a) sc) = Pi (multiplicity rig) (shapeOf a) (shapeOf sc)
-  where
-    multiplicity : RigCount -> Multiplicity
-    multiplicity rig = if isErased rig then M0 else if isLinear rig then M1 else Mw
-shapeOf (PrimVal _ (PrT t)) = maybe Hole Prim (primTy t)
+shapeOf (Bind _ _ (Pi _ rig _ a) sc) = Pi (multiplicity (use rig)) (shapeOf a) (shapeOf sc)
+shapeOf (PrimVal _ (PrT t)) = Prim (primTy t)
 shapeOf (TType _ _) = TypeOfTypes
 shapeOf tm = spine tm []
   where
@@ -213,51 +253,48 @@ shapeOf tm = spine tm []
     spine _ _ = Hole
 
 ------------------------------------------------------------------------------
--- Validation
+-- The registry against the context
 ------------------------------------------------------------------------------
-
-||| What validation found.
-public export
-data Validation
-  = Valid
-  | ||| An entry whose definition is present and wrong: where, the name the
-    ||| entry resolves, and the message.
-    Wrong FC String String
 
 ||| Every entry, resolved against the loaded context once per
 ||| compilation, before anything uses the registry. An entry whose module the
 ||| program does not load is not checked; one whose definition is present
 ||| must be what the entry expects. There is no fallback: a mismatch stops
 ||| the compilation. A test of the validation gives it a program whose own
-||| module defines a keyed name at another shape.
+||| module defines a keyed name at another shape. The first entry that does
+||| not validate is refused where its definition is, or, when the
+||| definition is missing, at `fallback`.
 export
-validate : {auto c : Ref Ctxt Defs} -> Core Validation
-validate = check entries
+validate : {auto c : Ref Ctxt Defs} -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
+validate fallback = check entries
   where
-    check : List Entry -> Core Validation
-    check [] = pure Valid
+    wrong : FC -> QName -> String -> Refusal
+    wrong loc q msg = MkRefusal HookShape (fromMaybe fallback (isNonEmptyFC loc)) (show q ++ ": " ++ msg)
+
+    check : List Entry -> Core (Maybe Refusal)
+    check [] = pure Nothing
     check (e :: es) = case site e of
       Nothing => check es
       Just (q, expected) => do
         defs <- get Ctxt
         let loaded = map (\(_, (m, _, _)) => modulePath m) defs.allImported
         Just def <- lookupCtxtExact (toName q) (gamma defs)
-          | Nothing => if inModules loaded q then pure (Wrong EmptyFC (show q) (mismatch e Missing))
+          | Nothing => if inModules loaded q then pure (Just (wrong EmptyFC q (mismatch e Missing)))
                        else check es
         let declared = case (e.key, definition def) of
                          (Foreign _, ForeignDef _ specs) => declares e specs
                          (Foreign _, _) => False
                          _ => True
-        if not declared then pure (Wrong (location def) (show q) (mismatch e Undeclared)) else
+        if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else
           case expected of
             -- A bodiless declaration is its own shape: there is nothing of
             -- its type to compare, only that no body gives it a second
             -- meaning.
             IsBodiless => case definition def of
               ExternDef _ => check es
-              _ => pure (Wrong (location def) (show q) (mismatch e Bodied))
+              _ => pure (Just (wrong (location def) q (mismatch e Bodied)))
             HasShape shape => do
               ty <- toFullNames !(host.normalise defs Env.Nil (type def))
               let found = shapeOf ty
               if conforms shape found then check es
-                 else pure (Wrong (location def) (show q) (mismatch e (Found found)))
+                 else pure (Just (wrong (location def) q (mismatch e (Found found))))

@@ -715,7 +715,8 @@
       "tests/lib/**",
       "tests/runner/**",
       "libs/**",
-      "tests/two-levels/**"
+      "tests/two-levels/**",
+      "tests/fuzz/**"
     ],
     "findings": [
       "idris-frontend-4",
@@ -726,9 +727,15 @@
       "idris-frontend-15",
       "idris-frontend-16",
       "idris-frontend-17",
-      "lists-4"
+      "lists-4",
+      "legacy-7",
+      "legacy-8",
+      "legacy-9",
+      "legacy-10"
     ],
-    "merged": {}
+    "merged": {
+      "legacy-8": "idris-frontend-9"
+    }
   },
   "L24": {
     "title": "Array, closure, IO and platform ops: one yield rule, linear captures, the world's operands",
@@ -753,12 +760,56 @@
     ],
     "merged": {}
   },
+  "L25": {
+    "title": "Legacy tests and benchmarks: one program per benchmark, one fixture per table, tools out of tests/",
+    "writes": [
+      "bench/**",
+      "tests/bench/**",
+      "tests/programs/**",
+      "tests/README.md",
+      "tests/upstream-idris/**",
+      "tests/compile-times.sh",
+      "tools/upstream-idris/**",
+      "tools/compile-times.sh",
+      "tests/determinism/rbtree/**",
+      "tests/determinism/threads-rbtree/**"
+    ],
+    "findings": [
+      "legacy-1",
+      "legacy-2",
+      "legacy-3",
+      "legacy-4",
+      "legacy-5",
+      "legacy-6"
+    ]
+  },
+  "L26": {
+    "title": "The fork's SyntaxInfo knot: a pragma is first-order data the processor interprets",
+    "writes": [
+      "compiler/idris/src/TTImp/TTImp.idr",
+      "compiler/idris/src/TTImp/ProcessDecls.idr",
+      "compiler/idris/src/Idris/Desugar.idr",
+      "compiler/idris/src/Idris/Syntax.idr",
+      "compiler/idris/README.md"
+    ],
+    "findings": [
+      "selfhost-1"
+    ]
+  },
+  "L27": {
+    "title": "tools/self.sh: a stage is the frontend, then the pipeline on its kept module",
+    "writes": [
+      "tools/self.sh"
+    ],
+    "findings": [
+      "selfhost-2"
+    ]
+  },
   "coordinator": {
     "title": "Coordinator: hubs, generated modules, integration and qualification",
     "writes": [
       "proposals/**",
       "HANDOFF.md",
-      "bench/**",
       "tests/ACCEPTANCE.md",
       "tests/spec/**",
       "tests/upstream/**",
@@ -787,6 +838,11 @@
       "foreign/idr/include/idr/CMakeLists.txt",
       "foreign/idr/include/idr/IR/IdrDialect.h",
       "foreign/idr/include/idr/IR/IdrBytecode.td"
+    ],
+    "excludes": [
+      "tools/self.sh",
+      "tools/upstream-idris/**",
+      "tools/compile-times.sh"
     ],
     "findings": [],
     "merged": {}

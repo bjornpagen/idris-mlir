@@ -35,7 +35,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <memory>
@@ -104,19 +104,24 @@ struct Plan {
 };
 
 // The decision: the key of every slot, the sum of every key, every
-// function's signature, every memo sum's dispatch function. Built whole,
-// serially, and read only afterwards, from any thread.
+// function's signature, every memo sum's dispatch function. It exists only
+// whole: decide, its one maker, returns it once every part is made, so no
+// reader meets a key without its sum or a signature not yet converted. It
+// is read only afterwards, from any thread.
 class Slots {
 public:
-  Slots(ProgramOp program, Labels &labels, mlir::SymbolTable &symbols);
+  // Notes every key the program may ask for, names each key's sum, makes
+  // every sum with its body (a memo label `by_name` when `byName` says so),
+  // converts every signature, names each memo sum's dispatch function,
+  // converts every constant, and defines each dispatch function and adds
+  // it to the program and to `symbols`, converted already. Failure, after
+  // an internal error, when two keys meet on one name, two dispatch
+  // functions on one, or a body, however deep among the sums, is no sum:
+  // then there is no decision.
+  static mlir::FailureOr<std::unique_ptr<Slots>>
+  decide(ProgramOp program, Labels &labels, mlir::SymbolTable &symbols,
+         llvm::function_ref<bool(FuncOp)> byName);
 
-  // Makes every sum with its body, a memo label `by_name` when `byName`
-  // says so, and names each memo sum's dispatch function. Fails, with an
-  // internal error, when two keys meet on one name or a body is no sum.
-  mlir::LogicalResult declare(llvm::function_ref<bool(FuncOp)> byName);
-  // Defines each memo sum's dispatch function and adds it to the program
-  // (Forces.cpp); after declare, before any function converts.
-  void defineForces();
   // Once every function is converted: every data type whose body holds a
   // slot made anew with the slots' sums, transitively, and the program
   // retyped.
@@ -154,12 +159,9 @@ public:
   unsigned numConstructors() const;
 
 private:
-  // A key's sum: its name, made from the key's content, and the data type,
-  // once made.
-  struct Sum {
-    mlir::StringAttr name;
-    DataType type;
-  };
+  // Notes every key: the signatures, the widening, then every value and
+  // type of the program (Keys.cpp).
+  Slots(ProgramOp program, Labels &labels, mlir::SymbolTable &symbols);
 
   Slot keyWith(mlir::Type carrier, const FlowPoint &point) const;
 
@@ -177,16 +179,20 @@ private:
   // The names (Decide.cpp).
   mlir::LogicalResult name();
 
-  // The bodies and the constants (Declare.cpp).
-  DataType define(const Key &key, llvm::function_ref<bool(FuncOp)> byName);
-  mlir::Type slotType(mlir::Type type, const Slot &slot,
-                      llvm::function_ref<bool(FuncOp)> byName);
-  DataType::Body body(const Key &key, llvm::function_ref<bool(FuncOp)> byName,
-                      llvm::SmallVectorImpl<llvm::SmallVector<mlir::Type>> &fields);
+  // The bodies, the signatures, the dispatch functions' names and the
+  // constants (Declare.cpp).
+  mlir::FailureOr<DataType> define(const Key &key, llvm::function_ref<bool(FuncOp)> byName);
+  mlir::FailureOr<mlir::Type> slotType(mlir::Type type, const Slot &slot,
+                                       llvm::function_ref<bool(FuncOp)> byName);
+  mlir::FailureOr<DataType::Body>
+  body(const Key &key, llvm::function_ref<bool(FuncOp)> byName,
+       llvm::SmallVectorImpl<llvm::SmallVector<mlir::Type>> &fields);
+  void convertSignatures();
+  mlir::LogicalResult nameForces();
   mlir::Attribute convertConstant(mlir::Attribute attr, const Slot &slot);
 
   // The dispatch function of one memo sum (Forces.cpp).
-  FuncOp defineForce(const Key &key, DataType sum);
+  mlir::FailureOr<FuncOp> defineForce(const Key &key, DataType sum);
 
   ProgramOp program;
   Labels &analysis;
@@ -196,10 +202,15 @@ private:
   // A closure, suspension or constant whose every use moves it into one
   // key that holds its own takes that key.
   llvm::DenseMap<mlir::Value, Key> widened;
-  // Every key, in the order met, with its sum.
-  llvm::MapVector<Key, Sum> sums;
-  // Whether a sum's body was no sum: an internal error, reported by define.
-  bool broken = false;
+  // Every key, in the order met, which is the order every walk over them
+  // takes, so the output is a function of the program alone.
+  llvm::SetVector<Key> keys;
+  // Each key's sum's name, made from the key's content.
+  llvm::DenseMap<Key, mlir::StringAttr> names;
+  // Each key's sum: a key enters when the definition of its sum hands over
+  // the type being made, before its body is, so that a sum asked for again
+  // while its body is made is that type.
+  llvm::DenseMap<Key, DataType> sums;
   // Every type met while the keys are noted, each looked into once: the
   // data types' bodies, the shaped types' elements.
   mlir::AttrTypeWalker types;

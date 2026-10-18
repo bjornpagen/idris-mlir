@@ -3,7 +3,7 @@
 // RUN: no-heap-allocation=@lists,no-heap-allocation=@line,no-heap-allocation=@constant_list,\
 // RUN: returns-argument=@nil:0,builds-nothing=@cell,no-heap-allocation=@cell,\
 // RUN: no-heap-allocation=@cells_of_strings,builds=@cell_kept,no-heap-allocation=@packed_in_a_region -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A string built only to be written is written piece by piece, in the
 // same order, through the world: nothing is built for output alone, so a
@@ -135,7 +135,7 @@ idr.program @"output-fusion" root(@constant_list) stage(first) {
       %p = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
       idr.yield %p : !idr.str
     }
-    default {
+    default(%d: i64) {
       %k = idr.constant "none" : !idr.str
       idr.yield %k : !idr.str
     }

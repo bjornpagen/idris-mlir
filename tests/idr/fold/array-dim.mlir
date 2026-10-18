@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the dimensions still fold with the program rooted at a status root, @root, which none of the functions under test is part of.
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=dims-known=@of_size,returns=@of_size:_,returns=@of_constant:5,returns=@of_negative:0,returns=@of_argument:_ -o /dev/null
 // The dimension of a new array is the size it was made with, clamped at 0
 // (a negative size makes an empty array): memref.dim of idr.array.new
@@ -6,7 +7,7 @@
 
 // A size the program computes: the dimension is that size at least 0, and
 // no memref.dim is left.
-idr.program @"array-dim" root(@of_constant) stage(first) {
+idr.program @"array-dim" root(@root) stage(first) {
   idr.func @of_size(%n: i64, %w: !idr.world) -> i64 {
     %fill = arith.constant 7 : i64
     %a, %w1 = idr.array.new [%n], %fill, %w : i64 -> memref<?xi64, #idr.world>
@@ -45,5 +46,10 @@ idr.program @"array-dim" root(@of_constant) stage(first) {
     %d = memref.dim %a, %c0 : memref<?xi64, #idr.world>
     %len = arith.index_cast %d : index to i64
     return %len : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

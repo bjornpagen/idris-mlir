@@ -15,12 +15,8 @@ namespace idr::expect {
 // The function (or a clone of it) loops, and every loop it has counts to a
 // bound with a step: an scf.for, which says its trip count, and no
 // scf.while.
-LogicalResult countedLoop(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "counted-loop";
-  SmallVector<FunctionOpInterface> functions =
-      named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult countedLoop(const Request<Functions> &request) {
+  ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   unsigned counted = 0;
   bool held = true;
   for (FunctionOpInterface fn : functions)
@@ -28,12 +24,13 @@ LogicalResult countedLoop(ModuleOp module, AnalysisManager &, StringRef function
       if (isa<scf::ForOp>(op))
         ++counted;
       if (isa<scf::WhileOp>(op)) {
-        fail(op->getLoc(), property) << "a loop of " << where(op) << " has no trip count";
+        fail(op->getLoc(), request.property) << "a loop of " << where(op) << " has no trip count";
         held = false;
       }
     });
   if (held && counted == 0) {
-    fail(functions.front()->getLoc(), property) << function << " has no loop";
+    fail(functions.front()->getLoc(), request.property)
+        << "@" << request.argument.name << " has no loop";
     held = false;
   }
   return success(held);

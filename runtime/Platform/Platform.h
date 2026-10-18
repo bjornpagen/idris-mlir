@@ -9,10 +9,13 @@
 //
 // What runs before the processor test (the page-size check, the test, and
 // what they write and how they end the process) is marked
-// idris-rt-baseline: idris-mlir keeps such a function compiled for the
-// target's baseline, where it raises every other to the program's CPU.
+// IDRIS_RT_BASELINE (idris_rt.h): idris-mlir keeps such a function compiled
+// for the target's baseline, where it raises every other to the program's
+// CPU.
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
+
+#include "idris_rt.h"
 
 #include <dirent.h>
 #include <stddef.h>
@@ -37,8 +40,8 @@ bool readClock(Clock clock, int64_t &seconds, int64_t &nanoseconds) noexcept;
 
 // The IDRIS_RT_CPU_FEATURES bits of the features this processor has and
 // the operating system supports. It is compiled for the target's baseline
-// and kept there (the annotation idris-rt-baseline), since it runs before
-// anything shows that the processor has more.
+// and kept there (IDRIS_RT_BASELINE, at its definition), since it runs
+// before anything shows that the processor has more.
 uint64_t cpuFeatures() noexcept;
 
 // Whether this processor runs simdutf's implementation `name`: whether it
@@ -138,7 +141,19 @@ bool isTerminal(int fd) noexcept;
 // Writes the n bytes at p to the descriptor, looping over partial writes; a
 // failed write abandons the rest. Standard output's buffer, standard error,
 // and every message before the program runs go through it.
-[[clang::annotate("idris-rt-baseline")]] void writeAll(int fd, const char *p, size_t n) noexcept;
+IDRIS_RT_BASELINE void writeAll(int fd, const char *p, size_t n) noexcept;
+
+// A run of bytes of a message.
+struct Piece {
+  const char *bytes;
+  size_t length;
+};
+
+// Writes a crash's message to standard error: `idris-mlir: `, each piece in
+// turn, which together are the cause, and a newline. Every message the
+// runtime ends a process with is written here, the crash's and those written
+// before the processor test, so the format is spelled once.
+IDRIS_RT_BASELINE void writeCrash(const Piece *pieces, size_t count) noexcept;
 
 // Up to n bytes from the descriptor into p, as one read gives them: their
 // count, 0 at the end of its input, or -1 when the read failed (lastError
@@ -205,7 +220,7 @@ int64_t processId() noexcept;
 
 // Ends the process with the status at once: no handler runs and no stream of
 // the C library is written.
-[[noreturn, clang::annotate("idris-rt-baseline")]] void exitProcess(int status) noexcept;
+[[noreturn]] IDRIS_RT_BASELINE void exitProcess(int status) noexcept;
 
 // Processors (Posix/Processors.cpp).
 

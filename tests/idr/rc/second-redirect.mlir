@@ -12,10 +12,10 @@ idr.program @"second-redirect" root(@root) stage(first) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
       idr.yield %e : !idr.box<!L>
     }
-    default {
+    default(%d0: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
@@ -51,8 +51,8 @@ idr.program @"second-redirect" root(@root) stage(first) {
     // The last use: the only reference.
     %b = idr.call @keep(%q) : (!idr.box<!L>) -> !idr.box<!L>
     %s2 = idr.call @sum(%b, %z) : (!idr.box<!L>, i64) -> i64
-    %w1 = idr.io.put_int signed %s1, %w : i64
-    %w2 = idr.io.put_int signed %s2, %w1 : i64
+    %w1 = idr.io.put_sint %s1, %w : i64
+    %w2 = idr.io.put_sint %s2, %w1 : i64
     return %w2 : !idr.world
   }
 }

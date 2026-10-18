@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: @unread, whose box parameter one call passes poison, holds the three pointer facts (none at the base): the poison is the static cell `nothing`; the facts of the other functions are unchanged, now written by the signature conversion (mlir-16, conversion-5).
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=lowered,aligned-access -o /dev/null
 // RUN: FileCheck %s < %t.mlir
@@ -7,8 +8,9 @@
 // What the types say and the LLVM types no longer do goes to LLVM as
 // attributes of the parameters and results: a box, closure or string is a
 // pointer to a cell, never null, 8-aligned, with its 8-byte header to read;
-// an unboxed sum's tag is below its number of constructors. A parameter
-// that some call passes poison may be null, and gets no pointer facts.
+// an unboxed sum's tag is below its number of constructors. Poison of a
+// cell pointer is the static cell `nothing`, so a parameter some call
+// passes poison is a cell too, and gets the pointer facts.
 // Every load and store of a cell states its alignment, which the cell's
 // layout knows. A crash is a cold call, so LLVM lays it out of the way.
 // The facts are what LLVM reads, so they are checked as LLVM is given
@@ -25,7 +27,7 @@
 // CHECK-LABEL: func.func private @walk(
 // CHECK-SAME: !llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull}
 // CHECK-LABEL: func.func private @unread(
-// CHECK-NOT: llvm.nonnull
+// CHECK-SAME: !llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull}
 // CHECK-SAME: -> i64
 // LL: define {{.*}}ptr @head(ptr nonnull align 8 dereferenceable(8) %{{[0-9]+}})
 // LL: load i64, ptr %{{[0-9]+}}, align 8
@@ -45,7 +47,7 @@ idr.program @"llvm-facts" root(@Prog.main) stage(first) {
       %c = idr.con !idr.box<!List> @Cons(%s : i64, %t : !idr.box<!List>)
       idr.yield %c : !idr.box<!List>
     }
-    default {
+    default(%d: !idr.box<!List>) {
       idr.crash "unmatched case"
       ub.unreachable
     }

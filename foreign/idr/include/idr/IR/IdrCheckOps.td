@@ -19,7 +19,7 @@ include "idr/IR/IdrBigOps.td"
 def Idr_NoReturn : NativeOpTrait<"NoReturn"> { let cppNamespace = "::idr"; }
 
 // A case the definition does not cover, followed by ub.unreachable.
-def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash<>, Idr_NoReturn]> {
+def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash, Idr_NoReturn]> {
   let summary = "ends the program with a message naming the cause";
   let arguments = (ins StrAttr:$message);
   let assemblyFormat = "$message attr-dict";
@@ -27,15 +27,15 @@ def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash<>, Idr_NoReturn]> {
 
 // A trusted library's crash of a string it computed. The message is the
 // string's text. The op does not return; Emit follows it with unreachable.
-def Idr_CrashStrOp : Idr_Op<"crash_str", [Idr_Runtime<"idris_rt_crash_str">, Idr_MayCrash<>,
-    Idr_NoReturn, Idr_Primitive]> {
+def Idr_CrashStrOp : Idr_Op<"crash_str", [Idr_Runtime<"idris_rt_crash_str">, Idr_MayCrash,
+    Idr_NoReturn]> {
   let summary = "ends the program with a string's text";
   let arguments = (ins Idr_StrRead:$message);
-  let assemblyFormat = "custom<StrRead>($message, type($message)) attr-dict";
+  let assemblyFormat = [{
+    custom<Read>($message, type($message), "::idr::StrType::get($_ctxt)") attr-dict
+  }];
   let extraClassDefinition = [{
-    std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
-      return ::llvm::StringRef("idris_crash");
-    }
+    ::llvm::StringRef $cppClass::getCrashCause() { return ::llvm::StringRef("idris_crash"); }
   }];
 }
 
@@ -59,40 +59,41 @@ def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
 // place: the op stays below its check by data dependence, and a pass that
 // builds the op on an operand nothing proved builds the guard too. A proof
 // is the absence of the guard. The total op names its guard in its ODS
-// (Idr_Guarded), which the Idris side's guards are generated from. A guard
-// folds to its operand where the operand shows its condition holds, which
-// the guard op itself decides (holds, lib/IR/OpsChecks.cpp): a total op's
-// folder asks the same guard op whether its constants may be computed on.
-// The result of a guard with an integer range is the operand's range
-// clamped by the condition. The guard's kind is the case of CheckKind
-// `kind` names, found in the enum, so a kind no case names fails here. The
-// operand a guard guards is its first, which its folder and its lowering
-// give as its result; any other is what the condition reads beside it.
-class Idr_CheckOp<string mnemonic, string kind, list<Trait> traits = []>
-    : Idr_Op<"check." # mnemonic, !listconcat(traits, [Idr_MayCrash<>,
+// (Idr_Guarded), from which the Idris side's guards and the C++ the total
+// op folds and speculates by (Idr_GuardedOp) are generated. The guard op
+// itself decides its condition on the constants of its own fold adaptor
+// (holds, lib/IR/OpsChecks.cpp): the guard folds to its operand where they
+// pass it, and a total op's folder asks the same `holds` (guardHolds)
+// whether its constants may be computed on. The result of a guard with an
+// integer range is the operand's range clamped by the condition. `kind` is
+// the case of CheckKind the guard checks, the record itself, which
+// idris-mlir-tblgen reads as `checkKind`: a field ODS reads as no attribute
+// of the op, which a field of an attribute's type would be. The operand a
+// guard guards is its first, which its folder and its lowering give as its
+// result; any other is what the condition reads beside it.
+class Idr_CheckOp<string mnemonic, I32EnumAttrCase kind, list<Trait> traits = []>
+    : Idr_Op<"check." # mnemonic, !listconcat(traits, [Idr_MayCrash,
         DeclareOpInterfaceMethods<Idr_GuardOpInterface>])> {
-  defvar kindCases = !filter(c, Idr_CheckKind.enumerants, !eq(c.symbol, kind));
-  assert !not(!empty(kindCases)), "'" # kind # "' is no case of CheckKind";
-  EnumCase checkKind = !if(!empty(kindCases), ?, !head(kindCases));
+  EnumCase checkKind = kind;
   // nonzero and nonempty also take their operand's reference over and give
   // it to their result, an edge of their flow; a guard's effects are its
   // crash's alone.
   let extraClassDeclaration = [{
-    // Whether the condition holds of `constants`, the guard's operands in
-    // order: what its folder and every folder of the total ops it guards
-    // ask before computing. A null one is not a constant, and the
-    // condition does not hold of it.
-    static bool holds(::llvm::ArrayRef<::mlir::Attribute> constants);
+    // Whether the condition holds of the constants `adaptor` holds, the
+    // guard's operands: what its folder and, through guardHolds, every
+    // folder of the total ops it guards ask before computing. An operand
+    // that is no constant is null, and the condition does not hold of it.
+    static bool holds(FoldAdaptor adaptor);
   }];
   let extraClassDefinition = [{
-    std::optional<::llvm::StringRef> $cppClass::getCrashCause() { return getCause(); }
-    ::idr::CheckKind $cppClass::getKind() { return ::idr::CheckKind::}] # checkKind.symbol # [{; }
+    ::llvm::StringRef $cppClass::getCrashCause() { return getCause(); }
+    ::idr::CheckKind $cppClass::getKind() { return ::idr::CheckKind::}] # kind.symbol # [{; }
     ::mlir::Value $cppClass::getGuarded() { return getOperation()->getOperand(0); }
   }];
   let hasFolder = 1;
 }
 
-def Idr_CheckNonzeroOp : Idr_CheckOp<"nonzero", "Nonzero", [SameOperandsAndResultType,
+def Idr_CheckNonzeroOp : Idr_CheckOp<"nonzero", Idr_Nonzero, [SameOperandsAndResultType,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the value, which must not be zero, else the program crashes";
@@ -104,7 +105,7 @@ def Idr_CheckNonzeroOp : Idr_CheckOp<"nonzero", "Nonzero", [SameOperandsAndResul
 // An index of a string or of an array of one dimension, below its length.
 // The guard takes what is indexed, not a length computed apart from it, so
 // that the index is checked against the very value the op reads.
-def Idr_CheckInBoundsOp : Idr_CheckOp<"in_bounds", "InBounds", [
+def Idr_CheckInBoundsOp : Idr_CheckOp<"in_bounds", Idr_InBounds, [
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
   let summary = "the index, which must be at least 0 and below the length of what it indexes, else the program crashes";
   let arguments = (ins I64:$index, AnyTypeOf<[Idr_StrRead, Idr_Rank1ArrayValue]>:$indexed,
@@ -113,7 +114,7 @@ def Idr_CheckInBoundsOp : Idr_CheckOp<"in_bounds", "InBounds", [
   let assemblyFormat = "$index `,` $indexed `,` $cause attr-dict `:` type($indexed)";
 }
 
-def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", "Nonempty", [SameOperandsAndResultType,
+def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", Idr_Nonempty, [SameOperandsAndResultType,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "the string, which must have at least one byte, else the program crashes";
   let arguments = (ins Idr_StrValue:$str, StrAttr:$cause);
@@ -121,7 +122,7 @@ def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", "Nonempty", [SameOperandsAndRe
   let assemblyFormat = "$str `,` $cause attr-dict `:` type($str)";
 }
 
-def Idr_CheckFiniteOp : Idr_CheckOp<"finite", "Finite"> {
+def Idr_CheckFiniteOp : Idr_CheckOp<"finite", Idr_Finite> {
   let summary = "the value, which must be neither NaN nor infinite, else the program crashes";
   let arguments = (ins F64:$value, StrAttr:$cause);
   let results = (outs F64:$checked);
@@ -130,7 +131,7 @@ def Idr_CheckFiniteOp : Idr_CheckOp<"finite", "Finite"> {
 
 // The bytes [offset, offset + count) of something of `size` bytes: both at
 // least 0, and the end, computed without overflow, at most the size.
-def Idr_CheckRangeOp : Idr_CheckOp<"range", "InRange", [
+def Idr_CheckRangeOp : Idr_CheckOp<"range", Idr_InRange, [
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the offset, whose range of `count` bytes must lie in `size`, else the program crashes";
   let arguments = (ins I64:$offset, I64:$count, I64:$size, StrAttr:$cause);

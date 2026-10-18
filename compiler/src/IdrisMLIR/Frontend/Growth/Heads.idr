@@ -45,6 +45,8 @@ import IdrisMLIR.Frontend.Growth.Implementations
 import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Walk
+import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 
 import Libraries.Data.List.Finite
@@ -83,21 +85,18 @@ Entry : Type
 Entry = (Slot, Address)
 
 parameterSlot : Address -> Nat -> Slot
-parameterSlot a j = (0, a, addressOf (cast j))
+parameterSlot a j = (0, a, bytes 8 (cast j))
 
 fieldSlot : Address -> Nat -> Slot
-fieldSlot a k = (1, a, addressOf (cast k))
+fieldSlot a k = (1, a, bytes 8 (cast k))
 
--- Novelty compares an address by its bytes' numbers (`sameAddress`), a
+-- Novelty compares an address by its bytes' numbers (`decideAddress`), a
 -- step per byte. Equality decided by matching `Fin` constructors walks
 -- each byte's whole value.
 sameBytes : (a, b : Address) -> Dec (a = b)
-sameBytes a b with (choose (sameAddress a b))
-  _ | Left same = Yes (rewrite sameAddressSound a b same in Refl)
-  _ | Right differ = No (\eq => void (apart differ eq))
-  where
-    0 apart : So (not (sameAddress a b)) -> Not (a = b)
-    apart differ eq = soNotToNotSo differ (replace {p = \z => So (sameAddress a z)} eq (sameAddressSelf a))
+sameBytes a b = case decideAddress a b of
+  Proof.Growth.Holds eq => Yes eq
+  Proof.Growth.Fails ne => No (\eq => void (ne eq))
 
 sameKind : (i, j : Fin 2) -> Dec (i = j)
 sameKind FZ FZ = Yes Refl
@@ -169,7 +168,7 @@ mutual
   byTemplate v own (Head _ _) = empty
   byTemplate v own (Leaf _) = empty
   byTemplate v own (Token _) = empty
-  byTemplate v own (Formal _ _ _) = empty
+  byTemplate v own (Formal _ _) = empty
   byTemplate v own (Opaque _ _) = empty
   byTemplate v own (Applied _ _ _) = empty
   -- Met in the graph's field values, whose records are parts of a

@@ -51,6 +51,9 @@ const simdutf::implementation &implementation() {
 
 } // namespace rt::strings
 
+// The number of scalar values in n bytes of well-formed UTF-8, over
+// simdutf: what a string's scalar count is, for a string idr-lower writes
+// into static data.
 extern "C" size_t idris_rt_utf8_count(const char *p, size_t n) {
   return rt::strings::implementation().count_utf8(p, n);
 }

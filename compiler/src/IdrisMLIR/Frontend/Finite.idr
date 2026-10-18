@@ -18,7 +18,8 @@
 ||| the program's: an internal error, not a refusal and not a hang.
 |||
 ||| A chain is then a list of distinct links of a finite universe, so it
-||| has room for fewer at each extension, and every chain ends (`freshEnds`).
+||| has room for fewer at each extension, and every chain ends
+||| (`extensionsEnd`).
 ||| The worklist takes the instances a generation at a time, first in,
 ||| first out. Each instance of the next generation extends the chain of
 ||| one of this generation by a fresh request, so the generations descend
@@ -79,12 +80,6 @@ import Decidable.Equality
 0 Bounded : Bounds -> List (Link Form)
 Bounded b = Universe forms addresses b
 
-||| A dictionary field: the link of its data instance, its constructor's
-||| index among the type's constructors, and its argument's among the
-||| constructor's.
-DictField : Type
-DictField = (Link Form, Nat, Nat)
-
 ||| A link within the bounds, with the evidence (`Proof.Requests.within`),
 ||| named as `Bounded` is.
 public export
@@ -119,23 +114,33 @@ requestLink r = r.link
 links : List Request -> List (Link Form)
 links = map requestLink
 
-||| A chain extended by a request whose link is new to it and lies within
-||| the bounds: the step every chain takes.
-data Fresh : Bounds -> (longer, path : List Request) -> Type where
-  Extend : {0 r : Request} -> (0 _ : Not (Elem r.link (links path))) -> (0 _ : Elem r.link (Bounded b)) ->
-           Fresh b (r :: path) path
+||| A chain extended by one more, its key new to the chain's and a member of
+||| a universe: the step every chain the translation makes takes, a chain of
+||| requests (`Fresh`) and a chain of data instances being registered
+||| (`Types.Descending`) alike.
+public export
+data Extends : (u : List k) -> (keyOf : a -> k) -> (longer, path : List a) -> Type where
+  Extend : {0 u : List k} -> {0 keyOf : a -> k} -> {0 x : a} -> {0 path : List a} ->
+           (0 _ : Not (Elem (keyOf x) (map keyOf path))) -> (0 _ : Elem (keyOf x) u) ->
+           Extends u keyOf (x :: path) path
 
-||| Every chain of distinct links within the bounds ends: each fresh
-||| request leaves less room in the universe, which is finite.
-0 freshEnds : (b : Bounds) -> (path : List Request) -> NoDup (links path) ->
-              All (\l => Elem l (Bounded b)) (links path) ->
-              Accessible LT (minus (length (Bounded b)) (length (links path))) ->
-              Accessible (Fresh b) path
-freshEnds b path nd inside (Access more) = Access next
+||| Every chain of distinct keys in a finite universe ends: each extension
+||| leaves less room in it.
+export
+0 extensionsEnd : (u : List k) -> (keyOf : a -> k) -> (path : List a) -> NoDup (map keyOf path) ->
+                  All (\y => Elem y u) (map keyOf path) ->
+                  Accessible LT (minus (length u) (length (map keyOf path))) ->
+                  Accessible (Extends u keyOf) path
+extensionsEnd u keyOf path nd inside (Access more) = Access next
   where
-    next : (longer : List Request) -> Fresh b longer path -> Accessible (Fresh b) longer
-    next (r :: _) (Extend new here) =
-      freshEnds b (r :: path) (new :: nd) (here :: inside) (more _ (room (new :: nd) (here :: inside)))
+    next : (longer : List a) -> Extends u keyOf longer path -> Accessible (Extends u keyOf) longer
+    next (x :: _) (Extend new here) =
+      extensionsEnd u keyOf (x :: path) (new :: nd) (here :: inside) (more _ (room (new :: nd) (here :: inside)))
+
+||| A chain of requests extended by a request whose link is new to it and
+||| lies within the bounds.
+0 Fresh : Bounds -> (longer, path : List Request) -> Type
+Fresh b = Extends (Bounded b) requestLink
 
 ||| A pending instance: its request, and the chain of requests that led to
 ||| it, its requester first, which the messages read (`Dictionaries.chooser`).
@@ -246,7 +251,7 @@ Member gen it = Elem (chainOf it) gen
 
 ||| An item of the next generation: its chain extends one of the
 ||| generation's by a fresh request.
-Below : Bounds -> List (List Request) -> Item -> Type
+0 Below : Bounds -> List (List Request) -> Item -> Type
 Below b gen it = Any (Fresh b (chainOf it)) gen
 
 -- The chains `rest` end the generation `gen`.
@@ -283,7 +288,7 @@ belowAll (Element _ below :: next) = below :: belowAll next
 
 ||| An item the worklist can take again in a later round: its chain is
 ||| accessible under fresh extension, so what it requests ends.
-Resumable : Bounds -> Item -> Type
+0 Resumable : Bounds -> Item -> Type
 Resumable b it = Accessible (Fresh b) (chainOf it)
 
 ||| An item of a generation the worklist takes is one it can take again.
@@ -302,32 +307,38 @@ rooted b [] = []
 rooted b (Element it under :: roots) = Element it (alone b under) :: rooted b roots
   where
     0 alone : (b : Bounds) -> Under b [] x -> Resumable b x
-    alone b (MkUnder {r} _ here) = freshEnds b [r] (absurd :: []) [here] (wellFounded _)
+    alone b (MkUnder {r} _ here) = extensionsEnd (Bounded b) requestLink [r] (absurd :: []) [here] (wellFounded _)
 
 ||| An instance that matched dictionary fields no construction site had
 ||| given (`TS.assumed`), with them: it translated their alternatives as
 ||| unreachable, and waits for a construction site of one.
-Waiting : Bounds -> Type
-Waiting b = (Subset Item (Resumable b), SortedSet (ConId, Nat))
+0 Waiting : Bounds -> Type
+Waiting b = (Subset Item (Resumable b), SortedSet DictField)
 
 ||| An instance translated waits on the fields it took as never built; one
 ||| that took none waits on nothing, and is not kept.
-waitOn : Subset Item (Resumable b) -> SortedSet (ConId, Nat) -> SnocList (Waiting b) -> SnocList (Waiting b)
+waitOn : Subset Item (Resumable b) -> SortedSet DictField -> SnocList (Waiting b) -> SnocList (Waiting b)
 waitOn it fields waiting = case Prelude.toList fields of
   [] => waiting
   _ => waiting :< (it, fields)
 
 ||| The waiting instances a construction site has woken, in the order they
 ||| were translated, each with a field it took as never built that a site
-||| has since given, and the instances still waiting.
-wake : SortedMap (ConId, Nat) Dictionary -> SnocList (Waiting b) ->
-       (SnocList (Subset Item (Resumable b), (ConId, Nat)), SnocList (Waiting b))
+||| has since given, and the dictionary given, and the instances still
+||| waiting.
+wake : SortedMap DictField Dictionary -> SnocList (Waiting b) ->
+       (SnocList (Subset Item (Resumable b), (DictField, Dictionary)), SnocList (Waiting b))
 wake dicts [<] = ([<], [<])
 wake dicts (ws :< w@(it, fields)) =
   let (woken, still) = wake dicts ws in
-  case find (\k => isJust (lookup k dicts)) (Prelude.toList fields) of
-    Just k => (woken :< (it, k), still)
+  case given (Prelude.toList fields) of
+    Just g => (woken :< (it, g), still)
     Nothing => (woken, still :< w)
+  where
+    -- The first of the fields a site has given, with its dictionary.
+    given : List DictField -> Maybe (DictField, Dictionary)
+    given [] = Nothing
+    given (k :: ks) = maybe (given ks) (\d => Just (k, d)) (lookup k dicts)
 
 ||| One round: the generation and the proof that the generations from it
 ||| end, the items of it still to take, each with the erased evidence that
@@ -363,20 +374,18 @@ worklist translate b bounds gen (Access more) [] next@(Element _ below :: _) wai
   worklist translate b bounds (chains items) (more (chains items) (MkFollows (anyNonEmpty below) (belowAll items)))
            (placed (chains items) items Whole) [] waiting
 
-||| The field a round learnt, as the universe of fields holds it: the link of
-||| its data instance, within the bounds, and its constructor's and
-||| argument's indices, below the bounds' breadth.
-fieldIn : (b : Bounds) -> TS -> (ConId, Nat) -> Core (Subset DictField (\f => Elem f (Learnable b)))
-fieldIn b st (cid, i) = do
-  let fc = maybe EmptyFC (.site) (lookup (cid, i) st.dicts)
-  let what = "the dictionary field " ++ show i ++ " of " ++ show cid
-  -- A broken invariant: every data instance is registered under the
-  -- symbol of its link (`Keys.instanceKey`).
-  let Just l = lookup cid.dataId.name st.symbols
-    | Nothing => internal fc (what ++ " belongs to an instance with no link")
-  let f = (l, finToNat cid.index, i)
+||| A dictionary field given, as a message names it.
+fieldText : (DictField, Dictionary) -> String
+fieldText ((_, c, i), d) =
+  "the dictionary field " ++ show i ++ " of constructor " ++ show c ++ ", given in " ++ show d.chooser
+
+||| The field a round learnt, in the universe of fields: the link of its
+||| data instance within the bounds, and its constructor's and argument's
+||| indices below the bounds' breadth.
+fieldIn : (b : Bounds) -> (DictField, Dictionary) -> Core (Subset DictField (\f => Elem f (Learnable b)))
+fieldIn b given@(f, d) = do
   let Holds inside = inFields forms addresses b f
-    | Fails _ => unsound fc what ("lies outside the bounds, or beyond their breadth " ++ show b.breadth)
+    | Fails _ => unsound d.site (fieldText given) ("lies outside the bounds, or beyond their breadth " ++ show b.breadth)
   pure (Element f inside.member)
 
 ||| The program's instances from its root, in as many rounds as the
@@ -420,13 +429,13 @@ translateFrom root translate = do
       let (woken, still) = wake st.dicts waiting'
       let (it, k) :: rest = woken <>> []
         | [] => pure ()
-      Element f here <- fieldIn b st k
+      Element f here <- fieldIn b k
       case isElem f fields of
         -- A broken invariant: a woken instance took the field as never
         -- built in this round or one waiting since, and every field learnt
         -- before was given then, which woke every instance waiting on it,
         -- and is known to every instance translated after.
-        Yes _ => internal EmptyFC ("a dictionary field learnt twice: " ++ show (snd k) ++ " of " ++ show (fst k))
+        Yes _ => internal (snd k).site ("a dictionary field learnt twice: " ++ fieldText k)
         No new =>
           rounds b bounds (f :: fields) (new :: nd) (here :: inside) (more _ (room (new :: nd) (here :: inside)))
                  (it :: map fst rest) still

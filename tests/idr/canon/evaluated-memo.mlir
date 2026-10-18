@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=builds=@Main.main,forces-nothing=@Main.main,no-closures -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // NEEDS-ACCEPTANCE: that the force became a call of the sum's dispatch, so no force is left.
 // An evaluated suspension, `idr.delay %value`, is a cell already forced.
 // Its key has a memo sum like any lazy key, with no label of its own, and

@@ -272,4 +272,4 @@ arithAttrText : (t : ty -> String) -> (a : at -> String) -> ArithAttr ty at -> S
 arithAttrText t a (FastMathFlagsAttr value) = fastConcat ["#arith.fastmath<", (fastMathFlagsSpellings value), ">"]
 arithAttrText t a (IntegerOverflowFlagsAttr value) = fastConcat ["#arith.overflow<", (integerOverflowFlagsSpellings value), ">"]
 
--- fingerprint: 3550233381-984164 1160600943-10420
+-- fingerprint: 3916362129-1020896 1160600943-10420

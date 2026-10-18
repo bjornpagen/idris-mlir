@@ -39,13 +39,13 @@ hard limit, which cfold fits.
 
 The one record kept is
 [`runs/2026-10-13-9a1b7b1-darwin-arm64`](runs/2026-10-13-9a1b7b1-darwin-arm64/results.md);
-its results page holds the full table and the compile times. Against
-clang -O2 this compiler is faster on 6 programs, within 15% on 13 and
-slower on 8 (fannkuch-linear, fannkuch-redux, fasta, fasta-redux,
-k-nucleotide, pidigits, regex-redux and spectral-norm); against Idris
-on Chez Scheme it is faster on all 27, from 1.2x (regex-redux) to 154x
-(spectral-norm-linear). Compiling a program takes 0.8 to 5.4 seconds;
-k-nucleotide is the slow one.
+its results page holds the full table and the compile times. Of the 27
+programs that record measured, against clang -O2 this compiler is faster
+on 6, within 15% on 13 and slower on 8 (fannkuch-linear, fannkuch-redux,
+fasta, fasta-redux, k-nucleotide, pidigits, regex-redux and
+spectral-norm); against Idris on Chez Scheme it is faster on all 27, from
+1.2x (regex-redux) to 154x (spectral-norm-linear). Compiling a program
+took 0.8 to 5.4 seconds there; k-nucleotide is the slow one.
 
 ![This compiler against clang -O2 on arm64 macOS](runs/2026-10-13-9a1b7b1-darwin-arm64/vs-c.svg)
 
@@ -61,14 +61,17 @@ those ratios, never by seconds. ack runs in milliseconds: it measures the
 specialization (Caveats below), not a loop.
 
 A record is what a run measured, kept: `make bench ARGS='--record
-bench/runs/<date>-<revision>'` keeps every timed run (`samples.tsv`), the
-compile times and what it ran on (`about`), once every output has agreed.
-`bench/report.sh RUN PREVIOUS` makes the results page and the charts from
-it, and the table `bench/run.sh` prints is that report's, so the numbers
-have one source; `tests/bench/records` checks that every kept record's
-results are what the report makes.
+bench/runs/<date>-<revision>-<os>-<arch>'` keeps every timed run
+(`samples.tsv`), the compile times and what it ran on (`about`), once
+every output has agreed. `bench/report.sh RUN PREVIOUS` makes the results
+page and the charts from it, and the table `bench/run.sh` prints is that
+report's, so the numbers have one source; `tests/bench/records` checks
+that every kept record's results are what the report makes.
 
-Three kinds of program. **Numeric** (ack, ackdyn, collatz, fib, harmonic,
+`profiles/` holds measurements of the compiler itself: its time traces
+and dated records of what a measurement found (`profiles/README.md`).
+
+Three kinds of program. **Numeric** (ack, collatz, fib, harmonic,
 mandelbrot, nbody, tak): Idris over the stock Prelude, whose interfaces,
 literals and `show` resolve at compile time and cost nothing. `mandelbrot`
 counts points of the set; the game's program is `mandelbrot-pbm`, which
@@ -125,7 +128,7 @@ shrunk.
 ### Per program
 
 - **unionfind**: path compression threads the array
-  through every `find` and gives it back around a non-tail call. Two
+  through every `find` and gives it back across a non-tail call. Two
   general changes brought it from 1.4x of C to parity: an array value is
   its cell and its length, so a bounds check compares two registers
   instead of loading the length from the cell, a load LLVM cannot hoist
@@ -140,57 +143,18 @@ shrunk.
   10 to 15% faster than the Idris instead. The C stays as written. The
   Idris compiles to the loop's loads and stores and nothing else.
 - **fannkuch-redux** (`IOArray`) against **fannkuch-linear**: the same
-  loops. The table's 3x was the simplify loop's, not the program's:
-  inlining base's `readArray` and `writeArray` left each index's range
-  test nested in the regions of the same test made for the read before
-  it, where nothing folded it, so every test doubled the continuation
-  after it, the IO binds on the out-of-bounds paths stayed closures built
-  and applied, and the loops became code LLVM would not inline (`rev` was
-  a thousand lines after the loop, the linear `rev` 33). A match now
-  knows the case of an enclosing match on its value, and both compile
-  to the loops' loads and stores. What remains is base's representation: an
-  `IOArray` holds `Maybe elem` cells, an unboxed tag beside each `Int` at
-  a stride of 16 bytes, so every read loads and tests a tag and every
-  write stores one. The same program over the raw primitive takes the
-  same time with Idris's range tests (0.253 s) as without (0.256 s), and
-  with the `Maybe` cells alone 0.314 s: the tags are the whole remaining
-  gap, the range tests nothing measurable, and `Int` has no spare value
-  for `Nothing` that a layout could use. The linear version is a
-  `Linear.Vec`, born fresh, whose writes One-Shot bufferization puts in
-  place, so its loops are loads and stores with no count changed and
-  nothing allocated (the `linarray-*` and `ioarray-fannkuch` fixtures
-  state those properties).
-- **Ablation**, as the 2026-10-13 record measured it, when the compiler
-  could leave a pipeline step out, or idr-rc's mechanisms (`reuse`,
-  `sink`), from its command line. It no longer can: it has one pipeline,
-  and a mechanism's worth is now measured binary against binary, the
-  commit with it against a commit without it, under the same conditions.
-  fannkuch-linear and unionfind, best of 3, each variant compiled and run
-  alone:
-
-  | left out | fannkuch-linear | unionfind |
-  | --- | ---: | ---: |
-  | nothing | 0.209 | 0.166 |
-  | idr-simplify | 4.770 | 1.484 |
-  | sink (consumer sinking in idr-rc) | 0.240 | 0.166 |
-  | idr-returned-arguments | 0.201 | 0.241 |
-  | reuse (reset/reuse in idr-rc) | 0.211 | 0.215 |
-  | idr-stack | 0.199 | 0.215 |
-  | idr-tail-loops | 0.214 | 0.197 |
-  | idr-defunctionalize | 0.215 | 0.203 |
-  | idr-contify | 0.194 | 0.190 |
-  | idr-trmc | 0.198 | 0.177 |
-  | idr-narrow | 0.197 | 0.167 |
-
-  The linear library that record measured was plain Idris: `read` and
-  `write` wrapped base's array primitive in `unsafePerformIO` and rebuilt
-  the record through `Res` pairs. Without the simplify loop of that
-  compiler, its optimizer then (inlining, specialization, compile-time
-  evaluation, the dialect's canonicalizations) fannkuch-linear takes 23x
-  longer and unionfind 9x: that is the compiler's work, not the program's.
-  After it, consumer sinking is worth 15% on fannkuch (a dup and a drop per
-  swap otherwise), and on unionfind the returned argument 1.45x, reuse and
-  the stack 1.3x each, the loops 1.2x; the rest is within the spread.
+  loops, both compiled to the loops' loads and stores. What differs is
+  base's representation: an `IOArray` holds `Maybe elem` cells, an
+  unboxed tag beside each `Int` at a stride of 16 bytes, so every read
+  loads and tests a tag and every write stores one. The same program over
+  the raw primitive takes the same time with Idris's range tests
+  (0.253 s) as without (0.256 s), and with the `Maybe` cells alone
+  0.314 s: the tags are the whole gap, the range tests nothing
+  measurable, and `Int` has no spare value for `Nothing` that a layout
+  could use. The linear version is a `Linear.Vec`, born fresh, whose
+  writes One-Shot bufferization puts in place, so its loops are loads and
+  stores with no count changed and nothing allocated (the `linarray-*`
+  and `ioarray-fannkuch` fixtures state those properties).
 - **spectral-norm** (lists) and **spectral-norm-linear**: the typed one
   is written over `Array`'s generating set (`tabulate` and a fold over each
   row). In the 2026-10-13 record, over the linear arrays it was written on
@@ -235,9 +199,8 @@ shrunk.
 
 ## Caveats
 
-- `ack` computes `ack 3 n` with `m` a literal: call-pattern specialization
-  copies `ack` with `m` fixed and LLVM closes three of the copies, so this
-  measures the specialization; `ackdyn` reads `m` from the input and
-  measures deep non-tail recursion.
+- `ack` computes `ack 3 n` with `m` a literal: specialization copies
+  `ack` with `m` fixed and LLVM closes three of the copies, so this
+  measures the specialization.
 - `fib`: LLVM turns one of the two recursive calls into a loop, for this
   compiler and clang alike.

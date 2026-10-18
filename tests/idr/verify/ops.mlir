@@ -1,24 +1,10 @@
+// NEEDS-ACCEPTANCE: idr.str.show_uint's operand constraint refusing an i1 (S21, mlir-1); a Double's show is its own op, which has no signedness to refuse.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-
-idr.program @ops root(@root) stage(first) {
-  idr.func @f(%d: f64) {
-    // expected-error @+1 {{shows a Double, which has no signedness}}
-    %s = idr.str.show signed %d : f64
-    return
-  }
-  // The program's root, which the functions above are no part of.
-  idr.func @root() -> i64 {
-    %zero = arith.constant 0 : i64
-    return %zero : i64
-  }
-}
-
-// -----
 
 idr.program @ops root(@root) stage(first) {
   idr.func @f(%x: i1) {
     // expected-error @+1 {{operand #0 must be}}
-    %s = idr.str.show %x : i1
+    %s = idr.str.show_uint %x : i1
     return
   }
   // The program's root, which the functions above are no part of.

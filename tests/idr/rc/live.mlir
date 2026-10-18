@@ -12,10 +12,10 @@ idr.program @live root(@Prog.main) stage(higher) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
       idr.yield %e : !idr.box<!L>
     }
-    default {
+    default(%d0: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
@@ -28,7 +28,7 @@ idr.program @live root(@Prog.main) stage(higher) {
   idr.func @map(%l: !idr.box<!L>) -> !idr.box<!L> {
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
-      %e = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
       idr.yield %e : !idr.box<!L>
     }
     case @C(%h: i64, %t: !idr.box<!L>) {

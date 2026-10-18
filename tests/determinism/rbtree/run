@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# tests/programs/data/rbtree, an IO program with data, specialization, TRMC and
-# reference counting, compiled by each of determinism_runs (lib/determinism.sh).
+# bench/rbtree, an IO program with data, specialization, TRMC and reference
+# counting, compiled by each of determinism_runs (lib/determinism.sh).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-determinism "$root/tests/programs/data/rbtree"
+determinism "$root/bench/rbtree"

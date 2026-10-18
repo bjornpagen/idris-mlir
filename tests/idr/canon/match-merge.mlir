@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=regions-distinct=@into_default,matches=@into_default,\
 // RUN: regions-distinct=@new_default,matches=@new_default,matches-nothing=@all_same -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // Identical regions merge: a case that does what the default does goes to
 // the default, and without a default, cases that do the same become it.
 
@@ -19,7 +19,7 @@ idr.program @"match-merge" root(@root) stage(first) {
       %c = arith.constant 7 : i32
       idr.yield %c : i32
     }
-    default {
+    default(%d: i64) {
       %c = arith.constant 7 : i32
       idr.yield %c : i32
     }
@@ -57,7 +57,7 @@ idr.program @"match-merge" root(@root) stage(first) {
       %s = arith.muli %x, %x : i64
       idr.yield %s : i64
     }
-    default {
+    default(%d: !C) {
       %s = arith.muli %x, %x : i64
       idr.yield %s : i64
     }

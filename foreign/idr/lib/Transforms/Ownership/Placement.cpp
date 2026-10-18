@@ -36,9 +36,9 @@
 // Counting a function takes two steps: the reshaping of its code before
 // any count is placed (reshape), and the placement of the counts, here.
 // Each step reads the classes of the values (Classes) of the code as it
-// stands when the step runs. A call's operand
-// consumes what its callee's parameter grade says, read through the table:
-// the operands take their callees' grades only once placed.
+// stands when the step runs. A call's operand consumes what its callee's
+// parameter grade says, read through the program's symbol table: the
+// operands take their callees' grades only once placed.
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -46,7 +46,6 @@
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Ownership.h"
 
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/MapVector.h"
@@ -65,12 +64,12 @@ struct Changes {
 
 class Placement {
 public:
-  Placement(RewriterBase &rewriter, FuncOp fn, const CalleeEffects &callees)
-      : rewriter(rewriter), fn(fn), classes(fn), callees(callees) {}
+  Placement(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols)
+      : rewriter(rewriter), fn(fn), classes(fn), symbols(symbols) {}
 
   // Places every value of the function, materializes the counts, and
-  // grades the views that are left.
-  void run() {
+  // grades the views that are left; gives the counts it added.
+  Counted run() {
     SmallVector<Value> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
       llvm::append_range(values, block->getArguments());
@@ -81,51 +80,44 @@ public:
       plan(value);
     materialize();
     gradeViews();
+    return counted;
   }
 
 private:
-  // A value that stands for one without holding a reference: poison, a
-  // small big. It is owned by type, and no count reaches it.
-  static bool phantom(Value value) {
-    Operation *def = value.getDefiningOp();
-    return isa_and_nonnull<ub::PoisonOp, BigSmallOp>(def);
-  }
-
   // Each value is placed from where it is defined, along the ops after it
-  // in its block.
+  // in its block, as its class says.
   void plan(Value value) {
     Point defined = definedAt(value);
     Block &block = blockOf(defined);
     Block::iterator from = firstAt(defined);
-    Operation *def = value.getDefiningOp();
     switch (classes.classOf(value)) {
     case Class::Untracked:
       return;
-    case Class::Static:
-      // A value that stands for one is owned by type; a constant is a
-      // view, at the view grade, which each consuming use takes a reference
-      // of its own to (no count reaches static data, so the dup runs
-      // nothing). What is read from one is graded as every read is.
-      if (phantom(value)) {
-        value.setType(owned(value.getType()));
-        return;
-      }
-      if (!readFrom(value) && def && !def->hasTrait<ResultCarriesOperand>())
-        value.setType(view(value.getType()));
+    case Class::Phantom:
+      // Owned by type; no count reaches it.
+      value.setType(owned(value.getType()));
+      return;
+    case Class::Constant:
+      // A view, at the view grade, which each consuming use takes a
+      // reference of its own to: no count reaches static data, so the dup
+      // runs nothing.
+      value.setType(view(value.getType()));
       placeBorrowed(value, block, from);
       return;
+    case Class::StaticRead:
     case Class::Borrowed:
+      // Graded as every read is.
       placeBorrowed(value, block, from);
+      return;
+    case Class::OwnedAtRead:
+      // It took its reference where it was read (ownFields), in the dup
+      // that every use of it now uses, which is placed as an owned value.
       return;
     case Class::Owned:
-      break;
-    }
-    // A field that needs its own reference took it in ownFields; what is
-    // left reading from a value is a view.
-    if (readFrom(value))
+      value.setType(owned(value.getType()));
+      placeOwned(value, block, from, /*keep=*/false);
       return;
-    value.setType(owned(value.getType()));
-    placeOwned(value, block, from, /*keep=*/false);
+    }
   }
 
   // How many operands of `op` are `value`, consuming and borrowing.
@@ -139,7 +131,7 @@ private:
 
   // Whether `operand` takes over the reference its value holds, as its op
   // declares.
-  bool takes(OpOperand &operand) { return consumes(operand, &callees); }
+  bool takes(OpOperand &operand) { return consumes(operand, &symbols); }
 
   // Whether `op` writes `value`, one of its own operands, and so holds it
   // until it is done: an update writes its element back into its array
@@ -222,11 +214,10 @@ private:
       incBeforeOp(user, value, consumes);
       // A terminator takes over what it passes on, as its flow says, so in
       // the owned stage no value's last use is a terminator that only reads
-      // it: nothing follows a terminator to drop the value before.
+      // it: nothing follows a terminator to drop the value before. The
+      // owned stage's verifier holds the rule.
       assert(!user->hasTrait<OpTrait::IsTerminator>() &&
              "the last use of an owned value is a terminator that does not take it over");
-      if (user->hasTrait<OpTrait::IsTerminator>())
-        return;
       at(block, std::next(user->getIterator())).decs.push_back(value);
       return;
     }
@@ -275,10 +266,12 @@ private:
           Value dup = DupOp::create(rewriter, loc, owned(seen.getType()), seen);
           rewriter.modifyOpInPlace(op, [&] { operand.set(dup); });
           --count;
+          ++counted.dups;
         }
       }
       for (Value value : change.decs)
         DropOp::create(rewriter, loc, value);
+      counted.drops += static_cast<unsigned>(change.decs.size());
     }
     // The reads are found first and given their views after: a view is
     // an op of its own, which the walk must not meet.
@@ -301,8 +294,8 @@ private:
   // Every read now reads a view, so what it reads is a view too: a field
   // read and a field a match binds are at their value's grade times the
   // field's (fieldType), which for a view is the view grade, and the
-  // default region of a match takes back what the match took. A walk in
-  // order reaches each read after the value it reads.
+  // default region of a match, when it runs, takes back what the match
+  // took. A walk in order reaches each read after the value it reads.
   void gradeViews() {
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (auto read = dyn_cast<FieldOp>(op)) {
@@ -311,18 +304,22 @@ private:
                                            ctor.fields[static_cast<unsigned>(read.getIndex())]));
         return;
       }
-      auto match = dyn_cast<MatchOp>(op);
+      auto match = dyn_cast<MatchOpInterface>(op);
       if (!match)
         return;
       Type scrutinee = match.getScrutinee().getType();
-      DataType data = match.getDataType();
-      for (unsigned index : llvm::seq(static_cast<unsigned>(match.getCases().size()))) {
-        ArrayRef<Type> fields = data.getCtor(match.getCaseTag(index)).fields;
-        for (BlockArgument arg : match.getCaseRegion(index).getArguments())
-          arg.setType(fieldType(scrutinee, fields[arg.getArgNumber()]));
+      // A constructor's case binds its fields; a literal's binds nothing.
+      if (auto cases = dyn_cast<MatchOp>(op)) {
+        DataType data = cases.getDataType();
+        for (unsigned index : llvm::seq(cases.getNumCases())) {
+          ArrayRef<Type> fields = data.getCtor(cases.getCaseTag(index)).fields;
+          for (BlockArgument arg : cases.getCaseRegion(index).getArguments())
+            arg.setType(fieldType(scrutinee, fields[arg.getArgNumber()]));
+        }
       }
-      if (Region *fallback = match.getDefaultRegion(); fallback && fallback->getNumArguments() == 1)
-        fallback->getArgument(0).setType(scrutinee);
+      // An exhaustive match's default region is empty: it never runs.
+      if (Region &fallback = match.getDefaultRegion(); !fallback.empty())
+        fallback.getArgument(0).setType(scrutinee);
     });
   }
 
@@ -331,15 +328,16 @@ private:
   // The classes of the function as reshaping left it, the last change they
   // read: placement only grades values until it materializes the counts.
   Classes classes;
-  const CalleeEffects &callees;
+  const SymbolTable &symbols;
   // What goes right before each op.
   llvm::MapVector<Operation *, Changes> changes;
+  Counted counted;
 };
 
 } // namespace
 
-void place(RewriterBase &rewriter, FuncOp fn, const CalleeEffects &callees) {
-  Placement(rewriter, fn, callees).run();
+Counted place(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols) {
+  return Placement(rewriter, fn, symbols).run();
 }
 
 } // namespace idr::ownership

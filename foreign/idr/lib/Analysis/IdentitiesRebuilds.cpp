@@ -4,8 +4,8 @@
 // assumed of the calls it makes, read off the record of its one walk.
 //
 // A call may rely on an assumption when it passes a part strictly below
-// the argument, or when its callee's effects say it returns (it reaches
-// nothing Idris did not prove total). Then every chain of calls that rely
+// the argument, or when its effects, which contain its callee's, say it
+// returns (it reaches nothing Idris did not prove total). Then every chain of calls that rely
 // on one ends: it descends through values, which are finite, until it
 // enters a callee that returns, inside which every chain is finite. So by
 // induction on the calls a call makes, every call that relies on an
@@ -241,8 +241,7 @@ bool Record::Reading::rebuildsSuccessor(const Successor &successor, PartId part,
 
 bool Record::Reading::rebuildsJoin(const Join &join, PartId part, unsigned slot) {
   return llvm::all_of(record.joins[join.side], [&](const Arm &arm) {
-    return std::visit(llvm::makeVisitor([](const Fails &) { return false; },
-                                        [](const Unreachable &) { return true; },
+    return std::visit(llvm::makeVisitor([](const Unreachable &) { return true; },
                                         [&](const Yields &yields) {
                                           return rebuilds(yields.values[join.result], part,
                                                           yields.frames, slot);

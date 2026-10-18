@@ -10,11 +10,9 @@
 #include "idr/Transforms/Columns.h"
 
 #include "idr/Support/Actions.h"
+#include "idr/Transforms/Pipeline.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRCOLUMNS
@@ -27,40 +25,15 @@ namespace idr::columns {
 
 void populateColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns,
                             ConversionTarget &target) {
-  populateCallColumnPatterns(converter, patterns);
-  populateTensorColumnPatterns(converter, patterns);
-  populateArrayColumnPatterns(converter, patterns);
-  scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-
-  // Every other op holds an array of records whole: the conversion leaves
-  // it, gathering the array it is given and taking apart the one it gives.
-  // A match's regions bind the fields of its constructors, which a data
-  // type holds whole, so only what a match gives is converted; a fold's
-  // and a scan's regions bind their accumulators, which are converted.
+  // Every op the conversion does not take holds an array of records whole:
+  // the conversion leaves it, gathering the array it is given and taking
+  // apart the one it gives. Each op it takes is legal by the legality its
+  // pattern is added with.
   target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
-  auto whole = [&converter](Operation *op) { return converter.isLegal(op); };
-  target.addDynamicallyLegalOp<FuncOp>([&converter](FuncOp fn) {
-    return converter.isSignatureLegal(fn.getFunctionType()) && converter.isLegal(&fn.getBody());
-  });
-  target.addDynamicallyLegalOp<CallOp, ReturnOp, YieldOp, MatchOp, MatchLitOp, TabulateOp,
-                               TabulateIOOp, TransposeOp, TieShapeOp, LinEnterOp, LinUseOp>(whole);
-  target.addDynamicallyLegalOp<FoldLastOp, ScanLastOp>([&converter](Operation *op) {
-    return converter.isLegal(op) && converter.isLegal(&op->getRegion(0));
-  });
-  target.addDynamicallyLegalOp<tensor::EmptyOp, tensor::CastOp, tensor::DimOp, tensor::ExtractOp,
-                               tensor::InsertOp, tensor::ExtractSliceOp, tensor::InsertSliceOp,
-                               tensor::CollapseShapeOp, tensor::ExpandShapeOp, ub::PoisonOp>(whole);
-  // A choice by a condition per element is no choice of whole arrays.
-  target.addDynamicallyLegalOp<arith::SelectOp>([&converter](arith::SelectOp select) {
-    return isa<ShapedType>(select.getCondition().getType()) ||
-           converter.isLegal(select.getOperation());
-  });
-  target.addDynamicallyLegalOp<ArrayYieldOp>([&converter](ArrayYieldOp yield) {
-    if (isa<UpdateOpInterface>(yield->getParentOp()))
-      return true;
-    return converter.isLegal(yield.getOperation()) &&
-           llvm::none_of(yield.getValues().getTypes(), [](Type type) { return recordOf(type).has_value(); });
-  });
+  populateCallColumnPatterns(converter, patterns, target);
+  populateTensorColumnPatterns(converter, patterns, target);
+  populateArrayColumnPatterns(converter, patterns, target);
+  scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
 }
 
 namespace {
@@ -73,17 +46,17 @@ struct ColumnsConvertAction : idr::support::TaggedAction<ColumnsConvertAction> {
 };
 
 struct Columns : idr::impl::IdrColumnsBase<Columns> {
-  void runOnOperation() override {
+  void runOnProgram(ProgramOp program) override {
     MLIRContext *ctx = &getContext();
     ColumnConverter converter;
     RewritePatternSet patterns(ctx);
     ConversionTarget target(*ctx);
     populateColumnPatterns(converter, patterns, target);
-    (void)idr::support::perform<ColumnsConvertAction>(getOperation(), [&] {
-      if (succeeded(applyPartialConversion(getOperation(), target, std::move(patterns))))
+    (void)idr::support::perform<ColumnsConvertAction>(program, [&] {
+      if (succeeded(applyPartialConversion(program, target, std::move(patterns))))
         return;
-      getOperation()->emitError("internal error: idr-columns: an array of records was left "
-                                "neither held as its columns nor gathered");
+      program.emitError("internal error: idr-columns: an array of records was left "
+                        "neither held as its columns nor gathered");
       signalPassFailure();
     });
   }

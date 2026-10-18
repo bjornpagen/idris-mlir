@@ -52,10 +52,9 @@
 ||| Suppose the graph covers every site:
 ||| - an arc runs from each variable's position, weighing at least how much
 |||   deeper the variable sits in the template than in its value;
-||| - K is at least each template's own height;
-||| - each capped position has an arc from the origin, weighing the cap less K.
-||| If the potential is also feasible, every value of V at p is within
-||| `bound`. The frontend builds no derivation. The worklist checks the
+||| - K is at least each template's own height.
+||| If the potential is also feasible, every cap no more than K above its
+||| position's potential, every value of V at p is within `bound`. The frontend builds no derivation. The worklist checks the
 ||| conclusion on every request, so a site read otherwise raises an internal
 ||| error there, never a wrong instance or a hang.
 |||
@@ -258,7 +257,7 @@ data InV where
   ||| template reads it, the rest substituted.
   Reduced : (s : Site g.size) -> {0 sigma : Vect s.vars Tree} -> Elem s ss ->
             Matches g ss s.binders sigma -> Reduces (LandsAt g ss s.binders) sigma s.template w -> InV g ss s.target w
-  ||| The origin writes every value of the cap's height at a capped position.
+  ||| A capped position holds every value of the cap's height.
   Capped : index p g.caps = Just c -> LTE (height v) c -> InV g ss p v
 
 ||| An arc carries an occurrence: it runs from the variable's position to the
@@ -266,7 +265,7 @@ data InV where
 ||| template (e) than in its value (the binder's depth).
 public export
 data Carries : (g : Graph) -> Binder g.size -> Nat -> Fin g.size -> Type where
-  MkCarries : Elem (MkArc (Just b.position) p (Finite gain loss) pr) g.arcs ->
+  MkCarries : Elem (MkArc b.position p (Measured gain loss)) g.arcs ->
               LTE (e + loss) (b.depth + gain) -> Carries g b e p
 
 ||| What the graph says of a site: its target is uncapped, K is at least its
@@ -279,19 +278,13 @@ record Covers (g : Graph) (s : Site g.size) where
   carried : (y : Fin s.vars) -> (e : Nat) -> Occurs y e s.template ->
             Carries g (index y s.binders) e s.target
 
-||| A capped position's arc from the origin, weighing at least the cap less K.
-public export
-data Origin : (g : Graph) -> Fin g.size -> Nat -> Type where
-  MkOrigin : Elem (MkArc Nothing p (Finite gain loss) pr) g.arcs ->
-             LTE (c + loss) (g.constant + gain) -> Origin g p c
-
-||| The graph says what the sites write: it covers every site, and every
-||| capped position has its origin arc.
+||| The graph says what the sites write: it covers every site. A capped
+||| position's cap is the graph's own (`caps`), which a feasible potential
+||| meets.
 public export
 record Describes (g : Graph) (ss : List (Site g.size)) where
   constructor MkDescribes
   sites : All (Covers g) ss
-  caps : (p : Fin g.size) -> (c : Nat) -> index p g.caps = Just c -> Origin g p c
 
 ||| Lemma 1, the substitution's half: a substitution is no taller than any b
 ||| above the template's own height and above every variable's value raised
@@ -395,13 +388,6 @@ carry hd el qg = lteCancelRight l (rewrite sym (plusAssociative h e l) in rewrit
     (transitive (rewrite plusAssociative h d g in plusLteMonotoneRight g (h + d) (k + q) hd)
       (rewrite sym (plusAssociative k q g) in plusLteMonotoneLeft k (q + g) (p + l) qg)))
 
--- A cap's place: the origin arc weighs g less l, at least c less k, and the
--- potential satisfies it from the origin's 0, so g less l is within p.
--- Then c is within k + p.
-0 capWithin : {c, l, k, g, p : Nat} -> LTE (c + l) (k + g) -> LTE g (p + l) -> LTE c (k + p)
-capWithin cl gp = lteCancelRight l (rewrite sym (plusAssociative k p l) in
-  transitive cl (plusLteMonotoneLeft k g (p + l) gp))
-
 -- Nat's `<` is `compareNat`'s `LT`, which reduces through `S` on both sides.
 0 notBelow : (a, c : Nat) -> (a < c) = False -> LTE c a
 notBelow Z Z _ = LTEZero
@@ -437,9 +423,12 @@ boundBelow g pot p with (index p g.caps)
   _ | Nothing = reflexive
   _ | Just c = minBelow
 
-0 arcHolds : Feasible g pot -> Elem (MkArc q p (Finite gain loss) pr) g.arcs ->
-             LTE (potentialAt pot q + gain) (index p pot + loss)
-arcHolds (MkFeasible sat) el = case indexAll el sat of MkSatisfies le => le
+0 arcHolds : Feasible g pot -> Elem (MkArc q p (Measured gain loss)) g.arcs ->
+             LTE (index q pot + gain) (index p pot + loss)
+arcHolds (MkFeasible sat _) el = case indexAll el sat of MkSatisfies le => le
+
+0 capHolds : Feasible g pot -> (p : Fin g.size) -> index p g.caps = Just c -> LTE c (g.constant + index p pot)
+capHolds (MkFeasible _ caps) p cap = capAt caps p cap
 
 ------------------------------------------------------------------------------
 -- Lemma 1
@@ -669,8 +658,7 @@ landed l (Reduced s el ms r) =
 -- Reduced, and `bounded` into the InV inside Bind. What a site reduces to
 -- is no higher than its substitution (`reducesBelow`), each family read as
 -- closed no higher than what lands at it (`landedAt`).
-bounded ds fe (Capped {c} cap le) = case ds.caps _ c cap of
-  MkOrigin arc w => boundCapped cap le (transitive le (capWithin w (arcHolds fe arc)))
+bounded ds fe (Capped cap le) = boundCapped cap le (transitive le (capHolds fe _ cap))
 bounded ds fe (Reduced s el ms r) =
   rewrite boundUncapped {g} {pot} {p = s.target} (indexAll el ds.sites).uncapped in
     transitive (reducesBelow (\y, k, lk => landedAt y lk ms) r) (written ds fe s el ms)

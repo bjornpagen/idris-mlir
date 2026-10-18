@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc-commit: what exclusivity's solve proved, written into one
-// function's types once idr-rc has written it into every signature: the
+// function's types once idr-rc-exclusive has written it into every
+// signature: the
 // values it proved exclusive get the grade, and where an exclusive value
 // meets a position typed owned (a call's argument, a return, and whatever
 // a branch or a region branch forwards it to: a loop's carried value, its
@@ -42,7 +43,7 @@ LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand 
   }
   if (!isExclusive(type) && isExclusive(expected)) {
     if (solved.live(op->getBlock()))
-      return op->emitOpError("idr-rc: gives a value of ")
+      return op->emitOpError("idr-rc-exclusive: gives a value of ")
              << type << " where the solver proved " << expected;
     Value poison = ub::PoisonOp::create(rewriter, op->getLoc(), expected);
     rewriter.modifyOpInPlace(op, [&] { operand.set(poison); });
@@ -50,19 +51,25 @@ LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand 
   return success();
 }
 
-LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &symbols) {
-  // A call's results are its callee's, which idr-rc set from the signature
-  // already: on a path the solver never reached, a call has no lattice of
-  // its own.
+// The commit of `fn`; the values it leaves exclusive are counted into
+// `exclusives`.
+LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &symbols,
+                     unsigned &exclusives) {
+  // A call's results are its callee's, which idr-rc-exclusive set from the
+  // signature already: on a path the solver never reached, a call has no
+  // lattice of its own.
   fn.walk<WalkOrder::PreOrder>([&](Block *block) {
-    for (BlockArgument arg : block->getArguments())
+    for (BlockArgument arg : block->getArguments()) {
       if (solved.proves(arg))
         arg.setType(exclusive(arg.getType()));
+      exclusives += isExclusive(arg.getType());
+    }
     for (Operation &op : *block)
-      if (!isa<CallOp>(op))
-        for (Value result : op.getResults())
-          if (solved.proves(result))
-            result.setType(exclusive(result.getType()));
+      for (Value result : op.getResults()) {
+        if (!isa<CallOp>(op) && solved.proves(result))
+          result.setType(exclusive(result.getType()));
+        exclusives += isExclusive(result.getType());
+      }
   });
   // Every position now says what it takes: found first, then met, since a
   // meeting inserts an op before the one that takes the value.
@@ -98,33 +105,38 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &sy
   return success();
 }
 
-// The solve and the table idr-rc holds for the nested run, which reads
-// them from every thread and writes nothing of them.
+// The solve and the table idr-rc-exclusive holds for the nested run, which
+// reads them from every thread and writes nothing of them, and the
+// statistic it counts into, which takes a count from every thread.
 struct RcCommit : PassWrapper<RcCommit, OperationPass<FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RcCommit)
 
-  RcCommit(const Exclusivity &solved, const SymbolTable &symbols)
-      : solved(solved), symbols(symbols) {}
+  RcCommit(const Exclusivity &solved, const SymbolTable &symbols, Pass::Statistic &exclusive)
+      : solved(solved), symbols(symbols), exclusive(exclusive) {}
 
   StringRef getArgument() const override { return "idr-rc-commit"; }
   StringRef getDescription() const override {
-    return "Write the exclusive grades idr-rc proved into one function and share an exclusive "
+    return "Write the exclusive grades idr-rc-exclusive proved into one function and share an exclusive "
            "value into each owned position";
   }
 
   void runOnOperation() override {
-    if (failed(commit(getOperation(), solved, symbols)))
-      signalPassFailure();
+    unsigned exclusives = 0;
+    if (failed(commit(getOperation(), solved, symbols, exclusives)))
+      return signalPassFailure();
+    exclusive += exclusives;
   }
 
   const Exclusivity &solved;
   const SymbolTable &symbols;
+  Pass::Statistic &exclusive;
 };
 
 } // namespace
 
-std::unique_ptr<Pass> createRcCommit(const Exclusivity &solved, const SymbolTable &symbols) {
-  return std::make_unique<RcCommit>(solved, symbols);
+std::unique_ptr<Pass> createRcCommit(const Exclusivity &solved, const SymbolTable &symbols,
+                                     Pass::Statistic &exclusive) {
+  return std::make_unique<RcCommit>(solved, symbols, exclusive);
 }
 
 } // namespace idr::ownership

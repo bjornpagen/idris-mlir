@@ -34,12 +34,8 @@ bool wordsAlone(linalg::GenericOp op) {
 // After the vectorization schedule, in the function the argument names or
 // anywhere, some loop computes on vectors, and no linalg.generic with a
 // parallel dimension and a body of words alone is left scalar.
-LogicalResult vectorized(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "vectorized";
-  SmallVector<Operation *> roots =
-      rootsOf(module, function, property);
-  if (roots.empty())
-    return failure();
+LogicalResult vectorized(const Request<Roots> &request) {
+  SmallVector<Operation *> roots = request.argument.roots(request.module);
   bool held = true, vectors = false;
   for (Operation *root : roots)
     root->walk([&](Operation *op) {
@@ -48,13 +44,13 @@ LogicalResult vectorized(ModuleOp module, AnalysisManager &, StringRef function)
       auto generic = dyn_cast<linalg::GenericOp>(op);
       if (!generic || generic.getNumParallelLoops() == 0 || !wordsAlone(generic))
         return;
-      fail(op->getLoc(), property) << "a loop over words with a parallel dimension stayed scalar in "
-                                   << where(op);
+      fail(op->getLoc(), request.property)
+          << "a loop over words with a parallel dimension stayed scalar in " << where(op);
       held = false;
     });
   if (!vectors) {
-    fail(roots.front()->getLoc(), property) << "no loop computes on vectors"
-                                            << (function.empty() ? "" : " in ") << function;
+    fail(roots.front()->getLoc(), request.property) << "no loop computes on vectors"
+                                                    << request.argument.in();
     held = false;
   }
   return success(held);

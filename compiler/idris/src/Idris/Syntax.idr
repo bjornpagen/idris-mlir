@@ -475,26 +475,6 @@ mutual
     RecordClaim : WithFC (PClaimData' nm) -> PRecordDeclLet' nm
     RecordClause : WithFC (PClause' nm) -> PRecordDeclLet' nm
 
-  -- For noting the pass we're in when desugaring a mutual block
-  -- TODO: Decide whether we want mutual blocks!
-  public export
-  data Pass = Single | AsType | AsDef
-
-  export
-  Eq Pass where
-    Single == Single = True
-    AsType == AsType = True
-    AsDef == AsDef = True
-    _ == _ = False
-
-  export
-  typePass : Pass -> Bool
-  typePass p = p == Single || p == AsType
-
-  export
-  defPass : Pass -> Bool
-  defPass p = p == Single || p == AsDef
-
   public export
   PFnOpt : Type
   PFnOpt = PFnOpt' Name

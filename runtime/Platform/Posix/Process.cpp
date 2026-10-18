@@ -4,6 +4,7 @@
 // errno, on a POSIX system: Linux and macOS alike.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
+#include "idris_rt.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -50,6 +51,6 @@ int64_t secondsSinceEpoch() noexcept { return static_cast<int64_t>(time(nullptr)
 
 int64_t processId() noexcept { return static_cast<int64_t>(getpid()); }
 
-[[clang::annotate("idris-rt-baseline")]] void exitProcess(int status) noexcept { _exit(status); }
+IDRIS_RT_BASELINE void exitProcess(int status) noexcept { _exit(status); }
 
 } // namespace rt::platform

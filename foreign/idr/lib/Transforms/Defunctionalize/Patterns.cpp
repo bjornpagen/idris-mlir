@@ -13,16 +13,17 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Support/Remake.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/OperationSupport.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/STLExtras.h"
 
 #include <cassert>
+#include <variant>
 
 using namespace mlir;
 
@@ -104,11 +105,12 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
       rewriter.replaceOp(apply, poison);
       return success();
     }
+    // A case per label, and no default.
     auto tags = llvm::to_vector(dataTypeOf(closure.getType()).getTags());
-    auto match = MatchOp::create(rewriter, loc, types, closure, ArrayRef<Tag>(tags),
-                                 static_cast<unsigned>(labels.size()));
-    for (auto [label, region] : llvm::zip_equal(labels, match.getRegions()))
-      if (failed(call(apply, adaptor, label, region, closure, rewriter)))
+    auto match = MatchOp::create(rewriter, loc, types, closure, ArrayRef<Tag>(tags));
+    for (auto [index, label] : llvm::enumerate(labels))
+      if (failed(call(apply, adaptor, label, match.getCaseRegion(static_cast<unsigned>(index)),
+                      closure, rewriter)))
         return failure();
     rewriter.replaceOp(apply, match.getResults());
     return success();
@@ -116,12 +118,14 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
 
   // The region of `label`: its captures bound at the scrutinee's grade and
   // held as its function's parameters, each argument moved into its slot,
-  // and each result out of the function's into the apply's.
+  // and each result out of the function's into the apply's. Every
+  // constructor of a closure sum is a label, by the body's rule.
   LogicalResult call(ApplyOp apply, OpAdaptor adaptor, const Ctor &label, Region &region,
                      Value closure, ConversionPatternRewriter &rewriter) const {
     const Slots &keys = slots();
     Location loc = apply.getLoc();
-    const Signature &sig = keys.signature(label.fn.getAttr());
+    FlatSymbolRefAttr fn = std::get<role::Label>(label.role).fn;
+    const Signature &sig = keys.signature(fn.getAttr());
     size_t args = apply.getArgs().size();
     // The label fits the callee's carrier, by the verifier of the op that
     // named it and the carriers of the edges it came along, as the label
@@ -148,7 +152,7 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
       }
       operands.push_back(value);
     }
-    auto made = CallOp::create(rewriter, loc, sig.converted.getResults(), label.fn, operands,
+    auto made = CallOp::create(rewriter, loc, sig.converted.getResults(), fn, operands,
                                /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
     SmallVector<Value> yields;
     for (auto [j, own] : llvm::enumerate(apply.getResults())) {
@@ -244,21 +248,12 @@ struct RetypePattern : ConversionPattern {
     SmallVector<Value> moved;
     if (failed(converter.coerceOperands(rewriter, op, operands, moved)))
       return failure();
-    OperationState state(op->getLoc(), op->getName());
-    state.addOperands(moved);
-    for (Value result : op->getResults())
-      state.addTypes(converter.typeOf(result));
-    state.addAttributes(op->getDiscardableAttrDictionary().getValue());
-    state.propertiesAttr = op->getPropertiesAsAttribute();
-    state.addSuccessors(op->getSuccessors());
-    for (unsigned i = 0, n = op->getNumRegions(); i < n; ++i)
-      state.addRegion();
-    Operation *made = rewriter.create(state);
-    for (auto [from, into] : llvm::zip(op->getRegions(), made->getRegions())) {
-      rewriter.inlineRegionBefore(from, into, into.end());
-      if (failed(rewriter.convertRegionTypes(&into, converter)))
+    SmallVector<Type> types = llvm::map_to_vector(
+        op->getResults(), [&](Value result) { return converter.typeOf(result); });
+    Operation *made = remakeOp(rewriter, op, moved, types);
+    for (Region &region : made->getRegions())
+      if (failed(rewriter.convertRegionTypes(&region, converter)))
         return failure();
-    }
     rewriter.replaceOp(op, made->getResults());
     return success();
   }

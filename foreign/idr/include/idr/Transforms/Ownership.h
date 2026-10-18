@@ -1,14 +1,30 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc: every reference made explicit, after which the program is in the
-// owned stage, which the pass sets on it and the verifier holds every later
-// pass to. The program pass decides on the program and writes signatures;
-// the bodies are rewritten per function, by two passes it runs nested:
-// idr-rc-place (the reuse rewrite and explicit counting) once the owned
-// grades are in every signature, idr-rc-commit (the excl grades) once the
-// exclusive ones are. While either runs no signature changes, so a function
-// reads only its own body, its own signature and its callees' signatures,
-// and the functions run in parallel. Below the pass are the steps its units
+// owned stage, which the verifier holds every later pass to. It is a
+// pipeline of steps (Pipeline.cpp), each a pass of its own:
+//   1. idr-rc-cells, on each function: a constructor of a cell becomes the
+//      cell's allocation and its initialization, so that memory is
+//      explicit;
+//   2. idr-rc-stack (Stack.h): a cell that never leaves its frame goes on
+//      the stack, before reuse and exclusivity see it;
+//   3. idr-rc-grades: the boundaries with upstream's buffer ops are marked,
+//      reset/reuse and borrow inference decide on the program, and the
+//      owned grades go into every signature: the program is graded, its
+//      bodies not yet counted;
+//   4. idr-rc-place, on each function: the reuse rewrite at the sites the
+//      program's Reuses holds, then the counts, which read the grades of
+//      the function's own signature and its callees';
+//   5. idr-rc-exclusive: exclusivity, which reads the dups placement made,
+//      is solved; grade specialization copies the functions whose callers
+//      disagree on a grade; the excl grades go into every signature, and
+//      each function is committed, nested; every reference is then counted
+//      and graded, the owned stage;
+// then upstream's symbol-dce erases the copies and originals no call
+// reaches any more. Steps 3 and 5 write signatures; steps 4 and 5's commit
+// rewrite bodies while no signature changes, so a function reads only its
+// own body, its own signature and its callees' signatures, and the
+// functions run in parallel. Below the passes are the steps their units
 // share.
 #ifndef IDR_TRANSFORMS_OWNERSHIP_H
 #define IDR_TRANSFORMS_OWNERSHIP_H
@@ -27,7 +43,11 @@
 
 namespace idr {
 
-#define GEN_PASS_DECL_IDRRC
+#define GEN_PASS_DECL_IDRRCCELLS
+#define GEN_PASS_DECL_IDRRCGRADES
+#define GEN_PASS_DECL_IDRRCPLACE
+#define GEN_PASS_DECL_IDRRCEXCLUSIVE
+#define GEN_PASS_DECL_IDRKNOTS
 #include "idr/Transforms/Passes.h.inc"
 
 } // namespace idr
@@ -36,19 +56,17 @@ namespace mlir {
 class RewriterBase;
 } // namespace mlir
 
-namespace idr {
-struct CalleeEffects;
-} // namespace idr
-
 namespace idr::ownership {
 
-// The nested passes, which idr-rc builds and no registry knows, each with
-// what it reads, which idr-rc holds for as long as the nested run lasts:
-// placement, on the reuses decided and the program's table, and the commit
-// of the excl grades `solved` proved.
-std::unique_ptr<mlir::Pass> createRcPlace(const Reuses &reuses, const CalleeEffects &callees);
+// The commit of the excl grades `solved` proved, which idr-rc-exclusive
+// runs nested on each function while it holds the solve and the program's
+// `symbols`, and which counts into its `exclusive` statistic the values it
+// leaves exclusive. It is no registered pass: Exclusivity is a value the
+// parent made from the copies it decided, solved twice and read after the
+// calls moved, which no analysis of the program can be.
 std::unique_ptr<mlir::Pass> createRcCommit(const Exclusivity &solved,
-                                           const mlir::SymbolTable &symbols);
+                                           const mlir::SymbolTable &symbols,
+                                           mlir::Pass::Statistic &exclusive);
 
 // The owned grades borrow inference decided, written into every signature:
 // an owned parameter and every result that holds references become
@@ -77,26 +95,50 @@ mlir::FailureOr<Copies> specializeOnGrade(ProgramOp program, const Exclusivity &
 // program after the calls moved.
 void redirectCalls(ProgramOp program, const Exclusivity &solved);
 
-// Every copy and every original that nothing calls any more, once the
-// calls went where they go.
-void eraseUnused(ProgramOp program, mlir::SymbolTable &symbols, const Copies &copies);
-
 // The excl grades the solve proved, written into every signature and entry
 // argument, and every call's results set from its callee's.
 void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved,
                           const mlir::SymbolTable &symbols);
 
-// The class of a value, as counting places it.
-enum class Class { Untracked, Static, Borrowed, Owned };
+// What counting does with a value, decided once for each: the placement
+// it gets, not only how long it lives.
+enum class Class {
+  // Holds no reference counting sees: a value of a type that holds none,
+  // or one whose reference a boundary with upstream's buffer ops moves.
+  Untracked,
+  // Stands for a value without holding a reference (poison, a small big):
+  // owned by type, and never counted.
+  Phantom,
+  // Static data counting never frees: a view, which each consuming use
+  // takes a reference of its own to (a dup that runs nothing).
+  Constant,
+  // Read from static data, or static data at another grade: keeps its
+  // grade, and each consuming use takes a reference of its own.
+  StaticRead,
+  // A view of a value that is alive at each of its uses, or a parameter
+  // borrow inference left a view: each consuming use takes a reference.
+  Borrowed,
+  // A field or an element that takes a reference of its own where it is
+  // read: an idr.dup right after the read (Reshape), placed as an owned
+  // value in its stead.
+  OwnedAtRead,
+  // Holds one reference of its own, which its last use on each path
+  // consumes.
+  Owned,
+};
+
+// Whether a value of `kind` holds a reference of its own once counted.
+bool ownsReference(Class kind);
 
 // The class of each value of a function as it stands, each computed once.
 // A class reads where a value's uses are and where what it was read from
 // is alive, so a Classes is built for one step and dropped with it: no
 // class outlives a change of the code it read. A parameter that holds
 // references is borrowed unless its grade, which the signature gave it, is
-// owned. An element read from a buffer is owned: it takes a reference of
-// its own where it is read. A fresh allocation and the value a give hands
-// to a store are untracked: their boundary op moves their reference.
+// owned. An element read from a buffer is owned at its read: the buffer may
+// be written while a view of it would still be read. A fresh allocation and
+// the value a give hands to a store are untracked: their boundary op moves
+// their reference.
 class Classes {
 public:
   explicit Classes(FuncOp fn) : fn(fn) {}
@@ -116,55 +158,59 @@ bool usedIn(mlir::Value value, mlir::Region &region);
 // Whether `block` ends in a crash, which counting leaves alone.
 bool endsInCrash(mlir::Block &block);
 
-// Takes the box `box`, built by the constructor `tag` of `data`, apart at
-// `at` in `block`: an idr.take whose fields replace the reads of the box's
-// fields from that point on (`bound`, the arguments of the case region
-// that bound them, none when no case region did, and idr.field).
-TakeOp takeAt(mlir::RewriterBase &rewriter, mlir::Value box, DataType data, Tag tag,
-              mlir::Block &block, mlir::Block::iterator at,
-              llvm::ArrayRef<mlir::BlockArgument> bound);
+// Takes the box `box`, built by the constructor `tag`, which has a cell,
+// out of its cell at `at` in `block`: an idr.take whose fields replace the
+// reads of the box's fields from that point on (`bound`, the arguments of
+// the case region that bound them, none when no case region did, and
+// idr.field).
+TakeOp takeAt(mlir::RewriterBase &rewriter, mlir::Value box, Tag tag, mlir::Block &block,
+              mlir::Block::iterator at, llvm::ArrayRef<mlir::BlockArgument> bound);
 
 // Takes the scrutinee of `match` apart where its case region `index`
-// begins: an idr.take whose fields replace the region's arguments.
-TakeOp takeAtEntry(mlir::RewriterBase &rewriter, MatchOp match, unsigned index);
+// begins, its fields replacing the region's arguments: out of its cell when
+// the case's constructor has one, an idr.take, else an idr.unpack.
+void takeAtEntry(mlir::RewriterBase &rewriter, MatchOp match, unsigned index);
 
-// Takes the unboxed sum `value`, built by the constructor `tag` whose
-// fields have `fieldTypes`, apart where it is defined, and gives each of
-// its field reads the field taken.
-TakeOp takeFields(mlir::RewriterBase &rewriter, mlir::Value value, Tag tag,
-                  llvm::ArrayRef<mlir::Type> fieldTypes);
+// Takes the unboxed sum `value`, built by the constructor `tag`, apart
+// where it is defined (idr.unpack), and gives each of its field reads the
+// field taken.
+void takeFields(mlir::RewriterBase &rewriter, mlir::Value value, Tag tag);
 
 // Whether `box`, built by the constructor `tag`, keeps a field that holds
 // references past `at` in `block`, where it dies.
 bool keepsCountedField(mlir::Value box, Tag tag, mlir::Block &block, mlir::Block::iterator at,
                        llvm::ArrayRef<mlir::BlockArgument> bound);
 
-// The reuse rewrite of one function: at each site, in order, the take and
-// the reuses of its cell.
+// The reuse rewrite of one function: at each site, in order, the take of
+// the box, and each idr.cell.new that gets its cell an idr.cell.recycle of
+// the take's token.
 void reuseAt(mlir::RewriterBase &rewriter, llvm::ArrayRef<Reuses::Site> sites);
 
-// The buffers of one function in the form counting counts, before any
-// analysis of idr-rc reads them: a loop whose payload takes or yields an
-// element that holds references becomes its scf.for loops, whose loads and
-// stores counting grades, and a load of a counted element nothing reads is
-// no read at all; each memref.alloc's reference is taken over by an
-// idr.own.adopt, and each counted memref.store's value handed to it by an
-// idr.own.give. Writes nothing outside the function.
-mlir::LogicalResult bufferForms(FuncOp fn);
+// The boundaries of one function where counting meets upstream's buffer
+// ops, before any analysis of idr-rc reads them: each memref.alloc's
+// reference is taken over by an idr.own.adopt, and each counted
+// memref.store's value handed to it by an idr.own.give. Writes nothing
+// outside the function.
+void boundaries(FuncOp fn);
 
-// The code counting changes before it places a count, after it checked it
-// can count the function: selects, values taken apart where they die,
-// consumers moved past the reads that follow them, and fields and elements
-// that take a reference of their own. A call's operands take their
-// parameters' grades only once placed, so what a call takes over is read
-// from its callee's signature, through `callees`.
-mlir::LogicalResult reshape(mlir::RewriterBase &rewriter, FuncOp fn,
-                            const CalleeEffects &callees);
+// The counts a step of placement added to a function.
+struct Counted {
+  unsigned dups = 0;
+  unsigned drops = 0;
+};
+
+// The code counting changes before it places a count: selects, values
+// taken apart where they die, consumers moved past the reads that follow
+// them, and fields and elements that take a reference of their own, the
+// dups of which it gives. A call's operands take their parameters' grades
+// only once placed, so what a call takes over is read from its callee's
+// signature, through `symbols`.
+Counted reshape(mlir::RewriterBase &rewriter, FuncOp fn, const mlir::SymbolTable &symbols);
 
 // The counts of a function: the idr.dup, idr.drop and idr.borrow that make
 // every reference consumed exactly once on every path, what a call takes
-// over read through `callees` as `reshape` reads it.
-void place(mlir::RewriterBase &rewriter, FuncOp fn, const CalleeEffects &callees);
+// over read through `symbols` as `reshape` reads it.
+Counted place(mlir::RewriterBase &rewriter, FuncOp fn, const mlir::SymbolTable &symbols);
 
 } // namespace idr::ownership
 

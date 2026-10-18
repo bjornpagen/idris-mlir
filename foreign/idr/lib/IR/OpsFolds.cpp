@@ -51,14 +51,12 @@ void accumulatorEdges(ValueRange inits, ValueRange results, Block::BlockArgListT
 // along its last dimension, else the inits' own dimension there. Both are
 // read from where the op holds them, made with `b`, or named for value
 // bounds.
-template <typename OpT>
-OpFoldResult foldExtent(OpT op, OpBuilder &b, unsigned dim) {
+OpFoldResult foldExtent(LastAxisFoldOpInterface op, OpBuilder &b, unsigned dim) {
   if (dim == op.getFrameRank())
     return op.getLength();
   return tensor::getMixedSize(b, op.getLoc(), op.getInits().front(), dim);
 }
-template <typename OpT>
-ValueBoundsConstraintSet::Variable foldExtentBound(OpT op, unsigned dim) {
+ValueBoundsConstraintSet::Variable foldExtentBound(LastAxisFoldOpInterface op, unsigned dim) {
   if (dim == op.getFrameRank())
     return op.getLength();
   return {op.getInits().front(), static_cast<int64_t>(dim)};

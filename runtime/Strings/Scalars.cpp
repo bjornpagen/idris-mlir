@@ -43,9 +43,11 @@ int32_t decode(const char *p) {
   return value;
 }
 
-// The boundary an offset stands for: clamped to [0, bytes], then moved back
-// to the start of the scalar whose encoding holds it. Byte 0 starts a
-// scalar, so the walk back stops there at the latest.
+// A string by byte offset, as the linear string iterator walks it: every
+// offset has a meaning. The boundary an offset stands for: clamped to
+// [0, bytes], then moved back to the start of the scalar whose encoding
+// holds it. Byte 0 starts a scalar, so the walk back stops there at the
+// latest.
 uint64_t boundary(const idris_rt_str *s, int64_t offset) {
   if (offset <= 0)
     return 0;
@@ -58,11 +60,9 @@ uint64_t boundary(const idris_rt_str *s, int64_t offset) {
   return at;
 }
 
-// The scalars [from, to) of s, as a new string. The walk to its end starts
-// where the walk to its start stopped.
+// The scalars [from, to) of s, as a new string, or the empty one. The walk
+// to its end starts where the walk to its start stopped.
 const idris_rt_str *slice(const idris_rt_str *s, uint64_t from, uint64_t to) {
-  if (from == to)
-    return &rt::strings::emptyString;
   uint64_t begin = advance(s, 0, from);
   uint64_t end = to == s->scalars ? s->bytes : advance(s, begin, to - from);
   idris_rt_str *result = rt::strings::newString(end - begin, to - from);
@@ -72,33 +72,48 @@ const idris_rt_str *slice(const idris_rt_str *s, uint64_t from, uint64_t to) {
 
 } // namespace
 
+// The number of scalar values of a string.
 extern "C" int64_t idris_rt_str_length(const idris_rt_str *s) {
   return static_cast<int64_t>(s->scalars);
 }
 
+// The scalar at an index, 0 <= index < length, which idr-lower checks first
+// and crashes on.
 extern "C" int32_t idris_rt_str_index(const idris_rt_str *s, int64_t i) {
   return decode(idris_rt_str_bytes(s) + advance(s, 0, static_cast<uint64_t>(i)));
 }
 
+// The first scalar of a string that is not empty, which idr-lower checks
+// first and crashes on.
 extern "C" int32_t idris_rt_str_head(const idris_rt_str *s) {
   return decode(idris_rt_str_bytes(s));
 }
 
+// The string without its first scalar, of a string that is not empty, which
+// idr-lower checks first and crashes on.
 extern "C" const idris_rt_str *idris_rt_str_tail(const idris_rt_str *s) {
   return slice(s, 1, s->scalars);
 }
 
+// The Prelude's substr: the scalars from `start`, at most `len` of them; ""
+// when the start is past the end, and only those left when fewer than `len`
+// are. A negative start or length, which only a call of the primitive
+// itself passes, counts as 0. Clamped, the rule has no exception: the first
+// scalar is the start clamped to [0, length], and the count `len` clamped
+// to [0, length - first].
 extern "C" const idris_rt_str *idris_rt_str_substr(const idris_rt_str *s, int64_t start,
                                                    int64_t len) {
   uint64_t length = s->scalars;
-  uint64_t from = start > 0 ? static_cast<uint64_t>(start) : 0;
+  uint64_t first = start > 0 ? static_cast<uint64_t>(start) : 0;
+  uint64_t from = first < length ? first : length;
   uint64_t count = len > 0 ? static_cast<uint64_t>(len) : 0;
-  if (from > length)
-    return &rt::strings::emptyString;
   uint64_t to = count > length - from ? length : from + count;
   return slice(s, from, to);
 }
 
+// The string's scalars in reverse order. The empty string's reverse is
+// itself, given back with one more reference, as appending an empty string
+// gives back the other.
 extern "C" const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s) {
   if (s->bytes == 0)
     return rt::strings::shared(s);
@@ -124,24 +139,27 @@ extern "C" const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s) {
   return result;
 }
 
+// The scalar that starts at the boundary an offset stands for; 0 at the end.
 extern "C" int32_t idris_rt_str_scalar_at(const idris_rt_str *s, int64_t offset) {
   uint64_t at = boundary(s, offset);
   return at == s->bytes ? 0 : decode(idris_rt_str_bytes(s) + at);
 }
 
-// The iterator's step past the scalar it read: its encoding's length.
+// The iterator's step past the scalar it read: the number of bytes of a
+// character's UTF-8, 1 to 4; for an int32_t that is no scalar value, the
+// length its encoding as idris_rt_str_from_char writes it has.
 extern "C" int64_t idris_rt_str_scalar_bytes(int32_t c) {
   return static_cast<int64_t>(rt::strings::utf8Length(c));
 }
 
-// The bytes from the boundary on, a new string: an ASCII string's tail is
-// ASCII, and any other's scalars are counted.
+// The scalars from the boundary an offset stands for on: the string itself
+// (one more reference) from 0, and otherwise a string of those bytes, the
+// persistent empty one at the end. An ASCII string's tail is ASCII, and any
+// other's scalars are counted.
 extern "C" const idris_rt_str *idris_rt_str_drop_bytes(const idris_rt_str *s, int64_t offset) {
   uint64_t at = boundary(s, offset);
   if (at == 0)
     return rt::strings::shared(s);
-  if (at == s->bytes)
-    return &rt::strings::emptyString;
   uint64_t n = s->bytes - at;
   const char *p = idris_rt_str_bytes(s) + at;
   idris_rt_str *result =

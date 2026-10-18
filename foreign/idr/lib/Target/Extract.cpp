@@ -29,7 +29,7 @@ using idr::target::Partition;
 Error Partition::extract(unsigned bin, Module &module) const {
   std::vector<GlobalValue *> at = positions(module);
   if (at.size() != symbols.size())
-    return createStringError("internal error: bin " + binList[bin].name + " reads " +
+    return createStringError("bin " + binList[bin].name + " reads " +
                              Twine(at.size()) + " symbols from the bitcode, and the partition was "
                              "made of " + Twine(symbols.size()));
   // What the bin defines, the constants it holds a copy of, and what they
@@ -98,7 +98,7 @@ Error Partition::extract(unsigned bin, Module &module) const {
       continue;
     at[symbol]->removeDeadConstantUsers();
     if (!at[symbol]->use_empty())
-      return createStringError("internal error: bin " + binList[bin].name + " still uses " +
+      return createStringError("bin " + binList[bin].name + " still uses " +
                                at[symbol]->getName() + ", which it neither defines nor declares");
     at[symbol]->eraseFromParent();
   }

@@ -8,8 +8,8 @@
 idr.program @accumulate root(@root) stage(first) {
 
   idr.func @length(%xs: !idr.box<!List>) -> !idr.nat attributes {total} {
-    %one = idr.constant #idr.big<1> : !idr.nat
-    %zero = idr.constant #idr.big<0> : !idr.nat
+    %one = idr.constant !idr.nat #idr.big<1>
+    %zero = idr.constant !idr.nat #idr.big<0>
     %r = idr.match %xs : !idr.box<!List> -> (!idr.nat) {
     case @Nil() {
       idr.yield %zero : !idr.nat
@@ -24,12 +24,12 @@ idr.program @accumulate root(@root) stage(first) {
   }
 
   idr.func @steps(%k: !idr.nat, %n: !idr.nat) -> !idr.nat attributes {total} {
-    %zero = idr.constant #idr.big<0> : !idr.nat
+    %zero = idr.constant !idr.nat #idr.big<0>
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
       idr.yield %zero : !idr.nat
     }
-    default {
+    default(%d0: !idr.nat) {
       %p = idr.big.pred %n
       %c = idr.call @steps(%k, %p) : (!idr.nat, !idr.nat) -> !idr.nat
       %s = idr.big.add %c, %k : !idr.nat
@@ -44,9 +44,9 @@ idr.program @accumulate root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %acc : !idr.nat
     }
-    default {
+    default(%d1: !idr.nat) {
       %p = idr.big.pred %n
-      %one = idr.constant #idr.big<1> : !idr.nat
+      %one = idr.constant !idr.nat #idr.big<1>
       %more = idr.big.add %acc, %one : !idr.nat
       %s = idr.call @count(%p, %more) : (!idr.nat, !idr.nat) -> !idr.nat
       idr.yield %s : !idr.nat
@@ -56,12 +56,12 @@ idr.program @accumulate root(@root) stage(first) {
   }
 
   idr.func @both(%n: !idr.nat) -> !idr.nat attributes {total} {
-    %zero = idr.constant #idr.big<0> : !idr.nat
+    %zero = idr.constant !idr.nat #idr.big<0>
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
       idr.yield %zero : !idr.nat
     }
-    default {
+    default(%d2: !idr.nat) {
       %p = idr.big.pred %n
       %a = idr.call @both(%p) : (!idr.nat) -> !idr.nat
       %b = idr.call @both(%p) : (!idr.nat) -> !idr.nat
@@ -73,8 +73,8 @@ idr.program @accumulate root(@root) stage(first) {
   }
 
   idr.func @depth(%xs: !idr.box<!List>) -> !idr.nat attributes {total} {
-    %zero = idr.constant #idr.big<0> : !idr.nat
-    %one = idr.constant #idr.big<1> : !idr.nat
+    %zero = idr.constant !idr.nat #idr.big<0>
+    %one = idr.constant !idr.nat #idr.big<1>
     %r = idr.match %xs : !idr.box<!List> -> (!idr.nat) {
     case @Nil() {
       idr.yield %zero : !idr.nat
@@ -85,7 +85,7 @@ idr.program @accumulate root(@root) stage(first) {
       case #idr.big<0> {
         idr.yield %zero : !idr.nat
       }
-      default {
+      default(%d3: !idr.nat) {
         idr.yield %one : !idr.nat
       }
       }
@@ -98,13 +98,13 @@ idr.program @accumulate root(@root) stage(first) {
   idr.func @down(%n: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
-      %zero = idr.constant #idr.big<0> : !idr.nat
+      %zero = idr.constant !idr.nat #idr.big<0>
       idr.yield %zero : !idr.nat
     }
-    default {
+    default(%d4: !idr.nat) {
       %p = idr.big.pred %n
       %c = idr.call @down(%p) : (!idr.nat) -> !idr.nat
-      %one = idr.constant #idr.big<1> : !idr.nat
+      %one = idr.constant !idr.nat #idr.big<1>
       %s = idr.big.add %c, %one : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -115,13 +115,13 @@ idr.program @accumulate root(@root) stage(first) {
   idr.func @twos(%n: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
-      %zero = idr.constant #idr.big<0> : !idr.nat
+      %zero = idr.constant !idr.nat #idr.big<0>
       idr.yield %zero : !idr.nat
     }
-    default {
+    default(%d5: !idr.nat) {
       %p = idr.big.pred %n
       %c = idr.call @twos(%p) : (!idr.nat) -> !idr.nat
-      %two = idr.constant #idr.big<2> : !idr.nat
+      %two = idr.constant !idr.nat #idr.big<2>
       %s = idr.big.add %c, %two : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -130,13 +130,13 @@ idr.program @accumulate root(@root) stage(first) {
   }
 
   idr.func @down_out(%n: !idr.nat) -> !idr.nat attributes {total} {
-    %one = idr.constant #idr.big<1> : !idr.nat
-    %zero = idr.constant #idr.big<0> : !idr.nat
+    %one = idr.constant !idr.nat #idr.big<1>
+    %zero = idr.constant !idr.nat #idr.big<0>
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
       idr.yield %zero : !idr.nat
     }
-    default {
+    default(%d6: !idr.nat) {
       %p = idr.big.pred %n
       %c = idr.call @down_out(%p) : (!idr.nat) -> !idr.nat
       %s = idr.big.add %c, %one : !idr.nat
@@ -147,13 +147,13 @@ idr.program @accumulate root(@root) stage(first) {
   }
 
   idr.func @as_integer(%n: !idr.nat) -> !idr.big attributes {total} {
-    %one = idr.constant #idr.big<1> : !idr.big
-    %zero = idr.constant #idr.big<0> : !idr.big
+    %one = idr.constant !idr.big #idr.big<1>
+    %zero = idr.constant !idr.big #idr.big<0>
     %r = idr.match_lit %n : !idr.nat -> (!idr.big) {
     case #idr.big<0> {
       idr.yield %zero : !idr.big
     }
-    default {
+    default(%d7: !idr.nat) {
       %p = idr.big.pred %n
       %c = idr.call @as_integer(%p) : (!idr.nat) -> !idr.big
       %s = idr.big.add %c, %one : !idr.big

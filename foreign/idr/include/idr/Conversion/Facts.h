@@ -6,46 +6,26 @@
 #ifndef IDR_CONVERSION_FACTS_H
 #define IDR_CONVERSION_FACTS_H
 
-#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 
-#include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
-
-#include <utility>
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 namespace idr::conversion {
 
-class Facts {
-public:
-  // Reads each function of the program, its idr signature and the
-  // parameters some call passes poison, before phase 0 renames the
-  // functions and the conversion takes the types apart; each is kept under
-  // the function's mangled name, the name it has from phase 0 on. A memo
-  // label's function is called by its sum's dispatch function with the
-  // fields a force reads from the cell, its captures in order as its
-  // parameters: so the label's constructor, built new or in a reused cell,
-  // passes its fields to the function as a call passes its arguments. The
-  // memo sum's other two states, running and forced, have no function.
-  explicit Facts(ProgramOp program);
-
-  // After the conversion, marks each function's parameters and result:
-  //   - a value whose type is a cell pointer (a box, a string; after
-  //     idr-defunctionalize every closure and suspension is a box) points to
-  //     a cell, never null, 8-aligned, with at least its 8-byte header to
-  //     read (`nonnull`, `align 8`, `dereferenceable(8)`);
-  //   - an unboxed sum's tag is in [0, n) for n constructors (`range`).
-  // A parameter some call passes poison gets no pointer facts: its poison
-  // is lowered to null, which the callee may drop, and a null that is
-  // `dereferenceable` is undefined behaviour even if nothing reads it.
-  void apply(const Layouts &layouts);
-
-private:
-  ProgramOp program;
-  llvm::DenseMap<mlir::StringAttr, mlir::FunctionType> signatures;
-  llvm::DenseSet<std::pair<mlir::StringAttr, unsigned>> poisoned;
-};
+// The conversion of a function's signature, as upstream's for a function
+// op, which writes the facts of each parameter's first component where the
+// signature conversion puts it, and of a result that is one cell pointer:
+//   - a value whose type is a cell pointer (a box, a string; after
+//     idr-defunctionalize every closure and suspension is a box) points to
+//     a cell, never null, aligned to a cell's start, with at least its
+//     header to read (`nonnull`, `align`, `dereferenceable`): poison of one
+//     is the static cell `nothing`, so no parameter is ever null;
+//   - an unboxed sum's tag is in [0, n) for n constructors (`range`).
+// It replaces upstream's signature conversion of func.func, on every worker
+// of the conversion.
+void populateSignaturePatterns(mlir::RewritePatternSet &patterns,
+                               const mlir::TypeConverter &converter, const Layouts &layouts);
 
 } // namespace idr::conversion
 

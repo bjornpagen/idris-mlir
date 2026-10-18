@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A memo cell is shared, so the cells that may reach one slot share one
@@ -26,7 +27,7 @@ idr.program @"memo-rebuild" root(@Main.main) stage(higher) {
     %z = idr.call @use(%b) : (!idr.lazy<i64>) -> i64
     %xy = arith.addi %x, %y : i64
     %r = arith.addi %xy, %z : i64
-    %w1 = idr.io.put_int signed %r, %w : i64
+    %w1 = idr.io.put_sint %r, %w : i64
     return %w1 : !idr.world
   }
 }

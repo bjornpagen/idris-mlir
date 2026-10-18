@@ -1,12 +1,13 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that sinking reads a call's own effects, its callee's written on it once the callee is final (mlir-12), so the call of the total @pmk moves into the one region that applies its result and is raised there, while the call of the partial @mk stays before the match, where calls-where-used reports it at its line (mlir-22) (S2's default argument).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@Main.main:@pmk -o /dev/null
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@Main.main:@mk -o /dev/null
-// NEEDS-ACCEPTANCE: that sinking reads a call's effects as its callee's, so the call of the total @pmk moves into the one region that applies its result and is raised there, while the call of the partial @mk stays before the match.
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce),idr-expect{holds=calls-where-used=@Main.main:@mk})' -verify-diagnostics -o /dev/null
 // A call whose result only one region of a later match applies moves into
 // that region when its callee only computes: there the apply eliminates
 // the call's result, which raising then takes into a copy of the callee,
 // and the call runs only on the path that uses it. What a call may do is
-// its callee's, which sinking reads by the callee's name. @pmk is total
+// its own effects, its callee's written on it once the callee is final,
+// which sinking reads off the call. @pmk is total
 // and computes only, so its call moves; @mk is the same function without
 // Idris's proof that it ends, so its call may not return, and it stays
 // where it runs on every path. Both loop, so neither is inlined.
@@ -21,7 +22,7 @@ idr.program @"sunk-call" root(@Main.main) stage(higher) {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %v = idr.call @mk(%a, %m) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
@@ -36,7 +37,7 @@ idr.program @"sunk-call" root(@Main.main) stage(higher) {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %v = idr.call @pmk(%a, %m) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
@@ -54,17 +55,18 @@ idr.program @"sunk-call" root(@Main.main) stage(higher) {
       %z = idr.apply %f(%n) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d: i64) {
       idr.yield %n : i64
     }
     }
+    // expected-error @below {{a call of @mk in @Main.main runs where only the regions of a later op use it}}
     %g = idr.call @mk(%r, %r) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
     %s = idr.match_lit %r : i64 -> (i64) {
     case 0 {
       %z = idr.apply %g(%r) : !idr.fn<(i64) -> (i64)>
       idr.yield %z : i64
     }
-    default {
+    default(%d: i64) {
       idr.yield %r : i64
     }
     }

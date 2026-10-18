@@ -18,11 +18,10 @@
 // anything it could hide. A force is such a value until it is a call: it
 // runs its suspension's code, which may crash or not return as a call's
 // may, and its effects say so; it is never moved past an effect, nor onto
-// fewer paths. A call does what its callee's effects say, read through the
-// program's table where the canonicalizer has one (CalleePattern): a call
-// of a callee that only computes moves into the region where its result
-// meets the dispatch that raising takes in, which needs the two in one
-// block. Without a table a call may do anything, and stays. A value that
+// fewer paths. A call does what its own effects say: a call that only
+// computes moves into the region where its result meets the dispatch that
+// raising takes in, which needs the two in one block, and one whose
+// effects no pass has found may do anything, and stays. A value that
 // moves onto fewer paths may take a linear one, as a call's argument or a
 // grade's operand: verify::linearity asks of a linear value that it is used
 // at most once on every path, not that every path uses it, and on a path
@@ -61,20 +60,23 @@ bool meets(Value value, OpOperand &use) {
   if (canon::feeds(value, use))
     return true;
   auto result = dyn_cast<OpResult>(value);
-  return result && isa<MatchOp, MatchLitOp>(result.getOwner()) &&
+  return result && isa<MatchOpInterface>(result.getOwner()) &&
          canon::meetsInSomeRegion(result, use.getOwner());
 }
 
-// Whether `value` may run later, in the regions of `match` that use it.
-bool movesInto(Operation *value, Operation *match, size_t regions,
-               const CalleeEffects *callees) {
-  if (onlyAllocates(value, callees))
+// Whether `value` may run later, in the regions of `match` that use it:
+// every path through the match uses it when every region that runs does,
+// and an exhaustive match's empty default never runs.
+bool movesInto(Operation *value, Operation *match, size_t regions) {
+  if (onlyAllocates(value))
     return true;
-  if (regions != match->getNumRegions() || performsIO(value, callees))
+  auto runs = [](Region &region) { return !region.empty(); };
+  if (regions != static_cast<size_t>(llvm::count_if(match->getRegions(), runs)) ||
+      performsIO(value))
     return false;
   for (Operation *between = value->getNextNode(); between != match;
        between = between->getNextNode())
-    if (!onlyAllocates(between, callees))
+    if (!onlyAllocates(between))
       return false;
   return true;
 }
@@ -98,7 +100,7 @@ SmallVector<Region *> usersIn(Operation *value, Operation *match) {
 }
 
 // Whether `value` moves into the regions of `match` that use it.
-bool sinkable(Operation *value, Operation *match, const CalleeEffects *callees) {
+bool sinkable(Operation *value, Operation *match) {
   if (value->getNumResults() == 0 || value->use_empty() ||
       value->hasTrait<OpTrait::ConstantLike>())
     return false;
@@ -107,7 +109,7 @@ bool sinkable(Operation *value, Operation *match, const CalleeEffects *callees) 
       }))
     return false;
   size_t regions = usersIn(value, match).size();
-  if (!movesInto(value, match, regions, callees))
+  if (!movesInto(value, match, regions))
     return false;
   if (!isa<ConOp, ClosureOp>(value) && !value->hasTrait<ResultCarriesOperand>() &&
       !llvm::any_of(value->getResults(), [&](Value result) {
@@ -156,12 +158,12 @@ private:
 // makes the scan long, a match that nests dozens deep (as case-of-case makes
 // them) the walk. The two run a step each in turn, over the ops before the
 // match, and the first to finish answers.
-Operation *nearestSinkable(Operation *match, const CalleeEffects *callees) {
+Operation *nearestSinkable(Operation *match) {
   Block *block = match->getBlock();
   Inside inside(match);
   llvm::SmallPtrSet<Operation *, 8> used;
   for (Operation *previous = match->getPrevNode(); previous; previous = previous->getPrevNode()) {
-    if (sinkable(previous, match, callees))
+    if (sinkable(previous, match))
       return previous;
     Operation *op = inside.next();
     if (!op) {
@@ -173,7 +175,7 @@ Operation *nearestSinkable(Operation *match, const CalleeEffects *callees) {
           left.push_back(def);
       llvm::sort(left, [](Operation *a, Operation *b) { return b->isBeforeInBlock(a); });
       for (Operation *def : left)
-        if (sinkable(def, match, callees))
+        if (sinkable(def, match))
           return def;
       return nullptr;
     }
@@ -195,7 +197,7 @@ Operation *holdingMatch(Operation *value) {
       return nullptr;
     match = at;
   }
-  if (!isa_and_nonnull<MatchOp, MatchLitOp>(match) || !value->isBeforeInBlock(match))
+  if (!isa_and_nonnull<MatchOpInterface>(match) || !value->isBeforeInBlock(match))
     return nullptr;
   return match;
 }
@@ -206,32 +208,30 @@ Operation *holdingMatch(Operation *value) {
 // match its users are in. A value that does more than compute leaves the
 // ops between its place and the match, and those ops whose own question
 // spans it are tried again.
-struct SinkIntoRegions : canon::CalleePattern {
-  SinkIntoRegions(MLIRContext *context, const CalleeEffects *callees)
-      : CalleePattern(MatchAnyOpTypeTag(), "idr-sink-into-regions", context, callees) {}
-
-  std::unique_ptr<CalleePattern> withCallees(const CalleeEffects *table) const final {
-    return std::make_unique<SinkIntoRegions>(getContext(), table);
+struct SinkIntoRegions : RewritePattern {
+  explicit SinkIntoRegions(MLIRContext *context)
+      : RewritePattern(MatchAnyOpTypeTag(), PatternBenefit(1), context) {
+    setDebugName("idr-sink-into-regions");
   }
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const final {
-    if (isa<MatchOp, MatchLitOp>(op)) {
-      if (Operation *value = nearestSinkable(op, callees))
+    if (isa<MatchOpInterface>(op)) {
+      if (Operation *value = nearestSinkable(op))
         return sink(value, op, rewriter);
     }
     Operation *match = holdingMatch(op);
-    if (!match || !sinkable(op, match, callees))
+    if (!match || !sinkable(op, match))
       return failure();
     return sink(op, match, rewriter);
   }
 
 private:
-  LogicalResult sink(Operation *value, Operation *match, PatternRewriter &rewriter) const {
+  static LogicalResult sink(Operation *value, Operation *match, PatternRewriter &rewriter) {
     // A value that does more than compute stood between each op it moves
     // across and a partner before it. It moves only past ops that compute,
     // which movesInto walked already.
-    if (!onlyAllocates(value, callees))
-      retryBetween(rewriter, {std::next(value->getIterator()), match->getIterator()});
+    if (!onlyAllocates(value))
+      canon::retryBetween(rewriter, {std::next(value->getIterator()), match->getIterator()});
     for (Region *region : usersIn(value, match)) {
       auto inside = [&](OpOperand &use) {
         return region->isAncestor(use.getOwner()->getParentRegion());
@@ -250,7 +250,7 @@ private:
 namespace idr::canon {
 
 void addSink(RewritePatternSet &results, MLIRContext *context) {
-  results.add<SinkIntoRegions>(context, /*callees=*/nullptr);
+  results.add<SinkIntoRegions>(context);
 }
 
 } // namespace idr::canon

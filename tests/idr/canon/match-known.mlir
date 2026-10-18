@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=matches-nothing=@of_con,builds-nothing=@of_con,\
 // RUN: returns=@of_constant:4.0,returns=@to_default:0.0,matches-nothing=@single,reads-fields=@single,\
 // RUN: matches=@crashes,returns=@literals:2/3/4 -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A match whose taken region is known is replaced by that region: the
 // scrutinee is a constant or built by idr.con, or one region is left. The
@@ -46,7 +46,7 @@ idr.program @"match-known" root(@root) stage(first) {
     case @Circle(%x: f64) {
       idr.yield %x : f64
     }
-    default {
+    default(%d: !Shape) {
       %z = arith.constant 0.0 : f64
       idr.yield %z : f64
     }
@@ -95,7 +95,7 @@ idr.program @"match-known" root(@root) stage(first) {
     case 7 {
       idr.yield %two : i64
     }
-    default {
+    default(%d: i64) {
       idr.yield %one : i64
     }
     }
@@ -106,7 +106,7 @@ idr.program @"match-known" root(@root) stage(first) {
     case "b" {
       idr.yield %three : i64
     }
-    default {
+    default(%d1: !idr.str) {
       idr.yield %one : i64
     }
     }
@@ -114,7 +114,7 @@ idr.program @"match-known" root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %one : i64
     }
-    default {
+    default(%d2: !idr.big) {
       idr.yield %four : i64
     }
     }

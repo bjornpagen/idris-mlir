@@ -14,7 +14,9 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
@@ -25,6 +27,8 @@ import IdrisMLIR.Types
 import Data.Fin
 import Data.List
 import Data.Maybe
+import Data.SnocList
+import Data.Vect
 
 %default total
 
@@ -32,48 +36,84 @@ import Data.Maybe
 -- Spines and forms
 ------------------------------------------------------------------------------
 
-||| The extents of a normalised shape, outermost first. The value-array
-||| entries pin the shape type to base's snoc list, whose constructors are
-||| told apart by their tags, the order the declaration gives them: `Lin`
-||| (tag 0), of the element type alone, and `:<` (tag 1), of the element
-||| type, the rest and the last. Nothing when the shape is no such value,
-||| a variable or a computation that is stuck.
+||| A normalised shape as base's snoc list builds it, which the value-array
+||| entries pin the shape type to: its constructors are told apart by their
+||| tags, the order the declaration gives them, `Lin` (tag 0) of the
+||| element type alone, and `:<` (tag 1) of the element type, the rest and
+||| the last. Anything else (a variable, a computation that is stuck) is
+||| no such value.
+public export
+data ShapeView : ClosedTerm -> Type where
+  ||| `Lin` applied to the element type.
+  SLin : {0 f : FC} -> (lin, e : ClosedTerm) -> ShapeView (App f lin e)
+  ||| `:<` applied to the element type, the rest and the last.
+  SSnoc : {0 f, f', f'' : FC} -> (snoc, e, rest, n : ClosedTerm) -> ShapeView (App f (App f' (App f'' snoc e) rest) n)
+  SOther : ShapeView t
+
+||| The one reading of a shape's constructors.
+export
+shapeView : (t : ClosedTerm) -> ShapeView t
+shapeView (App _ lin@(Ref _ (DataCon 0 _) _) e) = SLin lin e
+shapeView (App _ (App _ (App _ snoc@(Ref _ (DataCon 1 _) _) e) rest) n) = SSnoc snoc e rest n
+shapeView _ = SOther
+
+||| The extents of a normalised shape, outermost first; nothing when the
+||| shape is no snoc list of extents down to `Lin`.
 export
 shapeSpine : ClosedTerm -> Maybe (List ClosedTerm)
-shapeSpine (App _ (Ref _ (DataCon 0 _) _) _) = Just []
-shapeSpine (App _ (App _ (App _ (Ref _ (DataCon 1 _) _) _) rest) n) = (++ [n]) <$> shapeSpine rest
-shapeSpine _ = Nothing
+shapeSpine t = (<>> []) <$> spine t
+  where
+    spine : ClosedTerm -> Maybe (SnocList ClosedTerm)
+    spine t with (shapeView t)
+      spine _ | SLin _ _ = Just [<]
+      spine _ | SSnoc _ _ rest n = (:< n) <$> spine rest
+      spine _ | SOther = Nothing
 
 ||| A shape's form: its spine with every extent erased, what keys an
 ||| instance whose types need the rank and not the sizes.
 export
 shapeForm : ClosedTerm -> Maybe ClosedTerm
-shapeForm (App _ lin@(Ref _ (DataCon 0 _) _) a) = Just (App EmptyFC lin a)
-shapeForm (App _ (App _ (App _ snoc@(Ref _ (DataCon 1 _) _) a) rest) _) =
-  (\r => App EmptyFC (App EmptyFC (App EmptyFC snoc a) r) (Erased EmptyFC Placeholder)) <$> shapeForm rest
-shapeForm _ = Nothing
+shapeForm t with (shapeView t)
+  shapeForm _ | SLin lin e = Just (App EmptyFC lin e)
+  shapeForm _ | SSnoc snoc e rest _ =
+    (\r => App EmptyFC (App EmptyFC (App EmptyFC snoc e) r) (Erased EmptyFC Placeholder)) <$> shapeForm rest
+  shapeForm _ | SOther = Nothing
 
 ||| Whether a type constructor is a value array's.
 valueArray : {auto c : Ref Ctxt Defs} -> Name -> Core Bool
 valueArray n = (\full => (hooksOf full).valueArray) <$> toFullNames n
 
-||| The shape of a value array, when the term is one applied to its shape
-||| and element: `Array s a` or `LArray s a`.
+||| A type constructor applied to two arguments, as a value array's type is
+||| to its shape and element (`Array s a`, `LArray s a`), or anything else.
+public export
+data ArrayParts : TT vs -> Type where
+  ArrayOf : {0 f, f', f'' : FC} -> {0 ar : Nat} -> (n : Name) -> (s, a : TT vs) ->
+            ArrayParts (App f (App f' (Ref f'' (TyCon ar) n) s) a)
+  NoArray : ArrayParts t
+
+||| The one reading of an array type's application.
 export
-arrayShape : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe (ClosedTerm, ClosedTerm))
-arrayShape (App _ (App _ (Ref _ (TyCon _) n) s) a) =
-  pure (if !(valueArray n) then Just (s, a) else Nothing)
-arrayShape _ = pure Nothing
+arrayParts : (t : TT vs) -> ArrayParts t
+arrayParts (App _ (App _ (Ref _ (TyCon _) n) s) a) = ArrayOf n s a
+arrayParts _ = NoArray
+
+||| The shape and the element of a value array's type, when the term is
+||| one.
+export
+arrayView : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe (ClosedTerm, ClosedTerm))
+arrayView t with (arrayParts t)
+  arrayView _ | ArrayOf n s a = pure (if !(valueArray n) then Just (s, a) else Nothing)
+  arrayView _ | NoArray = pure Nothing
 
 ||| A parameter put in a type to see whether a value array's shape mentions
-||| it: a reference to a definition that does not exist, at which reduction
-||| stops, as `Closed.unknownPart` is.
+||| it: a name no definition has, at which reduction stops.
 formProbe : ClosedTerm
-formProbe = Ref EmptyFC Func (MN "idris-mlir-form" 0)
+formProbe = probeTerm ProbeForm
 
 isFormProbe : TT vs -> Bool
-isFormProbe (Ref _ _ (MN "idris-mlir-form" _)) = True
-isFormProbe _ = False
+isFormProbe t = case probeOfTerm t of
+  Just ProbeForm => True
+  _ => False
 
 ||| Does the rest of a type need a parameter's form: does a value array's
 ||| shape in it mention the parameter (the rest with `formProbe` for it)?
@@ -86,9 +126,50 @@ formNeeded rest = do
   pure (mentions inShape ty)
   where
     inShape : TT vs -> Bool
-    inShape tm = case getFnArgs tm of
-      (Ref _ (TyCon _) n, [s, _]) => (hooksOf n).valueArray && mentions isFormProbe s
-      _ => False
+    inShape t with (arrayParts t)
+      inShape _ | ArrayOf n s _ = (hooksOf n).valueArray && mentions isFormProbe s
+      inShape _ | NoArray = False
+
+------------------------------------------------------------------------------
+-- Runtime parameters
+------------------------------------------------------------------------------
+
+||| What a parameter binds at run time, if it is a parameter at run time:
+||| a value, or the values an implementation closes over, held as one.
+public export
+boundAtRuntime : PKind -> Maybe Binder
+boundAtRuntime (ValueParam b _ _) = Just b
+boundAtRuntime (DictParam _ (Just h)) = Just h.binder
+boundAtRuntime _ = Nothing
+
+||| One more for what exists at run time.
+public export
+counted : Maybe a -> Nat -> Nat
+counted (Just _) n = S n
+counted Nothing n = n
+
+||| How many of a call's parameters exist at run time.
+public export
+Runtimes : List PKind -> Nat
+Runtimes [] = Z
+Runtimes (k :: ks) = counted (boundAtRuntime k) (Runtimes ks)
+
+||| A position among the parameters after one that exists at run time or
+||| not: one further, or the same.
+export
+after : (m : Maybe a) -> Fin n -> Fin (counted m n)
+after (Just _) i = FS i
+after Nothing i = i
+
+||| The binders of a call's parameters that exist at run time, in order.
+export
+runtimeBinders : (kinds : List PKind) -> Vect (Runtimes kinds) Binder
+runtimeBinders [] = []
+runtimeBinders (k :: ks) = before (boundAtRuntime k) (runtimeBinders ks)
+  where
+    before : (m : Maybe Binder) -> Vect n Binder -> Vect (counted m n) Binder
+    before (Just b) bs = b :: bs
+    before Nothing bs = bs
 
 ------------------------------------------------------------------------------
 -- Size variables and ties
@@ -107,74 +188,40 @@ Eq SizeVar where
   _ == _ = False
 
 ||| A stand-in for a size variable while a definition's type is read, by
-||| its source: a reference to a definition that does not exist, at which
-||| reduction stops, numbered by the parameter, and for an axis applied to
-||| another such reference numbered by the axis, so that every parameter
-||| and every axis has its own.
+||| its source: a probe, at which reduction stops, of the parameter, and
+||| for an axis of the axis too, so that every parameter and every axis has
+||| its own.
 sourceRef : SizeVar -> ClosedTerm
-sourceRef (Axis i j) =
-  App EmptyFC (Ref EmptyFC Func (MN "idris-mlir-axis" (cast i))) (Ref EmptyFC Func (MN "idris-mlir-axis-at" (cast j)))
-sourceRef (Size i) = Ref EmptyFC Func (MN "idris-mlir-size" (cast i))
+sourceRef (Axis i j) = probeTerm (ProbeAxis i j)
+sourceRef (Size i) = probeTerm (ProbeSize i)
 
 sourceOf : ClosedTerm -> Maybe SizeVar
-sourceOf (App _ (Ref _ _ (MN "idris-mlir-axis" i)) (Ref _ _ (MN "idris-mlir-axis-at" j))) = Just (Axis (cast i) (cast j))
-sourceOf (Ref _ _ (MN "idris-mlir-size" k)) = Just (Size (cast k))
-sourceOf _ = Nothing
+sourceOf t = case probeOfTerm t of
+  Just (ProbeAxis i j) => Just (Axis i j)
+  Just (ProbeSize i) => Just (Size i)
+  _ => Nothing
 
-||| A form with its axis `j` standing for itself, the shape parameter at
-||| `i`'s.
-axes : Nat -> ClosedTerm -> ClosedTerm
-axes i (App _ (App _ (App _ snoc@(Ref _ (DataCon 1 _) _) a) rest) _) =
-  -- The axes are numbered outermost first, so the last is the count of
-  -- those before it.
-  let before = maybe 0 length (shapeSpine rest) in
-  App EmptyFC (App EmptyFC (App EmptyFC snoc a) (axes i rest)) (sourceRef (Axis i before))
-axes i tm = tm
+||| A form with each axis standing for itself, of the shape parameter at
+||| `i`, and how many axes it has. The axes are numbered outermost first,
+||| so each is the count of those before it.
+axes : Nat -> ClosedTerm -> (ClosedTerm, Nat)
+axes i t with (shapeView t)
+  axes i _ | SSnoc snoc e rest _ =
+    let (rest', before) = axes i rest in
+    (App EmptyFC (App EmptyFC (App EmptyFC snoc e) rest') (sourceRef (Axis i before)), S before)
+  axes i t | _ = (t, 0)
 
 ||| The sources of an array type's dimensions, outermost first, the
 ||| element's after the shape's when it is an array too; `Nothing` for a
 ||| dimension no size variable fixes (a literal, a computed size).
 export
 dimensionSources : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (List (Maybe SizeVar))
-dimensionSources (App _ (App _ (Ref _ (TyCon _) n) s) a) =
-  if !(valueArray n)
-    then (map sourceOf (fromMaybe [] (shapeSpine s)) ++) <$> dimensionSources a
-    else pure []
-dimensionSources _ = pure []
-
-||| A definition's parameters as an instance has them, each with its
-||| position, kind and Idris type with every size variable standing for
-||| itself (`sourceRef`), and the result type likewise: a type parameter or
-||| an implementation is its value, a form parameter its form with its
-||| axes standing for themselves, a runtime value its shape where the
-||| instance is keyed by it, and any other parameter itself, which only an
-||| extent, a natural, can show.
-export
-sizedTelescope : {auto c : Ref Ctxt Defs} ->
-                 Nat -> ClosedTerm -> List PKind -> Core (List (Nat, PKind, ClosedTerm), ClosedTerm)
-sizedTelescope arity ty kinds = go 0 arity ty kinds
-  where
-    value : Nat -> PKind -> ClosedTerm
-    value i (TypeParam t) = t
-    value i (DictParam t _) = t
-    value i (FormParam f) = axes i f
-    value i (ValueParam _ (Just s) _) = s
-    value i _ = sourceRef (Size i)
-
-    -- A binder that is not yet a pi may become one once normalised: the
-    -- type is read through definitions that compute it.
-    go : Nat -> Nat -> ClosedTerm -> List PKind -> Core (List (Nat, PKind, ClosedTerm), ClosedTerm)
-    go i Z t _ = pure ([], !(normaliseClosed t))
-    go i (S k) t ks = do
-      t' <- case t of
-              Bind _ _ (Pi {}) _ => pure t
-              _ => normaliseClosed t
-      case (t', ks) of
-        (Bind _ _ (Pi _ _ _ a) sc, kind :: ks') => do
-          a' <- normaliseClosed a
-          (rest, res) <- go (S i) k (subst (value i kind) sc) ks'
-          pure ((i, kind, a') :: rest, res)
-        _ => pure ([], t')
+dimensionSources t with (arrayParts t)
+  dimensionSources _ | ArrayOf n s a =
+    if !(valueArray n)
+      then (map sourceOf (fromMaybe [] (shapeSpine s)) ++) <$> dimensionSources a
+      else pure []
+  dimensionSources _ | NoArray = pure []
 
 ||| The dimensions a tie can state of a value of this type: a value array's.
 export
@@ -182,145 +229,161 @@ valueDims : Ty -> Maybe (List Dim)
 valueDims (TensorT ds _) = Just ds
 valueDims _ = Nothing
 
-||| The runtime parameter a position is, counting only the parameters that
-||| exist at runtime.
-export
-runtimeIndex : List PKind -> Nat -> Maybe Nat
-runtimeIndex kinds i =
-  if isJust (join (map runtimeBinder (getAt i kinds)))
-     then Just (length (mapMaybe runtimeBinder (take i kinds)))
-     else Nothing
+||| Each dimension of a Core type with its source in the Idris type, read
+||| together: a dimension the Idris type gives no source has none.
+pairDims : List Dim -> List (Maybe SizeVar) -> List (Dim, Maybe SizeVar)
+pairDims [] _ = []
+pairDims (d :: ds) [] = (d, Nothing) :: pairDims ds []
+pairDims (d :: ds) (s :: ss) = (d, s) :: pairDims ds ss
 
-||| The runtime parameter a position is, when Idris lets it be used any
-||| number of times: only such a value can also witness a dimension, since
-||| a value used once is used by the call or the body it is given to.
-unrestricted : List PKind -> Nat -> Maybe Nat
-unrestricted kinds i = case getAt i kinds >>= runtimeBinder of
-  Just (MkBinder Many _) => runtimeIndex kinds i
-  _ => Nothing
+||| A parameter of a definition's type as an instance has it: its kind, its
+||| Idris type with every size variable standing for itself (`sourceRef`),
+||| its place among the `r` parameters that exist at run time with its
+||| binder there, and, for a runtime value array, each dimension with its
+||| source.
+public export
+record SizedParam (r : Nat) where
+  constructor MkSizedParam
+  kind : PKind
+  type : ClosedTerm
+  runtime : Maybe (Fin r, Binder)
+  dims : List (Dim, Maybe SizeVar)
+
+||| A definition's parameters as an instance has them, in order.
+public export
+Telescope : Nat -> Type
+Telescope r = List (SizedParam r)
+
+||| A definition's parameters as an instance has them (`SizedParam`), one
+||| per kind, and the result type likewise: a type parameter or an
+||| implementation is its value, a form parameter its form with its axes
+||| standing for themselves, a runtime value its shape where the instance
+||| is keyed by it, and any other parameter itself, which only an extent, a
+||| natural, can show. A binder that is not yet a pi may become one once
+||| normalised: the type is read through definitions that compute it.
+export
+sizedTelescope : {auto c : Ref Ctxt Defs} ->
+                 Nat -> ClosedTerm -> (kinds : List PKind) -> Core (Telescope (Runtimes kinds), ClosedTerm)
+sizedTelescope arity ty kinds = go 0 arity ty kinds
+  where
+    value : Nat -> PKind -> ClosedTerm
+    value i (TypeParam t) = t
+    value i (DictParam t _) = t
+    value i (FormParam f) = fst (axes i f)
+    value i (ValueParam _ (Just s) _) = s
+    value i _ = sourceRef (Size i)
+
+    -- A parameter after one that exists at run time or not.
+    later : (m : Maybe Binder) -> SizedParam n -> SizedParam (counted m n)
+    later m (MkSizedParam k t rt ds) = MkSizedParam k t (mapFst (after m) <$> rt) ds
+
+    -- Its place and binder at run time, the first of the parameters that
+    -- exist there from here on.
+    here : (m : Maybe Binder) -> Maybe (Fin (counted m n), Binder)
+    here (Just b) = Just (FZ, b)
+    here Nothing = Nothing
+
+    go : Nat -> Nat -> ClosedTerm -> (ks : List PKind) -> Core (Telescope (Runtimes ks), ClosedTerm)
+    go i Z t [] = pure ([], !(normaliseClosed t))
+    go i (S j) t (k :: ks) = do
+      t' <- case t of
+              Bind _ _ (Pi {}) _ => pure t
+              _ => normaliseClosed t
+      let Bind _ _ (Pi _ _ _ a) sc = t'
+        | _ => internal EmptyFC ("a parameter past the binders of " ++ show t')
+      a' <- normaliseClosed a
+      dims <- case typeOf <$> boundAtRuntime k of
+                Just (TensorT ds _) => pairDims ds <$> dimensionSources a'
+                _ => pure []
+      (rest, res) <- go (S i) j (subst (value i k) sc) ks
+      pure (MkSizedParam k a' (here (boundAtRuntime k)) dims :: map (later (boundAtRuntime k)) rest, res)
+    go i _ t _ = internal EmptyFC ("parameter kinds other than the arity of " ++ show t)
 
 ||| How a dimension's value is had from the runtime parameters: the
-||| natural at runtime parameter `r`, or axis `k` of the array at runtime
-||| parameter `r`.
+||| natural at runtime parameter `i`, or axis `k` of the array there.
 public export
-data Witness = NatAt Nat | AxisAt Nat Nat
+data Witness : Nat -> Type where
+  NatAt : Fin r -> Witness r
+  AxisAt : Fin r -> Nat -> Witness r
 
-||| For each runtime parameter of quantity many whose type is a tensor, the
-||| witness of each of its dimensions that another parameter of quantity
-||| many fixes first: a runtime natural that is the size, or the earliest
-||| array dimension of the same source, in parameter then axis order (which
-||| is itself left unstated). A static dimension, one no size variable
-||| fixes and one only a parameter used once fixes have none.
 export
-entryWitnesses : {auto c : Ref Ctxt Defs} ->
-                 List PKind -> List (Nat, PKind, ClosedTerm) -> Core (List (Nat, List (Maybe Witness)))
-entryWitnesses kinds params = do
-  arrays <- traverse sourced params
-  let sourcesSeen = concatMap firsts (catMaybes arrays)
-  pure (mapMaybe (tieOf sourcesSeen) (catMaybes arrays))
+Eq (Witness r) where
+  NatAt i == NatAt i' = i == i'
+  AxisAt i k == AxisAt i' k' = i == i' && k == k'
+  _ == _ = False
+
+||| What witnesses each size variable, among the parameters Idris lets be
+||| used any number of times (a value used once is used by the call or the
+||| body it is given to, and witnesses nothing): a runtime natural that is
+||| the size first, then every dimension of an array of that source, in
+||| parameter then axis order, static ones too.
+export
+witnesses : Telescope r -> List (SizeVar, Witness r)
+witnesses tel = go 0 [<] [<] tel
   where
-    -- A parameter that a tie can state: runtime, of quantity many, a tensor.
-    sourced : (Nat, PKind, ClosedTerm) -> Core (Maybe (Nat, List Dim, List (Maybe SizeVar)))
-    sourced (i, ValueParam (MkBinder Many t) _ _, a) = case valueDims t of
-      Just ds => do
-        Just r <- pure (runtimeIndex kinds i)
-          | Nothing => pure Nothing
-        srcs <- dimensionSources a
-        pure (Just (r, ds, srcs))
-      Nothing => pure Nothing
-    sourced _ = pure Nothing
+    -- Each dimension of the array at `x` that has a source, by axis.
+    axesOf : Fin r -> Nat -> SnocList (SizeVar, Witness r) -> List (Dim, Maybe SizeVar) ->
+             SnocList (SizeVar, Witness r)
+    axesOf x k found [] = found
+    axesOf x k found ((_, Just s) :: ds) = axesOf x (S k) (found :< (s, AxisAt x k)) ds
+    axesOf x k found ((_, Nothing) :: ds) = axesOf x (S k) found ds
 
-    -- Every (source, runtime parameter, axis) of a dynamic dimension.
-    firsts : (Nat, List Dim, List (Maybe SizeVar)) -> List (SizeVar, Nat, Nat)
-    firsts (r, ds, srcs) =
-      mapMaybe (\(k, d, src) => case (d, src) of
-                                  (Dynamic, Just s) => Just (s, r, k)
-                                  _ => Nothing)
-               (zip3 [0 .. length ds] ds srcs)
+    go : Nat -> SnocList (SizeVar, Witness r) -> SnocList (SizeVar, Witness r) ->
+         Telescope r -> List (SizeVar, Witness r)
+    go i naturals arrays [] = naturals <>> (arrays <>> [])
+    go i naturals arrays (p :: ps) = case p.runtime of
+      Just (x, MkBinder Many _) =>
+        go (S i) (naturals :< (Size i, NatAt x)) (axesOf x 0 arrays p.dims) ps
+      _ => go (S i) naturals arrays ps
 
-    witness : List (SizeVar, Nat, Nat) -> Nat -> Nat -> Dim -> Maybe SizeVar -> Maybe Witness
-    witness seen r k Dynamic (Just s) = case s of
-      Size i => case unrestricted kinds i of
-        Just n => Just (NatAt n)
-        Nothing => earliest
-      _ => earliest
-      where
-        earliest : Maybe Witness
-        earliest = case find (\(s', _, _) => s' == s) seen of
-          Just (_, r', k') => if r' == r && k' == k then Nothing else Just (AxisAt r' k')
-          Nothing => Nothing
-    witness _ _ _ _ _ = Nothing
-
-    tieOf : List (SizeVar, Nat, Nat) -> (Nat, List Dim, List (Maybe SizeVar)) -> Maybe (Nat, List (Maybe Witness))
-    tieOf seen (r, ds, srcs) =
-      let ws = zipWith3 (witness seen r) [0 .. length ds] ds (srcs ++ replicate (length ds) Nothing) in
-      if any isJust ws then Just (r, ws) else Nothing
-
-||| The witnesses of a call's result: each dynamic dimension of the result
-||| type whose source one of the call's runtime arguments of quantity many
-||| has, a natural argument or a dimension of an array argument. An argument
-||| used once is the call's, and witnesses nothing after it.
+||| For each runtime parameter of quantity many that is an array, each of
+||| its dynamic dimensions that another parameter witnesses first (the
+||| first witness of its source, when that is not the dimension itself),
+||| by axis.
 export
-resultWitnesses : {auto c : Ref Ctxt Defs} ->
-                  List PKind -> List (Nat, PKind, ClosedTerm) -> ClosedTerm -> Ty -> Core (List (Maybe Witness))
-resultWitnesses kinds params res rt = case valueDims rt of
+entryTies : Telescope r -> List (Fin r, List (Nat, Witness r))
+entryTies tel = mapMaybe arrayTies tel
+  where
+    ws : List (SizeVar, Witness r)
+    ws = witnesses tel
+
+    stated : Fin r -> Nat -> List (Dim, Maybe SizeVar) -> List (Nat, Witness r)
+    stated x k [] = []
+    stated x k ((Dynamic, Just s) :: ds) = case lookup s ws of
+      Just w => if w == AxisAt x k then stated x (S k) ds else (k, w) :: stated x (S k) ds
+      Nothing => stated x (S k) ds
+    stated x k (_ :: ds) = stated x (S k) ds
+
+    arrayTies : SizedParam r -> Maybe (Fin r, List (Nat, Witness r))
+    arrayTies p = case p.runtime of
+      Just (x, MkBinder Many _) => case stated x 0 p.dims of
+        [] => Nothing
+        ts => Just (x, ts)
+      _ => Nothing
+
+||| The witnesses of a call's result, by axis: each dynamic dimension of the
+||| result type whose source one of the call's runtime arguments of
+||| quantity many has, a natural argument or a dimension of an array
+||| argument.
+export
+resultTies : {auto c : Ref Ctxt Defs} -> Telescope r -> ClosedTerm -> Ty -> Core (List (Nat, Witness r))
+resultTies tel res rt = case valueDims rt of
   Nothing => pure []
-  Just ds => do
-    srcs <- dimensionSources res
-    arrays <- traverse sourced params
-    let seen = concat (catMaybes arrays)
-    pure (zipWith (witness seen) ds (srcs ++ replicate (length ds) Nothing))
+  Just ds => (stated 0 . pairDims ds) <$> dimensionSources res
   where
-    sourced : (Nat, PKind, ClosedTerm) -> Core (Maybe (List (SizeVar, Nat, Nat)))
-    sourced (i, ValueParam (MkBinder Many t) _ _, a) = case valueDims t of
-      Just pds => do
-        Just r <- pure (runtimeIndex kinds i)
-          | Nothing => pure Nothing
-        psrcs <- dimensionSources a
-        pure (Just (mapMaybe (\(k, d, src) => case (d, src) of
-                                                (_, Just s) => Just (s, r, k)
-                                                _ => Nothing)
-                             (zip3 [0 .. length pds] pds psrcs)))
-      Nothing => pure Nothing
-    sourced _ = pure Nothing
+    ws : List (SizeVar, Witness r)
+    ws = witnesses tel
 
-    witness : List (SizeVar, Nat, Nat) -> Dim -> Maybe SizeVar -> Maybe Witness
-    witness seen Dynamic (Just s) = case s of
-      Size i => case unrestricted kinds i of
-        Just n => Just (NatAt n)
-        Nothing => fromArray
-      _ => fromArray
-      where
-        fromArray : Maybe Witness
-        fromArray = (\(_, r, k) => AxisAt r k) <$> find (\(s', _, _) => s' == s) seen
-    witness _ _ _ = Nothing
+    stated : Nat -> List (Dim, Maybe SizeVar) -> List (Nat, Witness r)
+    stated k [] = []
+    stated k ((Dynamic, Just s) :: ds) = case lookup s ws of
+      Just w => (k, w) :: stated (S k) ds
+      Nothing => stated (S k) ds
+    stated k (_ :: ds) = stated (S k) ds
 
 ||| The term of a witness, over the variables that hold the runtime
-||| arguments.
+||| arguments: a natural, converted, or an array's extent, exact.
 export
-witnessTerm : Loc -> List (Fin n) -> Witness -> Maybe (Term n)
-witnessTerm loc vs (NatAt r) = Var loc <$> getAt r vs
-witnessTerm loc vs (AxisAt r k) = (\v => Tensor loc (Extent k) NatT [Var loc v]) <$> getAt r vs
-
-------------------------------------------------------------------------------
--- Binding
-------------------------------------------------------------------------------
-
-||| Each term bound by a `let` at the quantity of the parameter it is given
-||| for, left to right, and the body built over the variables that hold
-||| them, in the same order, with the renaming of the scope outside. A value
-||| used more than once, or in an order of its own, is evaluated once, where
-||| the call put it; one Idris lets the callee use once stays used once.
-export
-bindAll : {0 m : Nat} -> Loc -> List (Quantity, Term m) ->
-          ({0 p : Nat} -> (Fin m -> Fin p) -> List (Fin p) -> Term p) -> Term m
-bindAll loc ts k = go id ts k
-  where
-    -- Under the binders already made: `ren` takes the outer scope into the
-    -- current one, and each term is renamed once, where it is bound.
-    go : {0 p : Nat} -> (Fin m -> Fin p) -> List (Quantity, Term m) ->
-         ({0 r : Nat} -> (Fin p -> Fin r) -> List (Fin r) -> Term r) -> Term p
-    go ren [] k' = k' id []
-    go ren ((q, t) :: rest) k' =
-      Let loc (shown "argument") q (rename ren t)
-          (go (FS . ren) rest (\ren', vs => k' (ren' . FS) (ren' FZ :: vs)))
+witnessTerm : Loc -> Vect r (Fin n) -> Witness r -> Stated (Term n)
+witnessTerm loc vs (NatAt i) = Natural (Var loc (Data.Vect.index i vs))
+witnessTerm loc vs (AxisAt i k) = SameAs (Tensor loc NatT (Extent k (Var loc (Data.Vect.index i vs))))

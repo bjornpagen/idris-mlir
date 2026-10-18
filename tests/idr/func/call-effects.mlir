@@ -1,28 +1,33 @@
-// RUN: idris-mlir-opt %s --idr-expect=holds=facts-as-marked -o /dev/null
-// RUN: idris-mlir-opt %s --canonicalize --cse --idr-expect=holds=calls=@main:@pure,calls=@main:@unknown,calls=@main:@crashes -o /dev/null
-// NEEDS-ACCEPTANCE: that idr.call declares every effect to upstream, so canonicalize keeps every call, and answers move and delay with its callee's effects.
-// What a call may do is its callee's effects, which the callee holds once:
-// the call holds none, and to upstream's interfaces it declares every
-// effect a function may have, so canonicalize erases no call and CSE
-// merges none, whatever its callee. The dialect's own rewrites ask the
-// callee by name: a call of a function that only computes may move across
-// anything, one that may crash may still be delayed, and a callee that
-// holds no effects may do anything.
+// NEEDS-ACCEPTANCE: that a call answers drop, move, delay and merge from the effects it holds, the default everything, and never from its callee's.
+// RUN: idris-mlir-opt %s --test-idr-facts -verify-diagnostics=only-expected -o /dev/null
+// What a call may do is the effects it holds, as llvm.call holds its memory
+// effects: never less than its callee's, which its verifier holds, and by
+// default everything. Every pass, upstream's dead code removal and CSE
+// among them, reads them off the call alone: a call of a function that only
+// computes is dead when nothing reads it, moves across anything and is one
+// value with an equal call; one that may crash may still be delayed; one
+// that holds the default may do anything, though its callee may do less,
+// since a stale value says too much, never too little.
 idr.program @"call-effects" root(@main) stage(first) {
-  idr.func @pure(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
+  idr.func effects<none> @pure(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
   idr.func @unknown(%x: i64) -> i64 {
     return %x : i64
   }
-  idr.func @crashes(%x: i64) -> i64 attributes {total, effects = #idr.effects<crash>} {
+  idr.func effects<crash> @crashes(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
   idr.func @main() -> i64 {
     %c = arith.constant 3 : i64
-    %a = idr.call @pure(%c) {expect.facts = "move delay"} : (i64) -> i64
-    %b = idr.call @unknown(%c) {expect.facts = ""} : (i64) -> i64
-    %d = idr.call @crashes(%c) {expect.facts = "delay"} : (i64) -> i64
+    // expected-remark @below {{facts: [drop move delay merge]}}
+    %a = idr.call @pure(%c) effects<none> : (i64) -> i64
+    // expected-remark @below {{facts: []}}
+    %b = idr.call @unknown(%c) : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %d = idr.call @crashes(%c) effects<crash> : (i64) -> i64
+    // expected-remark @below {{facts: []}}
+    %e = idr.call @pure(%c) : (i64) -> i64
     return %c : i64
   }
 }

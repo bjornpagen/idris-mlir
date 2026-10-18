@@ -1,24 +1,46 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idris-mlir's options, defined in the order --help lists them. They are the
-// command line's: written once by ParseCommandLineOptions, before anything
-// reads them.
+// idris-mlir's options, defined in the order --help lists them, and the
+// one reading of them into the invocation. They are the command line's:
+// written once by ParseCommandLineOptions, read once here, and by nothing
+// else.
 
 #include "idr/Driver/Options.h"
 
+#include "idr/Driver/Artifacts.h"
+
+#include "mlir/Debug/CLOptionsSetup.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/Pass/PassManager.h"
+
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Threading.h"
+#include "llvm/Support/ToolOutputFile.h"
 
 #include <algorithm>
+#include <memory>
+#include <optional>
 #include <string>
+#include <system_error>
+#include <utility>
+#include <variant>
 
 namespace cl = llvm::cl;
 
-namespace idr::driver {
+using namespace idr::driver;
 
-// Required unless a --print option asks only what the build decided. A
-// module is MLIR's, text or bytecode; any other input is Idris source, the
-// frontend's to read or refuse.
+namespace {
+
+// Required unless another action is asked for. A module is MLIR's, text or
+// bytecode; any other input is Idris source, the frontend's to read or
+// refuse.
 cl::opt<std::string> inputPath(cl::Positional,
                                cl::desc("<input: Idris source, or a module (.mlir, .mlirbc)>"));
 cl::opt<std::string> outputPath("o",
@@ -54,35 +76,37 @@ cl::list<std::string> logActionsTags(
     "log-actions-tags",
     cl::desc("With -log-actions-to, log only the actions of these tags, e.g. idr-specialize-clone"),
     cl::CommaSeparated);
-// The runtime, recorded at build time: the object --prepare-runtime wrote
-// from the runtime's archive, or that archive itself. Its bitcode joins the
-// program's module, and the same file is on every executable's link line
-// (--print-runtime).
+// The runtime a compilation reads and links, and the archive
+// --prepare-runtime reads: by default the object the build prepared from
+// the runtime's archive, whose bitcode joins the program, and which every
+// executable's link line names (--print-runtime).
 cl::opt<std::string> runtimePath("runtime",
                                  cl::desc("The runtime whose bitcode joins the program, and "
                                           "which executables link: what --prepare-runtime "
                                           "wrote, or the archive it reads"),
-                                 cl::init(IDRIS_MLIR_RUNTIME));
-// Where the prepared runtime keeps the bitcode that joins every program, as
-// the target entry's container says (CMakeLists.txt). Read once, by
-// runtimeBitcodeHome.
-cl::opt<std::string> runtimeBitcodeSection(
-    "runtime-bitcode-section",
-    cl::desc("The section of the prepared runtime's object that holds its bitcode (by default "
-             "the target entry's), or '' for a file beside the object, named as it is with .bc"),
-    cl::init(IDRIS_MLIR_RUNTIME_BITCODE_SECTION));
-// The other actions, each its flag. The runtime is the same for every
-// program, so it is optimized and compiled once, at build time, and each
-// compilation links the result: what it then optimizes again is the
-// program, and the runtime code it inlines. What links a program for the
-// target entry, after its objects, the runtime and -o, is one argument of
-// the pinned C compiler per line: --target with the triple, then the
+                                 cl::init(preparedRuntime.str()));
+
+// What an invocation does: compile, by default, or the action of the one
+// flag the command line names, the last it gives. The runtime is the same
+// for every program, so it is optimized and compiled once, at build time,
+// and each compilation links the result: what it then optimizes again is
+// the program, and the runtime code it inlines. What links a program for
+// the target entry, after its objects, the runtime and -o, is one argument
+// of the pinned C compiler per line: --target with the triple, then the
 // entry's executable and program link flags and GMP; the link and the tests
 // that link by hand use these. The CPU is what other compilers need to
 // compile for the same machine, bench/run.sh's C versions among them.
+enum class Action {
+  Compile,
+  PrepareRuntime,
+  PrintRuntime,
+  PrintTargetTriple,
+  PrintLinkFlags,
+  PrintTargetCpu,
+};
 cl::opt<Action> action(
     cl::values(clEnumValN(Action::PrintRuntime, "print-runtime",
-                          "Print the path of the runtime --runtime names, which every "
+                          "Print the path of the runtime the build prepared, which every "
                           "executable links, and exit"),
                clEnumValN(Action::PrepareRuntime, "prepare-runtime",
                           "Optimize the runtime archive --runtime names once, for the target's "
@@ -97,8 +121,6 @@ cl::opt<Action> action(
                clEnumValN(Action::PrintTargetCpu, "print-target-cpu",
                           "Print the CPU code is compiled for, and exit")),
     cl::desc("Instead of compiling the input"), cl::init(Action::Compile));
-
-namespace {
 
 // A count of threads, which is at least one: no thread runs no compilation.
 struct ThreadCount : cl::parser<unsigned> {
@@ -117,23 +139,130 @@ struct ThreadCount : cl::parser<unsigned> {
 // its bins' code generation on, when given. Output bytes do not depend on
 // it; it exists so a compile leaves the machine usable, and so a caller
 // running compilations in parallel can divide its own budget among them.
+// The default is maximal; a caller that wants headroom (our build and test
+// scripts do, through IDRIS_MLIR_NCPU) says so with the flag.
 cl::opt<unsigned, false, ThreadCount> numThreads(
     "num-threads",
     cl::desc("Threads for the pipeline's parallel function passes and the bins' code "
              "generation, one at least (default: every CPU); output bytes do not depend on it"));
 
+// Every option of the driver's own, each read by the actions that name it
+// below; MLIR's and LLVM's are theirs. (A cl::list's & is its vector's.)
+const cl::Option *const driverOptions[] = {
+    std::addressof(inputPath),      std::addressof(outputPath),  std::addressof(reportPath),
+    std::addressof(objectOnly),     std::addressof(packages),    std::addressof(packagePath),
+    std::addressof(idrisPrefix),    std::addressof(noPrelude),   std::addressof(logActionsTags),
+    std::addressof(runtimePath),    std::addressof(numThreads),
+};
+
+// The frontend's options, which only Idris source reads.
+const cl::Option *const frontendOnly[] = {std::addressof(packages), std::addressof(packagePath),
+                                          std::addressof(idrisPrefix), std::addressof(noPrelude)};
+
+bool given(const cl::Option *option) { return option->getNumOccurrences() != 0; }
+
+// An option as the command line spells it, or the input.
+std::string spelled(const cl::Option &option) {
+  if (option.isPositional())
+    return "input file";
+  return (llvm::Twine(option.ArgStr.size() == 1 ? "-" : "--") + option.ArgStr).str();
+}
+
+// `doing` reads `reads` and no other option of the driver's: the first
+// other one given is the usage error.
+llvm::Error readsOnly(llvm::StringRef doing, llvm::ArrayRef<const cl::Option *> reads) {
+  for (const cl::Option *option : driverOptions)
+    if (given(option) && !llvm::is_contained(reads, option))
+      return llvm::createStringError(doing + " takes no " + spelled(*option));
+  return llvm::Error::success();
+}
+
+// What MLIR's own options ask that only the command line decides, checked
+// before anything runs, so that it is a usage error that arms nothing: the
+// pass manager's options against threading, on a manager of a scratch
+// context, whose threading is the compilation's (--mlir-disable-threading);
+// and the files MLIR's action handler writes, which it would report it
+// cannot open and then run without. A file is opened as the handler opens
+// it, and not kept.
+llvm::Error checkMlirOptions() {
+  mlir::MLIRContext scratch;
+  std::string said;
+  mlir::ScopedDiagnosticHandler capture(&scratch, [&](mlir::Diagnostic &diagnostic) {
+    said = diagnostic.str();
+    return mlir::success();
+  });
+  mlir::PassManager manager(&scratch);
+  if (mlir::failed(mlir::applyPassManagerCLOptions(manager)))
+    return llvm::createStringError(llvm::StringRef(said).rtrim());
+  mlir::tracing::DebugConfig config = mlir::tracing::DebugConfig::createFromCLOptions();
+  const std::pair<llvm::StringLiteral, llvm::StringRef> written[] = {
+      {"--log-actions-to", config.getLogActionsTo()},
+      {"--profile-actions-to", config.getProfileActionsTo()}};
+  for (auto [flag, path] : written) {
+    if (path.empty())
+      continue;
+    std::error_code error;
+    llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_None);
+    if (error)
+      return llvm::createStringError("cannot write " + path + ", which " + flag +
+                                     " names: " + error.message());
+  }
+  return llvm::Error::success();
+}
+
+llvm::Expected<Invocation> compileInvocation() {
+  if (inputPath.empty() || outputPath.empty())
+    return llvm::createStringError("give an input file and -o (see --help)");
+  Product product = objectOnly ? Product(Archive{outputPath}) : Product(Executable{outputPath});
+  std::optional<std::string> report;
+  if (!reportPath.empty())
+    report = reportPath.getValue();
+  FrontendArgs frontend{idrisPrefix, packagePath, packages, noPrelude};
+  std::optional<Plan> plan =
+      Plan::of(inputPath, std::move(product), std::move(report), std::move(frontend));
+  if (!plan)
+    return llvm::createStringError(
+        "-o and --report name outputs that collide with each other or with the input");
+  // A module has no frontend to give them to (FromModule holds none).
+  if (std::holds_alternative<FromModule>(plan->source) && llvm::any_of(frontendOnly, given))
+    return llvm::createStringError("-p, --package-path, --prefix and --no-prelude are the "
+                                   "frontend's, for Idris source, not for a module");
+  if (llvm::Error error = checkMlirOptions())
+    return std::move(error);
+  unsigned threads = given(std::addressof(numThreads))
+                         ? numThreads.getValue()
+                         : std::max(1u, llvm::hardware_concurrency().compute_thread_count());
+  return Compile{std::move(*plan), runtimePath, threads, logActionsTags};
+}
+
 } // namespace
 
-BitcodeHome runtimeBitcodeHome() {
-  if (runtimeBitcodeSection.empty())
-    return BesideObject{};
-  return InSection{runtimeBitcodeSection};
+llvm::Expected<Invocation> idr::driver::readInvocation() {
+  // Compiling reads every option of the driver's; each other action reads
+  // its own, and a print none.
+  auto print = [](Question question) -> llvm::Expected<Invocation> {
+    if (llvm::Error error = readsOnly("a --print option", {}))
+      return std::move(error);
+    return Print{question};
+  };
+  switch (action.getValue()) {
+  case Action::Compile:
+    return compileInvocation();
+  case Action::PrepareRuntime:
+    if (llvm::Error error = readsOnly("--prepare-runtime", {std::addressof(outputPath),
+                                                            std::addressof(runtimePath)}))
+      return std::move(error);
+    if (outputPath.empty())
+      return llvm::createStringError("no output file (-o)");
+    return Prepare{outputPath, runtimePath};
+  case Action::PrintRuntime:
+    return print(Question::Runtime);
+  case Action::PrintTargetTriple:
+    return print(Question::TargetTriple);
+  case Action::PrintLinkFlags:
+    return print(Question::LinkFlags);
+  case Action::PrintTargetCpu:
+    return print(Question::TargetCpu);
+  }
+  llvm_unreachable("every action is read");
 }
-
-unsigned threadBudget() {
-  if (numThreads.getNumOccurrences() != 0)
-    return numThreads;
-  return std::max(1u, llvm::hardware_concurrency().compute_thread_count());
-}
-
-} // namespace idr::driver

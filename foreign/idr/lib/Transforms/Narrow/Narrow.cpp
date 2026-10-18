@@ -5,14 +5,16 @@
 // versioned so that its copy proves it.
 //
 // The analysis is MLIR's, seeing our ops through their ranges, solved once
-// for the program (Ranges); this pass only reads it and rewrites. Nothing
-// it learns is stored: the rewritten IR is the fact. Versioning runs on the
-// program, since a versioned loop's copy holds values the solve never saw
-// and the program is solved again after it; the word rewrite then runs on
-// each function in parallel, each verified on its own. A narrowed op
-// becomes `arith` on the values, which idr.big.to_int and idr.big.from_int
-// convert where the web meets a big it does not prove; the pairs they form
-// inside a web fold away.
+// for the program (Ranges, an analysis of the program's analysis manager);
+// this pass only reads it and rewrites. Nothing it learns is stored: the
+// rewritten IR is the fact. Versioning runs on the program, since a
+// versioned loop's copy holds values the solve never saw, and the program
+// is solved again after it; the word rewrite, idr-narrow-words, then runs
+// on each function in parallel, each verified on its own, reading the
+// program's solve from the parent's cache. A narrowed op becomes `arith` on
+// the values, which idr.big.to_int and the bigs made of integers convert
+// where the web meets a big it does not prove; the pairs they form inside a
+// web fold away, under upstream's driver.
 
 #include "idr/Transforms/Narrow.h"
 
@@ -21,24 +23,27 @@
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/Support/Actions.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Support/TypeID.h"
-#include "mlir/Transforms/FoldUtils.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
 
+#include <functional>
+
 namespace idr {
 #define GEN_PASS_DEF_IDRNARROW
+#define GEN_PASS_DEF_IDRNARROWWORDS
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 
@@ -48,36 +53,34 @@ namespace idr::narrow {
 
 namespace {
 
-// idr-narrow attempts to fold one conversion; the unit is the conversion.
+// idr-narrow folds the conversions of one function and erases those no one
+// reads; the unit is the function.
 struct NarrowFoldAction : support::TaggedAction<NarrowFoldAction> {
   using TaggedAction::TaggedAction;
   static constexpr llvm::StringLiteral tag = "idr-narrow-fold";
 };
 
-// idr-narrow erases one conversion nothing reads; the unit is the
-// conversion.
-struct NarrowEraseAction : support::TaggedAction<NarrowEraseAction> {
-  using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-narrow-erase";
-};
-
 // The word rewrite of one function, under the ranges idr-narrow solved for
-// the program, which it holds for as long as the nested run reads them. It
-// runs only inside idr-narrow and keeps no statistics: what it counts only
-// says whether it changed anything.
-struct NarrowWords : PassWrapper<NarrowWords, OperationPass<FuncOp>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NarrowWords)
-
-  explicit NarrowWords(const Ranges &ranges) : ranges(ranges) {}
-
-  StringRef getArgument() const final { return "idr-narrow-words"; }
-  StringRef getDescription() const final {
-    return "Make the bigs and naturals of one function proved to fit a small i64 words";
-  }
-
-  void runOnOperation() override {
+// the program and holds in its analysis manager while it runs this pass. It
+// keeps no statistics: what it counts only says whether it changed
+// anything.
+struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
+  void runOnProgram(ProgramOp program) override {
     FuncOp fn = getOperation();
-    Facts facts(ranges, fn.getProgram());
+    // Only idr-narrow solves the program's ranges and holds them, solved,
+    // for this pass: run without it, there is nothing to read.
+    FailureOr<std::reference_wrapper<const Ranges::Solved>> solved =
+        [&]() -> FailureOr<std::reference_wrapper<const Ranges::Solved>> {
+      if (std::optional<std::reference_wrapper<Ranges>> ranges =
+              getCachedParentAnalysis<Ranges>(program))
+        return ranges->get().solved();
+      return failure();
+    }();
+    if (failed(solved)) {
+      fn.emitError("internal error: idr-narrow-words: no solved Ranges of the program");
+      return signalPassFailure();
+    }
+    Facts facts(*solved);
     uint64_t carried = 0, narrowed = 0;
     // The joints first, while every value is still the one analysed; then
     // the ops, whose operands may by then be the bigs of words.
@@ -93,75 +96,63 @@ struct NarrowWords : PassWrapper<NarrowWords, OperationPass<FuncOp>> {
     }
 
     // A word made a big and back is the word, and a conversion of a
-    // constant is its constant: each conversion is folded once by its own
-    // folder, defs first, so a conversion meets its operand final. Then
-    // what no one reads goes, users first: the conversions made, a
-    // versioned loop's start once its copy took the word, and a big made
-    // of a word that every reader now takes as the word. Each walk asks
-    // each conversion once, and ends with them.
+    // constant is its constant: upstream's driver folds each conversion by
+    // its own folder, and erases what no one reads (the conversions made, a
+    // versioned loop's start once its copy took the word, and a big made of
+    // a word that every reader now takes as the word), these ops and no
+    // other.
     SmallVector<Operation *> conversions;
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
-      if (facts.made(op) || isa<BigSmallOp, BigFromIntOp>(op))
+      if (facts.made(op) || isa<BigSmallOp, BigFromSIntOp, BigFromUIntOp>(op))
         conversions.push_back(op);
     });
     bool changed = false;
-    OperationFolder folder(&getContext());
-    SmallVector<Operation *> left;
-    for (Operation *op : conversions) {
-      // The folders of idr.big.to_int, idr.big.small and idr.big.from_int
-      // return a constant, another op's value or nothing, never the op's
-      // own result: a fold runs once, and replaces and erases the op.
-      bool folded = false;
-      if (!op->hasTrait<OpTrait::ConstantLike>())
-        (void)support::perform<NarrowFoldAction>(
-            op, [&] { folded = succeeded(folder.tryToFold(op)); });
-      if (folded) {
-        changed = true;
-        continue;
-      }
-      left.push_back(op);
-    }
-    IRRewriter rewriter(&getContext());
-    for (Operation *op : llvm::reverse(left))
-      if (isOpTriviallyDead(op) &&
-          support::perform<NarrowEraseAction>(op, [&] { rewriter.eraseOp(op); }))
-        changed = true;
+    (void)support::perform<NarrowFoldAction>(fn, [&] {
+      (void)applyOpPatternsGreedily(
+          conversions, FrozenRewritePatternSet(),
+          GreedyRewriteConfig().setStrictness(GreedyRewriteStrictness::ExistingOps), &changed);
+    });
     if (carried == 0 && narrowed == 0 && !changed)
       markAllAnalysesPreserved();
   }
-
-  const Ranges &ranges;
 };
 
 struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
   using IdrNarrowBase::IdrNarrowBase;
 
-  void runOnOperation() override {
-    ProgramOp program = getOperation();
+  void runOnProgram(ProgramOp program) override {
     auto unsolved = [&] {
       program.emitError("internal error: idr-narrow: the range analysis failed");
       signalPassFailure();
     };
-    FailureOr<std::unique_ptr<const Ranges>> ranges = Ranges::solve(program);
-    if (failed(ranges))
+    FailureOr<std::reference_wrapper<const Ranges::Solved>> solved =
+        getAnalysis<Ranges>().solved();
+    if (failed(solved))
       return unsolved();
     uint64_t versioned = 0;
     {
-      Facts facts(**ranges, program);
+      Facts facts(*solved);
       RewritePatternSet patterns(&getContext());
       populateVersionPatterns(patterns, facts, versioned);
       walkAndApplyPatterns(program, std::move(patterns));
     }
     // A versioned loop's copy holds values the first solve never saw, so
-    // the program is solved again; otherwise the first solve is the one
-    // the functions read.
-    if (versioned != 0 && failed(ranges = Ranges::solve(program)))
-      return unsolved();
+    // the program is solved again, the solve dropped with every analysis
+    // the versions change: no declaration changes, and no symbol is added
+    // or removed. Otherwise the first solve is the one the functions read.
+    if (versioned != 0) {
+      AnalysisManager::PreservedAnalyses kept;
+      kept.preserve<TypeGraph, Layouts, SymbolTable>();
+      getAnalysisManager().invalidate(kept);
+      solved = getAnalysis<Ranges>().solved();
+      if (failed(solved))
+        return unsolved();
+    }
 
-    // The functions read the program's ranges, which outlive the nested
-    // run.
+    // The functions read the program's ranges from this pass's analysis
+    // manager, which holds them through the nested run.
     OpPassManager nested(ProgramOp::getOperationName());
-    nested.nest<FuncOp>().addPass(std::make_unique<NarrowWords>(**ranges));
+    nested.nest<FuncOp>().addPass(createIdrNarrowWords());
     if (failed(runPipeline(nested, program)))
       return signalPassFailure();
     numVersioned += versioned;

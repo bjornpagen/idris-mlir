@@ -15,8 +15,6 @@
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <optional>
-
 using namespace mlir;
 
 namespace idr::expect {
@@ -42,73 +40,37 @@ std::string calleeOf(CallOpInterface call) {
 // Every copy of @f calls each function the list names, in the list's
 // order: a call of the second comes after a call of the first, in the
 // order the body is written. Repeating a name asks for that many calls.
-LogicalResult callOrder(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "call-order";
-  auto [function, list] = splitAt(module, argument, property);
-  if (function.empty())
-    return failure();
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
-  SmallVector<StringRef> wanted = symbolList(list);
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult callOrder(const Request<Listed> &request) {
+  ArrayRef<Symbol> wanted = request.argument.names;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : functions) {
+  for (FunctionOpInterface fn : request.argument.function.functions) {
     size_t next = 0;
     for (CallOpInterface call : callsOf(fn))
       if (next < wanted.size() && callsNamed(call, wanted[next], symbols))
         ++next;
     if (next == wanted.size())
       continue;
-    InFlightDiagnostic error = fail(fn->getLoc(), property) << where(fn) << " makes no call of @"
-                                                            << wanted[next];
+    InFlightDiagnostic error = fail(fn->getLoc(), request.property)
+                               << where(fn) << " makes no call of @" << wanted[next].name;
     if (next > 0)
-      error << " after its call of @" << wanted[next - 1];
+      error << " after its call of @" << wanted[next - 1].name;
     held = false;
   }
   return success(held);
 }
 
-namespace {
-
-// The copies of @f and the callee @g a property of the pair `@f:@g` is
-// stated of; none, after an error of `property`, when the argument names
-// no pair.
-struct CallsOf {
-  SmallVector<FunctionOpInterface> functions;
-  StringRef callee;
-};
-std::optional<CallsOf> callsOfPair(ModuleOp module, StringRef argument, StringRef property) {
-  auto [function, callee] = splitAt(module, argument, property);
-  if (function.empty())
-    return std::nullopt;
-  if (callee.ltrim('@').empty()) {
-    fail(module.getLoc(), property) << "name both functions, as " << property << "=@f:@g";
-    return std::nullopt;
-  }
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return std::nullopt;
-  return CallsOf{std::move(functions), callee};
-}
-
-} // namespace
-
 // No call of @g in a copy of @f makes again a call that dominates it: the
 // same callee on the same operands, so that it is the earlier call's
 // results.
-LogicalResult callsDistinct(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "calls-distinct";
-  std::optional<CallsOf> pair = callsOfPair(module, argument, property);
-  if (!pair)
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
-  StringRef g = pair->callee.ltrim('@');
+LogicalResult callsDistinct(const Request<Pair> &request) {
+  const Pair &pair = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : pair->functions) {
+  for (FunctionOpInterface fn : pair.caller.functions) {
     SmallVector<CallOpInterface> made;
     for (CallOpInterface call : callsOf(fn))
-      if (callsNamed(call, g, symbols))
+      if (callsNamed(call, pair.callee, symbols))
         made.push_back(call);
     DominanceInfo dominance(fn);
     for (auto [at, later] : llvm::enumerate(made))
@@ -117,8 +79,8 @@ LogicalResult callsDistinct(ModuleOp module, AnalysisManager &analyses, StringRe
             !OperationEquivalence::isEquivalentTo(earlier.getOperation(), later.getOperation(),
                                                   OperationEquivalence::IgnoreLocations))
           continue;
-        fail(later->getLoc(), property) << where(fn) << " calls " << pair->callee
-                                        << " again on what an earlier call took";
+        fail(later->getLoc(), request.property) << where(fn) << " calls @" << pair.callee.name
+                                                << " again on what an earlier call took";
         held = false;
         break;
       }
@@ -127,20 +89,16 @@ LogicalResult callsDistinct(ModuleOp module, AnalysisManager &analyses, StringRe
 }
 
 // Every call of @g in a copy of @f gives a result that something reads.
-LogicalResult callsRead(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "calls-read";
-  std::optional<CallsOf> pair = callsOfPair(module, argument, property);
-  if (!pair)
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
-  StringRef g = pair->callee.ltrim('@');
+LogicalResult callsRead(const Request<Pair> &request) {
+  const Pair &pair = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : pair->functions)
+  for (FunctionOpInterface fn : pair.caller.functions)
     for (CallOpInterface call : callsOf(fn)) {
-      if (!callsNamed(call, g, symbols) || !call->use_empty())
+      if (!callsNamed(call, pair.callee, symbols) || !call->use_empty())
         continue;
-      fail(call->getLoc(), property) << where(fn) << " calls " << pair->callee
-                                     << " and reads nothing it gives";
+      fail(call->getLoc(), request.property) << where(fn) << " calls @" << pair.callee.name
+                                             << " and reads nothing it gives";
       held = false;
     }
   return success(held);
@@ -148,23 +106,16 @@ LogicalResult callsRead(ModuleOp module, AnalysisManager &analyses, StringRef ar
 
 // Every call of every copy of @f is of a function the list names: so `[]`
 // says @f calls nothing.
-LogicalResult callsOnly(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "calls-only";
-  auto [function, list] = splitAt(module, argument, property);
-  if (function.empty())
-    return failure();
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
-  SmallVector<StringRef> allowed = symbolList(list);
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult callsOnly(const Request<Listed> &request) {
+  ArrayRef<Symbol> allowed = request.argument.names;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.function.functions)
     for (CallOpInterface call : callsOf(fn)) {
-      if (llvm::any_of(allowed, [&](StringRef g) { return callsNamed(call, g, symbols); }))
+      if (llvm::any_of(allowed, [&](const Symbol &g) { return callsNamed(call, g, symbols); }))
         continue;
-      fail(call->getLoc(), property) << where(fn) << " calls " << calleeOf(call)
-                                     << ", which the list does not name";
+      fail(call->getLoc(), request.property) << where(fn) << " calls " << calleeOf(call)
+                                             << ", which the list does not name";
       held = false;
     }
   return success(held);
@@ -172,18 +123,14 @@ LogicalResult callsOnly(ModuleOp module, AnalysisManager &analyses, StringRef ar
 
 // Every call, anywhere or in @f, names its callee: no call goes through a
 // value, so no cell holds code.
-LogicalResult directCalls(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "direct-calls";
-  SmallVector<Operation *> roots = rootsOf(module, function, property);
-  if (roots.empty())
-    return failure();
+LogicalResult directCalls(const Request<Roots> &request) {
   bool held = true;
-  for (Operation *root : roots)
+  for (Operation *root : request.argument.roots(request.module))
     root->walk([&](CallOpInterface call) {
       if (isa<SymbolRefAttr>(call.getCallableForCallee()))
         return;
-      fail(call->getLoc(), property) << call->getName() << " in " << where(call)
-                                     << " calls through a value";
+      fail(call->getLoc(), request.property) << call->getName() << " in " << where(call)
+                                             << " calls through a value";
       held = false;
     });
   return success(held);

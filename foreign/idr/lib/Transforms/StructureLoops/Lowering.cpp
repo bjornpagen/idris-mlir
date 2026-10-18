@@ -17,15 +17,17 @@ namespace idr::structure {
 
 namespace {
 
-// What the terminator `end` gives, each value as `mapping` maps it (an
-// empty mapping keeps every value): its values, or nothing for
-// ub.unreachable.
-std::optional<SmallVector<Value>> givenBy(Operation *end, const IRMapping &mapping) {
-  auto yield = dyn_cast<ArrayYieldOp>(end);
-  if (!yield)
-    return std::nullopt;
-  return llvm::map_to_vector(yield.getValues(),
-                             [&](Value value) { return mapping.lookupOrDefault(value); });
+// What the terminator `end` gives, of types `given`, each value as
+// `mapping` maps it (an empty mapping keeps every value): a yield's values,
+// or, where the region ends in ub.unreachable and never returns, poison
+// made with `b`, which no path reaches.
+SmallVector<Value> givenBy(OpBuilder &b, Operation *end, const IRMapping &mapping,
+                           TypeRange given) {
+  if (auto yield = dyn_cast<ArrayYieldOp>(end))
+    return llvm::map_to_vector(yield.getValues(),
+                               [&](Value value) { return mapping.lookupOrDefault(value); });
+  return llvm::map_to_vector(
+      given, [&](Type type) -> Value { return ub::PoisonOp::create(b, end->getLoc(), type); });
 }
 
 // The offsets, sizes and strides of the cell of `cellSizes` at `indices`.
@@ -49,24 +51,24 @@ Slice sliceAt(OpBuilder &b, ValueRange indices, ArrayRef<OpFoldResult> cellSizes
 
 } // namespace
 
-std::optional<SmallVector<Value>> inlineRegion(RewriterBase &rewriter, Operation *op,
-                                               ValueRange args) {
+SmallVector<Value> inlineRegion(RewriterBase &rewriter, Operation *op, ValueRange args,
+                                TypeRange given) {
   Block &body = op->getRegion(0).front();
   Operation *end = body.getTerminator();
   rewriter.inlineBlockBefore(&body, rewriter.getInsertionBlock(), rewriter.getInsertionPoint(),
                              args);
-  std::optional<SmallVector<Value>> given = givenBy(end, IRMapping());
+  SmallVector<Value> values = givenBy(rewriter, end, IRMapping(), given);
   rewriter.eraseOp(end);
-  return given;
+  return values;
 }
 
-std::optional<SmallVector<Value>> cloneRegion(OpBuilder &b, Operation *op, ValueRange args) {
+SmallVector<Value> cloneRegion(OpBuilder &b, Operation *op, ValueRange args, TypeRange given) {
   Block &body = op->getRegion(0).front();
   IRMapping mapping;
   mapping.map(body.getArguments(), args);
   for (Operation &inner : body.without_terminator())
     b.clone(inner, mapping);
-  return givenBy(body.getTerminator(), mapping);
+  return givenBy(b, body.getTerminator(), mapping, given);
 }
 
 SmallVector<OpFoldResult> extentsOf(OpBuilder &b, Operation *op, unsigned dims) {

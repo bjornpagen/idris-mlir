@@ -9,10 +9,14 @@
 ||| not from the compiler; this compiler computes every case, with
 ||| compile-time evaluation and without it.
 |||
-||| The tests are `tests/programs/semantics/prim-<type>-<table>-<part>/`, the type in
-||| lower case. Their `run` asks the test runner for the program:
+||| A test is one fixed-width type and one operation, its casts to every
+||| other fixed width one test: `prim-<type>-<operation>`, the type in
+||| lower case and the operation as Idris spells its primitives
+||| (`prim-int8-add`, `prim-bits64-cast`). They run as
+||| `tests/programs/semantics/prim@<name>`, one test of the runner per name
+||| (tests/Main.idr), whose `run` asks the runner for the program:
 |||
-|||     runtests --sem-program prim-<type>-<table>-<part>
+|||     runtests --sem-program prim-<type>-<operation>
 |||
 ||| `runtests --sem-expected <name>` prints the stdout a test's program must
 ||| print, the value `result` ends with when every case agrees, so that the
@@ -23,41 +27,33 @@ import Prelude
 import Data.Bits
 import Data.List
 import Data.Maybe
+import Data.SortedMap
 import Data.String
 import Prims
 
 %default covering
 
-||| A fixed-width integer type with its width and its least and greatest
-||| values, as Prims states them.
-record Fixed where
-  constructor MkFixed
-  ty : Ty
-  width : Width
-  lo : Integer
-  hi : Integer
+||| A fixed-width type as a type.
+fixedTy : FixedTy -> Ty
+fixedTy f = TIntegral (Fixed f)
 
-||| Every fixed-width integer type, in the order the tables are made.
-fixed : List Fixed
-fixed = [ MkFixed t w lo hi | t <- fixedTys, w <- toList (widthOf t), (lo, hi) <- toList (bounds t) ]
-
-||| The most cases one program checks.
+||| The most cases one program checks: what one test command compiled
+||| within its limits when the tables were cut into programs of this many.
 maxCases : Nat
 maxCases = 120
 
-||| Int's width, which the literals are written in.
-int : Width
-int = fromJust (widthOf TInt)
+values : FixedTy -> List Integer
+values f =
+  let w = width f
+      (lo, hi) = bounds f
+  in if w.signed then [lo, lo + 1, -1, 0, 1, hi]
+                 else [0, 1, 2, pow2 (pred w.bits), hi - 1, hi]
 
-values : Fixed -> List Integer
-values t =
-  if t.width.signed then [t.lo, t.lo + 1, -1, 0, 1, t.hi]
-                    else [0, 1, 2, pow2 (pred t.width.bits), t.hi - 1, t.hi]
-
-divValues : Fixed -> List Integer
-divValues t =
-  if t.width.signed then [t.lo, -7, -2, -1, 0, 1, 2, 7, t.hi]
-                    else [0, 1, 2, 7, t.hi - 1, t.hi]
+divValues : FixedTy -> List Integer
+divValues f =
+  let (lo, hi) = bounds f
+  in if (width f).signed then [lo, -7, -2, -1, 0, 1, 2, 7, hi]
+                         else [0, 1, 2, 7, hi - 1, hi]
 
 ||| The shift amounts of a type: within its width, at it and past it, and a
 ||| signed type's negative ones, which shift the other way.
@@ -71,44 +67,38 @@ shiftAmounts t =
 ||| A primitive applied to literals reaches this compiler as written
 ||| (upstream/18-elaboration-primitive-folding), so every case is this
 ||| compiler's arithmetic.
-lit : Ty -> Integer -> String
-lit t v =
-  let asInt = wrap int v
+lit : FixedTy -> Integer -> String
+lit f v =
+  let asInt = wrap (width FInt) v
       text = if asInt >= 0 then show asInt else "(" ++ show asInt ++ ")"
-  in if t == TInt then text else "(" ++ castNamed TInt t ++ " " ++ text ++ ")"
+  in if f == FInt then text else "(" ++ castNamed int (fixedTy f) ++ " " ++ text ++ ")"
 
 ||| An expression, the type of its result and the value it must have.
 Case : Type
-Case = (String, Ty, Integer)
+Case = (String, FixedTy, Integer)
 
-binary : Ty -> Op -> Integer -> Integer -> String
-binary t op a b = "(" ++ named op t ++ " " ++ lit t a ++ " " ++ lit t b ++ ")"
+binary : FixedTy -> Op -> Integer -> Integer -> String
+binary f op a b = "(" ++ named op (fixedTy f) ++ " " ++ lit f a ++ " " ++ lit f b ++ ")"
 
 pairs : List Integer -> List (Integer, Integer)
 pairs vs = [(a, b) | a <- vs, b <- vs]
 
-||| The tables of one type, each a title and its cases.
-tables : Fixed -> List (String, List Case)
+||| The tables of one type, each the operation it checks and its cases.
+tables : FixedTy -> List (Op, List Case)
 tables f =
-  let t = f.ty
-      w = f.width
+  let w = width f
       vs = values f
       ds = filter (\(_, b) => b /= 0) (pairs (divValues f))
-      arith = [(binary t op a b, t, wrap w (g a b)) | (op, g) <- arithmetic, (a, b) <- pairs vs]
-      divs = [(binary t Div a b, t, quotient w a b) | (a, b) <- ds]
-      mods = [(binary t Mod a b, t, remainder w a b) | (a, b) <- ds]
-      bits = [(binary t op a b, t, bitwise w g a b) | (op, g) <- logical, (a, b) <- pairs vs]
-      moves = [(binary t op a s, t, shifted w left a s)
-              | (op, left) <- shifts, a <- vs, s <- shiftAmounts w]
-      cmp = [(binary t op a b, TInt, if g a b then 1 else 0) | (op, g) <- comparisons, (a, b) <- pairs vs]
-      casts = [("(" ++ castNamed t u.ty ++ " " ++ lit t a ++ ")", u.ty, wrap u.width a)
-              | u <- fixed, u.ty /= t, a <- vs]
-  in [("arith", arith), ("div", divs), ("mod", mods), ("bitwise", bits), ("shift", moves),
-      ("compare", cmp), ("cast", casts)]
-
-chunks : Nat -> List a -> List (List a)
-chunks n [] = []
-chunks n xs = take n xs :: chunks n (drop n xs)
+  in [ (op, [(binary f op a b, f, wrap w (g a b)) | (a, b) <- pairs vs]) | (op, g) <- arithmetic ]
+     ++ [ (Div, [(binary f Div a b, f, quotient w a b) | (a, b) <- ds])
+        , (Mod, [(binary f Mod a b, f, remainder w a b) | (a, b) <- ds]) ]
+     ++ [ (op, [(binary f op a b, f, bitwise w g a b) | (a, b) <- pairs vs]) | (op, g) <- logical ]
+     ++ [ (op, [(binary f op a s, f, shifted w left a s) | a <- vs, s <- shiftAmounts w])
+        | (op, left) <- shifts ]
+     ++ [ (op, [(binary f op a b, FInt, if g a b then 1 else 0) | (a, b) <- pairs vs])
+        | (op, g) <- comparisons ]
+     ++ [ (Convert, [ ("(" ++ castNamed (fixedTy f) (fixedTy u) ++ " " ++ lit f a ++ ")", u, wrap (width u) a)
+                    | u <- fixedTys, u /= f, a <- vs ]) ]
 
 ||| What `result` is when every case agrees: no case is numbered 0, so it
 ||| cannot be mistaken for the number of one that disagrees.
@@ -120,7 +110,7 @@ program : List Case -> String
 program cases =
   let numbered = zip [1 .. length cases] cases
       body = foldr (\(i, (expr, ty, expected)), rest =>
-                      "chk (" ++ named Eq ty ++ " " ++ expr ++ " " ++ lit ty expected ++ ") "
+                      "chk (" ++ named Eq (fixedTy ty) ++ " " ++ expr ++ " " ++ lit ty expected ++ ") "
                         ++ show i ++ "\n  (" ++ rest ++ ")")
                    (show agreed) numbered
   in unlines
@@ -139,14 +129,22 @@ program cases =
 ||| Every test: its name, and the cases its program checks.
 tests : List (String, List Case)
 tests = do
-  t <- fixed
-  (title, table) <- tables t
-  (part, chunk) <- zip [0 .. length table] (chunks maxCases table)
-  pure ("prim-" ++ toLower (tyName t.ty) ++ "-" ++ title ++ "-" ++ show part, chunk)
+  f <- fixedTys
+  (op, table) <- tables f
+  pure ("prim-" ++ toLower (tyName (fixedTy f)) ++ "-" ++ spelling op, table)
 
-||| The name of every test, in the order of the tables: each must have its
-||| directory under tests/programs/semantics, and each such directory a
-||| name here (sem-index).
+||| The tests by name.
+byName : SortedMap String (List Case)
+byName = fromList tests
+
+||| What both hosts check of the tables: no program checks more cases than
+||| one test command compiles in its time.
+export
+checks : List (String, Bool)
+checks = [("every table holds at most " ++ show maxCases ++ " cases", all (\(_, cases) => length cases <= maxCases) tests)]
+
+||| The name of every test, in the order of the tables: the runner runs
+||| tests/programs/semantics/prim once for each (tests/Main.idr).
 export
 names : List String
 names = map fst tests
@@ -154,10 +152,10 @@ names = map fst tests
 ||| The program of a test, by its name.
 export
 programOf : (name : String) -> Maybe String
-programOf name = program <$> lookup name tests
+programOf name = program <$> lookup name byName
 
 ||| The stdout of a test's program, by its name: Main.idr prints `result`
 ||| with printLn, and every case agrees.
 export
 expectedOf : (name : String) -> Maybe String
-expectedOf name = (\_ => show agreed ++ "\n") <$> lookup name tests
+expectedOf name = (\_ => show agreed ++ "\n") <$> lookup name byName

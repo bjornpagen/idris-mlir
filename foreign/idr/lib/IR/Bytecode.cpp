@@ -7,7 +7,11 @@
 // data type is written once per module, its body in the table, because its
 // text holds the body of every data type it reaches, once per path through
 // them. The pinned writer encodes no mutable type, so only the frontend
-// writes the table, and this reads it. PIN(bytecode-data-table)
+// writes the table, and this reads it. PIN(bytecode-data-table) The codes a
+// field of the table is written with are IdrBytecode.td's, generated; the
+// order of a body's and a constructor's parts is read here as the
+// frontend's generated encoders write it, and the round trip checks the
+// two agree.
 
 #include "idr/IR/IdrDialect.h"
 
@@ -20,6 +24,15 @@
 #include "llvm/Support/TypeName.h"
 
 #include <deque>
+#include <utility>
+#include <variant>
+
+// The codes a field of the table is written with, one per case of what the
+// field's type holds (FieldCode): a type that holds no data type is shared
+// as an entry, a data type is a member of the table, and a type that holds
+// one is written in place, as a record of one of the two dialects the
+// frontend's types come from.
+#include "idr/IR/IdrTable.h.inc"
 
 using namespace mlir;
 using namespace idr;
@@ -46,13 +59,6 @@ LogicalResult readEnum(DialectBytecodeReader &reader, E &result,
 }
 
 #include "idr/IR/IdrBytecode.cpp.inc"
-
-// The codes a field of the table is written with, one per case of what the
-// field's type holds: a type that holds no data type is shared as an entry,
-// a data type is a member of the table, and a type that holds one is written
-// in place, as a record of one of the two dialects the frontend's types come
-// from.
-enum class FieldCode : uint64_t { Entry = 0, Member = 1, Idr = 2, Builtin = 3 };
 
 // The reader of the table's bodies. A record asks its reader for a type,
 // which upstream's reader resolves as an entry, and a field is no entry:
@@ -185,15 +191,23 @@ LogicalResult DataType::readTable(DialectBytecodeReader &reader, ArrayAttr &tabl
   // Each constructor's fields, which its Ctor views until its body is set:
   // a deque, so that a view stays valid as the next constructors are read.
   std::deque<SmallVector<Type>> fieldStorage;
+  // A constructor is its name, its role and its fields. A label names the
+  // function it runs, which only defunctionalization makes, from closures
+  // and suspensions the frontend writes as such: the table never holds one,
+  // so a role here holds nothing but its case.
   auto readCtor = [&](Ctor &ctor) -> LogicalResult {
     StringRef name;
+    CtorRole kind;
     SmallVector<Type> &ctorFields = fieldStorage.emplace_back();
-    if (failed(reader.readString(name)) ||
-        failed(readEnum(reader, ctor.role, symbolizeCtorRole)) ||
-        failed(reader.readBool(ctor.byName)) || failed(reader.readOptionalAttribute(ctor.fn)) ||
-        failed(fields.readTypes(ctorFields)))
+    if (failed(reader.readString(name)) || failed(readEnum(reader, kind, symbolizeCtorRole)))
+      return failure();
+    if (kind == CtorRole::Label)
+      return reader.emitError()
+             << "expects no label in the table: only defunctionalization makes one";
+    if (failed(fields.readTypes(ctorFields)))
       return failure();
     ctor.name = StringAttr::get(context, name);
+    ctor.role = emptyRole(kind);
     ctor.fields = ctorFields;
     return success();
   };

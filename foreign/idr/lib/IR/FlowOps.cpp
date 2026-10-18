@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The edges of each op of ours that holds the flow interface, and of the
 // upstream ops that move a value into or out of the elements of a tensor
-// or make one from nothing, which hold it as an external model: where what
-// each holds, takes or gives moves, as data (FlowEdges.h). A value is
-// followed whole, or into and out of a part of another (a field, the
-// elements, the forced state, a capture, a hole).
+// or a buffer or make one from nothing, which hold it as an external model:
+// where what each holds, takes or gives moves, as data (FlowEdges.h). A
+// value is followed whole, or into and out of a part of another (a field,
+// the elements, the forced state, a capture, a hole). And ub.unreachable's
+// effects, none, which upstream leaves undeclared.
 
 #include "idr/IR/Flow.h"
 
@@ -13,6 +14,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/DialectRegistry.h"
@@ -32,7 +34,12 @@ FlowAnchor elementsOf(Type shaped) {
   return FlowAnchor::elementsOf(cast<ShapedType>(unrestricted(shaped)).getElementType());
 }
 
-FlowAnchor forcedOf(Type lazy) { return FlowAnchor::forcedOf(unrestricted(lazy)); }
+// The forced state of a suspension of `lazy`, at any grade: the one place a
+// lazy value's type is read as one, which every operand that holds a
+// suspension is by its constraint.
+FlowAnchor forcedOf(Type lazy) {
+  return FlowAnchor::forcedOf(cast<LazyType>(unrestricted(lazy)));
+}
 
 // A constructor built into `value`, its constructor `tag` of `data`: each
 // field given (`fields`, the fields that are not `holes`, in order) moves
@@ -97,13 +104,12 @@ void idr::ReturnOp::getFlowEdges(FlowEdges &edges) {
 // their anchors, and static data is every copy's.
 void idr::ConstantOp::getFlowEdges(FlowEdges &edges) { edges.constant(getValue(), getResult()); }
 
-// A cell on the stack is the frame's, lent to whatever holds it: it is not
-// new to anyone, so it is not fresh.
+// A constructor value is new, built of the fields given; it has no hole,
+// which only a cell has.
 void idr::ConOp::getFlowEdges(FlowEdges &edges) {
   Value value = getResult();
-  builtEdges(value, getDataType(), getTag(), getFieldsMutable(), getHoles(), edges);
-  if (!getStack())
-    edges.fresh(value);
+  builtEdges(value, getDataType(), getTag(), getFieldsMutable(), {}, edges);
+  edges.fresh(value);
 }
 
 // A read of a field gives what the field holds; the value is only read.
@@ -118,27 +124,27 @@ void idr::TagOp::getFlowEdges(FlowEdges &) {}
 
 // The value moves into the hole the destination writes.
 void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
-  Value dest = getDest();
+  TypedValue<DestType> dest = getDest();
   edges.flow(FlowPoint::of(getValueMutable()),
-             FlowPoint::partOf(dest, FlowAnchor::holeOf(unrestricted(dest.getType()))));
+             FlowPoint::partOf(dest, FlowAnchor::holeOf(dest.getType())));
 }
 
 // A case's arguments are its constructor's fields, read out of the
-// scrutinee; the default region's argument, when it has one, is the
-// scrutinee itself. The match's results come from its yields, which
-// RegionBranchOpInterface says.
+// scrutinee; the default region's argument, when the region is not empty,
+// is the scrutinee itself, a binding RegionBranchOpInterface does not
+// declare, so the match does. The match's results come from its yields,
+// which RegionBranchOpInterface says.
 void idr::MatchOp::getFlowEdges(FlowEdges &edges) {
   DataType data = getDataType();
   Value scrutinee = getScrutinee();
-  for (unsigned r = 0, n = static_cast<unsigned>(getCases().size()); r < n; ++r) {
-    Tag tag = getCaseTag(r);
-    for (BlockArgument field : getCaseRegion(r).getArguments())
+  for (unsigned c = 0, n = getNumCases(); c < n; ++c) {
+    Tag tag = getCaseTag(c);
+    for (BlockArgument field : getCaseRegion(c).getArguments())
       edges.flow(FlowPoint::partOf(scrutinee, FlowAnchor::fieldOf(data, tag, field.getArgNumber())),
                  FlowPoint::of(Value(field)));
   }
-  if (Region *rest = getDefaultRegion())
-    for (BlockArgument arg : rest->getArguments())
-      edges.flow(FlowPoint::of(scrutinee), FlowPoint::of(Value(arg)));
+  for (BlockArgument arg : getDefaultRegion().getArguments())
+    edges.flow(FlowPoint::of(scrutinee), FlowPoint::of(Value(arg)));
 }
 
 void idr::ClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges); }
@@ -169,11 +175,12 @@ void idr::ApplyOp::getFlowEdges(FlowEdges &edges) { edges.dispatch(*this); }
 // Entering a force writes the cell's state, and nothing moves.
 void idr::MemoEnterOp::getFlowEdges(FlowEdges &) {}
 
-// The value moves into the forced state of the cell, which takes it over.
+// The value moves into the forced state of the cell, a cell of the memo
+// sum its lazy type became, which takes it over.
 void idr::MemoSettleOp::getFlowEdges(FlowEdges &edges) {
   Value cell = getCell();
   edges.flow(FlowPoint::of(getValueMutable()),
-             FlowPoint::partOf(cell, FlowAnchor::forcedOf(dataTypeOf(cell.getType()))));
+             FlowPoint::partOf(cell, FlowAnchor::memoStateOf(dataTypeOf(cell.getType()))));
 }
 
 // A guard that passes its operand on takes it over and gives it.
@@ -214,23 +221,52 @@ void idr::BorrowOp::getFlowEdges(FlowEdges &edges) {
 // explains: what the operand alone reached is forgotten.
 void idr::ShareOp::getFlowEdges(FlowEdges &edges) { edges.release(getValueMutable()); }
 
-// The token's cell is built in: its reference ends here, and the value is
-// new, built of the fields given.
-void idr::ReuseOp::getFlowEdges(FlowEdges &edges) {
+// A new heap cell: no other value holds a reference to it.
+void idr::CellNewOp::getFlowEdges(FlowEdges &edges) { edges.fresh(getCell()); }
+
+// A cell in the frame is the frame's, lent to whatever holds it: it is new
+// to no one, so nothing is declared, and its box is not fresh.
+void idr::CellStackOp::getFlowEdges(FlowEdges &) {}
+
+// The token's cell is given up here, and the cell made of it, or a new one
+// for a token of no cell, is new.
+void idr::CellRecycleOp::getFlowEdges(FlowEdges &edges) {
   edges.release(getTokenMutable());
-  Value value = getResult();
-  builtEdges(value, getDataType(), getTag(), getFieldsMutable(), getHoles(), edges);
-  edges.fresh(value);
+  edges.fresh(getCell());
 }
 
-// The value is taken over: its cell becomes the token, and each field moves
+// The box is its cell, so the init takes the cell over and the box is new
+// exactly when the cell was; each field given moves into its field of the
+// box.
+void idr::CellInitOp::getFlowEdges(FlowEdges &edges) {
+  Value box = getResult();
+  edges.flow(FlowPoint::of(getCellMutable()), FlowPoint::of(box));
+  builtEdges(box, getDataType(), getTag(), getFieldsMutable(), getHoles(), edges);
+}
+
+// The box is taken over: its cell becomes the token, and each field moves
 // out of it.
 void idr::TakeOp::getFlowEdges(FlowEdges &edges) {
   OpOperand &value = getValueMutable();
   DataType data = getDataType();
   Tag tag = getTag();
-  if (Value token = getToken())
-    edges.flow(FlowPoint::of(value), FlowPoint::of(token));
+  edges.flow(FlowPoint::of(value), FlowPoint::of(getToken()));
+  for (auto [i, field] : llvm::enumerate(getFields()))
+    edges.flow(FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(i))),
+               FlowPoint::of(Value(field)));
+}
+
+// The value, which has no cell of its own, is taken over: each field moves
+// out of it. A constructor of no field has no part to move, so its value
+// is given up whole: the one case where nothing of the value goes on.
+void idr::UnpackOp::getFlowEdges(FlowEdges &edges) {
+  OpOperand &value = getValueMutable();
+  DataType data = getDataType();
+  Tag tag = getTag();
+  if (getFields().empty()) {
+    edges.release(value);
+    return;
+  }
   for (auto [i, field] : llvm::enumerate(getFields()))
     edges.flow(FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(i))),
                FlowPoint::of(Value(field)));
@@ -272,6 +308,13 @@ void extractEdges(tensor::ExtractOp extract, FlowEdges &edges) {
              FlowPoint::of(extract.getResult()));
 }
 
+// A load reads an element out of its buffer, which keeps it.
+void loadEdges(memref::LoadOp load, FlowEdges &edges) {
+  Value buffer = load.getMemRef();
+  edges.flow(FlowPoint::partOf(buffer, elementsOf(buffer.getType())),
+             FlowPoint::of(load.getResult()));
+}
+
 void fromElementsEdges(tensor::FromElementsOp made, FlowEdges &edges) {
   Value tensor = made.getResult();
   for (OpOperand &use : made->getOpOperands())
@@ -298,6 +341,13 @@ void yieldEdges(tensor::YieldOp yield, FlowEdges &edges) {
 // holds no label.
 void poisonEdges(ub::PoisonOp poison, FlowEdges &edges) { edges.fresh(poison.getResult()); }
 
+// Code past ub.unreachable never runs, so it has no effect a caller could
+// observe; upstream declares none at all, which a reader of effects would
+// take for any.
+struct NeverRuns : MemoryEffectOpInterface::ExternalModel<NeverRuns, ub::UnreachableOp> {
+  void getEffects(Operation *, SmallVectorImpl<MemoryEffects::EffectInstance> &) const {}
+};
+
 } // namespace
 
 void idr::registerFlowInterfaceExternalModels(DialectRegistry &registry) {
@@ -309,7 +359,11 @@ void idr::registerFlowInterfaceExternalModels(DialectRegistry &registry) {
     tensor::SplatOp::attachInterface<Model<tensor::SplatOp, splatEdges>>(*context);
     tensor::YieldOp::attachInterface<Model<tensor::YieldOp, yieldEdges>>(*context);
   });
+  registry.addExtension(+[](MLIRContext *context, memref::MemRefDialect *) {
+    memref::LoadOp::attachInterface<Model<memref::LoadOp, loadEdges>>(*context);
+  });
   registry.addExtension(+[](MLIRContext *context, ub::UBDialect *) {
     ub::PoisonOp::attachInterface<Model<ub::PoisonOp, poisonEdges>>(*context);
+    ub::UnreachableOp::attachInterface<NeverRuns>(*context);
   });
 }

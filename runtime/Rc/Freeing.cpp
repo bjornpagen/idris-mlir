@@ -4,6 +4,7 @@
 // list.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "Platform/Address.h"
 #include "Rc/Rc.h"
 #include "idris_rt.h"
 
@@ -11,11 +12,6 @@
 #include <stdint.h>
 
 namespace {
-
-// The bits of a stack address. User space ends below 2^47 on every target
-// of ours: only an mmap that asks for a higher address gets one, and no
-// stack does. Dying's assertions check that a dying cell holds that many.
-constexpr unsigned stackAddressBits = 47;
 
 // The count holds the low 32 bits of the next cell's address, and the tag
 // field of info its high bits; objs, kind and the stack bit stay. An array
@@ -44,13 +40,14 @@ uint64_t *steppedLength(idris_rt_header *cell) {
 // top of its length: addressLowBits + addressHighBits bits, which hold the
 // next cell's address. A heap cell's has no more bits than the allocator's
 // pagemap covers (rt::alloc), and a stack cell's no more than the target's
-// stacks (above).
+// user address space (rt::platform).
 class Dying {
   static_assert(rt::alloc::heapAddressBits <= addressLowBits + addressHighBits,
                 "a heap address fits a count and a tag");
-  static_assert(stackAddressBits <= addressLowBits + addressHighBits,
+  static_assert(rt::platform::userAddressBits <= addressLowBits + addressHighBits,
                 "a stack address fits a count and a tag");
-  static_assert(rt::alloc::heapAddressBits <= lengthBits && stackAddressBits <= lengthBits,
+  static_assert(rt::alloc::heapAddressBits <= lengthBits &&
+                    rt::platform::userAddressBits <= lengthBits,
                 "an array's length leaves the top bits free");
 
 public:

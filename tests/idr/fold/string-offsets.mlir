@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: each constant written with its type first, idr.constant <type> <value>, folds and is read back as before.
 // RUN: idris-mlir-opt %s --mlir-disable-threading --canonicalize '--idr-expect=holds=folds-balanced,returns=@offsets:104/104/233/233/0/0/128512/"h\C3\A9llo"/"\C3\A9llo"/"llo"/""/""/"\F0\9F\98\80b"' -o /dev/null
 // NEEDS-ACCEPTANCE: the op of the offset after a character is gone; the other folds and their values are unchanged.
 // A string read by byte offset folds at every constant offset, since each
@@ -11,8 +12,8 @@
 idr.program @"string-offsets" root(@root) stage(first) {
   idr.func @offsets() -> (i32, i32, i32, i32, i32, i32, i32,
                            !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str) {
-    %s = idr.constant "h\C3\A9llo" : !idr.str
-    %t = idr.constant "a\F0\9F\98\80b" : !idr.str
+    %s = idr.constant !idr.str "h\C3\A9llo"
+    %t = idr.constant !idr.str "a\F0\9F\98\80b"
     %m4 = arith.constant -4 : i64
     %m3 = arith.constant -3 : i64
     %c0 = arith.constant 0 : i64

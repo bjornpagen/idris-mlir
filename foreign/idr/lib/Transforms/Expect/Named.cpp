@@ -64,30 +64,4 @@ bool names(FunctionOpInterface fn, StringRef f) {
   return SymbolTable::getSymbolName(fn).getValue() == f || locationNames(fn->getLoc(), f);
 }
 
-SmallVector<FunctionOpInterface> named(ModuleOp module, StringRef function, StringRef property) {
-  SmallVector<FunctionOpInterface> functions;
-  StringRef f = function.ltrim('@');
-  if (f.empty()) {
-    fail(module.getLoc(), property) << "no function named";
-    return functions;
-  }
-  for (FunctionOpInterface fn : functionsOf(module))
-    if (names(fn, f))
-      functions.push_back(fn);
-  if (functions.empty())
-    fail(module.getLoc(), property) << "no function " << function << ", and no copy of it";
-  return functions;
-}
-
-SmallVector<Operation *> rootsOf(ModuleOp module, StringRef function, StringRef property) {
-  SmallVector<Operation *> roots;
-  if (function.empty()) {
-    roots.push_back(module);
-    return roots;
-  }
-  for (FunctionOpInterface fn : named(module, function, property))
-    roots.push_back(fn);
-  return roots;
-}
-
 } // namespace idr::expect

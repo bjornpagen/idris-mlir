@@ -1,46 +1,46 @@
-t1 11
-t2 540
-t3 -7
-t4 115
-t5 6
-t6 [3, -1, 4, 1, -5, 9]
-t7 [9, 1, 16, 1, 25, 81]
-t8 [3, 4, 1, 9]
-t9 [9, -5, 1, 4, -1, 3]
-t10 True
-t11 (True, False)
-t12 Just (-5)
-t13 Nothing
-t14 Left 3
-t15 (1, ("a", 'b'))
-t16 -42
-t17 0.1
-t18 -1e-7
-t19 'x'
-t20 '\n'
-t21 "q\"u\n\233"
-t22 12345678901234567890
-t23 LT
-t24 12
-t25 5
-t26 -397
-t27 -397
-t28 680564733841876926926749214863536422913
-t29 3.5
-t30 2
-t31 65
-t32 955
-t33 5
-t34 olléh
-t35 cba
-t36 aλc
-t37 ell
-t38 abcd
-t39 10
-t40 4
-t41 5
-t42 True
-t43 [1, 2, 3, 4, 5]
-t44 1.4142135623730951
-t45 0.0
-t48 123456789012345678901234567890
+sum [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)] = 11
+product [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)] = 540
+foldr (\x, acc => x - acc) (the Int 0) [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)] = -7
+foldl (\acc, x => acc * 2 + x) (the Int 0) [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)] = 115
+natToInteger (length [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)]) = 6
+show [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)] = [3, -1, 4, 1, -5, 9]
+show (map (\x => x * x) [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)]) = [9, 1, 16, 1, 25, 81]
+show (filter (\x => x > 0) [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)]) = [3, 4, 1, 9]
+show (reverse [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)]) = [9, -5, 1, 4, -1, 3]
+show (elem (the Int 4) [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)]) = True
+show (all (\x => x > (the Int (-10))) [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)], any (\x => x > 10) [(the Int 3), (the Int (-1)), (the Int 4), (the Int 1), (the Int (-5)), (the Int 9)]) = (True, False)
+show (Just (the Int (-5))) = Just (-5)
+show (the (Maybe Int) Nothing) = Nothing
+show (the (Either Int String) (Left (the Int 3))) = Left 3
+show ((the Int 1), (the String "a"), (the Char 'b')) = (1, ("a", 'b'))
+show (the Int (-42)) = -42
+show (the Double 0.1) = 0.1
+show (the Double (-1.0e-7)) = -1e-7
+show (the Char 'x') = 'x'
+show (the Char '\n') = '\n'
+show (the String "q\"u\n\233") = "q\"u\n\233"
+show (the Integer 12345678901234567890) = 12345678901234567890
+show (compare (the Int 3) (the Int 9)) = LT
+max (the Int 3) (the Int 9) + min (the Int 3) (the Int 9) = 12
+abs (the Int (-5)) = 5
+div (the Int (-17)) (the Int 5) * 100 + mod (the Int (-17)) (the Int 5) = -397
+div (the Integer (-17)) (the Integer 5) * 100 + mod (the Integer (-17)) (the Integer 5) = -397
+(the Integer 2) * (the Integer 340282366920938463463374607431768211457) - (the Integer 1) = 680564733841876926926749214863536422913
+cast (the Int 7) / (the Double 2.0) = 3.5
+cast (the Double 2.9) = 2
+ord (the Char 'A') = 65
+chr (the Int 955) = 955
+natToInteger (length (the String "h\233llo")) = 5
+reverse (the String "h\233llo") = olléh
+pack (reverse (unpack (the String "abc"))) = cba
+concat [(the String "a"), (the String "\955"), (the String "c")] = aλc
+substr 1 3 (the String "hello") = ell
+(the String "ab") ++ (the String "cd") = abcd
+show (maybe (the Int 0) (\x => x + 1) (Just (the Int 9))) = 10
+show (either (\x => x) (const (the Int 1)) (the (Either Int String) (Left (the Int 4)))) = 4
+show (fst ((the Int 1), (the Int 2)) + snd ((the Int 3), (the Int 4))) = 5
+show ((the Int 3) == (the Int 3) && not ((the Int 1) > (the Int 2)) || False) = True
+show [(the Int 1) .. (the Int 5)] = [1, 2, 3, 4, 5]
+sqrt (the Double 2.0) = 1.4142135623730951
+floor (the Double (-2.5)) + ceiling (the Double 2.5) = 0.0
+cast (the String "123456789012345678901234567890") = 123456789012345678901234567890

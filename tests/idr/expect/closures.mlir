@@ -1,25 +1,11 @@
-// NEEDS-ACCEPTANCE: that labels reads the sum of labels at @pick's result, holds of the labels it runs and fails, once, of a list that names fewer; and that the failing request reports exactly the four errors checked.
-// RUN: sed -n 's|^// CLEAN: ||p' %s > %t.clean.mlir
-// RUN: idris-mlir-opt %t.clean.mlir --idr-expect=holds=no-closures -o /dev/null
-// RUN: idris-mlir-opt %s '--idr-expect=holds=labels=@pick:result:[@add,@twice]' -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=no-closures,labels=@pick:result:[@add]' -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 4
-// A module without closures holds; each closure left, built, applied or a
-// constant, is one error, in the function that holds it. A sum of labels,
-// as defunctionalization makes a closure's type, runs the functions its
-// labels name: @pick's runs @add and @twice, and a list of one fails.
-// CHECK-DAG: error: expected no-closures: a closure is built in @make
-// CHECK-DAG: error: expected no-closures: a closure is applied in @use
-// CHECK-DAG: error: expected no-closures: a closure is a constant in @known
-// CHECK-DAG: error: expected labels: the sum at {{.*}} of @pick runs {{.*}}
-// CLEAN: idr.program @clean root(@main) stage(first) {
-// CLEAN:   idr.func @main(%x: i64) -> i64 {
-// CLEAN:     %one = arith.constant 1 : i64
-// CLEAN:     %r = arith.addi %x, %one : i64
-// CLEAN:     return %r : i64
-// CLEAN:   }
-// CLEAN: }
+// NEEDS-ACCEPTANCE: that labels reads the sum of labels at @pick's result and holds of the labels it runs, and no-closures of @pick, whose sum of labels is no closure; that the module parses with the closure constant written type first; and that the -verify-diagnostics run passes: one error at each closure left and one at @pick, whose sum runs more than the list of one names.
+// RUN: idris-mlir-opt %s '--idr-expect=holds=labels=@pick:result:[@add,@twice],no-closures=@pick' -o /dev/null
+// RUN: idris-mlir-opt %s '--idr-expect=holds=no-closures,labels=@pick:result:[@add]' -verify-diagnostics -o /dev/null
+// No closure is left where none is built, applied or a constant (@pick,
+// whose value is a sum of labels, as defunctionalization makes a closure's
+// type); each closure left is one error, in the function that holds it. A
+// sum of labels runs the functions its labels name: @pick's runs @add and
+// @twice, and a list of one fails.
 !Pick = !idr.data<"Pick", closures [@add(i64) label @add, @twice() label @twice]>
 idr.program @closures root(@root) stage(higher) {
   idr.func @add(%x: i64, %y: i64) -> i64 {
@@ -31,17 +17,21 @@ idr.program @closures root(@root) stage(higher) {
     return %r : i64
   }
   idr.func @make(%x: i64) -> !idr.fn<(i64) -> (i64)> {
+    // expected-error @below {{expected no-closures: a closure is built in @make}}
     %f = idr.closure @add(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
   idr.func @use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
+    // expected-error @below {{expected no-closures: a closure is applied in @use}}
     %r = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }
   idr.func @known() -> !idr.fn<(i64, i64) -> (i64)> {
-    %f = idr.constant #idr.closure<@add, []> : !idr.fn<(i64, i64) -> (i64)>
+    // expected-error @below {{expected no-closures: a closure is a constant in @known}}
+    %f = idr.constant !idr.fn<(i64, i64) -> (i64)> #idr.closure<@add, []>
     return %f : !idr.fn<(i64, i64) -> (i64)>
   }
+  // expected-error @below {{expected labels: the sum at result 0 of @pick runs @add @twice}}
   idr.func @pick() -> !Pick {
     %f = idr.con !Pick @twice()
     return %f : !Pick

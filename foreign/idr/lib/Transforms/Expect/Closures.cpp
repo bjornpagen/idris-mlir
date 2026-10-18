@@ -11,6 +11,9 @@
 #include "idr/IR/Symbols.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Twine.h"
+
+#include <variant>
 
 using namespace mlir;
 
@@ -18,12 +21,9 @@ namespace idr::expect {
 
 // No closure is built, applied or kept as a constant, anywhere or in the
 // function the argument names.
-LogicalResult noClosures(ModuleOp module, AnalysisManager &, StringRef function) {
-  SmallVector<Operation *> roots = rootsOf(module, function, "no-closures");
-  if (roots.empty())
-    return failure();
+LogicalResult noClosures(const Request<Roots> &request) {
   bool held = true;
-  for (Operation *root : roots)
+  for (Operation *root : request.argument.roots(request.module))
     root->walk([&](Operation *op) {
       StringRef found;
       if (isa<ClosureOp>(op))
@@ -35,60 +35,55 @@ LogicalResult noClosures(ModuleOp module, AnalysisManager &, StringRef function)
         found = "a closure is a constant";
       else
         return;
-      fail(op->getLoc(), "no-closures") << found << " in " << where(op);
+      fail(op->getLoc(), request.property) << found << " in " << where(op);
       held = false;
     });
   return success(held);
 }
 
-// `@f:<position>:[@g, ...]`: at that position of every copy of @f, a
-// result (`result`, `result<n>`) or a parameter (`arg<n>`), the type is a
-// sum of labels, closures or a memo cell's, through a box or a grade, whose
-// labels run exactly the functions the list names, each by `names`.
-LogicalResult labels(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "labels";
-  auto [function, rest] = splitAt(module, argument, property);
-  if (function.empty())
-    return failure();
-  auto [position, list] = rest.split(':');
-  bool result = position.consume_front("result");
-  bool parameter = !result && position.consume_front("arg");
-  unsigned index = 0;
-  if ((!result && !parameter) || (!position.empty() && position.getAsInteger(10, index)) ||
-      (parameter && position.empty()) || !list.starts_with("["))
-    return fail(module.getLoc(), property)
-           << "name the function, the position and the labels, as labels=@f:result:[@g, @h] "
-              "or labels=@f:arg0:[@g]";
-  SmallVector<StringRef> wanted = symbolList(list);
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
+namespace {
+
+// The position, for an error: `result <n>` or `parameter <n>`.
+std::string spelled(Position position) {
+  return ((position.kind == Position::Kind::Result ? "result " : "parameter ") +
+          Twine(position.index))
+      .str();
+}
+
+} // namespace
+
+// At the position of every copy of @f, the type is a sum of labels,
+// closures or a memo cell's, through a box or a grade, whose labels run
+// exactly the functions the list names, each by `names`.
+LogicalResult labels(const Request<Labels> &request) {
+  const Labels &stated = request.argument;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : functions) {
-    ArrayRef<Type> types = result ? fn.getResultTypes() : fn.getArgumentTypes();
-    DataType sum = index < types.size() ? dataTypeOf(types[index]) : DataType();
+  for (FunctionOpInterface fn : stated.function.functions) {
+    Position at = stated.position;
+    ArrayRef<Type> types =
+        at.kind == Position::Kind::Result ? fn.getResultTypes() : fn.getArgumentTypes();
+    DataType sum = at.index < types.size() ? dataTypeOf(types[at.index]) : DataType();
     if (!sum || !llvm::is_contained({SumKind::Closures, SumKind::Memo}, sum.getKind())) {
-      fail(fn->getLoc(), property) << where(fn) << " has no sum of labels at "
-                                   << rest.split(':').first;
+      fail(fn->getLoc(), request.property)
+          << where(fn) << " has no sum of labels at " << spelled(at);
       held = false;
       continue;
     }
     // Each label's function, found by the symbol the label names.
     SmallVector<FunctionOpInterface> run;
     for (const Ctor &ctor : sum.getCtors())
-      if (ctor.role == CtorRole::Label)
-        if (auto callee = symbols.lookup<FunctionOpInterface>(ctor.fn.getAttr()))
+      if (const auto *label = std::get_if<role::Label>(&ctor.role))
+        if (auto callee = symbols.lookup<FunctionOpInterface>(label->fn.getAttr()))
           run.push_back(callee);
-    auto ranBy = [&](StringRef g) {
-      return llvm::any_of(run, [&](FunctionOpInterface label) { return names(label, g); });
+    auto ranBy = [&](const Symbol &g) {
+      return llvm::any_of(run, [&](FunctionOpInterface label) { return names(label, g.name); });
     };
-    bool same = run.size() == wanted.size() && llvm::all_of(wanted, ranBy);
+    bool same = run.size() == stated.names.size() && llvm::all_of(stated.names, ranBy);
     if (same)
       continue;
-    InFlightDiagnostic error = fail(fn->getLoc(), property)
-                               << "the sum at " << rest.split(':').first << " of " << where(fn)
-                               << " runs";
+    InFlightDiagnostic error = fail(fn->getLoc(), request.property)
+                               << "the sum at " << spelled(at) << " of " << where(fn) << " runs";
     for (FunctionOpInterface label : run)
       error << " " << where(label);
     held = false;

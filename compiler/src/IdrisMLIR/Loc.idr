@@ -9,31 +9,69 @@ import IdrisMLIR.Registry.Libraries
 
 %default total
 
-||| A source span, 0-based as in Idris.
+||| A span of source, 0-based as in Idris: where it starts and where it ends.
+public export
+record Span where
+  constructor MkSpan
+  startLine, startCol, endLine, endCol : Int
+
+||| Where code is: a span of a module, as Idris names the module, and the
+||| module's source file when it is installed; a span of a package's file,
+||| which is in no module; or nowhere, code the compiler generated.
+public export
+data Located = InModule Shown (Maybe String) Span | InPackage String Span | Unlocated
+
+||| A location: where the code comes from, as the registry classified its
+||| module (`origin`, what code tests), and where it is.
 public export
 record Loc where
   constructor MkLoc
-  ||| Where the code comes from, as the registry classified its module.
   origin : Origin
-  ||| The module, as Idris names it: printed, and given back to Idris for
-  ||| its error locations, but never compared (`origin` is what code tests).
-  place : Shown
-  file : String
-  startLine : Int
-  startCol : Int
-  endLine : Int
-  endCol : Int
+  located : Located
 
+||| The location of generated code.
 export
 noLoc : Loc
-noLoc = MkLoc Generated (shown "") "" 0 0 0 0
+noLoc = MkLoc Generated Unlocated
+
+||| The source file of a location, when it has one.
+export
+locFile : Loc -> Maybe String
+locFile l = case l.located of
+  InModule _ file _ => file
+  InPackage file _ => Just file
+  Unlocated => Nothing
+
+||| The module of a location, as Idris names it, when it is in one: printed,
+||| and given back to Idris for its error locations, but never compared.
+export
+locModule : Loc -> Maybe Shown
+locModule l = case l.located of
+  InModule m _ _ => Just m
+  InPackage _ _ => Nothing
+  Unlocated => Nothing
+
+||| The span of a location, when it has one.
+export
+locSpan : Loc -> Maybe Span
+locSpan l = case l.located of
+  InModule _ _ s => Just s
+  InPackage _ s => Just s
+  Unlocated => Nothing
 
 ||| `file:line:column`, 1-based, for messages; a library module whose
-||| source is not installed is named by its module.
+||| source is not installed is named by its module, and generated code by
+||| no place.
 export
 Show Loc where
-  show l = (if l.file == "" then show l.place else l.file) ++ ":" ++
-           show (l.startLine + 1) ++ ":" ++ show (l.startCol + 1)
+  show l = case l.located of
+    InModule _ (Just file) s => file ++ at s
+    InModule m Nothing s => show m ++ at s
+    InPackage file s => file ++ at s
+    Unlocated => "generated code"
+    where
+      at : Span -> String
+      at s = ":" ++ show (s.startLine + 1) ++ ":" ++ show (s.startCol + 1)
 
 ||| Is a location in a library whose diagnostics are reported at the user's
 ||| code that reached it?

@@ -4,6 +4,7 @@
 # ask of the whole module, each immutable once built.
 add_mlir_library(IdrAnalysis
 	Effects.cpp
+	CallCycles.cpp
 	Inline.cpp
 	Constants.cpp
 	BindingTimes.cpp

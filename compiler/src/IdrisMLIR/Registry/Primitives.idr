@@ -12,10 +12,8 @@
 module IdrisMLIR.Registry.Primitives
 
 import IdrisMLIR.Dialect.Idr
-import IdrisMLIR.MLIR
 import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
-import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 %default total
@@ -66,13 +64,13 @@ ioType (a :: as) r = Pi Mw a (ioType as r)
 programRoot : Entry
 programRoot = MkEntry (Def (MkQName ["PrimIO"] "unsafePerformIO"))
                       (Typed (Pi M0 TypeOfTypes (Pi Mw (io Hole) Hole)))
-                      ProgramRoot [ProgramShape]
+                      ProgramRoot
 
 ||| An IO primitive of `Prelude.IO`, by its spec, with the name that
 ||| declares it and its type.
-ioPrimitive : Spec -> String -> Shape -> IdrPrim -> Entry
+ioPrimitive : Spec -> String -> Shape -> IOPrim -> Entry
 ioPrimitive spec name shape p =
-  MkEntry (Foreign spec) (Declared (MkQName ["Prelude", "IO"] name) shape) (IOCall p []) [IOPrimitive]
+  MkEntry (Foreign spec) (Declared (MkQName ["Prelude", "IO"] name) shape) (IOCall p [])
 
 ||| The module of the array primitives, which base declares `%extern`: a
 ||| backend implements them by name.
@@ -87,12 +85,12 @@ arrayData a = Head (Def (MkQName arrayPrims "ArrayData")) [a]
 ||| A primitive on the mutable cells of the module `space` declares,
 ||| `forall a . ... -> PrimIO r`: its element type is erased, and its world
 ||| is the last argument.
-cellPrimitive : List String -> String -> Shape -> IdrPrim -> Entry
+cellPrimitive : List String -> String -> Shape -> IOPrim -> Entry
 cellPrimitive space name shape p =
-  MkEntry (Def (MkQName space name)) (Typed (Pi M0 TypeOfTypes shape)) (ArrayCall p) [IOPrimitive]
+  MkEntry (Def (MkQName space name)) (Typed (Pi M0 TypeOfTypes shape)) (ArrayCall p)
 
 ||| An array primitive of base's `Data.IOArray.Prims`.
-arrayPrimitive : String -> Shape -> IdrPrim -> Entry
+arrayPrimitive : String -> Shape -> IOPrim -> Entry
 arrayPrimitive = cellPrimitive arrayPrims
 
 ||| The module of base's references, which declares their primitives
@@ -155,11 +153,11 @@ fileProcess = ["System", "File", "Process"]
 ||| that declares it and its type.
 cPrimitive : String -> List String -> String -> Shape -> Hook -> Entry
 cPrimitive spec space name shape hook =
-  MkEntry (Foreign (MkSpec "C" spec)) (Declared (MkQName space name) shape) hook [IOPrimitive]
+  MkEntry (Foreign (MkSpec "C" spec)) (Declared (MkQName space name) shape) hook
 
 ||| A primitive of base, declared `%foreign` by its C spec, whose calls are
 ||| the op of an IO primitive.
-cCall : String -> List String -> String -> Shape -> IdrPrim -> Entry
+cCall : String -> List String -> String -> Shape -> IOPrim -> Entry
 cCall spec space name shape p = cPrimitive spec space name shape (IOCall p [])
 
 preludeTypes : List String
@@ -170,9 +168,9 @@ list : Shape -> Shape
 list a = Head (Def (MkQName ["Prelude", "Basics"] "List")) [a]
 
 ||| A buffer primitive, declared `%foreign` by its Chez spec.
-bufferPrimitive : String -> String -> Shape -> IdrPrim -> Entry
+bufferPrimitive : String -> String -> Shape -> IOPrim -> Entry
 bufferPrimitive spec name shape p =
-  MkEntry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName bufferModule name) shape) (IOCall p []) [IOPrimitive]
+  MkEntry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName bufferModule name) shape) (IOCall p [])
 
 ||| An integer primitive type, as a buffer's load or store names it.
 intOf : IntTy -> Shape
@@ -195,14 +193,14 @@ deprecatedForeign : String -> String -> Shape -> String -> Entry
 deprecatedForeign spec name shape replacement =
   MkEntry (Foreign (MkSpec "scheme" spec))
           (Declared (MkQName bufferModule name) shape)
-          (Deprecated replacement) [Deprecated]
+          (Deprecated replacement)
 
 ||| A deprecated buffer definition written in Idris. The shape is a hole:
 ||| the refusal does not depend on the type, and validation checks that the
 ||| library still defines the name.
 deprecatedDef : String -> String -> Entry
 deprecatedDef name replacement =
-  MkEntry (Def (MkQName bufferModule name)) (Typed Hole) (Deprecated replacement) [Deprecated]
+  MkEntry (Def (MkQName bufferModule name)) (Typed Hole) (Deprecated replacement)
 
 ||| A machine word written into a buffer, by its Chez spec. The word's type
 ||| is the stored value's, which the call fixes.
@@ -336,16 +334,16 @@ osClock = Head (Def (MkQName clockModule "OSClock")) []
 
 ||| A clock primitive of base's System.Clock, by its Chez spec: a clock
 ||| declares no C one.
-clockPrimitive : String -> String -> Shape -> IdrPrim -> Entry
+clockPrimitive : String -> String -> Shape -> IOPrim -> Entry
 clockPrimitive spec name shape p =
-  MkEntry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName clockModule name) shape) (IOCall p []) [IOPrimitive]
+  MkEntry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName clockModule name) shape) (IOCall p [])
 
 ||| base's System.Clock. An OSClock is a machine word, a reading or the
 ||| invalid one, so a reading allocates nothing. No collector runs, so the
 ||| two collector clocks are never valid.
 clocks : List Entry
 clocks =
-  [ MkEntry (Def (MkQName clockModule "OSClock")) (Typed TypeOfTypes) WordType [IOPrimitive]
+  [ MkEntry (Def (MkQName clockModule "OSClock")) (Typed TypeOfTypes) WordType
   , clockPrimitive "blodwen-clock-time-monotonic" "prim__clockTimeMonotonic" (ioType [] osClock) ClockMonotonic
   , clockPrimitive "blodwen-clock-time-utc" "prim__clockTimeUtc" (ioType [] osClock) ClockUtc
   , clockPrimitive "blodwen-clock-time-process" "prim__clockTimeProcess" (ioType [] osClock) ClockProcess
@@ -364,17 +362,17 @@ clocks =
 ||| reference of its own, and System.FFI's `free` releases a handle's slot.
 handles : List Entry
 handles =
-  [ MkEntry (Def (MkQName ["PrimIO"] "AnyPtr")) (Typed TypeOfTypes) WordType [IOPrimitive]
-  , MkEntry (Def (MkQName ["PrimIO"] "Ptr")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) WordType [IOPrimitive]
+  [ MkEntry (Def (MkQName ["PrimIO"] "AnyPtr")) (Typed TypeOfTypes) WordType
+  , MkEntry (Def (MkQName ["PrimIO"] "Ptr")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) WordType
   , MkEntry (Foreign (MkSpec "C" "idris2_isNull"))
             (Declared (MkQName ["PrimIO"] "prim__nullAnyPtr") (Pi Mw anyPtr int))
-            (IOCall HandleIsNull []) [Primitive]
+            (PureCall HandleIsNull [])
   , MkEntry (Foreign (MkSpec "C" "idris2_getNull"))
             (Declared (MkQName ["PrimIO"] "prim__getNullAnyPtr") anyPtr)
-            (Handle (LInt UInt64 18446744073709551615)) [Primitive]
+            (Handle (LInt UInt64 18446744073709551615))
   , MkEntry (Foreign (MkSpec "C" "idris2_getString"))
             (Declared (MkQName ["Prelude", "IO"] "prim__getString") (Pi Mw strPtr str))
-            (IOCall HandleString []) [Primitive]
+            (PureCall HandleString [])
   , cCall "idris2_free" ["System", "FFI"] "prim__free" (ioType [anyPtr] unit) HandleFree ]
 
 ||| The module of the in-house string iterator, whose primitives read a
@@ -384,9 +382,9 @@ iteratorModule = ["Linear", "String", "Iterator"]
 
 ||| A pure primitive of the string iterator, declared `%extern` by name: a
 ||| string, a byte offset, and what the op gives there.
-iteratorPrimitive : String -> Shape -> IdrPrim -> Entry
+iteratorPrimitive : String -> Shape -> PurePrim -> Entry
 iteratorPrimitive name result p =
-  MkEntry (Def (MkQName iteratorModule name)) (Typed (Pi Mw str (Pi Mw int result))) (IOCall p []) [Primitive]
+  MkEntry (Def (MkQName iteratorModule name)) (Typed (Pi Mw str (Pi Mw int result))) (PureCall p [])
 
 ||| The in-house string iterator's primitives. An offset is any Int: each
 ||| op means something at every one, so its calls have no guard. The step
@@ -398,7 +396,7 @@ iterators : List Entry
 iterators =
   [ iteratorPrimitive "prim__scalarAt" (Prim CharP) StrScalarAt
   , MkEntry (Def (MkQName iteratorModule "scalarBytes")) (Typed (Pi Mw (Prim CharP) int))
-            (IOCall StrScalarBytes []) [Primitive]
+            (PureCall StrScalarBytes [])
   , iteratorPrimitive "prim__dropBytes" str StrDropBytes ]
 
 ||| The table: Idris's backend contract as the compiler implements it.
@@ -417,7 +415,7 @@ primitives =
   , ioPrimitive (MkSpec "C" "idris2_getStr") "prim__getStr"
                 (Pi M1 world (ioRes (Prim StringP))) GetLine
   , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
-            (OrderedArrayType [Dynamic] Nothing) [IOPrimitive]
+            (OrderedArrayType Elements Nothing)
   , arrayPrimitive "prim__newArray"
                    (Pi Mw int (Pi Mw Hole (Pi M1 world (ioRes (arrayData Hole))))) ArrayNew
   , arrayPrimitive "prim__arrayGet"
@@ -429,7 +427,7 @@ primitives =
   -- array's elements are, with no size and no index. Control.Monad.ST's
   -- references are IORefs, run by base's unsafePerformIO.
   , MkEntry (Def (MkQName iorefModule "Mut")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
-            (OrderedArrayType [] Nothing) [IOPrimitive]
+            (OrderedArrayType Cell Nothing)
   , cellPrimitive iorefModule "prim__newIORef" (Pi Mw Hole (Pi M1 world (ioRes (mut Hole)))) ArrayNew
   , cellPrimitive iorefModule "prim__readIORef" (Pi Mw (mut Hole) (Pi M1 world (ioRes Hole))) ArrayGet
   , cellPrimitive iorefModule "prim__writeIORef"
@@ -442,10 +440,10 @@ primitives =
   -- and bufferData are deprecated names: a program that calls one is
   -- rejected, and the message names the replacement. They share Chez's
   -- byte spec with the Bits8 operations; the declared name picks the entry.
-  , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (OrderedArrayType [Dynamic] (Just byte)) [IOPrimitive]
+  , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (OrderedArrayType Elements (Just byte))
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-new-buffer"))
             (Declared (MkQName bufferModule "prim__newBuffer") (Pi Mw int (Pi M1 world (ioRes buffer))))
-            (IOCall ArrayNew [LInt UInt8 0]) [IOPrimitive]
+            (IOCall ArrayNew [LInt UInt8 0])
   , deprecatedForeign "blodwen-buffer-setbyte" "prim__setByte"
                       (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi M1 world (ioRes unit)))))
                       "setByte is deprecated; use setBits8"
@@ -460,7 +458,7 @@ primitives =
                     (Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes bits8)))) ArrayGet
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
             (Declared (MkQName bufferModule "prim__bufferSize") (Pi Mw buffer int))
-            (PrimCall (ArrayLength byte)) [Primitive]
+            (PrimCall (ArrayLength byte))
   , bufferStore "blodwen-buffer-setbits16" "prim__setBits16" (stored (intOf UInt16))
   , bufferLoad "blodwen-buffer-getbits16" "prim__getBits16" (loaded (intOf UInt16))
   , bufferStore "blodwen-buffer-setbits32" "prim__setBits32" (stored (intOf UInt32))
@@ -481,7 +479,7 @@ primitives =
   , bufferLoad "blodwen-buffer-getdouble" "prim__getDouble" (loaded dbl)
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-stringbytelen"))
             (Declared (MkQName bufferModule "stringByteLength") (Pi Mw (Prim StringP) int))
-            (IOCall StrBytesLength []) [Primitive]
+            (PureCall StrBytesLength [])
   , bufferPrimitive "blodwen-buffer-setstring" "prim__setString"
                     (Pi Mw buffer (Pi Mw int (Pi Mw (Prim StringP) (Pi M1 world (ioRes unit)))))
                     BufferSetString
@@ -501,27 +499,27 @@ primitives =
   -- (idr.str.pack, idr.str.concat); fastUnpack stands for unpack, a loop
   -- already.
   , MkEntry (Def (MkQName preludeTypes "pack"))
-            (Typed (Pi Mw (list (Prim CharP)) (Prim StringP))) (Builds StrPack) [Primitive]
+            (Typed (Pi Mw (list (Prim CharP)) (Prim StringP))) (Builds StrPack)
   , MkEntry (Foreign (MkSpec "scheme" "string-pack"))
             (Declared (MkQName preludeTypes "fastPack") (Pi Mw (list (Prim CharP)) (Prim StringP)))
-            (Builds StrPack) [Primitive]
+            (Builds StrPack)
   , MkEntry (Foreign (MkSpec "scheme" "string-concat"))
             (Declared (MkQName preludeTypes "fastConcat") (Pi Mw (list (Prim StringP)) (Prim StringP)))
-            (Builds StrConcat) [Primitive]
+            (Builds StrConcat)
   , MkEntry (Foreign (MkSpec "scheme" "string-unpack"))
             (Declared (MkQName preludeTypes "fastUnpack") (Pi Mw (Prim StringP) (list (Prim CharP))))
-            (Alias (MkQName preludeTypes "unpack")) [Primitive]
+            (Alias (MkQName preludeTypes "unpack"))
   -- System.Info. The operating system and the backend name are strings the
   -- compiler substitutes: the first is the target triple's, the second the
   -- name this backend is registered under. The processor count is read when
   -- the program asks. The C spec names that one operation; a C spec the
   -- registry does not list stays rejected.
   , MkEntry (Def (MkQName ["System", "Info"] "prim__os"))
-            (Typed (Prim StringP)) (SystemInfo TargetOs) [Primitive]
+            (Typed (Prim StringP)) (SystemInfo TargetOs)
   , MkEntry (Def (MkQName ["System", "Info"] "prim__codegen"))
-            (Typed (Prim StringP)) (SystemInfo BackendName) [Primitive]
+            (Typed (Prim StringP)) (SystemInfo BackendName)
   , MkEntry (Foreign (MkSpec "C" "idris2_getNProcessors"))
             (Declared (MkQName ["System", "Info"] "prim__getNProcessors")
                       (Pi M1 world (ioRes int)))
-            (IOCall NProcessors []) [IOPrimitive] ] ++
+            (IOCall NProcessors []) ] ++
   files ++ directories ++ process ++ terminal ++ errors ++ clocks ++ handles ++ iterators

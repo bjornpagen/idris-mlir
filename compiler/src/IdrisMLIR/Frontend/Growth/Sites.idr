@@ -94,7 +94,7 @@ record StandIn where
 ||| quotation rebinds bound machine names by their number, and the
 ||| normalisers the walk asks quote.
 standIn : Nat -> Name
-standIn k = UN (Basic ("idris-mlir-pattern-" ++ show k))
+standIn k = probeName (ProbePattern k)
 
 ||| A dictionary a variable holds: the writer's dictionary parameter `i` at
 ||| match depth `d`, and the fields matched out of it, the first first; or
@@ -124,7 +124,7 @@ termOf : Stand -> ClosedTerm
 termOf (Fixed t) = t
 termOf (Holds (Own i d path)) = fieldAt i d path
 termOf (Holds (Known t)) = t
-termOf (Pattern p) = Ref EmptyFC Bound (standIn p.number)
+termOf (Pattern p) = probeTerm (ProbePattern p.number)
 termOf (Shape t) = t
 termOf Erased = Erased EmptyFC Placeholder
 termOf Runtime = Erased EmptyFC Impossible
@@ -159,14 +159,15 @@ entryAt [] _ (Later _) impossible
 close : {vs : Scope} -> Env vs -> TT vs -> ClosedTerm
 close env t = closeWritten EmptyFC (map (\(s, _, _) => the (VarInfo ()) (TypeValue (termOf s))) (standings env)) t
 
-||| Is a term a variable that holds a dictionary? The translation passes a
-||| caller's dictionaries to its blocks as explicit arguments, so the callee's
-||| binder alone does not say.
-dictionaryVariable : Env vs -> TT vs -> Bool
-dictionaryVariable env (Local _ _ idx p) = case entryAt env idx p of
-  (Holds _, _, _) => True
-  _ => False
-dictionaryVariable _ _ = False
+||| What a call knows of a term it gives: a variable that holds a dictionary
+||| is an implementation. The translation passes a caller's dictionaries to
+||| its blocks as explicit arguments, so the callee's binder alone does not
+||| say.
+offerOf : Env vs -> TT vs -> Offer
+offerOf env (Local _ _ idx p) = case entryAt env idx p of
+  (Holds _, _, _) => AnImplementation
+  _ => AValue
+offerOf _ _ = AValue
 
 ------------------------------------------------------------------------------
 -- Pattern stand-ins
@@ -201,9 +202,11 @@ withMarkers ps = replacing (map (\p => (standIn p.number, markerAt p.param p.dep
 
 mutual
   ||| Those of the names that a term refers to, each once, after those met
-  ||| already, in the order a reading from the left first meets them.
-  occurring : List Name -> TT vs -> List Name -> List Name
-  occurring wanted (Ref _ _ n) met = if elem n wanted && not (elem n met) then met ++ [n] else met
+  ||| already, in the order a reading from the left first meets them, with
+  ||| the set of them.
+  occurring : SortedSet Name -> TT vs -> (SnocList Name, SortedSet Name) -> (SnocList Name, SortedSet Name)
+  occurring wanted (Ref _ _ n) met@(order, seen) =
+    if contains n wanted && not (contains n seen) then (order :< n, insert n seen) else met
   occurring wanted (App _ f a) met = occurring wanted a (occurring wanted f met)
   occurring wanted (Bind _ _ (Let _ _ v ty) sc) met = occurring wanted sc (occurring wanted ty (occurring wanted v met))
   occurring wanted (Bind _ _ (PLet _ _ v ty) sc) met = occurring wanted sc (occurring wanted ty (occurring wanted v met))
@@ -219,7 +222,7 @@ mutual
   occurring wanted (Erased _ (Dotted t)) met = occurring wanted t met
   occurring _ _ met = met
 
-  occurringAll : List Name -> List (TT vs) -> List Name -> List Name
+  occurringAll : SortedSet Name -> List (TT vs) -> (SnocList Name, SortedSet Name) -> (SnocList Name, SortedSet Name)
   occurringAll wanted [] met = met
   occurringAll wanted (t :: ts) met = occurringAll wanted ts (occurring wanted t met)
 
@@ -230,13 +233,13 @@ holed : {vs : Scope} -> Env vs -> TT vs -> ClosedTerm
 holed env t =
   let valued = zipWith value [0 .. length (standings env)] (standings env)
       c = closeWritten EmptyFC (map (\(v, _) => the (VarInfo ()) (TypeValue v)) valued) t
-      order = occurring (mapMaybe snd valued) c []
+      order = fst (occurring (SortedSet.fromList (mapMaybe snd valued)) c ([<], empty)) <>> []
   in replacing (zipWith (\r, n => (n, holeMarker r)) [0 .. length order] order) c
   where
     -- A runtime value or a shape as a name of its own, by its place in
     -- the scope, which is renumbered once the term is closed.
     runtimeAt : Nat -> (ClosedTerm, Maybe Name)
-    runtimeAt p = let n = MN "idris-mlir-runtime" (cast p) in (Ref EmptyFC Bound n, Just n)
+    runtimeAt p = (probeTerm (ProbeRuntimeAt p), Just (probeName (ProbeRuntimeAt p)))
 
     value : Nat -> Standing -> (ClosedTerm, Maybe Name)
     value p (Runtime, _, _) = runtimeAt p
@@ -304,7 +307,7 @@ mutual
   render at (Head Nothing cs) = (\as => "(" ++ joinBy " -> " as ++ ")") <$> renderAll at cs
   render at (Leaf _) = pure "_"
   render at (Token _) = pure "_"
-  render at (Formal _ _ _) = pure "_"
+  render at (Formal _ _) = pure "_"
   render at (Choice _ ls) = (\as => "{" ++ joinBy " | " as ++ "}") <$> renderAll at ls
   render at (Opaque a cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> nameText a <*> renderAll at cs
   render at (Applied i _ cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> parameterName at i <*> renderAll at cs
@@ -319,13 +322,6 @@ mutual
 ------------------------------------------------------------------------------
 -- What a type builds
 ------------------------------------------------------------------------------
-
-||| The definition an address holds; nothing for one the context holds
-||| none at.
-definitionAt : {auto c : Ref Ctxt Defs} -> Address -> Core (Maybe GlobalDef)
-definitionAt a = do
-  defs <- get Ctxt
-  maybe (pure Nothing) (\n => lookupCtxtExact n (gamma defs)) (nameAt (gamma defs) a)
 
 ||| The type constructor an address holds, if it holds one.
 typeConstructorAt : {auto c : Ref Ctxt Defs} -> Address -> Core (Maybe GlobalDef)
@@ -356,7 +352,7 @@ mutual
   eraseIn t@(Var _ _) = pure t
   eraseIn t@(Leaf _) = pure t
   eraseIn t@(Token _) = pure t
-  eraseIn t@(Formal _ _ _) = pure t
+  eraseIn t@(Formal _ _) = pure t
   eraseIn t@(Held _ _) = pure t
 
   eraseAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Template -> Core (List Template)
@@ -395,7 +391,7 @@ mutual
   buildsIn at fc (Var _ _) = pure []
   buildsIn at fc (Leaf _) = pure []
   buildsIn at fc (Token _) = pure []
-  buildsIn at fc (Formal _ _ _) = pure []
+  buildsIn at fc (Formal _ _) = pure []
   buildsIn at fc (Held _ _) = pure []
 
   buildsAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> List Template -> Core (List Site)
@@ -427,19 +423,19 @@ overBinder a = MkArg (weaken a.written) a.asCode a.asStatic
 
 ||| Arguments each walked as a static value.
 statics : List (Arg vs) -> Core (List Site)
-statics xs = concat <$> traverse (\x => Force x.asStatic) xs
+statics xs = (>>= id) <$> traverse (\x => Force x.asStatic) xs
 
 ||| An argument as a callee's kinds are decided on: closed with what each
-||| variable stands for, its markers in place, and whether it is a variable
-||| that holds a dictionary.
+||| variable stands for, its markers in place, and what the call knows of it:
+||| a variable that holds a dictionary is an implementation.
 record Offered (vs : Scope) where
   constructor MkOffered
   arg : Arg vs
   value : ClosedTerm
-  dictionary : Bool
+  offer : Offer
 
 offered : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Pats -> Env vs -> Arg vs -> Core (Offered vs)
-offered ps env a = (\v => MkOffered a v (dictionaryVariable env a.written)) <$> solved (withMarkers ps (close env a.written))
+offered ps env a = (\v => MkOffered a v (offerOf env a.written)) <$> solved (withMarkers ps (close env a.written))
 
 ||| How a callee's type takes an argument: as a static value of a kind,
 ||| walked as one; at runtime, walked as code; or erased, passed nowhere
@@ -471,13 +467,15 @@ taken : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
         At -> Pats -> Env vs -> ClosedTerm -> List (Arg vs) -> Core (List (Given vs), ClosedTerm)
 taken at ps env ty args = do
   os <- traverse (offered ps env) args
-  (kinds, rest) <- staticsOver at.owner (length args) ty (map (\o => Just (o.value, o.dictionary)) os)
+  (kinds, rest) <- staticsOver at.owner (length args) ty (map (\o => Just (o.value, o.offer)) os)
   rigs <- quantitiesOf (length args) ty
-  pure (decided 0 os kinds rigs, rest)
+  pure (decided 0 os (toList kinds) rigs, rest)
   where
     taking : Maybe Static -> RigCount -> Taking
     taking (Just k) _ = AsStatic k
-    taking Nothing r = if isErased r then Nowhere else AsCode
+    taking Nothing r = case use r of
+      Erased => Nowhere
+      Used _ => AsCode
 
     decided : Nat -> List (Offered vs) -> List (Maybe Static) -> List RigCount -> List (Given vs)
     decided j (o :: os) (k :: ks) (r :: rs) = MkGiven o j (taking k r) :: decided (S j) os ks rs
@@ -485,11 +483,7 @@ taken at ps env ty args = do
 
 ||| A definition by name: its address and what the context holds of it.
 definitionOf : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe (Address, GlobalDef))
-definitionOf n = do
-  defs <- get Ctxt
-  Just def <- lookupCtxtExact n (gamma defs)
-    | Nothing => pure Nothing
-  pure ((, def) <$> definitionAddress (gamma defs) (fullname def))
+definitionOf n = map (\(placement, def) => (addressOf placement, def)) <$> resolve n
 
 mutual
   ||| The types of the runtime values a dictionary closes over, in the order
@@ -520,9 +514,11 @@ mutual
   heldOver ty ((a, inner) :: rest) = do
     Bind _ _ (Pi _ rig _ aty) sc <- normaliseClosed ty
       | _ => pure []
-    here <- if isErased rig || not (mentionsHole a) then pure [] else do
-              aty' <- normaliseClosed aty
-              if !(implementationType aty') then Force inner else pure [aty']
+    here <- case use rig of
+              Erased => pure []
+              Used _ => if not (mentionsHole a) then pure [] else do
+                aty' <- normaliseClosed aty
+                if !(implementationType aty') then Force inner else pure [aty']
     (here ++) <$> heldOver (subst a sc) rest
 
 ||| A static argument at a position, read off the closed term its key holds
@@ -580,7 +576,7 @@ callSite : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} 
            At -> Pats -> Env vs -> FC -> Reach -> List (Given vs) -> Core (List Site)
 callSite at ps env fc reach gs = do
   ws <- traverse (\(g, k) => argument at ps env fc g k) (mapMaybe static gs)
-  pure (siteAt at fc reach (map fst ws) :: concatMap snd ws)
+  pure (siteAt at fc reach (map fst ws) :: (ws >>= snd))
   where
     static : Given vs -> Maybe (Given vs, Static)
     static g = case g.taking of
@@ -606,13 +602,12 @@ walked (g :: gs) = (++) <$> one g.taking <*> walked gs
 overType : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> Maybe ClosedTerm -> List (Arg vs) -> Core (List Site)
 overType env _ [] = pure []
 overType env known (a :: as) = do
-  ty <- the (Core (Maybe ClosedTerm)) $ case known of
-          Just t@(Bind _ _ (Pi {}) _) => pure (Just t)
-          Just t => Just <$> normaliseClosed t
-          Nothing => pure Nothing
+  ty <- traverseOpt showingBinder known
   case ty of
     Just (Bind _ _ (Pi _ rig _ _) sc) => do
-      here <- if isErased rig then pure [] else Force a.asCode
+      here <- case use rig of
+                Erased => pure []
+                Used _ => Force a.asCode
       (here ++) <$> overType env (Just (subst (close env a.written) sc)) as
     _ => do
       here <- Force a.asCode
@@ -739,7 +734,9 @@ hookCalls at ps env fc hs args = case hs.natOperation of
 ||| its name.
 hooksFor : GlobalDef -> Hooks
 hooksFor def = case definition def of
-  ForeignDef _ specs => case foreignHookOf (fullname def) specs of
+  -- The reach check refuses a `%foreign` the registry gives no hooks or
+  -- the wrong ones; here such a declaration calls nothing instead.
+  ForeignDef _ specs => case foreignHook (qname (fullname def)) specs of
     Just (Right hs) => hs
     _ => noHooks
   Builtin _ => noHooks
@@ -818,8 +815,9 @@ asWritten : Phase
 asWritten = Written Settled
 
 ||| A binder's variable, applied to nothing: erased, or a runtime value.
-byQuantity : RigCount -> Stand
-byQuantity rig = if isErased rig then Erased else Runtime
+byQuantity : Use -> Stand
+byQuantity Erased = Erased
+byQuantity (Used _) = Runtime
 
 -- The walk ends, lexicographically in the phase, the metavariables entered
 -- on the path, and the term. Every step goes to a part of the term but two:
@@ -843,13 +841,15 @@ mutual
     spine ph w acc at ps env f [argOf ph w acc at ps env a]
   -- A lambda's binder of quantity 0 binds nothing at runtime, so its type
   -- is no type a value has.
-  term ph w acc at ps env (Bind _ x (Lam _ rig _ ty) sc) =
-    if isErased rig then term ph w acc at ps ((Erased, x, Nothing) :: env) sc else do
+  term ph w acc at ps env (Bind _ x (Lam _ rig _ ty) sc) = case use rig of
+    Erased => term ph w acc at ps ((Erased, x, Nothing) :: env) sc
+    Used _ => do
       here <- readType ph w acc at ps env ty
       (here ++) <$> term ph w acc at ps ((Runtime, x, Just (close env ty)) :: env) sc
   -- An erased `let` binds a compile-time value, and its value is no code.
-  term ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) =
-    if isErased rig then term ph w acc at ps ((Erased, x, Nothing) :: env) sc else do
+  term ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = case use rig of
+    Erased => term ph w acc at ps ((Erased, x, Nothing) :: env) sc
+    Used _ => do
       value <- term ph w acc at ps env val
       here <- readType ph w acc at ps env ty
       body <- term ph w acc at ps ((Runtime, x, Just (close env ty)) :: env) sc
@@ -878,14 +878,14 @@ mutual
     staticSpine ph w acc at ps env f [argOf ph w acc at ps env a]
   static ph w acc at ps env (Bind _ x (Lam _ rig _ ty) sc) = do
     here <- static ph w acc at ps env ty
-    (here ++) <$> static ph w acc at ps ((byQuantity rig, x, Just (close env ty)) :: env) sc
+    (here ++) <$> static ph w acc at ps ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
   static ph w acc at ps env (Bind _ x (Pi _ rig _ ty) sc) = do
     here <- static ph w acc at ps env ty
-    (here ++) <$> static ph w acc at ps ((byQuantity rig, x, Just (close env ty)) :: env) sc
+    (here ++) <$> static ph w acc at ps ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
   static ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = do
     value <- static ph w acc at ps env val
     here <- static ph w acc at ps env ty
-    body <- static ph w acc at ps ((byQuantity rig, x, Just (close env ty)) :: env) sc
+    body <- static ph w acc at ps ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
     pure (value ++ here ++ body)
   static ph w acc at ps env (Meta fc n i margs) = staticEntered ph w acc at ps env fc n i margs []
   static ph w acc at ps env (As _ _ _ pat) = static ph w acc at ps env pat
@@ -947,11 +947,12 @@ mutual
   -- written, a static value; anything else, a runtime value, which is code.
   applyHead ph w acc at ps env (Bind _ x (Lam _ rig _ ty) sc) (a :: rest) = do
     (entry, own) <- the (Core (Standing, List Site)) $
-      if isErased rig then pure ((Fixed (close env a.written), x, Nothing), []) else
-        case a.written of
+      case use rig of
+        Erased => pure ((Fixed (close env a.written), x, Nothing), [])
+        Used _ => case a.written of
           Local _ _ idx p => pure (let (s, _, t) = entryAt env idx p in ((s, x, t), []))
           _ =>
-            if !(dictionaryBinder rig !(normaliseClosed (close env ty)))
+            if !(implementationType !(normaliseClosed (close env ty)))
               then pure ((Holds (Known !(solved (close env a.written))), x, Nothing), !(Force a.asStatic))
               else do
                 value <- Force a.asCode
@@ -997,8 +998,10 @@ mutual
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
             At -> Pats -> Env vs -> FC -> Name -> Int -> List (TT vs) -> List (Arg vs) -> Core (List Site)
   entered ph w acc@(Access rec) at ps env fc n i margs args = do
-    defs <- get Ctxt
-    let Just (Element w' less) = enter (gamma defs) (Resolved i) w
+    -- A negative index is no place, which Idris's bare `Int` allows.
+    let Just placement = placementOf i
+      | Nothing => pure []
+    let Just (Element w' less) = enter placement w
       | Nothing => pure []
     Just tm <- solution fc n margs
       | Nothing => pure []
@@ -1009,8 +1012,10 @@ mutual
                   (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                   At -> Pats -> Env vs -> FC -> Name -> Int -> List (TT vs) -> List (Arg vs) -> Core (List Site)
   staticEntered ph w acc@(Access rec) at ps env fc n i margs args = do
-    defs <- get Ctxt
-    let Just (Element w' less) = enter (gamma defs) (Resolved i) w
+    -- A negative index is no place, which Idris's bare `Int` allows.
+    let Just placement = placementOf i
+      | Nothing => pure []
+    let Just (Element w' less) = enter placement w
       | Nothing => pure []
     Just tm <- solution fc n margs
       | Nothing => pure []
@@ -1086,9 +1091,11 @@ conStands ps v r ca cdef con args = do
     stand ps (Just p) b _ _ = pure (maybe Erased Fixed (getAt p r), ps)
     stand ps Nothing b rig a = case v of
       Holds (Own i d path) => pure (Holds (Own i d (path ++ [b])), ps)
-      _ => if isErased rig then pure (Erased, ps) else
-        if !(dictionaryBinder rig !(normaliseClosed a)) then pure (Holds (Known (heldAt ca b)), ps) else
-          pure (field ps)
+      _ => case use rig of
+        Erased => pure (Erased, ps)
+        Used _ =>
+          if !(implementationType !(normaliseClosed a)) then pure (Holds (Known (heldAt ca b)), ps) else
+            pure (field ps)
 
     -- The layout has one entry per binder of the type it was read off,
     -- which is this one, so they are taken in step.
@@ -1235,12 +1242,16 @@ parameterNames def = case definition def of
         binderOf (Local _ _ i _) = getAt i bound
         binderOf _ = Nothing
 
+||| The writer a definition is, at its address, within another.
+atDefinition : {auto c : Ref Ctxt Defs} -> (writer, within : Address) -> GlobalDef -> At
+atDefinition writer within def = MkAt writer within (show (fullname def)) (location def) (parameterNames def)
+
 ||| The writer, by address, and the definition it is.
 writerAt : {auto c : Ref Ctxt Defs} -> (writer, within : Address) -> Core (Maybe (At, GlobalDef))
 writerAt writer within = do
   Just def <- definitionAt writer
     | Nothing => pure Nothing
-  pure (Just (MkAt writer within (show (fullname def)) (location def) (parameterNames def), def))
+  pure (Just (atDefinition writer within def, def))
 
 ||| What a parameter of the definition stands for, by its kind and its value
 ||| at the node: a type, a family or a form is that value, its marker
@@ -1253,7 +1264,7 @@ standFor (Just AFamily) _ i v ps = (Fixed v, ps)
 standFor (Just AForm) _ i v ps = (Fixed v, ps)
 standFor (Just ADictionary) _ i v ps = (Holds (Own i 0 []), ps)
 standFor (Just AShape) _ i v ps = fresh i 0 ps
-standFor Nothing rig _ v ps = (byQuantity rig, ps)
+standFor Nothing rig _ v ps = (byQuantity (use rig), ps)
 
 ||| The definition's parameters, off its type, each standing as its kind
 ||| and its value at the node say, with the sites its runtime binders'
@@ -1262,12 +1273,10 @@ standFor Nothing rig _ v ps = (byQuantity rig, ps)
 signature : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             At -> List (Maybe Static, ClosedTerm) -> (i : Nat) -> ClosedTerm -> Pats -> Core (List Site, Pats, List Standing)
 signature at [] i ty ps = (, ps, []) <$> readClosed at ps ty
-signature at ((k, v) :: ks) i ty ps = case ty of
-  Bind _ x (Pi _ rig _ a) sc => parameter x rig a sc
-  _ => do
-    Bind _ x (Pi _ rig _ a) sc <- normaliseClosed ty
-      | ty' => (, ps, []) <$> readClosed at ps ty'
-    parameter x rig a sc
+signature at ((k, v) :: ks) i ty ps = do
+  Bind _ x (Pi _ rig _ a) sc <- showingBinder ty
+    | ty' => (, ps, []) <$> readClosed at ps ty'
+  parameter x rig a sc
   where
     runtime : Stand -> Bool
     runtime Runtime = True
@@ -1328,9 +1337,7 @@ projectionSite at params p = do
 nodeValues : {auto c : Ref Ctxt Defs} -> (n : Nat) -> List (Nat, Address) -> (i : Nat) -> ClosedTerm -> Core (List ClosedTerm)
 nodeValues Z heads i ty = pure []
 nodeValues (S n) heads i ty = do
-  Bind _ _ (Pi _ _ _ kind) sc <- the (Core ClosedTerm) (case ty of
-                                    Bind _ _ (Pi {}) _ => pure ty
-                                    _ => normaliseClosed ty)
+  Bind _ _ (Pi _ _ _ kind) sc <- showingBinder ty
     | _ => pure []
   v <- maybe (pure (markerAt i 0)) (headed kind) (lookup i heads)
   (v ::) <$> nodeValues n heads (S i) (subst v sc)
@@ -1371,7 +1378,8 @@ nodeSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             At -> GlobalDef -> List ClosedTerm -> Core (List (Maybe Static), List Site)
 nodeSites at def values = do
   let arity = arityOf def
-  (kinds, _) <- staticsOver at.owner arity (type def) (map (\v => Just (v, False)) values)
+  (kinds', _) <- staticsOver at.owner arity (type def) (map (\v => Just (v, AValue)) values)
+  let kinds = toList kinds'
   (sig, ps, params) <- signature at (zip kinds values) 0 (type def) (MkPats 0 [])
   body <- the (Core (List Site)) $ case definition def of
     PMDef _ args treeCT _ _ => do
@@ -1406,10 +1414,12 @@ atNode a heads = do
     | Nothing => pure ([], [])
   nodeSites at def !(nodeValues (arityOf def) heads 0 (type def))
 
+||| A definition as its node with no heads reads it, from the definition
+||| the walk holds.
 export
-readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Core Reading
-readingOf a = do
-  (kinds, ss) <- atNode a []
+readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> GlobalDef -> Core Reading
+readingOf a def = do
+  (kinds, ss) <- nodeSites (atDefinition a a def) def !(nodeValues (arityOf def) [] 0 (type def))
   pure (MkReading ss (mapMaybe family (zip [0 .. length kinds] kinds)))
   where
     family : (Nat, Maybe Static) -> Maybe Nat

@@ -3,7 +3,8 @@
 // The graph of the label solve, built by one walk of the program: each op's
 // edges as it declares them (flowEdgesOf), those that carry a label kept, a
 // node for each point a kept edge names, and the constants' parts expanded
-// where they are held. A function's parameter is its entry block's
+// where they are held. Every point is normalized to its key (keyOf) before
+// it is given a node: a function's parameter is its entry block's
 // argument, one node; a part of a value is its anchor's node.
 
 #include "idr/Analysis/Labels.h"
@@ -24,11 +25,10 @@ namespace {
 
 unsigned at(Node node) { return llvm::to_underlying(node); }
 
-// The value a parameter of a function is: its entry block's argument. The
-// world is closed, so every function named has a body.
+// The value a parameter of a function is: its entry block's argument.
 Value parameterValue(const SymbolTable &table, FlatSymbolRefAttr function, unsigned index) {
   auto fn = table.lookup<FuncOp>(function.getAttr());
-  assert(fn && !fn.getBody().empty() && "a label is a function of the program with a body");
+  assert(fn && "a label is a function of the program");
   return fn.getArgument(index);
 }
 
@@ -41,65 +41,32 @@ Node Graph::fresh() {
   return node;
 }
 
-std::optional<Node> Solution::lookup(const FlowAnchor &anchor) const {
-  if (auto it = anchors.find(anchor); it != anchors.end())
+PointKey Solution::keyOf(const FlowPoint &point) const {
+  return std::visit(
+      llvm::makeVisitor(
+          [](FlowPoint::Taken taken) -> PointKey { return taken.use->get(); },
+          [](FlowPoint::Whole whole) -> PointKey { return whole.value; },
+          [](const FlowPoint::Part &part) -> PointKey { return part.anchor; },
+          [&](FlowPoint::Parameter param) -> PointKey {
+            return parameterValue(table, param.function, param.index);
+          },
+          [](FlowPoint::Result result) -> PointKey {
+            return ResultKey{result.function.getAttr(), result.index};
+          }),
+      point.at);
+}
+
+std::optional<Node> Solution::lookup(const PointKey &key) const {
+  if (auto it = nodes.find(key); it != nodes.end())
     return it->second;
   return std::nullopt;
 }
 
-std::optional<Node> Solution::lookup(const FlowPoint &point) const {
-  auto ofValue = [&](Value value) -> std::optional<Node> {
-    if (auto it = values.find(value); it != values.end())
-      return it->second;
-    return std::nullopt;
-  };
-  return std::visit(
-      llvm::makeVisitor(
-          [&](FlowPoint::Taken taken) { return ofValue(taken.use->get()); },
-          [&](FlowPoint::Whole whole) { return ofValue(whole.value); },
-          [&](const FlowPoint::Part &part) { return lookup(part.anchor); },
-          [&](FlowPoint::Parameter param) {
-            return lookup(FlowPoint::of(parameterValue(table, param.function, param.index)));
-          },
-          [&](FlowPoint::Result result) -> std::optional<Node> {
-            if (auto it = results.find({result.function.getAttr(), result.index});
-                it != results.end())
-              return it->second;
-            return std::nullopt;
-          }),
-      point.at);
-}
-
-Node Graph::nodeOf(const FlowAnchor &anchor) {
-  auto [it, made] = out.anchors.try_emplace(anchor, Node());
+Node Graph::nodeOf(const PointKey &key) {
+  auto [it, made] = out.nodes.try_emplace(key, Node());
   if (made)
     it->second = fresh();
   return it->second;
-}
-
-Node Graph::nodeOf(const FlowPoint &point) {
-  auto ofValue = [&](Value value) {
-    auto [it, made] = out.values.try_emplace(value, Node());
-    if (made)
-      it->second = fresh();
-    return it->second;
-  };
-  return std::visit(
-      llvm::makeVisitor(
-          [&](FlowPoint::Taken taken) { return ofValue(taken.use->get()); },
-          [&](FlowPoint::Whole whole) { return ofValue(whole.value); },
-          [&](const FlowPoint::Part &part) { return nodeOf(part.anchor); },
-          [&](FlowPoint::Parameter param) {
-            return nodeOf(FlowPoint::of(parameterValue(out.table, param.function, param.index)));
-          },
-          [&](FlowPoint::Result result) {
-            auto [it, made] =
-                out.results.try_emplace({result.function.getAttr(), result.index}, Node());
-            if (made)
-              it->second = fresh();
-            return it->second;
-          }),
-      point.at);
 }
 
 void Graph::walk(Operation *program) {
@@ -123,22 +90,20 @@ void Graph::add(Operation *op, const FlowEdges::Edge &edge) {
           [&](const FlowEdges::Flow &move) {
             if (!edge.carriesAny(Carriers::labels()))
               return;
-            flow(op, move.from, move.to,
-                 edge.carries(Carrier::Suspension) ? Link::Unify : Link::Include);
+            flow(op, move.from, move.to, linkOf(edge.carriers));
           },
-          [&](const FlowEdges::Unify &move) { unify(nodeOf(move.a), nodeOf(move.b)); },
-          [&](const FlowEdges::Source &move) {
-            reach(nodeOf(FlowPoint::of(move.to)), labelId(move.label));
+          [&](const FlowEdges::Unify &move) {
+            unify(nodeOf(out.keyOf(move.a)), nodeOf(out.keyOf(move.b)));
           },
+          [&](const FlowEdges::Source &move) { reach(nodeOf(move.to), labelId(move.label)); },
           [](const FlowEdges::Fresh &) {},
           [](const FlowEdges::Release &) {},
           [&](const FlowEdges::Constant &move) {
-            expand(move.part, [&] { return nodeOf(FlowPoint::of(move.to)); },
-                   unrestricted(move.to.getType()));
+            expand(move.part, [&] { return nodeOf(move.to); }, unrestricted(move.to.getType()));
           },
           [&](FlowEdges::Dispatch move) {
             CallOpInterface call = move.call;
-            Node callee = find(nodeOf(FlowPoint::of(cast<Value>(call.getCallableForCallee()))));
+            Node callee = find(nodeOf(cast<Value>(call.getCallableForCallee())));
             auto run = Dispatch(static_cast<unsigned>(dispatches.size()));
             dispatches.push_back(call);
             classes[at(callee)].dispatches.push_back(run);
@@ -163,7 +128,7 @@ void Graph::flow(Operation *op, const FlowPoint &from, const FlowPoint &to, Link
                                [](const FlowPoint::Part &) {}, [](FlowPoint::Parameter) {},
                                [](FlowPoint::Result) {}),
              from.at);
-  link(nodeOf(from), nodeOf(to), how);
+  link(nodeOf(out.keyOf(from)), nodeOf(out.keyOf(to)), how);
 }
 
 // A use moves its value into one point: a second edge from it joins its
@@ -171,7 +136,7 @@ void Graph::flow(Operation *op, const FlowPoint &from, const FlowPoint &to, Link
 void Graph::sink(OpOperand &use, const FlowPoint &to) {
   auto [it, first] = out.sinks.try_emplace(&use, to);
   if (!first)
-    unify(nodeOf(it->second), nodeOf(to));
+    unify(nodeOf(out.keyOf(it->second)), nodeOf(out.keyOf(to)));
 }
 
 // A constant part held at the node `at` names, of carrier `carrier`: a
@@ -194,11 +159,11 @@ void Graph::expand(Attribute part, function_ref<Node()> at, Type carrier) {
     for (auto [i, capture] : llvm::enumerate(closure.getCaptures())) {
       auto index = static_cast<unsigned>(i);
       expand(
-          capture, [&] { return nodeOf(FlowPoint::parameter(label, index)); },
+          capture, [&] { return nodeOf(out.keyOf(FlowPoint::parameter(label, index))); },
           unrestricted(fn.getArgumentTypes()[index]));
     }
-    if (isa<LazyType>(carrier))
-      unify(nodeOf(FlowPoint::result(label, 0)), nodeOf(FlowAnchor::forcedOf(carrier)));
+    if (auto lazy = dyn_cast<LazyType>(carrier))
+      unify(nodeOf(out.keyOf(FlowPoint::result(label, 0))), nodeOf(FlowAnchor::forcedOf(lazy)));
     return;
   }
   auto con = cast<ConAttr>(part);
@@ -207,7 +172,7 @@ void Graph::expand(Attribute part, function_ref<Node()> at, Type carrier) {
   DataType data = con.getData();
   Tag tag = con.getTag();
   ArrayRef<Type> fields = data.getCtor(tag).fields;
-  eachField(con, [&](Attribute field, unsigned i) {
+  con.walkFields([&](Attribute field, unsigned i) {
     expand(
         field, [&] { return nodeOf(FlowAnchor::fieldOf(data, tag, i)); },
         unrestricted(fields[i]));

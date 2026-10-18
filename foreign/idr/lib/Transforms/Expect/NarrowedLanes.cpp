@@ -9,11 +9,7 @@
 
 #include "idr/Transforms/Narrow.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Interfaces/CastInterfaces.h"
-#include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include <algorithm>
 
@@ -23,32 +19,18 @@ namespace idr::expect {
 
 namespace {
 
-// The widest integer lane `op` computes, in bits: an elementwise op on
-// vectors of integers that computes (no cast, and no select, which move
-// lanes and cost the same at any width); 0 when it is no such op.
-unsigned laneBits(Operation *op) {
-  if (!op->hasTrait<OpTrait::Elementwise>() || isa<CastOpInterface, arith::SelectOp>(op))
-    return 0;
-  unsigned bits = 0;
-  auto note = [&](Type type) {
-    if (isa<VectorType>(type))
-      bits = std::max(bits, ConstantIntRanges::getStorageBitwidth(type));
-  };
-  for (Type type : op->getOperandTypes())
-    note(type);
-  for (Type type : op->getResultTypes())
-    note(type);
-  return bits;
-}
-
 // The widest integer lane the loop `loop` computes, in bits, outside the
-// accumulations idr-narrow-lanes leaves wide, by its own rule; 0 when none.
+// accumulations idr-narrow-lanes leaves wide, by its own rules: what an op
+// computes on is the pass's one answer (laneWidth), an op on no lanes
+// counting none; 0 when none.
 unsigned widestLane(Operation *loop) {
   llvm::DenseSet<Operation *> carried = narrow::accumulations(loop);
   unsigned bits = 0;
   loop->walk([&](Operation *op) {
-    if (!carried.contains(op))
-      bits = std::max(bits, laneBits(op));
+    if (carried.contains(op))
+      return;
+    narrow::LaneWidth width = narrow::laneWidth(op);
+    bits = std::max(bits, width.lanes ? width.bits : 0u);
   });
   return bits;
 }
@@ -62,12 +44,8 @@ unsigned widestLane(Operation *loop) {
 // lanes, or an accumulation) and may run more than once is
 // the 64-bit version beside a loop that computes its lanes in 32: the else
 // region of an scf.if whose then region holds one.
-LogicalResult narrowedLanes(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "narrowed-lanes";
-  SmallVector<Operation *> roots =
-      rootsOf(module, function, property);
-  if (roots.empty())
-    return failure();
+LogicalResult narrowedLanes(const Request<Roots> &request) {
+  SmallVector<Operation *> roots = request.argument.roots(request.module);
   bool held = true, someNarrow = false;
   for (Operation *root : roots)
     root->walk([&](scf::ForOp loop) {
@@ -99,13 +77,13 @@ LogicalResult narrowedLanes(ModuleOp module, AnalysisManager &, StringRef functi
       }
       if (paired)
         return;
-      fail(loop.getLoc(), property) << "a loop computes integer lanes of " << bits
-                                    << " bits with no 32-bit version in " << where(loop);
+      fail(loop.getLoc(), request.property) << "a loop computes integer lanes of " << bits
+                                            << " bits with no 32-bit version in " << where(loop);
       held = false;
     });
   if (!someNarrow) {
-    fail(roots.front()->getLoc(), property) << "no loop computes integer lanes in 32 bits"
-                                            << (function.empty() ? "" : " in ") << function;
+    fail(roots.front()->getLoc(), request.property)
+        << "no loop computes integer lanes in 32 bits" << request.argument.in();
     held = false;
   }
   return success(held);

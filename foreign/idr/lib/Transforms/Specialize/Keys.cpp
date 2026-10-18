@@ -5,17 +5,16 @@
 // made at calls of the owner and of its nodes compare.
 //
 // A call specializes on an argument only where the parameter's binding
-// time, as the call sees it, is free or fixed (offline partial evaluation).
-// A call that stays within the recursion of the component its requester
-// stands for sees the callee's binding times: only a parameter every
-// recursive call passes on unchanged keys a node, so the recursion keeps
-// one key, and a counter, a list's tail or any other part that varies
-// along it is passed as a value. A call that enters the component from
-// outside sees the callee as on no cycle, every parameter free: any static
-// argument keys, one node per entry, inside which the first rule holds
-// again. Every other argument is a runtime leaf, however static. A lone
-// scalar is never a key position, and a world carries no value to
-// specialize around.
+// time, as the call sees it, is fixed (offline partial evaluation). A call
+// that stays within the recursion of the component its requester stands
+// for sees the callee's binding times: only a parameter every recursive
+// call passes on unchanged keys a node, so the recursion keeps one key, and
+// a counter, a list's tail or any other part that varies along it is
+// passed as a value. A call that enters the component from outside sees
+// every parameter fixed, as for a callee on no cycle: any static argument
+// keys, one node per entry, inside which the first rule holds again. Every
+// other argument is a runtime leaf, however static. A lone scalar is never
+// a key position, and a world carries no value to specialize around.
 //
 // Inside a chain of nodes, a node's parameter specializes again only on a
 // closure, a constructor of a sum defunctionalization made: a closure
@@ -25,7 +24,8 @@
 // The key is composed from the call alone, the binding times it sees and,
 // for a node, its key: the callee's parameters are the call's operands,
 // whose types the callee's are. A pattern's type is its position's, so the
-// key holds none.
+// key holds none, and a hole is its position: the walks below go through a
+// key's holes in pre-order with a cursor.
 //
 // The binding times keep each recursion to the keys of its entries. What
 // ends specialization whatever else a program does is the table's rule
@@ -56,38 +56,37 @@ bool isClosureValue(Type type) {
 }
 
 // Whether a call specializes on a static argument of a parameter it sees
-// at binding time `time`: one free or fixed, and inside a chain of nodes
-// only on a closure.
+// at binding time `time`: a fixed one, and inside a chain of nodes only on
+// a closure.
 bool specializesOn(BindingTime time, bool intoNode, Type type) {
-  return (time == BindingTime::Free || time == BindingTime::Fixed) &&
-         (!intoNode || isClosureValue(type));
+  return time == BindingTime::Fixed && (!intoNode || isClosureValue(type));
 }
 
-// Appends argument `arg` to `out` as the key's next holes, and returns its
-// pattern as a key.
-Attribute append(Argument &arg, SmallVector<unsigned> &held, Composed &out) {
-  unsigned next = static_cast<unsigned>(out.values.size());
-  unsigned first = next;
-  renumber(arg.pattern, next);
-  for (unsigned hole = first; hole < next; ++hole)
-    held.push_back(hole);
-  llvm::append_range(out.values, arg.leaves);
-  return keyOf(arg.pattern);
-}
+// One argument of a call: its pattern and its runtime leaves, in the
+// pattern's pre-order.
+struct Shaped {
+  Attribute shape;
+  SmallVector<Value> leaves;
+};
 
-// `part` of a node's key with each hole filled with the pattern of the
-// argument at its position: hole i of a node's key is its parameter i.
-Attribute fill(Attribute part, Composed &out) {
+// `part` of a node's key with each hole filled with the shape of the
+// argument at its position: the i-th hole of a node's key, met in
+// pre-order, is its parameter i, whose argument's leaves follow in
+// `values`.
+Attribute fill(Attribute part, ArrayRef<Shaped> args, unsigned &next,
+               SmallVectorImpl<Value> &values) {
   MLIRContext *ctx = part.getContext();
-  if (auto hole = dyn_cast<KeyHoleAttr>(part)) {
-    unsigned p = hole.getIndex();
-    return append(out.args[p], out.held[p], out);
+  if (isa<KeyHoleAttr>(part)) {
+    const Shaped &arg = args[next++];
+    llvm::append_range(values, arg.leaves);
+    return arg.shape;
   }
   if (auto con = dyn_cast<KeyConAttr>(part))
     return KeyConAttr::get(ctx, con.getTag(),
                            ArrayAttr::get(ctx, llvm::map_to_vector(con.getFields(),
                                                                    [&](Attribute inner) {
-                                                                     return fill(inner, out);
+                                                                     return fill(inner, args, next,
+                                                                                 values);
                                                                    })));
   return part;
 }
@@ -123,16 +122,13 @@ bool isScalar(Attribute pattern) {
   return !isa<ConAttr, KeyHoleAttr, KeyConAttr>(pattern);
 }
 
-// Whether `a` and `b` are one shape: holes where holes are, one constructor
-// where one is over fields of one shape, one run of one length, and a
-// scalar of one kind where one is, whatever its value.
+// Whether `a` and `b` are one shape: holes where holes are (a hole is one
+// attribute), one constructor where one is over fields of one shape, one
+// constant constructor of one data type, tag and spine over cells of one
+// shape, and a scalar of one kind where one is, whatever its value.
 bool oneShape(Attribute a, Attribute b) {
   if (a == b)
     return true;
-  if (auto x = dyn_cast<KeyHoleAttr>(a)) {
-    auto y = dyn_cast<KeyHoleAttr>(b);
-    return y && x.getIndex() == y.getIndex();
-  }
   auto fields = [](ArrayAttr xs, ArrayAttr ys) {
     return xs.size() == ys.size() && llvm::all_of_zip(xs, ys, [](Attribute x, Attribute y) {
              return oneShape(x, y);
@@ -144,44 +140,41 @@ bool oneShape(Attribute a, Attribute b) {
   }
   if (auto x = dyn_cast<ConAttr>(a)) {
     auto y = dyn_cast<ConAttr>(b);
-    if (!y || x.getData() != y.getData() || x.getTag() != y.getTag() ||
-        x.getSpine() != y.getSpine() || x.getRunLength() != y.getRunLength() ||
-        x.isRun() != y.isRun())
-      return false;
-    if (x.isRun() && !oneShape(x.getTail(), y.getTail()))
-      return false;
-    return llvm::all_of_zip(x.getCells(), y.getCells(),
-                            [&](ArrayAttr xs, ArrayAttr ys) { return fields(xs, ys); });
+    // all_of_zip is false for cells of two lengths.
+    return y && x.getData() == y.getData() && x.getTag() == y.getTag() &&
+           x.getSpine() == y.getSpine() && llvm::all_of_zip(x.getCells(), y.getCells(), fields);
   }
-  return isScalar(b) && kindOf(a) == kindOf(b);
+  return isScalar(a) && isScalar(b) && kindOf(a) == kindOf(b);
 }
 
 // `part` of a key with each scalar where it differs from `earlier`, of its
-// shape, lifted out into a hole; the holes are numbered anew from the size
-// of `sources`, each with where its operand comes from. A constant
-// constructor that differs is taken apart into its constructor over its
-// fields; a run is one constant, lifted whole, so that a key never unrolls
-// a run.
-Attribute liftPart(Attribute earlier, Attribute part, SmallVectorImpl<Source> &sources) {
+// shape, lifted out into a hole, each new hole's source appended to
+// `sources`; `next` counts the holes of the key `part` is of, in pre-order,
+// so a kept hole names the one it was. A constant constructor of one cell
+// that differs is taken apart into its constructor over its fields; a run
+// of more than one cell is one constant, lifted whole, so that a key never
+// unrolls a run: its cells are the run's length, not a shape.
+Attribute liftPart(Attribute earlier, Attribute part, unsigned &next,
+                   SmallVectorImpl<Source> &sources) {
   MLIRContext *ctx = part.getContext();
   auto hole = [&](Source source) {
     sources.push_back(source);
-    return KeyHoleAttr::get(ctx, static_cast<unsigned>(sources.size() - 1));
+    return KeyHoleAttr::get(ctx);
   };
   auto fields = [&](ArrayAttr before, ArrayAttr after) {
     return ArrayAttr::get(ctx, llvm::map_to_vector(llvm::zip_equal(before, after), [&](auto pair) {
-                            return liftPart(std::get<0>(pair), std::get<1>(pair), sources);
+                            return liftPart(std::get<0>(pair), std::get<1>(pair), next, sources);
                           }));
   };
-  if (auto at = dyn_cast<KeyHoleAttr>(part))
-    return hole(Kept{at.getIndex()});
+  if (isa<KeyHoleAttr>(part))
+    return hole(Kept{next++});
   if (auto con = dyn_cast<KeyConAttr>(part))
     return KeyConAttr::get(ctx, con.getTag(),
                            fields(cast<KeyConAttr>(earlier).getFields(), con.getFields()));
   if (part == earlier)
     return part;
   if (auto con = dyn_cast<ConAttr>(part)) {
-    if (con.isRun())
+    if (con.getRunLength() > 1)
       return hole(Lifted{con});
     return KeyConAttr::get(ctx, con.getTag(),
                            fields(cast<ConAttr>(earlier).getFields(), con.getFields()));
@@ -191,26 +184,6 @@ Attribute liftPart(Attribute earlier, Attribute part, SmallVectorImpl<Source> &s
 
 } // namespace
 
-// The pattern as a key: a dialect attribute, whose constructors are tags
-// and not symbol uses, so that a key keeps no function alive. A constant
-// is keyed as itself, a run as the run it is, so a key is as large as the
-// code and the constants that make it. A value entered into a linear type
-// is keyed as the value: the type of its position says it is linear.
-Attribute keyOf(const Pattern &pattern) {
-  MLIRContext *ctx = pattern.type.getContext();
-  return std::visit(
-      llvm::makeVisitor(
-          [&](const Hole &hole) -> Attribute { return KeyHoleAttr::get(ctx, hole.index); },
-          [](const Constant &c) { return c.value; },
-          [&](const Con &con) -> Attribute {
-            SmallVector<Attribute> fields =
-                llvm::map_to_vector(con.fields, [](const Pattern &part) { return keyOf(part); });
-            return KeyConAttr::get(ctx, con.tag, ArrayAttr::get(ctx, fields));
-          },
-          [](const Linear &linear) { return keyOf(linear.value.front()); }),
-      pattern.node);
-}
-
 std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
                                    ArrayRef<BindingTime> seen) {
   // A closed call is left to run at run time.
@@ -219,15 +192,16 @@ std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> 
   assert(seen.size() == call.getArgs().size() &&
          "a final callee has one binding time per parameter");
 
-  Composed composed;
+  MLIRContext *ctx = call.getContext();
+  // Each argument a hole over itself, or the shape it is specialized on.
+  SmallVector<Shaped> args;
   bool any = false;
   for (auto [i, operand] : llvm::enumerate(call.getArgs())) {
-    BindingTime time = seen[i];
-    Argument &arg = composed.args.emplace_back(Argument{leafOf(operand, 0), {operand}, time});
-    if (!specializesOn(time, own.has_value(), operand.getType()))
+    Shaped &arg = args.emplace_back(Shaped{KeyHoleAttr::get(ctx), {operand}});
+    if (!specializesOn(seen[i], own.has_value(), operand.getType()))
       continue;
     SmallVector<Value> leaves;
-    Pattern shape = shapeOf(operand, leaves);
+    Attribute shape = shapeOf(operand, leaves);
     if (!hasStructure(shape))
       continue;
     // A linear leaf moves into the node's call, so the shape that held it
@@ -235,22 +209,23 @@ std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> 
     if (llvm::any_of(leaves, [](Value leaf) { return isLinear(leaf.getType()); }) &&
         !usedOnce(operand))
       continue;
-    arg.pattern = std::move(shape);
-    arg.leaves = std::move(leaves);
+    arg = Shaped{shape, std::move(leaves)};
     any = true;
   }
   if (!any)
     return std::nullopt;
 
-  MLIRContext *ctx = call.getContext();
-  composed.held.resize(composed.args.size());
+  Composed composed;
   SmallVector<Attribute> patterns;
   if (own) {
+    unsigned next = 0;
     for (Attribute part : own->getPatterns())
-      patterns.push_back(fill(part, composed));
+      patterns.push_back(fill(part, args, next, composed.values));
   } else {
-    for (unsigned p = 0; p < composed.args.size(); ++p)
-      patterns.push_back(append(composed.args[p], composed.held[p], composed));
+    for (Shaped &arg : args) {
+      patterns.push_back(arg.shape);
+      llvm::append_range(composed.values, arg.leaves);
+    }
   }
   StringAttr owner = own ? own->getOrigin() : call.getCalleeAttr().getAttr();
   composed.key = SpecKeyAttr::get(ctx, owner, ArrayAttr::get(ctx, patterns));
@@ -268,25 +243,18 @@ std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> 
 // that a run stays a run here too and is measured once. What a pattern
 // embeds in is a function of its shape alone. A key grows an earlier one of
 // its owner that embeds in it when it does not embed back: it is the
-// earlier key with more structure, which the table refuses. A raise key
-// grows nothing: its form is a function's that is no node, or its
-// requesting raise node's own, and its callee one of the finitely many
-// below a final function.
-bool Order::grows(const Key &ancestor, const Key &key) {
-  const auto *beforeKey = std::get_if<SpecKeyAttr>(&ancestor);
-  const auto *afterKey = std::get_if<SpecKeyAttr>(&key);
-  if (!beforeKey || !afterKey)
-    return false;
-  SpecKeyAttr before = *beforeKey, after = *afterKey;
-  if (before == after || before.getOrigin() != after.getOrigin())
-    return false;
+// earlier key with more structure, which the table refuses; a key does not
+// grow itself. A raise key is never compared: its form is a function's that
+// is no node, or its requesting raise node's own, and its callee one of the
+// finitely many below a final function.
+bool Order::grows(SpecKeyAttr ancestor, SpecKeyAttr key) {
   Embeddings known;
   auto all = [&](ArrayAttr small, ArrayAttr big) {
     return llvm::all_of_zip(small, big,
                             [&](Attribute s, Attribute b) { return embeds(s, b, known); });
   };
-  return all(before.getPatterns(), after.getPatterns()) &&
-         !all(after.getPatterns(), before.getPatterns());
+  return all(ancestor.getPatterns(), key.getPatterns()) &&
+         !all(key.getPatterns(), ancestor.getPatterns());
 }
 
 bool Order::embeds(Attribute small, Attribute big, Embeddings &known) {
@@ -323,9 +291,9 @@ bool Order::atMost(Attribute small, Attribute big) {
 }
 
 // The size of a constant: one for a scalar, and for a constructor its
-// cells, each one more than its fields, then its tail. Each part is
-// measured once however often it is shared, from its last part back, with
-// no recursion, however deep the constant.
+// cells, each one more than its fields, the last cell's spine field among
+// them. Each part is measured once however often it is shared, from its
+// last part back, with no recursion, however deep the constant.
 APInt Order::size(Attribute constant) {
   SmallVector<std::pair<Attribute, bool>> work{{constant, false}};
   while (!work.empty()) {
@@ -344,8 +312,6 @@ APInt Order::size(Attribute constant) {
       for (ArrayAttr cell : con.getCells())
         for (Attribute field : cell)
           each(field);
-      if (Attribute tail = con.getTail())
-        each(tail);
     };
     if (!expanded) {
       work.back().second = true;
@@ -355,7 +321,7 @@ APInt Order::size(Attribute constant) {
       });
       continue;
     }
-    APInt total(64, con.getCells().size());
+    APInt total(64, con.getRunLength());
     parts([&](Attribute part) { total = plus(total, sizes.at(part)); });
     sizes[at] = total;
     work.pop_back();
@@ -364,15 +330,15 @@ APInt Order::size(Attribute constant) {
 }
 
 bool sameShape(SpecKeyAttr a, SpecKeyAttr b) {
-  return a.getOrigin() == b.getOrigin() &&
-         llvm::all_of_zip(a.getPatterns(), b.getPatterns(), oneShape);
+  return llvm::all_of_zip(a.getPatterns(), b.getPatterns(), oneShape);
 }
 
 SpecKeyAttr lift(SpecKeyAttr earlier, SpecKeyAttr key, SmallVectorImpl<Source> &sources) {
   MLIRContext *ctx = key.getContext();
   SmallVector<Attribute> patterns;
+  unsigned next = 0;
   for (auto [before, after] : llvm::zip_equal(earlier.getPatterns(), key.getPatterns()))
-    patterns.push_back(liftPart(before, after, sources));
+    patterns.push_back(liftPart(before, after, next, sources));
   return SpecKeyAttr::get(ctx, key.getOrigin(), ArrayAttr::get(ctx, patterns));
 }
 

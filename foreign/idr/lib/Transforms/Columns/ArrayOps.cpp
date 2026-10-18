@@ -37,24 +37,6 @@ struct TransposeColumns : OpConversionPattern<TransposeOp> {
 // The array ops
 //===----------------------------------------------------------------------===//
 
-// A tabulation makes each array of records as its columns, its region
-// yielding the leaves of each record (ArrayYieldColumns).
-template <typename OpT>
-struct TabulateColumns : OpConversionPattern<OpT> {
-  using OpConversionPattern<OpT>::OpConversionPattern;
-  LogicalResult matchAndRewrite(OpT op, typename OpConversionPattern<OpT>::OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> results;
-    SmallVector<unsigned> counts;
-    if (failed(convertEach(*this->getTypeConverter(), op->getResultTypes(), results, counts)))
-      return failure();
-    Operation *made = remake(rewriter, op, flatten(adaptor.getOperands()), results);
-    SmallVector<SmallVector<Value>> replaced = runs(made->getResults(), counts);
-    rewriter.replaceOpWithMultiple(op, replaced);
-    return success();
-  }
-};
-
 // A fold or a scan over arrays of records folds their columns: each
 // accumulator that is a record is its leaves in the region, and one that
 // is a cell of records its columns, built again where an op of the region
@@ -79,7 +61,7 @@ struct FoldColumns : OpConversionPattern<OpT> {
         return failure();
       signature.addInputs(arg.getArgNumber(), types);
     }
-    Operation *made = remake(rewriter, op, flatten(adaptor.getOperands()), results);
+    Operation *made = remakeOp(rewriter, op, flatten(adaptor.getOperands()), results);
     rewriter.applySignatureConversion(&made->getRegion(0).front(), signature, &converter);
     SmallVector<SmallVector<Value>> replaced = runs(made->getResults(), counts);
     rewriter.replaceOpWithMultiple(op, replaced);
@@ -108,10 +90,32 @@ struct ArrayYieldColumns : OpConversionPattern<ArrayYieldOp> {
 
 } // namespace
 
-void populateArrayColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns) {
-  patterns.add<TransposeColumns, TabulateColumns<TabulateOp>, TabulateColumns<TabulateIOOp>,
-               FoldColumns<FoldLastOp>, FoldColumns<ScanLastOp>, ArrayYieldColumns>(
-      converter, patterns.getContext());
+// A tabulation makes each array of records as its columns, its region
+// yielding the leaves of each record (ResultColumns, ArrayYieldColumns). A
+// fold or a scan is legal once its region's accumulators are converted too,
+// and a yield of the generating set once it yields no record, or always
+// under an update, whose array holds its records whole.
+void populateArrayColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns,
+                                 ConversionTarget &target) {
+  ConversionTarget::DynamicLegalityCallbackFn legal = whole(converter);
+  ConversionTarget::DynamicLegalityCallbackFn folded =
+      [&converter](Operation *op) -> std::optional<bool> {
+    return converter.isLegal(op) && converter.isLegal(&op->getRegion(0));
+  };
+  addColumns<TransposeColumns, TransposeOp>(converter, patterns, target, legal);
+  addColumns<ResultColumns<TabulateOp>, TabulateOp>(converter, patterns, target, legal);
+  addColumns<ResultColumns<TabulateIOOp>, TabulateIOOp>(converter, patterns, target, legal);
+  addColumns<FoldColumns<FoldLastOp>, FoldLastOp>(converter, patterns, target, folded);
+  addColumns<FoldColumns<ScanLastOp>, ScanLastOp>(converter, patterns, target, folded);
+  addColumns<ArrayYieldColumns, ArrayYieldOp>(
+      converter, patterns, target, [&converter](Operation *op) -> std::optional<bool> {
+        auto yield = cast<ArrayYieldOp>(op);
+        if (isa<UpdateOpInterface>(yield->getParentOp()))
+          return true;
+        return converter.isLegal(op) && llvm::none_of(yield.getValues().getTypes(), [](Type type) {
+                 return recordOf(type).has_value();
+               });
+      });
 }
 
 } // namespace idr::columns

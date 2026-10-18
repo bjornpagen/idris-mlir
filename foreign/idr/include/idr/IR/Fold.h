@@ -8,9 +8,9 @@
 // one. Which C function an op calls is its ODS's fact, through the table
 // idris-mlir-tblgen generates from it (idr::runtime::Abi), never a name
 // written here. A total op is not folded where the condition of its guard
-// fails on its constants (the guard op's `holds`): the guard crashes there
-// first, at runtime. The folders themselves (the ops' `fold` hooks) are the
-// units of lib/IR/Fold.
+// fails on its constants (guardHolds, which asks the guard op's `holds`):
+// the guard crashes there first, at runtime. The folders themselves (the
+// ops' `fold` hooks) are the units of lib/IR/Fold.
 #ifndef IDR_IR_FOLD_H
 #define IDR_IR_FOLD_H
 
@@ -41,17 +41,6 @@ namespace idr::fold {
 template <typename Op, typename... Args>
 auto runtime(Args... args) {
   return ::idr::runtime::Abi<Op>::function(args...);
-}
-
-// The runtime's function of the op `Op` on an integer operand, as the op
-// reads it: its signed function on the word sign-extended to an int64_t,
-// its unsigned one on the word zero-extended to a uint64_t. Such an op has
-// one function for each, which its ODS names.
-template <typename Op>
-auto runtimeOfWord(mlir::IntegerAttr value, bool isSigned) {
-  using Abi = ::idr::runtime::Abi<Op>;
-  return isSigned ? Abi::signedFunction(value.getValue().getSExtValue())
-                  : Abi::unsignedFunction(value.getValue().getZExtValue());
 }
 
 // The owned references one fold holds, released together when it ends.

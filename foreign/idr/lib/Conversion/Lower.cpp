@@ -3,14 +3,14 @@
 // idr-lower, which takes the program's idr and the memrefs of
 // bufferization to func, arith, math, scf, ub and llvm, where the program
 // is. Phase 0, on the program: its functions as func.func under their
-// mangled names, once the facts handed to LLVM are read. Then each function
-// on its own, in parallel: phase 1, its matches as scf and its views of
-// memrefs as offsets, sizes and strides, still on idr types; phase 2, the
-// conversion of every idr op and type into the layouts of Layouts, and of
-// every memref op by upstream's memref patterns or, where the memory is a
-// cell of ours, our own. Then, on the program, what the functions'
-// lowering wrote (the runtime's declarations and the static data), in name
-// order, and the facts at function boundaries; the program is lowered.
+// mangled names. Then each function on its own, in parallel: phase 1, its
+// matches as scf and its views of memrefs as offsets, sizes and strides,
+// still on idr types; phase 2, the conversion of every idr op and type into
+// the layouts of Layouts, and of every memref op by upstream's memref
+// patterns or, where the memory is a cell of ours, our own, its signature
+// with the facts its components give LLVM. Then, on the program, what the
+// functions' lowering wrote (the runtime's declarations and the static
+// data), in name order; the program is lowered.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -24,6 +24,7 @@
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
 #include "idr/Support/Profile.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
@@ -62,6 +63,18 @@ namespace idr::conversion {
 
 namespace {
 
+// An op with no runtime form (NoRuntimeForm): its result is its first
+// operand at run time, a change of grade, linearity or kind, so it lowers to
+// that operand's components. One pattern for every op with the trait.
+struct LowerNoRuntimeForm : OpTraitConversionPattern<NoRuntimeForm> {
+  using OpTraitConversionPattern::OpTraitConversionPattern;
+  LogicalResult matchAndRewrite(Operation *op, ArrayRef<ValueRange> operands,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(operands.front())});
+    return success();
+  }
+};
+
 // What converts one run of the program's functions in phase 2, in program
 // order: everything a conversion writes outside its function goes into the
 // Runtime, which is the worker's own.
@@ -90,10 +103,10 @@ Worker::Worker(ProgramOp program, const Layouts &layouts, const LowerToLLVMOptio
   converter.addConversion([](Type type) { return type; });
   converter.addConversion(
       [&layouts](Type type, SmallVectorImpl<Type> &out) -> std::optional<LogicalResult> {
-        if (type.getDialect().getNamespace() != IdrDialect::getDialectNamespace() &&
-            !isa<MemRefType>(type))
+        if (!isa<IdrDialect>(type.getDialect()) && !isa<MemRefType>(type))
           return std::nullopt;
-        llvm::append_range(out, layouts.components(type));
+        for (const layout::Component &component : layouts.components(type))
+          out.push_back(component.type);
         return success();
       });
   LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
@@ -125,17 +138,18 @@ Worker::Worker(ProgramOp program, const Layouts &layouts, const LowerToLLVMOptio
       [this](Operation *op) { return converter.isLegal(op); });
 
   RewritePatternSet set(ctx);
-  populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(set, converter);
+  populateSignaturePatterns(set, converter, layouts);
   populateCallOpTypeConversionPattern(set, converter);
   populateReturnOpTypeConversionPattern(set, converter);
   scf::populateSCFStructuralTypeConversionsAndLegality(converter, set, target);
-  populateCountingPatterns(set, converter, layouts, runtime, fields);
+  set.add<LowerNoRuntimeForm>(converter, ctx);
+  populateCountingPatterns(set, converter, layouts, runtime);
   populateBigPatterns(set, converter, layouts, runtime);
   populateArrayPatterns(set, converter, layouts, runtime, arrays);
   populateMemrefPatterns(set, converter, layouts, runtime);
   populateBufferPatterns(set, converter, layouts, runtime);
   populateStringPatterns(set, converter, layouts, runtime);
-  populateCellPatterns(set, converter, layouts, runtime);
+  populateCellPatterns(set, converter, layouts, runtime, fields);
   populateScalarPatterns(set, converter, layouts, runtime);
   populateRuntimeCallPatterns(set, converter, layouts, runtime);
   populateCheckPatterns(set, converter, layouts, runtime);
@@ -172,16 +186,13 @@ LogicalResult lowerProgram(ProgramOp program, const Layouts &layouts,
                            const LowerToLLVMOptions &options,
                            const FrozenRewritePatternSet &structure) {
   MLIRContext *ctx = program.getContext();
-  // Every symbol the lowering adds goes through this one table, after
-  // the functions are converted: phase 0 renames each function in it, and
-  // the merge enters each declaration and global. While the functions are
-  // converted nothing writes it.
-  SymbolTable symbols(program);
-  Facts facts(program);
-
   // Phase 0.
-  if (failed(lowerFunctions(program, symbols)))
+  if (failed(lowerFunctions(program)))
     return failure();
+  // Every symbol the lowering adds goes through this one table, after the
+  // functions are converted: the merge enters each declaration and global.
+  // While the functions are converted nothing writes it.
+  SymbolTable symbols(program);
 
   Fields fields(program);
   // Each memref.global is read once as the constant array it must be.
@@ -223,15 +234,13 @@ LogicalResult lowerProgram(ProgramOp program, const Layouts &layouts,
   for (memref::GlobalOp global :
        llvm::make_early_inc_range(program->getRegion(0).getOps<memref::GlobalOp>()))
     symbols.erase(global);
-  facts.apply(layouts);
-  program.setStage(Stage::Lowered);
   return success();
 }
 
 struct Lower : idr::impl::IdrLowerBase<Lower> {
   using IdrLowerBase::IdrLowerBase;
 
-  void runOnOperation() override {
+  void runOnProgram(ProgramOp program) override {
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
     const Layouts &layouts = getAnalysis<Layouts>();
@@ -243,9 +252,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     populateMatchPatterns(structureSet);
     memref::populateExpandStridedMetadataPatterns(structureSet);
     FrozenRewritePatternSet structure(std::move(structureSet));
-    for (ProgramOp program : module.getOps<ProgramOp>())
-      if (failed(lowerProgram(program, layouts, options, structure)))
-        return signalPassFailure();
+    if (failed(lowerProgram(program, layouts, options, structure)))
+      return signalPassFailure();
   }
 };
 

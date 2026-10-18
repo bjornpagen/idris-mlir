@@ -17,7 +17,7 @@
 !Two = !idr.data<"Two", plain [@Two(!idr.str, !idr.str)]>
 idr.program @counts root(@root) stage(first) {
   idr.func @map(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %n : !idr.box<!L>
@@ -50,17 +50,17 @@ idr.program @counts root(@root) stage(first) {
     return %p, %n : !Two, i64
   }
   idr.func @scalars(%w: !idr.world, %x: i64) -> !idr.world {
-    %w2 = idr.io.put_int signed %x, %w : i64
+    %w2 = idr.io.put_sint %x, %w : i64
     return %w2 : !idr.world
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %c = idr.constant "x" : !idr.str
+    %c = idr.constant !idr.str "x"
     %p:2 = idr.call @both(%c, %c) : (!idr.str, !idr.str) -> (!Two, i64)
-    %l = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %l = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %m = idr.call @map(%l) : (!idr.box<!L>) -> !idr.box<!L>
     %z = arith.constant 0 : i64
     %s = idr.call @sum(%m, %z) : (!idr.box<!L>, i64) -> i64
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     %w3 = idr.call @scalars(%w2, %s) : (!idr.world, i64) -> !idr.world
     return %w3 : !idr.world
   }

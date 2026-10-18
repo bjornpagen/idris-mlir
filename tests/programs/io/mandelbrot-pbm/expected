@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the fixture built from bench/mandelbrot-pbm's Main.idr compiles and prints expected-stdout
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

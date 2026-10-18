@@ -1,5 +1,5 @@
+// NEEDS-ACCEPTANCE: the texts of a body's errors, as the type's setBody and parser write them, a constructor's role now carrying its payload (S19): a memo sum without its running state and a list without its cons's box still refused.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// NEEDS-ACCEPTANCE: the texts of a body's errors, as the type's setBody and parser write them.
 // A data type is identified by its name and carries its body, its
 // constructors in tag order, set once: a body that breaks a rule of its
 // kind is refused where the type is written, and so is a second body for
@@ -43,12 +43,6 @@ idr.program @data root(@root) stage(first) {
 // Constructor names are distinct: a tag is a position, a name its key.
 // expected-error @+1 {{has two constructors named @A}}
 !T = !idr.data<"T", plain [@A(), @A()]>
-
-// -----
-
-// Only a memo sum's label is ever forced by name.
-// expected-error @+1 {{by_name}}
-!T = !idr.data<"T", plain [@A() by_name]>
 
 // -----
 

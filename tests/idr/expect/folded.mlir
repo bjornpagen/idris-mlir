@@ -1,13 +1,10 @@
-// NEEDS-ACCEPTANCE: that folded holds of every function once --canonicalize has folded the arithmetic over constants, and fails once of @left as written, at its arith.addi of two constants.
+// NEEDS-ACCEPTANCE: that folded holds of every function once --canonicalize has folded the arithmetic over constants, and that the -verify-diagnostics run passes: one error, of @left as written, at its arith.addi of two constants.
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=folded=@sum,folded=@left,folded=@computed -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=folded=@left,folded=@computed -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 1
+// RUN: idris-mlir-opt %s --idr-expect=holds=folded=@left,folded=@computed -verify-diagnostics -o /dev/null
 // No op is left that a fold would have replaced by constants: arithmetic
 // over constants alone folds (@sum, and the sum @left adds to its
 // parameter), and arithmetic on a parameter has nothing to fold
 // (@computed). As written, @left's sum of two constants is left.
-// CHECK-DAG: error: expected folded: {{.*}} in @left computes from constants alone and is left unfolded
 idr.program @folded root(@root) stage(first) {
   idr.func @sum() -> i64 {
     %two = arith.constant 2 : i64
@@ -19,6 +16,7 @@ idr.program @folded root(@root) stage(first) {
   idr.func @left(%y: i64) -> i64 {
     %two = arith.constant 2 : i64
     %three = arith.constant 3 : i64
+    // expected-error @below {{expected folded: arith.addi in @left computes from constants alone and is left unfolded}}
     %five = arith.addi %two, %three : i64
     %r = arith.addi %five, %y : i64
     return %r : i64

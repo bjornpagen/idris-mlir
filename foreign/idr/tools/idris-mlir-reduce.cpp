@@ -9,13 +9,10 @@
 // memory, not by the process's stack.
 // PIN(mlir-recursion)
 
-#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/InitIdr.h"
 #include "idr/Support/Stack.h"
-#include "idr/Target/Target.h"
 #include "idr/Transforms/Pipeline.h"
-
-#include "idris_rt.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/DialectRegistry.h"
@@ -27,8 +24,6 @@
 #include "mlir/Reducer/ReductionPatternInterface.h"
 #include "mlir/Tools/mlir-reduce/MlirReduceMain.h"
 #include "llvm/ADT/SmallVectorExtras.h"
-
-#include <unistd.h>
 
 namespace {
 
@@ -65,54 +60,27 @@ struct IdrReductionPatterns : mlir::DialectReductionPatternInterface {
   }
 };
 
-struct Invocation {
-  int argc;
-  char **argv;
-  int status = 1;
-};
-
-void reduceMain(void *argument) {
-  auto &invocation = *static_cast<Invocation *>(argument);
+int reduceMain(int argc, char **argv) {
   mlir::registerAllPasses();
   idr::registerIdrPasses();
   idr::registerIdrPipeline();
+  // Upstream's dialects and extensions, as mlir-reduce has them, then
+  // idr's, whose schedule library is written in upstream's transform ops.
   mlir::DialectRegistry registry;
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);
-  registry.insert<idr::IdrDialect>();
-  // How a closure moves through the upstream ops that can hold one, and
-  // the schedules the pipeline's interpreter runs, loaded with the
-  // transform dialect.
-  idr::registerFlowInterfaceExternalModels(registry);
-  idr::target::registerScheduleLibrary(registry);
+  idr::registerIdrDialects(registry);
   // The reduction patterns, given to idr wherever this registry loads it,
   // so that no other tool carries the reducer's interface.
   registry.addExtension(+[](mlir::MLIRContext *, idr::IdrDialect *dialect) {
     dialect->addInterfaces<IdrReductionPatterns>();
   });
   mlir::MLIRContext context(registry);
-  invocation.status = mlir::failed(mlir::mlirReduceMain(invocation.argc, invocation.argv, context));
-}
-
-// From the fault handler: only write and _exit.
-[[noreturn]] void exhausted() {
-  static constexpr char message[] = "idris-mlir-reduce: the stack is exhausted\n";
-  (void)!write(2, message, sizeof message - 1);
-  _exit(1);
+  return mlir::failed(mlir::mlirReduceMain(argc, argv, context));
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
-  // The folders run the runtime's big operations, whose GMP allocates where
-  // a program's does, set while no other thread exists.
-  idris_rt_gmp_init();
-  Invocation invocation{argc, argv};
-  if (idris_rt_run_on_stack(reduceMain, &invocation, idr::support::toolStack,
-                            idr::support::toolStackGuard, exhausted) != 0) {
-    static constexpr char message[] = "idris-mlir-reduce: no stack could be reserved\n";
-    (void)!write(2, message, sizeof message - 1);
-    return 1;
-  }
-  return invocation.status;
+  return idr::support::runTool("idris-mlir-reduce", [&] { return reduceMain(argc, argv); });
 }

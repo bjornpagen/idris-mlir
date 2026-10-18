@@ -1,5 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize --idr-expect=holds=one-clone=@loop -o /dev/null
-// NEEDS-ACCEPTANCE: the rule over recursive components: a call keys only the positions passed unchanged along the recursion, structurally, and a lone number is never a key position.
+// NEEDS-ACCEPTANCE: the rule over recursive components: a call keys only the positions passed unchanged along the recursion, structurally, and a lone number is never a key position; one copy of @loop once symbol-dce, which the pipeline runs after idr-optimize, has taken the functions nothing names (S2's default argument, S22's parameterless holes).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@loop -o /dev/null
 // loop n f x = if n == 0 then x else loop (n - 1) f (f x), called as
 // loop 5 f x with f a closure that captures a value read at run time. The
 // closure is passed unchanged along the recursion, so the copy is keyed on
@@ -15,7 +16,7 @@ idr.program @countdown root(@Main.main) stage(higher) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>

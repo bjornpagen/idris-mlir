@@ -3,7 +3,7 @@
 // RUN: returns-on-paths=@lit_in_default_unknown:0+10+20,returns-on-paths=@lit_other_value:1+2+3,\
 // RUN: matches-once=@data_in_case,reads-no-fields=@data_in_case,matches-once=@data_in_default,\
 // RUN: reads-no-fields=@field_in_case,reads-fields=@field_of_linear_match -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // A match nested in a region of a match on the same value knows its region:
 // in a case of the enclosing match the value has that case, and in its
 // default it has none of the enclosing cases. The known region replaces the
@@ -24,14 +24,14 @@ idr.program @"match-enclosing" root(@root) stage(first) {
         %one = arith.constant 1 : i64
         idr.yield %one : i64
       }
-      default {
+      default(%d: i64) {
         %two = arith.constant 2 : i64
         idr.yield %two : i64
       }
       }
       idr.yield %s : i64
     }
-    default {
+    default(%d1: i64) {
       %three = arith.constant 3 : i64
       idr.yield %three : i64
     }
@@ -52,13 +52,13 @@ idr.program @"match-enclosing" root(@root) stage(first) {
       %one = arith.constant 1 : i64
       idr.yield %one : i64
     }
-    default {
+    default(%d: i64) {
       %s = idr.match_lit %n : i64 -> (i64) {
       case 1 {
         %ten = arith.constant 10 : i64
         idr.yield %ten : i64
       }
-      default {
+      default(%d1: i64) {
         %twenty = arith.constant 20 : i64
         idr.yield %twenty : i64
       }
@@ -77,13 +77,13 @@ idr.program @"match-enclosing" root(@root) stage(first) {
       %zero = arith.constant 0 : i64
       idr.yield %zero : i64
     }
-    default {
+    default(%d: i64) {
       %s = idr.match_lit %n : i64 -> (i64) {
       case 7 {
         %ten = arith.constant 10 : i64
         idr.yield %ten : i64
       }
-      default {
+      default(%d1: i64) {
         %twenty = arith.constant 20 : i64
         idr.yield %twenty : i64
       }
@@ -103,14 +103,14 @@ idr.program @"match-enclosing" root(@root) stage(first) {
         %one = arith.constant 1 : i64
         idr.yield %one : i64
       }
-      default {
+      default(%d: i64) {
         %two = arith.constant 2 : i64
         idr.yield %two : i64
       }
       }
       idr.yield %s : i64
     }
-    default {
+    default(%d1: i64) {
       %three = arith.constant 3 : i64
       idr.yield %three : i64
     }
@@ -133,14 +133,14 @@ idr.program @"match-enclosing" root(@root) stage(first) {
         %c = arith.mulf %x, %y : f64
         idr.yield %c : f64
       }
-      default {
+      default(%d: !Shape) {
         %z = arith.constant 0.0 : f64
         idr.yield %z : f64
       }
       }
       idr.yield %a : f64
     }
-    default {
+    default(%d1: !Shape) {
       %z = arith.constant 0.0 : f64
       idr.yield %z : f64
     }
@@ -158,7 +158,7 @@ idr.program @"match-enclosing" root(@root) stage(first) {
     case @Rect(%w: f64, %h: f64) {
       idr.yield %w : f64
     }
-    default {
+    default(%d: !Shape) {
       %a = idr.match %s : !Shape -> (f64) {
       case @Circle(%x: f64) {
         %c = arith.mulf %x, %x : f64
@@ -168,7 +168,7 @@ idr.program @"match-enclosing" root(@root) stage(first) {
         %c = arith.mulf %x, %y : f64
         idr.yield %c : f64
       }
-      default {
+      default(%d1: !Shape) {
         %one = arith.constant 1.0 : f64
         idr.yield %one : f64
       }
@@ -191,13 +191,13 @@ idr.program @"match-enclosing" root(@root) stage(first) {
         %c = arith.addf %x, %y : f64
         idr.yield %c : f64
       }
-      default {
+      default(%d: i64) {
         idr.yield %w : f64
       }
       }
       idr.yield %a : f64
     }
-    default {
+    default(%d1: !Shape) {
       %z = arith.constant 0.0 : f64
       idr.yield %z : f64
     }
@@ -216,7 +216,7 @@ idr.program @"match-enclosing" root(@root) stage(first) {
       %c = arith.addf %x, %h : f64
       idr.yield %c : f64
     }
-    default {
+    default(%d: !idr.lin<!Shape>) {
       %z = arith.constant 0.0 : f64
       idr.yield %z : f64
     }

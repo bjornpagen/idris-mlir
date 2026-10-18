@@ -1,7 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that the projection and dispatch fold in the root once @greet is inlined, with symbol-dce after idr-optimize as the pipeline runs it (S2's default argument, ir-ods-8's type-first constant).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@greet,not-called=@put,not-called=@done -o /dev/null
-// NEEDS-ACCEPTANCE: that the projection and dispatch fold in the root once @greet is inlined.
-// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // An IO action is a closure in a constructor (MkIO). When the result of a
 // call is projected and applied at once, the projection and the dispatch
 // the apply became meet, once the root inlines @greet, the constant action
@@ -23,12 +22,12 @@ idr.program @projection root(@Main.main) stage(higher) {
     return %r : !IORes
   }
   idr.func @greet(%n: i64) -> !IO attributes {total} {
-    %done = idr.constant #idr.con<!IO, @MkIO, [#idr.closure<@done, []>]> : !IO
+    %done = idr.constant !IO #idr.con<!IO, @MkIO, [#idr.closure<@done, []>]>
     %r = idr.match_lit %n : i64 -> (!IO) {
     case 0 {
       idr.yield %done : !IO
     }
-    default {
+    default(%d: i64) {
       %k = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!IORes)>
       %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
       %io = idr.con !IO @MkIO(%k_lin : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)

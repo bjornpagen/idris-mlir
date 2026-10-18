@@ -1,21 +1,16 @@
-// RUN: idris-mlir-opt %s --idr-effects --idr-expect=holds=facts-as-marked -o /dev/null
-// RUN: sed 's/{expect.facts = "move delay"} : (i64) -> i64 \/\/ square/{expect.facts = "delay"} : (i64) -> i64/' %s > %t.mlir
-// RUN: %status 1 idris-mlir-opt %t.mlir --idr-effects --idr-expect=holds=facts-as-marked -o /dev/null 2> %t.err
-// RUN: FileCheck %s --check-prefix=WRONG < %t.err
-// NEEDS-ACCEPTANCE: that a call answers move and delay with the effects idr-effects found for its callee, and drop and merge never.
-// What an op answers about itself. An unused op is dead when it does no
-// more than read or allocate its results, and two equal ops are one value
-// when it has no effect at all, as upstream's dead code removal and CSE
-// read its own effects; an op may be moved across anything
-// when it only computes, as a division does once its guard has run, and
-// delayed when it performs no IO, though it may crash, as a guard may, or
-// not return. A call holds no effects of its own: the dialect's rewrites,
-// which know the program's functions, read the effects idr-effects found
-// for its callee, and to upstream it may do anything, so it is never dead
-// nor one with another. By the time effects are known, no closure is
-// passed to a call.
-// WRONG: error: expected facts-as-marked: in @main, idr.call answers "move delay", not "delay"
-// WRONG-NOT: error:
+// NEEDS-ACCEPTANCE: that each op answers drop, move, delay and merge from its own effects, a call from the effects idr-effects wrote on it, and a match from its regions', an arm that ends in ub.unreachable doing nothing more than what runs before it.
+// RUN: idris-mlir-opt %s --idr-effects --test-idr-facts -verify-diagnostics=only-expected -o /dev/null
+// What an op answers about itself, from its own effects as MLIR reads
+// them. An unused op is dead when it does no more than read or allocate
+// its results, and two equal ops are one value when it has no effect at
+// all, as upstream's dead code removal and CSE read its effects; an op may
+// be moved across anything when it only computes, as a division does once
+// its guard has run, and delayed when it performs no IO, though it may
+// crash, as a guard may, or not return. A call answers from the effects it
+// holds, which idr-effects writes with its callee's, so a call of a
+// function that only computes is dead when nothing reads it. A match
+// answers from its regions, where an arm that crashes does what the crash
+// does. By the time effects are known, no closure is passed to a call.
 
 idr.program @queries root(@root) stage(first) {
   idr.func @square(%x: i64) -> i64 attributes {total} {
@@ -53,18 +48,30 @@ idr.program @queries root(@root) stage(first) {
 
   idr.func @main(%x: i64, %y: i64, %w: !idr.world) -> !idr.world {
     %three = arith.constant 3 : i64
-    %a = idr.call @square(%x) {expect.facts = "move delay"} : (i64) -> i64 // square
-    %b = idr.call @square(%three) {expect.facts = "move delay"} : (i64) -> i64
-    %c = idr.call @partial(%x) {expect.facts = "delay"} : (i64) -> i64
-    %d = idr.call @partial(%three) {expect.facts = "delay"} : (i64) -> i64
-    %e = idr.call @divides(%x) {expect.facts = "delay"} : (i64) -> i64
-    %f = idr.call @anything(%three) {expect.facts = ""} : (i64) -> i64
-    %pp = idr.call @proved_calls_partial(%x) {expect.facts = "delay"} : (i64) -> i64
-    %w1 = idr.call @writes(%x, %w) {expect.facts = ""} : (i64, !idr.world) -> !idr.world
-    %y1 = idr.check.nonzero %y, "division by zero" {expect.facts = "delay"} : i64
-    %q = idr.div signed %x, %y1 {expect.facts = "drop move delay merge"} : i64
-    %r = idr.div signed %x, %three {expect.facts = "drop move delay merge"} : i64
-    %n = idr.match_lit %x : i64 -> (i64) attributes {expect.facts = "delay"} {
+    // expected-remark @below {{facts: [drop move delay merge]}}
+    %a = idr.call @square(%x) : (i64) -> i64
+    // expected-remark @below {{facts: [drop move delay merge]}}
+    %b = idr.call @square(%three) : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %c = idr.call @partial(%x) : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %d = idr.call @partial(%three) : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %e = idr.call @divides(%x) : (i64) -> i64
+    // expected-remark @below {{facts: []}}
+    %f = idr.call @anything(%three) : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %pp = idr.call @proved_calls_partial(%x) : (i64) -> i64
+    // expected-remark @below {{facts: []}}
+    %w1 = idr.call @writes(%x, %w) : (i64, !idr.world) -> !idr.world
+    // expected-remark @below {{facts: [delay]}}
+    %y1 = idr.check.nonzero %y, "division by zero" : i64
+    // expected-remark @below {{facts: [drop move delay merge]}}
+    %q = idr.div signed %x, %y1 : i64
+    // expected-remark @below {{facts: [drop move delay merge]}}
+    %r = idr.div signed %x, %three : i64
+    // expected-remark @below {{facts: [delay]}}
+    %n = idr.match_lit %x : i64 -> (i64) {
     case 0 {
       idr.yield %y : i64
     }
@@ -74,7 +81,8 @@ idr.program @queries root(@root) stage(first) {
     }
     }
     %ch = arith.constant 65 : i32
-    %w2 = idr.io.put_char %ch, %w1 {expect.facts = ""}
+    // expected-remark @below {{facts: []}}
+    %w2 = idr.io.put_char %ch, %w1
     return %w2 : !idr.world
   }
   // The program's root, which the functions above are no part of.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The runtime's doubles as text and text as doubles, held to IEEE 754 and to
-# idris_rt.h: show_f64's digits judged on the exact interval of the reals
+# the runtime's words: show_f64's digits judged on the exact interval of the reals
 # that round to the double, its layout, str_to_double against the C
 # library's strtod, to_int, and ownership (doubles.cpp states each). One
 # line per property; the classes each reached go to the report.

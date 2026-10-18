@@ -347,6 +347,97 @@ addAmbig [] _ = id
 addAmbig [_] _ = id
 addAmbig _ (Just n) = { ambigTries $= (n ::) }
 
+-- The elaborators of an ambiguous application, with a default and without,
+-- given the cell of delayed elaborators and the expected type, which a
+-- retry evaluates again (see delayOnFailure). Each is a function of its
+-- own rather than the body of a lambda in checkAlternative: a local
+-- definition is applied to everything its parent binds, so one used in
+-- the lambda would capture checkAlternative's cell.
+checkDefaultDelayed : {vars : _} ->
+                      {auto c : Ref Ctxt Defs} ->
+                      {auto m : Ref MD Metadata} ->
+                      {auto u : Ref UST UState} ->
+                      {auto dl : Ref DLY DelayedElabs} ->
+                      {auto e : Ref EST (EState vars)} ->
+                      {auto s : Ref Syn SyntaxInfo} ->
+                      {auto o : Ref ROpts REPLOpts} ->
+                      RigCount -> ElabInfo ->
+                      NestedNames vars -> Env Term vars ->
+                      FC -> (def : RawImp) -> List RawImp -> UnifyInfo ->
+                      (delayed : Bool) -> (expected : Glued vars) ->
+                      Core (Term vars, Glued vars)
+checkDefaultDelayed rig elabinfo nest env fc def alts solvemode delayed expected
+    = do solveConstraints solvemode Normal
+         logGlueNF "elab.ambiguous" 5 (fastConcat
+           [ "Ambiguous elaboration at ", show fc, ":\n"
+           , unlines (map (("  " ++) . show) alts)
+           , "With default. Target type "
+           ]) env expected
+         alts' <- pruneByType env !(getNF expected) alts
+         log "elab.prune" 5 $
+           "Pruned " ++ show (minus (length alts) (length alts')) ++ " alts."
+           ++ " Kept:\n" ++ unlines (map show alts')
+
+         if delayed -- use the default if there's still ambiguity
+            then try
+                   (exactlyOne' False fc env
+                       (map (\t =>
+                          (getName t,
+                           checkImp rig (addAmbig alts' (getName t) elabinfo)
+                                    nest env t
+                                    (Just expected))) alts'))
+                   (do log "elab.ambiguous" 5 "All failed, running default"
+                       checkImp rig (addAmbig alts' (getName def) elabinfo)
+                                    nest env def (Just expected))
+            else exactlyOne' True fc env
+                  (map (\t =>
+                    (getName t,
+                     checkImp rig (addAmbig alts' (getName t) elabinfo)
+                              nest env t (Just expected)))
+                     alts')
+
+checkAlternativeDelayed : {vars : _} ->
+                          {auto c : Ref Ctxt Defs} ->
+                          {auto m : Ref MD Metadata} ->
+                          {auto u : Ref UST UState} ->
+                          {auto dl : Ref DLY DelayedElabs} ->
+                          {auto e : Ref EST (EState vars)} ->
+                          {auto s : Ref Syn SyntaxInfo} ->
+                          {auto o : Ref ROpts REPLOpts} ->
+                          RigCount -> ElabInfo ->
+                          NestedNames vars -> Env Term vars ->
+                          FC -> AltType -> List RawImp -> UnifyInfo ->
+                          (delayed : Bool) -> (expected : Glued vars) ->
+                          Core (Term vars, Glued vars)
+checkAlternativeDelayed rig elabinfo nest env fc uniq alts solvemode delayed expected
+    = do alts' <- pruneByType env !(getNF expected) alts
+
+         logGlueNF "elab.ambiguous" 5 (fastConcat
+             [ "Ambiguous elaboration"
+             , " (kept ", show (length alts'), " out of "
+             , show (length alts), " candidates)"
+             , " (", if delayed then "" else "not ", "delayed)"
+             , " at ", show fc, ":\n"
+             , unlines (map show alts')
+             , "Target type "
+             ]) env expected
+         let tryall = case uniq of
+                           FirstSuccess => anyOne fc
+                           _ => exactlyOne' (not delayed) fc env
+         tryall (map (\t =>
+             (getName t,
+              do res <- checkImp rig (addAmbig alts' (getName t) elabinfo)
+                                 nest env t (Just expected)
+                 -- Do it twice for interface resolution;
+                 -- first pass gets the determining argument
+                 -- (maybe rethink this, there should be a better
+                 -- way that allows one pass)
+                 solveConstraints solvemode Normal
+                 solveConstraints solvemode Normal
+                 log "elab.ambiguous" 10 $ show (getName t) ++ " success"
+                 logTermNF "elab.ambiguous" 10 "Result" env (fst res)
+                 pure res)) alts')
+
 export
 checkAlternative : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
@@ -370,44 +461,9 @@ checkAlternative rig elabinfo nest env fc (UniqueDefault def) alts mexpected
          let solvemode = case elabMode elabinfo of
                               InLHS c => inLHS
                               _ => inTerm
-         delayOnFailure fc rig env (Just expected) ambiguous Ambiguity $
-             \dl, delayed =>
-               do solveConstraints solvemode Normal
-                  exp <- getTerm expected
-
-                  -- We can't just use the old NF on the second attempt,
-                  -- because we might know more now, so recalculate it
-                  let exp' = if delayed
-                                then gnf env exp
-                                else expected
-
-                  logGlueNF "elab.ambiguous" 5 (fastConcat
-                    [ "Ambiguous elaboration at ", show fc, ":\n"
-                    , unlines (map (("  " ++) . show) alts)
-                    , "With default. Target type "
-                    ]) env exp'
-                  alts' <- pruneByType env !(getNF exp') alts
-                  log "elab.prune" 5 $
-                    "Pruned " ++ show (minus (length alts) (length alts')) ++ " alts."
-                    ++ " Kept:\n" ++ unlines (map show alts')
-
-                  if delayed -- use the default if there's still ambiguity
-                     then try {dl}
-                            (exactlyOne' {dl} False fc env
-                                (map (\t =>
-                                   (getName t,
-                                    checkImp {dl} rig (addAmbig alts' (getName t) elabinfo)
-                                             nest env t
-                                             (Just exp'))) alts'))
-                            (do log "elab.ambiguous" 5 "All failed, running default"
-                                checkImp {dl} rig (addAmbig alts' (getName def) elabinfo)
-                                             nest env def (Just exp'))
-                     else exactlyOne' {dl} True fc env
-                           (map (\t =>
-                             (getName t,
-                              checkImp {dl} rig (addAmbig alts' (getName t) elabinfo)
-                                       nest env t (Just exp')))
-                              alts')
+         delayOnFailure fc rig env expected ambiguous Ambiguity $
+             \dl, delayed, exp =>
+               checkDefaultDelayed {dl} rig elabinfo nest env fc def alts solvemode delayed exp
 checkAlternative rig elabinfo nest env fc uniq alts mexpected
     = do checkAmbigDepth fc elabinfo
          alts' <- maybe (Core.pure [])
@@ -423,40 +479,6 @@ checkAlternative rig elabinfo nest env fc uniq alts mexpected
                 let solvemode = case elabMode elabinfo of
                                       InLHS c => inLHS
                                       _ => inTerm
-                delayOnFailure fc rig env (Just expected) ambiguous Ambiguity $
-                     \dl, delayed =>
-                       do exp <- getTerm expected
-
-                          -- We can't just use the old NF on the second attempt,
-                          -- because we might know more now, so recalculate it
-                          let exp' = if delayed
-                                        then gnf env exp
-                                        else expected
-
-                          alts' <- pruneByType env !(getNF exp') alts
-
-                          logGlueNF "elab.ambiguous" 5 (fastConcat
-                              [ "Ambiguous elaboration"
-                              , " (kept ", show (length alts'), " out of "
-                              , show (length alts), " candidates)"
-                              , " (", if delayed then "" else "not ", "delayed)"
-                              , " at ", show fc, ":\n"
-                              , unlines (map show alts')
-                              , "Target type "
-                              ]) env exp'
-                          let tryall = case uniq of
-                                            FirstSuccess => anyOne {dl} fc
-                                            _ => exactlyOne' {dl} (not delayed) fc env
-                          tryall (map (\t =>
-                              (getName t,
-                               do res <- checkImp {dl} rig (addAmbig alts' (getName t) elabinfo)
-                                                  nest env t (Just exp')
-                                  -- Do it twice for interface resolution;
-                                  -- first pass gets the determining argument
-                                  -- (maybe rethink this, there should be a better
-                                  -- way that allows one pass)
-                                  solveConstraints solvemode Normal
-                                  solveConstraints solvemode Normal
-                                  log "elab.ambiguous" 10 $ show (getName t) ++ " success"
-                                  logTermNF "elab.ambiguous" 10 "Result" env (fst res)
-                                  pure res)) alts')
+                delayOnFailure fc rig env expected ambiguous Ambiguity $
+                     \dl, delayed, exp =>
+                       checkAlternativeDelayed {dl} rig elabinfo nest env fc uniq alts solvemode delayed exp

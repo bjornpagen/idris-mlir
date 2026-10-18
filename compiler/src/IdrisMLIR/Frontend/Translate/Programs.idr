@@ -62,27 +62,22 @@ translateInstance p = do
                    _ => True
   (kinds, resTy) <- classify fc owner (length args) (type def) (givenArgs p.kinds)
   result <- coreType fc owner ValueType !(normaliseClosed resTy)
-  let params = runtimeParams (parameterNames (type def)) kinds
-  let env = environment (length params) 0 kinds
-  when (length env /= length kinds) $
-    internal fc "the runtime parameters of an instance numbered out of order"
+  (params, env) <- pure (runtimeParams (parameterNames (type def)) kinds)
   tree' <- tree (MkCtx owner fc complete) env !(clauses args (type def) pats) treeCT
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
   -- instance with no array parameter has none to state.
-  ties <- if any (isJust . (>>= valueDims) . map typeOf . runtimeBinder) kinds
-            then do
-              (sized, _) <- sizedTelescope (length args) (type def) kinds
-              entryWitnesses kinds sized
+  ties <- if any (isJust . valueDims . typeOf) (runtimeBinders kinds)
+            then (entryTies . fst) <$> sizedTelescope (length args) (type def) kinds
             else pure []
-  let body = tied loc ties tree'
+  let body = tied loc (allFins (Runtimes kinds)) ties tree'
   -- Every loop through the definition terminates: its component was
   -- checked when the instance was requested (`Recursion`).
   after <- get TState
   let tot = fromMaybe False (address >>= \a => lookup a after.loops)
   let facts = MkFacts tot
-  update TState { fns $= insert p.inst (MkTFn p.inst p.key (length params) (fromList params) result body loc facts) }
+  update TState { fns $= insert p.inst (MkTFn p.inst p.key (Runtimes kinds) params result body loc facts) }
   where
     -- The names the definition's type gives its parameters.
     parameterNames : TT vs -> List Name
@@ -91,50 +86,52 @@ translateInstance p = do
 
     -- The body under one `let` per parameter with a tied dimension, in
     -- parameter order: the parameter as its dimensions are stated, which
-    -- the body uses in its place.
-    tied : {n : Nat} -> Loc -> List (Nat, List (Maybe Witness)) -> Term n -> Term n
-    tied loc [] body = body
-    tied loc ((r, ws) :: rest) body = case natToFin r n of
-      Nothing => tied loc rest body
-      Just p =>
-        let params = map (\i => fromMaybe p (natToFin i n)) [0 .. minus n 1]
-            dims = map (\w => w >>= witnessTerm loc params) ws
-            inner = tied loc rest body
-        in Let loc (shown "tied") Many (Tie loc (Var loc p) dims)
-               (rename (\x => if x == p then FZ else FS x) inner)
+    -- the body uses in its place. The parameters are the body's
+    -- variables, parameter `i` being `i`.
+    tied : Loc -> Vect r (Fin n) -> List (Fin r, List (Nat, Witness r)) -> Term n -> Term n
+    tied loc vs [] body = body
+    tied loc vs ((x, axes) :: rest) body =
+      let p = Data.Vect.index x vs in
+      Let loc (shown "tied") Many (Tie loc (Var loc p) (map (\(k, w) => (k, witnessTerm loc vs w)) axes))
+          (rename (\y => if y == p then FZ else FS y) (tied loc vs rest body))
 
-    runtimeParams : List Name -> List PKind -> List (Shown, Binder)
-    runtimeParams (x :: xs) (k :: ks) = case runtimeBinder k of
-      Just b => (binderName x, b) :: runtimeParams xs ks
-      Nothing => runtimeParams xs ks
-    runtimeParams [] ks = map (\b => (shown "x", b)) (mapMaybe runtimeBinder ks)
-    runtimeParams _ [] = []
+    -- A parameter past the names the definition's type gives is `x`.
+    named : List Name -> (Shown, List Name)
+    named [] = (shown "x", [])
+    named (x :: xs) = (binderName x, xs)
 
-    -- What each variable of the case tree's scope stands for: a runtime
-    -- parameter is the next Core parameter.
-    environment : (n : Nat) -> Nat -> List PKind -> List (VarInfo (Fin n))
-    environment n i [] = []
-    environment n i (TypeParam t :: ks) = TypeValue t :: environment n i ks
-    environment n i (DictParam t Nothing :: ks) = Static t Nothing :: environment n i ks
-    environment n i (ErasedParam :: ks) = TypeValue (Erased EmptyFC Placeholder) :: environment n i ks
-    environment n i (FormParam f :: ks) = TypeValue f :: environment n i ks
-    environment n i (DictParam t (Just h) :: ks) = case natToFin i n of
-      Just x => Static t (Just (x, h)) :: environment n (S i) ks
-      Nothing => []
-    environment n i (ValueParam b shape known :: ks) = case natToFin i n of
-      Just x => maybe (Runtime x (Just (typeOf b)) (Just known)) (shaped x (typeOf b) known) shape
-                  :: environment n (S i) ks
-      Nothing => []
+    -- The instance's runtime parameters, named as the definition's type
+    -- names them, and what each variable of the case tree's scope stands
+    -- for, one per parameter: a type, an implementation or a parameter of
+    -- quantity 0 a compile-time value, and a runtime parameter the next
+    -- Core parameter.
+    runtimeParams : List Name -> (kinds : List PKind) ->
+                    (Vect (Runtimes kinds) (Shown, Binder), List (VarInfo (Fin (Runtimes kinds))))
+    runtimeParams xs [] = ([], [])
+    runtimeParams xs (TypeParam t :: ks) = let (ps, env) = runtimeParams (snd (named xs)) ks in (ps, TypeValue t :: env)
+    runtimeParams xs (DictParam t Nothing :: ks) = let (ps, env) = runtimeParams (snd (named xs)) ks in (ps, Static t Nothing :: env)
+    runtimeParams xs (ErasedParam :: ks) =
+      let (ps, env) = runtimeParams (snd (named xs)) ks in (ps, TypeValue (Erased EmptyFC Placeholder) :: env)
+    runtimeParams xs (FormParam f :: ks) = let (ps, env) = runtimeParams (snd (named xs)) ks in (ps, TypeValue f :: env)
+    runtimeParams xs (DictParam t (Just h) :: ks) =
+      let (x, xs') = named xs
+          (ps, env) = runtimeParams xs' ks in
+      ((x, h.binder) :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
+    runtimeParams xs (ValueParam b shape known :: ks) =
+      let (x, xs') = named xs
+          (ps, env) = runtimeParams xs' ks in
+      ((x, b) :: ps, maybe (Runtime FZ (Just (typeOf b)) (Just known)) (shaped FZ (typeOf b) known) shape
+                       :: map (map FS) env)
 
 ||| The program: its data and function instances in the order they were
 ||| registered. Whether a value of a data instance is boxed is the
 ||| dialect's to decide, from the whole type graph, once.
-assemble : {auto s : Ref TState TS} -> FnId -> Core Source
+assemble : {auto s : Ref TState TS} -> TFn -> Core Source
 assemble root = do
   st <- get TState
   let datas = mapMaybe (\n => lookup n st.datas) (st.dataOrder <>> [])
   let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
-  pure (MkSource datas fns root)
+  pure (MkSource datas root fns)
 
 ||| An IO program. The root is `unsafePerformIO main` written
 ||| directly as world-passing code, which is what `unsafePerformIO`,
@@ -167,11 +164,10 @@ translateIOProgram fc main = do
   let body : Term 1
       body = App loc (Call loc inst Nothing []) (Var loc FZ)
   let rootId = MkFnId "$idris-mlir.root"
-  src <- assemble rootId
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`: its
   -- facts are the registry's. It has no loop of its own; what main does is
   -- main's, which the passes find through the call.
   let facts = MkFacts True
-  let root = MkTFn rootId (MkInstanceKey rootId.name [] Whole) 1 [(shown "world", MkBinder (quantityOf linear) WorldT)]
+  let root = MkTFn rootId (MkInstanceKey rootId.name NoArguments Whole) 1 [(shown "world", MkBinder One WorldT)]
                    res body loc facts
-  pure (Just ({ fns $= (++ [root]) } src))
+  Just <$> assemble root

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)`), parses and passes as before.
 // RUN: awk '/^ *\/\/ CHAIN$/ { for (i = 1; i <= 70; i++) printf "      %%k%d = idr.big.pred %%k%d\n", i, i - 1; next } { print }' %s > %t.chain.mlir
 // RUN: idris-mlir-opt %t.chain.mlir --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops),idr-narrow))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=word-loop=@deep,word-loop=@carried -o /dev/null
@@ -15,7 +16,7 @@ idr.program @versioned root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %odd : i1
     }
-    default {
+    default(%d: !idr.nat) {
       %k0 = idr.big.pred %n
       // CHAIN
       %true = arith.constant true
@@ -31,7 +32,7 @@ idr.program @versioned root(@root) stage(first) {
     case #idr.big<0> {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: !idr.nat) {
       %k = idr.big.pred %n
       %more = arith.addi %acc, %step : i64
       %s = idr.call @carried(%k, %step, %more) : (!idr.nat, i64, i64) -> i64

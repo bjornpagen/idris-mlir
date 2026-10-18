@@ -1,8 +1,8 @@
+// NEEDS-ACCEPTANCE: how the action log prints the node's function after its tag, as the pinned MLIR's ActionLogger writes an IR unit; five nodes, each begun once, with each node's state one variant (transforms-b-14) (S2's default argument).
 // RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading --log-actions-to=- -o /dev/null 2> %t.log
 // RUN: grep 'begins.*idr-optimize-node' %t.log | count 5
 // RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node[^@]*@\([^(]*\)(.*/\1/p' | sort | uniq -d | count 0
 // RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node[^@]*@\([^(]*\)(.*/\1/p' | sort -u | count 5
-// NEEDS-ACCEPTANCE: how the action log prints the node's function after its tag, as the pinned MLIR's ActionLogger writes an IR unit.
 // The optimizer takes each function once, when every function it calls
 // outside its own component is final: its first step is one action,
 // idr-optimize-node, which begins once per node. Here five functions, a
@@ -25,7 +25,7 @@ idr.program @once root(@Main.main) stage(first) {
     case 0 {
       idr.yield %x : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.call @odd(%m, %x) : (i64, i64) -> i64
@@ -40,7 +40,7 @@ idr.program @once root(@Main.main) stage(first) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.call @even(%m, %x) : (i64, i64) -> i64

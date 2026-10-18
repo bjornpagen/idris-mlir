@@ -24,11 +24,15 @@ class Idr_Read<string cppType, string name>
     : Type<And<[CPred<"::llvm::isa<" # cppType # ">(::idr::unrestricted($_self))">,
                 CPred<"::idr::quantityOf($_self) == ::idr::Quantity::Many">,
                 CPred<"!::idr::isOwned($_self)">]>, name, "::mlir::Type">;
-def Idr_StrRead : Idr_Read<"::idr::StrType", "a string, read in place">;
-def Idr_BigRead : Idr_Read<"::idr::BigType", "an Integer, read in place">;
-def Idr_NatRead : Idr_Read<"::idr::NatType", "a natural, read in place">;
+def Idr_StrRead : Idr_Read<"::idr::StrType", "a string, read in place">,
+                  Idr_AbiWord<"Str", Idr_BytesOf>;
+def Idr_BigRead : Idr_Read<"::idr::BigType", "an Integer, read in place">,
+                  Idr_AbiWord<"Big", Idr_NoCount>;
+def Idr_NatRead : Idr_Read<"::idr::NatType", "a natural, read in place">,
+                  Idr_AbiWord<"Big", Idr_NoCount>;
 def Idr_BigOrNatRead : Idr_Read<"::idr::BigType, ::idr::NatType",
-                                "an Integer or a natural, read in place">;
+                                "an Integer or a natural, read in place">,
+                       Idr_AbiWord<"Big", Idr_NoCount>;
 def Idr_SumRead : Idr_Read<"::idr::DataType, ::idr::BoxType", "a constructor value, read in place">;
 
 //===----------------------------------------------------------------------===//
@@ -38,31 +42,34 @@ def Idr_SumRead : Idr_Read<"::idr::DataType, ::idr::BoxType", "a constructor val
 // What a program's functions may hold, the stage the pipeline has brought
 // it to: `higher`, closures and suspensions, before idr-defunctionalize;
 // `first`, the first-order program it makes, every closure a sum and every
-// force a call; `owned`, every reference counted, after idr-rc; `lowered`,
-// after idr-lower, upstream's functions and globals in place of idr.func,
-// whose root keeps the visibility upstream stores for it. The stage is the
+// force a call; `graded`, every reference of ours graded own, excl or
+// borrow by idr-rc's grades step, before its placement makes the counts
+// exact; `owned`, every reference counted, after idr-rc; `lowered`, after
+// idr-lower, upstream's functions and globals in place of idr.func, whose
+// root keeps the visibility upstream stores for it. The stage is the
 // program's, said once, so that no pass finds it by walking the functions
 // and no verifier guesses it from a grade.
 def Idr_Stage : I32EnumAttr<"Stage", "what the functions of a program may hold", [
     I32EnumAttrCase<"Higher", 0, "higher">, I32EnumAttrCase<"First", 1, "first">,
-    I32EnumAttrCase<"Owned", 2, "owned">, I32EnumAttrCase<"Lowered", 3, "lowered">]> {
+    I32EnumAttrCase<"Graded", 2, "graded">, I32EnumAttrCase<"Owned", 3, "owned">,
+    I32EnumAttrCase<"Lowered", 4, "lowered">]> {
   let cppNamespace = "::idr";
 }
 
 // A closed program: its functions, every one defined, and the one that
 // runs it, `root`, a property of the program: a function's visibility is
 // read from it, never stored, so nothing counts public functions to find
-// the root. Its symbol-use verifier runs the program's rules
-// (verify::program) once per verification of the module that holds it,
-// after every op is verified, and never when a pass manager verifies the
-// program or one of its functions. Other symbols a pass puts in it (the
-// globals of static data) live beside the functions. It is the one program
-// of a module, the closed world every pass reads, so a pass reaches it from
-// its module and no two programs are ever rewritten or printed beside each
-// other.
+// the root. Its region verifier checks the root and runs the program's
+// rules (verify::program) after every op of it is verified and every call's
+// symbol uses are, on one thread: when the module is read, and after every
+// pass on the program, when the pass manager verifies the program, so each
+// program pass is held to the rules where it breaks one. Other symbols a
+// pass puts in it (the globals of static data) live beside the functions.
+// It is the one program of a module, the closed world every pass reads, so
+// a pass reaches it from its module and no two programs are ever rewritten
+// or printed beside each other.
 def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlock,
-    NoTerminator, Symbol, SymbolName, HasParent<"::mlir::ModuleOp">,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+    NoTerminator, Symbol, SymbolName, HasParent<"::mlir::ModuleOp">]> {
   let summary = "a closed program: its functions, its root and its stage";
   let arguments = (ins SymbolNameAttr:$sym_name, FlatSymbolRefAttr:$root, Idr_Stage:$stage);
   let regions = (region SizedRegion<1>:$bodyRegion);
@@ -110,7 +117,10 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
     function without uses. Its region verifier owns the rules of one
     function at its program's stage: the flow of closures before
     idr-defunctionalize, every linear value used once on every path, and
-    the owned stage's counting.
+    the owned stage's counting. Its body is one block, which its region
+    holds: the one producer of a second block, the inliner taking in a
+    callee that ends in ub.unreachable, leaves the rest of the caller
+    unreachable, and each site that inlines erases it.
 
     `total`: every loop of the body's own ends. The frontend writes it
     where Idris proved every loop of the body terminating, and on a
@@ -124,15 +134,16 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
     `no_inline`: written only by the frontend, on a function of no
     parameters whose result is lazy, whose cell every use shares.
 
-    `effects`: what a run of the function may do, by default everything
-    (`idr::anyEffect`): a function no pass has solved may do anything,
-    which its accessor says. The default's one form is the attribute's
-    absence, which the verifier holds, so that equal functions have equal
-    attributes. A solve (idr-effects, idr-optimize's ready set) writes it,
-    and a stale value says too much, never too little. The program's
-    verifier holds that it covers the body's own part (`idr::bodyEffect`),
-    its callees' effects, and (before idr-defunctionalize) everything for an
-    apply or a force.
+    `effects`: what a run of the function may do, a property with one
+    form for each value, by default everything (`idr::anyEffect`): a
+    function no pass has solved may do anything. It prints before the
+    symbol, `idr.func effects<io> @f(...)`, and not at the default. A solve
+    (idr-effects, idr-optimize's ready set) writes it and every call's of
+    the function at once (`idr::writeEffects`), and a stale value says too
+    much, never too little. The program's verifier holds that it covers the
+    body's own part (`idr::bodyEffect`, everything for an op that runs a
+    label) and the effects of each call in the body, which contain their
+    callees'.
 
     `instance`: what the function is an instance of, as the frontend wrote
     it.
@@ -142,11 +153,11 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
                        OptionalAttr<DictArrayAttr>:$res_attrs,
                        UnitAttr:$total, UnitAttr:$no_inline,
-                       DefaultValuedOptionalAttr<Idr_EffectAttr, "::idr::anyEffect">:$effects,
+                       DefaultValuedProp<NamedEnumProp<Idr_Effect, "effects">,
+                                         "::idr::anyEffect">:$effects,
                        OptionalAttr<Idr_InstanceAttr>:$instance);
-  let regions = (region AnyRegion:$body);
+  let regions = (region SizedRegion<1>:$body);
   let hasCustomAssemblyFormat = 1;
-  let hasVerifier = 1;
   let hasRegionVerifier = 1;
   let extraClassDeclaration = [{
     static ::llvm::StringRef getDefaultDialect() { return "idr"; }
@@ -156,8 +167,9 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
     ::mlir::Type cloneTypeWith(::mlir::TypeRange inputs, ::mlir::TypeRange results) {
       return ::mlir::FunctionType::get(getContext(), inputs, results);
     }
-    // FunctionOpInterface's question, false on every verified idr.func.
-    bool isExternal() { return getBody().empty(); }
+    // FunctionOpInterface's question: every function of the program is
+    // defined in it, its body the one block its region holds.
+    bool isExternal() { return false; }
     // A body that takes in a callee without Idris's proof of termination
     // loses its own: what inlining and contification record.
     void absorb(FuncOp callee) { if (!callee || !callee.getTotal()) setTotal(false); }
@@ -177,12 +189,18 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
   }];
 }
 
-// A call of a function by name. What it may do is its callee's effects,
-// which only a symbol table reaches (a CalleeEffects, idr::ownEffects): to
-// a query without one, such as an upstream pass's, a call may do anything a function may,
-// so none drops, merges or moves one past another effect. Its arguments
-// move into its callee's parameters (its flow), each taken over where the
-// parameter owns it.
+// A call of a function by name, and what it may do, `effects`, as llvm.call
+// holds its memory effects: by default everything, and never less than its
+// callee's, which its symbol-use verifier holds as it holds the call's types
+// to its callee's signature. A call built of a function takes the
+// function's, and `idr::writeEffects` writes a function's with every call's.
+// It answers MLIR's question of what it does from them (its memory effects:
+// the resources each effect stands for, what it takes over, and a fresh
+// value for each linear result), so upstream's CSE, dead-code removal and
+// canonicalization drop, merge and move a call as its callee allows. It
+// prints after the arguments, `idr.call @f(%x) effects<none> : ...`, and not
+// at the default. Its arguments move into its callee's parameters (its
+// flow), each taken over where the parameter owns it.
 def Idr_CallOp : Idr_Op<"call", [CallOpInterface,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
@@ -191,14 +209,16 @@ def Idr_CallOp : Idr_Op<"call", [CallOpInterface,
   let summary = "a call of a function by name";
   let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$args,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
-                       OptionalAttr<DictArrayAttr>:$res_attrs);
+                       OptionalAttr<DictArrayAttr>:$res_attrs,
+                       DefaultValuedProp<NamedEnumProp<Idr_Effect, "effects">,
+                                         "::idr::anyEffect">:$effects);
   let results = (outs Variadic<AnyType>:$results);
   let assemblyFormat = [{
-    $callee `(` $args `)` (`arg_attrs` `=` $arg_attrs^)?
+    $callee `(` $args `)` ($effects^)? (`arg_attrs` `=` $arg_attrs^)?
     (`res_attrs` `=` $res_attrs^)? attr-dict `:` functional-type($args, $results)
   }];
   let builders = [
-    // A call of `callee`, whose results are the function's.
+    // A call of `callee`, whose results and effects are the function's.
     OpBuilder<(ins "FuncOp":$callee, CArg<"::mlir::ValueRange", "{}">:$args)>
   ];
   let extraClassDeclaration = [{
@@ -211,12 +231,9 @@ def Idr_CallOp : Idr_Op<"call", [CallOpInterface,
   }];
 }
 
-// idr.func's body holds several blocks only after the inliner takes in a
-// callee that ends in ub.unreachable, until canonicalize erases the
-// unreachable block; idr.return ends a block of the body. A pass that
-// lists the returns of a function reads the terminators of the body's
-// blocks.
-def Idr_ReturnOp : Idr_Op<"return", [Idr_ConsumesOnly<"0">, HasParent<"FuncOp">,
+// idr.return ends the function's one block, unless the body never returns
+// and ends in ub.unreachable: a function has at most one return.
+def Idr_ReturnOp : Idr_Op<"return", [Idr_ConsumesOnly, HasParent<"FuncOp">,
     ReturnLike, Terminator, DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "returns from a function";
   let arguments = (ins Variadic<AnyType>:$operands);
@@ -238,7 +255,9 @@ def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
   let summary = "a constant: a constructor, closure, string or big";
   let arguments = (ins AnyAttr:$value);
   let results = (outs AnyType:$result);
-  let hasCustomAssemblyFormat = 1;
+  // `idr.constant !idr.str "abc"`: the type first, as idr.con writes its
+  // own, and the value, which carries no type.
+  let assemblyFormat = "type($result) $value attr-dict";
   let hasFolder = 1;
   let hasVerifier = 1;
   let extraClassDeclaration = [{
@@ -248,52 +267,36 @@ def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
   }];
 }
 
-// A box's idr.con allocates its result; any other is Pure, until idr-rc
-// makes its fields owned, which it takes over. The constructor is its tag
-// in the result's data type, written by name. A field it is built without,
-// a hole, is written later, once, through the destination the op gives for
-// it: a recursion that returns a constructor around its own result, `Cons
-// x (copy xs)`, builds the constructor first and gives the hole to the
-// recursive call to write once it has the value, so a cell's fields are
-// written top down and the recursion is a tail call, which idr-tail-loops
-// makes a loop. `holes` are the holes' field indices, ascending; the fields
-// given are the rest, in order; the results are the value and then one
-// destination per hole. A constructor with a hole is never static, and
-// nothing reads the hole before it is written. `stack`: idr-stack's cell
-// that never leaves its frame, stack memory.
+// A constructor value, every field given. A box's idr.con allocates its
+// result; any other is Pure, until idr-rc makes its fields owned, which it
+// takes over. The constructor is its tag in the result's data type, written
+// by name. It names no memory: idr-rc builds each box whose constructor has
+// a cell as a producer of the cell and the idr.cell.init that writes its
+// fields, and only that init leaves a field to write later through a
+// destination (a hole).
 def Idr_ConOp : Idr_Op<"con", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "builds a constructor value";
-  let arguments = (ins Idr_TagAttr:$tag, Variadic<AnyType>:$fields,
-                       DefaultValuedAttr<DenseI32ArrayAttr, "{}">:$holes, UnitAttr:$stack);
-  let results = (outs Idr_SumValue:$result, Variadic<Idr_DestType>:$dests);
-  // `idr.con !T @Cons(%x : i64, dest)`: the value's type, then the
-  // constructor's name in it, then the fields, a hole written `dest`; each
-  // hole's destination is the word of its field.
+  let arguments = (ins Idr_TagAttr:$tag, Variadic<AnyType>:$fields);
+  let results = (outs Idr_SumValue:$result);
+  // `idr.con !T @Cons(%x : i64)`: the value's type, then the constructor's
+  // name in it, then the fields.
   let assemblyFormat = [{
     type($result) custom<CtorRef>(ref(type($result)), $tag)
-    custom<Fields>($fields, type($fields), $holes) (`stack` $stack^)? attr-dict
-    custom<Dests>(type($dests), ref(type($result)), ref($tag), ref($holes))
+    custom<Fields>($fields, type($fields)) attr-dict
   }];
   let hasFolder = 1;
   let hasVerifier = 1;
   let builders = [
-    // The constructor `tag` of `type` with `fields`, and a destination for
-    // each of `holes`.
-    OpBuilder<(ins "::mlir::Type":$type, "::idr::Tag":$tag, "::mlir::ValueRange":$fields,
-                   CArg<"::llvm::ArrayRef<int32_t>", "{}">:$holes,
-                   CArg<"bool", "false">:$stack)>
+    // The constructor `tag` of `type` with `fields`.
+    OpBuilder<(ins "::mlir::Type":$type, "::idr::Tag":$tag, "::mlir::ValueRange":$fields)>
   ];
   let extraClassDeclaration = [{
     // The data type of the result.
     ::idr::DataType getDataType();
-    // The value given for field `index` of the constructor, or null for a
-    // hole; and the destination of a hole, or null for a field given.
-    ::mlir::Value getField(unsigned index);
-    ::mlir::Value getDest(unsigned index);
   }];
 }
 
@@ -351,11 +354,11 @@ def Idr_TagOp : Idr_Op<"tag", [Pure, DeclareOpInterfaceMethods<Idr_FlowOpInterfa
   let hasFolder = 1;
 }
 
-// The value is what the destination holds, owned or exclusive.
+// The value is the box the destination holds, owned or exclusive.
 def Idr_DestWriteOp : Idr_Op<"dest.write", [
     PredOpTrait<"the value is what the destination holds, owned",
       And<[CPred<"::idr::isOwned($value.getType())">,
-           CPred<"::idr::unrestricted($value.getType()) == ::idr::unrestricted(::llvm::cast<::idr::DestType>($dest.getType()).getValue())">]>>,
+           CPred<"::idr::unrestricted($value.getType()) == ::llvm::cast<::idr::DestType>($dest.getType()).getValue()">]>>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "writes the value of a hole, consuming its reference";
   let arguments = (ins Arg<Idr_DestType, "", [MemWrite]>:$dest, AnyType:$value);

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that a closure capturing a world is refused by its captures' operand constraint (Idr_Capture), whose message names the world's type.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // A closure never captures a world; worlds pass only as arguments and
 // results. A closure may take a world as an argument.
@@ -7,7 +8,7 @@ idr.program @"world-capture" root(@f) stage(higher) {
     return %w : !idr.world
   }
   idr.func @f(%w: !idr.world) {
-    // expected-error @+1 {{captures a world; a world passes only as an argument or result}}
+    // expected-error @+1 {{but got '!idr.world'}}
     %c = idr.closure @g(%w) : (!idr.world) -> !idr.fn<() -> (!idr.world)>
     return
   }

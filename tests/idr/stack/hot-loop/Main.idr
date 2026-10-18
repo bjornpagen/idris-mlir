@@ -3,7 +3,7 @@ module Main
 -- Every iteration of `loop` builds two lists and hands them to `walk`,
 -- which only reads them. `walk` takes its lists in turn, so neither of its
 -- parameters is the same or smaller in its recursive call, and no
--- specialization knows their shapes: the cells stay to runtime. idr-stack
+-- specialization knows their shapes: the cells stay to runtime. idr-rc
 -- keeps them in `loop`'s frame, so the loop allocates nothing on the heap,
 -- and every count still balances.
 

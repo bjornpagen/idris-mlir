@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Whether a call is inlined: MLton's per-function rule, read at the call
-// on the callee's final body, and the most a caller may hold. The rule is
-// a function of the callee's facts and the caller's size alone; it never
-// refuses anything, it answers inline or keep.
+// Whether a call is inlined: MLton's per-function rule, decided once on the
+// callee's final body and read at each call, and the most a caller may
+// hold. The rule never refuses anything, it answers inline or keep.
 #ifndef IDR_ANALYSIS_INLINE_H
 #define IDR_ANALYSIS_INLINE_H
 
@@ -30,29 +29,28 @@ inline constexpr int64_t kProduct = 320;
 // one worker: this is what bounds it.
 inline constexpr int64_t kCallerCap = 10000;
 
-// What the rule reads of a callee, all of it fixed once the callee is
-// final.
+// What a call reads of a final callee: the verdict, and the size its body
+// adds to the caller.
 struct Facts {
   // inlineSize of the final body.
   int64_t size = 0;
-  // The program's idr.call sites naming the function when idr-optimize
-  // began; 1 for a specialization node, one per request.
-  unsigned calls = 0;
-  // The final body holds no idr.call.
-  bool leaf = false;
-  // A member of a final component of two or more, or a final body that
-  // calls the function itself: its original could never go.
-  bool onCycle = false;
+  // Whether a call of the function inlines it.
+  bool inlines = false;
 };
 
-// MLton's rule on a final callee: never one on a cycle or one the
-// frontend marked `no_inline`; a leaf of at most kLeafSize ops; any other
-// when (calls - 1) * (size - kSmall) <= kProduct.
-bool worthInlining(const Facts &callee, bool noInline);
+// MLton's rule, decided once on the final body of `fn`: never a function on
+// a cycle of calls, which is `shared` (a member of a final component of two
+// or more) or a body that calls `fn` itself, since its original could never
+// go; never one the frontend marked `no_inline`; always a leaf, a body with
+// no idr.call, of at most kLeafSize ops; any other when
+// (calls - 1) * (size - kSmall) <= kProduct. `calls` is the number of the
+// program's idr.call sites naming `fn` when idr-optimize began, 1 for a
+// specialization node, one per request.
+Facts factsOf(idr::FuncOp fn, unsigned calls, bool shared);
 
 // Whether a caller of `callerSize` ops stays at or under kCallerCap with
-// the call replaced by a body of `calleeSize` ops, its return standing for
-// the branch a body of several blocks becomes.
+// the call replaced by a body of `calleeSize` ops. A callee is one block,
+// whose return inlining drops; `calleeSize` counts it all the same.
 inline bool fitsCap(int64_t callerSize, int64_t calleeSize) {
   return callerSize - 1 + calleeSize <= kCallerCap;
 }

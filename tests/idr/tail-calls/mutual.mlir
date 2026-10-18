@@ -10,6 +10,7 @@
 // RUN: FileCheck %s --check-prefix=GROWS < %t.err
 // NEEDS-ACCEPTANCE: that idr-tail-calls is the pipeline's last module pass, and the tree printer's file names.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // Functions that call one another in tail position, none itself: a
 // recursion that idr-tail-loops makes no loop of, and that the optimizer
 // never inlines, since its functions are on a cycle. idr-tail-calls makes
@@ -30,7 +31,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %add = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
@@ -46,7 +47,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %add = arith.constant 2 : i64
       %m = arith.subi %n, %one : i64
@@ -62,7 +63,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %add = arith.constant 3 : i64
       %m = arith.subi %n, %one : i64
@@ -78,7 +79,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %v : !Nine
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %f0 = idr.field %v : !Nine @Nine[0] -> i64
@@ -111,7 +112,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %v : !Nine
     }
-    default {
+    default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %f0 = idr.field %v : !Nine @Nine[0] -> i64
@@ -144,7 +145,7 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     %n = arith.constant 10000000 : i64
     %zero = arith.constant 0 : i64
     %r = idr.call @a(%n, %zero) : (i64, i64) -> i64
-    %w1 = idr.io.put_int signed %r, %w : i64
+    %w1 = idr.io.put_sint %r, %w : i64
     %w2 = idr.io.put_char %nl, %w1
     %k0 = arith.constant 0 : i64
     %k1 = arith.constant 1 : i64
@@ -159,9 +160,9 @@ idr.program @mutual root(@Prog.main) stage(higher) {
     %v = idr.call @spin(%n, %v0) : (i64, !Nine) -> !Nine
     %first = idr.field %v : !Nine @Nine[0] -> i64
     %last = idr.field %v : !Nine @Nine[8] -> i64
-    %w3 = idr.io.put_int signed %first, %w2 : i64
+    %w3 = idr.io.put_sint %first, %w2 : i64
     %w4 = idr.io.put_char %nl, %w3
-    %w5 = idr.io.put_int signed %last, %w4 : i64
+    %w5 = idr.io.put_sint %last, %w4 : i64
     %w6 = idr.io.put_char %nl, %w5
     %unit = idr.constant #idr.con<!Unit, @MkUnit, []> : !Unit
     return %unit, %w6 : !Unit, !idr.world

@@ -8,6 +8,8 @@ import Core.Context
 import Core.Core
 import Core.TT
 
+import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Forms
@@ -58,13 +60,6 @@ data PKind = TypeParam ClosedTerm
            | ErasedParam
            | FormParam ClosedTerm
            | ValueParam Binder (Maybe ClosedTerm) ClosedTerm
-
-||| What a parameter binds at runtime, if it is a parameter at runtime.
-export
-runtimeBinder : PKind -> Maybe Binder
-runtimeBinder (ValueParam b _ _) = Just b
-runtimeBinder (DictParam _ (Just h)) = Just h.binder
-runtimeBinder _ = Nothing
 
 ||| How a static argument keys its instance, as classify's PKind: a type
 ||| (TypeParam), a type family (TypeParam too: a type parameter whose kind
@@ -129,21 +124,13 @@ nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
 nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
 nameKey n = show n
 
-||| A name of the context by its index, as the index's eight bytes, the low
-||| byte first: what a definition is, which the request links compare.
-export
-addressOf : Int -> Address
-addressOf i = bytes 8 (cast i)
-  where
-    bytes : (k : Nat) -> Integer -> Vect k (Fin 256)
-    bytes Z _ = []
-    bytes (S k) v = lowBits 8 v :: bytes k (v `div` 256)
-
-||| A definition's identity: its address in the context; nothing for a
-||| name the context does not hold, which no table keeps.
+||| A definition's identity: its address in the context (`Walk.addressOf`);
+||| nothing for a name the context does not hold, which no table keeps.
+||| For a site that needs the address alone; one that needs the definition
+||| too resolves it once (`Walk.resolve`).
 export
 definitionAddress : Context -> Name -> Maybe Address
-definitionAddress ctx n = addressOf <$> getNameID n ctx
+definitionAddress ctx n = addressOf <$> placementIn ctx n
 
 ||| A definition as the growth check splits it (`Growth`): its address,
 ||| the implementation (or interface constructor) at the root of each
@@ -175,7 +162,7 @@ public export
 Position : Type
 Position = (Node, Nat)
 
-||| The index of the context an address is (`addressOf`'s inverse): the
+||| The index of the context an address is (`Walk.addressOf`'s inverse): the
 ||| index whose eight bytes, the low byte first, it is.
 export
 addressIndex : Address -> Int
@@ -192,6 +179,17 @@ export
 nameAt : Context -> Address -> Maybe Name
 nameAt ctx a = let i = addressIndex a in
                if i < nextEntry ctx then Just (Resolved i) else Nothing
+
+||| The definition at an address, as the context holds it; nothing at bytes
+||| no entry of the context has. The one reading of a definition by its
+||| address.
+export
+definitionAt : {auto c : Ref Ctxt Defs} -> Address -> Core (Maybe GlobalDef)
+definitionAt a = do
+  defs <- get Ctxt
+  case nameAt (gamma defs) a of
+    Just n => lookupCtxtExact n (gamma defs)
+    Nothing => pure Nothing
 
 ||| A static argument as the growth check reads it (`Template.closedHeight`):
 ||| its height, and the definition at its root that splits the node of a
@@ -225,18 +223,26 @@ record Request where
   node : Node
   heights : List (Nat, Nat)
 
+||| A dictionary field: the link of its data instance (`Keys.instanceKey`),
+||| its constructor's index among the type's constructors, and its
+||| argument's among the constructor's. Built where the constructor's
+||| layout is (`Types`), so every reader holds the one key.
+public export
+DictField : Type
+DictField = (Link Form, Nat, Nat)
+
 ||| One argument of a constructor, as a data instance has it. Idris does not
 ||| put the data type's parameters first (`(::) : {0 len} -> {0 elem} ->
 ||| ...`), so every argument says what it is: a parameter, whose value the
 ||| instance gives; an argument of quantity 0, which is no field; an
 ||| implementation (`Empty : Ord k => ...`), a compile-time value of the
-||| instance (`Dictionaries`), with its type; or runtime field `i`, counting
-||| the runtime fields from 0, with its binder and its Idris type at
-||| the instance.
+||| instance (`Dictionaries`), with its field's key and its type; or
+||| runtime field `i`, counting the runtime fields from 0, with its binder
+||| and its Idris type at the instance.
 public export
 data ArgKind = Param ClosedTerm
              | ErasedArg
-             | DictArg ClosedTerm
+             | DictArg DictField ClosedTerm
              | Field Nat Binder ClosedTerm
 
 ||| The binder of a runtime field.
@@ -246,14 +252,14 @@ fieldBinder (Field _ b _) = Just b
 fieldBinder _ = Nothing
 
 ||| What a constructor instance needs for case trees: its arguments, its
-||| full name, and the constructor as Core has it, whose fields are the
-||| runtime ones.
+||| full name, and the constructor as Core has it, indexed by its runtime
+||| fields.
 public export
 record ConLayout where
   constructor MkConLayout
   args : List ArgKind
   name : Name
-  con : Con
+  con : (k ** Con k)
 
 ||| The one implementation a dictionary field holds in the whole program,
 ||| and the user definition that chose it, as a refusal prints it: the one
@@ -287,21 +293,25 @@ record TyConFacts where
   natness : Natness
   represented : List Nat
 
+||| A data instance as registered: declared, a sum of its constructors; or a
+||| newtype, one constructor of one runtime field, not declared, its
+||| constructor the identity, by the binder of that field, whose type is the
+||| type of its values. The binder keeps the field's quantity, which a
+||| binder of the instance's type takes through its own (`coreBinder`).
+public export
+data Registered = Declared IdrisMLIR.Term.Data | Newtype Binder
+
 public export
 record TS where
   constructor MkTS
-  datas : SortedMap DataId IdrisMLIR.Term.Data
+  ||| The data instances registered, each declared or a newtype.
+  instances : SortedMap DataId Registered
+  ||| The declared instances in the order they were registered.
   dataOrder : SnocList DataId
   ||| The instances a field referred to while they were being registered:
   ||| each is declared, whatever its shape, since its values contain
   ||| themselves.
   reentered : SortedSet DataId
-  ||| The instances with one constructor and one runtime field, by the
-  ||| binder of that field, whose type is the type of their values: they
-  ||| are not declared, and their constructor is the identity. The binder
-  ||| keeps the field's quantity, which a binder of the instance's type
-  ||| takes through its own (`coreBinder`).
-  newtypes : SortedMap DataId Binder
   cons : SortedMap ConId ConLayout
   fns : SortedMap FnId TFn
   ||| The instances in the order they were first requested, the root first:
@@ -313,7 +323,12 @@ record TS where
   ||| The instances requested since the worklist last took them, in the
   ||| order requested (`Finite.requestedUnder`).
   requested : SnocList Request
-  moduleFC : FC
+  ||| Where a refusal at no location of its own is: the main module, at
+  ||| main once it is found (`Errors.siteAt`).
+  moduleFC : NonEmptyFC
+  ||| The refusal being unwound to `Errors.noting`, which records it: Idris's
+  ||| own `Error` cannot carry a `Refusal`, so the one in flight is here.
+  inFlight : Maybe Refusal
   ||| The definitions whose component of the call graph has been checked
   ||| (`Recursion`), by address, each with whether every loop through it
   ||| terminates.
@@ -330,14 +345,13 @@ record TS where
   ||| own origin (`Keys`). A block's name depends only on the definitions,
   ||| so each is found once.
   blockNames : SortedMap Address String
-  ||| The implementation each dictionary field holds, by constructor and
-  ||| position among its arguments.
-  dicts : SortedMap (ConId, Nat) Dictionary
+  ||| The implementation each dictionary field holds, by its key.
+  dicts : SortedMap DictField Dictionary
   ||| The dictionary fields the instance being translated matched before
   ||| any construction site gave their implementation: it translated their
   ||| alternatives as unreachable, and is translated again once a
   ||| construction site gives one (`Finite`), which keeps them per instance.
-  assumed : SortedSet (ConId, Nat)
+  assumed : SortedSet DictField
   ||| The request chain of the instance being translated: its own request,
   ||| the one that requested it, back to the root. It leads back to the user
   ||| definition a library instance serves (`Dictionaries.chooser`); the
@@ -352,7 +366,7 @@ record TS where
   ||| The program's rejections so far, in the order they were found: a
   ||| check or an instance that is rejected does not stop the others
   ||| (`Errors.noting`), so that one run reports every independent one.
-  rejected : SnocList Error
+  rejected : SnocList Rejection
   ||| The definitions the checks of what the program reaches rejected, and
   ||| the user definitions that refer to them, by address: the translation
   ||| leaves them out, since what it would find there is the same
@@ -361,10 +375,10 @@ record TS where
   ||| The escape hatches and holes the source of a user module spells, by
   ||| module and the name as spelt, each rejected where it is written.
   spelled : SortedSet (ModuleIdent, String)
-  ||| Where each module a location names comes from and its source file, by
-  ||| the module: facts of the module, found once each (`Errors.toLoc`),
-  ||| which no rejection changes.
-  places : SortedMap ModuleIdent (Origin, String)
+  ||| Where each module a location names comes from and its source file
+  ||| when the project has it, by the module: facts of the module, found
+  ||| once each (`Errors.toLoc`), which no rejection changes.
+  places : SortedMap ModuleIdent (Origin, Maybe String)
   ||| What the translation reads of each type constructor's definition
   ||| (`Types.tyConFacts`), by address, found once each.
   tyCons : SortedMap Address TyConFacts
@@ -384,17 +398,32 @@ record TS where
   sizes : Bounds
 
 export
-initState : SortedSet Name -> FC -> TS
+initState : SortedSet Name -> NonEmptyFC -> TS
 initState ifaces fc = MkTS
-  { datas = empty, dataOrder = [<], reentered = empty, newtypes = empty
-  , cons = empty, fns = empty, fnOrder = [<], seen = empty, requested = [<], moduleFC = fc
+  { instances = empty, dataOrder = [<], reentered = empty
+  , cons = empty, fns = empty, fnOrder = [<], seen = empty, requested = [<], moduleFC = fc, inFlight = Nothing
   , loops = empty, named = empty, symbols = empty, blockNames = empty, dicts = empty
   , assumed = empty, chain = [], interfaces = ifaces, rejected = [<], refused = empty
   , spelled = empty, places = empty, tyCons = empty, readings = empty, bounds = empty
   , sizes = MkBounds (const []) 0 0 0 }
 
+||| The declaration of a data instance registered as a sum.
+export
+declared : DataId -> TS -> Maybe IdrisMLIR.Term.Data
+declared inst st = case lookup inst st.instances of
+  Just (Declared d) => Just d
+  _ => Nothing
+
+||| The field binder of a data instance registered as a newtype.
+export
+newtypeOf : DataId -> TS -> Maybe Binder
+newtypeOf inst st = case lookup inst st.instances of
+  Just (Newtype b) => Just b
+  _ => Nothing
+
 ||| What a translation has found that outlives what found it, put back in
-||| a state: the rejections and what they refused, and what it found of
+||| a state: the rejections and what they refused (no refusal is in flight
+||| once one is recorded), and what it found of
 ||| modules, type constructors, static arguments, blocks and the call
 ||| graph's components, facts of the program's definitions that
 ||| nothing the translation does changes. An instance its translation
@@ -403,7 +432,7 @@ initState ifaces fc = MkTS
 ||| (`translating`).
 export
 keepFound : (from : TS) -> TS -> TS
-keepFound from = { rejected := from.rejected, refused := from.refused, places := from.places
+keepFound from = { rejected := from.rejected, inFlight := Nothing, refused := from.refused, places := from.places
                  , tyCons := from.tyCons, readings := from.readings, loops := from.loops
                  , blockNames := from.blockNames }
 

@@ -26,9 +26,9 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 
@@ -43,26 +43,33 @@ public:
   FailureOr<scf::WhileOp> build();
 
 private:
-  // The value `scope` sees for `value` of the body: the before region's
-  // argument, the after region's, or the loop's result.
-  enum class Scope { Before, After, Exit };
-  Value in(Value value, Scope scope);
+  // Where code runs once the loop exists, and what it sees for the body's
+  // values that pass through the loop, by slot (the carried arguments,
+  // then what the body passes on): the before region with its arguments,
+  // the after region with its, and the function's block after the loop
+  // with the loop's results. The before region has only the carried
+  // arguments, so what the body passes is itself there.
+  struct Scope {
+    Block *block;
+    ValueRange values;
+  };
+  // The value `scope` sees for `value` of the body.
+  Value in(Value value, const Scope &scope);
   // Every operand of `root` and of the ops nested in it, as `scope` sees it.
-  void rescope(Operation *root, Scope scope);
-  // Where `scope`'s code begins: the before or after block, or the
-  // function's block after the loop.
-  Block *blockOf(Scope scope);
+  void rescope(Operation *root, const Scope &scope);
   // The `i1` that holds when the decision takes the region that loops,
   // built at the end of the before block.
   Value continues();
   // Moves the ops of `region` to the end of `scope`'s block, its arguments
-  // (a case's fields) read from the scrutinee, and returns its terminator.
-  Operation *inlineRegion(Region &region, Scope scope);
+  // (a case's fields, or the scrutinee back) read from the scrutinee, and
+  // returns its terminator.
+  Operation *inlineRegion(Region &region, const Scope &scope);
 
   FuncOp fn;
   Decision decision;
   RewriterBase &rewriter;
   scf::WhileOp loop;
+  Scope before, after, exit;
   // The arguments that change from one call to the next, by position.
   SmallVector<unsigned> carried;
   // What the body computes before the decision and the regions use: carried
@@ -70,19 +77,7 @@ private:
   SmallVector<Value> passed;
 };
 
-Block *WhileDo::blockOf(Scope scope) {
-  switch (scope) {
-  case Scope::Before:
-    return loop.getBeforeBody();
-  case Scope::After:
-    return loop.getAfterBody();
-  case Scope::Exit:
-    return loop->getBlock();
-  }
-  llvm_unreachable("a scope");
-}
-
-Value WhileDo::in(Value value, Scope scope) {
+Value WhileDo::in(Value value, const Scope &scope) {
   Block &entry = fn.getBody().front();
   auto arg = dyn_cast<BlockArgument>(value);
   unsigned slot;
@@ -93,22 +88,14 @@ Value WhileDo::in(Value value, Scope scope) {
     slot = static_cast<unsigned>(it - carried.begin());
   } else {
     const auto *it = llvm::find(passed, value);
-    if (it == passed.end() || scope == Scope::Before)
+    if (it == passed.end())
       return value;
     slot = static_cast<unsigned>(carried.size()) + static_cast<unsigned>(it - passed.begin());
   }
-  switch (scope) {
-  case Scope::Before:
-    return loop.getBeforeArguments()[slot];
-  case Scope::After:
-    return loop.getAfterArguments()[slot];
-  case Scope::Exit:
-    return loop.getResult(slot);
-  }
-  llvm_unreachable("a scope");
+  return slot < scope.values.size() ? scope.values[slot] : value;
 }
 
-void WhileDo::rescope(Operation *root, Scope scope) {
+void WhileDo::rescope(Operation *root, const Scope &scope) {
   SmallVector<Operation *> ops;
   root->walk([&](Operation *op) { ops.push_back(op); });
   for (Operation *op : ops)
@@ -119,11 +106,12 @@ void WhileDo::rescope(Operation *root, Scope scope) {
 }
 
 Value WhileDo::continues() {
-  Operation *match = &decision.match;
-  bool loopsFirst = decision.loops.getRegionNumber() == 0;
+  MatchOpInterface match = decision.match;
+  bool loopsFirst = &decision.loops == &match.getCaseRegion(0);
   Location loc = match->getLoc();
-  rewriter.setInsertionPointToEnd(loop.getBeforeBody());
-  // `(x == k) == loopsFirst`: region 0 is the case k, region 1 the default.
+  rewriter.setInsertionPointToEnd(before.block);
+  // `(x == k) == loopsFirst`: the first case is the case k, the other
+  // region the default, or the second case.
   auto test = [&](Value x, IntegerAttr k) -> Value {
     auto predicate = loopsFirst ? arith::CmpIPredicate::eq : arith::CmpIPredicate::ne;
     // A test of a flag is the flag, or the comparison it holds, turned
@@ -144,40 +132,40 @@ Value WhileDo::continues() {
     Value key = arith::ConstantOp::create(rewriter, loc, k);
     return arith::CmpIOp::create(rewriter, loc, predicate, x, key);
   };
-  if (auto lit = dyn_cast<MatchLitOp>(match))
-    return test(in(lit.getScrutinee(), Scope::Before), cast<IntegerAttr>(lit.getCases()[0]));
-  // Region 0 is the case of a constructor; region 1 is the default, or the
-  // last case, which idr-lower also takes for any constructor Idris proved
-  // impossible. The tag is the case's position in the scrutinee's type.
-  auto sum = cast<MatchOp>(match);
-  Value scrutinee = in(sum.getScrutinee(), Scope::Before);
+  Value scrutinee = in(match.getScrutinee(), before);
+  // A literal's key, or a constructor's tag (its position in the
+  // scrutinee's type): the two tests a match makes.
+  if (auto lit = dyn_cast<MatchLitOp>(match.getOperation()))
+    return test(scrutinee, cast<IntegerAttr>(lit.getCases()[0]));
+  // The other region is the default, or the last case, which idr-lower
+  // also takes for any constructor Idris proved impossible.
+  auto sum = cast<MatchOp>(match.getOperation());
   return test(TagOp::create(rewriter, loc, scrutinee),
               rewriter.getI64IntegerAttr(static_cast<uint32_t>(sum.getCaseTag(0))));
 }
 
-Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
+Operation *WhileDo::inlineRegion(Region &region, const Scope &scope) {
   Block &from = region.front();
-  Block *to = blockOf(scope);
+  Block *to = scope.block;
   // Uses of the body's values in the region see this scope's.
   for (Operation &op : from)
     rescope(&op, scope);
-  // A case's fields are read from the scrutinee, and the default region
-  // has the scrutinee itself back. A field nothing reads has no value.
+  // A case of a constructor binds its fields, read from the scrutinee, and
+  // the default region has the scrutinee itself back. A field nothing reads
+  // has no value.
+  MatchOpInterface match = decision.match;
+  std::optional<Tag> tag = match.knownTag(region);
+  Value scrutinee = in(match.getScrutinee(), scope);
   SmallVector<Value> fields(from.getNumArguments());
-  if (auto sum = dyn_cast<MatchOp>(&decision.match); sum && !fields.empty()) {
-    Value scrutinee = in(sum.getScrutinee(), scope);
-    rewriter.setInsertionPointToEnd(to);
-    unsigned index = region.getRegionNumber();
-    bool isCase = index < sum.getCases().size();
-    for (BlockArgument field : from.getArguments()) {
-      if (field.use_empty())
-        continue;
-      Value value = scrutinee;
-      if (isCase)
-        value = FieldOp::create(rewriter, field.getLoc(), scrutinee, sum.getCaseTag(index),
-                                field.getArgNumber());
-      fields[field.getArgNumber()] = heldAs(rewriter, field.getLoc(), value, field.getType());
-    }
+  rewriter.setInsertionPointToEnd(to);
+  for (BlockArgument field : from.getArguments()) {
+    if (field.use_empty())
+      continue;
+    Value value = tag ? FieldOp::create(rewriter, field.getLoc(), scrutinee, *tag,
+                                        field.getArgNumber())
+                            .getResult()
+                      : scrutinee;
+    fields[field.getArgNumber()] = heldAs(rewriter, field.getLoc(), value, field.getType());
   }
   rewriter.inlineBlockBefore(&from, to, to->end(), fields);
   return to->getTerminator();
@@ -185,7 +173,7 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
 
 FailureOr<scf::WhileOp> WhileDo::build() {
   Block &entry = fn.getBody().front();
-  Operation *match = &decision.match;
+  Operation *match = decision.match;
   // An argument the call passes unchanged is not carried, unless the call
   // consumes a reference of it: then each iteration takes one, which the
   // yield to the next must consume as the call did.
@@ -217,8 +205,8 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   }
   // What the regions use of the repeated part passes from the before
   // region to the rest as a plain value, one that holds no reference; the
-  // scrutinee of a match on a constructor too, whose fields the regions
-  // read.
+  // scrutinee too, when a region reads it through its arguments (a case's
+  // fields, the default's scrutinee back).
   llvm::SetVector<Value> needed;
   for (Region *region : {&decision.loops, &decision.exits})
     region->walk([&](Operation *op) {
@@ -226,9 +214,14 @@ FailureOr<scf::WhileOp> WhileDo::build() {
         if (Operation *def = operand.getDefiningOp(); def && def->getBlock() == &entry && !outside.contains(def))
           needed.insert(operand);
     });
-  if (auto sum = dyn_cast<MatchOp>(match))
-    if (Operation *def = sum.getScrutinee().getDefiningOp(); def && !outside.contains(def))
-      needed.insert(sum.getScrutinee());
+  Value scrutinee = decision.match.getScrutinee();
+  auto readsArguments = [](Region *region) {
+    return llvm::any_of(region->getArguments(), [](BlockArgument arg) { return !arg.use_empty(); });
+  };
+  if (Operation *def = scrutinee.getDefiningOp();
+      def && !outside.contains(def) &&
+      (readsArguments(&decision.loops) || readsArguments(&decision.exits)))
+    needed.insert(scrutinee);
   if (llvm::any_of(needed, [&](Value value) { return isOwned(value.getType()); }))
     return failure();
   // The before region passes every argument it has on to the rest, as the
@@ -259,11 +252,15 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   rewriter.setInsertionPoint(match);
   loop = scf::WhileOp::create(rewriter, loc, through, initValues);
   SmallVector<Location> locs(through.size(), loc);
-  Block *before = rewriter.createBlock(&loop.getBefore(), {}, types, ArrayRef(locs).take_front(types.size()));
-  rewriter.createBlock(&loop.getAfter(), {}, through, locs);
+  Block *beforeBlock =
+      rewriter.createBlock(&loop.getBefore(), {}, types, ArrayRef(locs).take_front(types.size()));
+  Block *afterBlock = rewriter.createBlock(&loop.getAfter(), {}, through, locs);
+  before = {beforeBlock, beforeBlock->getArguments()};
+  after = {afterBlock, afterBlock->getArguments()};
+  exit = {loop->getBlock(), loop->getResults()};
   for (Operation *op : repeated) {
-    rewriter.moveOpBefore(op, before, before->end());
-    rescope(op, Scope::Before);
+    rewriter.moveOpBefore(op, beforeBlock, beforeBlock->end());
+    rescope(op, before);
   }
   Value go = continues();
   SmallVector<Value> forwarded(loop.getBeforeArguments());
@@ -271,7 +268,7 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   scf::ConditionOp::create(rewriter, match->getLoc(), go, forwarded);
 
   // The region that loops: its call's arguments are the next iteration's.
-  Operation *yield = inlineRegion(decision.loops, Scope::After);
+  Operation *yield = inlineRegion(decision.loops, after);
   auto next = cast<CallOp>(yield->getPrevNode());
   rewriter.setInsertionPoint(yield);
   SmallVector<Value> values;
@@ -289,23 +286,19 @@ FailureOr<scf::WhileOp> WhileDo::build() {
   // it yields. The region's ops go after the return, which then makes way
   // for them.
   Operation *ret = entry.getTerminator();
-  Operation *exit = inlineRegion(decision.exits, Scope::Exit);
+  Operation *exitEnd = inlineRegion(decision.exits, exit);
   rewriter.eraseOp(ret);
-  rewriter.setInsertionPoint(exit);
-  if (auto result = dyn_cast<YieldOp>(exit))
+  rewriter.setInsertionPoint(exitEnd);
+  if (auto result = dyn_cast<YieldOp>(exitEnd))
     ReturnOp::create(rewriter, result.getLoc(), result.getResults());
   else
     // A region that crashes: the function never returns there.
-    ub::UnreachableOp::create(rewriter, exit->getLoc());
-  rewriter.eraseOp(exit);
+    ub::UnreachableOp::create(rewriter, exitEnd->getLoc());
+  rewriter.eraseOp(exitEnd);
   rewriter.eraseOp(match);
   // What only the decision read (a flag widened for it, a comparison
-  // turned around) is left over. The ops are listed first: a reverse
-  // iterator refers to the op after the one it yields, which may go too.
-  SmallVector<Operation *> body = llvm::map_to_vector(before->without_terminator(), [](Operation &op) { return &op; });
-  for (Operation *op : llvm::reverse(body))
-    if (isOpTriviallyDead(op))
-      rewriter.eraseOp(op);
+  // turned around) is left over.
+  eliminateTriviallyDeadOps(rewriter, loop.getBefore(), /*includeNestedRegions=*/false);
   return loop;
 }
 

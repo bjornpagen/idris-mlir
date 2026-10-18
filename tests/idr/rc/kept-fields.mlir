@@ -12,7 +12,7 @@
 idr.program @"kept-fields" root(@root) stage(first) {
   // A cell of @Pair is as large as one of @Node.
   idr.func @wrap(%x: !idr.box<!T>) -> !idr.box<!T> {
-    %leaf = idr.constant #idr.con<!T, @Leaf, []> : !idr.box<!T>
+    %leaf = idr.constant !idr.box<!T> #idr.con<!T, @Leaf, []>
     %z = arith.constant 0 : i64
     %n = idr.con !idr.box<!T> @Node(%x : !idr.box<!T>, %z : i64, %leaf : !idr.box<!T>)
     return %n : !idr.box<!T>
@@ -49,7 +49,7 @@ idr.program @"kept-fields" root(@root) stage(first) {
   idr.func @swap(%t: !idr.box<!T>) -> !idr.box<!P> {
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!P>) {
     case @Leaf() {
-      %none = idr.constant #idr.con<!P, @None, []> : !idr.box<!P>
+      %none = idr.constant !idr.box<!P> #idr.con<!P, @None, []>
       idr.yield %none : !idr.box<!P>
     }
     case @Node(%l: !idr.box<!T>, %k: i64, %rt: !idr.box<!T>) {
@@ -61,7 +61,7 @@ idr.program @"kept-fields" root(@root) stage(first) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
-    %leaf = idr.constant #idr.con<!T, @Leaf, []> : !idr.box<!T>
+    %leaf = idr.constant !idr.box<!T> #idr.con<!T, @Leaf, []>
     %t = idr.con !idr.box<!T> @Node(%leaf : !idr.box<!T>, %x : i64, %leaf : !idr.box<!T>)
     %g = idr.call @growLeft(%t) : (!idr.box<!T>) -> !idr.box<!T>
     %m = idr.con !idr.box<!T> @Node(%leaf : !idr.box<!T>, %x : i64, %leaf : !idr.box<!T>)
@@ -75,7 +75,7 @@ idr.program @"kept-fields" root(@root) stage(first) {
     %ab = arith.addi %a, %b : i64
     %cd = arith.addi %c, %d : i64
     %sum = arith.addi %ab, %cd : i64
-    %w2 = idr.io.put_int signed %sum, %w : i64
+    %w2 = idr.io.put_sint %sum, %w : i64
     return %w2 : !idr.world
   }
 }

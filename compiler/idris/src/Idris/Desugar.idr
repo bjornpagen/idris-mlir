@@ -26,6 +26,7 @@ import Parser.Support.Escaping
 
 import TTImp.BindImplicits
 import TTImp.Parser
+import TTImp.ProcessDecls
 import TTImp.ProcessType
 import TTImp.TTImp
 import TTImp.Utils
@@ -1187,10 +1188,8 @@ mutual
 
            body' <- traverse (desugarDecl (ps ++ mnames ++ paramNames)) body
            pure [IPragma int.fc (maybe [tn] (\n => [tn, n.val]) conname)
-                            (\dl, nest, env =>
-                              elabInterface {dl} int.fc vis env nest consb
-                                            tn paramsb det conname
-                                            (concat body'))]
+                            (InterfacePragma vis consb tn paramsb det conname
+                                             (concat body'))]
     where
       -- Turns pairs in the constraints to individual constraints. This
       -- is a bit of a hack, but it's necessary to build parent constraint
@@ -1234,8 +1233,7 @@ mutual
            let impname = maybe (mkImplName impl.fc tn paramsb) id impln
 
            pure [IPragma impl.fc [impname]
-                            (\dl, nest, env =>
-                               elabImplementation {dl} impl.fc vis opts pass env nest isb consb
+                            (ImplementationPragma vis opts pass isb consb
                                                   tn paramsb (isNamed impln)
                                                   impname nusing
                                                   body')]
@@ -1375,48 +1373,38 @@ mutual
            pure [IRunElabDecl el.fc tm']
   desugarDecl ps dir@(MkWithData _ $ PDirective d)
       = let fc = dir.fc in case d of
-             Hide (HideName n) => pure [IPragma fc [] (\_, nest, env => hide fc n)]
-             Hide (HideFixity fx n) => pure [IPragma fc [] (\_, _, _ => removeFixity fc fx n)]
-             Unhide n => pure [IPragma fc [] (\_, nest, env => unhide fc n)]
+             Hide (HideName n) => pure [IPragma fc [] (HideNamePragma n)]
+             Hide (HideFixity fx n) => pure [IPragma fc [] (HideFixityPragma fx n)]
+             Unhide n => pure [IPragma fc [] (UnhidePragma n)]
              Logging i => pure [ILog ((\ i => (topics i, verbosity i)) <$> i)]
-             LazyOn a => pure [IPragma fc [] (\_, nest, env => lazyActive a)]
+             LazyOn a => pure [IPragma fc [] (LazyPragma a)]
              UnboundImplicits a => do
                setUnboundImplicits a
-               pure [IPragma fc [] (\_, nest, env => setUnboundImplicits a)]
+               pure [IPragma fc [] (UnboundImplicitsPragma a)]
              PrefixRecordProjections b => do
-               pure [IPragma fc [] (\_, nest, env => setPrefixRecordProjections b)]
-             AmbigDepth n => pure [IPragma fc [] (\_, nest, env => setAmbigLimit n)]
-             AutoImplicitDepth n => pure [IPragma fc [] (\_, nest, env => setAutoImplicitLimit n)]
-             NFMetavarThreshold n => pure [IPragma fc [] (\_, nest, env => setNFThreshold n)]
-             SearchTimeout n => pure [IPragma fc [] (\_, nest, env => setSearchTimeout n)]
-             PairNames ty f s => pure [IPragma fc [] (\_, nest, env => setPair fc ty f s)]
-             RewriteName eq rw => pure [IPragma fc [] (\_, nest, env => setRewrite fc eq rw)]
-             PrimInteger n => pure [IPragma fc [] (\_, nest, env => setFromInteger n)]
-             PrimString n => pure [IPragma fc [] (\_, nest, env => setFromString n)]
-             PrimChar n => pure [IPragma fc [] (\_, nest, env => setFromChar n)]
-             PrimDouble n => pure [IPragma fc [] (\_, nest, env => setFromDouble n)]
-             PrimTTImp n => pure [IPragma fc [] (\_, nest, env => setFromTTImp n)]
-             PrimName n => pure [IPragma fc [] (\_, nest, env => setFromName n)]
-             PrimDecls n => pure [IPragma fc [] (\_, nest, env => setFromDecls n)]
-             CGAction cg dir => pure [IPragma fc [] (\_, nest, env => addDirective cg dir)]
-             Names n ns => pure [IPragma fc [] (\_, nest, env => addNameDirective fc n ns)]
-             StartExpr tm => pure [IPragma fc [] (\_, nest, env => throw (InternalError "%start not implemented"))] -- TODO!
-             Overloadable n => pure [IPragma fc [] (\_, nest, env => setNameFlag fc n Overloadable)]
-             Extension e => pure [IPragma fc [] (\_, nest, env => setExtension e)]
-             DefaultTotality tot => pure [IPragma fc [] (\_, _, _ => setDefaultTotalityOption tot)]
+               pure [IPragma fc [] (PrefixRecordProjectionsPragma b)]
+             AmbigDepth n => pure [IPragma fc [] (AmbigDepthPragma n)]
+             AutoImplicitDepth n => pure [IPragma fc [] (AutoImplicitDepthPragma n)]
+             NFMetavarThreshold n => pure [IPragma fc [] (NFMetavarThresholdPragma n)]
+             SearchTimeout n => pure [IPragma fc [] (SearchTimeoutPragma n)]
+             PairNames ty f s => pure [IPragma fc [] (PairNamesPragma ty f s)]
+             RewriteName eq rw => pure [IPragma fc [] (RewriteNamePragma eq rw)]
+             PrimInteger n => pure [IPragma fc [] (PrimIntegerPragma n)]
+             PrimString n => pure [IPragma fc [] (PrimStringPragma n)]
+             PrimChar n => pure [IPragma fc [] (PrimCharPragma n)]
+             PrimDouble n => pure [IPragma fc [] (PrimDoublePragma n)]
+             PrimTTImp n => pure [IPragma fc [] (PrimTTImpPragma n)]
+             PrimName n => pure [IPragma fc [] (PrimNamePragma n)]
+             PrimDecls n => pure [IPragma fc [] (PrimDeclsPragma n)]
+             CGAction cg dir => pure [IPragma fc [] (CGActionPragma cg dir)]
+             Names n ns => pure [IPragma fc [] (NamesPragma n ns)]
+             StartExpr _ => pure [IPragma fc [] StartExprPragma]
+             Overloadable n => pure [IPragma fc [] (OverloadablePragma n)]
+             Extension e => pure [IPragma fc [] (ExtensionPragma e)]
+             DefaultTotality tot => pure [IPragma fc [] (DefaultTotalityPragma tot)]
              ForeignImpl n cs => do
                cs' <- traverse (desugar AnyExpr ps) cs
-               pure [IPragma fc [] (\dl, nest, env => do
-                      defs <- get Ctxt
-                      calls <- traverse (getFnString {dl}) cs'
-                      [(n',_,gdef)] <- lookupCtxtName n (gamma defs)
-                        | [] => throw (UndefinedName fc n)
-                        | xs => throw (AmbiguousName fc (map fst xs))
-                      let ForeignDef arity xs = gdef.definition
-                        | _ => throw (GenericMsg fc "\{show n} is not a foreign definition")
-
-                      update Ctxt { options->foreignImpl $= (map (n',) calls ++) }
-                    )]
+               pure [IPragma fc [] (ForeignImplPragma n cs')]
   desugarDecl ps bt@(MkWithData _ $ PBuiltin type name) = pure [IBuiltin bt.fc type name]
 
   export
@@ -1441,3 +1429,56 @@ mutual
             Side -> List Name -> PTerm -> Core RawImp
 
   desugar s ps tm = desugarDo s ps Nothing tm
+
+-- Implements processPragma, declared in TTImp.ProcessDecls: each clause is
+-- the pragma's action, run with the cells process holds.
+interpretPragma : {vars : _} ->
+                  {auto c : Ref Ctxt Defs} ->
+                  {auto m : Ref MD Metadata} ->
+                  {auto u : Ref UST UState} ->
+                  {auto dl : Ref DLY DelayedElabs} ->
+                  {auto s : Ref Syn SyntaxInfo} ->
+                  {auto o : Ref ROpts REPLOpts} ->
+                  FC -> NestedNames vars -> Env Term vars -> Pragma -> Core ()
+interpretPragma fc nest env (InterfacePragma vis consb tn paramsb det conname body)
+    = elabInterface {dl} fc vis env nest consb tn paramsb det conname body
+interpretPragma fc nest env (ImplementationPragma vis opts pass isb consb tn paramsb named impname nusing body)
+    = elabImplementation {dl} fc vis opts pass env nest isb consb
+                         tn paramsb named impname nusing body
+interpretPragma fc _ _ (ForeignImplPragma n cs)
+    = do defs <- get Ctxt
+         calls <- traverse (getFnString {dl}) cs
+         [(n',_,gdef)] <- lookupCtxtName n (gamma defs)
+           | [] => throw (UndefinedName fc n)
+           | xs => throw (AmbiguousName fc (map fst xs))
+         let ForeignDef arity xs = gdef.definition
+           | _ => throw (GenericMsg fc "\{show n} is not a foreign definition")
+
+         update Ctxt { options->foreignImpl $= (map (n',) calls ++) }
+interpretPragma fc _ _ (HideNamePragma n) = hide fc n
+interpretPragma fc _ _ (HideFixityPragma fx n) = removeFixity fc fx n
+interpretPragma fc _ _ (UnhidePragma n) = unhide fc n
+interpretPragma _ _ _ (LazyPragma a) = lazyActive a
+interpretPragma _ _ _ (UnboundImplicitsPragma a) = setUnboundImplicits a
+interpretPragma _ _ _ (PrefixRecordProjectionsPragma b) = setPrefixRecordProjections b
+interpretPragma _ _ _ (AmbigDepthPragma n) = setAmbigLimit n
+interpretPragma _ _ _ (AutoImplicitDepthPragma n) = setAutoImplicitLimit n
+interpretPragma _ _ _ (NFMetavarThresholdPragma n) = setNFThreshold n
+interpretPragma _ _ _ (SearchTimeoutPragma n) = setSearchTimeout n
+interpretPragma fc _ _ (PairNamesPragma ty fstn sndn) = setPair fc ty fstn sndn
+interpretPragma fc _ _ (RewriteNamePragma eq rw) = setRewrite fc eq rw
+interpretPragma _ _ _ (PrimIntegerPragma n) = setFromInteger n
+interpretPragma _ _ _ (PrimStringPragma n) = setFromString n
+interpretPragma _ _ _ (PrimCharPragma n) = setFromChar n
+interpretPragma _ _ _ (PrimDoublePragma n) = setFromDouble n
+interpretPragma _ _ _ (PrimTTImpPragma n) = setFromTTImp n
+interpretPragma _ _ _ (PrimNamePragma n) = setFromName n
+interpretPragma _ _ _ (PrimDeclsPragma n) = setFromDecls n
+interpretPragma _ _ _ (CGActionPragma cg dir) = addDirective cg dir
+interpretPragma fc _ _ (NamesPragma n ns) = addNameDirective fc n ns
+interpretPragma _ _ _ StartExprPragma = throw (InternalError "%start not implemented") -- TODO!
+interpretPragma fc _ _ (OverloadablePragma n) = setNameFlag fc n Overloadable
+interpretPragma _ _ _ (ExtensionPragma e) = setExtension e
+interpretPragma _ _ _ (DefaultTotalityPragma tot) = setDefaultTotalityOption tot
+
+TTImp.ProcessDecls.processPragma = interpretPragma

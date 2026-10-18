@@ -61,7 +61,7 @@ its own first baseline.
   than 2%, best of five, is a regression, bisected and fixed (0009 D35,
   D36: the five-run spread reaches 97%, so it bounds nothing). Linux
   records a fresh baseline.
-- **Compile times** (AFTER-SELF; *decision*, D19). `tests/compile-times.sh
+- **Compile times** (AFTER-SELF; *decision*, D19). `tools/compile-times.sh
   --record` on both targets, committed under `bench/profiles/`, is the
   first baseline: `bench/profiles/` holds F0 alone, and the 2026-10-13
   figure (167.9 s over 429 compilations) is *recalled*, in no file or
@@ -80,7 +80,7 @@ its own first baseline.
   `tools/self.sh` also uses. Not built: the fixture's `run` is `e2e_io .`
   and no test calls `peak_memory` (*read*).
 - **The upstream-Idris scan** (AFTER-SELF; *decision*, D12, widened
-  2026-10-15). `skip_reason` (`tests/upstream-idris/common.sh:69-114`)
+  2026-10-15). `skip_reason` (`tools/upstream-idris/common.sh:69-114`)
   keeps by name a second copy of what the registry decides. Its arms go
   wherever the compiler decides the name: the raw-pointer arm
   (`:96-100`), since every name it scans is admitted (the pointers as the

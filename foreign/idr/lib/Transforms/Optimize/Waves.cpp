@@ -21,6 +21,11 @@
 // requester's own component, not final yet. So each built node waits on
 // every function it calls that is not final.
 //
+// A component that becomes final writes its entry on each member and on
+// every call of it, through one map of the program's symbol uses taken
+// when the wave's nodes are in the program, so that a call says what its
+// callee may do to every pass that reads the call alone.
+//
 // A wait may close a cycle: a node waits on one that waits, through
 // requests and calls, on the node's own component. Every component on the
 // cycle then becomes one, whose members finish together and never inline
@@ -30,10 +35,11 @@
 
 #include "idr/Transforms/Optimize.h"
 
-#include "idr/Analysis/Effects.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Remarks.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Threading.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -57,7 +63,7 @@ void Scheduler::enable(OnceWorklist<Step> &ready) {
   };
   for (const std::unique_ptr<Scc> &owned : analyses.set.sccs) {
     Scc &scc = *owned;
-    if (scc.members.empty() || scc.unfinishedCallees != 0 || scc.members.front()->isFinal())
+    if (scc.unfinishedCallees != 0 || scc.members.front()->isFinal())
       continue;
     bool startable = llvm::none_of(scc.members, [](const Node *member) {
       return std::holds_alternative<Node::Waiting>(member->state) && member->waiting();
@@ -79,16 +85,23 @@ void Scheduler::enable(OnceWorklist<Step> &ready) {
 
 // The wave of `first` and of every other step queued: one turn per
 // component, in the ready set's order, its starters and resumed members in
-// the component's order, whatever order the steps were queued in.
+// the component's order, whatever order the steps were queued in. A step
+// says whether it starts or resumes its member.
 SmallVector<Turn, 0> Scheduler::gather(const Step &first, OnceWorklist<Step> &ready) {
-  llvm::SmallPtrSet<Node *, 16> stepped;
+  llvm::SmallPtrSet<Node *, 16> started, resumed;
   llvm::SmallPtrSet<Scc *, 8> seen;
   SmallVector<Scc *> sccs;
   auto take = [&](const Step &step) {
-    Node *node = std::visit(llvm::makeVisitor([](Start start) { return start; },
-                                              [](const Resume &resume) { return resume.first; }),
+    Node *node = std::visit(llvm::makeVisitor(
+                                [&](Start start) {
+                                  started.insert(start);
+                                  return start;
+                                },
+                                [&](const Resume &resume) {
+                                  resumed.insert(resume.first);
+                                  return resume.first;
+                                }),
                             step);
-    stepped.insert(node);
     if (seen.insert(node->scc).second)
       sccs.push_back(node->scc);
   };
@@ -99,10 +112,12 @@ SmallVector<Turn, 0> Scheduler::gather(const Step &first, OnceWorklist<Step> &re
   SmallVector<Turn, 0> wave;
   for (Scc *scc : sccs) {
     Turn &turn = wave.emplace_back(*scc);
-    for (Node *member : scc->members)
-      if (stepped.contains(member))
-        (std::holds_alternative<Node::Waiting>(member->state) ? turn.starters : turn.resumed)
-            .push_back(member);
+    for (Node *member : scc->members) {
+      if (started.contains(member))
+        turn.starters.push_back(member);
+      if (resumed.contains(member))
+        turn.resumed.push_back(member);
+    }
   }
   return wave;
 }
@@ -130,7 +145,8 @@ bool Scheduler::reaches(Scc &from, Scc &to) {
 // was taken up, or it is a made node's own: either way its callees are all
 // final, and only its callers carry over. A caller keeps one count per
 // component it called, so its entries stay one per component that was
-// merged.
+// merged. A component merged away is gone from the ready set once no
+// question of this merge reads it.
 void Scheduler::merge(Scc &into, Scc &from) {
   // What `from` waits on, each component once, in the order met.
   OnceWorklist<Scc *> work;
@@ -143,6 +159,7 @@ void Scheduler::merge(Scc &into, Scc &from) {
         if (!target->isFinal() && target->scc != &into)
           work.push(target->scc);
   }
+  llvm::SmallPtrSet<Scc *, 4> merged;
   for (Scc *scc : forward) {
     if (scc != &from && !reaches(*scc, into))
       continue;
@@ -152,9 +169,10 @@ void Scheduler::merge(Scc &into, Scc &from) {
       into.members.push_back(member);
     }
     llvm::append_range(into.callers, scc->callers);
-    scc->members.clear();
-    scc->callers.clear();
+    merged.insert(scc);
   }
+  llvm::erase_if(analyses.set.sccs,
+                 [&](const std::unique_ptr<Scc> &scc) { return merged.contains(scc.get()); });
 }
 
 // `requester` waits on `node`, which it asked for or calls: nothing to wait
@@ -189,19 +207,22 @@ void Scheduler::waitOnCalls(Node *node) {
 // A built node goes into the program: after its owner and the owner's nodes
 // whose names sort before its own (the table places it), into the symbol
 // table, the analysis manager and the ready set, as a node of a component
-// of its own. Its name is its key's, which the table checked against every
-// function of the program when the key was first asked for.
+// of its own, made from what the table built. Its name is its key's, which
+// the table checked against every function of the program when the key was
+// first asked for. Its component's order is its own number, past every
+// component the run began with, since there are no more of those than
+// functions, and past every component made before it.
 void Scheduler::insert(specialize::Node *made) {
   ReadySet &set = analyses.set;
   auto scc = std::make_unique<Scc>();
-  scc->order = static_cast<unsigned>(set.sccs.size());
-  auto node = std::make_unique<Node>(made->fn, Node::Made{std::move(made->times)}, *scc);
+  scc->order = static_cast<unsigned>(set.all.size());
+  specialize::Built &built = std::get<specialize::Built>(made->state);
+  auto node = std::make_unique<Node>(built.fn, Node::Made{std::move(built.times)}, *scc);
   scc->members.push_back(node.get());
-  analyses.nodes.insert(*made, analyses.program);
+  analyses.nodes.insert(*made, analyses.program, *node);
   analyses.symbols.insert(node->fn);
   (void)analyses.am.nest(node->fn);
   set.byName.try_emplace(node->fn.getSymNameAttr(), node.get());
-  set.byMade.try_emplace(made, node.get());
   set.all.push_back(std::move(node));
   set.sccs.push_back(std::move(scc));
   ++numMade;
@@ -209,15 +230,14 @@ void Scheduler::insert(specialize::Node *made) {
 
 // The component's summaries are written, each whole from what its turn
 // solved and what its final body says, and become readable by every other
-// component; its entry becomes its members' `effects`, which the passes of
-// every later wave read.
-void Scheduler::finalize(Scc &scc, Finished done) {
+// component; its entry becomes its members' `effects` and every call's of
+// them, `users` naming the calls, which the passes of every later wave read.
+void Scheduler::finalize(Scc &scc, Finished done, const SymbolUserMap &users) {
   for (auto [member, body] : llvm::zip_equal(scc.members, done.members)) {
-    setEntry(member->fn, done.effects);
-    Solved &solved = *member->solved;
+    writeEffects(member->fn, done.effects, users);
+    Solved &solved = std::get<Node::Done>(member->state).solved;
     member->published.emplace(Summary{done.effects, solved.givesBack, std::move(solved.times),
                                       std::move(body.constants), body.facts});
-    member->solved.reset();
     ++numFinal;
   }
   for (Node *caller : scc.callers)
@@ -237,17 +257,23 @@ void Scheduler::settle(MutableArrayRef<Turn> wave) {
   });
   for (specialize::Node *made : built)
     insert(made);
-  for (Turn &turn : wave)
-    if (turn.finished)
-      finalize(turn.scc, std::move(*turn.finished));
+  // The calls of the program now, the wave's nodes' among them, taken once
+  // for every component the wave finished.
+  if (llvm::any_of(wave, [](const Turn &turn) { return turn.finished.has_value(); })) {
+    SymbolTableCollection tables;
+    SymbolUserMap users(tables, analyses.program);
+    for (Turn &turn : wave)
+      if (turn.finished)
+        finalize(turn.scc, std::move(*turn.finished), users);
+  }
   // A node asked for was claimed and built by a turn of the wave that asked
-  // for it, so it is in the ready set now.
+  // for it, so it is placed now.
   for (Turn &turn : wave)
     for (auto &[requester, asked] : turn.parked)
       for (specialize::Node *made : asked)
-        want(requester, analyses.set.byMade.find(made)->second);
+        want(requester, std::get<specialize::Placed>(made->state).node);
   for (specialize::Node *made : built)
-    waitOnCalls(analyses.set.byMade.find(made)->second);
+    waitOnCalls(std::get<specialize::Placed>(made->state).node);
 }
 
 LogicalResult Scheduler::run() {

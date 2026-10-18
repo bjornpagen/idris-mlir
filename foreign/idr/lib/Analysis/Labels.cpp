@@ -43,7 +43,7 @@ bool ClosureParts::holds(Attribute part) {
     return it->second;
   bool found = static_cast<bool>(closure);
   if (con)
-    eachField(con, [&](Attribute field, unsigned) { found = holds(field) || found; });
+    con.walkFields([&](Attribute field, unsigned) { found = holds(field) || found; });
   known[part] = found;
   return found;
 }
@@ -89,6 +89,10 @@ Node Graph::find(Node node) {
     node = next;
   }
   return root;
+}
+
+Link linkOf(Carriers carriers) {
+  return carriers.contains(Carrier::Suspension) ? Link::Unify : Link::Include;
 }
 
 void Graph::link(Node from, Node to, Link how) {
@@ -191,16 +195,15 @@ void Graph::fire(Firing firing) {
   assert(fn && fn.getNumArguments() >= args.size() &&
          "a label fits the carrier of the callee that holds it");
   unsigned captures = fn.getNumArguments() - static_cast<unsigned>(args.size());
-  auto linkOf = [](Type type) { return isLazyType(type) ? Link::Unify : Link::Include; };
   for (auto [i, arg] : llvm::enumerate(args))
     if (carriesLabels(arg.getType()))
-      link(nodeOf(FlowPoint::of(arg)),
-           nodeOf(FlowPoint::parameter(name, captures + static_cast<unsigned>(i))),
-           linkOf(arg.getType()));
+      link(nodeOf(arg),
+           nodeOf(out.keyOf(FlowPoint::parameter(name, captures + static_cast<unsigned>(i)))),
+           linkOf(Carriers::of(arg.getType())));
   for (auto [j, result] : llvm::enumerate(call->getResults()))
     if (carriesLabels(result.getType()))
-      link(nodeOf(FlowPoint::result(name, static_cast<unsigned>(j))),
-           nodeOf(FlowPoint::of(result)), linkOf(result.getType()));
+      link(nodeOf(out.keyOf(FlowPoint::result(name, static_cast<unsigned>(j)))),
+           nodeOf(Value(result)), linkOf(Carriers::of(result.getType())));
 }
 
 // A set's labels in name order. Two equal sets are one attribute: the
@@ -240,13 +243,8 @@ Solution Graph::solve() && {
 Solution::Solution(const SymbolTable &table)
     : table(table), empty(ArrayAttr::get(table.getOp()->getContext(), {})) {}
 
-ArrayAttr Solution::labelsOf(const FlowPoint &point) const {
-  std::optional<Node> node = lookup(point);
-  return node ? labels[at(*node)] : empty;
-}
-
-ArrayAttr Solution::labelsOf(const FlowAnchor &anchor) const {
-  std::optional<Node> node = lookup(anchor);
+ArrayAttr Solution::labelsOf(const PointKey &key) const {
+  std::optional<Node> node = lookup(key);
   return node ? labels[at(*node)] : empty;
 }
 
@@ -272,15 +270,5 @@ labels::Solution solveLabels(Operation *program, const SymbolTable &table) {
 
 Labels::Labels(Operation *program, AnalysisManager &am)
     : solution(solveLabels(program, am.getAnalysis<SymbolTable>())) {}
-
-ArrayAttr Labels::labelsOf(Value value) const { return solution.labelsOf(FlowPoint::of(value)); }
-
-ArrayAttr Labels::runs(Operation *op) const {
-  if (auto apply = dyn_cast<ApplyOp>(op))
-    return labelsOf(apply.getCallee());
-  if (auto force = dyn_cast<ForceOp>(op))
-    return labelsOf(force.getSuspension());
-  return solution.none();
-}
 
 } // namespace idr

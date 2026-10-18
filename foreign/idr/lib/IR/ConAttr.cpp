@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // #idr.con: a constant constructor, its data type and its tag in it, held
-// plain or, for a list or any other chain of one constructor through one
-// field, as a flat run of its cells, so that a constant as long as the data
-// it is stays one level deep to MLIR's printer, parser, bytecode and walks.
-// It is written as it is held, the constructor by its name: `<!T, @C,
-// [fields]>`, or `<!T, @C, [a], [b] tail t along 1>`. A constructor is its
-// type and its tag together: two types' constructors are two constructors.
+// as a run of its cells, so that a constant as long as the data it is stays
+// one level deep to MLIR's printer, parser, bytecode and walks. A plain
+// constructor is the run of one cell; a list, or any other chain of one
+// constructor through one field, the run of its cells, every one but the
+// last without the field the next one is. It is written as it is held, the
+// constructor by its name: `<!T, @C, [fields]>`, or `<!T, @C, [a], [b, t]
+// along 1>`. A constructor is its type and its tag together: two types'
+// constructors are two constructors.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -50,22 +52,20 @@ ArrayAttr insertField(ArrayAttr cell, unsigned index, Attribute field) {
   return ArrayAttr::get(cell.getContext(), fields);
 }
 
-// Whether `next`, field `at` of a cell of its own constructor with `width`
-// other fields, continues that cell as a run: it is a run along the same
-// field, or a plain con that holds no constructor of its own, which becomes
-// the run's last cell. A con of another width is not the same constructor's
-// cell, and stays a field.
-bool continues(ConAttr next, unsigned at, size_t width) {
-  ArrayAttr first = next.getCells().front();
-  if (next.isRun())
-    return next.getSpine() == at && first.size() == width;
-  return first.size() == width + 1 && !holdsConOf(first, whichOf(next));
+// Whether `next`, field `at` of a cell of its own constructor, continues
+// that cell as a run: it holds no constructor of its own, and it runs along
+// `at` or is one cell, which runs along any field. A run's cells never hold
+// one, by its form, so of a run only its last cell is asked, as of one cell.
+bool continues(ConAttr next, unsigned at) {
+  return (next.getRunLength() == 1 || next.getSpine() == at) &&
+         !holdsConOf(next.getCells().back(), whichOf(next));
 }
 
 // The field `get` makes the spine of a run: the one field that is a
 // constructor of `ctor`, where it continues the cell. A cell with two such
 // fields is a node of a tree, and one whose such field runs along another
-// field is a zig-zag; both stay plain, which leaves one attribute per value.
+// field is a zig-zag; both stay one cell, which leaves one attribute per
+// value.
 std::optional<unsigned> joinedAt(Which ctor, ArrayAttr fields) {
   std::optional<unsigned> at;
   for (auto [index, field] : llvm::enumerate(fields)) {
@@ -75,139 +75,132 @@ std::optional<unsigned> joinedAt(Which ctor, ArrayAttr fields) {
       return std::nullopt;
     at = static_cast<unsigned>(index);
   }
-  if (at && continues(cast<ConAttr>(fields[*at]), *at, fields.size() - 1))
+  if (at && continues(cast<ConAttr>(fields[*at]), *at))
     return at;
   return std::nullopt;
 }
 
-// Appends the cells `next` brings to a run along `at`, and returns what
-// follows them.
-Attribute takeCells(ConAttr next, unsigned at, SmallVectorImpl<ArrayAttr> &cells) {
-  if (next.isRun()) {
-    llvm::append_range(cells, next.getCells());
-    return next.getTail();
-  }
-  ArrayAttr last = next.getCells().front();
-  cells.push_back(dropField(last, at));
-  return last[at];
-}
-
-// The stored parameters of `ctor` over `fields`, in the one form `get`
-// gives them.
-struct Parts {
+// The cells of `ctor` over `fields` and their spine, in the one form `get`
+// gives them: the fields as one cell, or, where a field continues them, the
+// fields but that one and then the cells of the run it is.
+struct Run {
   SmallVector<ArrayAttr> cells;
-  Attribute tail;
   unsigned spine = 0;
 };
 
-Parts canonical(Which ctor, ArrayAttr fields) {
-  Parts parts;
+Run canonical(Which ctor, ArrayAttr fields) {
   std::optional<unsigned> at = joinedAt(ctor, fields);
-  if (!at) {
-    parts.cells.push_back(fields);
-    return parts;
-  }
-  parts.cells.push_back(dropField(fields, *at));
-  parts.tail = takeCells(cast<ConAttr>(fields[*at]), *at, parts.cells);
-  parts.spine = *at;
-  return parts;
+  if (!at)
+    return {{fields}, 0};
+  Run run{{dropField(fields, *at)}, *at};
+  llvm::append_range(run.cells, cast<ConAttr>(fields[*at]).getCells());
+  return run;
 }
 
-// That `cells` can be linked through field `spine`: each holds the same
-// fields but the spine, which goes among them.
-LogicalResult verifyCells(function_ref<InFlightDiagnostic()> emitError, unsigned spine,
-                          ArrayRef<ArrayAttr> cells) {
+// That `cells`, linked through field `spine`, are cells of the constructor
+// `tag` of `data`: one or more, the last holding every field and every
+// other every field but the spine, which is one of them. One cell runs
+// along no field, which is spine 0.
+LogicalResult verifyShape(function_ref<InFlightDiagnostic()> emitError, DataType data, Tag tag,
+                          ArrayRef<ArrayAttr> cells, unsigned spine) {
+  if (static_cast<uint32_t>(tag) >= data.getCtors().size())
+    return emitError() << "expects a constructor of \"" << data.getName() << "\", which has "
+                       << data.getCtors().size() << ", got the tag "
+                       << static_cast<uint32_t>(tag);
+  const Ctor &ctor = data.getCtor(tag);
+  StringRef spelled = ctor.name.getValue();
+  size_t width = ctor.fields.size();
   if (cells.empty())
-    return emitError() << "expects a run of at least one cell";
-  size_t width = cells.front().size();
-  if (llvm::any_of(cells, [&](ArrayAttr cell) { return cell.size() != width; }))
-    return emitError() << "expects the cells of a run to have one width";
-  if (spine > width)
-    return emitError() << "expects a run's spine to be at most its cells' width " << width
-                       << ", got " << spine;
+    return emitError() << "expects @" << spelled << " to be at least one cell";
+  if (cells.back().size() != width)
+    return emitError() << "expects the last cell of @" << spelled << " to hold its " << width
+                       << " fields";
+  if (cells.size() == 1) {
+    if (spine != 0)
+      return emitError() << "expects @" << spelled
+                         << " of one cell to run along no field, got field " << spine;
+    return success();
+  }
+  if (spine >= width)
+    return emitError() << "expects a run of @" << spelled << " along one of its " << width
+                       << " fields, got field " << spine;
+  if (llvm::any_of(cells.drop_back(), [&](ArrayAttr cell) { return cell.size() + 1 != width; }))
+    return emitError() << "expects each cell of @" << spelled << " but the last to hold its "
+                       << width << " fields but the spine";
   return success();
 }
 
 } // namespace
 
 ConAttr ConAttr::get(MLIRContext *context, DataType data, Tag tag, ArrayAttr fields) {
-  Parts parts = canonical({data, tag}, fields);
-  return getStored(context, data, tag, parts.cells, parts.tail, parts.spine,
-                   NoneType::get(context));
+  Run run = canonical({data, tag}, fields);
+  return getStored(context, data, tag, run.cells, run.spine);
 }
 
 ConAttr ConAttr::getChecked(function_ref<InFlightDiagnostic()> emitError, MLIRContext *context,
                             DataType data, Tag tag, ArrayAttr fields) {
-  Parts parts = canonical({data, tag}, fields);
-  return getStoredChecked(emitError, context, data, tag, parts.cells, parts.tail, parts.spine,
-                          NoneType::get(context));
+  if (failed(verifyShape(emitError, data, tag, {fields}, 0)))
+    return {};
+  return get(context, data, tag, fields);
 }
 
-// From the last cell back, the cells that so far form one run with what
-// follows them stay unbuilt, so that each cell costs its fields, not the
-// run's length, as a `get` per cell would. A cell that holds a constructor
-// of its own ends the run there, and `get` decides what it makes.
+// From the last cell back: `rest` is what the cells after this one make,
+// and `pending` the cells before it, last first, that continue it as one
+// run, unbuilt until the run ends, so that each cell costs its fields, not
+// the run's length, as a `get` per cell would. A cell that holds a
+// constructor of its own, or that `rest` does not continue along the spine,
+// ends the run there, and `get` decides what it makes: one cell, since its
+// constructor is held twice or does not continue.
 ConAttr ConAttr::getRun(MLIRContext *context, DataType data, Tag tag, unsigned spine,
-                        ArrayRef<ArrayAttr> cells, Attribute tail) {
+                        ArrayRef<ArrayAttr> cells) {
+  assert(!cells.empty() && "a constructor is at least one cell");
   Which which{data, tag};
-  assert(!cells.empty() && tail && "a run is at least one cell and a tail");
-  size_t width = cells.front().size();
-  // The unbuilt cells, last first, and what follows them, which is never a
-  // constructor of `ctor` while there are any.
+  ConAttr rest = get(context, data, tag, cells.back());
   SmallVector<ArrayAttr> pending;
-  Attribute rest = tail;
   auto build = [&] {
     if (pending.empty())
       return;
-    if (pending.size() == 1) {
-      rest = get(context, data, tag, insertField(pending.front(), spine, rest));
-    } else {
-      SmallVector<ArrayAttr> run(llvm::reverse(pending));
-      rest = getStored(context, data, tag, run, rest, spine, NoneType::get(context));
-    }
+    SmallVector<ArrayAttr> run(llvm::reverse(pending));
+    llvm::append_range(run, rest.getCells());
+    rest = getStored(context, data, tag, run, spine);
     pending.clear();
   };
-  for (ArrayAttr cell : llvm::reverse(cells)) {
-    assert(cell.size() == width && "the cells of a run have one width");
-    ConAttr next = pending.empty() ? conOf(rest, which) : ConAttr();
-    if (holdsConOf(cell, which) || (next && !continues(next, spine, width))) {
+  for (ArrayAttr cell : llvm::reverse(cells.drop_back())) {
+    if (holdsConOf(cell, which) || (pending.empty() && !continues(rest, spine))) {
       build();
       rest = get(context, data, tag, insertField(cell, spine, rest));
       continue;
     }
-    if (next) {
-      SmallVector<ArrayAttr> taken;
-      rest = takeCells(next, spine, taken);
-      pending.append(taken.rbegin(), taken.rend());
-    }
     pending.push_back(cell);
   }
   build();
-  return cast<ConAttr>(rest);
+  return rest;
 }
 
 const Ctor &ConAttr::getCtor() const { return getData().getCtor(getTag()); }
 
+void ConAttr::walkFields(function_ref<void(Attribute, unsigned)> each) const {
+  for (auto [cell, fields] : llvm::enumerate(getCells()))
+    for (auto [position, field] : llvm::enumerate(fields))
+      each(field, fieldOfCell(static_cast<unsigned>(cell), static_cast<unsigned>(position)));
+}
+
 Attribute ConAttr::getField(unsigned index) const {
-  ArrayAttr first = getCells().front();
+  ArrayRef<ArrayAttr> cells = getCells();
   unsigned spine = getSpine();
-  if (!isRun() || index < spine)
-    return first[index];
-  if (index > spine)
-    return first[index - 1];
+  if (cells.size() == 1)
+    return cells.front()[index];
+  if (index != spine)
+    return cells.front()[index < spine ? index : index - 1];
   // The run from the second cell, canonical as this one is: two cells or
-  // more stay a run, and the last cell alone is a plain con.
-  MLIRContext *ctx = getContext();
-  ArrayRef<ArrayAttr> rest = getCells().drop_front();
-  if (rest.size() > 1)
-    return getStored(ctx, getData(), getTag(), rest, getTail(), spine, NoneType::get(ctx));
-  ArrayAttr last = insertField(rest.front(), spine, getTail());
-  return getStored(ctx, getData(), getTag(), last, Attribute(), 0, NoneType::get(ctx));
+  // more stay a run, and the last cell alone is one cell, along no field.
+  ArrayRef<ArrayAttr> rest = cells.drop_front();
+  return getStored(getContext(), getData(), getTag(), rest, rest.size() == 1 ? 0 : spine);
 }
 
 ArrayAttr ConAttr::getFields() const {
   ArrayAttr first = getCells().front();
-  if (!isRun())
+  if (getRunLength() == 1)
     return first;
   return insertField(first, getSpine(), getField(getSpine()));
 }
@@ -215,78 +208,44 @@ ArrayAttr ConAttr::getFields() const {
 // One value has one attribute, the one `get` and `getRun` build, so that
 // equal constants are equal attributes. A replace of a sub-element rebuilds
 // from the replaced parameters without canonicalizing, and is caught here.
-// The constructor is one of its type's, and every cell holds its fields.
 LogicalResult ConAttr::verify(function_ref<InFlightDiagnostic()> emitError, DataType data,
-                              Tag tag, ArrayRef<ArrayAttr> cells, Attribute tail,
-                              unsigned spine, Type) {
-  if (static_cast<uint32_t>(tag) >= data.getCtors().size())
-    return emitError() << "expects a constructor of \"" << data.getName() << "\", which has "
-                       << data.getCtors().size() << ", got the tag "
-                       << static_cast<uint32_t>(tag);
-  const Ctor &ctor = data.getCtor(tag);
-  StringRef spelled = ctor.name.getValue();
-  // A run's cells hold every field but the spine.
-  size_t width = ctor.fields.size() - (tail ? 1 : 0);
-  if ((tail && ctor.fields.empty()) ||
-      llvm::any_of(cells, [&](ArrayAttr cell) { return cell.size() != width; }))
-    return emitError() << "expects each cell of @" << spelled << " to hold its "
-                       << ctor.fields.size() << " fields" << (tail ? " but the spine" : "");
+                              Tag tag, ArrayRef<ArrayAttr> cells, unsigned spine) {
+  if (failed(verifyShape(emitError, data, tag, cells, spine)))
+    return failure();
   Which which{data, tag};
-  if (!tail) {
-    if (cells.size() != 1 || spine != 0)
-      return emitError() << "expects a plain constructor to hold its fields as one cell, "
-                            "along spine 0";
+  StringRef spelled = data.getCtor(tag).name.getValue();
+  // One cell is what `get` makes of its fields unless one of them continues
+  // it; it may hold its own constructor where none does (a node of a tree).
+  // The cells of a run hold none: one would be more of the run, which
+  // `getRun` takes in, or a field that keeps its cell apart under `get`.
+  if (cells.size() == 1) {
     if (std::optional<unsigned> at = joinedAt(which, cells.front()))
       return emitError() << "expects @" << spelled << " whose field " << *at
-                         << " continues it as a run, not as a plain constructor";
+                         << " continues it as a run, not as one cell";
     return success();
   }
-  if (cells.size() < 2)
-    return emitError() << "expects a run of at least two cells";
-  if (failed(verifyCells(emitError, spine, cells)))
-    return failure();
-  // A constructor of the run's own in a cell or as its tail is either more
-  // of the run, which `getRun` takes in, or a field that keeps a cell plain
-  // under `get`.
-  if (llvm::any_of(cells, [&](ArrayAttr cell) { return holdsConOf(cell, which); }) ||
-      conOf(tail, which))
-    return emitError() << "expects a run of @" << spelled << " whose cells and tail hold no @"
-                       << spelled << " of their own";
+  if (llvm::any_of(cells, [&](ArrayAttr cell) { return holdsConOf(cell, which); }))
+    return emitError() << "expects a run of @" << spelled << " whose cells hold no @" << spelled
+                       << " of their own";
   return success();
 }
 
-// The stored parameters, as written: a plain constructor's one cell, or a
-// run's cells, its tail and the field it runs along. Either is read into the
-// one form `get` builds, so a value has one attribute however it is
-// written: nested plain constructors that form a run become one, and a run
-// that is one cell is a plain constructor.
+// The stored parameters, as written: a constructor's cells and the field
+// they run along. They are read into the one form `get` builds, so a value
+// has one attribute however it is written: nested cells that form a run
+// become one.
 ConAttr ConAttr::getChecked(function_ref<InFlightDiagnostic()> emitError, MLIRContext *context,
-                            DataType data, Tag tag, ArrayRef<ArrayAttr> cells,
-                            Attribute tail, unsigned spine, Type type) {
-  ConAttr con;
-  if (tail) {
-    if (failed(verifyCells(emitError, spine, cells)))
-      return {};
-    con = getRun(context, data, tag, spine, cells, tail);
-  } else if (cells.size() != 1 || spine != 0) {
-    emitError() << "expects a constructor without a tail to be one cell, along spine 0";
+                            DataType data, Tag tag, ArrayRef<ArrayAttr> cells, unsigned spine) {
+  if (failed(verifyShape(emitError, data, tag, cells, spine)))
     return {};
-  } else {
-    con = getChecked(emitError, context, data, tag, cells.front());
-  }
-  // MLIR's parser hands the type after an attribute to the attribute; the
-  // constant that holds it takes it from there.
-  if (!con || !type || isa<NoneType>(type))
-    return con;
-  return getStoredChecked(emitError, context, con.getData(), con.getTag(), con.getCells(),
-                          con.getTail(), con.getSpine(), type);
+  return getRun(context, data, tag, spine, cells);
 }
 
-// `<!T, @C, [fields]>`, or `<!T, @C, [a], [b] tail t along 1>`: the data
-// type, the constructor's name in it, the cells, and for a run its tail and
-// the field it runs along, `along 0` left out. Each optional group starts
-// with its keyword, so the cells, a list without brackets, end at it.
-Attribute ConAttr::parse(AsmParser &parser, Type type) {
+// `<!T, @C, [fields]>`, or `<!T, @C, [a], [b, t] along 1>`: the data type,
+// the constructor's name in it, the cells, and the field they run along,
+// `along 0` left out. The cells, a list without brackets, end at the
+// keyword or at `>`.
+Attribute ConAttr::parse(AsmParser &parser, Type) {
   SMLoc loc = parser.getCurrentLocation();
   Type written;
   IntegerAttr tag;
@@ -301,17 +260,13 @@ Attribute ConAttr::parse(AsmParser &parser, Type type) {
   if (parseCtorRef(parser, data, tag) || parser.parseComma() ||
       parser.parseCommaSeparatedList([&]() { return parser.parseAttribute(cells.emplace_back()); }))
     return {};
-  Attribute tail;
   unsigned spine = 0;
-  if (succeeded(parser.parseOptionalKeyword("tail")) && parser.parseAttribute(tail))
-    return {};
   if (succeeded(parser.parseOptionalKeyword("along")) && parser.parseInteger(spine))
     return {};
   if (parser.parseGreater())
     return {};
   return getChecked([&] { return parser.emitError(loc); }, parser.getContext(), data,
-                    Tag{static_cast<uint32_t>(tag.getInt())}, ArrayRef<ArrayAttr>(cells), tail,
-                    spine, type);
+                    Tag{static_cast<uint32_t>(tag.getInt())}, ArrayRef<ArrayAttr>(cells), spine);
 }
 
 void ConAttr::print(AsmPrinter &printer) const {
@@ -321,10 +276,6 @@ void ConAttr::print(AsmPrinter &printer) const {
   printer.printSymbolName(getCtor().name.getValue());
   printer << ", ";
   llvm::interleaveComma(getCells(), printer, [&](ArrayAttr cell) { printer.printAttribute(cell); });
-  if (Attribute tail = getTail()) {
-    printer << " tail ";
-    printer.printAttribute(tail);
-  }
   if (unsigned spine = getSpine())
     printer << " along " << spine;
   printer << '>';

@@ -1,9 +1,9 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize --mlir-disable-threading -o %t.serial.mlir
+// NEEDS-ACCEPTANCE: that idr-optimize ends on recursions whose static argument changes at every call: a key that differs from an earlier one only in its scalars is lifted to the key with those scalars as parameters (its holes counted by position, S22), one with more structure is refused and its call stays a call, and each function is specialized at most one step deep; the same output at one thread and many with the node lifecycle as one state (transforms-a-10); symbol-dce after idr-optimize, as the pipeline runs it (S2's default argument, ir-ods-8's type-first constant, S18's constant compared by its cells).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' --mlir-disable-threading -o %t.serial.mlir
 // RUN: cmp %t.mlir %t.serial.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=calls=@Main.main:@grow,specialized-once=@grow,calls=@Main.main:@float,specialized-once=@float,calls=@Main.main:@spell,specialized-once=@spell,calls=@Main.main:@down,specialized-once=@down -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=reaches=@Main.main:@step,specialized-once=@step -o /dev/null
-// NEEDS-ACCEPTANCE: that idr-optimize ends on recursions whose static argument changes at every call: a key that differs from an earlier one only in its scalars is lifted to the key with those scalars as parameters, one with more structure is refused and its call stays a call, and each function is specialized at most one step deep.
 // A recursion whose argument the caller knows but the callee changes at
 // every call asks for a specialization of the next step from the last.
 // Each request is kept with the requests before it. One whose key has the
@@ -96,12 +96,12 @@ idr.program @"specialize-ends" root(@Main.main) stage(higher) {
     return %k : !idr.fn<(!idr.world) -> (!IORes)>
   }
   idr.func @Main.main(%w: !idr.world) -> !IORes {
-    %nil = idr.constant #idr.con<!L, @Nil, []> : !idr.box<!L>
+    %nil = idr.constant !idr.box<!L> #idr.con<!L, @Nil, []>
     %a = idr.call @grow(%nil) : (!idr.box<!L>) -> i64
     %zero = arith.constant 0.0 : f64
     %jd = idr.con !MaybeD @Just(%zero : f64)
     %b = idr.call @float(%jd) : (!MaybeD) -> i64
-    %ab = idr.constant "ab" : !idr.str
+    %ab = idr.constant !idr.str "ab"
     %js = idr.con !MaybeS @Some(%ab : !idr.str)
     %c = idr.call @spell(%js) : (!MaybeS) -> i64
     %million = arith.constant 1000000 : i64

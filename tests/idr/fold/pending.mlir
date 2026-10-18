@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: each constant written with its type first, idr.constant <type> <value>, folds and is read back as before.
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns=@direct:_/_,reads-fields=@direct,returns=@through_match:_/_,matches-nothing=@through_match,reads-fields=@through_match,returns=@at_grade:_,reads-fields=@at_grade -o /dev/null
 // NEEDS-ACCEPTANCE: the destination results of idr.con with a hole, and that canonicalize folds the fields given and keeps the read of the hole.
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
@@ -24,7 +25,7 @@ idr.program @pending root(@root) stage(first) {
     %r:2 = idr.match %c : !idr.box<!List> -> (i64, !idr.box<!List>) {
     case @Nil() {
       %zero = arith.constant 0 : i64
-      %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
+      %nil = idr.constant !idr.box<!List> #idr.con<!List, @Nil, []>
       idr.yield %zero, %nil : i64, !idr.box<!List>
     }
     case @Cons(%h: i64, %t: !idr.box<!List>) {

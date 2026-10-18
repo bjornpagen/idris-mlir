@@ -9,7 +9,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Func.h"
 
-#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/InliningUtils.h"
@@ -23,22 +22,19 @@ namespace {
 struct IdrInlinerInterface : DialectInlinerInterface {
   using DialectInlinerInterface::DialectInlinerInterface;
 
+  // Every call may go anywhere. A callee's body is one block, its region's
+  // constraint, so it goes in as that block: on the fast path when it ends
+  // in idr.return; and, when it ends in ub.unreachable, which does not
+  // return, by the ub dialect's own hooks, as that block and the rest of
+  // the caller's block after it, which nothing reaches and which each site
+  // that inlines erases after its loop with upstream's
+  // eraseUnreachableBlocks, nested regions included, so every region is
+  // one block again.
   bool isLegalToInline(Operation *, Operation *, bool) const final { return true; }
   bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final { return true; }
   bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final { return true; }
 
-  // A callee of several blocks: each return becomes a branch to the block
-  // after the call, which takes the returned values as its arguments.
-  void handleTerminator(Operation *op, Block *newDest) const final {
-    auto ret = dyn_cast<ReturnOp>(op);
-    if (!ret)
-      return;
-    OpBuilder builder(op);
-    cf::BranchOp::create(builder, op->getLoc(), newDest, ret.getOperands());
-    op->erase();
-  }
-
-  // A callee of one block: the call's results are what its return gives
+  // The callee's one block: the call's results are what its return gives
   // back, and the inliner erases the return.
   void handleTerminator(Operation *op, ValueRange valuesToRepl) const final {
     auto ret = cast<ReturnOp>(op);

@@ -268,7 +268,7 @@ struct ScheduleLibrary : DialectExtension<ScheduleLibrary, transform::TransformD
     OwningOpRef<ModuleOp> library =
         parseSourceString<ModuleOp>(text, ParserConfig(context), "idr-schedules");
     if (!library || failed(dialect->loadIntoLibraryModule(std::move(library))))
-      emitError(UnknownLoc::get(context)) << "internal error: the schedule library does not load";
+      emitError(UnknownLoc::get(context)) << "the schedule library does not load";
   }
 };
 

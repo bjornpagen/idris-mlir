@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=results-used=@unused,matches=@unused,\
 // RUN: returns-argument=@same:1,matches-nothing=@same,results-used=@dead,crash-sites=@dead:1 -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // Results no one uses are dropped, and a result that every region yields
 // from the same outer value is that value (upstream's region patterns).
 
@@ -39,7 +39,7 @@ idr.program @"match-results" root(@root) stage(first) {
     case 0 {
       idr.yield %n : i64
     }
-    default {
+    default(%d: i64) {
       %m = arith.muli %n, %n : i64
       idr.yield %m : i64
     }
@@ -48,7 +48,7 @@ idr.program @"match-results" root(@root) stage(first) {
     case 0 {
       idr.yield %n : i64
     }
-    default {
+    default(%d1: i64) {
       idr.crash "no"
       ub.unreachable
     }

@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=grows-nothing=@chain:%s,builds=@all_constant,\
 // RUN: builds-where-used=@one_region,builds-where-used=@two_regions,calls-closed=@closed_call:@twice,\
 // RUN: grows-nothing=@open_call:%s -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // A consumer moves into the regions of a match only where it then folds or
 // canonicalizes against what it meets there. A constructor that holds a
 // value beside a field that is not a constant folds against nothing,
@@ -23,7 +23,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
       %k = arith.constant 97 : i32
       idr.yield %k : i32
     }
-    default {
+    default(%d: i64) {
       %k = arith.constant 99 : i32
       idr.yield %k : i32
     }
@@ -34,7 +34,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
       %k = arith.constant 103 : i32
       idr.yield %k : i32
     }
-    default {
+    default(%d1: i64) {
       %k = arith.constant 116 : i32
       idr.yield %k : i32
     }
@@ -45,7 +45,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
       %k = arith.constant 97 : i32
       idr.yield %k : i32
     }
-    default {
+    default(%d2: i64) {
       %k = arith.constant 116 : i32
       idr.yield %k : i32
     }
@@ -64,7 +64,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
       %k = arith.constant 97 : i32
       idr.yield %k : i32
     }
-    default {
+    default(%d: i64) {
       %k = arith.constant 99 : i32
       idr.yield %k : i32
     }
@@ -81,7 +81,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
     case 0 {
       idr.yield %l : !idr.box<!List>
     }
-    default {
+    default(%d: i64) {
       idr.yield %t : !idr.box<!List>
     }
     }
@@ -98,7 +98,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
       %m = idr.con !idr.box<!List> @Cons(%k : i32, %l : !idr.box<!List>)
       idr.yield %m : !idr.box<!List>
     }
-    default {
+    default(%d: i64) {
       %k = arith.constant 99 : i32
       %m = idr.con !idr.box<!List> @Cons(%k : i32, %l : !idr.box<!List>)
       idr.yield %m : !idr.box<!List>
@@ -111,7 +111,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
   // compile-time evaluation computes it: every call of it is closed. One that
   // passes the choice on beside an argument that is not constant stays after
   // the match, called once, so the function grows nothing. A call moves only
-  // when its callee's effects say it only computes.
+  // when its own effects say it only computes.
   idr.func @twice(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
     %r = arith.addi %x, %x : i64
     return %r : i64
@@ -126,7 +126,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
       %k = arith.constant 1 : i64
       idr.yield %k : i64
     }
-    default {
+    default(%d: i64) {
       %k = arith.constant 2 : i64
       idr.yield %k : i64
     }
@@ -140,7 +140,7 @@ idr.program @"held-not-read" root(@root) stage(first) {
       %k = arith.constant 1 : i64
       idr.yield %k : i64
     }
-    default {
+    default(%d: i64) {
       %k = arith.constant 2 : i64
       idr.yield %k : i64
     }

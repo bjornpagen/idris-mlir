@@ -27,14 +27,9 @@ namespace rt::big {
 inline constexpr double smallBound = 0x1p62;
 static_assert(smallBound == -static_cast<double>(IDRIS_RT_SMALL_MIN));
 
-inline bool isSmall(idris_rt_big a) { return (a & 1) != 0; }
 // Both small, in one test of the two words' tag bits.
-inline bool bothSmall(idris_rt_big a, idris_rt_big b) { return (a & b & 1) != 0; }
-inline int64_t smallValue(idris_rt_big a) { return a >> 1; }
+inline bool bothSmall(idris_rt_big a, idris_rt_big b) { return idris_rt_word_is_small(a & b); }
 inline bool fits(int64_t v) { return v >= IDRIS_RT_SMALL_MIN && v <= IDRIS_RT_SMALL_MAX; }
-inline idris_rt_big small(int64_t v) {
-  return static_cast<idris_rt_big>(static_cast<uint64_t>(v) << 1 | 1);
-}
 
 inline const idris_rt_bignum *bignum(idris_rt_big a) {
   return reinterpret_cast<const idris_rt_bignum *>(a);
@@ -46,15 +41,15 @@ inline const mp_limb_t *limbsOf(const idris_rt_bignum *b) {
 
 // A large big is never 0, which is small: its size's sign is its own.
 inline int32_t signOf(idris_rt_big a) {
-  if (isSmall(a))
-    return smallValue(a) < 0 ? -1 : smallValue(a) > 0 ? 1 : 0;
+  if (idris_rt_word_is_small(a))
+    return idris_rt_small_value(a) < 0 ? -1 : idris_rt_small_value(a) > 0 ? 1 : 0;
   return bignum(a)->size < 0 ? -1 : 1;
 }
 
 // A reference to `a` itself that the caller owns: a small big is its word,
 // and a large one gets one more reference.
 inline idris_rt_big owned(idris_rt_big a) {
-  if (!isSmall(a))
+  if (!idris_rt_word_is_small(a))
     rt::rc::incCell(bignum(a));
   return a;
 }
@@ -97,7 +92,9 @@ private:
 // A machine integer as a big: its small word, inline, or a large one, which
 // only a value outside 63 bits needs (Operands.cpp).
 idris_rt_big largeOfInt64(int64_t v);
-inline idris_rt_big ofInt64(int64_t v) { return fits(v) ? small(v) : largeOfInt64(v); }
+inline idris_rt_big ofInt64(int64_t v) {
+  return fits(v) ? idris_rt_small_word(v) : largeOfInt64(v);
+}
 
 // The ops whose small case is a word op are split in two. The C entry is
 // the small path, always inlined wherever the runtime's bitcode is joined:

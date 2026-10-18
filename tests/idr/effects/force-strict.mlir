@@ -1,5 +1,5 @@
-// RUN: idris-mlir-opt %s --idr-expect=holds=facts-as-marked -o /dev/null
-// NEEDS-ACCEPTANCE: the effects idr.force declares before defunctionalization.
+// NEEDS-ACCEPTANCE: the effects idr.force declares before defunctionalization, as test-idr-facts reports what it answers.
+// RUN: idris-mlir-opt %s --test-idr-facts -verify-diagnostics=only-expected -o /dev/null
 // Before defunctionalization a force is strict like a call: it runs its
 // suspension's code, which may crash or not return, so it may be delayed
 // but neither moved, dropped nor merged with another force of the same
@@ -11,8 +11,10 @@ idr.program @"force-strict" root(@main) stage(higher) {
     ub.unreachable
   }
   idr.func @twice(%t: !idr.lazy<i64>) -> i64 {
-    %a = idr.force %t {expect.facts = "delay"} : !idr.lazy<i64> -> i64
-    %b = idr.force %t {expect.facts = "delay"} : !idr.lazy<i64> -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %a = idr.force %t : !idr.lazy<i64> -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %b = idr.force %t : !idr.lazy<i64> -> i64
     %s = arith.addi %a, %b : i64
     return %s : i64
   }

@@ -8,19 +8,18 @@
 
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/IR/SymbolTable.h"
-
 namespace idr::conversion {
 
-// Every idr.func of `program` becomes, where it is, a func.func at the
-// same location, of the same type, named by its mangled symbol, with its
-// body and none of its facts: private, but for the program's root, which
-// the outside enters and so stays public. The program's root then names it
-// by that name. Every idr.call becomes a func.call of the mangled callee,
-// and every idr.return a func.return. `symbols`, the program's table,
-// follows each function under its new name. Fails, having reported it,
-// where a name meets another symbol of the program.
-mlir::LogicalResult lowerFunctions(ProgramOp program, mlir::SymbolTable &symbols);
+// Every function of `program` takes its mangled name, at every use of it
+// (the program's root, each call, any other reference): one map, from each
+// idr.func's name to its mangling, applied once by MLIR's replacer. Then
+// every idr.func becomes, where it is, a func.func at the same location, of
+// the same type, under that name, with its body and none of its facts:
+// private, but for the program's root, which the outside enters and so stays
+// public. Every idr.call becomes a func.call and every idr.return a
+// func.return. Fails, having reported it, where a mangled name is the name
+// of another symbol of the program.
+mlir::LogicalResult lowerFunctions(ProgramOp program);
 
 } // namespace idr::conversion
 

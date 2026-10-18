@@ -15,9 +15,9 @@ namespace idr::expect {
 
 // Every symbol of the program's own table is in letters, digits, `_`, `.`
 // and `$`.
-LogicalResult linkerNames(ModuleOp module, AnalysisManager &, StringRef) {
+LogicalResult linkerNames(const Request<Nothing> &request) {
   bool held = true;
-  for (Operation &op : programOf(module)->getRegion(0).getOps()) {
+  for (Operation &op : programOf(request.module)->getRegion(0).getOps()) {
     auto symbol = dyn_cast<SymbolOpInterface>(op);
     if (!symbol)
       continue;
@@ -25,8 +25,8 @@ LogicalResult linkerNames(ModuleOp module, AnalysisManager &, StringRef) {
     auto spelled = [](char c) { return llvm::isAlnum(c) || c == '_' || c == '.' || c == '$'; };
     if (llvm::all_of(name, spelled))
       continue;
-    fail(op.getLoc(), "linker-names") << "@" << name
-                                      << " is written outside the linker's alphabet";
+    fail(op.getLoc(), request.property) << "@" << name
+                                        << " is written outside the linker's alphabet";
     held = false;
   }
   return success(held);

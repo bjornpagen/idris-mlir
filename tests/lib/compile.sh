@@ -110,11 +110,3 @@ no_artifacts() {
     say "artifacts left after a rejection: $(printf '%s\n' "$no_artifacts_left" | tr '\n' ' ')"
   fi
 }
-
-# rejection_reason: the reason of a user error in the last compilation's
-# output, `unsupported (<reason>)` with <reason> a rule's phrase
-# (lib/rules.sh), or nothing.
-rejection_reason() {
-  rejection_rule=$(cat "$work/compile.out" "$work/compile.err" | refusal_rule)
-  [ -z "$rejection_rule" ] || say "unsupported ($rejection_rule)"
-}

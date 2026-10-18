@@ -32,9 +32,16 @@ void reportLiveCells() {
 
 } // namespace
 
-// The handle table goes before the count: the strings the runtime keeps for
-// the environment and for directories are its own, not cells the program
-// left live.
+// What @main calls right before it returns: writes pending output and
+// releases the handle table (its files, directories, and the strings the
+// runtime holds for environment and directory handles, which are then not
+// counted as live), then, when the environment variable IDRIS_RT_LIVE is
+// exactly "1", writes the line "idris-rt: live cells N\n" (N in decimal,
+// idris_rt_live_cells) to standard error, so a test can check that a program
+// frees every cell it allocates. A crash reports nothing, and neither does
+// idris_rt_io_exit. The handle table goes before the count: the strings the
+// runtime keeps for the environment and for directories are its own, not
+// cells the program left live.
 extern "C" void idris_rt_main_return(void) {
   idris_rt_flush();
   rt::io::releaseHandles();
@@ -42,9 +49,10 @@ extern "C" void idris_rt_main_return(void) {
 }
 
 // Base's exit: what main's return writes, standard output's buffer and every
-// open file's, and then the end, with no count: a program that exits with
-// cells still live has not leaked them. A status no parent could read is
-// then a crash that names it, as main's return is, after the same output.
+// open file's, and then the end with the status, with no count: a program
+// that exits with cells still live has not leaked them. A status no parent
+// could read is then a crash that names it, as main's return is, after the
+// same output.
 extern "C" void idris_rt_io_exit(int64_t status) {
   idris_rt_flush();
   rt::io::releaseHandles();
@@ -52,18 +60,17 @@ extern "C" void idris_rt_io_exit(int64_t status) {
   rt::platform::exitProcess(static_cast<int>(status));
 }
 
-// Lowered code has this one crash entry.
-extern "C" void idris_rt_crash(const char *msg, size_t len) {
+// Lowered code crashes through this one entry: it writes pending output,
+// then the crash's message, `idris-mlir: `, the `len` bytes of `cause` and a
+// newline, to standard error, and ends the process with IDRIS_RT_CRASHED.
+extern "C" void idris_rt_crash(const char *cause, size_t len) {
   idris_rt_flush();
-  rt::platform::writeAll(2, msg, len);
+  rt::platform::Piece piece{cause, len};
+  rt::platform::writeCrash(&piece, 1);
   rt::platform::exitProcess(IDRIS_RT_CRASHED);
 }
 
+// A crash whose cause is the string's bytes.
 extern "C" void idris_rt_crash_str(const idris_rt_str *s) {
-  idris_rt_flush();
-  static constexpr char prefix[] = "idris-mlir: ";
-  rt::platform::writeAll(2, prefix, sizeof prefix - 1);
-  rt::platform::writeAll(2, idris_rt_str_bytes(s), s->bytes);
-  rt::platform::writeAll(2, "\n", 1);
-  rt::platform::exitProcess(IDRIS_RT_CRASHED);
+  idris_rt_crash(idris_rt_str_bytes(s), s->bytes);
 }

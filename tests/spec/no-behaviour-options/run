@@ -16,7 +16,7 @@
 # compiler, and is not searched.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cd "$root" || exit 1
-kept='o c p package-path prefix no-prelude log-actions-tags runtime runtime-bitcode-section
+kept='o c p package-path prefix no-prelude log-actions-tags runtime
 print-runtime prepare-runtime print-target-triple print-link-flags print-target-cpu num-threads
 time-trace time-trace-granularity report idr-contracts'
 

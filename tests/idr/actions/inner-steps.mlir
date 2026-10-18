@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that the root, now the IO root the root rule admits (it prints what it computed), keeps every action of idr-optimize seen at least once.
 // NEEDS-ACCEPTANCE: that skipping idr-optimize-inline, idr-identity-call or idr-constants-replace leaves a module that verifies and differs from the one idr-optimize makes, each action seen at least once.
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.done.mlir
 // RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading -mlir-debug-counter=idr-optimize-inline-count=0 -mlir-print-debug-counter -o %t.idr-optimize-inline.mlir 2> %t.idr-optimize-inline.err
@@ -24,13 +25,13 @@ idr.program @inner root(@main) stage(first) {
   idr.func @weaken(%i: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %i : !idr.nat -> (!idr.nat) {
     case #idr.big<0> {
-      %z = idr.constant #idr.big<0> : !idr.nat
+      %z = idr.constant !idr.nat #idr.big<0>
       idr.yield %z : !idr.nat
     }
-    default {
+    default(%d0: !idr.nat) {
       %k = idr.big.pred %i
       %w = idr.call @weaken(%k) : (!idr.nat) -> !idr.nat
-      %one = idr.constant #idr.big<1> : !idr.nat
+      %one = idr.constant !idr.nat #idr.big<1>
       %s = idr.big.add %w, %one : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -43,7 +44,7 @@ idr.program @inner root(@main) stage(first) {
       %c = arith.constant 7 : i64
       idr.yield %c : i64
     }
-    default {
+    default(%d1: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %x = idr.call @seven(%m) : (i64) -> i64
@@ -52,13 +53,25 @@ idr.program @inner root(@main) stage(first) {
     }
     return %r : i64
   }
-  idr.func @main(%w: !idr.world) -> (i64, !idr.nat, !idr.world) {
+  idr.func @main(%w: !idr.world) -> !idr.world {
     %b, %w1 = idr.io.get_byte %w
     %n = arith.extui %b : i32 to i64
     %r = idr.call @seven(%n) : (i64) -> i64
     %s = idr.call @inc(%r) : (i64) -> i64
-    %three = idr.constant #idr.big<3> : !idr.nat
+    %three = idr.constant !idr.nat #idr.big<3>
     %v = idr.call @weaken(%three) : (!idr.nat) -> !idr.nat
-    return %s, %v, %w1 : i64, !idr.nat, !idr.world
+    %k = idr.match_lit %v : !idr.nat -> (i64) {
+    case #idr.big<3> {
+      %yes = arith.constant 1 : i64
+      idr.yield %yes : i64
+    }
+    default(%other: !idr.nat) {
+      %no = arith.constant 0 : i64
+      idr.yield %no : i64
+    }
+    }
+    %w2 = idr.io.put_sint %s, %w1 : i64
+    %w3 = idr.io.put_sint %k, %w2 : i64
+    return %w3 : !idr.world
   }
 }

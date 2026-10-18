@@ -4,9 +4,13 @@
 // module and makes its root the program's entry.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Symbols.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/Conversion/Passes.h"
+#include "idr/Conversion/Runtime.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
@@ -35,13 +39,10 @@ namespace {
 
 // Every op of the lowered `program` moves into the module before it, each
 // symbol into `symbols`, the module's table, and the program goes; gives
-// its root, which the program names by the lowered function's name.
+// its root. The lowered stage's verifier holds that the root names a
+// func.func of the program.
 FailureOr<func::FuncOp> takeApart(ProgramOp program, SymbolTable &symbols) {
-  auto root =
-      dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(program, program.getRootAttr()));
-  if (!root)
-    return program.emitError() << "internal error: idr-entry: the root @" << program.getRoot()
-                               << " is no function idr-lower lowered";
+  auto root = cast<func::FuncOp>(SymbolTable::lookupSymbolIn(program, program.getRootAttr()));
   SmallVector<Operation *> moved;
   for (Operation &op : llvm::make_early_inc_range(program->getRegion(0).front())) {
     op.moveBefore(program);
@@ -77,69 +78,67 @@ uint64_t requiredCpuFeatures(ModuleOp module) {
   return bits;
 }
 
-// The runtime's C function `name`, declared where the lowering left none.
-// Neither of those the entry calls is a crash or takes an argument narrower
-// than 32 bits, so neither declaration needs an attribute.
-LLVM::LLVMFuncOp runtimeFunction(ModuleOp module, SymbolTable &symbols, StringRef name,
-                                 LLVM::LLVMFunctionType type) {
-  if (auto fn = symbols.lookup<LLVM::LLVMFuncOp>(name))
-    return fn;
-  auto b = OpBuilder::atBlockBegin(module.getBody());
-  auto fn = LLVM::LLVMFuncOp::create(b, module.getLoc(), name, type);
-  symbols.insert(fn);
-  return fn;
-}
-
-// The root becomes private like every other function, and @__idr_main runs
-// it. Its lowered type is its kind: `() -> i64` returns the exit status; an
-// IO root, whose world and unit result lower to nothing, is `() -> ()`, and
-// the status is then 0. Either way @__idr_main then releases what the static
-// thunks hold once forced (@__idr_release_cafs, which idr-lower makes in
-// every program), so that it is not counted as live, and ends in
-// idris_rt_main_return, which writes pending output and, when asked, how
-// many cells are still live. @main hands @__idr_main and the program's
-// arguments to the runtime's entry, idris_rt_start, which runs it on a
-// reserved stack once the CPU has shown it has the features the module's
-// target enables, and which ends a status outside 0 to 255 as a crash.
+// The root becomes private like every other function, and the entry body
+// runs it. The root's kind is the one rule's (rootKind): a Status root
+// returns the exit status; an IO root, whose world and unit result lower to
+// nothing, gives 0. Either way the entry body then releases what the static
+// thunks hold once forced (the release function, which idr-lower makes in
+// every program and which the module's symbol uses hold to exist), so that
+// it is not counted as live, and ends in idris_rt_main_return, which writes
+// pending output and, when asked, how many cells are still live. @main
+// hands the entry body and the program's arguments to the runtime's entry,
+// idris_rt_start, which runs it on a reserved stack once the CPU has shown
+// it has the features the module's target enables, and which ends a status
+// outside 0 to 255 as a crash.
 LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols) {
   FailureOr<func::FuncOp> found = takeApart(program, symbols);
   if (failed(found))
     return failure();
   func::FuncOp root = *found;
-  if (symbols.lookup("main"))
-    return module.emitError("internal error: idr-entry: @main names a symbol already");
-  FunctionType kind = root.getFunctionType();
-  bool status = kind.getNumResults() == 1 && kind.getResult(0).isInteger(64);
-  if (kind.getNumInputs() != 0 || (kind.getNumResults() != 0 && !status))
-    return root.emitError("internal error: idr-entry: the root is neither `() -> i64` nor "
-                          "`() -> ()`");
+  if (symbols.lookup(entrySymbol))
+    return module.emitError() << "internal error: idr-entry: @" << entrySymbol
+                              << " names a symbol already";
+  // The lowered stage's verifier admits a root only of a type rootKind
+  // gives a kind.
+  RootKind kind = *rootKind(root.getFunctionType(), Stage::Lowered);
   root.setPrivate();
 
   MLIRContext *ctx = module.getContext();
   OpBuilder b(ctx);
   Location loc = root.getLoc();
   Type i32 = b.getI32Type(), i64 = b.getI64Type(), ptr = LLVM::LLVMPointerType::get(ctx);
-  LLVM::LLVMFuncOp mainReturn = runtimeFunction(
-      module, symbols, "idris_rt_main_return",
-      LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(ctx), {}));
-  LLVM::LLVMFuncOp start = runtimeFunction(module, symbols, "idris_rt_start",
-                                           LLVM::LLVMFunctionType::get(i32, {ptr, i64, i32, ptr}));
-  auto release = symbols.lookup<func::FuncOp>("__idr_release_cafs");
-  if (!release)
-    return module.emitError("internal error: idr-entry: no @__idr_release_cafs, which "
-                            "idr-lower makes");
+  // The runtime's declaration of `function`: the module's, or a new one at
+  // its start. Only the entry calls these, but the module it is given may
+  // declare them, and the table would rename a second declaration.
+  auto declared = [&](const idr::runtime::Function &function) {
+    if (auto fn = symbols.lookup<LLVM::LLVMFuncOp>(function.symbol))
+      return fn;
+    LLVM::LLVMFuncOp fn = runtimeDeclaration(loc, function);
+    symbols.insert(fn, module.getBody()->begin());
+    return fn;
+  };
+  LLVM::LLVMFuncOp mainReturn = declared(idr::runtime::helper::mainReturn);
+  LLVM::LLVMFuncOp start = declared(idr::runtime::helper::start);
 
   b.setInsertionPointToEnd(module.getBody());
   FunctionType bodyType = b.getFunctionType({}, {i64});
-  auto body = func::FuncOp::create(b, loc, "__idr_main", bodyType);
+  auto body = func::FuncOp::create(b, loc, reservedName("entry", "body"), bodyType);
   body.setPrivate();
   symbols.insert(body);
-  auto main = func::FuncOp::create(b, loc, "main", b.getFunctionType({i32, ptr}, {i32}));
+  auto main = func::FuncOp::create(b, loc, entrySymbol, b.getFunctionType({i32, ptr}, {i32}));
   symbols.insert(main);
   b.setInsertionPointToStart(body.addEntryBlock());
   auto call = func::CallOp::create(b, loc, root, ValueRange{});
-  Value code = status ? Value(call.getResult(0)) : Value(LLVM::ConstantOp::create(b, loc, i64, 0));
-  func::CallOp::create(b, loc, release, ValueRange{});
+  Value code;
+  switch (kind) {
+  case RootKind::Status:
+    code = call.getResult(0);
+    break;
+  case RootKind::IO:
+    code = LLVM::ConstantOp::create(b, loc, i64, 0);
+    break;
+  }
+  func::CallOp::create(b, loc, releaseCafsName(), TypeRange{}, ValueRange{});
   LLVM::CallOp::create(b, loc, mainReturn, ValueRange{});
   func::ReturnOp::create(b, loc, code);
 
@@ -162,12 +161,11 @@ LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols
 struct Entry : idr::impl::IdrEntryBase<Entry> {
   using IdrEntryBase::IdrEntryBase;
 
-  void runOnOperation() override {
+  void runOnProgram(ProgramOp program) override {
     ModuleOp module = getOperation();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
-    for (ProgramOp program : llvm::make_early_inc_range(module.getOps<ProgramOp>()))
-      if (failed(makeEntry(module, program, symbols)))
-        return signalPassFailure();
+    if (failed(makeEntry(module, program, symbols)))
+      return signalPassFailure();
     // Every symbol it adds goes through the table, and no declaration
     // changes.
     markAnalysesPreserved<SymbolTable, Layouts, TypeGraph>();

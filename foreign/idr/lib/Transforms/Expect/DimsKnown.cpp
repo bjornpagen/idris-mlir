@@ -15,19 +15,16 @@ namespace idr::expect {
 
 // In every copy of @f, every dimension op (ShapedDimOpInterface: memref.dim,
 // tensor.dim) asks it of a block argument, not of a value an op made.
-LogicalResult dimsKnown(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "dims-known";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult dimsKnown(const Request<Functions> &request) {
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.functions)
     fn->walk([&](ShapedDimOpInterface dim) {
       Operation *made = dim.getShapedValue().getDefiningOp();
       if (!made)
         return;
-      fail(dim->getLoc(), property) << dim->getName() << " in " << where(fn)
-                                    << " asks an extent of what " << made->getName() << " made";
+      fail(dim->getLoc(), request.property) << dim->getName() << " in " << where(fn)
+                                            << " asks an extent of what " << made->getName()
+                                            << " made";
       held = false;
     });
   return success(held);

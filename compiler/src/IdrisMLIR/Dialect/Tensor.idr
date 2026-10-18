@@ -8,6 +8,9 @@ module IdrisMLIR.Dialect.Tensor
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Tensor
 
+import Data.List
+import Data.Vect
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -54,19 +57,19 @@ emptyOp dynamicSizes result =
 export
 expandShapeOp : (src : Value) -> (reassociation : List MlirAttr) -> (outputShape : List Value) -> (staticOutputShape : List Integer) -> (result : MlirType) -> Op
 expandShapeOp src reassociation outputShape staticOutputShape result =
-  MkOp "tensor.expand_shape" (concat [[src], outputShape]) [("reassociation", ArrayAttr reassociation), ("static_output_shape", DenseI64ArrayAttr staticOutputShape)] [] [] [result]
+  MkOp "tensor.expand_shape" ([src] ++ outputShape) [("reassociation", ArrayAttr reassociation), ("static_output_shape", DenseI64ArrayAttr staticOutputShape)] [] [] [result]
 
 ||| `tensor.extract`: element extraction operation
 export
 extractOp : (tensor : Value) -> (indices : List Value) -> (result : MlirType) -> Op
 extractOp tensor indices result =
-  MkOp "tensor.extract" (concat [[tensor], indices]) [] [] [] [result]
+  MkOp "tensor.extract" ([tensor] ++ indices) [] [] [] [result]
 
 ||| `tensor.extract_slice`: extract slice operation
 export
 extractSliceOp : (source : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : List Integer) -> (staticSizes : List Integer) -> (staticStrides : List Integer) -> (result : MlirType) -> Op
 extractSliceOp source offsets sizes strides staticOffsets staticSizes staticStrides result =
-  MkOp "tensor.extract_slice" (concat [[source], offsets, sizes, strides]) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, length offsets, length sizes, length strides])] [] [] [result]
+  MkOp "tensor.extract_slice" ([source] ++ offsets ++ sizes ++ strides) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, length offsets, length sizes, length strides])] [] [] [result]
 
 ||| `tensor.from_elements`: tensor from elements operation.
 export
@@ -90,25 +93,25 @@ generateOp dynamicExtents body result =
 export
 insertOp : (scalar : Value) -> (dest : Value) -> (indices : List Value) -> (result : MlirType) -> Op
 insertOp scalar dest indices result =
-  MkOp "tensor.insert" (concat [[scalar], [dest], indices]) [] [] [] [result]
+  MkOp "tensor.insert" ([scalar, dest] ++ indices) [] [] [] [result]
 
 ||| `tensor.insert_slice`: insert_slice operation
 export
 insertSliceOp : (source : Value) -> (dest : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : List Integer) -> (staticSizes : List Integer) -> (staticStrides : List Integer) -> (result : MlirType) -> Op
 insertSliceOp source dest offsets sizes strides staticOffsets staticSizes staticStrides result =
-  MkOp "tensor.insert_slice" (concat [[source], [dest], offsets, sizes, strides]) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] [result]
+  MkOp "tensor.insert_slice" ([source, dest] ++ offsets ++ sizes ++ strides) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] [result]
 
 ||| `tensor.pad`: tensor pad operation
 export
 padOp : {default False nofold : Bool} -> (source : Value) -> (low : List Value) -> (high : List Value) -> (staticLow : List Integer) -> (staticHigh : List Integer) -> (region : Region) -> (result : MlirType) -> Op
 padOp source low high staticLow staticHigh region result =
-  MkOp "tensor.pad" (concat [[source], low, high]) ([("static_low", DenseI64ArrayAttr staticLow), ("static_high", DenseI64ArrayAttr staticHigh)] ++ unitIf "nofold" nofold ++ [("operandSegmentSizes", DenseI32ArrayAttr [1, length low, length high])]) [region] [] [result]
+  MkOp "tensor.pad" ([source] ++ low ++ high) ([("static_low", DenseI64ArrayAttr staticLow), ("static_high", DenseI64ArrayAttr staticHigh)] ++ unitIf "nofold" nofold ++ [("operandSegmentSizes", DenseI32ArrayAttr [1, length low, length high])]) [region] [] [result]
 
 ||| `tensor.parallel_insert_slice`: Specify the tensor slice update of a single thread of a parent     InParallelOpInterface op.
 export
 parallelInsertSliceOp : (source : Value) -> (dest : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : List Integer) -> (staticSizes : List Integer) -> (staticStrides : List Integer) -> Op
 parallelInsertSliceOp source dest offsets sizes strides staticOffsets staticSizes staticStrides =
-  MkOp "tensor.parallel_insert_slice" (concat [[source], [dest], offsets, sizes, strides]) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] []
+  MkOp "tensor.parallel_insert_slice" ([source, dest] ++ offsets ++ sizes ++ strides) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] []
 
 ||| `tensor.rank`: rank operation
 export
@@ -132,7 +135,7 @@ scatterOp source dest indices scatterDims result =
 export
 splatOp : (input : Value) -> (dynamicSizes : List Value) -> (aggregate : MlirType) -> Op
 splatOp input dynamicSizes aggregate =
-  MkOp "tensor.splat" (concat [[input], dynamicSizes]) [] [] [] [aggregate]
+  MkOp "tensor.splat" ([input] ++ dynamicSizes) [] [] [] [aggregate]
 
 ||| `tensor.yield`: Yield a value from a region
 export
@@ -140,4 +143,4 @@ yieldOp : (value : Value) -> Op
 yieldOp value =
   MkOp "tensor.yield" [value] [] [] [] []
 
--- fingerprint: 2622458301-759774 1101873536-7955
+-- fingerprint: 2431121270-796506 985679758-7942

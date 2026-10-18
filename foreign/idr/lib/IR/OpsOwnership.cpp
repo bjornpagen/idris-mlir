@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ops of the owned stage: idr.dup, idr.drop, idr.reuse and idr.take,
-// the boundary of a buffer's grade with upstream's ops, idr.own.adopt and
-// idr.own.give, idr.borrow's view, and what the constructors must be: a tag
-// of the value's data type, read from its body, and the types of the
-// fields that move. That a program holding one is in the owned stage is
-// its stage's rule, which the function verifier holds.
+// What idr-rc writes beside idr.cell.init (OpsCon.cpp): which constructor
+// has a cell (buildsCell) and the cell type, whose verifier holds it; the
+// owned stage's idr.dup; the two takes of a constructor value, idr.take of
+// a cell and idr.unpack of a value with none, each inferring its results
+// from the value's type and the constructor; the boundary of a buffer's
+// grade with upstream's ops, idr.own.adopt and idr.own.give; and
+// idr.borrow's view. Which ops a program may hold is its stage's rule,
+// which the program's verifier holds.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Ownership.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -15,19 +18,61 @@
 using namespace mlir;
 using namespace idr;
 
-namespace {
-
-// The type of a field that moves out of a cell, or into one: a field that
-// holds references is owned.
-Type movedField(Type field) { return holdsReferences(field) ? owned(field) : field; }
-
-// Whether a value of `type` moves where `expected` is taken: the same
-// type, or an exclusive value where an owned one is.
-bool movesAs(Type type, Type expected) {
-  return type == expected || (isOwned(expected) && isOwned(type) && view(type) == view(expected));
+bool idr::buildsCell(Type type, Tag tag) {
+  return isBoxed(type) && !dataTypeOf(type).isAtom(tag);
 }
 
-} // namespace
+//===----------------------------------------------------------------------===//
+// !idr.cell
+//===----------------------------------------------------------------------===//
+
+// `!idr.cell<!idr.box<!L>, @Cons>`: the box, then its constructor by name.
+Type CellType::parse(AsmParser &parser) {
+  SMLoc loc = parser.getCurrentLocation();
+  BoxType box;
+  IntegerAttr tag;
+  if (parser.parseLess() || parser.parseType(box) || parser.parseComma() ||
+      parseCtorRef(parser, box, tag) || parser.parseGreater())
+    return {};
+  return getChecked([&] { return parser.emitError(loc); }, parser.getContext(), box,
+                    Tag{static_cast<uint32_t>(tag.getInt())});
+}
+
+void CellType::print(AsmPrinter &printer) const {
+  printer << '<';
+  printer.printType(getBox());
+  printer << ", ";
+  printer.printSymbolName(getBox().getData().getCtor(getTag()).name.getValue());
+  printer << '>';
+}
+
+// A cell is of a constructor of its box's data type that has one: an atom
+// has none.
+LogicalResult CellType::verify(function_ref<InFlightDiagnostic()> emitError, BoxType box,
+                               Tag tag) {
+  DataType data = box.getData();
+  if (static_cast<uint32_t>(tag) >= data.getCtors().size())
+    return emitError() << "names constructor " << static_cast<uint32_t>(tag) << " of \""
+                       << data.getName() << "\", which has " << data.getCtors().size();
+  if (!buildsCell(box, tag))
+    return emitError() << "is a cell of @" << data.getCtor(tag).name.getValue() << ", an atom of \""
+                       << data.getName() << "\", which has no cell";
+  return success();
+}
+
+// A cell is memory whose fields are not written yet: it holds no reference
+// until idr.cell.init writes them, and that init is its one use, which its
+// type alone says. Its source wrote its header, so it is one pointer, never
+// null, to a cell that starts with it.
+bool CellType::holdsReferences() const { return false; }
+bool CellType::holdsWorld() const { return false; }
+bool CellType::isLinearByType() const { return true; }
+bool CellType::isCounted() const { return false; }
+bool CellType::isCellPointer() const { return true; }
+
+//===----------------------------------------------------------------------===//
+// idr.dup
+//===----------------------------------------------------------------------===//
 
 // The result is the value, owned: the value is the result at the
 // permission it holds, a borrow or plain static data, as its type bounds.
@@ -37,83 +82,117 @@ LogicalResult DupOp::verify() {
     return emitOpError("has result ") << getType() << ", which is not " << value << " owned";
   return success();
 }
-LogicalResult DropOp::verify() { return success(); }
 
-DataType ReuseOp::getDataType() { return dataTypeOf(getResult().getType()); }
+//===----------------------------------------------------------------------===//
+// idr.take and idr.unpack
+//===----------------------------------------------------------------------===//
 
-Value ReuseOp::getField(unsigned index) {
-  return idr::detail::givenField(getFields(), getHoles(), index);
+namespace {
+
+// The constructor `tag` of a value of `type`, which a take or an unpack
+// takes apart, or failure after an error at `location`.
+FailureOr<std::reference_wrapper<const Ctor>> takenApart(std::optional<Location> location,
+                                                         Type type, Tag tag) {
+  DataType data = dataTypeOf(type);
+  if (!data)
+    return emitOptionalError(location, "takes apart ", type, ", which is no constructor value");
+  if (static_cast<uint32_t>(tag) >= data.getCtors().size())
+    return emitOptionalError(location, "takes apart constructor ", static_cast<uint32_t>(tag),
+                             " of \"", data.getName(), "\", which has ", data.getCtors().size());
+  return std::cref(data.getCtor(tag));
 }
-Value ReuseOp::getDest(unsigned index) { return idr::detail::holeDest(getDests(), getHoles(), index); }
 
-void ReuseOp::build(OpBuilder &builder, OperationState &state, Type type, Value token,
-                    Tag tag, ValueRange fields, ArrayRef<int32_t> holes) {
-  const Ctor &ctor = dataTypeOf(type).getCtor(tag);
-  SmallVector<Type> dests;
-  for (int32_t hole : holes)
-    dests.push_back(idr::detail::destOf(ctor, hole));
-  build(builder, state, type, dests, token, tag, fields, holes);
+// The fields of `ctor` taken apart from a value of `type`: each read at the
+// value's grade times its own, as a match binds it, and owned where it
+// holds references, which move out with it.
+void appendFields(Type type, const Ctor &ctor, SmallVectorImpl<Type> &results) {
+  for (Type field : ctor.fields) {
+    Type read = fieldType(type, field);
+    results.push_back(holdsReferences(read) ? owned(read) : read);
+  }
 }
 
-// The fields given are the constructor's, owned where they hold
-// references, the holes aside. That the cell fits is the owned stage's
-// rule, which knows the take the token comes from.
-LogicalResult ReuseOp::verify() {
-  FailureOr<std::reference_wrapper<const Ctor>> found =
-      idr::detail::ctorAt(*this, getResult().getType(), getTag());
-  if (failed(found))
-    return failure();
-  const Ctor &ctor = *found;
-  if (ctor.fields.empty())
-    return emitOpError("builds constructor @")
-           << ctor.name.getValue() << ", which has no fields and is its atom";
-  if (failed(idr::detail::verifyHoles(*this, ctor, getHoles(), getFields().size(),
-                                      getDests().getTypes())))
-    return failure();
-  for (auto [index, field] : llvm::enumerate(ctor.fields))
-    if (Value value = getField(static_cast<unsigned>(index)))
-      if (Type expected = movedField(field); !movesAs(value.getType(), expected))
-        return emitOpError("field has type ") << value.getType() << ", expected " << expected;
-  if (!isOwned(getResult().getType()))
-    return emitOpError("builds a cell, which holds a reference: the result is owned");
-  return success();
+// A result inferred owned may be held exclusive, the grade idr-rc's commit
+// writes where it proves one; any other is as inferred.
+bool ownedAlike(Type inferred, Type actual) {
+  return inferred == actual ||
+         (isOwned(inferred) && isOwned(actual) && view(inferred) == view(actual));
 }
+
+// The result types `state` infers, added to it as ODS's own inferring
+// builders add them: a builder given a value it cannot infer from is a bug
+// of its caller's.
+template <typename Op>
+void addInferredTypes(OperationState &state) {
+  SmallVector<Type, 4> types;
+  if (failed(Op::inferReturnTypes(state.getContext(), state.location, state.operands,
+                                  state.attributes.getDictionary(state.getContext()),
+                                  state.getRawProperties(), state.regions, types)))
+    mlir::detail::reportFatalInferReturnTypesError(state);
+  state.addTypes(types);
+}
+
+} // namespace
 
 DataType TakeOp::getDataType() { return dataTypeOf(getValue().getType()); }
+DataType UnpackOp::getDataType() { return dataTypeOf(getValue().getType()); }
 
-// A box's take yields its cell as a token, unless the constructor has no
-// fields: that value is the constructor's atom, which is nobody's to build
-// in, so the take yields nothing.
-Value TakeOp::getToken() {
-  return isa<BoxType>(unrestricted(getValue().getType())) && getNumResults() != 0 ? getResult(0)
-                                                                                   : Value();
-}
-
-ResultRange TakeOp::getFields() { return getResults().drop_front(getToken() ? 1 : 0); }
-
-// A token for a box with fields, then the constructor's fields, owned where
-// they hold references.
-LogicalResult TakeOp::verify() {
-  FailureOr<std::reference_wrapper<const Ctor>> found =
-      idr::detail::ctorAt(*this, getValue().getType(), getTag());
-  if (failed(found))
+// The take of a cell: its token, then its constructor's fields.
+LogicalResult TakeOp::inferReturnTypes(MLIRContext *context, std::optional<Location> location,
+                                       Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
+  Type type = adaptor.getValue().getType();
+  Tag tag = adaptor.getTag();
+  FailureOr<std::reference_wrapper<const Ctor>> ctor = takenApart(location, type, tag);
+  if (failed(ctor))
     return failure();
-  const Ctor &ctor = *found;
-  SmallVector<Type> expected;
-  if (isBoxed(getValue().getType()) && !ctor.fields.empty())
-    expected.push_back(owned(TokenType::get(getContext())));
-  // A field comes out at the value's grade times its own, as a match
-  // binds it.
-  for (Type field : ctor.fields)
-    expected.push_back(movedField(fieldType(getValue().getType(), field)));
-  if (expected.size() != getNumResults() ||
-      !llvm::all_of(llvm::zip(getResultTypes(), expected),
-                    [](auto pair) { return movesAs(std::get<0>(pair), std::get<1>(pair)); }))
-    return emitOpError("has results ")
-           << getResultTypes() << ", but constructor @" << ctor.name.getValue()
-           << " takes apart into " << TypeRange(expected);
+  if (!buildsCell(type, tag))
+    return emitOptionalError(location, "takes the cell of constructor @",
+                             ctor->get().name.getValue(), " of ", type,
+                             ", which has none: idr.unpack takes it apart");
+  inferred.push_back(owned(idr::TokenType::get(context)));
+  appendFields(type, *ctor, inferred);
   return success();
 }
+
+// The take of a value with no cell of its own: its constructor's fields,
+// an unboxed sum's slots, or nothing for an atom.
+LogicalResult UnpackOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
+                                         Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
+  Type type = adaptor.getValue().getType();
+  Tag tag = adaptor.getTag();
+  FailureOr<std::reference_wrapper<const Ctor>> ctor = takenApart(location, type, tag);
+  if (failed(ctor))
+    return failure();
+  if (buildsCell(type, tag))
+    return emitOptionalError(location, "unpacks constructor @", ctor->get().name.getValue(),
+                             " of ", type, ", which has a cell: idr.take takes it apart");
+  appendFields(type, *ctor, inferred);
+  return success();
+}
+
+bool TakeOp::isCompatibleReturnTypes(TypeRange inferred, TypeRange actual) {
+  return llvm::equal(inferred, actual, ownedAlike);
+}
+
+bool UnpackOp::isCompatibleReturnTypes(TypeRange inferred, TypeRange actual) {
+  return llvm::equal(inferred, actual, ownedAlike);
+}
+
+void TakeOp::build(OpBuilder &builder, OperationState &state, Value value, Tag tag) {
+  state.addOperands(value);
+  state.getOrAddProperties<Properties>().tag = builder.getI32IntegerAttr(static_cast<int32_t>(tag));
+  addInferredTypes<TakeOp>(state);
+}
+
+void UnpackOp::build(OpBuilder &builder, OperationState &state, Value value, Tag tag) {
+  state.addOperands(value);
+  state.getOrAddProperties<Properties>().tag = builder.getI32IntegerAttr(static_cast<int32_t>(tag));
+  addInferredTypes<UnpackOp>(state);
+}
+
+//===----------------------------------------------------------------------===//
+// A buffer's grade at upstream's ops
+//===----------------------------------------------------------------------===//
 
 // The buffer is the result of the memref.alloc whose reference this takes
 // over, and this is its one use.

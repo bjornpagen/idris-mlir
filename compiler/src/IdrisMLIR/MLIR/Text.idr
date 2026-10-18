@@ -1,13 +1,15 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The pieces of MLIR's text that every printer shares: names, string and
-||| number literals, symbol references, function signatures and lists. A
-||| leaf but for the one UTF-8 encoder (`Ids.utf8`), so that the generated
-||| syntax of each dialect (IdrisMLIR.Syntax.*) and the builtin types and
-||| attributes (IdrisMLIR.MLIR) write them alike.
+||| number literals, symbol references, function signatures, lists and
+||| locations. A leaf but for the one UTF-8 encoder (`Ids.utf8`) and the
+||| source locations (`Loc`), so that the generated syntax of each dialect
+||| (IdrisMLIR.Syntax.*) and the builtin types and attributes
+||| (IdrisMLIR.MLIR) write them alike.
 module IdrisMLIR.MLIR.Text
 
 import IdrisMLIR.Ids
+import IdrisMLIR.Loc
 
 import Data.List
 import Data.Maybe
@@ -151,3 +153,48 @@ twos w n = let m = pow w
     pow : Nat -> Integer
     pow Z = 1
     pow (S k) = 2 * pow k
+
+------------------------------------------------------------------------------
+-- Locations
+------------------------------------------------------------------------------
+
+||| An operation's location: a source span, or an Idris name at one, MLIR's
+||| `NameLoc`. Names reach MLIR only this way: as debug information, which
+||| passes keep and diagnostics print, and never as data a pass could
+||| compare.
+public export
+data Location = At Loc | Named Shown Loc
+
+||| A span of a file as MLIR writes a `FileLineColRange`, 1-based at both
+||| ends: one point, a range on one line, or a range across lines.
+fileSpan : String -> Span -> String
+fileSpan file s =
+  let sl = s.startLine + 1
+      sc = s.startCol + 1
+      el = s.endLine + 1
+      ec = s.endCol + 1
+      start = fastConcat [quoted file, ":", show sl, ":", show sc]
+  in if sl == el && sc == ec then start
+     else if sl == el then fastConcat [start, " to :", show ec]
+     else fastConcat [start, " to ", show el, ":", show ec]
+
+||| Where code is, as MLIR writes it: a span of a file; or, in no file (a
+||| module whose source is not installed, generated code), `unknown`, which
+||| is what a location names no file by.
+placeText : Located -> Maybe String
+placeText (InModule _ (Just file) s) = Just (fileSpan file s)
+placeText (InPackage file s) = Just (fileSpan file s)
+placeText (InModule _ Nothing _) = Nothing
+placeText Unlocated = Nothing
+
+||| A location's text inside `loc(...)`. Code from a library whose
+||| diagnostics are reported at the user's caller (the registry's *Report
+||| at caller* column) is fused with the metadata `"library"`.
+wrapped : Loc -> String -> String
+wrapped l inner = "loc(" ++ (if inLibrary l then "fused<\"library\">[" ++ inner ++ "]" else inner) ++ ")"
+
+||| A location as an attribute's text, `loc(...)`, as MLIR writes it.
+export
+location : Location -> String
+location (At l) = wrapped l (fromMaybe "unknown" (placeText l.located))
+location (Named n l) = wrapped l (quoted (show n) ++ maybe "" (\p => "(" ++ p ++ ")") (placeText l.located))

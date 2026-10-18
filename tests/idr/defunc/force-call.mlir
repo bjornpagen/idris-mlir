@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-expect=holds=stage=first,no-closures,forces-nothing=@user,forces-nothing=@main,direct-calls,reaches=@user:@label,reaches=@main:@label -o /dev/null
 // NEEDS-ACCEPTANCE: the memo sum's dispatch idr-defunctionalize makes, and the stage it sets.
 // A force is a call: idr-defunctionalize makes each memo sum one dispatch
@@ -22,7 +23,7 @@ idr.program @"force-call" root(@main) stage(higher) {
     %v = idr.call @user(%t) : (!idr.lazy<i64>) -> i64
     %u = idr.force %t : !idr.lazy<i64> -> i64
     %s = arith.addi %v, %u : i64
-    %w2 = idr.io.put_int signed %s, %w1 : i64
+    %w2 = idr.io.put_sint %s, %w1 : i64
     return %w2 : !idr.world
   }
 }

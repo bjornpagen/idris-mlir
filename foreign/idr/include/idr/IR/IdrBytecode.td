@@ -36,15 +36,14 @@ def DataType : DialectTypeNoPrint<(type
   WithGetter<"uint64_t(0)", VarInt>:$index)> {
   let cBuilder = "::idr::DataType::member(reader, table, index)"; }
 // The generated builder falls back to `get` for a type whose `getChecked`
-// takes a context, so the two types that verify name their own.
+// takes a context, so the type that verifies names its own.
 def QType : DialectType<(type Idr_Enum<"Quantity">:$quantity,
   Idr_Enum<"Permission">:$permission, Type:$value)> {
   let cBuilder = "QType::getChecked([&]() { return reader.emitError(); }, context, $_args)"; }
 def FnType : DialectType<(type WithType<"::mlir::FunctionType", Type>:$function_type)>;
 def LazyType : DialectType<(type Type:$value)>;
 def BoxType : DialectType<(type WithType<"::idr::DataType", Type>:$data)>;
-def DestType : DialectType<(type Type:$value)> {
-  let cBuilder = "DestType::getChecked([&]() { return reader.emitError(); }, context, $_args)"; }
+def DestType : DialectType<(type WithType<"::idr::BoxType", Type>:$value)>;
 
 // The module's table of data types: every data instance of the program,
 // each written once, its body here and every other occurrence a data type
@@ -54,14 +53,15 @@ def DestType : DialectType<(type Type:$value)> {
 //
 //     v n, n × s name                    the members, in order
 //     n × Body
-//     Body:  v kind (SumKind), [Ctor], a? instance (#idr.instance)
-//     Ctor:  s name, v role (CtorRole), b byName, a? fn (FlatSymbolRefAttr), [Field]
+//     Body:  TableBody: v kind (SumKind), [Ctor], a? instance (#idr.instance)
+//     Ctor:  TableCtor: s name, v role (CtorRole; never label: only
+//            defunctionalization makes one), [Field]
 //     Field: v 0, t       a type that holds no data type: its entry
 //            v 1, v k     member k
 //            v 2, record  an idr type record, its code then its members
 //            v 3, record  a builtin type record, likewise
 //
-// `v` is a varint, `b` a byte, `s` a string by its number in the string
+// `v` is a varint, `s` a string by its number in the string
 // section, `t` and `a` type and attribute entry numbers, `a?` 0 for none
 // and 2n+1 for entry n, `[x]` a count and that many `x`. Inside a field's
 // record each type member is a field again and each attribute member an
@@ -76,5 +76,24 @@ def DataTable : DialectAttribute<(attr
 def IdrDialectTypes : DialectTypes<"Idr"> {
   let elems = [DataType, QType, FnType, LazyType, BoxType, DestType]; }
 def IdrDialectAttributes : DialectAttributes<"Idr"> { let elems = [DataTable]; }
+
+class Idr_FieldCode<string caseName> { string name = caseName; }
+def FieldEntry : Idr_FieldCode<"Entry">;
+def FieldMember : Idr_FieldCode<"Member">;
+def FieldIdr : Idr_FieldCode<"Idr">;
+def FieldBuiltin : Idr_FieldCode<"Builtin">;
+def IdrFieldCodes { list<Idr_FieldCode> codes = [FieldEntry, FieldMember, FieldIdr, FieldBuiltin]; }
+def String : WithParser<"succeeded($_reader.readString($_var))",
+  WithBuilder<"$_args", WithPrinter<"$_writer.writeOwnedString($_getter)",
+  WithType<"::llvm::StringRef">>>>;
+def Idr_OptionalAttr : WithParser<"succeeded($_reader.readOptionalAttribute($_var))",
+  WithType<"::mlir::Attribute", Attribute>>;
+def record;
+class Idr_TableRecord;
+def TableCtor : CompositeBytecode<"::idr::Ctor">, Idr_TableRecord {
+  dag members = (record String:$name, Idr_Enum<"CtorRole">:$role, Array<Type>:$fields); }
+def TableBody : CompositeBytecode<"::idr::Body">, Idr_TableRecord {
+  dag members = (record Idr_Enum<"SumKind">:$kind, Array<TableCtor>:$ctors,
+                 Idr_OptionalAttr:$instance); }
 
 #endif // IDR_BYTECODE

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // The solve follows every edge the ops declare, whether or not the path
@@ -24,7 +25,7 @@ idr.program @"untaken-region" root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %zero : i64
     }
-    default {
+    default(%d: i64) {
       %v = idr.call @g(%c) : (!idr.fn<(i64) -> (i64)>) -> i64
       idr.yield %v : i64
     }

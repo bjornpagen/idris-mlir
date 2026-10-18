@@ -1,8 +1,8 @@
+// NEEDS-ACCEPTANCE: the run time of the module, whose 1,025 requests make as many copies as the rule over recursive components keys (S2's default argument).
 // RUN: awk '/^ *\/\/ CHAIN$/ { for (f = 1; f <= 12; f++) { printf "  idr.func @f%d(%%x: i64) -> i64 attributes {total} {\n    %%v0 = arith.addi %%x, %%x : i64\n", f; for (i = 1; i < 2000; i++) printf "    %%v%d = arith.addi %%v%d, %%x : i64\n", i, i - 1; if (f < 12) printf "    %%r = idr.call @f%d(%%v1999) : (i64) -> i64\n    return %%r : i64\n  }\n", f + 1; else printf "    return %%v1999 : i64\n  }\n" } next } /^ *\/\/ REQUESTS$/ { for (k = 1; k <= 1025; k++) printf "    %%k%d = arith.constant %d : i64\n    %%a%d = idr.call @apply(%%k%d, %%n) : (i64, i64) -> i64\n    %%u%d = arith.addi %%u%d, %%a%d : i64\n", k, k, k, k, k, k - 1, k; next } { print }' %s > %t.budgets.mlir
 // RUN: idris-mlir-opt %t.budgets.mlir --idr-optimize -o %t.mlir 2> %t.err
 // RUN: not grep -q unsupported %t.err
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=largest-function=10000 -o /dev/null
-// NEEDS-ACCEPTANCE: the run time of the module, whose 1,025 requests make as many copies as the rule over recursive components keys.
 // No count refuses a program: a size policy only stops optimizing, and
 // specialization stops by the request chain, never by a count of keys.
 // The root asks @apply for 1,025 specializations, one per constant (the
@@ -19,7 +19,7 @@ idr.program @totality root(@Main.main) stage(first) {
     case 0 {
       idr.yield %k : i64
     }
-    default {
+    default(%d2: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %y = idr.call @apply(%k, %m) : (i64, i64) -> i64

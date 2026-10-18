@@ -53,11 +53,9 @@ llvm::hash_code shape(Block &block) {
 // with the cases of its shape, since a match with many cases would compare
 // each body with every other, and cases whose operations differ cannot be
 // that pair.
-template <typename Match>
-std::optional<unsigned> firstRepeated(Match op) {
-  unsigned count = static_cast<unsigned>(op.getCases().size());
+std::optional<unsigned> firstRepeated(MatchOpInterface op) {
   llvm::DenseMap<llvm::hash_code, SmallVector<unsigned, 2>> buckets;
-  for (unsigned i = 0; i < count; ++i)
+  for (unsigned i = 0, count = op.getNumCases(); i < count; ++i)
     buckets[shape(op.getCaseRegion(i).front())].push_back(i);
   std::optional<unsigned> first;
   for (auto &bucket : buckets) {
@@ -74,34 +72,38 @@ std::optional<unsigned> firstRepeated(Match op) {
 }
 
 // A case that does what the default does is left to the default, and
-// without a default, cases that do the same become it.
-template <typename Match>
-struct MergeIdenticalRegions : OpRewritePattern<Match> {
-  using OpRewritePattern<Match>::OpRewritePattern;
-  LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
-    unsigned count = static_cast<unsigned>(op.getCases().size());
-    Region *fallback = op.getDefaultRegion();
-    if (!fallback) {
+// without a default that runs, cases that do the same become it: the
+// first of them, whose arguments are unused, binds the scrutinee instead,
+// as a default does.
+struct MergeIdenticalRegions : RewritePattern {
+  MergeIdenticalRegions(StringRef root, MLIRContext *context)
+      : RewritePattern(root, PatternBenefit(1), context) {
+    setDebugName("idr-merge-identical-regions");
+  }
+
+  LogicalResult matchAndRewrite(Operation *root, PatternRewriter &rewriter) const final {
+    auto op = cast<MatchOpInterface>(root);
+    Region *fallback = &op.getDefaultRegion();
+    if (fallback->empty()) {
       std::optional<unsigned> first = firstRepeated(op);
       if (!first)
         return failure();
+      // The case leaves the cases, so the match changes: its region binds
+      // the scrutinee from here on, its own arguments unused.
       fallback = &op.getCaseRegion(*first);
+      Block &block = fallback->front();
+      rewriter.modifyOpInPlace(root, [&] {
+        block.eraseArguments(0, block.getNumArguments());
+        block.addArgument(op.getScrutinee().getType(), root->getLoc());
+      });
     }
-    SmallVector<unsigned> cases;
-    SmallVector<Region *> regions;
-    for (unsigned i = 0; i < count; ++i)
-      if (&op.getCaseRegion(i) != fallback && !sameBody(op.getCaseRegion(i), *fallback)) {
-        cases.push_back(i);
-        regions.push_back(&op.getCaseRegion(i));
-      }
-    if (regions.size() + 1 == op.getRegions().size() && fallback == op.getDefaultRegion())
+    SmallVector<unsigned> kept;
+    for (unsigned i = 0, count = op.getNumCases(); i < count; ++i)
+      if (&op.getCaseRegion(i) != fallback && !sameBody(op.getCaseRegion(i), *fallback))
+        kept.push_back(i);
+    if (kept.size() == op.getNumCases())
       return failure();
-    // The new default takes no arguments; the old region's are unused.
-    rewriter.modifyOpInPlace(op, [&] {
-      fallback->front().eraseArguments(0, fallback->getNumArguments());
-    });
-    regions.push_back(fallback);
-    rewriter.replaceOp(op, canon::rebuildMatch(rewriter, op, op.getResultTypes(), cases, regions));
+    rewriter.replaceOp(root, op.rebuild(rewriter, root->getResultTypes(), kept, fallback));
     return success();
   }
 };
@@ -110,12 +112,8 @@ struct MergeIdenticalRegions : OpRewritePattern<Match> {
 
 namespace idr::canon {
 
-template <typename Match>
-void addMerge(RewritePatternSet &results, MLIRContext *context) {
-  results.add<MergeIdenticalRegions<Match>>(context);
+void addMerge(RewritePatternSet &results, MLIRContext *context, StringRef root) {
+  results.add<MergeIdenticalRegions>(root, context);
 }
-
-template void addMerge<MatchOp>(RewritePatternSet &, MLIRContext *);
-template void addMerge<MatchLitOp>(RewritePatternSet &, MLIRContext *);
 
 } // namespace idr::canon

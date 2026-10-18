@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A closure kept in a constructor's field and bound again by a match's
@@ -36,7 +37,7 @@ idr.program @"match-field" root(@Main.main) stage(higher) {
     %o2 = idr.con !Op @Unary(%g : !idr.fn<(i64) -> (i64)>)
     %a = idr.call @run(%o1, %n) : (!Op, i64) -> i64
     %b = idr.call @run(%o2, %a) : (!Op, i64) -> i64
-    %w2 = idr.io.put_int signed %b, %w1 : i64
+    %w2 = idr.io.put_sint %b, %w1 : i64
     return %w2 : !idr.world
   }
 }

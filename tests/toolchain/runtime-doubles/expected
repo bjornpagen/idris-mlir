@@ -3,7 +3,7 @@ doubles: built
 show_f64: reads back as the double: ok
 show_f64: no shorter text reads back: ok
 show_f64: the nearest of the shortest, ties to the even digit: ok
-show_f64: idris_rt.h's layout: ok
+show_f64: the runtime's layout: ok
 put_double, double_head: show_f64's text: ok
 str_to_double: strtod's double for every decimal text: ok
 str_to_double: integer literals of every base read as the nearest double: ok

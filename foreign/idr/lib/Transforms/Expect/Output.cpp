@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// output-fused: no string is built only to be written. Output of a
-// concatenation, of a character before a string, of one character or of a
-// number writes its pieces instead, and output of a list packed or
-// concatenated only to be written writes the list's elements; so
-// idr.io.put_str never writes what one of those builders made for it.
+// output-fused: no string is built only to be written. Output of a string
+// its builder writes in pieces (StrBuilderOpInterface: a concatenation, a
+// character before a string, one character, a number shown, a list packed
+// or concatenated only to be written) writes the pieces instead; so
+// idr.io.put_str never writes what such a builder made for it.
 
 #include "idr/Transforms/Expect.h"
 
@@ -15,20 +15,17 @@ using namespace mlir;
 namespace idr::expect {
 
 // No string is built only to be written, anywhere or in the function the
-// argument names: idr.io.put_str never writes what idr.str.append, cons,
-// from_char or show made.
-LogicalResult outputFused(ModuleOp module, AnalysisManager &, StringRef function) {
-  SmallVector<Operation *> roots = rootsOf(module, function, "output-fused");
-  if (roots.empty())
-    return failure();
+// argument names: idr.io.put_str never writes what a builder that writes in
+// pieces made.
+LogicalResult outputFused(const Request<Roots> &request) {
   bool held = true;
-  for (Operation *root : roots)
+  for (Operation *root : request.argument.roots(request.module))
     root->walk([&](PutStrOp put) {
-      if (!writtenInPieces(put.getStr()))
+      auto builder = put.getStr().getDefiningOp<StrBuilderOpInterface>();
+      if (!builder || !builder.writesInPieces())
         return;
-      fail(put.getLoc(), "output-fused") << "idr.io.put_str writes what "
-                                         << put.getStr().getDefiningOp()->getName() << " built in "
-                                         << where(put);
+      fail(put.getLoc(), request.property) << "idr.io.put_str writes what "
+                                           << builder->getName() << " built in " << where(put);
       held = false;
     });
   return success(held);

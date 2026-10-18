@@ -89,7 +89,7 @@ HOST_PREFIX := $(call toolchain,host_prefix)
 # idris-mlir and its frontend read no environment: their prefix is an
 # argument, by default the one `build` configures, CHECKOUT_PREFIX. What reads
 # Idris's environment is upstream's test scripts, whose compiler
-# (tests/upstream-idris/as-idris) passes it on as arguments.
+# (tools/upstream-idris/as-idris) passes it on as arguments.
 export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)

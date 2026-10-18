@@ -16,12 +16,12 @@
 namespace rt::big {
 
 Operand::Operand(idris_rt_big a) {
-  if (!isSmall(a)) {
+  if (!idris_rt_word_is_small(a)) {
     const idris_rt_bignum *b = bignum(a);
     mpz_roinit_n(&view, limbsOf(b), static_cast<mp_size_t>(b->size));
     return;
   }
-  int64_t v = smallValue(a);
+  int64_t v = idris_rt_small_value(a);
   limb = v < 0 ? 0 - static_cast<uint64_t>(v) : static_cast<uint64_t>(v);
   mpz_roinit_n(&view, &limb, v < 0 ? -1 : v > 0 ? 1 : 0);
 }
@@ -32,7 +32,7 @@ idris_rt_big Result::finish() {
   if (mpz_fits_slong_p(&value) && fits(mpz_get_si(&value))) {
     int64_t v = mpz_get_si(&value);
     mpz_clear(&value);
-    return small(v);
+    return idris_rt_small_word(v);
   }
   size_t count = mpz_size(&value);
   auto *b = static_cast<idris_rt_bignum *>(rt::alloc::newCell(

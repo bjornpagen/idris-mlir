@@ -23,7 +23,7 @@ idr.program @"growing-function" root(@Main.main) stage(higher) {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
       idr.yield %y : i64
     }
-    default {
+    default(%d0: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %g = idr.closure @Main.after(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)> loc("Main.idr":8:3)
@@ -39,7 +39,7 @@ idr.program @"growing-function" root(@Main.main) stage(higher) {
     %f = idr.closure @Main.inc() : () -> !idr.fn<(i64) -> (i64)>
     %c0 = arith.constant 0 : i64
     %r = idr.call @Main.iter(%f, %n, %c0) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

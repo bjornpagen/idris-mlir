@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the memo cell is an idr.cell.new and its idr.cell.init (S3); the lowered calls are as before.
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,crash-sites=@Thunk.force:1,calls=@Thunk.force:@one,calls=@Thunk.force:@plus,calls-only=@Thunk.force:[@one,@plus,@idris_rt_crash],aligned-access' -o /dev/null
 // NEEDS-ACCEPTANCE: the syntax of idr.memo.enter and idr.memo.settle and the dispatch idr-defunctionalize makes of a memo sum.
@@ -51,7 +52,8 @@ idr.program @"force-view" root(@Main.main) stage(owned) {
   }
   idr.func @Main.main() -> i64 {
     %two = arith.constant 2 : i64
-    %t = idr.con !idr.own<!idr.box<!Thunk>> @plus(%two : i64)
+    %k = idr.cell.new : !idr.cell<!idr.box<!Thunk>, @plus>
+    %t = idr.cell.init %k : !idr.cell<!idr.box<!Thunk>, @plus> (%two : i64)
     %b = idr.borrow %t : !idr.own<!idr.box<!Thunk>>
     %v = idr.call @Thunk.force(%b) : (!idr.q<many, borrow, !idr.box<!Thunk>>) -> i64
     idr.drop %t : !idr.own<!idr.box<!Thunk>>

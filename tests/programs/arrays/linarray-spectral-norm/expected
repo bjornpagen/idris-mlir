@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the fixture built from bench/spectral-norm-linear's Main.idr and packages compiles, prints expected-stdout and holds its mlir.expect
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

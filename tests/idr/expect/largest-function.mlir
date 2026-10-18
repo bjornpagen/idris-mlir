@@ -1,19 +1,16 @@
+// NEEDS-ACCEPTANCE: that the run of the bounds 4 and `many` passes under -verify-diagnostics: @big past 4 at @big, @small not, and `many` refused at the request, at the module (line 0, the implicit module's location), in the one wording of a malformed argument.
 // RUN: idris-mlir-opt %s --idr-expect=holds=largest-function=100 -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=largest-function=4 -o /dev/null 2> %t.small.err
-// RUN: FileCheck %s --check-prefix=SMALL < %t.small.err
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=largest-function=many -o /dev/null 2> %t.bad.err
-// RUN: FileCheck %s --check-prefix=BAD < %t.bad.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=largest-function=4,largest-function=many -verify-diagnostics -o /dev/null
+// expected-error @-4 {{idr-expect: largest-function=many does not read as largest-function=<n>}}
 // A bound on the size of every function, counted as the inline decisions
 // count it, which is how a test states that inlining stopped at the cap.
 // Each function past the bound is one error, with its size; a bound that
-// is no number is an error of its own.
-// SMALL: error: expected largest-function: @big holds {{[0-9]+}} operations, more than 4
-// SMALL-NOT: @small
-// BAD: error: expected largest-function: name the bound, as largest-function=<n>
+// is no number is refused at the request, before the property runs.
 idr.program @"largest-function" root(@main) stage(first) {
   idr.func @small(%x: i64) -> i64 {
     return %x : i64
   }
+  // expected-error-re @below {{expected largest-function: @big holds {{[0-9]+}} operations, more than 4}}
   idr.func @big(%x: i64) -> i64 {
     %a = arith.addi %x, %x : i64
     %b = arith.muli %a, %a : i64

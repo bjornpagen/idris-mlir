@@ -107,12 +107,12 @@ endif()
 #                                       the runtime's archive carry its
 #                                       bitcode with its native code, which
 #                                       joins every program's module
-#   IDRIS_MLIR_RUNTIME_BITCODE_SECTION  the section of the prepared
-#                                       runtime's object that holds the
-#                                       bitcode and every link leaves out,
-#                                       or "" for a file beside the object
-#                                       (an object format with no such
-#                                       section, Mach-O's)
+#   IDRIS_MLIR_RUNTIME_BITCODE_HOME     where the prepared runtime keeps its
+#                                       bitcode: InObject, in the object's
+#                                       .llvm.lto section, which every link
+#                                       leaves out (ELF); or BesideObject, a
+#                                       .bc file beside the object (Mach-O,
+#                                       which has no such section)
 #   IDRIS_MLIR_RUNTIME_SECTIONS         the flags that put each function and
 #                                       datum in its own section, for the
 #                                       linker to drop the unused ones, or
@@ -144,6 +144,10 @@ endif()
 #                                       check compares with the system's:
 #                                       16384 on Darwin arm64, 4096 on Linux
 #                                       x86-64. Nothing else may assume it.
+#   IDRIS_MLIR_USER_ADDRESS_BITS        the bits of the highest address user
+#                                       space reaches, which bound a stack
+#                                       cell's address and the program's
+#                                       stack (runtime/Platform/Address.h)
 #   IDRIS_MLIR_TOOL_COMPILE_FLAGS       the hardening our tools are compiled
 #                                       with beyond the language profile's,
 #                                       that the target has live
@@ -168,7 +172,7 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
 	# LTO object's, is excluded from every link.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
-	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION ".llvm.lto")
+	set(IDRIS_MLIR_RUNTIME_BITCODE_HOME InObject)
 	set(IDRIS_MLIR_RUNTIME_SECTIONS -ffunction-sections -fdata-sections)
 	# Static-PIE on musl; GMP is the pinned sysroot's, which the pinned
 	# clang's configuration file names.
@@ -180,6 +184,8 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS .init_array .fini_array .ctors .dtors .preinit_array)
 	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS "")
 	set(IDRIS_MLIR_PAGE_SIZE 4096)
+	# 4-level paging: user space ends below 2^47.
+	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
 	# Our tools: PIE code with CET and stack-clash probes; static-PIE on musl,
 	# read-only after relocation, no executable stack. PIN(musl-thread-stacks):
 	# LLVM takes the libc's default thread stack, which musl reads from
@@ -208,7 +214,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# Apple's default subsections_via_symbols already gives -dead_strip its
 	# granularity, so the runtime's sections are left to the object format.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -fembed-bitcode=all)
-	set(IDRIS_MLIR_RUNTIME_BITCODE_SECTION "")
+	set(IDRIS_MLIR_RUNTIME_BITCODE_HOME BesideObject)
 	set(IDRIS_MLIR_RUNTIME_SECTIONS "")
 	# A dynamic PIE against libSystem, linked by the pinned ld64.lld.
 	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
@@ -225,6 +231,8 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS __mod_init_func __mod_term_func __init_offsets)
 	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS bzero memset_pattern16 __sincos_stret __sincosf_stret __exp10 __exp10f)
 	set(IDRIS_MLIR_PAGE_SIZE 16384)
+	# MACH_VM_MAX_ADDRESS (mach/arm/vm_param.h) is 2^47 - 32 MiB.
+	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
 	# Our tools: Darwin's PIE executables need nothing beyond the profile.
 	# PIN(darwin-inert-mitigations): branch protection executes as NOP in a
 	# plain arm64 Darwin process — see PINS.md.

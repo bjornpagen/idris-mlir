@@ -31,19 +31,26 @@ changes, as any golden test's. No other implementation is asked.
   printer, and run against its expected output; one topic directory per
   subject (`semantics`, `basic`, `io`, `prelude`, `interfaces`, `eval`,
   `partial`, `stack`, `nat`, `data`, `linear`, `arrays`), one pool each in
-  Main.idr. The `prim-*` tests of `semantics` are generated (Sem.idr),
-  their expected values computed from what each primitive means.
+  Main.idr. `programs/semantics/prim/` is one test per entry of Sem.idr's
+  table, `Sem.names`, which the runner runs as
+  `programs/semantics/prim@<name>`, giving its `run` the name; the program
+  and the values it must print are computed from what each primitive
+  means. A fixture whose program is a benchmark's builds it from
+  `bench/<name>` (its `Main.idr`, and its `packages` where it has one)
+  beside the fixture's own input and expected files.
 - `accept/<name>/`: programs the profile compiles; an `expected-stdout`
   or `expected-exit` beside one also runs it.
 - `reject/<name>/`: programs rejected with one `unsupported (<rule>)` on
-  the line the header `-- expect: <rule>, line N` names; the name starts
-  with the rule, one of the rules the build's generated list names
-  (`lib/rules.sh`). A `packages` file beside a fixture of either kind names
-  the packages it compiles with. A rule with no fixture has a line of
-  `reject/without-fixture` saying why (`spec/rules-covered`).
+  the line the header `-- expect: <rule>, line N` names, and, under a
+  second header `-- message: <text>`, a refusal that holds that text; the
+  name starts with the rule, one of the rules the build's generated list
+  names (`lib/rules.sh`). A `packages` file beside a fixture of either
+  kind names the packages it compiles with. A rule with no fixture has a
+  line of `reject/without-fixture` saying why (`spec/rules-covered`).
 - `compiler/`, `registry/`, `determinism/`, `toolchain/`, `fuzz/`,
   `two-levels/`, `bench/`: the other pools of `make test`, named for what
-  they check.
+  they check; `toolchain/lib/` holds the helpers the runtime's property
+  tests source, and is no test.
 - `idr/<pass>/`: the dialect suite, one directory per pass or concern; a
   test is `name.mlir` with its `RUN:` lines beside `name/run`. A module of
   it is one `idr.program`, which names its root and its stage (`higher`
@@ -55,7 +62,14 @@ changes, as any golden test's. No other implementation is asked.
   (`spec/dialect-text`).
 - `upstream/`: the reproducers of the bugs recorded in `../upstream/`.
 - `lib/`: the helpers `testutils.sh` sources, one file per concern;
+  `runner/`: `one.sh`, which runs one test for the runner (Runner.idr) in
+  a process of its own and compares its output with its expectation;
   `templates/`: a minimal test of each kind to copy.
+- In any test's directory, `expected.<name>` is the expectation on a host
+  of that name (its architecture, `x86-64` or `aarch64`, or its operating
+  system, `linux` or `macos`) in place of `expected`, for a test whose
+  output is the target's own; and a `targets` file runs the test only on
+  the hosts whose names it lists.
 
 ## Adding a test
 

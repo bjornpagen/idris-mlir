@@ -4,12 +4,12 @@
 //
 // idr-narrow makes the bigs and naturals that fit a small plain i64 words,
 // after versioning, across the module, each loop whose natural only
-// descends; the word rewrite then runs per function under the module's
-// Ranges (the bounds of values, Facts; the values carried round loops and
-// out of merges, the joints; the ops, the words). idr-narrow-lanes makes
-// the integer lanes of a vectorized loop compute in 32 bits under a runtime
-// bound on its sizes, found on a copy of the loop (Copy) whose ops' widths
-// it reads.
+// descends; then idr-narrow-words, the word rewrite, runs per function
+// under the program's Ranges, which idr-narrow holds for it (the bounds of
+// values, Facts; the values carried round loops and out of merges, the
+// joints; the ops, the words). idr-narrow-lanes makes the integer lanes of
+// a vectorized loop compute in 32 bits under a runtime bound on its sizes,
+// found on a copy of the loop (Copy) whose ops' widths it reads.
 #ifndef IDR_TRANSFORMS_NARROW_H
 #define IDR_TRANSFORMS_NARROW_H
 
@@ -37,6 +37,7 @@
 
 namespace idr {
 #define GEN_PASS_DECL_IDRNARROW
+#define GEN_PASS_DECL_IDRNARROWWORDS
 #define GEN_PASS_DECL_IDRNARROWLANES
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
@@ -49,17 +50,16 @@ bool isBig(mlir::Type type);
 // The bounds of values: the analysis's, and those of the values the pass
 // makes, which stand for values it analysed. One per function rewritten
 // (one for the program while loops are versioned); nothing it learns
-// outlives the run. The program's stage says whether counting ran.
+// outlives the run. The passes that read it run on a counted program (the
+// owned stage), where every value that holds references is graded.
 class Facts {
 public:
-  Facts(const Ranges &analysis, ProgramOp program) : analysis(analysis), program(program) {}
+  explicit Facts(const Ranges::Solved &analysis) : analysis(analysis) {}
 
   // Whether the big `value` holds a reference of its own, which a word
-  // taking its place in a consuming use leaves it to drop: its grade says,
-  // and before counting nothing is graded.
+  // taking its place in a consuming use leaves it to drop: its grade says.
   bool owned(mlir::Value value) const;
-  // Whether `value` is a view once counting ran: it holds references, and
-  // none of its own.
+  // Whether `value` is a view: it holds references, and none of its own.
   bool borrowed(mlir::Value value) const;
 
   ranges::Bounds of(mlir::Value value) const;
@@ -82,8 +82,7 @@ public:
 private:
   void convert(mlir::Operation *op) { conversions.insert(op); }
 
-  const Ranges &analysis;
-  ProgramOp program;
+  const Ranges::Solved &analysis;
   llvm::DenseMap<mlir::Value, ranges::Bounds> madeBounds;
   llvm::DenseSet<mlir::Operation *> conversions;
 };
@@ -108,10 +107,17 @@ bool testable(mlir::Value value);
 // Whether a word of `range` fits a signed 32-bit one.
 bool fits32(const mlir::ConstantIntRanges &range);
 
-// What an op computes on: integers of 32 bits or fewer (or none), wider
-// integers, or lanes of wider integers.
-enum class Width : uint8_t { Narrow, Wide, WideLanes };
-Width widthOf(mlir::Operation *op);
+// What an op computes on, the one answer the pass and its property
+// (narrowed-lanes) read: for an elementwise op that is no cast and no
+// select, the widest integer among its operand and result types, in bits,
+// and whether it computes on lanes (one of them is a vector); none, {0,
+// false}, for any other. A cast or a select only moves lanes, and costs the
+// same at any width.
+struct LaneWidth {
+  unsigned bits;
+  bool lanes;
+};
+LaneWidth laneWidth(mlir::Operation *op);
 // The ops of `root` that only combine into a vector a loop in it carries
 // round: each elementwise op the loop's iteration argument of vector type
 // reaches whose results go only to one another and to the yield that

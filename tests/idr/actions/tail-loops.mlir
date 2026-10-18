@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that the root, now the IO root the root rule admits (it prints what it computed), keeps the loops and the actions as before.
 // NEEDS-ACCEPTANCE: that skipping every idr-tail-loops-loop, idr-tail-loops-hoist and idr-tail-loops-uplift action leaves the module as idr-tail-loops received it, and that idr-tail-loops changes it otherwise.
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc))' -o %t.in.mlir
 // RUN: idris-mlir-opt %t.in.mlir -o %t.none.mlir
@@ -12,7 +13,7 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d0: i64) {
       %c1 = arith.constant 1 : i64
       %a = arith.addi %acc, %c1 : i64
       %m = arith.subi %n, %c1 : i64
@@ -29,7 +30,7 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d1: i64) {
       %c1 = arith.constant 1 : i64
       %j = arith.addi %i, %c1 : i64
       %sq = arith.muli %i, %i : i64
@@ -47,7 +48,7 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %i : i64
     }
-    default {
+    default(%d2: i64) {
       %c3 = arith.constant 3 : i64
       %j = arith.addi %i, %c3 : i64
       %x = idr.call @until(%j, %n) : (i64, i64) -> i64
@@ -76,12 +77,12 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     return %r : i64
   }
   idr.func @echo(%n: i64, %w: !idr.world) -> !idr.world attributes {total} {
-    %w1 = idr.io.put_int signed %n, %w : i64
+    %w1 = idr.io.put_sint %n, %w : i64
     %r = idr.match_lit %n : i64 -> (!idr.world) {
     case 0 {
       idr.yield %w1 : !idr.world
     }
-    default {
+    default(%d3: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %x = idr.call @echo(%m, %w1) : (i64, !idr.world) -> !idr.world
@@ -98,7 +99,7 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     case 1 {
       idr.yield %n : i64
     }
-    default {
+    default(%d4: i64) {
       %c1 = arith.constant 1 : i64
       %c2 = arith.constant 2 : i64
       %a = arith.subi %n, %c1 : i64
@@ -111,7 +112,7 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     }
     return %r : i64
   }
-  idr.func @Main.main(%w: !idr.world) -> (i64, i64, i64, !idr.world) {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %nil = idr.con !idr.box<!List> @Nil()
     %c7 = arith.constant 7 : i64
     %xs = idr.con !idr.box<!List> @Cons(%c7 : i64, %nil : !idr.box<!List>)
@@ -123,6 +124,9 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     %s = idr.call @sum(%c0, %xs) : (i64, !idr.box<!List>) -> i64
     %w1 = idr.call @echo(%c9, %w) : (i64, !idr.world) -> !idr.world
     %c = idr.call @fib(%c9) : (i64) -> i64
-    return %u, %s, %c, %w1 : i64, i64, i64, !idr.world
+    %w2 = idr.io.put_sint %u, %w1 : i64
+    %w3 = idr.io.put_sint %s, %w2 : i64
+    %w4 = idr.io.put_sint %c, %w3 : i64
+    return %w4 : !idr.world
   }
 }

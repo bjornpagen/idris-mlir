@@ -6,6 +6,7 @@
 #include "idr/Support/Worklist.h"
 #include "idr/Transforms/Narrow.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -70,20 +71,17 @@ bool fits32(const ConstantIntRanges &range) {
   return range.smin().getSignificantBits() <= 32 && range.smax().getSignificantBits() <= 32;
 }
 
-// An op computes on integers wider than 32 bits when it is elementwise, no
-// cast, and has such an operand or result; on lanes of them when one is a
-// vector. The widest of its types says.
-Width widthOf(Operation *op) {
-  if (!op->hasTrait<OpTrait::Elementwise>() || isa<CastOpInterface>(op))
-    return Width::Narrow;
-  auto of = [](Type type) {
-    if (ConstantIntRanges::getStorageBitwidth(type) <= 32)
-      return Width::Narrow;
-    return isa<VectorType>(type) ? Width::WideLanes : Width::Wide;
-  };
-  Width width = Width::Narrow;
-  for (Type type : llvm::concat<const Type>(op->getOperandTypes(), op->getResultTypes()))
-    width = std::max(width, of(type));
+// An op computes on the integers of its types when it is elementwise and
+// neither a cast nor a select; on lanes of them when one is a vector. The
+// widest of its types says how wide.
+LaneWidth laneWidth(Operation *op) {
+  if (!op->hasTrait<OpTrait::Elementwise>() || isa<CastOpInterface, arith::SelectOp>(op))
+    return {0, false};
+  LaneWidth width{0, false};
+  for (Type type : llvm::concat<const Type>(op->getOperandTypes(), op->getResultTypes())) {
+    width.bits = std::max(width.bits, ConstantIntRanges::getStorageBitwidth(type));
+    width.lanes = width.lanes || isa<VectorType>(type);
+  }
   return width;
 }
 
@@ -142,8 +140,9 @@ bool computesWideLanes(scf::ForOp loop) {
   llvm::DenseSet<Operation *> carried = accumulations(loop);
   return loop
       .walk([&](Operation *op) {
-        return widthOf(op) == Width::WideLanes && !carried.contains(op) ? WalkResult::interrupt()
-                                                                        : WalkResult::advance();
+        LaneWidth width = laneWidth(op);
+        return width.lanes && width.bits > 32 && !carried.contains(op) ? WalkResult::interrupt()
+                                                                       : WalkResult::advance();
       })
       .wasInterrupted();
 }

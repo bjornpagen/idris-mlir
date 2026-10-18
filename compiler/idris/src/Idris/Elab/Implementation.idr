@@ -306,13 +306,16 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
     vfc : FC
     vfc = virtualiseFC ifc
 
+    -- The function a nested name holds is kept, so it names only what it
+    -- needs: `vfc`, a local definition, is applied to everything
+    -- elabImplementation binds, its cells among them.
     applyEnv : Name ->
                Core (Name, (Maybe Name, List (Var vars), FC -> NameType -> Term vars))
     applyEnv n
         = do n' <- resolveName n
              pure (Resolved n', (Nothing, reverse (allVars env),
-                      \fn, nt => applyToFull vfc
-                                     (Ref vfc nt (Resolved n')) env))
+                      \fn, nt => applyToFull (virtualiseFC ifc)
+                                     (Ref (virtualiseFC ifc) nt (Resolved n')) env))
 
     -- For the method fields in the record, get the arguments we need to abstract
     -- over

@@ -19,8 +19,8 @@ idr.program @"time-trace" root(@Main.main) stage(first) {
     case 0 {
       idr.yield %acc : !idr.big
     }
-    default {
-      %one = idr.constant #idr.big<1> : !idr.big
+    default(%d0: i64) {
+      %one = idr.constant !idr.big #idr.big<1>
       %c1 = arith.constant 1 : i64
       %a = idr.big.add %acc, %one
       %m = arith.subi %n, %c1 : i64
@@ -33,7 +33,7 @@ idr.program @"time-trace" root(@Main.main) stage(first) {
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
-    %zero = idr.constant #idr.big<0> : !idr.big
+    %zero = idr.constant !idr.big #idr.big<0>
     %r = idr.call @count(%zero, %n) : (!idr.big, i64) -> !idr.big
     %t = idr.big.show %r
     %w2 = idr.io.put_str %t, %w1

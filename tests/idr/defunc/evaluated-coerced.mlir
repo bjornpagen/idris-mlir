@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // An evaluated suspension holds its value and names no label: it is a cell
@@ -22,7 +23,7 @@ idr.program @"evaluated-coerced" root(@Main.main) stage(higher) {
     %a = idr.call @use(%now) : (!idr.lazy<i64>) -> i64
     %b = idr.call @use(%s) : (!idr.lazy<i64>) -> i64
     %r = arith.addi %a, %b : i64
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

@@ -58,16 +58,35 @@ Show Shown where
 public export
 data KeyPrint = Whole | Lossy Bits64
 
-||| What a function or data instance is an instance of: the definition and
-||| the compile-time values it was instantiated at, each the
-||| alpha-normalized text the frontend prints, and what that print keeps of
-||| the identity. Emit writes it as #idr.instance; its symbol is
-||| `Term.keyText` of it.
+||| The positions of a definition an instance keys, up to the last that
+||| keys: none, or the positions before the last, each the
+||| alpha-normalized text of what it keys or nothing, then the last's text.
+||| So no key ends in a position that keys nothing.
+public export
+data KeyArguments = NoArguments | UpTo (List (Maybe String)) String
+
+||| A key position as the key's text writes it: what it keys, or `-` for a
+||| position that keys nothing, which no compile-time value's text is.
+export
+keyArgument : Maybe String -> String
+keyArgument (Just text) = text
+keyArgument Nothing = "-"
+
+||| A key's positions as its text writes them, in order.
+export
+argumentsText : KeyArguments -> List String
+argumentsText NoArguments = []
+argumentsText (UpTo before final) = foldr (\p, rest => keyArgument p :: rest) [final] before
+
+||| What a function or data instance is an instance of: the definition (its
+||| printed full name), the compile-time values it was instantiated at, and
+||| what that print keeps of the identity. Emit writes it as #idr.instance;
+||| its symbol is `Term.keyText` of it.
 public export
 record InstanceKey where
   constructor MkInstanceKey
-  origin : String            -- the definition's printed full name
-  arguments : List String    -- each position up to the last that keys, alpha-normalized text or `-`
+  origin : String
+  arguments : KeyArguments
   print : KeyPrint
 
 export Eq FnId where a == b = a.name == b.name

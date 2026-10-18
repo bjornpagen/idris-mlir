@@ -3,16 +3,20 @@
 ||| The primitives of Idris, as the tests know them: one table, made in the
 ||| order and the shape of Idris's own list of them (Core.Primitives), of
 ||| each primitive's name, its operation (whose family and host dependence
-||| follow from it), its arguments with the values each may take, and its
-||| result; and the integer types' widths, and what the integer primitives
-||| mean, as the runtime documents them (runtime/idris_rt.h). Fuzz, Sem and
-||| TwoLevels are written on it.
+||| follow from it), its parameters with the values each may take, and its
+||| result; the integer types' widths, and what the integer primitives
+||| mean, as the runtime documents them (runtime/idris_rt.h); and the
+||| closed expressions over the table, as a program writes them. Fuzz, Sem
+||| and TwoLevels are written on it.
 module Prims
 
 import Prelude
 import Data.Bits
 import Data.List
+import Data.List.Elem
+import Data.Maybe
 import Data.String
+import Decidable.Equality
 
 %default total
 
@@ -20,53 +24,114 @@ import Data.String
 -- Types
 ------------------------------------------------------------------------------
 
+||| The integer types of a fixed width.
+public export
+data FixedTy = FInt | FInt8 | FInt16 | FInt32 | FInt64 | FBits8 | FBits16 | FBits32 | FBits64
+
+||| The integer types: one of a fixed width, or Integer, which has none.
+public export
+data IntTy = Fixed FixedTy | Big
+
 ||| The types of primitive values.
 public export
-data Ty = TInt | TInt8 | TInt16 | TInt32 | TInt64 | TBits8 | TBits16 | TBits32 | TBits64
-        | TInteger | TDouble | TChar | TString
+data Ty = TIntegral IntTy | TDouble | TChar | TString
+
+public export
+int : Ty
+int = TIntegral (Fixed FInt)
+
+public export
+integer : Ty
+integer = TIntegral Big
+
+fixedName : FixedTy -> String
+fixedName FInt = "Int"
+fixedName FInt8 = "Int8"
+fixedName FInt16 = "Int16"
+fixedName FInt32 = "Int32"
+fixedName FInt64 = "Int64"
+fixedName FBits8 = "Bits8"
+fixedName FBits16 = "Bits16"
+fixedName FBits32 = "Bits32"
+fixedName FBits64 = "Bits64"
 
 ||| A type as a program writes it, and as primitives' names carry it.
 public export
 tyName : Ty -> String
-tyName TInt = "Int"
-tyName TInt8 = "Int8"
-tyName TInt16 = "Int16"
-tyName TInt32 = "Int32"
-tyName TInt64 = "Int64"
-tyName TBits8 = "Bits8"
-tyName TBits16 = "Bits16"
-tyName TBits32 = "Bits32"
-tyName TBits64 = "Bits64"
-tyName TInteger = "Integer"
+tyName (TIntegral (Fixed f)) = fixedName f
+tyName (TIntegral Big) = "Integer"
 tyName TDouble = "Double"
 tyName TChar = "Char"
 tyName TString = "String"
 
-||| A type's position in `Ty`: its identity.
+||| A fixed-width type's position in `FixedTy`: its identity.
+public export
+fixedIndex : FixedTy -> Nat
+fixedIndex FInt = 0
+fixedIndex FInt8 = 1
+fixedIndex FInt16 = 2
+fixedIndex FInt32 = 3
+fixedIndex FInt64 = 4
+fixedIndex FBits8 = 5
+fixedIndex FBits16 = 6
+fixedIndex FBits32 = 7
+fixedIndex FBits64 = 8
+
+||| An integer type's identity: a fixed width's, then Integer's.
+public export
+intIndex : IntTy -> Nat
+intIndex (Fixed f) = fixedIndex f
+intIndex Big = 9
+
+||| A type's identity: an integer type's, then the others'.
 public export
 tyIndex : Ty -> Nat
-tyIndex TInt = 0
-tyIndex TInt8 = 1
-tyIndex TInt16 = 2
-tyIndex TInt32 = 3
-tyIndex TInt64 = 4
-tyIndex TBits8 = 5
-tyIndex TBits16 = 6
-tyIndex TBits32 = 7
-tyIndex TBits64 = 8
-tyIndex TInteger = 9
+tyIndex (TIntegral i) = intIndex i
 tyIndex TDouble = 10
 tyIndex TChar = 11
 tyIndex TString = 12
 
 public export
+Eq FixedTy where
+  a == b = fixedIndex a == fixedIndex b
+
+public export
+Eq IntTy where
+  a == b = intIndex a == intIndex b
+
+public export
 Eq Ty where
   a == b = tyIndex a == tyIndex b
 
-||| The integer types of a fixed width.
+||| Two fixed-width types of one index are one type. The coverage of these
+||| clauses is the proof: no two types share an index.
+sameIndex : (a, b : FixedTy) -> (0 _ : fixedIndex a = fixedIndex b) -> a = b
+sameIndex FInt FInt _ = Refl
+sameIndex FInt8 FInt8 _ = Refl
+sameIndex FInt16 FInt16 _ = Refl
+sameIndex FInt32 FInt32 _ = Refl
+sameIndex FInt64 FInt64 _ = Refl
+sameIndex FBits8 FBits8 _ = Refl
+sameIndex FBits16 FBits16 _ = Refl
+sameIndex FBits32 FBits32 _ = Refl
+sameIndex FBits64 FBits64 _ = Refl
+
+||| Whether two types are one, with the proof when they are.
 public export
-fixedTys : List Ty
-fixedTys = [TInt, TInt8, TInt16, TInt32, TInt64, TBits8, TBits16, TBits32, TBits64]
+sameTy : (a, b : Ty) -> Maybe (a = b)
+sameTy (TIntegral (Fixed a)) (TIntegral (Fixed b)) = case decEq (fixedIndex a) (fixedIndex b) of
+  Yes same => Just (cong (TIntegral . Fixed) (sameIndex a b same))
+  No _ => Nothing
+sameTy (TIntegral Big) (TIntegral Big) = Just Refl
+sameTy TDouble TDouble = Just Refl
+sameTy TChar TChar = Just Refl
+sameTy TString TString = Just Refl
+sameTy _ _ = Nothing
+
+||| The integer types of a fixed width, in the order the tests make them.
+public export
+fixedTys : List FixedTy
+fixedTys = [FInt, FInt8, FInt16, FInt32, FInt64, FBits8, FBits16, FBits32, FBits64]
 
 ||| A fixed-width integer type's width.
 public export
@@ -75,36 +140,17 @@ record Width where
   bits : Nat
   signed : Bool
 
-||| A fixed-width integer type's width; no other type has one.
 public export
-widthOf : Ty -> Maybe Width
-widthOf TInt = Just (MkWidth 64 True)
-widthOf TInt8 = Just (MkWidth 8 True)
-widthOf TInt16 = Just (MkWidth 16 True)
-widthOf TInt32 = Just (MkWidth 32 True)
-widthOf TInt64 = Just (MkWidth 64 True)
-widthOf TBits8 = Just (MkWidth 8 False)
-widthOf TBits16 = Just (MkWidth 16 False)
-widthOf TBits32 = Just (MkWidth 32 False)
-widthOf TBits64 = Just (MkWidth 64 False)
-widthOf TInteger = Nothing
-widthOf TDouble = Nothing
-widthOf TChar = Nothing
-widthOf TString = Nothing
-
-||| The ten integer types: the fixed ones and Integer.
-public export
-data IsInteger : Ty -> Type where
-  IInt : IsInteger TInt
-  IInt8 : IsInteger TInt8
-  IInt16 : IsInteger TInt16
-  IInt32 : IsInteger TInt32
-  IInt64 : IsInteger TInt64
-  IBits8 : IsInteger TBits8
-  IBits16 : IsInteger TBits16
-  IBits32 : IsInteger TBits32
-  IBits64 : IsInteger TBits64
-  IInteger : IsInteger TInteger
+width : FixedTy -> Width
+width FInt = MkWidth 64 True
+width FInt8 = MkWidth 8 True
+width FInt16 = MkWidth 16 True
+width FInt32 = MkWidth 32 True
+width FInt64 = MkWidth 64 True
+width FBits8 = MkWidth 8 False
+width FBits16 = MkWidth 16 False
+width FBits32 = MkWidth 32 False
+width FBits64 = MkWidth 64 False
 
 ------------------------------------------------------------------------------
 -- What the integer primitives mean
@@ -131,14 +177,12 @@ wrap t n =
 
 ||| A fixed-width type's least and greatest values.
 public export
-bounds : Ty -> Maybe (Integer, Integer)
-bounds t = map range (widthOf t)
-  where
-    range : Width -> (Integer, Integer)
-    range w =
-      if w.signed
-         then (negate (pow2 (pred w.bits)), pow2 (pred w.bits) - 1)
-         else (0, pow2 w.bits - 1)
+bounds : FixedTy -> (Integer, Integer)
+bounds f =
+  let w = width f in
+  if w.signed
+     then (negate (pow2 (pred w.bits)), pow2 (pred w.bits) - 1)
+     else (0, pow2 w.bits - 1)
 
 ||| Euclidean division: the remainder is never negative.
 public export
@@ -194,7 +238,11 @@ shifted t left a s =
 
 ||| The number of binary digits of `n`'s magnitude. The magnitude bounds
 ||| the halvings, each of which takes at least 1 from it, so it is their
-||| structural bound, never what stops them.
+||| structural bound, never what stops them. The bound is essential:
+||| Integer is a primitive, with no lemma relating its halving to a
+||| measure that Nat could carry, and a view of the magnitude as a Nat
+||| (halfRec) would take as many steps as the value has units, 2^128 in
+||| the pools.
 bitLength : Integer -> Nat
 bitLength n = halvings (integerToNat (abs n)) (abs n)
   where
@@ -213,10 +261,55 @@ bigBitwise op a b = bitwise (MkWidth (2 + max (bitLength a) (bitLength b)) True)
 -- The primitives
 ------------------------------------------------------------------------------
 
-||| The values an argument may take: the primitive's documented
-||| precondition, whose breach ends the program, and nothing else.
+||| What a parameter offers the parameters after it: a string drawn
+||| non-empty, whose scalars an index may point into, or nothing.
 public export
-data Domain = Anything | NonZero | Finite | NonEmpty | IndexInto Nat | SmallShift
+data Earlier = IndexableString | Opaque
+
+||| The values a parameter may take, given what the parameters before it
+||| offer (the latest first): the primitive's documented precondition,
+||| whose breach ends the program, and nothing else.
+public export
+data Domain : List Earlier -> Type where
+  Anything : Domain before
+  NonZero : Domain before
+  Finite : Domain before
+  NonEmpty : Domain before
+  SmallShift : Domain before
+  ||| An index into the scalars of the string that `Elem` points at.
+  IndexInto : Elem IndexableString before -> Domain before
+
+||| What a parameter of a type and a domain offers the parameters after it:
+||| a NonEmpty string its scalars, anything else nothing. The domain is
+||| matched first, so that every domain but NonEmpty offers nothing
+||| whatever the type.
+public export
+offers : Ty -> Domain before -> Earlier
+offers t NonEmpty = stringOffers t
+  where
+    stringOffers : Ty -> Earlier
+    stringOffers TString = IndexableString
+    stringOffers _ = Opaque
+offers _ _ = Opaque
+
+||| A primitive's parameters, each with its type and its domain, the domain
+||| knowing what the parameters before it offer.
+public export
+data Params : List Earlier -> Type where
+  Done : Params before
+  Param : (t : Ty) -> (d : Domain before) -> Params (offers t d :: before) -> Params before
+
+||| The parameters' types, left to right.
+public export
+paramTys : Params before -> List Ty
+paramTys Done = []
+paramTys (Param t _ rest) = t :: paramTys rest
+
+||| How many parameters there are.
+public export
+arity : Params before -> Nat
+arity Done = 0
+arity (Param _ _ rest) = S (arity rest)
 
 public export
 data Family = Arith | Negate | DivMod | Bitwise | Shift | Compare | Cast | Text | DoubleFn
@@ -277,6 +370,10 @@ public export
 Eq Op where
   a == b = opIndex a == opIndex b
 
+public export
+Ord Op where
+  compare a b = compare (opIndex a) (opIndex b)
+
 ||| The family of an operation.
 public export
 family : Op -> Family
@@ -335,6 +432,7 @@ hostOf DoubleATan = Just "libm"
 hostOf _ = Nothing
 
 ||| The word Idris spells an operation's primitives with.
+export
 spelling : Op -> String
 spelling Add = "add"
 spelling Sub = "sub"
@@ -409,85 +507,222 @@ record Prim where
   ||| As a program writes it: "prim__add_Int", "prim__strLength", "prim__doubleExp".
   name : String
   op : Op
-  args : List (Ty, Domain)
+  args : Params []
   result : Ty
 
 -- Idris's lists of types, in its order.
-integralTypes : List Ty
-integralTypes = [TInt, TInt8, TInt16, TInt32, TInt64, TInteger, TBits8, TBits16, TBits32, TBits64]
+integralTypes : List IntTy
+integralTypes = [Fixed FInt, Fixed FInt8, Fixed FInt16, Fixed FInt32, Fixed FInt64, Big, Fixed FBits8, Fixed FBits16, Fixed FBits32, Fixed FBits64]
 
 numTypes : List Ty
-numTypes = integralTypes ++ [TDouble]
+numTypes = map TIntegral integralTypes ++ [TDouble]
 
 primTypes : List Ty
 primTypes = numTypes ++ [TString, TChar]
 
-||| Two values of a type to one.
-binary : Op -> (Ty -> Domain) -> Ty -> Prim
-binary op second t = MkPrim (named op t) op [(t, Anything), (t, second t)] t
+||| Two values of a type to one, the second in its domain.
+public export
+binary : Op -> (t : Ty) -> Domain [Opaque] -> Prim
+binary op t second = MkPrim (named op t) op (Param t Anything (Param t second Done)) t
 
 compareOn : Op -> Ty -> Prim
-compareOn op t = MkPrim (named op t) op [(t, Anything), (t, Anything)] TInt
+compareOn op t = MkPrim (named op t) op (Param t Anything (Param t Anything Done)) int
 
 ||| A primitive of no one type: `prim__<word>`.
-whole : Op -> List (Ty, Domain) -> Ty -> Prim
+whole : Op -> Params [] -> Ty -> Prim
 whole op = MkPrim ("prim__" ++ spelling op) op
 
 ||| Idris's divisions by 0 of an integer type crash (idr-lower checks the
 ||| divisor); a Double's give an infinity or NaN.
-divisor : Ty -> Domain
-divisor t = if t `elem` integralTypes then NonZero else Anything
+public export
+divisor : Ty -> Domain before
+divisor (TIntegral _) = NonZero
+divisor _ = Anything
 
 ||| A left shift past what any integer can hold ends the process (the
 ||| runtime's ash), and a right shift by a negative amount is one: Integer,
 ||| which has no width to wrap to, shifts by small amounts. A fixed width's
 ||| shift is defined for every amount.
-amount : Ty -> Domain
-amount t = maybe SmallShift (const Anything) (widthOf t)
+amount : IntTy -> Domain before
+amount (Fixed _) = Anything
+amount Big = SmallShift
 
 ||| A Double cast to an integer type crashes on NaN and the infinities
 ||| (idr-lower checks it is finite). Every other cast is total: from String
 ||| it reads 0 from text that is no literal, and to Char it gives 0 for a
 ||| value that is not a scalar.
-operand : Ty -> Ty -> Domain
-operand TDouble to = if to `elem` integralTypes then Finite else Anything
+operand : Ty -> Ty -> Domain before
+operand TDouble (TIntegral _) = Finite
 operand _ _ = Anything
 
+||| A type's negation, `prim__negate_<t>`.
+public export
+negateOn : Ty -> Prim
+negateOn t = MkPrim (named Neg t) Neg (Param t Anything Done) t
+
+||| A type's division, `prim__div_<t>`.
+public export
+divOn : Ty -> Prim
+divOn t = binary Div t (divisor t)
+
+||| `n` Doubles, each any.
+doubles : Nat -> Params before
+doubles Z = Done
+doubles (S n) = Param TDouble Anything (doubles n)
+
 doubleFn : Op -> Nat -> Prim
-doubleFn op arity = whole op (replicate arity (TDouble, Anything)) TDouble
+doubleFn op n = whole op (doubles n) TDouble
 
 ||| Every primitive but `believe_me` and `crash`, in Idris's order.
 public export
 prims : List Prim
 prims =
-     [ binary Add (const Anything) t | t <- numTypes ]
-  ++ [ binary Sub (const Anything) t | t <- numTypes ]
-  ++ [ binary Mul (const Anything) t | t <- numTypes ]
-  ++ [ MkPrim (named Neg t) Neg [(t, Anything)] t | t <- numTypes ]
-  ++ [ binary Div divisor t | t <- numTypes ]
-  ++ [ binary Mod divisor t | t <- integralTypes ]
-  ++ [ binary op amount t | (op, _) <- shifts, t <- integralTypes ]
-  ++ [ binary op (const Anything) t | (op, _) <- logical, t <- integralTypes ]
+     [ binary Add t Anything | t <- numTypes ]
+  ++ [ binary Sub t Anything | t <- numTypes ]
+  ++ [ binary Mul t Anything | t <- numTypes ]
+  ++ [ negateOn t | t <- numTypes ]
+  ++ [ divOn t | t <- numTypes ]
+  ++ [ binary Mod (TIntegral i) NonZero | i <- integralTypes ]
+  ++ [ binary op (TIntegral i) (amount i) | (op, _) <- shifts, i <- integralTypes ]
+  ++ [ binary op (TIntegral i) Anything | (op, _) <- logical, i <- integralTypes ]
   ++ [ compareOn op t | (op, _) <- comparisons, t <- primTypes ]
-  ++ [ whole StrLength [(TString, Anything)] TInt
+  ++ [ whole StrLength (Param TString Anything Done) int
      -- A string's first scalar, its rest and one at an index need a scalar
      -- there (idr-lower checks, and crashes on, an empty string and an
      -- index outside it).
-     , whole StrHead [(TString, NonEmpty)] TChar
-     , whole StrTail [(TString, NonEmpty)] TString
-     , whole StrIndex [(TString, NonEmpty), (TInt, IndexInto 0)] TChar
-     , whole StrCons [(TChar, Anything), (TString, Anything)] TString
-     , whole StrAppend [(TString, Anything), (TString, Anything)] TString
-     , whole StrReverse [(TString, Anything)] TString
+     , whole StrHead (Param TString NonEmpty Done) TChar
+     , whole StrTail (Param TString NonEmpty Done) TString
+     , whole StrIndex (Param TString NonEmpty (Param int (IndexInto Here) Done)) TChar
+     , whole StrCons (Param TChar Anything (Param TString Anything Done)) TString
+     , whole StrAppend (Param TString Anything (Param TString Anything Done)) TString
+     , whole StrReverse (Param TString Anything Done) TString
      -- Any start and length: the runtime counts a negative one as 0.
-     , whole StrSubstr [(TInt, Anything), (TInt, Anything), (TString, Anything)] TString
+     , whole StrSubstr (Param int Anything (Param int Anything (Param TString Anything Done))) TString
      ]
   ++ [ doubleFn op 1 | op <- [DoubleExp, DoubleLog] ]
   ++ [ doubleFn DoublePow 2 ]
   ++ [ doubleFn op 1 | op <- [DoubleSin, DoubleCos, DoubleTan, DoubleASin, DoubleACos, DoubleATan, DoubleSqrt, DoubleFloor, DoubleCeiling] ]
   -- Every cast but String to Char, Double to Char and Char to Double,
   -- which Idris does not have.
-  ++ [ MkPrim (castNamed from to) Convert [(from, operand from to)] to
+  ++ [ MkPrim (castNamed from to) Convert (Param from (operand from to) Done) to
      | from <- primTypes, to <- primTypes
      , from /= to && not (from == TString && to == TChar)
          && not (from == TDouble && to == TChar) && not (from == TChar && to == TDouble) ]
+
+------------------------------------------------------------------------------
+-- Expressions
+------------------------------------------------------------------------------
+
+||| A Double literal's sign: a negative one is written in parentheses.
+public export
+data Sign = NonNegative | Negative
+
+mutual
+  ||| A primitive's arguments: an expression of each parameter's type.
+  public export
+  data Args : Params before -> Type where
+    Nil : Args Done
+    (::) : {0 t : Ty} -> {0 d : Domain before} -> {0 rest : Params (offers t d :: before)} ->
+           Expr t -> Args rest -> Args (Param t d rest)
+
+  ||| A closed expression, well typed by construction: a literal, held as
+  ||| its value, a primitive applied, or the fuzzer's sum type's helper.
+  public export
+  data Expr : Ty -> Type where
+    ||| Inside its type's bounds (Integer's: any).
+    IntLit : (i : IntTy) -> Integer -> Expr (TIntegral i)
+    ||| A Double as written, its magnitude a literal: "0.1", "1.0e300".
+    DoubleLit : Sign -> (magnitude : String) -> Expr TDouble
+    CharLit : Char -> Expr TChar
+    StringLit : String -> Expr TString
+    App : (p : Prim) -> Args p.args -> Expr p.result
+    ||| The sum type's helper; `k` is a literal from 0 to 2, its constructor.
+    SData : (k : Expr Prims.int) -> Expr Prims.int -> Expr TDouble -> Expr Prims.int
+
+||| A literal of an integer as written: in parentheses when negative.
+public export
+integerText : Integer -> String
+integerText n = if n < 0 then "(" ++ show n ++ ")" else show n
+
+||| A function applied, as a program writes it.
+public export
+applied : String -> List String -> String
+applied f as = "(" ++ f ++ foldr (\a, rest => " " ++ a ++ rest) ")" as
+
+mutual
+  ||| An expression as a program writes it: an integer in parentheses when
+  ||| negative, a Double likewise, a Char or a String as `show` writes it
+  ||| (a scalar past ASCII as its decimal escape on both hosts), and an
+  ||| application in parentheses.
+  public export
+  source : Expr t -> String
+  source (IntLit _ v) = integerText v
+  source (DoubleLit NonNegative m) = m
+  source (DoubleLit Negative m) = "(-" ++ m ++ ")"
+  source (CharLit c) = show c
+  source (StringLit s) = show s
+  source (App p as) = applied p.name (sources as)
+  source (SData k i x) = applied "sdata" [source k, source i, source x]
+
+  sources : Args ps -> List String
+  sources [] = []
+  sources (e :: es) = source e :: sources es
+
+mutual
+  ||| What stdin holds for an expression read from it: a literal's line, the
+  ||| value as text (a negative Double with its sign, a Char or a String
+  ||| as itself); an expression's lines, its literals' in order.
+  public export
+  input : Expr t -> String
+  input (IntLit _ v) = show v
+  input (DoubleLit NonNegative m) = m
+  input (DoubleLit Negative m) = "-" ++ m
+  input (CharLit c) = singleton c
+  input (StringLit s) = s
+  input (App _ as) = joinBy "\n" (inputs as)
+  input (SData k i x) = joinBy "\n" [input k, input i, input x]
+
+  inputs : Args ps -> List String
+  inputs [] = []
+  inputs (e :: es) = input e :: inputs es
+
+mutual
+  ||| Why an expression's value depends on the host, when it does: the
+  ||| first primitive of it whose operation's value is the host's, by name.
+  public export
+  hostReason : Expr t -> Maybe String
+  hostReason (App p as) = map (\why => p.name ++ ": " ++ why) (hostOf p.op) <|> hostReasonArgs as
+  hostReason (SData k i x) = hostReason k <|> hostReason i <|> hostReason x
+  hostReason (IntLit _ _) = Nothing
+  hostReason (DoubleLit _ _) = Nothing
+  hostReason (CharLit _) = Nothing
+  hostReason (StringLit _) = Nothing
+
+  hostReasonArgs : Args ps -> Maybe String
+  hostReasonArgs [] = Nothing
+  hostReasonArgs (e :: es) = hostReason e <|> hostReasonArgs es
+
+||| Whether an expression's value is the host's: some primitive of it is.
+public export
+onHost : Expr t -> Bool
+onHost e = isJust (hostReason e)
+
+||| How a value of a type is printed: as a string, written by output fusion.
+public export
+printer : Ty -> String -> String
+printer TString e = e
+printer TChar e = "(" ++ castNamed int TString ++ " (" ++ castNamed TChar int ++ " " ++ e ++ "))"
+printer t e = "(" ++ castNamed t TString ++ " " ++ e ++ ")"
+
+||| The statement a generated program prints a value with: its label, a
+||| space and the value, a line of its own.
+public export
+printLine : (label : String) -> Ty -> String -> String
+printLine label t e = "putStrLn (prim__strAppend \"" ++ label ++ " \" " ++ printer t e ++ ")"
+
+||| A line `printLine` printed, read back: its label and its value.
+public export
+labelled : String -> (String, String)
+labelled l =
+  let (label, rest) = break (== ' ') l in
+  (label, maybe "" snd (strUncons rest))

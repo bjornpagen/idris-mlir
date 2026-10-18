@@ -52,23 +52,25 @@ import Data.String
 
 %default total
 
-||| The user definition the instance being translated serves: itself, or
-||| the nearest one up the chain of requests through the library's
-||| instances. A construction site is usually a library's
-||| (`Data.SortedMap.empty`), and the terms Idris keeps carry no locations,
-||| so this is where the program's choice of an implementation is reported.
-chooser : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core (Maybe (Name, FC))
-chooser = go (!(get TState)).chain
+||| The user definition the instance being translated serves, as a message
+||| names it, and where: itself, or the nearest one up the chain of requests
+||| through the library's instances; with none on the chain, the owner the
+||| construction site is in, at the site. A construction site is usually a
+||| library's (`Data.SortedMap.empty`), and the terms Idris keeps carry no
+||| locations, so this is where the program's choice of an implementation
+||| is reported.
+chooser : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> (owner : String) -> Core (Shown, FC)
+chooser fc owner = go (!(get TState)).chain
   where
-    go : List Request -> Core (Maybe (Name, FC))
-    go [] = pure Nothing
+    go : List Request -> Core (Shown, FC)
+    go [] = pure (shown owner, fc)
     go (r :: rs) = do
       defs <- get Ctxt
       Just def <- lookupCtxtExact r.name (gamma defs)
         | Nothing => go rs
       loc <- toLoc (location def)
       case loc.origin of
-        User => pure (Just (fullname def, location def))
+        User => pure (shown (show (fullname def)), location def)
         _ => go rs
 
 ||| The definitions a type mentions.
@@ -129,43 +131,40 @@ opaqueFor impl = case getFnArgs impl of
       pure (if collapseDefault (visibility def) == Public || not typeLevel
                then rest else x :: rest)
 
-||| A construction site gives the dictionary field at argument `i` of a
-||| constructor the implementation `impl`: the one the field holds, if no
-||| site gave another. Two sites of one constructor agree when their
-||| implementations are one, by what each reduces to (`implementationOf`),
-||| not as written: Data.SortedMap's `Monoid` takes the map's `Ord k` as
-||| the first of a pair of constraints, where `fromList`'s caller names it
-||| directly.
+||| A construction site of a constructor (its layout) gives the dictionary
+||| field `field` of type `ty` the implementation `impl`: the one the field
+||| holds, if no site gave another. Two sites of one constructor agree when
+||| their implementations are one, by what each reduces to
+||| (`implementationOf`), not as written: Data.SortedMap's `Monoid` takes
+||| the map's `Ord k` as the first of a pair of constraints, where
+||| `fromList`'s caller names it directly.
 export
 recordDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                   FC -> String -> ConId -> ClosedTerm -> Nat -> ClosedTerm -> Core ()
-recordDictionary fc owner cid ty i impl = do
+                   FC -> (owner : String) -> ConLayout -> DictField -> (ty, impl : ClosedTerm) -> Core ()
+recordDictionary fc owner layout field ty impl = do
   impl' <- toFullNames !(implementationOf impl)
-  chosen <- chooser
-  let site = maybe fc snd chosen
-  let by = maybe (shown owner) (shown . show . fst) chosen
+  (by, site) <- chooser fc owner
   st <- get TState
-  case lookup (cid, i) st.dicts of
+  case lookup field st.dicts of
     Just d => unless (d.impl == impl') $ do
       why <- catMaybes <$> traverse opaqueFor [d.impl, impl']
-      let con = maybe (show cid) (\l => show l.name) (lookup cid st.cons)
       reject site owner DictionaryField
-             (con ++ " holds two implementations of " ++ !(showTT ty) ++
+             (show layout.name ++ " holds two implementations of " ++ !(showTT ty) ++
               ": " ++ !(showTT d.impl) ++ ", chosen in " ++ show d.chooser ++ ", and " ++ !(showTT impl') ++
               ", chosen in " ++ show by ++ concatMap ("; " ++) why)
     Nothing =>
-      update TState { dicts $= insert (cid, i) (MkDictionary impl' by site) }
+      update TState { dicts $= insert field (MkDictionary impl' by site) }
 
-||| The implementation the dictionary field at argument `i` of a
-||| constructor holds, where a match binds it; `Nothing` when no
-||| construction site has given one, which the match takes as never built
-||| and the instance being translated waits on (`TS.assumed`).
+||| The implementation a dictionary field holds, where a match binds it;
+||| `Nothing` when no construction site has given one, which the match
+||| takes as never built and the instance being translated waits on
+||| (`TS.assumed`).
 export
-dictionaryOf : {auto s : Ref TState TS} -> ConId -> Nat -> Core (Maybe ClosedTerm)
-dictionaryOf cid i = do
+dictionaryOf : {auto s : Ref TState TS} -> DictField -> Core (Maybe ClosedTerm)
+dictionaryOf field = do
   st <- get TState
-  case lookup (cid, i) st.dicts of
+  case lookup field st.dicts of
     Just d => pure (Just d.impl)
     Nothing => do
-      update TState { assumed $= insert (cid, i) }
+      update TState { assumed $= insert field }
       pure Nothing

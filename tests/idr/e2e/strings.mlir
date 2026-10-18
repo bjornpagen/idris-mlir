@@ -2,6 +2,7 @@
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "b" | %t > %t.out
 // RUN: FileCheck %s < %t.out
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // Operations that allocate nothing, on strings that exist (static data):
 // the length and the characters of a string picked at runtime, and a match
 // on it.
@@ -13,7 +14,7 @@ idr.program @strings root(@Prog.main) stage(higher) {
       %s = idr.constant "apple" : !idr.str
       idr.yield %s : !idr.str
     }
-    default {
+    default(%d: i32) {
       %s = idr.constant "b\C3\A9e" : !idr.str
       idr.yield %s : !idr.str
     }
@@ -30,7 +31,7 @@ idr.program @strings root(@Prog.main) stage(higher) {
       %two = arith.constant 2 : i64
       idr.yield %two : i64
     }
-    default {
+    default(%d: !idr.str) {
       %zero = arith.constant 0 : i64
       idr.yield %zero : i64
     }
@@ -41,18 +42,18 @@ idr.program @strings root(@Prog.main) stage(higher) {
     %c, %w1 = idr.io.get_byte %w
     %s = idr.call @word(%c) : (i32) -> !idr.str
     %n = idr.str.length %s
-    %w2 = idr.io.put_int signed %n, %w1 : i64
+    %w2 = idr.io.put_sint %n, %w1 : i64
     %sp = arith.constant 32 : i32
     %w3 = idr.io.put_char %sp, %w2
     %h = idr.str.head %s
-    %w4 = idr.io.put_int signed %h, %w3 : i32
+    %w4 = idr.io.put_sint %h, %w3 : i32
     %w5 = idr.io.put_char %sp, %w4
     %one = arith.constant 1 : i64
     %e = idr.str.index %s, %one
     %w6 = idr.io.put_char %e, %w5
     %w7 = idr.io.put_char %sp, %w6
     %r = idr.call @rank(%s) : (!idr.str) -> i64
-    %w8 = idr.io.put_int signed %r, %w7 : i64
+    %w8 = idr.io.put_sint %r, %w7 : i64
     %nl = arith.constant 10 : i32
     %w9 = idr.io.put_char %nl, %w8
     return %w9 : !idr.world

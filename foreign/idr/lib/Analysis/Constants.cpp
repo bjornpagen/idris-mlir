@@ -8,27 +8,23 @@
 #include "mlir/IR/Matchers.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <cassert>
-
 using namespace mlir;
 using mlir::dataflow::ConstantValue;
 
-// Per result, the join over the returns of the constant an operand is, or
-// unknown where it is none. With no return, nothing reaches a caller, and
-// every result stays uninitialized.
+// Per result, the constant the return's operand is, or unknown where it is
+// none.
 idr::ConstantResults idr::returnedConstants(FuncOp fn) {
   ConstantResults out(fn.getResultTypes().size());
-  for (Block &block : fn.getBody()) {
-    auto ret = dyn_cast<ReturnOp>(block.getTerminator());
-    if (!ret)
-      continue;
-    for (auto [value, operand] : llvm::zip_equal(out, ret.getOperands())) {
-      Attribute constant;
-      ConstantValue held = matchPattern(operand, m_Constant(&constant))
-                               ? ConstantValue(constant, operand.getDefiningOp()->getDialect())
-                               : ConstantValue::getUnknownConstant();
-      value = ConstantValue::join(value, held);
-    }
+  // A body that ends in ub.unreachable never returns: nothing reaches a
+  // caller, and every result stays uninitialized.
+  auto ret = dyn_cast<ReturnOp>(fn.getBody().front().getTerminator());
+  if (!ret)
+    return out;
+  for (auto [value, operand] : llvm::zip_equal(out, ret.getOperands())) {
+    Attribute constant;
+    value = matchPattern(operand, m_Constant(&constant))
+                ? ConstantValue(constant, operand.getDefiningOp()->getDialect())
+                : ConstantValue::getUnknownConstant();
   }
   return out;
 }
@@ -37,14 +33,11 @@ idr::SummarizedConstantPropagation::SummarizedConstantPropagation(DataFlowSolver
                                                                    ConstantsOf constantsOf)
     : SparseConstantPropagation(solver), constantsOf(constantsOf) {}
 
+// idr-optimize runs on the first-order stage, whose only call is an idr.call.
 void idr::SummarizedConstantPropagation::visitExternalCall(
     CallOpInterface call, ArrayRef<const dataflow::Lattice<ConstantValue> *>,
     ArrayRef<dataflow::Lattice<ConstantValue> *> results) {
-  auto direct = dyn_cast<CallOp>(call.getOperation());
-  const ConstantResults *summary = direct ? constantsOf(direct.getCalleeAttr().getAttr()) : nullptr;
-  if (!summary)
-    return setAllToEntryStates(results);
-  assert(summary->size() == results.size() && "a call's results are its callee's");
-  for (auto [lattice, value] : llvm::zip_equal(results, *summary))
+  ConstantResults returned = constantsOf(cast<CallOp>(call.getOperation()));
+  for (auto [lattice, value] : llvm::zip_equal(results, returned))
     propagateIfChanged(lattice, lattice->join(value));
 }

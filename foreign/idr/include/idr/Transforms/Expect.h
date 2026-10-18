@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-expect: properties of a module that tests state by name, instead of
-// matching the ops that happen to show them. Each property is a function
-// that reports every place it fails, one error each, and changes nothing.
-// What a property needs of the module beyond its ops (the symbol table, the
-// cells' layouts) it asks of the analysis manager, so properties that ask
-// the same share one answer and the pass keeps nothing between runs. The
-// comment on each property below is the one list of what idr-expect
-// checks; `lookup` knows each by the name it gives.
+// matching the ops that happen to show them. Each property is a check that
+// reports every place it fails, one error each, and changes nothing. What a
+// property needs of the module beyond its ops (the symbol table, the cells'
+// layouts) it asks of the analysis manager, so properties that ask the same
+// share one answer and the pass keeps nothing between runs. The table of
+// properties (Lookup.cpp) is the one list of what idr-expect checks: a row
+// holds a property's name once, pairs it with the shape of its argument,
+// which the row's type checks, and says what it checks.
+//
+// A request's argument is read once, before its check runs, into the typed
+// value of its shape below: a function named, a count, a list, a module
+// read from a file. A text that does not have the shape is refused there,
+// in the one wording every property shares, and an `@f` that names no
+// function is refused there too; a check takes the typed value and never
+// reads text.
 //
 // A property is stated of the program: the functions the module's
 // idr.program holds, under its symbol table, before idr-lower; the
@@ -25,8 +33,12 @@
 #ifndef IDR_TRANSFORMS_EXPECT_H
 #define IDR_TRANSFORMS_EXPECT_H
 
+#include "idr/IR/IdrDialect.h"
+
+#include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
@@ -37,23 +49,271 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <variant>
 
 namespace idr {
 #define GEN_PASS_DECL_IDREXPECT
 #include "idr/Transforms/Passes.h.inc"
+
+// Registers test-idr-facts, the pass that reports what the dialect answers
+// about each op of a function's body as a remark, for the effects' tests.
+void registerFactsTestPass();
 } // namespace idr
 
 namespace idr::expect {
 
-// Every property takes the module, the pass's analysis manager and the
-// text after `=` in its request (empty when there is none), and fails
-// when it reported an error.
-using Check = mlir::LogicalResult (*)(mlir::ModuleOp module, mlir::AnalysisManager &analyses,
-                                      llvm::StringRef argument);
+//===----------------------------------------------------------------------===//
+// Arguments
+//===----------------------------------------------------------------------===//
 
-// The property named `name`, or null when there is none.
-Check lookup(llvm::StringRef name);
+// A request's argument as its parsers read it: the text after `=` (empty
+// when there is none), the property that asks, and the shape the whole text
+// must have, which a parser of one of its parts reports for the whole.
+struct Written {
+  mlir::ModuleOp module;
+  llvm::StringRef property;
+  llvm::StringRef text;
+  llvm::StringRef form;
+  // The one refusal of a text without its shape, at the module:
+  // `idr-expect: <property>=<text> does not read as <property>=<form>`, the
+  // property alone where the shape is no argument.
+  mlir::LogicalResult malformed() const;
+};
+
+// Each shape below holds its `form`, the text its refusal shows, and the
+// one parser of it, which reads `text`, all or part of `written.text`.
+
+// No argument: the property alone.
+struct Nothing {
+  static constexpr llvm::StringLiteral form = "";
+  static mlir::FailureOr<Nothing> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f`: f, without its `@`, and every function made from it (`names`), at
+// least one: a name no function answers to is refused by the parser.
+struct Functions {
+  static constexpr llvm::StringLiteral form = "@f";
+  llvm::StringRef name;
+  llvm::SmallVector<mlir::FunctionOpInterface> functions;
+  static mlir::FailureOr<Functions> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f` or nothing: the property is stated of the functions @f names, or of
+// the whole module.
+struct Roots {
+  static constexpr llvm::StringLiteral form = "[@f]";
+  std::optional<Functions> scope;
+  // The ops a property of ops is checked under: each function @f names, or
+  // the module.
+  llvm::SmallVector<mlir::Operation *> roots(mlir::ModuleOp module) const;
+  // Where the property is stated, for its errors: ` in @f`, or nothing.
+  std::string in() const;
+  static mlir::FailureOr<Roots> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f`: a name a check matches against a symbol or by `names`, which may
+// name no function: a callee (of the runtime's, after lowering), a label's
+// function, a function every call of which is gone.
+struct Symbol {
+  static constexpr llvm::StringLiteral form = "@f";
+  llvm::StringRef name;
+  static mlir::FailureOr<Symbol> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:@g`: the functions @f names, and the name @g of what they call or
+// reach.
+struct Pair {
+  static constexpr llvm::StringLiteral form = "@f:@g";
+  Functions caller;
+  Symbol callee;
+  static mlir::FailureOr<Pair> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:@g`: the functions each of the two names.
+struct TwoFunctions {
+  static constexpr llvm::StringLiteral form = "@f:@g";
+  Functions first;
+  Functions second;
+  static mlir::FailureOr<TwoFunctions> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:<n>`: the functions @f names, and a count.
+struct CountOf {
+  static constexpr llvm::StringLiteral form = "@f:<n>";
+  Functions function;
+  unsigned count;
+  static mlir::FailureOr<CountOf> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f` or `@f:<n>`: the functions @f names, and how many loops each has:
+// exactly the count, or, with none written, some.
+struct Loops {
+  static constexpr llvm::StringLiteral form = "@f[:<n>]";
+  Functions function;
+  std::optional<unsigned> count;
+  static mlir::FailureOr<Loops> parse(const Written &written, llvm::StringRef text);
+};
+
+// `<n>`: a bound.
+struct Bound {
+  static constexpr llvm::StringLiteral form = "<n>";
+  uint64_t bound;
+  static mlir::FailureOr<Bound> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:[@g, ...]`: the functions @f names, and a list of names, in its
+// order; `[]` is the empty list.
+struct Listed {
+  static constexpr llvm::StringLiteral form = "@f:[@g, ...]";
+  Functions function;
+  llvm::SmallVector<Symbol> names;
+  static mlir::FailureOr<Listed> parse(const Written &written, llvm::StringRef text);
+};
+
+// A place of a function's signature: a result or a parameter, by index.
+struct Position {
+  enum class Kind { Result, Arg } kind;
+  unsigned index;
+};
+
+// `@f:<position>:[@g, ...]`, the position written `result` (result 0),
+// `result<n>` or `arg<n>`: the functions @f names, the place, and the list.
+struct Labels {
+  static constexpr llvm::StringLiteral form = "@f:<position>:[@g, ...]";
+  Functions function;
+  Position position;
+  llvm::SmallVector<Symbol> names;
+  static mlir::FailureOr<Labels> parse(const Written &written, llvm::StringRef text);
+};
+
+// What a test writes a value to be, read in this order: `_`, a value
+// computed at run time, no constant (a fold that must not happen); an
+// integer of any width, or a float, by its value; anything else an
+// attribute as MLIR writes it (`#idr.big<-4>`, `"abc"`, `true`,
+// `#idr.con<...>`), read alone, outside the module's text, so a
+// constructor writes its data type with its body, not by the module's
+// alias. An item may be wrapped in parentheses, which keep the commas in it
+// from splitting the list of properties; the items of a list are split only
+// outside brackets and quotes.
+struct Computed {};
+using Item = std::variant<Computed, int64_t, double, mlir::Attribute>;
+
+// `@f:<v>/<v>...`: the functions @f names, and one item per result.
+struct ReturnedValues {
+  static constexpr llvm::StringLiteral form = "@f:<v>/<v>...";
+  Functions function;
+  llvm::SmallVector<Item> values;
+  static mlir::FailureOr<ReturnedValues> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:<v>+<v>...`: the functions @f names, and the items one result may be.
+struct PathValues {
+  static constexpr llvm::StringLiteral form = "@f:<v>+<v>...";
+  Functions function;
+  llvm::SmallVector<Item> values;
+  static mlir::FailureOr<PathValues> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:<n>/<n>...`: the functions @f names, and one parameter's position per
+// result.
+struct ReturnedArguments {
+  static constexpr llvm::StringLiteral form = "@f:<n>/<n>...";
+  Functions function;
+  llvm::SmallVector<unsigned> positions;
+  static mlir::FailureOr<ReturnedArguments> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:<e>+<e>...`: the functions @f names, and the set of effects the cases
+// written make, of io, crash and diverge; `none`, the empty set.
+struct EffectsOf {
+  static constexpr llvm::StringLiteral form = "@f:<e>+<e>...";
+  Functions function;
+  Effect effects;
+  static mlir::FailureOr<EffectsOf> parse(const Written &written, llvm::StringRef text);
+};
+
+// `<file>`: the module the file holds, read into the module's context, so a
+// type it names is the one the module names. A file that cannot be read is
+// refused by the parser.
+struct Module {
+  static constexpr llvm::StringLiteral form = "<file>";
+  mlir::OwningOpRef<mlir::ModuleOp> op;
+  static mlir::FailureOr<Module> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:<file>`: the functions @f names, and the module the file holds.
+struct FunctionsAndModule {
+  static constexpr llvm::StringLiteral form = "@f:<file>";
+  Functions function;
+  Module module;
+  static mlir::FailureOr<FunctionsAndModule> parse(const Written &written, llvm::StringRef text);
+};
+
+// `<stage>`: a stage of the program, as its idr.program writes it.
+struct StageIs {
+  static constexpr llvm::StringLiteral form = "<stage>";
+  Stage stage;
+  static mlir::FailureOr<StageIs> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:<type>`: the functions @f names, and a function type as MLIR writes
+// it.
+struct TypeOf {
+  static constexpr llvm::StringLiteral form = "@f:<type>";
+  Functions function;
+  mlir::Type type;
+  static mlir::FailureOr<TypeOf> parse(const Written &written, llvm::StringRef text);
+};
+
+// `@f:<cc>`: the functions @f names, and a calling convention as LLVM
+// spells it (ccc, tailcc, ...).
+struct ConventionOf {
+  static constexpr llvm::StringLiteral form = "@f:<cc>";
+  Functions function;
+  mlir::LLVM::cconv::CConv convention;
+  static mlir::FailureOr<ConventionOf> parse(const Written &written, llvm::StringRef text);
+};
+
+//===----------------------------------------------------------------------===//
+// Properties
+//===----------------------------------------------------------------------===//
+
+// What a check is given: the module, the pass's analyses, the name it was
+// asked by, which its errors carry, and its argument, read.
+template <typename A> struct Request {
+  mlir::ModuleOp module;
+  mlir::AnalysisManager &analyses;
+  llvm::StringRef property;
+  const A &argument;
+};
+
+// A row of the table: a property's name, and what checks a request of it,
+// the text after `=` (empty when there is none) read by its argument's
+// parser, then its check run. Fails when it reported an error.
+struct Property {
+  llvm::StringRef name;
+  mlir::LogicalResult (*run)(mlir::ModuleOp module, mlir::AnalysisManager &analyses,
+                             llvm::StringRef property, llvm::StringRef text);
+};
+
+// The row of `Check` under `name`: its argument is of shape A, so a check
+// paired with an argument of another shape does not compile.
+template <typename A, mlir::LogicalResult (*Check)(const Request<A> &)>
+constexpr Property property(llvm::StringRef name) {
+  return {name, [](mlir::ModuleOp module, mlir::AnalysisManager &analyses, llvm::StringRef asked,
+                   llvm::StringRef text) -> mlir::LogicalResult {
+            mlir::FailureOr<A> argument = A::parse(Written{module, asked, text, A::form}, text);
+            if (mlir::failed(argument))
+              return mlir::failure();
+            return Check(Request<A>{module, analyses, asked, *argument});
+          }};
+}
+
+// The row of the property named `name`, or null when there is none.
+const Property *lookup(llvm::StringRef name);
 
 // The error that `property` fails at `loc`, to which the caller adds what
 // was found: `expected <property>: <what>`.
@@ -76,16 +336,6 @@ mlir::SymbolTable &symbolsOf(mlir::ModuleOp module, mlir::AnalysisManager &analy
 // its own location names `f`.
 bool names(mlir::FunctionOpInterface fn, llvm::StringRef f);
 
-// The functions `function` (`@f`) names, by `names`; none, after an error
-// of `property`, when it names none.
-llvm::SmallVector<mlir::FunctionOpInterface> named(mlir::ModuleOp module, llvm::StringRef function,
-                                                   llvm::StringRef property);
-
-// The roots a property of ops is checked under: the module, without
-// `function`, or the functions it names.
-llvm::SmallVector<mlir::Operation *> rootsOf(mlir::ModuleOp module, llvm::StringRef function,
-                                             llvm::StringRef property);
-
 // The functions the body of `fn` names by a symbol use (a call, a closure,
 // a constant), in the order the walk meets them, each once.
 llvm::SmallVector<mlir::Operation *> callees(mlir::SymbolTable &symbols, mlir::Operation *fn);
@@ -97,283 +347,100 @@ llvm::SmallVector<llvm::SmallVector<mlir::Operation *>>
 cycles(llvm::ArrayRef<mlir::Operation *> nodes,
        llvm::function_ref<llvm::SmallVector<mlir::Operation *>(mlir::Operation *)> edges);
 
-// An argument `@f:<rest>`: the function, and what follows the first `:`;
-// an empty function, after an error of `property`, when either is missing.
-std::pair<llvm::StringRef, llvm::StringRef> splitAt(mlir::ModuleOp module, llvm::StringRef argument,
-                                                    llvm::StringRef property);
+// Whether `call` calls `g`: its callee's symbol is g, or it calls a
+// function of `symbols` made from the code written as g (`names`).
+bool callsNamed(mlir::CallOpInterface call, const Symbol &g, mlir::SymbolTable &symbols);
 
-// The functions a list names, `@g` or `[@g, @h, ...]`, in its order and
-// without their `@`; `[]` names none.
-llvm::SmallVector<llvm::StringRef> symbolList(llvm::StringRef list);
+// How many places of `fn` may crash: an idr op that never returns, a
+// guard, or a call of the LLVM dialect that never returns (the call says
+// so, or its callee in `symbols`).
+unsigned crashSitesOf(mlir::FunctionOpInterface fn, mlir::SymbolTable &symbols);
 
-// Whether `call` calls `g`: its callee's symbol is `g`, or it calls a
-// function of `symbols` made from the code written as `g` (`names`).
-bool callsNamed(mlir::CallOpInterface call, llvm::StringRef g, mlir::SymbolTable &symbols);
-
-// `no-closures`, `no-closures=@f`: no closure is built, applied or a
-// constant, anywhere or in @f.
-mlir::LogicalResult noClosures(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `labels=@f:<position>:[@g, ...]`: the type at that position of every copy
-// of @f, a result (`result`, `result<n>`) or a parameter (`arg<n>`), is a
-// sum of labels, of closures or of a memo cell, whose labels run exactly
-// the functions the list names.
-mlir::LogicalResult labels(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `no-heap-allocation`, `no-heap-allocation=@f`: nothing allocates a heap
-// cell, anywhere, or in @f and every function it names.
-mlir::LogicalResult noHeapAllocation(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `one-clone=@f`: every call of @f calls one function, and there is one.
-mlir::LogicalResult oneClone(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `specialized-once=@f`: every copy of @f other than @f calls, of @f and its
-// copies, only itself and @f: no specialization was made for a call in
-// another, so a recursion's specializations stop after one step.
-mlir::LogicalResult specializedOnce(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `not-called=@f`: no call of @f is left (a function the module never had
-// is not called either).
-mlir::LogicalResult notCalled(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `quantities-kept=<file>`: every parameter of a function, every field a
-// match binds and every constructor field that the module in <file> (the
-// emitted module) declares has the quantity it has there, one or many.
-mlir::LogicalResult quantitiesKept(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `reuses-in-place=@f`: in @f every box is built in a reused cell
-// (idr.reuse), and at least one is.
-mlir::LogicalResult reusesInPlace(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `moves-out`, `moves-out=@f`: anywhere or in @f, some element of an
-// array is rebuilt in its place (idr.array.update, idr.element.update),
-// moved out with the reference the array held.
-mlir::LogicalResult movesOut(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `counts-nothing=@f`: no idr.dup or idr.drop in @f, other than a dup of
-// static data, which holds no count.
-mlir::LogicalResult countsNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `no-guards=@f`: no guard (`idr.check.*`) is left in @f.
-mlir::LogicalResult noGuards(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `tests-nothing=@f`: every take in @f is of an exclusive value and every
-// reuse builds in an exclusive cell, so no count or null is tested; and
-// there is at least one take.
-mlir::LogicalResult testsNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `exclusive-copy=@f`: some copy of @f takes every parameter that holds
-// references at the exclusive grade: idr-rc gave @f a copy for exclusive
-// arguments.
-mlir::LogicalResult exclusiveCopy(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `resets-unshared`, `resets-unshared=@f`: every take of a box, anywhere or
-// in @f, tests a cell that its function never gives a second reference.
-mlir::LogicalResult resetsUnshared(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `reuses-every-cell=@f`: every cell a take in @f yields for a constructor
-// with fields is reused, and none is freed.
-mlir::LogicalResult reusesEveryCell(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `contified`: no function is called once, from another function
-// that it calls back, and used nowhere else.
-mlir::LogicalResult contified(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `facts-as-marked`: every op marked `expect.facts = "..."` answers the
-// questions the mark lists, of `drop move delay merge` in that order, as
-// the pass that asks each asks it: `drop` (dead once unused) and `merge`
-// (two equal ones are one value) of the op's own effects, as upstream's
-// dead code removal and CSE read them; `move` (across anything) and `delay`
-// of the effects with a call's its callee's, as the dialect's rewrites read
-// them.
-mlir::LogicalResult factsAsMarked(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `output-fused`, `output-fused=@f`: no string is built only to be
-// written, anywhere or in @f.
-mlir::LogicalResult outputFused(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `folds-balanced`: the folders released every reference they took from
-// the runtime.
-mlir::LogicalResult foldsBalanced(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `folded=@f`: no op is left in any copy of @f that a fold would have
-// replaced: one with results, no memory effect, no call and no constant,
-// whose operands are constants alone.
-mlir::LogicalResult folded(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `constant-stack=@f`: no recursion from @f grows the stack: every function
-// @f may call that is on a cycle of references refers to the others of its
-// cycle only by guaranteed tail calls (`musttail`), so before
-// idr-tail-calls none may be on a cycle at all.
-mlir::LogicalResult constantStack(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `tail-calls=@f:@g`: every copy of @f calls @g or a copy of it, each call
-// a guaranteed tail call (`musttail`, the return right after it).
-mlir::LogicalResult tailCalls(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `counted-loop=@f`: @f loops, and each of its loops is an `scf.for`.
-mlir::LogicalResult countedLoop(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `word-loop=@f`: some loop of @f computes on words alone: no value defined
-// or bound in it is a big or a natural.
-mlir::LogicalResult wordLoop(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `structured-loops`, `structured-loops=@f`: anywhere or in @f, no op is
-// left that idr-structure-loops lowers, and some linalg op is there.
-mlir::LogicalResult structuredLoops(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `typed-reads=@f`: no index of a tensor access in @f comes from a guard,
-// and @f accesses a tensor.
-mlir::LogicalResult typedReads(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `in-place`, `in-place=@f`: after bufferization, nothing copies a buffer,
-// anywhere or in @f, and a buffer is there.
-mlir::LogicalResult inPlace(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `fused=@f`: no result of a linalg op in @f that has one use is used by
-// another linalg op, and @f holds a linalg op.
-mlir::LogicalResult fused(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `largest-function=<n>`: no function holds more than n operations,
-// counted as the inline decisions count them.
-mlir::LogicalResult largestFunction(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `vectorized`, `vectorized=@f`: after the vectorization schedule, anywhere
-// or in @f, some loop computes on vectors, and no `linalg.generic` with a
-// parallel dimension and a body of words alone is left scalar.
-mlir::LogicalResult vectorized(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `narrowed-lanes`, `narrowed-lanes=@f`: after idr-narrow-lanes, anywhere
-// or in @f, some loop computes integer lanes in 32 bits or fewer, and
-// every loop that computes integer lanes wider than 32 bits, other than a
-// reduction's accumulator, and may run more than once is the 64-bit
-// version beside a loop that computes its lanes in 32.
-mlir::LogicalResult narrowedLanes(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `matches=@f`, `matches-nothing=@f`: @f takes some value apart by a
-// match on a constructor or a literal, or none.
-mlir::LogicalResult matches(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult matchesNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `forces=@f`, `forces-nothing=@f`: @f forces some suspension, or none.
-mlir::LogicalResult forcesSome(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult forcesNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `builds=@f`, `builds-nothing=@f`: @f builds some value at run time (a
-// constructor, in a fresh cell or a reused one, a closure, a suspension),
-// or none: what it returns or holds is its parameters' or static data.
-mlir::LogicalResult buildsSome(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult buildsNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `reads-fields=@f`, `reads-no-fields=@f`: @f reads some field of a
-// constructor value by idr.field, or none.
-mlir::LogicalResult readsFields(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult readsNoFields(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `applies=@f`: @f applies some closure (no-closures=@f says none).
-mlir::LogicalResult applies(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `never-returns=@f`: no path of @f returns.
-mlir::LogicalResult neverReturns(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `calls=@f:@g`, `never-calls=@f:@g`: some call in @f calls @g or a copy
-// of it, or none does; before lowering and after it, where @g may be a
-// function of the runtime, by its symbol.
-mlir::LogicalResult calls(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult neverCalls(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `calls-closed=@f:@g`: @f calls @g, and every call of it there takes
-// constants alone.
-mlir::LogicalResult callsClosed(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `returns=@f:<v>/<v>...`: every return of @f returns, as each result,
-// the value written: a number (an integer of any width, or a float) by its
-// value; `_`, computed at run time, no constant (a fold that must not
-// happen); anything else an attribute as MLIR writes it (`#idr.big<-4>`,
-// `"abc"`, `true`, `#idr.con<...>`), equal to the constant's. An item is
-// read alone, outside the module's text, so a constructor writes its data
-// type with its body, not by the module's alias. An item may be wrapped in
-// parentheses, which keep the commas in it from splitting the list of
-// properties; `/` splits items only outside brackets and quotes.
-mlir::LogicalResult returnsConstants(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `returns-on-paths=@f:<v>+<v>...`: the one result of @f is, on each of its
-// paths through its matches, one of the constants written (as `returns`
-// writes them), and each of them on some path.
-mlir::LogicalResult returnsOnPaths(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `returns-argument=@f:<n>/<n>...`: every return of @f returns, as each
-// result, the parameter of that position.
-mlir::LogicalResult returnsArguments(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `builds-where-used=@f`: every value @f builds at run time is used in the
-// block that builds it, so none is built on a path that does not use it.
-mlir::LogicalResult buildsWhereUsed(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `calls-where-used=@f:@g`: every call of @g or of a copy of it in @f whose
-// results are used is used in the block that makes it, so none runs on a
-// path that does not use it.
-mlir::LogicalResult callsWhereUsed(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `matches-once=@f`: no match in @f tests a value that a match around it
-// on the same value already decided (it sits in one of its cases, or in
-// its default and has no case of its own).
-mlir::LogicalResult matchesOnce(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `crashes-before-output=@f`: nothing @f writes may be written before
-// something in @f that may crash, a call's writes and crashes its callee's.
-mlir::LogicalResult crashesBeforeOutput(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `parameters-used=@f`: every parameter of @f is read in its body.
-mlir::LogicalResult parametersUsed(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `results-used=@f`: every result of every match in @f is used.
-mlir::LogicalResult resultsUsed(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `regions-distinct=@f`: no match in @f has two regions that do the same.
-mlir::LogicalResult regionsDistinct(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `checks-every-path=@f`: @f checks something, and every check
-// (`idr.check.*`) runs on every path through @f.
-mlir::LogicalResult checksEveryPath(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `grows-nothing=@f:<file>`: every copy of @f holds at most as many
-// operations as the function @f of the module in <file> held.
-mlir::LogicalResult growsNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `call-order=@f:[@g, @h, ...]`: every copy of @f calls each function
-// the list names, in the list's order as its body is written.
-mlir::LogicalResult callOrder(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `calls-distinct=@f:@g`: no call of @g or of a copy of it in @f makes a
-// call that dominates it again, the same callee on the same operands.
-mlir::LogicalResult callsDistinct(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `calls-read=@f:@g`: every call of @g or of a copy of it in @f gives a
-// result that something reads.
-mlir::LogicalResult callsRead(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `calls-only=@f:[@g, ...]`: every call of every copy of @f is of a
-// function the list names; `[]`, none.
-mlir::LogicalResult callsOnly(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `direct-calls`, `direct-calls=@f`: every call, anywhere or in @f, names
-// its callee: none calls through a value.
-mlir::LogicalResult directCalls(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `crash-sites=@f:<n>`: every copy of @f may crash at exactly n places:
-// an idr op that never returns, a guard, or a call of a function that
-// never returns.
-mlir::LogicalResult crashSites(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `lowered`, `lowered=@f`: in the program or in @f, nothing of the idr
-// dialect is left: no op, no type of a value, a block argument or a
-// signature, no attribute of it, and no attribute named for a fact an
-// idr.func holds; the program that holds the lowered functions aside.
-mlir::LogicalResult lowered(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `in-llvm`: every op of the program is the LLVM dialect's.
-mlir::LogicalResult inLLVM(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `signature=@f:<type>`: every copy of @f has that function type.
-mlir::LogicalResult signature(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `convention=@f:<cc>`: every copy of @f is an llvm.func called by the
-// convention LLVM spells <cc> (ccc, tailcc, ...).
-mlir::LogicalResult convention(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `entry`: after idr-entry, the one public function with a body is @main,
-// of the C entry's type (i32, !llvm.ptr) -> i32.
-mlir::LogicalResult entry(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `linker-names`: every symbol the program defines is written in letters,
-// digits, `_`, `.` and `$`.
-mlir::LogicalResult linkerNames(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `loops=@f`, `loops=@f:<n>`: every copy of @f has a loop op, or exactly
-// n of them.
-mlir::LogicalResult loops(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `straight-line=@f`: every copy of @f runs one path: no op of it chooses
-// among or repeats its regions, and no block ends in a choice of
-// successors.
-mlir::LogicalResult straightLine(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `aligned-access`, `aligned-access=@f`: anywhere or in @f, every LLVM
-// load and store states its alignment.
-mlir::LogicalResult alignedAccess(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `reads-nothing=@f`, `writes-nothing=@f`: no op of any copy of @f but a
-// call reads, or writes, memory outside its own frame.
-mlir::LogicalResult readsNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult writesNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-
-// `effects=@f:<e>+<e>...`, `effects=@f:none`: every copy of @f is an
-// idr.func whose effects, as idr-effects found them, are exactly those
-// written, of io, crash and diverge; one no pass solved may do all three.
-mlir::LogicalResult solvedEffects(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `computes-nothing=@f`: every op left in every copy of @f is a guard, an
-// op that never returns, ub.unreachable or a terminator: it computes no
-// value, and only what may crash is kept.
-mlir::LogicalResult computesNothing(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `dims-known=@f`: no copy of @f asks an extent (a dimension op) of an
-// array an op of it made: only of one it was given.
-mlir::LogicalResult dimsKnown(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-
-// `by-name=@f`, `not-by-name=@f`: every memo label of the program whose
-// function is @f or a copy of it runs again at every force (`by_name`),
-// or none does; and there is one.
-mlir::LogicalResult byName(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult notByName(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `total=@f`, `not-total=@f`: every copy of @f is an idr.func that holds
-// Idris's proof that its body's loops end, or that does not.
-mlir::LogicalResult total(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-mlir::LogicalResult notTotal(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-
-// `apart=@f:@g`: the functions written as @f and as @g are still two: some
-// function is made from each, and none from both.
-mlir::LogicalResult apart(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-
-// `reaches=@f:@g`: from every copy of @f, the functions its body names,
-// followed from body to body, include @g or a copy of it.
-mlir::LogicalResult reaches(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
-// `stage=<higher|first|owned|lowered>`: the module's program is at that
-// stage.
-mlir::LogicalResult stage(mlir::ModuleOp, mlir::AnalysisManager &, llvm::StringRef);
+// The checks, by the shape of their argument; the table says what each
+// checks. quantitiesKept and foldsBalanced are the contracts' too, which
+// call them with the module before a pass and nothing.
+mlir::LogicalResult noClosures(const Request<Roots> &);
+mlir::LogicalResult labels(const Request<Labels> &);
+mlir::LogicalResult noHeapAllocation(const Request<Roots> &);
+mlir::LogicalResult oneClone(const Request<Symbol> &);
+mlir::LogicalResult specializedOnce(const Request<Functions> &);
+mlir::LogicalResult notCalled(const Request<Symbol> &);
+mlir::LogicalResult quantitiesKept(const Request<Module> &);
+mlir::LogicalResult reusesInPlace(const Request<Functions> &);
+mlir::LogicalResult movesOut(const Request<Roots> &);
+mlir::LogicalResult countsNothing(const Request<Functions> &);
+mlir::LogicalResult noGuards(const Request<Functions> &);
+mlir::LogicalResult testsNothing(const Request<Functions> &);
+mlir::LogicalResult exclusiveCopy(const Request<Functions> &);
+mlir::LogicalResult resetsUnshared(const Request<Roots> &);
+mlir::LogicalResult reusesEveryCell(const Request<Functions> &);
+mlir::LogicalResult contified(const Request<Nothing> &);
+mlir::LogicalResult outputFused(const Request<Roots> &);
+mlir::LogicalResult foldsBalanced(const Request<Nothing> &);
+mlir::LogicalResult folded(const Request<Functions> &);
+mlir::LogicalResult constantStack(const Request<Functions> &);
+mlir::LogicalResult tailCalls(const Request<Pair> &);
+mlir::LogicalResult countedLoop(const Request<Functions> &);
+mlir::LogicalResult wordLoop(const Request<Functions> &);
+mlir::LogicalResult structuredLoops(const Request<Roots> &);
+mlir::LogicalResult typedReads(const Request<Functions> &);
+mlir::LogicalResult inPlace(const Request<Roots> &);
+mlir::LogicalResult fused(const Request<Functions> &);
+mlir::LogicalResult largestFunction(const Request<Bound> &);
+mlir::LogicalResult vectorized(const Request<Roots> &);
+mlir::LogicalResult narrowedLanes(const Request<Roots> &);
+mlir::LogicalResult matches(const Request<Functions> &);
+mlir::LogicalResult matchesNothing(const Request<Functions> &);
+mlir::LogicalResult forcesSome(const Request<Functions> &);
+mlir::LogicalResult forcesNothing(const Request<Functions> &);
+mlir::LogicalResult buildsSome(const Request<Functions> &);
+mlir::LogicalResult buildsNothing(const Request<Functions> &);
+mlir::LogicalResult readsFields(const Request<Functions> &);
+mlir::LogicalResult readsNoFields(const Request<Functions> &);
+mlir::LogicalResult applies(const Request<Functions> &);
+mlir::LogicalResult neverReturns(const Request<Functions> &);
+mlir::LogicalResult calls(const Request<Pair> &);
+mlir::LogicalResult neverCalls(const Request<Pair> &);
+mlir::LogicalResult callsClosed(const Request<Pair> &);
+mlir::LogicalResult returnsConstants(const Request<ReturnedValues> &);
+mlir::LogicalResult returnsOnPaths(const Request<PathValues> &);
+mlir::LogicalResult returnsArguments(const Request<ReturnedArguments> &);
+mlir::LogicalResult buildsWhereUsed(const Request<Functions> &);
+mlir::LogicalResult callsWhereUsed(const Request<Pair> &);
+mlir::LogicalResult matchesOnce(const Request<Functions> &);
+mlir::LogicalResult crashesBeforeOutput(const Request<Functions> &);
+mlir::LogicalResult parametersUsed(const Request<Functions> &);
+mlir::LogicalResult resultsUsed(const Request<Functions> &);
+mlir::LogicalResult regionsDistinct(const Request<Functions> &);
+mlir::LogicalResult checksEveryPath(const Request<Functions> &);
+mlir::LogicalResult growsNothing(const Request<FunctionsAndModule> &);
+mlir::LogicalResult callOrder(const Request<Listed> &);
+mlir::LogicalResult callsDistinct(const Request<Pair> &);
+mlir::LogicalResult callsRead(const Request<Pair> &);
+mlir::LogicalResult callsOnly(const Request<Listed> &);
+mlir::LogicalResult directCalls(const Request<Roots> &);
+mlir::LogicalResult crashSites(const Request<CountOf> &);
+mlir::LogicalResult lowered(const Request<Roots> &);
+mlir::LogicalResult inLLVM(const Request<Nothing> &);
+mlir::LogicalResult signature(const Request<TypeOf> &);
+mlir::LogicalResult convention(const Request<ConventionOf> &);
+mlir::LogicalResult entry(const Request<Nothing> &);
+mlir::LogicalResult linkerNames(const Request<Nothing> &);
+mlir::LogicalResult loops(const Request<Loops> &);
+mlir::LogicalResult straightLine(const Request<Functions> &);
+mlir::LogicalResult alignedAccess(const Request<Roots> &);
+mlir::LogicalResult readsNothing(const Request<Functions> &);
+mlir::LogicalResult writesNothing(const Request<Functions> &);
+mlir::LogicalResult solvedEffects(const Request<EffectsOf> &);
+mlir::LogicalResult computesNothing(const Request<Functions> &);
+mlir::LogicalResult dimsKnown(const Request<Functions> &);
+mlir::LogicalResult byName(const Request<Symbol> &);
+mlir::LogicalResult notByName(const Request<Symbol> &);
+mlir::LogicalResult total(const Request<Functions> &);
+mlir::LogicalResult notTotal(const Request<Functions> &);
+mlir::LogicalResult apart(const Request<TwoFunctions> &);
+mlir::LogicalResult reaches(const Request<Pair> &);
+mlir::LogicalResult stage(const Request<StageIs> &);
 
 } // namespace idr::expect
 

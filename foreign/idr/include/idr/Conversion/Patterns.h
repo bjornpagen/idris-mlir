@@ -18,13 +18,14 @@
 
 namespace idr::conversion {
 
-// The ops that count references: calls of the runtime, which LTO inlines.
+// The ops that count references, and the take of a cell: calls of the
+// runtime, which LTO inlines.
 void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
-                              Runtime &runtime, const Fields &fields);
+                              Runtime &runtime);
 
-// The big ops that have no runtime function: a natural made a big, a small
-// big made of a word, a natural made an extent.
+// The big op that is no call of one runtime function: a natural made an
+// extent, which crashes at the op where the natural is past every extent.
 void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                          const Layouts &layouts, Runtime &runtime);
 
@@ -52,26 +53,11 @@ void populateStringPatterns(mlir::RewritePatternSet &patterns,
                             const mlir::TypeConverter &converter, const Layouts &layouts,
                             Runtime &runtime);
 
-// The components each field of a constructor stores in a cell laid out as
-// `cell`: those `given`, in field order, and zero for each of `holes`, so
-// that the cell is whole until the hole's destination is written, an
-// object slot holding an empty reference.
-llvm::SmallVector<llvm::SmallVector<mlir::Value>> fieldsOf(mlir::OpBuilder &b, mlir::Location loc,
-                                                           const layout::Cell &cell,
-                                                           llvm::ArrayRef<int32_t> holes,
-                                                           llvm::ArrayRef<mlir::ValueRange> given);
-
-// The destination of each of `holes` of a constructor built in `cell`, laid
-// out as `layout`: the address of the hole's word.
-llvm::SmallVector<llvm::SmallVector<mlir::Value>> destsOf(mlir::OpBuilder &b, mlir::Location loc,
-                                                          mlir::Value cell,
-                                                          const layout::Cell &layout,
-                                                          llvm::ArrayRef<int32_t> holes);
-
-// Cells and unboxed sums, and the changes of grade and kind that have no
-// runtime form.
+// The cells, each made by its producer and written by its init, and the
+// sums held in place, built and unpacked; `fields` says which fields a
+// recycled cell holds already.
 void populateCellPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
-                          const Layouts &layouts, Runtime &runtime);
+                          const Layouts &layouts, Runtime &runtime, const Fields &fields);
 
 // Crashes, forged worlds, loops that need not end, and the scalar
 // operations whose meaning is more than arith's.

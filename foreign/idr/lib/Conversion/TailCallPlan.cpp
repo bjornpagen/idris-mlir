@@ -8,13 +8,11 @@
 #include "idr/Conversion/TailPosition.h"
 #include "idr/Support/Worklist.h"
 
-#include "mlir/Analysis/CallGraph.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Threading.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 
@@ -66,22 +64,9 @@ Reach reach(LLVM::LLVMFuncOp fn, const DenseSet<Operation *> &planned) {
   return reached;
 }
 
-// Calls `each` with every call of `fn` that `reached` keeps, in program
-// order.
-void forEachCallKept(LLVM::LLVMFuncOp fn, const Reach &reached,
-                     function_ref<void(LLVM::CallOp)> each) {
-  for (Block &block : fn.getBody()) {
-    auto last = reached.find(&block);
-    if (last == reached.end())
-      continue;
-    for (Operation &op : llvm::make_range(block.begin(), std::next(last->second->getIterator())))
-      op.walk([&](LLVM::CallOp call) { each(call); });
-  }
-}
-
 } // namespace
 
-FailureOr<TailCallPlan> TailCallPlan::make(ModuleOp module, const CallGraph &graph) {
+FailureOr<TailCallPlan> TailCallPlan::make(ModuleOp module, const CallCycles &cycles) {
   MLIRContext *ctx = module.getContext();
   TailCallPlan plan;
 
@@ -130,58 +115,43 @@ FailureOr<TailCallPlan> TailCallPlan::make(ModuleOp module, const CallGraph &gra
     });
   });
 
-  // The cycle of direct calls each function with a body is on, every one
-  // of them a node of the graph.
-  DenseMap<Operation *, unsigned> cycleOf;
-  {
-    unsigned index = 0;
-    for (auto scc = llvm::scc_begin(&graph); !scc.isAtEnd(); ++scc, ++index)
-      for (const CallGraphNode *node : *scc)
-        if (!node->isExternal())
-          cycleOf[node->getCallableRegion()->getParentOp()] = index;
-  }
-
-  // The callers and callees of candidates on a cycle take tailcc, and so do
-  // their calls; each candidate between two of them is planned.
-  ByName tail;
+  // The callers and callees of candidates on one cycle take tailcc.
   for (auto [fn, candidates] : llvm::zip_equal(callers, found)) {
     plan.bound += candidates.frameBound;
     for (LLVM::CallOp call : candidates.calls) {
       LLVM::LLVMFuncOp callee = calleeIn(call, internal);
-      if (cycleOf.at(fn) == cycleOf.at(callee)) {
-        tail[fn.getSymNameAttr()] = fn;
-        tail[callee.getSymNameAttr()] = callee;
-      }
+      if (!cycles.together(fn, callee))
+        continue;
+      plan.conventions[fn.getSymNameAttr()] = Convention::Tail;
+      plan.conventions[callee.getSymNameAttr()] = Convention::Tail;
     }
   }
-  // The return right after each planned call leaves the rest of its block,
-  // and what only that led to, unreached: a planned call there is dropped.
-  DenseMap<Operation *, Reach> reached;
+  // Each candidate between two of them is planned. The return right after
+  // each planned call leaves the rest of its block, and what only that led
+  // to, unreached: a planned call there is dropped.
   llvm::SetVector<Operation *> onTails;
   for (auto [fn, candidates] : llvm::zip_equal(callers, found)) {
-    if (!tail.contains(fn.getSymNameAttr()))
+    if (plan.conventionOf(fn.getSymNameAttr()) == Convention::C)
       continue;
     DenseSet<Operation *> planned;
     for (LLVM::CallOp call : candidates.calls)
-      if (calleeIn(call, tail))
+      if (plan.conventionOf(call.getCalleeAttr().getAttr()) != Convention::C)
         planned.insert(call);
     if (planned.empty())
       continue;
-    const Reach &kept = reached[fn] = reach(fn, planned);
+    Reach kept = reach(fn, planned);
     for (LLVM::CallOp call : candidates.calls) {
       if (!planned.contains(call) || kept.lookup(call->getBlock()) != call)
         continue;
-      plan.functions[fn].tailCalls.push_back(call);
+      plan.tailCalls[fn].push_back(call);
       onTails.insert(fn);
-      onTails.insert(calleeIn(call, tail));
+      onTails.insert(calleeIn(call, internal));
     }
   }
 
   // The results that do not fit the return registers go through memory, in
-  // every function on a tail call. A function that takes the pointer
-  // returns nothing. The machine is asked only when there is a result to
-  // measure.
-  ByName inMemory;
+  // every function on a tail call, each of which takes tailcc already. The
+  // machine is asked only when there is a result to measure.
   if (!onTails.empty()) {
     FailureOr<ReturnRegisters> registers = ReturnRegisters::of(module);
     if (failed(registers))
@@ -190,39 +160,20 @@ FailureOr<TailCallPlan> TailCallPlan::make(ModuleOp module, const CallGraph &gra
       auto fn = cast<LLVM::LLVMFuncOp>(on);
       if (registers->fit(fn.getFunctionType().getReturnType()))
         continue;
-      inMemory[fn.getSymNameAttr()] = fn;
-      plan.functions[fn].resultInMemory = true;
+      plan.conventions[fn.getSymNameAttr()] = Convention::TailThroughMemory;
+      ++plan.memory;
     }
-  }
-  plan.memory = inMemory.size();
-
-  for (const auto &[name, fn] : tail)
-    plan.functions[fn].tail = true;
-  for (auto fn : module.getOps<LLVM::LLVMFuncOp>()) {
-    if (fn.isExternal())
-      continue;
-    fn.walk([&](LLVM::CallOp call) {
-      if (calleeIn(call, tail))
-        plan.functions[fn].tailccCalls.push_back(call);
-    });
-    if (inMemory.empty())
-      continue;
-    auto kept = reached.find(fn);
-    if (kept == reached.end())
-      kept = reached.try_emplace(fn, reach(fn, {})).first;
-    forEachCallKept(fn, kept->second, [&](LLVM::CallOp call) {
-      if (!calleeIn(call, inMemory) || llvm::is_contained(plan.functions[fn].tailCalls, call))
-        return;
-      plan.functions[fn].throughSlot.push_back(call);
-    });
   }
   return plan;
 }
 
-const TailCallPlan::Function &TailCallPlan::of(LLVM::LLVMFuncOp fn) const {
-  static const Function nothing;
-  auto it = functions.find(fn);
-  return it == functions.end() ? nothing : it->second;
+Convention TailCallPlan::conventionOf(StringAttr callee) const {
+  return conventions.lookup_or(callee, Convention::C);
+}
+
+ArrayRef<LLVM::CallOp> TailCallPlan::tailCallsOf(LLVM::LLVMFuncOp fn) const {
+  auto planned = tailCalls.find(fn);
+  return planned == tailCalls.end() ? ArrayRef<LLVM::CallOp>() : ArrayRef(planned->second);
 }
 
 } // namespace idr::conversion

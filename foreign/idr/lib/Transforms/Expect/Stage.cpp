@@ -11,20 +11,18 @@ using namespace mlir;
 
 namespace idr::expect {
 
-// `stage=<higher|first|owned|lowered>`: the module's program is at it.
-LogicalResult stage(ModuleOp module, AnalysisManager &, StringRef argument) {
-  constexpr StringRef property = "stage";
-  std::optional<Stage> wanted = symbolizeStage(argument);
-  if (!wanted)
-    return fail(module.getLoc(), property) << "name the stage, as stage=first";
-  auto program = dyn_cast<ProgramOp>(programOf(module));
+// The module's program is at the stage written. A module idr-entry has
+// taken the lowered functions out of holds no program, and so no stage.
+LogicalResult stage(const Request<StageIs> &request) {
+  Stage wanted = request.argument.stage;
+  auto program = dyn_cast<ProgramOp>(programOf(request.module));
   if (!program)
-    return fail(module.getLoc(), property) << "the module holds no program";
-  if (program.getStage() == *wanted)
+    return fail(request.module->getLoc(), request.property) << "the module holds no program";
+  if (program.getStage() == wanted)
     return success();
-  return fail(program.getLoc(), property) << "the program is at stage "
-                                          << stringifyStage(program.getStage()) << ", not "
-                                          << argument;
+  return fail(program.getLoc(), request.property)
+         << "the program is at stage " << stringifyStage(program.getStage()) << ", not "
+         << stringifyStage(wanted);
 }
 
 } // namespace idr::expect

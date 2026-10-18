@@ -1,124 +1,64 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idris-mlir's entry: the command line, the --print options and the
-// compilation, on a stack of its own.
+// idris-mlir's entry: the command line, read once into the invocation, and
+// then what it asks, on the tools' stack.
 
 #include "idr/Driver/Main.h"
 
-#include "idr/Driver/Artifacts.h"
 #include "idr/Driver/Compile.h"
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/Support/Profile.h"
 #include "idr/Support/Stack.h"
-#include "idr/Transforms/Pipeline.h"
-
-// The runtime's C ABI: its reserved-stack runner.
-#include "idris_rt.h"
 
 #include "mlir/Debug/CLOptionsSetup.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/Timing.h"
 
-#include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <cstddef>
-#include <optional>
-#include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
-// What the stack's exhaustion handler may call: write and _exit.
-#include <unistd.h>
-
 using namespace idr::driver;
 
-namespace {
-
-// The compilation runs on the runtime's reserved-stack runner, on the
-// tools' stack. The frontend and the link are spawned from this thread,
-// which posix_spawn allows. PIN(mlir-recursion)
-struct Compilation {
-  llvm::function_ref<int()> body;
-  int status = failure;
-};
-
-} // namespace
-
-static void enter(void *argument) {
-  // This thread's share of the trace, finished before it is joined.
-  idr::profile::ThreadTrace thread;
-  auto *compilation = static_cast<Compilation *>(argument);
-  compilation->status = compilation->body();
-}
-
-// From the signal handler: only write and _exit.
-[[noreturn]] static void compilationExhausted() {
-  static constexpr char message[] =
-      "idris-mlir: internal error: the compilation exhausted its stack\n";
-  (void)!write(2, message, sizeof message - 1);
-  _exit(failure);
-}
-
-// Runs `body` on the runtime's reserved-stack runner; its exit status.
-static int runOnLargeStack(llvm::function_ref<int()> body) {
-  Compilation compilation{body};
-  if (idris_rt_run_on_stack(enter, &compilation, idr::support::toolStack,
-                            idr::support::toolStackGuard, compilationExhausted) != 0) {
-    Report() << "no stack could be reserved for the compilation";
-    return failure;
+// The answer to a question about what the build decided, on standard
+// output.
+static void answer(Question question) {
+  switch (question) {
+  case Question::Runtime:
+    llvm::outs() << preparedRuntime << "\n";
+    return;
+  case Question::TargetTriple:
+    llvm::outs() << targetTriple << "\n";
+    return;
+  case Question::LinkFlags:
+    for (llvm::StringRef flag : linkFlags)
+      llvm::outs() << flag << "\n";
+    return;
+  case Question::TargetCpu:
+    llvm::outs() << targetCpu << "\n";
+    return;
   }
-  return compilation.status;
-}
-
-// The compilation of the input to what -o names, and its report to what
-// --report names: its plan read from the command line, its directories
-// made, and then, armed, the chain.
-static int compileInput(const char *argv0, std::optional<std::string> report) {
-  if (inputPath.empty() || outputPath.empty()) {
-    Report() << "give an input file and -o (see --help)";
-    return usage;
-  }
-  Product product = objectOnly ? Product(Archive{outputPath}) : Product(Executable{outputPath});
-  std::optional<Plan> plan = Plan::of(inputPath, std::move(product), std::move(report));
-  if (!plan) {
-    Report() << "-o and --report name outputs that collide with each other or with the input";
-    return usage;
-  }
-  bool frontendOptions = packages.getNumOccurrences() || packagePath.getNumOccurrences() ||
-                         idrisPrefix.getNumOccurrences() || noPrelude.getNumOccurrences();
-  if (frontendOptions && std::holds_alternative<FromModule>(plan->source)) {
-    Report() << "-p, --package-path, --prefix and --no-prelude are the frontend's, for Idris "
-                "source, not for a module";
-    return usage;
-  }
-  if (!plan->makeDirectories())
-    return failure;
-  Artifacts artifacts(std::move(*plan));
-  std::string frontendPath = frontendBeside(argv0);
-  return runOnLargeStack([&] { return compile(frontendPath, artifacts); });
+  llvm_unreachable("every question has its answer");
 }
 
 int idr::driver::main(int argc, char **argv) {
-  // The folders run the runtime's big operations, whose GMP allocates where
-  // a program's does, set while no other thread exists.
-  idris_rt_gmp_init();
   llvm::InitLLVM init(argc, argv);
-  // Every pass is registered before the options that name passes
-  // (-mlir-print-ir-after and the like) are, which list the registered
-  // ones.
-  mlir::registerAllPasses();
-  idr::registerIdrPasses();
+  // Every pass the compiler runs is registered before the options that
+  // name passes (-mlir-print-ir-after and the like) are, which list the
+  // registered ones; a pass the compiler does not run is no such option's.
+  registerCompilerPasses();
   // MLIR's own options, as mlir-opt has them: the pass manager's (IR
   // printing, the module after each pass, statistics, crash reproducers),
   // timing, the context's, the printer's and action logging. Not a debug
@@ -149,45 +89,24 @@ int idr::driver::main(int argc, char **argv) {
                                          "executable\n",
                                          &llvm::errs()))
     return usage;
-  // --time-trace, when it named a file: written as this returns, by
-  // whichever way out the compilation took.
-  idr::profile::Trace trace("idris-mlir");
-  // The report is a compilation's, and only a compilation is asked for one.
-  std::optional<std::string> report;
-  if (!reportPath.empty())
-    report = reportPath.getValue();
-  if (report && action != Action::Compile) {
-    Report() << "--report is a compilation's: give an input and -o";
+  llvm::Expected<Invocation> invocation = readInvocation();
+  if (!invocation) {
+    Report() << llvm::toString(invocation.takeError());
     return usage;
   }
-  switch (action.getValue()) {
-  case Action::PrintTargetTriple:
-    llvm::outs() << targetTriple << "\n";
-    return ok;
-  case Action::PrintTargetCpu:
-    llvm::outs() << targetCpu << "\n";
-    return ok;
-  case Action::PrintRuntime:
-    llvm::outs() << runtimePath << "\n";
-    return ok;
-  case Action::PrintLinkFlags:
-    for (llvm::StringRef flag : linkFlags)
-      llvm::outs() << flag << "\n";
-    return ok;
-  case Action::PrepareRuntime:
-    if (!inputPath.empty()) {
-      Report() << "--prepare-runtime takes no input file";
-      return usage;
-    }
-    if (outputPath.empty()) {
-      Report() << "no output file (-o)";
-      return usage;
-    }
-    if (!makeDirectoryOf(outputPath))
-      return failure;
-    return runOnLargeStack(prepare);
-  case Action::Compile:
-    return compileInput(argv[0], std::move(report));
-  }
-  llvm_unreachable("every action is handled");
+  // --time-trace, when it named a file: written as this returns, by
+  // whichever way out the invocation took.
+  idr::profile::Trace trace("idris-mlir");
+  return idr::support::runTool("idris-mlir", [&] {
+    return std::visit(llvm::makeVisitor(
+                          [&](Compile &compiling) {
+                            return compile(frontendBeside(argv[0]), std::move(compiling));
+                          },
+                          [](const Prepare &preparing) { return prepare(preparing); },
+                          [](const Print &asked) {
+                            answer(asked.question);
+                            return ok;
+                          }),
+                      *invocation);
+  });
 }

@@ -627,8 +627,8 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "crash") == 0) {
     idris_rt_cell(16, box(0, 0));
-    static const char message[] = "crashed\n";
-    idris_rt_crash(message, sizeof message - 1);
+    static const char cause[] = "crashed";
+    idris_rt_crash(cause, sizeof cause - 1);
   }
   struct rlimit stack;
   if (getrlimit(RLIMIT_STACK, &stack) == 0 && stack.rlim_cur != RLIM_INFINITY)

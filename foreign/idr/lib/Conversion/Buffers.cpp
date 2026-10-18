@@ -16,6 +16,7 @@
 #include "idr/Conversion/Runtime.h"
 #include "idr/Conversion/Words.h"
 
+#include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -26,10 +27,15 @@ namespace idr::conversion {
 namespace {
 
 // The address of the byte at `offset` in the buffer `buffer`, whose
-// components are `components`.
-Value byteAt(OpBuilder &b, Location loc, Value buffer, ValueRange components, Value offset) {
+// components are `components`: upstream's strided address over its
+// descriptor.
+Value byteAt(OpBuilder &b, Location loc, const Runtime &runtime, Value buffer,
+             ValueRange components, Value offset) {
   auto type = cast<MemRefType>(unrestricted(buffer.getType()));
-  return elementAddress(b, loc, unpack(b, loc, type, components), offset, 1);
+  const LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
+  Value descriptor = descriptorOf(b, loc, descriptors.convertType(type), type, components);
+  return LLVM::getStridedElementPtr(b, loc, descriptors, type, descriptor, offset,
+                                    LLVM::GEPNoWrapFlags::inbounds);
 }
 
 struct LowerBufferLoad : IdrPattern<BufferLoadOp> {
@@ -37,8 +43,10 @@ struct LowerBufferLoad : IdrPattern<BufferLoadOp> {
   LogicalResult matchAndRewrite(BufferLoadOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Type word = this->layouts.components(op.getValue().getType()).front();
-    Value addr = byteAt(rewriter, loc, op.getBuffer(), adaptor.getBuffer(),
+    Type word = getTypeConverter()->convertType(op.getValue().getType());
+    if (!word)
+      return rewriter.notifyMatchFailure(op, "the word has no lowered type");
+    Value addr = byteAt(rewriter, loc, runtime, op.getBuffer(), adaptor.getBuffer(),
                         adaptor.getOffset().front());
     Value loaded = LLVM::LoadOp::create(rewriter, loc, word, addr, /*alignment=*/1);
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{loaded}, SmallVector<Value>{}});
@@ -51,7 +59,7 @@ struct LowerBufferStore : IdrPattern<BufferStoreOp> {
   LogicalResult matchAndRewrite(BufferStoreOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value addr = byteAt(rewriter, loc, op.getBuffer(), adaptor.getBuffer(),
+    Value addr = byteAt(rewriter, loc, runtime, op.getBuffer(), adaptor.getBuffer(),
                         adaptor.getOffset().front());
     LLVM::StoreOp::create(rewriter, loc, adaptor.getValue().front(), addr, /*alignment=*/1);
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});

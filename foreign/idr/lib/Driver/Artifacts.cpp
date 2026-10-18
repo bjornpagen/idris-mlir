@@ -6,9 +6,12 @@
 
 #include "idr/Driver/Artifacts.h"
 
-#include "idr/Driver/Report.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
+
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -51,7 +54,7 @@ Plan::Plan(std::string base, Source source, Product product, std::optional<std::
       report(std::move(report)) {}
 
 std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
-                             std::optional<std::string> report) {
+                             std::optional<std::string> report, FrontendArgs frontend) {
   std::string base = std::visit(llvm::makeVisitor(
                                     [](const Executable &executable) { return executable.path; },
                                     [](const Archive &archive) {
@@ -63,7 +66,8 @@ std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
   llvm::StringRef extension = llvm::sys::path::extension(input);
   Source source = extension == ".mlir" || extension == ".mlirbc"
                       ? Source(FromModule{input.str()})
-                      : Source(FromIdris{input.str(), base + ".core", base + ".mlirbc"});
+                      : Source(FromIdris{input.str(), base + ".core", base + ".mlirbc",
+                                         std::move(frontend)});
   Plan plan(std::move(base), std::move(source), std::move(product), std::move(report));
   llvm::StringSet<> seen;
   for (const std::string &path : plan.written())
@@ -92,11 +96,11 @@ const std::string &Plan::modulePath() const {
                     source);
 }
 
-bool Plan::makeDirectories() const {
+mlir::LogicalResult Plan::makeDirectories(mlir::MLIRContext &context) const {
   for (const std::string &path : written())
-    if (!makeDirectoryOf(path))
-      return false;
-  return true;
+    if (mlir::failed(makeDirectoryOf(path, context)))
+      return mlir::failure();
+  return mlir::success();
 }
 
 Artifacts::Artifacts(Plan plan) : Plan(std::move(plan)) {
@@ -116,15 +120,20 @@ const std::string &Artifacts::addObject(llvm::StringRef bin) {
   return objects.back();
 }
 
-bool idr::driver::makeDirectoryOf(llvm::StringRef path) {
+mlir::InFlightDiagnostic idr::driver::cannotWrite(mlir::MLIRContext &context, llvm::StringRef path,
+                                                  const std::error_code &error) {
+  return mlir::emitError(mlir::UnknownLoc::get(&context))
+         << "cannot write " << path << ": " << error.message();
+}
+
+mlir::LogicalResult idr::driver::makeDirectoryOf(llvm::StringRef path, mlir::MLIRContext &context) {
+  // The working directory, which exists.
   llvm::StringRef directory = llvm::sys::path::parent_path(path);
   if (directory.empty())
-    return true;
-  if (std::error_code error = llvm::sys::fs::create_directories(directory)) {
-    cannotWrite(path, error);
-    return false;
-  }
-  return true;
+    return mlir::success();
+  if (std::error_code error = llvm::sys::fs::create_directories(directory))
+    return cannotWrite(context, path, error);
+  return mlir::success();
 }
 
 // The machine's object code for the module, into `os`; false when the
@@ -138,19 +147,17 @@ static bool objectCode(llvm::Module &module, llvm::TargetMachine &machine,
   return true;
 }
 
-bool idr::driver::emit(llvm::Module &module, llvm::TargetMachine &machine, llvm::StringRef path) {
+mlir::LogicalResult idr::driver::emit(llvm::Module &module, llvm::TargetMachine &machine,
+                                      llvm::StringRef path, mlir::MLIRContext &context) {
   std::error_code error;
   llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_None);
-  if (error) {
-    cannotWrite(path, error);
-    return false;
-  }
-  if (!objectCode(module, machine, file.os())) {
-    Report() << "the target cannot emit object files";
-    return false;
-  }
+  if (error)
+    return cannotWrite(context, path, error);
+  if (!objectCode(module, machine, file.os()))
+    return mlir::emitError(mlir::UnknownLoc::get(&context))
+           << "the target cannot emit object files";
   file.keep();
-  return true;
+  return mlir::success();
 }
 
 namespace {
@@ -178,17 +185,17 @@ Compiled compileBin(const idr::target::Partition &partition, unsigned bin, llvm:
   llvm::Expected<std::unique_ptr<llvm::Module>> module =
       llvm::getLazyBitcodeModule(llvm::MemoryBufferRef(bitcode, "optimized"), context);
   if (!module)
-    return Failed{"internal error: bin " + name + ": " + llvm::toString(module.takeError())};
+    return Failed{"bin " + name + ": " + llvm::toString(module.takeError())};
   if (llvm::Error error = partition.extract(bin, **module))
     return Failed{llvm::toString(std::move(error))};
   llvm::Expected<std::unique_ptr<llvm::TargetMachine>> machine =
       idr::target::machine(target, triple, cpu, features);
   if (!machine)
-    return Failed{"internal error: bin " + name + ": " + llvm::toString(machine.takeError())};
+    return Failed{"bin " + name + ": " + llvm::toString(machine.takeError())};
   Object object;
   llvm::raw_svector_ostream os(object.bytes);
   if (!objectCode(**module, **machine, os))
-    return Failed{"internal error: bin " + name + ": the target cannot emit object files"};
+    return Failed{"bin " + name + ": the target cannot emit object files"};
   return object;
 }
 
@@ -197,27 +204,26 @@ llvm::StringRef bytesOf(const Object &object) {
 }
 
 // Each bin's object, in bin order, written whole at its artifacts.addObject.
-bool writeEach(llvm::ArrayRef<idr::target::Bin> bins, llvm::ArrayRef<Object> objects,
-               Artifacts &artifacts) {
+mlir::LogicalResult writeEach(llvm::ArrayRef<idr::target::Bin> bins, llvm::ArrayRef<Object> objects,
+                              Artifacts &artifacts, mlir::MLIRContext &context) {
   IDR_ZONE_IN("objects", LLVM);
   for (auto [bin, object] : llvm::zip_equal(bins, objects)) {
     const std::string &path = artifacts.addObject(bin.name);
     std::error_code error;
     llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_None);
-    if (error) {
-      cannotWrite(path, error);
-      return false;
-    }
+    if (error)
+      return cannotWrite(context, path, error);
     file.os() << bytesOf(object);
     file.keep();
   }
-  return true;
+  return mlir::success();
 }
 
 // The objects as one archive, in the order of their names, which a link
 // takes whole: every definition is reached from main.
-bool writeAsArchive(llvm::ArrayRef<idr::target::Bin> bins, llvm::ArrayRef<Object> objects,
-                    const llvm::Triple &triple, const Archive &archive) {
+mlir::LogicalResult writeAsArchive(llvm::ArrayRef<idr::target::Bin> bins,
+                                   llvm::ArrayRef<Object> objects, const llvm::Triple &triple,
+                                   const Archive &archive, mlir::MLIRContext &context) {
   IDR_ZONE_IN("archive", LLVM);
   std::vector<std::string> names;
   std::vector<llvm::NewArchiveMember> members;
@@ -229,27 +235,26 @@ bool writeAsArchive(llvm::ArrayRef<idr::target::Bin> bins, llvm::ArrayRef<Object
   if (llvm::Error error = llvm::writeArchive(archive.path, members,
                                              llvm::SymtabWritingMode::NormalSymtab,
                                              llvm::object::Archive::getDefaultKindForTriple(triple),
-                                             /*Deterministic=*/true, /*Thin=*/false)) {
-    Report() << "cannot write " << archive.path << ": " << llvm::toString(std::move(error));
-    return false;
-  }
-  return true;
+                                             /*Deterministic=*/true, /*Thin=*/false))
+    return mlir::emitError(mlir::UnknownLoc::get(&context))
+           << "cannot write " << archive.path << ": " << llvm::toString(std::move(error));
+  return mlir::success();
 }
 
 } // namespace
 
-bool idr::driver::writeObjects(llvm::Module &optimized, const llvm::Target &target,
-                               const llvm::Triple &triple, llvm::StringRef cpu,
-                               llvm::StringRef features, llvm::ThreadPoolInterface &pool,
-                               Artifacts &artifacts) {
+mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llvm::Target &target,
+                                              const llvm::Triple &triple, llvm::StringRef cpu,
+                                              llvm::StringRef features,
+                                              llvm::ThreadPoolInterface &pool,
+                                              Artifacts &artifacts, mlir::MLIRContext &context) {
+  mlir::Location unknown = mlir::UnknownLoc::get(&context);
   std::optional<idr::target::Partition> partition;
   {
     IDR_ZONE_IN("partition", LLVM);
     llvm::Expected<idr::target::Partition> made = idr::target::Partition::of(optimized);
-    if (!made) {
-      Report() << llvm::toString(made.takeError());
-      return false;
-    }
+    if (!made)
+      return mlir::emitError(unknown) << llvm::toString(made.takeError());
     partition.emplace(std::move(*made));
   }
   // The module once, as bitcode, on this thread: the one serial step.
@@ -275,22 +280,22 @@ bool idr::driver::writeObjects(llvm::Module &optimized, const llvm::Target &targ
       });
     tasks.wait();
   }
-  // Every failure is reported; the objects are written only when there is
-  // one for every bin.
+  // Every failure is an error, in bin order; the objects are written only
+  // when there is one for every bin.
   std::vector<Object> objects;
-  bool whole = true;
   for (Compiled &one : compiled)
-    std::visit(llvm::makeVisitor([&](Object &object) { objects.push_back(std::move(object)); },
-                                 [&](const Failed &failed) {
-                                   Report() << failed.why;
-                                   whole = false;
-                                 }),
+    std::visit(llvm::makeVisitor(
+                   [&](Object &object) { objects.push_back(std::move(object)); },
+                   [&](const Failed &failed) { mlir::emitError(unknown) << failed.why; }),
                one);
-  if (!whole)
-    return false;
-  return std::visit(
-      llvm::makeVisitor(
-          [&](const Executable &) { return writeEach(bins, objects, artifacts); },
-          [&](const Archive &archive) { return writeAsArchive(bins, objects, triple, archive); }),
-      artifacts.product);
+  if (objects.size() != bins.size())
+    return mlir::failure();
+  return std::visit(llvm::makeVisitor(
+                        [&](const Executable &) {
+                          return writeEach(bins, objects, artifacts, context);
+                        },
+                        [&](const Archive &archive) {
+                          return writeAsArchive(bins, objects, triple, archive, context);
+                        }),
+                    artifacts.product);
 }

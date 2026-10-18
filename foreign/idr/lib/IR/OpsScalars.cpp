@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The conversions of scalars: to a character or an integer, and
-// the first character of a number's text; when a division or a conversion
-// may run before the guard of its operand; and idr.lin.enter and
-// idr.lin.use, a value moved into a linear type and used out of it, whose
-// ranges pass through.
+// The conversions of scalars: to a character or an integer, and the first
+// character of a number's text; and idr.lin.enter and idr.lin.use, a value
+// moved into a linear type and used out of it, whose ranges pass through.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
@@ -16,26 +14,53 @@
 using namespace mlir;
 using namespace idr;
 
-OpFoldResult ToCharOp::fold(FoldAdaptor adaptor) {
+namespace {
+
+// An integer, read as the op's signedness says, as a Char: itself if it is
+// a scalar value, else 0. A negative signed integer is no scalar value; an
+// unsigned one is the natural its bits are.
+template <typename ToChar>
+OpFoldResult foldToChar(ToChar op, typename ToChar::FoldAdaptor adaptor) {
   auto value = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!value)
     return {};
   const APInt &bits = value.getValue();
-  bool negative = getIsSigned() && bits.isNegative();
+  bool negative = ToChar::isSigned && bits.isNegative();
   uint64_t code = negative || bits.getActiveBits() > 32 ? UINT64_MAX
                                                         : bits.getZExtValue();
   bool scalar = code <= 0xD7FF || (code >= 0xE000 && code <= 0x10FFFF);
-  return IntegerAttr::get(getType(), scalar ? static_cast<int64_t>(code) : 0);
+  return IntegerAttr::get(op.getType(), scalar ? static_cast<int64_t>(code) : 0);
 }
 
-void ToCharOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
-  setResultRange(getResult(), idr::ranges::nonNegative(32, 0, 0x10FFFF));
+// A scalar value or 0, however the integer is read.
+template <typename ToChar>
+void toCharRanges(ToChar op, SetIntRangeFn setResultRange) {
+  setResultRange(op.getResult(), idr::ranges::nonNegative(32, 0, 0x10FFFF));
+}
+
+// '-' or a digit of a signed integer; a digit of an unsigned one.
+template <typename IntHead>
+void intHeadRanges(IntHead op, SetIntRangeFn setResultRange) {
+  setResultRange(op.getResult(),
+                 idr::ranges::nonNegative(32, IntHead::isSigned ? '-' : '0', '9'));
+}
+
+} // namespace
+
+OpFoldResult ToCharSOp::fold(FoldAdaptor adaptor) { return foldToChar(*this, adaptor); }
+OpFoldResult ToCharUOp::fold(FoldAdaptor adaptor) { return foldToChar(*this, adaptor); }
+
+void ToCharSOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  toCharRanges(*this, setResultRange);
+}
+void ToCharUOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  toCharRanges(*this, setResultRange);
 }
 
 // A value its guard refuses folds to nothing: the program never converts
 // it, since the guard crashes first.
 OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
-  if (!CheckFiniteOp::holds(adaptor.getValue()))
+  if (!guardHolds(adaptor))
     return {};
   auto value = cast<FloatAttr>(adaptor.getValue());
   // Truncated exactly, then wrapped: 1100 bits hold any finite double.
@@ -45,29 +70,17 @@ OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
   return IntegerAttr::get(getType(), whole.trunc(getType().getIntOrFloatBitWidth()));
 }
 
-Speculation::Speculatability ToIntOp::getSpeculatability() {
-  return guardedSpeculatability<CheckFiniteOp>(getValue());
-}
-
-// A division by a divisor its guard has not checked could fault, so it
-// stays below the guard, or below the path that proved the guard away.
-Speculation::Speculatability DivOp::getSpeculatability() {
-  return guardedSpeculatability<CheckNonzeroOp>(getRhs());
-}
-
-Speculation::Speculatability ModOp::getSpeculatability() {
-  return guardedSpeculatability<CheckNonzeroOp>(getRhs());
-}
-
 // '-', a digit, or the first letter of `inf` or `nan`.
 void DoubleHeadOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
                                      SetIntRangeFn setResultRange) {
   setResultRange(getResult(), idr::ranges::nonNegative(32, '-', 'n'));
 }
 
-// '-' or a digit; a digit when unsigned.
-void IntHeadOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
-  setResultRange(getResult(), idr::ranges::nonNegative(32, getIsSigned() ? '-' : '0', '9'));
+void IntHeadSOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  intHeadRanges(*this, setResultRange);
+}
+void IntHeadUOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  intHeadRanges(*this, setResultRange);
 }
 
 //===----------------------------------------------------------------------===//
@@ -76,48 +89,30 @@ void IntHeadOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn set
 
 namespace {
 
-// The range of any value of `type`, whose grade is no part of it: an
-// integer's full width, a big's no bound, a natural's at least 0; none for a
-// type without integers.
-std::optional<IntegerValueRange> anyValue(Type type) {
-  type = unrestricted(type);
-  if (isa<BigType, NatType>(type))
-    return IntegerValueRange(idr::ranges::rangeOf(
-        isa<NatType>(type) ? idr::ranges::natural() : idr::ranges::Bounds{}));
-  if (type.isIntOrIndex())
-    return IntegerValueRange(ConstantIntRanges::maxRange(
-        type.isIndex() ? IndexType::kInternalStorageBitWidth : type.getIntOrFloatBitWidth()));
-  return std::nullopt;
-}
-
-// A linear value has the range of the value that entered it. MLIR's range
-// analysis has no range for a value whose type is not an integer, so the
-// linear value a parameter or a region binds has none; it starts at a
-// range of the linear type, which states no width, and stands for any
-// value.
+// A linear value has the range of the value that entered it, at the width
+// the value's type proves its range at (ofType, which ignores the grade).
+// A range of another width, the one upstream gives a value whose type is no
+// integer, or none yet, stands for no value it knows of: the result then
+// has the range its type proves, every value of it.
 void passRange(Value result, const IntegerValueRange &range, SetIntLatticeFn setResultRange) {
-  std::optional<IntegerValueRange> any = anyValue(result.getType());
-  if (!any)
-    return;
+  IntegerValueRange any = idr::ranges::ofType(result.getType());
   if (!range.isUninitialized() &&
-      range.getValue().umin().getBitWidth() == any->getValue().umin().getBitWidth())
+      range.getValue().umin().getBitWidth() == any.getValue().umin().getBitWidth())
     setResultRange(result, range);
   else
-    setResultRange(result, *any);
+    setResultRange(result, any);
 }
 
 } // namespace
 
 // The value an entry used at once held, and the linear value a use entered
-// at once was. A closure or a suspension holding a linear value is used
-// once (holdsLinear), and the pair is that use: the ordinary value the use
-// makes may be read many times, as a field of a shared constructor is, and
-// the value takes its place only where it is taken once too.
+// at once was. A value that holds a linear one is linear by its type (a
+// closure's quantity is its type), so no entry takes one: the value an
+// entry takes may be read many times.
 OpFoldResult LinUseOp::fold(FoldAdaptor) {
-  auto enter = getLinear().getDefiningOp<LinEnterOp>();
-  if (!enter || (holdsLinear(enter.getValue()) && !takenOnce(getResult())))
-    return {};
-  return enter.getValue();
+  if (auto enter = getLinear().getDefiningOp<LinEnterOp>())
+    return enter.getValue();
+  return {};
 }
 
 // Only when the entry is the use's one reader: a match that read the used

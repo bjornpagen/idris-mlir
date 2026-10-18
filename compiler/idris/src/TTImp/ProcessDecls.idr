@@ -99,6 +99,17 @@ processFailing eopts nest env fc mmsg decls
          -- And fail if the block was successfully accepted
          whenJust result throw
 
+-- Implemented in Idris.Desugar, which makes every pragma and sees the
+-- interface and implementation elaborators, above this module
+export
+processPragma : {vars : _} ->
+                {auto c : Ref Ctxt Defs} ->
+                {auto m : Ref MD Metadata} ->
+                {auto u : Ref UST UState} ->
+                {auto dl : Ref DLY DelayedElabs} ->
+                {auto s : Ref Syn SyntaxInfo} ->
+                {auto o : Ref ROpts REPLOpts} ->
+                FC -> NestedNames vars -> Env Term vars -> Pragma -> Core ()
 
 -- Implements processDecl, declared in TTImp.Elab.Check
 process : {vars : _} ->
@@ -129,8 +140,8 @@ process eopts nest env (ITransform fc n lhs rhs)
     = processTransform eopts nest env fc n lhs rhs
 process eopts nest env (IRunElabDecl fc tm)
     = processRunElab eopts nest env fc tm
-process eopts nest env (IPragma _ _ act)
-    = act dl nest env
+process eopts nest env (IPragma fc _ p)
+    = processPragma fc nest env p
 process eopts nest env (ILog lvl)
     = addLogLevel (uncurry unsafeMkLogLevel <$> lvl)
 process eopts nest env (IBuiltin fc type name)

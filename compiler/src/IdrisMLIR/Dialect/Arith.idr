@@ -8,6 +8,9 @@ module IdrisMLIR.Dialect.Arith
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Arith
 
+import Data.List
+import Data.Vect
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -350,4 +353,4 @@ xoriOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 xoriOp lhs rhs result =
   MkOp "arith.xori" [lhs, rhs] [] [] [] [result]
 
--- fingerprint: 3550233381-984164 1353580-16211
+-- fingerprint: 3916362129-1020896 1818063040-16246

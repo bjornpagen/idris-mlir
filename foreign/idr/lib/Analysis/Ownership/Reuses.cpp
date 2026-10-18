@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Reset/reuse insertion's decisions, on functional code whose match
-// regions end in their join point.
+// regions end in their join point, after idr-rc made every boxed
+// constructor with fields a cell and its init, and put on the stack the
+// cells that stay in their frame.
 //
 // In a case region of a match on a box that is dead after the match, the
 // box's constructor is known, so is its cell's size. whereDies finds where
@@ -9,17 +11,18 @@
 // when that use decides (a match), inside each of its regions. A last
 // use that consumes the box (a call, a constructor) is where it dies, and
 // its cell goes with it: nothing is taken on that path. Elsewhere `fits`
-// looks ahead on the same path for the first constructor of a box with a
-// cell of the same size, going into the regions of the ops that decide,
-// and builds it in the dead box's cell instead: idr.take where the box dies,
-// idr.reuse for the constructor. idr-rc-place makes both; placement then
-// drops the token on the paths that do not reuse it. Inner matches are
-// done first, so that their scrutinees, which die later, get the
-// constructors built after them.
+// looks ahead on the same path for the first fresh heap cell of the same
+// size, going into the regions of the ops that decide, and recycles the
+// dead box's cell for it instead: idr.take where the box dies, and
+// idr.cell.recycle of its token in place of the idr.cell.new.
+// idr-rc-place makes both; placement then drops the token on the paths
+// that do not recycle it. Inner matches are done first, so that their
+// scrutinees, which die later, get the cells made after them.
 //
-// A box that is static, borrowed, built in the stack frame (its con's
-// `stack`) or a memo cell is left alone: its cell is not the program's to
-// reuse.
+// A box that is static, borrowed, built in a cell of the frame
+// (idr.cell.stack) or a memo cell is left alone: its cell is not the
+// program's to recycle. A cell of the frame is never recycled either, as
+// only an idr.cell.new is a candidate.
 //
 // Each decision is taken on the function as the takes before it leave it:
 // a take gives the reads of the box's fields after it fields of its own,
@@ -49,20 +52,14 @@ namespace idr {
 namespace {
 
 using Site = Reuses::Site;
-
-// A field of an earlier site's take, by its position among the fields the
-// takes gave.
-struct VirtualField {
-  unsigned index;
-};
+using TakenField = Reuses::TakenField;
 
 // A box as the rewrite will find it: a value of the function, or a field
 // of an earlier site's take.
-using Held = std::variant<Value, VirtualField>;
+using Held = std::variant<Value, TakenField>;
 
 // A field of a site's take: its type, and the uses the take gives it.
 struct Virtual {
-  unsigned site, field;
   Type type;
   SmallVector<OpOperand *> uses;
 };
@@ -79,10 +76,9 @@ public:
       if (!isa<BoxType>(unrestricted(box.getType())) || !reusable(box) || usedAfter(box, match))
         continue;
       DataType data = dataTypeOf(box.getType());
-      for (unsigned index : llvm::seq(static_cast<unsigned>(match.getCases().size()))) {
-        Region &region = match.getCaseRegion(index);
-        if (!region.empty())
-          dies(box, data, match.getCaseTag(index), region.front(), region.front().getArguments());
+      for (unsigned index : llvm::seq(match.getNumCases())) {
+        Block &body = match.getCaseRegion(index).front();
+        dies(box, data, match.getCaseTag(index), body, body.getArguments());
       }
     }
     readBoxes();
@@ -98,8 +94,7 @@ private:
   void readBoxes() {
     for (auto [index, site] : llvm::enumerate(sites))
       takesAt[site.point].push_back(static_cast<unsigned>(index));
-    for (Block &block : fn.getBody())
-      visit(block);
+    visit(fn.getBody().front());
     for (auto [box, first] : boxes)
       dies(box, first.getDataType(), first.getTag(), *first->getBlock(), {});
   }
@@ -127,8 +122,8 @@ private:
   void considerTake(unsigned site) {
     const Site &taken = sites[site];
     for (unsigned field : llvm::seq(static_cast<unsigned>(taken.data.getCtor(taken.tag).fields.size())))
-      if (auto it = virtualOf.find({site, field}); it != virtualOf.end())
-        consider(VirtualField{it->second});
+      if (TakenField given{site, field}; virtuals.contains(given))
+        consider(given);
   }
 
   void consider(Held box) {
@@ -136,16 +131,18 @@ private:
       boxes.emplace_back(box, first);
   }
 
+  // A value of the function, or a field a take gives: two kinds of box,
+  // the one the IR holds and the one the rewrite will make.
   Type typeOf(const Held &box) const {
     if (const Value *value = std::get_if<Value>(&box))
       return value->getType();
-    return virtuals[std::get<VirtualField>(box).index].type;
+    return virtuals.at(std::get<TakenField>(box)).type;
   }
 
   SmallVector<OpOperand *> usesOf(const Held &box) const {
     const Value *value = std::get_if<Value>(&box);
     if (!value)
-      return virtuals[std::get<VirtualField>(box).index].uses;
+      return virtuals.at(std::get<TakenField>(box)).uses;
     SmallVector<OpOperand *> uses;
     for (OpOperand &use : value->getUses())
       if (!moved.contains(&use))
@@ -153,62 +150,56 @@ private:
     return uses;
   }
 
-  // Whether `box` holds its own reference: not static, not a stack cell,
-  // nor read from one. A take's field always does. Borrow inference keeps
-  // a parameter that is taken apart owned. A memo cell is no one's to
-  // reuse: a force writes it.
+  // Whether `box` holds its own reference: not static, not built in a cell
+  // of the frame, nor read from one. A take's field always does. Borrow
+  // inference keeps a parameter that is taken apart owned. A memo cell is
+  // no one's to reuse: a force writes it.
   bool reusable(const Held &box) {
     if (isMemoCell(typeOf(box)))
       return false;
     const Value *held = std::get_if<Value>(&box);
     if (!held)
       return true;
-    // Up the chain of what each was read from.
-    auto readThrough = [](Value value) -> std::optional<Value> {
-      if (Value from = readFrom(value))
-        return from;
-      return std::nullopt;
-    };
+    // Up the chain of what each lives as long as (readThrough).
     return llvm::none_of(definitionChain(*held, readThrough), [](Value value) {
-      auto con = value.getDefiningOp<ConOp>();
-      return isStatic(value) || (con && con.getStack());
+      auto init = value.getDefiningOp<CellInitOp>();
+      return isStatic(value) || (init && init.getCell().getDefiningOp<CellStackOp>());
     });
   }
 
   // Where `box`, built by the constructor `tag` of `data`, whose fields
   // `bound` binds (when a match region does), dies on each path of
-  // `block`, the first constructor after that point whose cell fits gets
-  // the box's cell.
+  // `block`, the first fresh heap cell after that point of the same size
+  // gets the box's cell.
   void dies(Held box, DataType data, Tag tag, Block &block, ArrayRef<BlockArgument> bound) {
-    // A constructor without fields is its atom: it has no cell, so its
-    // take would hand out no token for a reuse to build in.
-    if (data.getCtor(tag).fields.empty())
+    // A box may be an atom, which has no cell: its take would hand out no
+    // token to recycle.
+    if (data.isAtom(tag))
       return;
     SmallVector<OpOperand *> uses = usesOf(box);
-    unsigned size = layouts.box(data, tag).size;
+    unsigned size = layouts.box(data).cell(tag).size;
     // Reuses are decided before borrow inference grades the signatures,
     // so any call may take its arguments over.
     auto takesOver = [](OpOperand &use) { return isa<CallOp>(use.getOwner()) || consumes(use); };
     whereDies(uses, block, takesOver, [&](Block &where, Block::iterator at) {
-      SmallVector<ConOp> found;
+      SmallVector<CellNewOp> found;
       if (fits(size, where, at, found))
         record(box, data, tag, where, at, bound, std::move(found), uses);
     });
   }
 
-  // The first constructor on each path from `at` whose cell fits, or
+  // The first fresh heap cell on each path from `at` of `size` bytes, or
   // false when there is none. Only the regions of an op that decides are
-  // on a path: any other runs its regions any number of times, so a
-  // constructor there cannot take the one cell. A constructor an earlier
-  // take has is a reuse already, and passed over.
-  bool fits(unsigned size, Block &block, Block::iterator at, SmallVectorImpl<ConOp> &found) {
+  // on a path: any other runs its regions any number of times, so a cell
+  // made there cannot take the one cell. A cell an earlier take has is a
+  // recycled one already, and passed over.
+  bool fits(unsigned size, Block &block, Block::iterator at, SmallVectorImpl<CellNewOp> &found) {
     for (Operation &op : llvm::make_range(at, block.end())) {
-      if (auto con = dyn_cast<ConOp>(op)) {
-        Tag tag = con.getTag();
-        if (!claimed.contains(con) && isa<BoxType>(unrestricted(con.getResult().getType())) &&
-            !con.getStack() && !con.getDataType().getCtor(tag).fields.empty() &&
-            layouts.box(con.getDataType(), tag).size == size) {
-          found.push_back(con);
+      if (auto cell = dyn_cast<CellNewOp>(op)) {
+        CellType type = cell.getType();
+        if (!claimed.contains(cell) &&
+            layouts.box(type.getBox().getData()).cell(type.getTag()).size == size) {
+          found.push_back(cell);
           return true;
         }
         continue;
@@ -224,49 +215,39 @@ private:
     return false;
   }
 
-  // A take of `box` at `at`, for the constructors `found`: the site, and
-  // the uses of its fields from that point on, which it will move.
+  // A take of `box` at `at`, for the cells `found`: the site, and the uses
+  // of its fields from that point on, which it will move.
   void record(Held box, DataType data, Tag tag, Block &where, Block::iterator at,
-              ArrayRef<BlockArgument> bound, SmallVector<ConOp> found, ArrayRef<OpOperand *> uses) {
+              ArrayRef<BlockArgument> bound, SmallVector<CellNewOp> found,
+              ArrayRef<OpOperand *> uses) {
     auto index = static_cast<unsigned>(sites.size());
-    std::variant<Value, Reuses::TakenField> taken;
-    if (const Value *value = std::get_if<Value>(&box)) {
-      taken = *value;
-    } else {
-      const Virtual &field = virtuals[std::get<VirtualField>(box).index];
-      taken = Reuses::TakenField{field.site, field.field};
-    }
     claimed.insert(found.begin(), found.end());
-    sites.push_back(Site{taken, data, tag, pointBefore(where, at),
+    sites.push_back(Site{box, data, tag, pointBefore(where, at),
                          SmallVector<BlockArgument>(bound.begin(), bound.end()), std::move(found)});
     Type boxType = typeOf(box);
     ArrayRef<Type> fieldTypes = data.getCtor(tag).fields;
-    for (Field field : fieldsOf(uses, tag, bound)) {
-      unsigned virt = virtualFor(index, field.index, fieldType(boxType, fieldTypes[field.index]));
+    for (ownership::Field field : fieldsOf(uses, tag, bound)) {
+      TakenField given{index, field.index};
+      SmallVector<OpOperand *> &moves =
+          virtuals.try_emplace(given, Virtual{fieldType(boxType, fieldTypes[field.index]), {}})
+              .first->second.uses;
       for (OpOperand &use : field.value.getUses())
         if (!moved.contains(&use) && heldIn(where, use, at)) {
-          moved[&use] = virt;
-          virtuals[virt].uses.push_back(&use);
+          moved.try_emplace(&use, given);
+          moves.push_back(&use);
         }
     }
-  }
-
-  unsigned virtualFor(unsigned site, unsigned field, Type type) {
-    auto [it, fresh] = virtualOf.try_emplace({site, field}, static_cast<unsigned>(virtuals.size()));
-    if (fresh)
-      virtuals.push_back(Virtual{site, field, type, {}});
-    return it->second;
   }
 
   FuncOp fn;
   const Layouts &layouts;
   SmallVector<Site> sites;
-  // The constructors a site builds in its cell.
+  // The cells a site recycles its cell for.
   DenseSet<Operation *> claimed;
   // Every use a site's take will move, and the field it moves to.
-  DenseMap<OpOperand *, unsigned> moved;
-  SmallVector<Virtual> virtuals;
-  DenseMap<std::pair<unsigned, unsigned>, unsigned> virtualOf;
+  DenseMap<OpOperand *, TakenField> moved;
+  // The fields the takes give, each with the uses it moves.
+  DenseMap<TakenField, Virtual> virtuals;
   // The matched sites, by where each take will go.
   DenseMap<Point, SmallVector<unsigned>> takesAt;
   SmallVector<std::pair<Held, FieldOp>> boxes;
@@ -276,8 +257,9 @@ private:
 
 // Each function's sites depend on its body, the data types and the
 // layouts alone, so they are found in parallel, one slot per function.
-Reuses::Reuses(ProgramOp program, const Layouts &layouts) {
-  SmallVector<FuncOp> functions(program.getOps<FuncOp>());
+Reuses::Reuses(Operation *program, AnalysisManager &am) {
+  const Layouts &layouts = am.getAnalysis<Layouts>();
+  SmallVector<FuncOp> functions(cast<ProgramOp>(program).getOps<FuncOp>());
   SmallVector<SmallVector<Site>> slots(functions.size());
   parallelForEach(program->getContext(), llvm::seq<size_t>(0, functions.size()), [&](size_t index) {
     slots[index] = Decider(functions[index], layouts).run();

@@ -18,13 +18,13 @@ import Data.Vect
 
 %default total
 
-isStuck : Weight -> Bool
-isStuck Stuck = True
-isStuck _ = False
+isStuck : Label -> Bool
+isStuck Unmeasured = True
+isStuck (Measured _ _) = False
 
-finite : Weight -> Maybe (Nat, Nat)
-finite (Finite gain loss) = Just (gain, loss)
-finite _ = Nothing
+finite : Label -> Maybe (Nat, Nat)
+finite (Measured gain loss) = Just (gain, loss)
+finite Unmeasured = Nothing
 
 ||| The heavier of two Finite weights, by cross-addition.
 heavier : (Nat, Nat) -> (Nat, Nat) -> (Nat, Nat)
@@ -46,8 +46,8 @@ bestOf : (g : Graph) -> Best g.size
 bestOf g = foldl add (replicate g.size (replicate g.size Nothing)) g.arcs
   where
     add : Best g.size -> Arc g.size -> Best g.size
-    add b (MkArc (Just q) p (Finite gain loss) _) = updateAt q (updateAt p (Just . maybe (gain, loss) (heavier (gain, loss)))) b
-    add b _ = b
+    add b (MkArc q p (Measured gain loss)) = updateAt q (updateAt p (Just . maybe (gain, loss) (heavier (gain, loss)))) b
+    add b (MkArc _ _ Unmeasured) = b
 
 at : Best n -> Fin n -> Fin n -> Maybe (Nat, Nat)
 at b q p = index p (index q b)
@@ -81,7 +81,7 @@ record Truth (n : Nat) where
   constructor MkTruth
   positive : List (List (Fin n))
   reach : Vect n (Vect n Bool)
-  stuck : List (Nat, Maybe (Fin n))
+  stuck : List (Nat, Fin n)
 
 truth : (g : Graph) -> Truth g.size
 truth g =
@@ -91,13 +91,10 @@ truth g =
       j = joinsOf g in
   MkTruth (filter (gains . cycleSum b) ps)
           (map (\q => map (\p => q == p || any (\c => starts q c && last' c == Just p && chained j c) ps) fs) fs)
-          (map (\(i, r) => (i, r.from)) (filter (isStuck . weight . snd) (zip [0 .. length g.arcs] g.arcs)))
+          (map (\(i, r) => (i, r.from)) (filter (isStuck . label . snd) (zip [0 .. length g.arcs] g.arcs)))
   where
     joinsOf : (g : Graph) -> Vect g.size (Vect g.size Bool)
-    joinsOf g = foldl (\m, r => case (r.from, r.weight) of
-                                  (Just q, Finite _ _) => updateAt q (replaceAt r.to True) m
-                                  (Just q, Stuck) => updateAt q (replaceAt r.to True) m
-                                  _ => m) (replicate g.size (replicate g.size False)) g.arcs
+    joinsOf g = foldl (\m, r => updateAt r.from (replaceAt r.to True) m) (replicate g.size (replicate g.size False)) g.arcs
     chained : Vect g.size (Vect g.size Bool) -> List (Fin g.size) -> Bool
     chained j (x :: y :: rest) = index y (index x j) && chained j (y :: rest)
     chained j _ = True
@@ -111,36 +108,40 @@ same t q p = index p (index q t.reach) && index q (index p t.reach)
 arcAt : (g : Graph) -> Fin (length g.arcs) -> Arc g.size
 arcAt = arc
 
-closes : (g : Graph) -> List (Fin g.size) -> List (Fin (length g.arcs)) -> Bool
-closes g [] _ = False
-closes g (c :: cs) as =
-  length as == length (c :: cs) && all link (zip3 (c :: cs) (cs ++ [c]) as)
-    && (any (isStuck . weight . arcAt g) as || sum (map fst ws) > sum (map snd ws))
+||| The positions a cycle's arcs leave, in order.
+positionsOf : (g : Graph) -> List (Fin (length g.arcs)) -> List (Fin g.size)
+positionsOf g = map (\a => (arcAt g a).from)
+
+closes : (g : Graph) -> List (Fin (length g.arcs)) -> Bool
+closes g as = case positionsOf g as of
+  [] => False
+  c :: cs => all link (zip3 (c :: cs) (cs ++ [c]) as)
+               && (any (isStuck . label . arcAt g) as || sum (map fst ws) > sum (map snd ws))
   where
     ws : List (Nat, Nat)
-    ws = mapMaybe (finite . weight . arcAt g) as
+    ws = mapMaybe (finite . label . arcAt g) as
     link : (Fin g.size, Fin g.size, Fin (length g.arcs)) -> Bool
-    link (x, y, a) = (arcAt g a).from == Just x && (arcAt g a).to == y
+    link (x, y, a) = (arcAt g a).from == x && (arcAt g a).to == y
 
 satisfies : (g : Graph) -> Vect g.size Nat -> Bool
-satisfies g pot = all ok g.arcs
+satisfies g pot = all ok g.arcs && all capOk (toList (Data.Vect.allFins g.size))
   where
     ok : Arc g.size -> Bool
-    ok r = case r.weight of
-      Finite gain loss => maybe 0 (\q => index q pot) r.from + gain <= index r.to pot + loss
-      _ => False
+    ok r = case r.label of
+      Measured gain loss => index r.from pot + gain <= index r.to pot + loss
+      Unmeasured => False
+    capOk : Fin g.size -> Bool
+    capOk p = maybe True (\c => c <= g.constant + index p pot) (index p g.caps)
 
 ||| The least potential, by brute force, when no cycle grows: at each
-||| position, the most any simple walk into it weighs, starting at 0 at any
-||| position or from the origin, and never below 0.
+||| position, the most any simple walk into it weighs, starting at any
+||| position at the least its cap asks, and never below 0.
 least : (g : Graph) -> Vect g.size Nat
 least g = map most (Data.Vect.allFins g.size)
   where
-    -- the most an arc from the origin asks of p
+    -- the most the cap of p asks of it: the cap less K
     floorOf : Fin g.size -> Nat
-    floorOf p = foldl (\m, r => case (r.from, r.weight) of
-                                   (Nothing, Finite gain loss) => if r.to == p then max m (minus gain loss) else m
-                                   _ => m) 0 g.arcs
+    floorOf p = maybe 0 (\c => minus c g.constant) (index p g.caps)
     -- a walk's value, from its first position's floor, each arc read as the least that satisfies it
     along : List (Fin g.size) -> Maybe Nat
     along [] = Nothing
@@ -160,13 +161,13 @@ inside t (x :: _) c' = all (same t x) c'
 reachedBy : Truth n -> List (List (Fin n)) -> Fin n -> Bool
 reachedBy t cs p = any (any (\q => reaches t q p)) cs
 
-cycleOf : Cause g -> Maybe (List (Fin g.size), List (Fin (length g.arcs)))
-cycleOf (Cycle c as _) = Just (c, as)
+cycleOf : Cause g -> Maybe (List (Fin (length g.arcs)))
+cycleOf (Cycle as _) = Just as
 cycleOf (Unbounded _ _) = Nothing
 
 opaqueOf : Cause g -> Maybe Nat
 opaqueOf (Unbounded a _) = Just (finToNat a)
-opaqueOf (Cycle _ _ _) = Nothing
+opaqueOf (Cycle _ _) = Nothing
 
 judge : Graph -> Maybe String
 judge g =
@@ -182,14 +183,14 @@ judge g =
       else Nothing
     Grows causes =>
       let cycles = mapMaybe cycleOf (forget causes)
-          cs = map fst cycles
+          cs = map (positionsOf g) cycles
           opaques = mapMaybe opaqueOf (forget causes) in
       if not grows then Just "grows, but brute force finds no growth"
-      else if not (all (uncurry (closes g)) cycles) then Just "a reported cycle does not close or grow"
-      else if any (any (isStuck . weight . arcAt g) . snd) cycles then Just "a reported cycle holds a Stuck arc"
+      else if not (all (closes g) cycles) then Just "a reported cycle does not close or grow"
+      else if any (any (isStuck . label . arcAt g)) cycles then Just "a reported cycle holds a Stuck arc"
       else if not (all (\c => length (filter (inside t c) cs) == 1) t.positive) then Just "a component holding a positive cycle has not exactly one reported"
       else if not (all (\a => elem a (map fst t.stuck)) opaques) then Just "a reported opaque arc is not Stuck"
-      else if not (all (\(a, q) => if elem a opaques then maybe True (not . reachedBy t cs) q else maybe False (reachedBy t cs) q) t.stuck)
+      else if not (all (\(a, q) => if elem a opaques then not (reachedBy t cs q) else reachedBy t cs q) t.stuck)
         then Just "an opaque arc reported though a cycle reaches it, or left out though none does"
       else Nothing
 
@@ -197,23 +198,13 @@ power : Nat -> List a -> List (List a)
 power Z _ = [[]]
 power (S k) vs = concatMap (\v => map (v ::) (power k vs)) vs
 
-||| An arc of a weight the box writes: Finite or Stuck, so present.
-data Label = Weighs Nat Nat | Stuck'
-
-arcOf : Maybe (Fin n) -> Fin n -> Label -> Arc n
-arcOf q p (Weighs gain loss) = MkArc q p (Finite gain loss) Measured
-arcOf q p Stuck' = MkArc q p Stuck Unmeasured
-
 graphOf : (n : Nat) -> (k : Nat) -> Vect n (Maybe Nat) -> List ((Fin n, Fin n), Maybe Label) -> Graph
-graphOf n k caps ws =
-  MkGraph n (mapMaybe slot ws ++ mapMaybe origin (toList (zip (Data.Vect.allFins n) caps))) k caps
+graphOf n k caps ws = MkGraph n (mapMaybe slot ws) k caps
   where
     slot : ((Fin n, Fin n), Maybe Label) -> Maybe (Arc n)
     slot ((q, p), w) = case index p caps of
       Just _ => Nothing
-      Nothing => arcOf (Just q) p <$> w
-    origin : (Fin n, Maybe Nat) -> Maybe (Arc n)
-    origin (p, c) = (\c' => arcOf Nothing p (Weighs c' k)) <$> c
+      Nothing => MkArc q p <$> w
 
 ||| Every graph on n positions under each cap vector, one weight from vs
 ||| in each slot into an uncapped position.
@@ -237,38 +228,36 @@ parallel vs =
 hand : List (String, Graph)
 hand =
   [ ("no positions", MkGraph 0 [] 0 [])
-  , ("grow once", MkGraph 2 [arcOf (Just 0) 1 (Weighs 1 0)] 1 [Nothing, Nothing])
-  , ("grow, then shrink", MkGraph 2 [arcOf (Just 0) 1 (Weighs 1 0), arcOf (Just 1) 0 (Weighs 0 1)] 1 [Nothing, Nothing])
-  , ("grow twice, shrink once", MkGraph 2 [arcOf (Just 0) 1 (Weighs 2 0), arcOf (Just 1) 0 (Weighs 0 1)] 1 [Nothing, Nothing])
-  , ("a mutual +1", MkGraph 2 [arcOf (Just 0) 1 (Weighs 1 0), arcOf (Just 1) 0 (Weighs 0 0)] 1 [Nothing, Nothing])
-  , ("a cap", MkGraph 1 [arcOf Nothing 0 (Weighs 2 1)] 1 [Just 2])
-  , ("the same, uncapped", MkGraph 1 [arcOf (Just 0) 0 (Weighs 1 0)] 1 [Nothing])
-  , ("a stuck arc on no cycle", MkGraph 2 [arcOf (Just 0) 1 Stuck'] 1 [Nothing, Nothing])
-  , ("two loops, one growing", MkGraph 1 [arcOf (Just 0) 0 (Weighs 0 0), arcOf (Just 0) 0 (Weighs 1 0)] 1 [Nothing])
-  , ("a stuck arc a growing cycle reaches", MkGraph 2 [arcOf (Just 0) 0 (Weighs 1 0), arcOf (Just 0) 1 Stuck'] 1 [Nothing, Nothing])
-  , ("two growing components", MkGraph 2 [arcOf (Just 0) 0 (Weighs 1 0), arcOf (Just 1) 1 (Weighs 1 0)] 1 [Nothing, Nothing])
+  , ("grow once", MkGraph 2 [MkArc 0 1 (Measured 1 0)] 1 [Nothing, Nothing])
+  , ("grow, then shrink", MkGraph 2 [MkArc 0 1 (Measured 1 0), MkArc 1 0 (Measured 0 1)] 1 [Nothing, Nothing])
+  , ("grow twice, shrink once", MkGraph 2 [MkArc 0 1 (Measured 2 0), MkArc 1 0 (Measured 0 1)] 1 [Nothing, Nothing])
+  , ("a mutual +1", MkGraph 2 [MkArc 0 1 (Measured 1 0), MkArc 1 0 (Measured 0 0)] 1 [Nothing, Nothing])
+  , ("a cap", MkGraph 1 [] 1 [Just 2])
+  , ("the same, uncapped", MkGraph 1 [MkArc 0 0 (Measured 1 0)] 1 [Nothing])
+  , ("a stuck arc on no cycle", MkGraph 2 [MkArc 0 1 Unmeasured] 1 [Nothing, Nothing])
+  , ("two loops, one growing", MkGraph 1 [MkArc 0 0 (Measured 0 0), MkArc 0 0 (Measured 1 0)] 1 [Nothing])
+  , ("a stuck arc a growing cycle reaches", MkGraph 2 [MkArc 0 0 (Measured 1 0), MkArc 0 1 Unmeasured] 1 [Nothing, Nothing])
+  , ("two growing components", MkGraph 2 [MkArc 0 0 (Measured 1 0), MkArc 1 1 (Measured 1 0)] 1 [Nothing, Nothing])
   ]
 
 capsOf : (n : Nat) -> List (Maybe Nat) -> List (Vect n (Maybe Nat))
 capsOf Z _ = [[]]
 capsOf (S k) cs = concatMap (\c => map (c ::) (capsOf k cs)) cs
 
-noAbsent : Present Absent -> Void
-noAbsent Measured impossible
-noAbsent Unmeasured impossible
-
-||| An arc as `from->to gain/loss` or `from->to stuck`, the origin as `o`.
+||| An arc as `from->to gain/loss` or `from->to stuck`.
 shown : Arc n -> String
-shown (MkArc q p w present) = maybe "o" (show . finToNat) q ++ "->" ++ show (finToNat p) ++ " " ++ weighs w present
+shown (MkArc q p l) = show (finToNat q) ++ "->" ++ show (finToNat p) ++ " " ++ weighs l
   where
-    weighs : (w : Weight) -> (0 _ : Present w) -> String
-    weighs (Finite gain loss) _ = show gain ++ "/" ++ show loss
-    weighs Stuck _ = "stuck"
-    weighs Absent present = void (noAbsent present)
+    weighs : Label -> String
+    weighs (Measured gain loss) = show gain ++ "/" ++ show loss
+    weighs Unmeasured = "stuck"
 
-||| A graph as its arcs.
+||| A graph as its arcs, and its caps as `p<=c`.
 describe : Graph -> String
-describe g = unwords (map shown g.arcs)
+describe g = unwords (map shown g.arcs ++ mapMaybe cap (toList (zip (Data.Vect.allFins g.size) g.caps)))
+  where
+    cap : (Fin g.size, Maybe Nat) -> Maybe String
+    cap (p, c) = (\c' => show (finToNat p) ++ "<=" ++ show c') <$> c
 
 run : String -> List Graph -> IO ()
 run name gs = do
@@ -279,11 +268,11 @@ run name gs = do
 
 main : IO ()
 main = do
-  let w10 = [Nothing, Just (Weighs 0 2), Just (Weighs 0 1), Just (Weighs 0 0), Just (Weighs 1 0), Just (Weighs 2 0), Just (Weighs 1 1), Just (Weighs 1 2), Just (Weighs 3 1), Just Stuck']
-  let w4 = [Nothing, Just (Weighs 0 1), Just (Weighs 0 0), Just (Weighs 1 0)]
+  let w10 = [Nothing, Just (Measured 0 2), Just (Measured 0 1), Just (Measured 0 0), Just (Measured 1 0), Just (Measured 2 0), Just (Measured 1 1), Just (Measured 1 2), Just (Measured 3 1), Just Unmeasured]
+  let w4 = [Nothing, Just (Measured 0 1), Just (Measured 0 0), Just (Measured 1 0)]
   -- A reach a bounded component passes on, from a growing cycle to a Stuck
   -- arc past it, takes three positions and a Stuck weight.
-  let w4s = [Nothing, Just (Weighs 0 0), Just (Weighs 1 0), Just Stuck']
+  let w4s = [Nothing, Just (Measured 0 0), Just (Measured 1 0), Just Unmeasured]
   let cap3 = [Nothing, Just 1, Just 4]
   run "one position" (family 1 (capsOf 1 cap3) w10)
   run "two positions" (family 2 (capsOf 2 cap3) w10)

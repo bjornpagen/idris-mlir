@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The bounds of bigs and naturals, and the ranges of values never negative.
+// The bounds of bigs and naturals, the ranges of values never negative, and
+// the range a type proves.
 
 #include "idr/IR/Ranges.h"
+#include "idr/IR/IdrDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/CheckedArithmetic.h"
@@ -94,6 +96,23 @@ ConstantIntRanges rangeOf(Bounds bounds) noexcept {
 
 ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max) {
   return ConstantIntRanges::fromUnsigned(APInt(width, min), APInt(width, max));
+}
+
+// A big and a natural prove more than their storage; any other value has
+// upstream's maximum range (IntegerValueRange::getMaxRange), so a seed
+// joins every range an op infers at the width the op infers it.
+IntegerValueRange ofType(Type type) {
+  type = unrestricted(type);
+  if (isa<NatType>(type))
+    return IntegerValueRange(rangeOf(natural()));
+  if (isa<BigType>(type))
+    return IntegerValueRange(rangeOf({}));
+  unsigned width = ConstantIntRanges::getStorageBitwidth(type);
+  // A width-0 APInt has no sign bit, so upstream stores the range of a value
+  // that holds no integer as the one width-0 value in all four bounds.
+  if (width == 0)
+    return IntegerValueRange(ConstantIntRanges::constant(APInt::getZero(0)));
+  return IntegerValueRange(ConstantIntRanges::maxRange(width));
 }
 
 } // namespace idr::ranges

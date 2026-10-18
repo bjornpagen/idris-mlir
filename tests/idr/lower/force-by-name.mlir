@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the memo cell is an idr.cell.new and its idr.cell.init (S3); the lowered calls are as before.
 // RUN: idris-mlir-opt %s --idr-lower '--idr-expect=holds=lowered,direct-calls,writes-nothing=@Loud.force,call-order=@Loud.force:[@idris_rt_inc,@shout],crash-sites=@Loud.force:1' -o /dev/null
 // NEEDS-ACCEPTANCE: the dispatch idr-defunctionalize makes of a memo sum whose label is by name: its label's case calls the function and neither enters nor settles the cell.
 // A label that is `by_name` runs at every force, so the effect it reaches
@@ -35,7 +36,8 @@ idr.program @"force-by-name" root(@Main.main) stage(owned) {
   idr.func @Main.main() -> i64 {
     %s = idr.constant "loud" : !idr.str
     %o = idr.dup %s : !idr.q<many, borrow, !idr.str>
-    %t = idr.con !idr.own<!idr.box<!Loud>> @shout(%o : !idr.own<!idr.str>)
+    %k = idr.cell.new : !idr.cell<!idr.box<!Loud>, @shout>
+    %t = idr.cell.init %k : !idr.cell<!idr.box<!Loud>, @shout> (%o : !idr.own<!idr.str>)
     %b = idr.borrow %t : !idr.own<!idr.box<!Loud>>
     %v = idr.call @Loud.force(%b) : (!idr.q<many, borrow, !idr.box<!Loud>>) -> i64
     idr.drop %t : !idr.own<!idr.box<!Loud>>

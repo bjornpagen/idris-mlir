@@ -16,8 +16,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <cstdint>
-
 namespace idr::detail::escapes {
 
 using mlir::dataflow::Lattice;
@@ -46,10 +44,10 @@ struct Reach {
   bool operator==(const Reach &) const = default;
 };
 
-// The state of a value: how its own reference reaches (shallow) and how
+// The state of a value: how its own address reaches (shallow) and how
 // everything reachable from it does (deep). Nothing reaches anywhere until
 // a use says so, and the solve only adds, so it ends with the least
-// solution.
+// solution, whose bottom is the default state.
 struct Escape {
   Reach shallow;
   Reach deep;
@@ -58,7 +56,7 @@ struct Escape {
     Escape out = lhs;
     out.shallow.add(rhs.shallow);
     out.deep.add(rhs.deep);
-    // Everything reachable from a value includes its own reference.
+    // Everything reachable from a value includes its own address.
     out.deep.add(out.shallow);
     return out;
   }
@@ -84,19 +82,23 @@ public:
   using Lattice::Lattice;
 };
 
-enum class Mode : uint8_t { Shallow, Deep };
+// The values that hold an address of their own: a box, whose reference is
+// its cell's address, and a cell. A type as it is at runtime: a grade has
+// no runtime form.
+inline bool holdsOwnAddress(mlir::Type type) {
+  return llvm::isa<BoxType, CellType>(unrestricted(type));
+}
 
-inline bool isBox(mlir::Type type) { return llvm::isa<BoxType>(unrestricted(type)); }
+// The values whose addresses the analysis follows: those that hold one of
+// their own, and unboxed sums, whose fields may hold boxes.
+inline bool holdsCells(mlir::Type type) {
+  return llvm::isa<BoxType, DataType, CellType>(unrestricted(type));
+}
 
-// The values whose references the analysis follows: boxes, and unboxed
-// sums, whose fields may hold boxes. A type as it is at runtime: linearity
-// has no runtime form.
-inline bool holdsCells(mlir::Type type) { return llvm::isa<BoxType, DataType>(unrestricted(type)); }
-
-// The part of `state` that stands for `value` in `mode`: a sum's only part
-// is deep.
-inline const Reach &part(mlir::Value value, const Escape &state, Mode mode) {
-  return mode == Mode::Shallow && isBox(value.getType()) ? state.shallow : state.deep;
+// The part of `state` that stands for `value`'s own address: the shallow
+// part where it holds one, and a sum's only part, the deep one.
+inline const Reach &own(mlir::Value value, const Escape &state) {
+  return holdsOwnAddress(value.getType()) ? state.shallow : state.deep;
 }
 
 } // namespace idr::detail::escapes

@@ -57,7 +57,8 @@ captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 
 ||| The names of a function's values in the order they are defined: its
 ||| arguments, then each statement's results before what its regions bind,
-||| `%0` on. A statement of several results is one name, `#i` its results.
+||| `%0` on. A statement of several results is one name, its results named
+||| from it (`resultAt`).
 record Numbering where
   constructor MkNumbering
   next : Nat
@@ -69,11 +70,9 @@ numbered st (Uses _) = st
 numbered st (Binds v) = { next $= S, names $= insert v.name ("%" ++ show st.next) } st
 numbered st (Defines name results) =
   let fresh = "%" ++ show st.next
-      ofResults : List (String, String)
-      ofResults = case results of
-        [_] => []
-        rs => zipWith (\i, old => (old, fresh ++ "#" ++ show i)) [0 .. length rs] rs
-  in MkNumbering (S st.next) (foldl (\m, (old, new) => insert old new m) (insert name fresh st.names) ofResults)
+      n = length results
+      renames = zipWith (\i, old => (old, resultAt fresh n i)) [0 .. n] results
+  in MkNumbering (S st.next) (foldl (\m, (old, new) => insert old new m) (insert name fresh st.names) renames)
 
 renamedBy : SortedMap String String -> String -> String
 renamedBy m n = fromMaybe n (lookup n m)
@@ -129,5 +128,5 @@ lift l kind params body results = do
       else internal ("two functions of " ++ show st.owner ++ " are named " ++ sym)
     Nothing => do
       put ({ keys $= insert sym key,
-             lifted $= (:< MkStatement Nothing (functionOp sym type region) (Named st.definition l)) } st)
+             lifted $= (:< (sym, MkStatement Nothing (functionOp sym type region) (Named st.definition l))) } st)
       pure (sym, caps)

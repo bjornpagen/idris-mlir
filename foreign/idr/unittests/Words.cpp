@@ -8,6 +8,8 @@
 // exact __int128 arithmetic. Then the mask a loop is versioned under, and
 // fits32.
 
+#include "Box.h"
+
 #include "idr/IR/Fold.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -42,88 +44,11 @@ using mlir::Value;
 
 namespace arith = mlir::arith;
 
+using namespace idr::box;
+
 namespace {
 
-using i128 = __int128;
-
-// The fixture of each test, googletest's hook around it: SetUp reads the
-// runtime's live cells and TearDown expects them again, and no failing
-// input. A box can fail on millions of inputs, and an assertion reports
-// each; googletest has none that counts, so `check` counts them and reports
-// the first with every operand.
-class Words : public testing::Test {
-public:
-  template <typename Operands>
-  void check(bool holds, Operands operands) {
-    if (!holds && failures++ == 0)
-      ADD_FAILURE() << operands();
-  }
-
-protected:
-  void SetUp() override { live = idris_rt_live_cells(); }
-  void TearDown() override {
-    EXPECT_EQ(failures, 0u);
-    EXPECT_EQ(idris_rt_live_cells(), live);
-  }
-
-private:
-  uint64_t live = 0;
-  unsigned failures = 0;
-};
-
-// A big the test owns, released once when it ends: the runtime's C ABI
-// hands out references, and nothing in googletest owns one.
-class Owned {
-public:
-  explicit Owned(idris_rt_big reference) : word(reference) {}
-  ~Owned() { idris_rt_big_release(word); }
-  Owned(const Owned &) = delete;
-  Owned &operator=(const Owned &) = delete;
-
-  idris_rt_big get() const { return word; }
-  bool small() const { return (word & 1) != 0; }
-
-private:
-  idris_rt_big word;
-};
-
-Owned big(int64_t x) { return Owned(idris_rt_big_from_int_s(x)); }
-
-int sign(i128 v) { return (v > 0) - (v < 0); }
-
-// Whether `v` is inside the small range the runtime declares.
-bool inside(i128 v) { return v >= IDRIS_RT_SMALL_MIN && v <= IDRIS_RT_SMALL_MAX; }
-
-// Whether `r` is `e` in its one representation: inside the small range the
-// word of `e`, outside it a cell, read back through the runtime: compared
-// with `e` where an i64 holds it, else by its low 64 bits and its sign.
-bool is(const Owned &r, i128 e) {
-  if (inside(e))
-    return r.small() && r.get() == big(static_cast<int64_t>(e)).get();
-  if (e >= INT64_MIN && e <= INT64_MAX)
-    return !r.small() && idris_rt_big_cmp(r.get(), big(static_cast<int64_t>(e)).get()) == 0;
-  return !r.small() &&
-         static_cast<uint64_t>(idris_rt_big_to_int(r.get())) == static_cast<uint64_t>(e) &&
-         sign(idris_rt_big_cmp(r.get(), big(0).get())) == sign(e);
-}
-
-// B: 0 and every s·2^k + d inside the small range, for s = ±1, k in
-// [0, 62] and d in [-2, 2], once each. A word op changes behaviour only
-// where an exact result crosses ±2^62 or, for a product, where the operands'
-// bit lengths add to 62 or 63: every power of two up to the ends of the
-// small range with two words either side puts pairs on both sides of each
-// boundary for every split of the bits between two operands.
-std::vector<int64_t> boxB() {
-  std::vector<int64_t> values{0};
-  for (int k = 0; k <= 62; ++k)
-    for (i128 s : {1, -1})
-      for (i128 d = -2; d <= 2; ++d)
-        if (i128 v = s * (i128{1} << k) + d; inside(v))
-          values.push_back(static_cast<int64_t>(v));
-  std::ranges::sort(values);
-  values.erase(std::ranges::unique(values).begin(), values.end());
-  return values;
-}
+class Words : public Box<Words> {};
 
 // The constant `op` folds to on the constants `operands`, as MLIR folds it:
 // an attribute, or one of its operands, whose constant is the one given for
@@ -139,14 +64,6 @@ Attribute foldedOn(Operation *op, llvm::ArrayRef<Attribute> operands) {
     if (operand.get() == llvm::cast<Value>(results.front()))
       return operands[operand.getOperandNumber()];
   return {};
-}
-
-// Every predicate of the dialect's comparison, from its generated enum.
-template <typename Fn>
-void eachPredicate(Fn fn) {
-  for (uint64_t p = 0; p <= idr::getMaxEnumValForCmpPredicate(); ++p)
-    if (std::optional<idr::CmpPredicate> predicate = idr::symbolizeCmpPredicate(p))
-      fn(*predicate);
 }
 
 // The least value the operand of a big op whose word op takes a constant

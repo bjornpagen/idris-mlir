@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The guards: each decides its own condition, folds to its operand where
-// the operand shows that the condition holds, and narrows the operand's
-// range by it. And what the pure total ops ask of them: when such an op may
-// run before the guard its ODS names.
+// The guards: each decides its own condition on its fold adaptor, folds to
+// its operand where the operand shows that the condition holds, and narrows
+// the operand's range by it. What the pure total ops they guard ask of them
+// is the trait GuardedOp's (IdrDialect.h), from the ops' marks.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
-
-#include "mlir/IR/Matchers.h"
 
 #include "idris_rt.h"
 
@@ -22,30 +20,19 @@ using namespace idr;
 // The conditions
 //===----------------------------------------------------------------------===//
 
-namespace {
-
-// The integer constant at `at`, or null.
-IntegerAttr word(ArrayRef<Attribute> constants, size_t at) {
-  return dyn_cast_or_null<IntegerAttr>(constants[at]);
-}
-
-} // namespace
-
-bool CheckNonzeroOp::holds(ArrayRef<Attribute> constants) {
-  if (constants.size() != 1)
-    return false;
-  if (auto big = dyn_cast_or_null<BigAttr>(constants[0]))
+// A constant other than zero, an integer or a big.
+bool CheckNonzeroOp::holds(FoldAdaptor adaptor) {
+  if (auto big = dyn_cast_or_null<BigAttr>(adaptor.getValue()))
     return !big.getValue().isZero();
-  return word(constants, 0) && !word(constants, 0).getValue().isZero();
+  auto word = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
+  return word && !word.getValue().isZero();
 }
 
 // The length is the runtime's count of the string's characters, which is
 // what idr.str.length folds to.
-bool CheckInBoundsOp::holds(ArrayRef<Attribute> constants) {
-  if (constants.size() != 2)
-    return false;
-  IntegerAttr index = word(constants, 0);
-  auto text = dyn_cast_or_null<StringAttr>(constants[1]);
+bool CheckInBoundsOp::holds(FoldAdaptor adaptor) {
+  auto index = dyn_cast_or_null<IntegerAttr>(adaptor.getIndex());
+  auto text = dyn_cast_or_null<StringAttr>(adaptor.getIndexed());
   if (!index || !text || index.getValue().isNegative())
     return false;
   fold::Scope scope(text.getContext());
@@ -53,28 +40,26 @@ bool CheckInBoundsOp::holds(ArrayRef<Attribute> constants) {
   return index.getValue().slt(length);
 }
 
-bool CheckNonemptyOp::holds(ArrayRef<Attribute> constants) {
-  if (constants.size() != 1)
-    return false;
-  auto str = dyn_cast_or_null<StringAttr>(constants[0]);
+bool CheckNonemptyOp::holds(FoldAdaptor adaptor) {
+  auto str = dyn_cast_or_null<StringAttr>(adaptor.getStr());
   return str && !str.getValue().empty();
 }
 
-bool CheckFiniteOp::holds(ArrayRef<Attribute> constants) {
-  if (constants.size() != 1)
-    return false;
-  auto value = dyn_cast_or_null<FloatAttr>(constants[0]);
+bool CheckFiniteOp::holds(FoldAdaptor adaptor) {
+  auto value = dyn_cast_or_null<FloatAttr>(adaptor.getValue());
   return value && value.getValue().isFinite();
 }
 
-bool CheckRangeOp::holds(ArrayRef<Attribute> constants) {
-  if (constants.size() != 3 || !word(constants, 0) || !word(constants, 1) || !word(constants, 2))
+bool CheckRangeOp::holds(FoldAdaptor adaptor) {
+  auto offset = dyn_cast_or_null<IntegerAttr>(adaptor.getOffset());
+  auto count = dyn_cast_or_null<IntegerAttr>(adaptor.getCount());
+  auto size = dyn_cast_or_null<IntegerAttr>(adaptor.getSize());
+  if (!offset || !count || !size)
     return false;
-  APInt offset = word(constants, 0).getValue(), count = word(constants, 1).getValue();
   bool overflow = false;
-  APInt end = offset.sadd_ov(count, overflow);
-  return !offset.isNegative() && !count.isNegative() && !overflow &&
-         end.sle(word(constants, 2).getValue());
+  APInt end = offset.getValue().sadd_ov(count.getValue(), overflow);
+  return !offset.getValue().isNegative() && !count.getValue().isNegative() && !overflow &&
+         end.sle(size.getValue());
 }
 
 //===----------------------------------------------------------------------===//
@@ -91,39 +76,32 @@ bool checkedBefore(Operation *op) {
          llvm::equal(before->getOperands().drop_front(), op->getOperands().drop_front());
 }
 
-// The value `op` checks, where its condition holds of the constants that
-// folding or constant propagation knows its operands to be (`holds`),
-// where `known` says it holds of the operand, or where an identical guard
-// checked it. Nothing otherwise: a guard that would crash keeps its crash.
-OpFoldResult foldCheck(Operation *op, bool holds, bool known) {
-  if (holds || known || checkedBefore(op))
+// The value `op` checks, where its condition `holds`, or where an identical
+// guard checked it. Nothing otherwise: a guard that would crash keeps its
+// crash.
+OpFoldResult foldCheck(Operation *op, bool holds) {
+  if (holds || checkedBefore(op))
     return op->getOperand(0);
   return {};
 }
 
 } // namespace
 
-OpFoldResult CheckNonzeroOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor.getOperands()), knownNonZero(getValue()));
-}
+OpFoldResult CheckNonzeroOp::fold(FoldAdaptor adaptor) { return foldCheck(*this, holds(adaptor)); }
 
 OpFoldResult CheckInBoundsOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor.getOperands()), false);
+  return foldCheck(*this, holds(adaptor));
 }
 
-// A string built with a character or a number in it is not empty, which
-// lets a head read the character off the string it was built from.
+// A string built with a character or a number in it is not empty either,
+// which lets a head read the character off the string it was built from.
 OpFoldResult CheckNonemptyOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor.getOperands()), knownNonEmpty(getStr()));
+  return foldCheck(*this, holds(adaptor) || knownNonEmpty(getStr()));
 }
 
-OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor.getOperands()), knownFinite(getValue()));
-}
+OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) { return foldCheck(*this, holds(adaptor)); }
 
-OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor.getOperands()), false);
-}
+OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) { return foldCheck(*this, holds(adaptor)); }
 
 //===----------------------------------------------------------------------===//
 // Ranges
@@ -187,30 +165,4 @@ void CheckRangeOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   }
   int64_t least = std::max<int64_t>(count.getSExtValue(), 0);
   setResultRange(getChecked(), within(ranges[0], 0, size.getSExtValue() - least));
-}
-
-//===----------------------------------------------------------------------===//
-// Speculation
-//===----------------------------------------------------------------------===//
-
-// Past the guard: the value is the result of the guard, which checked it
-// against these operands. Or no guard is needed: the constants the value
-// and these operands are pass its condition. One rule for every guard; a
-// string index's string is the operand it is checked against.
-Speculation::Speculatability
-idr::guardedSpeculatability(Value guarded, ValueRange against,
-                            function_ref<bool(Operation *)> isGuard,
-                            function_ref<bool(ArrayRef<Attribute>)> holds) {
-  Operation *guard = guarded.getDefiningOp();
-  if (guard && isGuard(guard) && llvm::equal(guard->getOperands().drop_front(), against))
-    return Speculation::Speculatable;
-  SmallVector<Value, 2> operands{guarded};
-  llvm::append_range(operands, against);
-  SmallVector<Attribute, 2> constants;
-  for (Value operand : operands) {
-    Attribute constant;
-    matchPattern(operand, m_Constant(&constant));
-    constants.push_back(constant);
-  }
-  return holds(constants) ? Speculation::Speculatable : Speculation::NotSpeculatable;
 }

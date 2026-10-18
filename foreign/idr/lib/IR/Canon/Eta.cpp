@@ -24,12 +24,11 @@ Value readOf(Value field, Tag tag, unsigned index) {
   if (auto read = field.getDefiningOp<FieldOp>())
     return read.getTag() == tag && read.getIndex() == index ? read.getValue() : Value();
   auto arg = dyn_cast<BlockArgument>(field);
-  auto match = arg ? dyn_cast_or_null<MatchOp>(arg.getOwner()->getParentOp()) : MatchOp();
+  auto match =
+      arg ? dyn_cast_or_null<MatchOpInterface>(arg.getOwner()->getParentOp()) : MatchOpInterface();
   if (!match || arg.getArgNumber() != index ||
-      quantityOf(match.getScrutinee().getType()) == Quantity::One)
-    return {};
-  unsigned region = arg.getOwner()->getParent()->getRegionNumber();
-  if (region >= match.getCases().size() || match.getCaseTag(region) != tag)
+      quantityOf(match.getScrutinee().getType()) == Quantity::One ||
+      match.knownTag(*arg.getParentRegion()) != tag)
     return {};
   return match.getScrutinee();
 }
@@ -39,11 +38,9 @@ Value readOf(Value field, Tag tag, unsigned index) {
 // the value.
 bool knownFromMatch(Value value, Tag tag, Operation *at) {
   for (Region *region = at->getParentRegion(); region; region = region->getParentRegion()) {
-    auto match = dyn_cast<MatchOp>(region->getParentOp());
-    if (!match || throughLinear(match.getScrutinee()) != throughLinear(value))
-      continue;
-    unsigned index = region->getRegionNumber();
-    if (index < match.getCases().size() && match.getCaseTag(index) == tag)
+    auto match = dyn_cast<MatchOpInterface>(region->getParentOp());
+    if (match && throughLinear(match.getScrutinee()) == throughLinear(value) &&
+        match.knownTag(*region) == tag)
       return true;
   }
   return false;
@@ -59,11 +56,7 @@ namespace idr::canon {
 // takes x in the constructor's place. Any other field is a value, which
 // other readers may share with x. x is known to be C where its type has no
 // other constructor, or where an enclosing match took x apart in C's case.
-// Every field of C is such a read: a hole, written later through its
-// destination, is not.
 Value eta(ConOp con) {
-  if (!con.getHoles().empty())
-    return {};
   Tag tag = con.getTag();
   Value source;
   for (auto [index, field] : llvm::enumerate(con.getFields())) {

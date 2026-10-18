@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The bitwise operations of bigs, in two's complement, and their shifts.
+// The bitwise operations of bigs and their shifts: those of the infinite
+// two's complement representation, as upstream Idris's test suite requires
+// of every backend (its integers test of Chez, RefC and Node).
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Big/Big.h"
@@ -18,9 +20,9 @@ namespace {
 // How many places a shift moves, saturated: a large amount moves any big
 // out entirely, or past what any integer can hold.
 uint64_t places(idris_rt_big amount) {
-  if (!isSmall(amount))
+  if (!idris_rt_word_is_small(amount))
     return UINT64_MAX;
-  int64_t v = smallValue(amount);
+  int64_t v = idris_rt_small_value(amount);
   return v < 0 ? 0 - static_cast<uint64_t>(v) : static_cast<uint64_t>(v);
 }
 
@@ -31,7 +33,8 @@ idris_rt_big up(idris_rt_big a, uint64_t k) {
     return owned(a);
   // 2x * 2^k, tagged after: it overflows exactly when x * 2^k is not small.
   idris_rt_big product;
-  if (isSmall(a) && k < 63 && !__builtin_mul_overflow(a - 1, idris_rt_big{1} << k, &product))
+  if (idris_rt_word_is_small(a) && k < 63 &&
+      !__builtin_mul_overflow(a - 1, idris_rt_big{1} << k, &product))
     return product + 1;
   Operand x(a);
   if (mpz_size(x.get()) + k / uint64_t{GMP_NUMB_BITS} + 1 > static_cast<uint64_t>(INT_MAX))
@@ -48,7 +51,7 @@ idris_rt_big up(idris_rt_big a, uint64_t k) {
 idris_rt_big down(idris_rt_big a, uint64_t k) {
   if (k == 0)
     return owned(a);
-  if (isSmall(a))
+  if (idris_rt_word_is_small(a))
     return (a >> (k < 63 ? k : 63)) | 1;
   Operand x(a);
   Result r;
@@ -56,8 +59,8 @@ idris_rt_big down(idris_rt_big a, uint64_t k) {
   return r.finish();
 }
 
-// `a` moved by `amount` places: left when `left`, the other way when the
-// amount is negative, as Scheme's ash moves it.
+// shl's move when `left`, else shr's: up, or down when the amount is
+// negative.
 idris_rt_big shift(idris_rt_big a, idris_rt_big amount, bool left) {
   uint64_t k = places(amount);
   return left == (signOf(amount) >= 0) ? up(a, k) : down(a, k);
@@ -90,8 +93,9 @@ namespace rt::big {
 
 } // namespace rt::big
 
-// On small words, tagged: the tag bit is 1 in both, so and and or keep it,
-// and xor clears it, which the result sets again.
+// The bitwise and, or and xor. On small words, tagged: the tag bit is 1 in
+// both, so and and or keep it, and xor clears it, which the result sets
+// again.
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_and(idris_rt_big a, idris_rt_big b) {
   if (bothSmall(a, b)) [[likely]]
     return a & b;
@@ -110,22 +114,33 @@ extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_xor(idris_rt_big a, 
   return xorLarge(a, b);
 }
 
-// A small value moved left by a small amount in [0, 63): 2x * 2^k, tagged
+// A value moved `amount` places left, the other way when the amount is
+// negative, as Scheme's ash moves it: value * 2^amount, and for a negative
+// amount the floor of value / 2^-amount, so it fills with the sign. A shift
+// toward zero, and any shift of 0, is defined for every amount. A left shift
+// whose result no integer can hold (more than 2^31 - 1 limbs) ends the
+// process as exhausted memory does.
+//
+// A small value moved left by a small amount in [0, 63) is 2x * 2^k, tagged
 // after, as up() computes it; tagged words order as their values, so the
 // amount's range is tested on its word.
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_shl(idris_rt_big a, idris_rt_big n) {
   idris_rt_big product;
-  if (bothSmall(a, n) && n >= small(0) && n < small(63) &&
-      !__builtin_mul_overflow(a - 1, idris_rt_big{1} << smallValue(n), &product)) [[likely]]
+  if (bothSmall(a, n) && n >= idris_rt_small_word(0) && n < idris_rt_small_word(63) &&
+      !__builtin_mul_overflow(a - 1, idris_rt_big{1} << idris_rt_small_value(n),
+                              &product)) [[likely]]
     return product + 1;
   return shlLarge(a, n);
 }
 
-// A small value moved right by a small amount that is not negative, as
-// down() computes it: from 63 places on only the sign is left, and 0
-// places leave the word as it is.
+// A value moved `amount` places right, as idris_rt_big_shl moves it left:
+// the floor of value / 2^amount, filling with the sign.
+//
+// A small value moved right by a small amount that is not negative is as
+// down() computes it: from 63 places on only the sign is left, and 0 places
+// leave the word as it is.
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_shr(idris_rt_big a, idris_rt_big n) {
-  if (bothSmall(a, n) && n >= small(0)) [[likely]]
-    return (a >> (n < small(63) ? smallValue(n) : 63)) | 1;
+  if (bothSmall(a, n) && n >= idris_rt_small_word(0)) [[likely]]
+    return (a >> (n < idris_rt_small_word(63) ? idris_rt_small_value(n) : 63)) | 1;
   return shrLarge(a, n);
 }

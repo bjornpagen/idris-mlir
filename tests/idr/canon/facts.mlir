@@ -3,22 +3,21 @@
 // RUN: crashes-before-output=@across_crashing,crashes-before-output=@across_given,\
 // RUN: builds-nothing=@delayed_crash,crash-sites=@delayed_crash:2 -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@across_computing -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // NEEDS-ACCEPTANCE: @applies declares every effect, as the verifier's effect rule asks of a function that applies a closure; the canonicalizer's answers are unchanged.
-// NEEDS-ACCEPTANCE: that a canonicalizer without the program's symbol table keeps every call where it is and moves nothing across one, and keeps every unused call.
+// NEEDS-ACCEPTANCE: that a call no pass has given effects stays where it is, nothing moves across it, and it stays unused.
 // Canonicalization moves code as the effects of each op answer. A call
-// holds no effects of its own: what it does is its callee's, which a
-// canonicalizer reads only when it is given the program's symbol table,
-// as idr-optimize's is (optimize/case-of-case-calls.mlir moves output
-// across a call of a pure callee there). This one has none, so a call may
-// do anything: output stays after a call even of a callee that only
-// computes, so @across_computing still builds the string it writes (the
-// second RUN line), and nothing is ever written before a call, nor before
-// a value that may crash, which moves only where it still runs on every
-// path. Dead code removal reads the call alone too, so every unused call
-// stays (idr-pure-calls drops those of pure callees). A callee that
-// applies a closure it is given may do what that closure does, which
-// nothing here knows: it may write, crash or never return.
+// does what its own effects say, which idr-effects writes from its
+// callee's (optimize/case-of-case-calls.mlir moves output across a call of
+// a pure callee once it has). No pass has run here, so every call holds
+// the effects a call has until one does, anything: output stays after a
+// call even of a callee that only computes, so @across_computing still
+// builds the string it writes (the second RUN line), and nothing is ever
+// written before a call, nor before a value that may crash, which moves
+// only where it still runs on every path. Dead code removal reads the call
+// alone too, so every unused call stays. A callee that applies a closure
+// it is given may do what that closure does, which nothing here knows: it
+// may write, crash or never return.
 
 !Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
 idr.program @facts root(@root) stage(higher) {
@@ -48,11 +47,11 @@ idr.program @facts root(@root) stage(higher) {
     return
   }
 
-  // With the program's table, case-of-case would move the output into the
-  // match across this call, which only computes, and write the number one
-  // region shows; without one the call may do anything, and the output
-  // stays after it. The match itself may crash, so it cannot move down
-  // instead.
+  // Once the call holds its callee's effects, case-of-case would move the
+  // output into the match across it, since it only computes, and write the
+  // number one region shows; holding none yet, it may do anything, and the
+  // output stays after it. The match itself may crash, so it cannot move
+  // down instead.
   idr.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
@@ -63,7 +62,7 @@ idr.program @facts root(@root) stage(higher) {
       %c = idr.constant "one" : !idr.str
       idr.yield %c : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -85,7 +84,7 @@ idr.program @facts root(@root) stage(higher) {
       %c = idr.constant "one" : !idr.str
       idr.yield %c : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -104,7 +103,7 @@ idr.program @facts root(@root) stage(higher) {
       %c = idr.constant "one" : !idr.str
       idr.yield %c : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -123,7 +122,7 @@ idr.program @facts root(@root) stage(higher) {
       %j = idr.con !Maybe @Just(%n : i64)
       idr.yield %j : !Maybe
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -141,7 +140,7 @@ idr.program @facts root(@root) stage(higher) {
       }
       idr.yield %a : i64
     }
-    default {
+    default(%d1: i64) {
       %b = idr.match %p : !Maybe -> (i64) {
       case @Nothing() {
         %two = arith.constant 2 : i64

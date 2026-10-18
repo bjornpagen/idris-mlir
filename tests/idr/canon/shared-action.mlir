@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=reads-no-fields=@twice,applies=@twice,\
 // RUN: reads-no-fields=@chosen_twice,applies=@chosen_twice,no-closures=@once,calls=@once:@bind -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // An IO action that is run twice, as an action forced twice is: its
 // constructor holds the closure of a bind entered into its linear field,
 // and the field read out of the shared action is an ordinary function. The
@@ -48,7 +48,7 @@ idr.program @"shared-action" root(@root) stage(higher) {
       %x = idr.con !IO @MkIO(%e : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %x : !IO
     }
-    default {
+    default(%d: i64) {
       %c = idr.closure @bind(%b) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
          -> !idr.fn<(!idr.world) -> (!IORes)>
       %e = idr.lin.enter %c : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>

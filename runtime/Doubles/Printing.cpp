@@ -6,13 +6,16 @@
 // what it must do: read back as the same double, and spell the infinities
 // and NaN as `inf` and `nan`. The rest is ours. A finite double is written
 // with the fewest significant digits that read back as it; of those, the
-// nearest to it, and of two equally near, the even one, as IEEE 754's
-// default rounding breaks a tie. Those are Ryu's digits (third_party/ryu,
-// unmodified). The layout is the one Idris programs print on the stock
-// Chez backend: positional from 1e-3 up to 1e10, with a digit after the
-// point, else `d.ddde-x`. Every text reads back through `cast` from
-// String. A NaN is `nan` whatever its sign, which IEEE 754 gives no meaning
-// and which x86-64 and arm64 set differently for the same operation.
+// nearest to it, and of two equally near, the one whose last digit is even,
+// as IEEE 754's default rounding breaks a tie. Those are Ryu's digits
+// (third_party/ryu, unmodified). The layout is the one Idris programs print
+// on the stock Chez backend: positional from 1e-3 up to 1e10, with a digit
+// after the point (0.001, 100.0), else in scientific notation, `d.ddde-x`
+// (1e21, 1.5e-7, 5e-324). Every text reads back through `cast` from String
+// (idris_rt_str_to_double). The infinities are inf and -inf, and -0.0 keeps
+// its sign; a NaN is `nan` whatever its sign, which IEEE 754 gives no
+// meaning and which x86-64 and arm64 set differently for the same
+// operation.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Doubles/Doubles.h"
 #include "Strings/Strings.h"
@@ -104,12 +107,15 @@ size_t formatDouble(double x, char *out) {
 
 } // namespace rt::doubles
 
+// The first character of a double's text: '-', a digit, or the 'i' of inf
+// or the 'n' of nan.
 extern "C" int32_t idris_rt_double_head(double x) {
   char text[rt::doubles::doubleTextMax];
   rt::doubles::formatDouble(x, text);
   return text[0];
 }
 
+// A double's text, a new string.
 extern "C" const idris_rt_str *idris_rt_str_show_f64(double value) {
   char text[rt::doubles::doubleTextMax];
   size_t n = rt::doubles::formatDouble(value, text);

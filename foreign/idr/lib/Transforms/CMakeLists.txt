@@ -83,13 +83,12 @@ add_mlir_library(IdrSpecialize
 	MLIRIR
 	MLIRPass
 	MLIRAnalysis
-	MLIRParser
 	MLIRRewrite
 	MLIRTransformUtils
 	MLIRArithDialect
 )
 
-# idr-stack, idr-identity, idr-demand and idr-deduplicate.
+# idr-rc-stack, idr-identity, idr-demand and idr-deduplicate.
 add_mlir_library(IdrSmallPasses
 	Stack/Stack.cpp
 	Identity/Identity.cpp
@@ -116,28 +115,6 @@ add_mlir_library(IdrSmallPasses
 	MLIRLLVMDialect
 )
 
-# idr-canonicalize: upstream's pattern collection and greedy driver over
-# the ops' patterns, with the call-aware ones bound to a pipeline's table.
-add_mlir_library(IdrCanonicalize
-	Canonicalize/Canonicalizer.cpp
-
-	EXCLUDE_FROM_LIBMLIR
-	DISABLE_INSTALL
-	PARTIAL_SOURCES_INTENDED
-
-	DEPENDS
-	IdrOpsIncGen
-	IdrPassesIncGen
-
-	LINK_LIBS PUBLIC
-	IdrSupport
-	IdrIR
-	MLIRIR
-	MLIRPass
-	MLIRRewrite
-	MLIRTransformUtils
-)
-
 # idr-optimize, the ready set over the call graph's components, and
 # idr-contify. It links the libraries whose steps a function's pipeline runs.
 add_mlir_library(IdrOptimize
@@ -146,7 +123,6 @@ add_mlir_library(IdrOptimize
 	Optimize/Component.cpp
 	Optimize/Waves.cpp
 	Optimize/Contify.cpp
-	Optimize/PureCalls.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -160,7 +136,6 @@ add_mlir_library(IdrOptimize
 	IdrIR
 	IdrAnalysis
 	IdrSupport
-	IdrCanonicalize
 	IdrEffects
 	IdrSmallPasses
 	IdrInline
@@ -203,9 +178,13 @@ add_mlir_library(IdrDefunctionalize
 	MLIRUBDialect
 )
 
-# idr-rc, with its nested steps idr-rc-place and idr-rc-commit, which it builds.
+# idr-rc's steps (idr-rc-cells, idr-rc-grades, idr-rc-place,
+# idr-rc-exclusive, which nests the commit) and idr-knots.
 add_mlir_library(IdrOwnership
-	Ownership/Rc.cpp
+	Ownership/Cells.cpp
+	Ownership/Grades.cpp
+	Ownership/Exclusive.cpp
+	Ownership/Knots.cpp
 	Ownership/Signatures.cpp
 	Ownership/Share.cpp
 	Ownership/Specialize.cpp
@@ -235,8 +214,7 @@ add_mlir_library(IdrOwnership
 	MLIRArithDialect
 	MLIRUBDialect
 	MLIRMemRefDialect
-	MLIRLinalgDialect
-	MLIRLinalgTransforms
+	MLIRLLVMDialect
 )
 
 # idr-accumulate, idr-trmc, idr-tail-loops and idr-returned-arguments.
@@ -372,6 +350,7 @@ add_mlir_library(IdrStructureLoops
 	MLIRPass
 	MLIRTransformUtils
 	MLIRValueBoundsOpInterface
+	MLIRAffineDialect
 	MLIRArithDialect
 	MLIRLinalgDialect
 	MLIRSCFDialect
@@ -474,6 +453,7 @@ add_mlir_library(IdrExpect
 	DEPENDS
 	IdrOpsIncGen
 	IdrPassesIncGen
+	IdrRuntimeAbiIncGen
 
 	LINK_LIBS PUBLIC
 	IdrIR
@@ -540,7 +520,6 @@ add_mlir_library(IdrPipeline
 
 	LINK_LIBS PUBLIC
 	IdrOptimize
-	IdrCanonicalize
 	IdrInline
 	IdrSpecialize
 	IdrDefunctionalize

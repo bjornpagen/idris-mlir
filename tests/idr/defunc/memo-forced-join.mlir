@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (each match's default region binding the scrutinee, `default(%d: T)` and `idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // Two suspensions of one Lazy slot whose labels return closures of
@@ -30,14 +31,14 @@ idr.program @"memo-forced-join" root(@Main.main) stage(higher) {
       %a = idr.suspend @give.inc() : () -> !idr.lazy<!idr.fn<(i64) -> i64>>
       idr.yield %a : !idr.lazy<!idr.fn<(i64) -> i64>>
     }
-    default {
+    default(%d: i64) {
       %b = idr.suspend @give.twice() : () -> !idr.lazy<!idr.fn<(i64) -> i64>>
       idr.yield %b : !idr.lazy<!idr.fn<(i64) -> i64>>
     }
     }
     %f = idr.force %t : !idr.lazy<!idr.fn<(i64) -> i64>> -> !idr.fn<(i64) -> i64>
     %r = idr.apply %f(%n) : !idr.fn<(i64) -> i64>
-    %w2 = idr.io.put_int signed %r, %w1 : i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # Every compilation's wall time is recorded under tests/build/timing, one
-# file per test, with the module it emitted; tests/compile-times.sh compiles
+# file per test, with the module it emitted; tools/compile-times.sh compiles
 # each module again and breaks its time down by the pipeline's timing
 # report. The record gates nothing.
 
@@ -11,16 +11,17 @@ now_ms() {
   say "$(( now_ms_ns / 1000000 ))"
 }
 
-# The timing record of this test: tests/build/timing/<test path, / as __>.tsv,
-# one line per compilation, `<ms> TAB <exit> TAB <what> TAB <module>`, where
-# <module> is the module the frontend handed the driver, kept next to it
-# (or -), so that tests/compile-times.sh can run idris-mlir --mlir-timing on
-# it again.
+# The timing record of this test: tests/build/timing/<test path, / as __,
+# then @<parameter> for a parameterized one>.tsv, one line per compilation,
+# `<ms> TAB <exit> TAB <what> TAB <module>`, where <module> is the module
+# the frontend handed the driver, kept next to it (or -), so that
+# tools/compile-times.sh can run idris-mlir --mlir-timing on it again.
 timing_dir=$root/tests/build/timing
 case $here in
   "$root/tests/"*) timing_id=$(printf '%s' "${here#"$root/tests/"}" | sed 's|/|__|g') ;;
   *) timing_id=$(printf '%s' "$here" | sed 's|^/||; s|/|__|g') ;;
 esac
+[ -z "$parameter" ] || timing_id=$timing_id@$parameter
 timing_count=0
 
 # record_time MS COMPILE-ARGUMENTS...: one line of the timing record. What
@@ -34,7 +35,7 @@ record_time() {
   while [ $# -gt 2 ]; do
     case $1 in
       -p) shift ;;
-      --num-threads=* | --mlir-print-*) ;;
+      --num-threads=* | --mlir-print-* | --report=*) ;;
       *) record_what="$record_what $1" ;;
     esac
     shift

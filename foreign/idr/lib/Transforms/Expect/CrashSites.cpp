@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // crash-sites: how many places of a function may crash, stated the same
-// before lowering and after it. Before it, a place is an op that never
-// returns (idr.crash, an exit) or a guard, which crashes when its
-// condition fails; after it, each is a call of a function that never
-// returns. So a guard lowered to one test and a crash, and the op it
-// guards to no test of its own, keeps the count, and a guard that folded,
-// or a primitive that tests again what its guard tested, changes it.
+// before lowering and after it, and counted for the contracts of every
+// function a pass kept. Before it, a place is an op that never returns
+// (idr.crash, an exit) or a guard, which crashes when its condition fails;
+// after it, each is a call of a function that never returns. So a guard
+// lowered to one test and a crash, and the op it guards to no test of its
+// own, keeps the count, and a guard that folded, or a primitive that tests
+// again what its guard tested, changes it.
 
 #include "idr/Transforms/Expect.h"
 
@@ -38,28 +39,24 @@ bool crashes(Operation *op, SymbolTable &symbols) {
 
 } // namespace
 
+unsigned crashSitesOf(FunctionOpInterface fn, SymbolTable &symbols) {
+  unsigned found = 0;
+  fn->walk([&](Operation *op) { found += crashes(op, symbols); });
+  return found;
+}
+
 // Every copy of @f may crash at exactly the number of places the argument
 // gives.
-LogicalResult crashSites(ModuleOp module, AnalysisManager &analyses, StringRef argument) {
-  constexpr StringRef property = "crash-sites";
-  auto [function, count] = splitAt(module, argument, property);
-  if (function.empty())
-    return failure();
-  unsigned wanted = 0;
-  if (count.getAsInteger(10, wanted))
-    return fail(module.getLoc(), property) << "name the count, as crash-sites=@f:<n>";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
-  SymbolTable &symbols = symbolsOf(module, analyses);
+LogicalResult crashSites(const Request<CountOf> &request) {
+  unsigned wanted = request.argument.count;
+  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  for (FunctionOpInterface fn : functions) {
-    unsigned found = 0;
-    fn->walk([&](Operation *op) { found += crashes(op, symbols); });
+  for (FunctionOpInterface fn : request.argument.function.functions) {
+    unsigned found = crashSitesOf(fn, symbols);
     if (found == wanted)
       continue;
-    fail(fn->getLoc(), property) << where(fn) << " may crash at " << found << " places, not "
-                                 << wanted;
+    fail(fn->getLoc(), request.property) << where(fn) << " may crash at " << found
+                                         << " places, not " << wanted;
     held = false;
   }
   return success(held);

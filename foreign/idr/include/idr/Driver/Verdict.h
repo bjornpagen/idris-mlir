@@ -24,7 +24,8 @@ namespace idr::driver {
 
 // What a compilation's errors make of it, each worse than the one before.
 // Refused: an error that names a rule, the program's. Internal: any other
-// error, or a step that failed with none reported, the compiler's. The
+// error, the compiler's: every step that fails says why in the
+// compilation's diagnostic engine, so a failure is always an error. The
 // worst seen wins. A refusal fails the step that makes it, so no step runs
 // after it and no error is its cascade: an internal error beside a refusal
 // is from the same step, the compiler's, which must be fixed before the
@@ -55,26 +56,17 @@ inline int statusOf(Verdict verdict) { return rowOf(verdict).status; }
 
 inline llvm::StringLiteral nameOf(Verdict verdict) { return rowOf(verdict).name; }
 
-// One compilation's outcome, which every step folds into and the report is
-// written from: the worst verdict seen, each diagnostic's fields in the
-// order the handler received them, and each pass statistic's sum. The
-// diagnostic handler and the pass instrumentation update it from whichever
-// thread they run on, so every member is read and written under one lock.
+// One compilation's outcome, which its diagnostics fold into
+// (foldDiagnostics, the one fold of the verdict) and the report is written
+// from: the worst verdict seen, each diagnostic's fields in the order the
+// handler received them, and each pass statistic's sum. The diagnostic
+// handler and the pass instrumentation update it from whichever thread
+// they run on, so every member is read and written under one lock.
 class Outcome {
 public:
   void see(Verdict verdict) {
     std::lock_guard<std::mutex> lock(mutex);
     worst = std::max(worst, verdict);
-  }
-
-  // A step failed, which stops the compilation. An error it reported has
-  // already decided the verdict; a failure with none reported is the
-  // compiler's. The two are the problem's: the failure of a refusing step
-  // is the refusal.
-  void failed() {
-    std::lock_guard<std::mutex> lock(mutex);
-    if (worst == Verdict::Accepted)
-      worst = Verdict::Internal;
   }
 
   Verdict verdict() const {

@@ -1,4 +1,5 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that calls with equal raise keys share one node, the key holding its consumer's form by digest in the run's table (S22), with symbol-dce after idr-optimize as the pipeline runs it (S2's default argument).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@f,not-called=@g,not-called=@pair -o /dev/null
 // A copy made by raising is keyed by its callee and what consumes the
 // result: a dispatch of it, or of one field of it. Calls with equal keys
@@ -22,7 +23,7 @@ idr.program @"shared-key" root(@Main.main) stage(higher) {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %v = idr.call @f(%a, %m) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
@@ -37,7 +38,7 @@ idr.program @"shared-key" root(@Main.main) stage(higher) {
       %v = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       idr.yield %v : !idr.fn<(i64) -> (i64)>
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %v = idr.call @g(%a, %m) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
@@ -54,7 +55,7 @@ idr.program @"shared-key" root(@Main.main) stage(higher) {
       %v = idr.con !Pair @MkPair(%p : !idr.fn<(i64) -> (i64)>, %q : !idr.fn<(i64) -> (i64)>)
       idr.yield %v : !Pair
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %v = idr.call @pair(%a, %m) : (i64, i64) -> !Pair

@@ -12,7 +12,7 @@
 !T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
 idr.program @consumed root(@root) stage(first) {
   idr.func @ins(%t: !idr.box<!T>, %k: i64) -> !idr.box<!T> {
-    %leaf = idr.constant #idr.con<!T, @L, []> : !idr.box<!T>
+    %leaf = idr.constant !idr.box<!T> #idr.con<!T, @L, []>
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!T>) {
     case @L() {
       %n = idr.con !idr.box<!T> @N(%leaf : !idr.box<!T>, %k : i64, %leaf : !idr.box<!T>)
@@ -37,7 +37,7 @@ idr.program @consumed root(@root) stage(first) {
     return %r : !idr.box<!T>
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %leaf = idr.constant #idr.con<!T, @L, []> : !idr.box<!T>
+    %leaf = idr.constant !idr.box<!T> #idr.con<!T, @L, []>
     %c1 = arith.constant 1 : i64
     %c2 = arith.constant 2 : i64
     %t1 = idr.call @ins(%leaf, %c1) : (!idr.box<!T>, i64) -> !idr.box<!T>
@@ -50,7 +50,7 @@ idr.program @consumed root(@root) stage(first) {
       idr.yield %x : i64
     }
     }
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     return %w2 : !idr.world
   }
 }

@@ -6,11 +6,13 @@
 # headers, so no test holds a rule's phrase or its category by hand. Where
 # stage 2 is not built (make check), the typecheck build's list is read:
 # the records are the same, so is the list. Each line of the list is the
-# phrase a refusal renders, `unsupported (<phrase>)`, a tab, and the
-# phrase of the rule's category:
+# phrase a refusal renders, `unsupported (<phrase>)` for a rule of the
+# first two categories, a tab, and the phrase of the rule's category:
 # `megamorphic`, a construct whose choices no compile-time analysis
-# bounds, or `outside the language`, what the language this compiler
-# implements does not have. A line starting with `#` explains.
+# bounds; `outside the language`, what the language this compiler
+# implements does not have; or `user error`, a program Idris itself
+# rejects, whose refusal carries Idris's own message. A line starting with
+# `#` explains.
 
 rules_list=$dev_prefix/foreign/idr/include/idr/IR/IdrRules.txt
 [ -f "$rules_list" ] || rules_list=$typecheck_prefix/foreign/idr/include/idr/IR/IdrRules.txt

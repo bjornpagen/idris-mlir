@@ -36,7 +36,7 @@ idr.program @"nested-reuse" root(@root) stage(first) {
       idr.yield %t : i64
     }
     }
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     return %w2 : !idr.world
   }
 }

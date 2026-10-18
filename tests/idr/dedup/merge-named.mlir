@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int`), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=one-clone=@a,one-clone=@b -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --idr-deduplicate --idr-expect=holds=not-called=@b -o /dev/null
 // NEEDS-ACCEPTANCE: that the kept function's location fuses its members', so idr-expect finds the code of either definition there.
@@ -23,7 +24,7 @@ idr.program @"merge-named" root(@root) stage(higher) {
     %n = arith.constant 7 : i64
     %a = idr.call @A.inst(%n) : (i64) -> i64
     %b = idr.call @B.inst(%a) : (i64) -> i64
-    %w2 = idr.io.put_int signed %b, %w : i64
+    %w2 = idr.io.put_sint %b, %w : i64
     return %w2 : !idr.world
   }
 }

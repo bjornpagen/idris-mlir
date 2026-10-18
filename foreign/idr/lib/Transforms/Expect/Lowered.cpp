@@ -76,17 +76,16 @@ std::optional<std::string> leftIn(Operation *op, const llvm::StringSet<> &facts)
 // Anywhere or in @f, nothing of the idr dialect is left: no op, no type
 // of a value, a block argument or a signature, no attribute of it, and no
 // attribute named for a fact an idr.func holds.
-LogicalResult lowered(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "lowered";
+LogicalResult lowered(const Request<Roots> &request) {
+  // Of the whole module, the ops its program holds: the program itself,
+  // which holds the lowered functions until idr-entry takes them out, is
+  // the one op of the dialect a lowered module keeps.
   SmallVector<Operation *> roots;
-  if (function.empty()) {
-    for (Operation &op : programOf(module)->getRegion(0).getOps())
+  if (request.argument.scope)
+    roots = request.argument.roots(request.module);
+  else
+    for (Operation &op : programOf(request.module)->getRegion(0).getOps())
       roots.push_back(&op);
-  } else {
-    roots = rootsOf(module, function, property);
-    if (roots.empty())
-      return failure();
-  }
   llvm::StringSet<> facts;
   for (StringRef name : FuncOp::getAttributeNames())
     facts.insert(name);
@@ -94,7 +93,7 @@ LogicalResult lowered(ModuleOp module, AnalysisManager &, StringRef function) {
   for (Operation *root : roots)
     root->walk([&](Operation *op) {
       if (std::optional<std::string> found = leftIn(op, facts)) {
-        fail(op->getLoc(), property) << *found << " in " << where(op);
+        fail(op->getLoc(), request.property) << *found << " in " << where(op);
         held = false;
       }
     });
@@ -104,9 +103,8 @@ LogicalResult lowered(ModuleOp module, AnalysisManager &, StringRef function) {
 // Every op of the program is the LLVM dialect's: no cast between the
 // dialects, no function or loop of another, is left. One error is given
 // for each kind of op left.
-LogicalResult inLLVM(ModuleOp module, AnalysisManager &, StringRef) {
-  constexpr StringRef property = "in-llvm";
-  Operation *program = programOf(module);
+LogicalResult inLLVM(const Request<Nothing> &request) {
+  Operation *program = programOf(request.module);
   llvm::StringSet<> reported;
   bool held = true;
   program->walk([&](Operation *op) {
@@ -114,7 +112,7 @@ LogicalResult inLLVM(ModuleOp module, AnalysisManager &, StringRef) {
       return;
     held = false;
     if (reported.insert(op->getName().getStringRef()).second)
-      fail(op->getLoc(), property) << op->getName() << " is left in " << where(op);
+      fail(op->getLoc(), request.property) << op->getName() << " is left in " << where(op);
   });
   return success(held);
 }

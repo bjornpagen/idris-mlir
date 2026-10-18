@@ -36,18 +36,15 @@ bool foldable(Operation *op) {
 } // namespace
 
 // No op left in any copy of @f is one a fold would have replaced.
-LogicalResult folded(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "folded";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult folded(const Request<Functions> &request) {
   bool held = true;
-  for (FunctionOpInterface fn : functions)
+  for (FunctionOpInterface fn : request.argument.functions)
     fn.getFunctionBody().walk([&](Operation *op) {
       if (!foldable(op))
         return;
-      fail(op->getLoc(), property) << op->getName() << " in " << where(op)
-                                   << " computes from constants alone and is left unfolded";
+      fail(op->getLoc(), request.property)
+          << op->getName() << " in " << where(op)
+          << " computes from constants alone and is left unfolded";
       held = false;
     });
   return success(held);

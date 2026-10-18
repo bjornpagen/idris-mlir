@@ -10,18 +10,23 @@
 #include <stdint.h>
 #include <string.h>
 
+// A character's UTF-8 written into a string being built
+// (idris_rt_str_alloc), at an offset, giving the next offset.
 extern "C" int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c) {
   return offset +
          static_cast<int64_t>(rt::strings::encodeUtf8(c, rt::strings::mutableBytes(s) + offset));
 }
 
-// An empty part copies nothing: both pointers are valid, its own bytes
-// and the string's end, so the copy needs no test.
+// A string's bytes written into a string being built, at an offset, giving
+// the next offset. An empty part copies nothing: both pointers are valid,
+// its own bytes and the string's end, so the copy needs no test.
 extern "C" int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part) {
   memcpy(rt::strings::mutableBytes(s) + offset, idris_rt_str_bytes(part), part->bytes);
   return offset + static_cast<int64_t>(part->bytes);
 }
 
+// The concatenation of two strings. Appending the empty string gives back
+// the other, with one more reference.
 extern "C" const idris_rt_str *idris_rt_str_append(const idris_rt_str *a, const idris_rt_str *b) {
   using namespace rt::strings;
   if (a->bytes == 0)
@@ -34,6 +39,7 @@ extern "C" const idris_rt_str *idris_rt_str_append(const idris_rt_str *a, const 
   return s;
 }
 
+// A character before a string.
 extern "C" const idris_rt_str *idris_rt_str_cons(int32_t c, const idris_rt_str *s) {
   using namespace rt::strings;
   char encoded[4];
@@ -44,6 +50,7 @@ extern "C" const idris_rt_str *idris_rt_str_cons(int32_t c, const idris_rt_str *
   return result;
 }
 
+// The string of one character.
 extern "C" const idris_rt_str *idris_rt_str_from_char(int32_t c) {
   return idris_rt_str_cons(c, &rt::strings::emptyString);
 }

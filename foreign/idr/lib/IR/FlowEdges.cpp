@@ -24,6 +24,10 @@ using namespace idr;
 //===----------------------------------------------------------------------===//
 
 Carriers Carriers::of(Type type) {
+  // A cell is the one type that is another value before it exists: the box
+  // its init makes of it.
+  if (auto cell = dyn_cast<CellType>(type))
+    return of(cell.getBox());
   Carriers carriers;
   if (isClosureType(type))
     carriers = carriers | Carrier::Closure;
@@ -34,34 +38,23 @@ Carriers Carriers::of(Type type) {
   return carriers;
 }
 
-namespace {
-
-// What `anchor` holds, where its own type says: a field's type, the
-// element type, a suspension's value. A capture's is its label's
-// parameter's, a memo sum's forced state its forced constructor's field,
-// which only the label and the body say.
-std::optional<Type> slotOf(const FlowAnchor &anchor) {
+std::optional<Type> FlowAnchor::slot() const {
   return std::visit(
       llvm::makeVisitor(
-          [](const FlowAnchor::Field &field) -> std::optional<Type> {
-            return unrestricted(cast<DataType>(field.data).getCtor(field.ctor).fields[field.index]);
+          [](const Field &field) -> std::optional<Type> {
+            return unrestricted(field.data.getCtor(field.ctor).fields[field.index]);
           },
-          [](const FlowAnchor::Elements &elements) -> std::optional<Type> {
-            return elements.element;
+          [](const Elements &elements) -> std::optional<Type> { return elements.element; },
+          [](const Forced &forced) -> std::optional<Type> {
+            return unrestricted(forced.lazy.getValue());
           },
-          [](const FlowAnchor::Forced &forced) -> std::optional<Type> {
-            if (auto lazy = dyn_cast<LazyType>(forced.lazy))
-              return unrestricted(lazy.getValue());
-            return std::nullopt;
+          [](const MemoState &state) -> std::optional<Type> {
+            return unrestricted(state.memo.getCtor(state.memo.getForcedTag()).fields.front());
           },
-          [](const FlowAnchor::Capture &) -> std::optional<Type> { return std::nullopt; },
-          [](const FlowAnchor::Hole &hole) -> std::optional<Type> {
-            return unrestricted(cast<DestType>(hole.dest).getValue());
-          }),
-      anchor.place);
+          [](const Capture &) -> std::optional<Type> { return std::nullopt; },
+          [](const Hole &hole) -> std::optional<Type> { return hole.dest.getValue(); }),
+      place);
 }
-
-} // namespace
 
 std::optional<Type> FlowPoint::type() const {
   return std::visit(
@@ -72,7 +65,7 @@ std::optional<Type> FlowPoint::type() const {
           [](FlowPoint::Whole whole) -> std::optional<Type> {
             return unrestricted(whole.value.getType());
           },
-          [](const FlowPoint::Part &part) { return slotOf(part.anchor); },
+          [](const FlowPoint::Part &part) { return part.anchor.slot(); },
           [](FlowPoint::Parameter) -> std::optional<Type> { return std::nullopt; },
           [](FlowPoint::Result) -> std::optional<Type> { return std::nullopt; }),
       at);

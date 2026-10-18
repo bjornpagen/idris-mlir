@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The verifier of a program, at the stage its idr.program says: the
-// program's rules (its root, its data types and the cells its reuses build
-// in), which the program's symbol-use verifier runs once every op of it is
-// verified, on one thread; and the rules of one function at its program's
-// stage, which idr.func's region verifier runs after its body's ops are, in
-// parallel with every other function's. A function's rules read the
-// function, the types its values have and its program's stage, and nothing
-// else of the module, so no pass rewriting a sibling function races them;
-// nothing keeps a table or an answer beyond one verify.
+// program's rules (its data types, its effects and the cells its recycles
+// give), which idr.program's region verifier runs once it has checked the
+// root and every op of the program is verified, on one thread, when the
+// module is read and after every pass on the program; and the rules of one
+// function at its program's stage, which idr.func's region verifier runs
+// after its body's ops are, in parallel with every other function's. A
+// function's rules read the function, the types its values have and its
+// program's stage, and nothing else of the module, so no pass rewriting a
+// sibling function races them; nothing keeps a table or an answer beyond
+// one verify. The knot rule is no verifier's: it refuses the user's program,
+// so it is the body of a check pass (knots).
 #ifndef IDR_IR_VERIFY_H
 #define IDR_IR_VERIFY_H
 
@@ -28,6 +31,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
+#include <variant>
 
 namespace idr {
 
@@ -36,39 +40,52 @@ class TypeGraph;
 namespace verify {
 
 // The rules of the program: its target's pointers are the runtime's
-// words; its root is an idr.func of it that takes a world or returns an
-// i64; each function's declared effects cover what its body may do, its
-// own part (bodyEffect) and its callees'; a memo sum is held only in a
-// box; no array can hold a reference to itself, else the refusal `cycle`;
+// words; each function's declared effects cover what its body may do, its
+// own part (bodyEffect) and its calls'; a memo sum is held only in a box;
 // past the higher stage containment in place is acyclic and no data type
-// has a field of a closure or a suspension; and at the owned stage every
-// idr.reuse builds in a cell of its own size. A lowered program is
-// upstream's functions and globals, and its one rule is that its root
-// names a func.func of it.
+// has a field of a closure or a suspension; and once the program is
+// counted a buffer's global is aligned as a cell's element is, and every
+// idr.cell.recycle gives a cell of the size of its token's. A lowered
+// program is upstream's functions and globals, which hold no rule of ours.
 mlir::LogicalResult program(ProgramOp program);
 
-// No array can hold a reference to itself, by the cycles of `graph`.
+// No array can hold a reference to itself, by the cycles of `graph`, else
+// the refusal `cycle`: the body of idr-knots, which runs once every closure
+// is a constructor of a sum.
 mlir::LogicalResult knots(ProgramOp program, const TypeGraph &graph);
 
-// The rules of one function at its program's stage: what the stage lets
-// its values hold (past higher no closure or suspension, before owned no
-// own or excl grade, at owned no plain value of ours that holds
-// references); closures' flow while they exist; every linear value used at
-// most once on every path; and at owned, the counting rule (owned).
+// The rules of one function at its program's stage, each read through
+// stageFacts: what the stage lets its values hold (past higher no closure
+// or suspension; an own or excl grade only once the stage gives grades, and
+// from then no plain value of ours that holds references); closures' flow
+// while they exist; every linear value used at most once on every path; and
+// once the program is counted, the counting rule (owned).
 mlir::LogicalResult function(FuncOp fn);
 
-// Every value of quantity one, a world or an !idr.lin, is used at most
-// once on every path of `fn`.
+// Every value used once by its type (isLinearByType: a world, a
+// destination, a cell) or by its grade (an !idr.lin) is used at most once
+// on every path of `fn`.
 mlir::LogicalResult linearity(FuncOp fn);
 
 // The owned stage's rule for one function: each reference is consumed
-// exactly once on every path, and a view is used only while what it was
-// read from holds its reference.
+// exactly once on every path, a cell's by the idr.cell.init that fills it,
+// and a view is used only while what it was read from holds its reference.
 mlir::LogicalResult owned(FuncOp fn);
 
 // Whether at most one region of `branch` runs: each returns straight to
 // the op, as a match's or an scf.if's do, and none to another region.
 bool alternatives(mlir::RegionBranchOpInterface branch);
+
+// What a value is to the owned walk, decided once from its type and its
+// definition (OwnedWalk::roleOf). Four cases, each with its own state in the
+// walk: it holds no reference the walk follows (none at all, or static data
+// no count reaches); it holds one of its own, as its type says (an owned
+// grade, or a cell, which its init consumes); it holds a fresh one its plain
+// type cannot say, which an allocation of upstream's buffer ops or
+// idr.own.give hands to its one use (the idr.own.adopt that takes it over,
+// or the store it is given to); or it is a view, which holds none and lives
+// while what it was read from does.
+enum class Role { Untracked, Owned, Carried, View };
 
 // The walk of one function in the owned stage: the references each value
 // in scope holds, followed along the ops. Where an op forwards values
@@ -86,11 +103,24 @@ public:
   mlir::LogicalResult check();
 
 private:
+  // The references an Owned or Carried value holds here.
+  struct References {
+    int count;
+  };
+  // The values that hold the references a view was read from: it is alive
+  // while each of them is. None: it is alive throughout, a borrowed
+  // parameter, which its caller keeps alive, or read from one.
+  struct Viewing {
+    llvm::SmallVector<mlir::Value, 1> owners;
+  };
+  // A value's state, by its role; an Untracked value has none.
+  using Slot = std::variant<References, Viewing>;
+
   // The references a value held before a change, so that each region of
   // an op starts from the same state.
   struct Change {
     mlir::Value value;
-    std::optional<int> old;
+    std::optional<References> old;
   };
 
   // What an op with regions forwards, and to where: for each value a
@@ -105,16 +135,12 @@ private:
     bool forwards(mlir::OpOperand &operand) const { return to.contains(&operand); }
   };
 
-  // What a value is to the walk (Owned.cpp).
-  bool counts(mlir::Type type);
-  bool tracked(mlir::Value value);
-  bool carried(mlir::Value value);
-  bool isView(mlir::Value value);
+  // What a value is to the walk, and the state in scope (Owned.cpp).
+  Role roleOf(mlir::Value value);
+  int references(mlir::Value value) const;
+  const Viewing *viewing(mlir::Value value) const;
   bool alive(mlir::Value value);
-
-  // The references in scope (Owned.cpp).
-  void set(mlir::Value value, int references);
-  void carry(mlir::Value value);
+  void set(mlir::Value value, int count);
   void viewOf(mlir::Value value, llvm::ArrayRef<mlir::Value> from);
   void undo(size_t mark);
   llvm::MapVector<mlir::Value, int> changesSince(size_t mark);
@@ -154,15 +180,11 @@ private:
                                 const llvm::SmallPtrSetImpl<mlir::Operation *> &reached);
 
   FuncOp fn;
-  llvm::DenseMap<mlir::Type, bool> counted;
-  llvm::DenseMap<mlir::Value, int> held;
-  // The values that hold a reference their plain type cannot say, on its
-  // way across the boundary with upstream's buffer ops.
-  llvm::DenseSet<mlir::Value> transit;
-  // For each view, the values that hold the references it was read from:
-  // it is alive while each of them is. None: it is alive throughout, a
-  // borrowed parameter, which its caller keeps alive, or read from one.
-  llvm::DenseMap<mlir::Value, llvm::SmallVector<mlir::Value, 1>> owners;
+  // Each value's role, once asked.
+  llvm::DenseMap<mlir::Value, Role> roles;
+  // The state of each value in scope that has one: the references of an
+  // Owned or Carried value, the owners of a View.
+  llvm::DenseMap<mlir::Value, Slot> slots;
   llvm::SmallVector<Change> log;
 };
 

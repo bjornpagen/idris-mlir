@@ -22,15 +22,16 @@
 |||                       Idris's package commands
 |||     --libdir          the prefix's directory of packages, printed
 |||
-||| Idris prints what it reports on stdout: for a program only its errors,
-||| as Idris's own compilation to an executable does, otherwise its progress
-||| and its warnings too. The frontend's rejections are Idris errors,
-||| printed the same way where they are found. The exit status is
-||| idris-mlir's: 0, 1 for the compiler's own error, 2 for a usage error, 3
-||| for any error of the program's, Idris's included. Every independent
-||| rejection of a program is printed, the first found first, as Idris
-||| prints every error of a build. A package that does
-||| not build is 1, as Idris's package commands decide.
+||| A program the frontend refuses is a module too: it holds each refusal,
+||| the first found first, Idris's own errors among them as refusals of the
+||| rule `elaboration`, and no program; idris-mlir reads and reports them,
+||| and the frontend prints none. Otherwise Idris prints what it reports on
+||| stdout: for a program nothing but the compiler's own error, and for the
+||| other tasks its progress, its warnings and its errors too. The exit
+||| status is idris-mlir's: 0, 1 for the compiler's own error, 2 for a usage
+||| error, 3 for a program refused (its module says why, and the status
+||| decides nothing) or an error of a task that writes no module. A package
+||| that does not build is 1, as Idris's package commands decide.
 module IdrisMLIR.Frontend.Driver
 
 import Core.Context
@@ -51,13 +52,18 @@ import Idris.REPL.Opts
 import Idris.SetOptions
 import Idris.Syntax
 
+import IdrisMLIR.Emit
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Program
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate
 import IdrisMLIR.Registry.Libraries
+import IdrisMLIR.Syntax.Idr
 
 import Data.List
 import Data.List1
+import Data.SnocList
+import Data.SortedSet
 import Data.String
 import System
 import System.File
@@ -86,8 +92,8 @@ data Task
 record Arguments where
   constructor MkArguments
   idrisPrefix : Maybe String
-  packagePaths : List String
-  packages : List String
+  packagePaths : SnocList String
+  packages : SnocList String
   noPrelude : Bool
   timing : Maybe String
   corePath : Maybe String
@@ -95,10 +101,10 @@ record Arguments where
   check : Maybe String
   package : Maybe (PkgCommand, String)
   libDir : Bool
-  sources : List String
+  sources : SnocList String
 
 none : Arguments
-none = MkArguments Nothing [] [] False Nothing Nothing Nothing Nothing Nothing False []
+none = MkArguments Nothing [<] [<] False Nothing Nothing Nothing Nothing Nothing False [<]
 
 ||| What a run is given: the prefix, the rest of its session's arguments,
 ||| and its task.
@@ -118,9 +124,9 @@ synopsis = """
         """
 
 ||| The options that take a value.
-valued : List String
-valued = [ "--prefix", "--package-path", "-p", "--timing", "--core", "-o", "--check"
-         , "--build", "--install", "--typecheck", "--clean" ]
+valued : SortedSet String
+valued = SortedSet.fromList [ "--prefix", "--package-path", "-p", "--timing", "--core", "-o", "--check"
+                            , "--build", "--install", "--typecheck", "--clean" ]
 
 once : String -> Maybe a -> a -> Either String (Maybe a)
 once _ Nothing x = Right (Just x)
@@ -138,8 +144,8 @@ parse a [] = Right a
 parse a ("--prefix" :: d :: rest) = do
   p <- once "--prefix" a.idrisPrefix d
   parse ({ idrisPrefix := p } a) rest
-parse a ("--package-path" :: d :: rest) = parse ({ packagePaths $= (++ [d]) } a) rest
-parse a ("-p" :: p :: rest) = parse ({ packages $= (++ [p]) } a) rest
+parse a ("--package-path" :: d :: rest) = parse ({ packagePaths $= (:< d) } a) rest
+parse a ("-p" :: p :: rest) = parse ({ packages $= (:< p) } a) rest
 parse a ("--no-prelude" :: rest) = parse ({ noPrelude := True } a) rest
 parse a ("--timing" :: f :: rest) = do
   t <- once "--timing" a.timing f
@@ -162,11 +168,11 @@ parse a (flag :: rest) = case packageCommand flag of
     -- value, an unknown option, or a source.
     other : List String -> Either String Arguments
     other more =
-      if elem flag valued
+      if contains flag valued
         then Left (flag ++ " takes a value")
         else if isPrefixOf "-" flag
           then Left ("unknown option " ++ flag)
-          else parse ({ sources $= (++ [flag]) } a) more
+          else parse ({ sources $= (:< flag) } a) more
 
     command : PkgCommand -> List String -> Either String Arguments
     command cmd (f :: rest') = do
@@ -196,7 +202,7 @@ taskOf a = case (a.check, a.package, a.libDir) of
         | Nothing => Left "no --core"
       let Just out = a.output
         | Nothing => Left "no -o"
-      case a.sources of
+      case a.sources <>> [] of
         [source] => Right (Compile a.timing core out source)
         [] => Left "no source file"
         _ => Left "more than one source file"
@@ -246,32 +252,55 @@ session r = do
   setPrefix r.prefixDir
   setWorkingDir "."
   when r.given.noPrelude $ setSession ({ noprelude := True } !getSession)
-  traverse_ addPackageSearchPath r.given.packagePaths
+  traverse_ addPackageSearchPath (r.given.packagePaths <>> [])
   addPackageSearchPath !pkgGlobalDirectory
   for_ defaultPackages $ \p => catch (addPkgDir p anyBounds) (const (pure ()))
-  for_ r.given.packages $ \p => addPkgDir p anyBounds
+  for_ (r.given.packages <>> []) $ \p => addPkgDir p anyBounds
 
 ||| Builds the main file and the modules it imports, and loads the main
-||| module from its TTC, or ends the run with the status of the errors
-||| Idris reported. A main file that cannot be read is the program's error,
-||| as Idris reports it.
+||| module from its TTC; or the errors Idris reported, which it printed or
+||| not as the session's verbosity says. A main file that cannot be read is
+||| the program's error, as Idris reports it.
 built : {auto c : Ref Ctxt Defs} ->
         {auto s : Ref Syn SyntaxInfo} ->
         {auto o : Ref ROpts REPLOpts} ->
-        String -> Core ModuleIdent
+        String -> Core (Either (List1 Error) ModuleIdent)
 built source = do
   Right _ <- readText source
     | Left err => throw (FileErr source err)
   mainModule <- ctxtPathToNS source
   [] <- host.buildMain source
-    | (e :: es) => coreLift (exitWith (statusOfAll (e ::: es)))
-  pure mainModule
+    | (e :: es) => pure (Left (e ::: es))
+  pure (Right mainModule)
+
+||| The main file's first position, where a refusal Idris gives no location
+||| is.
+mainSite : {auto c : Ref Ctxt Defs} -> String -> Core NonEmptyFC
+mainSite source = (\m => (PhysicalIdrSrc m, (0, 0), (0, 0))) <$> ctxtPathToNS source
+
+||| A rejection as the refusal the module holds. Idris's own error is a
+||| refusal of the rule `Elaboration`, at its location, or at the main
+||| file's start when it has none, its message Core's print of the error:
+||| Idris's renderer (`Idris.Error.perror`) is covering, and the frontend is
+||| total.
+refusalOf : {auto c : Ref Ctxt Defs} -> (main : NonEmptyFC) -> Rejection -> Core ModuleRefusal
+refusalOf main (Refused r) = moduleRefusal r.rule r.site r.message
+refusalOf main (ByIdris e) = moduleRefusal Elaboration (fromMaybe main (getErrorLoc e >>= isNonEmptyFC)) (show e)
+
+||| The program refused: each rejection written as a refusal into the module
+||| at `out`, in the order found, with no Core and nothing printed, since
+||| idris-mlir reads and reports them; the status says the program was
+||| refused.
+refusing : {auto c : Ref Ctxt Defs} -> (main : NonEmptyFC) -> (out : String) -> List1 Rejection -> Core ()
+refusing main out rs = do
+  writeRefused out !(traverse (refusalOf main) rs)
+  coreLift (exitWith (ExitFailure 3))
 
 ||| Idris shows an error's location with the lines of the source it read
 ||| last, which is the error's own only for an error found while its file
-||| was elaborated. A rejection is found later, in any module of the
-||| program, so the source shown is the file of the error's module when
-||| the project has it, and none otherwise.
+||| was elaborated. The compiler's own error is found later, in any module
+||| of the program, so the source shown is the file of the error's module
+||| when the project has it, and none otherwise.
 showingItsSource : {auto c : Ref Ctxt Defs} -> {auto o : Ref ROpts REPLOpts} ->
                    Error -> Core ()
 showingItsSource err = case map fst (getErrorLoc err >>= isNonEmptyFC) of
@@ -286,15 +315,16 @@ perform : {auto c : Ref Ctxt Defs} ->
           {auto o : Ref ROpts REPLOpts} ->
           Task -> Core ()
 perform (Compile timing core out source) = do
-  mainModule <- built source
+  main <- mainSite source
+  Right mainModule <- built source
+    | Left errs => refusing main out (map ByIdris errs)
   [] <- program mainModule timing core out
-    | (e :: es) => do
-        for_ (e :: es) $ \err => do
-          showingItsSource err
-          host.emitError err
-        coreLift (exitWith (statusOfAll (e ::: es)))
+    | (r :: rs) => refusing main out (r ::: rs)
   pure ()
-perform (Check source) = ignore (built source)
+perform (Check source) = do
+  Right _ <- built source
+    | Left errs => coreLift (exitWith (statusOfAll errs))
+  pure ()
 perform (PackageCommand timing cmd file) = do
   p <- newRef PostS defaultPost
   -- Timed, Idris prints its own phases as it runs them (`logTime`), and
@@ -310,11 +340,11 @@ frontend : Run -> Core ()
 frontend r = do
   c <- newRef Ctxt !initDefs
   s <- newRef Syn initSyntax
-  -- A compilation prints only errors, as Idris's own compilation to an
-  -- executable does; checking and the package commands print Idris's
-  -- progress and warnings too.
+  -- A compilation prints nothing: the program's errors are refusals its
+  -- module holds. Checking and the package commands print Idris's
+  -- progress, warnings and errors.
   let (mainFile, verbosity) = case r.task of
-        Compile _ _ _ source => (Just source, ErrorLvl)
+        Compile _ _ _ source => (Just source, NoneLvl)
         Check source => (Just source, InfoLvl)
         _ => (Nothing, InfoLvl)
   o <- newRef ROpts (defaultOpts mainFile verbosity)
@@ -323,10 +353,21 @@ frontend r = do
   setColor False
   setConsoleWidth (Just 0)
   addPrimitives
-  catch (do session r; perform r.task) $ \err => do
-    showingItsSource err
-    host.emitError err
-    coreLift (exitWith (statusOf err))
+  catch (do session r; perform r.task) $ \err => case (r.task, err) of
+    -- The compiler's own error is printed whatever the task. Essential:
+    -- the refusal and the compiler's failure are two outcomes (3 and 1).
+    (Compile _ _ _ _, InternalError _) => do
+      update ROpts { verbosity := ErrorLvl }
+      printed err
+    (Compile _ _ out source, _) => refusing !(mainSite source) out (singleton (ByIdris err))
+    _ => printed err
+  where
+    printed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->
+              Error -> Core ()
+    printed err = do
+      showingItsSource err
+      host.emitError err
+      coreLift (exitWith (statusOf err))
 
 main : IO ()
 main = do

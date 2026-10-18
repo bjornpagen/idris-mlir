@@ -1,15 +1,9 @@
+// NEEDS-ACCEPTANCE: that the -verify-diagnostics run passes: no-heap-allocation, stated of @boxes and of the whole module, reports the idr.con of @cons, which @boxes calls, each request once at that op (one expectation takes both), and nothing else.
 // RUN: idris-mlir-opt %s --idr-expect=holds=no-heap-allocation=@scalar -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=no-heap-allocation=@boxes -o /dev/null 2> %t.one.err
-// RUN: FileCheck %s --check-prefix=ONE < %t.one.err
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=no-heap-allocation -o /dev/null 2> %t.all.err
-// RUN: FileCheck %s --check-prefix=ALL < %t.all.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=no-heap-allocation=@boxes,no-heap-allocation -verify-diagnostics -o /dev/null
 // @scalar builds only unboxed data and calls nothing that allocates, so it
 // holds of it. @boxes allocates through the function it calls, which is
 // in its scope; without a function, the whole module is.
-// ONE: error: expected no-heap-allocation: idr.con allocates in @cons
-// ONE-NOT: error:
-// ALL: error: expected no-heap-allocation: idr.con allocates in @cons
-// ALL-NOT: error:
 !Pair = !idr.data<"Pair", plain [@MkPair(i64, i64)]>
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
 idr.program @allocation root(@root) stage(first) {
@@ -18,6 +12,7 @@ idr.program @allocation root(@root) stage(first) {
     return %p : !Pair
   }
   idr.func @cons(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
+    // expected-error @below {{expected no-heap-allocation: idr.con allocates in @cons}}
     %r = idr.con !idr.box<!List> @Cons(%x : i64, %l : !idr.box<!List>)
     return %r : !idr.box<!List>
   }

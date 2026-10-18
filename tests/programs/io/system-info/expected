@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: that the values the run reads from tools/host.sh (darwin on macOS or unix on Linux, no, mlir, ncpu_total) are what the program prints on both targets
 compile: exit 0
 artifacts: core module objects executable
 run: exit status as expected

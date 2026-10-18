@@ -1,2 +1,0 @@
-NEEDS-ACCEPTANCE: that runtests --sem-names (tests/Main.idr) lists the 72 chunks and matches the 72 prim- directories
-every table chunk of tests/Sem.idr has a directory, and every prim- directory a chunk

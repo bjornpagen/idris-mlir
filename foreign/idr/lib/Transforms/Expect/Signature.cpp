@@ -10,7 +10,8 @@
 
 #include "idr/Transforms/Expect.h"
 
-#include "mlir/AsmParser/AsmParser.h"
+#include "idr/Conversion/Runtime.h"
+
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -22,23 +23,14 @@ namespace idr::expect {
 // Every copy of @f has the function type the argument writes: a builtin
 // function type for an idr.func or a func.func, an LLVM one for an
 // llvm.func.
-LogicalResult signature(ModuleOp module, AnalysisManager &, StringRef argument) {
-  constexpr StringRef property = "signature";
-  auto [function, text] = splitAt(module, argument, property);
-  if (function.empty())
-    return failure();
-  Type wanted = parseType(text, module.getContext());
-  if (!wanted)
-    return fail(module.getLoc(), property) << "cannot read the type " << text;
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult signature(const Request<TypeOf> &request) {
+  Type wanted = request.argument.type;
   bool held = true;
-  for (FunctionOpInterface fn : functions) {
+  for (FunctionOpInterface fn : request.argument.function.functions) {
     if (fn.getFunctionType() == wanted)
       continue;
-    fail(fn->getLoc(), property) << where(fn) << " has the type " << fn.getFunctionType()
-                                 << ", not " << wanted;
+    fail(fn->getLoc(), request.property) << where(fn) << " has the type " << fn.getFunctionType()
+                                         << ", not " << wanted;
     held = false;
   }
   return success(held);
@@ -46,39 +38,32 @@ LogicalResult signature(ModuleOp module, AnalysisManager &, StringRef argument) 
 
 // Every copy of @f is an llvm.func of the calling convention the argument
 // names, as LLVM spells it (ccc, tailcc, ...).
-LogicalResult convention(ModuleOp module, AnalysisManager &, StringRef argument) {
-  constexpr StringRef property = "convention";
-  auto [function, text] = splitAt(module, argument, property);
-  if (function.empty())
-    return failure();
-  std::optional<LLVM::cconv::CConv> wanted = LLVM::cconv::symbolizeCConv(text);
-  if (!wanted)
-    return fail(module.getLoc(), property) << "no calling convention is spelled " << text;
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult convention(const Request<ConventionOf> &request) {
+  LLVM::cconv::CConv wanted = request.argument.convention;
   bool held = true;
-  for (FunctionOpInterface fn : functions) {
+  for (FunctionOpInterface fn : request.argument.function.functions) {
     auto llvmFn = dyn_cast<LLVM::LLVMFuncOp>(fn.getOperation());
-    if (llvmFn && llvmFn.getCConv() == *wanted)
+    if (llvmFn && llvmFn.getCConv() == wanted)
       continue;
     if (llvmFn)
-      fail(fn->getLoc(), property) << where(fn) << " is called by "
-                                   << LLVM::cconv::stringifyCConv(llvmFn.getCConv()) << ", not "
-                                   << text;
+      fail(fn->getLoc(), request.property)
+          << where(fn) << " is called by " << LLVM::cconv::stringifyCConv(llvmFn.getCConv())
+          << ", not " << LLVM::cconv::stringifyCConv(wanted);
     else
-      fail(fn->getLoc(), property) << where(fn) << " is no llvm.func, which has a convention";
+      fail(fn->getLoc(), request.property)
+          << where(fn) << " is no llvm.func, which has a convention";
     held = false;
   }
   return success(held);
 }
 
-// After idr-entry, the module's one public function with a body is @main,
-// which takes the C entry's count and vector and returns its status:
-// (i32, !llvm.ptr) -> i32. Every other function the program defines is
-// private; the runtime's are declarations.
-LogicalResult entry(ModuleOp module, AnalysisManager &, StringRef) {
-  constexpr StringRef property = "entry";
+// After idr-entry, the module's one public function with a body is the
+// process entry, which takes the C entry's count and vector and returns its
+// status: (i32, !llvm.ptr) -> i32. Every other function the program
+// defines is private; the runtime's are declarations.
+LogicalResult entry(const Request<Nothing> &request) {
+  ModuleOp module = request.module;
+  StringRef entryName = conversion::entrySymbol;
   MLIRContext *context = module.getContext();
   Type i32 = IntegerType::get(context, 32);
   SmallVector<Type> inputs{i32, LLVM::LLVMPointerType::get(context)};
@@ -86,8 +71,9 @@ LogicalResult entry(ModuleOp module, AnalysisManager &, StringRef) {
   for (FunctionOpInterface fn : functionsOf(module)) {
     if (fn.isExternal() || !fn.isPublic())
       continue;
-    if (SymbolTable::getSymbolName(fn).getValue() != "main") {
-      fail(fn->getLoc(), property) << where(fn) << " is public, and only @main is";
+    if (SymbolTable::getSymbolName(fn).getValue() != entryName) {
+      fail(fn->getLoc(), request.property) << where(fn) << " is public, and only @" << entryName
+                                           << " is";
       held = false;
       continue;
     }
@@ -95,12 +81,13 @@ LogicalResult entry(ModuleOp module, AnalysisManager &, StringRef) {
     if (llvm::equal(fn.getArgumentTypes(), inputs) &&
         llvm::equal(fn.getResultTypes(), ArrayRef(i32)))
       continue;
-    fail(fn->getLoc(), property) << "@main has the type " << fn.getFunctionType()
-                                 << ", not the C entry's (i32, !llvm.ptr) -> i32";
+    fail(fn->getLoc(), request.property) << "@" << entryName << " has the type "
+                                         << fn.getFunctionType()
+                                         << ", not the C entry's (i32, !llvm.ptr) -> i32";
     held = false;
   }
   if (!found) {
-    fail(module.getLoc(), property) << "no public @main";
+    fail(module.getLoc(), request.property) << "no public @" << entryName;
     held = false;
   }
   return success(held);

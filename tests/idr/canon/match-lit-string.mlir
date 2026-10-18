@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns=@nonempty:1/1/1,matches-nothing=@nonempty,\
 // RUN: returns-on-paths=@maybe_empty:0+1,returns-on-paths=@other_keys:0+1 -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // A string that cannot be empty never takes the case "".
 
 idr.program @"match-lit-string" root(@root) stage(first) {
@@ -12,7 +12,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
     case "" {
       idr.yield %zero : i64
     }
-    default {
+    default(%d1: !idr.str) {
       idr.yield %one : i64
     }
     }
@@ -21,7 +21,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
     case "" {
       idr.yield %zero : i64
     }
-    default {
+    default(%d2: !idr.str) {
       idr.yield %one : i64
     }
     }
@@ -31,7 +31,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
     case "" {
       idr.yield %zero : i64
     }
-    default {
+    default(%d3: !idr.str) {
       idr.yield %one : i64
     }
     }
@@ -47,7 +47,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
     case "" {
       idr.yield %zero : i64
     }
-    default {
+    default(%d: !idr.str) {
       idr.yield %one : i64
     }
     }
@@ -64,7 +64,7 @@ idr.program @"match-lit-string" root(@root) stage(first) {
     case "" {
       idr.yield %x : i64
     }
-    default {
+    default(%d: !idr.str) {
       idr.yield %one : i64
     }
     }

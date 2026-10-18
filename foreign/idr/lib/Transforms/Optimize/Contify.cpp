@@ -25,30 +25,37 @@
 //
 // The parent keeps Idris's proof of termination only if the case block had
 // it too (FuncOp::absorb). One sweep over the functions, in program order,
-// moves every function that qualifies, the components and the users taken
-// once before it. A move erases a function whose one edge in comes from its
-// caller in its own component, so every path through it now runs through
-// the caller: no other function changes component, and no other function
-// gains or loses a use, since a moved call keeps its op. A function's body
-// only grows blocks and a call stays in the region that holds it, so a
-// function that does not fit its call site when the sweep reaches it never
-// fits later. Nothing qualifies after the sweep that did not before it.
+// moves every function that qualifies, the cycles of calls and the users
+// taken once before it. A move erases a function whose one edge in comes
+// from its caller on its own cycle, so every path through it now runs
+// through the caller: no other function changes cycle, and no other
+// function gains or loses a use, since a moved call keeps its op.
+//
+// A body that ends in ub.unreachable never returns, so what follows its
+// call in the caller is left unreachable, a second block of the caller,
+// until the sweep ends and every caller that took a body has it erased,
+// once: the users taken before the sweep name calls in that block, which
+// the sweep may still move bodies into, and they go with it. A function
+// that took such a body holds that second block until then, and a body of
+// two blocks has no place at a call, so the sweep leaves it where it is: a
+// move this run does not make, which only leaves the program less
+// optimized.
 
 #include "idr/Transforms/Optimize.h"
 
-#include "idr/Analysis/Effects.h"
+#include "idr/Analysis/CallCycles.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/Support/Actions.h"
-#include "idr/Transforms/Inline.h"
 
-#include "mlir/Analysis/CallGraph.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Transforms/Inliner.h"
 #include "mlir/Transforms/InliningUtils.h"
-#include "llvm/ADT/DenseMap.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace idr {
@@ -67,37 +74,30 @@ struct ContifyMoveAction : idr::support::TaggedAction<ContifyMoveAction> {
   static constexpr llvm::StringLiteral tag = "idr-contify-move";
 };
 
-// The component of the call graph each function is in, by its number.
-llvm::DenseMap<Operation *, unsigned> componentsOf(const CallGraph &graph) {
-  llvm::DenseMap<Operation *, unsigned> component;
-  for (auto [number, members] : llvm::enumerate(idr::callGraphComponents(graph)))
-    for (idr::FuncOp fn : members)
-      component.try_emplace(fn, static_cast<unsigned>(number));
-  return component;
-}
-
-// Moves every function of one call from another member of its component
-// into that call; how many. The root is also called from outside the
+// Moves every function of one call from another member of its cycle of
+// calls into that call; how many. The root is also called from outside the
 // program, so it never moves.
-unsigned contify(idr::ProgramOp program, SymbolTable &symbols, const CallGraph &graph) {
+unsigned contify(idr::ProgramOp program, SymbolTable &symbols, const idr::CallCycles &cycles) {
   unsigned contified = 0;
   InlinerInterface interface(program.getContext());
   InlinerConfig config;
   SmallVector<idr::FuncOp> fns(program.getOps<idr::FuncOp>());
-  llvm::DenseMap<Operation *, unsigned> component = componentsOf(graph);
   // The users of every function as the sweep begins. A body moved into its
   // caller keeps its uses, now in the caller; the one call moved goes with
   // the function it named.
   SymbolTableCollection tables;
   SymbolUserMap users(tables, program);
+  // The functions that took a body, in the order they first took one: a
+  // function that moves goes from here, its body with whatever it took now
+  // its caller's.
+  llvm::SetVector<Operation *> took;
   for (idr::FuncOp fn : fns) {
     ArrayRef<Operation *> uses = users.getUsers(fn);
     if (uses.size() != 1 || fn.getSymName() == program.getRoot())
       continue;
     auto call = dyn_cast<idr::CallOp>(uses.front());
     auto caller = call ? call->getParentOfType<idr::FuncOp>() : idr::FuncOp();
-    if (!caller || caller == fn || component.at(caller) != component.at(fn) ||
-        !idr::inlining::fitsRegion(interface, call, fn))
+    if (!caller || caller == fn || !cycles.together(caller, fn) || !fn.getBody().hasOneBlock())
       continue;
     // A skipped move leaves the function and its one call, and the users
     // the sweep took before it began stay true.
@@ -108,19 +108,24 @@ unsigned contify(idr::ProgramOp program, SymbolTable &symbols, const CallGraph &
         return;
       caller.absorb(fn);
       call.erase();
+      took.remove(fn);
+      took.insert(caller);
       symbols.erase(fn);
       moved = true;
     });
     if (moved)
       ++contified;
   }
+  IRRewriter rewriter(program.getContext());
+  for (Operation *caller : took)
+    (void)eraseUnreachableBlocks(rewriter, cast<idr::FuncOp>(caller).getBody());
   return contified;
 }
 
 struct Contify : idr::impl::IdrContifyBase<Contify> {
   void runOnOperation() override {
     unsigned contified =
-        contify(getOperation(), getAnalysis<SymbolTable>(), getAnalysis<CallGraph>());
+        contify(getOperation(), getAnalysis<SymbolTable>(), getAnalysis<idr::CallCycles>());
     numContified += contified;
     if (!contified)
       return markAllAnalysesPreserved();

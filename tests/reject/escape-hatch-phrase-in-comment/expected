@@ -1,0 +1,5 @@
+NEEDS-ACCEPTANCE: one refusal of rule escape hatch at line 6, though the source line holds the phrase (the verdict and line come from the module's refusal)
+compile: exit 3
+unsupported (escape hatch): the only error
+line: as the header says
+artifacts: none

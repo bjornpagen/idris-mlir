@@ -35,7 +35,7 @@ idr.program @tabulate root(@root) stage(first) {
     ^bb0(%i: index):
       %x = arith.index_cast %i : index to i64
       %g = idr.check.nonzero %d, "division by zero" : i64
-      %q = idr.div signed %x, %g : i64
+      %q = idr.divs %x, %g : i64
       idr.array.yield %q : i64
     } : tensor<?xi64>
     return %t : tensor<?xi64>

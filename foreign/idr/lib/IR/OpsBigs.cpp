@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ranges of the ops on bigs and naturals, from their bounds, and the
-// verifier of the one op that may make a natural of an integer.
+// The ranges of the ops on bigs and naturals, from their bounds, each
+// within the range its type proves (idr::ranges::ofType).
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -18,16 +18,19 @@ using idr::ranges::Bounds;
 
 namespace {
 
-// A natural is never negative, whatever its operands' ranges say.
-Bounds ofType(Bounds bounds, Type type) {
-  if (isa<NatType>(type) && (!bounds.lo || *bounds.lo < 0))
-    bounds.lo = 0;
-  return bounds;
+// Sets the range of `result` to `bounds`, within the range its type proves
+// at any grade: a natural is never negative, whatever its operands' ranges
+// say.
+void setBounds(Value result, Bounds bounds, SetIntRangeFn setResultRange) {
+  setResultRange(result, idr::ranges::rangeOf(bounds).intersection(
+                             idr::ranges::ofType(result.getType()).getValue()));
 }
 
-// Sets the range of `result` to `bounds`, as its type has them.
-void setBounds(Value result, Bounds bounds, SetIntRangeFn setResultRange) {
-  setResultRange(result, idr::ranges::rangeOf(ofType(bounds, result.getType())));
+// The bounds of `operand`, whose range is `range`, within the range its type
+// proves at any grade.
+Bounds operandBounds(Value operand, const ConstantIntRanges &range) {
+  return idr::ranges::boundsOf(
+      range.intersection(idr::ranges::ofType(operand.getType()).getValue()));
 }
 
 } // namespace
@@ -42,7 +45,7 @@ void ConstantOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn se
   Bounds bounds;
   if (std::optional<int64_t> value = big.getValue().trySExtValue())
     bounds = idr::ranges::bounded(*value, *value);
-  setResultRange(getResult(), idr::ranges::rangeOf(ofType(bounds, unrestricted(getType()))));
+  setBounds(getResult(), bounds, setResultRange);
 }
 
 void BigAddOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
@@ -80,8 +83,7 @@ void BigPredOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 
 void NatToBigOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                    SetIntRangeFn setResultRange) {
-  setBounds(getResult(), ofType(idr::ranges::boundsOf(ranges[0]), getValue().getType()),
-            setResultRange);
+  setBounds(getResult(), operandBounds(getValue(), ranges[0]), setResultRange);
 }
 
 // The clamp: a negative Integer is 0.
@@ -98,8 +100,7 @@ void NatFromBigOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 void BigCmpOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                  SetIntRangeFn setResultRange) {
   auto operand = [&](unsigned i) {
-    return idr::ranges::rangeOf(
-        ofType(idr::ranges::boundsOf(ranges[i]), getOperand(i).getType()));
+    return idr::ranges::rangeOf(operandBounds(getOperand(i), ranges[i]));
   };
   // The comparison of the words, whose predicate is arith's, which the
   // range machinery's copies in order.
@@ -115,11 +116,18 @@ void BigCmpOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   setResultRange(getResult(), ConstantIntRanges::constant(APInt(1, *decided ? 1 : 0)));
 }
 
-void BigFromIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
-                                     SetIntRangeFn setResultRange) {
-  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], getIsSigned()), setResultRange);
+// The integer's bounds, read as the op's signedness says.
+void BigFromSIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
+                                      SetIntRangeFn setResultRange) {
+  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], isSigned), setResultRange);
 }
 
+void BigFromUIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
+                                      SetIntRangeFn setResultRange) {
+  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], isSigned), setResultRange);
+}
+
+// A small's word is read signed.
 void BigSmallOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                    SetIntRangeFn setResultRange) {
   setBounds(getResult(), idr::ranges::ofInteger(ranges[0], /*isSigned=*/true), setResultRange);
@@ -128,7 +136,7 @@ void BigSmallOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 // The value, wrapped to the width: exact when every value fits the width.
 void BigToIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                    SetIntRangeFn setResultRange) {
-  Bounds a = ofType(idr::ranges::boundsOf(ranges[0]), getValue().getType());
+  Bounds a = operandBounds(getValue(), ranges[0]);
   unsigned width = getType().getIntOrFloatBitWidth();
   if (a.fits()) {
     APInt lo(64, static_cast<uint64_t>(*a.lo), true), hi(64, static_cast<uint64_t>(*a.hi), true);
@@ -144,10 +152,4 @@ void BigToIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
     }
   }
   setResultRange(getResult(), ConstantIntRanges::maxRange(width));
-}
-
-LogicalResult BigFromIntOp::verify() {
-  if (isa<NatType>(getType()) && getIsSigned())
-    return emitOpError("makes a natural of a signed integer, which may be negative");
-  return success();
 }

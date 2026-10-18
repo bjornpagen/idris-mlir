@@ -40,8 +40,9 @@ void moveBody(RewriterBase &rewriter, Region &from, Block *into, ValueRange args
 }
 
 // A region of a match and what its arguments stand for: the fields of the
-// constructor `ctor`, or, for the default region, which has none, the
-// scrutinee itself.
+// constructor it is entered at (MatchOpInterface::knownTag), or the
+// scrutinee itself, which a default binds; a literal match's case binds
+// nothing.
 struct Arm {
   Region &region;
   std::optional<Tag> ctor;
@@ -61,6 +62,14 @@ SmallVector<Value> readFields(RewriterBase &rewriter, const Arm &arm, Block *int
   return fields;
 }
 
+// Moves `arm` into `into`, at whose end its arguments are read from the
+// scrutinee's `value`.
+void moveArm(RewriterBase &rewriter, const Arm &arm, Block *into, Value value,
+             TypeRange results) {
+  SmallVector<Value> fields = readFields(rewriter, arm, into, value);
+  moveBody(rewriter, arm.region, into, fields, results);
+}
+
 // The tag selects the case; the default is the match's default or, when
 // Idris proved the other constructors impossible, its last case.
 void lowerMatch(RewriterBase &rewriter, MatchOp op) {
@@ -70,10 +79,15 @@ void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   Value scrutinee =
       heldAs(rewriter, loc, op.getScrutinee(), unrestricted(op.getScrutinee().getType()));
   SmallVector<Arm> cases;
-  for (unsigned i = 0, e = static_cast<unsigned>(op.getCases().size()); i < e; ++i)
-    cases.push_back({op.getCaseRegion(i), op.getCaseTag(i)});
-  Arm fallback = op.getDefaultRegion() ? Arm{*op.getDefaultRegion(), std::nullopt}
-                                       : cases.pop_back_val();
+  for (unsigned i = 0, e = op.getNumCases(); i < e; ++i) {
+    Region &region = op.getCaseRegion(i);
+    cases.push_back({region, op.knownTag(region)});
+  }
+  // scf.index_switch has a default always, and an exhaustive match has none
+  // (its default region is empty), so its last case is the switch's default
+  // and is not tested for: a match may be exhaustive, a switch may not.
+  Region &other = op.getDefaultRegion();
+  Arm fallback = other.empty() ? cases.pop_back_val() : Arm{other, op.knownTag(other)};
   SmallVector<int64_t> tags = llvm::map_to_vector(
       cases, [](const Arm &arm) -> int64_t { return static_cast<uint32_t>(*arm.ctor); });
   Value tag = TagOp::create(rewriter, loc, scrutinee);
@@ -81,77 +95,71 @@ void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   TypeRange results = op.getResultTypes();
   auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, results, index, tags,
                                              static_cast<unsigned>(cases.size()));
-  auto move = [&](const Arm &arm, Region &to) {
-    Block *into = rewriter.createBlock(&to);
-    SmallVector<Value> fields = readFields(rewriter, arm, into, scrutinee);
-    moveBody(rewriter, arm.region, into, fields, results);
-  };
   for (auto [arm, to] : llvm::zip_equal(cases, switchOp.getCaseRegions()))
-    move(arm, to);
-  move(fallback, switchOp.getDefaultRegion());
+    moveArm(rewriter, arm, rewriter.createBlock(&to), scrutinee, results);
+  moveArm(rewriter, fallback, rewriter.createBlock(&switchOp.getDefaultRegion()), scrutinee,
+          results);
   rewriter.replaceOp(op, switchOp.getResults());
 }
 
 // An integer key selects its case through scf.index_switch on the key's bits,
-// zero-extended; a string or big key is compared in turn.
+// zero-extended; a string or big key, which is no index, is compared in
+// turn.
 void lowerMatchLit(RewriterBase &rewriter, MatchLitOp op) {
   Location loc = op.getLoc();
   Value scrutinee = op.getScrutinee();
   TypeRange results = op.getResultTypes();
-  unsigned cases = static_cast<unsigned>(op.getCases().size());
+  unsigned cases = op.getNumCases();
+  Arm fallback{op.getDefaultRegion(), std::nullopt};
   rewriter.setInsertionPoint(op);
-  auto integer = dyn_cast<IntegerType>(scrutinee.getType());
-  if (integer || cases == 0) {
-    Value index;
-    if (!integer) {
-      index = arith::ConstantIndexOp::create(rewriter, loc, 0);
-    } else {
-      Value wide = scrutinee;
-      if (integer.getWidth() < 64)
-        wide = arith::ExtUIOp::create(rewriter, loc, rewriter.getI64Type(), scrutinee);
-      index = arith::IndexCastUIOp::create(rewriter, loc, rewriter.getIndexType(), wide);
-    }
+  if (auto integer = dyn_cast<IntegerType>(scrutinee.getType())) {
+    Value wide = scrutinee;
+    if (integer.getWidth() < 64)
+      wide = arith::ExtUIOp::create(rewriter, loc, rewriter.getI64Type(), scrutinee);
+    Value index = arith::IndexCastUIOp::create(rewriter, loc, rewriter.getIndexType(), wide);
     SmallVector<int64_t> keys;
     for (Attribute key : op.getCases())
       keys.push_back(static_cast<int64_t>(cast<IntegerAttr>(key).getValue().getZExtValue()));
     auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, results, index, keys, cases);
     for (unsigned i = 0; i < cases; ++i)
-      moveBody(rewriter, op.getCaseRegion(i), rewriter.createBlock(&switchOp.getCaseRegions()[i]),
-               {}, results);
-    moveBody(rewriter, *op.getDefaultRegion(), rewriter.createBlock(&switchOp.getDefaultRegion()),
-             {}, results);
+      moveArm(rewriter, {op.getCaseRegion(i), std::nullopt},
+              rewriter.createBlock(&switchOp.getCaseRegions()[i]), scrutinee, results);
+    moveArm(rewriter, fallback, rewriter.createBlock(&switchOp.getDefaultRegion()), scrutinee,
+            results);
     rewriter.replaceOp(op, switchOp.getResults());
     return;
   }
   // case k0 {A} case k1 {B} default {C} is
   // if s == k0 then A else (if s == k1 then B else C), each comparison made
-  // only where the one before failed.
-  scf::IfOp first, previous;
+  // only where the one before failed. The chain is built in the block of a
+  // scaffold made where the match is: every link, the first among them, is
+  // made at the end of the block it continues, which yields the link's
+  // results, and the link's else block is the next block continued. The
+  // default ends the last block continued, which is the scaffold's own when
+  // there is no case. The scaffold's block then takes the match's place.
+  auto scaffold = scf::ExecuteRegionOp::create(rewriter, loc, results);
+  Block *continued = rewriter.createBlock(&scaffold.getRegion());
   for (unsigned i = 0; i < cases; ++i) {
-    if (previous)
-      rewriter.setInsertionPointToStart(rewriter.createBlock(&previous.getElseRegion()));
-    else
-      rewriter.setInsertionPoint(op);
+    rewriter.setInsertionPointToEnd(continued);
     Value literal = ConstantOp::create(rewriter, loc, scrutinee.getType(), op.getCases()[i]);
     auto eq = CmpPredicate::eq;
     Value equal = isa<StrType>(scrutinee.getType())
                       ? Value(StrCmpOp::create(rewriter, loc, eq, scrutinee, literal))
                       : Value(BigCmpOp::create(rewriter, loc, eq, scrutinee, literal));
-    auto branch = scf::IfOp::create(rewriter, loc, results, equal, /*addThenBlock=*/false,
-                                    /*addElseBlock=*/false);
-    if (previous) {
-      rewriter.setInsertionPointAfter(branch);
-      scf::YieldOp::create(rewriter, loc, branch.getResults());
-    } else {
-      first = branch;
-    }
-    moveBody(rewriter, op.getCaseRegion(i), rewriter.createBlock(&branch.getThenRegion()), {},
-             results);
-    previous = branch;
+    auto link = scf::IfOp::create(rewriter, loc, results, equal, /*addThenBlock=*/false,
+                                  /*addElseBlock=*/false);
+    scf::YieldOp::create(rewriter, loc, link.getResults());
+    moveArm(rewriter, {op.getCaseRegion(i), std::nullopt},
+            rewriter.createBlock(&link.getThenRegion()), scrutinee, results);
+    continued = rewriter.createBlock(&link.getElseRegion());
   }
-  moveBody(rewriter, *op.getDefaultRegion(), rewriter.createBlock(&previous.getElseRegion()), {},
-           results);
-  rewriter.replaceOp(op, first.getResults());
+  moveArm(rewriter, fallback, continued, scrutinee, results);
+  Block *chain = &scaffold.getRegion().front();
+  auto yield = cast<scf::YieldOp>(chain->getTerminator());
+  rewriter.inlineBlockBefore(chain, op);
+  rewriter.replaceOp(op, yield.getResults());
+  rewriter.eraseOp(yield);
+  rewriter.eraseOp(scaffold);
 }
 
 struct LowerMatch : OpRewritePattern<MatchOp> {

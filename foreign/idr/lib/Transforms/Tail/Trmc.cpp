@@ -32,16 +32,17 @@
 #include "idr/Transforms/Tail.h"
 
 #include "idr/Analysis/Tail.h"
-#include "idr/IR/Canon.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/Support/Actions.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/Sequence.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRTRMC
@@ -68,42 +69,24 @@ void callClone(RewriterBase &rewriter, CallOp old, FuncOp clone, ValueRange oper
   call->setDiscardableAttrs(old->getDiscardableAttrDictionary());
 }
 
-// The terminator of `block` with no operands, in place of the one it has.
+// The terminator of `block`, an idr.return or a match's idr.yield, with no
+// operands.
 void endWithNothing(RewriterBase &rewriter, Block &block) {
   Operation *terminator = block.getTerminator();
-  rewriter.setInsertionPoint(terminator);
-  if (isa<ReturnOp>(terminator))
-    ReturnOp::create(rewriter, terminator->getLoc(), ValueRange());
-  else
-    YieldOp::create(rewriter, terminator->getLoc(), ValueRange());
-  rewriter.eraseOp(terminator);
+  rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperands(ValueRange()); });
 }
 
-// The box `built` builds, again, with `fields` and the holes `holes`: a
-// constructor stays one, in its frame or not, and a reuse builds in the
-// same cell.
-Built rebuilt(RewriterBase &rewriter, ConOp con, ValueRange fields, ArrayRef<int32_t> holes) {
-  return ConOp::create(rewriter, con.getLoc(), con.getResult().getType(), con.getTag(), fields,
-                       holes, con.getStack());
-}
-Built rebuilt(RewriterBase &rewriter, ReuseOp reuse, ValueRange fields, ArrayRef<int32_t> holes) {
-  return ReuseOp::create(rewriter, reuse.getLoc(), reuse.getResult().getType(), reuse.getToken(),
-                         reuse.getTag(), fields, holes);
-}
-
-// The box `built` builds, again, with its field `index` a hole: the same
-// tag, the fields it was given but that one, and the hole's destination.
-Built withHole(RewriterBase &rewriter, const Built &built, unsigned index) {
-  rewriter.setInsertionPoint(opOf(built));
-  return std::visit(
-      [&](auto op) {
-        SmallVector<Value> fields;
-        for (auto [at, given] : llvm::enumerate(op.getFields()))
-          if (at != index)
-            fields.push_back(given);
-        return rebuilt(rewriter, op, fields, {static_cast<int32_t>(index)});
-      },
-      built);
+// The box `built` writes into its cell, again, with its field `index` a
+// hole: the same cell, the fields it was given but that one, and the
+// hole's destination. The box keeps the grade counting gave it.
+CellInitOp withHole(RewriterBase &rewriter, CellInitOp built, unsigned index) {
+  rewriter.setInsertionPoint(built);
+  SmallVector<Value> fields;
+  for (auto [at, given] : llvm::enumerate(built.getFields()))
+    if (at != index)
+      fields.push_back(given);
+  return CellInitOp::create(rewriter, built.getLoc(), built.getResult().getType(), built.getCell(),
+                            fields, {static_cast<int32_t>(index)});
 }
 
 // The destination-passing form of one tail: the constructor built with
@@ -116,17 +99,17 @@ Built withHole(RewriterBase &rewriter, const Built &built, unsigned index) {
 void passDestination(RewriterBase &rewriter, const Modulo &tail, FuncOp clone,
                      std::optional<Value> hole) {
   CallOp call = tail.call;
+  CellInitOp built = tail.built;
   Location loc = call.getLoc();
-  Built holed = withHole(rewriter, tail.built, tail.index);
-  Value cell = std::visit([](auto op) -> Value { return op.getResult(); }, holed);
-  Value dest = std::visit([&](auto op) -> Value { return op.getDest(tail.index); }, holed);
-  // The tail returns the cell alone, so the constructor had no hole.
-  Operation *old = opOf(tail.built);
-  rewriter.replaceAllUsesWith(old->getResult(0), cell);
-  rewriter.eraseOp(old);
+  CellInitOp holed = withHole(rewriter, built, tail.index);
+  Value cell = holed.getResult();
+  Value dest = holed.getDest(tail.index);
+  // The tail returns the cell alone, so the init had no hole.
+  rewriter.replaceAllUsesWith(built.getResult(), cell);
+  rewriter.eraseOp(built);
   for (Operation *grade : tail.grades)
     rewriter.eraseOp(grade);
-  rewriter.setInsertionPointAfter(opOf(holed));
+  rewriter.setInsertionPointAfter(holed);
   if (hole)
     DestWriteOp::create(rewriter, loc, *hole, cell);
   SmallVector<Value> operands(call.getArgs());
@@ -140,13 +123,19 @@ void passDestination(RewriterBase &rewriter, const Modulo &tail, FuncOp clone,
 // match in tail position then yields nothing, and so has no results.
 void rewriteClone(RewriterBase &rewriter, Block &block, FuncOp fn, FuncOp clone, Value hole) {
   Operation *terminator = block.getTerminator();
-  if (Operation *match = tailMatch(terminator)) {
-    Operation *rebuilt = canon::rebuildMatch(rewriter, match, TypeRange());
+  if (Operation *tailOp = tailMatch(terminator)) {
+    // The match keeps every region and yields nothing.
+    auto match = cast<MatchOpInterface>(tailOp);
+    rewriter.setInsertionPoint(tailOp);
+    Operation *rebuilt = match.rebuild(rewriter, TypeRange(),
+                                       llvm::to_vector(llvm::seq(match.getNumCases())),
+                                       &match.getDefaultRegion());
+    // An exhaustive match's default region is empty: it holds no tail.
     for (Region &region : rebuilt->getRegions())
       if (!region.empty())
         rewriteClone(rewriter, region.front(), fn, clone, hole);
     endWithNothing(rewriter, block);
-    rewriter.eraseOp(match);
+    rewriter.eraseOp(tailOp);
     return;
   }
   if (std::optional<Modulo> tail = moduloAt(block, fn)) {
@@ -198,8 +187,7 @@ FailureOr<std::optional<Plan>> planOf(FuncOp fn, SymbolTable &symbols) {
 }
 
 struct Trmc : impl::IdrTrmcBase<Trmc> {
-  void runOnOperation() override {
-    ProgramOp program = getOperation();
+  void runOnProgram(ProgramOp program) override {
     MLIRContext *ctx = program.getContext();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     // Every function is planned on the program as it stands, before any
@@ -222,7 +210,7 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
         FuncOp clone = fn.clone();
         clone.setSymNameAttr(plan.name);
         symbols.insert(clone, std::next(fn->getIterator()));
-        auto dest = DestType::get(ctx, unrestricted(fn.getResultTypes()[0]));
+        auto dest = DestType::get(ctx, cast<BoxType>(unrestricted(fn.getResultTypes()[0])));
         unsigned arity = clone.getNumArguments();
         (void)clone.insertArgument(arity, dest, DictionaryAttr(), fn.getLoc());
         (void)clone.eraseResult(0);

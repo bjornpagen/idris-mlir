@@ -15,13 +15,32 @@ namespace idr {
 using fold::bigBinary;
 using fold::bigUnary;
 using fold::compared;
-using fold::runtimeOfWord;
 using fold::Scope;
 using fold::strUnary;
 using fold::wrapped;
 
+namespace {
+
+// Whether a constant is the big zero.
+bool isZero(Attribute value) {
+  auto big = dyn_cast_or_null<BigAttr>(value);
+  return big && big.getValue().isZero();
+}
+
+} // namespace
+
+// The sum of two constants, by the runtime; and a sum with zero, on either
+// side, is the other operand where that operand is at the sum's type. The
+// type is essential: after idr-rc a big op reads views and owns its result,
+// so an owned sum is never replaced by a view.
 OpFoldResult BigAddOp::fold(FoldAdaptor adaptor) {
-  return bigBinary<BigAddOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
+  if (OpFoldResult sum = bigBinary<BigAddOp>(getContext(), adaptor.getLhs(), adaptor.getRhs()))
+    return sum;
+  if (isZero(adaptor.getRhs()) && getLhs().getType() == getType())
+    return getLhs();
+  if (isZero(adaptor.getLhs()) && getRhs().getType() == getType())
+    return getRhs();
+  return {};
 }
 OpFoldResult BigSubOp::fold(FoldAdaptor adaptor) {
   return bigBinary<BigSubOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
@@ -74,12 +93,12 @@ OpFoldResult BigShrOp::fold(FoldAdaptor adaptor) { return bigShift(*this, adapto
 // Nothing by a divisor its guard refuses, zero: the program never divides
 // by it, since the guard crashes first.
 OpFoldResult BigDivOp::fold(FoldAdaptor adaptor) {
-  if (!CheckNonzeroOp::holds({adaptor.getRhs()}))
+  if (!guardHolds(adaptor))
     return {};
   return bigBinary<BigDivOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 OpFoldResult BigModOp::fold(FoldAdaptor adaptor) {
-  if (!CheckNonzeroOp::holds({adaptor.getRhs()}))
+  if (!guardHolds(adaptor))
     return {};
   return bigBinary<BigModOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
@@ -120,34 +139,44 @@ OpFoldResult BigCmpOp::fold(FoldAdaptor adaptor) {
   return compared(getContext(), getPredicate(), fold::runtime<BigCmpOp>(scope.big(a), scope.big(b)));
 }
 
-OpFoldResult BigFromIntOp::fold(FoldAdaptor adaptor) {
+// An integer's big by the op's own function: the integer extended to the
+// function's word as the op reads it, sign-extended when signed and
+// zero-extended when not.
+OpFoldResult BigFromSIntOp::fold(FoldAdaptor adaptor) {
   auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!n)
     return {};
   Scope scope(getContext());
-  return scope.attr(runtimeOfWord<BigFromIntOp>(n, getIsSigned()));
+  return scope.attr(fold::runtime<BigFromSIntOp>(n.getValue().getSExtValue()));
 }
 
-// A small is the Integer of its word, read signed, as big.from_int makes
-// it.
+OpFoldResult BigFromUIntOp::fold(FoldAdaptor adaptor) {
+  auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
+  if (!n)
+    return {};
+  Scope scope(getContext());
+  return scope.attr(fold::runtime<BigFromUIntOp>(n.getValue().getZExtValue()));
+}
+
+// A small is the Integer of its word, read signed, as big.from_sint makes
+// it: that function has a big for every word, where the small's own has one
+// only for a word that fits.
 OpFoldResult BigSmallOp::fold(FoldAdaptor adaptor) {
   auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!n)
     return {};
   Scope scope(getContext());
-  return scope.attr(runtimeOfWord<BigFromIntOp>(n, /*isSigned=*/true));
+  return scope.attr(fold::runtime<BigFromSIntOp>(n.getValue().getSExtValue()));
 }
 
 OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
   // An integer made a big and back at its own width is itself, whichever
   // way it was read: idr-narrow leaves these pairs where a word meets a
   // word.
-  if (auto from = getValue().getDefiningOp<BigFromIntOp>())
-    if (from.getValue().getType() == getType())
-      return from.getValue();
-  if (auto small = getValue().getDefiningOp<BigSmallOp>())
-    if (small.getValue().getType() == getType())
-      return small.getValue();
+  if (Operation *from = getValue().getDefiningOp();
+      isa_and_nonnull<BigFromSIntOp, BigFromUIntOp, BigSmallOp>(from) &&
+      from->getOperand(0).getType() == getType())
+    return from->getOperand(0);
   auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
   if (!a)
     return {};
@@ -157,7 +186,7 @@ OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
 
 // Nothing of a Double its guard refuses, one that is not finite.
 OpFoldResult BigFromDoubleOp::fold(FoldAdaptor adaptor) {
-  if (!CheckFiniteOp::holds({adaptor.getValue()}))
+  if (!guardHolds(adaptor))
     return {};
   auto d = cast<FloatAttr>(adaptor.getValue());
   Scope scope(getContext());

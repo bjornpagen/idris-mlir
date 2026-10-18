@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: that this test, rewritten to the representation wave's printed forms (`idr.io.put_sint` for the signed `put_int` and `idr.constant` writing its type first), parses and passes as before.
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A trusted library's effect happens where its value is demanded, so a
@@ -13,7 +14,7 @@
 idr.program @"memo-by-name" root(@Main.main) stage(higher) {
   idr.func @traced(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new
-    %s = idr.constant "forced\0A" : !idr.str
+    %s = idr.constant !idr.str "forced\0A"
     %w1 = idr.io.put_str %s, %w
     return %x : i64
   }
@@ -28,7 +29,7 @@ idr.program @"memo-by-name" root(@Main.main) stage(higher) {
   }
   idr.func @shout() -> i64 attributes {total} {
     %w = idr.world.new
-    %s = idr.constant "once\0A" : !idr.str
+    %s = idr.constant !idr.str "once\0A"
     %w1 = idr.io.put_str %s, %w
     %c = arith.constant 1 : i64
     return %c : i64
@@ -49,7 +50,7 @@ idr.program @"memo-by-name" root(@Main.main) stage(higher) {
     %n = arith.extui %c : i32 to i64
     %t = idr.suspend @traced(%n) : (i64) -> !idr.lazy<i64>
     %u = idr.suspend @sized(%n) : (i64) -> !idr.lazy<i64>
-    %k = idr.constant #idr.closure<@shout, []> : !idr.lazy<i64>
+    %k = idr.constant !idr.lazy<i64> #idr.closure<@shout, []>
     %e = idr.suspend @clocked(%n) : (i64) -> !idr.lazy<i64>
     %f = idr.suspend @errtext(%n) : (i64) -> !idr.lazy<i64>
     %a = idr.force %t : !idr.lazy<i64> -> i64
@@ -61,7 +62,7 @@ idr.program @"memo-by-name" root(@Main.main) stage(higher) {
     %abd = arith.addi %ab, %d : i64
     %abdg = arith.addi %abd, %g : i64
     %abdgh = arith.addi %abdg, %h : i64
-    %w2 = idr.io.put_int signed %abdgh, %w1 : i64
+    %w2 = idr.io.put_sint %abdgh, %w1 : i64
     return %w2 : !idr.world
   }
 }

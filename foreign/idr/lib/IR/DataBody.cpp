@@ -10,6 +10,9 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cstddef>
+#include <utility>
+#include <variant>
 #include <vector>
 
 using namespace mlir;
@@ -66,21 +69,18 @@ LogicalResult DataType::verifyBody(DataType type, function_ref<InFlightDiagnosti
       if (!isFieldType(field))
         return emitError() << "the constructor @" << ctorName << " of \"" << typeName
                            << "\" has a field of unsupported type " << field;
-    if (!llvm::is_contained(rule.roles, ctor.role))
+    if (!llvm::is_contained(rule.roles, kindOf(ctor.role)))
       return emitError() << "the constructor @" << ctorName << " of the "
                          << stringifySumKind(body.kind) << " sum \"" << typeName << "\" is "
-                         << stringifyCtorRole(ctor.role);
-    // A label is found by its function, and nothing else has one.
-    if ((ctor.role == CtorRole::Label) != static_cast<bool>(ctor.fn))
-      return emitError() << "the constructor @" << ctorName << " of \"" << typeName
-                         << "\" names a function exactly when it is a label";
+                         << stringifyCtorRole(kindOf(ctor.role));
     // Only a label runs at a force, so only a memo sum's label is by name.
-    if (ctor.byName && !(body.kind == SumKind::Memo && ctor.role == CtorRole::Label))
+    if (const auto *label = std::get_if<role::Label>(&ctor.role);
+        label && label->byName && body.kind != SumKind::Memo)
       return emitError() << "the constructor @" << ctorName << " of \"" << typeName
                          << "\" is by_name, which only a label of a memo sum is";
   }
   for (RoleOnce once : rule.once) {
-    auto inRole = [&](const Ctor &ctor) { return ctor.role == once.role; };
+    auto inRole = [&](const Ctor &ctor) { return kindOf(ctor.role) == once.role; };
     const Ctor *it = llvm::find_if(body.ctors, inRole);
     if (llvm::count_if(body.ctors, inRole) != 1 || it->fields.size() != once.fields)
       return emitError() << "the " << stringifySumKind(body.kind) << " sum \"" << typeName
@@ -93,7 +93,7 @@ LogicalResult DataType::verifyBody(DataType type, function_ref<InFlightDiagnosti
   // has made the boxes.
   if (body.kind == SumKind::BaseList) {
     const Ctor *cons = llvm::find_if(
-        body.ctors, [](const Ctor &ctor) { return ctor.role == CtorRole::ListCons; });
+        body.ctors, [](const Ctor &ctor) { return kindOf(ctor.role) == CtorRole::ListCons; });
     Type tail = unrestricted(cons->fields[1]);
     if (auto box = dyn_cast<BoxType>(tail))
       tail = box.getData();
@@ -107,7 +107,8 @@ LogicalResult DataType::verifyBody(DataType type, function_ref<InFlightDiagnosti
 // `<"T">` inside the type's own body, `<"T", kind [@C(fields) role, ...]
 // instance #idr.instance<...>>` everywhere else: the way LLVM writes an
 // identified struct, which ends a cycle of types at its name. A plain
-// constructor writes no role, and a label writes its function after it.
+// constructor writes no role, and a label writes its function after it,
+// then `by_name` when it is.
 void DataType::print(AsmPrinter &printer) const {
   FailureOr<AsmPrinter::CyclicPrintReset> cyclic = printer.tryStartCyclicPrint(*this);
   printer << '<';
@@ -122,12 +123,13 @@ void DataType::print(AsmPrinter &printer) const {
     printer << '(';
     llvm::interleaveComma(ctor.fields, printer);
     printer << ')';
-    if (ctor.role != CtorRole::Plain)
-      printer << ' ' << stringifyCtorRole(ctor.role);
-    if (ctor.fn)
-      printer << ' ' << ctor.fn;
-    if (ctor.byName)
-      printer << " by_name";
+    if (CtorRole kind = kindOf(ctor.role); kind != CtorRole::Plain)
+      printer << ' ' << stringifyCtorRole(kind);
+    if (const auto *label = std::get_if<role::Label>(&ctor.role)) {
+      printer << ' ' << label->fn;
+      if (label->byName)
+        printer << " by_name";
+    }
   });
   printer << ']';
   if (InstanceAttr instance = getInstance())
@@ -190,12 +192,18 @@ Type DataType::parse(AsmParser &parser) {
           return parser.parseType(ctorFields.emplace_back());
         }))
       return failure();
-    StringRef role;
-    if (succeeded(parser.parseOptionalKeyword(&role, roles)))
-      ctor.role = *symbolizeCtorRole(role);
-    if (ctor.role == CtorRole::Label && parser.parseAttribute(ctor.fn))
-      return failure();
-    ctor.byName = succeeded(parser.parseOptionalKeyword("by_name"));
+    StringRef spelled;
+    CtorRole played = CtorRole::Plain;
+    if (succeeded(parser.parseOptionalKeyword(&spelled, roles)))
+      played = *symbolizeCtorRole(spelled);
+    ctor.role = emptyRole(played);
+    // Only a label has more to read: its function, and whether it is by
+    // name.
+    if (auto *label = std::get_if<role::Label>(&ctor.role)) {
+      if (parser.parseAttribute(label->fn))
+        return failure();
+      label->byName = succeeded(parser.parseOptionalKeyword("by_name"));
+    }
     ctors.push_back(ctor);
     return success();
   };

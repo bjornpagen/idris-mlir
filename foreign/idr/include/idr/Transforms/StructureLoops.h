@@ -4,8 +4,7 @@
 //
 // idr-structure-loops is the one-to-one lowering of the array language's
 // generating set (idr.tabulate, idr.tabulate_io, idr.fold_last,
-// idr.scan_last, idr.transpose), once every call's callee has its final
-// effects. Each op says how it visits its domain (getIterations); what its
+// idr.scan_last, idr.transpose), once every call has its final effects. Each op says how it visits its domain (getIterations); what its
 // region does decides the rest. A region that does no more than compute
 // and crash, over arrays of words, keeps the op's parallel dimensions
 // parallel in a linalg op; every other op is an scf.for nest in its
@@ -60,8 +59,8 @@ enum class Form {
 bool structurable(mlir::Operation *op);
 
 // The form `op`, which idr-structure-loops lowers, takes. A call does what
-// `callees` says its callee does.
-Form formOf(mlir::Operation *op, const CalleeEffects &callees);
+// its own effects say.
+Form formOf(mlir::Operation *op);
 
 // A read of an array of words from outside an op, directly in its region,
 // at distinct indices of the op's domain, each as large as the dimension
@@ -81,21 +80,21 @@ void lower(mlir::RewriterBase &rewriter, mlir::Operation *op, Form form);
 
 // The forms, each replacing its op.
 void lowerParallel(mlir::RewriterBase &rewriter, mlir::Operation *op);
-void lowerReduction(mlir::RewriterBase &rewriter, FoldLastOp op);
-void lowerInterchange(mlir::RewriterBase &rewriter, mlir::Operation *op);
+void lowerReduction(mlir::RewriterBase &rewriter, LastAxisFoldOpInterface op);
+void lowerInterchange(mlir::RewriterBase &rewriter, LastAxisFoldOpInterface op);
 void lowerOrdered(mlir::RewriterBase &rewriter, mlir::Operation *op);
 
 // What the forms share. The region of `op` moved before the rewriter's
 // insertion point, its arguments `args`, the insertion point left after it:
-// what its yield gives, or nothing where it ends in ub.unreachable, never
-// returning. The terminator is erased.
-std::optional<llvm::SmallVector<mlir::Value>> inlineRegion(mlir::RewriterBase &rewriter,
-                                                           mlir::Operation *op,
-                                                           mlir::ValueRange args);
+// what its yield gives, values of the types `given`, or, where it ends in
+// ub.unreachable and never returns, poison of them, which no path reaches.
+// The terminator is erased.
+llvm::SmallVector<mlir::Value> inlineRegion(mlir::RewriterBase &rewriter, mlir::Operation *op,
+                                            mlir::ValueRange args, mlir::TypeRange given);
 
 // The same, with the region copied, so that `op` keeps it.
-std::optional<llvm::SmallVector<mlir::Value>> cloneRegion(mlir::OpBuilder &b, mlir::Operation *op,
-                                                          mlir::ValueRange args);
+llvm::SmallVector<mlir::Value> cloneRegion(mlir::OpBuilder &b, mlir::Operation *op,
+                                           mlir::ValueRange args, mlir::TypeRange given);
 
 // The sizes of the first `dims` dimensions of `op`'s domain, and sizes as
 // values.

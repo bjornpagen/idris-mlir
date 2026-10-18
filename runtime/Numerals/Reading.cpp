@@ -58,6 +58,25 @@ uint64_t Numeral::wrapped(const char *p, size_t n) const {
   return negative ? 0 - value : value;
 }
 
+// `cast` from String (idris_rt_str_to_int, idris_rt_str_to_double,
+// idris_rt_big_from_str). Idris documents no syntax for it and its backends
+// disagree, so the cast reads what Idris's own syntax writes: a literal of
+// the target type, with an optional sign (`+` or `-`) before it, as the whole
+// string. Any other string is 0, as a cast is total.
+// - Every number type reads an integer literal: decimal digits, or 0b, 0o,
+//   0x or 0X and digits of that base, in groups that single underscores may
+//   separate (1_000). Its value is exact; an integer type takes it modulo
+//   2^N, and Double the nearest double, as fromInteger does.
+// - Double also reads a decimal literal, digits, a point and digits, with an
+//   optional exponent (e, a sign, digits), and digits with an exponent and
+//   no point, which is how a double's text is written when it has one
+//   significant digit (1e21): the nearest double, ties to even, so every
+//   text of a double reads back as it, as IEEE 754 requires of the two
+//   conversions; an exponent out of range gives an infinity or a zero. It
+//   reads inf, infinity and nan, in any case, as IEEE 754 spells the
+//   infinities and NaN.
+// So 12.7 is 0 as an Int, being no literal of one, and .5, 5., 1E3 and
+// surrounding spaces are no number at all.
 Numeral readNumeral(const char *p, size_t n) {
   Numeral numeral;
   size_t at = 0;

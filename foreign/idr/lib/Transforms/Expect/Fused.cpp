@@ -14,11 +14,8 @@ namespace idr::expect {
 
 // In the function the argument names, no result of a structured op that
 // has one use is used by another structured op, and there is one.
-LogicalResult fused(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "fused";
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult fused(const Request<Functions> &request) {
+  ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   bool held = true, structured = false;
   for (FunctionOpInterface fn : functions)
     fn->walk([&](linalg::LinalgOp producer) {
@@ -26,13 +23,15 @@ LogicalResult fused(ModuleOp module, AnalysisManager &, StringRef function) {
       for (Value result : producer->getResults()) {
         if (!result.hasOneUse() || !isa<linalg::LinalgOp>(*result.getUsers().begin()))
           continue;
-        fail(producer->getLoc(), property) << producer->getName() << " in " << where(producer)
-                                           << " makes an array only its one consumer reads";
+        fail(producer->getLoc(), request.property)
+            << producer->getName() << " in " << where(producer)
+            << " makes an array only its one consumer reads";
         held = false;
       }
     });
   if (!structured) {
-    fail(functions.front()->getLoc(), property) << "no structured op in " << function;
+    fail(functions.front()->getLoc(), request.property)
+        << "no structured op in @" << request.argument.name;
     held = false;
   }
   return success(held);

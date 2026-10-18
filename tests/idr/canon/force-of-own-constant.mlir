@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=forces=@knot,never-calls=@knot:@knot,\
 // RUN: forces=@mid,never-calls=@mid:@label,forces=@other,never-calls=@other:@leaf -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // A constant suspension is one cell in static data, whose force runs its
 // label once. Every force of it stays a force: a call of the label in its
 // place would run the label again at each force, and in a knot (the

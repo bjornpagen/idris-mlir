@@ -7,9 +7,11 @@
 #include <stdint.h>
 #include <string.h>
 
-// UTF-8's byte order is the order of the scalar values it encodes, and
-// memcmp compares bytes as unsigned char, the C library's vectorized loop.
-// Equal common bytes leave the shorter string first.
+// -1, 0 or 1 as the first string is before, equal to or after the second in
+// the order of their scalar values, Unicode's code point order. UTF-8's byte
+// order is that order, and memcmp compares bytes as unsigned char, the C
+// library's vectorized loop. Equal common bytes leave the shorter string
+// first.
 extern "C" int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b) {
   uint64_t n = a->bytes < b->bytes ? a->bytes : b->bytes;
   int c = memcmp(idris_rt_str_bytes(a), idris_rt_str_bytes(b), n);

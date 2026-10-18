@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The profile fixtures: programs the compiler accepts, and programs it
-# rejects with one explicit `unsupported (<reason>)` at the right line.
+# rejects, each by one rule, at the right line.
 
 # header FILE FIELD: the value of `-- FIELD: <value>` among the lines of that
 # form that start a profile fixture; the status is 1 without one.
@@ -13,16 +13,6 @@ header() {
       if (key == field) { value = $0; sub(/^--[ \t]*[a-z]+:[ \t]*/, "", value); found = 1 }
     }
     END { if (found) { print value; exit 0 } exit 1 }' "$1"
-}
-
-# reported_line FILE: the line number of the first error's location in
-# FILE, as either side prints one at the start of a line: Idris on a line of
-# its own, `<module>:<line>:<col>--<line>:<col>`, after the message (which
-# may itself name locations); MLIR before the message,
-# `<file>:<line>:<col>: error: ...`.
-reported_line() {
-  grep -E '^[A-Za-z0-9_/.-]+:[0-9]+:[0-9]+(--[0-9]+:[0-9]+[[:space:]]*$|: error:)' "$1" |
-    head -n 1 | sed 's/^[A-Za-z0-9_/.-]*:\([0-9]*\):.*/\1/'
 }
 
 # profile_prepare FIXTURE: the fixture in $work/fixture, a single file as
@@ -54,11 +44,15 @@ profile_compile() {
 # line is `-- expect: <reason>, line <n>` (and then, optionally,
 # `-- message: <text>`, text the refusal holds anywhere in it, whatever
 # words surround it), the name starting with <reason>, words joined by
-# dashes. It is rejected with exit status 3, reported on line n, and leaves
+# dashes. It is refused with exit status 3, reported on line n, and leaves
 # no artifact.
-# Who refuses is the reason: the phrase of one of the rules (lib/rules.sh)
-# is this compiler's refusal, exactly one `unsupported (<reason>)`; `idris`
-# is Idris's own, its parser's or its checker's, and no rule of ours.
+# Who refuses is the reason, read off the compilation's report, the one
+# record of every refusal, whoever made it: a line `verdict: <verdict>`,
+# and a line `diagnostic: <severity> <rule> <file:line>` per diagnostic,
+# the rule's phrase with each space written `-`. The phrase of one of the
+# rules (lib/rules.sh) is this compiler's refusal, the report's only
+# error; `idris` is Idris's own, its parser's or its checker's, each error
+# a rule of the user-error category and none a rule of ours.
 profile_reject() {
   if [ -d "$1" ]; then reject_main=$1/Main.idr; else reject_main=$1; fi
   reject_name=$(fixture_name "$1")
@@ -69,15 +63,13 @@ profile_reject() {
     say "$reject_name: the first line must be '-- expect: <reason>, line <n>'"
     return
   fi
-  if [ "$reject_reason" != idris ]; then
-    if [ ! -f "$rules_list" ]; then
-      say "$reject_name: no list of the rules (IdrRules.txt, which the build writes)"
-      return
-    fi
-    if ! rule_category "$reject_reason" > /dev/null; then
-      say "$reject_name: $reject_reason is no rule's phrase"
-      return
-    fi
+  if [ ! -f "$rules_list" ]; then
+    say "$reject_name: no list of the rules (IdrRules.txt, which the build writes)"
+    return
+  fi
+  if [ "$reject_reason" != idris ] && ! rule_category "$reject_reason" > /dev/null; then
+    say "$reject_name: $reject_reason is no rule's phrase"
+    return
   fi
   reject_prefix=$(printf '%s' "$reject_reason" | tr ' ' '-')
   case $reject_name in
@@ -85,29 +77,35 @@ profile_reject() {
     *) say "$reject_name does not start with $reject_prefix"; return ;;
   esac
   profile_prepare "$1"
-  profile_compile
+  profile_compile "--report=$work/report"
   say "compile: exit $compiled"
   cat "$work/compile.out" "$work/compile.err" > "$work/compile.all"
-  reject_count=$(grep -o 'unsupported (' "$work/compile.all" | wc -l | tr -d ' ')
-  # A rejection is the user's error. An internal error, which may quote a
-  # diagnostic of idris-mlir's that reads the same, is the compiler's.
-  if grep -qF 'internal error' "$work/compile.all"; then
+  # The report's errors, `<rule> <file:line>` each, in the order made, and
+  # how many are refusals by a rule of ours: Idris's own errors are
+  # refusals by the rules of the user-error category.
+  sed -n 's/^diagnostic: error //p' "$work/report" > "$work/report.errors" 2> /dev/null
+  rule_phrases 'user error' | tr ' ' '-' > "$work/rules.idris"
+  reject_count=$(awk 'NR == FNR { idris[$1] = 1; next } !($1 in idris)' "$work/rules.idris" "$work/report.errors" |
+    wc -l | tr -d ' ')
+  if grep -qx 'verdict: internal' "$work/report" 2> /dev/null; then
     say "$reject_reason: an internal error, not a rejection"
     show "$work/compile.all"
   elif [ "$reject_reason" = idris ]; then
-    if [ "$reject_count" -eq 0 ] && [ -s "$work/compile.all" ]; then
+    if [ "$reject_count" -eq 0 ] && [ -s "$work/report.errors" ]; then
       say "idris: its own error, and no rule of ours"
     else
       say "idris: expected Idris's error alone, among $reject_count unsupported errors"
       show "$work/compile.all"
     fi
-  elif grep -qF "unsupported ($reject_reason)" "$work/compile.all" && [ "$reject_count" -eq 1 ]; then
+  elif [ "$(cut -d ' ' -f 1 "$work/report.errors")" = "$reject_prefix" ]; then
     say "unsupported ($reject_reason): the only error"
   else
     say "unsupported ($reject_reason): expected once, among $reject_count unsupported errors"
     show "$work/compile.all"
   fi
-  reject_reported=$(reported_line "$work/compile.all")
+  # The first error's line: its location's, after the last `:`; a location
+  # in no file (`-`) has none.
+  reject_reported=$(awk 'NR == 1 && $2 ~ /:[0-9]+$/ { sub(/.*:/, "", $2); print $2 }' "$work/report.errors")
   if [ "$reject_reported" = "$reject_line" ]; then
     say "line: as the header says"
   else
@@ -142,7 +140,7 @@ profile_accept() {
   fi
   artifacts "$work/fixture" Main
   # shellcheck disable=SC2046 # one path per object, none with a space
-  universal "$accept_fixture" "$(artifact_file "$work/fixture" Main module)" "$accept_dumps" \
+  universal "$(artifact_file "$work/fixture" Main module)" "$accept_dumps" \
     $(artifact_files "$work/fixture" Main objects)
   [ -f "$accept_fixture/expected-stdout" ] || [ -f "$accept_fixture/expected-exit" ] || return 0
   run_ours accept "$work/fixture/build/exec/Main" /dev/null

@@ -15,18 +15,15 @@ namespace idr::expect {
 
 namespace {
 
-LogicalResult provedIs(ModuleOp module, StringRef function, bool wanted, StringRef property) {
-  SmallVector<FunctionOpInterface> functions = named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult provedIs(const Request<Functions> &request, bool wanted) {
   bool held = true;
-  for (FunctionOpInterface each : functions) {
+  for (FunctionOpInterface each : request.argument.functions) {
     auto fn = dyn_cast<FuncOp>(each.getOperation());
     if (fn && fn.getTotal() == wanted)
       continue;
-    fail(each->getLoc(), property) << where(each)
-                                   << (fn && fn.getTotal() ? " holds" : " does not hold")
-                                   << " Idris's proof of termination";
+    fail(each->getLoc(), request.property)
+        << where(each) << (fn && fn.getTotal() ? " holds" : " does not hold")
+        << " Idris's proof of termination";
     held = false;
   }
   return success(held);
@@ -35,11 +32,7 @@ LogicalResult provedIs(ModuleOp module, StringRef function, bool wanted, StringR
 } // namespace
 
 // Every copy of @f is an idr.func that holds `total`, or that does not.
-LogicalResult total(ModuleOp module, AnalysisManager &, StringRef function) {
-  return provedIs(module, function, true, "total");
-}
-LogicalResult notTotal(ModuleOp module, AnalysisManager &, StringRef function) {
-  return provedIs(module, function, false, "not-total");
-}
+LogicalResult total(const Request<Functions> &request) { return provedIs(request, true); }
+LogicalResult notTotal(const Request<Functions> &request) { return provedIs(request, false); }
 
 } // namespace idr::expect

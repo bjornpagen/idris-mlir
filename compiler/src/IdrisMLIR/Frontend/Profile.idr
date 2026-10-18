@@ -231,9 +231,9 @@ refsOf hs def =
     _ => fromType
 
 ||| What refers to a definition the walk reaches: a user definition, or the
-||| program's root; or a trusted definition, by its full name, which the
+||| program's root; or a trusted definition, by its placement, which the
 ||| walk enters once, for whichever user definition reaches it first.
-data Referrer = User | Library Name
+data Referrer = User | Library Placement
 
 ||| A definition the walk of what the roots reach is to check: its name, the
 ||| path from the user definition that reaches it, the nearest first, each
@@ -304,7 +304,7 @@ checkReachable fc roots = do
   behind <- traverse (\r => map (\u => MkReach r.name u r.from)
                                 <$> usersBehind kept.arrivals start (sizeAccessible start) [r])
                      kept.refusals
-  ignore (level end (sizeAccessible end) end (noMore end) kept (concat behind) Idle)
+  ignore (level end (sizeAccessible end) end (noMore end) kept (behind >>= id) Idle)
   where
     userFC : List (Name, Address, FC) -> FC
     userFC [] = fc
@@ -325,10 +325,10 @@ checkReachable fc roots = do
     -- the path, and `here` the path from it and `owner` the user
     -- definition an error names: what it refers to, each with the path
     -- that reaches it, or the definition's rejection.
-    visit : GlobalDef -> Loc -> (here : List (Name, Address, FC)) -> (owner : String) ->
+    visit : GlobalDef -> Placement -> Loc -> (here : List (Name, Address, FC)) -> (owner : String) ->
             (path : List (Name, Address, FC)) -> (from : Referrer) ->
             Core (List Reach)
-    visit def loc here owner path from = do
+    visit def placement loc here owner path from = do
       let full = fullname def
       let key = show full
       let origin = loc.origin
@@ -338,7 +338,8 @@ checkReachable fc roots = do
       -- the program reaches it.
       case origin of
         Untrusted => reject (userFC path) (maybe key (show . fst) (head' path)) TrustedLibrary
-                       (key ++ " is in " ++ show loc.place ++ ", which is not a trusted library module" ++ via path)
+                       (key ++ " is in " ++ maybe "" show (locModule loc) ++ ", which is not a trusted library module" ++
+                        via path)
         _ => pure ()
       -- Threads, finalizers, raw memory, signals and processes are
       -- outside the language wherever they are reached. The world's
@@ -373,12 +374,13 @@ checkReachable fc roots = do
         ExternDef _ =>
           unless (meansExtern (hooksOf full)) $
             reject (userFC here) owner EscapeHatch ("%extern " ++ key ++ via here)
-        ForeignDef _ specs => case foreignHookOf full specs of
-          Just (Right hs) => case hs.deprecated of
-            Just msg => reject (userFC here) owner Deprecated msg
-            Nothing => pure ()
-          Just (Left wrong) => reject (userFC here) key HookShape wrong
-          Nothing => reject (userFC here) owner EscapeHatch ("%foreign " ++ key ++ via here)
+        ForeignDef _ specs => do
+          site <- siteAt (userFC here)
+          case foreignHookOf site owner (via here) full specs of
+            Right hs => case hs.deprecated of
+              Just msg => reject (userFC here) owner Deprecated msg
+              Nothing => pure ()
+            Left r => rejectWith r
         _ => pure ()
       -- A trusted module admits only some of its definitions, and a block
       -- Idris made of one with it.
@@ -397,7 +399,7 @@ checkReachable fc roots = do
           _ => pure ()
       -- A library's own totality assertions are trusted.
       let refs' = if trusted then filter (not . assertion . qname) refs else refs
-      pure (map (\r => MkReach r here (if trusted then Library full else User)) refs')
+      pure (map (\r => MkReach r here (if trusted then Library placement else User)) refs')
 
     -- The definitions to visit, breadth first, so that a path in a message
     -- is a shortest one: a level of the walk, and what its definitions
@@ -413,14 +415,12 @@ checkReachable fc roots = do
     level w0 acc@(Access rec) w p kept [] (Queued lt next) =
       level w (rec w lt) w (noMore w) kept (next <>> []) Idle
     level w0 acc@(Access rec) w p kept (r :: rest) pending = do
-      defs <- get Ctxt
-      Just def <- lookupCtxtExact r.name (gamma defs)
+      -- What tells definitions apart is their place in the context; a
+      -- name no definition has is never entered (`Walk`).
+      Just (placement, def) <- resolve r.name
         | Nothing => level w0 acc w p kept rest pending
       let full = fullname def
-      -- What tells definitions apart is their address in the context; a
-      -- name with none has no place, and is never entered (`Walk`).
-      let Just key = definitionAddress (gamma defs) full
-        | Nothing => level w0 acc w p kept rest pending
+      let key = addressOf placement
       -- Where the definition comes from, as the registry classifies it.
       loc <- toLoc (location def)
       let trusted = covers Trusted loc.origin
@@ -435,7 +435,7 @@ checkReachable fc roots = do
       let refuse = update TState { refused $= (insert key . insert ownerKey .
                                                 maybe id (insert . fst . snd) (head' r.path)) }
       -- Checked and found good already: entered into the walk.
-      let Just (Element w1 q) = enter (gamma defs) full w
+      let Just (Element w1 q) = enter placement w
         | Nothing => level w0 acc w p kept' rest pending
       st <- get TState
       let reach = (key, ownerKey)
@@ -446,7 +446,7 @@ checkReachable fc roots = do
           refuse
           level w0 acc w p refusing rest pending
         else do
-          Nothing <- noting (visit def loc here (show owner) r.path r.from)
+          Nothing <- noting (visit def placement loc here (show owner) r.path r.from)
             | Just next => level w0 acc w1 (thenNoMore (fewer q) p) kept' rest
                                  (Queued (fewerThen q p) (queued pending <>< next))
           refuse
@@ -460,9 +460,9 @@ checkReachable fc roots = do
     usersBehind arrivals w (Access rec) [] = pure []
     usersBehind arrivals w acc@(Access rec) (r :: rest) = case r.from of
       User => (r.path ::) <$> usersBehind arrivals w acc rest
-      Library n => do
-        defs <- get Ctxt
-        let Just (Element w' less) = enter (gamma defs) n w
+      Library placement => do
+        -- Walked back through already, it is not again.
+        let Just (Element w' less) = enter placement w
           | Nothing => usersBehind arrivals w acc rest
-        let reaches = fromMaybe [] (definitionAddress (gamma defs) n >>= \a => lookup a arrivals)
+        let reaches = fromMaybe [] (lookup (addressOf placement) arrivals)
         usersBehind arrivals w' (rec w' less) (reaches ++ rest)

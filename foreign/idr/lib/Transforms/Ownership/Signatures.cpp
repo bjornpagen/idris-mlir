@@ -53,13 +53,14 @@ void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved,
       if (solved.proves(arg))
         arg.setType(exclusive(arg.getType()));
     SmallVector<Type> results(fn.getResultTypes());
-    std::optional<ArrayRef<Operation *>> returns = solved.returns(fn);
-    if (returns && !returns->empty())
+    ArrayRef<ReturnOp> returns = solved.returns(fn);
+    // A function that runs from nowhere proves nothing of what it returns.
+    if (!returns.empty())
       for (auto [index, type] : llvm::enumerate(results)) {
         if (!isOwned(type))
           continue;
-        if (llvm::all_of(*returns, [&](Operation *ret) {
-              return solved.proves(ret->getOperand(static_cast<unsigned>(index)));
+        if (llvm::all_of(returns, [&](ReturnOp ret) {
+              return solved.proves(ret.getOperand(static_cast<unsigned>(index)));
             }))
           type = exclusive(type);
       }

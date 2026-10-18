@@ -24,7 +24,6 @@
 #ifndef IDR_ANALYSIS_IDENTITIES_H
 #define IDR_ANALYSIS_IDENTITIES_H
 
-#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -40,19 +39,17 @@
 namespace idr::identities {
 
 // What the solve reads of a callee that is not in the component it solves:
-// what it gives back, frozen, and whether its `effects` say it returns.
-struct Callee {
-  std::optional<unsigned> givesBack;
-  bool returns = false;
-};
-using Outside = llvm::function_ref<Callee(mlir::StringAttr callee)>;
+// the argument it gives back, frozen, if it gives one back. Whether a call
+// returns, and what else it does, is the call's own property (its
+// effects), whoever its callee is.
+using Outside = llvm::function_ref<std::optional<unsigned>(mlir::StringAttr callee)>;
 
 // The argument each function of `component` gives back, if it gives one
 // back, in the order of `component`. `outside` answers for a callee that is
-// not in `component`; `effects` says what a call does, its callee's
-// effects, so that a call that only computes needs no assumption.
-llvm::SmallVector<std::optional<unsigned>>
-givesBackOf(llvm::ArrayRef<FuncOp> component, Outside outside, const CalleeEffects &effects);
+// not in `component`; a call that only computes, as its effects say, needs
+// no assumption.
+llvm::SmallVector<std::optional<unsigned>> givesBackOf(llvm::ArrayRef<FuncOp> component,
+                                                       Outside outside);
 
 // The functions of the component, by name.
 using Members = llvm::DenseMap<mlir::StringAttr, FuncOp>;
@@ -72,9 +69,7 @@ public:
   // The walk of `fn` for `candidates`. Nothing when no argument can be
   // given back under any assumption: a terminator this question cannot
   // keep, or an op that does not only compute.
-  static std::optional<Record> walk(FuncOp fn, llvm::ArrayRef<unsigned> candidates,
-                                    const Members &members, Outside outside,
-                                    const CalleeEffects &effects);
+  static std::optional<Record> walk(FuncOp fn, llvm::ArrayRef<unsigned> candidates);
 
   // The subset of `asked`, in that order, that the walk gives back under
   // `assumed`; each of `asked` is one of the walk's candidates.
@@ -97,8 +92,9 @@ private:
   struct Entry {
     unsigned arg;
   };
-  // Another value itself: a result that carries its operand, or the
-  // argument of a match's default region, which is the scrutinee.
+  // Another value itself: the result of an op that keeps its operand's
+  // value, or the argument of a match's default region, which is the
+  // scrutinee (idr::sourceOf).
   struct Same {
     Id of;
   };
@@ -116,7 +112,8 @@ private:
   // A call: the one place an assumption is read.
   struct Call {
     mlir::StringAttr callee;
-    // Its callee reaches nothing Idris did not prove total.
+    // It returns: its effects, which contain its callee's, hold no
+    // divergence, so it reaches nothing Idris did not prove total.
     bool returns;
     llvm::SmallVector<Id, 4> args;
   };
@@ -160,15 +157,16 @@ private:
   };
   using Frames = llvm::SmallVector<Frame, 2>;
 
-  // One region of a match: one with no yield fails, one that ends in
-  // ub.unreachable is never taken, and a yield must rebuild.
-  struct Fails {};
+  // One region of a match that runs, which ends in ub.unreachable (never
+  // taken) or in a yield, which must rebuild: the match's verifier admits
+  // no other end. An empty default region, of an exhaustive match, never
+  // runs and is no arm.
   struct Unreachable {};
   struct Yields {
     llvm::SmallVector<Id, 1> values;
     Frames frames;
   };
-  using Arm = std::variant<Fails, Unreachable, Yields>;
+  using Arm = std::variant<Unreachable, Yields>;
 
   struct Ret {
     Id value;

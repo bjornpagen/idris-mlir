@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@heads,checks-every-path=@other -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // The first character of a string built at runtime is what it was built
 // from, so the string is not built: a character before a string is that
 // character, and the text of a number starts with its first digit or sign

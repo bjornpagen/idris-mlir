@@ -4,7 +4,7 @@
 // RUN: no-closures=@of_constant_linear,calls=@of_constant_linear:@once -o /dev/null
 // RUN: idris-mlir-opt %s --canonicalize --inline --canonicalize \
 // RUN: --idr-expect=holds=never-calls=@of_closure:@add,returns=@captures_first:5 -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
+// RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // Applying a known closure calls its function with the captures first, as
 // upstream's func.call_indirect of a constant becomes a direct call; the

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Patterns: taking a value's shape, what a key asks of a shape, rebuilding
-// the value a key's pattern stands for, and erasing a shape a call no
-// longer reads.
+// Patterns: taking a value's shape as a key attribute, what a key asks of a
+// shape, rebuilding the value a key's pattern stands for, and erasing a
+// shape a call no longer reads.
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
@@ -29,20 +29,10 @@ bool constant(Value value, Attribute &out) {
          matchPattern(value, m_Constant(&out));
 }
 
-// The constructor that builds `value` whole: an idr.con with every field
-// given. One with holes leaves fields to be written through its
-// destinations, after it, so what it builds is not known where it is.
-ConOp builtBy(Value value) {
-  auto con = value.getDefiningOp<ConOp>();
-  return con && con.getHoles().empty() ? con : ConOp();
-}
-
-// Whether `op` builds part of a shape, which the node's call takes apart.
-bool isShapeOp(Operation *op) {
-  if (auto con = dyn_cast_if_present<ConOp>(op))
-    return con.getHoles().empty();
-  return isa_and_nonnull<LinEnterOp>(op);
-}
+// Whether `op` builds part of a shape, which the node's call takes apart:
+// a constructor, which builds its value whole, or an entry into a linear
+// type.
+bool isShapeOp(Operation *op) { return isa_and_nonnull<ConOp, LinEnterOp>(op); }
 
 // The field types of constructor `tag` of the data type a value of `type`
 // is of.
@@ -56,63 +46,40 @@ bool isLinearPosition(Type type) { return unrestricted(type) != type; }
 
 } // namespace
 
-// The leaf `value` as hole `index`.
-Pattern leafOf(Value value, unsigned index) { return {Hole{index}, value.getType()}; }
-
-// The pattern of `value`: its runtime leaves are appended to `leaves`, and
-// its holes numbered from the size `leaves` had. A constant the node would
-// not build again is a leaf, as is a linear value, whose shape its one use
-// keeps.
-Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
-  auto shapesOf = [&](ValueRange values) {
-    std::vector<Pattern> out;
-    for (Value part : values)
-      out.push_back(shapeOf(part, leaves));
-    return out;
-  };
+// A constant the node would not build again is a leaf, as is a linear
+// value, whose shape its one use keeps. A constant is keyed as itself, a run
+// as the run it is, so a key is as large as the code and the constants that
+// make it; a constructor is its tag, not a symbol use, so a key keeps no
+// function alive. A value entered into a linear type is keyed as the value:
+// the type of its position says it is linear.
+Attribute shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
+  MLIRContext *ctx = value.getContext();
   Attribute known;
   if (constant(value, known))
-    return {Constant{known}, value.getType()};
-  if (ConOp con = builtBy(value))
-    return {Con{con.getTag(), shapesOf(con.getFields())}, value.getType()};
+    return known;
+  if (auto con = value.getDefiningOp<ConOp>()) {
+    SmallVector<Attribute> fields =
+        llvm::map_to_vector(con.getFields(), [&](Value field) { return shapeOf(field, leaves); });
+    return KeyConAttr::get(ctx, con.getTag(), ArrayAttr::get(ctx, fields));
+  }
   if (auto enter = value.getDefiningOp<LinEnterOp>()) {
-    Pattern inner = shapeOf(enter.getValue(), leaves);
-    if (!inner.isHole())
-      return {Linear{{std::move(inner)}}, value.getType()};
+    Attribute inner = shapeOf(enter.getValue(), leaves);
+    if (!isa<KeyHoleAttr>(inner))
+      return inner;
     // A leaf that entered is a leaf itself: the entry stays with the caller.
     leaves.pop_back();
   }
   leaves.push_back(value);
-  return leafOf(value, static_cast<unsigned>(leaves.size() - 1));
+  return KeyHoleAttr::get(ctx);
 }
 
-// `pattern` with its holes numbered from `next`, which advances past them.
-void renumber(Pattern &pattern, unsigned &next) {
-  std::visit(llvm::makeVisitor([&](Hole &hole) { hole.index = next++; }, [](Constant &) {},
-                               [&](Con &con) {
-                                 for (Pattern &field : con.fields)
-                                   renumber(field, next);
-                               },
-                               [&](Linear &linear) { renumber(linear.value.front(), next); }),
-             pattern.node);
-}
-
-// Whether `pattern` has structure: a constructor, as a node or as a
-// constant. A lone scalar is none: a number specialized on would make a
-// node per value, where LLVM weighs constant arguments better.
-bool hasStructure(const Pattern &pattern) {
-  return std::visit(llvm::makeVisitor([](const Hole &) { return false; },
-                                      [](const Constant &c) { return isa<ConAttr>(c.value); },
-                                      [](const Con &) { return true; },
-                                      [](const Linear &l) { return hasStructure(l.value.front()); }),
-                    pattern.node);
-}
+bool hasStructure(Attribute pattern) { return isa<KeyConAttr, ConAttr>(pattern); }
 
 // Whether `value` is closed: a constant, or a constructor of closed values.
 bool isClosed(Value value) {
   if (matchPattern(value, m_Constant()))
     return true;
-  ConOp con = builtBy(value);
+  auto con = value.getDefiningOp<ConOp>();
   return con && llvm::all_of(con.getFields(), isClosed);
 }
 
@@ -146,20 +113,22 @@ void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
   }
 }
 
-// A key's pattern rebuilt at a position of `type`: a hole is the parameter
-// that holds it, a linear position enters what is rebuilt inside it, a
+// A key's pattern rebuilt at a position of `type`: a hole is the next
+// parameter, a linear position enters what is rebuilt inside it, a
 // constructor is built over its fields at their declared types, and a
 // constant is the one the dialect materializes.
-Value rebuild(OpBuilder &b, Location loc, Attribute pattern, Type type, ArrayRef<Value> holes) {
-  if (auto hole = dyn_cast<KeyHoleAttr>(pattern))
-    return holes[hole.getIndex()];
+Value rebuild(OpBuilder &b, Location loc, Attribute pattern, Type type, ArrayRef<Value> holes,
+              unsigned &next) {
+  if (isa<KeyHoleAttr>(pattern))
+    return holes[next++];
   if (isLinearPosition(type))
-    return LinEnterOp::create(b, loc, type, rebuild(b, loc, pattern, unrestricted(type), holes));
+    return LinEnterOp::create(b, loc, type,
+                              rebuild(b, loc, pattern, unrestricted(type), holes, next));
   if (auto con = dyn_cast<KeyConAttr>(pattern)) {
     ArrayRef<Type> types = fieldTypes(type, con.getTag());
     SmallVector<Value> fields;
     for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
-      fields.push_back(rebuild(b, loc, field, fieldType, holes));
+      fields.push_back(rebuild(b, loc, field, fieldType, holes, next));
     return ConOp::create(b, loc, type, con.getTag(), fields).getResult();
   }
   Dialect *idr = b.getContext()->getLoadedDialect<IdrDialect>();

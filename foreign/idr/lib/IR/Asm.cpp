@@ -18,6 +18,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <functional>
 #include <optional>
 
@@ -56,31 +57,30 @@ constexpr unsigned aliasFrom = 256;
 // The number of constructors and closures in `value`, counted as a tree,
 // or `cap` if there are at least that many: at most `cap` of them are
 // visited however much of it is shared, and each step reads a part of the
-// one before, so the walk ends with the attribute. A run is one constructor
-// per cell, counted along its cells and then its tail: its fields along the
-// spine would rebuild the rest of the run at each cell.
+// one before, so the walk ends with the attribute. A constant constructor
+// is one constructor per cell, and then what the fields walkFields gives
+// hold: its fields along the spine would rebuild the rest of the run at
+// each cell.
 unsigned treeSize(Attribute value, unsigned cap) {
-  // `counted` so far, then what each of `parts` adds, up to the cap.
-  auto add = [cap](unsigned counted, ArrayRef<Attribute> parts) {
-    for (Attribute part : parts)
-      if (counted < cap)
-        counted += treeSize(part, cap - counted);
-    return counted;
-  };
   if (cap == 0)
     return 0;
-  if (auto closure = dyn_cast<ClosureAttr>(value))
-    return add(1, closure.getCaptures().getValue());
+  // What `part` adds to `counted`, up to the cap.
+  auto add = [cap](unsigned &counted, Attribute part) {
+    if (counted < cap)
+      counted += treeSize(part, cap - counted);
+  };
+  if (auto closure = dyn_cast<ClosureAttr>(value)) {
+    unsigned counted = 1;
+    for (Attribute capture : closure.getCaptures().getValue())
+      add(counted, capture);
+    return counted;
+  }
   auto con = dyn_cast<ConAttr>(value);
   if (!con)
     return 0;
-  if (!con.isRun())
-    return add(1, con.getFields().getValue());
-  unsigned counted = 0;
-  for (ArrayAttr cell : con.getRunCells())
-    if (counted < cap)
-      counted = add(counted + 1, cell.getValue());
-  return add(counted, con.getTail());
+  auto counted = static_cast<unsigned>(std::min<size_t>(con.getCells().size(), cap));
+  con.walkFields([&](Attribute field, unsigned) { add(counted, field); });
+  return counted;
 }
 
 // A data type is written by its short name, defined once at the top of
@@ -220,11 +220,11 @@ void CallOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
     setNameFn(result, lower);
 }
 
-// A case binds its constructor's fields, in order; the default binds
-// nothing of its own. A field's Idris name is its argument's location,
-// which the printer reads when asked to.
+// A case binds its constructor's fields, in order; the default binds the
+// scrutinee again, which keeps the printer's own name. A field's Idris name
+// is its argument's location, which the printer reads when asked to.
 void MatchOp::getAsmBlockArgumentNames(Region &region, OpAsmSetValueNameFn setNameFn) {
-  if (&region == getDefaultRegion())
+  if (&region == &getDefaultRegion())
     return;
   for (BlockArgument arg : region.getArguments()) {
     SmallString<8> name;

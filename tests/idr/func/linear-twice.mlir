@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the grade refused on the world, which is linear by its own type; a closure of a linear capture linear by its type; and the linear rule's errors.
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // A value of !idr.lin<T> is used at most once on every path: by
 // idr.lin.use, or by a position whose type is linear too. Any value enters
@@ -79,7 +80,7 @@ idr.func @root() -> i64 {
 // -----
 
 idr.program @"linear-twice" root(@root) stage(first) {
-  // expected-error @+1 {{expects a grade of a plain type, got one of '!idr.world'}}
+  // expected-error @+1 {{expects no grade of '!idr.world', which is used exactly once by its type}}
   idr.func @f(%w: !idr.lin<!idr.world>) {
     return
   }
@@ -178,8 +179,9 @@ idr.program @"linear-twice" root(@root) stage(first) {
 
 // -----
 
-// A closure holding a linear value is linear too: it is applied where it
-// is made, or entered into a linear type and used once from there.
+// A closure holding a linear value is linear too, by its type: it is at
+// quantity one exactly when a capture is, and is used once, applied or
+// passed on, as any linear value.
 idr.program @"linear-twice" root(@root) stage(higher) {
 idr.func @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
@@ -187,14 +189,13 @@ idr.func @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   return %s : i64
 }
 idr.func @now(%x: !idr.lin<i64>, %y: i64) -> i64 {
-  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
-  %r = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
+  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.lin<!idr.fn<(i64) -> (i64)>>
+  %r = idr.apply %f(%y) : !idr.lin<!idr.fn<(i64) -> (i64)>>
   return %r : i64
 }
 idr.func @later(%x: !idr.lin<i64>) -> !idr.lin<!idr.fn<(i64) -> (i64)>> {
-  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
-  %e = idr.lin.enter %f : !idr.lin<!idr.fn<(i64) -> (i64)>>
-  return %e : !idr.lin<!idr.fn<(i64) -> (i64)>>
+  %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.lin<!idr.fn<(i64) -> (i64)>>
+  return %f : !idr.lin<!idr.fn<(i64) -> (i64)>>
 }
 idr.func @root() -> i64 {
   %z = arith.constant 0 : i64
@@ -211,7 +212,7 @@ idr.func @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   return %s : i64
 }
 idr.func @twice(%x: !idr.lin<i64>, %y: i64) -> i64 {
-  // expected-error @+1 {{captures a linear value, so its one use must apply it or enter it into a linear type}}
+  // expected-error @+1 {{failed to verify that its result is at quantity one exactly when a capture is}}
   %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
   %a = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
   %b = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
@@ -236,7 +237,7 @@ idr.func @keep(%f: !idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)> {
   return %f : !idr.fn<(i64) -> (i64)>
 }
 idr.func @passed(%x: !idr.lin<i64>) -> !idr.fn<(i64) -> (i64)> {
-  // expected-error @+1 {{captures a linear value, so its one use must apply it or enter it into a linear type}}
+  // expected-error @+1 {{failed to verify that its result is at quantity one exactly when a capture is}}
   %f = idr.closure @add(%x) : (!idr.lin<i64>) -> !idr.fn<(i64) -> (i64)>
   %k = idr.call @keep(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
   return %k : !idr.fn<(i64) -> (i64)>

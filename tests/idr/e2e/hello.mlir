@@ -5,6 +5,7 @@
 // RUN: echo -n "xy" | %t > %t.out
 // RUN: FileCheck %s < %t.out
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
+// NEEDS-ACCEPTANCE: that idr.io.put_sint and idr.io.put_uint write what idr.io.put_int wrote at each signedness, and that the program's output is as before.
 // An IO root: output through the runtime's buffer, flushed before reading
 // and when main returns; input as bytes, then 255 at the end. The object
 // needs nothing the runtime does not define or need itself: the runtime's
@@ -28,13 +29,13 @@ idr.program @hello root(@Prog.main) stage(higher) {
     %nl = arith.constant 10 : i32
     %w7 = idr.io.put_char %nl, %w6
     %n = arith.constant -42 : i64
-    %w8 = idr.io.put_int signed %n, %w7 : i64
+    %w8 = idr.io.put_sint %n, %w7 : i64
     %w9 = idr.io.put_char %sp, %w8
     %u = arith.constant -1 : i16
-    %w10 = idr.io.put_int %u, %w9 : i16
+    %w10 = idr.io.put_uint %u, %w9 : i16
     %w11 = idr.io.put_char %sp, %w10
     %b, %w12 = idr.io.get_byte %w11
-    %w13 = idr.io.put_int signed %b, %w12 : i32
+    %w13 = idr.io.put_sint %b, %w12 : i32
     %w14 = idr.io.put_char %sp, %w13
     %x = arith.constant 1.5 : f64
     %w15 = idr.io.put_double %x, %w14

@@ -1,17 +1,12 @@
+// NEEDS-ACCEPTANCE: that case-of-case reads a call between a match and its consumer, or in the match, by the call's own effects (mlir-12): its callee's under idr-optimize, which writes them once the callee is final, and every effect for a call at its default effects, where upstream canonicalize alone leaves each value built and each string allocated at the line reported (mlir-22); the patterns converge under upstream's canonicalizer with region simplification disabled (S2's default argument, ir-ods-8's type-first constant, S21's show_sint).
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=builds-nothing=@raised_past_call,no-heap-allocation=@lowered_with_call,\
-// RUN: no-heap-allocation=@across_computing,crashes-before-output=@across_computing,\
-// RUN: no-heap-allocation=@lowered_past_crash,crashes-before-output=@lowered_past_crash -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --canonicalize --idr-expect=holds=builds-nothing=@raised_past_call -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@lowered_with_call -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@across_computing -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --canonicalize --idr-expect=holds=no-heap-allocation=@lowered_past_crash -o /dev/null
-// RUN: idris-mlir-opt %s --idr-canonicalize=test-convergence=true -o /dev/null
-// NEEDS-ACCEPTANCE: that case-of-case reads a call between a match and its consumer, or in the match, as its callee's effects under idr-optimize, and as anything without the program's table.
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=builds-nothing=@raised_past_call,no-heap-allocation=@lowered_with_call,no-heap-allocation=@across_computing,crashes-before-output=@across_computing,no-heap-allocation=@lowered_past_crash,crashes-before-output=@lowered_past_crash -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=builds-nothing=@raised_past_call,no-heap-allocation=@lowered_with_call,no-heap-allocation=@across_computing,no-heap-allocation=@lowered_past_crash -verify-diagnostics -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize='test-convergence=true region-simplify=disabled top-down=true' -o /dev/null
 // Case-of-case moves a consumer into a match, or a match down to its
-// consumer, across what only computes; a call only computes when its
-// callee does, which idr-optimize's canonicalizer reads through the
-// program's symbol table. A field read is raised into a match past a call
+// consumer, across what only computes; a call only computes when its own
+// effects say so, which idr-optimize writes on it from its callee's once
+// the callee is final. A field read is raised into a match past a call
 // of a pure callee (@raised_past_call), where it folds against each
 // constructor; the match itself cannot move down, since a region crashes.
 // A match whose region calls a pure callee only computes, so it moves down
@@ -21,9 +16,10 @@
 // match itself may crash, so it cannot move down instead. A call of a
 // callee that may crash is a barrier: the match moves down to the output
 // after the call, where each region writes its own and no string is built
-// (@lowered_past_crash), and no output moves up above the call. A canonicalizer without the table may
-// not know any call is pure, and moves none of these (the third and fourth
-// RUN lines). Every function is never inlined, and @maybe_of builds the
+// (@lowered_past_crash), and no output moves up above the call. A call at
+// its default effects may do anything, so canonicalize alone moves none of
+// these (the third RUN line, where each value still built is reported).
+// Every function is never inlined, and @maybe_of builds the
 // value @lowered_with_call takes behind a call, so no site is given a
 // known constructor and redirected to a specialization.
 !P = !idr.data<"P", plain [@MkP(i64, i64)]>
@@ -45,10 +41,12 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
       ub.unreachable
     }
     case 1 {
+      // expected-error @below {{idr.con builds a value in @raised_past_call}}
       %x = idr.con !P @MkP(%c : i64, %b : i64)
       idr.yield %x : !P
     }
-    default {
+    default(%d: i64) {
+      // expected-error @below {{idr.con builds a value in @raised_past_call}}
       %y = idr.con !P @MkP(%b : i64, %c : i64)
       idr.yield %y : !P
     }
@@ -61,12 +59,13 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
   idr.func @lowered_with_call(%m: !Maybe, %w: !idr.world) -> !idr.world attributes {no_inline} {
     %s = idr.match %m : !Maybe -> (!idr.str) {
     case @Nothing() {
-      %c = idr.constant "none" : !idr.str
+      %c = idr.constant !idr.str "none"
       idr.yield %c : !idr.str
     }
     case @Just(%x: i64) {
       %y = idr.call @square(%x) : (i64) -> i64
-      %t = idr.str.show signed %y : i64
+      // expected-error @below {{allocates in @lowered_with_call}}
+      %t = idr.str.show_sint %y : i64
       idr.yield %t : !idr.str
     }
     }
@@ -78,11 +77,12 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
   idr.func @lowered_past_crash(%n: i64, %w: !idr.world) -> !idr.world attributes {no_inline} {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %c = idr.constant "zero" : !idr.str
+      %c = idr.constant !idr.str "zero"
       idr.yield %c : !idr.str
     }
-    default {
-      %t = idr.str.show signed %n : i64
+    default(%d: i64) {
+      // expected-error @below {{allocates in @lowered_past_crash}}
+      %t = idr.str.show_sint %n : i64
       idr.yield %t : !idr.str
     }
     }
@@ -94,14 +94,15 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
   idr.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) attributes {no_inline} {
     %s = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
-      %t = idr.str.show signed %x : i64
+      // expected-error @below {{allocates in @across_computing}}
+      %t = idr.str.show_sint %x : i64
       idr.yield %t : !idr.str
     }
     case 1 {
-      %c = idr.constant "one" : !idr.str
+      %c = idr.constant !idr.str "one"
       idr.yield %c : !idr.str
     }
-    default {
+    default(%d: i64) {
       idr.crash "no"
       ub.unreachable
     }
@@ -116,7 +117,7 @@ idr.program @"case-of-case-calls" root(@root) stage(first) {
       %no = idr.con !Maybe @Nothing()
       idr.yield %no : !Maybe
     }
-    default {
+    default(%d: i64) {
       %j = idr.con !Maybe @Just(%x : i64)
       idr.yield %j : !Maybe
     }

@@ -1,12 +1,11 @@
-// NEEDS-ACCEPTANCE: that idr-rc keeps its contracts under --idr-contracts: the steps it runs on the program through its own pipeline, between which the program is graded owned and not yet counted, are part of its run and are not checked against that program.
+// NEEDS-ACCEPTANCE: that idr-rc keeps its contracts under --idr-contracts, step by step: idr-rc-exclusive commits the grades it wrote through its own pipeline, on its own op, and that run is part of its run, not checked against the program; and that this module parses with its constant written type first.
 // RUN: idris-mlir-opt %s --idr-contracts --idr-rc -o /dev/null
 // A pass may run passes through its own pipeline, on its own op, and hold
-// the op half done between them: idr-rc grades every value owned and sets
-// the owned stage, then places the counts in such a run. A contract is a
-// relation at a pass's boundary, so idr-rc is checked whole, against the
-// program before it. @both stores its parameter twice, a reference idr-rc
-// counts once more, so the program between the grading and the counting
-// holds a reference consumed twice, which the owned stage refuses.
+// the op half done between them: idr-rc-exclusive writes the exclusive
+// grades of the whole program, then commits them function by function in
+// such a run. A contract is a relation at a pass's boundary, so such a pass
+// is checked whole, against the program before it. @both stores its
+// parameter twice, a reference idr-rc counts once more.
 !T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
 idr.program @"nested-run" root(@root) stage(first) {
   idr.func @both(%t: !idr.box<!T>, %k: i64) -> !idr.box<!T> {
@@ -14,7 +13,7 @@ idr.program @"nested-run" root(@root) stage(first) {
     return %n : !idr.box<!T>
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %leaf = idr.constant #idr.con<!T, @L, []> : !idr.box<!T>
+    %leaf = idr.constant !idr.box<!T> #idr.con<!T, @L, []>
     %c1 = arith.constant 1 : i64
     %t = idr.call @both(%leaf, %c1) : (!idr.box<!T>, i64) -> !idr.box<!T>
     %s = idr.match %t : !idr.box<!T> -> (i64) {

@@ -13,6 +13,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
 
 import Data.String
+import Data.Vect
 
 %default total
 
@@ -78,6 +79,23 @@ signed _ = True
 -- Types
 ------------------------------------------------------------------------------
 
+||| What an array a world orders holds: the one cell of an IORef, or a run
+||| of elements of one dynamic dimension (base's `ArrayData` and `Buffer`).
+public export
+data Ordered = Cell | Elements
+
+export
+Eq Ordered where
+  Cell == Cell = True
+  Elements == Elements = True
+  _ == _ = False
+
+||| The dimensions of the memref an array a world orders is.
+export
+orderedDims : Ordered -> List Dim
+orderedDims Cell = []
+orderedDims Elements = [Dynamic]
+
 mutual
   ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat` and every
   ||| `Nat`-like type, an integer that is never negative, the same
@@ -93,15 +111,14 @@ mutual
   ||| memref. An array of records is a tensor of the record's data
   ||| instance, which the dialect splits into one tensor per field.
   ||| `MemRefT` is an array a world orders, read and written through the
-  ||| world: base's `ArrayData` and `Buffer`, of one dynamic dimension, and
-  ||| the one cell of an IORef, of none; its element is never a tensor.
+  ||| world (`Ordered`); its element is never a tensor.
   public export
   data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT
           | DataT DataId
           | FunT Binder Ty
           | LazyT Ty
           | TensorT (List Dim) Ty
-          | MemRefT (List Dim) Ty
+          | MemRefT Ordered Ty
 
   ||| What a parameter, a lambda, an arrow or a constructor field binds: a
   ||| value of a type, used as Idris proved. A binder of quantity zero binds
@@ -130,7 +147,7 @@ mutual
   sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
   sameTy (LazyT a) (LazyT b) = sameTy a b
   sameTy (TensorT ds a) (TensorT es b) = ds == es && sameTy a b
-  sameTy (MemRefT ds a) (MemRefT es b) = ds == es && sameTy a b
+  sameTy (MemRefT o a) (MemRefT p b) = o == p && sameTy a b
   sameTy _ _ = False
 
   sameBinder : Binder -> Binder -> Bool
@@ -165,8 +182,8 @@ mutual
       dimText : Dim -> String
       dimText (Static n) = show n
       dimText Dynamic = "?"
-  tyText name (MemRefT [] a) = "Mut (" ++ tyText name a ++ ")"
-  tyText name (MemRefT _ a) = "Array (" ++ tyText name a ++ ")"
+  tyText name (MemRefT Cell a) = "Mut (" ++ tyText name a ++ ")"
+  tyText name (MemRefT Elements a) = "Array (" ++ tyText name a ++ ")"
 
   ||| `1 T` or `w T`, as the Core dump writes a binder.
   export
@@ -202,60 +219,94 @@ dynamicDims t = t
 -- The array language
 ------------------------------------------------------------------------------
 
-||| An operation of the array language on tensors (`Term.Tensor`). An axis
-||| is counted from 0, outermost first; the axis of `Take`, `Drop`, `Concat`
-||| and `Pad` is the shape's last, before the cell's, and `Transpose`'s the
-||| shape's last but one.
+||| An operation of the array language on tensors (`Term.Tensor`), holding
+||| its operands `t`, in the order the dump writes them. An axis is counted
+||| from 0, outermost first; the axis of `Take`, `Drop`, `Concat` and `Pad`
+||| is the shape's last, before the cell's, and `Transpose`'s the shape's
+||| last but one.
 public export
-data TensorOp
-  = ||| [x]: the extent of axis k of x, a natural.
-    Extent Nat
-  | ||| (x :: coords): the element of x at the coordinates (naturals, one
-    ||| per leading axis), or the cell there when the result is a tensor.
-    Extract
-  | ||| (x :: v :: coords): x with v, an element or a cell, at the
-    ||| coordinates.
-    Insert
-  | ||| [k, x]: the first k along the axis.
-    Take Nat
-  | ||| [k, x]: all but the first k along the axis.
-    Drop Nat
-  | ||| [x, y]: x then y along the axis.
-    Concat Nat
-  | ||| [x]: x with the axis and the one after it swapped.
-    Transpose Nat
-  | ||| (x :: extents): x's elements in row-major order at the result's
-    ||| shape, its extents given outermost first; the result's dimensions
-    ||| after them are the cell's.
-    Reshape
-  | ||| [lo, hi, v, x]: x along the axis with lo copies of the cell v before
-    ||| and hi after.
-    Pad Nat
+data TensorOp t
+  = ||| The extent of axis k of the array, a natural.
+    Extent Nat t
+  | ||| The element of the array at the coordinates (naturals, one per
+    ||| leading axis), or the cell there when the result is a tensor.
+    Extract t (List t)
+  | ||| The array with the element or cell at the coordinates.
+    Insert t t (List t)
+  | ||| The first k along the axis of the array.
+    Take Nat t t
+  | ||| All but the first k along the axis of the array.
+    Drop Nat t t
+  | ||| One array then the other along the axis.
+    Concat Nat t t
+  | ||| The array with the axis and the one after it swapped.
+    Transpose Nat t
+  | ||| The array's elements in row-major order at the result's shape, its
+    ||| extents given outermost first; the result's dimensions after them are
+    ||| the cell's.
+    Reshape t (List t)
+  | ||| The array along the axis with lo copies of the cell before and hi
+    ||| after: lo, hi, the cell, the array.
+    Pad Nat t t t t
 
 export
-Eq TensorOp where
-  Extent a == Extent b = a == b
-  Extract == Extract = True
-  Insert == Insert = True
-  Take a == Take b = a == b
-  Drop a == Drop b = a == b
-  Concat a == Concat b = a == b
-  Transpose a == Transpose b = a == b
-  Reshape == Reshape = True
-  Pad a == Pad b = a == b
-  _ == _ = False
+Functor TensorOp where
+  map f (Extent k x) = Extent k (f x)
+  map f (Extract x cs) = Extract (f x) (map f cs)
+  map f (Insert x v cs) = Insert (f x) (f v) (map f cs)
+  map f (Take a k x) = Take a (f k) (f x)
+  map f (Drop a k x) = Drop a (f k) (f x)
+  map f (Concat a x y) = Concat a (f x) (f y)
+  map f (Transpose a x) = Transpose a (f x)
+  map f (Reshape x es) = Reshape (f x) (map f es)
+  map f (Pad a lo hi v x) = Pad a (f lo) (f hi) (f v) (f x)
 
 export
-Show TensorOp where
-  show (Extent k) = "extent" ++ show k
-  show Extract = "extract"
-  show Insert = "insert"
-  show (Take a) = "take" ++ show a
-  show (Drop a) = "drop" ++ show a
-  show (Concat a) = "concat" ++ show a
-  show (Transpose a) = "transpose" ++ show a
-  show Reshape = "reshape"
-  show (Pad a) = "pad" ++ show a
+Foldable TensorOp where
+  foldr f z (Extent _ x) = f x z
+  foldr f z (Extract x cs) = f x (foldr f z cs)
+  foldr f z (Insert x v cs) = f x (f v (foldr f z cs))
+  foldr f z (Take _ k x) = f k (f x z)
+  foldr f z (Drop _ k x) = f k (f x z)
+  foldr f z (Concat _ x y) = f x (f y z)
+  foldr f z (Transpose _ x) = f x z
+  foldr f z (Reshape x es) = f x (foldr f z es)
+  foldr f z (Pad _ lo hi v x) = f lo (f hi (f v (f x z)))
+
+export
+Traversable TensorOp where
+  traverse f (Extent k x) = Extent k <$> f x
+  traverse f (Extract x cs) = Extract <$> f x <*> traverse f cs
+  traverse f (Insert x v cs) = Insert <$> f x <*> f v <*> traverse f cs
+  traverse f (Take a k x) = Take a <$> f k <*> f x
+  traverse f (Drop a k x) = Drop a <$> f k <*> f x
+  traverse f (Concat a x y) = Concat a <$> f x <*> f y
+  traverse f (Transpose a x) = Transpose a <$> f x
+  traverse f (Reshape x es) = Reshape <$> f x <*> traverse f es
+  traverse f (Pad a lo hi v x) = Pad a <$> f lo <*> f hi <*> f v <*> f x
+
+||| An operation's name, as the dump writes it.
+export
+tensorOpName : TensorOp t -> String
+tensorOpName (Extent k _) = "extent" ++ show k
+tensorOpName (Extract _ _) = "extract"
+tensorOpName (Insert _ _ _) = "insert"
+tensorOpName (Take a _ _) = "take" ++ show a
+tensorOpName (Drop a _ _) = "drop" ++ show a
+tensorOpName (Concat a _ _) = "concat" ++ show a
+tensorOpName (Transpose a _) = "transpose" ++ show a
+tensorOpName (Reshape _ _) = "reshape"
+tensorOpName (Pad a _ _ _ _) = "pad" ++ show a
+
+||| What a tie states of an axis of an array: the extent of another
+||| array's axis, exact, or any natural, converted as an extent.
+public export
+data Stated t = SameAs t | Natural t
+
+export
+Functor Stated where
+  map f (SameAs x) = SameAs (f x)
+  map f (Natural x) = Natural (f x)
 
 ||| How a reduction along an axis keeps its accumulators (`Term.Reduce`):
 ||| the last ones, or every one along the axis.
@@ -316,38 +367,75 @@ data Shift = ShiftLeft | ShiftRight
 public export
 data FArith = FAdd | FSub | FMul | FDiv
 
-||| The C library's functions on doubles, and the exact ones.
+||| The C library's functions of one double, and the exact ones.
 public export
-data MathFn = Exp | Log | Pow | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Floor | Ceiling
+data UnaryMath = Exp | Log | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Floor | Ceiling
 
-||| The fixed-width operand types of comparisons and casts.
+||| A fixed-width integer or a `Char`, which compares and converts as an
+||| unsigned integer of 32 bits.
 public export
-data Scalar = SInt IntTy | SChar | SDouble
+data IntLike = SInt IntTy | SChar
 
-||| Idris's primitives as Core has them: an op of the dialect that Idris
-||| names as a primitive (`Op`), which has no attribute; an operation its
-||| types choose, by the signedness and width of fixed-width integers,
-||| characters and doubles, among `arith`'s, `math`'s and the dialect's ops
-||| with an attribute; a comparison, by its predicate; or the length of an
-||| array a world orders.
+||| The width of a fixed-width integer or a `Char`.
+export
+likeWidth : IntLike -> Nat
+likeWidth (SInt t) = width t
+likeWidth SChar = 32
+
+||| The signedness of a fixed-width integer or a `Char`.
+export
+likeSigned : IntLike -> Bool
+likeSigned (SInt t) = signed t
+likeSigned SChar = False
+
+||| The operand types of comparisons and conversions: an integral one, or a
+||| double.
 public export
-data Prim
-  = IntOp ArithOp IntTy | IntShift Shift IntTy | FloatOp FArith | Negate | Math MathFn
-  | Compare CmpPredicate Scalar | Cast Scalar Scalar
-  | StrCompare CmpPredicate
-  | ||| A scalar shown as a string.
-    ToStr Scalar
-  | ||| A string read as a number.
-    FromStr Scalar
-  | BigCompare CmpPredicate
-  | ToBig Scalar | FromBig Scalar
-  | NatCompare CmpPredicate
-  | ||| The number of elements of an array a world orders, of this element
-    ||| type: the dimension of its memref.
-    ArrayLength Ty
-  | ||| The op of a primitive of the dialect, on its operands in the op's
-    ||| order, each at its own type.
-    Op IdrPrim
+data Scalar = SIntegral IntLike | SDouble
+
+||| The conversions between scalars that exist: between integral types,
+||| and between a fixed-width integer and a double.
+public export
+data Conversion = IntToInt IntLike IntLike | IntToDouble IntTy | DoubleToInt IntTy
+
+||| What a string is read as: a fixed-width integer or a double. Idris
+||| reads no `Char` from a string.
+public export
+data Numeric = NInt IntTy | NDouble
+
+||| Idris's primitives as Core has them, indexed by their arity: an op of
+||| the dialect that Idris names as a primitive (`Op`), with the Core type
+||| of its value, from the primitive's signature; an operation its types
+||| choose, by the signedness and width of fixed-width integers,
+||| characters and doubles, among `arith`'s, `math`'s and the dialect's ops;
+||| a comparison, by its predicate; or the length of an array a world
+||| orders.
+public export
+data Prim : Nat -> Type where
+  IntOp : ArithOp -> IntTy -> Prim 2
+  IntShift : Shift -> IntTy -> Prim 2
+  FloatOp : FArith -> Prim 2
+  ||| The negation of a double; a fixed-width integer's is a subtraction.
+  Negate : Prim 1
+  Math1 : UnaryMath -> Prim 1
+  Pow : Prim 2
+  Compare : CmpPredicate -> Scalar -> Prim 2
+  Cast : Conversion -> Prim 1
+  StrCompare : CmpPredicate -> Prim 2
+  ||| A scalar shown as a string.
+  ToStr : Scalar -> Prim 1
+  ||| A string read as a number.
+  FromStr : Numeric -> Prim 1
+  BigCompare : CmpPredicate -> Prim 2
+  ToBig : Scalar -> Prim 1
+  FromBig : Scalar -> Prim 1
+  NatCompare : CmpPredicate -> Prim 2
+  ||| The number of elements of an array a world orders, of this element
+  ||| type: the dimension of its memref.
+  ArrayLength : Ty -> Prim 1
+  ||| The op of a pure primitive of the dialect, on its operands in the op's
+  ||| order, each at its own type, giving a value of `result`.
+  Op : (p : PurePrim) -> (result : Ty) -> Prim (primArity p)
 
 export
 Show ArithOp where
@@ -361,10 +449,19 @@ Show ArithOp where
   show Xor = "xor"
 
 export
-Show Scalar where
+Show IntLike where
   show (SInt t) = show t
   show SChar = "Char"
+
+export
+Show Scalar where
+  show (SIntegral t) = show t
   show SDouble = "Double"
+
+export
+Show Numeric where
+  show (NInt t) = show t
+  show NDouble = "Double"
 
 export
 Show FArith where
@@ -374,10 +471,9 @@ Show FArith where
   show FDiv = "div"
 
 export
-Show MathFn where
+Show UnaryMath where
   show Exp = "exp"
   show Log = "log"
-  show Pow = "pow"
   show Sin = "sin"
   show Cos = "cos"
   show Tan = "tan"
@@ -394,49 +490,59 @@ Show Shift where
   show ShiftRight = "shr"
 
 export
-Show Prim where
+Show (Prim k) where
   show (IntOp op t) = show op ++ "_" ++ show t
   show (IntShift s t) = show s ++ "_" ++ show t
   show (FloatOp op) = show op ++ "_Double"
   show Negate = "neg_Double"
-  show (Math f) = show f ++ "_Double"
+  show (Math1 f) = show f ++ "_Double"
+  show Pow = "pow_Double"
   show (Compare op s) = show op ++ "_" ++ show s
-  show (Cast a b) = "cast_" ++ show a ++ show b
+  show (Cast (IntToInt a b)) = "cast_" ++ show a ++ show b
+  show (Cast (IntToDouble t)) = "cast_" ++ show t ++ "Double"
+  show (Cast (DoubleToInt t)) = "cast_Double" ++ show t
   show (StrCompare op) = show op ++ "_String"
   show (ToStr s) = "cast_" ++ show s ++ "String"
-  show (FromStr s) = "cast_String" ++ show s
+  show (FromStr n) = "cast_String" ++ show n
   show (BigCompare op) = show op ++ "_Integer"
   show (ToBig s) = "cast_" ++ show s ++ "Integer"
   show (FromBig s) = "cast_Integer" ++ show s
   show (NatCompare op) = show op ++ "_Nat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
-  show (Op p) = (primOp p [] []).name
+  show (Op p _) = pureName p
+
+||| The Core type of an integral scalar.
+public export
+likeTy : IntLike -> Ty
+likeTy (SInt t) = IntT t
+likeTy SChar = CharT
 
 public export
 scalarTy : Scalar -> Ty
-scalarTy (SInt t) = IntT t
-scalarTy SChar = CharT
+scalarTy (SIntegral t) = likeTy t
 scalarTy SDouble = DoubleT
 
-||| The operand types of a primitive chosen by its types, in Idris's
-||| argument order. The op of the dialect takes its operands at their own
-||| types, so it lists none.
+||| The type each operand of a primitive is checked against, in Idris's
+||| argument order; none for an op of the dialect, which takes each operand
+||| at its own type.
 public export
-primArgs : Prim -> List Ty
-primArgs (IntOp _ t) = [IntT t, IntT t]
-primArgs (IntShift _ t) = [IntT t, IntT t]
-primArgs (FloatOp _) = [DoubleT, DoubleT]
-primArgs Negate = [DoubleT]
-primArgs (Math Pow) = [DoubleT, DoubleT]
-primArgs (Math _) = [DoubleT]
-primArgs (Compare _ s) = [scalarTy s, scalarTy s]
-primArgs (Cast a _) = [scalarTy a]
-primArgs (StrCompare _) = [StrT, StrT]
-primArgs (ToStr s) = [scalarTy s]
-primArgs (FromStr _) = [StrT]
-primArgs (BigCompare _) = [BigT, BigT]
-primArgs (ToBig s) = [scalarTy s]
-primArgs (FromBig _) = [BigT]
-primArgs (NatCompare _) = [NatT, NatT]
-primArgs (ArrayLength e) = [MemRefT [Dynamic] e]
-primArgs (Op _) = []
+slots : Prim k -> Vect k (Maybe Ty)
+slots (IntOp _ t) = [Just (IntT t), Just (IntT t)]
+slots (IntShift _ t) = [Just (IntT t), Just (IntT t)]
+slots (FloatOp _) = [Just DoubleT, Just DoubleT]
+slots Negate = [Just DoubleT]
+slots (Math1 _) = [Just DoubleT]
+slots Pow = [Just DoubleT, Just DoubleT]
+slots (Compare _ s) = [Just (scalarTy s), Just (scalarTy s)]
+slots (Cast (IntToInt a _)) = [Just (likeTy a)]
+slots (Cast (IntToDouble t)) = [Just (IntT t)]
+slots (Cast (DoubleToInt _)) = [Just DoubleT]
+slots (StrCompare _) = [Just StrT, Just StrT]
+slots (ToStr s) = [Just (scalarTy s)]
+slots (FromStr _) = [Just StrT]
+slots (BigCompare _) = [Just BigT, Just BigT]
+slots (ToBig s) = [Just (scalarTy s)]
+slots (FromBig _) = [Just BigT]
+slots (NatCompare _) = [Just NatT, Just NatT]
+slots (ArrayLength e) = [Just (MemRefT Elements e)]
+slots (Op p _) = replicate (primArity p) Nothing

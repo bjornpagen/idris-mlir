@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: the constructor that builds a cell is an idr.cell.new and its idr.cell.init, and the reuse an idr.cell.recycle of the take's token and its init (S3); each match's default binds its scrutinee (S2).
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,signature=@counts:(!llvm.ptr,i8,!llvm.ptr,i64,i64)->!llvm.ptr,call-order=@counts:[@idris_rt_inc,@idris_rt_dec,@idris_rt_dec]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=call-order=@drop:[@idris_rt_dec,@idris_rt_dec,@idris_rt_free_cell],never-calls=@drop:@idris_rt_inc,never-calls=@static:@idris_rt_inc,calls=@rebuild:@idris_rt_cell,never-calls=@rebuild:@idris_rt_free_cell' -o /dev/null
@@ -10,8 +11,8 @@
 // with the box: dropped where the box is exclusive, untouched where it is
 // shared, so no reference is taken for it; a token that is dropped has its
 // memory freed. A reference to static data (a constant box, a constant
-// string) counts nothing: static data holds no count. A reuse builds in
-// the token, or in a new cell when it is null, and never frees it.
+// string) counts nothing: static data holds no count. A recycled cell is
+// the token's, or a new cell when it is null, and never frees it.
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 !S = !idr.data<"S", plain [@A(!idr.str), @B(i64)]>
 idr.program @counting root(@Prog.main) stage(owned) {
@@ -34,7 +35,7 @@ idr.program @counting root(@Prog.main) stage(owned) {
       idr.drop %w#0 : !idr.own<!idr.token>
       idr.yield %h : i64
     }
-    default {
+    default(%d: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.drop %l : !idr.own<!idr.box<!L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64
@@ -50,9 +51,10 @@ idr.program @counting root(@Prog.main) stage(owned) {
       %o = idr.dup %n : !idr.q<many, borrow, !idr.box<!L>>
       idr.yield %o : !idr.own<!idr.box<!L>>
     }
-    default {
+    default(%d: i64) {
       %o = idr.dup %n : !idr.q<many, borrow, !idr.box<!L>>
-      %c = idr.con !idr.own<!idr.box<!L>> @C(%x : i64, %o : !idr.own<!idr.box<!L>>)
+      %k = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
+      %c = idr.cell.init %k : !idr.cell<!idr.box<!L>, @C> (%x : i64, %o : !idr.own<!idr.box<!L>>)
       idr.yield %c : !idr.own<!idr.box<!L>>
     }
     }
@@ -64,10 +66,11 @@ idr.program @counting root(@Prog.main) stage(owned) {
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {
     case @C(%h: i64, %t: !idr.q<many, borrow, !idr.box<!L>>) {
       %w:3 = idr.take %l : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
-      %c = idr.reuse %w#0 !idr.own<!idr.box<!L>> @C(%w#1 : i64, %w#2 : !idr.own<!idr.box<!L>>)
+      %k = idr.cell.recycle %w#0 : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
+      %c = idr.cell.init %k : !idr.cell<!idr.box<!L>, @C> (%w#1 : i64, %w#2 : !idr.own<!idr.box<!L>>)
       idr.yield %c : !idr.own<!idr.box<!L>>
     }
-    default {
+    default(%d: !idr.q<many, borrow, !idr.box<!L>>) {
       idr.yield %l : !idr.own<!idr.box<!L>>
     }
     }

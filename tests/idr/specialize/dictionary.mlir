@@ -1,6 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that @sumTo is specialized on the whole record and @plus inlined into the copy, with symbol-dce after idr-optimize as the pipeline runs it (S2's default argument, S22's parameterless holes).
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@sumTo,not-called=@plus -o /dev/null
-// NEEDS-ACCEPTANCE: that @sumTo is specialized on the whole record and @plus inlined into the copy.
 // An interface dictionary: a record of closures without captures, built at
 // the call. After defunctionalization each closure is a constructor of its
 // sum, so the record is entirely static. @sumTo loops, so it is never
@@ -24,7 +24,7 @@ idr.program @dictionary root(@Main.main) stage(higher) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d2: i64) {
       %plus = idr.field %d : !Num @MkNum[0] -> !idr.fn<(i64, i64) -> (i64)>
       %a = idr.apply %plus(%acc, %n) : !idr.fn<(i64, i64) -> (i64)>
       %c1 = arith.constant 1 : i64

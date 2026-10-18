@@ -15,6 +15,7 @@ import Core.TT
 import Idris.Host
 import Libraries.Data.List.SizeOf
 
+import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
@@ -28,6 +29,8 @@ import Data.Fin
 import Data.List
 import Data.List1
 import Data.Nat
+import Data.SnocList
+import Data.SortedSet
 import Data.Vect
 
 %default total
@@ -218,23 +221,18 @@ hasMeta = mentions metaTerm
     metaTerm (Meta {}) = True
     metaTerm _ = False
 
-||| The name of marker `i` (`holeMarker`'s): a name of the frontend's own,
-||| which no context holds, nested around a user name no Idris identifier
-||| spells. It is no machine name: Idris's quotation takes a bound machine
-||| name for the binder it made with that number
-||| (`Core.Normalise.Quote.quoteHead`), so a marker under a lambda Idris's
-||| normaliser gives back would become that lambda's variable. This one
-||| passes through every normaliser, under every binder, as itself. It and
-||| `markerOf` are the one spelling of it.
+||| The name of marker `i` (`holeMarker`'s): a probe (`ProbeHole`), which
+||| passes through every normaliser, under every binder, as itself.
 export
 markerName : Nat -> Name
-markerName i = Nested (cast i, 0) (UN (Basic "idris-mlir-hole"))
+markerName i = probeName (ProbeHole i)
 
 ||| The number of the marker a name is, if it is one (`markerName`'s).
 export
 markerOf : Name -> Maybe Nat
-markerOf (Nested (i, 0) (UN (Basic "idris-mlir-hole"))) = Just (cast i)
-markerOf _ = Nothing
+markerOf n = case probeOf n of
+  Just (ProbeHole i) => Just i
+  _ => Nothing
 
 ||| Does a term mention a part that stands for a runtime value, wherever
 ||| it stands (`runtimeDependent`'s two markers)?
@@ -298,7 +296,7 @@ erasedArgs n = do
   pure (go (type def))
   where
     go : TT vs -> List Bool
-    go (Bind _ _ (Pi _ rig _ _) sc) = isErased rig :: go sc
+    go (Bind _ _ (Pi _ rig _ _) sc) = (case use rig of Erased => True; Used _ => False) :: go sc
     go _ = []
 
 ||| What `runtimeDependent` has read of an application, its head and
@@ -366,6 +364,14 @@ normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 normaliseClosed tm = do
   defs <- get Ctxt
   host.normaliseTypes defs [] tm
+
+||| A type with its first binder showing: itself when it shows one, and its
+||| normal form (`normaliseClosed`) when a name for a function type hides
+||| it (`a -@ b`). The one place a type's next binder is read.
+export
+showingBinder : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
+showingBinder ty@(Bind _ _ (Pi {}) _) = pure ty
+showingBinder ty = normaliseClosed ty
 
 ||| A runtime value an implementation closes over, where its compile-time
 ||| form stands, by its number among the values (`holeMarker`, below with
@@ -437,8 +443,11 @@ rootOf n = climb start (sizeAccessible start) n
     climb w (Access _) (NS ns (CaseBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
     climb w (Access _) (NS ns (WithBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
     climb w (Access rec) m@(NS _ (Nested (outer, _) _)) = do
-      defs <- get Ctxt
-      case enter (gamma defs) (Resolved outer) w of
+      -- A negative parent is no place, which Idris's bare `Int` allows.
+      let Just placement = placementOf outer
+        | Nothing => pure m
+      -- Entered already: the parents led back to it.
+      case enter placement w of
         Nothing => pure m
         Just (Element w' less) => climb w' (rec w' less) !(toFullNames (Resolved outer))
     climb w (Access _) m = pure m
@@ -462,35 +471,41 @@ terminates n = do
               IsTerminating => True
               _ => False)
 
-||| The definitions a term refers to.
+||| The definitions a term refers to, each once, in the order first met.
 functionsIn : TT vars -> List Name
-functionsIn tm = nub (go tm)
+functionsIn tm = fst (go tm ([<], empty)) <>> []
   where
-    mutual
-      go : TT vs -> List Name
-      go (Ref _ Func n) = [n]
-      go (Bind _ _ b sc) = binder b ++ go sc
-      go (App _ f a) = go f ++ go a
-      go (As _ _ _ p) = go p
-      go (TDelayed _ _ t) = go t
-      go (TDelay _ _ t a) = go t ++ go a
-      go (TForce _ _ t) = go t
-      go (Meta _ _ _ args) = each args
-      go (Erased _ (Dotted t)) = go t
-      go _ = []
+    Met : Type
+    Met = (SnocList Name, SortedSet Name)
 
-      each : List (TT vs) -> List Name
-      each [] = []
-      each (t :: ts) = go t ++ each ts
+    met : Name -> Met -> Met
+    met n m@(order, seen) = if contains n seen then m else (order :< n, insert n seen)
+
+    mutual
+      go : TT vs -> Met -> Met
+      go (Ref _ Func n) m = met n m
+      go (Bind _ _ b sc) m = go sc (binder b m)
+      go (App _ f a) m = go a (go f m)
+      go (As _ _ _ p) m = go p m
+      go (TDelayed _ _ t) m = go t m
+      go (TDelay _ _ t a) m = go a (go t m)
+      go (TForce _ _ t) m = go t m
+      go (Meta _ _ _ args) m = each args m
+      go (Erased _ (Dotted t)) m = go t m
+      go _ m = m
+
+      each : List (TT vs) -> Met -> Met
+      each [] m = m
+      each (t :: ts) m = each ts (go t m)
 
       -- A binder's type, then the value of a `let`.
-      binder : TTBinder (TT vs) -> List Name
-      binder (Lam _ _ _ ty) = go ty
-      binder (Let _ _ v ty) = go ty ++ go v
-      binder (Pi _ _ _ ty) = go ty
-      binder (PVar _ _ _ ty) = go ty
-      binder (PLet _ _ v ty) = go ty ++ go v
-      binder (PVTy _ _ ty) = go ty
+      binder : TTBinder (TT vs) -> Met -> Met
+      binder (Lam _ _ _ ty) m = go ty m
+      binder (Let _ _ v ty) m = go v (go ty m)
+      binder (Pi _ _ _ ty) m = go ty m
+      binder (PVar _ _ _ ty) m = go ty m
+      binder (PLet _ _ v ty) m = go v (go ty m)
+      binder (PVTy _ _ ty) m = go ty m
 
 ||| The first definition a term refers to that Idris does not prove ends,
 ||| if any. Idris's normaliser runs a term only when there is none: it
@@ -736,15 +751,12 @@ mutual
   unfolded : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              Name -> Lazy ClosedTerm -> List Part -> Core (Head Part)
   unfolded ph w acc@(Access rec) n tm args = do
-    defs <- get Ctxt
-    let Just i = getNameID n (gamma defs)
-      | Nothing => pure (Stuck (OnRuntime tm))
-    Just def <- lookupCtxtExact (Resolved i) (gamma defs)
+    Just (placement, def) <- resolve n
       | Nothing => pure (Stuck (OnRuntime tm))
     case definition def of
       PMDef _ pargs (STerm _ body) _ _ => case params pargs args of
         Nothing => pure (Stuck (OnValue tm))
-        Just (env, rest) => case enter (gamma defs) (Resolved i) w of
+        Just (env, rest) => case enter placement w of
           Nothing => again tm
           Just (Element w' less) => reduce asWritten w' (rec w' less) env body rest
       _ => case projectionOf def of
@@ -768,8 +780,11 @@ mutual
   filledIn : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              Int -> Lazy ClosedTerm -> Core (Head Part)
   filledIn ph w acc@(Access rec) i tm = do
-    defs <- get Ctxt
-    case enter (gamma defs) (Resolved i) w of
+    -- A negative index is no place, which Idris's bare `Int` allows.
+    let Just placement = placementOf i
+      | Nothing => again tm
+    -- Entered already: met before on this path.
+    case enter placement w of
       Nothing => again tm
       Just (Element w' less) => do
         filled <- solved tm
@@ -961,12 +976,12 @@ cutShape hole (S d) tm = case getFnArgs tm of
 ||| bound machine name for one of the binders it makes, by its number.
 export
 unknownPart : ClosedTerm
-unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
+unknownPart = probeTerm ProbeUnknown
 
 -- The marker itself (declared above): a bound name that no binder binds,
 -- which a translation of the implementation replaces with the value
 -- (`Terms.term`, by `refToLocal`, which takes bound names).
-holeMarker i = Ref EmptyFC Bound (markerName i)
+holeMarker i = probeTerm (ProbeHole i)
 
 ||| Replaces each marker of the values an implementation closes over with
 ||| the term for its value, by number.
@@ -1043,7 +1058,9 @@ mentionsUnknown : TT vars -> Bool
 mentionsUnknown = mentions unknownRef
   where
     unknownRef : TT vs -> Bool
-    unknownRef (Ref _ _ (MN "idris-mlir-unknown" _)) = True
+    unknownRef (Ref _ _ n) = case probeOf n of
+      Just ProbeUnknown => True
+      _ => False
     unknownRef _ = False
 
 ||| A type-level parameter: its type is a universe, possibly after Pi binders.
@@ -1210,10 +1227,12 @@ canonicalTypeArg tm = contracted <$> walk False (contracted tm)
 ||| A runtime variable in a term closed for normalisation: a reference to a
 ||| definition that does not exist, which no reduction looks into.
 runtimeVariable : ClosedTerm
-runtimeVariable = Ref EmptyFC Func (MN "idris-mlir-runtime" 0)
+runtimeVariable = probeTerm ProbeRuntime
 
 isRuntimeVariable : TT vs -> Bool
-isRuntimeVariable (Ref _ _ (MN "idris-mlir-runtime" _)) = True
+isRuntimeVariable (Ref _ _ n) = case probeOf n of
+  Just ProbeRuntime => True
+  _ => False
 isRuntimeVariable _ = False
 
 ||| An argument a lambda applied to it binds, in the scope of the cut term:
@@ -1335,16 +1354,13 @@ mutual
   binderDependsOn env (PVTy _ _ ty) = dependsOn env ty
 
 ||| A function that does not match on its arguments: its parameters, the
-||| first first, its body, and its number in the context.
-plain : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe (vs ** (TT vs, Int)))
+||| first first, its body, and its placement in the context.
+plain : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe (vs ** (TT vs, Placement)))
 plain n = do
-  defs <- get Ctxt
-  let Just i = getNameID n (gamma defs)
-    | Nothing => pure Nothing
-  Just def <- lookupCtxtExact (Resolved i) (gamma defs)
+  Just (placement, def) <- resolve n
     | Nothing => pure Nothing
   case definition def of
-    PMDef _ pargs (STerm _ body) _ _ => pure (Just (pargs ** (body, i)))
+    PMDef _ pargs (STerm _ body) _ _ => pure (Just (pargs ** (body, placement)))
     _ => pure Nothing
 
 ||| Does a definition compute a type?
@@ -1418,10 +1434,10 @@ mutual
        -- the value (`(.)` in `(PiInfo . Term) vars`): it is unfolded, and
        -- what it calls is cut in turn.
        else do
-         Just (pargs ** (body, i)) <- plain n
+         Just (pargs ** (body, placement)) <- plain n
            | Nothing => pure (Erased fc Placeholder)
-         defs <- get Ctxt
-         let Just (Element w' less) = enter (gamma defs) (Resolved i) w
+         -- Entered already: met again on its own path.
+         let Just (Element w' less) = enter placement w
            | Nothing => pure (Erased fc Placeholder)
          given <- cutArgs args
          let Just (env', rest) = boundParams w' (rec w' less) pargs given

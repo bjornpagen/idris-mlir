@@ -18,12 +18,8 @@ namespace idr::expect {
 // Some loop of the function (or of a clone of it) computes on words alone:
 // no value defined or bound in it is a big or a natural, so no tag is
 // tested in it and no runtime call on bigs is made from it.
-LogicalResult wordLoop(ModuleOp module, AnalysisManager &, StringRef function) {
-  constexpr StringRef property = "word-loop";
-  SmallVector<FunctionOpInterface> functions =
-      named(module, function, property);
-  if (functions.empty())
-    return failure();
+LogicalResult wordLoop(const Request<Functions> &request) {
+  ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   unsigned loops = 0;
   bool found = false;
   for (FunctionOpInterface fn : functions)
@@ -43,8 +39,9 @@ LogicalResult wordLoop(ModuleOp module, AnalysisManager &, StringRef function) {
     });
   if (found)
     return success();
-  fail(functions.front()->getLoc(), property)
-      << function << (loops == 0 ? " has no loop" : " computes on bigs in each of its loops");
+  fail(functions.front()->getLoc(), request.property)
+      << "@" << request.argument.name
+      << (loops == 0 ? " has no loop" : " computes on bigs in each of its loops");
   return failure();
 }
 

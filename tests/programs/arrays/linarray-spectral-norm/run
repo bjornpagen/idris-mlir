@@ -1,5 +1,11 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
+# The program of the benchmark bench/spectral-norm-linear, run on this fixture's input
+# against its expected files.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-e2e_io .
+mkdir "$work/fixture"
+cp "$root/bench/spectral-norm-linear/Main.idr" "$work/fixture/"
+cp "$root/bench/spectral-norm-linear/packages" "$work/fixture/"
+cp stdin expected-stdout mlir.expect "$work/fixture/"
+e2e_io "$work/fixture"

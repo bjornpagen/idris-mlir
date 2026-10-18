@@ -63,9 +63,10 @@ inline constexpr llvm::StringLiteral vectorWidthKey = "max_vector_op_width";
 // The schedule library: the entry point that computes the loops over
 // arrays on the target's lanes, which the vectorization group's
 // transform-interpreter runs on each function, and the call that puts the
-// library and the transform op it uses on a registry. A tool calls it after
-// registerAllExtensions, so that upstream's transform ops are registered
-// when the transform dialect loads and the library is parsed.
+// library and the transform op it uses on a registry. It is called after
+// upstream's transform ops it is written in are put on the registry
+// (registerIdrDialects, idr/InitIdr.h), so that they are registered when
+// the transform dialect loads and the library is parsed.
 inline constexpr llvm::StringLiteral vectorizeSchedule = "idr.vectorization";
 void registerScheduleLibrary(mlir::DialectRegistry &registry);
 
@@ -98,8 +99,9 @@ class Partition {
 public:
   // The bins of `optimized`, and, in `optimized` itself, the linkage every
   // bin then reads: a symbol another bin names becomes external, hidden and
-  // dso_local, under the reserved prefix `__idr.`, which no C name has, so
-  // no static link meets it. The Error is an internal error.
+  // dso_local, under the name idr::reservedName("bin", its name), which no
+  // C name and no mangled name is, so no static link meets it. The Error is
+  // the compiler's.
   static llvm::Expected<Partition> of(llvm::Module &optimized);
 
   // In name order; the first holds the module's inline assembly.
@@ -108,7 +110,7 @@ public:
   // Keeps in `lazy`, read lazily from the bitcode of the module `of` left,
   // what bin `bin` defines, the constants it holds a copy of and the
   // declarations of everything else they name; drops the rest and
-  // materializes the bodies it keeps. The Error is an internal error.
+  // materializes the bodies it keeps. The Error is the compiler's.
   llvm::Error extract(unsigned bin, llvm::Module &lazy) const;
 
 private:
@@ -126,10 +128,11 @@ private:
   struct Defined {
     unsigned bin;
   };
+  using Home = std::variant<Declared, Copied, Defined>;
 
   // A global value of the module, by its place in the module's lists.
   struct Symbol {
-    std::variant<Declared, Copied, Defined> home;
+    Home home;
     // The symbols its body, initializer, aliasee or resolver names.
     llvm::SmallVector<unsigned, 4> refs;
   };

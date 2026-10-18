@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The names generated from content, which no creation order reaches, and
-// the canonical text and hash every content key is made of, which no
-// printing flag reaches.
+// The names generated from content, which no creation order reaches (a
+// content name, or the reserved name of a digest), and the canonical text
+// and hash every content key is made of, which no printing flag reaches.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -11,6 +11,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/xxhash.h"
@@ -34,20 +35,36 @@ Digest idr::digestOf(StringRef key) {
   return {hash.low64, hash.high64};
 }
 
+namespace {
+
+// What a name from content writes of its key: the low half of its digest,
+// as 16 lower-case hex digits.
+std::string digitsOf(Digest key) {
+  std::string digits;
+  llvm::raw_string_ostream(digits) << llvm::format_hex_no_prefix(key.low, 16, /*Upper=*/false);
+  return digits;
+}
+
+} // namespace
+
 std::string idr::contentName(StringRef owner, StringRef kind, Digest key) {
-  std::string name;
-  llvm::raw_string_ostream os(name);
-  os << owner << '.' << kind << '.' << llvm::format_hex_no_prefix(key.low, 16, /*Upper=*/false);
-  return name;
+  return (owner + "." + kind + "." + digitsOf(key)).str();
 }
 
 std::string idr::contentName(StringRef owner, StringRef kind, StringRef key) {
   return contentName(owner, kind, digestOf(key));
 }
 
+std::string idr::reservedName(StringRef kind, Digest key) {
+  return reservedName(kind, digitsOf(key));
+}
+
 FailureOr<StringAttr> ContentNames::intern(Location at, StringRef owner, StringRef kind,
                                            Digest key) {
-  std::string name = contentName(owner, kind, key);
+  return intern(at, contentName(owner, kind, key), key);
+}
+
+FailureOr<StringAttr> ContentNames::intern(Location at, StringRef name, Digest key) {
   auto [it, fresh] = keys.try_emplace(name, key);
   if (!fresh && it->second != key) {
     std::string both;

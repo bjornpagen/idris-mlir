@@ -3,6 +3,7 @@
 // RUN: %t > %t.out
 // RUN: FileCheck %s < %t.out
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
+// NEEDS-ACCEPTANCE: that each match's default region, which binds the scrutinee now, parses and lowers, that idr.io.put_sint writes what idr.io.put_int signed wrote, and that the program's output is as before.
 // Loops of every shape idr-tail-loops makes run as the recursion they
 // replace: a count up to a bound (an scf.for), a count down to zero, a
 // fold over a list, output before the decision, an IO fold whose
@@ -32,7 +33,7 @@ idr.program @loops root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %j = arith.addi %i, %c1 : i64
       %sq = arith.muli %i, %i : i64
@@ -51,7 +52,7 @@ idr.program @loops root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %i : i64
     }
-    default {
+    default(%d: i64) {
       %c3 = arith.constant 3 : i64
       %j = arith.addi %i, %c3 : i64
       %x = idr.call @until(%j, %n) : (i64, i64) -> i64
@@ -65,7 +66,7 @@ idr.program @loops root(@Prog.main) stage(higher) {
     case 0 {
       idr.yield %acc : i64
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %a = arith.addi %acc, %c1 : i64
       %m = arith.subi %n, %c1 : i64
@@ -90,13 +91,13 @@ idr.program @loops root(@Prog.main) stage(higher) {
   }
   idr.func @echo(%n: i64, %w: !idr.world) -> !idr.world attributes {total} {
     %nl = arith.constant 10 : i32
-    %w1 = idr.io.put_int signed %n, %w : i64
+    %w1 = idr.io.put_sint %n, %w : i64
     %w2 = idr.io.put_char %nl, %w1
     %r = idr.match_lit %n : i64 -> (!idr.world) {
     case 0 {
       idr.yield %w2 : !idr.world
     }
-    default {
+    default(%d: i64) {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
       %x = idr.call @echo(%m, %w2) : (i64, !idr.world) -> !idr.world
@@ -114,7 +115,7 @@ idr.program @loops root(@Prog.main) stage(higher) {
       idr.yield %done : !IORes
     }
     case @Cons(%x: i64, %rest: !idr.box<!List>) {
-      %w1 = idr.io.put_int signed %x, %w : i64
+      %w1 = idr.io.put_sint %x, %w : i64
       %w2 = idr.io.put_char %nl, %w1
       %next = idr.call @traverse(%rest, %w2) : (!idr.box<!List>, !idr.world) -> !IORes
       %u = idr.field %next : !IORes @MkIORes[0] -> !Unit
@@ -138,13 +139,13 @@ idr.program @loops root(@Prog.main) stage(higher) {
     %l2 = idr.con !idr.box<!List> @Cons(%c2 : i64, %l3 : !idr.box<!List>)
     %l1 = idr.con !idr.box<!List> @Cons(%c1 : i64, %l2 : !idr.box<!List>)
     %u = idr.call @upto(%c0, %c10, %c0) : (i64, i64, i64) -> i64
-    %w1 = idr.io.put_int signed %u, %w : i64
+    %w1 = idr.io.put_sint %u, %w : i64
     %w2 = idr.io.put_char %nl, %w1
     %k = idr.call @count(%c0, %c7) : (i64, i64) -> i64
-    %w3 = idr.io.put_int signed %k, %w2 : i64
+    %w3 = idr.io.put_sint %k, %w2 : i64
     %w4 = idr.io.put_char %nl, %w3
     %s = idr.call @sum(%c0, %l1) : (i64, !idr.box<!List>) -> i64
-    %w5 = idr.io.put_int signed %s, %w4 : i64
+    %w5 = idr.io.put_sint %s, %w4 : i64
     %w6 = idr.io.put_char %nl, %w5
     %w7 = idr.call @echo(%c3, %w6) : (i64, !idr.world) -> !idr.world
     %r = idr.call @traverse(%l1, %w7) : (!idr.box<!List>, !idr.world) -> !IORes
@@ -152,10 +153,10 @@ idr.program @loops root(@Prog.main) stage(higher) {
     %w8 = idr.field %r : !IORes @MkIORes[1] -> !idr.world
     %c5 = arith.constant 5 : i64
     %f = idr.call @until(%c0, %c10) : (i64, i64) -> i64
-    %w9 = idr.io.put_int signed %f, %w8 : i64
+    %w9 = idr.io.put_sint %f, %w8 : i64
     %w10 = idr.io.put_char %nl, %w9
     %z = idr.call @until(%c5, %c2) : (i64, i64) -> i64
-    %w11 = idr.io.put_int signed %z, %w10 : i64
+    %w11 = idr.io.put_sint %z, %w10 : i64
     %w12 = idr.io.put_char %nl, %w11
     return %unit, %w12 : !Unit, !idr.world
   }

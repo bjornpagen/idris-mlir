@@ -40,6 +40,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -189,7 +190,7 @@ bool takesBuffer(Operation *op) {
 // the store in its block are finitely many.
 std::optional<memref::LoadOp> readBefore(memref::StoreOp store) {
   for (Operation *op = store->getPrevNode(); op; op = op->getPrevNode()) {
-    if (!takesBuffer(op) && idr::onlyAllocates(op, nullptr))
+    if (!takesBuffer(op) && idr::onlyAllocates(op))
       continue;
     auto load = dyn_cast<memref::LoadOp>(op);
     if (!load || !idr::sameElement(load.getMemref(), load.getIndices(), store.getMemref(),
@@ -263,8 +264,7 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
     idr::bufferize::registerModels(registry);
   }
 
-  void runOnOperation() override {
-    idr::ProgramOp program = getOperation();
+  void runOnProgram(idr::ProgramOp program) override {
     MLIRContext *ctx = &getContext();
 
     OneShotBufferizationOptions options;

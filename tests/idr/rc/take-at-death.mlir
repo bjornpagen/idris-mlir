@@ -45,8 +45,8 @@ idr.program @"take-at-death" root(@root) stage(first) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
-    %leaf = idr.constant #idr.con<!T, @L, []> : !idr.box<!T>
-    %nil = idr.constant #idr.con<!List, @Nil, []> : !idr.box<!List>
+    %leaf = idr.constant !idr.box<!T> #idr.con<!T, @L, []>
+    %nil = idr.constant !idr.box<!List> #idr.con<!List, @Nil, []>
     %t = idr.con !idr.box<!T> @N(%leaf : !idr.box<!T>, %x : i64, %leaf : !idr.box<!T>)
     %f = idr.call @flip(%t) : (!idr.box<!T>) -> !idr.box<!T>
     %l = idr.con !idr.box<!List> @Cons(%x : i64, %nil : !idr.box<!List>)
@@ -54,7 +54,7 @@ idr.program @"take-at-death" root(@root) stage(first) {
     %a = idr.tag %f : !idr.box<!T>
     %b = idr.tag %k : !idr.box<!List>
     %s = arith.addi %a, %b : i64
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     return %w2 : !idr.world
   }
 }

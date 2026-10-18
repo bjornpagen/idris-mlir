@@ -1,6 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that the chain folds in the root, by inlining and the case of a known constructor, with symbol-dce after idr-optimize as the pipeline runs it.
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@mk,not-called=@curry,not-called=@add -o /dev/null
-// NEEDS-ACCEPTANCE: that the chain folds in the root, by inlining and the case of a known constructor.
 // A call whose result is applied, and that result applied again. After
 // defunctionalization both applies are dispatches. The optimizer works
 // callee first, so @curry and @mk are final, and small, when the root

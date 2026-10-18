@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The analyses of exclusivity's solve (Exclusivity.cpp says what it
-// proves), on MLIR's solver beside upstream's dead-code analysis:
-//   - Entry: the program is entered at its root, from outside.
+// proves), on MLIR's solver beside upstream's dead-code analysis, which
+// enters the program at its root from outside: the root is the one public
+// function of the program, and a public callable's callers are unknown.
 //   - NoConstants: reachability alone, every region can run.
 //   - Running: which functions run. A function runs when a call that runs
 //     goes to it, or when the program does not show every caller of it; a
@@ -53,10 +54,11 @@ void Cells::print(raw_ostream &os) const {
 Calls::Calls(ProgramOp program, const ownership::Copies &copies) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     callees.try_emplace(fn.getSymNameAttr(), fn);
+    // The body's one block ends in its return, or in ub.unreachable when
+    // the function never returns.
     SmallVector<ReturnOp> &returns = returnsOf[fn];
-    for (Block &block : fn.getBody())
-      if (auto ret = dyn_cast<ReturnOp>(block.getTerminator()))
-        returns.push_back(ret);
+    if (auto ret = dyn_cast<ReturnOp>(fn.getBody().front().getTerminator()))
+      returns.push_back(ret);
   }
   for (auto [original, copy] : copies.of) {
     callees[original.getSymNameAttr()] = Pair{original, copy};
@@ -109,26 +111,6 @@ public:
   void setToEntryState(Lattice<ConstantValue> *lattice) override {
     propagateIfChanged(lattice, lattice->join(ConstantValue::getUnknownConstant()));
   }
-};
-
-// The program is entered at its root, from outside: its callers are not
-// the program's to show. Every other function is private, entered only by
-// the calls the program makes.
-class Entry : public DataFlowAnalysis {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Entry)
-
-  Entry(DataFlowSolver &solver, FuncOp root) : DataFlowAnalysis(solver), root(root) {}
-
-  LogicalResult initialize(Operation *) override {
-    auto *callers = getOrCreate<PredecessorState>(getProgramPointAfter(root));
-    propagateIfChanged(callers, callers->setHasUnknownPredecessors());
-    return success();
-  }
-  LogicalResult visit(ProgramPoint *) override { return success(); }
-
-private:
-  FuncOp root;
 };
 
 // Which functions run. A function that runs has its body live, so
@@ -326,8 +308,7 @@ private:
 
 } // namespace
 
-void loadAnalyses(DataFlowSolver &solver, ProgramOp program, const Calls &calls) {
-  solver.load<Entry>(program.lookupRoot());
+void loadAnalyses(DataFlowSolver &solver, const Calls &calls) {
   solver.load<DeadCodeAnalysis>();
   solver.load<NoConstants>();
   solver.load<Running>(calls);

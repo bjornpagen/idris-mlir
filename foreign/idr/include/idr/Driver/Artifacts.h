@@ -8,12 +8,16 @@
 #ifndef IDR_DRIVER_ARTIFACTS_H
 #define IDR_DRIVER_ARTIFACTS_H
 
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/Support/LLVM.h"
+
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileUtilities.h"
 
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <variant>
 #include <vector>
 
@@ -33,11 +37,23 @@ namespace idr::driver {
 // it goes, no option: a handoff module, as the frontend writes one, goes to
 // the pipeline, and a module of the LLVM dialect alone, the pipeline's
 // output, goes to LLVM. Anything else is Idris source, which the frontend
-// reads into the Core and the module, both named from the base: the
-// frontend decides, by Idris's own extensions, whether it reads it, so only
-// MLIR's are named here.
+// reads into the Core and the module, both named from the base, with the
+// frontend's own options: the frontend decides, by Idris's own extensions,
+// whether it reads it, so only MLIR's are named here. A module has no
+// frontend, so it holds no frontend's options.
+//
+// The frontend's options: the Idris prefix it reads its packages from, the
+// directories it looks for packages in besides, the packages it loads, and
+// whether the Prelude is imported implicitly. The frontend reads no
+// environment, so these are the whole of its search path.
+struct FrontendArgs {
+  std::string prefix;
+  std::vector<std::string> packagePath, packages;
+  bool noPrelude;
+};
 struct FromIdris {
   std::string source, corePath, modulePath;
+  FrontendArgs frontend;
 };
 struct FromModule {
   std::string modulePath;
@@ -69,14 +85,16 @@ class Plan {
 public:
   // The plan for `input`, `product` and the report, when one is asked for,
   // or none when two of the files it writes are one or one is the input.
+  // Idris source takes `frontend`; a module, nothing of it.
   static std::optional<Plan> of(llvm::StringRef input, Product product,
-                                std::optional<std::string> report);
+                                std::optional<std::string> report, FrontendArgs frontend);
 
   // The directories of every file the compilation writes, made before
   // anything runs: the frontend, the pipeline and the link each write
   // where they are told, and none of them finds a directory missing after
-  // the steps before it have run.
-  bool makeDirectories() const;
+  // the steps before it have run. An error in `context` for one that
+  // cannot be made.
+  mlir::LogicalResult makeDirectories(mlir::MLIRContext &context) const;
 
   // The module the compilation reads in process.
   const std::string &modulePath() const;
@@ -129,15 +147,21 @@ private:
   std::vector<std::unique_ptr<llvm::FileRemover>> removers;
 };
 
+// The compiler's error, in `context`, that the file at `path` cannot be
+// written, and why.
+mlir::InFlightDiagnostic cannotWrite(mlir::MLIRContext &context, llvm::StringRef path,
+                                     const std::error_code &error);
+
 // Makes the directory a file is to be written in, and those it is in, so
 // that an output goes where it is named whether or not its directory
 // exists yet, as Idris's own -o did. A path with no directory part is in
 // the working directory, which exists.
-bool makeDirectoryOf(llvm::StringRef path);
+mlir::LogicalResult makeDirectoryOf(llvm::StringRef path, mlir::MLIRContext &context);
 
 // Object code for the module, into the file at `path`, which is kept only
 // once it is written whole: the prepared runtime, one object.
-bool emit(llvm::Module &module, llvm::TargetMachine &machine, llvm::StringRef path);
+mlir::LogicalResult emit(llvm::Module &module, llvm::TargetMachine &machine, llvm::StringRef path,
+                         mlir::MLIRContext &context);
 
 // The optimized program's object code, one object per bin of its partition:
 // the module written once as bitcode, each bin read lazily in a context of
@@ -145,10 +169,11 @@ bool emit(llvm::Module &module, llvm::TargetMachine &machine, llvm::StringRef pa
 // `pool`, the largest first; for an executable each object written whole at
 // its artifacts.addObject, for an archive all of them as the archive, in
 // the order of their names. The objects are the
-// same whatever the pool's size. Reports what fails, and returns false.
-bool writeObjects(llvm::Module &optimized, const llvm::Target &target, const llvm::Triple &triple,
-                  llvm::StringRef cpu, llvm::StringRef features, llvm::ThreadPoolInterface &pool,
-                  Artifacts &artifacts);
+// same whatever the pool's size. Each failure is an error in `context`.
+mlir::LogicalResult writeObjects(llvm::Module &optimized, const llvm::Target &target,
+                                 const llvm::Triple &triple, llvm::StringRef cpu,
+                                 llvm::StringRef features, llvm::ThreadPoolInterface &pool,
+                                 Artifacts &artifacts, mlir::MLIRContext &context);
 
 } // namespace idr::driver
 

@@ -3,8 +3,8 @@
 // What a data type's body says beyond the type's own accessors, read from
 // the type of a value, never from the module; a constructor written by its
 // name; how a pass that would change a body makes new data types instead;
-// and the names generated from content, which no creation order and no
-// printing flag reaches.
+// the names generated from content, which no creation order and no
+// printing flag reaches; and the names the lowering reserves for itself.
 #ifndef IDR_IR_SYMBOLS_H
 #define IDR_IR_SYMBOLS_H
 
@@ -15,6 +15,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -25,6 +26,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace idr {
 
@@ -75,13 +77,17 @@ std::optional<Elimination> eliminationAt(mlir::OpOperand &use);
 // a type it holds in place that becomes a box, a label's function renamed)
 // makes a new type in place of the one whose body holds it, and of every
 // type whose body holds one of those, transitively; every other type stays
-// itself. A remade type keeps the old one's kind, constructor names and
-// roles, `byName` and instance, and is named contentName(old name, `kind`,
-// key): the key is its new body with every data type in it written by its
-// old name, and the keys of every remade type it reaches, so that two
-// remaps of one kind that remake a type differently anywhere below it name
-// it differently. No name needs a new name first. Every new body is made
-// when the remap is.
+// itself. What each field becomes is decided once, as its shape: the field
+// with each box and leaf applied at any depth, every data type in it by its
+// old name. A type changes where a shape is not its field or a label's
+// function is renamed; its key is its shapes and its labels' functions'
+// new names; its new body is each shape with its data types remade. A
+// remade type keeps the old one's kind, constructor names, roles (a label
+// with its function's new name) and instance, and is named contentName(old
+// name, `kind`, key and the keys of every remade type it reaches), so that
+// two remaps of one kind that remake a type differently anywhere below it
+// or anywhere in a field name it differently. No name needs a new name
+// first. Every new body is made when the remap is.
 class DataRemap {
 public:
   // Where a type is held in a body: field `field` of the constructor `tag`
@@ -128,9 +134,14 @@ private:
   void remakeAll(mlir::Operation *root, llvm::StringRef kind);
   DataType mapData(DataType type);
   std::optional<mlir::Type> leafAt(mlir::Type type, std::optional<FieldPlace> place);
-  void addReplacements(mlir::AttrTypeReplacer &into, std::optional<FieldPlace> place);
+  // The shape of `type` held at `place` (a field of a body, or nothing for
+  // anywhere else): each box and leaf applied, every data type by its old
+  // name.
+  mlir::Type shapeAt(mlir::Type type, std::optional<FieldPlace> place);
+  // `shape` with each data type in it remade.
+  mlir::Type remadeOf(mlir::Type shape);
   // The new type of `old`, made the first time it is asked for, from inside
-  // the replacements of another's body too.
+  // the remaking of another's body too.
   DataType remake(DataType old);
 
   mlir::MLIRContext *context;
@@ -142,9 +153,13 @@ private:
       leavesInBodies;
   llvm::DenseMap<mlir::Type, std::optional<mlir::Type>> leavesElsewhere;
   llvm::DenseSet<DataType> boxed;
+  // The shape of each field of each body the root reaches, by tag and then
+  // field, which the change, the key and the new body read.
+  llvm::DenseMap<DataType, std::vector<llvm::SmallVector<mlir::Type>>> shapes;
   // The name of each type to remake, and the type once it is made.
   llvm::DenseMap<DataType, std::string> names;
   llvm::DenseMap<DataType, DataType> next;
+  // The replacement of everything met anywhere but in a body.
   mlir::AttrTypeReplacer replacer;
   mlir::Location at;
   // Whether every body was made, which create reads: a body is made inside
@@ -200,12 +215,16 @@ std::string contentName(llvm::StringRef owner, llvm::StringRef kind, llvm::Strin
 // one thread at a time.
 class ContentNames {
 public:
+  // contentName(owner, kind, key), interned.
   mlir::FailureOr<mlir::StringAttr> intern(mlir::Location at, llvm::StringRef owner,
                                            llvm::StringRef kind, Digest key);
   mlir::FailureOr<mlir::StringAttr> intern(mlir::Location at, llvm::StringRef owner,
                                            llvm::StringRef kind, llvm::StringRef key) {
     return intern(at, owner, kind, digestOf(key));
   }
+  // `name`, made from `key` (a content name, or a reserved name of a
+  // digest), interned: the one check that no two keys make one name.
+  mlir::FailureOr<mlir::StringAttr> intern(mlir::Location at, llvm::StringRef name, Digest key);
 
   // The canonicalHash of a uniqued type, kept with these names, so each is
   // printed once however many keys hold it.
@@ -215,6 +234,30 @@ private:
   llvm::StringMap<Digest> keys;
   llvm::DenseMap<const void *, Digest> digests;
 };
+
+//===----------------------------------------------------------------------===//
+// Reserved names
+//===----------------------------------------------------------------------===//
+
+// A symbol the lowering makes for itself, outside the program's names:
+// `__idr$<kind>$<discriminator>`, `kind` a word that starts with a letter.
+// It is never a program symbol's mangling (conversion::mangle): a mangled
+// name's first `$` opens an escape, so a digit follows it, where a letter
+// follows a reserved name's first `$`. It is never a runtime function's
+// name either, a C identifier, which holds no `$`. So a reserved name is
+// distinct by its spelling, and no check of a collision guards it.
+std::string reservedName(llvm::StringRef kind, llvm::StringRef discriminator);
+
+// The reserved name of a thing named by its content: the discriminator is
+// what a name from content writes of `key`, the 16 low hex digits of its
+// digest (lib/IR/ContentNames.cpp). ContentNames::intern(at, name, key)
+// interns one, so a second key of one name is caught as a content name's is.
+std::string reservedName(llvm::StringRef kind, Digest key);
+
+// The function that releases the program's constant applicative forms once
+// its root returns: reservedName("release", "cafs"), the one spelling of
+// it, read wherever it is made or called.
+std::string releaseCafsName();
 
 } // namespace idr
 

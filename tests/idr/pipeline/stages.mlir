@@ -1,13 +1,19 @@
+// NEEDS-ACCEPTANCE: that a pass run at a stage its record does not state is refused, naming the pass and both stages.
 // RUN: idris-mlir-opt %s --idr-expect=holds=stage=higher -o /dev/null
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-expect=holds=stage=first -o /dev/null
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-rc --idr-expect=holds=stage=owned -o /dev/null
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-rc --idr-lower --idr-expect=holds=stage=lowered,lowered -o /dev/null
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-rc --idr-lower --idr-entry --idr-expect=holds=entry -o /dev/null
-// NEEDS-ACCEPTANCE: the stages each pass sets and idr-entry taking the program apart.
+// RUN: %status 1 idris-mlir-opt %s --idr-defunctionalize --idr-demand -o /dev/null 2> %t.demand.err
+// RUN: FileCheck %s --check-prefix=DEMAND < %t.demand.err
+// NEEDS-ACCEPTANCE: the stages each pass sets and idr-entry taking the program apart, and idr-demand refusing a program in the first stage by its record's stage.
 // The stage is the program's, said once: idr-defunctionalize brings it
 // from higher to first, idr-rc from first to owned, idr-lower from owned
 // to lowered, its functions upstream's in place, and idr-entry takes the
-// program apart into the module, its root the entry @main.
+// program apart into the module, its root the entry @main. Each pass
+// states the stage it runs at in its record, and refuses another: the
+// in-place promise idr-demand checks is in the grades idr-rc writes.
+// DEMAND: error: internal error: idr-demand runs on a program at owned, not first
 idr.program @stages root(@Prog.main) stage(higher) {
   idr.func @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64

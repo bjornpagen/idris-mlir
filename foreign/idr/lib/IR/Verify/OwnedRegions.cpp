@@ -4,8 +4,9 @@
 // are read through what it forwards (forwardedValues): the op's entry and
 // its regions' terminators move owned values on into region arguments and
 // results, with their references, and pass views on. A value an op makes
-// in a region without being forwarded it (a field a match binds, an element
-// a loop over a buffer reads) is the op's own, made from what it reads. No
+// in a region without being forwarded it (a field a match binds, the
+// scrutinee its default binds again, an element a loop over a buffer reads)
+// is the op's own, made from what it reads. No
 // op is known by its kind: the regions of one that return straight to it
 // are alternatives (alternatives), and those of any other may run again or
 // after one another. Each returns whether the end of what it walked is
@@ -182,18 +183,18 @@ FailureOr<idr::verify::OwnedWalk::Reach> idr::verify::OwnedWalk::walkRegions(Ope
       return Reach::Ends;
     llvm::MapVector<Value, int> after;
     for (auto &end : ends)
-      for (auto &[value, references] : end)
-        after.try_emplace(value, references);
-    for (auto &[value, references] : after)
+      for (auto &[value, count] : end)
+        after.try_emplace(value, count);
+    for (auto &[value, count] : after)
       for (auto &end : ends) {
         auto it = end.find(value);
-        int here = it == end.end() ? held.lookup(value) : it->second;
-        if (here != references)
+        int here = it == end.end() ? references(value) : it->second;
+        if (here != count)
           return fail(op, value, "leaves a value with ")
-                 << references << " references on one path and " << here << " on another";
+                 << count << " references on one path and " << here << " on another";
       }
-    for (auto &[value, references] : after)
-      set(value, references);
+    for (auto &[value, count] : after)
+      set(value, count);
   } else if (failed(backEdges(op, forwarding, reached))) {
     return failure();
   }
@@ -217,12 +218,16 @@ LogicalResult idr::verify::OwnedWalk::enter(Operation &op, const Forwarding &for
   auto feeds = forwarding.into.find(input);
   if (feeds == forwarding.into.end())
     return make(op, input, reads);
-  if (tracked(input)) {
+  switch (roleOf(input)) {
+  case Role::Owned:
+  case Role::Carried:
     set(input, payload(forwarding, input) ? 0 : 1);
     return success();
-  }
-  if (!isView(input))
+  case Role::Untracked:
     return success();
+  case Role::View:
+    break;
+  }
   SmallVector<Value> from;
   bool any = false;
   for (OpOperand *operand : feeds->second) {
@@ -284,7 +289,9 @@ FailureOr<SmallVector<Value>> idr::verify::OwnedWalk::ownersAcross(Operation &op
         add(*to);
         continue;
       }
-    if (tracked(value) || carried(value)) {
+    switch (roleOf(value)) {
+    case Role::Owned:
+    case Role::Carried:
       if (inside(op, value)) {
         (void)fail(*from, start, "passes on a view of a value whose reference does not leave "
                                  "the region with it");
@@ -292,15 +299,17 @@ FailureOr<SmallVector<Value>> idr::verify::OwnedWalk::ownersAcross(Operation &op
       }
       add(value);
       continue;
-    }
-    if (!isView(value))
+    case Role::Untracked:
       continue;
-    auto it = owners.find(value);
-    if (it == owners.end()) {
+    case Role::View:
+      break;
+    }
+    const Viewing *view = viewing(value);
+    if (!view) {
       (void)fail(*from, value, "passes on a view the walk never saw made");
       return failure();
     }
-    for (Value owner : it->second)
+    for (Value owner : view->owners)
       work.push(owner);
   }
   return out;
@@ -337,7 +346,7 @@ LogicalResult idr::verify::OwnedWalk::backEdges(Operation &op, const Forwarding 
     unsigned index = region.getRegionNumber();
     for (BlockArgument arg : region.front().getArguments()) {
       auto feeds = forwarding.into.find(arg);
-      if (feeds == forwarding.into.end() || !isView(arg))
+      if (feeds == forwarding.into.end() || roleOf(arg) != Role::View)
         continue;
       for (OpOperand *operand : feeds->second) {
         Operation *from = operand->getOwner();

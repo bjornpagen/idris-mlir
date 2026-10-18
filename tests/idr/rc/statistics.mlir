@@ -1,22 +1,29 @@
+// NEEDS-ACCEPTANCE: that each step of idr-rc reports its own statistics under its own pass, in the pipeline's order, where it acts.
 // RUN: idris-mlir-opt %s --idr-rc --mlir-pass-statistics -o /dev/null 2> %t.stats
 // RUN: FileCheck %s < %t.stats
-// NEEDS-ACCEPTANCE: idr-rc classifies values on the code each step sees (classes built per step): a field whose box's take moved its later uses may now be a view, one dup and drop fewer, if this fixture's output moves.
-// NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
-// idr-rc places and commits its counts through two function passes it runs
-// itself, but the counts are its own: one walk after both runs reports what
-// the module holds, under IdrRc, and the nested passes declare none. Here
-// `bump` takes its dead list apart and builds the new cell in it.
-// CHECK: IdrRc
-// CHECK-DAG: (S) {{[0-9]+}} borrowed
-// CHECK-DAG: (S) {{[0-9]+}} exclusive
-// CHECK-DAG: (S) {{[1-9][0-9]*}} takes
-// CHECK-DAG: (S) {{[1-9][0-9]*}} reuses
-// CHECK-DAG: (S) {{[0-9]+}} dups
+// idr-rc is a pipeline of passes, each counting what it does where it does
+// it: the cells made, the cells put on the stack, the parameters borrowed,
+// the takes, recycled cells, dups and drops placed, and the values proved
+// exclusive. Here `bump` takes its dead list apart and builds the new cell
+// in it.
+// CHECK: IdrRcCells
+// CHECK: (S) {{[1-9][0-9]*}} boxes
+// CHECK: IdrRcStack
+// CHECK-DAG: (S) {{[0-9]+}} boxes
+// CHECK-DAG: (S) {{[0-9]+}} stack-cells
+// CHECK: IdrRcGrades
+// CHECK: (S) {{[0-9]+}} borrowed
+// CHECK: IdrRcPlace
 // CHECK-DAG: (S) {{[0-9]+}} drops
+// CHECK-DAG: (S) {{[0-9]+}} dups
+// CHECK-DAG: (S) {{[1-9][0-9]*}} reuses
+// CHECK-DAG: (S) {{[1-9][0-9]*}} takes
+// CHECK: IdrRcExclusive
+// CHECK: (S) {{[0-9]+}} exclusive
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @statistics root(@root) stage(first) {
   idr.func @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %c1 = arith.constant 1 : i64
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
@@ -33,7 +40,7 @@ idr.program @statistics root(@root) stage(first) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %l = idr.con !idr.box<!L> @C(%x : i64, %n : !idr.box<!L>)
     %b = idr.call @bump(%l) : (!idr.box<!L>) -> !idr.box<!L>
     %s = idr.match %b : !idr.box<!L> -> (i64) {
@@ -44,7 +51,7 @@ idr.program @statistics root(@root) stage(first) {
       idr.yield %h : i64
     }
     }
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     return %w2 : !idr.world
   }
 }

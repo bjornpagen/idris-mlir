@@ -1,17 +1,19 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// NEEDS-ACCEPTANCE: that the linear enter and use of the action fold away, as the canonicalizer folds a use of an enter, with symbol-dce after idr-optimize as the pipeline runs it; the root's IORes holds a unit, a root S38 admits.
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@greet,not-called=@put -o /dev/null
-// NEEDS-ACCEPTANCE: that the linear enter and use of the action fold away, as the canonicalizer folds a use of an enter.
 // An IO action is linear: the result of @greet enters a linear position
 // and is used at once before its field is applied. The pair only moves
 // the action in and out, and folds away, so once the root inlines @greet
 // the dispatch meets the constructor @greet built and calls @put
 // directly, which it inlines: nothing is called.
-!IORes = !idr.data<"IORes", plain [@MkIORes(i64, !idr.world)]>
+!Unit = !idr.data<"Unit", plain [@MkUnit()]>
+!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
 idr.program @"through-linear" root(@Main.main) stage(higher) {
   idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_int signed %n, %w : i64
-    %r = idr.con !IORes @MkIORes(%n : i64, %w1 : !idr.world)
+    %u = idr.con !Unit @MkUnit()
+    %r = idr.con !IORes @MkIORes(%u : !Unit, %w1 : !idr.world)
     return %r : !IORes
   }
   idr.func @greet(%n: i64) -> !IO attributes {total} {

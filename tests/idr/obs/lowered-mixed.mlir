@@ -1,4 +1,4 @@
-// NEEDS-ACCEPTANCE: a module with no idr.program holding a non-LLVM op is refused at that op, naming it, exit 1, verdict internal; a func.func module does not parse, exit 1, verdict internal.
+// NEEDS-ACCEPTANCE: a module with no idr.program holding a non-LLVM op is refused at that op, naming it, exit 1, verdict internal; so is a func.func module, at its func.func.
 // RUN: sed -n 's|^// HALFWAY: ||p' %s > %t.halfway.mlir
 // RUN: %status 1 idris-mlir -c %t.halfway.mlir -o %t.halfway.o --report=%t.halfway.report 2> %t.halfway.err
 // RUN: FileCheck %s --check-prefix=MIXERR < %t.halfway.err
@@ -12,7 +12,7 @@
 // llvm.func) is no such module: idris-mlir says so at the op, as the
 // compiler's error, before LLVM's translation meets it. A func.func, of a
 // dialect neither the frontend nor the pipeline's output is written in,
-// does not parse.
+// is refused so too.
 // MIXERR: error: 'arith.constant' op is no op of the LLVM dialect, in a module that holds no idr.program
 // MIXED: verdict: internal
 // MIXED-NEXT: diagnostic: error - {{.*}}.halfway.mlir:2{{$}}

@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+// An integer literal's value modulo 2^64, which idr-lower wraps to the op's
+// width; any other string is 0 (rt::numerals::readNumeral).
 extern "C" int64_t idris_rt_str_to_int(const idris_rt_str *s) {
   const char *p = idris_rt_str_bytes(s);
   rt::numerals::Numeral numeral = rt::numerals::readNumeral(p, s->bytes);

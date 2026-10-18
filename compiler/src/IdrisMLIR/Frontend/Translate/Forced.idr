@@ -19,22 +19,25 @@
 ||| tests nothing, so a clause that holds one at run time still matches.
 module IdrisMLIR.Frontend.Translate.Forced
 
+import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.Env
 import Core.TT
+import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 
 import Data.List
+import Data.SortedMap
 import Data.Vect
 
 %default total
 
 mutual
   ||| A place of a clause's left-hand side as Idris's case builder reads it
-  ||| (`mkPat`), read once (`patternOf`): the clause's binders, by number,
+  ||| (`argToPat`), read once (`patternOf`): the clause's binders, by number,
   ||| that it names the whole by (a variable, and the names its as-patterns
   ||| give), and what tests the value there.
   record Pattern where
@@ -45,53 +48,46 @@ mutual
   ||| What a place tests, as Idris's tree splits on it: a data or type
   ||| constructor applied to its arguments (a function type is the type
   ||| constructor `->` applied to its domain and codomain, as the tree names
-  ||| its alternative), a constant, or a suspension. A literal written
-  ||| through a primitive conversion (`fromInteger 3` at a type of its own),
-  ||| which the builder computes into a constant or a constructor, and a
-  ||| function type's codomain test a value this reading does not take
-  ||| apart (`Opaque`). Nothing is tested where the place is a variable, or a
-  ||| term the builder cannot match: an erased place, or a term the unifier
-  ||| computed from the clause's other places, whose value those fix.
+  ||| its alternative), a constant, or a suspension. Nothing is tested where
+  ||| the place is a variable, or a term the builder cannot match: an erased
+  ||| place, or a term the unifier computed from the clause's other places,
+  ||| whose value those fix.
   data Test : Type where
     Untested : Test
     Con : Name -> List Pattern -> Test
     Lit : Constant -> Test
     Suspended : Pattern -> Pattern -> Test
-    Opaque : Test
 
 ||| A place that binds nothing and tests nothing.
 wildcard : Pattern
 wildcard = MkPattern [] Untested
 
-mutual
-  ||| A place of a clause's left-hand side, its names full, read as Idris's
-  ||| case builder reads it (`mkPat`), given the names of the primitive
-  ||| conversions (`getPrimitiveNames`).
-  patternOf : (prims : List Name) -> TT cs -> Pattern
-  patternOf prims tm = applied prims [] tm
+||| What a clause's binders are called once it is closed (`Env.close`):
+||| each by its number in the clause's scope, the innermost 0, as a case
+||| tree's leaf names it.
+placeName : String
+placeName = "place"
 
-  ||| A place whose head is applied to arguments, already read.
-  applied : (prims : List Name) -> List Pattern -> TT cs -> Pattern
-  applied prims [] (Local _ _ j _) = MkPattern [j] Untested
-  applied prims args (Ref _ (DataCon _ _) n) = MkPattern [] (Con n args)
-  applied prims args (Ref _ (TyCon _) n) = MkPattern [] (Con n args)
-  -- A primitive conversion applied to a constant is a literal the builder
-  -- computes (`normalisePrims`); any other function applied is a term the
-  -- unifier computed.
-  applied prims args (Ref _ Func n) = case last' args of
-    Just (MkPattern _ (Lit _)) => MkPattern [] (if isPrimName prims n then Opaque else Untested)
-    _ => wildcard
-  applied prims args (Bind _ _ (Pi _ _ _ s) _) =
-    MkPattern [] (Con (UN (Basic "->")) [patternOf prims s, MkPattern [] Opaque])
-  applied prims args (App _ f a) = applied prims (patternOf prims a :: args) f
-  applied prims args (As _ _ (Local _ _ j _) p) = case patternOf prims p of
-    MkPattern ns t => MkPattern (j :: ns) t
-  applied prims args (As _ _ _ p) = patternOf prims p
-  applied prims args (TDelay _ _ ty p) = MkPattern [] (Suspended (patternOf prims ty) (patternOf prims p))
-  applied prims args (PrimVal _ (PrT c)) = MkPattern [] (Con (UN (Basic (show c))) [])
-  applied prims args (PrimVal _ c) = MkPattern [] (Lit c)
-  applied prims args (TType _ _) = MkPattern [] (Con (UN (Basic "Type")) [])
-  applied prims args _ = wildcard
+||| The binder of the clause a place's name is, by its number.
+binderOf : Name -> List Nat
+binderOf (MN s i) = if s == placeName then [cast i] else []
+binderOf _ = []
+
+mutual
+  ||| A place as the case builder read it.
+  patternOf : Pat -> Pattern
+  patternOf (PAs _ n p) = { names $= (binderOf n ++) } (patternOf p)
+  patternOf (PCon _ n _ _ ps) = MkPattern [] (Con n (patternsOf ps))
+  patternOf (PTyCon _ n _ ps) = MkPattern [] (Con n (patternsOf ps))
+  patternOf (PConst _ c) = MkPattern [] (Lit c)
+  patternOf (PArrow _ _ s t) = MkPattern [] (Con (UN (Basic "->")) [patternOf s, patternOf t])
+  patternOf (PDelay _ _ t p) = MkPattern [] (Suspended (patternOf t) (patternOf p))
+  patternOf (PLoc _ n) = MkPattern (binderOf n) Untested
+  patternOf (PUnmatchable _ _) = wildcard
+
+  patternsOf : List Pat -> List Pattern
+  patternsOf [] = []
+  patternsOf (p :: ps) = patternOf p :: patternsOf ps
 
 ||| A variable of a case tree's scope as one clause sees it: the quantity
 ||| of the place that holds it (the definition's parameter, or the
@@ -171,16 +167,17 @@ leftSide (_ :: as) (q :: qs) [] = MkOccurrence q wildcard :: leftSide as qs []
 
 ||| A definition's clauses, at the root of its compile-time tree, whose
 ||| scope is the definition's parameters (`args`, of the type `ty`), each
-||| argument of a clause read as the case builder reads it.
+||| argument of a clause read as the case builder reads it, from the clause
+||| closed as Idris closes it to build the tree.
 export
 clauses : {auto c : Ref Ctxt Defs} -> (args : Scope) -> (ty : ClosedTerm) ->
           List (vs : Scope ** (Env TT vs, TT vs, TT vs)) -> Core (Clauses args)
 clauses args ty pats = do
   qs <- quantities (length args) ty
-  prims <- getPrimitiveNames
-  traverse (\(_ ** (_, lhs, _)) => do
-              full <- toFullNames lhs
-              pure (leftSide args qs (map (patternOf prims) (snd (getFnArgs full)))))
+  traverse (\(_ ** (env, lhs, _)) => do
+              full <- toFullNames (close EmptyFC placeName env lhs)
+              places <- traverse host.argToPat (snd (getFnArgs full))
+              pure (leftSide args qs (map patternOf places)))
            pats
 
 ||| The arguments a match binds, each at the quantity of its binder times
@@ -191,9 +188,9 @@ argsAt q = zipWith (\b, part => MkOccurrence (q |*| b) part)
 ||| A clause after a match on constructor `cn` at a position: the place
 ||| there taken apart, its arguments in front; wildcards where the place
 ||| tests nothing. A place that tests anything else (another constructor,
-||| one applied to other than its arguments, a constant, a suspension, a
-||| value this reading does not take apart) is not known to match the
-||| inputs that take this alternative, and the clause is dropped.
+||| one applied to other than its arguments, a constant, a suspension) is
+||| not known to match the inputs that take this alternative, and the
+||| clause is dropped.
 split : {auto c : Ref Ctxt Defs} -> Name -> (idx : Nat) -> (0 _ : IsVar n idx vars) ->
         (bound : List Name) -> Vect (length bound) RigCount -> Occurrences vars ->
         Core (Maybe (Occurrences (Scope.addInner vars bound)))
@@ -209,7 +206,6 @@ split cn idx p bound qs os = do
       Nothing => pure Nothing
     Lit _ => pure Nothing
     Suspended _ _ => pure Nothing
-    Opaque => pure Nothing
 
 ||| The clauses that take a match's alternative for constructor `cn`, of
 ||| type `ty`, which binds `args`, at the variable it matches.
@@ -236,7 +232,6 @@ afterDelay (MkVar {varIdx} p) = mapMaybe forced
           Just (MkOccurrence erased t :: MkOccurrence o.quantity v :: replaceAt varIdx p ({ matched $= takenApart } o) os)
         Con _ _ => Nothing
         Lit _ => Nothing
-        Opaque => Nothing
 
 ||| The clauses that take a match's alternative for a literal at a variable.
 export
@@ -251,7 +246,6 @@ afterLit c (MkVar {varIdx} p) = mapMaybe literal
         Lit c' => if c == c' then Just (replaceAt varIdx p ({ matched $= takenApart } o) os) else Nothing
         Con _ _ => Nothing
         Suspended _ _ => Nothing
-        Opaque => Nothing
 
 ||| Does every input that reaches a leaf match the clause: does no place
 ||| at a variable that holds a value at run time still test it? Idris's
@@ -259,12 +253,10 @@ afterLit c (MkVar {varIdx} p) = mapMaybe literal
 ||| an erased place is fixed by those its type depends on.
 covers : Occurrences vars -> Bool
 covers [] = True
-covers (o :: os) = case (isErased o.quantity, o.matched.test) of
-  (False, Con _ _) => False
-  (False, Lit _) => False
-  (False, Suspended _ _) => False
-  (False, Opaque) => False
-  _ => covers os
+covers (o :: os) = case (use o.quantity, o.matched.test) of
+  (Erased, _) => covers os
+  (Used _, Untested) => covers os
+  (Used _, _) => False
 
 ||| The variables a leaf reads elsewhere by one clause, by position: each
 ||| one of quantity 0 whose binder a variable that holds a value at run
@@ -274,30 +266,30 @@ aliasesBy : List (Nat, Occurrence) -> List (Nat, Nat)
 aliasesBy vs = mapMaybe alias vs
   where
     holds : List Nat -> (Nat, Occurrence) -> Bool
-    holds bs (_, o) = not (isErased o.quantity) && any (\b => elem b o.matched.names) bs
+    holds bs (_, o) = case use o.quantity of
+      Erased => False
+      Used _ => any (\b => elem b o.matched.names) bs
 
     alias : (Nat, Occurrence) -> Maybe (Nat, Nat)
-    alias (i, o) = if isErased o.quantity
-                     then map (\(j, _) => (i, j)) (find (holds o.matched.names) (reverse vs))
-                     else Nothing
+    alias (i, o) = case use o.quantity of
+      Erased => map (\(j, _) => (i, j)) (find (holds o.matched.names) (reverse vs))
+      Used _ => Nothing
 
 ||| The variables a leaf reads elsewhere, by every clause whose left-hand
-||| side the inputs that reach it match, the first clause's reading first.
-aliases : Clauses vars -> List (Nat, Nat)
-aliases = foldl more []
+||| side the inputs that reach it match, the first clause's reading first:
+||| by position, the position read in its place.
+aliases : Clauses vars -> SortedMap Nat Nat
+aliases = foldl more empty
   where
-    more : List (Nat, Nat) -> Occurrences vars -> List (Nat, Nat)
-    more found os =
-      if covers os
-        then found ++ filter (\(i, _) => isNothing (lookup i found)) (aliasesBy (positioned os))
-        else found
+    more : SortedMap Nat Nat -> Occurrences vars -> SortedMap Nat Nat
+    more found os = if covers os then mergeLeft found (fromList (aliasesBy (positioned os))) else found
 
 ||| A leaf's environment, one entry per variable of its scope by position:
 ||| each erased variable read as the variable that holds its binder at run
 ||| time (`aliases`), which is never itself one read elsewhere.
 export
 heldAt : Clauses vars -> List a -> List a
-heldAt cls env = foldl hold env (aliases cls)
+heldAt cls env = foldl hold env (SortedMap.toList (aliases cls))
   where
     setAt : Nat -> a -> List a -> List a
     setAt Z v (_ :: xs) = v :: xs

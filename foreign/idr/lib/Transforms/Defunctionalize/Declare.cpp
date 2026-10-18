@@ -45,12 +45,12 @@ Type held(Type type, bool lazy, DataType sum) {
 
 Type Slots::sumOf(const Key &key) const { return typeOf(key.carrier, key); }
 
+// Every key of the program has its sum: decide made each before it
+// returned the decision.
 Type Slots::typeOf(Type type, const Slot &slot) const {
   if (!slot)
     return type;
-  auto it = sums.find(*slot);
-  assert(it != sums.end() && it->second.type && "every key of the program has a sum");
-  return held(type, slot->isLazy(), it->second.type);
+  return held(type, slot->isLazy(), sums.at(*slot));
 }
 
 Tag Slots::labelTag(const Key &key, FlatSymbolRefAttr label) const {
@@ -67,13 +67,39 @@ FlatSymbolRefAttr Slots::forceOf(const Key &key) const {
   return forces.at(key);
 }
 
-LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
-  if (failed(name()))
+// The parts in the order each reads the ones before it: the names, then
+// each sum, which may hold the sums of later keys and makes them in turn,
+// then the signatures and the dispatch functions' names, which read the
+// sums, then the constants, which read both, and last the dispatch
+// functions, born converted. The first failure is the decision's.
+FailureOr<std::unique_ptr<Slots>> Slots::decide(ProgramOp program, Labels &labels,
+                                                SymbolTable &symbols,
+                                                function_ref<bool(FuncOp)> byName) {
+  std::unique_ptr<Slots> slots(new Slots(program, labels, symbols));
+  if (failed(slots->name()))
     return failure();
-  for (auto &entry : sums)
-    define(entry.first, byName);
-  if (broken)
+  for (const Key &key : slots->keys)
+    if (failed(slots->define(key, byName)))
+      return failure();
+  slots->convertSignatures();
+  if (failed(slots->nameForces()))
     return failure();
+  program.walk([&](ConstantOp constant) {
+    slots->constants[constant] = slots->convertConstant(constant.getValue(),
+                                                        slots->keyOf(constant.getResult()));
+  });
+  for (const Key &key : slots->keys) {
+    if (!key.isLazy())
+      continue;
+    FailureOr<FuncOp> dispatch = slots->defineForce(key, slots->sums.at(key));
+    if (failed(dispatch))
+      return failure();
+    symbols.insert(*dispatch);
+  }
+  return slots;
+}
+
+void Slots::convertSignatures() {
   for (auto &entry : signatures) {
     Signature &sig = entry.second;
     SmallVector<Type> inputs, results;
@@ -83,14 +109,17 @@ LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
       results.push_back(typeOf(type, key));
     sig.converted = FunctionType::get(ctx, inputs, results);
   }
-  // Each memo sum's dispatch function takes the cell and gives the value
-  // its forced state holds. Its name is the sum's, which the key's content
-  // made, and no Idris name holds the sum's `$`, so no function of the
-  // program has it already.
-  for (auto &[key, sum] : sums) {
+}
+
+// Each memo sum's dispatch function takes the cell and gives the value its
+// forced state holds. Its name is the sum's, which the key's content made,
+// and no Idris name holds the sum's `$`, so no function of the program has
+// it already: two on one name are the compiler's error.
+LogicalResult Slots::nameForces() {
+  for (const Key &key : keys) {
     if (!key.isLazy())
       continue;
-    auto name = StringAttr::get(ctx, sum.name.getValue() + ".force");
+    auto name = StringAttr::get(ctx, names.at(key).getValue() + ".force");
     if (signatures.count(name))
       return program.emitError("internal error: idr-defunctionalize: two dispatch functions "
                                "are named ")
@@ -104,10 +133,6 @@ LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
     sig.results.push_back(forced);
     forces[key] = FlatSymbolRefAttr::get(name);
   }
-  program.walk([&](ConstantOp constant) {
-    Value result = constant.getResult();
-    constants[constant] = convertConstant(constant.getValue(), keyOf(result));
-  });
   return success();
 }
 
@@ -115,61 +140,68 @@ LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
 // the sums of other keys, which are made in turn and may hold this one:
 // `define` hands the body the type being made, which is kept before the
 // body is, so that a sum asked for again while its body is made is that
-// type.
-DataType Slots::define(const Key &key, function_ref<bool(FuncOp)> byName) {
-  Sum &sum = sums.find(key)->second;
-  if (sum.type)
-    return sum.type;
+// type. A body that fails, here or in a sum it holds, is this sum's failure,
+// returned to whatever asked for it.
+FailureOr<DataType> Slots::define(const Key &key, function_ref<bool(FuncOp)> byName) {
+  if (auto made = sums.find(key); made != sums.end())
+    return made->second;
   // The fields of the body, which outlive the callback that hands it over.
   SmallVector<SmallVector<Type>> fields;
-  FailureOr<DataType> made = DataType::define(ctx, sum.name.getValue(), [&](DataType self) {
-    sum.type = self;
-    return body(key, byName, fields);
-  });
-  if (failed(made))
-    broken = true;
-  sum.type = succeeded(made) ? *made : DataType();
-  return sum.type;
+  return DataType::define(ctx, names.at(key).getValue(),
+                          [&](DataType self) -> FailureOr<DataType::Body> {
+                            sums[key] = self;
+                            return body(key, byName, fields);
+                          });
 }
 
 // The type of a capture or forced value of type `type` held in `slot`: its
 // key's sum, or, in a slot of no key, the type itself.
-Type Slots::slotType(Type type, const Slot &slot, function_ref<bool(FuncOp)> byName) {
+FailureOr<Type> Slots::slotType(Type type, const Slot &slot, function_ref<bool(FuncOp)> byName) {
   if (!slot)
     return type;
-  return held(type, slot->isLazy(), define(*slot, byName));
+  FailureOr<DataType> sum = define(*slot, byName);
+  if (failed(sum))
+    return failure();
+  return held(type, slot->isLazy(), *sum);
 }
 
-// The body of `key`'s sum: its labels in name order, then a memo sum's
-// states; `fields` holds their field types.
-DataType::Body Slots::body(const Key &key, function_ref<bool(FuncOp)> byName,
-                           SmallVectorImpl<SmallVector<Type>> &fields) {
+// The body of `key`'s sum: its labels in name order, each naming its
+// function, then a memo sum's states; `fields` holds their field types.
+FailureOr<DataType::Body> Slots::body(const Key &key, function_ref<bool(FuncOp)> byName,
+                                      SmallVectorImpl<SmallVector<Type>> &fields) {
   bool lazy = key.isLazy();
   ArrayRef<Attribute> labels = key.labels.getValue();
   fields.resize(labels.size() + (lazy ? 2 : 0));
   for (auto [at, attr] : llvm::enumerate(labels)) {
     StringAttr label = cast<FlatSymbolRefAttr>(attr).getAttr();
     const Signature &sig = signature(label);
-    for (unsigned i = 0, n = captures(label, key.carrier); i < n; ++i)
-      fields[at].push_back(slotType(sig.type.getInput(i), sig.arguments[i], byName));
+    for (unsigned i = 0, n = captures(label, key.carrier); i < n; ++i) {
+      FailureOr<Type> field = slotType(sig.type.getInput(i), sig.arguments[i], byName);
+      if (failed(field))
+        return failure();
+      fields[at].push_back(*field);
+    }
   }
   if (lazy) {
     Type value = cast<LazyType>(key.carrier).getValue();
-    fields[labels.size() + 1].push_back(slotType(value, forcedKey(key.carrier), byName));
+    FailureOr<Type> field = slotType(value, forcedKey(key.carrier), byName);
+    if (failed(field))
+      return failure();
+    fields[labels.size() + 1].push_back(*field);
   }
   DataType::Body made;
   made.kind = lazy ? SumKind::Memo : SumKind::Closures;
   for (auto [at, attr] : llvm::enumerate(labels)) {
     auto label = cast<FlatSymbolRefAttr>(attr);
-    made.ctors.push_back({label.getAttr(), fields[at],
-                          lazy && byName(analysis.function(label.getAttr())), CtorRole::Label,
-                          label});
+    made.ctors.push_back(
+        {label.getAttr(), fields[at],
+         role::Label{label, lazy && byName(analysis.function(label.getAttr()))}});
   }
   if (lazy) {
-    made.ctors.push_back({StringAttr::get(ctx, memoRunning), fields[labels.size()], false,
-                          CtorRole::Running, FlatSymbolRefAttr()});
-    made.ctors.push_back({StringAttr::get(ctx, memoForced), fields[labels.size() + 1], false,
-                          CtorRole::Forced, FlatSymbolRefAttr()});
+    made.ctors.push_back(
+        {StringAttr::get(ctx, memoRunning), fields[labels.size()], role::Running{}});
+    made.ctors.push_back(
+        {StringAttr::get(ctx, memoForced), fields[labels.size() + 1], role::Forced{}});
   }
   return made;
 }
@@ -214,31 +246,24 @@ Attribute Slots::convertConstant(Attribute attr, const Slot &slot) {
     SmallVector<Attribute> captures;
     for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
       captures.push_back(convertConstant(capture, sig.arguments[i]));
-    result = ConAttr::get(ctx, sums.find(*slot)->second.type, labelTag(*slot, label),
+    result = ConAttr::get(ctx, sums.at(*slot), labelTag(*slot, label),
                           ArrayAttr::get(ctx, captures));
   } else {
+    // A constructor's cells, each field converted in its slot, and the
+    // constant made again of them: a plain constructor is one cell.
     auto con = cast<ConAttr>(attr);
     DataType data = con.getData();
     Tag tag = con.getTag();
-    auto field = [&](Attribute value, unsigned i) {
-      return convertConstant(value, fieldKey(data, tag, i));
-    };
-    auto cell = [&](ArrayAttr fields, function_ref<unsigned(unsigned)> index) {
-      SmallVector<Attribute> out;
-      for (auto [i, value] : llvm::enumerate(fields))
-        out.push_back(field(value, index(static_cast<unsigned>(i))));
-      return ArrayAttr::get(ctx, out);
-    };
-    if (!con.isRun()) {
-      result = ConAttr::get(ctx, data, tag, cell(con.getFields(), [](unsigned i) { return i; }));
-    } else {
-      // A run is converted cell by cell, its tail in the last cell's spine.
-      unsigned spine = con.getSpine();
-      SmallVector<ArrayAttr> cells;
-      for (ArrayAttr one : con.getRunCells())
-        cells.push_back(cell(one, [&](unsigned i) { return cellField(i, spine); }));
-      result = ConAttr::getRun(ctx, data, tag, spine, cells, field(con.getTail(), spine));
+    SmallVector<ArrayAttr> cells;
+    for (auto [k, cell] : llvm::enumerate(con.getCells())) {
+      SmallVector<Attribute> fields;
+      for (auto [i, value] : llvm::enumerate(cell)) {
+        unsigned field = con.fieldOfCell(static_cast<unsigned>(k), static_cast<unsigned>(i));
+        fields.push_back(convertConstant(value, fieldKey(data, tag, field)));
+      }
+      cells.push_back(ArrayAttr::get(ctx, fields));
     }
+    result = ConAttr::getRun(ctx, data, tag, con.getSpine(), cells);
   }
   convertedParts[{attr, slot}] = result;
   return result;

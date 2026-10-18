@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The probes (`Walk.Probe`): every family's name, read back by `probeOf`,
+# is its probe, an axis's two references read back by `probeOfTerm`, and
+# names no probe has are none. Names.idr, run by the pinned Idris against
+# the installed fork, with Walk and the modules it imports copied from
+# compiler/src. Its output is expected-stdout.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+src=$root/compiler/src/IdrisMLIR
+mkdir -p "$work/src/IdrisMLIR/Proof" "$work/src/IdrisMLIR/Frontend" &&
+  cp "$src/Proof/Growth.idr" "$src/Proof/Requests.idr" "$work/src/IdrisMLIR/Proof/" &&
+  cp "$src/Frontend/Walk.idr" "$work/src/IdrisMLIR/Frontend/" &&
+  cp Names.idr "$work/src/Main.idr" || exit 1
+packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir)
+if (cd "$work" && IDRIS2_PACKAGE_PATH=$packages && export IDRIS2_PACKAGE_PATH &&
+    pinned_idris -p idris-compiler --source-dir src --exec main src/Main.idr) > "$work/out" 2>&1 &&
+   grep -v '^ *[0-9]*/[0-9]*: Building' "$work/out" | cmp -s - expected-stdout; then
+  say "probe-names: every probe read back as itself"
+else
+  say "probe-names: a probe read back otherwise"
+  show "$work/out"
+fi

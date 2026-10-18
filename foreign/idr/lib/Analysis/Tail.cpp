@@ -14,41 +14,19 @@
 using namespace mlir;
 
 namespace idr::tail {
-namespace {
 
-// The box `op` builds, when it is an idr.con or idr.reuse of a boxed type.
-std::optional<Built> builtBox(Operation *op) {
-  if (!op || op->getNumResults() == 0 || !isa<BoxType>(unrestricted(op->getResult(0).getType())))
-    return std::nullopt;
-  if (auto con = dyn_cast<ConOp>(op))
-    return Built(con);
-  if (auto reuse = dyn_cast<ReuseOp>(op))
-    return Built(reuse);
-  return std::nullopt;
+bool endsTail(Block &block) {
+  Operation *terminator = block.getTerminator();
+  if (isa<ReturnOp>(terminator))
+    return true;
+  Operation *match = block.getParentOp();
+  return isa<YieldOp>(terminator) && isTailMatch(match) && inTailPosition(match);
 }
-
-// The value `built` builds its field `index` of, or null for a hole, and
-// how many fields its constructor has.
-Value fieldOf(const Built &built, unsigned index) {
-  return std::visit([&](auto op) { return op.getField(index); }, built);
-}
-
-size_t fieldCount(const Built &built) {
-  return std::visit([](auto op) { return op.getDataType().getCtor(op.getTag()).fields.size(); },
-                    built);
-}
-
-} // namespace
 
 bool inTailPosition(Operation *op) {
   Operation *next = op->getNextNode();
-  if (!next || !next->hasTrait<OpTrait::IsTerminator>() ||
-      !llvm::equal(op->getResults(), next->getOperands()))
-    return false;
-  if (isa<ReturnOp>(next))
-    return true;
-  Operation *match = next->getParentOp();
-  return isa<YieldOp>(next) && isTailMatch(match) && inTailPosition(match);
+  return next && next->hasTrait<OpTrait::IsTerminator>() &&
+         llvm::equal(op->getResults(), next->getOperands()) && endsTail(*op->getBlock());
 }
 
 bool passesOnPrevious(Operation *terminator) {
@@ -57,7 +35,7 @@ bool passesOnPrevious(Operation *terminator) {
          llvm::equal(prev->getResults(), terminator->getOperands());
 }
 
-bool isTailMatch(Operation *op) { return isa_and_nonnull<MatchOp, MatchLitOp>(op); }
+bool isTailMatch(Operation *op) { return isa_and_nonnull<MatchOpInterface>(op); }
 
 Operation *tailMatch(Operation *terminator) {
   Operation *prev = terminator->getPrevNode();
@@ -69,19 +47,21 @@ bool isSelfCall(Operation *op, FuncOp fn) {
   return call && call.getCallee() == fn.getSymName();
 }
 
-Operation *opOf(const Built &built) {
-  return std::visit([](auto op) -> Operation * { return op.getOperation(); }, built);
-}
-
 std::optional<Modulo> moduloAt(Block &block, FuncOp fn) {
   Operation *terminator = block.getTerminator();
   if (!passesOnPrevious(terminator))
     return std::nullopt;
-  std::optional<Built> built = builtBox(terminator->getPrevNode());
+  auto built = dyn_cast<CellInitOp>(terminator->getPrevNode());
   if (!built)
     return std::nullopt;
-  for (unsigned index : llvm::seq(static_cast<unsigned>(fieldCount(*built)))) {
-    Value source = fieldOf(*built, index);
+  // Allocation is split from construction: the box is its cell's producer
+  // and the init that writes it, and the producer may stand between the
+  // call and the init. idr-trmc builds the init before the call, so the
+  // call moves past the producer as it moves past the init.
+  Operation *producer = built.getCell().getDefiningOp();
+  auto fields = static_cast<unsigned>(built.getDataType().getCtor(built.getTag()).fields.size());
+  for (unsigned index : llvm::seq(fields)) {
+    Value source = built.getField(index);
     if (!source)
       continue;
     // The grades on the way: the chain of definitions through ops that
@@ -100,12 +80,13 @@ std::optional<Modulo> moduloAt(Block &block, FuncOp fn) {
     if (!call || !isSelfCall(call, fn) || call->getBlock() != &block || !call->hasOneUse() ||
         call->getNumResults() != 1)
       continue;
-    // The ops of the block between the call and the constructor.
-    auto between = llvm::make_range(std::next(call->getIterator()), opOf(*built)->getIterator());
+    // The ops of the block between the call and the init.
+    auto between = llvm::make_range(std::next(call->getIterator()), built->getIterator());
     if (llvm::all_of(between, [&](Operation &op) {
-          return llvm::is_contained(grades, &op) || (isMemoryEffectFree(&op) && isSpeculatable(&op));
+          return &op == producer || llvm::is_contained(grades, &op) ||
+                 (isMemoryEffectFree(&op) && isSpeculatable(&op));
         }))
-      return Modulo{call, *built, index, std::move(grades)};
+      return Modulo{call, built, index, std::move(grades)};
   }
   return std::nullopt;
 }
@@ -116,11 +97,7 @@ bool inTailPositionModuloConstructor(CallOp call) {
     return false;
   Block &block = *call->getBlock();
   std::optional<Modulo> tail = moduloAt(block, fn);
-  if (!tail || tail->call != call)
-    return false;
-  Operation *terminator = block.getTerminator();
-  Operation *match = terminator->getParentOp();
-  return isa<ReturnOp>(terminator) || (isTailMatch(match) && inTailPosition(match));
+  return tail && tail->call == call && endsTail(block);
 }
 
 } // namespace idr::tail

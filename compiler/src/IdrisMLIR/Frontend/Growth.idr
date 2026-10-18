@@ -42,33 +42,24 @@ import Data.Vect
 -- The bounds
 ------------------------------------------------------------------------------
 
-||| A position's bound from its own potential and cap: `bound`, read off the
-||| position's entries rather than looked up by index (`boundIs`).
-boundAt : (constant, potential : Nat) -> (cap : Maybe Nat) -> Nat
-boundAt k pi cap = maybe (k + pi) (min (k + pi)) cap
-
-0 boundIs : (g : Graph) -> (pot : Vect g.size Nat) -> (p : Fin g.size) ->
-            bound g pot p = boundAt g.constant (index p pot) (index p g.caps)
-boundIs g pot p = Refl
-
-||| Each position's bound under the potential the check found, in one pass
-||| over the positions, their potentials and their caps.
+||| Each position's bound under the potential the check found (`bound`), in
+||| one pass over the positions, their potentials and their caps.
 boundsOf : (b : Built) -> Vect b.graph.size Nat -> SortedMap Position Nat
-boundsOf b pot = fromList (toList (zipWith3 (\p, pi, cap => (p, boundAt b.graph.constant pi cap))
+boundsOf b pot = fromList (toList (zipWith3 (\p, pi, cap => (p, capped b.graph.constant pi cap))
                                             b.position pot b.graph.caps))
 
 ||| Heights by parameter from `next` on, from the height of each parameter
 ||| that has one, ascending: a parameter with none is 0, which keys nothing.
-padded : (next : Nat) -> List (Nat, Nat) -> List Nat
-padded next [] = []
-padded next ((j, h) :: rest) = replicate (minus j next) 0 ++ h :: padded (S j) rest
+byParameter : (next : Nat) -> List (Nat, Nat) -> List Nat
+byParameter next [] = []
+byParameter next ((j, h) :: rest) = replicate (minus j next) 0 ++ h :: byParameter (S j) rest
 
 ||| Each definition's heights by parameter: the largest bound of each of its
 ||| parameters over the nodes it is split into.
 heights : SortedMap Position Nat -> SortedMap Address (List Nat)
 heights bs =
   let largest = fromListWith max [((node.definition, j), h) | ((node, j), h) <- SortedMap.toList bs] in
-  map (padded 0) (fromListWith (\new, old => old ++ new)
+  map (byParameter 0) (fromListWith (\new, old => old ++ new)
                                [(a, the (List (Nat, Nat)) [(j, h)]) | ((a, j), h) <- SortedMap.toList largest])
 
 ||| The universe the worklist descends in, read from the bounds alone, the
@@ -89,12 +80,9 @@ sizesOf b bs =
 
 ||| The definition at an address of the graph, and its name as a message
 ||| prints it. Every address of the graph is a definition's (`addressOf`).
-definitionAt : {auto c : Ref Ctxt Defs} -> FC -> Address -> Core (GlobalDef, String)
-definitionAt fc a = do
-  defs <- get Ctxt
-  let Just n = nameAt (gamma defs) a
-    | Nothing => internal fc "the growth graph names an address no definition has"
-  Just def <- lookupCtxtExact n (gamma defs)
+graphDefinition : {auto c : Ref Ctxt Defs} -> FC -> Address -> Core (GlobalDef, String)
+graphDefinition fc a = do
+  Just def <- definitionAt a
     | Nothing => internal fc "the growth graph names an address no definition has"
   pure (def, nameKey !(toFullNames (fullname def)))
 
@@ -119,7 +107,7 @@ placeOf def = MkPlace (location def) (show (fullname def))
 userDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> Address -> Core (Maybe (Loc, GlobalDef))
 userDefinition fc a = do
-  (def, _) <- definitionAt fc a
+  (def, _) <- graphDefinition fc a
   loc <- toLoc (location def)
   pure (case loc.origin of
           User => Just (loc, def)
@@ -130,7 +118,11 @@ userDefinition fc a = do
 earliest : (t, Loc, GlobalDef) -> List (t, Loc, GlobalDef) -> (t, Loc, GlobalDef)
 earliest best [] = best
 earliest best@(_, m, _) (x@(_, l, _) :: xs) =
-  earliest (if (l.file, l.startLine) < (m.file, m.startLine) then x else best) xs
+  earliest (if place l < place m then x else best) xs
+  where
+    -- A definition's file and line, a file or line it has none of first.
+    place : Loc -> (Maybe String, Maybe Int)
+    place l = (locFile l, (.startLine) <$> locSpan l)
 
 ||| The first user definition among a node's reachers on the walk from
 ||| main, nearest first; nothing when main is reached with none.
@@ -219,13 +211,13 @@ computationThrough carried t = head' (mapMaybe holding (parts t))
       if carried (Template.Var j d) || any carried (partsOf ts) then Just (Family j) else Nothing
     holding _ = Nothing
 
-||| A cycle's positions, each with the arc that leaves it, in order: the ring
-||| its certificate holds, one arc per position, so at least one pair.
-around : {0 g : Graph} -> {0 first : Fin g.size} -> (here : Fin g.size) -> (ps : List (Fin g.size)) ->
-         (as : List (Fin (length g.arcs))) -> (0 _ : Ring g first here ps as) ->
+||| A cycle's arcs, each with the position it leaves, in order: the ring its
+||| certificate holds, at least one arc.
+around : (g : Graph) -> {0 first, here : Fin g.size} -> (as : List (Fin (length g.arcs))) -> (0 _ : Ring g first here as) ->
          List1 (Fin g.size, Fin (length g.arcs))
-around here [] [a] _ = (here, a) ::: []
-around here (next :: ps) (a :: as) (Next _ _ ring) = (here, a) ::: forget (around next ps as ring)
+around g (a :: as) _ = ((arc g a).from, a) ::: map (\b => ((arc g b).from, b)) as
+around g [] (Last _ _) impossible
+around g [] (Next _ _ _) impossible
 
 ||| Every rotation of a cycle, the i-th starting at its i-th pair.
 rotations : List1 a -> List1 (List1 a)
@@ -248,18 +240,18 @@ refuseCycle fc main b ring growth = do
                             (map (\r => (r, definitionOf (fst (head r)))) (rotations ring))
   let (source, a) = head round
   let (node, i) = index source b.position
-  (sourceDef, sourceName) <- definitionAt fc node.definition
-  (_, target) <- definitionAt fc (definitionOf (arc b.graph a).to)
+  (sourceDef, sourceName) <- graphDefinition fc node.definition
+  (_, target) <- graphDefinition fc (definitionOf (arc b.graph a).to)
   path <- case tail round of
     [] => pure ""
     rest => do
-      names <- traverse (\(p, _) => snd <$> definitionAt fc (definitionOf p)) rest
+      names <- traverse (\(p, _) => snd <$> graphDefinition fc (definitionOf p)) rest
       pure (" through " ++ joinBy " -> " (names ++ [sourceName]))
   let grows = ", growing it by " ++ show growth ++ " each round" ++ path ++
               ", and nothing bounds how far it grows"
   text <- case index a b.wrote of
     FromArgument site argument => do
-      (_, within) <- definitionAt fc site.within
+      (_, within) <- graphDefinition fc site.within
       x <- subject sourceDef sourceName i (sourceOf site node)
       shown <- argument.shown
       -- Essential: a data type grows through its fields, a function
@@ -273,9 +265,6 @@ refuseCycle fc main b ring growth = do
     -- source, places it in the method function its field holds, the arc's
     -- target.
     FromField => pure (sourceName ++ " passes " ++ !(parameter i sourceDef) ++ " to its method " ++ target ++ grows)
-    -- Essential while what made an arc is not tied to where it leaves: a
-    -- cap's arc leaves the origin, and every arc of a ring leaves a position.
-    FromCap => internal fc "a cap's origin arc on a growing cycle"
   reject place.at place.owner Polymorphism text
   where
     definitionOf : Fin b.graph.size -> Address
@@ -287,25 +276,24 @@ refuseCycle fc main b ring growth = do
 refuseOpaque : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> Name -> (b : Built) -> Fin (length b.graph.arcs) -> Core ()
 refuseOpaque fc main b a = do
-  -- Essential while an arc's weight is not tied to what made it: a cap's
-  -- arc (from the origin) and a leading arc are finite, so only an
-  -- argument's template weighs Stuck.
-  let (MkArc (Just src) to _ _, FromArgument site argument) = (arc b.graph a, index a b.wrote)
+  -- Essential while an arc's label is not tied to what made it: a leading
+  -- arc is Measured, so only an argument's template is Unmeasured.
+  let (MkArc src to _, FromArgument site argument) = (arc b.graph a, index a b.wrote)
     | _ => internal fc "an arc no argument wrote as a type-level recursion"
   let (node, i) = index src b.position
   let (target, _) = index to b.position
   ((), place) <- located fc main b node (((), node.definition) ::: [((), target.definition)])
-  (sourceDef, sourceName) <- definitionAt fc node.definition
+  (sourceDef, sourceName) <- graphDefinition fc node.definition
   let source = sourceOf site node
   let Just computation = computationThrough (carries source i) argument.template
     | Nothing => internal fc "an opaque arc whose template holds no type-level computation"
   through <- case computation of
-    Recursion r => ("the type-level recursion " ++) . snd <$> definitionAt fc r
+    Recursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
     Family j => do
-      (writer, _) <- definitionAt fc site.writer
+      (writer, _) <- graphDefinition fc site.writer
       ("its type family " ++) <$> parameter j writer
-  (_, targetName) <- definitionAt fc target.definition
-  (_, within) <- definitionAt fc site.within
+  (_, targetName) <- graphDefinition fc target.definition
+  (_, within) <- graphDefinition fc site.within
   x <- subject sourceDef sourceName i source
   reject place.at place.owner Polymorphism
          (within ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
@@ -316,9 +304,9 @@ refuseOpaque fc main b a = do
 ||| gains exceed its losses.
 refuse : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          FC -> Name -> (b : Built) -> Cause b.graph -> Core ()
-refuse fc main b (Cycle (p :: ps) as (Sums ring _ _)) =
-  refuseCycle fc main b (around p ps as ring)
-              (minus (gains (weights b.graph as)) (losses (weights b.graph as)))
+refuse fc main b (Cycle as (Sums ring _ _)) =
+  refuseCycle fc main b (around b.graph as ring)
+              (minus (gains (labels b.graph as)) (losses (labels b.graph as)))
 refuse fc main b (Unbounded a _) = refuseOpaque fc main b a
 
 ------------------------------------------------------------------------------

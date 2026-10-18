@@ -3,18 +3,19 @@
 # Copyright (c) 2026 Bjorn Pagen
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
-case "$(uname)" in
-  Linux* | OpenBSD* | FreeBSD* | NetBSD*) os=unix ;;
-  Darwin*) os=darwin ;;
-  CYGWIN* | MINGW*) os=windows ;;
-  *) echo "unknown uname $(uname)" >&2; exit 1 ;;
+# What System.Info says on this host, from the names and the processor
+# count tools/host.sh holds for it: the operating system the target's
+# triple names, no Windows, this code generator and every processor. A
+# host of neither target has no expected value, and the one line naming it
+# fails the test.
+case " $host_names " in
+  *" macos "*) os=darwin ;;
+  *" linux "*) os=unix ;;
+  *)
+    say "system-info: no target runs on the host $host_names"
+    exit 0 ;;
 esac
-if [ "$os" = windows ]; then windows=yes; else windows=no; fi
-if ! n=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null); then
-  echo "neither nproc nor sysctl reported a processor count" >&2
-  exit 1
-fi
 mkdir "$work/fixture"
 cp Main.idr "$work/fixture/"
-printf '%s\n' "$os" "$windows" mlir "$n" > "$work/fixture/expected-stdout"
+printf '%s\n' "$os" no mlir "$ncpu_total" > "$work/fixture/expected-stdout"
 e2e_io "$work/fixture"

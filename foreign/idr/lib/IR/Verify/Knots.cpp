@@ -11,7 +11,9 @@
 // language this compiler implements, as a collector finalizer is: no count
 // frees it. So the rule `cycle` is of the category OutsideLanguage, not a
 // megamorphic construct; its refusal rests on the type graph's cycles, a
-// total analysis, and no count bounds it.
+// total analysis, and no count bounds it. It refuses the user's program, so
+// a pass runs it (idr-knots), not the verifier: a module with a knot still
+// reads into every tool.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -51,6 +53,23 @@ void describe(InFlightDiagnostic &out, Type type) {
   }
 }
 
+// One cycle of the program's type graph, as it is reported: its members,
+// the array its message names (the one the first idr.array.new of the
+// cycle in the program's own code makes, else its first array), and where
+// the program's own code shows it, once found.
+struct Knot {
+  SmallVector<unsigned> members;
+  unsigned named;
+  std::optional<Location> at;
+};
+
+// An array type on a knot, and its member there: TypeGraph gives no member
+// of a type, so the one the knot has is kept with it.
+struct ArrayIn {
+  Knot *knot;
+  unsigned member;
+};
+
 } // namespace
 
 // Each cycle is reported once, with the types on it, where the program's
@@ -60,54 +79,49 @@ void describe(InFlightDiagnostic &out, Type type) {
 // program's own code of a type on the cycle, which is what closes the knot;
 // or else at the program.
 LogicalResult idr::verify::knots(ProgramOp program, const TypeGraph &graph) {
-  SmallVector<SmallVector<unsigned>> knotted = graph.knots();
-  if (knotted.empty())
+  // Built whole before any pointer into it is taken.
+  SmallVector<Knot> knots;
+  for (SmallVector<unsigned> &members : graph.knots()) {
+    unsigned named = *llvm::find_if(members, [&](unsigned at) { return graph.isArray(at); });
+    knots.push_back({std::move(members), named, std::nullopt});
+  }
+  if (knots.empty())
     return success();
 
-  // The array each message names: the one the first idr.array.new of the
-  // knot in the program's own code makes, else the knot's first. The
-  // program's rules run once every op of it is verified, so an array.new
-  // is read through its own accessors.
-  llvm::DenseMap<Type, std::pair<unsigned, unsigned>> knotOf;
-  SmallVector<unsigned> named;
-  // Where each knot is reported, once the program's own code shows it.
-  SmallVector<std::optional<Location>> where(knotted.size());
-  for (auto [knot, members] : llvm::enumerate(knotted)) {
-    for (unsigned at : members)
+  llvm::DenseMap<Type, ArrayIn> arrays;
+  llvm::DenseMap<DataType, Knot *> datas;
+  for (Knot &knot : knots)
+    for (unsigned at : knot.members) {
       if (graph.isArray(at))
-        knotOf[graph.type(at)] = {static_cast<unsigned>(knot), at};
-    named.push_back(*llvm::find_if(members, [&](unsigned at) { return graph.isArray(at); }));
-  }
+        arrays[graph.type(at)] = {&knot, at};
+      if (auto data = dyn_cast<DataType>(graph.type(at)))
+        datas[data] = &knot;
+    }
   program.walk([&](ArrayNewOp array) {
     if (!inSource(array.getLoc()))
       return;
-    auto found = knotOf.find(unrestricted(array.getArray().getType()));
-    if (found == knotOf.end() || where[found->second.first])
+    auto found = arrays.find(unrestricted(array.getArray().getType()));
+    if (found == arrays.end() || found->second.knot->at)
       return;
-    where[found->second.first] = array.getLoc();
-    named[found->second.first] = found->second.second;
+    found->second.knot->at = array.getLoc();
+    found->second.knot->named = found->second.member;
   });
-  llvm::DenseMap<DataType, unsigned> knotOfData;
-  for (auto [knot, members] : llvm::enumerate(knotted))
-    for (unsigned at : members)
-      if (auto data = dyn_cast<DataType>(graph.type(at)))
-        knotOfData[data] = static_cast<unsigned>(knot);
   program.walk([&](ConOp con) {
     if (!inSource(con.getLoc()))
       return;
-    auto found = knotOfData.find(con.getDataType());
-    if (found != knotOfData.end() && !where[found->second])
-      where[found->second] = con.getLoc();
+    auto found = datas.find(con.getDataType());
+    if (found != datas.end() && !found->second->at)
+      found->second->at = con.getLoc();
   });
 
-  for (auto [members, shown, array] : llvm::zip_equal(knotted, where, named)) {
-    SmallVector<unsigned> cycle = graph.cycle(array, members);
-    InFlightDiagnostic error = refuse(shown.value_or(program.getLoc()), Rule::Cycle);
+  for (const Knot &knot : knots) {
+    SmallVector<unsigned> cycle = graph.cycle(knot.named, knot.members);
+    InFlightDiagnostic error = refuse(knot.at.value_or(program.getLoc()), Rule::Cycle);
     // The lead names the array itself, by its rank: the path after it runs
     // from what the array holds, through any types between, to the array
     // and back.
     error << "an ";
-    describe(error, graph.type(array));
+    describe(error, graph.type(knot.named));
     error << " can hold a reference to itself through ";
     for (auto [step, at] : llvm::enumerate(cycle)) {
       if (step != 0)

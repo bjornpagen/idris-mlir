@@ -21,8 +21,6 @@ import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.UB
-import IdrisMLIR.Ids
-import IdrisMLIR.Loc
 
 import Data.List
 import Data.Maybe
@@ -236,44 +234,6 @@ dictionary opening closing [] = ""
 dictionary opening closing as = " " ++ opening ++ commaSeparated (entriesText as) ++ closing
 
 ------------------------------------------------------------------------------
--- Locations
-------------------------------------------------------------------------------
-
-||| An operation's location: a source span, or an Idris name at one, MLIR's
-||| `NameLoc`. Names reach MLIR only this way: as
-||| debug information, which passes keep and diagnostics print, and never
-||| as data a pass could compare.
-public export
-data Location = At Loc | Named Shown Loc
-
-||| The span as MLIR writes a `FileLineColRange`, 1-based at both ends: one
-||| point, a range on one line, or a range across lines. Code with no source
-||| is `unknown`.
-span : Loc -> String
-span l =
-  if l.file == "" then "unknown"
-  else let sl = l.startLine + 1
-           sc = l.startCol + 1
-           el = l.endLine + 1
-           ec = l.endCol + 1
-           start = fastConcat [quoted l.file, ":", show sl, ":", show sc]
-       in if sl == el && sc == ec then start
-          else if sl == el then fastConcat [start, " to :", show ec]
-          else fastConcat [start, " to ", show el, ":", show ec]
-
-||| The location's text inside `loc(...)`. Code from a library whose
-||| diagnostics are reported at the user's caller (the registry's *Report at
-||| caller* column) is wrapped as `fused<"library">[...]`.
-wrapped : Loc -> String -> String
-wrapped l inner = "loc(" ++ (if inLibrary l then "fused<\"library\">[" ++ inner ++ "]" else inner) ++ ")"
-
-||| A location as an attribute's text, `loc(...)`.
-export
-location : Location -> String
-location (At l) = wrapped l (span l)
-location (Named n l) = wrapped l (quoted (show n) ++ (if l.file == "" then "" else "(" ++ span l ++ ")"))
-
-------------------------------------------------------------------------------
 -- Operations
 ------------------------------------------------------------------------------
 
@@ -305,12 +265,11 @@ mutual
     attributes : List NamedAttr
     results : List MlirType
 
-  ||| A region of one block: the block's arguments, and its ops.
+  ||| A region: of no blocks, which an op whose region may be empty holds
+  ||| (a match's default when its cases are exhaustive); or of one block,
+  ||| its arguments and its ops.
   public export
-  record Region where
-    constructor MkRegion
-    arguments : List Argument
-    statements : List Statement
+  data Region = NoBlocks | MkRegion (List Argument) (List Statement)
 
   ||| An op where it stands: the name of its results, if it has any, and
   ||| its location.
@@ -321,14 +280,19 @@ mutual
     op : Op
     at : Location
 
-||| The names a statement binds its results to: its name for one result,
-||| `name#i` for each of several, as an op's operands name them.
+||| The name of result `i` of the `n` an op gives, its statement's name
+||| `r`: `r` itself for one result, `r#i` of several, as an op's operands
+||| name them.
+export
+resultAt : (r : String) -> (n : Nat) -> (i : Nat) -> String
+resultAt r (S Z) _ = r
+resultAt r _ i = r ++ "#" ++ show i
+
+||| The names a statement binds its results to, in order.
 export
 boundNames : Statement -> List String
-boundNames s = case (s.result, s.op.results) of
-  (Just r, [_]) => [r]
-  (Just r, ts) => zipWith (\i, _ => r ++ "#" ++ show i) [0 .. length ts] ts
-  (Nothing, _) => []
+boundNames (MkStatement (Just r) o _) = let n = length o.results in map (resultAt r n) (take n [0 .. n])
+boundNames (MkStatement Nothing _ _) = []
 
 ------------------------------------------------------------------------------
 -- Values
@@ -345,6 +309,7 @@ mutual
   ||| A fold over a region's values, in the order `Occurrence` says.
   export
   walkRegion : (a -> Occurrence -> a) -> a -> Region -> a
+  walkRegion f acc NoBlocks = acc
   walkRegion f acc (MkRegion args ss) = walkStatements f (foldl (\x, g => f x (Binds g.value)) acc args) ss
 
   walkStatements : (a -> Occurrence -> a) -> a -> List Statement -> a
@@ -366,6 +331,7 @@ mutual
   ||| use of one of several results is renamed as itself, `name#i`.
   export
   renameRegion : (String -> String) -> Region -> Region
+  renameRegion f NoBlocks = NoBlocks
   renameRegion f (MkRegion args ss) =
     MkRegion (map (\a => { value.name $= f } a) args) (renameStatements f ss)
 
@@ -415,9 +381,11 @@ mutual
   regionsText d [r] rest = regionText d r rest
   regionsText d (r :: rs) rest = regionText d r (", " :: regionsText d rs rest)
 
-  ||| A region's one block, labelled even when it has no arguments: the
-  ||| generic form reads `{}` as a region of no blocks.
+  ||| A region: `{}`, of no blocks, or its one block, labelled even when it
+  ||| has no arguments, since the generic form reads `{}` as a region of no
+  ||| blocks.
   regionText : Nat -> Region -> List String -> List String
+  regionText d NoBlocks rest = "{}" :: rest
   regionText d (MkRegion arguments statements) rest =
     fastConcat ["{\n", indent d, "^bb0", argumentsText arguments, ":\n"] ::
     statementsText (S d) statements (indent d :: "}" :: rest)

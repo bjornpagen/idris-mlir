@@ -29,18 +29,16 @@ namespace idr::conversion {
 
 namespace {
 
-// Writes the header of the memo cell `cell`, of the sum `memo`, in the
-// state `tag`, with the words after it the state's layout has. The stack
-// mark stays in every state the cell is written in: its memory is its
-// frame's.
-void writeState(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts, Value cell,
-                DataType memo, Tag tag) {
-  const layout::Cell &state = layouts.box(memo, tag);
+// Writes the header of the memo cell `cell` in the state laid out as
+// `state`, with the words after it the state's layout has. The stack mark
+// stays in every state the cell is written in: its memory is its frame's.
+void writeState(OpBuilder &b, Location loc, Runtime &runtime, Value cell,
+                const layout::Cell &state) {
   Value stack = LLVM::AndOp::create(b, loc, runtime.loadInfo(b, loc, cell),
                                     i32Constant(b, loc, IDRIS_RT_STACK_CELL));
   runtime.storeInfo(b, loc, cell,
                     LLVM::OrOp::create(b, loc, i32Constant(b, loc, state.info.word()), stack));
-  runtime.storeCellWords(b, loc, cell, state, tag);
+  runtime.storeCellWords(b, loc, cell, state);
 }
 
 // The cell is running: a force that meets it again is the loop the
@@ -50,8 +48,8 @@ struct LowerMemoEnter : IdrPattern<MemoEnterOp> {
   LogicalResult matchAndRewrite(MemoEnterOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     DataType memo = dataTypeOf(op.getCell().getType());
-    writeState(rewriter, op.getLoc(), runtime, layouts, adaptor.getCell().front(), memo,
-               memo.getRunningTag());
+    writeState(rewriter, op.getLoc(), runtime, adaptor.getCell().front(),
+               layouts.box(memo).cell(memo.getRunningTag()));
     rewriter.eraseOp(op);
     return success();
   }
@@ -66,10 +64,9 @@ struct LowerMemoSettle : IdrPattern<MemoSettleOp> {
     Location loc = op.getLoc();
     Value cell = adaptor.getCell().front();
     DataType memo = dataTypeOf(op.getCell().getType());
-    Tag forced = memo.getForcedTag();
-    runtime.store(rewriter, loc, cell, cellAlignment(), layouts.box(memo, forced).fields.front(),
-                  adaptor.getValue());
-    writeState(rewriter, loc, runtime, layouts, cell, memo, forced);
+    const layout::Cell &forced = layouts.box(memo).cell(memo.getForcedTag());
+    runtime.store(rewriter, loc, cell, cellAlignment(), forced.fields.front(), adaptor.getValue());
+    writeState(rewriter, loc, runtime, cell, forced);
     rewriter.eraseOp(op);
     return success();
   }

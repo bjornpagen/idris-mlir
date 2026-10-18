@@ -21,6 +21,8 @@
 ||| operation at one type, so that each goes on its own.
 module Idris.Host
 
+import Core.Case.CaseBuilder
+import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.Env
@@ -78,6 +80,14 @@ record Host where
                        {auto o : Ref ROpts REPLOpts} -> {auto p : Ref PostS PostSession} ->
                        List CLOpt -> Core ControlFlow
 
+  -- The case builder.
+
+  ||| `Core.Case.CaseBuilder.argToPat`: a place of a clause's left-hand
+  ||| side as the case builder reads it, the evaluator again, since it
+  ||| computes a literal written through a primitive conversion
+  ||| (`normalisePrims`) and reads what that gives.
+  argToPat : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Pat
+
   -- The error printer.
 
   ||| `Idris.REPL.Common.emitError`: the evaluator again, since an error is
@@ -98,5 +108,6 @@ host = assert_total (MkHost
   , checkTerminating
   , buildMain
   , processPackageOpts
+  , argToPat
   , emitError
   })

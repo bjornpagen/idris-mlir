@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's integer text held to its meaning in idris_rt.h: show and
+// The runtime's integer text held to its meaning in the runtime: show and
 // put against snprintf's decimal text, big_show against GMP's, and `cast`
 // from String to an integer against its grammar's prose: every literal the
 // grammar generates reads as its value, every named malformed one as 0, and
@@ -367,7 +367,7 @@ int digitOf(char c, unsigned radix) {
   return d >= 0 && static_cast<unsigned>(d) < radix ? d : -1;
 }
 
-// `cast` from String to an integer as the prose of idris_rt.h has it: the
+// `cast` from String to an integer as the runtime's prose has it: the
 // whole string an optional sign (+ or -), then decimal digit groups, or 0
 // and one of b, o, x, X and digit groups of that base, a group being digits
 // that single underscores separate, gives the integer it writes, by

@@ -61,20 +61,19 @@ quantities_kept() {
   say "quantities: kept"
 }
 
-# universal TEST EMITTED DUMPS OBJECT...: what holds of every compilation,
-# as one line: the objects OBJECT... import nothing the program of the
-# test directory TEST may not (object_imports), and the compilation whose
-# emitted module is EMITTED and whose dumps are in DUMPS keeps its
-# properties (compilation_properties). One line, `universal: holds`, when
-# all hold; otherwise the lines of the checks, and status 1. A check added
-# to every compilation is added here, and no transcript changes.
+# universal EMITTED DUMPS OBJECT...: what holds of every compilation, as
+# one line: the objects OBJECT... import nothing a program may not
+# (object_imports), and the compilation whose emitted module is EMITTED
+# and whose dumps are in DUMPS keeps its properties
+# (compilation_properties). One line, `universal: holds`, when all hold;
+# otherwise the lines of the checks, and status 1. A check added to every
+# compilation is added here, and no transcript changes.
 universal() {
-  universal_test=$1
-  universal_emitted=$2
-  universal_dumps=$3
-  shift 3
+  universal_emitted=$1
+  universal_dumps=$2
+  shift 2
   universal_failed=
-  object_imports "$universal_test" "$@" > "$work/universal.log" || universal_failed=yes
+  object_imports "$@" > "$work/universal.log" || universal_failed=yes
   compilation_properties "$universal_emitted" "$universal_dumps" >> "$work/universal.log" || universal_failed=yes
   if [ -n "$universal_failed" ]; then
     cat "$work/universal.log"

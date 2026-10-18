@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # Properties of a module stated by name, as idr-expect checks them (each is
-# declared, with what it states, in idr/Transforms/Expect.h): what a test
-# says instead of matching the ops that happen to show a property.
+# a row, with what it states, of lib/Transforms/Expect/Lookup.cpp: its
+# comment says what it checks, and its argument is read into its shape
+# before it runs): what a test says instead of matching the ops that
+# happen to show a property.
 
 # expect_holds MODULE PROPERTY...: every PROPERTY (`name` or
 # `name=argument`) holds of MODULE; idr-expect's errors, one line for each

@@ -1,3 +1,4 @@
+// NEEDS-ACCEPTANCE: each constant written with its type first, idr.constant <type> <value>, folds and is read back as before.
 // RUN: idris-mlir-opt %s --canonicalize '--idr-expect=holds=folds-balanced,returns=@folds:"hi"/"ab"' -o /dev/null
 // NEEDS-ACCEPTANCE: syntax swept to the data-type-first form
 // A string built from a constant list folds to the constant string: pack
@@ -7,8 +8,8 @@
 !Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
 idr.program @strings root(@root) stage(first) {
   idr.func @folds() -> (!idr.str, !idr.str) {
-    %cs = idr.constant #idr.con<!Chars, @Cons, [104 : i32, #idr.con<!Chars, @Cons, [105 : i32, #idr.con<!Chars, @Nil, []>]>]> : !idr.box<!Chars>
-    %ss = idr.constant #idr.con<!Strs, @Cons, ["a", #idr.con<!Strs, @Cons, ["b", #idr.con<!Strs, @Nil, []>]>]> : !idr.box<!Strs>
+    %cs = idr.constant !idr.box<!Chars> #idr.con<!Chars, @Cons, [104 : i32, #idr.con<!Chars, @Cons, [105 : i32, #idr.con<!Chars, @Nil, []>]>]>
+    %ss = idr.constant !idr.box<!Strs> #idr.con<!Strs, @Cons, ["a", #idr.con<!Strs, @Cons, ["b", #idr.con<!Strs, @Nil, []>]>]>
     %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
     %t = idr.str.concat %ss : !idr.box<!Strs> -> !idr.str
     return %s, %t : !idr.str, !idr.str

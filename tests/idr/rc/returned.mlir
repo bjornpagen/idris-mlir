@@ -10,7 +10,7 @@ idr.program @returned root(@root) stage(first) {
     return %a : !idr.box<!L>
   }
   idr.func @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %c1 = arith.constant 1 : i64
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
@@ -27,7 +27,7 @@ idr.program @returned root(@root) stage(first) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
-    %n = idr.constant #idr.con<!L, @N, []> : !idr.box<!L>
+    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %l = idr.con !idr.box<!L> @C(%x : i64, %n : !idr.box<!L>)
     %p = idr.call @pick(%l, %x) : (!idr.box<!L>, i64) -> !idr.box<!L>
     %b = idr.call @bump(%p) : (!idr.box<!L>) -> !idr.box<!L>
@@ -39,7 +39,7 @@ idr.program @returned root(@root) stage(first) {
       idr.yield %h : i64
     }
     }
-    %w2 = idr.io.put_int signed %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w : i64
     return %w2 : !idr.world
   }
 }

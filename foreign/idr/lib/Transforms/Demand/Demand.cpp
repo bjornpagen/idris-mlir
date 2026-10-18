@@ -15,11 +15,13 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <optional>
+#include <variant>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRDEMAND
@@ -30,21 +32,17 @@ using namespace mlir;
 
 namespace {
 
-// The value a position hands on as itself, when `value` is one: the
-// operand of an op that only changes its grade (a linear position, a view
-// of it, which a match reads), and the scrutinee of a match whose default
-// region takes it back at its type.
+// The value a position hands on as itself, when `value` is one: its
+// structural source's Same case, the operand of an op that only changes its
+// grade (a linear position, a view of it, which a match reads) and the
+// scrutinee a match's default region takes back at its type. A share is no
+// such position: what it hands on is no longer held alone, so a value
+// shared there is no parameter rebuilt in place.
 std::optional<Value> handedOn(Value value) {
-  if (Operation *def = value.getDefiningOp()) {
-    if (!def->hasTrait<idr::ResultCarriesOperand>())
-      return std::nullopt;
-    return def->getOperand(0);
-  }
-  auto arg = cast<BlockArgument>(value);
-  auto match = dyn_cast_or_null<idr::MatchOp>(arg.getOwner()->getParentOp());
-  if (!match || arg.getParentRegion() != match.getDefaultRegion())
-    return std::nullopt;
-  return match.getScrutinee();
+  idr::Source source = idr::sourceOf(value);
+  if (auto *same = std::get_if<idr::Same>(&source))
+    return same->value;
+  return std::nullopt;
 }
 
 // The value `value` is, seen through the positions that hand it on as
@@ -59,13 +57,13 @@ bool promises(Type type) {
 }
 
 // The parameters `fn` promises to rebuild in place: those of quantity 1 of
-// a type that makes the promise whose cell an idr.reuse builds in, with the
-// token of an idr.take of the parameter.
+// a type that makes the promise whose cell an idr.cell.recycle takes back,
+// by the token of an idr.take of the parameter.
 SmallVector<unsigned> rebuilt(idr::FuncOp fn) {
   SmallVector<unsigned> params;
   Block *entry = &fn.getBody().front();
-  fn.walk([&](idr::ReuseOp reuse) {
-    auto take = reuse.getToken().getDefiningOp<idr::TakeOp>();
+  fn.walk([&](idr::CellRecycleOp recycle) {
+    auto take = recycle.getToken().getDefiningOp<idr::TakeOp>();
     if (!take)
       return;
     auto param = dyn_cast<BlockArgument>(itself(take.getValue()));
@@ -139,9 +137,9 @@ LogicalResult checkInPlace(idr::ProgramOp program) {
 }
 
 struct Demand : idr::impl::IdrDemandBase<Demand> {
-  void runOnOperation() override {
+  void runOnProgram(idr::ProgramOp program) override {
     markAllAnalysesPreserved();
-    if (failed(checkInPlace(getOperation())))
+    if (failed(checkInPlace(program)))
       signalPassFailure();
   }
 };

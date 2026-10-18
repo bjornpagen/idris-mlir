@@ -1,17 +1,15 @@
-// NEEDS-ACCEPTANCE: that total and not-total read the function's own `total` fact, each failing once on the function that holds the other.
+// NEEDS-ACCEPTANCE: that total and not-total read the function's own `total` fact, and that the -verify-diagnostics run passes: each fails at the function that holds the other.
 // RUN: idris-mlir-opt %s --idr-expect=holds=total=@proved,not-total=@unproved -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=total=@unproved,not-total=@proved -o /dev/null 2> %t.err
-// RUN: FileCheck %s < %t.err
-// RUN: grep 'error: expected ' %t.err | count 2
+// RUN: idris-mlir-opt %s --idr-expect=holds=total=@unproved,not-total=@proved -verify-diagnostics -o /dev/null
 // A function holds Idris's proof that its own loops end, or it does not:
 // @proved does, @unproved does not.
-// CHECK-DAG: error: expected total: @unproved does not hold Idris's proof of termination
-// CHECK-DAG: error: expected not-total: @proved holds Idris's proof of termination
 idr.program @proved root(@root) stage(first) {
+  // expected-error @below {{expected not-total: @proved holds Idris's proof of termination}}
   idr.func @proved(%x: i64) -> i64 attributes {total} {
     %r = arith.addi %x, %x : i64
     return %r : i64
   }
+  // expected-error @below {{expected total: @unproved does not hold Idris's proof of termination}}
   idr.func @unproved(%x: i64) -> i64 {
     %r = arith.muli %x, %x : i64
     return %r : i64

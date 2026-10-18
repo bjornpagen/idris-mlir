@@ -8,17 +8,16 @@
 // sum, so the pass refuses nothing, and fails only when the compiler broke
 // its own invariant. The labels whose runs the outside observes are found
 // next, over the calls and the labels each apply and force runs, so that
-// each memo sum is made once with its `by_name` labels. Every sum is made
-// and every dispatch function defined, then each function converts on its
-// own, in parallel, reading the decision and a plan of its own values:
-// under its target no closure, suspension, apply, force or evaluated
-// suspension is legal, nor any value, signature or constant of a closure or
-// a suspension until it has its slot's type. Folding is off in the driver:
-// a closure or a suspension folded into a constant there would be a value
-// the decision never saw. Then the types that hold a slot are made anew,
-// every type is final, the boxes are decided, and the program, first-order
-// now, has every function's effects solved over its call graph, which sees
-// every function a force runs, and enters the first stage.
+// each memo sum is made once with its `by_name` labels. The decision is
+// made whole, every sum and every dispatch function with it, then each
+// function the program had converts on its own, in parallel, reading the
+// decision and a plan of its own values: under its target no closure,
+// suspension, apply, force or evaluated suspension is legal, nor any value,
+// signature or constant of a closure or a suspension until it has its
+// slot's type. Folding is off in the driver: a closure or a suspension
+// folded into a constant there would be a value the decision never saw.
+// Then the types that hold a slot are made anew, every type is final, and
+// the boxes are decided: the program is first-order.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Effects.h"
@@ -26,6 +25,7 @@
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/Transforms/Defunctionalize.h"
+#include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -63,12 +63,8 @@ void addTarget(ConversionTarget &target, const SlotTypeConverter &types) {
   target.addIllegalOp<idr::ClosureOp, idr::SuspendOp, idr::ApplyOp, idr::ForceOp,
                       idr::DelayOp>();
   target.addDynamicallyLegalOp<idr::FuncOp>([=](idr::FuncOp fn) {
-    if (fn.getFunctionType() != slots->signature(fn.getSymNameAttr()).converted)
-      return false;
-    for (Block &block : fn.getBody())
-      if (!llvm::all_of(block.getArguments(), [&](Value arg) { return converter->legal(arg); }))
-        return false;
-    return true;
+    return fn.getFunctionType() == slots->signature(fn.getSymNameAttr()).converted &&
+           llvm::all_of(fn.getArguments(), [&](Value arg) { return converter->legal(arg); });
   });
   target.addDynamicallyLegalOp<idr::ConstantOp>([=](idr::ConstantOp constant) {
     Attribute converted = slots->constantOf(constant);
@@ -101,32 +97,35 @@ LogicalResult convert(idr::FuncOp fn, const Slots &slots) {
 }
 
 struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
-  void runOnOperation() override {
-    idr::ProgramOp program = getOperation();
+  void runOnProgram(idr::ProgramOp program) override {
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     idr::Labels &labels = getAnalysis<idr::Labels>();
     llvm::DenseSet<idr::FuncOp> observed = idr::observableRuns(
-        program, symbols, [&](Operation *op, SmallVectorImpl<idr::FuncOp> &run) {
-          for (auto label : labels.runs(op).getAsRange<FlatSymbolRefAttr>())
+        program, symbols,
+        [&](idr::RunsLabelsOpInterface runner, SmallVectorImpl<idr::FuncOp> &run) {
+          for (auto label : labels.runs(runner).getAsRange<FlatSymbolRefAttr>())
             run.push_back(labels.function(label.getAttr()));
         });
-    Slots slots(program, labels, symbols);
-    if (failed(slots.declare([&](idr::FuncOp label) { return observed.contains(label); })))
-      return signalPassFailure();
+    // The functions the program had: the decision adds a dispatch function
+    // for each memo sum, made converted.
     SmallVector<idr::FuncOp> functions(program.getOps<idr::FuncOp>());
-    slots.defineForces();
+    FailureOr<std::unique_ptr<Slots>> slots = Slots::decide(
+        program, labels, symbols, [&](idr::FuncOp label) { return observed.contains(label); });
+    if (failed(slots))
+      return signalPassFailure();
+    const Slots &decision = **slots;
     if (failed(failableParallelForEach(&getContext(), functions, [&](idr::FuncOp fn) {
-          return convert(fn, slots);
+          return convert(fn, decision);
         })))
       return signalPassFailure();
-    if (failed(slots.remake()))
+    if (failed((*slots)->remake()))
       return signalPassFailure();
     FailureOr<unsigned> boxed = idr::layout::fit(program);
     if (failed(boxed))
       return signalPassFailure();
     numBoxed += *boxed;
-    numSums += slots.numSums();
-    numConstructors += slots.numConstructors();
+    numSums += decision.numSums();
+    numConstructors += decision.numConstructors();
     // The type graph of the final types, built here: one cached from before
     // this pass would hold the types it replaced.
     idr::TypeGraph graph(program);
@@ -136,8 +135,6 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
         largest = std::max(largest, static_cast<unsigned>(data.getCtors().size()));
     if (largest > largestBoxedSum)
       largestBoxedSum = largest;
-    idr::solveEffects(program);
-    program.setStage(idr::Stage::First);
   }
 };
 

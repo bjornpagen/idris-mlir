@@ -16,6 +16,10 @@ compile_sh=$root/tools/compile.sh
 # from the test (`.`, `../name.mlir`) is found either way.
 here=$(cd "$(dirname "$0")" && pwd)
 cd "$here" || exit 1
+# The parameter of one run of a directory the runner runs once per
+# parameter, its run script's second argument (tests/runner/one.sh); empty
+# for any other test.
+parameter=${2-}
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT

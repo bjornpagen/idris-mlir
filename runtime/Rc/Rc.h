@@ -22,7 +22,7 @@ inline constexpr uint32_t saturated = UINT32_MAX;
 // A pointer to an object, and not NULL or an odd word (a small big).
 inline bool isObject(const void *o) {
   auto word = reinterpret_cast<uintptr_t>(o);
-  return word != 0 && (word & 1) == 0;
+  return word != 0 && !idris_rt_word_is_small(static_cast<idris_rt_big>(word));
 }
 
 inline idris_rt_header *headerOf(void *o) { return static_cast<idris_rt_header *>(o); }
