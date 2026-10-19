@@ -35,8 +35,13 @@ What §3.9 planned, as it landed:
   use of a loaded element is the idr.dup right after it) is deleted
   (tests/verify-sources). Within a loop's body a view read before the loop
   and used after a write of an earlier iteration is not yet seen: the walk
-  runs a body once. The memo-state memory resource that would replace
-  builtStateHolds is open.
+  runs a body once. The memo state is a memory resource
+  (MemoStateResource): idr.memo.run writes it, and idr.tag, idr.match and
+  idr.field of a memo sum read it, so no pass merges or moves a read
+  across a force; idr.tag's folder now asks builtStateHolds as the field's
+  and the match's do (it folded a forced cell's tag to its label's:
+  tests/effects-memo-state). builtStateHolds stays the folders' one
+  question of a built state.
 - Step 4: persistence done (idris_rt_persist_held after every force; the
   CAF release, `__idr$release$cafs`, its runtime function and the live-cells
   marks deleted, and the harness's `live-cells` case field with them).

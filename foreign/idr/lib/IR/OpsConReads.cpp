@@ -153,20 +153,24 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
 // idr.tag
 //===----------------------------------------------------------------------===//
 
-// The tag of a known constructor, built by idr.con or constant, or the one
-// tag of a type of one constructor, read from the value's data type.
 // The tag of a memo sum's value is its state, which a force writes.
 void TagOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   readsMemoState(getValueMutable(), effects);
 }
 
+// The tag of a known constructor, built by idr.con or constant, or the one
+// tag of a type of one constructor, read from the value's data type.
 OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   DataType data = dataTypeOf(getValue().getType());
   if (!data)
     return {};
   Value source = throughLinear(getValue());
   std::optional<Tag> tag;
+  // A memo cell's state is what its force wrote, which its build says only
+  // while nothing forces it, as for idr.field and idr.match.
+  if (!builtStateHolds(source, getOperation()))
+    return {};
   if (auto con = source.getDefiningOp<ConOp>()) {
     tag = con.getTag();
   } else {
