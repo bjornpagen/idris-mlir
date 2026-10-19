@@ -38,13 +38,18 @@ extern "C" double idris_rt_str_to_double(const idris_rt_str *s) {
   case rt::numerals::Numeral::Decimal:
     return fromChars(p, n);
   case rt::numerals::Numeral::Integer: {
-    if (numeral.base == 10 && !numeral.grouped)
-      return fromChars(p, n);
-    idris_rt_big magnitude =
-        rt::big::bigOfDigits(p + numeral.digits, n - numeral.digits, numeral.base);
-    double value = idris_rt_big_to_double(magnitude);
-    rt::big::release(magnitude);
-    return numeral.negative ? -value : value;
+    // The integer's magnitude, then its sign as an integer's: 0 - x, which
+    // is 0 for 0, since an integer has no negative zero.
+    double magnitude;
+    if (numeral.base == 10 && !numeral.grouped) {
+      magnitude = fromChars(p + numeral.digits, n - numeral.digits);
+    } else {
+      idris_rt_big big =
+          rt::big::bigOfDigits(p + numeral.digits, n - numeral.digits, numeral.base);
+      magnitude = idris_rt_big_to_double(big);
+      rt::big::release(big);
+    }
+    return numeral.negative ? 0.0 - magnitude : magnitude;
   }
   case rt::numerals::Numeral::None:
     break;

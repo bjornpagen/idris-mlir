@@ -33,7 +33,6 @@ its fix lands.
 - array-of-arrays, stdin '0': the program prints 'no row' and the live-cell count, then jumps to address 0 on the program thread (EXC_BAD_ACCESS, exit 139). Here main ends in the `| Nothing =>` branch with an empty IOArray (IOArray Int). Inputs n >= 1 exit 0.
 - buffer-ops, both before and after this change: the program returns into a stack address after main (exit 139). The dump file-name error had been hiding it. Reproducer: `Nothing <- newBuffer (-1)`; putStrLn; `Just buf <- newBuffer 32`; setBits16 at 1; setBits32 at 3; setBits64 at 8; setInt8 at 0. Removing any one of these statements makes it exit 0.
 - base-trace: `trace` of a string read at run time leaks one cell. `line <- getLine; putStrLn (trace "x" line)` ends with live cells 1. With a literal value nothing is left live.
-- cast-from-string: `cast "-0"` (and "-0x0") to Double gives -0.0. runtime/Numerals/Reading.cpp documents that an integer literal's value is exact and becomes the nearest double 'as fromInteger does', which for the integer 0 is 0.0. The test expects 0.0, as documented.
 - heap-free behaves differently in programs of the same shape (SUMMARY §5.13). After `c <- getChar`, printing an Int made from c allocates (show_sint and str.append in main.lam or main.delay) in absurd-body, erased-witness and crash-mod-zero, but not in enum-stepping or crash-div-zero.
 ## strengthen-fixtures-1.md strengthened 66
 ## strengthen-programs-2.md strengthened 64
