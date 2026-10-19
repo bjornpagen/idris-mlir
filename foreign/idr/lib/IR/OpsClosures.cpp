@@ -248,14 +248,14 @@ void MemoRunOp::getRegionInvocationBounds(ArrayRef<Attribute>,
   bounds.emplace_back(1, 1);
 }
 
-// It reads the captures out of the cell and writes its state, in the
-// default resource, as an update reads and writes its array's element; the
+// It reads the captures out of the cell and writes its state, the memo
+// state every read of a memo sum's value reads (MemoStateResource); the
 // region's effects are its own.
 void MemoRunOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   OpOperand &cell = getCellMutable();
-  effects.emplace_back(MemoryEffects::Read::get(), &cell, SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), &cell, SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &cell, MemoStateResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), &cell, MemoStateResource::get());
 }
 
 // Each capture moves out of its field of the label's state into the

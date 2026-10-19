@@ -89,6 +89,7 @@ def Idr_IOResource : Resource<"::idr::IOResource">;
 def Idr_DivergenceResource : Resource<"::idr::DivergenceResource">;
 def Idr_LinResource : Resource<"::idr::LinResource">;
 def Idr_ReferenceResource : Resource<"::idr::ReferenceResource">;
+def Idr_MemoStateResource : Resource<"::idr::MemoStateResource">;
 
 // An op's verify() runs before the ops of its regions are verified, when one
 // of them may still hold a null operand or lack an attribute: a tool that

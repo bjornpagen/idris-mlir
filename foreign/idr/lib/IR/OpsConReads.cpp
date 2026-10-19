@@ -30,6 +30,13 @@ Speculation::Speculatability FieldOp::getSpeculatability() {
 
 DataType FieldOp::getDataType() { return dataTypeOf(getValue().getType()); }
 
+// A field of a memo sum is read out of the memo state, which a force
+// writes; of any other sum or box, out of memory no reference sees change.
+void FieldOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  readsMemoState(getValueMutable(), effects);
+}
+
 void FieldOp::build(OpBuilder &builder, OperationState &state, Value value, Tag tag,
                     unsigned index) {
   const Ctor &ctor = dataTypeOf(value.getType()).getCtor(tag);
@@ -148,6 +155,12 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
 
 // The tag of a known constructor, built by idr.con or constant, or the one
 // tag of a type of one constructor, read from the value's data type.
+// The tag of a memo sum's value is its state, which a force writes.
+void TagOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  readsMemoState(getValueMutable(), effects);
+}
+
 OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   DataType data = dataTypeOf(getValue().getType());
   if (!data)

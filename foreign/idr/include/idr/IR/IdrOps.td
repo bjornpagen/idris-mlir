@@ -311,12 +311,15 @@ def Idr_ConOp : Idr_Op<"con", [
 // loads from the cell, because a cell never changes while a reference to it
 // is live: it is written when it is built (a hole once more, through its
 // destination, before anything reads it), and reused only through the
-// token of a box idr.take consumed. In the owned stage, where references
+// token of a box idr.take consumed. A memo cell is the one cell that does
+// change: its force writes its state (idr.memo.run), so a read of a memo
+// sum's value reads the memo state (MemoStateResource), which orders it
+// with every force. In the owned stage, where references
 // end, the verifier refuses a read through a view once the reference the
 // view borrows is gone, so a pass that moves a read past its cell's drop
 // fails there instead of reading a freed cell. The constructor is its tag,
 // written by name.
-def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
+def Idr_FieldOp : Idr_Op<"field", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "reads a field of a constructor value";
@@ -342,10 +345,13 @@ def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
 }
 
 // The tag is in [0, n-1] for n constructors, the number the value's data
-// type has. It is Pure though it may load the cell's header, for
+// type has. It has no effect though it may load the cell's header, for
 // idr.field's reason: a cell never changes while a reference to it is
-// live, and the owned stage refuses a read once the reference is gone.
-def Idr_TagOp : Idr_Op<"tag", [Pure, DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
+// live, and the owned stage refuses a read once the reference is gone; but
+// a memo cell's tag is its state, which it reads (MemoStateResource).
+def Idr_TagOp : Idr_Op<"tag", [AlwaysSpeculatable,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the constructor tag of a value";
   let arguments = (ins Idr_SumRead:$value);

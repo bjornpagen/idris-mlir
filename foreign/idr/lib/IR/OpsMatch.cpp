@@ -130,6 +130,13 @@ LogicalResult MatchOp::verify() {
 
 LogicalResult MatchOp::verifyRegions() { return verifyMatchRegions(*this); }
 
+// A match on a memo sum's value reads its state, which a force writes;
+// what its regions do is theirs (RecursiveMemoryEffects).
+void MatchOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  readsMemoState(getScrutineeMutable(), effects);
+}
+
 DataType MatchOp::getDataType() { return dataTypeOf(getScrutinee().getType()); }
 
 void MatchOp::build(OpBuilder &builder, OperationState &state, TypeRange results,

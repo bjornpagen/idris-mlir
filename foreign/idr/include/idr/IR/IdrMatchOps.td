@@ -99,6 +99,7 @@ class Idr_MatchOpBase<string mnemonic, Region defaultConstraint, list<Trait> tra
 // f0, f1, ... by position. A case is a constructor's tag in the
 // scrutinee's data type, whose body the verifier reads, written by name.
 def Idr_MatchOp : Idr_MatchOpBase<"match", MaxSizedRegion<1>, [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames"]>]> {
   let summary = "branches on the constructor of a sum or box, taking it apart at its grade";

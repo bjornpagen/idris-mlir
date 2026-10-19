@@ -9,6 +9,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -74,6 +75,13 @@ void eachTaken(Operation *op, const SymbolTable *callees,
 }
 
 } // namespace
+
+void idr::readsMemoState(
+    OpOperand &value, SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  DataType data = dataTypeOf(value.get().getType());
+  if (data && data.isMemo())
+    effects.emplace_back(MemoryEffects::Read::get(), &value, MemoStateResource::get());
+}
 
 bool idr::consumes(OpOperand &operand, const SymbolTable *callees) {
   bool found = false;

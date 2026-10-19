@@ -79,6 +79,20 @@ struct LinResource : mlir::SideEffects::Resource::Base<LinResource> {
   llvm::StringRef getName() const final { return "idr.lin"; }
 };
 
+// The state of a memo cell: its label and captures, or its forced value.
+// idr.memo.run writes it, and every read of a memo sum's value (its tag, a
+// match on it, a field of it) reads it, so that no pass merges or moves a
+// read across a force. A read of any other sum reads nothing: a cell never
+// changes while a reference to it is live.
+struct MemoStateResource : mlir::SideEffects::Resource::Base<MemoStateResource> {
+  llvm::StringRef getName() const final { return "idr.memo_state"; }
+};
+
+// The effects of an op reading `value`, a sum's or a box's value: a read of
+// the memo state when it is a memo sum's, and none otherwise.
+void readsMemoState(mlir::OpOperand &value,
+                    llvm::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects);
+
 // The resource a consumed reference is freed from.
 struct ReferenceResource : mlir::SideEffects::Resource::Base<ReferenceResource> {
   llvm::StringRef getName() const final { return "idr.reference"; }
