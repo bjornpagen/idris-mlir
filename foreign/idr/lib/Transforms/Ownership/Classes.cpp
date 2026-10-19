@@ -36,6 +36,25 @@ bool ownsReference(Class kind) {
   llvm_unreachable("a class of counting");
 }
 
+namespace {
+
+// The data type and constructor whose field `value` is, when a case binds
+// it or idr.field reads it.
+std::optional<std::pair<DataType, Tag>> labelRead(Value value) {
+  if (auto read = value.getDefiningOp<FieldOp>())
+    return std::pair(read.getDataType(), read.getTag());
+  auto arg = dyn_cast<BlockArgument>(value);
+  auto match = arg ? dyn_cast<MatchOp>(arg.getOwner()->getParentOp()) : MatchOp();
+  if (!match)
+    return std::nullopt;
+  Region *region = arg.getOwner()->getParent();
+  if (region == &match.getDefaultRegion())
+    return std::nullopt;
+  return std::pair(match.getDataType(), match.getCaseTag(match.caseOf(*region)));
+}
+
+} // namespace
+
 Class Classes::classOf(Value value) {
   // A reference crossing a boundary between counting and upstream's buffer
   // ops: a fresh allocation's, which its idr.own.adopt takes over, and the
@@ -69,15 +88,13 @@ Class Classes::classOf(Value value) {
   // read from another that is not alive at each of its uses, and an
   // element, take a reference of their own where they are read.
   // A capture a force takes over from a memo cell's label
-  // (forceTakesCaptures) is owned, and no read takes another.
-  if (auto arg = dyn_cast<BlockArgument>(value))
-    if (auto match = dyn_cast<MatchOp>(arg.getOwner()->getParentOp()))
-      if (Region *region = arg.getOwner()->getParent(); region != &match.getDefaultRegion())
-        if (DataType data = match.getDataType();
-            forceTakesCaptures(data, data.getCtor(match.getCaseTag(match.caseOf(*region))))) {
-          classes[value] = Class::Owned;
-          return Class::Owned;
-        }
+  // (forceTakesCaptures), bound by a case or read by idr.field, is owned,
+  // and no read takes another.
+  if (std::optional<std::pair<DataType, Tag>> read = labelRead(value);
+      read && forceTakesCaptures(read->first, read->first.getCtor(read->second))) {
+    classes[value] = Class::Owned;
+    return Class::Owned;
+  }
   std::optional<Value> from = readThrough(value);
   Class result = from ? Class::OwnedAtRead : Class::Owned;
   classes[value] = result;

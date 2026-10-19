@@ -312,8 +312,8 @@ private:
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (auto read = dyn_cast<FieldOp>(op)) {
         const Ctor &ctor = read.getDataType().getCtor(read.getTag());
-        read.getResult().setType(fieldType(read.getValue().getType(),
-                                           ctor.fields[static_cast<unsigned>(read.getIndex())]));
+        read.getResult().setType(caseFieldType(
+            read.getValue().getType(), ctor, ctor.fields[static_cast<unsigned>(read.getIndex())]));
         return;
       }
       // A take's or an unpack's results are inferred from the value it takes

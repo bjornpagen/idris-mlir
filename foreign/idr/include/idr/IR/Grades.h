@@ -173,10 +173,10 @@ class DataType;
 // to drop. A label run by name is never written over: its cell keeps them.
 bool forceTakesCaptures(DataType data, const Ctor &ctor);
 
-// The type a match's case binds field `field` of constructor `ctor` at, for
-// a scrutinee of type `scrutinee`: fieldType, but owned where it holds
-// references when a force takes the captures over (forceTakesCaptures) of
-// a cell counting has graded.
+// The type a match's case binds, and idr.field reads, field `field` of
+// constructor `ctor` at, for a scrutinee of type `scrutinee`: fieldType,
+// but owned where it holds references when a force takes the captures
+// over (forceTakesCaptures) of a cell counting has graded.
 mlir::Type caseFieldType(mlir::Type scrutinee, const Ctor &ctor, mlir::Type field);
 
 // `value` held as `type`, its own type at another quantity: entered into a
