@@ -901,11 +901,33 @@ typeForm t = contracted <$> normaliseClosed t
 formTemplate : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Template
 formTemplate form = readFromStart (MkMode AsType Unfolded) form
 
+mutual
+  ||| A shape's template as a key holds its form (`Shapes.formOf`): each
+  ||| `:<` of its spine, the constructor of tag 1 as `Shapes.shapeView`
+  ||| reads it, with its extent the leaf an erased extent is; any other
+  ||| part (`Lin`, the writer's marker, a computation) as it is, and each
+  ||| leaf of a choice so. A form's height is then the key's, whatever
+  ||| extents are written, so that a key and the bound on it are read alike.
+  export
+  formedTemplate : {auto c : Ref Ctxt Defs} -> Template -> Core Template
+  formedTemplate t@(Head (Just a) [e, rest, _]) = do
+    Just def <- definitionAt a
+      | Nothing => pure t
+    case definition def of
+      DCon 1 _ _ => pure (Head (Just a) [e, !(formedTemplate rest), Leaf 1])
+      _ => pure t
+  formedTemplate (Choice t ls) = Choice t <$> formedTemplates ls
+  formedTemplate t = pure t
+
+  formedTemplates : {auto c : Ref Ctxt Defs} -> List Template -> Core (List Template)
+  formedTemplates [] = pure []
+  formedTemplates (t :: ts) = (::) <$> formedTemplate t <*> formedTemplates ts
+
 ||| What a site, a field or a cap writes at a static argument of kind k,
 ||| read as its key writes it there (`Instances.classify`). A type, a
 ||| family and a form are normalised as classify normalises them, stuck
-||| definitions unfolded: a form is `shapeForm`'s spine of a normal form,
-||| which holds no stuck application. A dictionary is the form classify
+||| definitions unfolded, and a form is read as its key holds it
+||| (`formedTemplate`). A dictionary is the form classify
 ||| keys: as written, or the implementation it stands for when it depends
 ||| on a runtime value, nothing normalised or unfolded. A shape is a
 ||| skeleton: of the argument as written when a data constructor heads it,
@@ -914,7 +936,7 @@ export
 templateOf : {auto c : Ref Ctxt Defs} -> State.Static -> ClosedTerm -> Core Template
 templateOf AType t = formTemplate !(typeForm t)
 templateOf AFamily t = formTemplate !(typeForm t)
-templateOf AForm t = formTemplate !(typeForm t)
+templateOf AForm t = formedTemplate !(formTemplate !(typeForm t))
 templateOf ADictionary t = do
   written <- solved t
   form <- if !(runtimeDependent written) then implementationOf written else pure written
