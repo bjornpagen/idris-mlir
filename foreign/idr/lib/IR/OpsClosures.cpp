@@ -187,6 +187,10 @@ void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContex
 
 DataType MemoRunOp::getDataType() { return dataTypeOf(getCell().getType()); }
 
+void MemoRunOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
+  canon::addMemoRunPatterns(results, context);
+}
+
 // The cell is in the state of a label that memoizes: a label run by name
 // leaves its cell as it is. The region binds that label's captures, each
 // at its field's type at any permission: plain before idr-rc, owned after

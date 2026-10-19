@@ -3,10 +3,11 @@
 // RUN: %t | FileCheck %s --match-full-lines --implicit-check-not={{.}}
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize --canonicalize '--idr-expect=holds=calls=@Prog.main:@fact,calls=@Prog.main:@dashes' -o /dev/null
 // A closed call of a pure, total function stays in the module, through the
-// optimizer, and runs at run time, to its value: at each recursion's base
-// (fact 0, dashes of 0), one step past it, 20!, the largest factorial an
-// Int holds, and 21!, which wraps; and the dashes between copies of a
-// string, the empty one too.
+// optimizer, as a call of it or of a copy (each named by its function's
+// location, as Emit names it), and runs at run time, to its value: at each
+// recursion's base (fact 0, dashes of 0), one step past it, 20!, the
+// largest factorial an Int holds, and 21!, which wraps; and the dashes
+// between copies of a string, the empty one too.
 // CHECK: 3628800 x-x-x
 // CHECK-NEXT: 1 1 2432902008176640000 -4249290049419214848
 // CHECK-NEXT: x ---
@@ -26,7 +27,7 @@ idr.program @eval root(@Prog.main) stage(higher) {
     }
     }
     return %r : i64
-  }
+  } loc("fact")
   idr.func @dashes(%s: !idr.str, %n: i64) -> !idr.str attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
@@ -43,7 +44,7 @@ idr.program @eval root(@Prog.main) stage(higher) {
     }
     }
     return %r : !idr.str
-  }
+  } loc("dashes")
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %sp = arith.constant 32 : i32
     %nl = arith.constant 10 : i32

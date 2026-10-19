@@ -69,6 +69,7 @@ add_mlir_dialect_library(IdrIR
 	Canon/PutList.cpp
 	Canon/Captures.cpp
 	Canon/Callees.cpp
+	Canon/Force.cpp
 	Fold/Scope.cpp
 	Fold/Values.cpp
 	Fold/Bigs.cpp

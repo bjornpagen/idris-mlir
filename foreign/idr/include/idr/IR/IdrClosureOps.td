@@ -184,7 +184,8 @@ def Idr_MemoCell : Type<And<[
 // one Running interval. The read of the captures and the writes of the
 // state are the op's own effects on the cell; the region's are its own
 // (RecursiveMemoryEffects). A label run by name has none: its dispatch
-// calls it with views of its captures, and its cell is never written.
+// calls it with views of its captures, and its cell is never written. An
+// exchange nothing can tell from such a call is one (Canon/Force.cpp).
 def Idr_MemoRunOp : Idr_Op<"memo.run", [RecursiveMemoryEffects, SingleBlock,
     Idr_YieldTargetsOpInterface,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
@@ -199,6 +200,7 @@ def Idr_MemoRunOp : Idr_Op<"memo.run", [RecursiveMemoryEffects, SingleBlock,
     $cell `:` type($cell) custom<CtorRef>(ref(type($cell)), $tag) (`->` type($outs)^)?
     $region attr-dict
   }];
+  let hasCanonicalizer = 1;
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
   let extraClassDeclaration = [{

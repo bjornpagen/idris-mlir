@@ -178,6 +178,7 @@ LogicalResult readsPlainValue(Operation *op) {
 // them for both matches.
 void addMatchPatterns(RewritePatternSet &results, MLIRContext *context) {
   populate(results, context, MatchOp::getOperationName());
+  canon::addStaticForcePatterns(results, context);
   canon::addCaseOfCase(results, context);
   canon::addSink(results, context);
 }

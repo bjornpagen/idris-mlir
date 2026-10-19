@@ -10,8 +10,10 @@
 // between the call and the dispatch that could tell: the dispatch and its
 // steps are in the call's block, and the call may run at the dispatch
 // (idr::mayRunAt, the rule idr-trmc moves a call by; building actions is
-// no IO). A call that passes a world is never raised: the callee's body
-// would take part in the world chain.
+// no IO). Nor may the callee itself: its effects then interleave with the
+// consumer's, so it neither crashes nor performs IO. A call that passes a
+// world is never raised: the callee's body would take part in the world
+// chain.
 //
 // A raise node is keyed by its callee and its consumer's form: the consumer
 // written as a function of the call's result and the values it reads from
@@ -48,8 +50,13 @@ std::optional<Consumer> consumerOf(idr::CallOp call) {
   std::optional<Elimination> e = eliminationAt(*call->getResult(0).getUses().begin());
   if (!e || e->dispatch->getBlock() != call->getBlock())
     return std::nullopt;
-  // The call runs where its consumer is.
-  if (!idr::mayRunAt(call, e->dispatch))
+  // The call runs where its consumer is. In the copy, the consumer's IO
+  // at one level of the callee's recursion runs before the rest of the
+  // levels around it: a crash of the callee, or IO of its own, would come
+  // after output the program as written never wrote. A loop that may not
+  // end has no outcome to come after.
+  if (!idr::mayRunAt(call, e->dispatch) ||
+      bitEnumContainsAny(call.getEffects(), idr::Effect::crash | idr::Effect::io))
     return std::nullopt;
   return e;
 }

@@ -34,6 +34,11 @@ namespace idr::canon {
 void retryBetween(mlir::PatternRewriter &rewriter,
                   llvm::iterator_range<mlir::Block::iterator> ops);
 
+// The patterns of idr.memo.run, and the case a match of a static
+// suspension's state takes in the root: a force nothing can tell from a
+// call of its label is a call by name (Force.cpp).
+void addMemoRunPatterns(mlir::RewritePatternSet &results, mlir::MLIRContext *context);
+void addStaticForcePatterns(mlir::RewritePatternSet &results, mlir::MLIRContext *context);
 // The patterns of idr.match, after upstream's region patterns, and those
 // tried at every op that move values and consumers into matches.
 void addMatchPatterns(mlir::RewritePatternSet &results, mlir::MLIRContext *context);
