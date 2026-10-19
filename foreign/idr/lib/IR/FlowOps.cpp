@@ -172,6 +172,17 @@ void idr::ForceOp::getFlowEdges(FlowEdges &edges) {
 
 void idr::ApplyOp::getFlowEdges(FlowEdges &edges) { edges.dispatch(*this); }
 
+// Entering a force writes the cell's state, and nothing moves.
+void idr::MemoEnterOp::getFlowEdges(FlowEdges &) {}
+
+// The value moves into the forced state of the cell, a cell of the memo
+// sum its lazy type became, which takes it over.
+void idr::MemoSettleOp::getFlowEdges(FlowEdges &edges) {
+  Value cell = getCell();
+  edges.flow(FlowPoint::of(getValueMutable()),
+             FlowPoint::partOf(cell, FlowAnchor::memoStateOf(dataTypeOf(cell.getType()))));
+}
+
 // A guard that passes its operand on takes it over and gives it.
 void idr::CheckNonzeroOp::getFlowEdges(FlowEdges &edges) {
   handOn(getOperation()->getOpOperand(0), getOperation()->getResult(0), edges);

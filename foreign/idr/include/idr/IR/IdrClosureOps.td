@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The closures and suspensions of the idr dialect, what runs them, and the
-// exchange of a memo cell's state that a force's dispatch makes.
+// writes of a memo cell that a force's dispatch makes.
 
 #ifndef IDR_CLOSURE_OPS
 #define IDR_CLOSURE_OPS
@@ -82,8 +82,8 @@ def Idr_DelayOp : Idr_Op<"delay", [Idr_ConsumesOnly,
 }
 
 // Reads the cell of a suspension, before idr-defunctionalize: after it a
-// force is a call of its memo sum's dispatch, whose idr.memo.run writes the
-// cell. Not a call of a shared suspension:
+// force is a call of its memo sum's dispatch, which idr.memo.enter and
+// idr.memo.settle write the cell in. Not a call of a shared suspension:
 // that would run the body at every use. A suspension with this one use is
 // the call, at this point. A force is strict, as a call is: its first entry
 // runs a function nothing here bounds, which may crash, not return, or
@@ -162,54 +162,37 @@ def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface, Idr_RunsLabelsOpInterface,
 
 // The cell of a memo sum, which the dispatch of a force reads and writes: a
 // view, plain before idr-rc and borrowed after it. A memo cell is the one
-// cell that changes while references to it live, and only through
-// idr.memo.run, the exchange of its state.
+// cell that changes while references to it live, and only through these
+// ops, each a write of the cell.
 def Idr_MemoCell : Type<And<[
     CPred<"::llvm::isa<::idr::BoxType>(::idr::unrestricted($_self))">,
     CPred<"::llvm::cast<::idr::BoxType>(::idr::unrestricted($_self)).getData().isMemo()">,
     CPred<"!::idr::isOwned($_self)">]>,
     "a view of the box of a memo sum", "::mlir::Type">;
 
-// A memo cell's force, shaped like idr.array.update and
-// memref.generic_atomic_rmw: an exchange of the cell's state. The cell is
-// in the state of the label `tag`; its captures move out of it into the
-// region's arguments, with the references the cell held, and the cell is
-// Running while the region runs, so a force that reaches it again finds the
-// loop. The first value the region yields (idr.array.yield) moves into the
-// cell, which is Forced with it from then on; the values after it leave the
-// op as its results. So the captures are owned because this op moved them
-// out of the cell, and nothing else gives them: a label's field read any
-// other way is a view of the cell. Entering without settling, settling
-// without entering and settling twice cannot be written: the region is the
-// one Running interval. The read of the captures and the writes of the
-// state are the op's own effects on the cell; the region's are its own
-// (RecursiveMemoryEffects). A label run by name has none: its dispatch
-// calls it with views of its captures, and its cell is never written.
-def Idr_MemoRunOp : Idr_Op<"memo.run", [RecursiveMemoryEffects, SingleBlock,
-    Idr_YieldTargetsOpInterface,
-    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface,
-                              ["getSuccessorInputs", "getRegionInvocationBounds"]>]> {
-  let summary = "a memo cell's force: its captures moved out, its value moved in";
-  let arguments = (ins Idr_MemoCell:$cell, Idr_TagAttr:$tag);
-  let results = (outs Variadic<AnyType>:$outs);
-  let regions = (region SizedRegion<1>:$region);
-  let assemblyFormat = [{
-    $cell `:` type($cell) custom<CtorRef>(ref(type($cell)), $tag) (`->` type($outs)^)?
-    $region attr-dict
-  }];
-  let hasVerifier = 1;
-  let hasRegionVerifier = 1;
-  let extraClassDeclaration = [{
-    // The memo sum the cell is a box of.
-    ::idr::DataType getDataType();
-    // The captures moved out, which the region binds.
-    ::mlir::Block::BlockArgListType getCaptures() { return getBody()->getArguments(); }
-    // The cell the region's first value moves into: the operand's range,
-    // which outlives the call.
-    ::mlir::ValueRange getYieldTargets() { return getODSOperands(0); }
-  }];
+// The cell's force has begun: its state becomes Running, so a force that
+// reaches the cell again before this one settles it finds the loop. The
+// label's captures were read before it; the label's function runs after.
+def Idr_MemoEnterOp : Idr_Op<"memo.enter", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
+  let summary = "marks a memo cell's force as running";
+  let arguments = (ins Arg<Idr_MemoCell, "", [MemWrite]>:$cell);
+  let assemblyFormat = "$cell attr-dict `:` type($cell)";
+}
+
+// The cell's force has its value: its state becomes Forced, holding it,
+// and every later force reads it. The value moves into the cell, and is
+// what the Forced state holds: the one field the body's rules give that
+// state, in the memo sum the cell's type is of.
+def Idr_MemoSettleOp : Idr_Op<"memo.settle", [
+    TypesMatchWith<"its value is the carrier the cell's forced state holds", "cell", "value",
+                   "[](::mlir::Type t) { ::idr::DataType memo = "
+                   "::llvm::cast<::idr::BoxType>(::idr::unrestricted(t)).getData(); "
+                   "return memo.getCtor(memo.getForcedTag()).fields.front(); }($_self)",
+                   Idr_SameCarrier>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
+  let summary = "stores a memo cell's value, its force done";
+  let arguments = (ins Arg<Idr_MemoCell, "", [MemWrite]>:$cell, AnyType:$value);
+  let assemblyFormat = "$cell `,` $value attr-dict `:` type($cell) `,` type($value)";
 }
 
 #endif // IDR_CLOSURE_OPS

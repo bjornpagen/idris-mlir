@@ -5,12 +5,11 @@
 // not run its function; idr.force reads that cell, and the first entry
 // computes the value and leaves it there. After idr-defunctionalize the cell
 // is a box of a memo sum, a force is a call of its dispatch, and the
-// dispatch exchanges the cell's state through idr.memo.run, which moves the
-// captures out and the value in. A suspension of a value that already
-// exists, idr.delay, is evaluated where it is built: forcing it computes
-// nothing, and the force is the value.
+// dispatch writes the cell's state through idr.memo.enter and
+// idr.memo.settle. A suspension of a value that already exists, idr.delay,
+// is evaluated where it is built: forcing it computes nothing, and the
+// force is the value.
 
-#include "idr/IR/Arrays.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
 #include "idr/IR/Symbols.h"
@@ -179,87 +178,4 @@ OpFoldResult ForceOp::fold(FoldAdaptor) {
 
 void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   results.add<ForceOfOneUse, ForceInOneCase>(context);
-}
-
-//===----------------------------------------------------------------------===//
-// idr.memo.run
-//===----------------------------------------------------------------------===//
-
-DataType MemoRunOp::getDataType() { return dataTypeOf(getCell().getType()); }
-
-// The cell is in the state of a label that memoizes: a label run by name
-// leaves its cell as it is. The region binds that label's captures, each
-// at its field's type at any permission: plain before idr-rc, owned after
-// it where it holds references, as the cell's own reference moves out with
-// it.
-LogicalResult MemoRunOp::verify() {
-  FailureOr<std::reference_wrapper<const Ctor>> found =
-      idr::detail::ctorAt(*this, getCell().getType(), getTag());
-  if (failed(found))
-    return failure();
-  const Ctor &ctor = *found;
-  const auto *label = std::get_if<role::Label>(&ctor.role);
-  if (!label || label->byName)
-    return emitOpError("runs @") << ctor.name.getValue()
-                                 << ", which is no label of the cell that memoizes";
-  Block &body = getRegion().front();
-  if (body.getNumArguments() != ctor.fields.size())
-    return emitOpError("binds ") << body.getNumArguments() << " captures where @"
-                                 << ctor.name.getValue() << " has " << ctor.fields.size();
-  for (auto [arg, field] : llvm::zip_equal(body.getArguments(), ctor.fields))
-    if (arg.getType() != atPermission(field, gradeOf(arg.getType()).permission))
-      return emitOpError("binds a capture of type ")
-             << arg.getType() << " where @" << ctor.name.getValue() << " holds " << field;
-  return success();
-}
-
-// The region yields the value the cell's forced state holds, at any
-// permission, then each result.
-LogicalResult MemoRunOp::verifyRegions() {
-  DataType memo = getDataType();
-  SmallVector<Type> types{memo.getCtor(memo.getForcedTag()).fields.front()};
-  llvm::append_range(types, getOuts().getTypes());
-  return arrays::verifyEnd(*this, types, [](unsigned at) { return at == 0; });
-}
-
-// The region runs once, between the move out and the move in, and what it
-// gives after the value leaves the op.
-void MemoRunOp::getSuccessorRegions(RegionBranchPoint point,
-                                    SmallVectorImpl<RegionSuccessor> &regions) {
-  if (point.isParent())
-    regions.push_back(RegionSuccessor(&getRegion()));
-  else
-    regions.push_back(RegionSuccessor(getOperation()));
-}
-
-ValueRange MemoRunOp::getSuccessorInputs(RegionSuccessor successor) {
-  if (successor.isOperation())
-    return getOuts();
-  return ValueRange();
-}
-
-void MemoRunOp::getRegionInvocationBounds(ArrayRef<Attribute>,
-                                          SmallVectorImpl<InvocationBounds> &bounds) {
-  bounds.emplace_back(1, 1);
-}
-
-// It reads the captures out of the cell and writes its state, in the
-// default resource, as an update reads and writes its array's element; the
-// region's effects are its own.
-void MemoRunOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  OpOperand &cell = getCellMutable();
-  effects.emplace_back(MemoryEffects::Read::get(), &cell, SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), &cell, SideEffects::DefaultResource::get());
-}
-
-// Each capture moves out of its field of the label's state into the
-// region, with the reference the cell held; the yield moves the value into
-// the forced state (idr.array.yield's edges).
-void MemoRunOp::getFlowEdges(FlowEdges &edges) {
-  Value cell = getCell();
-  DataType memo = getDataType();
-  for (BlockArgument capture : getCaptures())
-    edges.flow(FlowPoint::partOf(cell, FlowAnchor::fieldOf(memo, getTag(), capture.getArgNumber())),
-               FlowPoint::of(Value(capture)));
 }
