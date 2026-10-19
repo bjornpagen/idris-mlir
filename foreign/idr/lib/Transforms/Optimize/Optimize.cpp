@@ -21,6 +21,7 @@
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Identity.h"
 #include "idr/Transforms/Optimize.h"
+#include "idr/Transforms/OptimizeScheduler.h"
 #include "idr/Transforms/Pipeline.h"
 #include "idr/Transforms/Specialize.h"
 

@@ -33,7 +33,7 @@
 // by name after the turns in wave order, and the cycles they close do not
 // depend on that order, so neither do the components.
 
-#include "idr/Transforms/Optimize.h"
+#include "idr/Transforms/OptimizeScheduler.h"
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"

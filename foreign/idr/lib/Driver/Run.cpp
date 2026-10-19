@@ -3,8 +3,8 @@
 // The in-process part of a compilation, from a module to the objects of
 // its bins: the refusals a module of the frontend's holds, re-emitted; a
 // handoff module through the idr pipeline in one pass manager and then
-// LLVM, the pipeline's output through LLVM alone; and what the compiler
-// registers for it, which is what it runs and nothing else.
+// LLVM, the pipeline's output through LLVM alone. What the compiler
+// registers for it is Register.cpp's.
 
 #include "idr/Conversion/Runtime.h"
 #include "idr/Driver/Artifacts.h"
@@ -13,63 +13,14 @@
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/Verdict.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/InitIdr.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Pipeline.h"
 
-#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
-#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
-#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
-#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/Passes.h"
-#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
-#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
 #include "mlir/Debug/CLOptionsSetup.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Affine/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Arith/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Bufferization/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Bufferization/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
-#include "mlir/Dialect/DLTI/DLTI.h"
-#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Linalg/Passes.h"
-#include "mlir/Dialect/Linalg/TransformOps/DialectExtension.h"
-#include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Linalg/Transforms/SubsetInsertionOpInterfaceImpl.h"
-#include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
-#include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/MemRef/Transforms/Passes.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/Tensor/IR/TensorInferTypeOpInterfaceImpl.h"
-#include "mlir/Dialect/Tensor/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
-#include "mlir/Dialect/Transform/IR/TransformDialect.h"
-#include "mlir/Dialect/Transform/Transforms/Passes.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/Dialect/Vector/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/Dialect/Vector/TransformOps/VectorTransformOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
@@ -78,16 +29,12 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/Visitors.h"
-#include "mlir/Interfaces/CastInterfaces.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/Timing.h"
-#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
-#include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
@@ -111,16 +58,6 @@
 using namespace idr::driver;
 
 namespace {
-
-// The dialects a handoff module is written in, as the frontend writes one,
-// with their flow models: what a module that holds an idr.program may hold
-// (moduleKindOf), and the first part of what the compiler registers.
-void registerHandoff(mlir::DialectRegistry &registry) {
-  idr::registerIdrDialects(registry);
-  registry.insert<mlir::arith::ArithDialect, mlir::math::MathDialect, mlir::ub::UBDialect,
-                  mlir::memref::MemRefDialect, mlir::tensor::TensorDialect,
-                  mlir::scf::SCFDialect>();
-}
 
 // What a module is, by what it holds, never by an option: the frontend's, a
 // handoff module, which holds an idr.program and goes through the pipeline
@@ -301,81 +238,6 @@ void reemitRefusals(mlir::ModuleOp module) {
 }
 
 } // namespace
-
-void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
-  // The transform ops the schedule library is written in, before the
-  // library (registerIdrDialects): an extension applies in the order it was
-  // added, and the library's own extension parses it.
-  mlir::linalg::registerTransformDialectExtension(registry);
-  mlir::vector::registerTransformDialectExtension(registry);
-  registerHandoff(registry);
-  // The pipeline's output's, and the dialects its passes load.
-  registry.insert<mlir::LLVM::LLVMDialect, mlir::DLTIDialect, mlir::func::FuncDialect,
-                  mlir::cf::ControlFlowDialect, mlir::linalg::LinalgDialect,
-                  mlir::bufferization::BufferizationDialect, mlir::affine::AffineDialect,
-                  mlir::vector::VectorDialect, mlir::transform::TransformDialect>();
-  // The models of them the passes read. idr-bufferize's One-Shot asks each
-  // op on tensors for its bufferization, and its empty-tensor elimination
-  // asks an insertion for its subset; the narrowing, the loop structuring
-  // and upstream's folds and tiling ask an op for its value bounds;
-  // bufferization asks a tensor op for its shape; the schedule tiles a loop
-  // by its tiling interface; and the vectorizer and bufferization ask an op
-  // whether it is a cast.
-  mlir::arith::registerBufferizableOpInterfaceExternalModels(registry);
-  mlir::bufferization::registerBufferizableOpInterfaceExternalModels(registry);
-  mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);
-  mlir::scf::registerBufferizableOpInterfaceExternalModels(registry);
-  mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);
-  mlir::linalg::registerSubsetOpInterfaceExternalModels(registry);
-  mlir::tensor::registerSubsetOpInterfaceExternalModels(registry);
-  mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::bufferization::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::linalg::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::memref::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::scf::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::tensor::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::vector::registerValueBoundsOpInterfaceExternalModels(registry);
-  mlir::tensor::registerInferTypeOpInterfaceExternalModels(registry);
-  mlir::linalg::registerTilingInterfaceExternalModels(registry);
-  mlir::builtin::registerCastOpInterfaceExternalModels(registry);
-  // Every inliner the optimizer makes asks each loaded dialect for its
-  // inliner interface, which func and LLVM promise.
-  mlir::func::registerInlinerExtension(registry);
-  mlir::LLVM::registerInlinerInterface(registry);
-  // convert-to-llvm takes the patterns of every loaded dialect, and asks
-  // each that promises them: those the pipeline lowers, index, which the
-  // schedule's linalg transform ops load, and complex, which tensor loads.
-  mlir::arith::registerConvertArithToLLVMInterface(registry);
-  mlir::registerConvertComplexToLLVMInterface(registry);
-  mlir::cf::registerConvertControlFlowToLLVMInterface(registry);
-  mlir::registerConvertFuncToLLVMInterface(registry);
-  mlir::index::registerConvertIndexToLLVMInterface(registry);
-  mlir::registerConvertMathToLLVMInterface(registry);
-  mlir::registerConvertMemRefToLLVMInterface(registry);
-  mlir::ub::registerConvertUBToLLVMInterface(registry);
-  mlir::vector::registerConvertVectorToLLVMInterface(registry);
-  // The module's translation to LLVM IR.
-  mlir::registerBuiltinDialectTranslation(registry);
-  mlir::registerLLVMDialectTranslation(registry);
-}
-
-void idr::driver::registerCompilerPasses() {
-  idr::registerIdrPasses();
-  // Each upstream pass the pipeline adds (buildPipeline).
-  mlir::registerCSEPass();
-  mlir::registerRemoveDeadValuesPass();
-  mlir::registerSymbolDCEPass();
-  mlir::transform::registerInterpreterPass();
-  mlir::registerConvertLinalgToLoopsPass();
-  mlir::registerConvertVectorToSCF();
-  mlir::memref::registerExpandStridedMetadataPass();
-  mlir::registerLowerAffinePass();
-  mlir::registerSCFToControlFlowPass();
-  mlir::registerConvertVectorToLLVMPass();
-  mlir::registerConvertToLLVMPass();
-  mlir::registerReconcileUnrealizedCastsPass();
-}
 
 mlir::FailureOr<const llvm::Target *> idr::driver::nativeTarget(const llvm::Triple &triple,
                                                                 mlir::MLIRContext &context) {

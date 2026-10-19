@@ -11,6 +11,7 @@ add_mlir_dialect_library(IdrIR
 	Bytecode.cpp
 	Ops.cpp
 	OpsCon.cpp
+	OpsConReads.cpp
 	OpsMatch.cpp
 	OpsMatchSyntax.cpp
 	OpsClosures.cpp

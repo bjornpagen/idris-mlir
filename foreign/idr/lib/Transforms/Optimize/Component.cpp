@@ -35,7 +35,7 @@
 // summaries are read off its final bodies; they are published between
 // waves.
 
-#include "idr/Transforms/Optimize.h"
+#include "idr/Transforms/OptimizeScheduler.h"
 
 #include "idr/Analysis/BindingTimes.h"
 #include "idr/Analysis/Constants.h"

@@ -3,11 +3,11 @@
 // The arguments of the properties, read once, at the request, into the
 // typed value of their shape: one parser per shape, and each part of a
 // shape (`@f:` before what is stated of f, a `[...]` list, a list of
-// values) read by one parser that every shape with that part calls. A text
-// without its shape is refused in the one wording (Written::malformed)
-// before anything it names is looked up, so a malformed request reads the
-// same whatever the module holds; then each `@f` is resolved, and one that
-// names no function is refused, once, here.
+// values, Values.cpp) read by one parser that every shape with that part
+// calls. A text without its shape is refused in the one wording
+// (Written::malformed) before anything it names is looked up, so a
+// malformed request reads the same whatever the module holds; then each
+// `@f` is resolved, and one that names no function is refused, once, here.
 
 #include "idr/Transforms/Expect.h"
 
@@ -68,87 +68,6 @@ FailureOr<SmallVector<Symbol>> listOf(const Written &written, StringRef text) {
     if (failed(name))
       return failure();
     out.push_back(*name);
-  }
-  return out;
-}
-
-// The items of `text` split at `separator` where it stands outside brackets
-// and quotes, so a value written as MLIR writes it keeps its own. The `>`
-// of an arrow closes nothing.
-SmallVector<StringRef> itemsOf(StringRef text, char separator) {
-  SmallVector<StringRef> out;
-  int depth = 0;
-  bool quoted = false;
-  size_t start = 0;
-  for (size_t i = 0; i < text.size(); ++i) {
-    char c = text[i];
-    if (quoted) {
-      if (c == '\\')
-        ++i;
-      else if (c == '"')
-        quoted = false;
-      continue;
-    }
-    if (c == '"')
-      quoted = true;
-    else if (c == '(' || c == '[' || c == '{' || c == '<')
-      ++depth;
-    else if (c == ')' || c == ']' || c == '}' || (c == '>' && !(i > 0 && text[i - 1] == '-')))
-      --depth;
-    else if (c == separator && depth == 0) {
-      out.push_back(text.slice(start, i));
-      start = i + 1;
-    }
-  }
-  out.push_back(text.substr(start));
-  return out;
-}
-
-// An item without the parentheses that keep the commas in it from
-// splitting the list of properties: an opening one whose match is the
-// item's last character.
-StringRef unwrapped(StringRef item) {
-  item = item.trim();
-  if (item.size() < 2 || item.front() != '(' || item.back() != ')')
-    return item;
-  int depth = 0;
-  for (size_t i = 0; i + 1 < item.size(); ++i) {
-    if (item[i] == '(')
-      ++depth;
-    else if (item[i] == ')' && --depth == 0)
-      return item;
-  }
-  return item.drop_front().drop_back().trim();
-}
-
-// One value, as Item reads it: `_`, an integer, a float, then an attribute.
-// No item is empty, and the empty text is no attribute either; it is
-// refused before the attribute parser reports it as one of its own.
-FailureOr<Item> itemOf(const Written &written, StringRef item) {
-  StringRef text = unwrapped(item);
-  if (text == "_")
-    return Item(Computed{});
-  int64_t integer;
-  if (!text.getAsInteger(10, integer))
-    return Item(integer);
-  double real;
-  if (!text.getAsDouble(real))
-    return Item(real);
-  if (text.empty())
-    return written.malformed();
-  if (Attribute attr = parseAttribute(text, written.module->getContext()))
-    return Item(attr);
-  return written.malformed();
-}
-
-// `<v><separator><v>...`: each item, read.
-FailureOr<SmallVector<Item>> valuesOf(const Written &written, StringRef text, char separator) {
-  SmallVector<Item> out;
-  for (StringRef item : itemsOf(text, separator)) {
-    FailureOr<Item> value = itemOf(written, item);
-    if (failed(value))
-      return failure();
-    out.push_back(*value);
   }
   return out;
 }
@@ -450,21 +369,6 @@ FailureOr<ConventionOf> ConventionOf::parse(const Written &written, StringRef te
   if (failed(function))
     return failure();
   return ConventionOf{std::move(*function), *convention};
-}
-
-// A callee the module holds is asked whether it is made from `g`, so a
-// call of a copy of g is a call of g; a callee it does not hold (a
-// runtime function after lowering is declared, so it is held) is its
-// symbol alone.
-bool callsNamed(CallOpInterface call, const Symbol &g, SymbolTable &symbols) {
-  auto callee = dyn_cast<SymbolRefAttr>(call.getCallableForCallee());
-  if (!callee)
-    return false;
-  StringAttr root = callee.getRootReference();
-  if (root.getValue() == g.name)
-    return true;
-  auto fn = symbols.lookup<FunctionOpInterface>(root);
-  return fn && names(fn, g.name);
 }
 
 } // namespace idr::expect

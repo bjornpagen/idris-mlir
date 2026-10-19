@@ -137,6 +137,11 @@ private:
   Digest cellKey(mlir::Type type, const Ctor &ctor, llvm::ArrayRef<std::string> fields);
   // "caf" for a static memo cell, "box" for any other.
   static llvm::StringRef kindOf(DataType data);
+  // A static cell's header, the first two members of its struct: its
+  // types, and its words for a cell of `info`.
+  static llvm::SmallVector<mlir::Type> headerTypes(mlir::MLIRContext *ctx);
+  static llvm::SmallVector<mlir::Value> header(mlir::OpBuilder &b, mlir::Location loc,
+                                               layout::CellInfo info);
 
   // The global `name`, or none when it is not yet written.
   std::optional<mlir::LLVM::GlobalOp> find(llvm::StringRef name) const;

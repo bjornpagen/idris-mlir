@@ -58,6 +58,7 @@ add_mlir_library(IdrInline
 # The specialization nodes, raising and idr-redirect: the calls of a node's key.
 add_mlir_library(IdrSpecialize
 	Specialize/Specialize.cpp
+	Specialize/Requests.cpp
 	Specialize/Specialization.cpp
 	Specialize/Keys.cpp
 	Specialize/Consumer.cpp
@@ -442,6 +443,7 @@ add_mlir_library(IdrExpect
 	Expect/StructuredLoops.cpp
 	Expect/TestsNothing.cpp
 	Expect/TypedReads.cpp
+	Expect/Values.cpp
 	Expect/Vectorized.cpp
 	Expect/Words.cpp
 

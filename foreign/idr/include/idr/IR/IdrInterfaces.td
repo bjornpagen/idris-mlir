@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What an op or a type of the idr dialect declares once, for every pass to
 // derive from: the resources of an op's effects, its base class, and its
-// traits and interfaces, whose C++ halves are in IdrDialect.h; what a value
-// of a type holds, which every type answers; and what a literal of a type
-// is.
+// traits and interfaces, whose C++ halves are in IdrDialect.h and
+// Traits.h; what a value of a type holds, which every type answers; and
+// what a literal of a type is.
 
 #ifndef IDR_INTERFACES
 #define IDR_INTERFACES

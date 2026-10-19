@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The properties idr-expect checks: one row each, which holds the
 // property's name once and pairs its check with the shape of its argument
-// (Expect.h), the comment above it saying what it checks. `@f` is every
-// function made from f's code (`names`); a property of `[@f]` is stated of
-// the whole module, or of the functions @f names.
+// (ExpectArguments.h), the comment above it saying what it checks. `@f` is
+// every function made from f's code (`names`); a property of `[@f]` is
+// stated of the whole module, or of the functions @f names.
 
 #include "idr/Transforms/Expect.h"
 

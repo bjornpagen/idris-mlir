@@ -64,4 +64,19 @@ bool names(FunctionOpInterface fn, StringRef f) {
   return SymbolTable::getSymbolName(fn).getValue() == f || locationNames(fn->getLoc(), f);
 }
 
+// A callee the module holds is asked whether it is made from `g`, so a
+// call of a copy of g is a call of g; a callee it does not hold (a
+// runtime function after lowering is declared, so it is held) is its
+// symbol alone.
+bool callsNamed(CallOpInterface call, const Symbol &g, SymbolTable &symbols) {
+  auto callee = dyn_cast<SymbolRefAttr>(call.getCallableForCallee());
+  if (!callee)
+    return false;
+  StringAttr root = callee.getRootReference();
+  if (root.getValue() == g.name)
+    return true;
+  auto fn = symbols.lookup<FunctionOpInterface>(root);
+  return fn && names(fn, g.name);
+}
+
 } // namespace idr::expect

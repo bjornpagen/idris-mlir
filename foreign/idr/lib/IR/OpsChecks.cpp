@@ -3,7 +3,7 @@
 // The guards: each decides its own condition on its fold adaptor, folds to
 // its operand where the operand shows that the condition holds, and narrows
 // the operand's range by it. What the pure total ops they guard ask of them
-// is the trait GuardedOp's (IdrDialect.h), from the ops' marks.
+// is the trait GuardedOp's (Traits.h), from the ops' marks.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"

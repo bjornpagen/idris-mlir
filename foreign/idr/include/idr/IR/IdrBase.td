@@ -273,7 +273,7 @@ def Idr_SameValue : NativeOpTrait<"SameValue"> { let cppNamespace = "::idr"; }
 // idris-mlir-tblgen generates from these the guards the frontend builds
 // before each op, and, for an op with Idr_GuardedOp, the C++
 // specialization ::idr::Guarded<Op> its folder and its speculation read
-// (IdrDialect.h), so the C++ names no guard by hand.
+// (Traits.h), so the C++ names no guard by hand.
 class Idr_Guarded<list<string> guardedOperands, I32EnumAttrCase checkKind, string crashCause>
     : GenInternalOpTrait<"Guarded"> {
   list<string> operands = guardedOperands;

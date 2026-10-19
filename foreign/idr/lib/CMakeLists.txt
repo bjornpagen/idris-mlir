@@ -21,6 +21,7 @@ add_mlir_library(IdrConversion
 	Conversion/Words.cpp
 	Conversion/Runtime.cpp
 	Conversion/RuntimeCells.cpp
+	Conversion/StaticBytes.cpp
 	Conversion/StaticData.cpp
 	Conversion/StaticNames.cpp
 	Conversion/Cells.cpp
@@ -104,6 +105,7 @@ add_mlir_library(IdrDriver
 	Driver/Outcome.cpp
 	Driver/Prepare.cpp
 	Driver/ReadRuntime.cpp
+	Driver/Register.cpp
 	Driver/Run.cpp
 
 	EXCLUDE_FROM_LIBMLIR
@@ -136,7 +138,7 @@ add_mlir_library(IdrDriver
 	MLIRUBDialect
 	MLIRMemRefDialect
 	MLIRLLVMDialect
-	# What the compiler registers (Driver/Run.cpp, registerCompiler): the dialects
+	# What the compiler registers (Driver/Register.cpp, registerCompiler): the dialects
 	# its pipeline reaches, their external models and the passes it runs.
 	MLIRFuncDialect
 	MLIRControlFlowDialect
