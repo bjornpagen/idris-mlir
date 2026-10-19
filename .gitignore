@@ -3,6 +3,9 @@
 /.toolchain
 /build/
 build/
+# A user's own presets, such as a build for one family of a target's
+# machines (README.md).
+/CMakeUserPresets.json
 # What a golden test printed (tests/Main.idr); `expected` is what it must print.
 /tests/**/output
 __pycache__/

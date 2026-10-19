@@ -92,7 +92,8 @@ endif()
 # An entry sets each of these:
 #
 #   IDRIS_MLIR_TARGET_CPU               the CPU programs are compiled for,
-#                                       an LLVM name
+#                                       an LLVM name; the entry's is the
+#                                       default (see below the entries)
 #   IDRIS_MLIR_RUNTIME_BASELINE         the flags of the CPU runtime code is
 #                                       compiled for, which every machine of
 #                                       the target has (idris-mlir raises
@@ -279,6 +280,15 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS "")
 else()
 	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET} with ${IDRIS_MLIR_PAGE_SIZE}-byte pages: give it each fact the comment above the entries lists, in CMakeLists.txt")
+endif()
+# A configure may name another CPU of the triple than its entry's
+# (-DIDRIS_MLIR_TARGET_CPU=apple-m1 for Linux on Apple Silicon), which builds
+# the compiler for that family of the target's machines: the runtime stays
+# at the entry's baseline, which idris-mlir raises to the program's CPU,
+# and a program's entry refuses a processor that lacks what the CPU has.
+# The entry's is never cached, so a configure that names none takes it.
+if(DEFINED CACHE{IDRIS_MLIR_TARGET_CPU})
+	set(IDRIS_MLIR_TARGET_CPU "$CACHE{IDRIS_MLIR_TARGET_CPU}")
 endif()
 
 set(CMAKE_CXX_STANDARD 26)
