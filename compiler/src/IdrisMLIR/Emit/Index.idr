@@ -55,7 +55,7 @@ mutual
   ||| quantity is in the type, where no pass can lose it.
   export
   heldType : Quantity -> Ty -> MlirType
-  heldType q t = if linear q t then idr (QType One Plain (mlirType t)) else mlirType t
+  heldType q t = if linear q t then idr (QType One Plain (mlirType t) Nothing) else mlirType t
 
 ------------------------------------------------------------------------------
 -- The table

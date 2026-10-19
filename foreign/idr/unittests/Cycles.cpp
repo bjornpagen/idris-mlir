@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The box of the cycles of calls (idr::CallCycles), as the analysis manager
 // caches them, and of what idr-rc's stack step reads of them
-// (Escapes::recursive), against reachability: every call graph on
+// (Recursion::recursive), against reachability: every call graph on
 // `functions` functions, with each function's call of itself in tail
 // position or not, under a root that calls them all. Two functions are
 // together exactly when each reaches the other; a function calls itself
@@ -13,7 +13,7 @@
 // is shown failing each oracle planted with a fault.
 
 #include "idr/Analysis/CallCycles.h"
-#include "idr/Analysis/Escapes.h"
+#include "idr/Analysis/Recursion.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -140,7 +140,7 @@ unsigned judge(Oracle oracle, unsigned most, bool report) {
       AnalysisManager moduleAnalyses = mam;
       AnalysisManager programAnalyses = moduleAnalyses.nest(program);
       const idr::CallCycles &cycles = programAnalyses.getAnalysis<idr::CallCycles>();
-      const idr::Escapes &escapes = programAnalyses.getAnalysis<idr::Escapes>();
+      const idr::Recursion &recursion = programAnalyses.getAnalysis<idr::Recursion>();
       std::array<idr::FuncOp, functions> f;
       for (unsigned i = 0; i < functions; ++i)
         f[i] = function(program, name(i));
@@ -167,10 +167,10 @@ unsigned judge(Oracle oracle, unsigned most, bool report) {
         if (cycles.componentOf(f[i]) >= cycles.componentOf(main))
           fail(name(i) + "'s component is not before the root's");
         bool recursive = !alone || (c.calls[i][i] && (oracle.tailRecurses || !c.tail[i]));
-        if (escapes.recursive(f[i]) != recursive)
+        if (recursion.recursive(f[i]) != recursive)
           fail("recursive(" + name(i) + ")");
       }
-      if (cycles.callsItself(main) || escapes.recursive(main))
+      if (cycles.callsItself(main) || recursion.recursive(main))
         fail("the root is on a cycle");
       if (tails == 0)
         break;

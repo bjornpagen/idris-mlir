@@ -89,8 +89,11 @@ inline void dec(const void *o) {
     decCell(o);
 }
 
-// What a persistent cell holds, released without freeing the cell: its
-// memory is the program's, and its header stays.
-void releaseHeld(idris_rt_header *cell);
+// What a persistent cell holds, made persistent: every counted cell it
+// reaches, through object slots, gets count 0 and is no longer a live cell
+// of the heap; a persistent cell ends the walk. A static memo cell's force
+// writes a counted value into static data, which then holds it until the
+// program ends: everything static data reaches is static.
+void persistHeld(idris_rt_header *cell);
 
 } // namespace rt::rc

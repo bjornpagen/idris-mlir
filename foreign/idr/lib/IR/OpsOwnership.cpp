@@ -27,16 +27,25 @@ bool idr::buildsCell(Type type, Tag tag) {
 // !idr.cell
 //===----------------------------------------------------------------------===//
 
-// `!idr.cell<!idr.box<!L>, @Cons>`: the box, then its constructor by name.
+// `!idr.cell<!idr.box<!L>, @Cons>`: the box, then its constructor by name,
+// then `frame` for a cell of the frame.
 Type CellType::parse(AsmParser &parser) {
   SMLoc loc = parser.getCurrentLocation();
   BoxType box;
   IntegerAttr tag;
   if (parser.parseLess() || parser.parseType(box) || parser.parseComma() ||
-      parseCtorRef(parser, box, tag) || parser.parseGreater())
+      parseCtorRef(parser, box, tag))
+    return {};
+  Lifetime lifetime = Lifetime::Heap;
+  if (succeeded(parser.parseOptionalComma())) {
+    if (parser.parseKeyword(stringifyLifetime(Lifetime::Frame)))
+      return {};
+    lifetime = Lifetime::Frame;
+  }
+  if (parser.parseGreater())
     return {};
   return getChecked([&] { return parser.emitError(loc); }, parser.getContext(), box,
-                    Tag{static_cast<uint32_t>(tag.getInt())});
+                    Tag{static_cast<uint32_t>(tag.getInt())}, lifetime);
 }
 
 void CellType::print(AsmPrinter &printer) const {
@@ -44,13 +53,15 @@ void CellType::print(AsmPrinter &printer) const {
   printer.printType(getBox());
   printer << ", ";
   printer.printSymbolName(getBox().getData().getCtor(getTag()).name.getValue());
+  if (getLifetime() != Lifetime::Heap)
+    printer << ", " << stringifyLifetime(getLifetime());
   printer << '>';
 }
 
 // A cell is of a constructor of its box's data type that has one: an atom
 // has none.
 LogicalResult CellType::verify(function_ref<InFlightDiagnostic()> emitError, BoxType box,
-                               Tag tag) {
+                               Tag tag, Lifetime) {
   DataType data = box.getData();
   if (static_cast<uint32_t>(tag) >= data.getCtors().size())
     return emitError() << "names constructor " << static_cast<uint32_t>(tag) << " of \""

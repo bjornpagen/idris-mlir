@@ -71,8 +71,8 @@ def Idr_RtInc : Idr_RuntimeFunction<"idris_rt_inc", (ins Idr_CCell:$o), Idr_CVoi
     "one more owned reference">;
 def Idr_RtDec : Idr_RuntimeFunction<"idris_rt_dec", (ins Idr_CCell:$o), Idr_CVoid,
     "one owned reference less, releasing the object at 0">;
-def Idr_RtCafRelease : Idr_RuntimeFunction<"idris_rt_caf_release", (ins Idr_CCell:$cell),
-    Idr_CVoid, "releases what a static memo cell holds, when the program ends">;
+def Idr_RtPersistHeld : Idr_RuntimeFunction<"idris_rt_persist_held", (ins Idr_CCell:$cell),
+    Idr_CVoid, "after a force wrote a memo cell's value: a persistent cell makes what it holds persistent">;
 def Idr_RtIsUnique : Idr_RuntimeFunction<"idris_rt_is_unique", (ins Idr_CHeader:$cell),
     Idr_CBool, "whether a cell holds the only reference to itself">;
 def Idr_RtFreeCell : Idr_RuntimeFunction<"idris_rt_free_cell", (ins Idr_CCell:$o), Idr_CVoid,

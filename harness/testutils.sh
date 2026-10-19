@@ -47,6 +47,8 @@
 #     profile.sh       the profile's accept and reject fixtures
 #     determinism.sh   compilations at 1, 3, 5 and 13 threads and in a second
 #                      process, and one thread against the pool, byte for byte
+#     actions.sh       a program with the passes' actions skipped holds its
+#                      cases, as with none skipped
 #     lit.sh           the dialect tests' RUN lines
 #     differential.sh  %differential: two modules' programs agree on every input
 #     planted.sh       a repository rule on its planted witness and near miss
@@ -99,7 +101,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
 fi
 
 for lib_file in harness timing rules compile run heap mlir expect prelude properties e2e \
-                profile determinism lit differential planted fuzz idris-lex cpp-lex bench; do
+                profile determinism actions lit differential planted fuzz idris-lex cpp-lex bench; do
   . "$root/harness/lib/$lib_file.sh"
 done
 unset lib_file

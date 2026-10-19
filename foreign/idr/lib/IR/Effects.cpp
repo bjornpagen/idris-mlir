@@ -62,6 +62,7 @@ void eachTaken(Operation *op, const SymbolTable *callees,
                                    [](const FlowEdges::Source &) {},
                                    [](const FlowEdges::Fresh &) {},
                                    [&](const FlowEdges::Release &move) { taken(*move.use); },
+                                   [](const FlowEdges::Overwrite &) {},
                                    [](const FlowEdges::Constant &) {},
                                    [&](FlowEdges::Dispatch move) {
                                      MutableOperandRange args =

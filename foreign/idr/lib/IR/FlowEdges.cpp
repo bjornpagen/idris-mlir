@@ -109,6 +109,11 @@ void FlowEdges::release(OpOperand &use) {
   add({Release{&use}, Carriers::of(use.get().getType()) & Carrier::Reference});
 }
 
+void FlowEdges::overwrite(FlowPoint place) {
+  if (std::optional<Type> type = place.type())
+    add({Overwrite{place}, Carriers::of(*type) & Carrier::Reference});
+}
+
 void FlowEdges::constant(Attribute part, Value to) {
   add({Constant{part, to}, Carriers::of(to.getType())});
 }

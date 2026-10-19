@@ -19,11 +19,17 @@ using namespace idr;
 
 namespace {
 
-// Whether a value of `type` fills a field declared `field`: at the field's
-// type, or owned at its own permission (own or excl), which moves its
-// reference into the constructor. A borrow never fills a field: what a
-// constructor holds, it owns.
-bool fits(Type type, Type field) {
+// Whether a value of `type` fills a field declared `field` of a
+// constructor of lifetime `slot`: at the field's type, or owned at its own
+// permission (own or excl), which moves its reference into the
+// constructor, in either case at a lifetime the constructor's holds. A
+// borrow never fills a field: what a constructor holds, it owns. A frame
+// value fills a field of a frame constructor alone, which then reaches the
+// frame too.
+bool fits(Type type, Type field, Lifetime slot) {
+  if (!fitsIn(lifetimeOf(type), slot))
+    return false;
+  type = atLifetime(type, Lifetime::Heap);
   return type == field ||
          (isOwned(type) && type == atPermission(field, gradeOf(type).permission));
 }
@@ -92,7 +98,7 @@ LogicalResult ConOp::verify() {
   if (getFields().size() != fields.size())
     return emitOpError("expects ") << fields.size() << " fields";
   for (auto [value, expected] : llvm::zip_equal(getFields(), fields))
-    if (!fits(value.getType(), expected))
+    if (!fits(value.getType(), expected, lifetimeOf(getResult().getType())))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   return success();
 }
@@ -159,11 +165,13 @@ Value holeDest(ResultRange dests, ArrayRef<int32_t> holes, unsigned index) {
 }
 
 // A result as an init gives it, any grade but a borrow: the box, inferred
-// plain, held at the quantity Idris gave its constructor and, once
-// counted, owned or exclusive; a borrow holds no reference to the cell just
-// written. A destination has no grade, so it is as inferred.
+// plain at its cell's lifetime, held at the quantity Idris gave its
+// constructor and, once counted, owned or exclusive; a borrow holds no
+// reference to the cell just written. A destination has no grade, so it is
+// as inferred.
 bool asInferred(Type inferred, Type actual) {
   return unrestricted(inferred) == unrestricted(actual) &&
+         lifetimeOf(inferred) == lifetimeOf(actual) &&
          gradeOf(inferred).permission != Permission::Borrow &&
          gradeOf(actual).permission != Permission::Borrow;
 }
@@ -184,14 +192,15 @@ SmallVector<Type> CellInitOp::destTypes(CellType cell, ArrayRef<int32_t> holes) 
   return dests;
 }
 
-// The box the cell holds, then the destination of each hole.
+// The box the cell holds, of the cell's lifetime, then the destination of
+// each hole.
 LogicalResult CellInitOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
                                            Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
   auto cell = dyn_cast<CellType>(adaptor.getCell().getType());
   if (!cell)
     return emitOptionalError(location, "writes the fields of ", adaptor.getCell().getType(),
                              ", which is no cell");
-  inferred.push_back(cell.getBox());
+  inferred.push_back(atLifetime(cell.getBox(), cell.getLifetime()));
   for (int32_t hole : adaptor.getHoles()) {
     FailureOr<DestType> dest = destOf(location, cell, hole);
     if (failed(dest))
@@ -237,7 +246,7 @@ bool idr::detail::fillsCell(CellInitOp op) {
       ++hole;
       continue;
     }
-    if (given == fields.end() || !fits((*given).getType(), field))
+    if (given == fields.end() || !fits((*given).getType(), field, op.getCell().getType().getLifetime()))
       return false;
     ++given;
   }

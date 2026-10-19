@@ -5,10 +5,11 @@
 // region whose match is in tail position itself, when the terminator
 // passes on exactly the op's results. A self call there becomes the next
 // iteration of a loop in the same frame (idr-tail-loops), and borrow
-// inference and the stack's escape and recursion rules read the same
-// position, so it is defined once, here, for all of them.
-#ifndef IDR_ANALYSIS_TAIL_H
-#define IDR_ANALYSIS_TAIL_H
+// inference, the rules of the frame (Lifetimes.h) and the stack's
+// recursion rule read the same position, so it is defined once, here, for
+// all of them.
+#ifndef IDR_IR_TAIL_H
+#define IDR_IR_TAIL_H
 
 #include "idr/IR/IdrDialect.h"
 
@@ -86,4 +87,4 @@ bool inTailPositionModuloContext(CallOp call);
 
 } // namespace idr::tail
 
-#endif // IDR_ANALYSIS_TAIL_H
+#endif // IDR_IR_TAIL_H

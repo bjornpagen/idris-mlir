@@ -451,7 +451,8 @@ mutual
   ||| The one switch over the kinds of type: how `t` is written in `place`.
   native : Writer -> Place -> MlirType -> W Native
   native w pl (Idr (DataType name) _) = Member <$> member w name
-  native w pl (Idr (QType q p v) _) = recordOf IdrDialect (encodeQType q p) <$> held w pl v
+  native w pl (Idr (QType q p v l) _) =
+    recordOf IdrDialect (\value => encodeQType q p value (maybe Lifetime.Heap id l)) <$> held w pl v
   native w pl (Idr (FnType sig) _) = recordOf IdrDialect encodeFnType <$> heldSignature w pl sig
   native w pl (Idr (LazyType v) _) = recordOf IdrDialect encodeLazyType <$> held w pl v
   native w pl (Idr (BoxType v) _) = recordOf IdrDialect encodeBoxType <$> held w pl v

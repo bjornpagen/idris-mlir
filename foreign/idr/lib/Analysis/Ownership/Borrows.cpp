@@ -45,7 +45,7 @@
 #include "idr/Analysis/Ownership.h"
 
 #include "idr/Analysis/CallCycles.h"
-#include "idr/Analysis/Tail.h"
+#include "idr/IR/Tail.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"

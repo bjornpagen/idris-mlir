@@ -5,8 +5,8 @@
  * stack the run script gives, and arrays whose elements hold objects),
  * arrays born with NULL slots, the copy of a memref's view, reuse, stack
  * cells, wide cells (whose slots follow the word that counts them), odd
- * words in object slots (a grouped sum's group word), the release of static
- * memo cells, and the live-cell count.
+ * words in object slots (a grouped sum's group word), the persistence of
+ * what a static memo cell holds, and the live-cell count.
  * A failed check prints a line to standard error. The summary goes through
  * the runtime's output buffer, which idris_rt_main_return must flush; then
  * main returns as @main does.
@@ -573,39 +573,36 @@ typedef struct {
   void *slots[2];
 } memoCell;
 
-/* idris_rt_caf_release releases what a static memo cell holds, once, and
- * leaves the cell as static data; a memo cell never forced holds only
- * static captures, and a counted cell, NULL and an odd word are no static
- * memo cell, so it changes nothing of them. */
-static void cafRelease(void) {
+/* idris_rt_persist_held, which every force calls once it wrote its value:
+ * a static memo cell (count 0) makes what it then holds persistent, each
+ * counted cell it reaches given count 0 and no longer counted live, a
+ * persistent cell ending the walk, so that everything static data reaches
+ * is static and nothing it holds is live at exit; a counted memo cell
+ * keeps its value counted, released when the cell dies. */
+static void persistHeld(void) {
   uint64_t before = live();
   uint32_t info = idris_rt_info(1, 2, IDRIS_RT_KIND_THUNK);
-  static memoCell forced, unforced;
+  static memoCell forced;
   forced.header = (idris_rt_header){0, info};
-  forced.slots[0] = cons(1, NULL);
+  void *tail = cons(2, &persistentNil), *head = cons(1, tail);
+  forced.slots[0] = head;
   forced.slots[1] = word(5);
-  idris_rt_caf_release(&forced);
-  check(live() == before, "caf_release frees the cell a forced static memo cell holds");
-  check(forced.header.count == 0 && forced.header.info == info,
-        "a released static memo cell keeps count 0 and its info");
-  forced.slots[0] = NULL;
-
-  unforced.header = (idris_rt_header){0, info};
-  unforced.slots[0] = &persistentNil;
-  unforced.slots[1] = NULL;
-  idris_rt_caf_release(&unforced);
-  check(live() == before && unforced.header.count == 0 && unforced.header.info == info &&
-            unforced.slots[0] == &persistentNil && persistentNil.count == 0 &&
+  idris_rt_persist_held(&forced);
+  check(live() == before && count(head) == 0 && count(tail) == 0,
+        "persist_held makes every counted cell a static memo cell holds persistent");
+  check(forced.header.count == 0 && forced.header.info == info && persistentNil.count == 0 &&
             persistentNil.info == 0,
-        "caf_release of a static memo cell never forced changes nothing");
+        "persist_held keeps the static memo cell and the persistent cells it meets as they are");
+  idris_rt_dec(head);
+  check(count(head) == 0 && live() == before, "a persisted cell is never counted again");
 
-  void *held = cons(2, NULL), *cell = cons(1, held);
-  idris_rt_caf_release(cell);
-  idris_rt_caf_release(NULL);
-  idris_rt_caf_release(word(3));
-  check(count(cell) == 1 && count(held) == 1 && live() == before + 2,
-        "caf_release of a counted cell, NULL or an odd word changes nothing");
-  idris_rt_dec(cell);
+  void *held = cons(3, NULL), *captures[] = {held};
+  void *counted = thunk(0, 1, captures);
+  idris_rt_persist_held(counted);
+  check(count(counted) == 1 && count(held) == 1 && live() == before + 2,
+        "persist_held of a counted memo cell changes nothing");
+  idris_rt_dec(counted);
+  check(live() == before, "a counted memo cell still frees what it holds");
 }
 
 static void report(void) {
@@ -649,7 +646,7 @@ int main(int argc, char **argv) {
   stackCells();
   wideCells();
   groupWords();
-  cafRelease();
+  persistHeld();
   check(live() == 0, "nothing is live at the end");
   report();
   idris_rt_main_return();

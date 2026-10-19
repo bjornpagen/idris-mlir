@@ -34,9 +34,10 @@ extern "C" {
  *
  * count is how many owned references the object has, or one of two marks:
  * - 0: persistent. Static data is never counted and never freed. Everything a
- *   persistent object points to is persistent, except a static memo cell
- *   (kind IDRIS_RT_KIND_THUNK), which its first force writes once and whose
- *   forced value is counted and released by idris_rt_caf_release.
+ *   persistent object points to is persistent: a static memo cell (kind
+ *   IDRIS_RT_KIND_THUNK), which its first force writes once, makes the value
+ *   it then holds persistent (idris_rt_persist_held), every counted cell it
+ *   reaches getting count 0, live until the program ends.
  * - 1 to UINT32_MAX - 1: owned references, counted with plain arithmetic,
  *   since a program is single-threaded.
  * - UINT32_MAX: saturated. A count that would overflow stops there, and the

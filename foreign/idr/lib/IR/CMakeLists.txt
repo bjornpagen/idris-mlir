@@ -31,6 +31,8 @@ add_mlir_dialect_library(IdrIR
 	Attrs.cpp
 	ConAttr.cpp
 	Grades.cpp
+	Tail.cpp
+	Lifetimes.cpp
 	Effects.cpp
 	Flow.cpp
 	FlowEdges.cpp

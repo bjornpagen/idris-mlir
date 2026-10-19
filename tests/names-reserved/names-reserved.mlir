@@ -1,13 +1,13 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.lowered.mlir
 // RUN: %differential %s %t.lowered.mlir
 // RUN: idris-mlir-opt %t.lowered.mlir --idr-entry -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,entry,linker-names,calls-only=@Prog.main:[@__idr_main,@__idr_release_cafs],call-order=@__idr$entry$body:[@Prog.main,@__idr$release$cafs,@idris_rt_main_return]' -o /dev/null
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,entry,linker-names,calls-only=@Prog.main:[@__idr_main,@__idr_release_cafs],call-order=@__idr$entry$body:[@Prog.main,@idris_rt_main_return]' -o /dev/null
 // The compiler's own symbols are named apart from the program's: a
 // mangled name has a digit after its first `$`, and each name the compiler
 // makes (idr::reservedName) a letter. So a program may name its functions
-// what the entry body and the release function were once named, and they
-// lower as any other function, called by the root, beside the entry body
-// and the release function.
+// what the entry body and a release function of the compiler's were once
+// named, and they lower as any other function, called by the root, beside
+// the entry body.
 // And they link: the program, lowered and as written, is linked with the
 // runtime and run, and both exit alike (%differential, on the one input,
 // none, since the program reads none).

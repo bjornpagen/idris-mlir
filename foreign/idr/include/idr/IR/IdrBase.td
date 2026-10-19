@@ -93,6 +93,20 @@ def Idr_Permission : I32EnumAttr<"Permission", "what a value owns", [
   let genSpecializedAttr = 0;
 }
 
+// How long what a value reaches lives, the grade's third part: on the
+// heap, as long as a reference to it does, or in the frame of the function
+// that holds the value, which dies with the frame or with the loop
+// iteration that made it. A value is frame when it may reach a cell of its
+// frame (idr.cell.stack): a field read from it, a constructor or closure
+// that holds it, and whatever it is forwarded into. Heap is every value's
+// until idr-rc's stack step decides otherwise, the case 0 a grade written
+// without a lifetime has.
+def Idr_Lifetime : I32EnumAttr<"Lifetime", "how long what a value reaches lives", [
+    I32EnumAttrCase<"Heap", 0, "heap">, I32EnumAttrCase<"Frame", 1, "frame">]> {
+  let cppNamespace = "::idr";
+  let genSpecializedAttr = 0;
+}
+
 //===----------------------------------------------------------------------===//
 // Data types
 //===----------------------------------------------------------------------===//
@@ -264,6 +278,13 @@ class Idr_Runtime<string cSymbol> : NativeOpTrait<"CallsRuntime"> {
 // exclusivity kept. idr.share carries its operand but forgets
 // exclusivity, so it lacks this.
 def Idr_SameValue : NativeOpTrait<"SameValue"> { let cppNamespace = "::idr"; }
+
+// An op whose result takes a reference of its own to what it reads, which
+// its lowering counts: idr.dup of a view, idr.array.get of an element. Any
+// other op that reads a value, or a part of one, gives a view of it: the
+// owned walk gives a result a reference only from a source its op
+// declares (OwnedWalk::make).
+def Idr_TakesReference : NativeOpTrait<"TakesReference"> { let cppNamespace = "::idr"; }
 
 // A partial op's guard: the guard op that checks `checkKind` (a case of
 // Idr_CheckKind) is given the op's values `guardedOperands`, named in the

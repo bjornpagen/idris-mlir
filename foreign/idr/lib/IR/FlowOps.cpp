@@ -296,6 +296,15 @@ void extractEdges(tensor::ExtractOp extract, FlowEdges &edges) {
              FlowPoint::of(extract.getResult()));
 }
 
+// A store writes an element over the one it replaces, which the lowering
+// releases; the value's reference comes to it through idr.own.give, so it
+// only reads the value.
+void storeEdges(memref::StoreOp store, FlowEdges &edges) {
+  Value buffer = store.getMemRef();
+  edges.flow(FlowPoint::of(store.getValue()), FlowPoint::partOf(buffer, elementsOf(buffer.getType())));
+  edges.overwrite(FlowPoint::partOf(buffer, elementsOf(buffer.getType())));
+}
+
 // A load reads an element out of its buffer, which keeps it.
 void loadEdges(memref::LoadOp load, FlowEdges &edges) {
   Value buffer = load.getMemRef();
@@ -349,6 +358,7 @@ void idr::registerFlowInterfaceExternalModels(DialectRegistry &registry) {
   });
   registry.addExtension(+[](MLIRContext *context, memref::MemRefDialect *) {
     memref::LoadOp::attachInterface<Model<memref::LoadOp, loadEdges>>(*context);
+    memref::StoreOp::attachInterface<Model<memref::StoreOp, storeEdges>>(*context);
   });
   registry.addExtension(+[](MLIRContext *context, ub::UBDialect *) {
     ub::PoisonOp::attachInterface<Model<ub::PoisonOp, poisonEdges>>(*context);

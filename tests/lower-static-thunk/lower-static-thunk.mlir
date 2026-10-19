@@ -2,20 +2,21 @@
 // RUN: %differential %s %t.mlir
 // RUN: sed -n 's|^// REF: ||p' %s > %t.ref.mlir
 // RUN: %differential %t.ref.mlir %t.mlir
-// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,calls=@__idr$release$cafs:@idris_rt_caf_release,calls=@Prog.main:@Tail.force' -o /dev/null
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,calls=@Tail.force:@idris_rt_persist_held,calls=@Prog.main:@Tail.force' -o /dev/null
 // A lazy constant is a memo cell in static data, which its first force
 // writes, once: its force is a call of the memo sum's dispatch, whose
-// idr.memo.run exchanges the cell's state where it is. So its global is not constant,
-// and its info word says the thunk kind (1 << 24) with its label's tag,
-// here 0. Every other static cell stays constant, among them a constant
-// stream whose tail is that cell: it holds the cell's address.
-// @__idr$release$cafs releases what each such cell holds once forced,
-// when the program ends. The globals are the runtime's static data.
-// The cell, once forced, gives the value that moved in: the root walks the stream
-// as many steps as the byte it reads, each a force of the same static
-// cell, and the program, lowered and as written, prints the sum of the
-// heads it met, one more than the byte, as the reference at the end (REF)
-// does (%differential, on 0, 1, 255 and the end of input).
+// idr.memo.run exchanges the cell's state where it is. So its global is
+// not constant, and its info word says the thunk kind (1 << 24) with its
+// label's tag, here 0. Every other static cell stays constant, among them
+// a constant stream whose tail is that cell: it holds the cell's address.
+// After the force the dispatch asks the runtime to make what a static
+// cell then holds persistent (idris_rt_persist_held), as static data is.
+// The globals are the runtime's static data. The cell, once forced, gives
+// the value that moved in: the root walks the stream as many steps as the
+// byte it reads, each a force of the same static cell, and the program,
+// lowered and as written, prints the sum of the heads it met, one more
+// than the byte, as the reference at the end (REF) does (%differential,
+// on 0, 1, 255 and the end of input).
 // STDIN: \0000
 // STDIN: \0001
 // STDIN: \0377

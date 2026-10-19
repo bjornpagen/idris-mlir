@@ -153,13 +153,9 @@ public:
   // What every worker wrote, into `program` through `symbols`, its table,
   // once every function is lowered: one declaration per runtime function
   // the functions call, in symbol order, then one global per name of
-  // static data, in name order, at the start of the program; then the
-  // release function (idr::releaseCafsName()), which releases what the
-  // program's static memo cells hold when it ends (idris_rt_caf_release on
-  // each, in name order), made in every program so that the entry calls it
-  // without asking. Fails, having reported it, when one name of static data
-  // holds two contents, or a runtime function's C name is a symbol of the
-  // program.
+  // static data, in name order, at the start of the program. Fails, having
+  // reported it, when one name of static data holds two contents, or a
+  // runtime function's C name is a symbol of the program.
   static mlir::LogicalResult merge(mlir::Operation *program, mlir::SymbolTable &symbols,
                                    llvm::ArrayRef<Runtime *> workers);
 

@@ -229,8 +229,8 @@ namespace {
 
 // The dialect's spellings of a value at a grade, read and written from this
 // one table: a grade over any value. Any other grade is the generated
-// `!idr.q<quantity, permission, value>`, as is every grade when written
-// out.
+// `!idr.q<quantity, permission, value>`, with `, frame` after the value
+// when it is of the frame, as is every grade when written out.
 struct Over {
   StringRef keyword;
   Grade grade;
@@ -283,8 +283,8 @@ void IdrDialect::printType(Type type, DialectAsmPrinter &printer) const {
 // proved of it, since bufferization owns its memory; any other grade is of
 // a runtime type.
 LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Quantity quantity,
-                            Permission permission, Type value) {
-  Grade grade{quantity, permission};
+                            Permission permission, Type value, Lifetime lifetime) {
+  Grade grade{quantity, permission, lifetime};
   if (grade.plain())
     return emitError() << "expects a grade other than (many, plain), which is the plain type";
   if (isa<QType>(value))
@@ -292,6 +292,11 @@ LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Quanti
   if (idr::isLinearByType(value))
     return emitError() << "expects no grade of " << value
                        << ", which is used exactly once by its type";
+  if (lifetime == Lifetime::Frame && !mayBeFrame(value))
+    return emitError() << "expects no frame lifetime of " << value
+                       << ", which reaches no cell of a frame";
+  if (lifetime == Lifetime::Frame && permission == Permission::Excl)
+    return emitError() << "expects no exclusive value of the frame, whose cells the frame lends";
   if (isa<RankedTensorType>(value) && grade != Grade{Quantity::One, Permission::Plain})
     return emitError() << "expects " << value << " at (one, plain)";
   // A runtime type: one a field may have, or a token, which is owned.

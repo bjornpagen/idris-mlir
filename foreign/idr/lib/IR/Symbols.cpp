@@ -87,4 +87,3 @@ std::string idr::reservedName(StringRef kind, StringRef discriminator) {
   return ("__idr$" + kind + "$" + discriminator).str();
 }
 
-std::string idr::releaseCafsName() { return reservedName("release", "cafs"); }

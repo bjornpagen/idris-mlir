@@ -161,12 +161,28 @@ ParseResult parseCellResult(OpAsmParser &parser, Type &type, Type cell) {
     return parser.emitError(parser.getCurrentLocation(), "expected a cell's type, not ") << cell;
   if (succeeded(parser.parseOptionalArrow()))
     return parser.parseType(type);
-  type = owned(cellType.getBox());
+  type = owned(atLifetime(cellType.getBox(), cellType.getLifetime()));
   return success();
 }
 
 void printCellResult(OpAsmPrinter &printer, Operation *, Type type, Type cell) {
-  if (type != owned(cast<CellType>(cell).getBox()))
+  auto cellType = cast<CellType>(cell);
+  if (type != owned(atLifetime(cellType.getBox(), cellType.getLifetime())))
+    printer << " -> " << type;
+}
+
+// What a share gives: its value with its exclusivity forgotten (shared),
+// unless written, `-> T`: a share that also raises the value's lifetime to
+// the frame prints it.
+ParseResult parseShared(OpAsmParser &parser, Type &type, Type value) {
+  if (succeeded(parser.parseOptionalArrow()))
+    return parser.parseType(type);
+  type = shared(value);
+  return success();
+}
+
+void printShared(OpAsmPrinter &printer, Operation *, Type type, Type value) {
+  if (type != shared(value))
     printer << " -> " << type;
 }
 

@@ -85,22 +85,57 @@ Type idr::owned(Type type) {
 Type idr::view(Type type) {
   Type value = unrestricted(type);
   bool borrows = isa<IdrDialect>(value.getDialect()) && holdsReferences(value);
-  return graded({gradeOf(type).quantity, borrows ? Permission::Borrow : Permission::Plain}, value);
+  Grade grade = gradeOf(type);
+  grade.permission = borrows ? Permission::Borrow : Permission::Plain;
+  return graded(grade, value);
 }
 
 Type idr::atQuantity(Type type, Quantity quantity) {
-  return graded({quantity, gradeOf(type).permission}, unrestricted(type));
+  Grade grade = gradeOf(type);
+  grade.quantity = quantity;
+  return graded(grade, unrestricted(type));
 }
 
 Type idr::atPermission(Type type, Permission permission) {
-  return graded({gradeOf(type).quantity, permission}, unrestricted(type));
+  Grade grade = gradeOf(type);
+  grade.permission = permission;
+  return graded(grade, unrestricted(type));
 }
 
 bool idr::isExclusive(Type type) { return gradeOf(type).permission == Permission::Excl; }
 
-Type idr::exclusive(Type type) {
-  return graded({gradeOf(type).quantity, Permission::Excl}, unrestricted(type));
+Type idr::exclusive(Type type) { return atPermission(type, Permission::Excl); }
+
+Type idr::shared(Type type) {
+  return isExclusive(type) ? atPermission(type, Permission::Own) : type;
 }
+
+bool idr::forgets(Type from, Type to) {
+  return fitsIn(lifetimeOf(from), lifetimeOf(to)) &&
+         atLifetime(to, lifetimeOf(from)) == shared(from);
+}
+
+Lifetime idr::lifetimeOf(Type type) {
+  if (auto cell = dyn_cast<CellType>(type))
+    return cell.getLifetime();
+  return gradeOf(type).lifetime;
+}
+
+bool idr::mayBeFrame(Type type) { return isa<BoxType, DataType>(unrestricted(type)); }
+
+Type idr::atLifetime(Type type, Lifetime lifetime) {
+  if (!mayBeFrame(type))
+    return type;
+  Grade grade = gradeOf(type);
+  grade.lifetime = lifetime;
+  return graded(grade, unrestricted(type));
+}
+
+bool idr::fitsIn(Lifetime lifetime, Lifetime slot) {
+  return lifetime == Lifetime::Heap || slot == Lifetime::Frame;
+}
+
+Lifetime idr::joined(Lifetime a, Lifetime b) { return fitsIn(a, b) ? b : a; }
 
 Quantity idr::times(Quantity a, Quantity b) {
   switch (a) {
@@ -213,8 +248,9 @@ bool idr::fieldReadOnce(Value value, unsigned index) {
 }
 
 Type idr::fieldType(Type scrutinee, Type field) {
-  Type plain = graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::Plain},
-                      unrestricted(field));
+  Type plain = atLifetime(
+      graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::Plain}, unrestricted(field)),
+      lifetimeOf(scrutinee));
   // Before counting no value is graded; after it, a field read out of a
   // value is a view of that value.
   return gradeOf(scrutinee).permission == Permission::Plain ? plain : view(plain);

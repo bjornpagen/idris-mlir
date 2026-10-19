@@ -72,7 +72,7 @@ e2e_io() {
 # The files a case directory may hold, each a field of the one record a
 # case is: what the run reads, what it must give, and the marks of that
 # run. cases_known and the README name them from here.
-case_fields='stdin expected-stdout expected-exit expected-crash constant-stack live-cells libm-lines'
+case_fields='stdin expected-stdout expected-exit expected-crash constant-stack libm-lines'
 
 # cases_known FIXTURE: FIXTURE's `cases`, when it has one, is a directory
 # of at least one case, each a directory named in letters, digits and
@@ -153,11 +153,6 @@ e2e_cases() {
 #                      over as the first word says, so many iterations
 #                      that a loop keeping one frame per iteration exhausts
 #                      the 1 MiB stack it runs on; the file says what loops
-#     live-cells       the first word is how many heap cells are still
-#                      live when main returns: a reference-count cycle the
-#                      runtime does not collect. That count is taken off
-#                      stderr, as 0 is; any other count stays and fails the
-#                      empty-stderr check
 #     libm-lines       the numbered output lines are libm results, whose
 #                      last places are the platform libm's and may differ
 #                      from expected-stdout's
@@ -180,16 +175,6 @@ e2e_case() {
     ec_stdin=$work/long-stdin
   fi
   run_ours run "$work/ours/build/exec/prog" "$ec_stdin" $io_stack
-  # A `live-cells` mark names how many cells a reference-count cycle keeps
-  # at exit. The count is taken off stderr when it matches, as a count of 0
-  # is, so the leak check still sees any other number.
-  if [ -f "$ec_dir/live-cells" ]; then
-    ec_live=$(first_word "$ec_dir/live-cells")
-    if [ "$(tail -n 1 "$work/run.err")" = "idris-rt: live cells $ec_live" ]; then
-      sed '$d' "$work/run.err" > "$work/run.err.counted"
-      mv "$work/run.err.counted" "$work/run.err"
-    fi
-  fi
   ec_expected_exit=0
   [ -f "$ec_dir/expected-exit" ] && ec_expected_exit=$(first_word "$ec_dir/expected-exit")
   [ -f "$ec_dir/expected-crash" ] && ec_expected_exit=1

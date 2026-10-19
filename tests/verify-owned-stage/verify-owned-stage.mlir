@@ -110,14 +110,15 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
 // -----
 
 // A cell of the frame is lent to the box filled in it, which is therefore
-// never exclusive.
+// never exclusive: no grade says so.
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @"owned-stage" root(@Prog.main) stage(owned) {
-  idr.func @frame(%x: i64, %t: !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>> {
-    %c = idr.cell.stack : !idr.cell<!idr.box<!L>, @C>
-    // expected-error @+1 {{builds an exclusive value in a cell of the frame, which is lent}}
-    %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
-    return %b : !idr.excl<!idr.box<!L>>
+  idr.func @frame(%x: i64, %t: !idr.excl<!idr.box<!L>>) -> i64 {
+    %c = idr.cell.stack : !idr.cell<!idr.box<!L>, @C, frame>
+    // expected-error @+1 {{expects no exclusive value of the frame, whose cells the frame lends}}
+    %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C, frame> (%x : i64, %t : !idr.excl<!idr.box<!L>>) -> !idr.q<many, excl, !idr.box<!L>, frame>
+    idr.drop %b : !idr.q<many, excl, !idr.box<!L>, frame>
+    return %x : i64
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
@@ -152,11 +153,11 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
     return %x : i64
   }
   idr.func @frame(%x: i64, %t: !idr.own<!idr.box<!L>>) -> i64 {
-    %c = idr.cell.stack : !idr.cell<!idr.box<!L>, @C>
-    %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.own<!idr.box<!L>>)
-    %v = idr.borrow %b : !idr.own<!idr.box<!L>>
-    %k = idr.tag %v : !idr.q<many, borrow, !idr.box<!L>>
-    idr.drop %b : !idr.own<!idr.box<!L>>
+    %c = idr.cell.stack : !idr.cell<!idr.box<!L>, @C, frame>
+    %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C, frame> (%x : i64, %t : !idr.own<!idr.box<!L>>)
+    %v = idr.borrow %b : !idr.q<many, own, !idr.box<!L>, frame>
+    %k = idr.tag %v : !idr.q<many, borrow, !idr.box<!L>, frame>
+    idr.drop %b : !idr.q<many, own, !idr.box<!L>, frame>
     return %k : i64
   }
   idr.func @Prog.main() -> i64 {

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Tail position, and tail position modulo a context.
 
-#include "idr/Analysis/Tail.h"
+#include "idr/IR/Tail.h"
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"

@@ -41,4 +41,8 @@ void *newCell(size_t size, uint32_t info);
 // Frees the memory of a counted heap cell, and stops counting it.
 void freeCell(void *cell);
 
+// Stops counting a heap cell that became persistent: it lives until the
+// program ends, as static data does, and is no live cell of the heap.
+void forgetCell();
+
 } // namespace rt::alloc

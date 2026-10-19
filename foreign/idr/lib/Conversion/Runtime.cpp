@@ -227,14 +227,12 @@ Value Runtime::constantArray(OpBuilder &b, Location loc, const ConstantArray &ar
 
 LogicalResult Runtime::merge(Operation *program, SymbolTable &symbols,
                              ArrayRef<Runtime *> workers) {
-  MLIRContext *ctx = program->getContext();
   Location loc = program->getLoc();
   bool merged = true;
   llvm::SmallPtrSet<const idr::runtime::Function *, 16> functions;
   // Equal names are equal contents, by how names are made: one global of
   // each name is kept, the others go with their worker.
   llvm::StringMap<StaticData::Written> data;
-  llvm::StringSet<> memoCells;
   for (Runtime *worker : workers) {
     merged = merged && !worker->statics.collided();
     functions.insert(worker->called.begin(), worker->called.end());
@@ -247,12 +245,7 @@ LogicalResult Runtime::merge(Operation *program, SymbolTable &symbols,
         merged = false;
       }
     }
-    for (const auto &name : worker->statics.memoCells())
-      memoCells.insert(name.getKey());
   }
-  if (!memoCells.empty())
-    functions.insert(&idr::runtime::helper::cafRelease);
-
   // Each before the program's first op, so in the order inserted. A C name
   // is its own mangling, so a program symbol could be one, and
   // SymbolTable::insert would rename the declaration silently: such a
@@ -286,22 +279,6 @@ LogicalResult Runtime::merge(Operation *program, SymbolTable &symbols,
   if (!merged)
     return failure();
 
-  OpBuilder b = OpBuilder::atBlockEnd(body);
-  auto release =
-      func::FuncOp::create(b, loc, idr::releaseCafsName(), b.getFunctionType({}, {}));
-  release.setPrivate();
-  symbols.insert(release);
-  b.setInsertionPointToStart(release.addEntryBlock());
-  SmallVector<StringRef> cells;
-  for (const auto &entry : memoCells)
-    cells.push_back(entry.getKey());
-  llvm::sort(cells);
-  Type ptr = LLVM::LLVMPointerType::get(ctx);
-  for (StringRef name : cells)
-    LLVM::CallOp::create(b, loc, functionType(ctx, idr::runtime::helper::cafRelease),
-                         StringRef(idr::runtime::helper::cafRelease.symbol),
-                         ValueRange{LLVM::AddressOfOp::create(b, loc, ptr, name)});
-  func::ReturnOp::create(b, loc);
   return success();
 }
 

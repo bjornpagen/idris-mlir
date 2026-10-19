@@ -40,15 +40,13 @@ extern "C" void idris_rt_free_cell(void *o) {
     rt::alloc::freeCell(cell);
 }
 
-// Releases what a persistent memo cell holds (its object slots), once, when
-// the program ends: the module's release function calls it on each of its
-// static thunks. A cell that was never forced holds only persistent
-// captures, and then nothing is released. Only a persistent cell: a counted
-// one releases what it holds when it dies.
-extern "C" void idris_rt_caf_release(void *o) {
-  if (!rt::rc::isObject(o))
-    return;
+// After a memo cell's force wrote its value: a persistent cell (static
+// data, count 0) makes what it now holds persistent too, so that
+// everything static data reaches is static; a counted cell holds its value
+// counted, released when the cell dies. idr-lower calls it after every
+// force, on the cell, which is a cell, never NULL or an odd word.
+extern "C" void idris_rt_persist_held(void *o) {
   idris_rt_header *cell = rt::rc::headerOf(o);
-  if (cell->count == 0)
-    rt::rc::releaseHeld(cell);
+  if (cell->count == 0) [[unlikely]]
+    rt::rc::persistHeld(cell);
 }

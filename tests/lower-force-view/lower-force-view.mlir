@@ -2,7 +2,7 @@
 // RUN: %differential %s %t.mlir
 // RUN: sed -n 's|^// REF: ||p' %s > %t.ref.mlir
 // RUN: %differential %t.ref.mlir %t.mlir
-// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,crash-sites=@Thunk.force:1,calls=@Thunk.force:@one,calls=@Thunk.force:@plus,calls-only=@Thunk.force:[@one,@plus,@idris_rt_crash],aligned-access' -o /dev/null
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,crash-sites=@Thunk.force:1,calls=@Thunk.force:@one,calls=@Thunk.force:@plus,calls-only=@Thunk.force:[@one,@plus,@idris_rt_crash,@idris_rt_persist_held],aligned-access' -o /dev/null
 // A force is a call of its memo sum's dispatch, `<sum>.force`, which
 // idr-defunctionalize makes: a match on the cell's state. A cell in a
 // label's state is exchanged (idr.memo.run): its captures move out to the
@@ -13,9 +13,11 @@
 // one after it shared with the forcer. A forced cell's value is read with
 // no call at all. So the dispatch calls each label's function directly, by
 // name, and asks the runtime for nothing but the crash of a cell forced
-// from inside its own force. The exchange writes the cell's header: the memo sum is a box of
-// @one and @plus, then running and forced, so running is tag 2 and forced
-// tag 3, each with the thunk kind, 1 << 24, the runtime's header words.
+// from inside its own force and, once it wrote a value, the persistence of
+// what a static cell holds. The exchange writes the cell's header: the
+// memo sum is a box of @one and @plus, then running and forced, so running
+// is tag 2 and forced tag 3, each with the thunk kind, 1 << 24, the
+// runtime's header words.
 // What moves in is what a later force reads: the root forces a cell of
 // @plus of the byte x it reads twice, the second time in its forced
 // state, and one of @one, and then, for x of 0, one in the running state.

@@ -80,29 +80,27 @@ private:
   idris_rt_header *top = nullptr;
 };
 
-void releaseSlots(void **slots, uint64_t objs, Dying &dying) {
-  for (uint64_t i = 0; i < objs; ++i)
-    if (idris_rt_header *dead = rt::rc::lastReference(slots[i]))
-      dying.push(dead);
-}
-
-// Releases what a cell owns besides its memory: its object slots, which an
-// array has per element. A box's or a thunk's are right after the header,
-// one word each, or, when the header's objs is IDRIS_RT_OBJS_WIDE, after the
-// word that counts them: this is the one place the runtime reads a box's
-// slots, for a death and for a static memo cell's release alike. Strings
-// and bignums have none (objs 0), and a bignum's digits are in its cell. An
-// array's objs is always the count, never the mark: an element with that
-// many slots is held boxed. Dying keeps objs and the count word, so a dying
-// cell is read alike.
-void releaseOwned(idris_rt_header *cell, Dying &dying) {
+// Each object slot of `cell`, which an array has per element. A box's or a
+// thunk's are right after the header, one word each, or, when the header's
+// objs is IDRIS_RT_OBJS_WIDE, after the word that counts them: this is the
+// one place the runtime reads a cell's slots, for a death and for a static
+// memo cell's persistence alike. Strings and bignums have none (objs 0), and
+// a bignum's digits are in its cell. An array's objs is always the count,
+// never the mark: an element with that many slots is held boxed. Dying
+// keeps objs and the count word, so a dying cell is read alike.
+template <typename Each>
+void eachSlot(idris_rt_header *cell, Each each) {
   uint32_t objs = idris_rt_info_objs(cell->info);
+  auto slots = [&](void **at, uint64_t n) {
+    for (uint64_t i = 0; i < n; ++i)
+      each(at[i]);
+  };
   if (idris_rt_info_kind(cell->info) != IDRIS_RT_KIND_ARRAY) {
     auto *after = static_cast<uint64_t *>(static_cast<void *>(cell + 1));
     if (objs == IDRIS_RT_OBJS_WIDE) [[unlikely]]
-      releaseSlots(static_cast<void **>(static_cast<void *>(after + 1)), *after, dying);
+      slots(static_cast<void **>(static_cast<void *>(after + 1)), *after);
     else
-      releaseSlots(static_cast<void **>(static_cast<void *>(after)), objs, dying);
+      slots(static_cast<void **>(static_cast<void *>(after)), objs);
     return;
   }
   if (objs == 0)
@@ -111,7 +109,15 @@ void releaseOwned(idris_rt_header *cell, Dying &dying) {
   char *element = reinterpret_cast<char *>(array + 1);
   size_t stride = idris_rt_info_tag(cell->info);
   for (uint64_t i = 0; i < array->length; ++i, element += stride)
-    releaseSlots(static_cast<void **>(static_cast<void *>(element)), objs, dying);
+    slots(static_cast<void **>(static_cast<void *>(element)), objs);
+}
+
+// Releases what a cell owns besides its memory: its object slots.
+void releaseOwned(idris_rt_header *cell, Dying &dying) {
+  eachSlot(cell, [&](void *slot) {
+    if (idris_rt_header *dead = rt::rc::lastReference(slot))
+      dying.push(dead);
+  });
 }
 
 // A dead cell's memory is freed, but a stack cell's belongs to its frame:
@@ -147,10 +153,33 @@ namespace rt::rc {
   releaseDying(dying);
 }
 
-void releaseHeld(idris_rt_header *cell) {
-  Dying dying;
-  releaseOwned(cell, dying);
-  releaseDying(dying);
+// The cells still to be walked are kept in a block of the runtime's memory
+// that grows as the walk needs, freed when it ends: a persisted cell's
+// header must keep its tag, so the walk cannot thread through it as dying
+// cells do. Each cell enters once, when its count becomes 0, so the walk
+// ends.
+void persistHeld(idris_rt_header *cell) {
+  size_t size = 16, top = 0;
+  auto **stack = static_cast<idris_rt_header **>(rt::alloc::allocate(size * sizeof(void *)));
+  auto persist = [&](void *slot) {
+    if (!isObject(slot))
+      return;
+    idris_rt_header *held = headerOf(slot);
+    if (held->count == 0 || isStack(held->info))
+      return;
+    held->count = 0;
+    rt::alloc::forgetCell();
+    if (top == size) {
+      size *= 2;
+      stack = static_cast<idris_rt_header **>(
+          rt::alloc::reallocate(stack, size * sizeof(void *)));
+    }
+    stack[top++] = held;
+  };
+  eachSlot(cell, persist);
+  while (top != 0)
+    eachSlot(stack[--top], persist);
+  rt::alloc::release(stack);
 }
 
 } // namespace rt::rc

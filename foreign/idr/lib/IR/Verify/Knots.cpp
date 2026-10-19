@@ -4,10 +4,16 @@
 // immutable, so a new object only points at objects that exist before it,
 // and the heap is acyclic: what lets counting free everything, with a
 // release walk that marks nothing and a count of one that means nobody
-// else. An array, of any rank (an IORef is one of rank 0), is the one cell
-// written after it exists, so a knot needs an array whose element type can
-// reach the array again, and whether one can is a question of types,
-// answered once for the program by its type graph. A knot is outside the
+// else. Two kinds of cell are written after they exist: an array, of any
+// rank (an IORef is one of rank 0), and a memo cell, whose force writes its
+// value. A memo cell closes no knot of counted cells. A counted one's value
+// is computed from its captures, which exist before it, and from globals:
+// arrays, refused here, and constant applicative forms, whose memo cells
+// are static data and make what they hold persistent when forced
+// (idris_rt_persist_held), so no counted cell reaches one. So a knot of
+// counted cells needs an array whose element type can reach the array
+// again, and whether one can is a question of types, answered once for the
+// program by its type graph. A knot is outside the
 // language this compiler implements, as a collector finalizer is: no count
 // frees it. So the rule `cycle` is of the category OutsideLanguage, not a
 // megamorphic construct; its refusal rests on the type graph's cycles, a

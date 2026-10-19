@@ -118,8 +118,49 @@ bool ownValue(Operation *op, Value value) {
 
 } // namespace
 
-// The ends each edge `op`'s model declares may name, and the one carrier
-// type of an edge that carries labels.
+namespace {
+
+// A write of a reference into memory that exists before `op` says what the
+// place held: the write releases it (an Overwrite of the same value), or
+// `op` ends the region of the exchange of that memory (its parent moved
+// the contents out into the region and holds it as a yield target: an
+// update, a memo cell's force), or the memory is a hole, written once
+// through its linear destination. A cell's init writes the box it makes,
+// and a yield of a tabulation the arrays its parent makes: new memory.
+LogicalResult writesKnown(Operation *op, const FlowEdges::Edge &edge, const FlowEdges &edges) {
+  const auto *move = std::get_if<FlowEdges::Flow>(&edge.move);
+  if (!move || !edge.carries(Carrier::Reference))
+    return success();
+  const auto *part = std::get_if<FlowPoint::Part>(&move->to.at);
+  if (!part)
+    return success();
+  Value place = *move->to.value();
+  Operation *parent = op->getParentOp();
+  bool terminator = op->hasTrait<OpTrait::IsTerminator>();
+  Operation *maker = isa<OpResult>(place) ? cast<OpResult>(place).getOwner()
+                                          : cast<BlockArgument>(place).getOwner()->getParentOp();
+  if (maker == op || (terminator && maker == parent))
+    return success();
+  if (isa<DestType>(place.getType()))
+    return success();
+  auto exchange = dyn_cast_or_null<YieldTargetsOpInterface>(parent);
+  if (terminator && exchange && llvm::is_contained(exchange.getYieldTargets(), place))
+    return success();
+  bool released = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &other) {
+    const auto *over = std::get_if<FlowEdges::Overwrite>(&other.move);
+    return over && over->place.value() == place;
+  });
+  if (released)
+    return success();
+  return op->emitOpError("writes a reference into memory that exists before it, and declares "
+                         "neither what the place held (an overwrite) nor the exchange it ends");
+}
+
+} // namespace
+
+// The ends each edge `op`'s model declares may name, the one carrier type
+// of an edge that carries labels, and what a write into memory that exists
+// before the op says the place held.
 LogicalResult idr::detail::verifyFlowEdges(Operation *op) {
   auto operandValue = [&](Value value) { return llvm::is_contained(op->getOperands(), value); };
   // A terminator moves into a part of what its parent makes or writes.
@@ -188,6 +229,9 @@ LogicalResult idr::detail::verifyFlowEdges(Operation *op) {
             [&](const FlowEdges::Source &move) { return ownValue(op, move.to); },
             [&](const FlowEdges::Fresh &move) { return ownValue(op, move.to); },
             [&](const FlowEdges::Release &move) { return move.use->getOwner() == op; },
+            [&](const FlowEdges::Overwrite &move) {
+              return std::holds_alternative<FlowPoint::Part>(move.place.at) && to(move.place);
+            },
             [&](const FlowEdges::Constant &move) { return ownValue(op, move.to); },
             [&](FlowEdges::Dispatch move) { return move.call.getOperation() == op; }),
         edge.move);
@@ -208,9 +252,12 @@ LogicalResult idr::detail::verifyFlowEdges(Operation *op) {
             [](const FlowEdges::Source &) -> std::optional<Ends> { return std::nullopt; },
             [](const FlowEdges::Fresh &) -> std::optional<Ends> { return std::nullopt; },
             [](const FlowEdges::Release &) -> std::optional<Ends> { return std::nullopt; },
+            [](const FlowEdges::Overwrite &) -> std::optional<Ends> { return std::nullopt; },
             [](const FlowEdges::Constant &) -> std::optional<Ends> { return std::nullopt; },
             [](const FlowEdges::Dispatch &) -> std::optional<Ends> { return std::nullopt; }),
         edge.move);
+    if (failed(writesKnown(op, edge, edges)))
+      return failure();
     if (!places || !edge.carriesAny(Carriers::labels()))
       continue;
     std::optional<Type> source = places->first->type(), target = places->second->type();
@@ -265,6 +312,7 @@ LogicalResult verifyUndeclared(Operation *op) {
                    [&](const FlowEdges::Source &move) { give(move.to); },
                    [&](const FlowEdges::Fresh &move) { give(move.to); },
                    [&](const FlowEdges::Release &move) { moved.insert(move.use); },
+                   [](const FlowEdges::Overwrite &) {},
                    [&](const FlowEdges::Constant &move) { give(move.to); },
                    [](const FlowEdges::Dispatch &) {}),
                edge.move);

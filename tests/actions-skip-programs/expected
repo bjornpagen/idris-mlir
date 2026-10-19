@@ -1,0 +1,35 @@
+lazy-list-frame
+skipped idr-stack-cell-count=0: each case as expected
+skipped idr-reuse-site-count=0: each case as expected
+skipped idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
+skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected
+memo-shared-stream
+skipped idr-stack-cell-count=0: each case as expected
+skipped idr-reuse-site-count=0: each case as expected
+skipped idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
+skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected
+thunk-consumes-list
+skipped idr-stack-cell-count=0: each case as expected
+skipped idr-reuse-site-count=0: each case as expected
+skipped idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
+skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected
+linear-string-iterator
+skipped idr-stack-cell-count=0: each case as expected
+skipped idr-reuse-site-count=0: each case as expected
+skipped idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
+skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected
+sortedmap
+skipped idr-stack-cell-count=0: each case as expected
+skipped idr-reuse-site-count=0: each case as expected
+skipped idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=0: each case as expected
+skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
+skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected

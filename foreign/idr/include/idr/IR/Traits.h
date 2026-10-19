@@ -111,6 +111,11 @@ public:
 template <typename ConcreteType>
 class SameValue : public mlir::OpTrait::TraitBase<ConcreteType, SameValue> {};
 
+// An op whose result takes a reference of its own to what it reads, which
+// its lowering counts (Idr_TakesReference).
+template <typename ConcreteType>
+class TakesReference : public mlir::OpTrait::TraitBase<ConcreteType, TakesReference> {};
+
 // The op has no runtime form: its result is its first operand at run time,
 // a change of grade, linearity or kind (Idr_NoRuntimeForm), which idr-lower
 // lowers to the operand's components, by one pattern for every op with the

@@ -340,7 +340,7 @@ holding ix l binder t captures build =
   where
     linearType : Value -> Bool
     linearType v = case v.type of
-      Idr (QType One _ _) _ => True
+      Idr (QType One _ _ _) _ => True
       _ => False
 
 ||| A call passes as many values as its callee takes. A count that differs

@@ -34,10 +34,10 @@ export
 qTypeCode : Nat
 qTypeCode = 1
 
-||| The parts of `QType`: its code, `quantity`, `permission`, `value`.
+||| The parts of `QType`: its code, `quantity`, `permission`, `value`, `lifetime`.
 export
-encodeQType : Quantity -> Permission -> List Part -> List Part
-encodeQType quantity permission value = [VarInt qTypeCode, VarInt (quantityValue quantity), VarInt (permissionValue permission)] ++ value
+encodeQType : Quantity -> Permission -> List Part -> Lifetime -> List Part
+encodeQType quantity permission value lifetime = [VarInt qTypeCode, VarInt (quantityValue quantity), VarInt (permissionValue permission)] ++ value ++ [VarInt (lifetimeValue lifetime)]
 
 ||| The code of `FnType`, its place among the dialect's types.
 export
@@ -124,4 +124,4 @@ encodeTableBody kind ctors instance = [VarInt (sumKindValue kind), VarInt (lengt
 
 -- Not generated:
 -- attribute DataTable: its member `table` is read by `succeeded(::idr::DataType::readTable($_reader, $_var))`
--- fingerprint: 929162703-182426 2871451762-4311
+-- fingerprint: 3508641896-183548 1200996427-4381

@@ -67,6 +67,10 @@ mlir::LogicalResult function(FuncOp fn);
 // on every path of `fn`.
 mlir::LogicalResult linearity(FuncOp fn);
 
+// The rules of the frame (Lifetimes.h) on `fn`'s types, at every stage:
+// what a value of the frame reaches is of the frame, and none escapes.
+mlir::LogicalResult lifetimes(FuncOp fn);
+
 // The owned stage's rule for one function: each reference is consumed
 // exactly once on every path, a cell's by the idr.cell.init that fills it,
 // and a view is used only while what it was read from holds its reference.

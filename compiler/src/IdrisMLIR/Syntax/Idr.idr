@@ -80,6 +80,33 @@ ctorRoleValue CtorRole.Label = 3
 ctorRoleValue CtorRole.Running = 4
 ctorRoleValue CtorRole.Forced = 5
 
+namespace Lifetime
+  ||| how long what a value reaches lives
+  public export
+  data Lifetime = Heap | Frame
+
+export
+Prelude.EqOrd.Eq Lifetime where
+  Lifetime.Heap == Lifetime.Heap = True
+  Lifetime.Frame == Lifetime.Frame = True
+  _ == _ = False
+
+export
+Show Lifetime where
+  show Lifetime.Heap = "heap"
+  show Lifetime.Frame = "frame"
+
+||| The value of each Lifetime.
+export
+lifetimeValue : Lifetime -> Nat
+lifetimeValue Lifetime.Heap = 0
+lifetimeValue Lifetime.Frame = 1
+
+-- How the syntax below spells each Lifetime.
+lifetimeSpelling : Lifetime -> String
+lifetimeSpelling Lifetime.Heap = "heap"
+lifetimeSpelling Lifetime.Frame = "frame"
+
 namespace Permission
   ||| what a value owns
   public export
@@ -434,8 +461,8 @@ data IdrType : (ty : Type) -> Type where
   LazyType : (value : ty) -> IdrType ty
   ||| `!idr.nat`: a natural number: a non-negative big
   NatType : IdrType ty
-  ||| `!idr.q`: a value at a grade: its quantity and what it owns
-  QType : (quantity : Quantity) -> (permission : Permission) -> (value : ty) -> IdrType ty
+  ||| `!idr.q`: a value at a grade: its quantity, what it owns and how long what it reaches lives
+  QType : (quantity : Quantity) -> (permission : Permission) -> (value : ty) -> (lifetime : Maybe Lifetime) -> IdrType ty
   ||| `!idr.str`: a string (UTF-8)
   StrType : IdrType ty
   ||| `!idr.token`: the memory of a cell whose fields idr.take moved out, or null
@@ -458,7 +485,7 @@ idrTypeMnemonic (DestType _) = "dest"
 idrTypeMnemonic (FnType _) = "fn"
 idrTypeMnemonic (LazyType _) = "lazy"
 idrTypeMnemonic NatType = "nat"
-idrTypeMnemonic (QType _ _ _) = "q"
+idrTypeMnemonic (QType _ _ _ _) = "q"
 idrTypeMnemonic StrType = "str"
 idrTypeMnemonic TokenType = "token"
 idrTypeMnemonic WorldType = "world"
@@ -474,7 +501,7 @@ idrTypeText t (DestType value) = fastConcat ["!idr.dest<", (t value), ">"]
 idrTypeText t (FnType functionType) = fastConcat ["!idr.fn<", (signature t functionType), ">"]
 idrTypeText t (LazyType value) = fastConcat ["!idr.lazy<", (t value), ">"]
 idrTypeText t NatType = "!idr.nat"
-idrTypeText t (QType quantity permission value) = fastConcat ["!idr.q<", (quantitySpelling quantity), ", ", (permissionSpelling permission), ", ", (t value), ">"]
+idrTypeText t (QType quantity permission value lifetime) = fastConcat ["!idr.q<", (quantitySpelling quantity), ", ", (permissionSpelling permission), ", ", (t value), maybe "" (\lifetime => fastConcat [", ", (lifetimeSpelling lifetime)]) lifetime, ">"]
 idrTypeText t StrType = "!idr.str"
 idrTypeText t TokenType = "!idr.token"
 idrTypeText t WorldType = "!idr.world"
@@ -534,4 +561,4 @@ idrAttrText t a WorldSpaceAttr = "#idr.world"
 -- attribute KeyHoleAttr: the passes' alone (idris = 0)
 -- attribute KeyRaiseAttr: the passes' alone (idris = 0)
 -- attribute SpecKeyAttr: the passes' alone (idris = 0)
--- fingerprint: 1552716861-1523265 1571706321-20035
+-- fingerprint: 3951942032-1532481 485632571-20832

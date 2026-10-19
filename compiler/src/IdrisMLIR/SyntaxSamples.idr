@@ -73,7 +73,7 @@ dataT = idr (DataType "T")
 ||| base's list: a sum rebuilt in place. Only defunctionalization makes the
 ||| others, never in the table.
 kinds : List (String, IdrSum MlirType)
-kinds = [("Pairs", MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64)]] Nothing)]
+kinds = [("Pairs", MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64 Nothing)]] Nothing)]
 
 ||| The bodies of the data types the samples name, the module's table.
 table : List (String, IdrSum MlirType)
@@ -105,18 +105,19 @@ types =
   , idr (FnType (MkSignature [i64] [idr (FnType (MkSignature [i64] [i64]))]))
   , idr (LazyType (idr NatType))
   , idr NatType
-  , idr (QType One Plain str)
-  , idr (QType Many Own big)
-  , idr (QType Many Excl (idr (BoxType natList)))
-  , idr (QType One Own str)
-  , idr (QType Many Borrow str)
+  , idr (QType One Plain str Nothing)
+  , idr (QType Many Own big Nothing)
+  , idr (QType Many Excl (idr (BoxType natList)) Nothing)
+  , idr (QType One Own str Nothing)
+  , idr (QType Many Borrow str Nothing)
+  , idr (QType Many Own (idr (BoxType natList)) (Just Lifetime.Frame))
   , str
   , idr TokenType
   , world
   , RankedTensorType [Dynamic, Static 3] F64Type
   , RankedTensorType [] i64
   , RankedTensorType [Dynamic] (idr NatType)
-  , idr (QType One Plain (RankedTensorType [Dynamic] i64))
+  , idr (QType One Plain (RankedTensorType [Dynamic] i64) Nothing)
   , MemRefType [Dynamic] (IntegerType 8) (Just (idr WorldSpaceAttr))
   , MemRefType [] i64 (Just (idr WorldSpaceAttr))
   , IndexType
@@ -210,7 +211,7 @@ sample =
       s = MkValue "%s" str
       w0 = MkValue "%w0" world
       x = MkValue "%x" i64
-      lin = idr (QType One Plain i64)
+      lin = idr (QType One Plain i64 Nothing)
       fn = idr (FnType (MkSignature [i64] [i64]))
       lazy = idr (LazyType i64)
       vec = RankedTensorType [Dynamic] i64

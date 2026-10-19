@@ -191,9 +191,12 @@ def IdrKnots : IdrPass<"idr-knots", "::idr::ProgramOp", IdrRoleCheck,
       IdrStageFirst, IdrStageFirst> {
   let summary = "Refuse a program whose types let an array hold a reference to itself";
   let description = [{
-    An array, of any rank (an IORef is one of rank 0), is the one cell
-    written after it exists, so a knot of references needs an array whose
-    element type can reach the array again, and no count frees one. Whether
+    An array, of any rank (an IORef is one of rank 0), and a memo cell are
+    the cells written after they exist. A memo cell closes no knot of
+    counted cells: a counted one's value is made of its captures, which
+    exist before it, and of globals, and a static one's force makes what it
+    holds persistent. So a knot of references needs an array whose element
+    type can reach the array again, and no count frees one. Whether
     one can is read off the program's type graph, once every closure is a
     constructor of a sum: each such cycle is refused, `cycle`, once, where
     the program's own code makes one of its arrays, or else builds a value
@@ -473,23 +476,26 @@ def IdrRcStack : IdrPass<"idr-rc-stack", "::idr::ProgramOp", IdrRoleOptimization
       IdrStageFirst, IdrStageFirst> {
   let summary = "Put the cells that never leave their frame on the stack";
   let description = [{
-    An `idr.cell.new` becomes `idr.cell.stack`, a cell of its function's
-    frame, when no reference to the cell can outlive the frame of the
-    function that makes it, nor the loop iteration that makes it. A
-    reference escapes when it is returned, forwarded by a terminator of a
-    loop around the cell, passed to a call in tail position of a function
-    on the same cycle of calls (a tail call, idr-tail-calls, or the next
-    iteration of a loop, idr-tail-loops), passed to a parameter that
-    escapes (the parameters are summarized over the program's calls), used
-    by an op the analysis does not know, or stored in a cell whose box
-    escapes or whose fields are read into something that escapes; the
-    cell's address is followed through `idr.share`, which gives up a
-    reference but not the cell. idr-lower makes such a cell in a slot of
-    its function's entry block, with the stack mark in its header. It runs
-    before reuse and exclusivity are decided, which see the stack cells: a
-    stack cell is never recycled, nor exclusive. A cell of more than 256
-    bytes stays on the heap, and so do a function's cells past 1024 bytes,
-    or 64 bytes for a function on a cycle of calls.
+    The lifetimes of the program (the grade's third part, heap or frame),
+    inferred from the rules of the frame (IR/Lifetimes.h), which the
+    function verifier holds the result to. An `idr.cell.new` becomes
+    `idr.cell.stack`, a cell of its function's frame, when every value
+    its box may reach, once it is the frame's, keeps the rules: none is
+    returned, moved into memory that exists before the op that moves it,
+    forwarded out of a region that runs again, passed to a self call that
+    becomes the next iteration of a loop, used by an op that declares no
+    flow, or filled into a cell of the heap. Each value a cell of the frame
+    reaches, through fields, constructors, joins and parameters over the
+    whole program, is then written of the frame, and a value of the heap
+    that meets one at a join or a parameter is shared into it
+    (`idr.share`). A cell that reaches a call in tail position of a
+    function on its function's cycle of calls stays on the heap, so that
+    the cycle keeps running in constant stack. idr-lower makes a cell of
+    the frame in a slot of its function's entry block, with the stack mark
+    in its header. It runs before reuse and exclusivity are decided, which
+    see the stack cells: a stack cell is never recycled, nor exclusive. A
+    cell of more than 256 bytes stays on the heap, and so do a function's
+    cells past 1024 bytes, or 64 bytes for a function on a cycle of calls.
   }];
   // A cell's size is idr-lower's layout, whose components are LLVM types.
   let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
@@ -702,10 +708,11 @@ def IdrLower : IdrPass<"idr-lower", "::mlir::ModuleOp", IdrRoleLowering,
     function boundary and in a cell's field it is its one-pointer
     components. A buffer is a cell of the runtime and a copy the runtime's
     counted copy. `idr.memo.run` becomes the read of the label's captures
-    and the writes of the cell's header and forced value around its region. Each guard becomes its comparison and a crash with
-    its cause. Constants become static data, named by their content, and
-    `@__idr$release$cafs` releases what the static thunks among them hold
-    once forced. A view (`memref.subview`, `expand_shape`, `collapse_shape`)
+    and the writes of the cell's header and forced value around its
+    region, after which a static cell makes what it holds persistent
+    (`idris_rt_persist_held`). Each guard becomes its comparison and a crash
+    with its cause. Constants become static data, named by their content.
+    A view (`memref.subview`, `expand_shape`, `collapse_shape`)
     is first expanded into its strided metadata by upstream's patterns, in
     one walk, since upstream's subview lowering takes no unexpanded view.
     The program's functions are lowered in place, each under its mangled
@@ -731,8 +738,7 @@ def IdrEntry : IdrPass<"idr-entry", "::mlir::ModuleOp", IdrRoleLowering,
     the root rule's (`idr::rootKind`), which the lowered stage's verifier
     holds: a `() -> i64` root returns the exit status, and an IO root,
     `() -> ()` once lowered, returns 0. The entry body, `@__idr$entry$body`,
-    calls the root, then the release function `@__idr$release$cafs`, then
-    `idris_rt_main_return`. `@main(i32, ptr)` passes `argc` and `argv`, with
+    calls the root, then `idris_rt_main_return`. `@main(i32, ptr)` passes `argc` and `argv`, with
     the CPU features the target requires, to `idris_rt_start`, which runs
     the entry body. Those two runtime functions are declared where the
     module declares none.

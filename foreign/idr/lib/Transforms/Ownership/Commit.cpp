@@ -18,6 +18,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/MapVector.h"
 
 using namespace mlir;
 
@@ -27,19 +28,18 @@ namespace {
 
 // `operand` where `expected` is taken: an exclusive value is shared into
 // an owned position. An owned one in an exclusive position is on a path
-// the solver never reached (whose values it never graded), where it is
-// poison, and the reference the operand took over is dropped where it
-// was, so the path still counts every reference once; anywhere else it is
-// the solver and the commit disagreeing, which is a bug here, never a
-// program to compile.
+// the solver never reached (whose values it never graded): that path
+// never runs, so it ends there (`dead`), and no reference stands on it;
+// anywhere else it is the solver and the commit disagreeing, which is a
+// bug here, never a program to compile.
 LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand &operand,
-                   Type expected) {
+                   Type expected, llvm::MapVector<Block *, Operation *> &dead) {
   Type type = operand.get().getType();
   if (type == expected || !isOwned(expected))
     return success();
   Operation *op = operand.getOwner();
-  rewriter.setInsertionPoint(op);
   if (isExclusive(type) && !isExclusive(expected)) {
+    rewriter.setInsertionPoint(op);
     Value shared = ShareOp::create(rewriter, op->getLoc(), expected, operand.get());
     rewriter.modifyOpInPlace(op, [&] { operand.set(shared); });
     return success();
@@ -48,12 +48,27 @@ LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand 
     if (solved.live(op->getBlock()))
       return op->emitOpError("idr-rc-exclusive: gives a value of ")
              << type << " where the solver proved " << expected;
-    if (ownership::useOf(operand) == ownership::Use::Consume)
-      DropOp::create(rewriter, op->getLoc(), operand.get());
-    Value poison = ub::PoisonOp::create(rewriter, op->getLoc(), expected);
-    rewriter.modifyOpInPlace(op, [&] { operand.set(poison); });
+    auto [at, fresh] = dead.try_emplace(op->getBlock(), op);
+    if (!fresh && op->isBeforeInBlock(at->second))
+      at->second = op;
   }
   return success();
+}
+
+// A path the solver never reached ends at `op`, its first op that takes a
+// value the solver did not grade: ub.unreachable there, and what came after
+// it erased, the block's terminator with it.
+void endPath(RewriterBase &rewriter, Operation *op) {
+  Block *block = op->getBlock();
+  while (&block->back() != op) {
+    Operation *last = &block->back();
+    last->dropAllUses();
+    rewriter.eraseOp(last);
+  }
+  op->dropAllUses();
+  rewriter.setInsertionPoint(op);
+  ub::UnreachableOp::create(rewriter, op->getLoc());
+  rewriter.eraseOp(op);
 }
 
 // The commit of `fn`; the values it leaves exclusive are counted into
@@ -96,13 +111,20 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &sy
     });
   });
   IRRewriter rewriter(fn.getContext());
+  // The paths never reached, each ended once every position is met: the
+  // walk found the positions inside an op before the op's own, so an
+  // inner path ends before the one that erases it.
+  llvm::MapVector<Block *, Operation *> dead;
   for (auto [operand, expected] : positions)
-    if (failed(meet(rewriter, solved, *operand, expected)))
+    if (failed(meet(rewriter, solved, *operand, expected, dead)))
       return failure();
-  // A share of a value that is not exclusive shares nothing.
+  for (auto [block, op] : dead)
+    endPath(rewriter, op);
+  // A share that gives its value at the value's own type, neither
+  // exclusive nor raised to the frame, shares nothing.
   SmallVector<ShareOp> idle;
   fn.walk([&](ShareOp share) {
-    if (!isExclusive(share.getValue().getType()))
+    if (share.getValue().getType() == share.getType())
       idle.push_back(share);
   });
   for (ShareOp share : idle)

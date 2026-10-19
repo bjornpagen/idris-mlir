@@ -114,9 +114,10 @@ LogicalResult idr::verify::OwnedWalk::loaded(Operation &op) {
 
 // An exclusive value alone reaches its cells: no view of it (or of what
 // was read from it) takes a reference of its own, and an exclusive
-// constructor is built of exclusive fields, never in a cell of the frame,
-// which the frame lends. A reference of its own is exclusive only to
-// static data that reaches no cell but atoms, which no take hands out: of
+// constructor is built of exclusive fields (never in a cell of the frame,
+// which the frame lends: no grade is exclusive and of the frame). A
+// reference of its own is exclusive only to static data that reaches no
+// cell but atoms, which no take hands out: of
 // anything else, the copy shares the original's cells. A constructor is
 // built by idr.cell.init, which fills a cell, or by idr.con, which builds
 // one that has none (an unboxed sum, an atom): two ops, as buildsCell
@@ -144,11 +145,8 @@ LogicalResult idr::verify::OwnedWalk::exclusive(Operation &op) {
     }
     return success();
   };
-  if (auto init = dyn_cast<CellInitOp>(op); init && isExclusive(init.getResult().getType())) {
-    if (init.getCell().getDefiningOp<CellStackOp>())
-      return op.emitOpError("builds an exclusive value in a cell of the frame, which is lent");
+  if (auto init = dyn_cast<CellInitOp>(op); init && isExclusive(init.getResult().getType()))
     return ofExclusives(init.getFields());
-  }
   if (auto con = dyn_cast<ConOp>(op); con && isExclusive(con.getResult().getType()))
     return ofExclusives(con.getFields());
   return success();
@@ -227,14 +225,62 @@ SmallVector<Value> idr::verify::OwnedWalk::readBy(Operation &op,
   return from;
 }
 
+namespace {
+
+// Whether `op` declares where the reference of `value`, an owned value it
+// makes, comes from: an allocation (a cell's source); a fresh or constant
+// value; a use it takes over, whole or out of a part (a take, an unpack, a
+// share); a callee's result; what it reads, when its result takes a
+// reference of its own to it (Idr_TakesReference: a dup, an array's get);
+// or a part of the memory it exchanges, moved out into its region (an
+// update's element, a memo cell's captures). An op that declares no flow
+// computes its value. A field read or a match's binding is a view: the
+// value it is read from keeps the reference.
+bool declaresSource(Operation &op, Value value) {
+  if (!declaresFlow(&op) || hasEffect<MemoryEffects::Allocate>(&op, value))
+    return true;
+  auto exchange = dyn_cast<YieldTargetsOpInterface>(op);
+  FlowEdges edges;
+  flowEdgesOf(&op, edges);
+  return llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    return std::visit(
+        llvm::makeVisitor(
+            [&](const FlowEdges::Flow &move) {
+              const auto *whole = std::get_if<FlowPoint::Whole>(&move.to.at);
+              if (!whole || whole->value != value)
+                return false;
+              if (move.from.taken() || std::holds_alternative<FlowPoint::Result>(move.from.at))
+                return true;
+              if (op.hasTrait<TakesReference>())
+                return true;
+              std::optional<Value> read = move.from.value();
+              return exchange && read && llvm::is_contained(exchange.getYieldTargets(), *read) &&
+                     std::holds_alternative<FlowPoint::Part>(move.from.at);
+            },
+            [&](const FlowEdges::Fresh &move) { return move.to == value; },
+            [&](const FlowEdges::Constant &move) { return move.to == value; },
+            [](const auto &) { return false; }),
+        edge.move);
+  });
+}
+
+} // namespace
+
 // A value an op makes, not one it is forwarded: an owned value holds its
-// own reference, a cell included; a Carried one, a buffer the op allocates
-// or idr.own.give's result, holds the reference its plain type cannot say,
+// own reference, a cell included, which its op declares a source of
+// (declaresSource); a Carried one, a buffer the op allocates or
+// idr.own.give's result, holds the reference its plain type cannot say,
 // until its one use takes it over; and a view is a view of what the op
 // read (`from`), alive while each of those is.
 LogicalResult idr::verify::OwnedWalk::make(Operation &op, Value value, ArrayRef<Value> from) {
   switch (roleOf(value)) {
   case Role::Owned:
+    if (!declaresSource(op, value))
+      return fail(op, value, "makes an owned value whose reference no source it declares gives: "
+                             "what it reads is a view, and only a dup takes a reference of its "
+                             "own");
+    set(value, 1);
+    return success();
   case Role::Carried:
     set(value, 1);
     return success();

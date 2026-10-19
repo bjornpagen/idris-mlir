@@ -191,7 +191,7 @@ DataType MemoRunOp::getDataType() { return dataTypeOf(getCell().getType()); }
 // leaves its cell as it is. The region binds that label's captures, each
 // at its field's type at any permission: plain before idr-rc, owned after
 // it where it holds references, as the cell's own reference moves out with
-// it.
+// it; and at the cell's lifetime, as any field read from it is.
 LogicalResult MemoRunOp::verify() {
   FailureOr<std::reference_wrapper<const Ctor>> found =
       idr::detail::ctorAt(*this, getCell().getType(), getTag());
@@ -207,7 +207,8 @@ LogicalResult MemoRunOp::verify() {
     return emitOpError("binds ") << body.getNumArguments() << " captures where @"
                                  << ctor.name.getValue() << " has " << ctor.fields.size();
   for (auto [arg, field] : llvm::zip_equal(body.getArguments(), ctor.fields))
-    if (arg.getType() != atPermission(field, gradeOf(arg.getType()).permission))
+    if (arg.getType() != atLifetime(atPermission(field, gradeOf(arg.getType()).permission),
+                                    lifetimeOf(getCell().getType())))
       return emitOpError("binds a capture of type ")
              << arg.getType() << " where @" << ctor.name.getValue() << " holds " << field;
   return success();

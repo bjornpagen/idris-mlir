@@ -220,6 +220,8 @@ void reserveHeap() { HeapConfig::ensure_init(); }
   snmalloc::dealloc(cell);
 }
 
+void forgetCell() { --liveCells; }
+
 } // namespace rt::alloc
 
 // A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,

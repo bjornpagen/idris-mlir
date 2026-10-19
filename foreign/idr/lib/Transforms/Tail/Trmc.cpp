@@ -34,7 +34,7 @@
 
 #include "idr/Transforms/Tail.h"
 
-#include "idr/Analysis/Tail.h"
+#include "idr/IR/Tail.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"

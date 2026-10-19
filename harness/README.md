@@ -59,7 +59,6 @@ in `lib/e2e.sh`):
 | `expected-exit` | the exit status (first word); 0 |
 | `expected-crash` | the cause the runtime names: stderr is exactly `idris-mlir: <cause>` and the status 1; without it stderr is empty |
 | `constant-stack` | the run's stdin is `stdin` N times over (first word N), a loop that must not grow the 1 MiB stack; the rest says what loops |
-| `live-cells` | N cells (first word) a reference-count cycle keeps at exit; the rest says which |
 | `libm-lines` | stdout's line numbers that hold libm results, compared to a few ulp |
 
 A case with any other file, a crash beside an exit status, or a `cases`

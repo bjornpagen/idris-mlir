@@ -33,17 +33,24 @@ enum class Tag : std::uint32_t;
 // A grade: the quantity is the number of uses Idris allows, one or many
 // (Quantity); the permission is what the value owns, plain (nothing to
 // say), a borrow, one reference of its own, or an exclusive cell graph,
-// which the owned stage decides. A plain type T is the grade (many, plain).
+// which the owned stage decides; the lifetime is how long what the value
+// reaches lives, the heap or the frame (Lifetime), which idr-rc's stack
+// step decides. A plain type T is the grade (many, plain, heap).
 struct Grade {
   Quantity quantity = Quantity::Many;
   Permission permission = Permission::Plain;
+  Lifetime lifetime = Lifetime::Heap;
   bool operator==(const Grade &) const = default;
-  bool plain() const { return quantity == Quantity::Many && permission == Permission::Plain; }
+  bool plain() const {
+    return quantity == Quantity::Many && permission == Permission::Plain &&
+           lifetime == Lifetime::Heap;
+  }
 };
 
 inline llvm::hash_code hash_value(Grade grade) {
   return llvm::hash_combine(static_cast<unsigned>(grade.quantity),
-                            static_cast<unsigned>(grade.permission));
+                            static_cast<unsigned>(grade.permission),
+                            static_cast<unsigned>(grade.lifetime));
 }
 
 // The grade of a type: its own for !idr.q, (many, plain) for a plain type.
@@ -84,6 +91,27 @@ mlir::Type atPermission(mlir::Type type, Permission permission);
 // `exclusive` is the type with that permission, at its own quantity.
 bool isExclusive(mlir::Type type);
 mlir::Type exclusive(mlir::Type type);
+
+// What idr.share makes of a value of `type`: its exclusivity forgotten,
+// at its own lifetime (`shared`); and whether `to` is such a value of
+// `from` at its lifetime or one it fits in (`forgets`).
+mlir::Type shared(mlir::Type type);
+bool forgets(mlir::Type from, mlir::Type to);
+
+// The lifetime of a type: its grade's, or a cell's own (CellType), which
+// takes no grade. Whether a value of `type` may be frame: a box, or a sum,
+// whose fields may hold one; nothing else reaches a cell of the frame. The
+// type at `lifetime`, where it may be frame, and itself otherwise.
+Lifetime lifetimeOf(mlir::Type type);
+bool mayBeFrame(mlir::Type type);
+mlir::Type atLifetime(mlir::Type type, Lifetime lifetime);
+
+// The order of lifetimes, heap below frame: a value of `lifetime` may stand
+// in a slot of lifetime `slot` when it lives at least as long as the slot
+// asks, heap anywhere and frame only in a frame slot; and the join of two,
+// the least lifetime both may stand in.
+bool fitsIn(Lifetime lifetime, Lifetime slot);
+Lifetime joined(Lifetime a, Lifetime b);
 
 // Idris's product of quantities: one is the unit, and many times many is
 // many.

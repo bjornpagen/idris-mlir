@@ -38,7 +38,7 @@ def DataType : DialectTypeNoPrint<(type
 // The generated builder falls back to `get` for a type whose `getChecked`
 // takes a context, so the type that verifies names its own.
 def QType : DialectType<(type Idr_Enum<"Quantity">:$quantity,
-  Idr_Enum<"Permission">:$permission, Type:$value)> {
+  Idr_Enum<"Permission">:$permission, Type:$value, Idr_Enum<"Lifetime">:$lifetime)> {
   let cBuilder = "QType::getChecked([&]() { return reader.emitError(); }, context, $_args)"; }
 def FnType : DialectType<(type WithType<"::mlir::FunctionType", Type>:$function_type)>;
 def LazyType : DialectType<(type Type:$value)>;

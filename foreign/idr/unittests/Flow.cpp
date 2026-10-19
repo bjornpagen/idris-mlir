@@ -76,13 +76,49 @@ public:
   }
 };
 
+// Ops that write a value into the elements of a buffer they are given,
+// memory that exists before them: one says the element it replaces is
+// released, as memref.store does; the other says nothing of it, which
+// would leave a reference in memory no one accounts for.
+template <typename Self>
+using WritesBase = Op<Self, OpTrait::ZeroResults, OpTrait::NOperands<2>::Impl,
+                      FlowOpInterface::Trait>;
+
+template <typename Self, bool released>
+void writeEdges(Operation *op, FlowEdges &edges) {
+  Value buffer = op->getOperand(1);
+  auto shaped = cast<ShapedType>(buffer.getType());
+  FlowPoint place = FlowPoint::partOf(buffer, FlowAnchor::elementsOf(shaped.getElementType()));
+  edges.flow(FlowPoint::of(op->getOpOperand(0)), place);
+  if (released)
+    edges.overwrite(place);
+}
+
+class WritesOver : public WritesBase<WritesOver> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(WritesOver)
+  using Op::Op;
+  static ArrayRef<StringRef> getAttributeNames() { return {}; }
+  static StringRef getOperationName() { return "flowtest.writes_over"; }
+  void getFlowEdges(FlowEdges &edges) { writeEdges<WritesOver, true>(*this, edges); }
+};
+
+class WritesUnsaid : public WritesBase<WritesUnsaid> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(WritesUnsaid)
+  using Op::Op;
+  static ArrayRef<StringRef> getAttributeNames() { return {}; }
+  static StringRef getOperationName() { return "flowtest.writes_unsaid"; }
+  void getFlowEdges(FlowEdges &edges) { writeEdges<WritesUnsaid, false>(*this, edges); }
+};
+
 class FlowTestDialect : public Dialect {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(FlowTestDialect)
   static constexpr StringLiteral getDialectNamespace() { return StringLiteral("flowtest"); }
   explicit FlowTestDialect(MLIRContext *context)
       : Dialect(getDialectNamespace(), context, TypeID::get<FlowTestDialect>()) {
-    addOperations<NamesAnother, ReadsBackPart, ReadsBackWhole>();
+    addOperations<NamesAnother, ReadsBackPart, ReadsBackWhole, WritesOver, WritesUnsaid>();
   }
 };
 
@@ -143,6 +179,28 @@ func.func @f() {
   module->walk([&](ReadsBackWhole op) { EXPECT_TRUE(failed(idr::detail::verifyFlowEdges(op))); });
 }
 
+// A write of a reference into memory that exists before the op says what
+// the place held: one that releases it verifies, one that says nothing is
+// refused.
+TEST(FlowRule, AWriteIntoMemorySaysWhatThePlaceHeld) {
+  MLIRContext ctx;
+  ctx.loadDialect<IdrDialect, func::FuncDialect, FlowTestDialect>();
+  ParserConfig config(&ctx, /*verifyAfterParse=*/false);
+  OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
+!B = !idr.data<"B", plain [@K(i64)]>
+func.func @f(%e: !idr.box<!B>, %m: memref<2x!idr.box<!B>>) {
+  "flowtest.writes_over"(%e, %m) : (!idr.box<!B>, memref<2x!idr.box<!B>>) -> ()
+  "flowtest.writes_unsaid"(%e, %m) : (!idr.box<!B>, memref<2x!idr.box<!B>>) -> ()
+  return
+}
+)mlir",
+                                                             config);
+  ASSERT_TRUE(module);
+  ScopedDiagnosticHandler quiet(&ctx, [](Diagnostic &) { return success(); });
+  module->walk([&](WritesOver op) { EXPECT_TRUE(succeeded(idr::detail::verifyFlowEdges(op))); });
+  module->walk([&](WritesUnsaid op) { EXPECT_TRUE(failed(idr::detail::verifyFlowEdges(op))); });
+}
+
 // Each external model names only ends its op may name. The models are read
 // from the registry: every registered op of another dialect that holds the
 // interface is one, and the fixture must hold an op of each, so a model
@@ -172,6 +230,7 @@ func.func @f(%t: tensor<2x!idr.box<!B>>, %m: memref<2x!idr.box<!B>>, %e: !idr.bo
     tensor.yield %e : !idr.box<!B>
   } : tensor<2x!idr.box<!B>>
   %loaded = memref.load %m[%i] : memref<2x!idr.box<!B>>
+  memref.store %e, %m[%i] : memref<2x!idr.box<!B>>
   %poison = ub.poison : !idr.box<!B>
   return
 }

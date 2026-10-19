@@ -22,7 +22,7 @@
 
 #include "idr/Transforms/Tail.h"
 
-#include "idr/Analysis/Tail.h"
+#include "idr/IR/Tail.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/PatternMatch.h"

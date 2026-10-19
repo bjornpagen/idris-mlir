@@ -48,6 +48,10 @@ def Idr_CountedType : Type<CPred<"::idr::isCounted($_self)">,
 // grades afterwards.
 def Idr_OwnType : Type<CPred<"::idr::isOwned($_self)">, "a value that holds a reference",
                        "::mlir::Type">;
+// What idr.share gives on: a value that holds its reference, or one before
+// counting, which holds what it is; never a borrow, which holds none.
+def Idr_SharedValue : Type<CPred<"::idr::gradeOf($_self).permission != ::idr::Permission::Borrow">,
+                           "a value that is no borrow", "::mlir::Type">;
 def Idr_ViewType : Type<And<[CPred<"!::idr::isOwned($_self)">, Idr_CountedType.predicate]>,
                         "a value that holds no reference">;
 
@@ -55,7 +59,8 @@ def Idr_ViewType : Type<And<[CPred<"!::idr::isOwned($_self)">, Idr_CountedType.p
 // first step, or a count, in the owned stage it sets.
 class Idr_OwnedOp<string mnemonic, list<Trait> traits = []> : Idr_Op<mnemonic, traits>;
 
-def Idr_DupOp : Idr_OwnedOp<"dup", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
+def Idr_DupOp : Idr_OwnedOp<"dup", [Idr_TakesReference,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "a reference of its own to a value that holds none";
   let description = [{
     The value is a view: what it holds lives on, and the result holds one
@@ -101,21 +106,30 @@ def Idr_BorrowOp : Idr_Op<"borrow", [Pure, Idr_ResultCarriesOperand, Idr_SameVal
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }
 
-// An owned value given on as owned, whatever it alone reached: an
+// A value given on with what its grade proved forgotten, at a join: an
 // exclusive value (`!idr.excl<T>`, which idr-rc proves) given to a position
 // that takes an owned one, or a value some view of which took a reference
-// of its own (idr.dup) before this, its consuming use. Nothing at runtime.
-// It keeps the value and forgets its exclusivity, so it is no
+// of its own (idr.dup) before this, its consuming use; and a value of the
+// heap given to a position of the frame, which idr-rc's stack step makes
+// where a value that may reach the frame meets one that does not. Nothing
+// at runtime. It keeps the value and forgets its exclusivity, so it is no
 // Idr_SameValue: a source followed through it would prove a shared cell
-// exclusive.
+// exclusive. Its result is written `-> T` where it raises the lifetime.
 def Idr_ShareOp : Idr_Op<"share", [Idr_ConsumesOnly, Idr_ResultCarriesOperand,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
-    TypesMatchWith<"the result is the value with its exclusivity forgotten", "value", "result",
-                   "::idr::owned(::idr::view($_self))">]> {
-  let summary = "gives an owned value on as owned, whatever it alone reached";
-  let arguments = (ins Idr_OwnType:$value);
-  let results = (outs Idr_OwnType:$result);
-  let assemblyFormat = "$value attr-dict `:` type($value)";
+    PredOpTrait<"the result is the value with its exclusivity forgotten, at its lifetime or the frame",
+                CPred<"::idr::forgets($value.getType(), $result.getType())">>]> {
+  let summary = "gives a value on with what its grade proved forgotten";
+  let arguments = (ins Idr_SharedValue:$value);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = [{
+    $value attr-dict `:` type($value) custom<Shared>(type($result), ref(type($value)))
+  }];
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value), [{
+      build($_builder, $_state, ::idr::shared(value.getType()), value);
+    }]>
+  ];
 }
 
 // A token is always owned: idr.take makes it, and idr.cell.recycle or
@@ -139,7 +153,8 @@ def Idr_OwnedToken : Type<And<[CPred<"::idr::isOwned($_self)">,
 // cell's header; the init writes its fields.
 
 // `!idr.cell<!idr.box<!L>, @Cons>`: the box whose cell it is, then the
-// constructor by its name in the box's data type (lib/IR/OpsOwnership.cpp).
+// constructor by its name in the box's data type, then `frame` for a cell
+// of its function's frame (lib/IR/OpsOwnership.cpp).
 def Idr_CellType : Idr_Type<"Cell", "cell"> {
   let summary = "the memory of one cell of a constructor, its header written, its fields not yet";
   let description = [{
@@ -148,10 +163,21 @@ def Idr_CellType : Idr_Type<"Cell", "cell"> {
     constructor that is an atom has no cell (buildsCell), so no cell type
     names one.
   }];
-  let parameters = (ins "::idr::BoxType":$box, Idr_TagParameter:$tag);
+  let parameters = (ins "::idr::BoxType":$box, Idr_TagParameter:$tag,
+                        Idr_LifetimeParameter:$lifetime);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
 }
+
+// A cell of the heap, which idr.cell.new and idr.cell.recycle give, and one
+// of the frame, which idr.cell.stack gives: the lifetime of the box its
+// init makes.
+def Idr_HeapCell : Type<And<[CPred<"::llvm::isa<::idr::CellType>($_self)">,
+    CPred<"::llvm::cast<::idr::CellType>($_self).getLifetime() == ::idr::Lifetime::Heap">]>,
+    "a cell of the heap", "::idr::CellType">;
+def Idr_FrameCell : Type<And<[CPred<"::llvm::isa<::idr::CellType>($_self)">,
+    CPred<"::llvm::cast<::idr::CellType>($_self).getLifetime() == ::idr::Lifetime::Frame">]>,
+    "a cell of the frame", "::idr::CellType">;
 
 def Idr_CellNewOp : Idr_OwnedOp<"cell.new", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "a fresh cell on the heap, its header written";
@@ -163,7 +189,7 @@ def Idr_CellNewOp : Idr_OwnedOp<"cell.new", [DeclareOpInterfaceMethods<Idr_FlowO
 
     `%c = idr.cell.new : !idr.cell<!idr.box<!L>, @Cons>`
   }];
-  let results = (outs Res<Idr_CellType, "", [MemAlloc<DefaultResource, 0, FullEffect>]>:$cell);
+  let results = (outs Res<Idr_HeapCell, "", [MemAlloc<DefaultResource, 0, FullEffect>]>:$cell);
   let assemblyFormat = "attr-dict `:` qualified(type($cell))";
 }
 
@@ -173,13 +199,15 @@ def Idr_CellStackOp : Idr_OwnedOp<"cell.stack", [DeclareOpInterfaceMethods<Idr_F
     The memory of one cell, in the frame of the idr.func that holds it (its
     AutomaticAllocationScope), freed when the function returns, as
     memref.alloca allocates a buffer, with the constructor's header
-    written. idr-rc puts it in place of an idr.cell.new whose cell never
+    written. Its cell, and the box its init makes, are of the frame
+    (`, frame`), which the rules of the frame hold every value that reaches
+    it to. idr-rc puts it in place of an idr.cell.new whose cell never
     leaves its frame, before reuse is decided, so it exists only from
     idr-rc on and a stack cell is never recycled.
 
-    `%c = idr.cell.stack : !idr.cell<!idr.box<!L>, @Cons>`
+    `%c = idr.cell.stack : !idr.cell<!idr.box<!L>, @Cons, frame>`
   }];
-  let results = (outs Res<Idr_CellType, "",
+  let results = (outs Res<Idr_FrameCell, "",
       [MemAlloc<AutomaticAllocationScopeResource, 0, FullEffect>]>:$cell);
   let assemblyFormat = "attr-dict `:` qualified(type($cell))";
 }
@@ -200,7 +228,7 @@ def Idr_CellRecycleOp : Idr_OwnedOp<"cell.recycle", [DeclareOpInterfaceMethods<I
     `%c = idr.cell.recycle %t : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @Cons>`
   }];
   let arguments = (ins Arg<Idr_OwnedToken, "", [MemFreeAt<0, FullEffect>]>:$token);
-  let results = (outs Res<Idr_CellType, "", [MemAlloc<DefaultResource, 1, FullEffect>]>:$cell);
+  let results = (outs Res<Idr_HeapCell, "", [MemAlloc<DefaultResource, 1, FullEffect>]>:$cell);
   let assemblyFormat = "$token `:` type($token) attr-dict `->` qualified(type($cell))";
 }
 

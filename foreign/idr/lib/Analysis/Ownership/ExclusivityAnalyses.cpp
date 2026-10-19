@@ -226,6 +226,7 @@ public:
                                            whole = std::max(whole, Sharing::Exclusive);
                                        },
                                        [](const FlowEdges::Release &) {},
+                                       [](const FlowEdges::Overwrite &) {},
                                        [&](const FlowEdges::Constant &move) {
                                          if (move.to == result)
                                            whole = std::max(whole, Sharing::Shared);

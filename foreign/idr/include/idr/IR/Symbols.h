@@ -267,10 +267,6 @@ std::string reservedName(llvm::StringRef kind, llvm::StringRef discriminator);
 // interns one, so a second key of one name is caught as a content name's is.
 std::string reservedName(llvm::StringRef kind, Digest key);
 
-// The function that releases the program's constant applicative forms once
-// its root returns: reservedName("release", "cafs"), the one spelling of
-// it, read wherever it is made or called.
-std::string releaseCafsName();
 
 } // namespace idr
 

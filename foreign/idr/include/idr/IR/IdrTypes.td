@@ -275,20 +275,33 @@ def Idr_WorldType : Idr_Type<"World", "world", [
 // a capture or a result of the same type). A type whose every value is used
 // exactly once by the type alone (the world, a destination, a cell:
 // isLinearByType) takes no grade: its quantity is its type's.
+// A lifetime as a grade's parameter: heap when it is not written.
+class Idr_LifetimeParam : EnumParameter<Idr_Lifetime> {
+  let defaultValue = "::idr::Lifetime()";
+}
+def Idr_LifetimeParameter : Idr_LifetimeParam;
+
 def Idr_QType : Idr_Type<"Q", "q", [
     DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
-  let summary = "a value at a grade: its quantity and what it owns";
+  let summary = "a value at a grade: its quantity, what it owns and how long what it reaches lives";
   let parameters = (ins EnumParameter<Idr_Quantity>:$quantity,
-                        EnumParameter<Idr_Permission>:$permission, "::mlir::Type":$value);
-  let assemblyFormat = "`<` $quantity `,` $permission `,` $value `>`";
+                        EnumParameter<Idr_Permission>:$permission, "::mlir::Type":$value,
+                        Idr_LifetimeParameter:$lifetime);
+  // The lifetime is written after the value, and only when it is not heap.
+  let assemblyFormat = "`<` $quantity `,` $permission `,` $value (`,` $lifetime^)? `>`";
   let genVerifyDecl = 1;
+  let skipDefaultBuilders = 1;
   let builders = [
+    TypeBuilder<(ins "::idr::Quantity":$quantity, "::idr::Permission":$permission,
+                     "::mlir::Type":$value, CArg<"::idr::Lifetime", "::idr::Lifetime()">:$lifetime), [{
+      return $_get($_ctxt, quantity, permission, value, lifetime);
+    }]>,
     TypeBuilder<(ins "::idr::Grade":$grade, "::mlir::Type":$value), [{
-      return $_get($_ctxt, grade.quantity, grade.permission, value);
+      return $_get($_ctxt, grade.quantity, grade.permission, value, grade.lifetime);
     }]>
   ];
   let extraClassDeclaration = [{
-    ::idr::Grade getGrade() const { return {getQuantity(), getPermission()}; }
+    ::idr::Grade getGrade() const { return {getQuantity(), getPermission(), getLifetime()}; }
   }];
 }
 

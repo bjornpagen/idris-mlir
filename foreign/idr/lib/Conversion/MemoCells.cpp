@@ -5,10 +5,11 @@
 // state; a label's case is an idr.memo.run, which reads the label's
 // captures out of the cell, writes the cell's header Running, runs its
 // region on the captures, and writes the value into the forced state's
-// field and the header Forced. The cell is allocated at its largest
-// state's size, so every state fits it. Nothing counts: the captures move
-// out with the references the cell held, and the value moves in with its
-// own, as the owned stage accounted for.
+// field and the header Forced, and asks the runtime to make what a static
+// cell now holds persistent. The cell is allocated at its largest state's
+// size, so every state fits it. Nothing counts: the captures move out with
+// the references the cell held, and the value moves in with its own, as
+// the owned stage accounted for.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -91,6 +92,10 @@ struct LowerMemoRun : IdrPattern<MemoRunOp> {
     runtime.store(rewriter, loc, cell, cellAlignment(), forced.fields.front(),
                   values.take_front(yielded.front().size()));
     writeState(rewriter, loc, runtime, cell, forced);
+    // A static memo cell makes what it now holds static, the runtime's rule
+    // of count 0: the one branch is the runtime's, since one dispatch
+    // forces static and counted cells alike.
+    runtime.call(rewriter, loc, idr::runtime::helper::persistHeld, ValueRange{cell});
     values = values.drop_front(yielded.front().size());
     SmallVector<SmallVector<Value>> results;
     for (ArrayRef<Type> out : ArrayRef(yielded).drop_front()) {

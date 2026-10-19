@@ -81,15 +81,12 @@ uint64_t requiredCpuFeatures(ModuleOp module) {
 // The root becomes private like every other function, and the entry body
 // runs it. The root's kind is the one rule's (rootKind): a Status root
 // returns the exit status; an IO root, whose world and unit result lower to
-// nothing, gives 0. Either way the entry body then releases what the static
-// thunks hold once forced (the release function, which idr-lower makes in
-// every program and which the module's symbol uses hold to exist), so that
-// it is not counted as live, and ends in idris_rt_main_return, which writes
-// pending output and, when asked, how many cells are still live. @main
-// hands the entry body and the program's arguments to the runtime's entry,
-// idris_rt_start, which runs it on a reserved stack once the CPU has shown
-// it has the features the module's target enables, and which ends a status
-// outside 0 to 255 as a crash.
+// nothing, gives 0. Either way the entry body then ends in
+// idris_rt_main_return, which writes pending output and, when asked, how
+// many cells are still live. @main hands the entry body and the program's
+// arguments to the runtime's entry, idris_rt_start, which runs it on a
+// reserved stack once the CPU has shown it has the features the module's
+// target enables, and which ends a status outside 0 to 255 as a crash.
 LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols) {
   FailureOr<func::FuncOp> found = takeApart(program, symbols);
   if (failed(found))
@@ -142,7 +139,6 @@ LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols
     code = LLVM::ConstantOp::create(b, loc, i64, 0);
     break;
   }
-  func::CallOp::create(b, loc, releaseCafsName(), TypeRange{}, ValueRange{});
   LLVM::CallOp::create(b, loc, mainReturn, ValueRange{});
   func::ReturnOp::create(b, loc, code);
 

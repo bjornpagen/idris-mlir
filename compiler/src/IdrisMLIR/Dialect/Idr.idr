@@ -976,7 +976,7 @@ scanLastOp : (inits : List Value) -> (length' : Value) -> (region : Region) -> (
 scanLastOp inits length' region results =
   MkOp "idr.scan_last" (inits ++ [length']) [] [region] [] results
 
-||| `idr.share`: gives an owned value on as owned, whatever it alone reached
+||| `idr.share`: gives a value on with what its grade proved forgotten
 export
 shareOp : (value : Value) -> (result : MlirType) -> Op
 shareOp value result =
@@ -1762,4 +1762,4 @@ ioOp ClockSecond os rs = MkGuarded (MkOp "idr.io.clock_second" os [] [] [] rs) [
 ioOp ClockNanosecond os rs = MkGuarded (MkOp "idr.io.clock_nanosecond" os [] [] [] rs) []
 ioOp HandleFree os rs = MkGuarded (MkOp "idr.io.handle_free" os [] [] [] rs) []
 
--- fingerprint: 1552716861-1523265 3499932848-75399
+-- fingerprint: 3951942032-1532481 3311063398-75393

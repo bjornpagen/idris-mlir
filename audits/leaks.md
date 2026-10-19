@@ -3,8 +3,43 @@
 # Leaks: what leaked, why the verifier let it, and a representation in which it cannot be written
 
 Taken on 6f774119 (arm64 macOS, `build/dev`), 2026-10-19. Every count below
-was measured on that build; the reproducers and the hand-written fixtures
-are in `audits/leaks/`.
+was measured on that build; the reproducers and fixtures are now tests
+(see Status), the one still open in `audits/leaks/`.
+
+## Status (2026-10-19, the ownership lane)
+
+What §3.9 planned, as it landed:
+- Step 1, the memo exchange: done. `idr.memo.run` in the dispatch, its
+  lowering, bufferization and flow edges; `memo.enter`, `memo.settle`,
+  `forceTakesCaptures`, `caseFieldType` and `labelRead` deleted. L1 is
+  unrepresentable: a label's field read any way but the exchange is a view
+  by its type (tests/verify-sources).
+- Step 3, lifetimes: done for heap and frame. The grade's lifetime, a
+  cell's own, the rules of the frame said once (IR/Lifetimes.h), the
+  function verifier holding them, idr-rc-stack their inference; the escape
+  analysis deleted. L2 closed: tests/lazy-list-frame (live cells 0, no
+  crash), linear-string-iterator passes, tests/verify-frame refuses each
+  shape. The verifier's tail rule is a self call (or a self call in tail
+  position but for a context); a call in tail position of another function
+  on the cycle is the inference's alone, since the lowering never makes a
+  tail call that may reach the frame, so a miss there costs stack depth,
+  not memory.
+- Step 2: R1 (an owned value's declared source, OwnedWalk::make, with
+  Idr_TakesReference on idr.dup and idr.array.get) and R2 (a write into
+  memory that exists before the op is an exchange, an overwrite, which
+  idr.array.set and memref.store now declare, or a hole), in the flow
+  edges' verifier. R3 (views of places die at writes) is open, and so is
+  the memo-state memory resource that would replace builtStateHolds.
+- Step 4: persistence done (idris_rt_persist_held after every force; the
+  CAF release, `__idr$release$cafs`, its runtime function and the live-cells
+  marks deleted, and the harness's `live-cells` case field with them). The
+  static lifetime (§3.1's static as a view, deleting isStatic and the
+  Phantom/Constant/StaticRead classes) is open: static-view-settled.mlir
+  here is its witness, still accepted.
+- Step 5: an unreached path ends in ub.unreachable (Commit.cpp).
+- Tests: T2 (verify-frame, verify-sources), T3 (actions-skip-programs, with
+  an `idr-reuse-site` action added), T4 holds by the verifier after every
+  pass. T1's generators, T5's checked runtime and T6's measurement are open.
 
 ## 0. In short
 

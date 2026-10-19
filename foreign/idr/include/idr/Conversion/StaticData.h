@@ -82,14 +82,12 @@ public:
   mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc, const ConstantArray &array);
 
   // What Runtime::merge reads: the globals written, by name, each with the
-  // digest of the content its name was made from; and the names of the
-  // static memo cells.
+  // digest of the content its name was made from.
   struct Written {
     mlir::LLVM::GlobalOp global;
     Digest key;
   };
   const llvm::StringMap<Written> &written() const { return globals; }
-  const llvm::StringSet<> &memoCells() const { return cafs; }
 
   // Whether two contents met under one name, which was reported at the op.
   bool collided() const { return collision; }
@@ -161,7 +159,6 @@ private:
   // that holds it.
   llvm::DenseMap<std::pair<mlir::Attribute, mlir::Type>, mlir::LLVM::GlobalOp> boxes;
   llvm::StringMap<Written> globals;
-  llvm::StringSet<> cafs;
   bool collision = false;
 };
 

@@ -230,8 +230,6 @@ LLVM::GlobalOp StaticData::staticCell(Location loc, DataType data, Tag tag, Type
   }
   made.setSymName(named.name);
   globals[named.name] = Written{made, named.key};
-  if (memo)
-    cafs.insert(named.name);
   return made;
 }
 

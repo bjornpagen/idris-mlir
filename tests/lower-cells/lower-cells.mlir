@@ -1,20 +1,18 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@fresh:[@idris_rt_cell],calls-only=@frame:[]' -o /dev/null
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@fresh:[@idris_rt_cell],calls-only=@frame:[@idris_rt_dec]' -o /dev/null
 // RUN: %differential %s %t.mlir
 // RUN: sed -n 's|^// REF: ||p' %s > %t.ref.mlir
 // RUN: %differential %t.ref.mlir %t.mlir
 // A cell's memory comes from its producer: the runtime's heap, or the
-// function's frame, which asks the runtime for nothing; idr.cell.init then
-// writes its fields, the same however the cell was made. A recycle of a
-// take's token, the third producer, is exclusive.mlir's. Each function
-// returns its box: where a cell may go is idr-rc's decision, which the
-// lowering does not ask.
+// function's frame, which asks the runtime for no memory; idr.cell.init
+// then writes its fields, the same however the cell was made. A recycle of
+// a take's token, the third producer, is exclusive.mlir's. @fresh returns
+// its box; @frame's box is of the frame and dies with it, so @frame reads
+// it and drops it, which releases its fields and frees nothing.
 // A heap cell holds what init wrote: the root makes one by @fresh, of the
 // byte it reads and N, and matches it, so the program, lowered and as
 // written, prints the byte, as the reference at the end (REF), with no
-// cell, does (%differential, on 0, 255 and the end of input). @frame's
-// cell is in a frame that is gone once it returns, so the root does not
-// run it.
+// cell, does (%differential, on 0, 255 and the end of input).
 // STDIN: \0000
 // STDIN: \0377
 // STDIN:
@@ -25,10 +23,13 @@ idr.program @cells root(@Prog.main) stage(owned) {
     %c = idr.cell.init %k : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.own<!idr.box<!L>>)
     return %c : !idr.own<!idr.box<!L>>
   }
-  idr.func @frame(%x: i64, %t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
-    %k = idr.cell.stack : !idr.cell<!idr.box<!L>, @C>
-    %c = idr.cell.init %k : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.own<!idr.box<!L>>)
-    return %c : !idr.own<!idr.box<!L>>
+  idr.func @frame(%x: i64, %t: !idr.own<!idr.box<!L>>) -> i64 {
+    %k = idr.cell.stack : !idr.cell<!idr.box<!L>, @C, frame>
+    %c = idr.cell.init %k : !idr.cell<!idr.box<!L>, @C, frame> (%x : i64, %t : !idr.own<!idr.box<!L>>)
+    %v = idr.borrow %c : !idr.q<many, own, !idr.box<!L>, frame>
+    %h = idr.field %v : !idr.q<many, borrow, !idr.box<!L>, frame> @C[0] -> i64
+    idr.drop %c : !idr.q<many, own, !idr.box<!L>, frame>
+    return %h : i64
   }
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w

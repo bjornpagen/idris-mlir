@@ -16,10 +16,8 @@ add_mlir_library(IdrAnalysis
 	Ownership/Reuses.cpp
 	Ownership/Exclusivity.cpp
 	Ownership/ExclusivityAnalyses.cpp
-	Tail.cpp
 	Ranges.cpp
-	Escapes.cpp
-	EscapesCycles.cpp
+	Recursion.cpp
 	Identities.cpp
 	IdentitiesRecord.cpp
 	IdentitiesRebuilds.cpp

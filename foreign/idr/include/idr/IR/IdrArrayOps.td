@@ -308,7 +308,7 @@ def Idr_ArrayNewOp : Idr_ArrayOp<"new", [Idr_Primitive,
 
 // The element at `indices`, one per dimension, which are within the array,
 // with a reference of its own: the array keeps its. It reads the array.
-def Idr_ArrayGetOp : Idr_ArrayOp<"get", [Idr_Primitive,
+def Idr_ArrayGetOp : Idr_ArrayOp<"get", [Idr_Primitive, Idr_TakesReference,
     Idr_Guarded<["indices", "array"], Idr_InBounds, "array index out of bounds">]> {
   let summary = "the element of an array at an index";
   let arguments = (ins Arg<Idr_ArrayValue, "", [MemRead]>:$array, Variadic<I64>:$indices,

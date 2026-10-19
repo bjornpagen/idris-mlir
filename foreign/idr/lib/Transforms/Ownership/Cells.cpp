@@ -39,7 +39,7 @@ struct Cells : idr::impl::IdrRcCellsBase<Cells> {
     for (idr::ConOp con : cons) {
       Type type = con.getResult().getType();
       auto cellType = idr::CellType::get(&getContext(), cast<idr::BoxType>(idr::unrestricted(type)),
-                                         con.getTag());
+                                         con.getTag(), idr::Lifetime::Heap);
       rewriter.setInsertionPoint(con);
       Value cell = idr::CellNewOp::create(rewriter, con.getLoc(), cellType);
       // The box is the constructor's value at the constructor's grade (a

@@ -188,8 +188,9 @@ void ArrayUpdateOp::getEffects(
 }
 
 // An element moves in through the fill, which every element holds, and
-// through a write; out through a read, and out of an update's place into
-// its region, whose yield moves it back in.
+// through a write, which releases the element it replaces; out through a
+// read, and out of an update's place into its region, whose yield moves it
+// back in.
 void ArrayNewOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowPoint::of(getFillMutable()), elementsOf(getArray()));
   edges.fresh(getArray());
@@ -199,6 +200,7 @@ void ArrayGetOp::getFlowEdges(FlowEdges &edges) {
 }
 void ArraySetOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowPoint::of(getValueMutable()), elementsOf(getArray()));
+  edges.overwrite(elementsOf(getArray()));
 }
 void ArrayUpdateOp::getFlowEdges(FlowEdges &edges) { updateEdges(*this, edges); }
 

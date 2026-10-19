@@ -1,4 +1,0 @@
-3
-The top-level stream is a cycle, and reference counting does not collect
-it, so these cells are live when main returns. The stream built from the
-seed is local and is freed.

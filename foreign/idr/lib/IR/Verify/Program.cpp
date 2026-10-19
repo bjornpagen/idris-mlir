@@ -300,7 +300,8 @@ LogicalResult idr::verify::function(FuncOp fn) {
   StageFacts stage = stageFacts(fn.getProgram().getStage());
   if (!stage.idrFunctions())
     return fn.emitOpError("is an idr.func in a lowered program, which holds upstream's functions");
-  if (failed(stageRules(fn, stage)) || failed(verifyFlow(fn)) || failed(linearity(fn)))
+  if (failed(stageRules(fn, stage)) || failed(verifyFlow(fn)) || failed(linearity(fn)) ||
+      failed(lifetimes(fn)))
     return failure();
   return stage.counted() ? owned(fn) : success();
 }
