@@ -3,8 +3,7 @@
 # Copyright (c) 2026 Bjorn Pagen
 # The program of the benchmark bench/cfold on each of its cases: no input
 # and one that is no number (both read as 0, a single leaf), each depth
-# from 0 to 3, 5 and 12 (2^12 leaves, chains 2^11 deep, as deep as the
-# 1 MiB stack every case runs on comfortably holds). Each case's
+# from 0 to 3, 5 and 12 (2^12 leaves, chains 2^11 deep). Each case's
 # two numbers are the sum before folding and after, so they agree; the
 # values are bench/cfold/main.c's on the same input.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"

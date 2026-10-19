@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The stack idris-mlir, idris-mlir-opt and idris-mlir-reduce run on, the
-// runtime's reserved-stack runner's, and the one way a tool runs on it:
-// MLIR's parser, printer and walks recurse over nested constants, so the
-// stack is committed as it is touched and larger than the memory of a
-// machine that compiles, which runs out first. No larger, since reserving
-// costs time in proportion to the size, at the start and at the exit.
+// runtime's reserved-stack runner's, which programs run on too, and the one
+// way a tool runs on it: MLIR's parser, printer and walks recurse over
+// nested constants, as deep as that stack allows.
 // PIN(mlir-recursion)
 #ifndef IDR_SUPPORT_STACK_H
 #define IDR_SUPPORT_STACK_H
@@ -27,13 +25,6 @@
 #include <unistd.h>
 
 namespace idr::support {
-
-// The most the stack may grow to, in bytes.
-inline constexpr std::size_t toolStack = std::size_t{1} << 40;
-
-// The inaccessible bytes below it, a fault on which is the stack running
-// out.
-inline constexpr std::size_t toolStackGuard = std::size_t{1} << 20;
 
 namespace detail {
 
@@ -75,8 +66,7 @@ inline int runTool(llvm::StringLiteral tool, llvm::function_ref<int()> body) {
   detail::exhaustionMessage =
       (llvm::Twine(tool) + ": internal error: the stack is exhausted\n").str();
   detail::ToolRun run{body};
-  if (idris_rt_run_on_stack(detail::enterTool, &run, toolStack, toolStackGuard,
-                            detail::onExhaustion) != 0) {
+  if (idris_rt_run_on_stack(detail::enterTool, &run, detail::onExhaustion) != 0) {
     llvm::errs() << tool << ": internal error: no stack could be reserved\n";
     return 1;
   }

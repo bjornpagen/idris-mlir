@@ -4,15 +4,13 @@
 // main calls idris_rt_start, which checks the processor, keeps the
 // program's arguments and runs the program on a reserved stack, so that
 // running out of it is a named crash rather than a bare fault that loses the
-// buffered output. idris-mlir runs on the same runner, with a stack of its
-// own size. What it needs of the system is in the platform layer
-// (rt::platform).
+// buffered output. idris-mlir runs on the same runner. What it needs of the
+// system is in the platform layer (rt::platform).
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "idris_rt.h"
 
-#include <stddef.h>
 #include <stdint.h>
 
 namespace rt::start {
@@ -25,12 +23,6 @@ enum class Ending { mainReturned, exited };
 // cannot report, whether main returned it or the program exited with it, and
 // ends it as a crash that says so.
 void checkStatus(int64_t status, Ending ending);
-
-// A bound on one of the program's resources, in bytes, as the environment
-// variable `name` sets it (IDRIS_RT_STACK, IDRIS_RT_HEAP); 0 when it is not
-// set, which no bound is. A setting that is not a number of bytes above 0
-// ends the program with a crash that names the variable.
-size_t byteSetting(const char *name);
 
 // The number of the program's arguments, which idris_rt_start kept.
 int64_t argumentCount();

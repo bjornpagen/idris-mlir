@@ -27,13 +27,6 @@ void *allocate(size_t size);
 void *reallocate(void *block, size_t size);
 void release(void *block);
 
-// The heap's one region (Cells.cpp), reserved now, which reads
-// IDRIS_RT_HEAP: the program's entry calls it before the program runs, so
-// a setting that is no number of bytes is refused at the start, whether or
-// not the program allocates, as IDRIS_RT_STACK's is. Where no entry runs
-// first (idris-mlir's folds), the first allocation reserves it.
-void reserveHeap();
-
 // A cell of `size` bytes with the header {1, info}, counted as live.
 // Exhausted memory is a crash.
 void *newCell(size_t size, uint32_t info);

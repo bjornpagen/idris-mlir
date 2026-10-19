@@ -31,9 +31,8 @@
 // write the sums themselves: n, 3n, n + 5, n, 2n, n, n, and 0 for @depth
 // and @both (on n mod 8, since @both calls itself twice). The program
 // means the same as written and after idr-accumulate, on n = 0, 1, 2, 7
-// and a million, which only a loop runs in the 1 MiB stack (@depth, which
-// grows the stack, runs on n mod 8 too). A reference whose @twos is n * n
-// is told apart on n = 1.
+// and a million (@depth, which grows the stack, on n mod 8). A reference
+// whose @twos is n * n is told apart on n = 1.
 // WRONG: differential: loops-accumulate.mlir and {{.*}}wrong.mlir differ on '10'
 // STDIN: 00
 // STDIN: 10

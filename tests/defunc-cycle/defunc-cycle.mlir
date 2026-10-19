@@ -12,7 +12,8 @@
 // BEFORE-DAG: expected labels: @Main.pong {{.*}}
 // BEFORE-DAG: expected labels: @Main.p {{.*}}
 // BEFORE-DAG: expected labels: @Main.q {{.*}}
-// ping 0 = zero; ping n = p (pong (n - 1)); pong n = q (ping (n - 1)):
+// ping n = zero, for n <= 0; ping n = p (pong (n - 1)); pong n = q (ping
+// (n - 1)), so every input ends, an odd one as an even one:
 // @Main.p captures only closures of @Main.q, and @Main.q only closures of
 // @Main.p or @Main.zero, so the two keys of the type have different labels,
 // but each holds the other: a cycle, which no unboxed sum can stand for.
@@ -37,8 +38,11 @@ idr.program @cycle root(@Main.main) stage(higher) {
     return %z : i64
   }
   idr.func @Main.ping(%n: i64) -> !idr.fn<(i64) -> (i64)> {
-    %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
-    case 0 {
+    %c0 = arith.constant 0 : i64
+    %ended = arith.cmpi sle, %n, %c0 : i64
+    %e = arith.extui %ended : i1 to i64
+    %r = idr.match_lit %e : i64 -> (!idr.fn<(i64) -> (i64)>) {
+    case 1 {
       %f = idr.closure @Main.zero() : () -> !idr.fn<(i64) -> (i64)>
       idr.yield %f : !idr.fn<(i64) -> (i64)>
     }

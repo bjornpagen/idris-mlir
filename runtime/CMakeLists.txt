@@ -22,6 +22,20 @@ foreach(file
 	endif()
 endforeach()
 
+# snmalloc as its own build describes it, header-only: its interface target
+# carries what it finds of the system, and what is ours: the step of its
+# size classes (a cell of a header and two fields, 24 bytes, is a size
+# class of its own), the target entry's page, and its own small STL, since
+# the runtime links no C++ library. Its thread teardown, which a
+# header-only build leaves to its user, is idris_rt_compile's.
+set(SNMALLOC_HEADER_ONLY_LIBRARY ON CACHE BOOL "" FORCE)
+set(SNMALLOC_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(SNMALLOC_MIN_ALLOC_STEP_SIZE 8 CACHE STRING "" FORCE)
+set(SNMALLOC_PAGESIZE ${IDRIS_MLIR_PAGE_SIZE} CACHE STRING "" FORCE)
+set(SNMALLOC_USE_SELF_VENDORED_STL ON CACHE BOOL "" FORCE)
+add_subdirectory("${IDRIS_MLIR_THIRD_PARTY}/snmalloc" "${CMAKE_CURRENT_BINARY_DIR}/snmalloc"
+	EXCLUDE_FROM_ALL SYSTEM)
+
 # The runtime's units, one directory per part, each with one header its
 # units share: its memory (Alloc), counting (Rc), strings (Strings), `cast`
 # from String (Numerals), bigs (Big), doubles (Doubles), input and output,
@@ -140,38 +154,20 @@ set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
 # vendored libraries' headers and what they are told.
 function(idris_rt_compile target)
 	target_include_directories(${target} SYSTEM PRIVATE
-		"${IDRIS_MLIR_THIRD_PARTY}/snmalloc/src"
 		"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
 		"${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
 		"${IDRIS_MLIR_THIRD_PARTY}/ryu"
 	)
 	target_compile_definitions(${target} PRIVATE
 		${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
-		# snmalloc: size classes that step by 8 bytes;
-		# no thread teardown of its own, since both of the others need a static
-		# destructor (pthread keys register one with [[gnu::destructor]]) or the
-		# C++ runtime: a thread's cached memory is returned only if the
+		# snmalloc's thread teardown: none of its own, since the others need a
+		# static destructor (pthread keys register one with [[gnu::destructor]])
+		# or the C++ runtime. A thread's cached memory is returned only if the
 		# C library calls _malloc_thread_cleanup, which neither glibc nor
-		# libSystem does. Programs are single-threaded. In idris-mlir, whose
-		# folders run on worker threads, a thread that ends keeps its cache,
-		# and frees other threads make to its memory wait in its queue: a cost
-		# bounded by the threads a compilation starts, not a leak per cell;
-		# its own small STL;
-		# getentropy, which also keeps snmalloc from including <random>, and
-		# waiting on an address, which every system of the target
-		# entries has (Apple's platform draws entropy from CommonCrypto and waits
-		# with __ulock_wait below a macOS 14.4 deployment target, both in
-		# libSystem); the target entry's page, which its POSIX platforms take
-		# from SNMALLOC_PAGESIZE (Apple's has the same number as a constant, and
-		# Alloc/Cells.cpp checks both); and what the entry says of the system.
-		# snmalloc maps no executable memory, so nothing of MAP_JIT concerns it.
-		SNMALLOC_MIN_ALLOC_STEP_SIZE=8
+		# libSystem does. Programs are single-threaded; in idris-mlir, whose
+		# folders run on worker threads, a thread that ends keeps its cache, a
+		# cost bounded by the threads a compilation starts.
 		SNMALLOC_USE_THREAD_CLEANUP
-		SNMALLOC_USE_SELF_VENDORED_STL
-		SNMALLOC_PLATFORM_HAS_GETENTROPY
-		SNMALLOC_USE_WAIT_ON_ADDRESS=1
-		SNMALLOC_PAGESIZE=${IDRIS_MLIR_PAGE_SIZE}
-		${IDRIS_MLIR_RUNTIME_DEFINITIONS}
 		# The target's page size, which the runtime's startup check compares
 		# with the system's (Platform/Posix/Memory.cpp). The target entry's one
 		# number.
@@ -179,7 +175,7 @@ function(idris_rt_compile target)
 		# The target's user address width (Platform/Address.h), the entry's.
 		IDRIS_RT_USER_ADDRESS_BITS=${IDRIS_MLIR_USER_ADDRESS_BITS}
 	)
-	target_link_libraries(${target} PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
+	target_link_libraries(${target} PRIVATE snmalloc idris_mlir_runtime_profile idris_mlir_warnings)
 endfunction()
 
 # The typecheck build (IDRIS_MLIR_TYPECHECK, CMakeLists.txt) compiles the

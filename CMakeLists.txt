@@ -104,8 +104,6 @@ endif()
 #   IDRIS_MLIR_RUNTIME_CPU_FEATURES     the features that test names, each
 #                                       as the test spells it and as LLVM
 #                                       does (a runtime/ header)
-#   IDRIS_MLIR_RUNTIME_DEFINITIONS      what the vendored allocator is told
-#                                       of the system (snmalloc's headers)
 #   IDRIS_MLIR_RUNTIME_BITCODE_FLAGS    the flags that make each member of
 #                                       the runtime's archive carry its
 #                                       bitcode with its native code, which
@@ -171,7 +169,6 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "-linux-gnu$")
 	# dynamically, and against everything else statically, by the pinned
 	# lld. snmalloc takes its entropy and its waits from the kernel's
 	# headers, which the system's C library ships beside its own.
-	set(IDRIS_MLIR_RUNTIME_DEFINITIONS SNMALLOC_HAS_LINUX_RANDOM_H SNMALLOC_HAS_LINUX_FUTEX_H)
 	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
 	# LTO object's, is excluded from every link.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
@@ -252,7 +249,6 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	# snmalloc chooses its Apple platform itself (mach_vm, arc4random); the
 	# Linux headers its defines name do not exist here.
-	set(IDRIS_MLIR_RUNTIME_DEFINITIONS "")
 	# Mach-O: each member carries its bitcode embedded (IRObjectFile reads
 	# it), and the prepared runtime keeps the joined bitcode in a .bc file
 	# beside its object, Mach-O having no section every link leaves out.

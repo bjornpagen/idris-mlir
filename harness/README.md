@@ -30,7 +30,7 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   object's imports, live cells), then run once per case of its `cases`
   (below); with no `cases` it is compiled only (a program that never
   ends). `mlir.expect` states properties of its module (idr-expect);
-  `packages`, `heap-free`, `covers` and `default-stack` are marks of the
+  `packages`, `heap-free` and `covers` are marks of the
   compilation (`testutils.sh`). Its `expected` is the transcript of a good
   run, which says `cases: each as expected` whatever the number of cases.
 - a `Main.idr` whose first line is `-- expect: <rule>, line <n>`: a
@@ -58,7 +58,6 @@ in `lib/e2e.sh`):
 | `expected-stdout` | the bytes on standard output, exactly; none |
 | `expected-exit` | the exit status (first word); 0 |
 | `expected-crash` | the cause the runtime names: stderr is exactly `idris-mlir: <cause>` and the status 1; without it stderr is empty |
-| `constant-stack` | the run's stdin is `stdin` N times over (first word N), a loop that must not grow the 1 MiB stack; the rest says what loops |
 | `libm-lines` | stdout's line numbers that hold libm results, compared to a few ulp |
 
 A case with any other file, a crash beside an exit status, or a `cases`

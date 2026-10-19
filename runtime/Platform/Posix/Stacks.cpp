@@ -8,7 +8,6 @@
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/resource.h>
 
 namespace {
 
@@ -47,12 +46,4 @@ void useSignalStack(char *p, size_t n) noexcept {
   alternate.ss_size = n;
   sigaltstack(&alternate, nullptr);
 }
-
-size_t stackLimit() noexcept {
-  rlimit limit{};
-  if (getrlimit(RLIMIT_STACK, &limit) != 0)
-    return 0;
-  return limit.rlim_cur == RLIM_INFINITY ? SIZE_MAX : static_cast<size_t>(limit.rlim_cur);
-}
-
 } // namespace rt::platform

@@ -15,8 +15,7 @@
 // and the length of the list, of the first n + 1 of it (all of it), and of
 // the first n / 2; the REFERENCE lines, after the module, write 7n, n,
 // 7n, n, 7(n / 2) and n / 2. The program means the same as written and
-// after the loops are made, for n = 0, 1, 2, 3 and a million, which only
-// loops build in the 1 MiB stack.
+// after the loops are made, for n = 0, 1, 2, 3 and a million.
 // STDIN: 00
 // STDIN: 10
 // STDIN: 20

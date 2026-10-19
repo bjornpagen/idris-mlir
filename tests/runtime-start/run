@@ -2,12 +2,9 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The runtime's entry, idris_rt_start: the program runs on a reserved stack
-# far deeper than the process's own; running out of it writes the output so
-# far, names the cause and exits as a crash; main's value is the exit status
-# from 0 to 255, and any other is a crash that names it; IDRIS_RT_STACK sets
-# the stack's size and IDRIS_RT_HEAP the heap's, which a program that keeps
-# allocating meets as out of memory; a processor without what the program
-# needs is refused before the program runs, and named.
+# far deeper than the process's own; main's value is the exit status from 0
+# to 255, and any other is a crash that names it; a processor without what
+# the program needs is refused before the program runs, and named.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 runtime=$dev_prefix/runtime/libidris_rt.a
 if ! runtime_c link_program -O1 "$here/start.c" "$runtime" -o "$work/start" \
@@ -16,26 +13,16 @@ if ! runtime_c link_program -O1 "$here/start.c" "$runtime" -o "$work/start" \
   show "$work/cc.log"
   exit 0
 fi
-# start MODE [NAME VALUE]: the program in MODE on an 8 MiB process stack,
-# with the runtime's setting NAME (IDRIS_RT_STACK or IDRIS_RT_HEAP) at VALUE
-# when given; its status, stdout and stderr.
+# start MODE: the program in MODE on an 8 MiB process stack; its status,
+# stdout and stderr.
 start() {
-  if [ $# -gt 1 ]; then
-    ( ulimit -s 8192 && unset IDRIS_RT_STACK && export "$2=$3" && bounded "$work/start" "$1" ) \
-      > "$work/out" 2> "$work/err"
-    say "$1, $2=$3: exit $?"
-  else
-    ( ulimit -s 8192 && unset IDRIS_RT_STACK && bounded "$work/start" "$1" ) > "$work/out" 2> "$work/err"
-    say "$1: exit $?"
-  fi
+  ( ulimit -s 8192 && bounded "$work/start" "$1" ) > "$work/out" 2> "$work/err"
+  say "$1: exit $?"
   sed 's/^/  stdout | /' "$work/out"
   sed 's/^/  stderr | /' "$work/err"
 }
+# A million frames, which the process's 8 MiB stack would not hold.
 start million
-start million IDRIS_RT_STACK 8388608
-start deep IDRIS_RT_STACK 16777216
-# A program that never frees ends where its heap does, 64 MiB here.
-start hoard IDRIS_RT_HEAP 67108864
 # main's value at the edges of an exit status and of the words a status
 # could be cut to: 2^32 and 2^32 + 255 are 0 and 255 in 32 bits.
 start 0
@@ -45,12 +32,5 @@ start -1
 start 4294967296
 start 4294967551
 start -9223372036854775808
-# A setting that is no number of bytes above 0: letters after digits,
-# nothing, 0, a sign, a space, and 2^64, past every size.
-for setting in IDRIS_RT_STACK IDRIS_RT_HEAP; do
-  for value in 12x '' 0 -1 ' 1' 18446744073709551616; do
-    start 0 "$setting" "$value"
-  done
-done
 start cpu
 start cpu-two

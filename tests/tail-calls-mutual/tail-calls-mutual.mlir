@@ -1,13 +1,13 @@
 // RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
-// RUN: env IDRIS_RT_STACK=1048576 %t > %t.out
+// RUN: %t > %t.out
 // RUN: FileCheck %s < %t.out
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline --idr-expect=holds=constant-stack=@Prog.main -o /dev/null
 // Functions that call one another in tail position, none itself: a
 // recursion that idr-tail-loops makes no loop of, and that the optimizer
 // never inlines, since its functions are on a cycle. idr-tail-calls makes
-// each of those calls a guaranteed tail call, so ten million of them run
-// on a 1 MiB stack, and the pipeline's module keeps a constant stack.
+// each of those calls a guaranteed tail call: the pipeline's module keeps a
+// constant stack, and ten million of them run.
 // @spin and @turn
 // return nine words, more than the targets return in registers: they write
 // them through a pointer, which each tail call passes on.

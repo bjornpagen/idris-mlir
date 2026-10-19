@@ -34,19 +34,12 @@ stdout_within_a_few_ulp() {
 # compilation is (universal) and by the checks of its modules
 # (module_checks). A fixture with no `cases` directory is compiled only
 # (a program that never ends). `packages` names installed packages it
-# uses. It runs on a 1 MiB stack, or with `default-stack`, which says
-# why, on the one programs get.
+# uses.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   fixture_files_known "$io_fixture" || return
   cases_known "$io_fixture" || return
-  if [ ! -d "$io_fixture/cases" ] && [ -f "$io_fixture/default-stack" ]; then
-    say "fixture: compiled only, as it has no cases, so nothing reads default-stack"
-    return
-  fi
   io_packages=$(package_options "$io_fixture")
-  io_stack=small
-  [ -f "$io_fixture/default-stack" ] && io_stack=
   # Every compilation prints the module after each step (dump_options):
   # the checks of the fixture's modules read those dumps, and so do the
   # checks of every compilation (universal).
@@ -72,7 +65,7 @@ e2e_io() {
 # The files a case directory may hold, each a field of the one record a
 # case is: what the run reads, what it must give, and the marks of that
 # run. cases_known and the README name them from here.
-case_fields='stdin expected-stdout expected-exit expected-crash constant-stack libm-lines'
+case_fields='stdin expected-stdout expected-exit expected-crash libm-lines'
 
 # cases_known FIXTURE: FIXTURE's `cases`, when it has one, is a directory
 # of at least one case, each a directory named in letters, digits and
@@ -148,11 +141,6 @@ e2e_cases() {
 #     expected-crash   the cause the runtime names when the program
 #                      crashes: then its status is 1 and its standard
 #                      error is exactly `idris-mlir: <cause>`
-#     constant-stack   the program loops in constant stack on a long
-#                      input: its stdin is the case's stdin as many times
-#                      over as the first word says, so many iterations
-#                      that a loop keeping one frame per iteration exhausts
-#                      the 1 MiB stack it runs on; the file says what loops
 #     libm-lines       the numbered output lines are libm results, whose
 #                      last places are the platform libm's and may differ
 #                      from expected-stdout's
@@ -165,16 +153,7 @@ e2e_case() {
   ec_name=$2
   ec_stdin=/dev/null
   [ -f "$ec_dir/stdin" ] && ec_stdin=$ec_dir/stdin
-  if [ -f "$ec_dir/constant-stack" ]; then
-    if [ -z "$io_stack" ]; then
-      say "case $ec_name: constant-stack runs on the 1 MiB stack, which default-stack refuses"
-      return
-    fi
-    repeated "$ec_stdin" "$(first_word "$ec_dir/constant-stack")" "$work/long-stdin" ||
-      { say "case $ec_name: constant-stack names no count"; return; }
-    ec_stdin=$work/long-stdin
-  fi
-  run_ours run "$work/ours/build/exec/prog" "$ec_stdin" $io_stack
+  run_ours run "$work/ours/build/exec/prog" "$ec_stdin"
   ec_expected_exit=0
   [ -f "$ec_dir/expected-exit" ] && ec_expected_exit=$(first_word "$ec_dir/expected-exit")
   [ -f "$ec_dir/expected-crash" ] && ec_expected_exit=1
@@ -218,7 +197,7 @@ fixture_files_known() {
     [ -f "$ffk_file" ] || continue
     case ${ffk_file##*/} in
       *.idr | run | expected | expected.* | suite | targets | packages | mlir.expect | heap-free | \
-      covers | default-stack) ;;
+      covers) ;;
       *) ffk_unknown="$ffk_unknown ${ffk_file##*/}" ;;
     esac
   done

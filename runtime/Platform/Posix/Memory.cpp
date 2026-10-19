@@ -6,7 +6,6 @@
 #include "idris_rt.h"
 
 #include <stddef.h>
-#include <stdint.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -83,14 +82,6 @@ char *reserve(size_t size, size_t alignment) noexcept {
   if (extra != before)
     release(start + before + size, extra - before);
   return start + before;
-}
-
-size_t physicalMemory() noexcept {
-  long pages = sysconf(_SC_PHYS_PAGES);
-  long page = sysconf(_SC_PAGESIZE);
-  if (pages <= 0 || page <= 0 || static_cast<size_t>(pages) > SIZE_MAX / static_cast<size_t>(page))
-    return 0;
-  return static_cast<size_t>(pages) * static_cast<size_t>(page);
 }
 
 bool protect(char *p, size_t n) noexcept { return mprotect(p, n, PROT_NONE) == 0; }

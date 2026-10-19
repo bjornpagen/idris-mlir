@@ -308,8 +308,7 @@ typedef struct idris_rt_memref {
  * tests. */
 uint64_t idris_rt_live_cells(void);
 void idris_rt_flush(void);
-int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
-                          void (*exhausted)(void));
+int idris_rt_run_on_stack(void (*fn)(void *), void *arg, void (*exhausted)(void));
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
 const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);
 void idris_rt_str_release(const idris_rt_str *s);

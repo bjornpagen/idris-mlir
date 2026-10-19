@@ -184,9 +184,6 @@ void checkPageSize() noexcept;
 // more; the caller keeps `size + alignment` from wrapping.
 char *reserve(size_t size, size_t alignment = pageSize()) noexcept;
 
-// The bytes of physical memory the system has; 0 when it does not say.
-size_t physicalMemory() noexcept;
-
 // Makes the n bytes at p, whole pages, inaccessible.
 bool protect(char *p, size_t n) noexcept;
 
@@ -240,10 +237,6 @@ bool runThread(void (*fn)(void *), void *arg, char *stack, size_t size) noexcept
 
 // Makes the n bytes at p the calling thread's stack for signal handlers.
 void useSignalStack(char *p, size_t n) noexcept;
-
-// The process's stack limit in bytes: SIZE_MAX when it has none, which is
-// larger than any, and 0 when it cannot be read, which raises nothing.
-size_t stackLimit() noexcept;
 
 // The terminal (Posix/Terminal.cpp).
 

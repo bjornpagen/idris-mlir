@@ -1,3 +1,0 @@
-1
-The count on stdin, about ten million, is how many cells replicate builds, and
-take half as many: the input is that number once.

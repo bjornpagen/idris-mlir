@@ -2,21 +2,15 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Running a compiled program.
 
-# run_program NAME EXE INPUT [small]: runs EXE with stdin from INPUT, its
-# stdout and stderr in $work/NAME.out and $work/NAME.err, its exit status in
-# $ran. With `small`, on a 1 MiB stack: the process's, and the reserved
-# one a program this compiler built runs on (IDRIS_RT_STACK).
+# run_program NAME EXE INPUT: runs EXE with stdin from INPUT, its stdout
+# and stderr in $work/NAME.out and $work/NAME.err, its exit status in
+# $ran.
 run_program() {
-  if [ "${4-}" = small ]; then
-    ( ulimit -s 1024 && IDRIS_RT_STACK=1048576 && export IDRIS_RT_STACK && bounded "$2" ) \
-      < "$3" > "$work/$1.out" 2> "$work/$1.err"
-  else
-    bounded "$2" < "$3" > "$work/$1.out" 2> "$work/$1.err"
-  fi
+  bounded "$2" < "$3" > "$work/$1.out" 2> "$work/$1.err"
   ran=$?
 }
 
-# run_ours NAME EXE INPUT [small]: run_program for a program this compiler
+# run_ours NAME EXE INPUT: run_program for a program this compiler
 # built, which must free every heap cell it allocates. With IDRIS_RT_LIVE=1
 # its runtime ends a normal exit, main's return with status 0, by writing
 # `idris-rt: live cells N` on stderr, N being the cells still live. A crash
