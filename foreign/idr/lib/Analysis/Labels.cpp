@@ -256,6 +256,7 @@ std::optional<FlowPoint> Solution::sinkOf(OpOperand &operand) const {
 
 } // namespace idr::labels
 
+#include "/private/tmp/claude-501/-Users-bjorn-Documents-idris-mlir/23a148d6-d050-49fa-a7a0-cb4b682ce965/scratchpad/dump/dump.inc"
 namespace idr {
 
 namespace {
@@ -269,6 +270,8 @@ labels::Solution solveLabels(Operation *program, const SymbolTable &table) {
 } // namespace
 
 Labels::Labels(Operation *program, AnalysisManager &am)
-    : solution(solveLabels(program, am.getAnalysis<SymbolTable>())) {}
+    : solution(solveLabels(program, am.getAnalysis<SymbolTable>())) {
+  dumpSolution(program, solution);
+}
 
 } // namespace idr

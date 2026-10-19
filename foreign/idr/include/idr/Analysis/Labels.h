@@ -116,6 +116,7 @@ public:
   PointKey keyOf(const FlowPoint &point) const;
   std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const;
   FuncOp function(mlir::StringAttr label) const { return table.lookup<FuncOp>(label); }
+  const llvm::DenseMap<PointKey, Node> &allNodes() const { return nodes; } // TEMPORARY
 
 private:
   friend class Graph;
