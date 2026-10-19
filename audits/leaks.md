@@ -67,7 +67,13 @@ What §3.9 planned, as it landed:
   runtime/Alloc/Alloc.h; tests/runtime-checked): a cell that dies keeps its
   memory with its header marked, and a count operation on it, or on a
   stack cell below the frame of the operation, ends the program naming
-  which. T6's measurement is open.
+  which. T6, persistence's cost, measured at cc900f4a (arm64 macOS, dev
+  build, peak RSS by /usr/bin/time -l): memo-shared-stream 1.90 MB on each
+  case, stream-take 1.80 to 1.93 MB, every-types-export 2.31 MB,
+  self-forcing-caf 1.88 MB, against 1.79 MB for a program that prints one
+  line; every run ends with live cells 0. No benchmark holds a CAF stream.
+  Before persistence the CAF release ran at exit, so a forced CAF's value
+  was held to the end then too: the decision stands.
 - Memo captures are exclusive where every init moved an exclusive value
   in and no read of the field as a view is used (exclusivity's Captures);
   the char-list and split-prefixes tests still find shared values before
