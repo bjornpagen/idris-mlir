@@ -1,5 +1,0 @@
-rules: read from the build's list
-reject fixtures: found
-every rule has a reject fixture or a line of tests/reject/without-fixture
-no rule has both a fixture and a line
-every line names a rule, once, with a kind and a reason

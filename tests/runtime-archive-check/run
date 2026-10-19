@@ -1,0 +1,139 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The runtime's archive check (runtime/check-archive.sh) passes an archive
+# that references no symbol of the C++ runtime and has no static
+# constructor, and fails one that does, or that it cannot read as the
+# spellings it is given say (no runtime entry, idris_rt_start, among its C
+# names): a check that reads nothing passes nothing. One table, each row an
+# archive of one member and the verdict the check owes it:
+#   - the build's own runtime archive, and members of this target's object
+#     format, through the wrapper the build writes with the target entry's
+#     spellings;
+#   - members of both object formats through the script with each format's
+#     spellings, x86-64 objects standing for both (every pinned toolchain
+#     has that backend, and the format alone decides what the check reads):
+#     plain, carrying their bitcode as the target entries carry it (an ELF
+#     fat LTO object's .llvm.lto, a Mach-O object's __LLVM,__bitcode), and
+#     mixed, the native code of one source with the bitcode of another, so
+#     that a reference only one half makes is seen;
+#   - a Mach-O member read with ELF's spellings, which reads no C name;
+#   - an arm64 Mach-O member with embedded bitcode, as the Darwin runtime's
+#     members are.
+# A row's verdict is the check's exit status and the name its report must
+# hold: the C++ runtime symbol referenced, the member with a constructor,
+# or the entry it did not find.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+wrapper=$dev_prefix/runtime/check-archive
+script=$root/runtime/check-archive.sh
+elf=x86_64-unknown-linux-musl
+macho=x86_64-apple-macosx14.0
+elf_spellings=".init_array .fini_array .ctors .dtors .preinit_array"
+macho_spellings="__mod_init_func __mod_term_func __init_offsets"
+
+entry='extern "C" int idris_rt_start(void) { return 0; }'
+printf '%s\n' "$entry" > "$work/clean.cc"
+printf '%s\n' "$entry" 'int *cell() { return new int; }' > "$work/cxx.cc"
+printf '%s\n' "$entry" 'extern "C" int answer(void);' \
+  'struct S { int v; S() : v(answer()) {} }; S s;' > "$work/ctor.cc"
+printf '%s\n' 'extern "C" int other(void) { return 0; }' > "$work/blind.cc"
+
+# compile TRIPLE SOURCE OUT FLAG...: $work/SOURCE.cc for TRIPLE, with FLAG...
+compile() {
+  compile_triple=$1 compile_source=$2 compile_out=$3
+  shift 3
+  bounded "$llvm_bin/clang++" --target="$compile_triple" -O2 -fno-exceptions "$@" \
+    "$work/$compile_source.cc" -o "$compile_out" > "$work/cc.log" 2>&1 && return 0
+  say "$compile_source for $compile_triple: does not compile"
+  show "$work/cc.log"
+  return 1
+}
+
+# member NAME TRIPLE HOW SOURCE [BITCODE]: the archive $work/NAME.a of one
+# member, SOURCE compiled for TRIPLE: plain; carrying its own bitcode as
+# the format carries it (carried); with BITCODE's bitcode in place of its
+# own (mixed), assembled from SOURCE's assembly with BITCODE's bitcode
+# added as the format's bitcode section; or with embedded bitcode for
+# arm64 (embedded).
+member() {
+  member_name=$1 member_triple=$2 member_how=$3 member_source=$4 member_bitcode=${5-}
+  case $member_triple in
+    *-linux-*) member_carry='-flto=full -ffat-lto-objects' member_section='.llvm.lto,"e"' ;;
+    *) member_carry='-fembed-bitcode=all' member_section='__LLVM,__bitcode' ;;
+  esac
+  case $member_how in
+    plain) compile "$member_triple" "$member_source" "$work/$member_name.o" -c || return 1 ;;
+    # shellcheck disable=SC2086
+    carried | embedded) compile "$member_triple" "$member_source" "$work/$member_name.o" -c $member_carry || return 1 ;;
+    mixed)
+      compile "$member_triple" "$member_source" "$work/$member_name.s" -S || return 1
+      compile "$member_triple" "$member_bitcode" "$work/$member_name.bc" -c -emit-llvm || return 1
+      printf '\t.section %s\n\t.incbin "%s"\n' "$member_section" "$work/$member_name.bc" >> "$work/$member_name.s"
+      bounded "$llvm_bin/clang" --target="$member_triple" -c "$work/$member_name.s" -o "$work/$member_name.o" \
+        > "$work/cc.log" 2>&1 || { say "$member_name: does not assemble"; show "$work/cc.log"; return 1; } ;;
+  esac
+  rm -f "$work/$member_name.a"
+  bounded "$llvm_bin/llvm-ar" rcs "$work/$member_name.a" "$work/$member_name.o"
+}
+
+# verdict NAME STATUS NAMES CHECK...: CHECK... run; says NAME holds when it
+# exits STATUS and its report holds NAMES (`-` for nothing to name), else
+# what it did.
+verdict() {
+  verdict_name=$1 verdict_status=$2 verdict_names=$3
+  shift 3
+  bounded "$@" > "$work/check.out" 2>&1
+  verdict_got=$?
+  if [ "$verdict_got" = "$verdict_status" ] &&
+     { [ "$verdict_names" = - ] || grep -qF -- "$verdict_names" "$work/check.out"; }; then
+    if [ "$verdict_names" = - ]; then
+      say "$verdict_name: exit $verdict_status"
+    else
+      say "$verdict_name: exit $verdict_status, naming $verdict_names"
+    fi
+  else
+    say "$verdict_name: exit $verdict_got, where exit $verdict_status naming $verdict_names is owed"
+    show "$work/check.out"
+  fi
+}
+
+verdict runtime 0 - sh "$wrapper" "$dev_prefix/runtime/libidris_rt.a"
+
+target=$("$idris_mlir" --print-target-triple)
+# The rows: name, triple, how the member is made, its source and bitcode,
+# the spellings it is read with (the wrapper's, ELF's or Mach-O's), and the
+# verdict owed.
+while read -r name triple how source bitcode spellings status names; do
+  [ "$triple" = target ] && triple=$target
+  member "$name" "$triple" "$how" "$source" "$bitcode" || continue
+  case $spellings in
+    wrapper) verdict "$name" "$status" "$names" sh "$wrapper" "$work/$name.a" ;;
+    elf) verdict "$name" "$status" "$names" sh "$script" "$llvm_bin/llvm-nm" "$llvm_bin/llvm-objdump" \
+           '' "$elf_spellings" "$work/$name.a" ;;
+    macho) verdict "$name" "$status" "$names" sh "$script" "$llvm_bin/llvm-nm" "$llvm_bin/llvm-objdump" \
+             _ "$macho_spellings" "$work/$name.a" ;;
+  esac
+done << EOF
+clean target plain clean - wrapper 0 -
+cxx target plain cxx - wrapper 1 _Znwm
+ctor target plain ctor - wrapper 1 ctor.o
+blind target plain blind - wrapper 1 idris_rt_start
+elf-clean $elf plain clean - elf 0 -
+elf-cxx $elf plain cxx - elf 1 _Znwm
+elf-ctor $elf plain ctor - elf 1 .init_array
+elf-carried-clean $elf carried clean - elf 0 -
+elf-carried-cxx $elf carried cxx - elf 1 _Znwm
+elf-carried-ctor $elf carried ctor - elf 1 .init_array
+elf-native-cxx-bitcode-clean $elf mixed cxx clean elf 1 _Znwm
+elf-native-clean-bitcode-cxx $elf mixed clean cxx elf 1 _Znwm
+macho-clean $macho plain clean - macho 0 -
+macho-cxx $macho plain cxx - macho 1 _Znwm
+macho-ctor $macho plain ctor - macho 1 __mod_init_func
+macho-carried-clean $macho carried clean - macho 0 -
+macho-carried-cxx $macho carried cxx - macho 1 _Znwm
+macho-carried-ctor $macho carried ctor - macho 1 __mod_init_func
+macho-native-cxx-bitcode-clean $macho mixed cxx clean macho 1 _Znwm
+macho-native-clean-bitcode-cxx $macho mixed clean cxx macho 1 _Znwm
+macho-as-elf $macho plain cxx - elf 1 idris_rt_start
+macho-arm64-embedded arm64-apple-macosx14.0 embedded clean - macho 0 -
+EOF

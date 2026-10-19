@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that Show (T nm), whose List (String, T nm) field is shown through Show (List a) and Show (a, b), is admitted by the growth check (a dispatch through a dictionary variable carries no arc), which the request-chain rule refused, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
-compile: exit 0
-artifacts: core module objects executable
-universal: holds
-run: exit status as expected
-stdout: as expected
-stderr: empty

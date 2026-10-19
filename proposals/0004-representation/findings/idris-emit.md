@@ -106,13 +106,13 @@ nothing reads the bytecode.
 
 | Field | Content |
 |---|---|
-| Evidence | `Registry/Entry.idr:459` `rules : List Rule` is set on all of about 150 entries (`Primitives.idr`, `Recognized.idr`) and read nowhere: no `.rules`, and no pattern on `MkEntry` outside construction, in `compiler/src` or `tests`. For the refusing hooks it repeats the hook's payload: `ruledOut … (Forbidden rule) [rule]` (`Recognized.idr:222`), `spelling … (Forbidden EscapeHatch) [EscapeHatch]`, `rootOnly … (Forbidden WorldUse) [WorldUse]`, `(Deprecated r) [Deprecated]`. It is the only place the rules `IOPrimitive` and `IdentityHook` appear (`tests/reject/without-fixture:9-10` says so). |
+| Evidence | `Registry/Entry.idr:459` `rules : List Rule` is set on all of about 150 entries (`Primitives.idr`, `Recognized.idr`) and read nowhere: no `.rules`, and no pattern on `MkEntry` outside construction, in `compiler/src` or `tests`. For the refusing hooks it repeats the hook's payload: `ruledOut … (Forbidden rule) [rule]` (`Recognized.idr:222`), `spelling … (Forbidden EscapeHatch) [EscapeHatch]`, `rootOnly … (Forbidden WorldUse) [WorldUse]`, `(Deprecated r) [Deprecated]`. It is the only place the rules `IOPrimitive` and `IdentityHook` appear (`tests/rules-covered/without-fixture:9-10` says so). |
 | Counterexample | `MkEntry k e (Forbidden Threads) [Signal]` is representable and means nothing different. |
 | Root cause | A transcription of "the rules the hook's handler implements" with no reader. |
-| Correction | Delete the field. Delete the `Rule` cases `IOPrimitive` and `IdentityHook` from ODS (`IdrBase.td`), with their lines in `tests/reject/without-fixture`. This is 0002 §9's deferred item ("a rule with no raise site is a second copy of nothing"). |
+| Correction | Delete the field. Delete the `Rule` cases `IOPrimitive` and `IdentityHook` from ODS (`IdrBase.td`), with their lines in `tests/rules-covered/without-fixture`. This is 0002 §9's deferred item ("a rule with no raise site is a second copy of nothing"). |
 | Deletion | About 150 list literals, the field, 2 rule cases (C++ enum, generated Idris, `IdrRules.txt`) and 2 fixture-exemption lines. |
-| Consumers | `Registry/Entry.idr`, `Registry/Primitives.idr`, `Registry/Recognized.idr`, `foreign/idr/include/idr/IR/IdrBase.td`, `Syntax/Idr.idr` (regenerated), `tests/reject/without-fixture`. |
-| Discriminator | `tests/spec/rules-covered` (every rule has a fixture or an exemption) still holds with two fewer rules. Output is byte-identical. |
+| Consumers | `Registry/Entry.idr`, `Registry/Primitives.idr`, `Registry/Recognized.idr`, `foreign/idr/include/idr/IR/IdrBase.td`, `Syntax/Idr.idr` (regenerated), `tests/rules-covered/without-fixture`. |
+| Discriminator | `tests/rules-covered` (every rule has a fixture or an exemption) still holds with two fewer rules. Output is byte-identical. |
 | Verification here | Chez build; `make typecheck`; `make check` runs the rules spec. |
 | Size and risk | About 160 lines, no branches; no behaviour risk. |
 | Insight | 4 (two fields that can disagree, one unread) |
@@ -262,7 +262,7 @@ nothing reads the bytecode.
 | Correction | `IdrBytecode.td` declares `Idr_FieldCode` as an enum and `Body`/`Ctor` as bytecode records. The generator writes `encodeBody`/`encodeCtor` and the field codes into `Encoding/Idr.idr`, and the enum into C++. `FieldReader` keeps only its dispatch. |
 | Deletion | `Dialect.fieldCode`, the code literals and the hand `ctorParts`/`bodyParts`; the C++ `FieldCode` enum and the hand order of the reads. |
 | Consumers | `MLIR/Bytecode.idr`, `Encoding/Idr.idr` (regenerated), `foreign/idr/include/idr/IR/IdrBytecode.td`, `lib/IR/Bytecode.cpp`, `idris-mlir-tblgen.cpp`. |
-| Discriminator | `.mlirbc` is byte-identical; `tests/compiler/dialect-syntax` round-trips (owner's machine). |
+| Discriminator | `.mlirbc` is byte-identical; `tests/dialect-syntax` round-trips (owner's machine). |
 | Verification here | `make typecheck`; Chez build; byte compare. |
 | Size and risk | About 30 lines; no branches; medium-low risk. This prevents drift and removes no branches. |
 | Insight | 14 |

@@ -20,7 +20,7 @@ path), *measured* (the record), *recalled*, *decision*.
   1e1a3827, built since 4d5e7e8f (ad23fbb0); arm64 gate green at
   552d682a (`make check` 27/27, `make test-idr` 286/286, `make test`
   415/415; *measured* 2026-10-14, HANDOFF.md).
-- G0, the baseline record: F0, `bench/profiles/2026-10-14-f0-stage0.md`.
+- G0, the baseline record: F0, `bench/records/2026-10-14-f0-stage0.md`.
 
 Every wave since (the pipeline cutover, c7aa7b62 and 5d5f3312; the
 representation wave, bfdcac70; 0001, d06ed15c; 0002, integrating now) is
@@ -58,13 +58,13 @@ its own first baseline.
   §5's machine. The two arm64 Linux targets run the same steps.
 - **The bench** (AFTER-SELF). `bench/run.sh --record` on each target.
   On arm64 each program's ratio to its own C is read against
-  `bench/runs/2026-10-13-9a1b7b1-darwin-arm64`; a ratio worse by more
+  `bench/records/2026-10-13-9a1b7b1-darwin-arm64`; a ratio worse by more
   than 2%, best of five, is a regression, bisected and fixed (0010 D35,
   D36: the five-run spread reaches 97%, so it bounds nothing). Linux
   records a fresh baseline.
 - **Compile times** (AFTER-SELF; *decision*, D19). `tools/compile-times.sh
-  --record` on both targets, committed under `bench/profiles/`, is the
-  first baseline: `bench/profiles/` holds F0 alone, and the 2026-10-13
+  --record` on both targets, committed under `bench/records/`, is the
+  first baseline: `bench/records/` holds F0 alone, and the 2026-10-13
   figure (167.9 s over 429 compilations) is *recalled*, in no file or
   commit. A pass that later grows against it is fixed or its cost
   stated. Reason: a threshold needs a baseline anyone can read.
@@ -75,7 +75,7 @@ its own first baseline.
 - **The other presets** (AFTER-SELF). `release` and `hardened` configure
   and build; `lint` builds under the pinned clang-tidy
   (`CMakePresets.json`).
-- **Bounded memory** (AFTER-SELF). `tests/programs/eval/thunk-consumes-list`
+- **Bounded memory** (AFTER-SELF). `tests/leet-relink-in-place`
   at 10^5 and 10^6: the larger run's max RSS under twice the smaller's,
   measured by `peak_memory` (`tools/host.sh:135`), the one host function
   `tools/self.sh` also uses. Not built: the fixture's `run` is `e2e_io .`

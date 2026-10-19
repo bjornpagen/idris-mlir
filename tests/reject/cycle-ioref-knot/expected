@@ -1,6 +1,0 @@
-NEEDS-ACCEPTANCE: that the cycle refusal is reported at the first idr.con the program's own code builds of a type on the cycle (line 18), since an identified data type has no location of its own
-compile: exit 3
-unsupported (cycle): the only error
-line: as the header says
-message: as the header says
-artifacts: none

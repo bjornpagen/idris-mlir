@@ -1,4 +1,0 @@
-compile: exit 3
-idris: its own error, and no rule of ours
-line: as the header says
-artifacts: none

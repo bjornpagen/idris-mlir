@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that traverse over Either (List e) with Applicative IO, a method with a constraint of its own whose implementation's e is one List above main's message, is admitted by the growth check with the implementation's arguments carried to the method function's leading positions, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
-compile: exit 0
-artifacts: core module objects executable
-universal: holds
-run: exit status as expected
-stdout: as expected
-stderr: empty

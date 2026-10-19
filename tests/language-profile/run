@@ -1,0 +1,40 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The build follows the project's profile: every C++ unit of ours
+# (foreign/idr and the runtime) is compiled as C++26, without exceptions or
+# RTTI, with warnings as errors, and without -freflection (the pinned
+# clang's reflection is a stub: PINS.md clang-no-reflection). Read from the
+# compile commands the dev build ran, the flags actually used, not from
+# how CMakeLists.txt spells them.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+commands=$dev_prefix/compile_commands.json
+if [ ! -s "$commands" ]; then
+  say "compile commands: missing (make build writes them)"
+  exit 0
+fi
+# Each unit of ours that is C++, with the command that compiled it.
+awk -v root="$root/" '
+  /^[ \t]*"command":/ { command = $0 }
+  /^[ \t]*"file":/ {
+    file = $0; sub(/^[ \t]*"file":[ \t]*"/, "", file); sub(/",?[ \t]*$/, "", file)
+    if (index(file, root) == 1) file = substr(file, length(root) + 1)
+    if (file ~ /^(foreign\/idr|runtime)\// && file ~ /\.(cpp|cc)$/) print file "\t" command
+  }' "$commands" | LC_ALL=C sort -u > "$work/units"
+if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
+for flag in -std=c++26 -fno-exceptions -fno-rtti -Werror; do
+  awk -F'\t' -v flag="$flag" 'index($2 " ", " " flag " ") == 0 { print $1 }' "$work/units" > "$work/without"
+  if [ -s "$work/without" ]; then
+    say "units compiled without $flag:"
+    show "$work/without"
+  else
+    say "every unit: $flag"
+  fi
+done
+awk -F'\t' 'index($2 " ", " -freflection") != 0 { print $1 }' "$work/units" > "$work/reflection"
+if [ -s "$work/reflection" ]; then
+  say "units compiled with -freflection:"
+  show "$work/reflection"
+else
+  say "no unit: -freflection"
+fi

@@ -8,7 +8,7 @@ one operation assigned, so the reported total is the count of the last
 function each clone ran on: under one thread, the module's last
 function; under the pool, the sum over clones of each clone's last
 function. The IR is the same either way; only the statistics differ, so
-`tests/determinism/threads-*`, which compare the statistics of one
+`tests/determinism-threads-*`, which compare the statistics of one
 module through the pipeline under one thread and under many, fail on an
 unpatched mlir-opt wherever CSE runs nested (ours runs it in
 idr-simplify's and idr-pipeline's canonicalize step).
@@ -59,7 +59,7 @@ here, and the patch does not touch it.
 `llvm.patch`, a `git diff` against 7208ba24: CSE accumulates
 (`numCSE += cseCount`, `numDCE += dceCount`), and a new test,
 `mlir/test/Transforms/cse-statistics.mlir`, checks the accumulated
-total under one thread and under many. `tests/upstream/cse-statistic-assignment`
+total under one thread and under many. `tests/upstream-cse-statistic-assignment`
 checks the reproducer with the pinned tools.
 
 ## Upstreaming plan

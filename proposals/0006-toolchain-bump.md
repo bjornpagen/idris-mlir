@@ -46,7 +46,7 @@ What the survey found at 7a83be39:
 - **Submissions.** 02, 08, 16, 17, 22 and 25 apply cleanly; 27 applies
   with an offset. None of their bugs is fixed on main.
 - **What retires.** PINS `remove-dead-values-address-taken` (01) and
-  `tests/upstream/remove-dead-values-address-taken` retire, since their
+  `tests/upstream-remove-dead-values-address-taken` retire, since their
   condition is "the pin has #208881". 01's report stays, as the
   test-only PR. PINS `remove-dead-values-unreachable` (06) stays, with
   its condition changed to "the pin has the rebased PR".
@@ -64,7 +64,7 @@ What the survey found at 7a83be39:
   survey covers them too:
   - googletest and googlemock from `third-party/unittest`
     (`foreign/idr/unittests`);
-  - compiler-rt's `FuzzedDataProvider.h` (`tests/toolchain/lib`);
+  - compiler-rt's `FuzzedDataProvider.h` (`harness/prop`);
   - `PassInstrumentation` (`lib/Transforms/Contracts`);
   - `DialectReductionPatternInterface` (`tools/idris-mlir-reduce.cpp`).
 - **Behaviour the suites judge:**
@@ -118,7 +118,7 @@ five buffer primitives a `RefC:` spec.
    - Run the survey above again.
    - Make one commit: the lock's `cmake` and `llvm` entries, the reworked
      06 and 07, the 01 retirement and 06's new condition.
-     `tests/spec/upstream-patches` checks the patches.
+     `tests/upstream-patches` checks the patches.
    - On both targets, run `tools/bootstrap.sh cmake llvm`, every check
      AGENTS.md names, and `make self`. Then regenerate the typecheck
      build (`make typecheck`).

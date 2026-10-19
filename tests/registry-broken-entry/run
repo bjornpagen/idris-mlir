@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The registry validates every entry against the loaded context before
+# anything uses it. Each case is a program whose own module, named as the
+# module an entry resolves to, is the pinned module with that entry's
+# definition at another shape: the compilation must then fail with a shape
+# mismatch, showing the entry, the shape expected and the shape found, and
+# leave no artifact. An entry keyed by a definition and one keyed by a
+# %foreign spec are broken in turn.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+registry_shadowed Builtin.replace definition third_party/Idris2/libs/prelude/Builtin.idr \
+  Builtin.idr replace shape 'module Main
+
+import Builtin
+
+main : Unit
+main = MkUnit'
+registry_shadowed C:idris2_putStr spec third_party/Idris2/libs/prelude/Prelude/IO.idr \
+  Prelude/IO.idr prim__putStr shape 'module Main
+
+import Builtin
+import PrimIO
+import Prelude.IO
+
+main : IO ()
+main = putStr "hello"'
+

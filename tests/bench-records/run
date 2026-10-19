@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Every run record kept in bench/records (a directory there) holds what
+# bench/report.sh makes from it, compared with the run record before it (records sort by name, which starts
+# with the date): its results.md and charts are current, never edited by
+# hand.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+previous=
+checked=0
+for record in "$root"/bench/records/*/; do
+  [ -d "$record" ] || continue
+  checked=$((checked + 1))
+  name=$(basename "$record")
+  mkdir "$work/$name"
+  for input in about samples.tsv compile.tsv; do
+    [ -f "$record/$input" ] && cp "$record/$input" "$work/$name/"
+  done
+  bounded sh "$root/bench/report.sh" "$work/$name" ${previous:+"$work/$previous"} > /dev/null ||
+    say "$name: bench/report.sh failed"
+  for made in results.md times.svg vs-c.svg vs-chez.svg; do
+    cmp -s "$work/$name/$made" "$record/$made" || say "$name/$made: not what bench/report.sh makes; run it again"
+  done
+  previous=$name
+done
+if [ "$checked" -eq 0 ]; then say "no run record in bench/records"; else say "records checked"; fi

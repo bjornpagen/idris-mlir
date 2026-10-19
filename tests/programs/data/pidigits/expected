@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that the fixture built from bench/pidigits's Main.idr compiles and prints expected-stdout
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds

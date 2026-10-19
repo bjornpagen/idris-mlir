@@ -1,3 +1,0 @@
-compile: exit 0
-artifacts: core module objects executable
-universal: holds

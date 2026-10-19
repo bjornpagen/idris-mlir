@@ -1,2 +1,0 @@
-Its values are numbers and unboxed data, and its output is written as it
-is computed: it allocates nothing on the heap.

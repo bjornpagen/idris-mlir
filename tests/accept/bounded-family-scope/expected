@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that under, whose scope ns grows by one on every round under the family tm, whose value Tm erases its index, is admitted by the growth check, its node split by tm's head Tm so that ns keys nothing (the shape of the fork's getBinderUnder, which the per-definition reading refused), and compiles and runs, one instance of under; and that what holds of every compilation holds of it (universal: holds)
-compile: exit 0
-artifacts: core module objects executable
-universal: holds
-run: exit status as expected
-stdout: as expected
-stderr: empty

@@ -1,9 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2026 Bjorn Pagen
-# A program whose hot loop builds boxes and hands them to a function that
-# only reads them: after idr-rc's stack step nothing in the loop allocates
-# on the heap (mlir.expect), the program prints expected-stdout, and it
-# ends with no cell live.
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-e2e_io .

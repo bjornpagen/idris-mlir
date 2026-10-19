@@ -734,7 +734,7 @@ the commit before the stage as baseline, run beside each other on each
 target. No runtime regression over 2%, no compile-time regression over
 5%, and parity with C means this compiler's best of five at most 2%
 above the C's. A stage that misses is reworked or reverted whole. New
-benchmarks get a C counterpart in `bench/c/` and no Chez column; none
+benchmarks get a C counterpart, their `main.c`, and no Chez column; none
 exists yet:
 
 - `matmul` (1024, f64, `ikj`);

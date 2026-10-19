@@ -1,0 +1,5 @@
+CMakePresets.json: lint with the stage-2 clang-tidy
+units: found
+every library is an add_mlir_library
+IdrIR is an add_mlir_dialect_library
+no thread_local, static mutable or std::atomic but the three

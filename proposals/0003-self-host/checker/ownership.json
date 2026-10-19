@@ -143,12 +143,12 @@
   },
   "T1": {
     "writes": [
-      "tests/reject/polymorphism-nested/**",
-      "tests/reject/polymorphism-nested-data/**",
-      "tests/reject/polymorphism-growing-rank/**",
-      "tests/reject/polymorphism-growing-shape/**",
-      "tests/reject/polymorphism-growth-mutual/**",
-      "tests/reject/polymorphism-growth-dictionary/**",
+      "tests/polymorphism-nested/**",
+      "tests/polymorphism-nested-data/**",
+      "tests/polymorphism-growing-rank/**",
+      "tests/polymorphism-growing-shape/**",
+      "tests/polymorphism-growth-mutual/**",
+      "tests/polymorphism-growth-dictionary/**",
       "tests/reject/polymorphism-growth-recursion/**"
     ],
     "findings": [
@@ -157,14 +157,14 @@
   },
   "T2": {
     "writes": [
-      "tests/accept/bounded-grow-once/**",
-      "tests/accept/bounded-grow-shrink/**",
-      "tests/accept/bounded-method/**",
-      "tests/accept/bounded-field/**",
-      "tests/accept/bounded-capped/**",
-      "tests/accept/bounded-dictionary-root/**",
-      "tests/accept/bounded-method-own/**",
-      "tests/accept/bounded-synonym/**"
+      "tests/bounded-grow-once/**",
+      "tests/bounded-grow-shrink/**",
+      "tests/bounded-method/**",
+      "tests/bounded-field/**",
+      "tests/bounded-capped/**",
+      "tests/bounded-dictionary-root/**",
+      "tests/bounded-method-own/**",
+      "tests/bounded-synonym/**"
     ],
     "findings": [
       "F07"
@@ -172,7 +172,7 @@
   },
   "T3": {
     "writes": [
-      "tests/compiler/growth-check/**"
+      "tests/growth-check/**"
     ],
     "findings": [
       "F08"

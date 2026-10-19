@@ -18,7 +18,7 @@ accepts and §2 is done. Not legal advice; §3 needs counsel.
   committed dialect module (`writeLicense`,
   `foreign/idr/tools/idris-mlir-tblgen.cpp:1785`), so none is excluded.
 - L6, D3, D9, D10 (d06ed15c): `tools/licenses.sh`, gated by
-  `tests/spec/licenses` in `make check`: the scope is every tracked file
+  `tests/licenses` in `make check`: the scope is every tracked file
   less one reasoned exclusion list (`:37-56`), a fork file's holder is
   read from the pin (`:92-96`, `:153`), the required texts from the
   identifiers in use (`:222-226`), a port's attribution from its PINS.md
@@ -69,7 +69,7 @@ Owed at the owner's first build: `llvm-nm` on a program that uses no
 archive links only the members a reference pulls). If GMP goes, a
 permissive bignum replaces it behind `runtime/Big/Big.h`, chosen in its
 own proposal by `pidigits`' ratio to its C (0.66x today over GMP,
-*measured*, `bench/runs/2026-10-13-9a1b7b1-darwin-arm64/results.md:31`).
+*measured*, `bench/records/2026-10-13-9a1b7b1-darwin-arm64/results.md:31`).
 
 ## 4. Decisions that still govern
 

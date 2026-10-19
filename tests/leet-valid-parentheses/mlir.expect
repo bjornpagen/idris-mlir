@@ -1,0 +1,3 @@
+# Matching brackets (LeetCode 20) with a linear stack over a linear input:
+# pushes and pops move cells, and no take tests a count.
+idr-rc-exclusive: tests-nothing=@Main.check

@@ -44,13 +44,13 @@ LICENSE LICENSES/*.txt compiler/idris/LICENSE -- the licence texts themselves
 NOTICE -- the attribution notices, which quote the parties' own
 *.json *.tsv *.svg -- a kind with no comment syntax
 *.patch *.diff -- a patch or a diff, every line of which is applied
-*/expected */expected-* */expected.* *.check *.expect -- what a test compares its output with
+*/expected */expected-* */expected.* *.check *.expect *.expected -- what a test compares its output with
 */stdin */input */input-from *.in *.out -- what a test or a benchmark reads, byte for byte
-*/packages */covers */heap-free */constant-stack */live-cells */default-stack */libm-lines */targets */compare */reference */about */libs -- a mark or a datum of a fixture or a benchmark, which its harness reads
+*/packages */covers */heap-free */constant-stack */live-cells */default-stack */libm-lines */targets */suite */about -- a mark or a datum of a fixture or a benchmark, which its harness reads
 */allowlist */allowed */uncovered */without-fixture -- a list a spec test reads
-tests/*/*.idr tests/*.mlir -- a fixture's source, whose line numbers reach its expected output
+tests/*/*.idr tests/*.mlir harness/templates/*.idr harness/templates/*.mlir -- a fixture's source, whose line numbers reach its expected output
 upstream/*/*.mlir upstream/*/*.ll upstream/*/*.sh upstream/*/*.idr upstream/*/*.c upstream/*/*.cpp -- a reproducer, which its report quotes and its upstream test copies
-bench/runs/* bench/profiles/* -- a record of a measurement, kept as it was taken
+bench/records/* -- a record of a measurement, kept as it was taken
 compiler/idris/MODULES -- the fork's list of kept modules, which tools/extract-idris.sh reads
 EOF
 }

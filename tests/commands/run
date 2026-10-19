@@ -1,0 +1,63 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The Makefile's opening comment is the list of commands (`make` alone
+# prints it): every `make <target>` it documents is a target of the
+# Makefile, every command AGENTS.md tells a contributor to run is
+# documented there, tools/bootstrap.sh builds the toolchain, and doctor
+# reports the pinned CMake, Ninja, LLVM and sysroot. The list is read from
+# the header, so a command is added in one place; a copy of the Makefile
+# that documents a command it lacks is the witness that the check sees.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# documented MAKEFILE: the targets its opening comment names, one a line.
+documented() {
+  sed -n '/^#/!q; s/^#   make \([a-z][a-z-]*\).*/\1/p' "$1" | LC_ALL=C sort -u
+}
+
+# undefined MAKEFILE: each documented target with no rule in MAKEFILE.
+undefined() {
+  documented "$1" | while read -r target; do
+    grep -q "^$target:" "$1" || printf '%s\n' "$target"
+  done
+}
+
+[ -n "$(documented "$root/Makefile")" ] || say "Makefile: documents no command"
+undefined "$root/Makefile" > "$work/undefined"
+if [ -s "$work/undefined" ]; then
+  say "Makefile: documented commands with no target:"
+  show "$work/undefined"
+else
+  say "Makefile: every documented command is a target"
+fi
+
+awk 'NR == 2 { print "#   make no-such-command   the witness" } { print }' "$root/Makefile" > "$work/Makefile"
+if [ "$(undefined "$work/Makefile")" = no-such-command ]; then
+  say "witness: a documented command with no target is found"
+else
+  say "witness: a documented command with no target is not found"
+fi
+
+grep -o '`make [a-z][a-z-]*' "$root/AGENTS.md" | sed 's/^`make //' | LC_ALL=C sort -u > "$work/named"
+documented "$root/Makefile" > "$work/documented"
+LC_ALL=C comm -23 "$work/named" "$work/documented" > "$work/missing"
+if [ -s "$work/missing" ]; then
+  say "AGENTS.md: names commands the Makefile does not document:"
+  show "$work/missing"
+else
+  say "AGENTS.md: every command it names is documented"
+fi
+
+if [ -x "$root/tools/bootstrap.sh" ]; then
+  say "tools/bootstrap.sh"
+else
+  say "tools/bootstrap.sh: missing or not executable"
+fi
+"$root/tools/doctor.sh" > "$work/doctor" 2>&1
+for tool in cmake ninja llvm sysroot; do
+  if grep -q "^Pinned $tool: " "$work/doctor"; then
+    say "doctor reports the pinned $tool"
+  else
+    say "doctor does not report the pinned $tool"
+  fi
+done

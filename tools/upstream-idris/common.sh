@@ -70,7 +70,7 @@ ident_in() {
 # Threads, collector finalizers, raw pointers, unsafePerformIO in the
 # test's own source, network, and the packages this compiler does not
 # implement. The scan is the source with comments and strings removed
-# (tests/lib/idris-lex.sh) plus the run script's package flags. A script
+# (harness/lib/idris-lex.sh) plus the run script's package flags. A script
 # that also runs another backend expects that backend's output too, which
 # this compiler does not print.
 skip_reason() {
@@ -114,7 +114,7 @@ skip_reason() {
   printf '%s\n' "$skip_found"
 }
 
-. "$root/tests/lib/rules.sh"
+. "$root/harness/lib/rules.sh"
 
 # rejection_skip TEXT: the rule of the compiler's first refusal in TEXT,
 # when the rule's category is `outside the language` (lib/rules.sh): a program the

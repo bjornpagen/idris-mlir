@@ -2,14 +2,14 @@
 # Copyright (c) 2026 Bjorn Pagen
 /.toolchain
 /build/
+# What a build makes, the runner's among it (harness/build: its outputs,
+# timings and the runner itself).
 build/
 # A user's own presets, such as a build for one family of a target's
 # machines (README.md).
 /CMakeUserPresets.json
-# What a golden test printed (tests/Main.idr); `expected` is what it must print.
-/tests/**/output
 __pycache__/
 *.pyc
 .DS_Store
-# Time traces (tools/profile.sh); bench/profiles/README.md is tracked.
-bench/profiles/*.time-trace.json
+# Time traces (tools/profile.sh); the measurement records beside them are tracked.
+bench/records/*.time-trace.json

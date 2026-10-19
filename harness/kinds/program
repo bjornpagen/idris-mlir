@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A compiled program: Main.idr and the files beside it, compiled once with
+# its dumps, run when it states what running gives, and checked
+# (e2e_io, lib/e2e.sh). harness/one.sh runs it in the test's directory.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+e2e_io .

@@ -1,0 +1,218 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The end-to-end programs: compiled, run, and held to their expected files.
+#
+# Each fixture is compiled once with every module of the pipeline dumped,
+# and everything that holds of a compilation is read off that one
+# compilation and its dumps (lib/properties.sh).
+
+# stdout_within_a_few_ulp EXPECTED OURS LINES: EXPECTED and OURS print the
+# same text, except that the numbered lines LINES (one number per line) hold
+# libm results, whose last places are the platform libm's, not the
+# program's: libm is not correctly rounded, and the runtime calls the
+# platform's, so a value recorded on one platform may differ from another's
+# by a few units in the last place (four here). Every other line, and the
+# number of lines, must agree exactly.
+stdout_within_a_few_ulp() {
+  awk -v lines="$3" '
+    BEGIN { while ((getline n < lines) > 0) libm[n] = 1 }
+    NR == FNR { expected[FNR] = $0; n1 = FNR; next }
+    { n2 = FNR
+      if ($0 == expected[FNR]) next
+      if (!(FNR in libm)) exit 1
+      a = expected[FNR] + 0; b = $0 + 0
+      m = (a < 0 ? -a : a); if ((b < 0 ? -b : b) > m) m = (b < 0 ? -b : b)
+      d = a - b; if (d < 0) d = -d
+      if (d > m * 2 ^ -50) exit 1 }
+    END { if (n1 != n2) exit 1 }' "$1" "$2"
+}
+
+# e2e_io FIXTURE: an IO program, Main.idr and its other modules, compiled,
+# and checked as every compilation is (universal) and by the checks of its
+# modules (module_checks). A fixture that states what running it gives,
+# by an expected-stdout, an expected-exit or an expected-crash, is also
+# run, on its stdin, against its expected-stdout (an empty stdout when there
+# is none) and its expected-exit (0 when there is none) or expected-crash;
+# one that states none is compiled only (a program that never ends), and
+# then carries no file a run reads (stdin, and the marks of a run). The
+# expected files are the program's specification: what it must print is
+# written down beside it and reviewed when it changes, so no other
+# implementation is asked. `packages` names installed
+# packages it uses. It runs on a 1 MiB stack, or with `default-stack`,
+# which says why, on the one programs get. With `constant-stack` its input
+# is its stdin many times over (`repeated`), so long that a loop growing
+# the stack by a frame per iteration exhausts the 1 MiB. With `live-cells`
+# the first word is how many cells may still be live at a normal exit;
+# that count is taken off stderr.
+e2e_io() {
+  io_fixture=$(cd "$1" && pwd)
+  if ! fixture_files_known "$io_fixture"; then
+    return
+  fi
+  io_runs=
+  for io_file in expected-stdout expected-exit expected-crash; do
+    [ -f "$io_fixture/$io_file" ] && io_runs=1
+  done
+  if [ -z "$io_runs" ]; then
+    io_unread=
+    for io_file in stdin live-cells constant-stack default-stack libm-lines; do
+      [ -f "$io_fixture/$io_file" ] && io_unread="$io_unread $io_file"
+    done
+    if [ -n "$io_unread" ]; then
+      say "fixture: compiled only, as it states no expected-stdout, expected-exit or expected-crash, so nothing reads$io_unread"
+      return
+    fi
+  fi
+  io_stdin=/dev/null
+  [ -f "$io_fixture/stdin" ] && io_stdin=$io_fixture/stdin
+  io_expected_exit=0
+  [ -f "$io_fixture/expected-exit" ] && io_expected_exit=$(first_word "$io_fixture/expected-exit")
+  io_packages=$(package_options "$io_fixture")
+  io_stack=small
+  [ -f "$io_fixture/default-stack" ] && io_stack=
+  if [ -f "$io_fixture/constant-stack" ]; then
+    if [ -z "$io_stack" ]; then
+      say "marks: constant-stack runs on the 1 MiB stack, which default-stack refuses"
+      return
+    fi
+    repeated "$io_stdin" "$(first_word "$io_fixture/constant-stack")" "$work/long-stdin" || return
+    io_stdin=$work/long-stdin
+  fi
+  # Every compilation prints the module after each step (dump_options):
+  # the checks of the fixture's modules read those dumps, and so do the
+  # checks of every compilation (universal).
+  mkdir "$work/ours"
+  copy_fixture "$io_fixture" "$work/ours"
+  io_dumps=$work/ours/build/exec/prog.dump
+  # shellcheck disable=SC2046 # the dump options are words
+  compile_program $io_packages $(dump_options "$io_dumps") "$work/ours/Main.idr" prog
+  say "compile: exit $compiled"
+  if [ "$compiled" -ne 0 ]; then
+    show "$work/compile.out" "$work/compile.err"
+    return
+  fi
+  artifacts "$work/ours" prog
+  io_module=$(artifact_file "$work/ours" prog module)
+  [ -n "$io_runs" ] && e2e_run
+  # shellcheck disable=SC2046 # one path per object, none with a space
+  universal "$io_module" "$io_dumps" $(artifact_files "$work/ours" prog objects)
+  heap_free "$io_fixture" "$io_dumps"
+  module_checks "$io_fixture" "$io_module" "$io_dumps" "$(artifact_file "$work/ours" prog core)"
+}
+
+# e2e_run: the program e2e_io compiled, run and held to its fixture's
+# expected files.
+e2e_run() {
+  run_ours ours "$work/ours/build/exec/prog" "$io_stdin" $io_stack
+  ours_status=$ran
+  # A `live-cells` mark names how many cells a reference-count cycle keeps
+  # at exit. The count is taken off stderr when it matches, as a count of 0
+  # is, so the leak check still sees any other number.
+  if [ -f "$io_fixture/live-cells" ]; then
+    io_live=$(first_word "$io_fixture/live-cells")
+    if [ "$(tail -n 1 "$work/ours.err")" = "idris-rt: live cells $io_live" ]; then
+      sed '$d' "$work/ours.err" > "$work/ours.err.counted"
+      mv "$work/ours.err.counted" "$work/ours.err"
+    fi
+  fi
+
+  if [ -f "$io_fixture/expected-crash" ]; then
+    io_crash=$(cat "$io_fixture/expected-crash")
+    if [ "$ran" -eq 1 ]; then say "run: exit 1, a crash"; else say "run: exit $ran, but a crash exits 1"; fi
+  else
+    io_crash=
+    if [ "$ran" -eq "$io_expected_exit" ]; then
+      say "run: exit status as expected"
+    else
+      say "run: exit $ran, expected $io_expected_exit"
+    fi
+  fi
+  io_expected_stdout=$io_fixture/expected-stdout
+  if [ ! -f "$io_expected_stdout" ]; then
+    io_expected_stdout=$work/expected-stdout
+    : > "$io_expected_stdout"
+  fi
+  if cmp -s "$io_expected_stdout" "$work/ours.out"; then
+    say "stdout: as expected"
+  elif [ -f "$io_fixture/libm-lines" ] &&
+       stdout_within_a_few_ulp "$io_expected_stdout" "$work/ours.out" "$io_fixture/libm-lines"; then
+    say "stdout: as expected"
+  else
+    say "stdout: differs from expected-stdout"
+    diff "$io_expected_stdout" "$work/ours.out" | head -n 20 | sed 's/^/  | /'
+  fi
+  if [ -z "$io_crash" ]; then
+    empty stderr "$work/ours.err"
+  elif grep -qF -- "$io_crash" "$work/ours.err"; then
+    say "stderr: names the cause in expected-crash"
+  else
+    say "stderr: lacks the cause in expected-crash"
+    show "$work/ours.err"
+  fi
+}
+
+# fixture_files_known FIXTURE: every file of FIXTURE is one e2e_io reads,
+# the test's own (run, expected, expected.<host>, suite, targets) or an
+# Idris module; otherwise a line naming the others, and status 1. A
+# misspelt mark, or one e2e_io does not read (an mlir.check: a property of
+# a compiled module is stated by name in mlir.expect), would otherwise be
+# copied into the build and ignored, and its check would pass by never
+# running.
+fixture_files_known() {
+  ffk_unknown=
+  for ffk_file in "$1"/* "$1"/.[!.]*; do
+    [ -f "$ffk_file" ] || continue
+    case ${ffk_file##*/} in
+      *.idr | run | expected | expected.* | suite | targets | stdin | packages | expected-stdout | \
+      expected-exit | expected-crash | mlir.expect | heap-free | covers | live-cells | \
+      constant-stack | default-stack | libm-lines) ;;
+      *) ffk_unknown="$ffk_unknown ${ffk_file##*/}" ;;
+    esac
+  done
+  [ -z "$ffk_unknown" ] && return 0
+  say "fixture: files no check reads:$ffk_unknown"
+  return 1
+}
+
+# sem_case NAME: the generated semantics test NAME, one run of
+# tests/semantics, which the runner runs once per test of
+# harness/Sem.idr's table, NAME its parameter: an e2e fixture built in the
+# work directory, whose Prog.idr and expected-stdout are the runner's,
+# which computes every case's value from what the primitive means and
+# states once what the program prints when all agree, and whose Main.idr
+# prints Prog.result. Main is partial: Prog.result may divide, and Idris
+# does not hold a primitive division covering, since its divisor may be 0.
+# Its cases are comparisons of fixed-width integers, which never need a
+# heap cell (heap-free).
+sem_case() {
+  mkdir "$work/sem"
+  if ! "$runtests" --sem-program "$1" > "$work/sem/Prog.idr" 2> "$work/sem.err" ||
+     ! "$runtests" --sem-expected "$1" > "$work/sem/expected-stdout" 2>> "$work/sem.err"; then
+    say "no semantics program $1"
+    show "$work/sem.err"
+    return
+  fi
+  cat > "$work/sem/Main.idr" <<'MAIN'
+module Main
+
+import Prelude
+import Prog
+
+partial
+main : IO ()
+main = printLn Prog.result
+MAIN
+  : > "$work/sem/heap-free"
+  e2e_io "$work/sem"
+}
+
+# module_checks FIXTURE EMITTED DUMPS CORE: every check of the
+# compilation's modules that the fixture holds: mlir.expect
+# (check_expect); covers, the prelude module whose every export the
+# program uses (covers_prelude, on the program's Core, CORE, and its
+# source).
+module_checks() {
+  [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
+  [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "$4" "$1"
+  return 0
+}

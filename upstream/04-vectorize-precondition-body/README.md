@@ -138,7 +138,7 @@ static libraries with the patched `Vectorization.cpp`: the new test
 passes, and fails with the unpatched `mlir-opt`; the 45 test files under
 `mlir/test` that drive the Linalg vectorizer give the same results with
 both (25 pass; the rest need test-only passes, `mlir-translate` or an
-execution runner). `tests/upstream/vectorize-precondition-body` checks
+execution runner). `tests/upstream-vectorize-precondition-body` checks
 `body.mlir`.
 
 ## Testing on main

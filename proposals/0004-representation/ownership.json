@@ -11,7 +11,7 @@
       "foreign/idr/lib/Transforms/Canonicalize/**",
       "foreign/idr/include/idr/Transforms/Canonicalize.h",
       "tests/idr/canon/**",
-      "tests/idr/verify/match.mlir"
+      "tests/verify-match/verify-match.mlir"
     ],
     "findings": [
       "ir-ods-1",
@@ -66,7 +66,7 @@
       "foreign/idr/lib/IR/Verify/Program.cpp",
       "tests/idr/effects/**",
       "tests/idr/func/**",
-      "tests/idr/verify/program.mlir"
+      "tests/verify-program/verify-program.mlir"
     ],
     "findings": [
       "ir-verify-1",
@@ -468,8 +468,8 @@
     ],
     "merged": {},
     "excludes": [
-      "tests/idr/verify/match.mlir",
-      "tests/idr/verify/program.mlir"
+      "tests/verify-match/verify-match.mlir",
+      "tests/verify-program/verify-program.mlir"
     ]
   },
   "L16": {
@@ -576,19 +576,19 @@
     "title": "Runtime: streams in the handle table, one crash format, platform facts in the platform layer",
     "writes": [
       "runtime/**",
-      "tests/toolchain/runtime-api/**",
-      "tests/toolchain/runtime-bigs/**",
-      "tests/toolchain/runtime-counting/**",
-      "tests/toolchain/runtime-doubles/**",
-      "tests/toolchain/runtime-start/**",
-      "tests/toolchain/runtime-strings/**",
-      "tests/toolchain/runtime-text/**",
-      "tests/toolchain/runtime-utf8/**",
-      "tests/toolchain/io-buffer/**",
-      "tests/toolchain/big-cell/**",
-      "tests/toolchain/heap-region/**",
-      "tests/toolchain/stack-guard-page/**",
-      "tests/toolchain/lib/**"
+      "tests/runtime-api/**",
+      "tests/runtime-bigs/**",
+      "tests/runtime-counting/**",
+      "tests/runtime-doubles/**",
+      "tests/runtime-start/**",
+      "tests/runtime-strings/**",
+      "tests/runtime-text/**",
+      "tests/runtime-utf8/**",
+      "tests/io-buffer/**",
+      "tests/big-cell/**",
+      "tests/heap-region/**",
+      "tests/stack-guard-page/**",
+      "harness/prop/**"
     ],
     "excludes": [
       "runtime/CMakeLists.txt"
@@ -704,15 +704,15 @@
   "L23": {
     "title": "Idris libraries and test machinery: typed primitives, identities by name, one source of tests",
     "writes": [
-      "tests/Fuzz.idr",
-      "tests/Gen.idr",
-      "tests/Lock.idr",
-      "tests/Main.idr",
-      "tests/Prims.idr",
-      "tests/Runner.idr",
-      "tests/Sem.idr",
-      "tests/TwoLevels.idr",
-      "tests/lib/**",
+      "harness/Fuzz.idr",
+      "harness/Gen.idr",
+      "harness/Lock.idr",
+      "harness/Main.idr",
+      "harness/Prims.idr",
+      "harness/Runner.idr",
+      "harness/Sem.idr",
+      "harness/TwoLevels.idr",
+      "harness/lib/**",
       "tests/runner/**",
       "libs/**",
       "tests/two-levels/**",
@@ -766,13 +766,13 @@
       "bench/**",
       "tests/bench/**",
       "tests/programs/**",
-      "tests/README.md",
+      "harness/README.md",
       "tests/upstream-idris/**",
       "tests/compile-times.sh",
       "tools/upstream-idris/**",
       "tools/compile-times.sh",
-      "tests/determinism/rbtree/**",
-      "tests/determinism/threads-rbtree/**"
+      "tests/determinism-rbtree/**",
+      "tests/determinism-threads-rbtree/**"
     ],
     "findings": [
       "legacy-1",

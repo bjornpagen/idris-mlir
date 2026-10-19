@@ -1,8 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2026 Bjorn Pagen
-# The registry's scalarBytes hook gives the iterator its step: the program
-# reads every scalar value back as the string was packed, and prints
-# expected-stdout.
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-e2e_io .

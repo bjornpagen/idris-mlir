@@ -80,7 +80,7 @@ agreement before code.
 
 Status: not ready. Still reproduces on the pin, llvm main at 7208ba24:
 on arm64 macOS, with `.toolchain/llvm-macos` built at that commit
-(2026-10-09), `tests/upstream/recursive-attribute-parser` printed
+(2026-10-09), `tests/upstream-recursive-attribute-parser` printed
 `nested: still reproduces`: on an 8 MiB stack the array nested 1,000
 deep parses, and the one nested 100,000 deep ends `mlir-opt` with a
 signal. `Parser::parseAttribute` still parses an array's elements by

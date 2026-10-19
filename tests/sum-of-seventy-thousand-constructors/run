@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Compiling 70,000 constructors takes longer than a program of its size
+# would, so each command and the test have more time than most.
+step_limit=600
+test_limit=900
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mkdir "$work/fixture"
+cp stdin expected-stdout "$work/fixture/"
+awk '/^-- CONSTRUCTORS$/ {
+       for (i = 0; i < 70000; i++)
+         printf "  C%d : %sMany\n", i, (i == 65535 ? "Int -> " : (i == 65536 ? "String -> " : ""))
+       next }
+     { print }' Main.idr > "$work/fixture/Main.idr"
+e2e_io "$work/fixture"

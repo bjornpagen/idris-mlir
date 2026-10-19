@@ -1,0 +1,5 @@
+prepared again: the build's runtime, byte for byte
+prepared twice: the same object and bitcode
+bitcode: where the target entry keeps it
+built: exit 0, prints 28, idris-rt: live cells 0
+again: exit 0, prints 28, idris-rt: live cells 0

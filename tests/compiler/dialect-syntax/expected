@@ -1,4 +1,0 @@
-NEEDS-ACCEPTANCE: the regenerated samples write, parse and reprint the same
-samples: exit 0
-parse: exit 0
-reprint: same

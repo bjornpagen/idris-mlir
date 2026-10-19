@@ -40,7 +40,7 @@ with the toolchain's (unpatched) Idris: `idris2 --check CharText.idr`
 refuses each of its four proofs with a mismatch between the Char and its
 escape. Observed on arm64 macOS (2026-10-09) through the fork of Idris's
 compiler before this change, whose `castString` is the pin's.
-`tests/upstream/evaluator-char-text` checks the same four proofs through
+`tests/upstream-evaluator-char-text` checks the same four proofs through
 the frontend.
 
 ## Expected
@@ -100,6 +100,6 @@ change were written with one.
   and drops this change; if not, the change is carried forward onto the
   new base.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/evaluator-char-text` and the PINS.md entry go.
+  `tests/upstream-evaluator-char-text` and the PINS.md entry go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

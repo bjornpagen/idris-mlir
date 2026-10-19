@@ -1,8 +1,0 @@
-NEEDS-ACCEPTANCE: that the port to the size-indexed vector, each position a Fin its loop's test against the size gives, prints the same and keeps its loops count-free and allocation-free
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds
-mlir.expect: holds

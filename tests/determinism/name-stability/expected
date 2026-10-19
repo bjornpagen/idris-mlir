@@ -1,4 +1,0 @@
-original: compile exit 0
-edited: compile exit 0
-emitted: every symbol not made from Main.step is the same
-steps up to lowering: every symbol not made from Main.step is the same

@@ -13,7 +13,7 @@
 ||| arguments, closures and suspensions of functions, a suspended value, an
 ||| array built, read, transposed, folded, scanned and made in the world's
 ||| order. The round trip
-||| (tests/compiler/dialect-syntax) has idris-mlir-opt read the file and
+||| (tests/dialect-syntax) has idris-mlir-opt read the file and
 ||| print it, so that what the Idris side writes is what MLIR reads. Every
 ||| grade a frontend writes long is sampled, the ones the dialect spells
 ||| shorter among them. A cell exists only from counting on, so the program

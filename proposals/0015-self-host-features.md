@@ -29,8 +29,8 @@ constructs stay refused.
   `Proof.Requests.admit` and `afRequested`, judged by the worklist in
   `Frontend/Finite.idr`. `Translate/Types.idr` applies the same `admit`
   to data instances, so a nested data type is refused
-  (`tests/reject/polymorphism-nested-data`). The bounded case:
-  `tests/accept/polymorphic-recursion-swapped`. *Decided by the owner*
+  (`tests/polymorphism-nested-data`). The bounded case:
+  `tests/polymorphic-recursion-swapped`. *Decided by the owner*
   (2026-10-15, 47f97059): a chain that grows once and stops (`g Int`
   asks for `g (List Int)`, which asks for nothing) stays refused. The
   subset is deliberate, and code is written for it.
@@ -48,7 +48,7 @@ constructs stay refused.
 
 ## Self-hosting needs none of it
 
-- *measured*: at F0 (`bench/profiles/2026-10-14-f0-stage0.md`,
+- *measured*: at F0 (`bench/records/2026-10-14-f0-stage0.md`,
   44495199), the frontend on Chez emitted the whole of itself and the
   fork (58,236 functions) with no frontend refusal. Stage 1 was stopped
   by the C++ pipeline, which the cutover replaced.

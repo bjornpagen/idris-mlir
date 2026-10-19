@@ -63,7 +63,7 @@ call. Worse, `FuzzedDataProvider.h` is a C++ class (`class FuzzedDataProvider`,
 includes `<vector>`, `<string>`, `<algorithm>`), and every program under
 `tests/toolchain/` is C (`api.c`, `rc.c`, `fuzz.c`, `start.c`), built by
 `link_program` with `$pinned_cc` and linked with a C driver
-(`tests/lib/compile.sh:40-48`). A `prop.h` that "draws through"
+(`harness/lib/compile.sh:40-48`). A `prop.h` that "draws through"
 `FuzzedDataProvider` cannot be included from `api.c`. So either the programs
 become C++ (a build change in `testutils.sh`/`compile.sh`, X3's) or `prop.h` is
 a C wrapper over a C++ object file (a link step). Not decided; each of R1, R2,
@@ -142,10 +142,10 @@ Consequences:
   write set. Prerequisite: give `foreign/idr/{include,lib}/idr/Analysis/Effects.*`
   to F, with the instruction to move the rule down.
 - **F14 (P) has cross-lane consequences the packet does not list.** `scalar_end`
-  appears in `runtime/idris_rt.h:460` (R3), `tests/toolchain/runtime-api/api.c:406-407`
+  appears in `runtime/idris_rt.h:460` (R3), `tests/runtime-api/api.c:406-407`
   (R3; deleting the definition in `runtime/Strings/Scalars.cpp:131` breaks this link
-  if R3 still calls it), `tests/idr/fold/string-offsets.mlir:35-42` and
-  `tests/idr/lower/llvm-facts.mlir:36,67` (X1), the generated
+  if R3 still calls it), `tests/fold-string-offsets/fold-string-offsets.mlir:35-42` and
+  `tests/lower-llvm-facts/lower-llvm-facts.mlir:36,67` (X1), the generated
   `compiler/src/IdrisMLIR/Dialect/Idr.idr` (I's prefix), `HANDOFF.md`
   (coordinator). A P that deletes the op in ODS leaves X1's fixtures failing to
   parse. Edit applied: README F14 row now lists them.
@@ -155,7 +155,7 @@ Consequences:
   (`tools/dialects.sh:101`: `cat records $generator_source | cksum`;
   `generator_source=foreign/idr/tools/idris-mlir-tblgen.cpp`). So F (ODS), P
   (`IdrStringOps.td`) and K2 (`idris-mlir-tblgen.cpp`, any edit) each stale all
-  fourteen generated modules, and `tests/spec/dialects-current` fails until one
+  fourteen generated modules, and `tests/dialects-current` fails until one
   regeneration after the last of them. By prefix the modules are I's
   (`compiler/src/IdrisMLIR/**`, not excluded), but I cannot regenerate until F,
   P, K2 are final, and `common.md` told F and P to run `make typecheck-dialects`
@@ -163,7 +163,7 @@ Consequences:
   orchestrator already regenerates them. Edit applied: they go to the coordinator,
   I excludes them, `common.md` says lanes regenerate only on a private copy.
   Independently, K2's `-gen-pass-roles` is avoidable (claim 7).
-- **`tools/policies.txt` (X3) vs T, Q, I.** `tests/spec/no-fuel` requires every
+- **`tools/policies.txt` (X3) vs T, Q, I.** `tests/no-fuel` requires every
   `policies.txt` line to still be "in its file" (`policies.txt:4-5`). It lists
   `covering term/suspend/delayed/letIn/applyOver/bindHeld/application/headStep`
   (Terms.idr), `translateInstance/translateIOProgram` (Programs.idr), seven in
@@ -174,20 +174,20 @@ Consequences:
   applied: `tools/policies.txt` is the coordinator's, applied from lanes'
   handoffs, like `PINS.md`.
 - **`runtime-prepared`.** F20 lists `runtime-prepared` among "specs [that]
-  transcribe their findings" for X3. The directory is `tests/toolchain/runtime-prepared/`
+  transcribe their findings" for X3. The directory is `tests/runtime-prepared/`
   (R3's, not in `tests/spec/`); X3 cannot write it. Moreover its `run` consumes
-  the runtime-api programs by path (`api=$root/tests/toolchain/runtime-api`) and
+  the runtime-api programs by path (`api=$root/tests/runtime-api`) and
   its `expected` repeats their line structure ("api: the same output ... rc: ...
   rc leak: ... rc crash: ..."). So any change by R1/R2/R3 to `runtime-api`
   programs changes a file R3 owns. See D4.
 - **F16's two deleted snapshots live in different owners' trees.**
-  `tests/toolchain/runtime-api/**` (including `expected-operations`, `api.c`,
+  `tests/runtime-api/**` (including `expected-operations`, `api.c`,
   `rc.c`, `run`, `expected`) is in R3's complement set; F16's owner is R1 and its
   deleter-of-record is nobody (R1's writes are `tests/toolchain/{lib,runtime-bigs,runtime-text}`).
   `api.c` prints bigs, strings and doubles in one file (R1's and R2's families),
   while `rc.c` (the counting checks) is R3's F17 work, and `run` runs both. A file
   that three lanes must change and one lane owns is not concurrent; D4.
-- **Specs that pin option lists.** `tests/spec/no-behaviour-options/run` scans
+- **Specs that pin option lists.** `tests/no-behaviour-options/run` scans
   every `cl::opt` of `idris-mlir`, `idris-mlir-opt`, `idris-mlir-reduce` against
   a `kept` list. K1's `--idr-contracts` (`idris-mlir-opt`) and G's
   `--report` (`idris-mlir`) fail it until X3 adds them, and `no-behaviour-options`'s
@@ -201,8 +201,8 @@ Verified by reading (not running).
 
 | ID | Verdict | Evidence |
 |---|---|---|
-| F01 | real but overstated | `tests/lib/properties.sh:13-56` checks `quantities-kept` after **each dumped pipeline step** (`quantities_kept` loops `step_dumps`), i.e. already per pass, on every compiled program. What is new in K1 is: on the `idris-mlir-opt` fixtures, with no baseline file, and with failure naming the pass. "only on whole e2e compilations, never at the pass that drops one" should read "only on e2e compilations, per dumped step". |
-| F02 | real | `FuncOp::verify` (`lib/IR/Func/Func.cpp:105-114`) checks only the empty body and the default form of `effects`; `verifyRegions` -> `verify::function` checks no effect. `tests/idr/canon/facts.mlir:36` states `@applies` with `idr.apply` of an unknown closure and declared `crash, diverge` (so see claim 6). |
+| F01 | real but overstated | `harness/lib/properties.sh:13-56` checks `quantities-kept` after **each dumped pipeline step** (`quantities_kept` loops `step_dumps`), i.e. already per pass, on every compiled program. What is new in K1 is: on the `idris-mlir-opt` fixtures, with no baseline file, and with failure naming the pass. "only on whole e2e compilations, never at the pass that drops one" should read "only on e2e compilations, per dumped step". |
+| F02 | real | `FuncOp::verify` (`lib/IR/Func/Func.cpp:105-114`) checks only the empty body and the default form of `effects`; `verifyRegions` -> `verify::function` checks no effect. `tests/canon-facts/canon-facts.mlir:36` states `@applies` with `idr.apply` of an unknown closure and declared `crash, diverge` (so see claim 6). |
 | F03 | real | `perform<` at `Specialize.cpp:386` (two tags) and `Optimize/Component.cpp:229` (one). Missing from §4.2/§5: upstream already makes every pattern application an action (`mlir/lib/Rewrite/PatternApplicator.cpp:197`, tag `apply-pattern`) and every pass execution one (`PassExecutionAction`, `mlir/include/mlir/Pass/Pass.h:505`, tag `pass-execution`); see claim 7. |
 | F04 | real | `Optimize.h:233-239` `InnerCounts` has `identityCalls, pureErased, pureMerged, redirected, constants`; no canonicalizer or CSE count. |
 | F05 | real | `Passes.td` has 25 `def ...: Pass<...>`; no role. **The snippet in §4.2 does not compile**: `class IdrPass<string arg, string anchor, string role> : Pass<arg, anchor> { string role = role; }` gives `error: Recursion / self-assignment forbidden` under the pinned `llvm-tblgen` (run on `/tmp/rev/t.td`). Renaming the parameter works. Edit applied. |
@@ -217,7 +217,7 @@ Verified by reading (not running).
 | F14 | real | consequences listed in claim 2. |
 | F15 | real | `Fuzz.idr:83`, `Sem.idr:66`, `TwoLevels.idr:59`, `Fuzz.idr:95` all as cited; `TInt` appears first in `intTys` and again as the weight-list head (`Fuzz.idr:58,80,302`); `tests/programs/semantics` has 72 `prim-*` directories (91 total, 19 hand-written), consistent. |
 | F16 | real, owner mismatch | sizes verified (`3136`, `176000`). See claim 2. |
-| F17 | partly wrong | `runtime/Start/Entry.cpp:67-80` **already names missing features**: `IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_NAME)` prints `" name"` per missing bit. The frozen message has no name because the test requires bit 63 (`start.c:42-44`), a bit no feature owns. "The message names the bit" would add output for an unassigned bit, a product choice, not a bug (D3). `idris_rt_caf_release` is called by no `tests/toolchain` program (only `tests/idr/lower/static-thunk.mlir`). |
+| F17 | partly wrong | `runtime/Start/Entry.cpp:67-80` **already names missing features**: `IDRIS_RT_CPU_FEATURES(IDRIS_RT_CPU_NAME)` prints `" name"` per missing bit. The frozen message has no name because the test requires bit 63 (`start.c:42-44`), a bit no feature owns. "The message names the bit" would add output for an unassigned bit, a product choice, not a bug (D3). `idris_rt_caf_release` is called by no `tests/toolchain` program (only `tests/lower-static-thunk/lower-static-thunk.mlir`). |
 | F18 | not recomputed | 297 `.mlir` fixtures under `tests/idr` outside `expect/`, 159 use FileCheck; the packet's 123 is a subset I could not reproduce. |
 | F19 | not recomputed except | 24 `mlir.check` files (verified: 24). |
 | F20 | real | `tools/compile.sh:42` `--num-threads="$ncpu"`; 358 `expected` files start with `compile: exit 0` (the packet says 318; not the same count, I did not find its criterion). |
@@ -228,7 +228,7 @@ Verified by reading (not running).
 X1 and X2 can implement deletion from lists. The danger is the converse: the
 list contains tests whose op text *is* the contract. Concrete cases found:
 
-1. **`tests/idr/lower/llvm-facts.mlir`** (`FileCheck` of LLVM attributes and
+1. **`tests/lower-llvm-facts/lower-llvm-facts.mlir`** (`FileCheck` of LLVM attributes and
    `call range(i32 0, 1114112) i32 @idris_rt_str_scalar_at`). This is the only
    test that lowered signatures carry `nonnull`, `align 8`, `dereferenceable(8)`
    and `llvm.range` facts, and that runtime-call results carry the op's range
@@ -246,12 +246,12 @@ list contains tests whose op text *is* the contract. Concrete cases found:
    `Expect/Proved.cpp:25`, is the existing mechanism but no program test uses
    it). F's new §4.3 rule says `total` comes only from the frontend, so this is
    the contract the new rule rests on.
-3. **`tests/programs/partial/partial-divergent-call/mlir.check`**: `call @Main.spin(`
+3. **`tests/partial-divergent-call/mlir.check`**: `call @Main.spin(`
    remaining after idr-optimize is the check that "a closed call runs at run
    time" (AGENTS.md) rather than being folded. Without it a compile-time fold
    of a diverging call would be caught only by the harness timeout, as a hang
    rather than a failed assertion; that is weaker but arguably adequate.
-4. **`tests/idr/fold/string-offsets.mlir`**: dies with F14's op (not a loss).
+4. **`tests/fold-string-offsets/fold-string-offsets.mlir`**: dies with F14's op (not a loss).
 5. **The dialect round trip.** F18 says `--verify-roundtrip` replaces the
    fixtures that "checked nothing else" but the `tests/idr/syntax` and `asm`
    fixtures check *printing* contracts (the one place text is the contract).
@@ -352,7 +352,7 @@ no `effects` counts as everything.
 - **Stage.** At `stage(higher)` (before idr-defunctionalize) a function's
   `idr.apply`/`idr.force` runs labels no verifier knows, and the pass that
   solves effects (`Effects.h`: "Once the program is first-order ...") has not
-  run. `tests/idr/canon/facts.mlir:36` (stage higher) declares `@applies`
+  run. `tests/canon-facts/canon-facts.mlir:36` (stage higher) declares `@applies`
   with `crash, diverge` and body `idr.apply %f(%x)`; whatever the verifier
   counts for an apply (everything: rejects, since `io` is missing; nothing:
   accepts a lie), it cannot say. The rule must apply only at `first` and later
@@ -361,9 +361,9 @@ no `effects` counts as everything.
   `fn.getTotal()` and `io` if a parameter holds the world. So "declared covers
   body" already includes: declared `none` requires `total`; a fixture with
   `effects = <none>` without `total` is invalid. Count: 38 files under
-  `tests/idr` mention `effects`; `tests/idr/dedup/keep-apart.mlir:18`
+  `tests/idr` mention `effects`; `tests/dedup-keep-apart/dedup-keep-apart.mlir:18`
   (`@A.eff ... effects = #idr.effects<none>`, no `total`) and
-  `tests/idr/canon/case-of-case.mlir` shapes are candidates the new verifier
+  `tests/canon-case-of-case/canon-case-of-case.mlir` shapes are candidates the new verifier
   rejects. No lane's inputs include repairing these (X1 owns them; its Consumes
   are "§2, §4.1"; E's `tests/idr/expect/**` too). Prerequisite: name the
   fixtures that become invalid (or have F state the exact verifier domain and
@@ -497,7 +497,7 @@ What I found in them:
 | D1 | I4: Internal wins over refused (driver and frontend) | The driver's order is deliberate: a refusal means "the program is what the compiler does not take"; an internal error that follows a refusal can be a cascade of it. Reversing changes the exit code of refused programs from 3 to 1 whenever a later pass trips, and is a product decision absent from §8 | F08 | `Run.cpp:63-68` comment; `Frontend/Driver.idr:216-223` |
 | D2 | F11: typed identities remove "two definitions whose printed names collide share a row" | `TS.symbols` is the collision *guard*; the printed symbol still reaches MLIR; keep the string check, type the rest | §3 F11 | `State.idr:225`, `Keys.idr:806-810`, `Ids.idr` `KeyPrint` `Lossy` |
 | D3 | F17: runtime-start's message "names no feature"; make it name the bit | It already names features; the test uses an unowned bit. Unknown bits printing text is a product choice | `start.c:44`, `Entry.cpp:67-80` | same lines; `IDRIS_RT_CPU_NAME` macro |
-| D4 (routing settled by R1/R2/R3 handoffs; kept for the record) | F16: R1 owns the deletion of `runtime-api/expected-operations`; R2 writes strings/doubles programs; `runtime-prepared` is X3's | `runtime-api/**` and `runtime-prepared/**` are R3's by ownership; one file (`api.c`) is three lanes' work; `runtime-prepared`'s `run` and `expected` consume it | §3 F16, F20, §6 | `ownership.json` R1/R2/R3/X3; `runtime-prepared/run` (`api=$root/tests/toolchain/runtime-api`) |
+| D4 (routing settled by R1/R2/R3 handoffs; kept for the record) | F16: R1 owns the deletion of `runtime-api/expected-operations`; R2 writes strings/doubles programs; `runtime-prepared` is X3's | `runtime-api/**` and `runtime-prepared/**` are R3's by ownership; one file (`api.c`) is three lanes' work; `runtime-prepared`'s `run` and `expected` consume it | §3 F16, F20, §6 | `ownership.json` R1/R2/R3/X3; `runtime-prepared/run` (`api=$root/tests/runtime-api`) |
 | D5 | K2 writes `-gen-pass-roles` into `idris-mlir-tblgen.cpp` | `llvm-tblgen -dump-json` provides the data; the edit stales 14 generated modules | §4.2 | `tools/dialects.sh:101`; upstream tool |
 | D6 (K2.md accepts "same behaviour but for the stack and the heap"; owner confirms) | I2: every optimization is skippable, behaviour unchanged | tail-position passes and array-lowering passes are not optional | §1 I2 | `README.md:45`; `tests/programs/partial/*`; Pipeline.cpp comments |
 | D7 (settled: README §4.3 and F.md now state the source's meaning) | §4.3: `total` only from the frontend; verifier refuses `total` over a non-total callee | `Forces.cpp:45` sets `total`; `total` is the body's own termination, callee divergence propagates through the effects | §4.3 | `Forces.cpp:25-50`; `Effects.cpp` `bodyOf` |
@@ -521,7 +521,7 @@ concurrently, so several of my first edits were superseded and are omitted.
    `lib/Analysis/Effects.cpp`, the X3 row names the two flags it adds to the
    `no-behaviour-options` spec.
 4. `ownership.json`: `tools/policies.txt` moved from X3 to the coordinator
-   (`tests/spec/no-fuel` wants each line still in its file; T, Q and I cannot
+   (`tests/no-fuel` wants each line still in its file; T, Q and I cannot
    tell X3 which they removed); `Analysis/Effects.{h,cpp}` to F (my duplicate
    entries were removed; the author's remain).
 5. `parts/common.md`: lanes run `make typecheck-tblgen` but not

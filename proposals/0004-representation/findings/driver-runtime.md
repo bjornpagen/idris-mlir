@@ -91,7 +91,7 @@ The answers to the area's own questions:
     or succeeds.
 - **Consumers:** `lib/Driver/{Run,Compile,Main,Prepare,ReadRuntime,LinkRuntime,Artifacts,Outcome}.cpp`,
   `include/idr/Driver/{Verdict,Report,Compile,Runtime,Artifacts}.h`,
-  `tests/spec/no-behaviour-options/run` (no change), the driver's transcripts
+  `tests/no-behaviour-options/run` (no change), the driver's transcripts
   under `tests/compiler/` whose stderr names an internal error.
 - **Discriminator:** (a) A report test with a link that cannot run (a
   `--runtime` naming a missing file): before, the report has no `diagnostic:`
@@ -259,7 +259,7 @@ The answers to the area's own questions:
   global outside `Options.cpp`, and `frontendOptions`.
 - **Consumers:** `include/idr/Driver/{Options,Artifacts,Runtime,Compile}.h`,
   `lib/Driver/{Options,Main,Compile,Run,Prepare,ReadRuntime,LinkRuntime}.cpp`,
-  `tests/spec/no-behaviour-options/run` (the kept list is unchanged).
+  `tests/no-behaviour-options/run` (the kept list is unchanged).
 - **Discriminator:** `idris-mlir --print-target-triple -c` exits 2 (before: 0).
   A spec: no driver `cl::opt` is `extern`.
 - **Verification here:** `make typecheck`.
@@ -295,8 +295,8 @@ The answers to the area's own questions:
   in `write_bytes`, `read_bytes` and `buffer_set_string`, 6 in
   `buffer_get_string` and 8 in `buffer_copy`.
 - **Consumers:** `tools/idris-mlir-tblgen.cpp`, `lib/Conversion/Runtime.cpp`,
-  `runtime/{idris_rt.h,Io/Buffer.cpp,Io/Bytes.cpp}`, `tests/toolchain/runtime-api`,
-  and `tests/idr/lower/buffer.mlir` (checks calls only, unchanged).
+  `runtime/{idris_rt.h,Io/Buffer.cpp,Io/Bytes.cpp}`, `tests/runtime-api`,
+  and `tests/lower-buffer/lower-buffer.mlir` (checks calls only, unchanged).
 - **Discriminator:** the generated `idris_rt_ops.h` declares
   `idris_rt_io_buffer_copy` with 5 parameters, and the runtime compiles against
   it. A definition with the old shape fails to compile, which is the ABI header's
@@ -345,7 +345,7 @@ The answers to the area's own questions:
     map with its two loops.
   - `retarget`'s ternary.
 - **Consumers:** `include/idr/Driver/Runtime.h`, `lib/Driver/{ReadRuntime,LinkRuntime,Prepare}.cpp`,
-  `tests/toolchain/runtime-prepared`.
+  `tests/runtime-prepared`.
 - **Discriminator:** a flagless `.bc` given as `--runtime` is refused, with the
   message naming it as neither (before: accepted). `runtime-container` still
   prepares byte-identically.
@@ -385,7 +385,7 @@ The answers to the area's own questions:
   links `idris_rt`), `lib/Driver/{Main,Run}.cpp`, `tools/idris-mlir-{opt,reduce}.cpp`,
   and a new `include/idr/InitIdr.h` (the coordinator's CMake).
 - **Discriminator:** a grep spec: `idris_rt_run_on_stack` has one call site in
-  `foreign/idr`. `tests/toolchain/stack-guard-page` is unchanged.
+  `foreign/idr`. `tests/stack-guard-page` is unchanged.
 - **Verification here:** `make typecheck`.
 - **Size and risk:** about 80 lines deleted, 3 error branches removed, low
   risk. Essential cases that stay: the driver's message keeps its
@@ -418,7 +418,7 @@ The answers to the area's own questions:
   contradicting texts.
 - **Consumers:** `runtime/{idris_rt.h,Io/Ending,Io/Handles,Alloc/Cells,Alloc/Arrays,Start/Entry,Platform/Posix/Memory,Platform/Platform.h}.cpp`,
   `lib/Conversion/Runtime.cpp`.
-- **Discriminator:** `tests/programs/semantics/crash-integer-shift-huge` (a
+- **Discriminator:** `tests/crash-integer-shift-huge` (a
   substring match on `out of memory`) still passes. A new spec checks that every
   crash text the runtime writes starts with `idris-mlir: `.
 - **Verification here:** the runtime compiles with the host clang;
@@ -443,7 +443,7 @@ The answers to the area's own questions:
   read without it fails with "carries no bitcode where its container keeps it".
   The container is a fact of the artifact held instead in two command lines that
   must agree (the test passes it twice:
-  `tests/toolchain/runtime-container/run:34,124`).
+  `tests/runtime-container/run:34,124`).
 - **Root cause:** where the bitcode is kept is decided by the target entry
   (`CMakeLists.txt:171,211`), then reopened as an option, and not read off the
   artifact by the reader.
@@ -456,8 +456,8 @@ The answers to the area's own questions:
   walk.
 - **Consumers:** `include/idr/Driver/Options.h`, `lib/Driver/{Options,Prepare,ReadRuntime}.cpp`,
   `foreign/idr/CMakeLists.txt:94,167`, `CMakeLists.txt`'s entries (a two-case
-  value), `tests/toolchain/runtime-container/run`, and
-  `tests/spec/no-behaviour-options/run` (`runtime-bitcode-section` leaves the
+  value), `tests/runtime-container/run`, and
+  `tests/no-behaviour-options/run` (`runtime-bitcode-section` leaves the
   kept list).
 - **Discriminator:** `runtime-container` prepares with no option on each
   target, the reader finds the bitcode on both, and
@@ -754,7 +754,7 @@ The answers to the area's own questions:
   table (R1).
 - **Deletion:** 3 null tests and the global's reset.
 - **Consumers:** `runtime/Io/{Io.h,Handles,Directories,Process}.cpp`.
-- **Discriminator:** `tests/programs/io/directory-listing` and
+- **Discriminator:** `tests/directory-listing` and
   `environment-arguments` unchanged; live cells are 0 at exit.
 - **Verification here:** the runtime compiles.
 - **Size and risk:** about 15 lines, 3 branches, low risk.

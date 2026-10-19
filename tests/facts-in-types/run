@@ -1,0 +1,34 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Facts live in types and in an op's inherent properties, never in a
+# discardable attribute, which a pass can drop without a word: so the
+# dialect's ODS declares no discardable attribute. The one discardable
+# attribute is the frontend's report on a refused program, `idr.refusals`:
+# it sits on a module with no program, on which no pass runs, and the
+# driver alone reads it. The matcher runs on a planted declaration, which
+# it must find.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cd "$root" || exit 1
+
+# declared FILE...: each discardable attribute FILE... declares but the
+# refusals report.
+declared() {
+  grep -n 'discardableAttrs' "$@" 2> /dev/null |
+    grep -v 'discardableAttrs[[:space:]]*=[[:space:]]*(ins)' |
+    grep -v 'discardableAttrs[[:space:]]*=[[:space:]]*(ins "::mlir::ArrayAttr":\$refusals);'
+}
+
+find foreign/idr/include -name '*.td' | LC_ALL=C sort > "$work/td"
+[ -s "$work/td" ] || say "ODS: no file found"
+# shellcheck disable=SC2046
+declared $(cat "$work/td") > "$work/discardable"
+printf '%s\n' '  let discardableAttrs = (ins "::mlir::UnitAttr":$planted);' > "$work/Planted.td"
+if [ -s "$work/discardable" ]; then
+  say "discardable attributes declared:"
+  show "$work/discardable"
+elif [ -z "$(declared "$work/Planted.td")" ]; then
+  say "discardable attributes: the planted declaration is not found"
+else
+  say "discardable attributes: none declared but a refused module's report"
+fi

@@ -1,0 +1,3 @@
+# The record is read out of its IORef, rebuilt with one field changed and
+# written back in the loop: the read moves the record out of the cell.
+idr-rc-exclusive: moves-out

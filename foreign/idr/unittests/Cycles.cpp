@@ -2,8 +2,14 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The box of the cycles of calls (idr::CallCycles), as the analysis manager
 // caches them, and of what idr-rc's stack step reads of them
-// (Escapes::recursive): a program of a mutual recursion, a self call in
-// tail position, one that is not, a leaf, and a root that calls them all.
+// (Escapes::recursive), against reachability: every call graph on
+// `functions` functions, with each function's call of itself in tail
+// position or not, under a root that calls them all. Two functions are
+// together exactly when each reaches the other; a function calls itself
+// exactly when it is alone in its component and calls itself; every
+// component comes after the components of its callees; and a function is
+// recursive exactly when it is on a cycle, its own call of itself in tail
+// position (the next iteration of a loop in one frame) aside.
 
 #include "idr/Analysis/CallCycles.h"
 #include "idr/Analysis/Escapes.h"
@@ -19,97 +25,148 @@
 
 #include "gtest/gtest.h"
 
+#include <array>
+#include <cstdint>
 #include <string>
 
 using namespace mlir;
 
 namespace {
 
-constexpr StringLiteral cyclesText = R"mlir(
-idr.program @cycles root(@Prog.main) stage(first) {
-  idr.func @even(%n: i64) -> i64 {
-    %r = idr.call @odd(%n) : (i64) -> i64
-    return %r : i64
-  }
-  idr.func @odd(%n: i64) -> i64 {
-    %r = idr.call @even(%n) : (i64) -> i64
-    return %r : i64
-  }
-  idr.func @loop(%n: i64) -> i64 {
-    %r = idr.call @loop(%n) : (i64) -> i64
-    return %r : i64
-  }
-  idr.func @deep(%n: i64) -> i64 {
-    %r = idr.call @deep(%n) : (i64) -> i64
-    %s = arith.addi %r, %n : i64
-    return %s : i64
-  }
-  idr.func @leaf(%n: i64) -> i64 {
-    return %n : i64
-  }
-  idr.func @Prog.main() -> i64 {
-    %c = arith.constant 1 : i64
-    %a = idr.call @even(%c) : (i64) -> i64
-    %b = idr.call @leaf(%a) : (i64) -> i64
-    %d = idr.call @loop(%b) : (i64) -> i64
-    %e = idr.call @deep(%d) : (i64) -> i64
-    return %e : i64
-  }
-}
-)mlir";
+constexpr unsigned functions = 3;
+using Graph = std::array<std::array<bool, functions>, functions>;
 
-idr::ProgramOp programOf(ModuleOp module) {
-  return *module.getOps<idr::ProgramOp>().begin();
+// A graph, read from bits: bit i * functions + j is a call of j by i; and
+// which of the functions that call themselves do so in tail position.
+struct Case {
+  Graph calls{};
+  std::array<bool, functions> tail{};
+};
+
+std::string name(unsigned i) { return "f" + std::to_string(i); }
+
+// The program of a case: each function calls its callees in order, its own
+// call last, and returns their sum with its argument, or, when its call of
+// itself is in tail position, that call's result; the root calls every
+// function.
+std::string programOf(const Case &c) {
+  std::string text = "idr.program @cycles root(@Prog.main) stage(first) {\n";
+  for (unsigned i = 0; i < functions; ++i) {
+    text += "  idr.func @" + name(i) + "(%n: i64) -> i64 {\n";
+    std::string sum = "%n";
+    unsigned k = 0;
+    for (unsigned j = 0; j < functions; ++j) {
+      if (!c.calls[i][j] || j == i)
+        continue;
+      std::string r = "%r" + std::to_string(k), s = "%s" + std::to_string(k);
+      text += "    " + r + " = idr.call @" + name(j) + "(%n) : (i64) -> i64\n";
+      text += "    " + s + " = arith.addi " + sum + ", " + r + " : i64\n";
+      sum = s;
+      ++k;
+    }
+    if (c.calls[i][i]) {
+      text += "    %self = idr.call @" + name(i) + "(" + sum + ") : (i64) -> i64\n";
+      if (c.tail[i]) {
+        sum = "%self";
+      } else {
+        text += "    %last = arith.addi %self, %n : i64\n";
+        sum = "%last";
+      }
+    }
+    text += "    return " + sum + " : i64\n  }\n";
+  }
+  text += "  idr.func @Prog.main() -> i64 {\n    %c = arith.constant 1 : i64\n";
+  for (unsigned i = 0; i < functions; ++i)
+    text += "    %m" + std::to_string(i) + " = idr.call @" + name(i) + "(%c) : (i64) -> i64\n";
+  text += "    return %c : i64\n  }\n}\n";
+  return text;
 }
 
-idr::FuncOp function(idr::ProgramOp program, StringRef name) {
+// Reachability through one call or more (Floyd-Warshall's closure).
+Graph reaches(const Graph &calls) {
+  Graph r = calls;
+  for (unsigned k = 0; k < functions; ++k)
+    for (unsigned i = 0; i < functions; ++i)
+      for (unsigned j = 0; j < functions; ++j)
+        r[i][j] = r[i][j] || (r[i][k] && r[k][j]);
+  return r;
+}
+
+idr::FuncOp function(idr::ProgramOp program, StringRef symbol) {
   return SymbolTable::lookupNearestSymbolFrom<idr::FuncOp>(
-      program, StringAttr::get(program.getContext(), name));
+      program, StringAttr::get(program.getContext(), symbol));
 }
 
-TEST(CallCycles, MutualSelfAndLeaf) {
+TEST(CallCycles, EveryGraphAgainstReachability) {
   MLIRContext ctx;
   ctx.loadDialect<idr::IdrDialect, arith::ArithDialect>();
-  OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(cyclesText, &ctx);
-  ASSERT_TRUE(module);
-  idr::ProgramOp prog = programOf(*module);
-  ModuleAnalysisManager mam(*module, /*passInstrumentor=*/nullptr);
-  AnalysisManager moduleAnalyses = mam;
-  AnalysisManager programAnalyses = moduleAnalyses.nest(prog);
-  const idr::CallCycles &cycles = programAnalyses.getAnalysis<idr::CallCycles>();
-  idr::FuncOp even = function(prog, "even"), odd = function(prog, "odd"),
-              loop = function(prog, "loop"), deep = function(prog, "deep"),
-              leaf = function(prog, "leaf"), main = function(prog, "Prog.main");
-  EXPECT_EQ(cycles.components().size(), 5u);
-  EXPECT_EQ(cycles.components()[cycles.componentOf(even)].size(), 2u);
-  EXPECT_TRUE(cycles.together(even, odd));
-  EXPECT_TRUE(cycles.together(odd, even));
-  EXPECT_FALSE(cycles.together(even, leaf));
-  EXPECT_TRUE(cycles.callsItself(loop));
-  EXPECT_TRUE(cycles.callsItself(deep));
-  EXPECT_FALSE(cycles.callsItself(leaf));
-  EXPECT_FALSE(cycles.callsItself(even));
-  EXPECT_FALSE(cycles.callsItself(main));
-  // Callees first.
-  for (idr::FuncOp callee : {even, odd, leaf, loop, deep})
-    EXPECT_LT(cycles.componentOf(callee), cycles.componentOf(main))
-        << callee.getSymName().str();
-
-  const idr::Escapes &escapes = programAnalyses.getAnalysis<idr::Escapes>();
-  EXPECT_TRUE(escapes.recursive(even));
-  EXPECT_TRUE(escapes.recursive(odd));
-  EXPECT_TRUE(escapes.recursive(deep));
-  // Its one call of itself is the next iteration of a loop in one frame.
-  EXPECT_FALSE(escapes.recursive(loop));
-  EXPECT_FALSE(escapes.recursive(leaf));
-  EXPECT_FALSE(escapes.recursive(main));
+  constexpr uint32_t graphs = uint32_t{1} << (functions * functions);
+  unsigned failures = 0;
+  for (uint32_t bits = 0; bits < graphs && failures < 10; ++bits) {
+    Case base;
+    for (unsigned i = 0; i < functions; ++i)
+      for (unsigned j = 0; j < functions; ++j)
+        base.calls[i][j] = ((bits >> (i * functions + j)) & 1) != 0;
+    // Each function that calls itself does so in tail position or not.
+    uint32_t selves = 0;
+    for (unsigned i = 0; i < functions; ++i)
+      selves |= static_cast<uint32_t>(base.calls[i][i]) << i;
+    for (uint32_t tails = selves;; tails = (tails - 1) & selves) {
+      Case c = base;
+      for (unsigned i = 0; i < functions; ++i)
+        c.tail[i] = ((tails >> i) & 1) != 0;
+      std::string text = programOf(c);
+      OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(text, &ctx);
+      ASSERT_TRUE(module) << text;
+      idr::ProgramOp program = *module->getOps<idr::ProgramOp>().begin();
+      ModuleAnalysisManager mam(*module, /*passInstrumentor=*/nullptr);
+      AnalysisManager moduleAnalyses = mam;
+      AnalysisManager programAnalyses = moduleAnalyses.nest(program);
+      const idr::CallCycles &cycles = programAnalyses.getAnalysis<idr::CallCycles>();
+      const idr::Escapes &escapes = programAnalyses.getAnalysis<idr::Escapes>();
+      std::array<idr::FuncOp, functions> f;
+      for (unsigned i = 0; i < functions; ++i)
+        f[i] = function(program, name(i));
+      idr::FuncOp main = function(program, "Prog.main");
+      Graph r = reaches(c.calls);
+      auto fail = [&](const std::string &what) {
+        ++failures;
+        ADD_FAILURE() << what << "\n" << text;
+      };
+      for (unsigned i = 0; i < functions; ++i) {
+        bool alone = true;
+        for (unsigned j = 0; j < functions; ++j) {
+          bool together = i == j || (r[i][j] && r[j][i]);
+          if (i != j && together)
+            alone = false;
+          if (cycles.together(f[i], f[j]) != together)
+            fail("together(" + name(i) + ", " + name(j) + ")");
+          if (c.calls[i][j] && !together && cycles.componentOf(f[j]) >= cycles.componentOf(f[i]))
+            fail(name(j) + "'s component is not before its caller " + name(i) + "'s");
+        }
+        if (cycles.callsItself(f[i]) != (alone && c.calls[i][i]))
+          fail("callsItself(" + name(i) + ")");
+        if (cycles.componentOf(f[i]) >= cycles.componentOf(main))
+          fail(name(i) + "'s component is not before the root's");
+        bool recursive = !alone || (c.calls[i][i] && !c.tail[i]);
+        if (escapes.recursive(f[i]) != recursive)
+          fail("recursive(" + name(i) + ")");
+      }
+      if (cycles.callsItself(main) || escapes.recursive(main))
+        fail("the root is on a cycle");
+      if (tails == 0)
+        break;
+    }
+  }
 }
 
 // A function with no body is a component of its own, on no cycle.
 TEST(CallCycles, ADeclarationIsAComponentOfItsOwn) {
   MLIRContext ctx;
   ctx.loadDialect<idr::IdrDialect, arith::ArithDialect, func::FuncDialect>();
-  std::string text = cyclesText.str() + "func.func private @Prog.external(i64) -> i64\n";
+  Case c;
+  c.calls[0][1] = c.calls[1][0] = true;
+  std::string text = programOf(c) + "func.func private @Prog.external(i64) -> i64\n";
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(text, &ctx);
   ASSERT_TRUE(module);
   auto external = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(

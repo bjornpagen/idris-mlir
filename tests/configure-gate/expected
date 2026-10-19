@@ -1,0 +1,4 @@
+the lock as it is: the gate passes
+llvm: the gate refuses a series no release is in, and names it
+cmake: the gate refuses a series no release is in, and names it
+ninja: the gate refuses a series no release is in, and names it

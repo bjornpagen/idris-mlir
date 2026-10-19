@@ -75,7 +75,7 @@ $ mlir-opt inline.mlir -mlir-disable-threading -pass-pipeline='builtin.module(co
 Both pipelines are op-agnostic, so both nest under the root with the same
 key: one row holds Inner and the canonicalizer Inner runs side by side,
 and its time is that of one timer started twice before it stopped.
-`tests/upstream/pass-timing-dynamic-pipeline` checks both reproducers.
+`tests/upstream-pass-timing-dynamic-pipeline` checks both reproducers.
 
 ## Expected
 
@@ -136,7 +136,7 @@ leading whitespace even then; the indentation of each name is matched
 exactly. That test is what `submission.md` posts to #169615.
 
 The patch touches no file the other patches touch, so it applies to the
-pinned source alone and after the others (`tests/spec/upstream-patches`).
+pinned source alone and after the others (`tests/upstream-patches`).
 
 ## Testing at the pin
 
@@ -151,7 +151,7 @@ among its patches), one with `PassTiming.cpp` as pinned and one with this patch.
   `InlinerPass`, with threading and without, and Rest was not negative in
   100 of 100 runs (without the patch, negative in 100 of 100). The
   composite passes print two `'any' Pipeline` rows, one in each pass.
-  `tests/upstream/pass-timing-dynamic-pipeline` prints its expected output
+  `tests/upstream-pass-timing-dynamic-pipeline` prints its expected output
   with the patched binary (through a copy of `.toolchain` whose `mlir-opt`
   is that binary) and "still reproduces" twice with the toolchain's own.
 - `pass-timing.mlir` as patched: every RUN line but the
@@ -189,4 +189,4 @@ at the pin.
   `mlir/test/Pass/pass-timing.mlir`.
 - The patch is dropped when the pin includes #169615 (or another fix the
   revised test passes with); then this directory,
-  `tests/upstream/pass-timing-dynamic-pipeline` and the `PINS.md` entry go.
+  `tests/upstream-pass-timing-dynamic-pipeline` and the `PINS.md` entry go.

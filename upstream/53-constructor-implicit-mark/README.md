@@ -156,7 +156,7 @@ upstream/52's README says: among those checks, `coverage032` to
 `v1`'s and `v3`'s forms at the other quantity (`0 v1z`, and `v2` above
 quantity 0) check, `getW` is covering, and the 385 programs give the same
 status, output, Core and bytecode as before.
-`tests/upstream/constructor-implicit-mark` compiles through the frontend,
+`tests/upstream-constructor-implicit-mark` compiles through the frontend,
 which the unchanged fork's refuses. Its `expected` waits for a build of the
 whole toolchain.
 
@@ -187,6 +187,6 @@ change were written with one.
   takes upstream's code and drops this change; if not, the change is
   carried forward onto the new base.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/constructor-implicit-mark` and the PINS.md entry go.
+  `tests/upstream-constructor-implicit-mark` and the PINS.md entry go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

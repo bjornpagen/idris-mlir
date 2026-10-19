@@ -1,0 +1,3 @@
+features: found
+bits: 0 up, each once, under 64
+versions: each test name's version compiled for its LLVM name

@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that a call through an interface of a method whose leading arguments are runtime implicits (an auto-implicit IORef, a Nat) gives the implementation's method function each in its place, compiles and runs, printing expected-stdout; and that what holds of every compilation holds of it (universal: holds)
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds

@@ -184,4 +184,4 @@ Status: file a pull request only.
   their `SymbolTableCollection &` constructor parameter, as its own pull
   request.
 - Drop: when the pin moves past the upstream commit, delete `llvm.patch`,
-  its `PINS.md` entry and `tests/upstream/forward-dataflow-callee-lookup`.
+  its `PINS.md` entry and `tests/upstream-forward-dataflow-callee-lookup`.

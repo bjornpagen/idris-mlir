@@ -1,0 +1,26 @@
+// RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@fill -o /dev/null
+// A buffer bufferization made is a cell like any other, but upstream's
+// ops hold plain types: memref.alloc's result takes no grade, and a
+// memref.store takes the element without its reference. Counting starts
+// and ends the grade at two ops of its own, which change no count: the
+// alloc's fresh reference is adopted right after it, and an owned value
+// is given to the store that writes it, which moves its reference in. So a
+// buffer filled with a cell it was just given counts nothing.
+!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @buffers root(@main) stage(first) {
+  idr.func @fill(%n: index, %x: i64) -> memref<?x!idr.box<!L>> {
+    %a = memref.alloc(%n) : memref<?x!idr.box<!L>>
+    %nil = idr.constant !idr.box<!L> #idr.con<!L, @Nil, []>
+    %c = idr.con !idr.box<!L> @Cons(%x : i64, %nil : !idr.box<!L>)
+    %c0 = arith.constant 0 : index
+    memref.store %c, %a[%c0] : memref<?x!idr.box<!L>>
+    return %a : memref<?x!idr.box<!L>>
+  }
+  idr.func @main() -> i64 {
+    %n = arith.constant 1 : index
+    %x = arith.constant 7 : i64
+    %a = idr.call @fill(%n, %x) : (index, i64) -> memref<?x!idr.box<!L>>
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}

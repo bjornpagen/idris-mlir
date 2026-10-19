@@ -1,5 +1,0 @@
-# Every recursion of the program is a loop once idr-tail-loops has run:
-# replicate's and take's too, whose self calls idr-trmc made tail calls.
-# idr-tail-loops runs over the functions in a group, which dumps no module;
-# idr-narrow, the next step, is the first to show its loops.
-idr-narrow: constant-stack=@$idris-mlir.root

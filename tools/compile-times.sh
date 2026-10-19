@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The compile times the golden tests recorded (tests/lib/timing.sh,
+# The compile times the golden tests recorded (harness/lib/timing.sh,
 # `record_time`), each compilation broken down by idris-mlir's timing
 # report into the parse, idr-optimize (the optimizer, its ready set and the
 # per-function pipeline it runs), the verifier, the analyses, LLVM and the
@@ -11,7 +11,7 @@
 #     tools/compile-times.sh [--timing DIR] [--record FILE] [--against OLD-FILE]
 #     tools/compile-times.sh --tree MODULE
 #
-# The test records are in DIR (tests/build/timing), where every run of
+# The test records are in DIR (harness/build/timing), where every run of
 # `make test` (and of the other suites that compile) leaves one file per
 # test: `<ms> TAB <exit> TAB <what> TAB <module>` per compilation, the
 # module being the one the frontend handed the driver, kept so that it can
@@ -41,7 +41,7 @@
 #
 # A compilation whose report is missing shows n/a in every column.
 #
-# Everything measured goes to FILE (tests/build/compile-times.tsv), one
+# Everything measured goes to FILE (harness/build/compile-times.tsv), one
 # line per compilation: `<test> TAB <n> TAB <what> TAB <recorded ms> TAB
 # <total> TAB <parse> TAB <optimize> TAB <verify> TAB <analyses> TAB
 # <llvm> TAB <rest>`, the nth compilation of the test. The report on
@@ -58,16 +58,16 @@
 #
 # The record of the build before a change is taken before the change is
 # first built, while build/ and DIR are still that build's: copy DIR away
-# (`cp -Rp tests/build/timing tests/build/timing-before`, after a full
+# (`cp -Rp harness/build/timing harness/build/timing-before`, after a full
 # `make test` of that build), then
 #
-#     tools/compile-times.sh --timing tests/build/timing-before \
-#       --record tests/build/compile-times-before.tsv
+#     tools/compile-times.sh --timing harness/build/timing-before \
+#       --record harness/build/compile-times-before.tsv
 #
 # with that build's tools still in build/; after the change's `make build`
 # and `make test`,
 #
-#     tools/compile-times.sh --against tests/build/compile-times-before.tsv
+#     tools/compile-times.sh --against harness/build/compile-times-before.tsv
 #
 # The parse and LLVM rows, idr-optimize's and VerifierPass's are named
 # alike in both builds, wherever the pipeline nests them, so the columns
@@ -103,8 +103,8 @@ usage() {
   exit 2
 }
 top=10
-dir=$root/tests/build/timing
-record=$root/tests/build/compile-times.tsv
+dir=$root/harness/build/timing
+record=$root/harness/build/compile-times.tsv
 against=
 tree=
 while [ $# -gt 0 ]; do

@@ -1,0 +1,58 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The CMake configure gate accepts the release series toolchain.lock.json
+# names, and only those: configured with the lock as it is, CMake passes
+# the gate; configured with a lock in which one tool's `accept` names a
+# series no release is in (0.0), it stops and names that series. Each tool
+# of the lock with an `accept` field is refused in turn, so a tool whose
+# series the gate does not read from the lock is found. The gate is
+# CMakeLists.txt's opening, which runs before anything else of the tree is
+# read, so the source is the top-level CMakeLists.txt beside its lock, in a
+# directory of its own.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+awk '/^[ \t]*"[^"]*"[ \t]*:[ \t]*\{/ { split($0, parts, "\""); tool = parts[2] }
+     tool != "" && /^[ \t]*"accept"[ \t]*:/ { print tool }' "$root/toolchain.lock.json" > "$work/tools"
+[ -s "$work/tools" ] || say "toolchain.lock.json: no tool has an accepted series"
+
+# configure LOCK NAME: CMakeLists.txt configured beside LOCK by the pinned
+# CMake, Ninja and clang; its output in $work/NAME.log.
+configure() {
+  mkdir -p "$work/$2/source"
+  cp "$root/CMakeLists.txt" "$work/$2/source/"
+  cp "$1" "$work/$2/source/toolchain.lock.json"
+  bounded "$cmake" -S "$work/$2/source" -B "$work/$2/build" -G Ninja \
+    -DCMAKE_MAKE_PROGRAM="$toolchain/ninja/bin/ninja" \
+    -DCMAKE_C_COMPILER="$pinned_cc" -DCMAKE_CXX_COMPILER="$pinned_cc++" \
+    > "$work/$2.log" 2>&1
+}
+
+# A refusal names the series it requires as `<series>.x`; the lock's own
+# series appear nowhere in a run that passes the gate.
+configure "$root/toolchain.lock.json" control
+sed -n 's/^[ \t]*"accept"[ \t]*:[ \t]*"\([^"]*\)".*/\1/p' "$root/toolchain.lock.json" > "$work/series"
+refused=
+while IFS= read -r series; do
+  grep -qF "$series.x" "$work/control.log" && refused="$refused $series"
+done < "$work/series"
+if [ -z "$refused" ]; then
+  say "the lock as it is: the gate passes"
+else
+  say "the lock as it is: the gate refuses$refused"
+  show "$work/control.log"
+fi
+
+while IFS= read -r tool; do
+  awk -v tool="$tool" '
+    /^[ \t]*"[^"]*"[ \t]*:[ \t]*\{/ { split($0, parts, "\""); current = parts[2] }
+    current == tool && /^[ \t]*"accept"[ \t]*:/ { sub(/"accept"[ \t]*:[ \t]*"[^"]*"/, "\"accept\": \"0.0\"") }
+    { print }' "$root/toolchain.lock.json" > "$work/lock-$tool.json"
+  if configure "$work/lock-$tool.json" "$tool"; then
+    say "$tool: a series no release is in is accepted"
+  elif grep -qF '0.0.x' "$work/$tool.log"; then
+    say "$tool: the gate refuses a series no release is in, and names it"
+  else
+    say "$tool: configure fails, but not at the gate"
+    show "$work/$tool.log"
+  fi
+done < "$work/tools"

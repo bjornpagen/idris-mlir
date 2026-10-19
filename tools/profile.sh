@@ -11,13 +11,28 @@
 # profile build: the trace is the run-time --time-trace every build
 # carries, off until asked.
 #
-# The trace is bench/profiles/<date>-<commit>-<name>.time-trace.json: the
+# The trace is bench/records/<date>-<commit>-<name>.time-trace.json: the
 # UTC time, HEAD (with -dirty when the tree differs from it), and NAME, by
 # default the last source argument (.idr, .lidr, .mlir, .mlirbc) without
 # its directory and extension, else `compile`. It is Chrome trace JSON:
 # open it in Perfetto (ui.perfetto.dev). The twenty entries the
 # compilation spent most time in are printed first, the trace's path
 # last. The exit status is idris-mlir's, or 1 when no trace was written.
+# A trace is not committed (.gitignore); what a measurement found is, as
+# a dated record beside it, `bench/records/<date>-<name>.md`.
+#
+# A trace holds the compilation as one span (`compile`) with the driver's
+# phases inside it; a zone for every MLIR pass and analysis, nested and
+# dynamic pipelines included, named as -mlir-timing names them, its detail
+# the op it ran on; a zone for every pass of LLVM's optimization pipeline
+# under `optimize` (the code generator's legacy pipeline is the one span
+# `codegen`); and the zones a pass manager runs on its pool threads, each
+# thread a track. A `Total <name>` slice sums an entry's runs. Nothing is
+# recorded until --time-trace is given: with no trace started a zone is a
+# load and a branch, so the build that is profiled is the one shipped.
+# The runtime has no zones: it is inlined into every program the
+# benchmarks measure, so a program is profiled with the system's sampling
+# profiler instead.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -57,11 +72,11 @@ if [ ! -x "$compiler" ]; then
   exit 1
 fi
 
-profiles=$root/bench/profiles
-mkdir -p "$profiles" || exit 1
+records=$root/bench/records
+mkdir -p "$records" || exit 1
 commit=$(git -C "$root" rev-parse --short=12 HEAD 2> /dev/null) || commit=unknown
 git -C "$root" diff --quiet HEAD -- 2> /dev/null || commit=$commit-dirty
-output=$profiles/$(date -u +%Y-%m-%dT%H%M%SZ)-$commit-$name.time-trace.json
+output=$records/$(date -u +%Y-%m-%dT%H%M%SZ)-$commit-$name.time-trace.json
 
 "$compiler" --time-trace="$output" "$@"
 status=$?

@@ -28,7 +28,7 @@ The defects sit between the analyses:
 | Root cause | The lattice keeps a distinction a deleted consumer needed. "On no cycle" is a per-function fact copied into each parameter, although vacuous truth already gives `Fixed`. |
 | Correction | `enum class BindingTime { Fixed, Varies }` (join is max) in `Analysis/BindingTimes.h`. The abstract value is `variant<Same{param}, Anything>` and `seen` starts at `Fixed`. Per-function API: `bindingTimesOf(FuncOp, ArrayRef<FuncOp> component)`. |
 | Deletion | `Free`/`Decreasing`/`Bounded`/`Smaller`, `partOf`, the 4 eval branches, `join`'s cases and the optional bottom, `value_or`, `callsItself` and the `cycle` split, 3 `nameOf` cases, the stale docs, `Free \|\|`, and `takeUp`'s parallel `times`. |
-| Consumers | `Analysis/Specialize.h` (renamed), `BindingTimes.cpp`, `Transforms/Specialize/{Keys,Specialize,Report}.cpp`, `Optimize/Component.cpp`, `Transforms/{Specialize,Optimize}.h`, `tests/idr/specialize/binding-times.mlir`. |
+| Consumers | `Analysis/Specialize.h` (renamed), `BindingTimes.cpp`, `Transforms/Specialize/{Keys,Specialize,Report}.cpp`, `Optimize/Component.cpp`, `Transforms/{Specialize,Optimize}.h`, `tests/specialize-binding-times/specialize-binding-times.mlir`. |
 | Discriminator | `binding-times.mlir` restated in two names. Property: every `SpecKeyAttr` is unchanged on the e2e suite. |
 | Verification here | `make typecheck`, `tools/check-units.py`, `make check`. Fixtures run on the owner's build. |
 | Size and risk | About 100 lines and 17 branches go; behaviour is unchanged by construction. Kept: per-function tuple interpretation, and `seenBy`'s inside/outside split. |

@@ -134,7 +134,7 @@ toolchain (assertions on), both lit cases and the file's existing
 `--allow-unregistered-dialect`, as this build has no test dialect), the
 cycle case times out with the pinned reader, and the pinned and patched
 readers print the same module for random nested attribute and type
-modules. `tests/upstream/bytecode-deferred-quadratic` checks the scaling.
+modules. `tests/upstream-bytecode-deferred-quadratic` checks the scaling.
 
 Not changed by the patch: an attribute whose many elements are each
 nested deeper than 5 (an array of k elements nested 10 deep) still reads

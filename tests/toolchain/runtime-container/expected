@@ -1,6 +1,0 @@
-NEEDS-ACCEPTANCE: that a runtime prepared with no option keeps its bitcode where the target entry says (IDRIS_MLIR_RUNTIME_BITCODE_HOME: the .llvm.lto section on x86_64 Linux, a file beside the object on arm64 macOS), twice the same, and serves a program as the build's does
-prepared again: the build's runtime, byte for byte
-prepared twice: the same object and bitcode
-bitcode: where the target entry keeps it
-built: exit 28, idris-rt: live cells 0
-again: exit 28, idris-rt: live cells 0

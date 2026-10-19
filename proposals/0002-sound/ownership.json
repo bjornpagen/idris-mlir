@@ -2,7 +2,7 @@
   "coordinator": {
     "writes": [
       "compiler/idris-mlir.ipkg",
-      "tests/tests.ipkg",
+      "harness/harness.ipkg",
       "CMakeLists.txt",
       "foreign/idr/CMakeLists.txt",
       "foreign/idr/lib/CMakeLists.txt",
@@ -176,15 +176,15 @@
   },
   "N": {
     "writes": [
-      "tests/Gen.idr",
-      "tests/Prims.idr",
-      "tests/Fuzz.idr",
-      "tests/Sem.idr",
-      "tests/TwoLevels.idr",
+      "harness/Gen.idr",
+      "harness/Prims.idr",
+      "harness/Fuzz.idr",
+      "harness/Sem.idr",
+      "harness/TwoLevels.idr",
       "tests/fuzz/**",
       "tests/two-levels/**",
       "tests/programs/semantics/**",
-      "tests/lib/fuzz.sh"
+      "harness/lib/fuzz.sh"
     ],
     "findings": [
       "F15"
@@ -192,24 +192,24 @@
   },
   "R1": {
     "writes": [
-      "tests/toolchain/lib/**",
-      "tests/toolchain/runtime-bigs/**",
-      "tests/toolchain/runtime-text/**"
+      "harness/prop/**",
+      "tests/runtime-bigs/**",
+      "tests/runtime-text/**"
     ],
     "findings": [
       "F16"
     ],
     "excludes": [
-      "tests/toolchain/lib/utf8model.h"
+      "harness/prop/utf8model.h"
     ]
   },
   "R2": {
     "writes": [
-      "tests/toolchain/runtime-doubles/**",
-      "tests/toolchain/runtime-utf8/**",
-      "tests/toolchain/runtime-strings/**",
+      "tests/runtime-doubles/**",
+      "tests/runtime-utf8/**",
+      "tests/runtime-strings/**",
       "tests/toolchain/double-print/**",
-      "tests/toolchain/lib/utf8model.h"
+      "harness/prop/utf8model.h"
     ],
     "findings": []
   },
@@ -221,12 +221,12 @@
     "excludes": [
       "runtime/Strings/**",
       "runtime/CMakeLists.txt",
-      "tests/toolchain/lib/**",
-      "tests/toolchain/runtime-bigs/**",
-      "tests/toolchain/runtime-text/**",
-      "tests/toolchain/runtime-doubles/**",
-      "tests/toolchain/runtime-utf8/**",
-      "tests/toolchain/runtime-strings/**",
+      "harness/prop/**",
+      "tests/runtime-bigs/**",
+      "tests/runtime-text/**",
+      "tests/runtime-doubles/**",
+      "tests/runtime-utf8/**",
+      "tests/runtime-strings/**",
       "tests/toolchain/double-print/**"
     ],
     "findings": [
@@ -236,7 +236,7 @@
   "X1": {
     "writes": [
       "tests/idr/**",
-      "tests/lib/lit.sh"
+      "harness/lib/lit.sh"
     ],
     "excludes": [
       "tests/idr/expect/**",
@@ -254,11 +254,11 @@
       "tests/accept/**",
       "tests/reject/**",
       "tests/bench/**",
-      "tests/lib/profile.sh",
-      "tests/lib/e2e.sh",
-      "tests/lib/expect.sh",
-      "tests/lib/run.sh",
-      "tests/lib/heap.sh"
+      "harness/lib/profile.sh",
+      "harness/lib/e2e.sh",
+      "harness/lib/expect.sh",
+      "harness/lib/run.sh",
+      "harness/lib/heap.sh"
     ],
     "excludes": [
       "tests/programs/semantics/**"
@@ -272,22 +272,22 @@
       "tests/spec/**",
       "tests/determinism/**",
       "tests/compiler/**",
-      "tests/lib/**",
-      "tests/Main.idr",
-      "tests/Runner.idr",
-      "tests/Lock.idr",
-      "tests/testutils.sh",
-      "tests/README.md",
+      "harness/lib/**",
+      "harness/Main.idr",
+      "harness/Runner.idr",
+      "harness/Lock.idr",
+      "harness/testutils.sh",
+      "harness/README.md",
       "tests/ACCEPTANCE.md"
     ],
     "excludes": [
-      "tests/lib/lit.sh",
-      "tests/lib/fuzz.sh",
-      "tests/lib/profile.sh",
-      "tests/lib/e2e.sh",
-      "tests/lib/expect.sh",
-      "tests/lib/run.sh",
-      "tests/lib/heap.sh"
+      "harness/lib/lit.sh",
+      "harness/lib/fuzz.sh",
+      "harness/lib/profile.sh",
+      "harness/lib/e2e.sh",
+      "harness/lib/expect.sh",
+      "harness/lib/run.sh",
+      "harness/lib/heap.sh"
     ],
     "findings": [
       "F20"

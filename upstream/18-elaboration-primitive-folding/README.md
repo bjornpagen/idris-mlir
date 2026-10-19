@@ -55,7 +55,7 @@ Observed on arm64 macOS: `plain` and `infinity` are `12` and `"+inf.0"` in
 the compile-time tree, `viaLiteral` is `MkN 12`, and a `FromDouble String`
 whose `fromDouble` is `prim__cast_DoubleString` checks
 `12.886856079101562` to `"12.886856079101563"`.
-`tests/upstream/elaboration-primitive-folding` checks the reproducer.
+`tests/upstream-elaboration-primitive-folding` checks the reproducer.
 
 `infinity` must be `partial`: `prim__div_Double` is not covering. At the
 pin the fold removes the call before the coverage check, so the same
@@ -171,9 +171,9 @@ difference is a constant that is now the primitive call written in the
 source (`12:Int` is `cast_StringInt("12.7")`, `"+inf.0"` is
 `cast_DoubleString(div_Double(1.0, 0.0))`, `3:Int` is `add_Int(1, 2)`),
 and no exit status or message changed. Without the `believe_me`
-exception, `tests/programs/data/vect` was refused (`unsupported (escape
+exception, `tests/vect` was refused (`unsupported (escape
 hatch): believe_me`), its `index 1 v` keeping the forged proof.
-`tests/upstream/elaboration-primitive-folding` checks the reproducer
+`tests/upstream-elaboration-primitive-folding` checks the reproducer
 through the frontend.
 
 ## What it changes here
@@ -181,9 +181,9 @@ through the frontend.
 With the change, the program this compiler consumes keeps every primitive
 call the user wrote, and the runtime computes it, at compile time or at
 run time. The test generators no longer hide literals behind an identity
-(`tests/Sem.idr`'s `litInt`, the `lit<T>` of `tests/TwoLevels.idr` and
-`tests/Fuzz.idr`): a primitive applied to literals is what they test. The
-fixtures `tests/programs/semantics/closed-*` hold each example to the
+(`harness/Sem.idr`'s `litInt`, the `lit<T>` of `harness/TwoLevels.idr` and
+`harness/Fuzz.idr`): a primitive applied to literals is what they test. The
+fixtures `tests/closed-*` hold each example to the
 runtime's documented meaning.
 
 ## Upstreaming plan
@@ -202,7 +202,7 @@ change were written with one.
   and drops this change; if not, the change is carried forward onto the
   new base.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/elaboration-primitive-folding` and the PINS.md entry
+  `tests/upstream-elaboration-primitive-folding` and the PINS.md entry
   go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

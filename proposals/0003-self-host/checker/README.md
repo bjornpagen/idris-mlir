@@ -82,7 +82,7 @@ marked *read* (path), *measured* (a run), *proved* (on paper, here),
 - **The check is pure.** These import nothing of Core, so the exhaustive
   box (T3) builds them from source, with `-p idris-compiler`:
   - `Proof/*` imports base only, since no Proof module may import the fork
-    (`tests/spec/frontend-imports`);
+    (`tests/frontend-imports`);
   - `Frontend/Growth/Check.idr` and `Frontend/Growth/Potential.idr` import
     base and the fork's pure `Libraries.Data.List.Finite`.
 - **Exact for structural flow.** Admit every program whose static arguments
@@ -105,9 +105,9 @@ marked *read* (path), *measured* (a run), *proved* (on paper, here),
 | F10 | `Frontend/Program.idr:184-200` has no phase between reachable and translate | No place to refuse before translating | The `growth` phase (§4.13) | G4 |
 | F11 | `prototype.md`, *measured*: one cycle through `(<$>)`, `map_Functor_(EitherT e m)`.a at `Either e a` +1 | Every `EitherT` is over `IO`, so the real chain ends. The graph merges `(<$>)` at EitherT's dictionary with `(<$>)` at IO's, and refuses the self compile | Nodes split by the roots of their dictionary arguments (§4.7) | G8 |
 | F12 | `prototype.md` Follow-up, *measured*: 8 ω arcs off every cycle, such as `clockTime`'s `isClockMandatory` and `allSplits`'s `length` on a runtime list | ω off a cycle gives a finite position no explicit bound, so the worklist has no total measure | Unfold a stuck non-recursive type definition to the maximum over its leaves, and read each kind as its key writes it, a dictionary as written (§4.3). P3 deletes 2, and none stays live among calls' arcs (D3) | G1 |
-| F13 | `tests/reject/polymorphism-nested-data` is refused at HEAD as `dependent field` at `L`, *measured* | `a` is an index of `T` (`N` changes it), so data positions built from `typeParams` never see the nesting | A data type's positions are its represented type arguments, indices included (§4.8) | G9 |
+| F13 | `tests/polymorphism-nested-data` is refused at HEAD as `dependent field` at `L`, *measured* | `a` is an index of `T` (`N` changes it), so data positions built from `typeParams` never see the nesting | A data type's positions are its represented type arguments, indices included (§4.8) | G9 |
 | F14 | No statement that a graph without a positive cycle has a potential | The check could find neither a cycle nor a potential, a case with no defined outcome | A verified heaviest-path Bellman-Ford (§4.12) | P4 |
-| F15 | `algorithm.md` §0.4; `tests/programs/data/type-level-shapes` | Without caps, `count`'s `S m ↦ S (S m)` is +1 on a cycle, and an accepted program is refused | Caps read off the callee's type, consistent with `neededShape` (§4.9) | G10 |
+| F15 | `algorithm.md` §0.4; `tests/type-level-shapes` | Without caps, `count`'s `S m ↦ S (S m)` is +1 on a cycle, and an accepted program is refused | Caps read off the callee's type, consistent with `neededShape` (§4.9) | G10 |
 | F16 | The site walk does not exist; the prototype read templates off a dump | Arcs from concrete instances refuse 9 accepted programs (`sortedmap`, `vect`), *measured* | Definition-level sites over markers, with leaf matches substituted (§4.4) | G11 |
 
 ## 4. Selected representations
@@ -502,7 +502,7 @@ Position = (Node, Nat)
   link names. Nothing is substituted.
 - `heads` holds the root that `closedHeight` gives each `DictParam`,
   keyed by its index. A dictionary with no root (`\_ => __Impl_Eq_Int` in
-  `tests/accept/higher-order-dictionary`) contributes none, here and in the
+  `tests/higher-order-dictionary`) contributes none, here and in the
   graph alike.
 
 B1 is the head split itself. A method call is requested as its projection
@@ -765,7 +765,7 @@ included. Cycles are made of Finite arcs only, and a Stuck arc is only ever
 reported as `Unbounded`.
 
 Reported causes, so that one cause gives one refusal (the reject harness
-counts exactly one, `tests/lib/profile.sh:91,104`):
+counts exactly one, `harness/lib/profile.sh:91,104`):
 - one positive cycle per component that holds one;
 - each `StuckArc` whose source no positive cycle reaches. A position a
   growing cycle reaches is unbounded already, so its opaque arcs are
@@ -899,7 +899,7 @@ below are this document's: a message prints names bare.
 
 | Responsibility | Owner | What disappears |
 |---|---|---|
-| Room descent | fork `Libraries.Data.List.Finite` (`NoDup`, `pigeonhole`), used in Frontend only: `tests/spec/frontend-imports` forbids a Proof module to import the fork | Dickson, AlmostFull |
+| Room descent | fork `Libraries.Data.List.Finite` (`NoDup`, `pigeonhole`), used in Frontend only: `tests/frontend-imports` forbids a Proof module to import the fork | Dickson, AlmostFull |
 | The worklist's descent | `Proof.Generations` (`Follows`, `generations`), unchanged | — |
 | The listing | `Proof.Requests` (`writtenAt`, `argumentsAt`, `fibre`, `fibreComplete`) | — |
 | Walking definitions | `Frontend.Walk` (`enter`, its measure) | a second measure |
@@ -928,9 +928,9 @@ below are this document's: a message prints names bare.
 | G5 Nodes and B1 | `Frontend/Translate/State.idr`, `Frontend/Translate/Instances.idr`, `Frontend/Translate/Recursion.idr` (the rename and its stale sentence, :117-119), `Frontend/Translate/Keys.idr` (its stale comment, :5-7, only) | §4.3, §4.5 | F02 |
 | G6 The worklist | `Frontend/Finite.idr` | §4.2, §4.3, §4.5, §4.11 | F04 |
 | G7 Data registration | `Frontend/Translate/Types.idr` | §4.2, §4.3, §4.8, §4.11 | F03 |
-| T1 Reject fixtures | `tests/reject/polymorphism-*` (the four), new `tests/reject/polymorphism-growth-{mutual,dictionary,recursion}` (a reject's name starts with its rule, `tests/lib/profile.sh:82-86`) | §4.13, D4 | F06 |
+| T1 Reject fixtures | `tests/reject/polymorphism-*` (the four), new `tests/reject/polymorphism-growth-{mutual,dictionary,recursion}` (a reject's name starts with its rule, `harness/lib/profile.sh:82-86`) | §4.13, D4 | F06 |
 | T2 Accept fixtures | new `tests/accept/bounded-{grow-once,grow-shrink,method,field,capped,dictionary-root,method-own,synonym}` | §1, §4.7–§4.9 | F07 |
-| T3 The exhaustive box | new `tests/compiler/growth-check` | §4.1, §4.10, §4.12 | F08 |
+| T3 The exhaustive box | new `tests/growth-check` | §4.1, §4.10, §4.12 | F08 |
 | coordinator | `compiler/idris-mlir.ipkg`, `tools/policies.txt`, `proposals/**`, `HANDOFF.md`, `bench/**`, `tests/ACCEPTANCE.md` (every new NEEDS-ACCEPTANCE mark), `Frontend/Profile.idr` (to export `answersForBody`, for G11, only), and the `covering` chain above `translateFrom`: `Frontend/Translate/Programs.idr`, `Frontend/Driver.idr` | all | — |
 
 Nineteen lanes on disjoint files. Each consumes only the packet's
@@ -959,7 +959,7 @@ two deleted modules out), the typecheck, and the gates of §7.
    `tools/self.sh` needs `make build`, which is not run here:
    - no `polymorphism` refusal, and no internal error from the growth check;
    - every other refusal recorded for 0003's next stage;
-   - the growth phase's time recorded in `bench/profiles/`.
+   - the growth phase's time recorded in `bench/records/`.
 
    A polymorphism refusal there goes to the owner with its cycle, under the
    owner's rule: a real growing cycle is refactored later, and a precision
@@ -1196,7 +1196,7 @@ miscompiles. A node at heads the flow did not give is that error too
   fresh copy of `compiler/src`, against a prefix whose fork package the
   integrated frontend built (the S1 prefix predates the fork's TTC version):
   exit 0, no refusal, no internal error. Times and sizes:
-  `bench/profiles/2026-10-17-self-growth.md`.
+  `bench/records/2026-10-17-self-growth.md`.
 - **Gate 4:** T3's box, from the tree: every verdict as `expected-stdout`
   says.
 - **Gate 5:** `Proof/`, `Frontend/Growth*` and `Frontend/Finite.idr` hold
@@ -1222,7 +1222,7 @@ miscompiles. A node at heads the flow did not give is that error too
   Each static argument of a request is read once into `TS.readings`, and a
   request carries its heights, so the worklist reads instead of
   recomputing.
-- **Spec:** `tests/spec/no-erased-inputs` used `\|` in a basic `sed`
+- **Spec:** `tests/no-erased-inputs` used `\|` in a basic `sed`
   expression, which BSD sed lacks, so on macOS it never saw the frontend's
   own data types; AlmostFull's `Lifted` hid that. It is `sed -E` now.
 
@@ -1239,7 +1239,7 @@ that returned no evidence (comparisons in Proof.Requests return proofs),
 and the erased-Elem fix's predecessor: `Cases.equated`, `bindEquated`,
 `forcedEnv` and Forced's `Known`/`View`, which computed a weaker copy of
 what the clause's left-hand side already holds (about 650 lines, behind a
-guard fixture, `tests/accept/erased-elem-later-match`). `Proof.Requests`'
+guard fixture, `tests/erased-elem-later-match`). `Proof.Requests`'
 `lowBits` takes one step per bit (`lowBits 11` over a million values: 9.5 s
 to 0.22 s). The four `Proof.Bound` theorems the frontend's family readings
 rest on stay, exported, though no code calls them: the proof is the
@@ -1255,5 +1255,5 @@ now reads each place of a clause once, as Idris's case builder does: only
 a constructor, an arrow, a constant or a suspension tests; a computed
 literal (`fromInteger 3`) is a test not taken apart. The deleted `equated`
 was a second copy of what the clause holds. Guard:
-`tests/accept/erased-index-forced-index`, the clause and its with-block
+`tests/erased-index-forced-index`, the clause and its with-block
 form.

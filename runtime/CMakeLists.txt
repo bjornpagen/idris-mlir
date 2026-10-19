@@ -237,11 +237,11 @@ add_dependencies(idris_rt IdrRuntimeAbiIncGen)
 # Its bigs call GMP, so whatever links it links GMP.
 target_link_libraries(idris_rt INTERFACE ${IDRIS_MLIR_GMP})
 # The same number for the tests, which build parts of the runtime for
-# another page size and must not assume this one (tests/toolchain).
+# another page size and must not assume this one (tests/page-size-mismatch).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/page-size" CONTENT "${IDRIS_MLIR_PAGE_SIZE}\n")
 # What a C program that includes idris_rt.h is compiled with, one flag a
 # line: the runtime's include directories, the generated one among them,
-# from the one list above (tests/toolchain compiles against the ABI).
+# from the one list above (the runtime's tests compile against the ABI).
 list(TRANSFORM IDRIS_RT_INCLUDE_DIRECTORIES PREPEND "-I" OUTPUT_VARIABLE IDRIS_RT_C_FLAGS)
 list(JOIN IDRIS_RT_C_FLAGS "\n" IDRIS_RT_C_FLAGS_TEXT)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/c-flags" CONTENT "${IDRIS_RT_C_FLAGS_TEXT}\n")
@@ -249,7 +249,7 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/c-flags" CONTENT "${IDRIS_RT_
 # entry's symbol prefix is a separate fact): the copy and fill functions
 # every target calls, then the target entry's IDRIS_MLIR_CODEGEN_LIBRARY_CALLS
 # (what LLVM's code for the target calls beyond them). The e2e tests read it
-# (tests/lib/heap.sh) to allow a program's object exactly the calls its code
+# (harness/lib/heap.sh) to allow a program's object exactly the calls its code
 # generation makes, so the list lives in the target entry and nowhere else.
 set(IDRIS_MLIR_CODEGEN_SYMBOLS "")
 foreach(codegen_call memcpy memset memmove ${IDRIS_MLIR_CODEGEN_LIBRARY_CALLS})
@@ -257,7 +257,7 @@ foreach(codegen_call memcpy memset memmove ${IDRIS_MLIR_CODEGEN_LIBRARY_CALLS})
 endforeach()
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/codegen-symbols" "${IDRIS_MLIR_CODEGEN_SYMBOLS}")
 # The prefix the object format puts before a C name ("_" on Mach-O), which
-# a test takes off a symbol the linker tool prints (tests/lib/heap.sh).
+# a test takes off a symbol the linker tool prints (harness/lib/heap.sh).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/symbol-prefix"
 	CONTENT "${IDRIS_MLIR_SYMBOL_PREFIX}\n")
 
@@ -278,7 +278,7 @@ target_link_libraries(idris_rt_link_check PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,
 target_link_options(idris_rt_link_check PRIVATE ${IDRIS_MLIR_EXECUTABLE_FLAGS} ${IDRIS_MLIR_NO_UNWINDER})
 
 # The archive check with the target entry's spellings of the object format:
-# check-archive ARCHIVE [STAMP] (tests/toolchain/runtime-archive-check runs
+# check-archive ARCHIVE [STAMP] (tests/runtime-archive-check runs
 # it too).
 set(IDRIS_MLIR_CHECK_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/check-archive")
 list(JOIN IDRIS_MLIR_CONSTRUCTOR_SECTIONS " " IDRIS_MLIR_CONSTRUCTOR_SECTIONS_TEXT)

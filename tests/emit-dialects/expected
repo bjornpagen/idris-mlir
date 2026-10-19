@@ -1,0 +1,11 @@
+arith: built by IdrisMLIR.Dialect.Arith
+builtin: built by IdrisMLIR.Dialect.Builtin
+idr: built by IdrisMLIR.Dialect.Idr
+math: built by IdrisMLIR.Dialect.Math
+memref: built by IdrisMLIR.Dialect.MemRef
+tensor: built by IdrisMLIR.Dialect.Tensor
+ub: built by IdrisMLIR.Dialect.UB
+names of the dialects in Emit: none spelled by hand
+types and attributes: none spelled outside the syntax modules
+generated sums: each held by MLIR.idr
+generated sums: each sampled through its mnemonics

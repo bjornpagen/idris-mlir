@@ -1,4 +1,0 @@
-NEEDS-ACCEPTANCE: that idris-mlir, idris-mlir-opt and a program link the system's C library and nothing else shared, on every target: on Linux only glibc's libraries (libc.so.6, libm.so.6, the dynamic loader), on macOS only /usr/lib and /System/Library, never a shared libc++
-idris-mlir: the system's C library and nothing else
-idris-mlir-opt: the system's C library and nothing else
-start: the system's C library and nothing else

@@ -1,0 +1,212 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The compiler's C++ and the runtime terminate by structure, never by a
+# count, and nothing correct or accepted depends on an iteration limit. A
+# pass that only makes code better may stop at a budget, which is then a
+# named size policy: a spent one leaves the program less optimized, never
+# wrong or refused. What can be seen of that in a token of the C++ of
+# foreign/idr and runtime/ (comments and literals removed), outside the
+# policies:
+#   - an iteration limit: `maxIterations`, `setMaxIterations`,
+#     `maxNumRewrites`, `setMaxNumRewrites`, `kNoLimit`;
+#   - a loop that states no end: `for (;;)`, `while (true)`, `while (1)`.
+# And for the Idris side, compiler/src and libs: no module that is
+# covering, by `%default covering` or by stating no `%default total`, no
+# definition annotated `covering` or `partial`, and no `assert_total` or
+# `assert_smaller` in code. Whether a loop's bound is a count is no token,
+# so it is not searched here: Idris's totality checker holds the Idris
+# side, and every command a test runs times out, so a pass that does not
+# end fails the test that runs it. Each matcher runs on a planted file that
+# breaks it, which it must find.
+#
+# The only exceptions are the lines of tools/policies.txt, `path: text --
+# reason`, a finding at `path` on a line holding `text`: the size policies,
+# which bound growth, output or how long an optimization runs, never what
+# is correct or accepted, and the frontend's trust points. That file is
+# the list, reviewed where it changes: the output states that every finding
+# is one of its lines, never which, so removing a covering definition and
+# its line changes nothing here, and a new one is a line added there. An
+# annotation alone on its line is read with the line after it, so that a
+# policy names the definition, `covering name :`. Each must still be in
+# its file, so that whoever removes one removes its line.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cd "$root" || exit 1
+policies=tools/policies.txt
+
+find foreign/idr runtime -name build -prune -o -type f \
+  \( -name '*.cpp' -o -name '*.h' -o -name '*.c' -o -name '*.inc' \) -print | LC_ALL=C sort > "$work/sources"
+if [ -s "$work/sources" ]; then
+  say "sources: the C++ of foreign/idr and runtime searched"
+else
+  say "sources: no C++ found"
+fi
+# shellcheck disable=SC2046
+cpp_lex $(cat "$work/sources") > "$work/code"
+
+# The policies, as `path TAB text TAB reason`; a line not of that form is
+# a finding of its own.
+grep -v '^[[:space:]]*#' "$policies" | grep -v '^[[:space:]]*$' > "$work/policy-lines"
+awk '{
+    at = index($0, ": "); cut = at ? index(substr($0, at + 2), " -- ") : 0
+    if (cut) cut += at + 1
+    if (at == 0 || cut == 0 || cut == at + 2 || cut + 4 > length($0)) { print > "/dev/stderr"; next }
+    print substr($0, 1, at - 1) "\t" substr($0, at + 2, cut - at - 2) "\t" substr($0, cut + 4)
+  }' "$work/policy-lines" > "$work/policies" 2> "$work/malformed"
+# annotated: of Idris code as idris_lex writes it, `line:code`, each
+# definition annotated covering or partial, after its visibility if it has
+# one, as `line:code` with the visibility dropped and an annotation alone
+# on its line joined to the line after it, `covering name : ...`.
+annotated() {
+  awk '
+    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+    {
+      n = $0; sub(/:.*/, "", n)
+      code = $0; sub(/^[0-9]+:/, "", code); code = trim(code)
+    }
+    held != "" { print held " " code; held = ""; next }
+    code ~ /^((public[ \t]+)?export[ \t]+|private[ \t]+)?(covering|partial)([ \t]|$)/ {
+      sub(/^((public[ \t]+)?export[ \t]+|private[ \t]+)/, "", code)
+      if (code ~ /^(covering|partial)$/) held = n ":" code
+      else print n ":" code
+    }
+    END { if (held != "") print held }'
+}
+
+# A policy is still in its file when its text is, or, in Idris, when an
+# annotated definition is, as `annotated` writes it.
+: > "$work/stale"
+while IFS='	' read -r path text reason; do
+  if [ ! -f "$path" ]; then
+    say "  $path: $text" >> "$work/stale"
+  elif ! grep -F -q -- "$text" "$path"; then
+    case $path in
+      *.idr) idris_lex code "$path" | annotated | grep -F -q -- "$text" ;;
+      *) false ;;
+    esac || say "  $path: $text" >> "$work/stale"
+  fi
+done < "$work/policies"
+
+# cxx_findings: of C++ as cpp_lex writes it, the findings, as `kind TAB
+# path TAB line TAB code TAB what`.
+cxx_findings() {
+  awk '
+    function find(kind, what) { print kind "\t" f "\t" n "\t" text "\t" what }
+    {
+      f = $0; sub(/:.*$/, "", f)
+      text = substr($0, length(f) + 2); n = text; sub(/:.*$/, "", n); text = substr(text, length(n) + 2)
+      if (text ~ /(^|[^A-Za-z0-9_])for[ \t]*\([ \t]*;[ \t]*;[ \t]*\)/ || text ~ /(^|[^A-Za-z0-9_])while[ \t]*\([ \t]*(true|1)[ \t]*\)/)
+        find("endless", "a loop that states no end")
+      if (match(text, /(^|[^A-Za-z0-9_])(maxIterations|setMaxIterations|maxNumRewrites|setMaxNumRewrites|kNoLimit)([^A-Za-z0-9_]|$)/)) {
+        name = substr(text, RSTART, RLENGTH); gsub(/[^A-Za-z]/, "", name)
+        find("limits", "an iteration limit, " name)
+      }
+    }'
+}
+cxx_findings < "$work/code" > "$work/found-all"
+printf '%s\n' 'void planted(Config &c) { c.setMaxIterations(8); for (;;) {} }' > "$work/planted.cpp"
+cpp_lex "$work/planted.cpp" | cxx_findings | cut -f1 | LC_ALL=C sort -u | tr '\n' ' ' > "$work/planted-kinds"
+if [ "$(cat "$work/planted-kinds")" = "endless limits " ]; then
+  say "C++ witness: a planted limit and endless loop are found"
+else
+  say "C++ witness: the planted file's findings are $(cat "$work/planted-kinds")"
+fi
+
+# A finding a policy names is no finding. What is left is in the order of
+# the files and their lines.
+awk -F'\t' '
+  NR == FNR { n++; ppath[n] = $1; ptext[n] = $2; next }
+  {
+    for (j = 1; j <= n; j++) if (ppath[j] == $2 && index($4, ptext[j]) > 0) next
+    print $1 "\t" $2 "\t" $3 "\t" $5
+  }' "$work/policies" "$work/found-all" | LC_ALL=C sort -t '	' -k1,1 -k2,2 -k3,3n > "$work/found"
+
+# report KIND WHEN-NONE WHEN-SOME: the findings of one kind.
+report() {
+  if grep -q "^$1	" "$work/found"; then
+    say "$3:"
+    grep "^$1	" "$work/found" | awk -F'\t' '{ print "  " $2 ":" $3 ": " $4 }'
+  else
+    say "$2"
+  fi
+}
+report limits "iteration limits: none, no rewrite stops at a count of iterations" \
+  "iteration limits: a rewrite stops at a count"
+report endless "endless loops: none, every loop states when it ends" \
+  "endless loops: a loop states no end"
+if [ -s "$work/malformed" ] || [ -s "$work/stale" ]; then
+  say "policies: some are not each a line of its file with its reason:"
+  sed 's/^/  /' "$work/malformed"
+  cat "$work/stale"
+else
+  say "policies: each with its reason, and each still in its file"
+fi
+
+# The Idris side. trusted FILE CODE: a policy names that line of FILE.
+trusted() {
+  awk -F'\t' -v path="$1" -v code="$2" \
+    '$1 == path && index(code, $2) > 0 { found = 1 } END { exit !found }' "$work/policies"
+}
+find compiler/src libs -name build -prune -o -type f -name '*.idr' -print | LC_ALL=C sort > "$work/idris"
+if [ -s "$work/idris" ]; then
+  say "idris sources: compiler/src and libs searched"
+else
+  say "idris sources: none found"
+fi
+# idris_findings FILE: FILE's covering modules and definitions, on
+# $work/covering, and its assertions, on $work/asserted, each but those a
+# policy names.
+idris_findings() {
+  file=$1
+  idris_lex code "$file" > "$work/idris-code"
+  if grep -qE '^[0-9]+:%default[[:space:]]+(covering|partial)' "$work/idris-code"; then
+    grep -E '^[0-9]+:%default[[:space:]]+(covering|partial)' "$work/idris-code" |
+      sed "s|^\([0-9]*\):.*|  $file:\1: covering by default|" >> "$work/covering"
+  elif ! grep -qE '^[0-9]+:%default[[:space:]]+total' "$work/idris-code" &&
+     grep -qE '^[0-9]+:([a-z_][A-Za-z0-9_'"'"']*[[:space:]]+:([[:space:]]|$)|(export|public|private|data|record|interface|implementation)[[:space:]])' "$work/idris-code"; then
+    say "  $file: covering by Idris's default, with no %default total" >> "$work/covering"
+  fi
+  # A definition annotated covering or partial, which a policy names by
+  # `covering name :`, or is a finding.
+  annotated < "$work/idris-code" |
+    while IFS= read -r hit; do
+      line=${hit%%:*}
+      code=${hit#*:}
+      trusted "$file" "$code" || say "  $file:$line: a definition Idris checks only for coverage"
+    done >> "$work/covering"
+  grep -E '(^|[^A-Za-z0-9_'"'"'.])(assert_total|assert_smaller)([^A-Za-z0-9_'"'"']|$)' "$work/idris-code" |
+    while IFS= read -r hit; do
+      line=${hit%%:*}
+      code=${hit#*:}
+      trusted "$file" "$code" || say "  $file:$line: asserts what Idris does not check"
+    done >> "$work/asserted"
+}
+
+# The witness: a module of each kind of finding, which must all be found.
+printf '%s\n' 'module Planted' '%default covering' 'partial' 'planted : Nat -> Nat' 'planted n = assert_total (planted n)' > "$work/Planted.idr"
+: > "$work/covering"
+: > "$work/asserted"
+idris_findings "$work/Planted.idr"
+if [ "$(wc -l < "$work/covering" | tr -d ' ')" = 2 ] && [ -s "$work/asserted" ]; then
+  say "Idris witness: a planted covering module, partial definition and assertion are found"
+else
+  say "Idris witness: the planted module's findings are not all found:"
+  show "$work/covering" "$work/asserted"
+fi
+: > "$work/covering"
+: > "$work/asserted"
+while IFS= read -r file; do
+  idris_findings "$file"
+done < "$work/idris"
+if [ -s "$work/covering" ]; then
+  say "covering: some modules or definitions are not total:"
+  cat "$work/covering"
+else
+  say "covering: every module and definition is total but those a policy names"
+fi
+if [ -s "$work/asserted" ]; then
+  say "assertions: some assert totality where no policy names it:"
+  cat "$work/asserted"
+else
+  say "assertions: only where a policy names them"
+fi

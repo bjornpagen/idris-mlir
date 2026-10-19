@@ -402,12 +402,12 @@ Handoff:
   1. Your own edit, not a hub request, in `foreign/idr/lib/Analysis/Effects.cpp`: add `#include "idr/IR/Func.h"`. In `bodyOf`, replace the `!fn.getTotal()` and `holdsWorld` lines and the `MayCrashOpInterface` and `WorldNewOp` branches of the walk with `body.own = idr::bodyEffect(fn);`, keeping only the `idr::CallOp` branch in the walk. Point the comment above `bodyOf` at `bodyEffect`.
   2. `PINS.md`, `mlir-recursion`: in the workaround, say "idris-mlir runs the whole compilation, and idris-mlir-opt and idris-mlir-reduce their runs, on the runtime's reserved-stack runner", and delete "idris-mlir-reduce does not have it".
 - **Consumer fixtures (X1's; the coordinator routes them).** Each new fixture carries a first-line `NEEDS-ACCEPTANCE`. Give the full text for:
-  - a new `tests/idr/verify/effects.mlir` (`-split-input-file -verify-diagnostics`), with four chunks: IO under `none`; a crash callee under `none`; a non-total function declaring `none`; and a covered pair that verifies. Take op syntax from `tests/idr/effects/io.mlir` and `idr-effects.mlir`.
-  - a new `tests/idr/verify/con-owned-field.mlir`: an owned field verifies; a borrow field is refused with `field has type`.
+  - a new `tests/verify-effects/verify-effects.mlir` (`-split-input-file -verify-diagnostics`), with four chunks: IO under `none`; a crash callee under `none`; a non-total function declaring `none`; and a covered pair that verifies. Take op syntax from `tests/effects-io/effects-io.mlir` and `idr-effects.mlir`.
+  - a new `tests/verify-con-owned-field/verify-con-owned-field.mlir`: an owned field verifies; a borrow field is refused with `field has type`.
   - `tests/idr/verify/reduce-regions.mlir`: `// CHECK-NOT: arith.` and its comment rewritten.
 - **Breakage to report:**
-  - `tests/idr/dedup/keep-apart.mlir:18,22`: `@A.eff` and `@B.eff` declare no `diverge` without `total`, and need `total`.
-  - `tests/idr/canon/facts.mlir:36`: `@applies` declares `crash, diverge` over an `idr.apply`, and needs `io` too, or no attribute.
+  - `tests/dedup-keep-apart/dedup-keep-apart.mlir:18,22`: `@A.eff` and `@B.eff` declare no `diverge` without `total`, and need `total`.
+  - `tests/canon-facts/canon-facts.mlir:36`: `@applies` declares `crash, diverge` over an `idr.apply`, and needs `io` too, or no attribute.
   - `tests/idr/ownership/consumed-effects.mlir:20-24`: `@plain` stores a borrow into a con field, which every version of the rule refuses, so the fixture fails at parse.
 
 ## Common obligations (every lane)

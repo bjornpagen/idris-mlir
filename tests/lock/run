@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# toolchain.lock.json (schema 4) pins every tool by revision, repository,
+# version, and a tag or a `git describe`, within the series the configure
+# gate accepts (harness/Lock.idr).
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+"$runtests" --lock

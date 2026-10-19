@@ -1,0 +1,3 @@
+# Every recursion of the program is a loop or a guaranteed tail call once
+# idr-tail-calls has run: the stack stays constant whatever the input.
+idr-tail-calls: constant-stack=@$idris-mlir.root

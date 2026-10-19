@@ -104,7 +104,7 @@ Not built. The diff applies to the pristine pin and after every carried
 patch (`git apply --check`; its hunks are clear of patch 24's in the same
 two files), and `BufferizableOpInterface.cpp` passes `-fsyntax-only` with
 the typecheck build's compile command of the pin, the patched header first.
-`tests/upstream/one-shot-tensor-like-copy` checks that the pinned source
+`tests/upstream-one-shot-tensor-like-copy` checked that the pinned source
 still skips such an OpOperand.
 
 ## Upstreaming plan

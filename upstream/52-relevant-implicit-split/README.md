@@ -199,7 +199,7 @@ imports, so efe0ad36's compiler and tests are the base) built the same way
   it stood for, and 7 case blocks and local definitions that take the
   enclosing clause's new binder as an argument, or rebuild 53's `EState`.
   No run-time tree, and no definition's quantity or totality, changed;
-- on the 385 programs of `tests/programs`, `tests/accept` and
+- on the 385 programs then in `tests/programs`, `tests/accept` and
   `tests/reject`, the frontend's exit status, stdout, stderr, Core dump and
   bytecode are identical to the baseline's, against the baseline's prefix
   and against the one the changed frontend built;
@@ -241,8 +241,8 @@ the reproducers of 50 to 54 and `headsIn` print what they printed;
 prelude's and base's TTCs are byte-identical, and so are the fork's own
 but for the three modules edited and `TTImp.ProcessDecls`, whose import
 hashes record `checkLHS`'s new type; every module of the frontend's
-sources checks with the same output; 46 programs of tests/accept and
-tests/reject and the fixtures of upstream/21, 50, 51, 52, 53 and 54 give
+sources checks with the same output; 46 programs then in tests/accept
+and tests/reject and the fixtures of upstream/21, 50, 51, 52, 53 and 54 give
 the same status, output, Core and bytecode; the series applies in order
 to the pin (`git apply` too) and gives the fork's change, as above; and
 the pinned Idris typechecks the pin with 50, with 50 and 52, and with all
@@ -269,6 +269,6 @@ and the fork's change were written with one.
   quantity 0 keeps, the fork keeps that tree's order (`saved`): its frontend
   translates it, and its erased arguments are taken as variables.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/relevant-implicit-split` and the PINS.md entry go.
+  `tests/upstream-relevant-implicit-split` and the PINS.md entry go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

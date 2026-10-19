@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that a box built at Box Nat (Q b) and held by a dependent pair at Box Nat ( => Q b a) is one data instance, so the match on the box the pair holds sees the constructor build made and its Ord field (no unreachable alternative), compiles and runs, printing expected-stdout; and that what holds of every compilation holds of it (universal: holds)
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds

@@ -1,0 +1,59 @@
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops),idr-narrow))' -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=word-loop=@parity -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)),idr-expect{holds=word-loop=@parity})' -o /dev/null 2> %t.tagged.err
+// RUN: FileCheck %s --check-prefix=TAGGED < %t.tagged.err
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=word-loop=@count -o /dev/null 2> %t.count.err
+// RUN: FileCheck %s --check-prefix=COUNT < %t.count.err
+// A loop whose natural only descends to zero is versioned: one test on
+// entry that the natural is small, then a loop on words alone, with no tag
+// test and no call on bigs in it. Before idr-narrow the loop computes on
+// the natural. A sum that grows with every step is not proved small, and
+// stays a big, with its fast path inline.
+// TAGGED: error: expected word-loop: @parity computes on bigs in each of its loops
+// COUNT: error: expected word-loop: @count computes on bigs in each of its loops
+idr.program @descending root(@Main.main) stage(first) {
+  idr.func @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {total} {
+    %r = idr.match_lit %n : !idr.nat -> (i1) {
+    case #idr.big<0> {
+      idr.yield %odd : i1
+    }
+    default(%d: !idr.nat) {
+      %k = idr.big.pred %n
+      %true = arith.constant true
+      %flip = arith.xori %odd, %true : i1
+      %s = idr.call @parity(%k, %flip) : (!idr.nat, i1) -> i1
+      idr.yield %s : i1
+    }
+    }
+    return %r : i1
+  }
+  idr.func @count(%n: !idr.nat, %acc: !idr.nat) -> !idr.nat attributes {total} {
+    %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
+    case #idr.big<0> {
+      idr.yield %acc : !idr.nat
+    }
+    default(%d: !idr.nat) {
+      %k = idr.big.pred %n
+      %two = idr.constant !idr.nat #idr.big<2>
+      %more = idr.big.add %acc, %two : !idr.nat
+      %s = idr.call @count(%k, %more) : (!idr.nat, !idr.nat) -> !idr.nat
+      idr.yield %s : !idr.nat
+    }
+    }
+    return %r : !idr.nat
+  }
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
+    %c, %w1 = idr.io.get_byte %w
+    %n = idr.big.from_uint %c : i32 : !idr.nat
+    %false = arith.constant false
+    %p = idr.call @parity(%n, %false) : (!idr.nat, i1) -> i1
+    %zero = idr.constant !idr.nat #idr.big<0>
+    %k = idr.call @count(%n, %zero) : (!idr.nat, !idr.nat) -> !idr.nat
+    %pw = arith.extui %p : i1 to i64
+    %w2 = idr.io.put_sint %pw, %w1 : i64
+    %kb = idr.nat.to_big %k
+    %t = idr.big.show %kb
+    %w3 = idr.io.put_str %t, %w2
+    return %w3 : !idr.world
+  }
+}

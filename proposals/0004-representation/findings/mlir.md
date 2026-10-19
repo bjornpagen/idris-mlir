@@ -270,7 +270,7 @@ change the pipeline's output or its compile time says so under
 | Correction | idr-lower's signature pattern becomes ours under the same driver (`OpConversionPattern<func::FuncOp>` doing what `convertFuncOpTypes` does for a one-block body), and for each old input `i` writes the component facts at `getInputMapping(i)->inputNo + k` (`mlir/include/mlir/Transforms/DialectConversion.h:TypeConverter::SignatureConversion::getInputMapping`), as upstream's FuncToLLVM moves argument attributes across a 1:N signature (`mlir/lib/Conversion/FuncToLLVM/FuncToLLVM.cpp:propagateFunctionArgResAttrs`). With conversion-5 the facts depend on the type alone, and the pattern runs on the workers. |
 | Deletion | `Facts::apply`, `signatures` and its fill, the `program` member, the assert, `Lower.cpp:180,226` and the `populateFunctionOpInterfaceTypeConversionPattern` line: about 40 lines out, 25 in. |
 | Consumers | L07 (`Facts.h`, `Facts.cpp`), L08 (the two `Lower.cpp` lines). Lands with conversion-5. |
-| Discriminator | `tests/idr/lower/llvm-facts.mlir` prints the same attributes; a function whose memref parameter sits between two boxes keeps its facts on both pointers. |
+| Discriminator | `tests/lower-llvm-facts/lower-llvm-facts.mlir` prints the same attributes; a function whose memref parameter sits between two boxes keeps its facts on both pointers. |
 | Verification here | `make typecheck`; output unchanged by design (the owner's `make test-idr` checks it); compile time only improves (a serial walk moves onto the workers). |
 | Size and risk | Low. |
 | Insight | Do not recompute what the framework recorded. |
@@ -285,7 +285,7 @@ change the pipeline's output or its compile time says so under
 | Root cause | The patterns were adopted without the driver upstream runs them under; the users-first order `NarrowCmpI` needs was rebuilt by hand. |
 | Correction | `applyPatternsGreedily(function, patterns, GreedyRewriteConfig().setUseTopDownTraversal(false).enableFolding(false).setRegionSimplificationLevel(GreedySimplifyRegionLevel::Disabled).setListener(&listener))`, as upstream's own pass configures it (`mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp:IntRangeNarrowingPass::runOnOperation`); in `NarrowWords`, `applyOpPatternsGreedily(conversions, {}, GreedyRewriteConfig().setStrictness(GreedyRewriteStrictness::ExistingOps)...)` under the one fold action (`mlir/include/mlir/Transforms/GreedyPatternRewriteDriver.h`). The driver skips folding `ConstantLike` ops and erases trivially dead ones itself. |
 | Deletion | `Copy.cpp:134-163` and most of the comment; `Narrow.cpp:107-128`, `NarrowEraseAction`: about 55 lines out, 15 in. |
-| Consumers | L12 (`Narrow/**`); L13 (`tests/idr/actions/narrow.mlir`: the `idr-narrow-erase` counter goes). |
+| Consumers | L12 (`Narrow/**`); L13 (`tests/actions-narrow/actions-narrow.mlir`: the `idr-narrow-erase` counter goes). |
 | Discriminator | The vectorize fixtures keep their 32-bit lanes and `nneg` flags; the narrow fixtures keep their words; skipping the narrow actions still leaves the module unchanged. |
 | Verification here | `make typecheck`; NEEDS-OWNER-BUILD (visit order and constant placement can change printed IR). |
 | Size and risk | Low to medium. The driver stops at its iteration budget and the result is ignored, as AGENTS.md's budget rule asks: a spent budget leaves the copy less narrowed, never wrong. |
@@ -334,7 +334,7 @@ change the pipeline's output or its compile time says so under
 | Correction | `DataFlowSolver solver{DataFlowConfig().setInterprocedural(false)}` and `void visitExternalCall(CallOpInterface call, ...) override { visitCall(cast<CallOp>(call)); }` (`mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h:SparseBackwardDataFlowAnalysis::visitExternalCall`, which the base calls for every call when the solver is not interprocedural); in-tree precedent: Constants takes callee summaries through the forward hook (`Constants.h:40-50`). |
 | Deletion | `Escapes.cpp:153-156`, the clause at `:140-141`, the comment and the unused collection at `Escapes.h:69-71`. |
 | Consumers | L09 (`Escapes.h`, `Escapes.cpp`). |
-| Discriminator | `tests/idr/stack/expect.mlir` and the stack e2e fixtures unchanged. |
+| Discriminator | `tests/stack-expect/stack-expect.mlir` and the stack e2e fixtures unchanged. |
 | Verification here | `make typecheck`; NEEDS-OWNER-BUILD (the base also revisits a call when its results' states grow: idempotent, extra visits). |
 | Size and risk | About 7 lines. Low. |
 | Insight | The configuration states the rule. |
@@ -350,7 +350,7 @@ change the pipeline's output or its compile time says so under
 | Correction | Delete `Entry`; the root runs from outside because it is public (`mlir/include/mlir/IR/SymbolInterfaces.td:SymbolOpInterface::isPublic`). The same fact is `fn == root` in `Borrows.cpp:98,103,135-137` and in analysis-14's design; both read `fn.isPublic()`. |
 | Deletion | About 21 lines and one analysis class. |
 | Consumers | L10 (`ExclusivityAnalyses.cpp`, `Borrows.cpp`). |
-| Discriminator | `tests/idr/rc/exclusive.mlir` and the rc fixtures unchanged; a root with box parameters keeps them shared. |
+| Discriminator | `tests/rc-exclusive/rc-exclusive.mlir` and the rc fixtures unchanged; a root with box parameters keeps them shared. |
 | Verification here | `make typecheck`; output unchanged by construction. |
 | Size and risk | Trivial. |
 | Insight | One fact, stated once in the IR and read by upstream. |
@@ -360,7 +360,7 @@ change the pipeline's output or its compile time says so under
 
 | Field | Content |
 |---|---|
-| Evidence | `tests/idr/expect` (45 files): 59 runs `%status 1 idris-mlir-opt ... --idr-expect=... 2> %t.err`, matched by 111 `CHECK`/`CHECK-DAG: error: expected ...` lines with `{{.*}}` holes and no `file:line:col`, counted by 34 `grep ... \| count N` lines; 17 of its 37 `NEEDS-ACCEPTANCE` lines ask for exactly the place this cannot confirm (`calls.mlir:1`). Outside it, 63 negative idr-expect runs, 44 checking only the exit status. `tests/idr/specialize/binding-times.mlir:1-2` checks the remarks of `Specialize/Report.cpp:35` with location-free `CHECK-DAG: remark:`. `idris-mlir-opt` is `MlirOptMain` (`tools/idris-mlir-opt.cpp:102`), and 29 files in `tests/idr` already use `-verify-diagnostics`. |
+| Evidence | `tests/idr/expect` (45 files): 59 runs `%status 1 idris-mlir-opt ... --idr-expect=... 2> %t.err`, matched by 111 `CHECK`/`CHECK-DAG: error: expected ...` lines with `{{.*}}` holes and no `file:line:col`, counted by 34 `grep ... \| count N` lines; 17 of its 37 `NEEDS-ACCEPTANCE` lines ask for exactly the place this cannot confirm (`calls.mlir:1`). Outside it, 63 negative idr-expect runs, 44 checking only the exit status. `tests/specialize-binding-times/specialize-binding-times.mlir:1-2` checks the remarks of `Specialize/Report.cpp:35` with location-free `CHECK-DAG: remark:`. `idris-mlir-opt` is `MlirOptMain` (`tools/idris-mlir-opt.cpp:102`), and 29 files in `tests/idr` already use `-verify-diagnostics`. |
 | Counterexample | Move `Calls.cpp:63`'s error from the function to `module.getLoc()` and `calls.mlir` still passes; misspell `@changed` in `tail-calls/positions.mlir:3` and the run exits 1 for "names no function" and passes. |
 | Root cause | Expected diagnostics are matched as text in a captured stream, not as diagnostics at locations. |
 | Correction | Each negative run becomes `idris-mlir-opt %s [passes] --idr-expect=... -verify-diagnostics -o /dev/null` with `// expected-error @below {{...}}` at the op or function the property names (`@unknown` for a function with no file position); binding-times uses `expected-remark` (`mlir/include/mlir/IR/Diagnostics.h:SourceMgrDiagnosticVerifierHandler`; precedent `mlir/test/IR/test-side-effects.mlir`). Positive properties over pipeline dumps of Idris programs stay S26's table (they hold of every copy of `@f`, which no annotation at one line states). |
@@ -376,12 +376,12 @@ change the pipeline's output or its compile time says so under
 
 | Field | Content |
 |---|---|
-| Evidence | `lib/Transforms/Expect/Facts.cpp:51-67` (`factsAsMarked`) reads `op->getAttrOfType<StringAttr>("expect.facts")` (`:55`), skips unmarked ops (`:56`), and compares the mark with `answers(op, callees)`; 58 marks in 9 files (`tests/idr/effects/**`, `tests/idr/func/**`, `tests/idr/expect/facts.mlir`, `tests/idr/verify/attributes.mlir`); a failing case is built by `sed` rewriting a mark (`effects/queries.mlir:2-4`). |
+| Evidence | `lib/Transforms/Expect/Facts.cpp:51-67` (`factsAsMarked`) reads `op->getAttrOfType<StringAttr>("expect.facts")` (`:55`), skips unmarked ops (`:56`), and compares the mark with `answers(op, callees)`; 58 marks in 9 files (`tests/idr/effects/**`, `tests/idr/func/**`, `tests/expect-facts/expect-facts.mlir`, `tests/verify-attributes/verify-attributes.mlir`); a failing case is built by `sed` rewriting a mark (`effects/queries.mlir:2-4`). |
 | Counterexample | An op erased or rebuilt without its discardable attributes before the check carries no mark and the property holds, so a module with no marks passes; and the marks change the IR under test (`OperationEquivalence` compares attribute dictionaries, `mlir/lib/IR/OperationSupport.cpp`), so the `--cse` runs of `effects/div.mlir:2` and `func/call-effects.mlir:2` see ops the test altered. |
 | Root cause | The expected answer is stored in the IR under test instead of in the test's text: a fact in a discardable attribute. |
 | Correction | A test pass `test-idr-facts`, registered by `idris-mlir-opt` alone (as `test-idr-break-contract` is), emits `op.emitRemark() << "facts: " << answers(op, callees)` for every op in a function body; each op a test asks about gets `// expected-remark @below {{facts: move delay}}`, run with `-verify-diagnostics=only-expected` (`mlir/test/lib/IR/TestSideEffects.cpp` with `mlir/test/IR/test-side-effects.mlir` is upstream's form). |
 | Deletion | `factsAsMarked`'s mark read and compare, its row in `Lookup.cpp` and `Expect.h` (one row fewer in S26's table); the 58 marks; the 9 `sed`/`CLEAN:`/count RUN lines; `verify/attributes.mlir`'s two marks. |
-| Consumers | L14 (`Expect/**`, `tests/idr/expect/**`); handoffs to L03 (`tests/idr/effects/**`, `tests/idr/func/**`), L15 (`tests/idr/verify/attributes.mlir`), L18 (the registration in `tools/idris-mlir-opt.cpp`). |
+| Consumers | L14 (`Expect/**`, `tests/idr/expect/**`); handoffs to L03 (`tests/idr/effects/**`, `tests/idr/func/**`), L15 (`tests/verify-attributes/verify-attributes.mlir`), L18 (the registration in `tools/idris-mlir-opt.cpp`). |
 | Discriminator | An expectation on an op `--idr-effects` erases: passes today (the mark goes with the op), fails after ("expected remark ... was not produced"); `grep -c expect.facts tests` is 0. |
 | Verification here | `make typecheck` compiles the test pass; the fixtures run on the owner's build. |
 | Size and risk | About 20 C++ lines; low. |

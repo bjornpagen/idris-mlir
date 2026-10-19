@@ -3,15 +3,15 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Runs the benchmarks (make bench): each program built by this compiler, by
 # the stock Idris Chez backend (the same source), and by the pinned clang -O2
-# (bench/c; linked as our programs are, with the flags idris-mlir
-# --print-link-flags names for the target), on the same input. clang
-# compiles for the CPU this compiler targets (idris-mlir
-# --print-target-cpu), and without floating-point contraction, which this
-# compiler never does:
-# the columns compare compilers, not instruction sets or rounding. Prints
+# (the main.c beside it; linked as our programs are, with the flags
+# idris-mlir --print-link-flags names for the target, GMP among them), on
+# the same input. clang compiles for the CPU this compiler targets
+# (idris-mlir --print-target-cpu), and without floating-point contraction,
+# which this compiler never does: the columns compare compilers, not
+# instruction sets or rounding. Prints
 # what it ran on (the host, its CPU, the stack limit and every compiler's
 # version) on stderr, checks that this compiler's and clang's outputs agree
-# with the reference, and then prints bench/report.sh's results: the best
+# (agree, below), and then prints bench/report.sh's results: the best
 # of several wall-clock times per compiler and the wall-clock time this
 # compiler took to compile each program. The Chez column is a time and
 # nothing more: its output is never compared, since what Chez prints is no
@@ -22,8 +22,9 @@
 #
 # With --record, the run's record (every timed run, the compile times and
 # what it ran on; bench/report.sh describes it) is kept in DIR, with the
-# results and charts made from it, once every compared output has agreed: a
-# run that fails leaves no record.
+# results and charts made from it, once every benchmark has built with this
+# compiler and with clang and their outputs have agreed: a run that fails
+# leaves no record.
 #
 # Times come from now_ns (tools/host.sh). Every program runs with the
 # largest stack the system allows (stack_max: unlimited on Linux, the hard
@@ -47,26 +48,18 @@ fi
 host_packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir) || exit 1
 bench=$root/bench
 labels='this compiler|Idris Chez|clang -O2'
-# The columns whose output is held to the reference: a compiler of the
-# program's meaning (this one) and the rebuild of the program in C. The
-# Chez column is timed only.
-compared='this compiler|clang -O2'
 
-# A benchmark is a directory bench/<name>/ holding Main.idr and one of
+# A benchmark is a directory bench/<name>/ holding Main.idr, main.c (the
+# same program in C, or a link to the main.c of the program it ports), and
+# one of
 #   input       its stdin, given literally (a number, usually);
 #   input-from  "<generator> <argument>": its stdin is what the C version of
 #               the benchmark <generator> prints for <argument>, as the
 #               benchmarks game feeds fasta's output to k-nucleotide;
-# and optionally
-#   compare     "bytes" when every output must equal the reference byte
-#               for byte; otherwise they must print the same numbers;
-#   libs        linker flags the C version needs (-lgmp);
-#   packages    installed Idris packages the program uses (those of libs/),
-#               for this compiler and for Chez alike;
-#   reference   the name of another benchmark whose C version is this one's
-#               reference (fannkuch-linear's is fannkuch-redux).
-# The C version is bench/c/<name>.c; a missing one is skipped. Every input
-# is large enough that start-up does not matter.
+# and, where it uses libs/,
+#   packages    the installed Idris packages the program uses, for this
+#               compiler and for Chez alike.
+# Every input is large enough that start-up does not matter.
 all=$(cd "$bench" && for d in */; do [ -f "$d/Main.idr" ] && { [ -f "$d/input" ] || [ -f "$d/input-from" ]; } && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')
 
 die() {
@@ -160,7 +153,8 @@ idris_sources() {
 }
 
 # build LABEL: the command that runs the benchmark built one way, in $cmd,
-# or nothing if that compiler is missing or failed; a failure is reported.
+# or nothing if that compiler has no build of it (Chez, for a program over
+# mlir-array) or failed; a failure is reported.
 build() {
   cmd=
   missing=
@@ -185,13 +179,10 @@ build() {
         > "$work/build.log" 2>&1 && cmd=$work/chez/build/exec/prog
       ;;
     'clang -O2')
-      if [ ! -f "$bench/c/$reference.c" ]; then missing=yes; return; fi
-      libs=
-      [ -f "$bench/$name/libs" ] && libs=$(cat "$bench/$name/libs")
-      # shellcheck disable=SC2086 # libs and link_flags hold flags, split on spaces
+      # shellcheck disable=SC2086 # link_flags holds flags, split on spaces
       bounded "$pinned_cc" -O2 -Xclang -target-cpu -Xclang "$target_cpu" -ffp-contract=off \
-        "$bench/c/$reference.c" \
-        -o "$work/$name-c" $link_flags -lm $libs > "$work/build.log" 2>&1 &&
+        "$bench/$name/main.c" \
+        -o "$work/$name-c" $link_flags -lm > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c
       ;;
   esac
@@ -221,57 +212,79 @@ timed() {
   done
 }
 
-# agree A B: the two outputs print the same numbers, to 1e-9.
+# agree A B: the two outputs are the same text, where a number either
+# writes with a point or an exponent is read as a number and held to 1e-9
+# (of itself, or absolutely below 1): a double prints in Idris as the
+# shortest text that reads back, in C as printf writes it. Every other
+# byte, an integer's digits included, is the same in both. An output with
+# a NUL byte (a PBM image) agrees only byte for byte.
 agree() {
-  awk '
-    function numbers(file, list,   line, n, count) {
+  cmp -s "$1" "$2" && return 0
+  for agree_file in "$1" "$2"; do
+    [ "$(LC_ALL=C tr -d '\000' < "$agree_file" | wc -c)" -eq "$(wc -c < "$agree_file")" ] || return 1
+  done
+  # The lines below are read without their ends: the last byte says
+  # whether the last line has one.
+  [ "$(tail -c 1 "$1" | od -An -c)" = "$(tail -c 1 "$2" | od -An -c)" ] || return 1
+  LC_ALL=C awk '
+    # The file as tokens: per line, its text between numbers and each
+    # number, then the rest of the line with its end.
+    function tokens(file, token, number,   line, count) {
       count = 0
       while ((getline line < file) > 0) {
-        gsub(/~/, "-", line)
-        while (match(line, /-?[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?/)) {
-          list[++count] = substr(line, RSTART, RLENGTH) + 0
+        while (match(line, /-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?/)) {
+          token[++count] = substr(line, 1, RSTART - 1); number[count] = 0
+          token[++count] = substr(line, RSTART, RLENGTH); number[count] = 1
           line = substr(line, RSTART + RLENGTH)
         }
+        token[++count] = line "\n"; number[count] = 0
       }
       close(file)
       return count
     }
     function abs(x) { return x < 0 ? -x : x }
+    function integer(s) { return s !~ /[.eE]/ }
     BEGIN {
-      n = numbers(ARGV[1], xs); m = numbers(ARGV[2], ys)
+      n = tokens(ARGV[1], xs, xn); m = tokens(ARGV[2], ys, yn)
       if (n != m) exit 1
-      for (i = 1; i <= n; i++)
-        if (abs(xs[i] - ys[i]) > 1e-9 * (abs(xs[i]) > 1 ? abs(xs[i]) : 1)) exit 1
+      for (i = 1; i <= n; i++) {
+        if (xn[i] != yn[i]) exit 1
+        if (!xn[i] || (integer(xs[i]) && integer(ys[i]))) {
+          if (xs[i] != ys[i]) exit 1
+          continue
+        }
+        x = xs[i] + 0; y = ys[i] + 0
+        if (abs(x - y) > 1e-9 * (abs(x) > 1 ? abs(x) : 1)) exit 1
+      }
       exit 0
     }' "$1" "$2"
 }
 
+unbuilt=
 for name in $names; do
   [ -f "$bench/$name/Main.idr" ] || die "unknown benchmark: $name"
+  [ -f "$bench/$name/main.c" ] || die "$name: no main.c"
   work=$tmp/$name
   mkdir "$work"
   packages=
   if [ -f "$bench/$name/packages" ]; then
     for package in $(cat "$bench/$name/packages"); do packages="$packages -p $package"; done
   fi
-  reference=$name
-  [ -f "$bench/$name/reference" ] && reference=$(cat "$bench/$name/reference")
   if [ -f "$bench/$name/input" ]; then
     stdin=$(cat "$bench/$name/input")
     printf '%s' "$stdin" > "$work/stdin"
   elif [ -f "$bench/$name/input-from" ]; then
     stdin=$(cat "$bench/$name/input-from")
     set -- $stdin
+    [ -f "$bench/$1/main.c" ] || die "$name: the generator $1 has no main.c"
     # shellcheck disable=SC2086 # link_flags holds flags, split on spaces
-    bounded "$pinned_cc" -O2 "$bench/c/$1.c" -o "$work/generator" $link_flags -lm ||
+    bounded "$pinned_cc" -O2 "$bench/$1/main.c" -o "$work/generator" $link_flags -lm ||
       die "$name: the generator $1 failed to build"
     printf '%s' "$2" | bounded "$work/generator" > "$work/stdin" ||
       die "$name: the generator $1 failed"
   else
     die "$name: no input or input-from"
   fi
-  compare=numbers
-  [ -f "$bench/$name/compare" ] && compare=$(cat "$bench/$name/compare")
   echo "$name" >&2
   IFS='|'
   set -- $labels
@@ -280,33 +293,26 @@ for name in $names; do
     build "$label"
     [ -z "$cmd" ] || timed "$cmd" "$work/$label.out"
   done
-  reference="$work/this compiler.out"
-  [ -f "$reference" ] || reference="$work/clang -O2.out"
-  [ -f "$reference" ] || die "$name: neither this compiler nor clang built anything to compare with"
-  IFS='|'
-  set -- $compared
-  unset IFS
-  for label; do
-    out=$work/$label.out
-    [ -f "$out" ] || continue
-    if [ "$compare" = bytes ]; then
-      # The whole check is byte for byte; outputs may be binary (a PBM
-      # image), which the number comparison below must not parse.
-      cmp -s "$out" "$reference" ||
-        die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
-    else
-      # Each compared column is held to the numbers alone: a run needs
-      # programs that compute the same thing, and whether a text is right
-      # is for the tests to say.
-      agree "$out" "$reference" ||
-        die "$name: $label printed $(head -c 200 "$out"), the reference $(head -c 200 "$reference")"
-    fi
-  done
+  # This compiler's output is held to clang's, the program rebuilt in C.
+  # Either one not building fails the run, which goes on to measure the
+  # rest; the Chez column is timed only.
+  ours="$work/this compiler.out"
+  theirs="$work/clang -O2.out"
+  if [ -f "$ours" ] && [ -f "$theirs" ]; then
+    agree "$ours" "$theirs" ||
+      die "$name: this compiler's output and clang's disagree: $(cmp "$ours" "$theirs" | head -n 1)"
+  else
+    unbuilt="$unbuilt $name"
+  fi
 done
 
-# Every compared output agreed: the record is complete, and what it shows
-# is bench/report.sh's.
+# Every compared output agreed, and the record is complete unless a
+# benchmark did not build; what it shows is bench/report.sh's.
 sh "$bench/report.sh" "$record" > /dev/null || die "bench/report.sh failed on the record"
+if [ -n "$unbuilt" ]; then
+  cat "$record/results.md"
+  die "not built by this compiler or clang, so not compared and no record kept:$unbuilt"
+fi
 if [ -n "$keep" ]; then
   mkdir -p "$keep" && cp "$record"/* "$keep"/ || die "cannot keep the record in $keep"
 fi

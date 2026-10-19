@@ -1,0 +1,7 @@
+named-sequence: the payload bufferizes and the sequence is left as it is
+no-return: a function that never returns bufferizes, and so does its caller
+recursive-read: the recursive call is given the argument itself
+recursive-result: each level writes what the level below returns in place
+non-writable-result: the caller writes a copy of the constant the callee returns
+definite-alias: the caller writes the call result in place
+symbol-table: the elimination sees the call's boundary on a gpu.module

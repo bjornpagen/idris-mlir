@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that a read at the size of a grown vector, inside its capacity, is refused by the checked conversion of its index (Nothing, printed as out of range) rather than ending the program, and that every check of the expected file holds
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds

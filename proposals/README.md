@@ -46,7 +46,7 @@ googletest boxes, and the Idris machinery and frontend on Chez.
 never finished: the frontend on Chez emitted the whole of itself and the
 fork (58,236 functions) with no refusal, and the C++ pipeline of the time,
 its Simplify rounds, did not finish on that module (F0,
-`bench/profiles/2026-10-14-f0-stage0.md`). The cutover deleted the rounds;
+`bench/records/2026-10-14-f0-stage0.md`). The cutover deleted the rounds;
 nothing has measured the new pipeline on the self module. 0003 is the
 plan. Its S1, the frontend's refusal sweep, runs here; S3 to S5 are the
 owner's machines.
@@ -55,7 +55,7 @@ owner's machines.
 integrated 2026-10-17): option C of 0003 §7, a growth graph over the
 program's finite type flow that refuses only a type grown without bound,
 with its proof in Idris. The self compile's frontend step passes it with
-no patch (0003's S2.2, `bench/profiles/2026-10-17-self-growth.md`).
+no patch (0003's S2.2, `bench/records/2026-10-17-self-growth.md`).
 
 **The chain, in order:** the owner's build of 0001 and 0002 (HANDOFF.md
 lists it); 0003, self-hosting, S1 and S2 here, then S3 to S5; 0004, the

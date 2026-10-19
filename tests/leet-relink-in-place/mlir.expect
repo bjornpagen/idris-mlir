@@ -1,0 +1,8 @@
+# Every list is built, taken apart and rebuilt in its own cells, all of
+# them linear: reversing, counting and appending reuse every cell they
+# take apart, and neither they nor unlinking a node test or count a
+# reference.
+idr-rc-exclusive: tests-nothing=@Main.rev counts-nothing=@Main.rev reuses-in-place=@Main.rev
+idr-rc-exclusive: tests-nothing=@Main.countRev counts-nothing=@Main.countRev reuses-in-place=@Main.countRev
+idr-rc-exclusive: tests-nothing=@Main.app counts-nothing=@Main.app reuses-in-place=@Main.app
+idr-rc-exclusive: tests-nothing=@Main.removeAt

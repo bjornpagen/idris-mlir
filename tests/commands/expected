@@ -1,0 +1,8 @@
+Makefile: every documented command is a target
+witness: a documented command with no target is found
+AGENTS.md: every command it names is documented
+tools/bootstrap.sh
+doctor reports the pinned cmake
+doctor reports the pinned ninja
+doctor reports the pinned llvm
+doctor reports the pinned sysroot

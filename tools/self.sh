@@ -49,7 +49,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 # Each half is stopped after its limit, in seconds, so that a half that
 # does not end (a translation that grows without bound) cannot hold the
 # machine for hours. The frontend's is about five times the 345 s the self
-# compile's frontend took on Chez (bench/profiles/2026-10-17-self-growth.md,
+# compile's frontend took on Chez (bench/records/2026-10-17-self-growth.md,
 # measured on the typecheck machine), and debt for stages 2 and 3: the
 # frontend idris-mlir compiles has never run.
 frontend_limit=1800
@@ -64,7 +64,7 @@ mkdir -p "$self"
 
 # half NAME LIMIT CMD...: CMD, half NAME of stage $n, under its own
 # peak_memory and timeout: stopped after LIMIT seconds and killed 10 s
-# later if it has not ended (the grace tests/testutils.sh gives every test
+# later if it has not ended (the grace harness/testutils.sh gives every test
 # run). Its output is $out/NAME-stdout and $out/NAME-stderr, the most
 # memory it held resident $out/NAME-kib. It prints how it ended; one that
 # failed ends the run, with the last 30 lines of its stderr.

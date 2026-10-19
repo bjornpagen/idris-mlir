@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that erased definitions whose clauses leave their list index to the elaborator are accepted as covering under %default total, compute in types, and the program compiles and runs; and that what holds of every compilation holds of it (universal: holds); the artifacts line is the kinds lib/compile.sh names
-compile: exit 0
-artifacts: core module objects executable
-universal: holds
-run: exit status as expected
-stdout: as expected
-stderr: empty

@@ -1,0 +1,3 @@
+# The modules of the stock prelude with no program yet that uses each of
+# their run-time exports (a program of tests/ marked `covers`). This
+# list only shrinks.

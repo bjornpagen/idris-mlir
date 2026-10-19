@@ -74,7 +74,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Deletion | `Callee`, `mistyped`, both "called as X and as Y" internal errors (`Runtime.cpp:203-207`, `:296-300`), the width-guessed `zeroext` (`:271-280`, now from the C kind), `perform` and the string-typed `call`, the hand `require` of `caf_release`, Entry's `runtimeFunction` helper and its two hand types, the hand-written prototypes in `runtime/idris_rt.h` for the generated functions, and the hand types at the 19 call sites. |
 | Consumers | `include/idr/IR/IdrBase.td` (or a new `IdrRuntime.td`), `tools/idris-mlir-tblgen.cpp`, generated headers, `runtime/idris_rt.h` and the runtime definitions it declares, `include/idr/Conversion/Runtime.h`, `lib/Conversion/{Runtime,RuntimeCells,Arrays,Counting,Elements,Checks,Memrefs,Strings,Entry}.cpp`. |
 | Discriminator | The runtime does not compile when a definition disagrees with the generated prototype (as D9 made true for op functions); a call site passing the wrong argument type fails the assertion in `Runtime::call` instead of producing a second declaration type. Lowered declarations are identical on `tests/idr/lower/{entry,io,counting,static-thunk}.mlir`. |
-| Verification here | `make typecheck` (generator, C++); the runtime and `tests/toolchain/runtime-api` build with host clang. Behaviour is the owner's build. |
+| Verification here | `make typecheck` (generator, C++); the runtime and `tests/runtime-api` build with host clang. Behaviour is the owner's build. |
 | Size and risk | About 45 lines and 8 guards go, 19 call sites simplify. Low to medium risk: the runtime header and generator change together. Essential and kept: `idris_rt_crash`'s `cold` at its call, and `idris_rt_array_new`'s `noalias` result, which could become table data too. |
 | Insight | 6, 7, 16-limit noted (the C header stays the definition's home, generated) |
 
@@ -120,7 +120,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Root cause | Absence of a cell is represented by null, a value outside the type "pointer to a cell" (Hoare's null), so every fact about cell pointers needs a proof that no null reaches it. |
 | Correction | A null object: poison of a cell-pointer component lowers to the address of one persistent static cell, `nothing` (a header of count 0, a box's info with no object slots), written once by `StaticData`. Counting already ignores it (count 0 is persistent in `runtime/Rc/Rc.h:31,63-78`, and `StaticData::isStatic` skips the address at the call). Other counted components (a big's word, a sum's slot, an array's cell) keep the runtime's empty value. Facts then reads each function's idr signature after phase 0 from the `func.func`, keyed by the op. |
 | Deletion | `Facts::poisoned`, the constructor's walk, `labelFunction`, `mayBeNull`, the mangling in Facts, and the ordering constraint that builds Facts before phase 0 (`Lower.cpp:180`). |
-| Consumers | `lib/Conversion/{Cells,StaticData,Facts,Lower}.cpp`, `include/idr/Conversion/{Facts,StaticData}.h`, `tests/idr/lower/llvm-facts.mlir` (kept as a text contract by 0002 R2). |
+| Consumers | `lib/Conversion/{Cells,StaticData,Facts,Lower}.cpp`, `include/idr/Conversion/{Facts,StaticData}.h`, `tests/lower-llvm-facts/lower-llvm-facts.mlir` (kept as a text contract by 0002 R2). |
 | Discriminator | `llvm-facts.mlir` gains a function whose parameter one caller passes poison: before, no `llvm.nonnull` on it; after, the three facts. An e2e program whose tail loop forwards poison runs with `idris_rt_live_cells` back at its start. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 40 lines and 7 branches go; one static global is added. Medium risk: lowered code changes (an address where a null was), and a field read of `nothing` on a dead path must stay dead, which it is by poison's meaning. |
@@ -168,7 +168,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Root cause | The root's kind is a fact of the program decided by a predicate that returns a bool, so the entry re-derives it from a lowered shape; the lowered stage states only one of the facts idr-entry relies on. |
 | Correction | `enum class RootKind {Status, IO}` returned by one `rootKind(FunctionType)` in `lib/IR` that admits exactly `() -> i64` and `(!idr.world) -> !idr.world`; the lowered stage's verifier holds the lowered forms (`() -> i64` or `() -> ()`) and the presence of `@__idr_release_cafs`, named by one constant both passes read. idr-entry reads the kind and builds `@main`. |
 | Deletion | Entry's three internal errors (`:40-44`, `:111-115`, `:127-130`), the second `status` predicate, the two literals of the release function's name. `@main`'s own collision check stays (a C name). |
-| Consumers | `lib/IR/Verify/Program.cpp`, an IR header for `RootKind` and the name, `lib/Conversion/{Entry,Runtime}.cpp`, `tests/idr/verify/` (a new refusal fixture), `tests/idr/lower/entry.mlir`. |
+| Consumers | `lib/IR/Verify/Program.cpp`, an IR header for `RootKind` and the name, `lib/Conversion/{Entry,Runtime}.cpp`, `tests/idr/verify/` (a new refusal fixture), `tests/lower-entry/lower-entry.mlir`. |
 | Discriminator | The IO root with an `i64` result is refused by the verifier, before any pass; today it verifies and silently changes the exit status. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 15 lines and 3 internal errors go; one latent wrong program is ruled out. Low risk. |
@@ -200,7 +200,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Root cause | The comparison chain starts at the match's own position, so its first link differs from the others and the empty chain has nowhere to start. |
 | Correction | A sentinel: the chain is built inside one `scf.execute_region` made at the match, every link (the first included) yields its `scf.if`'s results into the block before it, and the empty chain is the default's body alone; canonicalization and scf-to-cf inline the region. |
 | Deletion | The `cases == 0` disjunct, `if (!integer)`, both `if (previous)`, and `first`. |
-| Consumers | `lib/Conversion/Matches.cpp`, `tests/idr/lower/match-lit.mlir`. |
+| Consumers | `lib/Conversion/Matches.cpp`, `tests/lower-match-lit/lower-match-lit.mlir`. |
 | Discriminator | A caseless string match lowers with no `scf.index_switch`; `match-lit.mlir`'s programs return the same results. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 10 lines and 4 branches. Low risk. Essential and kept: integer keys through `scf.index_switch`, string and big keys through comparisons. |
@@ -216,7 +216,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Root cause | "Where in the source is this location" is defined twice. |
 | Correction | `describe` is `loc->findInstanceOf<FileLineColRange>()`, formatted. |
 | Deletion | The four-arm ladder and its recursion. |
-| Consumers | `lib/Conversion/Runtime.cpp`, `tests/idr/lower/crash.mlir`. |
+| Consumers | `lib/Conversion/Runtime.cpp`, `tests/lower-crash/lower-crash.mlir`. |
 | Discriminator | A crash at a call-site location whose callee is unknown names the caller's file and line. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 15 lines, 4 branches. Low risk. |
@@ -259,12 +259,12 @@ LLVM's call lowering), and from the target entry's feature list
 | Field | Content |
 |---|---|
 | ID | conversion-14 |
-| Evidence | `StaticData.cpp:77-92` (`ConstantArray::of`: alignment above a word is an internal error) and `Arrays.cpp:61-67` (`LowerAlloc`: a non-identity layout and an alignment above a word are internal errors); `tests/idr/lower/internal-errors.mlir` exercises one. The comment there says bufferization never asks for more. |
+| Evidence | `StaticData.cpp:77-92` (`ConstantArray::of`: alignment above a word is an internal error) and `Arrays.cpp:61-67` (`LowerAlloc`: a non-identity layout and an alignment above a word are internal errors); `tests/lower-internal-errors/lower-internal-errors.mlir` exercises one. The comment there says bufferization never asks for more. |
 | Counterexample | `memref.alloc {alignment = 64}` verifies, survives every pass, and is refused as an internal error in the middle of idr-lower's parallel conversion. |
 | Root cause | A rule of the owned stage (a buffer is a runtime cell: identity layout, at most word-aligned) is held as two pattern-time checks. |
 | Correction | The owned stage's verifier (`lib/IR/Verify/Program.cpp`, beside its data-layout rule) holds it for every `memref.alloc` and `memref.global` of the program. `ConstantArray::of` keeps parsing what makes a global a constant array (constant, elements, words). |
 | Deletion | Two internal errors in `LowerAlloc`, the alignment branch in `ConstantArray::of`. |
-| Consumers | `lib/IR/Verify/Program.cpp`, `lib/Conversion/{Arrays,StaticData}.cpp`, `tests/idr/lower/internal-errors.mlir` (its second case moves to `tests/idr/verify/`). |
+| Consumers | `lib/IR/Verify/Program.cpp`, `lib/Conversion/{Arrays,StaticData}.cpp`, `tests/lower-internal-errors/lower-internal-errors.mlir` (its second case moves to `tests/idr/verify/`). |
 | Discriminator | The over-aligned allocation is refused by the verifier before any pass. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 10 lines, 3 checks. Low risk. |

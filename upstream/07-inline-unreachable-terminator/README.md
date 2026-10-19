@@ -132,7 +132,7 @@ to `shouldInline` and counts a declined fast path as needing new blocks;
 `UBOps.cpp` declines it for `ub.unreachable` and keeps the op in the
 multi-block hook; `DialectInlinerInterface.td` documents which dialect the
 hook is asked of. Tests in `mlir/test/Transforms/inlining.mlir`.
-`tests/upstream/inline-unreachable-terminator` checks `never.mlir`.
+`tests/upstream-inline-unreachable-terminator` checks `never.mlir`.
 
 Verified while the pin was llvmorg-23.1.2: the 23.1.2 version applied
 to that tree and this diff to `main` (`git apply --check`). Against

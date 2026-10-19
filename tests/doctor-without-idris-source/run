@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# make doctor reports a missing Idris checkout, and does not fail.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mkdir "$work/empty"
+IDRIS_MLIR_IDRIS_SOURCE=$work/empty "$root/tools/doctor.sh" > "$work/out" 2>&1
+say "doctor: exit $?"
+grep '^Idris source:' "$work/out"

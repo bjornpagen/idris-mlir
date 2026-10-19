@@ -49,7 +49,7 @@ The owner's run, in order, on each target:
    About 111 tests fail by construction until accepted (their expected
    file starts with `NEEDS-ACCEPTANCE:`); `tests/ACCEPTANCE.md` lists 439
    files owed acceptance, each with what to confirm. Wave-wide fixture
-   spellings in tests/idr are being rewritten in follow-up commits.
+   spellings in the dialect fixtures are being rewritten in follow-up commits.
 4. `make self-fork`, then `tools/self.sh 1`: the frontend half (measured
    345 s, 5.6 GB here before the wave) writes the self module and keeps
    it; the pipeline half runs on it for the first time ever. Watch first:
@@ -59,10 +59,10 @@ The owner's run, in order, on each target:
    only. Then `make self`, stages 1 to 3, stage 2 equal to stage 3.
 
 Known owed, which the build will show (each to accept or fix there):
-- `tests/reject/*/expected`: the frontend no longer prints a refusal; the
+- the refused programs' `expected`: the frontend no longer prints a refusal; the
   driver prints each from the module's `#idr.refusal` (S25), so the
   transcripts' refusal lines may change form.
-- `tests/idr/tie-shape/verify.mlir` was already out of date before the
+- `tests/tie-shape-verify/tie-shape-verify.mlir` was already out of date before the
   wave (its expected texts are not the verifier's).
 - Lane L18's toolchain tests (`runtime-container`, `runtime-prepared`)
   and the spec test `driver-shape` are written from its handoff, unrun.
@@ -91,18 +91,18 @@ regression and three silent miscompiles that HEAD already had. Each has its
 fixture, marked for acceptance:
 - The cleanup's regression (3fc4d2e4): a runtime implicit the unifier
   computed left its clause covering nothing, so erased indices reached run
-  time (`tests/accept/erased-index-forced-index`).
+  time (`tests/erased-index-forced-index`).
 - Method markers (3e8ea8f2): a method's runtime arguments, passed through
   Idris's normaliser as bound machine names, were captured as the field's
   own binders. In the self compile, 226 calls took a value where its `Ref`
   goes, `quote` and every TTC writer among them
-  (`tests/programs/interfaces/method-runtime-implicits`).
+  (`tests/method-runtime-implicits`).
 - Instance identities (3934cc0c): one type reached two identities, through a
   lambda's domain and through an eta-redex under a lambda, so a field a
   writer built was compiled as never built. `map` over a `SortedMap`, and
   `keySet`, became `unreachable`
-  (`tests/programs/data/sortedmap-map-after-insert`,
-  `tests/programs/data/dependent-pair-family-eta`). Emit now lets a value
+  (`tests/sortedmap-map-after-insert`,
+  `tests/dependent-pair-family-eta`). Emit now lets a value
   into a slot only at the slot's type, which is how the last two were
   found.
 
@@ -118,10 +118,10 @@ Compile time (77a7192b and this checkpoint's commit). The self compile's fronten
 The emit causes were quadratic list joins and a hash state held as a
 list. Translate now re-translates only the instances whose dictionary
 assumption failed, not the whole program
-(`bench/profiles/2026-10-17-self-growth.md`).
+(`bench/records/2026-10-17-self-growth.md`).
 
 What ran here, needing no LLVM, on the final tree:
-- every fixture of `tests/programs`, `tests/accept` and `tests/reject`
+- every program fixture of `tests/`
   (408) through the frontend on Chez, against the gates before each change;
 - the self compile's frontend step: exit 0, 345 s, 5.64 GB, an 82 MB
   module;
@@ -167,7 +167,7 @@ built or run. What ran here, needing no LLVM:
 
 What the tree is now (the packet's §4 and §8):
 - **Per-pass contracts:** `idris-mlir-opt --idr-contracts`, on every
-  dialect fixture through `tests/lib/lit.sh` with `--verify-roundtrip`.
+  dialect fixture through `harness/lib/lit.sh` with `--verify-roundtrip`.
 - **Pass roles and actions:** pass roles are TableGen records
   (`IdrPassRoles.txt`), and every optional transform is an MLIR action,
   skippable one at a time.
@@ -187,8 +187,8 @@ What the tree is now (the packet's §4 and §8):
   doubles snapshot. Three tests are kept as their own contract (R2).
 - **Tests added:** idr-expect gains `folded`, and every property has a test
   that fails it. Also new: the runtime property programs (`prop.h`), the
-  googletest boxes (`make test-unit`), `tests/Gen.idr` and
-  `tests/Prims.idr`, the `rules-covered` and `dialect-text` specs, and
+  googletest boxes (`make test-unit`), `harness/Gen.idr` and
+  `harness/Prims.idr`, the `rules-covered` and `dialect-text` specs, and
   determinism at 1, 3, 5, 13 threads plus a second process.
 - **The owner's rulings:** R1-R5 (packet §8), and the totality rule
   narrowed (2026-10-15): a definition Idris does not prove ends is refused
@@ -204,8 +204,6 @@ Owed on the owner's machine, before anything else:
    - `--idr-contracts` on every dialect fixture prints and parses the
      module once per checked run, so the slowest fixtures may near their
      timeouts.
-   - `tests/idr/actions/inner-steps` may fail falsely if specialization
-     folds `@inc(7)`.
    - Fuzz shrinking can be long.
 3. Then self-hosting (proposals/0003-self-host.md, at the head of the queue):
    its stage S1, the refusal sweep, runs on the typecheck machine.
@@ -230,7 +228,7 @@ What the tree is now (the record's §3 and §4):
   `idr::MonotoneWorklist` (`idr/Support/Worklist.h`); TailPosition has no
   4096-step budget (an insert-once set over blocks and known values);
   every size policy is a named constant in `tools/policies.txt`, and
-  `tests/spec/no-fuel` holds the rest of the tree to none. An
+  `tests/no-fuel` holds the rest of the tree to none. An
   optimization may stop at a budget; `idr-canonicalize` counts
   `not-converged`, and fixtures set `test-convergence`.
 - The frontend is `%default total` everywhere but the translation of
@@ -426,7 +424,7 @@ machine before anything else (AGENTS.md's checks):
    `make build`.
 2. `make test`, `make test-idr`, `make test-mlir-tools`. 106 expected
    files carry a `NEEDS-ACCEPTANCE:` first line (`git grep -l
-   NEEDS-ACCEPTANCE -- tests`): 96 in tests/idr (27 defunc, 10 raise, 8
+   NEEDS-ACCEPTANCE -- tests`): 96 dialect fixtures (27 defunc, 10 raise, 8
    specialize, 7 bufferize, ...), the dialect-syntax and handoff tests,
    the registry three, runtime-api, data/shapes, and the two cycle
    rejects, whose location moves because a type has no location. Each
@@ -436,7 +434,7 @@ machine before anything else (AGENTS.md's checks):
    executable; the three two-bin partition tests of C13.
 4. The bench against the 2026-10-13 record within 0003 D35's 2%:
    spectral-norm-linear's vectors (now the transform schedule), the IO
-   loop (tests/idr/raise/io-loop ending in scf.while), the five ports
+   loop (tests/raise-io-loop ending in scf.while), the five ports
    to mlir-array.
 5. The optimizer's wall on stage 0 against 0004 §10's margin (under
    600 s), and the bytecode read time against the 11.7 s text parse.
@@ -511,7 +509,7 @@ there are kept verbatim. The gate on arm64 macOS was last green at
 must reproduce the rounds' 415/415. x86_64 Linux is NotRun. Stage 1 of
 `make self` has never finished. Next: 0001's L5 and L6 on the typecheck
 machine, before the packet fixes its disjoint writes, since they touch
-`foreign/idr/tools/idris-mlir-tblgen.cpp` and `tests/spec/licenses`,
+`foreign/idr/tools/idris-mlir-tblgen.cpp` and `tests/licenses`,
 which 0004's L5 and L8 own; the owner's approval of 0004; then the
 cutover's swarm packet, written from 0004 §10 under
 .claude/skills/compile-swarm-proposal (28a76e26); G1's run before the
@@ -531,13 +529,13 @@ only).
 
 The owner approved the rewritten proposals and the bankruptcy
 ended. Licensing (0001) is built and pushed (3a275cf0): SPDX on
-every file, LICENSES/, NOTICE, tests/spec/licenses gating it;
+every file, LICENSES/, NOTICE, tests/licenses gating it;
 only the GMP question (owner, with counsel) and the deferred
 foreign/idr rename remain there. F3's first serial form is built
 opt-in as idr-simplify's scc-pipeline (552d682a; rounds stay the
 default), byte-identical to the rounds on do-block in 3 deltas,
 with that identity now maintained coverage in
-tests/idr/pipeline/do-block.mlir. Gate on arm64 macOS at
+tests/pipeline-do-block/pipeline-do-block.mlir. Gate on arm64 macOS at
 552d682a (NCPU=6): build clean, check 27/27, test-idr 286/286,
 test 415/415 (x86_64 Linux still NotRun). The file-size split
 (Scc.cpp driver, Simplify/Trace.cpp; Simplify.cpp 463 -> 383
@@ -568,7 +566,7 @@ perf round and the older self-host work is merged into main
 (tools/host.sh: IDRIS_MLIR_NCPU, else every CPU) now threads the
 Makefile, bootstrap, the runner and the driver's --num-threads.
 
-F0 is recorded (bench/profiles/2026-10-14-f0-stage0.md): Simplify
+F0 is recorded (bench/records/2026-10-14-f0-stage0.md): Simplify
 round 1 is 447 s with one InlineCleanup instance at 211 s; sixteen
 rounds do not reach a fixpoint; the largest post-inlining SCC is 24
 functions. Two InlineCleanup refactors (strict worklist confinement;
@@ -601,10 +599,10 @@ upstream/23 carries the patch and the toolchain is rebuilt with it.
 
 Compile times: tests/compile-times.sh recorded 490 compilations
 (/tmp/compile-times-2026-10-13.md); IdrSimplify dominates. A
-time-trace profile of every-interfaces-export is in bench/profiles/
-(15.2s total: IdrSimplify 9.8s, IdrInline 6.4s across 5 rounds,
+time-trace profile of every-interfaces-export, not committed, measured
+15.2s in all (IdrSimplify 9.8s, IdrInline 6.4s across 5 rounds,
 Canonicalizer 4.8s across 7062 runs). The full bench is recorded in
-bench/runs/2026-10-13-9a1b7b1-darwin-arm64/, the only record kept:
+bench/records/2026-10-13-9a1b7b1-darwin-arm64/, the only record kept:
 against clang, 6 faster, 13 within 15%, 8 slower; against Chez,
 faster on all 27 (1.2x-154x); bench compiles take 0.8-5.4s.
 
@@ -710,7 +708,7 @@ gate G1).
   and the same on x86_64 Linux has not been run.
 - **Then:** the test runner off Chez (orchestration in sh, generators
   compiled by idris-mlir, an `--exports` query instead of the stock
-  REPL); `tests/toolchain/static-linking` covering `idris-mlir-front`;
+  REPL); `tests/static-linking` covering `idris-mlir-front`;
   AGENTS.md's Chez exception narrowed to stage 0 and bench; every
   rejection message made precise (named in the user's request of
   2026-10-10: what was found, where, why, and what form compiles);

@@ -1,0 +1,2 @@
+# The accumulator is generalized: the copy of count calls only itself.
+idr-optimize: specialized-once=@Main.count

@@ -1,7 +1,0 @@
-compile: exit 0
-artifacts: core module objects executable
-run: exit 1, a crash
-stdout: as expected
-stderr: names the cause in expected-crash
-universal: holds
-heap: nothing is allocated on the heap

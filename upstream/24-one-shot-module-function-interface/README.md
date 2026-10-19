@@ -371,7 +371,7 @@ Tests:
 
 The patch touches no file another carried patch touches, so it applies to
 the pinned source alone and after the patches before it
-(`tests/spec/upstream-patches`).
+(`tests/upstream-patches`).
 
 ## Testing at the pin
 
@@ -397,7 +397,7 @@ Not built: no LLVM is built on the machine this was written on.
 
 Stage 2 on each target, then the pull requests' pre-merge CI, are the first
 runs. `check-mlir` has not run with it.
-`tests/upstream/one-shot-module-function-interface` checks the reproducers
+`tests/upstream-one-shot-module-function-interface` checks the reproducers
 with the toolchain once stage 2 carries the patch.
 
 ## Upstreaming plan

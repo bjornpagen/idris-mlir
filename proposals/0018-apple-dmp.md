@@ -353,7 +353,7 @@ Each of these is measured (§3) or read (§1):
   rule. It is written here because it is what keeps D1's benefit, and
   0021 inherits it: Rust code that sets DIT restores it before it returns.
 - **D7. The heap lives in one 4 GiB-aligned region while it fits.** Built
-  (efe0ad36, with `tests/toolchain/heap-region` owed acceptance). A larger
+  (efe0ad36, with `tests/heap-region` owed acceptance). A larger
   heap grows from snmalloc's platform layer, as before.
 - **D8. An arm64 bench record carries a DMP calibration:** §3's
   array-of-references pair at work 64, raw against the region bit, run
@@ -378,7 +378,7 @@ Each of these is measured (§3) or read (§1):
     references a non-tail recursion over a structure keeps (the element
     its caller conses or adds on the way back). `foldlM` over a million
     numbers is one such recursion, a million calls deep
-    (`tests/programs/stack/foldlm-deep`).
+    (`tests/foldlm-deep`).
   - **The cost.** The heap's room in the region shrinks by the stack's
     reservation. The default stack is a gibibyte, so the heap keeps 3 GiB
     of the 4, and a heap of 3 to 4 GiB grows out of the region a gibibyte
@@ -467,7 +467,7 @@ one number cannot serve both targets (§9).
 | Stage | Needs | Content | Discriminator, and the test that shows it |
 |---|---|---|---|
 | P0 | nothing built | §3's harness committed as `bench/dmp/`: the C pairs (array, list, tree, stack), the method, and D8's calibration. GoFetch and Augury snapshotted under `sources/papers/` (`chen-2024-gofetch`, `vicarte-2022-augury`), with the owner's approval of exactly these items, as earlier sources passes had. Run natively on the owner's M2 Max (the bench machine), on an M3 or later if there is one, and on x86_64 Linux, with the audit's `dmp.cpp` beside it | **Native arm64:** raw, low tags and top byte within 5% of each other; the region-test failures ≥ 1.5× at work 64; the stack pair ≥ 1.1× at work 32; the audit's activation test at L2 latency for raw, lowtag and tbi and at DRAM latency for none, bit48 and farregion. **x86:** every key within 5% of raw. **If native arm64 shows no effect,** every DMP claim in §3 and §5 is withdrawn and recorded so: D1 and D2 stand on their other reasons, D3 on its own measurement (it gains on both targets), and D9 is dropped |
-| P1 | P0 native; efe0ad36 (built) | D9 in the runtime: one region reserved at start, the stack at its top within the budget, the rest to snmalloc. The census D10 reads: live references at a program's end by the target's place, in a test build | `tests/toolchain/heap-region` extended: the stack's frames and the first cells share bits 32 and up, and a stack over the budget keeps its own mapping. The stack pair of `bench/dmp/` linked against the runtime (`idris_rt_run_on_stack`, cells from `idris_rt_cell`) reads as the mmap version did. The census run on the bench set, the D10 rule applied, and the record committed |
+| P1 | P0 native; efe0ad36 (built) | D9 in the runtime: one region reserved at start, the stack at its top within the budget, the rest to snmalloc. The census D10 reads: live references at a program's end by the target's place, in a test build | `tests/heap-region` extended: the stack's frames and the first cells share bits 32 and up, and a stack over the budget keeps its own mapping. The stack pair of `bench/dmp/` linked against the runtime (`idris_rt_run_on_stack`, cells from `idris_rt_cell`) reads as the mmap version did. The census run on the bench set, the D10 rule applied, and the record committed |
 | P2 **AFTER-SELF** | 0010's stages 3 and 4 (structured gathers) | D3: a prefetch of the element `d` ahead in a structured loop that follows references or indices | Idris fixtures, each with a C counterpart in `bench/c/`: a map with work over an `Array` of boxes, a gather through an array of `Fin n` into a table, and a fold over a cons of boxes for the control. Each must run ≥ 1.3× faster on both targets, and no bench program may run > 2% slower (0010 D35). An `idr-expect` property `prefetched=@f`, stated as a pass guarantee as `fused` is, shows the pass fired |
 | P3 **AFTER-SELF** | 0013's F2 to F4 | D4: 0013's gates read on both targets with D8's calibration; id columns carry P2's prefetch | 0013's own fixtures and gates |
 | P4 **AFTER-SELF** | 0007's G1 | D8 in `bench/run.sh --record` on arm64 | the calibration line in each arm64 record; a record without the DMP is marked and not compared |

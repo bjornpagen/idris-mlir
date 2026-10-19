@@ -1,0 +1,61 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The AArch64 list of processor features (runtime/cpu_aarch64.h), which an
+# AArch64 target entry names, read by the pinned clang's frontend, which
+# knows AArch64 without its code generator: each feature's two names are
+# one feature, function multiversioning's (which __builtin_cpu_supports
+# tests) and LLVM's (which idr-lower and idris-mlir look for), since a
+# function versioned for the first is compiled with the second; and the
+# bits are 0 up, each once, under 64. The processor test that reads them
+# (runtime/Platform/Aarch64/Cpu.cpp) is compiled by the AArch64 build with
+# its own flags, and runs at the entry of every program a test runs there;
+# runtime-start asks it for a feature no processor has.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+clang=$llvm_bin/clang++
+darwin=arm64-apple-macosx14.0
+
+# The list, one `BIT TEST NAME` line per feature.
+printf '%s\n' '#include "cpu_aarch64.h"' '#define LINE(bit, test, name) bit test name;' \
+  'IDRIS_RT_CPU_FEATURES(LINE)' > "$work/list.cc"
+if ! bounded "$clang" -E -P -I"$root/runtime" "$work/list.cc" > "$work/list.i" 2> "$work/cc.log"; then
+  say "list: does not preprocess"
+  show "$work/cc.log"
+  exit 0
+fi
+tr ';' '\n' < "$work/list.i" | tr -d '"' | awk 'NF == 3' > "$work/list"
+if [ -s "$work/list" ]; then say "features: found"; else say "features: none found"; fi
+if awk '$1 != NR - 1 || $1 >= 64 { bad = 1 } END { exit bad }' "$work/list"; then
+  say "bits: 0 up, each once, under 64"
+else
+  say "bits: not 0 up, each once, under 64"
+  show "$work/list"
+fi
+
+# Each feature, versioned for its test name (with a default version), and
+# tested; versioned functions are compiled for the generic CPU's features
+# and the version's.
+{
+  printf '%s\n' '#include "cpu_aarch64.h"'
+  printf '%s\n' '#define VERSION(bit, test, name) \' \
+    '  __attribute__((target_version(test))) int version##bit(void) { return bit; } \' \
+    '  __attribute__((target_version("default"))) int version##bit(void) { return -1; } \' \
+    '  int tested##bit(void) { return __builtin_cpu_supports(test); }'
+  printf '%s\n' 'IDRIS_RT_CPU_FEATURES(VERSION)'
+} > "$work/versions.cc"
+if ! bounded "$clang" --target="$darwin" -mcpu=generic -ffreestanding -I"$root/runtime" -S -emit-llvm \
+    "$work/versions.cc" -o "$work/versions.ll" > "$work/cc.log" 2>&1; then
+  say "versions: do not compile (a name function multiversioning does not know?)"
+  show "$work/cc.log"
+  exit 0
+fi
+while read -r bit test name; do
+  attributes=$(sed -n "s/^define .*@_Z[0-9]*version${bit}v\._[^(]*(.*#\([0-9]*\) .*/\1/p" "$work/versions.ll")
+  if [ -z "$attributes" ]; then
+    say "$test: no version"
+  elif ! grep "^attributes #$attributes " "$work/versions.ll" |
+      grep -q "\"target-features\"=\"\([^\"]*,\)\{0,1\}+$name[,\"]"; then
+    say "$test: its version is not compiled for LLVM's $name"
+  fi
+done < "$work/list"
+say "versions: each test name's version compiled for its LLVM name"

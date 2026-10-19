@@ -1,8 +1,0 @@
-step failures: every one a diagnostic, Main's parse alone returning its own
-internal errors: spelled by the printer alone (Outcome.cpp)
-options: none extern
-option declarations: in Options.cpp alone
-the reserved stack: entered through runTool alone (Support/Stack.h)
-GMP's allocator: set by runTool and the unit tests' main alone
-the entry symbol: named once (Conversion/Runtime.h)
-registration: what the compiler uses, no registerAll

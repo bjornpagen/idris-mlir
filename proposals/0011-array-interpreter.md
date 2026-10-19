@@ -45,7 +45,7 @@ compiler inside the first.
   `tests/programs/eval/compile-time-evaluation/Main.idr` holds closed calls
   (`fib 15`, `fib 27`) beside the same functions on a digit read from
   input, against one expected file, and
-  `tests/programs/partial/partial-divergent-call` holds that a closed call
+  `tests/partial-divergent-call` holds that a closed call
   of a partial function stays a call. A constant table computed from
   constants is computed by the program, every run.
 - The frontend normalizes only compile-time values (types and
@@ -321,7 +321,7 @@ never a library loaded at run time (AGENTS.md).
 - AGENTS.md's middle way: "which static normalization, specialization,
   closed sums and defunctionalization compile away".
 - README.md: the frontend "normalizes the static part"; no JIT.
-- `tests/README.md`: D5's twin tests.
+- `harness/README.md`: D5's twin tests.
 
 ## 10. Staged plan (every stage AFTER-SELF)
 

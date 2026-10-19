@@ -2,9 +2,9 @@
 # Copyright (c) 2026 Bjorn Pagen
 # The exhaustive boxes: one googletest program per family of the
 # arithmetic a rewrite rests on, each over every input of a reduced domain:
-# the range rules (ranges), the big ops' range hooks (hooks), the word each
-# big op narrows to (words) and the runtime's tagged small paths (tagged);
-# and the properties of the dialect's own structures over small programs:
+# the range rules (ranges), the big ops' range hooks (hooks) and the word
+# each big op narrows to (words); and the properties of the dialect's own
+# structures over small programs:
 # its constants, flow, sources and verifier (ir), and the analyses of call
 # cycles, labels and identities (analyses).
 # googletest and googlemock are the pinned llvm-project's
@@ -12,11 +12,10 @@
 # here from upstream's sources, outside our warnings. make test-unit runs
 # the programs.
 set(IDR_GTEST "${PROJECT_SOURCE_DIR}/.toolchain/llvm-project/third-party/unittest")
-set(IDR_BOXES ranges hooks words tagged ir analyses)
+set(IDR_BOXES ranges hooks words ir analyses)
 set(IDR_BOX_SOURCES_ranges Ranges.cpp)
 set(IDR_BOX_SOURCES_hooks Hooks.cpp HooksCompare.cpp)
 set(IDR_BOX_SOURCES_words Words.cpp)
-set(IDR_BOX_SOURCES_tagged Tagged.cpp TaggedBits.cpp)
 set(IDR_BOX_SOURCES_ir Constants.cpp Flow.cpp Sources.cpp Verify.cpp)
 set(IDR_BOX_SOURCES_analyses Cycles.cpp Labels.cpp Identities.cpp)
 # What the boxes call: the rules (the dialect's range rules, hooks and

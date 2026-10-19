@@ -221,7 +221,7 @@ call is on a part of its argument:
   pair of a function and a graph, it meets once, in a list without
   duplicates that the pigeonhole principle bounds by the type's values; the
   room left is the measure (`Control.WellFounded`).
-  The repository's `tests/compiler/fork-loops-terminate` runs it on
+  The repository's `tests/fork-loops-terminate` runs it on
   components whose verdicts flip if paths are joined the wrong way round.
 
 The evaluator (`Core.Normalise`) and the elaborator are not total, and

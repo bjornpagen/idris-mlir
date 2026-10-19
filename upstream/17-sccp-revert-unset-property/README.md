@@ -23,7 +23,7 @@ func.func @unset_property(%x: i3) -> i16 {
 `mlir-opt unset-property.mlir --sccp` prints `%b` as
 `%1 = arith.extui %0 nneg : i8 to i16`; `mlir-opt unset-property.mlir`
 prints it without `nneg`, and that is the only line that differs.
-`tests/upstream/sccp-revert-unset-property` checks the reproducer.
+`tests/upstream-sccp-revert-unset-property` checks the reproducer.
 
 Where it comes from: `foldsWith` (`foreign/idr/lib/Canon/Feeds.cppm`)
 copies sccp's fold simulation. Making it restore whatever the fold returned,
@@ -158,5 +158,5 @@ both merged, which this follows.
   and `sccp.mlir`'s RUN lines, this the analysis and the end of
   `sccp.mlir`. Either can land first; this diff applies after 02's.
 - Nothing in this repository depends on it. When the pin includes the fix,
-  `tests/upstream/sccp-revert-unset-property` fails, and this directory and
+  `tests/upstream-sccp-revert-unset-property` fails, and this directory and
   that check go.

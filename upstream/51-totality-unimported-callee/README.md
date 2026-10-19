@@ -159,9 +159,9 @@ built by the pinned Idris on Chez into private prefixes (arm64 macOS,
   171 s before) build with the fork, so no definition among them that
   claims to be total is newly shown not to be; and the frontend's own
   sources check as before;
-- the 385 programs of tests/programs, tests/accept and tests/reject give
-  the same exit status, stdout and stderr as before, and the 329 accepted
-  give byte-identical Core dumps and modules;
+- the 385 programs then in tests/programs, tests/accept and tests/reject
+  give the same exit status, stdout and stderr as before, and the 329
+  accepted give byte-identical Core dumps and modules;
 - the case that found the bug, `program` in `Frontend/Program.idr` without
   `covering`, is accepted by the fork before the change and refused after
   it: `translateIOProgram` reaches a loop in `Finite.translateFrom`,
@@ -188,6 +188,6 @@ fork's change were written with one.
   way, the fork takes upstream's code and drops this change; if not, the
   change is carried forward onto the new base.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/totality-unimported-callee` and the PINS.md entry go.
+  `tests/upstream-totality-unimported-callee` and the PINS.md entry go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

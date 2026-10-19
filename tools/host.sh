@@ -12,7 +12,7 @@
 # the GNU spellings are looked for there too.
 
 # host_names: the names a test's `targets` file and its expected.<name>
-# files give this host (tests/Main.idr, tests/runner/one.sh): its
+# files give this host (harness/Main.idr, harness/one.sh): its
 # architecture, x86-64 or aarch64, then its operating system, linux or
 # macos. The Makefile exports them as IDRIS_MLIR_HOST_NAMES.
 case $(uname -m) in

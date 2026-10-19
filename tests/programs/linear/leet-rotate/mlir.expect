@@ -1,2 +1,0 @@
-# Rotating a list (LeetCode 61): split and append relink the cells in place.
-idr-rc-exclusive: tests-nothing=@Main.app counts-nothing=@Main.app reuses-in-place=@Main.app

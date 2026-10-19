@@ -1,0 +1,2 @@
+option declarations: in Options.cpp alone
+registration: what the compiler uses, no registerAll

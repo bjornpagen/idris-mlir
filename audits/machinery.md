@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Audit lane: machinery
 
 **Scope.** The test machinery itself, not the tests it runs: `tests/Main.idr`,

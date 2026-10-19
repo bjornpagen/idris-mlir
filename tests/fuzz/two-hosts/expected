@@ -1,8 +1,0 @@
-NEEDS-ACCEPTANCE: idris-mlir compiles Gen, Prims, Fuzz, Sem and TwoLevels, and its program prints the committed expected-stdout byte for byte (the generators' text for the seeded requests twoHosts names, each Gen check ok), a draw's loop and a tape's reset reusing their cells in place; the limits measured
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds
-mlir.expect: holds

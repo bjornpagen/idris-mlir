@@ -15,7 +15,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
 
 - `README.md`: the local report: symptom, reproducer, cause, what the
   patch does, when it is dropped. Its `## Upstreaming plan` says the
-  status. `tests/spec/upstream-patches` requires `## Upstreaming plan`,
+  status. `tests/upstream-patches` requires `## Upstreaming plan`,
   and `## Patch` with a `*.patch` file or `## Why there is no patch`
   without one.
 - `submission.md`: the exact texts to post, in LLVM's review language:
@@ -25,7 +25,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   llvm main (`toolchain.lock.json`), so for a bug we send it is the pull
   request itself. `tools/bootstrap.sh` applies every
   `upstream/*/llvm.patch` in name order to a copy of the pinned
-  llvm-project when it builds the toolchain; `tests/spec/upstream-patches`
+  llvm-project when it builds the toolchain; `tests/upstream-patches`
   checks they apply.
 - `idris.patch`: the same for Idris 2, against third_party/Idris2's
   gitlink, which the bootstrap's `idris` step would apply to its copy of
@@ -46,7 +46,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   the change the fork carries as its own code, laid out
   against third_party/Idris2's pin with the test upstream's suite would
   hold: the record a re-sync of the fork reads, never sent.
-- `tests/upstream/<bug>/` (bug name without the number): this repository's
+- `tests/upstream-<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
   when it goes.
@@ -211,7 +211,7 @@ the diff and the reply. When the change on main differs from the pin's
 
 The patch stays until the pin moves past the merged commit. When it
 does: delete `NN-<bug>/llvm.patch` (or the directory, with its
-`tests/upstream/<bug>/` check and PINS.md entry, if nothing else is
+`tests/upstream-<bug>/` check and PINS.md entry, if nothing else is
 left), and rebuild the toolchain (`tools/bootstrap.sh llvm`).
 
 ## When nothing reaches the bug
@@ -227,7 +227,7 @@ a submission:
   patch` says what reached the bug and why nothing does now;
 - the `PINS.md` entry goes, since nothing of ours stands in for the
   patch;
-- `tests/upstream/<bug>/` stays, turned to check that the pinned tools
+- `tests/upstream-<bug>/` stays, turned to check that the pinned tools
   still have the bug, as 17's does: when the pin has the fix it fails,
   and the directory and the check go;
 - the toolchain is rebuilt without the patch (`tools/bootstrap.sh llvm`).
@@ -238,7 +238,7 @@ A new bug gets a directory numbered by when it should be filed; renumber
 with `git mv` and update every `upstream/NN-<bug>` path (`git grep`)
 when the order changes. Reduce it to upstream dialects and tools first;
 if it does not reproduce there, it is ours, not upstream's. Add the
-report, reproducer, patch, `tests/upstream/<bug>/` check and PINS.md
+report, reproducer, patch, `tests/upstream-<bug>/` check and PINS.md
 entry in one change, and a `submission.md` once it is ready to send.
 
 ## This repository's toolchain

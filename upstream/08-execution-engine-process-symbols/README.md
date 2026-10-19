@@ -131,5 +131,5 @@ request on llvm/llvm-project covers it.
   request's title and body are the squash commit message.
 - Upstream test: `WithoutProcessSymbols` in
   `mlir/unittests/ExecutionEngine/Invoke.cpp`, which `pull-request.diff`
-  adds. There is no `tests/upstream` check: no `mlir-opt` command shows
+  adds. There is no `tests/upstream-*` check: no `mlir-opt` command shows
   the bug, and the unit test is its check upstream.

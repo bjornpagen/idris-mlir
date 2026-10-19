@@ -1,0 +1,4 @@
+bench/rbtree: printed, parsed and printed again, the same bytes
+bench/rbtree: the emitted module and its print, in the generic form, the same bytes
+tests/linarray-combinators: printed, parsed and printed again, the same bytes
+tests/linarray-combinators: the emitted module and its print, in the generic form, the same bytes

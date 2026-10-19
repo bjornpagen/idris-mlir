@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: the round trip of bench/rbtree, which replaced tests/programs/data/rbtree, and the fixtures named from the root
-bench/rbtree: printed, parsed and printed again, the same bytes
-bench/rbtree: the emitted module and its print, in the generic form, the same bytes
-tests/programs/data/shapes: printed, parsed and printed again, the same bytes
-tests/programs/data/shapes: the emitted module and its print, in the generic form, the same bytes
-tests/programs/arrays/linarray-combinators: printed, parsed and printed again, the same bytes
-tests/programs/arrays/linarray-combinators: the emitted module and its print, in the generic form, the same bytes

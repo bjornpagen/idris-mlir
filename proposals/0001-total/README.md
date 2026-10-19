@@ -20,16 +20,16 @@ verification, the bugs review found and fixed, and the trust left.
   (`foreign/idr/include/idr/Support/Worklist.h`), `TailPaths`
   (`lib/Conversion/TailPosition.cpp`), `idr-canonicalize`'s
   `not-converged` and `test-convergence` (`Transforms/Passes.td`), the
-  size policies in `tools/policies.txt`, held by `tests/spec/no-fuel`.
+  size policies in `tools/policies.txt`, held by `tests/no-fuel`.
 - The frontend `%default total`, the reduction on the walk
   (`Frontend/Walk.idr`), a nested data type refused
-  (`tests/reject/polymorphism-nested-data`), `Linear.Vec` size-indexed
+  (`tests/polymorphism-nested-data`), `Linear.Vec` size-indexed
   (`libs/mlir-array/Linear/Vec.idr`).
 - Instance finiteness proved on base alone (`compiler/src/IdrisMLIR/Proof/`,
   `Finite.chainsEnd`).
 - The fork total on the frontend's paths, `%totality_depth` refused,
   the size-change decision on typed paths
-  (`tests/compiler/fork-loops-terminate`), four of Idris's bugs fixed as
+  (`tests/fork-loops-terminate`), four of Idris's bugs fixed as
   fork code (`upstream/fork-*`, PINS.md).
 - Dozens of null, sentinel and flag states made unrepresentable in the
   C++ (b843d8b5 §3.5 to §3.10); specialization lifts a key's scalars
@@ -41,7 +41,7 @@ verification, the bugs review found and fixed, and the trust left.
 - The runtime's cleanup and speed pass: every OS call behind
   `rt::platform` (`runtime/Platform/Platform.h`), the simdutf kernel
   chosen by the startup check, the even-group free fixed
-  (`tests/idr/e2e/even-group.mlir`), `<build>/runtime/c-flags`
+  (`tests/e2e-even-group/e2e-even-group.mlir`), `<build>/runtime/c-flags`
   (`runtime/CMakeLists.txt`).
 - 0017's L5 and L6 (`tools/licenses.sh`); modular a reference submodule
   (`.gitmodules`); simdutf v9.3.0 and fast_float v8.3.2

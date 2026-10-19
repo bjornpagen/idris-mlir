@@ -1,0 +1,23 @@
+runtime: exit 0
+clean: exit 0
+cxx: exit 1, naming _Znwm
+ctor: exit 1, naming ctor.o
+blind: exit 1, naming idris_rt_start
+elf-clean: exit 0
+elf-cxx: exit 1, naming _Znwm
+elf-ctor: exit 1, naming .init_array
+elf-carried-clean: exit 0
+elf-carried-cxx: exit 1, naming _Znwm
+elf-carried-ctor: exit 1, naming .init_array
+elf-native-cxx-bitcode-clean: exit 1, naming _Znwm
+elf-native-clean-bitcode-cxx: exit 1, naming _Znwm
+macho-clean: exit 0
+macho-cxx: exit 1, naming _Znwm
+macho-ctor: exit 1, naming __mod_init_func
+macho-carried-clean: exit 0
+macho-carried-cxx: exit 1, naming _Znwm
+macho-carried-ctor: exit 1, naming __mod_init_func
+macho-native-cxx-bitcode-clean: exit 1, naming _Znwm
+macho-native-clean-bitcode-cxx: exit 1, naming _Znwm
+macho-as-elf: exit 1, naming idris_rt_start
+macho-arm64-embedded: exit 0

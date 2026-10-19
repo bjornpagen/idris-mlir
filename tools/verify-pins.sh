@@ -31,7 +31,7 @@
 #
 # A check that fails prints `error: <why and what to run>` and exits 1.
 # IDRIS_MLIR_TOOLCHAIN and IDRIS_MLIR_IDRIS_SOURCE stand for .toolchain and
-# third_party/Idris2 (the tests under tests/spec use them).
+# third_party/Idris2 (the tests `make check` runs use them).
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"

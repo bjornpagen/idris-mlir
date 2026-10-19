@@ -37,7 +37,7 @@ exists, replace `#<issue>` in the body.
   fail without it before posting. Neither was observed: no `mlir-opt`
   with the change was built (upstream/README.md, **CI decides**). The
   reproducer's failure without the change is
-  `tests/upstream/remove-dead-values-poison-operand`'s expected output at
+  `tests/upstream-remove-dead-values-poison-operand`'s expected output at
   the pin.
 - [ ] Show Bjorn the issue, the pull request and each command; one "yes,
   post it" per command. File the issue, put its number in the body, push

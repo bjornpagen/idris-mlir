@@ -157,7 +157,7 @@ operands unsigned get `CastKind::Unsigned`. Tests for each in
 `mlir/test/Dialect/Arith/int-range-narrowing.mlir`
 (`@remsi_narrow_min_by_minus_one`, `@remsi_above_narrow_min`,
 `@remui_of_negative`), written with main's `test.with_bounds <...>`
-syntax. `tests/upstream/int-range-narrowing-exactness` checks the
+syntax. `tests/upstream-int-range-narrowing-exactness` checks the
 reproducer with the pinned tools; the lit test ran on main as "Testing on
 main" says (the pinned build has no test dialect).
 

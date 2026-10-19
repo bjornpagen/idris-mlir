@@ -1,5 +1,0 @@
-# fannkuch-redux over base's IOArray, in IO. A closed call runs at run
-# time, so a function value stays, a sum once defunctionalized, and
-# building it allocates. After counting, the loops change no count (the
-# arrays are borrowed, their elements are atoms).
-idr-rc-exclusive: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.next counts-nothing=@Main.copy counts-nothing=@Main.loop

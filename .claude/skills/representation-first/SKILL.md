@@ -76,7 +76,7 @@ what is true; the definition follows it; when they fight, refine the type.
 
 The frontend, the fork, `libs/` and the test machinery build under stock
 Idris and under idris-mlir itself, so what you write must stay inside what
-idris-mlir compiles (`tests/reject/` lists the rules):
+idris-mlir compiles (the refused programs of `tests/` list the rules):
 - **Dependent fields:** types may compute, but a field whose representation
   depends on an erased value is refused (`unsupported (dependent field)`).
   Index by a parameter the value does not store, or make the family a

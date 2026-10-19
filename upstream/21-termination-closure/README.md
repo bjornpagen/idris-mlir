@@ -88,7 +88,7 @@ not run with it. The fork, whose `SizeChange.idr` was the pin's file before
 the change, checks `Reach.idr` in 0.8 s, a chain of 320 with 100 callers
 in 1.2 s, and the 702 programs of this repository's corpus give
 byte-identical output with and without it (arm64 macOS, 2026-10-09).
-`tests/upstream/termination-closure` checks a chain of 240 through the
+`tests/upstream-termination-closure` checks a chain of 240 through the
 frontend, which the pinned checker does not finish within the step limit.
 
 ## Upstreaming plan
@@ -107,6 +107,6 @@ change were written with one.
   and drops this change; if not, the change is carried forward onto the
   new base.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/termination-closure` and the PINS.md entry go.
+  `tests/upstream-termination-closure` and the PINS.md entry go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

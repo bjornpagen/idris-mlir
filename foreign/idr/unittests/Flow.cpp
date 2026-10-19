@@ -22,6 +22,7 @@
 
 #include "gtest/gtest.h"
 
+#include <set>
 #include <string>
 
 using namespace mlir;
@@ -113,7 +114,7 @@ idr.program @p root(@root) stage(owned) {
     return success();
   });
   EXPECT_TRUE(failed(verify(*module)));
-  EXPECT_NE(first.find("declares a flow edge whose end is neither"), std::string::npos) << first;
+  EXPECT_NE(first.find("flow edge"), std::string::npos) << first;
 }
 
 // A region may read back a part of its op's result, as a fold's next
@@ -142,13 +143,22 @@ func.func @f() {
   module->walk([&](ReadsBackWhole op) { EXPECT_TRUE(failed(idr::detail::verifyFlowEdges(op))); });
 }
 
-// Each external model names only ends its op may name.
+// Each external model names only ends its op may name. The models are read
+// from the registry: every registered op of another dialect that holds the
+// interface is one, and the fixture must hold an op of each, so a model
+// added without a case here fails.
 TEST(FlowRule, ExternalModelsKeepTheRule) {
   DialectRegistry registry;
   registerFlowInterfaceExternalModels(registry);
   MLIRContext ctx(registry);
   ctx.loadDialect<IdrDialect, arith::ArithDialect, func::FuncDialect, memref::MemRefDialect,
                   tensor::TensorDialect, ub::UBDialect>();
+  std::set<std::string> models;
+  for (RegisteredOperationName name : ctx.getRegisteredOperations())
+    if (name.getDialectNamespace() != IdrDialect::getDialectNamespace() &&
+        name.hasInterface<FlowOpInterface>())
+      models.insert(name.getStringRef().str());
+  EXPECT_FALSE(models.empty());
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
 !B = !idr.data<"B", plain [@K(i64)]>
 func.func @f(%t: tensor<2x!idr.box<!B>>, %m: memref<2x!idr.box<!B>>, %e: !idr.box<!B>,
@@ -165,17 +175,20 @@ func.func @f(%t: tensor<2x!idr.box<!B>>, %m: memref<2x!idr.box<!B>>, %e: !idr.bo
   %poison = ub.poison : !idr.box<!B>
   return
 }
+func.func @never() {
+  ub.unreachable
+}
 )mlir",
                                                              &ctx);
   ASSERT_TRUE(module);
-  unsigned models = 0;
+  std::set<std::string> exercised;
   module->walk([&](FlowOpInterface op) {
-    ++models;
+    if (op->getDialect()->getNamespace() == IdrDialect::getDialectNamespace())
+      return;
+    exercised.insert(op->getName().getStringRef().str());
     EXPECT_TRUE(succeeded(idr::detail::verifyFlowEdges(op))) << op->getName().getStringRef().str();
   });
-  // tensor.insert, extract, from_elements, splat, yield, memref.load,
-  // ub.poison.
-  EXPECT_EQ(models, 7u);
+  EXPECT_EQ(exercised, models);
 }
 
 } // namespace

@@ -79,7 +79,7 @@ standalone file. As a diff appending it to trunk's
 The carried fix is `upstream/06-remove-dead-values-unreachable/llvm.patch`,
 whose one helper poisons the uses of a dead function argument as #208881
 does. It does not carry this test: it is 06's pull request, which leaves
-the test to #208881. `tests/upstream/remove-dead-values-address-taken`
+the test to #208881. `tests/upstream-remove-dead-values-address-taken`
 checks the reproducer against the pinned tools.
 
 ## Testing on main
@@ -105,7 +105,7 @@ The fix is #208881's function-argument change, which
 test, not code, and the test is not carried: that patch is 06's pull
 request, which does not include it, and a second patch appending to
 `mlir/test/Transforms/remove-dead-values.mlir` would not apply after it.
-`tests/upstream/remove-dead-values-address-taken` checks the
+`tests/upstream-remove-dead-values-address-taken` checks the
 reproducer.
 
 ## Upstreaming plan
@@ -133,5 +133,5 @@ Bjorn, individual, work done outside any employer. No @mentions.
 - Upstream test: the `@address_taken_callee` module in `submission.md`,
   for `mlir/test/Transforms/remove-dead-values.mlir`.
 - Dropped with `remove-dead-values-unreachable/llvm.patch`, when the pin
-  includes #208881; `tests/upstream/remove-dead-values-address-taken`
+  includes #208881; `tests/upstream-remove-dead-values-address-taken`
   goes with it.

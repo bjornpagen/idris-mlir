@@ -1,8 +1,0 @@
-# Lines of compiler/src that no-primitive-semantics allows, one per line:
-# `path: text -- reason`. Serializing a literal is not computing with it.
-compiler/src/IdrisMLIR/MLIR/Text.idr: decimal (prim__cast_DoubleString d) -- the MLIR text of a Double literal: the shortest decimal that reads back as the same bits; it computes nothing
-compiler/src/IdrisMLIR/Types.idr: show (LDouble d) = prim__cast_DoubleString d -- a Double literal in the .core dump; it computes nothing
-compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr: LStr codegenName -- System.Info.codegen is the name this backend is registered under; the string is that name, not a value a primitive computes
-compiler/src/IdrisMLIR/Frontend/Translate/Keys.idr: writeConstant ( -- a constant written into a content key, one token per constant, its integer by type, sign and magnitude and its text by its characters: a spelling of the constant, which computes nothing with it
-compiler/src/IdrisMLIR/Frontend/Translate/Keys.idr: constantFits ( -- an erased proof that each token writeConstant writes fits the key's bound; it runs nothing
-compiler/src/IdrisMLIR/Frontend/Translate/Keys.idr: constantWeighs ( -- an erased proof that a written constant weighs at least one token; it runs nothing

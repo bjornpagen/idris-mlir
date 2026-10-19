@@ -21,7 +21,7 @@ namespace rt::io {
 // IDRIS_MLIR_PAGE_SIZE, which rt::platform's startup check reads); 4096 is a
 // small write's worth on every target. A test build may set
 // IDRIS_RT_IO_BUFFER_SIZE to a few bytes, so that every boundary of the
-// buffers is reached with little data (tests/toolchain/io-buffer); the
+// buffers is reached with little data (tests/io-buffer); the
 // production build sets nothing.
 #ifndef IDRIS_RT_IO_BUFFER_SIZE
 #define IDRIS_RT_IO_BUFFER_SIZE 4096

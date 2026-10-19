@@ -43,7 +43,7 @@ last text at 484d6403) are named "the cutover's".
 - **Deterministic:** byte-identical across the thread counts and
   processes `tests/determinism` checks. Sharded fixpoints keep this by
   D8.
-- **Total, no fuel** (AGENTS.md; `tests/spec/no-fuel` searches `libs/`).
+- **Total, no fuel** (AGENTS.md; `tests/no-fuel` searches `libs/`).
   Every module is `%default total`, with no `covering`, `partial` or
   assertion. Layer 2 ends by an argument its type carries, never by a
   round count. The argument is one of: a finite universe (typed indices),

@@ -34,7 +34,7 @@ numbers.
   party, and never the system's libc++, since the pinned libc++ is
   static. Nothing of ours is loaded at run time or looked up with dlopen.
   `tools/bootstrap.sh` refuses an executable that breaks this, and
-  `tests/toolchain/static-linking` checks our tools and programs. The
+  `tests/static-linking` checks our tools and programs. The
   exception is the host side of the frontend: Idris 2 and the test runner
   run on Chez Scheme, which loads Idris's support library (PINS.md
   `idris-support-host-cc`).
@@ -157,7 +157,7 @@ numbers.
   Prefer upstream's own fix, backported, to one of ours. The patch lives
   with the bug's report as `upstream/<bug>/<project>.patch`, and
   `tools/bootstrap.sh` applies it to the pinned source it builds; add the
-  report, the reproducer, the patch, its `tests/upstream/` check and its
+  report, the reproducer, the patch, its `tests/upstream-<bug>` check and its
   `PINS.md` entry in the same change, and delete the workaround it
   replaces. Every patch has a written plan to upstream it (where it goes,
   the upstream test, its status); sending it is separate work. A patch goes

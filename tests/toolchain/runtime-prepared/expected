@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that a bitcode file with no prepared marks is refused as neither kind of runtime (D3, exit 1); that every symbol the prepared runtime needs is one its target's allowlist allows (allowed, with linux/allowed or macos/allowed), on both targets, and that rc.c still behaves alike against the archive and the prepared runtime; the per-target symbol lists are gone
-prepared runtime: one object
-rc: the same output, live cells and exit status (0) with the prepared runtime as with the archive
-rc leak: the same output, live cells and exit status (0) with the prepared runtime as with the archive
-rc crash: the same output, live cells and exit status (1) with the prepared runtime as with the archive
-flagless bitcode: exit 1, refused as neither kind of runtime
-the prepared runtime needs only what its target's allowlist allows

@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that the iterator reads every scalar value back as the string was packed, with the step idr.str.scalar_bytes computes
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds

@@ -109,7 +109,7 @@ As upstream/53's, with the series: at the pin, the stock Idris reports
 `hFive`, `tpString` and `pvFive`, and nothing else; the changed fork checks
 it, printing exactly its `expected`, and checks `h 5 = 2` with `h _`
 reachable (no warning). `heads` checks at the pin and with the series.
-`tests/upstream/erased-constant-pattern` compiles through the changed
+`tests/upstream-erased-constant-pattern` compiles through the changed
 frontend, which the unchanged fork's refuses at `hFive`; its core prints
 `Two`'s string, and its `expected` waits for a build of the whole
 toolchain.
@@ -129,6 +129,6 @@ written with one.
   rule at quantity 0; the mark stays with upstream/53 until that one is
   fixed too.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/erased-constant-pattern` and the PINS.md entry go.
+  `tests/upstream-erased-constant-pattern` and the PINS.md entry go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

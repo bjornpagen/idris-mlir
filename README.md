@@ -77,17 +77,17 @@ make compile SRC=Main.idr OUT=prog
 Measured on arm64 macOS (Apple M2 Max), best of 5 runs, against
 clang -O2 and against Idris's own Chez Scheme backend. The latest
 record is
-[bench/runs/2026-10-13-9a1b7b1-darwin-arm64](bench/runs/2026-10-13-9a1b7b1-darwin-arm64/results.md):
+[bench/records/2026-10-13-9a1b7b1-darwin-arm64](bench/records/2026-10-13-9a1b7b1-darwin-arm64/results.md):
 
-![This compiler against clang -O2](bench/runs/2026-10-13-9a1b7b1-darwin-arm64/vs-c.svg)
+![This compiler against clang -O2](bench/records/2026-10-13-9a1b7b1-darwin-arm64/vs-c.svg)
 
-![This compiler against Idris on Chez Scheme](bench/runs/2026-10-13-9a1b7b1-darwin-arm64/vs-chez.svg)
+![This compiler against Idris on Chez Scheme](bench/records/2026-10-13-9a1b7b1-darwin-arm64/vs-chez.svg)
 
 The programs that trail C are mostly written the way an Idris programmer
 writes them first, with `List Char` where the C has byte buffers. The
 `Linear.Array` version of spectral-norm beats C. [bench/](bench/README.md)
-says what each program measures, holds every kept record, and
-explains every gap.
+says how the benchmarks run and how to read a run, and `bench/records/`
+holds every kept record.
 
 ## Where it is going
 
@@ -168,8 +168,9 @@ machine, or a VM of it.
 - `runtime/`: the runtime every program links, and the one meaning of
   every primitive.
 - `libs/`: the Idris packages this compiler ships.
-- `tests/`: golden tests, described in `tests/README.md`. `bench/` holds
-  the benchmarks.
+- `tests/`: the golden tests, one directory each, all at one level;
+  `harness/` runs them and describes them (`harness/README.md`). `bench/`
+  holds the benchmarks.
 - `proposals/`: designs and the decisions taken on them.
 - `upstream/`: the upstream bugs we carry patches for, each ready to file.
 - `PINS.md`: every pin, deviation and workaround.

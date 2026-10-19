@@ -1,0 +1,7 @@
+# The includes of repository headers outside foreign/idr/include that are
+# still allowed, as `file: header`; tests/no-local-headers/run says why
+# the list only shrinks. cpu_features.h is the target's list of CPU
+# features as an X-macro, the one list the runtime's startup check and the
+# compiler's entry and link both expand.
+foreign/idr/lib/Conversion/Entry.cpp: cpu_features.h
+foreign/idr/lib/Driver/LinkRuntime.cpp: cpu_features.h

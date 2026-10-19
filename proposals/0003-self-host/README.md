@@ -3,7 +3,7 @@
 # Self-hosting: `make self` finishes
 
 **Status:** in progress (2026-10-17). S1 is done
-(`bench/profiles/2026-10-15-self-s1.md`). These S2 fixes are in:
+(`bench/records/2026-10-15-self-s1.md`). These S2 fixes are in:
 - the TTC decoder runs at stock speed (da9492a9);
 - no escape hatch or erased match is left (4d190757);
 - keys spell a Nat literal by its value (d1dc847e);
@@ -22,7 +22,7 @@ each stage's frontend alone, then the pipeline on the module it kept, and
 `tools/self.sh 1` is S1 and S3 in one command.
 
 The self-compile's frontend step finishes with no patch and no refusal
-(`bench/profiles/2026-10-17-self-growth.md`); the C++ reader and the
+(`bench/records/2026-10-17-self-growth.md`); the C++ reader and the
 pipeline on its module are S3, on the owner's build. It takes 0007's
 former §2 (self-hosting's steps 4 to 6) and
 its decisions D10, D11 and D16 (their text at b843d8b5). Goal: the
@@ -30,7 +30,7 @@ frontend (`compiler/src`) and the fork (`compiler/idris`), compiled by
 idris-mlir itself, stages 1 to 3, stage 2 the same as stage 3, on both
 targets. None of 0015's features is needed: stage 0 emitted the whole of
 the frontend and the fork with no frontend refusal (F0, 44495199,
-`bench/profiles/2026-10-14-f0-stage0.md`; *measured*). Claims are marked
+`bench/records/2026-10-14-f0-stage0.md`; *measured*). Claims are marked
 *read* (the path), *measured* (the record), *recalled*, *conjecture*,
 *decision*.
 
@@ -86,7 +86,7 @@ proposals/README.md), so every item of §3.2 and §3.3 is unmeasured.
 | `compiler/idris/README.md:467-472`; `Idris/Desugar.idr:1189, 1236, 1379`; `TTImp/TTImp.idr:482-490`; `Idris/Syntax.idr:900-920` | `SyntaxInfo` holds terms (`startExpr`, `usingImpl`, an interface's parents and defaults), a term's local block holds `IPragma`, and the desugarer's interface, implementation and `%hide` fixity actions capture `Ref Syn SyntaxInfo`: an IORef whose element type reaches it | `cycle`: `foreign/idr/lib/IR/Verify/Knots.cpp`, a type-graph knot through an array, checked at every verification once defunctionalization makes captures types (`lib/IR/TypeGraph.cpp:18-20`, `Verify/Program.cpp:305`). *Conjecture*, strong: F0 never got past defunctionalize, so this never ran on the fork |
 | `compiler/idris/idris-compiler.ipkg` | `Idris.Host` (0002's lane I, `src/Idris/Host.idr`) is not in its module list | the fork does not install it; the frontend's imports fail |
 | `compiler/idris-mlir.ipkg:46` | still lists `IdrisMLIR.Frontend.Host`, deleted | the frontend does not build |
-| `tools/policies.txt:33-34, 38-46, 48-54` | name the `assert_total` of `Frontend/Host.idr` and of Finite, and the `covering` definitions of Terms, Cases and `translateInstance`, all gone; Finite's `covering translateFrom` is not named | `tests/spec/no-fuel` requires each listed line in its file |
+| `tools/policies.txt:33-34, 38-46, 48-54` | name the `assert_total` of `Frontend/Host.idr` and of Finite, and the `covering` definitions of Terms, Cases and `translateInstance`, all gone; Finite's `covering translateFrom` is not named | `tests/no-fuel` requires each listed line in its file |
 
 The last three are 0002's integration (*read*, live tree). With them,
 0002's R4 holds in the live tree: no `assert_total`, `believe_me`, hole or
@@ -167,7 +167,7 @@ packages outside the table (`Registry/Libraries.idr:102`, refused at
   IdrisMLIR/Frontend/Driver.idr` on a copy of `compiler/src`, under
   `peak_memory`. It reports every independent refusal and every error of
   the fork's elaborator in one run (`Profile.idr:240-251`), and when none,
-  writes the module. Recorded under `bench/profiles/`: the refusals, and
+  writes the module. Recorded under `bench/records/`: the refusals, and
   once S2 has made it exit 0, the handoff's functions, operations and
   bytes, the phases, and the frontend's peak memory (0007's old step 4).
 - **S2, the fixes** (typecheck machine; this proposal: the fork is ours,
@@ -550,9 +550,9 @@ Their bytes are `v`, `sv`, `b`, `s`, `t`, `a` and `a?`, as in (1).
    - `make build`, then `make test`. Every test program's module is read and
      verified by `idris-mlir` (`lib/Driver/Run.cpp:307`), which is the
      property that the C++ reads every module the frontend writes. `make
-     test` also runs `tests/compiler/dialect-syntax`, the samples' module
+     test` also runs `tests/dialect-syntax`, the samples' module
      (`Makefile:17-21`).
-   - `make test-idr`, which includes `tests/idr/syntax/constants.mlir`'s
+   - `make test-idr`, which includes `tests/syntax-constants/syntax-constants.mlir`'s
      bytecode round trip through the C++ writer; then `make test-unit` and
      `make test-mlir-tools`.
    - A one-time migration check, not committed. One `idris-mlir-opt
@@ -562,7 +562,7 @@ Their bytes are `v`, `sv`, `b`, `s`, `t`, `a` and `a?`, as in (1).
      to one.
 3. **The self compile.** The scratch frontend of S2b's `emit_patch.py`, on
    the typecheck machine, killed past 30 min or 24 GB. Emit finishes.
-   Recorded under `bench/profiles/`: emit's time, peak memory, the
+   Recorded under `bench/records/`: emit's time, peak memory, the
    functions, the `.mlirbc`'s bytes and the table entry's bytes. Expected:
    emit linear in the module. The table is about the 0.73 MB of instance
    names (*measured*, the dumped graph) plus the fields (*conjecture*).
@@ -615,7 +615,7 @@ LogicalResult DataType::readTable(DialectBytecodeReader &, ArrayAttr &)` and
   - Writes `lib/IR/CMakeLists.txt`: `Bytecode.cpp` in `IdrIR`.
   - Lands with A.
 - **E, the gate and the record.** Scratch scripts in `/tmp`, the
-  `bench/profiles/` record, and this proposal's status line. Gate 1 and 3 on
+  `bench/records/` record, and this proposal's status line. Gate 1 and 3 on
   the typecheck machine; gate 2 on the owner's machine, after A to D.
 
 Out of S2.1 (*read*, recorded for S3):
@@ -725,7 +725,7 @@ instances of other types, and a chain through which an instance of a
 container grows against an earlier instance of the same container is
 refused: "a data type whose values need ever larger instances of itself".
 
-### What S1 found (*measured*, `bench/profiles/2026-10-15-self-s1.md`)
+### What S1 found (*measured*, `bench/records/2026-10-15-self-s1.md`)
 
 Every polymorphism refusal on the self-compile *grows once and stops*. None
 is a recursion that builds its type deeper at each call, which is

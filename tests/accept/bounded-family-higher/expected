@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that W, whose family m is a lambda applying its own family argument to Int and whose f is F, a definition given fewer arguments than it takes, is admitted with T's argument bounded by F's body around Int (each family read as its meaning, the argument applied to as many closed arguments as it takes), where the reading of F as one head raised the growth check's internal error, and compiles and runs; and that what holds of every compilation holds of it (universal: holds)
-compile: exit 0
-artifacts: core module objects executable
-universal: holds
-run: exit status as expected
-stdout: as expected
-stderr: empty

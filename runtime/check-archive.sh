@@ -5,7 +5,7 @@
 # weakly, and has no static constructors or destructors. The build runs it
 # after the link check (runtime/CMakeLists.txt), through the wrapper it
 # writes with the target entry's spellings (build/<preset>/runtime/
-# check-archive), and so does tests/toolchain/runtime-archive-check.
+# check-archive), and so does tests/runtime-archive-check.
 #
 # Usage: check-archive.sh LLVM-NM LLVM-OBJDUMP SYMBOL-PREFIX
 #                         CONSTRUCTOR-SECTIONS ARCHIVE [STAMP]

@@ -1,7 +1,0 @@
-seed 1, 10000 cases a property
-counting: n=10000 classes=5 f1=0 f1/n=0.0000
-  a cell holding odd words freed: 1012
-  a memo cell released: 780
-  a wide cell freed: 6895
-  an array holding objects freed: 477
-  cells freed: 836

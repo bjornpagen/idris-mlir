@@ -116,7 +116,7 @@ Two records, both of stage 0 (the frontend on Chez):
   9.1 GB peak, a 405 MB MLIR text module (58,305 functions, 7,664 data
   types) and a 74 MB Core. Checks took 0.4 s, reachable 4.2 s, translate
   (TT to Core, monomorphisation on demand) 81 s, print 40 s, write 0.9 s.
-- *Measured* (`bench/profiles/2026-10-14-f0-stage0.md`): 58,236
+- *Measured* (`bench/records/2026-10-14-f0-stage0.md`): 58,236
   functions in 294 MB of generic text, about 140 s to write.
 
 Translate and print were 88% of the first run, both pointer chasing.
@@ -362,7 +362,7 @@ byte-identical outputs on both targets.
 
 | Stage | Mark | Needs | Content | Proof |
 | --- | --- | --- | --- | --- |
-| O0 | AFTER-SELF | `make self` green on both targets; 0014's T0 on the same commit | the stage-3 frontend's phases by `--timing`, its peak memory, base's elaboration, and stage 0 beside it. `tools/self.sh` records only the driver's `-mlir-timing`, whose frontend is one scope, and peak memory, so `--timing` goes to `idris-mlir-front` directly | a committed record under `bench/profiles/` |
+| O0 | AFTER-SELF | `make self` green on both targets; 0014's T0 on the same commit | the stage-3 frontend's phases by `--timing`, its peak memory, base's elaboration, and stage 0 beside it. `tools/self.sh` records only the driver's `-mlir-timing`, whose frontend is one scope, and peak memory, so `--timing` goes to `idris-mlir-front` directly | a committed record under `bench/records/` |
 | O1 | AFTER-SELF | 0011's A0 | token SoA over the interned names; names compared by id, replacing the name-equality traversal of 0015's ledger (the proofs stay 0015's feature 6) | identical TTCs and corpus |
 | O2 | AFTER-SELF | the cutover's emission and 0002's lane I, built by the owner | the core, datatypes and ops tables; lambdas lifted by interval queries; names from slice hashes; an instance as a row with its symbol as a print column (`TS.symbols` its check); operands as result positions; data types written once; the root as one id; each function's bytes by a size scan and a scatter | the bytecode bytes of today's writer on the corpus and the stage-0 self-compile; emission ≥ 5× faster than O0; peak memory not above O0's |
 | O3 | AFTER-SELF | 0016's R1 and R2 in plain Idris (O3 is R3) | Translate as semi-naive over the instance table keyed by `Link`; reachable as its query; the request-chain rule as a filter on the delta | identical Core; translate ≥ 3× faster than O0 |

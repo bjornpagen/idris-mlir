@@ -207,11 +207,11 @@ with the frontend against it, and compared with HEAD's built the same way
   byte-identical to HEAD's; the other is `Syntax.PreorderReasoning.Generic`,
   whose erased `Prerequisite` leaves `der` to unification and matches only
   the view, which its tree now splits first;
-- on the 385 programs of `tests/programs`, `tests/accept` and
+- on the 385 programs then in `tests/programs`, `tests/accept` and
   `tests/reject`, the frontend's exit status, stdout, stderr, core dump and
   bytecode are identical to HEAD's, against the tree's prefix and against
   the one the changed frontend built;
-- `tests/upstream/erased-coverage-nested-match` compiles through the
+- `tests/upstream-erased-coverage-nested-match` compiles through the
   frontend, which HEAD's refuses; its `expected` waits for a build of the
   whole toolchain.
 
@@ -244,6 +244,6 @@ change were written with one.
   and drops this change; if not, the change is carried forward onto the
   new base.
 - When upstream's fix arrives: this directory,
-  `tests/upstream/erased-coverage-nested-match` and the PINS.md entry go.
+  `tests/upstream-erased-coverage-nested-match` and the PINS.md entry go.
 - Whether to report the bug upstream is Bjorn's call alone, in his own
   words and from his own understanding; nothing here is drafted for it.

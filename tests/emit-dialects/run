@@ -1,0 +1,120 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Emit writes ops of the contract's dialects only, each through the builder
+# generated from the op's ODS (IdrisMLIR.Dialect.*, tools/dialects.sh):
+# idris-mlir parses with a registry of exactly idr, arith, math, ub,
+# memref, tensor and builtin. So
+#   - each generated module builds ops of one dialect of the contract, and
+#     the contract's dialects each have one;
+#   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or MLIR/Text.idr,
+#     the modules that write a module, spells a name of a contract
+#     dialect: `<dialect>.<name>`, or the prefix `<dialect>.` that code
+#     completes into one; the names are the generated modules'.
+# And a type or an attribute of a dialect is a constructor of the sum
+# generated from the dialect's ODS (IdrisMLIR.Syntax.*), so
+#   - no string literal outside the syntax and dialect modules spells one,
+#     `!<dialect>.` or `#<dialect>.`;
+#   - MLIR.idr holds each generated sum in its types or attributes, and
+#     SyntaxSamples.idr, whose module the round trip reads back, samples
+#     each through the sum's list of mnemonics.
+# Each literal rule runs on a planted module that breaks it, which it must
+# find.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cd "$root" || exit 1
+contract='idr arith math ub memref tensor builtin'
+src=compiler/src/IdrisMLIR
+
+: > "$work/built"
+for file in "$src"/Dialect/*.idr; do
+  module=${file##*/}
+  # grep reads all of the lexer's output: one that stops at the first match
+  # closes the pipe on awk, which says so on stderr.
+  idris_lex code "$file" | grep 'MkOp' > /dev/null || { say "IdrisMLIR.Dialect.${module%.idr}: builds no op"; continue; }
+  # The op names are the literals that follow MkOp; the lexer blanks them
+  # in code, so they are read from the source.
+  dialects=$(grep -o 'MkOp "[a-z_]*\.' "$file" | sed 's/^MkOp "//; s/\.$//' | sort -u | tr '\n' ' ')
+  case $dialects in
+    *' '?*) say "IdrisMLIR.Dialect.${module%.idr}: builds ops of several dialects: $dialects" ;;
+    *)
+      dialect=${dialects% }
+      case " $contract " in
+        *" $dialect "*) say "$dialect: built by IdrisMLIR.Dialect.${module%.idr}"
+                        printf '%s\n' "$dialect" >> "$work/built" ;;
+        *) say "IdrisMLIR.Dialect.${module%.idr}: builds ops of $dialect, outside the contract" ;;
+      esac ;;
+  esac
+done
+for dialect in $contract; do
+  grep -qx "$dialect" "$work/built" || say "$dialect: built by no module"
+done
+
+# literals PATTERN FILE...: each string literal of FILE... that PATTERN
+# matches, as FILE:LINE:TEXT.
+literals() {
+  literals_pattern=$1
+  shift
+  for literals_file in "$@"; do
+    idris_lex strings "$literals_file" | grep -E "$literals_pattern" | sed "s|^|$literals_file:|"
+  done
+}
+
+# unwritten NAME TEXT PATTERN FILE...: TEXT when no literal of FILE...
+# matches PATTERN and the planted module's literal does, else the hits.
+unwritten() {
+  unwritten_name=$1 unwritten_text=$2 unwritten_pattern=$3
+  shift 3
+  literals "$unwritten_pattern" "$@" > "$work/hits"
+  if [ -s "$work/hits" ]; then
+    say "$unwritten_name: spelled by hand:"
+    show "$work/hits"
+  elif [ -z "$(literals "$unwritten_pattern" "$work/Planted.idr")" ]; then
+    say "$unwritten_name: the planted module's literal is not found"
+  else
+    say "$unwritten_name: $unwritten_text"
+  fi
+}
+
+printf '%s\n' 'planted : String' 'planted = "arith.addi" ++ "!idr.box"' > "$work/Planted.idr"
+unwritten "names of the dialects in Emit" "none spelled by hand" \
+  "^[0-9]+:($(printf '%s' "$contract" | tr ' ' '|'))\\." \
+  "$src"/Emit.idr "$src"/Emit/*.idr "$src"/MLIR.idr "$src"/MLIR/Text.idr
+find "$src" -path "$src/Syntax" -prune -o -path "$src/Dialect" -prune -o -name '*.idr' -print |
+  LC_ALL=C sort > "$work/outside"
+# shellcheck disable=SC2046
+unwritten "types and attributes" "none spelled outside the syntax modules" \
+  '^[0-9]+:[!#][a-z_]+\.' $(cat "$work/outside")
+
+# Each generated sum, with the list of its mnemonics, from the definitions
+# the syntax module gives them.
+: > "$work/sums"
+for file in "$src"/Syntax/*.idr; do
+  for kind in Type Attr; do
+    sum=$(sed -n "s/^data \([A-Za-z]*$kind\) : .*/\1/p" "$file")
+    [ -n "$sum" ] || continue
+    list=$(sed -n "s/^\([a-z][A-Za-z]*${kind}Mnemonics\) : List String\$/\1/p" "$file")
+    printf '%s %s\n' "$sum" "${list:-none}" >> "$work/sums"
+  done
+done
+[ -s "$work/sums" ] || say "syntax modules: no generated sum found"
+idris_lex code "$src/MLIR.idr" > "$work/mlir"
+idris_lex code "$src/SyntaxSamples.idr" > "$work/samples"
+: > "$work/unheld"
+: > "$work/unsampled"
+while read -r sum list; do
+  grep -Eq "(^|[^A-Za-z0-9_.])$sum([^A-Za-z0-9_']|\$)" "$work/mlir" || printf '%s\n' "$sum" >> "$work/unheld"
+  grep -Eq "(^|[^A-Za-z0-9_.])$list([^A-Za-z0-9_']|\$)" "$work/samples" ||
+    printf '%s (%s)\n' "$sum" "$list" >> "$work/unsampled"
+done < "$work/sums"
+if [ -s "$work/unheld" ]; then
+  say "generated sums MLIR.idr does not hold:"
+  show "$work/unheld"
+else
+  say "generated sums: each held by MLIR.idr"
+fi
+if [ -s "$work/unsampled" ]; then
+  say "generated sums SyntaxSamples.idr does not sample:"
+  show "$work/unsampled"
+else
+  say "generated sums: each sampled through its mnemonics"
+fi

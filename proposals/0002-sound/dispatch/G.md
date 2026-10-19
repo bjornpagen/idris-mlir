@@ -268,7 +268,7 @@ Source by source. Each has the raw facts and a short summary. Quotes verified ag
 <!-- lane -->
 ## G — one verdict rule, a report of every compilation, and the LLVM half reachable from a lowered module
 Findings: F08, F09
-Owner / exclusive writes: `foreign/idr/include/idr/Driver/**`, `foreign/idr/lib/Driver/**`. No excludes. `foreign/idr/lib/CMakeLists.txt` (which lists IdrDriver's sources) is the coordinator's, so you add no `.cpp`; a new header is fine. Read-only for you: `compiler/src/IdrisMLIR/Frontend/Driver.idr` (lane I's), `tests/spec/no-behaviour-options/run` (X3's) and every test.
+Owner / exclusive writes: `foreign/idr/include/idr/Driver/**`, `foreign/idr/lib/Driver/**`. No excludes. `foreign/idr/lib/CMakeLists.txt` (which lists IdrDriver's sources) is the coordinator's, so you add no `.cpp`; a new header is fine. Read-only for you: `compiler/src/IdrisMLIR/Frontend/Driver.idr` (lane I's), `tests/no-behaviour-options/run` (X3's) and every test.
 Read first:
 - **Packet:** README §1 I4, §3 F08 and F09, §4.4, §6 (F08 is G's; I writes the frontend's half).
 - **The verdict at HEAD (`foreign/idr/lib/Driver/Run.cpp`):**
@@ -296,7 +296,7 @@ Read first:
   - `DialectRegistry::appendTo` and `getDialectAllocator` (`DialectRegistry.h:195-206`).
 - **The pipeline's output:** `foreign/idr/lib/Transforms/Pipeline.cpp:161-165` (convert-to-llvm, then idr-tail-calls). Its end is LLVM dialect ops with idr-target's `#llvm.target` and DLTI attributes (`dlti.dl_spec`, `dlti.target_system_spec`).
 - **The frontend's half:** `compiler/src/IdrisMLIR/Frontend/Driver.idr:212-226`, `statusOf` and `statusOfAll`: an `InternalError` anywhere gives 1, otherwise 3.
-- **The spec:** `tests/spec/no-behaviour-options/run:16-18` (`kept`, the allowed flags).
+- **The spec:** `tests/no-behaviour-options/run:16-18` (`kept`, the allowed flags).
 Permitted outcome:
 - **Mandatory (F08):**
   - the driver's one verdict rule, `Accepted < Refused < Internal`, the worst seen winning, held in one header;
@@ -373,7 +373,7 @@ Implement:
    - Update `Compile.h`'s comment on `run`.
 7. **Check.**
    - `python3 tools/check-units.py foreign/idr/lib/Driver/Run.cpp foreign/idr/lib/Driver/Compile.cpp foreign/idr/lib/Driver/Main.cpp foreign/idr/lib/Driver/Options.cpp foreign/idr/lib/Driver/Artifacts.cpp foreign/idr/lib/Driver/Prepare.cpp`. Prepare.cpp is listed because it includes driver headers; check every other Driver unit that includes a header you changed (`grep -l`).
-   - `IDRIS_MLIR_ROOT=$PWD sh tests/spec/no-behaviour-options/run`, diffed against `expected`. The one expected difference is `foreign/idr/lib/Driver/Options.cpp: report` under "flags that are not an input...", until X3's change.
+   - `IDRIS_MLIR_ROOT=$PWD sh tests/no-behaviour-options/run`, diffed against `expected`. The one expected difference is `foreign/idr/lib/Driver/Options.cpp: report` under "flags that are not an input...", until X3's change.
    - Read `Driver.idr:212-226` as it stands at your handoff, and say whether it holds `Accepted < Refused < Internal` (an `InternalError` anywhere gives 1; otherwise any error gives 3).
 Delete:
 - The old `Verdict {Clean, Internal, Rejected}` and `status()` (`Run.cpp:63-86`).
@@ -391,9 +391,9 @@ NOT TO DO:
 Stop and return: Return when steps 1-6 are in and check-units passes for every Driver unit, and you have the spec's diff and your reading of the frontend's half. Missing operands to return: X3's `kept` change, and the coordinator's placement of your fixtures.
 Acceptance:
 - **F08:**
-  - Input: a module that fails parse verification with a refusal (the first chunk of `tests/idr/verify/cycle.mlir`). Outcome: exit 3; the report holds `verdict: refused` and `diagnostic: error cycle <path>:<line> -`.
+  - Input: a module that fails parse verification with a refusal (the first chunk of `tests/verify-cycle/verify-cycle.mlir`). Outcome: exit 3; the report holds `verdict: refused` and `diagnostic: error cycle <path>:<line> -`.
   - Input: the same refusal reported beside an internal error. Outcome: exit 1, `verdict: internal`. At HEAD this exits 3 (`Run.cpp:73,238`). By source review this is the discriminator: the enum's order, `std::max`, and `statusOf`.
-  - Input: an accepted module (`tests/idr/e2e/exit-42.mlir`) with `--report`. Outcome: `verdict: accepted`, no `diagnostic:` line, and `statistic: idr-optimize.<name>=<n>` lines in bytewise order. The report is byte-identical across `--num-threads 1, 3, 5, 13`.
+  - Input: an accepted module (`tests/e2e-exit-42/e2e-exit-42.mlir`) with `--report`. Outcome: `verdict: accepted`, no `diagnostic:` line, and `statistic: idr-optimize.<name>=<n>` lines in bytewise order. The report is byte-identical across `--num-threads 1, 3, 5, 13`.
 - **F09:** `idris-mlir-opt exit-42.mlir --idr-target --idr-pipeline -o m.mlir`, then `idris-mlir -c m.mlir -o m.o`, then the pinned clang link: the program exits 42. At HEAD the parse fails on the `llvm` ops. A `func.func`-only module gives exit 1 and the classification error.
 - **The spec:** `no-behaviour-options` matches its `expected` once `report` is in `kept`.
 - **This machine:** check-units and the spec diff.
@@ -408,7 +408,7 @@ Escalate if:
 Handoff:
 - **Shape (per parts/common.md):** changed paths, each mapped to an obligation; contracts supplied; consumer adaptations made; hub text the coordinator must apply; checks actually run with their results, or NotRun; unresolved seams, each with its evidence.
 - **Requests:**
-  1. For X3: `tests/spec/no-behaviour-options/run`, add `report` to `kept` after `o c`. This is an output, as §4.4 says.
+  1. For X3: `tests/no-behaviour-options/run`, add `report` to `kept` after `o c`. This is an output, as §4.4 says.
   2. Fixture texts for the coordinator to place under `tests/idr/obs/` (X1's), each with a first-line `NEEDS-ACCEPTANCE`. Give the full text for:
      - `report-accepted.mlir`: exit-42's module, `--report`, and FileCheck of `verdict: accepted`, `CHECK-NOT: diagnostic:`, and a `statistic: idr-optimize.` line;
      - `report-refused.mlir`: the knot chunk, `%status 3`, `verdict: refused`, `diagnostic: error cycle `;

@@ -1,7 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2026 Bjorn Pagen
-# tests/programs/linear/leet-rotate, an IO program over the linear library's lists
-# (packages: linear), compiled by each of determinism_runs (lib/determinism.sh).
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-determinism "$root/tests/programs/linear/leet-rotate"

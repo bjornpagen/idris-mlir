@@ -1,0 +1,3 @@
+# A closed call runs at run time, so after optimization main still calls
+# spin, which never returns, and collatz, which is not known to.
+idr-optimize: calls=@Main.main:@Main.spin calls=@Main.main:@Main.collatz

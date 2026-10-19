@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The processor count is the host's (tools/host.sh), so expected-stdout is
+# written here: the rest of it is the same on every host.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mkdir "$work/fixture"
+cp Main.idr "$work/fixture/"
+printf '%s\n' "a name" no mlir "$ncpu_total" > "$work/fixture/expected-stdout"
+e2e_io "$work/fixture"

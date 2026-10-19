@@ -1,0 +1,85 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# No option selects how a program is compiled: the compiler has one
+# pipeline, and an experiment compares two binaries. So idris-mlir's
+# command line is its input, its outputs, its resources and its queries
+# alone, the flags `kept` names; no pass of the dialect declares an option
+# but the test check `checks` names, idr-expect's `holds`, which chooses
+# what a test checks, not how anything compiles; and idris-mlir registers no debug counter, which
+# skips what a pass would do. idris-mlir-opt keeps upstream's counter, where
+# experiments live, and its contracts (idr-contracts), which check each
+# pass and change nothing; idris-mlir's report (report) is an output. The
+# generator of the Idris side (idris-mlir-tblgen) is a build tool, not the
+# compiler, and is not searched.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cd "$root" || exit 1
+kept='o c p package-path prefix no-prelude log-actions-tags runtime
+print-runtime prepare-runtime print-target-triple print-link-flags print-target-cpu num-threads
+time-trace time-trace-granularity report idr-contracts'
+
+# The flag of every cl::opt and cl::list the compiler's sources declare:
+# the first string literal of each declaration but a positional one's.
+compiler_sources() {
+  find foreign/idr/lib -name '*.cpp'
+  for tool in idris-mlir idris-mlir-opt idris-mlir-reduce; do
+    [ -f "foreign/idr/tools/$tool.cpp" ] && printf '%s\n' "foreign/idr/tools/$tool.cpp"
+  done
+}
+for source in $(compiler_sources | LC_ALL=C sort); do
+  awk -v file="$source" 'BEGIN { RS = ";" }
+    /cl::(opt|list)</ && !/cl::Positional/ && !/extern/ {
+      text = $0
+      sub(/^.*cl::(opt|list)<[^(]*\(/, "", text)
+      if (match(text, /"[^"]*"/)) print file ": " substr(text, RSTART + 1, RLENGTH - 2)
+    }' "$source"
+done > "$work/flags"
+if [ -s "$work/flags" ]; then say "flags: found"; else say "flags: none found"; fi
+: > "$work/selecting"
+while IFS= read -r line; do
+  flag=${line##*: }
+  case " $(printf '%s' "$kept" | tr '\n' ' ') " in
+    *" $flag "*) ;;
+    *) printf '%s\n' "$line" >> "$work/selecting" ;;
+  esac
+done < "$work/flags"
+if [ -s "$work/selecting" ]; then
+  say "flags that are not an input, an output, a resource or a query:"
+  cat "$work/selecting"
+else
+  say "flags: every one an input, an output, a resource or a query"
+fi
+
+# Every pass option the dialect's ODS declares, and the test checks among
+# them, each as its declaration opens.
+checks='ListOption<"holds", "holds"'
+find foreign/idr/include -name '*.td' | LC_ALL=C sort | while IFS= read -r td; do
+  grep -nE '(List)?Option<"' "$td" | sed "s|^|$td:|"
+done > "$work/options"
+printf '%s\n' "$checks" > "$work/checks"
+grep -v -F -f "$work/checks" "$work/options" > "$work/pass-options"
+: > "$work/missing"
+while IFS= read -r check; do
+  grep -qF -- "$check" "$work/options" || say "  $check" >> "$work/missing"
+done < "$work/checks"
+if [ -s "$work/missing" ]; then
+  say "pass options: a test check not found:"
+  cat "$work/missing"
+elif [ -s "$work/pass-options" ]; then
+  say "pass options beside the test checks:"
+  cat "$work/pass-options"
+else
+  say "pass options: the test check alone, idr-expect's holds"
+fi
+
+# The counter's registration, spelled in pieces so this test is not its own
+# hit, in what idris-mlir links.
+counter='DebugCounter''::registerCLOptions'
+(find foreign/idr/lib -name '*.cpp'; printf '%s\n' foreign/idr/tools/idris-mlir.cpp) |
+  xargs grep -ln "$counter" 2> /dev/null > "$work/counter"
+if [ -s "$work/counter" ]; then
+  say "idris-mlir registers a debug counter in:"
+  cat "$work/counter"
+else
+  say "idris-mlir registers no debug counter"
+fi

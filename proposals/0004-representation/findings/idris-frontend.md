@@ -53,7 +53,7 @@ Two bugs came out of this reading:
   - `Profile.idr` around line 376: `Just (Right hs)`, `Just (Left wrong) => reject … HookShape`, `Nothing => reject … EscapeHatch`;
   - `Terms.idr` around line 916: the same three arms.
 - `foreign/idr/lib/Driver/Compile.cpp:41-67` reads only exit status 3, as `Verdict::Refused` with no diagnostic, so the report holds `verdict: refused` alone.
-- `tests/lib/profile.sh` re-parses the prose:
+- `harness/lib/profile.sh` re-parses the prose:
   - `:91` counts `grep -o 'unsupported ('`;
   - `:94-96` guards `grep -qF 'internal error'` ("which may quote a diagnostic … that reads the same");
   - `:104-108` greps the phrase;
@@ -86,9 +86,9 @@ Two bugs came out of this reading:
 **Consumers.**
 - `Frontend/Translate/{Errors,State}.idr`, `Frontend/{Resolve,Program,Profile,Driver}.idr`, `Frontend/Translate/Terms.idr`;
 - `foreign/idr/lib/Driver/{Compile,Options}.cpp`;
-- `tests/lib/profile.sh`, `tests/spec/refusals-as-data/run` (its claim then holds).
+- `harness/lib/profile.sh`, `tests/spec/refusals-as-data/run` (its claim then holds).
 
-**Discriminator.** The comment fixture above fails today and passes after. A `--report` of `tests/reject/polymorphism-nested` names `polymorphism` and line 12.
+**Discriminator.** The comment fixture above fails today and passes after. A `--report` of `tests/polymorphism-nested` names `polymorphism` and line 12.
 
 **Verification here.**
 - The frontend builds and runs on Chez. Run `idris-mlir-front --core … -o …` on the reject fixtures: the report lines it writes, and stdout byte-identical to today.
@@ -153,7 +153,7 @@ Two bugs came out of this reading:
   - `primOp` (`:96-116`) matches a 5-tuple `(integer p, double p, arith p, comparison p, p)` whose correctness depends on arm order (`arith (Add DoubleType)` also matches, and only the order sends it to `double`);
   - `opOrder` (`:122-124`) falls through unchanged on any other arity.
 - `Terms.idr` around 1246-1248 splits `Neg` again before calling `primOp`: `Neg DoubleType`/`Neg IntegerType => supported`; `Neg _ => reject fc ctx.owner Primitive "negate"`. `primOp (Neg IntType)` would also return `Nothing`, a second refusal of the same case.
-- **Bug.** Idris has `prim__negate_<t>` for every numeric type (`Core/Primitives.idr:685`). `tests/Prims.idr:466` lists them, and `Fuzz.has Runtime` admits them. A runtime fuzz case of a fixed type with the Negate family kept therefore compiles to exit 3, and `tests/fuzz/seed-*` "every build compiles" fails on the owner's build.
+- **Bug.** Idris has `prim__negate_<t>` for every numeric type (`Core/Primitives.idr:685`). `harness/Prims.idr:466` lists them, and `Fuzz.has Runtime` admits them. A runtime fuzz case of a fixed type with the Negate family kept therefore compiles to exit 3, and `tests/fuzz/seed-*` "every build compiles" fails on the owner's build.
 
 **Counterexample.** A new `PrimType` constructor upstream: `coreTypeIn`'s `_` swallows it as a refusal instead of a coverage error. Reordering `primOp`'s arms silently turns Integer addition into `IntOp`, and `intTy` then gives `Nothing`.
 
@@ -180,19 +180,19 @@ Two bugs came out of this reading:
 ## idris-frontend-4: `Prims.Ty` is flat, so integerness and width are recovered by `Maybe`s and a parallel proof family
 
 **Evidence.**
-- `tests/Prims.idr`:
+- `harness/Prims.idr`:
   - `Ty` (`:25-26`) has 13 constructors;
   - `widthOf : Ty -> Maybe Width` (`:80-93`) has 4 `Nothing` arms, and `bounds : Ty -> Maybe` (`:134-141`) follows from it;
   - `IsInteger` (`:97-107`) has 10 constructors that restate the integer subset;
   - `divisor`/`operand` (`:438-454`) test `elem integralTypes`, and `amount` (`:445-446`) uses `maybe SmallShift … (widthOf t)`.
-- `tests/Fuzz.idr`:
+- `harness/Fuzz.idr`:
   - `Kind` and `kind` (`:91-110`) add 4 constructors and 13 arms;
   - `IntLit`'s `{auto 0 isInt : IsInteger t}` (`:78`);
   - `Range = Fixed Width | Unbounded` with `rangeOf` (`:539-544`) re-derives the integer split a third time;
   - `integerLiteral` (`:257-259`) and `codePoint.holds` (`:301-303`) each `case bounds t`;
   - `sameIndex` (`:114-127`) has 13 clauses.
-- `tests/Sem.idr`: `Fixed` (`:33-38`) stores `lo`/`hi`, which `width` already determines. `fixed` (`:41-42`) discards with `toList (widthOf t)` and `toList (bounds t)`, and `int = fromJust (widthOf TInt)` (`:49-50`).
-- `tests/TwoLevels.idr:59-60` repeats the same comprehension.
+- `harness/Sem.idr`: `Fixed` (`:33-38`) stores `lo`/`hi`, which `width` already determines. `fixed` (`:41-42`) discards with `toList (widthOf t)` and `toList (bounds t)`, and `int = fromJust (widthOf TInt)` (`:49-50`).
+- `harness/TwoLevels.idr:59-60` repeats the same comprehension.
 
 **Counterexample.** `widthOf TString` is expressible and returns `Nothing`, which every caller must handle. `MkFixed TInt8 (MkWidth 8 True) 0 0` is a `Fixed` whose bounds contradict its width.
 
@@ -280,7 +280,7 @@ Two bugs came out of this reading:
 
 ## idris-frontend-7: `TwoLevels` spells `Prims` again as strings, so "every primitive" is a comment
 
-**Evidence.** `tests/TwoLevels.idr`:
+**Evidence.** `harness/TwoLevels.idr`:
 - `Term.ty : String` (`:43-47`);
 - `intTys = map tyName fixedTys` (`:55-56`);
 - `prim op t = "prim__" ++ op ++ "_" ++ t` (`:72-73`) restates `Prims.named`;
@@ -313,7 +313,7 @@ Two bugs came out of this reading:
 ## idris-frontend-8: a test case's identity is its position
 
 **Evidence.**
-- `TwoLevels.mainModule` prints `t<n> <value>` (`:295-296`), and the expected files are keyed by `n`: `tests/two-levels/terms/expected-primitives` (653 lines) and `expected-prelude` (46). The header (`:29-31`): "A change to the terms, or to their order, changes the expected files, which are then written again from the program's output". `tests/lib/two-levels.sh:40-52` compares line by line.
+- `TwoLevels.mainModule` prints `t<n> <value>` (`:295-296`), and the expected files are keyed by `n`: `tests/two-levels/terms/expected-primitives` (653 lines) and `expected-prelude` (46). The header (`:29-31`): "A change to the terms, or to their order, changes the expected files, which are then written again from the program's output". `harness/lib/two-levels.sh:40-52` compares line by line.
 - `Sem.tests` names chunks `prim-<type>-<table>-<part>` with `part` the chunk's position (`:140-145`), sized by `maxCases = 120` (`:45-46`). The 72 directory names under `tests/programs/semantics/` are those positions.
 
 **Counterexample.**
@@ -328,7 +328,7 @@ Two bugs came out of this reading:
 
 **Deletion.** `t<n>` numbering; `maxCases`/`chunks`; part numbers.
 
-**Consumers.** `tests/{TwoLevels,Sem}.idr`, `tests/lib/two-levels.sh`, both expected files, `tests/programs/semantics/*` (see finding 9).
+**Consumers.** `tests/{TwoLevels,Sem}.idr`, `harness/lib/two-levels.sh`, both expected files, `tests/programs/semantics/*` (see finding 9).
 
 **Discriminator.** Inserting one term changes exactly one expected line. Adding a value to `Sem.values` changes no test name.
 
@@ -343,7 +343,7 @@ Two bugs came out of this reading:
 **Evidence.**
 - `tests/programs/semantics/prim-*`: 72 directories whose `run` scripts are identical except for the name, and whose `expected` files are identical (measured: one md5 each).
 - `tests/programs/semantics/sem-index/run` exists only to check that the two copies agree.
-- `Main.idr` pools tests by directory (`:107-114`). `tests/runner/one.sh` runs `cd "$test" && sh ./run`, so a test can only be a directory.
+- `Main.idr` pools tests by directory (`:107-114`). `harness/one.sh` runs `cd "$test" && sh ./run`, so a test can only be a directory.
 
 **Counterexample.** A chunk the table makes but no directory holds goes unrun until sem-index fails. 72 universal-line edits for one harness change.
 
@@ -356,7 +356,7 @@ Two bugs came out of this reading:
 
 **Deletion.** 71 directories (142 files), `sem-index`.
 
-**Consumers.** `tests/{Main,Runner}.idr`, `tests/runner/one.sh`, `tests/lib/e2e.sh` (`sem_case`), `tests/programs/semantics/`, `tests/ACCEPTANCE.md`.
+**Consumers.** `tests/{Main,Runner}.idr`, `harness/one.sh`, `harness/lib/e2e.sh` (`sem_case`), `tests/programs/semantics/`, `tests/ACCEPTANCE.md`.
 
 **Discriminator.** `make test` lists exactly `Sem.names` as semantics tests. A new table entry runs with no new file.
 
@@ -373,7 +373,7 @@ Two bugs came out of this reading:
   - the case's mode and host dependence go into a label grammar (`d|j|r|s`, an optional `L`, the number; `Fuzz.write` `:616`, `:629-637`);
   - the tape's overrun goes into a comment, `-- overran: case n` (`programText` `:691`);
   - models go into `m<n> <v>` lines.
-- `tests/lib/fuzz.sh:59-62` finds the overrun with `head -n 1 | case '-- overran'*`. `fuzz_compare` (`:99-139`) re-parses the label grammar in awk (`$1 ~ /^[djrs]L?[0-9]+$/`, `sub(/^[djrs]L?/…)`) to rebuild facts Idris already held.
+- `harness/lib/fuzz.sh:59-62` finds the overrun with `head -n 1 | case '-- overran'*`. `fuzz_compare` (`:99-139`) re-parses the label grammar in awk (`$1 ~ /^[djrs]L?[0-9]+$/`, `sub(/^[djrs]L?/…)`) to rebuild facts Idris already held.
 - `TwoLevels.termsModule` writes host dependence as `-- host-dependent: t<n> <reason>` (`:264`). `two-levels.sh:32-44` reads it back with `sed` and filters with `awk`.
 
 **Counterexample.** A label printed as `dL3` against awk's `[djrs]L?` would drop a case's comparison silently. A generated program whose first line is not the overrun comment (any header change) hides an overrun.
@@ -386,7 +386,7 @@ Two bugs came out of this reading:
 
 **Deletion.** The overrun comment and its `head -n 1` test; the `L` prefix; `fuzz_compare`'s awk; `two_levels`' `sed`/`awk` and the host comment.
 
-**Consumers.** `tests/{Fuzz,TwoLevels,Main}.idr`, `tests/lib/{fuzz,two-levels}.sh`, `tests/fuzz/*/expected` (lines unchanged), `tests/two-levels/terms/expected`.
+**Consumers.** `tests/{Fuzz,TwoLevels,Main}.idr`, `harness/lib/{fuzz,two-levels}.sh`, `tests/fuzz/*/expected` (lines unchanged), `tests/two-levels/terms/expected`.
 
 **Discriminator.** A checker unit (both hosts, as Gen's checks): an output with one disagreeing line names that case. Changing the generated header leaves overrun detection intact.
 
@@ -510,7 +510,7 @@ Two bugs came out of this reading:
 ## idris-frontend-15: Gen and Prims have dead arms that a measure or evidence would rule out
 
 **Evidence.**
-- `tests/Gen.idr:196-198`: `swarm`'s `No _ => w`, with the comment "`No` cannot happen", because `weighted` (`:182-183`) forgets that the option it picked has positive weight.
+- `harness/Gen.idr:196-198`: `swarm`'s `No _ => w`, with the comment "`No` cannot happen", because `weighted` (`:182-183`) forgets that the option it picked has positive weight.
 - Structural bounds whose zero arm is argued dead in comments:
   - `shrink.go Z u = u` (`:356-362`);
   - `spans.go Z _ acc` (`:330-332`);
@@ -539,7 +539,7 @@ Two bugs came out of this reading:
 
 ## idris-frontend-16: Lock validates, and silently skips entries that are not objects
 
-**Evidence.** `tests/Lock.idr`:
+**Evidence.** `harness/Lock.idr`:
 - `problems` (`:30-35`) and `accepted` (`:38-42`) re-read fields with `text key entry`, each returning `Maybe`.
 - `objects` (`:45-48`) drops any entry that is not an object.
 
@@ -551,7 +551,7 @@ Two bugs came out of this reading:
 
 **Deletion.** `objects`' silent skip; the per-check re-reads.
 
-**Consumers.** `tests/Lock.idr`, `tests/spec/lock`.
+**Consumers.** `harness/Lock.idr`, `tests/lock`.
 
 **Discriminator.** A non-object tool entry is reported by name.
 
@@ -563,7 +563,7 @@ Two bugs came out of this reading:
 
 ## idris-frontend-17: Fuzz literal pools hold source text and parse it back
 
-**Evidence.** `tests/Fuzz.idr`:
+**Evidence.** `harness/Fuzz.idr`:
 - Char and String literals are held as source (`CharLit`/`StringLit`, `:80-84`). `unescaped` (`:338-345`) parses the escapes back, and depends on the comment "no pool puts a digit after an escape" (`:336-337`).
 - `unparenthesized` (`:452-455`) strips parentheses that `doubleLiteral` added.
 - `Leaf` holds both `source` and `input` (`:445-449`).
@@ -579,7 +579,7 @@ Two bugs came out of this reading:
 
 **Deletion.** `unescaped`, `unparenthesized`, `Leaf.input` (it becomes the value).
 
-**Consumers.** `tests/Fuzz.idr`, and `tests/TwoLevels.idr`'s literal lists if finding 7 shares the pools.
+**Consumers.** `harness/Fuzz.idr`, and `harness/TwoLevels.idr`'s literal lists if finding 7 shares the pools.
 
 **Discriminator.** `two-hosts` text identical.
 

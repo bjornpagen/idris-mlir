@@ -120,7 +120,7 @@ HEAD above unless marked otherwise; nothing here was executed.
 
 | ID | Finding (evidence) | Counterexample | Selected correction | Lane |
 |---|---|---|---|---|
-| F01 | Between passes only the structural verifier runs; quantities-kept is checked only on e2e compilations, after each dumped step (`tests/lib/properties.sh:13-56`), never on a fixture and never naming the pass at the moment it runs | a pass that drops a `!idr.lin` grade on one value passes `make test-idr` unless a fixture names it | `PassInstrumentation` contracts (§4.1) in `idris-mlir-opt --idr-contracts` | K1 |
+| F01 | Between passes only the structural verifier runs; quantities-kept is checked only on e2e compilations, after each dumped step (`harness/lib/properties.sh:13-56`), never on a fixture and never naming the pass at the moment it runs | a pass that drops a `!idr.lin` grade on one value passes `make test-idr` unless a fixture names it | `PassInstrumentation` contracts (§4.1) in `idris-mlir-opt --idr-contracts` | K1 |
 | F02 | A function's `effects`, `total`, `no_inline` are never related to its body (`lib/IR/Func/Func.cpp:105-114`) | `idr.func @f() attributes {effects = none}` whose body has `idr.io.put_str` verifies, and idr-pure-calls may erase a call to it | the program verifier checks declared effects cover the body's; `total`/`no_inline` provenance fixed (§4.3) | F |
 | F03 | Three transforms are MLIR actions (`include/idr/Support/Actions.h`); the rest of the optional transforms cannot be skipped, so I2 is unchecked | a wrong inlining cannot be bisected to the one inline that caused it | every optional transform of an `optimization` pass performs through an action (§4.2) | K3 |
 | F04 | idr-optimize's own transforms (node turns, its inner steps) are partly actions; its inner canonicalizer's `not-converged` and CSE counts are lost (`include/idr/Transforms/Optimize.h:233-239`) | a spent canonicalization budget inside idr-optimize is invisible | `InnerCounts` gains them; idr-optimize's transforms are actions | K2 |
@@ -133,15 +133,15 @@ HEAD above unless marked otherwise; nothing here was executed.
 | F11 | Strings stand for things (0001-total §5 item 8): `Request`'s `base`, `owner`, `chooser`; `TS.symbols`, the loops table; Recursion's Tarjan tables; `ConId.name` (`compiler/src/IdrisMLIR/Ids.idr:30-34`); Emit's `keys`, `names`; Bytecode's numbering | two definitions whose printed names collide would share a table row (`TS.symbols` is today the guard that detects exactly that, `Keys.idr:806-810`: it stays, as a check of the printed symbol) | typed identities (§4.6) | I |
 | F12 | The translation of applications is `covering` (`Translate/Terms.idr`, `Programs.idr`, `Cases.idr`; `tools/policies.txt`) | — | the spine and the head evaluation by 0001-total's ruling | T |
 | F13 | The dictionary passes rest on one `assert_total` (`Frontend/Finite.idr`, `translateFrom`) | — | proved over F11's typed field identity, or the trust kept exactly as now and the gap stated | Q |
-| F14 | The `scalar_end` chain is dead (`prim__scalarEnd` has no caller): `IdrStringOps.td`, `OpsStrings.cpp`, `Fold/Strings.cpp`, `runtime/Strings/Scalars.cpp`, `Emit/Operations.idr`; `libs/mlir-linear`'s iterator computes a UTF-8 width in Idris. Other lanes' files name it too: `runtime/idris_rt.h:460` and `tests/toolchain/runtime-api/api.c:406` (R3), `tests/idr/fold/string-offsets.mlir` and `tests/idr/lower/llvm-facts.mlir:36,67` (X1): each of those lanes deletes its mention, and P keeps the definition in `Scalars.cpp` until the coordinator's integration check shows none remains | — | the registry, ODS and runtime audited as one list; dead and duplicated primitives deleted across all three | P |
-| F15 | Three copies of the integer bounds table (`tests/Fuzz.idr:83`, `Sem.idr:66`, `TwoLevels.idr:59`); Fuzz's `Expr` is untyped (`Fuzz.idr:95`), its weights accidental (`TInt` listed twice), no swarm, no shrinking, one LCG threaded through all cases; Sem's 72 directories are unchecked against `Sem.tests`; nothing checks the `d` lines are folded | a seventy-third chunk would silently go unrun | one primitive table and `Gen` (§4.7) | N |
+| F14 | The `scalar_end` chain is dead (`prim__scalarEnd` has no caller): `IdrStringOps.td`, `OpsStrings.cpp`, `Fold/Strings.cpp`, `runtime/Strings/Scalars.cpp`, `Emit/Operations.idr`; `libs/mlir-linear`'s iterator computes a UTF-8 width in Idris. Other lanes' files name it too: `runtime/idris_rt.h:460` and `tests/runtime-api/api.c:406` (R3), `tests/fold-string-offsets/fold-string-offsets.mlir` and `tests/lower-llvm-facts/lower-llvm-facts.mlir:36,67` (X1): each of those lanes deletes its mention, and P keeps the definition in `Scalars.cpp` until the coordinator's integration check shows none remains | — | the registry, ODS and runtime audited as one list; dead and duplicated primitives deleted across all three | P |
+| F15 | Three copies of the integer bounds table (`harness/Fuzz.idr:83`, `Sem.idr:66`, `TwoLevels.idr:59`); Fuzz's `Expr` is untyped (`Fuzz.idr:95`), its weights accidental (`TInt` listed twice), no swarm, no shrinking, one LCG threaded through all cases; Sem's 72 directories are unchecked against `Sem.tests`; nothing checks the `d` lines are folded | a seventy-third chunk would silently go unrun | one primitive table and `Gen` (§4.7) | N |
 | F16 | `runtime-api/expected-operations` (3,136 lines) and `double-print/expected-doubles` (176,000 lines) are unreviewed snapshots of the runtime's own output | a wrong rounding recorded once is accepted forever | both deleted (R2 deletes `expected-doubles`, R3 `expected-operations`, in their own files); property programs per family (§4.8): R1 bigs and integer text, R2 doubles, UTF-8 and strings | R1 |
 | F17 | No runtime test builds a wide cell, frees an even-group cell or calls `idris_rt_caf_release`; `runtime-start` freezes a message that names no feature because it requires bit 63, which no feature owns (`start.c:44`, `expected:20`; `runtime/Start/Entry.cpp:67-80` already prints each missing feature's name); the IO buffer size is a fixed `constexpr 4096` (`runtime/Io/Io.h:23`) | the even-group free crashed past every test (0001-total §4.3) | model-based counting and array tests; the message names the bit; the buffer size overridable in a test build | R3 |
 | F18 | 123 dialect fixtures match a transformed module with FileCheck (op order, SSA names, copy names embedding a hash); the dialect harness never round-trips its inputs | `#idr.con` syntax drift broke 100 fixtures that checked nothing else | deleted (§2); `--verify-roundtrip` in the harness | X1 |
 | F19 | 24 program `mlir.check` files match op sequences; reject `message:` headers pin how instance keys render; `bench/report` counts `<rect>`; `io/system-info` writes into its fixture; 12 of 29 rules have no reject fixture; `profile_accept` skips the universal checks | — | deleted or fixed (§2); a reject fixture per rule, generated from the registry for the out-of-language entries | X2 |
 | F20 | Specs transcribe their findings (`no-fuel`, `dialects-current`, `runtime-prepared`, `prelude-coverage`, `licenses`); grep specs have no non-vacuity witness; 318 transcripts repeat the same universal lines; the thread count is a hidden input (`tools/compile.sh:42`) | adding one universal check rewrites 318 files | specs state properties; one universal line; determinism over {1,3,5,13} threads and two processes | X3 |
 | F22 | The small integer range is defined twice: `runtime/Big/Big.h:22-23` and `foreign/idr/include/idr/IR/Ranges.h:23-24` | the two drift and the compiler narrows a value the runtime holds large | the runtime's header exports the bounds (R3 adds `IDRIS_RT_SMALL_MIN`/`IDRIS_RT_SMALL_MAX` to `runtime/idris_rt.h`); `Ranges.h` uses them and its copy goes | F |
-| F21 | 69 of 82 idr-expect properties have no fixture where they fail; `tests/idr/expect/structured-loops.mlir` is stale against `StructureLoops/Forms.cpp:127-129` | a property that holds of every module | each gets a failing fixture or is deleted (the five K1 calls and `folds-balanced` stay); `folded=@f` added for N's fold check | E |
+| F21 | 69 of 82 idr-expect properties have no fixture where they fail; `tests/expect-structured-loops/expect-structured-loops.mlir` is stale against `StructureLoops/Forms.cpp:127-129` | a property that holds of every module | each gets a failing fixture or is deleted (the five K1 calls and `folds-balanced` stay); `folded=@f` added for N's fold check | E |
 
 ## 4. Selected representations
 
@@ -204,7 +204,7 @@ installed before the profile instrumentation:
 - Every optional transform of an `optimization` pass performs through an
   action (`include/idr/Support/Actions.h`), tagged `idr-<pass>-<transform>`;
   the existing `idr-raise`, `idr-specialize-clone` and `idr-optimize-node` keep
-  their names (`tools/bisect.sh`, `tests/idr/obs/debug-counter.mlir` use them).
+  their names (`tools/bisect.sh`, `tests/obs-debug-counter/obs-debug-counter.mlir` use them).
   A skipped action leaves the IR as it was and valid. The split is by file:
   K2 the actions in `lib/Transforms/Optimize/**` (pure-calls, contify), K3
   every other file's (inline, identity, constants, canonicalize, deduplicate,
@@ -265,7 +265,7 @@ installed before the profile instrumentation:
   `statusOfAll` (`Frontend/Driver.idr:212-226`) already holds the rule; lane I
   keeps it and G re-reads it at handoff.
 - `idris-mlir --report=<file>` (an output; X3 adds `report` to the allowed
-  options of `tests/spec/no-behaviour-options`): written whatever the verdict,
+  options of `tests/no-behaviour-options`): written whatever the verdict,
   checked by `Plan::of` against the input and outputs, a usage error with any
   action but compiling, a failed write failing the compilation. Lines:
   `verdict: accepted|refused|internal`; then `diagnostic: <severity> <rule,
@@ -338,7 +338,7 @@ Decided by the owner (O1): our own suite, written clean room. idris2-hedgehog,
 Mojo's stdlib `testing/prop` and Hypothesis are references read, never code
 copied, so no port and no second licence enter the tree.
 
-- **The choice stream.** `tests/Gen.idr`: a generator reads every decision as a
+- **The choice stream.** `harness/Gen.idr`: a generator reads every decision as a
   `Nat` below a bound from one tape; the tape is a linear (quantity 1) buffer
   threaded through the draws, so a draw is O(1), a run allocates its tape once
   and reuses it (matklad's static allocation), and generation is linear in the
@@ -360,7 +360,7 @@ copied, so no port and no second licence enter the tree.
   update there; the runner stays on the stock Idris so a broken compiler cannot
   break its own tests.
 
-`tests/Prims.idr` is the one table of primitives (type, bounds, domain, host
+`harness/Prims.idr` is the one table of primitives (type, bounds, domain, host
 dependence) that Fuzz, Sem and TwoLevels import.
 
 The exact exports of `Gen` and `Prims` are the code blocks of
@@ -374,7 +374,7 @@ definition N.md gives.
 
 ### 4.8 Runtime properties (R1, R2, R3)
 
-`tests/toolchain/lib/prop.h` (R1 owns): draws through compiler-rt's
+`harness/prop/prop.h` (R1 owns): draws through compiler-rt's
 `FuzzedDataProvider` (`.toolchain/llvm-project/compiler-rt/include/fuzzer/FuzzedDataProvider.h`,
 header-only) over bytes from splitmix64 seeded per case (`--seed S --case I`
 replays one); an exhausted provider yields each family's simplest value;
@@ -401,17 +401,17 @@ so every family list puts the simplest family first.
 | C++ unit tests, expressive matchers | googletest and googlemock (`UnorderedElementsAre`, `Each`), pinned in llvm-project | assertion macros of our own |
 | C choice stream | compiler-rt `FuzzedDataProvider` (header-only) | a byte-tape decoder of our own |
 | Coverage-guided search | libFuzzer (compiler-rt) — not this wave (O3) | — |
-| Idris generators and shrinking | `tests/Gen.idr`, ours, clean room (O1, decided) | Fuzz's, Sem's and TwoLevels' separate machinery |
+| Idris generators and shrinking | `harness/Gen.idr`, ours, clean room (O1, decided) | Fuzz's, Sem's and TwoLevels' separate machinery |
 | Text contracts | FileCheck, only where the text is the contract | — |
-| Test runner | the existing Idris runner (`tests/Main.idr`) | llvm-lit as a second harness |
+| Test runner | the existing Idris runner (`harness/Main.idr`) | llvm-lit as a second harness |
 
 ## 6. Lanes
 
 All lanes start at dispatch; none waits on another, because §4 fixes every
 shared declaration by name and shape. The coordinator owns the hubs
-(`compiler/idris-mlir.ipkg`, `tests/tests.ipkg`, every `CMakeLists.txt`,
+(`compiler/idris-mlir.ipkg`, `harness/harness.ipkg`, every `CMakeLists.txt`,
 `Makefile`, `PINS.md`, `upstream/README.md`, `tools/policies.txt`, which
-T, Q and I edit by handoff: `tests/spec/no-fuel` wants each line still in its
+T, Q and I edit by handoff: `tests/no-fuel` wants each line still in its
 file) and the generated Idris dialect
 modules (`compiler/src/IdrisMLIR/{Dialect,Syntax}/*`, regenerated by
 `make typecheck-dialects` after an ODS change, never edited by hand), and
@@ -431,13 +431,13 @@ handoff.
 | I identities | `compiler/src/IdrisMLIR/**` except `Registry/**`, `Emit/Operations.idr`, `Proof/**`, `Frontend/Finite.idr`, `Frontend/Translate/{Keys,Terms,Programs,Cases}.idr`; `compiler/idris/src/Idris/Host.idr` (new), `compiler/idris/README.md` | §4.4, §4.6, §2 (R4: `Host` into the fork) | F11 |
 | T applications | `compiler/src/IdrisMLIR/Frontend/Translate/{Terms,Programs,Cases}.idr` | §4.6 | F12 |
 | Q proofs | `compiler/src/IdrisMLIR/Proof/**`, `Frontend/Finite.idr`, `Frontend/Translate/Keys.idr` | §4.6 | F13 |
-| N generators | `tests/{Gen,Prims,Fuzz,Sem,TwoLevels}.idr`, `tests/fuzz/**`, `tests/two-levels/**`, `tests/programs/semantics/**`, `tests/lib/fuzz.sh` | §4.7 | F15 |
-| R1 bigs and text | `tests/toolchain/lib/**`, `tests/toolchain/runtime-bigs/**`, `tests/toolchain/runtime-text/**` | §4.8 | F16 |
-| R2 doubles and strings | `tests/toolchain/runtime-doubles/**`, `tests/toolchain/runtime-utf8/**`, `tests/toolchain/runtime-strings/**`, `tests/toolchain/double-print/**` | §4.8 | F16 |
+| N generators | `tests/{Gen,Prims,Fuzz,Sem,TwoLevels}.idr`, `tests/fuzz/**`, `tests/two-levels/**`, `tests/programs/semantics/**`, `harness/lib/fuzz.sh` | §4.7 | F15 |
+| R1 bigs and text | `harness/prop/**`, `tests/runtime-bigs/**`, `tests/runtime-text/**` | §4.8 | F16 |
+| R2 doubles and strings | `tests/runtime-doubles/**`, `tests/runtime-utf8/**`, `tests/runtime-strings/**`, `tests/toolchain/double-print/**` | §4.8 | F16 |
 | R3 counting, arrays, IO | `runtime/**` except `runtime/Strings/**`; `tests/toolchain/**` except R1's and R2's | §4.8 | F17 |
-| X1 dialect cull | `tests/idr/**` except `expect/`; `tests/lib/lit.sh` | §2, §4.1 | F18 |
-| X2 program cull | `tests/{programs,accept,reject,bench}/**` except `programs/semantics/`; `tests/lib/{profile,e2e,expect,run,heap}.sh` | §2 | F19 |
-| X3 specs and harness | `tests/{spec,determinism,compiler}/**`, `tests/lib/**` except X1's, X2's and N's; `tests/{Main,Runner,Lock}.idr`, `tests/testutils.sh`, `tests/README.md`, `tests/ACCEPTANCE.md` | §2, `idr-contracts` and `report` added to `spec/no-behaviour-options`' kept flags | F20 |
+| X1 dialect cull | `tests/idr/**` except `expect/`; `harness/lib/lit.sh` | §2, §4.1 | F18 |
+| X2 program cull | `tests/{programs,accept,reject,bench}/**` except `programs/semantics/`; `harness/lib/{profile,e2e,expect,run,heap}.sh` | §2 | F19 |
+| X3 specs and harness | `tests/{spec,determinism,compiler}/**`, `harness/lib/**` except X1's, X2's and N's; `tests/{Main,Runner,Lock}.idr`, `harness/testutils.sh`, `harness/README.md`, `tests/ACCEPTANCE.md` | §2, `idr-contracts` and `report` added to `spec/no-behaviour-options`' kept flags | F20 |
 
 Eighteen concurrent lanes; the record (`proposals/**`, `HANDOFF.md`) is the
 coordinator's at integration. F08 is G's: I writes the frontend's half against
@@ -475,7 +475,7 @@ representation-first guideline:
 | ID | Ruling | Why |
 |---|---|---|
 | R1 (review D1) | `Accepted < Refused < Internal`, the worst seen wins, in C++ and in the frontend; a refusal fails its step (§4.4) | the reviewer's cascade cannot occur: no step runs after a refusing one, so the order needs no exception for it; one total order, held once per language, replaces a rule with a carve-out |
-| R2 (review D8) | Kept, as the text that is the contract: `tests/idr/lower/llvm-facts.mlir` RUN 3-4 (the attributes LLVM reads are the interface, so they are checked as LLVM is given them; E's `memory` property covers alignment, not `nonnull`, `dereferenceable` or `range`); `tests/programs/partial/partial-divergent-call/mlir.check` (soundness: a closed call of a partial function is never evaluated at compile time; two lines naming source definitions); `tests/programs/partial/lambda-terminates/mlir.check` (the frontend's `total` fact: a lambda's function whose body has no loop is total, `main` is not; no idr-expect property can name a lambda's hashed function). Deleted like the rest: `data/shapes` (pins the printer's text and holds an unresolved mark about its syntax), `eval/dead-static`, `eval/static-evaluation`, `interfaces/interface-superclass` (they pin what the optimizer happened to remove, so a budget or an order change stales them; their values are the run's) | the hard rule deletes a check stronger than its contract; these three are exactly as strong as theirs. `dialect-text` (X3) exempts exactly `lower/llvm-facts.mlir` |
+| R2 (review D8) | Kept, as the text that is the contract: `tests/lower-llvm-facts/lower-llvm-facts.mlir` RUN 3-4 (the attributes LLVM reads are the interface, so they are checked as LLVM is given them; E's `memory` property covers alignment, not `nonnull`, `dereferenceable` or `range`); `tests/partial-divergent-call/mlir.check` (soundness: a closed call of a partial function is never evaluated at compile time; two lines naming source definitions); `tests/programs/partial/lambda-terminates/mlir.check` (the frontend's `total` fact: a lambda's function whose body has no loop is total, `main` is not; no idr-expect property can name a lambda's hashed function). Deleted like the rest: `data/shapes` (pins the printer's text and holds an unresolved mark about its syntax), `eval/dead-static`, `eval/static-evaluation`, `interfaces/interface-superclass` (they pin what the optimizer happened to remove, so a budget or an order change stales them; their values are the run's) | the hard rule deletes a check stronger than its contract; these three are exactly as strong as theirs. `dialect-text` (X3) exempts exactly `lower/llvm-facts.mlir` |
 | R3 | `libs/` compiles under both hosts; its `%extern` primitives mean only what `runtime/` says, so a program that reaches one runs under idris-mlir only, and nothing the stock host runs reaches one (§2; AGENTS.md says it) | one meaning per primitive (AGENTS.md) and "Chez must compile and run the Idris side" agree once the line is drawn at what the stock host runs |
 | R4 | No escape hatch stays in a user module: `Host` moves into the fork (I); Finite's passes are proved finite or `covering` (Q, with T's `translateIOProgram` following) | `make self` refuses `assert_total` in `IdrisMLIR.*`; the trust in Idris's compiler belongs to the fork, a trusted library whose own assertions are its; a `covering` definition states exactly what is not proved, where an assertion states the opposite |
 | R5 (O2, review prerequisite 4) | Accepted: B's googletest-from-source unit programs (unbuilt here: they link MLIR) and R1's C++ property programs over the runtime (built and run here by the host's clang) | the library owns the mechanism; the property programs link no LLVM library, so they are verified on this machine |
@@ -511,7 +511,7 @@ representation-first guideline:
     `DictionaryField`, `StaticArgument`, `RuntimeClosure`, `Match`,
     `Primitive`, `StringPrimitive`). The category is per rule where it is a
     fact of each site.
-  - `tests/Prims.idr`'s `Op` is a test-side copy of Idris's `PrimFn`,
+  - `harness/Prims.idr`'s `Op` is a test-side copy of Idris's `PrimFn`,
     kept apart from the compiler's on purpose so the model stays
     independent, but it can drift. Its `opIndex` is a hand numbering.
 - Snapshot candidates (O6): the Hypothesis reducer paper (CC-BY), matklad's
@@ -556,7 +556,7 @@ were regenerated once, and the coordinator fixed what integration found:
 `%prefix_record_projections` left `Translate/Closed.idr` (the frontend
 refuses it), the hole marker's spelling is `markerName`/`markerOf` alone, and
 lane G's report reads statistics through a minimal instrumentation with no
-`thread_local` and names no pass (`tests/spec/mlir-layout`). `make typecheck`
+`thread_local` and names no pass (`tests/mlir-layout`). `make typecheck`
 passes every part (C++ 0 errors) and `make check` is 35/35; `tests/ACCEPTANCE.md`
 lists 285 files. Evidence that ran here: the runtime property programs and
 `rc`, two googletest boxes, Gen and Sem and TwoLevels on Chez, and the

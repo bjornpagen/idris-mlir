@@ -130,8 +130,8 @@ request: `@unreachable_func_with_for_loops`, the test of the open pull
 request #208881 (the same fix for function arguments alone), and
 `@address_taken_callee`, as `remove-dead-values-address-taken` posts it.
 Neither is carried now. `uncalled.mlir` is the case #208881's test
-covers; `tests/upstream/remove-dead-values-unreachable` checks all four
-reproducers, and `tests/upstream/remove-dead-values-address-taken` the
+covers; `tests/upstream-remove-dead-values-unreachable` checks all four
+reproducers, and `tests/upstream-remove-dead-values-address-taken` the
 address-taken one.
 
 Checked against llvmorg-23.1.2, with that version, in an `mlir-opt`

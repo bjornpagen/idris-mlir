@@ -1,0 +1,60 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Nothing this repository builds links a shared library of its own or of a
+# third party, only the system's C library: an ELF executable needs glibc's
+# libraries alone (the C library, its math library, the dynamic loader); a
+# Mach-O executable names only the operating system's own libraries
+# (/usr/lib, /System/Library: libSystem and the like), and never a shared
+# libc++, since the pinned libc++ is static. idris-mlir-front, the
+# frontend idris-mlir runs, is not among them: until the frontend compiles
+# itself it is Idris's own executable, run by Chez Scheme, the host side
+# the rule excepts, and a link to it in the build tree. The executables are
+# read from the build tree, every executable file of an object format that
+# the build made (its tools, its googletest boxes, the runtime's link
+# check), so a new one is checked without naming it here; a program linked
+# as idris-mlir links one stands for the programs.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+build=${idris_mlir%/foreign/idr/idris-mlir}
+program=$work/start
+if ! runtime_c link_program -O1 "$root/tests/page-size-mismatch/start.c" \
+    "$build/runtime/libidris_rt.a" -o "$program" > "$work/cc.log" 2>&1; then
+  say "start: does not link"
+  show "$work/cc.log"
+  exit 0
+fi
+
+# shared FILE: what FILE needs of a dynamic loader beyond what the rule
+# allows, one per line: an ELF file's shared libraries that are not glibc's;
+# a Mach-O file's shared libraries that are not the system's, and a shared
+# libc++.
+shared() {
+  if "$llvm_bin/llvm-objdump" --file-headers "$1" 2> /dev/null | grep -q 'file format mach-o'; then
+    "$llvm_bin/llvm-objdump" --macho --dylibs-used "$1" |
+      sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' |
+      awk '$0 ~ /libc\+\+/ || ($0 !~ /^\/usr\/lib\// && $0 !~ /^\/System\/Library\//)'
+  else
+    "$llvm_bin/llvm-readelf" --dynamic "$1" |
+      awk '/\(NEEDED\)/ { n = $NF; gsub(/[][]/, "", n)
+        if (n != "libc.so.6" && n != "libm.so.6" && n !~ /^ld-linux-.*\.so\.[0-9]+$/) print n }'
+  fi
+}
+
+# The build's executables: each regular executable file outside CMake's
+# own directories whose object format llvm-objdump names.
+find "$build" -name CMakeFiles -prune -o -type f -perm -u+x -print | LC_ALL=C sort |
+  while IFS= read -r file; do
+    "$llvm_bin/llvm-objdump" --file-headers "$file" 2> /dev/null | grep -q 'file format ' &&
+      printf '%s\n' "$file"
+  done > "$work/executables"
+grep -qx "$idris_mlir" "$work/executables" || say "the build's executables: idris-mlir is not among them"
+printf '%s\n' "$program" >> "$work/executables"
+while IFS= read -r file; do
+  shared "$file" > "$work/shared"
+  [ -s "$work/shared" ] && say "${file#"$build"/}: needs $(paste -sd, "$work/shared")"
+done < "$work/executables" > "$work/dynamic"
+if [ -s "$work/dynamic" ]; then
+  cat "$work/dynamic"
+else
+  say "every executable the build makes, and a program: the system's C library and nothing else"
+fi

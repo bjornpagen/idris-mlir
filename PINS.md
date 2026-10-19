@@ -77,7 +77,7 @@ pinned reader reads an op written unregistered as if its properties were
 a properties index; the frontend writes each op's inherent attributes in
 its attribute dictionary, which the reader moves into properties, so
 nothing in the tree reaches the bug. Its report, reproducer and pull
-request are kept as a submission, with `tests/upstream/bytecode-unregistered-properties`
+request are kept as a submission, with `tests/upstream-bytecode-unregistered-properties`
 checking that the pin still has it.
 Retired with the one recipe (2026-10-09): `stage2-thinlto`. Stage 2 is
 not LTO on any target: its libraries are native code that every build of
@@ -136,7 +136,7 @@ which the top-level CMake configure gate reads.
   (`mlir/lib/Transforms/CSE.cpp:46-47`) assigns each run's counts to its
   `num-cse'd`/`num-dce'd` statistics instead of accumulating them, so a
   nested CSE's reported total is the last function's count of each
-  clone: `tests/determinism/threads-*` compare one module's statistics
+  clone: `tests/determinism-threads-*` compare one module's statistics
   under one thread and under many and fail (234 under many, 0 under one,
   on rbtree), the module itself identical
 - sites: none in our code; the patch. CSE runs nested in idr-optimize's
@@ -164,15 +164,15 @@ which the top-level CMake configure gate reads.
   of a `Builtin`), compiler/idris/src/Core/Normalise.idr
   (`normalisePrims`), compiler/idris/src/Core/Primitives.idr (`sharedOp`)
   and compiler/idris/src/Core/Value.idr (`sharedPrimsOnly`). The test
-  generators write literals as they are (tests/Sem.idr,
-  tests/TwoLevels.idr, tests/Fuzz.idr), where they hid each behind an
+  generators write literals as they are (harness/Sem.idr,
+  harness/TwoLevels.idr, harness/Fuzz.idr), where they hid each behind an
   identity that Idris does not reduce
 - workaround: none; the fork carries the fix as its own code, the change
   of `upstream/18-elaboration-primitive-folding/pull-request.diff` (the
   pull request against the pin): a primitive reduces where a definition
   would, not in the holes-only modes, but for `believe_me`, which computes
   nothing (without it a `Fin` literal keeps base's forged proof, and
-  tests/programs/data/vect is refused as an escape hatch), and a literal's
+  tests/vect is refused as an escape hatch), and a literal's
   conversion runs only the primitives every backend computes alike
   (Integer's arithmetic and comparisons, a wrapping cast from Integer, an
   exact cast to Double, `believe_me`).
@@ -214,7 +214,7 @@ which the top-level CMake configure gate reads.
   loop through a definition terminates per component, `Recursion`); the
   elaborator's checks of `total` code still do
 - retire: when a re-sync of the fork brings upstream's fix, the fork's
-  change is upstream's; then the report, `tests/upstream/termination-closure`
+  change is upstream's; then the report, `tests/upstream-termination-closure`
   and this entry go
 - upstream: upstream/21-termination-closure; nothing is sent, since Idris
   takes no tool-written contribution (upstream/README.md, **Idris**); its
@@ -234,7 +234,7 @@ which the top-level CMake configure gate reads.
   the series 50, 52, 53. The stock Idris is not patched: nothing it builds
   meets the bug
 - retire: when a re-sync brings upstream's fix; then the report,
-  tests/upstream/erased-coverage-nested-match and this entry go
+  tests/upstream-erased-coverage-nested-match and this entry go
 - upstream: nothing is sent (upstream/README.md, **Idris**)
 
 ## totality-unimported-callee
@@ -255,7 +255,7 @@ which the top-level CMake configure gate reads.
   module defines. The stock Idris is not patched (stage 0 only) and still
   accepts the reproducer
 - retire: when a re-sync of the fork brings upstream's fix; then the report,
-  `tests/upstream/totality-unimported-callee` and this entry go
+  `tests/upstream-totality-unimported-callee` and this entry go
 - upstream: upstream/51-totality-unimported-callee; nothing is sent
   (upstream/README.md, **Idris**); its diff records the change for re-syncs
 
@@ -278,7 +278,7 @@ which the top-level CMake configure gate reads.
   upstream/52-relevant-implicit-split/pull-request.diff, applied after
   50's. The stock Idris is not patched: nothing it builds meets the bug
 - retire: with erased-coverage-nested-match, when a re-sync brings
-  upstream's fix; then the report, tests/upstream/relevant-implicit-split
+  upstream's fix; then the report, tests/upstream-relevant-implicit-split
   and this entry go
 - upstream: nothing is sent (upstream/README.md, **Idris**)
 
@@ -297,7 +297,7 @@ which the top-level CMake configure gate reads.
   52's; it also carries erased-constant-pattern. The stock Idris is not
   patched: nothing it builds meets the bug
 - retire: when a re-sync brings upstream's fix; then the report,
-  tests/upstream/constructor-implicit-mark and this entry go
+  tests/upstream-constructor-implicit-mark and this entry go
 - upstream: nothing is sent (upstream/README.md, **Idris**)
 
 ## erased-constant-pattern
@@ -312,7 +312,7 @@ which the top-level CMake configure gate reads.
   upstream/53-constructor-implicit-mark/pull-request.diff. The stock Idris
   is not patched: nothing it builds meets the bug
 - retire: when a re-sync brings upstream's fix; then the report,
-  tests/upstream/erased-constant-pattern and this entry go
+  tests/upstream-erased-constant-pattern and this entry go
 - upstream: nothing is sent (upstream/README.md, **Idris**)
 
 ## remove-dead-values-address-taken
@@ -384,7 +384,7 @@ which the top-level CMake configure gate reads.
   in proportion to the size, at start and exit). Running out of it is a
   named error
 - retire: when MLIR parses, prints and walks nested attributes from a
-  worklist; `tests/upstream/recursive-attribute-parser` fails then. There is
+  worklist; `tests/upstream-recursive-attribute-parser` fails then. There is
   no patch: the fix is a design change across the parser, the printer and
   the sub-element walks (its README says why), so this code stays until
   upstream has it
@@ -462,7 +462,7 @@ which the top-level CMake configure gate reads.
 - sites: none in our code; the patch. idr-narrow-lanes versions a
   vectorized loop when its wide integer ops fit 32 bits, and the narrowing
   of its copy leaves wide an op whose 32-bit form would compute something
-  else (tests/idr/vectorize/lanes-x86-64)
+  else (tests/linarray-lanes-exact)
 - workaround: `upstream/09-int-range-narrowing-exactness/llvm.patch`, the
   remainders alone: `remsi` does not narrow when the dividend's range holds
   the narrow signed minimum and the divisor's holds -1, and the unsigned
@@ -488,7 +488,7 @@ which the top-level CMake configure gate reads.
   the forward analyses resolve callees through it, and `DeadCodeAnalysis`
   uses it in place of the collection it kept across runs
 - retire: drop the patch when the pin's forward analyses resolve callees
-  from a symbol table (`tests/upstream/forward-dataflow-callee-lookup`
+  from a symbol table (`tests/upstream-forward-dataflow-callee-lookup`
   then shows it with the pristine tools)
 - upstream: upstream/05-forward-dataflow-callee-lookup (not yet filed; still
   present on main at 7208ba24); plan in its README: a pull request
@@ -561,7 +561,7 @@ which the top-level CMake configure gate reads.
   before a write); and the nearest symbol table for empty tensor elimination's
   module analysis and for a constant's global
 - retire: drop each part when the pin carries upstream's fix for it; the
-  patch goes when all have (`tests/upstream/one-shot-module-function-interface`
+  patch goes when all have (`tests/upstream-one-shot-module-function-interface`
   then passes with the pristine tools); the models stay upstream's templates
 - upstream: upstream/24-one-shot-module-function-interface (not filed; not
   built; upstream main is the pin's at 2026-10-14); plan in its README:
@@ -657,7 +657,7 @@ which the top-level CMake configure gate reads.
   runtimes; the pinned toolchain builds only compiler-rt's builtins, on
   every target
 - sites: CMakePresets.json, which has no `asan-ubsan` preset;
-  tests/spec/mlir-layout checks that it has none
+  tests/mlir-layout checks that it has none
 - workaround: the hardened preset builds our tools with trap-mode UBSan
   (`-fsanitize=undefined -fsanitize-trap=all`), which needs no runtime
 - retire: when a sanitizer build is worth building compiler-rt's
@@ -794,7 +794,7 @@ which the top-level CMake configure gate reads.
   compiler/idris/src/Core/{Normalise,Normalise/Eval,Primitives,Value}.idr
   (elaboration-primitive-folding), compiler/idris/src/Core/Primitives.idr
   (every operation the evaluator computes calls the primitive of its
-  name, which fixes the Char's text; tests/upstream/evaluator-char-text)
+  name, which fixes the Char's text; tests/upstream-evaluator-char-text)
 - workaround: none; the fork is our code. Its deviations from upstream are
   deliberate (the REPL, IDE mode, every other code generator and the CExp
   pipeline are out of scope) except the five bug fixes, which upstream
@@ -823,7 +823,7 @@ which the top-level CMake configure gate reads.
   compiler/idris/src/Core/Termination/SizeChange.idr (`Dense`, `andThen`,
   `Calls`, `Kept`, `powers`, `nonDescending`, `loopsBack`, `search`,
   `loopsTerminate`), compiler/idris/src/Libraries/Data/List/Finite.idr; its
-  check is tests/compiler/fork-loops-terminate
+  check is tests/fork-loops-terminate
 
 ## linear-ambiguous-let
 

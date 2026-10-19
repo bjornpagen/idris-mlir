@@ -65,7 +65,7 @@ in `/Users/bjorn/Documents/idris-mlir`, on branch `main`.
    3. run T3's box;
    4. run the self compile's frontend step unpatched, against the S1
       prefix `/tmp/0014-S2b/s1/pfx`, recording its refusals and the growth
-      phase's time in `bench/profiles/`. A polymorphism refusal there goes
+      phase's time in `bench/records/`. A polymorphism refusal there goes
       to the owner with its cycle;
    5. run gate 5: typecheck `Proof/` and `Frontend/Growth/{Check,Potential}.idr`
       with totality enforced, and search for `assert_total`, `covering`,

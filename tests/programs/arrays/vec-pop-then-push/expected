@@ -1,7 +1,0 @@
-NEEDS-ACCEPTANCE: that the port to the size-indexed vector, whose pop gives the element itself, prints the same
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds

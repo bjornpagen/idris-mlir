@@ -1,0 +1,34 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The upstream bug upstream/16-remove-dead-values-unchanged-call still
+# reproduces with the pinned mlir-opt: remove-dead-values, on a module from
+# which it erases nothing, replaces the call of a private function with an
+# identical one, so composite-fixed-point-pass over it does not converge
+# after one run, with the pass's canonicalization and without. This
+# repository carries no patch for it (the README says why). When this
+# fails, the bug is fixed: the report and this test go (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/16-remove-dead-values-unchanged-call/unchanged-call.mlir
+# The pass has nothing to erase: it prints the module as it was.
+bounded "$llvm_bin/mlir-opt" "$input" > "$work/before.mlir" 2> "$work/err" &&
+  bounded "$llvm_bin/mlir-opt" "$input" --remove-dead-values > "$work/after.mlir" 2>> "$work/err"
+if ! cmp -s "$work/before.mlir" "$work/after.mlir"; then
+  say "remove-dead-values: changes the module, which is not this bug"
+  show "$work/err"
+  exit 0
+fi
+for canonicalize in true false; do
+  bounded "$llvm_bin/mlir-opt" "$input" \
+    --composite-fixed-point-pass="pipeline=remove-dead-values{canonicalize=$canonicalize} max-iterations=1 on-convergence-failure=error" \
+    > /dev/null 2> "$work/err"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    say "canonicalize=$canonicalize: no longer reproduces (converges after one run)"
+  elif grep -q "didn't converge" "$work/err"; then
+    say "canonicalize=$canonicalize: still reproduces (rebuilds the call)"
+  else
+    say "canonicalize=$canonicalize: mlir-opt failed (exit $status), which is not this bug"
+    show "$work/err"
+  fi
+done

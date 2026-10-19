@@ -1,7 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2026 Bjorn Pagen
-# bench/rbtree's module through idr-pipeline under one thread and under the
-# pool, byte for byte.
-. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-determinism_threads "$root/bench/rbtree"

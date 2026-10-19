@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Where the pinned tools are, in one place: sourced, with $root
 # set to the repository, by the Makefile, tools/compile.sh, tools/bisect.sh,
-# tools/verify-pins.sh, tools/doctor.sh, bench/run.sh, tests/testutils.sh and
+# tools/verify-pins.sh, tools/doctor.sh, bench/run.sh, harness/testutils.sh and
 # tools/upstream-idris/as-idris.
 # IDRIS_MLIR_TOOLCHAIN stands for .toolchain (the spec tests use it).
 

@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Every property idr-expect knows has a dialect fixture in which it
+# fails: a property no module makes fail holds of every module, and a
+# test that states it checks nothing. A failing fixture expects the
+# property's fixed words, `{{expected <name>: `, in a diagnostic it
+# expects, so the names are read from the rows of the one table of them
+# and each is looked for in the expectations of the fixtures, never in
+# their prose.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cd "$root" || exit 1
+# folds-balanced reads the folders' own count of the cells they left live,
+# which only a defective folder makes nonzero: no module makes it fail, so
+# it is the one exemption.
+exempt='folds-balanced'
+sed -n 's/^ *property<[^>]*>("\([^"]*\)".*/\1/p' foreign/idr/lib/Transforms/Expect/Lookup.cpp > "$work/names"
+if [ -s "$work/names" ]; then say "properties: found"; else say "properties: none found"; fi
+: > "$work/unfailed"
+while IFS= read -r name; do
+  case " $exempt " in *" $name "*) continue ;; esac
+  grep -qF "{{expected $name: " tests/*/*.mlir || printf '%s\n' "$name" >> "$work/unfailed"
+done < "$work/names"
+if [ -s "$work/unfailed" ]; then
+  say "no fixture where it fails:"
+  cat "$work/unfailed"
+else
+  say "every property has a fixture where it fails, folds-balanced aside"
+fi
+for name in $exempt; do
+  grep -qxF "$name" "$work/names" || say "exempt and unknown: $name"
+done

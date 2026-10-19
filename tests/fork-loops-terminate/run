@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The fork's size-change decision (`loopsTerminate`), which the frontend
+# asks of each component of a program, run on the components of Loops.idr
+# by the pinned Idris against the installed fork, which `make build`
+# installs before the frontend: a diverging and a terminating cycle of
+# three functions, which a decision composing its paths in the wrong order
+# judges the other way round, and a swap that decreases every other time
+# round and one that never does. Its output is expected-stdout.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mkdir -p "$work/src" && cp Loops.idr "$work/src/Main.idr" || exit 1
+packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir)
+if (cd "$work" && IDRIS2_PACKAGE_PATH=$packages && export IDRIS2_PACKAGE_PATH &&
+    pinned_idris -p idris-compiler --source-dir src --exec main src/Main.idr) > "$work/out" 2>&1 &&
+   grep -v '^ *[0-9]*/[0-9]*: Building' "$work/out" | cmp -s - expected-stdout; then
+  say "loops-terminate: every component judged as expected-stdout says"
+else
+  say "loops-terminate: a component judged otherwise"
+  show "$work/out"
+fi

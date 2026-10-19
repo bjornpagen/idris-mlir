@@ -355,7 +355,7 @@ serve.
 
 | Stage | Content | Proof | Mark |
 | --- | --- | --- | --- |
-| T0 | §1's profile and plumbing; the headline workloads run once against Lean 4 and F* (D15) | the record under `bench/profiles/`, one with 0012's O0; the baseline of 0011's A0 | AFTER-SELF: `make self`'s first green run |
+| T0 | §1's profile and plumbing; the headline workloads run once against Lean 4 and F* (D15) | the record under `bench/records/`, one with 0012's O0; the baseline of 0011's A0 | AFTER-SELF: `make self`'s first green run |
 | T3 | tabled search under D8 | identical TTCs; instance-heavy files at least 2× faster than 0011's A2; a failing diamond tower takes time linear in its height; no file slower by more than 5% (the pipeline cutover's §10 margin) | AFTER-SELF: 0011's A2 |
 | T4 | the rewrite ladder (§2.4) | the fork's rewrite failures listed in tests become passes; 0010's shape-equality corpus within 1 s per obligation; identical TTCs where the fork already succeeds | AFTER-SELF: 0011's A2 |
 | T5 | the kernel apart from elaboration, holding the one conversion (§2.6) | every TTC of base, `libs/`, the fork and the frontend re-checked in under 10% of the time to elaborate them; a seeded ill-typed term per rule, refused by name | AFTER-SELF: 0011's A2 |

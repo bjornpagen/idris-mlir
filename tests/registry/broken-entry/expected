@@ -1,8 +1,0 @@
-NEEDS-ACCEPTANCE: that Idris loads a fixture's own module named as a prelude module (Builtin, Prelude.IO) under --no-prelude, and the validation refuses each case at its entry
-Builtin.replace broken: exit 3
-Builtin.replace broken: the error shows the entry, what it expects and what was found
-artifacts: none
-C:idris2_putStr broken: exit 3
-C:idris2_putStr broken: the error shows the entry, what it expects and what was found
-artifacts: none
-unbroken: exit 0

@@ -3,7 +3,7 @@
 # The named bounds the code keeps, each with why it bounds no termination
 # and no acceptance, one per line as `path: text -- reason`, where `text`
 # is code on a line of `path`. These are the only exceptions
-# tests/spec/no-fuel allows; each must still be in its file.
+# tests/no-fuel allows; each must still be in its file.
 #
 # The size policies. Each bounds how much a step makes or prints, or how
 # long an optimization runs; a spent one leaves the program less

@@ -1,0 +1,3 @@
+# length's addition of its own result is a loop, so once idr-tail-calls
+# has run no call reachable from the program grows the stack.
+idr-tail-calls: constant-stack=@$idris-mlir.root

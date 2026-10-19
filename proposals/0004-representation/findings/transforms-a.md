@@ -55,11 +55,11 @@ The defects fall into four groups:
 | Field | Content |
 |---|---|
 | Evidence | `include/idr/Analysis/Specialize.h:24-31` defines `BindingTime {Free, Fixed, Decreasing, Bounded, Other}`. Its one consumer, `specializesOn` (`Specialize/Keys.cpp:61-64`), reads only `Free \|\| Fixed`.<br>**Decreasing and Bounded are computed but no pass reads them** (`Analysis/BindingTimes.cpp`):<ul><li>the `Smaller` abstract value, `partOf` and the second case of `code` (61-81);</li><li>`join`'s Bounded rule (86-92);</li><li>four descent rules (field, `idr.big.pred`, positive `arith.subi`, match region) (173-193).</li></ul>They are only printed (`nameOf`, 35-49), and the header's prose for them ("the keys shrink along the chain…") describes the policy that 0007's D4/R08 replaced.<br>**Free is a fact about the function (on no cycle) written per parameter:** `bindingTimesOf` special-cases an acyclic component (239-246), `seenBy` builds a Free vector for a call that enters a component (`Specialize.cpp:260-270`), and `inherited` fills in Other (275-286). |
-| Counterexample | Free and Fixed are different values that every reader treats the same; so are Decreasing, Bounded and Other. `tests/idr/specialize/binding-times.mlir` pins the spelling of distinctions no pass makes. |
+| Counterexample | Free and Fixed are different values that every reader treats the same; so are Decreasing, Bounded and Other. `tests/specialize-binding-times/specialize-binding-times.mlir` pins the spelling of distinctions no pass makes. |
 | Root cause | The lattice of an earlier specialization policy outlived the policy. |
 | Correction | `enum class BindingTime { Fixed, Varies }`. A parameter is fixed when every call within the component passes it unchanged in its own position, which on no cycle is vacuously true; so a parameter no call passes is Fixed. The abstract domain becomes `Same{param} \| Anything`. |
 | Deletion | Free, Decreasing and Bounded; `Smaller`, `partOf` and the four descent rules; `join`'s lattice; the acyclic special case in `bindingTimesOf`; `seenBy`'s separate Free vector; `specializesOn`'s disjunction. |
-| Consumers | `include/idr/Analysis/Specialize.h`, `lib/Analysis/BindingTimes.cpp`, `lib/Transforms/Specialize/{Keys,Specialize,Report}.cpp`, the description in `Passes.td`, and `tests/idr/specialize/binding-times.mlir` (rewritten to fixed/varies). |
+| Consumers | `include/idr/Analysis/Specialize.h`, `lib/Analysis/BindingTimes.cpp`, `lib/Transforms/Specialize/{Keys,Specialize,Report}.cpp`, the description in `Passes.td`, and `tests/specialize-binding-times/specialize-binding-times.mlir` (rewritten to fixed/varies). |
 | Discriminator | Every specialization result is unchanged, because the consumer's predicate selects the same set. `binding-times.mlir` states fixed and varies. |
 | Verification here | `make typecheck`. |
 | Size and risk | **Removed:** about 50 lines and 10 branches.<br>**Risk:** low; `specializesOn`'s truth table is preserved.<br>**Stays (essential):** the distinction between fixed and varies. |
@@ -74,7 +74,7 @@ The defects fall into four groups:
 | Root cause | A hole's identity is held as a number, when its position is the coordinate. |
 | Correction | `#idr.key_hole` takes no parameter: the i-th hole of a key, in pre-order, is the node's parameter i. `shapeOf` builds the key attribute directly and appends leaves in pre-order. `fill`, `rebuild`, `liftPart` and `oneShape` walk holes with a cursor. |
 | Deletion | `Pattern`, `Hole`, `Constant`, `Con`, `Linear`, `renumber`, `keyOf(Pattern)`, `leafOf` and `hasStructure(Pattern)`; `Composed::args` and `held`, and the `Argument` struct; `append`'s counter; `oneShape`'s index comparison. |
-| Consumers | `IdrAttrs.td`; generated `compiler/src/IdrisMLIR/Syntax/Idr.idr`; `compiler/src/IdrisMLIR/SyntaxSamples.idr:130-142`; `tests/compiler/dialect-syntax/expected`; `Specialize.h`; `Keys.cpp`; `Patterns.cpp`; `Specialization.cpp`; `Redirect.cpp`; `Specialize.cpp`. |
+| Consumers | `IdrAttrs.td`; generated `compiler/src/IdrisMLIR/Syntax/Idr.idr`; `compiler/src/IdrisMLIR/SyntaxSamples.idr:130-142`; `tests/dialect-syntax/expected`; `Specialize.h`; `Keys.cpp`; `Patterns.cpp`; `Specialization.cpp`; `Redirect.cpp`; `Specialize.cpp`. |
 | Discriminator | The illegal keys above no longer parse. Specialization outputs keep their behaviour; node names change with the key's spelling, and no test pins them. `one-clone` and `specialized-once` hold as before. |
 | Verification here | `make typecheck`, `make typecheck-dialects`, and `SyntaxSamples` built on Chez. |
 | Size and risk | **Removed:** about 90 lines.<br>**Risk:** low to moderate. Composition must number holes in the old order, which pre-order traversal does by construction.<br>**Stays (essential):** the three pattern cases: hole, constructor and constant. |
@@ -90,7 +90,7 @@ The defects fall into four groups:
 | Correction | `Forms` becomes the run's table of consumer forms: each is a detached `idr.func`, interned by `sameFunction`, with the canonical digest of its text. `KeyRaiseAttr(callee, form)` holds that digest. `buildRaise` clones the consumer from the table by key; `Nodes::build` passes the table in. |
 | Deletion | The parse (`parseSourceString` and `ParserConfig`), both internal-error conditions, and the second printing. |
 | Consumers | `IdrAttrs.td`, `Specialize.h`, `Consumer.cpp`, `Raise.cpp`, `Specialize.cpp`, `SyntaxSamples.idr`. |
-| Discriminator | The raise tests (`tests/idr/specialize`, `tests/idr/optimize`) behave unchanged. |
+| Discriminator | The raise tests (`tests/pipeline-one-pipeline`, `tests/optimize-caller-cap`) behave unchanged. |
 | Verification here | `make typecheck`. |
 | Size and risk | **Removed:** about 25 lines and 2 internal-error branches.<br>**Risk:** low. |
 | Insight | A string that names a thing is a missing type; 6 |

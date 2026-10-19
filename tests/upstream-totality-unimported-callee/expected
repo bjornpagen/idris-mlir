@@ -1,0 +1,5 @@
+compile: exit 3
+caller: refused as not total
+counted: not refused
+refusal: Idris's own, no rule of ours
+artifacts: none

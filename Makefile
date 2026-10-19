@@ -5,7 +5,8 @@
 #   make bootstrap         build the pinned toolchain into .toolchain/ (tools/bootstrap.sh all)
 #   make doctor            what the build needs, and what is built
 #   make verify-pins       the Idris submodule is at its staged gitlink, unmodified
-#   make check             tests/spec: the pins, the commands and the layout;
+#   make check             the tests of the repository (their `suite` file names
+#                          check): the pins, the commands and the layout;
 #                          always, without a build
 #   make build             the C++ dev preset (PRESET=release, hardened
 #                          or lint for another), the Idris side's modules of the
@@ -14,15 +15,16 @@
 #                          frontend's prefix: the packages the pinned Idris
 #                          source ships and those in libs/; after any code
 #                          change
-#   make test              tests/compiler, accept, reject, programs (each
-#                          program compiled once, with its dumps checked),
-#                          determinism, registry, toolchain, fuzz, two-levels
-#                          and bench (each benchmark on a small input); after
-#                          compiler changes
-#   make test-idr          tests/idr, the idr dialect, with FileCheck; after C++ or
-#                          contract changes
-#   make test-mlir-tools   tests/upstream, each upstream bug on its reproducer with the
-#                          pinned tools; after changing upstream MLIR usage
+#   make test              the compiled programs (each compiled once, with its
+#                          dumps checked), the programs refused by one rule,
+#                          and the scripts of the compiler, the runtime, the
+#                          toolchain, the fuzzer and the benchmarks (each on a
+#                          small input); after compiler changes
+#   make test-idr          the dialect fixtures, the idr dialect with FileCheck
+#                          and idr-expect; after C++ or contract changes
+#   make test-mlir-tools   the tests whose `suite` file names it: each upstream bug
+#                          on its reproducer with the pinned tools; after
+#                          changing upstream MLIR usage
 #   make test-unit         foreign/idr/unittests, the exhaustive boxes (googletest);
 #                          after C++ changes, once make build has built them
 #   make compile SRC=Main.idr OUT=prog
@@ -39,16 +41,16 @@
 #                          is in build/typecheck/logs, the C++ errors one per
 #                          line in build/typecheck/errors.log
 #
-# The test commands run tests/Main.idr, a golden runner that runs each test
-# in a process of its own; the whole run ends after 4 hours, so that nothing
-# can hold the tree for ever, each command a test runs after 60 s and each
-# test after 300 s, or what its run script sets. They take only='NAME...'
-# and except='NAME...' (substrings of test paths such as
-# programs/basic/hello), threads=N (default: NCPU, the one CPU budget
-# below) and
-# INTERACTIVE=--interactive (offer to accept new output). Each ends with the
-# number of tests that passed and the list of those that failed, and fails
-# if any did.
+# The test commands run harness/Main.idr, a golden runner over tests/,
+# where every test is one directory at one level, and its kind is what it
+# holds (harness/README.md). It runs each test in a process of its own;
+# the whole run ends after 4 hours, so that nothing can hold the tree for
+# ever, each command a test runs after 60 s and each test after 300 s, or
+# what its run script sets. They take only='NAME...' and except='NAME...'
+# (substrings of test names such as hello) and threads=N (default: NCPU,
+# the one CPU budget below). Each ends with the number of tests that
+# passed of those selected, the tests not run on this host, and the tests
+# that failed or gave no verdict, and fails if any did.
 
 ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 # Where the pinned tools are, from tools/toolchain.sh, which the scripts share.
@@ -67,7 +69,7 @@ PRESET := $(DEV_PRESET)
 COMPILER := $(call toolchain,idris_mlir)
 IDRIS_MLIR_FRONT := $(call toolchain,idris_mlir_front)
 FRONTEND := $(ROOT)/compiler/build/exec/idris-mlir-front
-RUNNER := $(ROOT)/tests/build/exec/runtests
+RUNNER := $(ROOT)/harness/build/exec/runtests
 PINS := $(ROOT)/tools/verify-pins.sh
 
 # Two Idris compilers run here, each on its own prefix, never one of
@@ -94,8 +96,8 @@ export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
 # The names a test's `targets` file and expected.<name> files give this
-# host (tools/host.sh), which the runner (tests/Main.idr) reads when it
-# builds its pools, and tests/runner/one.sh when it picks an expectation.
+# host (tools/host.sh), which the runner (harness/Main.idr) reads when it
+# builds its pools, and harness/one.sh when it picks an expectation.
 export IDRIS_MLIR_HOST_NAMES := $(call toolchain,host_names)
 export CHEZ := $(call toolchain,chez_scheme)
 
@@ -108,13 +110,17 @@ export IDRIS_MLIR_NCPU := $(NCPU)
 threads ?= $(NCPU)
 only ?=
 except ?=
-INTERACTIVE ?=
-GOLDEN = --threads $(threads) $(INTERACTIVE) --only '$(only)' --except '$(except)'
+GOLDEN = --threads $(threads) --only '$(only)' --except '$(except)'
+# The tests running at once share the budget: each compilation a test
+# makes gets NCPU / threads of it (at least one), so that the runner's
+# threads times each compile's --num-threads stays within NCPU and a
+# step's time limit measures the step, not the load the other tests make.
+TEST_NCPU = $(shell n=$$(( $(NCPU) / $(threads) )); [ "$$n" -ge 1 ] || n=1; echo "$$n")
 # A runner that hangs fails instead of holding the tree's lock; without
 # coreutils' timeout (tools/host.sh) no test command runs.
 TIMEOUT := $(call toolchain,timeout_cmd)
 TIMEOUT_MISSING := $(call toolchain,timeout_missing)
-RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
+RUN_TESTS = IDRIS_MLIR_NCPU=$(TEST_NCPU) $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build fork frontend prefix libs host-libs \
         test test-idr test-mlir-tools test-unit runner compile bench self self-fork typecheck \
@@ -194,7 +200,7 @@ $(FORK_STAMP): $(FORK_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 # The frontend, by the pinned Idris, against the fork (HOST_PREFIX) and the
 # pinned prelude and base. Beside it, syntax-samples (base only), which
 # writes one sample of every type and attribute of the generated syntax for
-# tests/compiler/dialect-syntax.
+# tests/dialect-syntax.
 frontend: fork
 	@$(PINS) idris
 	cd $(ROOT)/compiler && export IDRIS2_PREFIX='$(IDRIS_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(HOST_PREFIX))" && \
@@ -268,9 +274,9 @@ self: self-fork
 # prefix, whose contrib and test it uses.
 runner:
 	@$(PINS) idris
-	cd $(ROOT)/tests && mkdir -p build/exec/runtests_app && . $(ROOT)/tools/host.sh && \
+	cd $(ROOT)/harness && mkdir -p build/exec/runtests_app && . $(ROOT)/tools/host.sh && \
 	export IDRIS2_PREFIX='$(IDRIS_PREFIX)' && with_lock build/.runner.mutex sh -c ' \
-	  $(IDRIS2) --build-dir build/stage --build tests.ipkg || exit 1; \
+	  $(IDRIS2) --build-dir build/stage --build harness.ipkg || exit 1; \
 	  cd build/stage/exec && for file in runtests runtests_app/*; do \
 	    cp -p $$file ../../exec/$$file.new.$$$$ && \
 	      mv -f ../../exec/$$file.new.$$$$ ../../exec/$$file || exit 1; \

@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mkdir "$work/fixture"
+cp stdin expected-stdout "$work/fixture/"
+awk '/^-- CHAIN$/ { for (i = 1; i <= 100; i++) printf "step%d : Show Colour\nstep%d = step%d\n\n", i, i, i - 1; next }
+     { print }' Main.idr > "$work/fixture/Main.idr"
+e2e_io "$work/fixture"

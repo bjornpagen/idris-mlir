@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Every file in scope names its licence, every licence text an identifier
+# in use names is in LICENSES/, and a port is one PINS.md names, with the
+# note of what changed and the attribution of the part it is a port of.
+# tools/licenses.sh is the one place that knows the scope, the parts and
+# the holders, and checks all of it; what it prints when all holds is that
+# every port is PINS.md's, and the identifiers in use, so a licence the
+# tree gains shows here (the ports are PINS.md's list).
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+"$root/tools/licenses.sh" > "$work/licenses" 2>&1 ||
+  say "licenses: not every file in scope names its licence:"
+sed 's/^ports: [0-9][0-9]*, /ports: /' "$work/licenses"

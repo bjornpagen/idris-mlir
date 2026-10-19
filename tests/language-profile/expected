@@ -1,0 +1,6 @@
+units: found
+every unit: -std=c++26
+every unit: -fno-exceptions
+every unit: -fno-rtti
+every unit: -Werror
+no unit: -freflection

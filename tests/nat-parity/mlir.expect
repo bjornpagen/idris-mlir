@@ -1,0 +1,4 @@
+# Once one test on entry has found the natural small, the loop of parity
+# runs on machine words: idr-narrow keeps a version of it whose every value
+# is a word.
+idr-narrow: word-loop=@Main.parity

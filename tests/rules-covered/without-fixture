@@ -1,0 +1,16 @@
+# The rules no refused program of tests/ states, one line each: the rule's
+# phrase, a tab, its kind, a tab, why. tests/rules-covered reads this
+# file: every rule the build's list (IdrRules.txt) names has a fixture whose
+# `-- expect:` header names it, or a line here, never both. `unreachable`:
+# no source program reaches the refusal. `elsewhere`: another test reaches
+# it. `owed`: a source program reaches it; its fixture is written when a
+# build shows one.
+compiled module	unreachable	raised when the compiled module the frontend reads lacks a definition or a constructor it names (lookupDef in Translate/Closed.idr, instanceKey in Translate/Keys.idr, Translate/Types.idr, Translate/Cases.idr), which no module Idris checked lacks
+runtime	unreachable	raised by the driver when the runtime object it links lacks a member (foreign/idr/lib/Driver/ReadRuntime.cpp): the toolchain's object, not a program
+library	unreachable	never alone: user code reaches an untrusted package's definition only through an import of its module, refused as program at the import (Frontend/Program.idr); the definitions PrimIO does not admit are types no value of user code has (GCPtr, GCAnyPtr, ThreadID)
+data type	unreachable	raised for a data type whose constructors Idris does not record, an [external] type (Translate/Types.idr); a value of one that is no runtime handle comes only from %foreign, refused as escape hatch first (Frontend/Profile.idr)
+definition	unreachable	raised for a reached definition that is not pattern matching (Translate/Programs.idr); Idris elaborates every definition of a source as one, and the reach check refuses or hooks the others, primitives, %extern, %foreign and holes, before translation (Frontend/Profile.idr)
+string primitive	unreachable	raised for a literal match on a constant that is no literal, a primitive type or the world (Translate/Cases.idr); a match on a type value is a type in a runtime position, refused as type, and user code has no world to match
+hook	elsewhere	raised when a registry entry does not match the library definition it names (Frontend/Profile.idr, Frontend/Program.idr, Translate/Terms.idr, Translate/Cases.idr); a program reaches it by shadowing a library module, as tests/registry-broken-entry does
+static argument	owed	raised for a type parameter, shape or implementation no compile-time analysis fixes, or one partially applied (classify in Translate/Instances.idr, Translate/Terms.idr, Translate/Cases.idr)
+match	owed	raised for a match on an erased value between several alternatives (Translate/Cases.idr); a literal match Idris proved complete compiles, its last alternative standing in for the default
