@@ -31,7 +31,7 @@
       "foreign/idr/lib/Transforms/Contracts/**",
       "foreign/idr/include/idr/Transforms/Contracts.h",
       "foreign/idr/tools/idris-mlir-opt.cpp",
-      "tests/idr/contracts/**"
+      "tests/contracts-break-linear/**"
     ],
     "findings": [
       "F01"
@@ -44,7 +44,7 @@
       "foreign/idr/tools/idris-mlir-tblgen.cpp",
       "foreign/idr/lib/Transforms/Optimize/**",
       "foreign/idr/include/idr/Transforms/Optimize.h",
-      "tests/idr/roles/**"
+      "tests/roles-contify/**"
     ],
     "findings": [
       "F04",
@@ -55,7 +55,7 @@
     "writes": [
       "foreign/idr/lib/Transforms/**",
       "foreign/idr/include/idr/Support/Actions.h",
-      "tests/idr/actions/**"
+      "tests/actions-accumulate/**"
     ],
     "excludes": [
       "foreign/idr/lib/Transforms/Optimize/**",
@@ -71,7 +71,7 @@
     "writes": [
       "foreign/idr/lib/Transforms/Expect/**",
       "foreign/idr/include/idr/Transforms/Expect.h",
-      "tests/idr/expect/**"
+      "tests/expect-allocation/**"
     ],
     "findings": [
       "F21"
@@ -239,10 +239,10 @@
       "harness/lib/lit.sh"
     ],
     "excludes": [
-      "tests/idr/expect/**",
-      "tests/idr/contracts/**",
-      "tests/idr/roles/**",
-      "tests/idr/actions/**"
+      "tests/expect-allocation/**",
+      "tests/contracts-break-linear/**",
+      "tests/roles-contify/**",
+      "tests/actions-accumulate/**"
     ],
     "findings": [
       "F18"

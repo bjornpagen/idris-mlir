@@ -149,7 +149,7 @@
       "tests/polymorphism-growing-shape/**",
       "tests/polymorphism-growth-mutual/**",
       "tests/polymorphism-growth-dictionary/**",
-      "tests/reject/polymorphism-growth-recursion/**"
+      "tests/polymorphism-nested/**"
     ],
     "findings": [
       "F06"

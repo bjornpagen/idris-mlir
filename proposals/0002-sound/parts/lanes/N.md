@@ -13,7 +13,7 @@ Read first:
 - `harness/TwoLevels.idr:52-67` (the bounds copy at `:59`), `:118-136` (the libm names), `:306-318`.
 - `harness/Main.idr:200-216` (the four entry points you keep: `Sem.programOf`, `Sem.expectedOf`, `Fuzz.programOf`, `TwoLevels.programOf`; the file is X3's).
 - `harness/lib/fuzz.sh` whole; `harness/lib/e2e.sh:30-100` (`e2e_io`) and `:131-157` (`sem_case`, the precedent for a fixture built in `$work` with a runner-made `expected-stdout`); `harness/lib/expect.sh:9-16` (`expect_holds`); `harness/lib/mlir.sh:37-41` (`dump_options`), `:103-119` (`step_module`); `harness/lib/compile.sh:13-18` (`compile_program`); `tools/compile.sh:42` (idris-mlir runs with `--no-prelude`).
-- `tests/fuzz/seed-1/{run,expected,expected-runtime,expected-static}`, `tests/two-levels/terms/run`, `tests/programs/semantics/prim-int-arith-0/run`, `tests/programs/linear/leet-reverse-list/{mlir.expect,packages,expected}`.
+- `tests/fuzz/seed-1/{run,expected,expected-runtime,expected-static}`, `tests/two-levels/terms/run`, `tests/programs/semantics/prim-int-arith-0/run`, `tests/linear-library-lists/{mlir.expect,packages,expected}`.
 - `third_party/Idris2/src/Core/Primitives.idr:660-736` (`allPrimitives`: the shape the table is generated in).
 - `compiler/src/IdrisMLIR/Registry/Recognized.idr:61-83` (Nat `plus`, `minus`, `compareNat`, `lt`… are word operations in idris-mlir) and `:131-161` (`Data.Fin.natToFinLT` is the identity); `libs/mlir-array/Linear/Vec.idr:93-107` (the `choose`/`ltOpReflectsLT`/`natToFinLT` idiom both hosts compile in O(1)).
 - `foreign/idr/include/idr/Transforms/Expect.h:137-162` (`reuses-in-place`, `counts-nothing`, `tests-nothing`).
@@ -225,7 +225,7 @@ Implement:
 5. Delete the four goldens; rewrite both seeds' `expected` (first line `NEEDS-ACCEPTANCE: the goldens are gone; confirm the eight property lines hold for both seeds on both targets`); update the seeds' `run` comments.
 6. Port `harness/Sem.idr` to Prims and add `names`; write `tests/programs/semantics/sem-index/{run,expected}`.
 7. Port `harness/TwoLevels.idr` to Prims.
-8. Write `tests/fuzz-two-hosts/{run,Main.idr,mlir.expect,packages,expected}`; `expected` is the run's lines: `stock host: Gen's checks: ok`, then the lines `e2e_io` prints for a fixture with an `mlir.expect` (as `tests/programs/linear/leet-reverse-list/expected` records them at HEAD), after a first `NEEDS-ACCEPTANCE:` line.
+8. Write `tests/fuzz-two-hosts/{run,Main.idr,mlir.expect,packages,expected}`; `expected` is the run's lines: `stock host: Gen's checks: ok`, then the lines `e2e_io` prints for a fixture with an `mlir.expect` (as `tests/linear-string-iterator/expected` records them at HEAD), after a first `NEEDS-ACCEPTANCE:` line.
 9. Check (this machine): copy the five modules, `harness/Main.idr`, and read-only copies of `harness/Lock.idr` and `harness/Runner.idr` (Main imports them) into a private directory and run `IDRIS2_PREFIX=$ROOT/.toolchain/idris2 $ROOT/.toolchain/idris2/bin/idris2 --build-dir <private>/build --check <Module>.idr` for each (Main last); grep the five modules for the forbidden names above (string literals in Fuzz, Sem and TwoLevels hold `prim__` text, which is fine).
 
 Delete:

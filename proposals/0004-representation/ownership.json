@@ -10,7 +10,7 @@
       "foreign/idr/lib/IR/Canon/**",
       "foreign/idr/lib/Transforms/Canonicalize/**",
       "foreign/idr/include/idr/Transforms/Canonicalize.h",
-      "tests/idr/canon/**",
+      "tests/canon-array-moves/**",
       "tests/verify-match/verify-match.mlir"
     ],
     "findings": [
@@ -64,8 +64,8 @@
       "foreign/idr/lib/IR/Ops.cpp",
       "foreign/idr/lib/IR/Dialect.cpp",
       "foreign/idr/lib/IR/Verify/Program.cpp",
-      "tests/idr/effects/**",
-      "tests/idr/func/**",
+      "tests/effects-alloc/**",
+      "tests/func-call-effects-contain/**",
       "tests/verify-program/verify-program.mlir"
     ],
     "findings": [
@@ -102,9 +102,9 @@
       "foreign/idr/lib/IR/Asm.cpp",
       "foreign/idr/lib/IR/Bytecode.cpp",
       "foreign/idr/lib/IR/Verify/Linearity.cpp",
-      "tests/idr/asm/**",
-      "tests/idr/syntax/**",
-      "tests/idr/world/**"
+      "tests/asm-aliases/**",
+      "tests/syntax-closures/**",
+      "tests/world-once/**"
     ],
     "findings": [
       "ir-ods-3",
@@ -129,7 +129,7 @@
       "foreign/idr/include/idr/IR/Fold.h",
       "foreign/idr/lib/IR/OpsChecks.cpp",
       "foreign/idr/lib/IR/Crashes.cpp",
-      "tests/idr/guards/**"
+      "tests/guards-fold-finite/**"
     ],
     "findings": [
       "ir-ods-2",
@@ -192,7 +192,7 @@
       "foreign/idr/lib/Conversion/StaticData.cpp",
       "foreign/idr/lib/Conversion/StaticNames.cpp",
       "foreign/idr/lib/Conversion/Words.cpp",
-      "tests/idr/lower/**"
+      "tests/lower-arrays/**"
     ],
     "findings": [
       "ir-ops-3",
@@ -242,9 +242,9 @@
       "foreign/idr/lib/Conversion/TailCallPlan.cpp",
       "foreign/idr/lib/Conversion/TailCalls.cpp",
       "foreign/idr/lib/Conversion/TailPosition.cpp",
-      "tests/idr/tail-calls/**",
-      "tests/idr/e2e/**",
-      "tests/idr/names/**",
+      "tests/tail-calls-decided-loops/**",
+      "tests/e2e-crash-callsite/**",
+      "tests/names-reserved/**",
       "foreign/idr/include/idr/Conversion/PassThroughMemory.h",
       "foreign/idr/lib/Conversion/PassThroughMemory.cpp"
     ],
@@ -337,11 +337,11 @@
       "foreign/idr/lib/Transforms/Inline/**",
       "foreign/idr/lib/Transforms/Optimize/**",
       "foreign/idr/lib/Transforms/Specialize/**",
-      "tests/idr/specialize/**",
-      "tests/idr/raise/**",
-      "tests/idr/optimize/**",
-      "tests/idr/identity/**",
-      "tests/idr/contify/**"
+      "tests/pipeline-one-pipeline/**",
+      "tests/raise-apply/**",
+      "tests/optimize-caller-cap/**",
+      "tests/identity/**",
+      "tests/contify-never-returns-twice/**"
     ],
     "findings": [
       "transforms-a-4",
@@ -370,10 +370,10 @@
       "foreign/idr/lib/Transforms/Defunctionalize/**",
       "foreign/idr/lib/Transforms/Demand/**",
       "foreign/idr/lib/Transforms/Narrow/**",
-      "tests/idr/defunc/**",
-      "tests/idr/dedup/**",
-      "tests/idr/narrow/**",
-      "tests/idr/vectorize/**",
+      "tests/defunc-choice/**",
+      "tests/dedup-keep-apart/**",
+      "tests/narrow-descending/**",
+      "tests/vectorize-rows/**",
       "foreign/idr/include/idr/Support/Remake.h"
     ],
     "findings": [
@@ -403,14 +403,14 @@
       "foreign/idr/lib/Transforms/StructureLoops/**",
       "foreign/idr/lib/Transforms/Tail/**",
       "foreign/idr/lib/Transforms/Pipeline.cpp",
-      "tests/idr/rc/**",
-      "tests/idr/bufferize/**",
-      "tests/idr/loops/**",
-      "tests/idr/structure/**",
-      "tests/idr/pipeline/**",
-      "tests/idr/actions/**",
-      "tests/idr/stack/**",
-      "tests/idr/returned/**"
+      "tests/rc-arrays/**",
+      "tests/bufferize-aliasing/**",
+      "tests/loops-accumulate/**",
+      "tests/structure-columns/**",
+      "tests/pipeline-do-block/**",
+      "tests/actions-accumulate/**",
+      "tests/stack-expect/**",
+      "tests/returned-threaded/**"
     ],
     "findings": [
       "transforms-b-4",
@@ -438,8 +438,8 @@
       "foreign/idr/include/idr/Transforms/Expect.h",
       "foreign/idr/lib/Transforms/Contracts/**",
       "foreign/idr/lib/Transforms/Expect/**",
-      "tests/idr/expect/**",
-      "tests/idr/contracts/**"
+      "tests/expect-allocation/**",
+      "tests/contracts-break-linear/**"
     ],
     "findings": [
       "transforms-a-1",
@@ -458,7 +458,7 @@
       "foreign/idr/lib/IR/Verify/OwnedOps.cpp",
       "foreign/idr/lib/IR/Verify/OwnedRegions.cpp",
       "foreign/idr/lib/IR/Verify/Uses.cpp",
-      "tests/idr/verify/**"
+      "tests/reduce-regions/**"
     ],
     "findings": [
       "ir-verify-11",
@@ -482,7 +482,7 @@
       "foreign/idr/lib/IR/OpsBigs.cpp",
       "foreign/idr/lib/IR/OpsScalars.cpp",
       "foreign/idr/lib/IR/Fold/**",
-      "tests/idr/fold/**"
+      "tests/fold-add-zero/**"
     ],
     "findings": [
       "ir-verify-10",
@@ -512,7 +512,7 @@
       "foreign/idr/lib/IR/FlowOps.cpp",
       "foreign/idr/lib/IR/Symbols.cpp",
       "foreign/idr/lib/IR/TypeGraph.cpp",
-      "tests/idr/roles/**"
+      "tests/roles-contify/**"
     ],
     "findings": [
       "ir-ods-7",
@@ -550,7 +550,7 @@
       "foreign/idr/tools/idris-mlir-reduce.cpp",
       "foreign/idr/tools/idris-mlir.cpp",
       "foreign/idr/unittests/**",
-      "tests/idr/obs/**",
+      "tests/obs-debug-counter/**",
       "foreign/idr/include/idr/InitIdr.h"
     ],
     "excludes": [
@@ -750,9 +750,9 @@
       "foreign/idr/lib/IR/OpsGenerating.cpp",
       "foreign/idr/lib/IR/OpsPlatform.cpp",
       "foreign/idr/lib/IR/OpsTabulate.cpp",
-      "tests/idr/tie-shape/**",
+      "tests/tie-shape-dims-fold/**",
       "foreign/idr/lib/IR/OpsFolds.cpp",
-      "tests/idr/arrays/**"
+      "tests/arrays-byte-buffer/**"
     ],
     "findings": [
       "ir-ops-2",

@@ -57,7 +57,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Correction | The generator emits two enums, `runtime::Operand {World, Int32, Int64, Double, Signed, Unsigned, Str, Big, Buffer}` and `runtime::Result {Void, NoReturn, Int32, Int64, Double, Wrapped, Order, Str, Big}`, `Function{symbol, span<const Operand>, Result}`, and per op with a several-kinds operand a generated `Abi<Op>::of(Op)` that picks the variant from the operand's type and `is_signed` (the rule the generator already uses to name `_f64`, `_s`, `_u`). `wordsOf` splits into `operandKinds` and `resultKind`. |
 | Deletion | `takes`, `functionTaking` and its assert, the `isSigned` optional in `runtimeFunctionOf`; the Void arm and `llvm_unreachable` in `Runtime::call` and `takes`; the four operand-only arms and the `llvm_unreachable` in `resultType` and `givenRange`; `Function::noreturn` and `Callee::noreturn` (now `Result::NoReturn`); the generator's `result` flag and its noreturn-with-value and several-results fatal errors, which the types no longer admit. |
 | Consumers | `tools/idris-mlir-tblgen.cpp`; generated `IdrRuntimeAbi.inc`, `idris_rt_ops.h`; `include/idr/Conversion/Runtime.h`; `lib/Conversion/Runtime.cpp`; `lib/Conversion/RuntimeCalls.cpp`. The folders (`include/idr/IR/Fold.h`) read only the typed pointers and are untouched. |
-| Discriminator | A `switch` over `Operand` with a `Void` case, or over `Result` with a `Buffer` case, does not compile; `Abi<StrShowOp>::of` on an `i32` operand with `is_signed = false` returns `idris_rt_str_show_u` by construction (a googletest box can enumerate every op's variants against the old search before the search is deleted). Lowered LLVM is identical on `tests/idr/lower/{io,big-fast-path,nat,buffer}.mlir`. |
+| Discriminator | A `switch` over `Operand` with a `Void` case, or over `Result` with a `Buffer` case, does not compile; `Abi<StrShowOp>::of` on an `i32` operand with `is_signed = false` returns `idris_rt_str_show_u` by construction (a googletest box can enumerate every op's variants against the old search before the search is deleted). Lowered LLVM is identical on `tests/lower-arrays/{io,big-fast-path,nat,buffer}.mlir`. |
 | Verification here | `make typecheck` builds `idris-mlir-tblgen`, regenerates both files and compiles the C++; the runtime builds with host clang against the regenerated `idris_rt_ops.h`. The lowering's output is the owner's build. |
 | Size and risk | About 60 lines and 16 branches go. Low risk: generated code plus two files, no layout or symbol changes. Essential and kept: Buffer's three C arguments and the sign or zero extension, which are what the kinds mean. 0002 §9's owed `crashes` flag (crash-sites against `MayCrash`) belongs in the same generated `Result`/op record. |
 | Insight | 4 (illegal states), 6, 7 |
@@ -73,7 +73,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Correction | Declare every runtime function the lowering calls in TableGen beside `Idr_Runtime` (a record class `Idr_RuntimeFunction<symbol, operands, result>` using conversion-1's kinds, with kinds for a cell pointer, `bool`, `size_t` and `uint32_t` added), generate their prototypes into `idris_rt_ops.h` as 0007 D9 did for op functions (the runtime then fails to compile on a mismatch), and give the lowering one call path, `Runtime::call(b, loc, const runtime::Function &, ValueRange)`, whose declaration type comes from the table. `called` becomes a set of table entries. |
 | Deletion | `Callee`, `mistyped`, both "called as X and as Y" internal errors (`Runtime.cpp:203-207`, `:296-300`), the width-guessed `zeroext` (`:271-280`, now from the C kind), `perform` and the string-typed `call`, the hand `require` of `caf_release`, Entry's `runtimeFunction` helper and its two hand types, the hand-written prototypes in `runtime/idris_rt.h` for the generated functions, and the hand types at the 19 call sites. |
 | Consumers | `include/idr/IR/IdrBase.td` (or a new `IdrRuntime.td`), `tools/idris-mlir-tblgen.cpp`, generated headers, `runtime/idris_rt.h` and the runtime definitions it declares, `include/idr/Conversion/Runtime.h`, `lib/Conversion/{Runtime,RuntimeCells,Arrays,Counting,Elements,Checks,Memrefs,Strings,Entry}.cpp`. |
-| Discriminator | The runtime does not compile when a definition disagrees with the generated prototype (as D9 made true for op functions); a call site passing the wrong argument type fails the assertion in `Runtime::call` instead of producing a second declaration type. Lowered declarations are identical on `tests/idr/lower/{entry,io,counting,static-thunk}.mlir`. |
+| Discriminator | The runtime does not compile when a definition disagrees with the generated prototype (as D9 made true for op functions); a call site passing the wrong argument type fails the assertion in `Runtime::call` instead of producing a second declaration type. Lowered declarations are identical on `tests/lower-arrays/{entry,io,counting,static-thunk}.mlir`. |
 | Verification here | `make typecheck` (generator, C++); the runtime and `tests/runtime-api` build with host clang. Behaviour is the owner's build. |
 | Size and risk | About 45 lines and 8 guards go, 19 call sites simplify. Low to medium risk: the runtime header and generator change together. Essential and kept: `idris_rt_crash`'s `cold` at its call, and `idris_rt_array_new`'s `noalias` result, which could become table data too. |
 | Insight | 6, 7, 16-limit noted (the C header stays the definition's home, generated) |
@@ -89,7 +89,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Correction | One plan per memref type, `layout::DescriptorFields` in `Layout.h`: the offset, each size and each stride as `Fixed(n)`, `Carried`, or `Derived` (an identity layout's strides), made once from the type, with a non-strided layout refused where the program's verifier holds buffer layouts. `Layouts::components` counts its `Carried` fields; `unpack`, `pack` and `componentsOf` iterate it. |
 | Deletion | `Strided`, `stridedOf`, the seven branches, the assert at `:110`, and `descriptorWords`' own test. |
 | Consumers | `include/idr/IR/Layout.h`, `lib/IR/Layout/Components.cpp`, `include/idr/Conversion/Arrays.h`, `lib/Conversion/Descriptors.cpp`, `lib/IR/Verify/Program.cpp` (the layout rule). |
-| Discriminator | A fixture with a `memref.transpose` result reaching idr-lower: today the walks disagree (assert, or a wrong descriptor in release); after, the verifier refuses the layout or every walk agrees by construction. `tests/idr/lower/{arrays,value-buffers}.mlir` lower identically. |
+| Discriminator | A fixture with a `memref.transpose` result reaching idr-lower: today the walks disagree (assert, or a wrong descriptor in release); after, the verifier refuses the layout or every walk agrees by construction. `tests/lower-arrays/{arrays,value-buffers}.mlir` lower identically. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 30 lines and 7 branches go, plus one latent disagreement. Low risk. Essential and kept: that an identity layout's strides are derived, not carried (it saves registers), now one case of the plan. |
 | Insight | 11, 12, 6 |
@@ -105,7 +105,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Correction | `Layouts::cellOf` records the prefix as data, `SmallVector<layout::OwnWord{Slot slot; int64_t value}>` (info at `offsetof(idris_rt_header, info)`, the count word, the group word with its value), the count's slot from `offsetof(idris_rt_header, count)`; `CellInfo` exposes typed `kind()` and `objects()`; `Layouts` gives the group slot per sum (`Layouts::group(DataType)`). The static writer emits the prefix's words as members, the dynamic one stores them; Facts reads the header's size and the cell alignment from the same constants. |
 | Deletion | The two `countWord` and two `group` branches, the empty-constructors guard, `isMemoCell` and the objs decode, `groupWord` in `Words.cpp` (the layout computes the value), the literal offsets and the four hand-written static headers (one helper over the header constants). |
 | Consumers | `include/idr/IR/Layout.h`, `lib/IR/Layout/{Layouts,CellInfo}.cpp`, `lib/Conversion/{RuntimeCells,StaticData,StaticNames,MemoCells,Memrefs,Facts,Words}.cpp`, `include/idr/Conversion/{Runtime,Words}.h`. |
-| Discriminator | Lowered LLVM and static globals identical on `tests/idr/lower/{box,static-thunk,layout,force-by-name,arrays}.mlir`; a googletest box (`make test-unit`) builds each cell of a grouped and a wide sum and checks the static and dynamic prefixes word for word against `idris_rt_info_*` and `offsetof`. |
+| Discriminator | Lowered LLVM and static globals identical on `tests/lower-arrays/{box,static-thunk,layout,force-by-name,arrays}.mlir`; a googletest box (`make test-unit`) builds each cell of a grouped and a wide sum and checks the static and dynamic prefixes word for word against `idris_rt_info_*` and `offsetof`. |
 | Verification here | `make typecheck`; the box links MLIR and is the owner's. |
 | Size and risk | About 25 lines and 6 branches go. Low risk (a refactor). Essential and kept: the stack mark kept across a memo cell's states (`MemoCells.cpp:39-42`), and count 1 against count 0 (heap against static), passed as the one parameter. |
 | Insight | 6, 8, 4 |
@@ -153,7 +153,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Correction | `enum class Convention {C, Tail, TailThroughMemory}` per function, in one read-only map by symbol, plus each function's planned `tailCalls`. `place` sets a call's convention and its slot from its callee's `Convention` after it has erased what the entry no longer reaches, skipping its own planned calls. |
 | Deletion | `tailccCalls`, `throughSlot`, `Function::tail`, `Function::resultInMemory`, the last loop of `make`, `forEachCallKept`, the `reach(fn, {})` calls, the `inMemory` map. `reach(fn, planned)` stays: it drops a planned call an earlier one makes unreachable, which decides who is on a tail call. |
 | Consumers | `include/idr/Conversion/TailCallPlan.h`, `lib/Conversion/{TailCallPlan,TailCalls,PassThroughMemory}.cpp`. |
-| Discriminator | `tests/idr/tail-calls/*` and idr-expect's `constant-stack`/`tail-calls` properties hold unchanged, and the pass's statistics (`numTailCalls`, `numInMemory`, `numFrameBound`) are equal on the fixtures. |
+| Discriminator | `tests/tail-calls-decided-loops/*` and idr-expect's `constant-stack`/`tail-calls` properties hold unchanged, and the pass's statistics (`numTailCalls`, `numInMemory`, `numFrameBound`) are equal on the fixtures. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 35 lines and 5 branches go. Low to medium risk (the rewrite's order matters: conventions before slots, slots after erasure). Essential and kept: see "kept" on the two tail-position analyses. |
 | Insight | 4, 6 |
@@ -168,7 +168,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Root cause | The root's kind is a fact of the program decided by a predicate that returns a bool, so the entry re-derives it from a lowered shape; the lowered stage states only one of the facts idr-entry relies on. |
 | Correction | `enum class RootKind {Status, IO}` returned by one `rootKind(FunctionType)` in `lib/IR` that admits exactly `() -> i64` and `(!idr.world) -> !idr.world`; the lowered stage's verifier holds the lowered forms (`() -> i64` or `() -> ()`) and the presence of `@__idr_release_cafs`, named by one constant both passes read. idr-entry reads the kind and builds `@main`. |
 | Deletion | Entry's three internal errors (`:40-44`, `:111-115`, `:127-130`), the second `status` predicate, the two literals of the release function's name. `@main`'s own collision check stays (a C name). |
-| Consumers | `lib/IR/Verify/Program.cpp`, an IR header for `RootKind` and the name, `lib/Conversion/{Entry,Runtime}.cpp`, `tests/idr/verify/` (a new refusal fixture), `tests/lower-entry/lower-entry.mlir`. |
+| Consumers | `lib/IR/Verify/Program.cpp`, an IR header for `RootKind` and the name, `lib/Conversion/{Entry,Runtime}.cpp`, `tests/reduce-regions/` (a new refusal fixture), `tests/lower-entry/lower-entry.mlir`. |
 | Discriminator | The IO root with an `i64` result is refused by the verifier, before any pass; today it verifies and silently changes the exit status. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 15 lines and 3 internal errors go; one latent wrong program is ruled out. Low risk. |
@@ -185,7 +185,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Correction | One recursive `StaticData::datum(Attribute, Type) -> Datum{std::string key; components}` with the ladder once: a box's children are written first and keyed by their names, so the parent's name follows from them and the global is written if absent. A `ConAttr::runField(cell, index)` accessor in IR gives a run cell's field in field coordinates. |
 | Deletion | `fieldKey`, `boxName`, `runNames`, `boxNames`, one of the two ladders, both spine re-indexings. |
 | Consumers | `lib/Conversion/{StaticData,StaticNames}.cpp`, `include/idr/Conversion/StaticData.h`, `include/idr/IR/` (ConAttr declaration), `lib/IR/ConAttr.cpp`. |
-| Discriminator | Static global names and contents identical on `tests/idr/lower/{constants,static-thunk,linear-constant}.mlir` (the key text is unchanged); a long constant list still writes with constant stack. |
+| Discriminator | Static global names and contents identical on `tests/lower-arrays/{constants,static-thunk,linear-constant}.mlir` (the key text is unchanged); a long constant list still writes with constant stack. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 40 lines and one duplicated four-case ladder go. Low to medium risk (names must stay byte-identical). |
 | Insight | 6 (one fact, one place), 11 |
@@ -233,7 +233,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Correction | `runtime/idris_rt.h` exports the encoding as constexpr functions beside `idris_rt_info` (`idris_rt_small_word`, `idris_rt_word_is_small`, `idris_rt_small_value`); compile-time sites call them; `BigSmallOp` and `NatToExtentOp`'s test call the runtime's inline functions through `Idr_Runtime` marks, as every other big op does, and LTO inlines them. |
 | Deletion | `lowBit`, `LowerBigSmall`, the arithmetic in `LowerNatToExtent`, `groupBase`'s and `groupWord`'s arithmetic, the literals in `givenRange`, `StaticData::big` and `CheckNonzero`, and Rc.h's copy. |
 | Consumers | `runtime/idris_rt.h`, `runtime/Rc/Rc.h`, `runtime/Big/*`, `include/idr/IR/IdrBigOps.td`, `lib/Conversion/{Bigs,Words,RuntimeCalls,StaticData,Checks}.cpp`, `include/idr/Conversion/Words.h`. |
-| Discriminator | A googletest box checks `groupWord`, `givenRange` and the static big against the runtime's constexpr functions over every small value within 2 of 0 or of ±2^k (0002 §4.5's box); `tests/idr/lower/{nat,big-fast-path}.mlir` lower to calls LTO inlines to the same code. |
+| Discriminator | A googletest box checks `groupWord`, `givenRange` and the static big against the runtime's constexpr functions over every small value within 2 of 0 or of ±2^k (0002 §4.5's box); `tests/lower-arrays/{nat,big-fast-path}.mlir` lower to calls LTO inlines to the same code. |
 | Verification here | `make typecheck`; the runtime and its property programs build and run with host clang. |
 | Size and risk | No branch, seven restatements, about 35 lines. Low risk. |
 | Insight | 6 (one fact, one place) |
@@ -264,7 +264,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Root cause | A rule of the owned stage (a buffer is a runtime cell: identity layout, at most word-aligned) is held as two pattern-time checks. |
 | Correction | The owned stage's verifier (`lib/IR/Verify/Program.cpp`, beside its data-layout rule) holds it for every `memref.alloc` and `memref.global` of the program. `ConstantArray::of` keeps parsing what makes a global a constant array (constant, elements, words). |
 | Deletion | Two internal errors in `LowerAlloc`, the alignment branch in `ConstantArray::of`. |
-| Consumers | `lib/IR/Verify/Program.cpp`, `lib/Conversion/{Arrays,StaticData}.cpp`, `tests/lower-internal-errors/lower-internal-errors.mlir` (its second case moves to `tests/idr/verify/`). |
+| Consumers | `lib/IR/Verify/Program.cpp`, `lib/Conversion/{Arrays,StaticData}.cpp`, `tests/lower-internal-errors/lower-internal-errors.mlir` (its second case moves to `tests/reduce-regions/`). |
 | Discriminator | The over-aligned allocation is refused by the verifier before any pass. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 10 lines, 3 checks. Low risk. |
@@ -280,7 +280,7 @@ LLVM's call lowering), and from the target entry's feature list
 | Root cause | No coordinate separates compiler-made names from mangled program names. |
 | Correction | One constructor of reserved names in `include/idr/IR/Symbols.h` whose first `$` is followed by a letter (`__idr$box$<hex>`): `mangle` writes `$` only to open an escape followed by a digit, so no mangled name can equal one, and no C name has a `$` in the runtime. Static data, the release function, the entry body and Partition's cross-bin names use it. |
 | Deletion | The two collision internal errors in `merge`, the four literals. |
-| Consumers | `include/idr/IR/Symbols.h`, `lib/IR/Symbols.cpp`, `lib/Conversion/{StaticNames,Runtime,Entry}.cpp`, `include/idr/Conversion/Mangle.h` (its doc states the property), `lib/Target/Partition.cpp`, `tests/idr/lower/{entry,static-thunk,io,value-buffers}.mlir`, `runtime/idris_rt.h` (a comment). |
+| Consumers | `include/idr/IR/Symbols.h`, `lib/IR/Symbols.cpp`, `lib/Conversion/{StaticNames,Runtime,Entry}.cpp`, `include/idr/Conversion/Mangle.h` (its doc states the property), `lib/Target/Partition.cpp`, `tests/lower-arrays/{entry,static-thunk,io,value-buffers}.mlir`, `runtime/idris_rt.h` (a comment). |
 | Discriminator | A googletest box: `mangle` of every string over a small alphabet including `$` and digits never equals a reserved name. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 12 lines, 2 internal errors. Low risk; symbol names change, so fixtures that name them change. |
@@ -311,4 +311,4 @@ Minor, below the bar of a finding (one line each, for whichever lane touches the
 - A dialect is identified by comparing its namespace string (`Lower.cpp:93`, `Descriptors.cpp:192`); `isa<IdrDialect>(type.getDialect())` says it.
 - The index materialization lambda is written twice (`Descriptors.cpp:216-221`, `:227-232`).
 - Upstream's `memref.get_global` and `memref.global` patterns are filtered out by root kind (`Lower.cpp:147-153`) while every other override wins by `ownLowering`'s benefit; one mechanism would do.
-- `tests/idr/lower/cpu-features-x86-64.mlir` has no arm64 counterpart (tests' area: a first-class target's feature list goes untested there).
+- `tests/lower-arrays/cpu-features-x86-64.mlir` has no arm64 counterpart (tests' area: a first-class target's feature list goes untested there).

@@ -14,7 +14,7 @@ started with. Then, on each target, arm64 macOS first:
    `make bootstrap`, `make build`, and the suites. On Linux the host needs
    glibc's development files and the kernel's headers (Fedora:
    `glibc-devel`, `kernel-headers`); it no longer needs its own GMP.
-2. `tests/toolchain/static-linking` is owed acceptance: the one linking
+2. `tests/static-linking` is owed acceptance: the one linking
    rule, on every target.
 3. What 0005 wrote from memory, listed in its "What remains", is confirmed
    or corrected on the first build that reaches it: arm64 Linux's user

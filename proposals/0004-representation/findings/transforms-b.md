@@ -28,7 +28,7 @@ The defects are in what the IR lets a pass see:
 | Correction | `idr.take` implements `InferTypeOpInterface`. `inferReturnTypes` reads the scrutinee's type and the tag: a token when the constructor has a cell, then each field at `fieldType(value, field)`, owned where it holds references. `isCompatibleReturnTypes` is today's `movesAs`, since the commit later writes the excl grade. The builder is `(value, tag)`. "Has a cell" becomes one predicate beside `fieldType` in `Grades.h`/`Layout`, and `getToken` and every box test call it. |
 | Deletion | `taken`, the three hand-built result lists, `movedField`, the verifier's hand comparison (replaced by `verifyInferredResultTypes`), the four other spellings of token presence, and the divergent box tests in Stack, Reshape and Reuses. |
 | Consumers | `include/idr/IR/IdrOwnershipOps.td`, `lib/IR/OpsOwnership.cpp`, `include/idr/IR/Grades.h` or `Layout.h`, `lib/Transforms/Ownership/Take.cpp`, `Reshape.cpp`, `include/idr/Transforms/Ownership.h` (the take helpers' signatures), `lib/Analysis/Ownership/Reuses.cpp`, `lib/Transforms/Stack/Stack.cpp`, `lib/Analysis/Tail.cpp`, `lib/Transforms/Tail/Trmc.cpp`. |
-| Discriminator | A unit box in `foreign/idr/unittests/` builds a take for every (data type, tag) of a small type set, boxed, unboxed, linear and fieldless, and checks that it verifies. Before, `takeAt` on an unboxed sum with fields fails verification; after, it is not expressible. The `tests/idr/rc/*` fixtures verify after idr-rc. A stage-`first` fixture with a linear box con that does not escape is put on the stack after the fix and not before. |
+| Discriminator | A unit box in `foreign/idr/unittests/` builds a take for every (data type, tag) of a small type set, boxed, unboxed, linear and fieldless, and checks that it verifies. Before, `takeAt` on an unboxed sum with fields fails verification; after, it is not expressible. The `tests/rc-arrays/*` fixtures verify after idr-rc. A stage-`first` fixture with a linear box con that does not escape is put on the stack after the fix and not before. |
 | Verification here | `make typecheck` (C++ compiles). The unit box and the rc fixtures need the owner's build (`make test-unit`, `make test-idr`). |
 | Size and risk | About 45 lines and 14 branch sites go. The risk is low: the inferred list is exactly what the verifier already demands. The essential case stays: an atom has no cell, so its take gives no token. |
 | Insight | 6 (parse once: the type is inferred), 4. |
@@ -44,7 +44,7 @@ The defects are in what the IR lets a pass see:
 | Correction | `idr.con` takes an optional `$token` operand, the cell it is built in. The verifier holds `token ⇒ box`, `token ⇒ !stack` and `token ⇒ owned stage`. Memory effects, the folder (`token ⇒ no fold`) and speculation (`token ⇒ not speculatable`) read it. The reuse rewrite is `con.getTokenMutable().assign(cell)` in place: no op is replaced, so every `Site` stays valid. |
 | Deletion | The `ReuseOp` def and its five methods and flow edges, `Built` and its helpers, Trmc's second `rebuilt` and its visits, Reuse.cpp's two maps, `now`, and the `boxOf(Value)` and `pointOf` overloads, plus every `isa<ConOp, ReuseOp>` pair. `LowerReuse` merges into the con lowering. Its token-or-allocate branch is essential and stays, now in one place. |
 | Consumers | `IdrOwnershipOps.td`, `IdrOps.td`, `lib/IR/OpsCon.cpp`, `OpsOwnership.cpp`, `FlowOps.cpp`, `Verify/OwnedOps.cpp`, `Verify/Program.cpp`, `Analysis/Tail.{h,cpp}`, `Analysis/Ownership/Reuses.cpp`, `Transforms/Ownership/Reuse.cpp`, `Rc.cpp`, `Tail/Trmc.cpp`, `Demand/Demand.cpp`, `Expect/{Does,TestsNothing,ReusesInPlace}.cpp`, `Conversion/{Counting,Fields,Facts,Cells}.cpp`, `include/idr/Conversion/Fields.h`, and the fixtures that print `idr.reuse` (`tests/verify-owned-stage`, `rc/*`). |
-| Discriminator | `--verify-roundtrip` on the owned-stage fixtures. `tests/rc-nested-reuse` (a site whose box is a constructor an earlier site rebuilt) must keep its reuse count (`idr-rc.reuses` statistic). Trmc on a reusing recursion (`tests/idr/rc/*` through `idr-trmc`) keeps the reuse. The verifier rejects `token` with `stack`. |
+| Discriminator | `--verify-roundtrip` on the owned-stage fixtures. `tests/rc-nested-reuse` (a site whose box is a constructor an earlier site rebuilt) must keep its reuse count (`idr-rc.reuses` statistic). Trmc on a reusing recursion (`tests/rc-arrays/*` through `idr-trmc`) keeps the reuse. The verifier rejects `token` with `stack`. |
 | Verification here | `make typecheck`. The behaviour is owed to the owner's build. |
 | Size and risk | About 150 lines and about 20 branch sites go. The risk is medium: the con's effects, folder and speculation must exclude the token case, and the conversion patterns merge. The essential three-way cell source stays, once, in the lowering. |
 | Insight | 12 (homogeneous coordinates: "build in cell c" for each source), 7, 16 checked: reuse is not a different operation. |
@@ -54,12 +54,12 @@ The defects are in what the IR lets a pass see:
 | Field | Content |
 |---|---|
 | ID | transforms-b-3 |
-| Evidence | `IdrOps.td:146` declares `region AnyRegion:$body`. The frontend writes one block (`compiler/src/IdrisMLIR/MLIR.idr:422` writes `^bb0` only). The one source of a second block is inlining a callee that ends in `ub.unreachable` into a function body (PINS `inline-unreachable`: "such a callee is inlined into a function body"). It leaves a dead continuation block, and nothing removes it: the idr canonicalizer has region simplification off (`Canonicalize.h:40-46`). In this area: `Ownership/Reshape.cpp:37-46` raises an internal error for a multi-block region, but skips the function body itself (`op != fn.getOperation()`); Placement walks each block on its own and assumes one. `Tail/AccumulatorPlan.cpp:167,215` refuse multi-block functions, a lost optimization; L195 and L201 test `hasOneBlock()` on match regions, which `SizedRegion<1>` (`IdrMatchOps.td:23`) already guarantees (dead). `Optimize/PureCalls.cpp:127-144` walks a dominator tree for multi-block regions. `Bufferize/Releases.cpp:115-128` checks block reachability. `TailLoops.cpp`, `WhileDo.cpp`, `Loop.cpp` and `Trmc.cpp` read `fn.getBody().front()` without a guard. Cross-area: `Inline/Inline.cpp:35-43` (`fitsRegion` keeps such calls out of match regions), `Analysis/EscapesCycles.cpp:73`, `Escapes.h:62`, flow and linearity through branches, and `tests/idr/defunc/block-argument.mlir`, the one fixture with `cf.cond_br`. About 12 branch sites, one silent assumption in four passes, and one internal error. |
+| Evidence | `IdrOps.td:146` declares `region AnyRegion:$body`. The frontend writes one block (`compiler/src/IdrisMLIR/MLIR.idr:422` writes `^bb0` only). The one source of a second block is inlining a callee that ends in `ub.unreachable` into a function body (PINS `inline-unreachable`: "such a callee is inlined into a function body"). It leaves a dead continuation block, and nothing removes it: the idr canonicalizer has region simplification off (`Canonicalize.h:40-46`). In this area: `Ownership/Reshape.cpp:37-46` raises an internal error for a multi-block region, but skips the function body itself (`op != fn.getOperation()`); Placement walks each block on its own and assumes one. `Tail/AccumulatorPlan.cpp:167,215` refuse multi-block functions, a lost optimization; L195 and L201 test `hasOneBlock()` on match regions, which `SizedRegion<1>` (`IdrMatchOps.td:23`) already guarantees (dead). `Optimize/PureCalls.cpp:127-144` walks a dominator tree for multi-block regions. `Bufferize/Releases.cpp:115-128` checks block reachability. `TailLoops.cpp`, `WhileDo.cpp`, `Loop.cpp` and `Trmc.cpp` read `fn.getBody().front()` without a guard. Cross-area: `Inline/Inline.cpp:35-43` (`fitsRegion` keeps such calls out of match regions), `Analysis/EscapesCycles.cpp:73`, `Escapes.h:62`, flow and linearity through branches, and `tests/defunc-choice/block-argument.mlir`, the one fixture with `cf.cond_br`. About 12 branch sites, one silent assumption in four passes, and one internal error. |
 | Counterexample | Take a function that inlines a crashing callee at the top level. Its dead continuation survives into idr-accumulate, which then leaves it unaccumulated, and into idr-rc, whose placement places that block's values per block, unchecked. `Reshape::check` accepts it. |
 | Root cause | The body allows any number of blocks, though every producer but one transient makes one. The transient's continuation is dead by construction (the callee never returns) and is not removed where it is made. |
 | Correction | `idr.func`'s body is `SizedRegion<1>`. The inline step (`Inline.cpp` `inlineCalls`, `Contify.cpp`) erases the continuation it makes dead (`mlir::eraseUnreachableBlocks` on the caller's body) before the pass ends. A body is then one block by construction. Calls of non-returning callees in match regions can then inline too. |
 | Deletion | `Reshape::check` and its internal error; the four `hasOneBlock` tests in AccumulatorPlan; PureCalls' dominator-tree path; `mayRunAfter`'s block-reachability tail; `fitsRegion`'s multi-block case; EscapesCycles' multi-block case; flow and linearity through block arguments of non-entry blocks (IR area); `block-argument.mlir`. |
-| Consumers | `include/idr/IR/IdrOps.td`, `lib/Transforms/Inline/Inline.cpp`, `Optimize/Contify.cpp`, `Ownership/Reshape.cpp`, `Tail/AccumulatorPlan.cpp`, `Optimize/PureCalls.cpp`, `Bufferize/Releases.cpp`, `Analysis/EscapesCycles.cpp`, `Analysis/Escapes.h`, `lib/IR/Flow.cpp`, `Verify/Linearity.cpp`, `tests/idr/defunc/block-argument.mlir`, PINS.md `inline-unreachable` (its sites text). |
+| Consumers | `include/idr/IR/IdrOps.td`, `lib/Transforms/Inline/Inline.cpp`, `Optimize/Contify.cpp`, `Ownership/Reshape.cpp`, `Tail/AccumulatorPlan.cpp`, `Optimize/PureCalls.cpp`, `Bufferize/Releases.cpp`, `Analysis/EscapesCycles.cpp`, `Analysis/Escapes.h`, `lib/IR/Flow.cpp`, `Verify/Linearity.cpp`, `tests/defunc-choice/block-argument.mlir`, PINS.md `inline-unreachable` (its sites text). |
 | Discriminator | The verifier rejects a two-block `idr.func`. A fixture inlines a crashing callee at the top level and runs idr-optimize: after the fix the body verifies as one block and a following `idr-accumulate` fires; before, the body has two blocks. |
 | Verification here | `make typecheck`. The inliner behaviour is owed to the owner's build (`make test-idr`, `make test-mlir-tools`). |
 | Size and risk | About 60 lines and 12 branch sites in this area; more across the IR. The risk is medium: this touches the inliner and the PINS-recorded patch 07, whose own behaviour stays, and the erase happens after it. What stays essential: a crash ends its block with `ub.unreachable`. |
@@ -76,7 +76,7 @@ The defects are in what the IR lets a pass see:
 | Correction | A value that is a successor input of a `RegionBranchOpInterface` op (a result, or a region argument; the scf.for IV is not one) is the join of `getPredecessorValues` over its index. The hypothesis map (`assumed`) applies to every region argument on a cycle. Poison (bottom), select and call stay their own cases. |
 | Deletion | The `IfOp`/`IndexSwitchOp`, `WhileOp`×2 and `ForOp`×2 cases, the IV special case, and the empty-region case. |
 | Consumers | `lib/Transforms/Tail/Returned.cpp`. |
-| Discriminator | `tests/idr/returned/` is empty today, so a fixture is owed. Lowered functions thread an argument through an `scf.if`, an `scf.while` and a recursive call, and the property is `idr-returned-arguments.dropped` equal to the number of such results, with each caller using its argument. A second case threads it through `scf.execute_region`: dropped after the fix, kept before. |
+| Discriminator | `tests/returned-threaded/` is empty today, so a fixture is owed. Lowered functions thread an argument through an `scf.if`, an `scf.while` and a recursive call, and the property is `idr-returned-arguments.dropped` equal to the number of such results, with each caller using its argument. A second case threads it through `scf.execute_region`: dropped after the fix, kept before. |
 | Verification here | `make typecheck`. The fixtures are owed to the owner's build. |
 | Size and risk | About 30 lines and 7 branches go. The risk is low to medium: termination still rests on the hypothesis. What stays essential: poison as bottom, select's two arms, and a call read through the callee's solution. |
 | Insight | 7, plus MLIR mechanism first. |
@@ -86,13 +86,13 @@ The defects are in what the IR lets a pass see:
 | Field | Content |
 |---|---|
 | ID | transforms-b-5 |
-| Evidence | `Ownership/Buffers.cpp:30-52` (`loopCountedElements`) turns every buffer-semantics `LinalgOp` whose payload holds references into `scf.for` loops, with an internal error, and erases the unread counted loads that lowering leaves. The `Passes.td:511-517` comment and dependent dialects (affine) exist for it, as does the `bufferForms` doc (`Ownership.h:149-156`). The only linalg producer before idr-rc is idr-structure-loops. Its contract (`Passes.td:369`, "No array of non-word elements reaches linalg") holds by construction: `Forms.cpp:160` (transpose of words only), `overWords` (L78-93), and `readsOf` requiring word reads (L139). Bufferization copies with `memref.copy` (no `memCpyFn` set in `Bufferize.cpp`). No `tests/idr/rc` fixture holds a linalg op. That is 1 dead path with 3 branches and 1 internal error. |
+| Evidence | `Ownership/Buffers.cpp:30-52` (`loopCountedElements`) turns every buffer-semantics `LinalgOp` whose payload holds references into `scf.for` loops, with an internal error, and erases the unread counted loads that lowering leaves. The `Passes.td:511-517` comment and dependent dialects (affine) exist for it, as does the `bufferForms` doc (`Ownership.h:149-156`). The only linalg producer before idr-rc is idr-structure-loops. Its contract (`Passes.td:369`, "No array of non-word elements reaches linalg") holds by construction: `Forms.cpp:160` (transpose of words only), `overWords` (L78-93), and `readsOf` requiring word reads (L139). Bufferization copies with `memref.copy` (no `memCpyFn` set in `Bufferize.cpp`). No `tests/rc-arrays` fixture holds a linalg op. That is 1 dead path with 3 branches and 1 internal error. |
 | Counterexample | None reachable. The fallback guards a state another pass's contract excludes, and nothing states that contract as a check. |
 | Root cause | idr-structure-loops' guarantee is prose, so idr-rc keeps a fallback for its violation. |
 | Correction | The program verifier holds the guarantee from stage `first` on: a `linalg` op inside an `idr.func` has no payload argument that holds references. idr-rc trusts it. |
 | Deletion | `loopCountedElements` and its internal error, the unread-load erasure, the affine dependency and comment in `IdrRc`, and the corresponding sentence of `bufferForms`' doc. |
 | Consumers | `lib/Transforms/Ownership/Buffers.cpp`, `include/idr/Transforms/Ownership.h`, `include/idr/Transforms/Passes.td` (IdrRc), `lib/IR/Verify/Program.cpp`. |
-| Discriminator | A fixture with a `linalg.generic` over a buffer of `!idr.str` at stage `first` is rejected by the verifier. All `tests/idr/structure/*` and `tests/idr/rc/*` fixtures still verify. |
+| Discriminator | A fixture with a `linalg.generic` over a buffer of `!idr.str` at stage `first` is rejected by the verifier. All `tests/structure-columns/*` and `tests/rc-arrays/*` fixtures still verify. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 25 lines and 4 branches go. The risk is low, provided the frontend emits no linalg (confirmed: `compiler/src` has none). Nothing essential is lost. |
 | Insight | 6 (parse at the boundary, once). |
@@ -140,7 +140,7 @@ The defects are in what the IR lets a pass see:
 | Correction | `tabulated` takes `ValueRange state` (empty for `idr.tabulate`, `{world}` for `idr.tabulate_io`) and always appends `state` and `carried.take_back(state.size())`. |
 | Deletion | `withWorld`, `initial`, the 6 `if (world)`, and the duplicated `.Case`. |
 | Consumers | `lib/Transforms/StructureLoops/Nests.cpp`. |
-| Discriminator | Programs in `tests/programs` with an IO tabulation keep their output. `idr-expect` `structured-loops` holds on `tests/idr/structure/*`. |
+| Discriminator | Programs in `tests/programs` with an IO tabulation keep their output. `idr-expect` `structured-loops` holds on `tests/structure-columns/*`. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 20 lines and 7 branches go. The risk is low. |
 | Insight | 8 (the empty range as the null object). |
@@ -188,7 +188,7 @@ The defects are in what the IR lets a pass see:
 | Correction | `struct Scope { Block *block; ValueRange values; }`, built once the loop exists: before = (before body, before arguments), after = (after body, after arguments), exit = (loop's block, loop results). `in` returns `slot < scope.values.size() ? scope.values[slot] : value`. The before region has only the carried slots, so passed values fall through without a special case. |
 | Deletion | Both switches, both unreachables, and the `Before` special case. |
 | Consumers | `lib/Transforms/Tail/WhileDo.cpp`. |
-| Discriminator | `tests/idr/loops/*` keep their loops and counted statistic (`idr-tail-loops.loops`, `.counted`). |
+| Discriminator | `tests/loops-accumulate/*` keep their loops and counted statistic (`idr-tail-loops.loops`, `.counted`). |
 | Verification here | `make typecheck`. |
 | Size and risk | About 20 lines and 9 branch points go. The risk is very low. |
 | Insight | 7, 11 (the coordinate makes the special case the rule). |
@@ -204,7 +204,7 @@ The defects are in what the IR lets a pass see:
 | Correction | `Class` names the outcome: `Untracked`, `Phantom` (owned by type, never counted), `Constant` (a view; each consumer dups), `StaticRead` (keeps its grade), `Borrowed`, `OwnedAtRead` (a field or element that takes its own reference where it is read; ownFields' dup), `Owned`. `classOf` decides each once. `plan()` becomes a flat switch, and ownFields selects `OwnedAtRead`. |
 | Deletion | The 5 re-splitting predicates in `plan()` and ownFields. |
 | Consumers | `include/idr/Transforms/Ownership.h`, `Ownership/Classes.cpp`, `Placement.cpp`, `Reshape.cpp`. |
-| Discriminator | Every `tests/idr/rc/*` fixture verifies after idr-rc (the owned walk) with unchanged `dups` and `drops` statistics. |
+| Discriminator | Every `tests/rc-arrays/*` fixture verifies after idr-rc (the owned walk) with unchanged `dups` and `drops` statistics. |
 | Verification here | `make typecheck`. |
 | Size and risk | 5 branches move into one place. The risk is medium (counting). What stays essential: phantom and constant differ (no dup versus a dup that runs nothing). |
 | Insight | 4, 7. |
@@ -220,7 +220,7 @@ The defects are in what the IR lets a pass see:
 | Correction | An op interface on the `Idr_FoldsAnAccumulator` ops: `getInits`, `getLength`, `getFrameRank`, `getAccumulators`. `lowerInterchange` and `folded` take it. |
 | Deletion | The ternaries and the template's second instantiation. |
 | Consumers | `include/idr/IR/IdrInterfaces.td`, `IdrArrayOps.td`, `lib/Transforms/StructureLoops/{Linalg,Nests}.cpp`. |
-| Discriminator | `tests/idr/structure/*` unchanged. |
+| Discriminator | `tests/structure-columns/*` unchanged. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 10 lines and 4 branch points go. The risk is low. What stays essential: the scan writes each step's accumulators (`if (scan)` remains). |
 | Insight | 7. |
@@ -236,7 +236,7 @@ The defects are in what the IR lets a pass see:
 | Correction | The turn-written state is `Waiting \| Parked{on, Solved} \| Done{Solved}`. `published` stays a separate field, written only between waves: workers read `isFinal` of nodes whose turn may be writing its state, which is the essential reason for the split. gather splits by the `Step` alternative, and a merge erases the merged-away `Scc`. |
 | Deletion | The `std::optional<Solved>`, the deref, the `solved ?` test, gather's state test, and the husk skip. |
 | Consumers | `include/idr/Transforms/Optimize.h`, `lib/Transforms/Optimize/{ReadySet,Component,Waves}.cpp`. |
-| Discriminator | `tests/idr/optimize/*` and the determinism check at 1, 3, 5 and 13 threads. |
+| Discriminator | `tests/optimize-caller-cap/*` and the determinism check at 1, 3, 5 and 13 threads. |
 | Verification here | `make typecheck`. |
 | Size and risk | 4 branches go. The risk is low. |
 | Insight | 4, 5. |
@@ -252,7 +252,7 @@ The defects are in what the IR lets a pass see:
 | Correction | `BigAddOp::fold` returns the other operand when one is the constant 0. Accumulate builds with `createOrFold`. |
 | Deletion | The `isZero` branch in `rewriteClone`. `isZero` itself stays for `isCountdown`. |
 | Consumers | `lib/IR/Fold/Bigs.cpp`, `lib/Transforms/Tail/Accumulate.cpp`. |
-| Discriminator | `tests/idr/fold/*` gets an `x + 0` case. The accumulate fixtures are unchanged. |
+| Discriminator | `tests/fold-add-zero/*` gets an `x + 0` case. The accumulate fixtures are unchanged. |
 | Verification here | `make typecheck`. |
 | Size and risk | 1 branch goes. The risk is very low. |
 | Insight | One fact, one place. |

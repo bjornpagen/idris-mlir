@@ -42,7 +42,7 @@ compiler inside the first.
 *Read*, 2026-10-15:
 
 - No pass runs program code; a closed call runs at run time (AGENTS.md).
-  `tests/programs/eval/compile-time-evaluation/Main.idr` holds closed calls
+  `tests/closed-calls/Main.idr` holds closed calls
   (`fib 15`, `fib 27`) beside the same functions on a digit read from
   input, against one expected file, and
   `tests/partial-divergent-call` holds that a closed call

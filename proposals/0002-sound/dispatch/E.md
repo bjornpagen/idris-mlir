@@ -268,25 +268,25 @@ Source by source. Each has the raw facts and a short summary. Quotes verified ag
 <!-- lane -->
 ## E — every idr-expect property is shown to fail where it should, or is gone
 Findings: F21
-Owner / exclusive writes: `foreign/idr/lib/Transforms/Expect/**`, `foreign/idr/include/idr/Transforms/Expect.h`, `tests/idr/expect/**`. No excludes. `foreign/idr/lib/Transforms/CMakeLists.txt` is the coordinator's; `foreign/idr/include/idr/Transforms/Passes.td` (the `IdrExpect` pass def) is K2's; every fixture outside `tests/idr/expect/` is X1's or X2's.
+Owner / exclusive writes: `foreign/idr/lib/Transforms/Expect/**`, `foreign/idr/include/idr/Transforms/Expect.h`, `tests/expect-allocation/**`. No excludes. `foreign/idr/lib/Transforms/CMakeLists.txt` is the coordinator's; `foreign/idr/include/idr/Transforms/Passes.td` (the `IdrExpect` pass def) is K2's; every fixture outside `tests/expect-allocation/` is X1's or X2's.
 Read first:
 - Packet README §2 (brittle tests, no oracle), §3 F21, §4.1 (K1 calls idr-expect's definitions; K1's dispatch calls `quantitiesKept`, `crashSites`, `foldsBalanced`, `functionsOf` and `names`), §7.
 - `foreign/idr/include/idr/Transforms/Expect.h:113-372`: the one list of properties; each comment is that property's specification, including when it fails.
 - `foreign/idr/lib/Transforms/Expect/Lookup.cpp:11-95`: the name table. It has **82** names (the README says 81).
 - `foreign/idr/lib/Transforms/Expect/Report.cpp:11-22`: `fail(loc, property)` prints `expected <property>: `, and `where(op)` gives `@name`.
 - `foreign/idr/lib/Transforms/Expect/Named.cpp:24-91`: `programOf`, `functionsOf`, `names` and `named` (the `@f` rule: the symbol is `f`, or the function's own location holds a NameLoc `f`, through FusedLocs); `rootsOf` (no argument means the whole module).
-- The 13 fixtures in `tests/idr/expect/`, each `<name>.mlir` plus `<name>/run` and `<name>/expected`. `closures.mlir` and `one-clone.mlir` show the trick of pulling a second module out of `// CLEAN:` comment lines with `sed`. `counting.mlir` shows a pass run before idr-expect.
+- The 13 fixtures in `tests/expect-allocation/`, each `<name>.mlir` plus `<name>/run` and `<name>/expected`. `closures.mlir` and `one-clone.mlir` show the trick of pulling a second module out of `// CLEAN:` comment lines with `sed`. `counting.mlir` shows a pass run before idr-expect.
 - `harness/lib/lit.sh:46-110`: how a RUN line runs. `%status N`, `%s` and `%t` are available, `\` continues a line, `count` and `FileCheck` are on PATH, and `expected` holds one `RUN <n>: ok` per joined RUN line. `harness/templates/dialect/example.mlir` gives a program's minimal shape: one `idr.program` with a root of type `() -> i64` or `(!idr.world) -> (...)`.
 - `.toolchain/llvm-project/mlir/test/IR/locations.mlir`: the syntax of `loc("f")` and `loc(fused["f", "g"])`.
 Permitted outcome:
-- Mandatory: each of the 68 properties below gets a fixture in `tests/idr/expect/` that fails it on a hand-written module and holds it on another function, or on a second module pulled out with sed.
+- Mandatory: each of the 68 properties below gets a fixture in `tests/expect-allocation/` that fails it on a hand-written module and holds it on another function, or on a second module pulled out with sed.
 - Mandatory: `folds-balanced` stays as the one documented exemption.
 - Mandatory: the stale `structured-loops.mlir` is fixed.
 - Mandatory: a coverage test enforces the invariant from now on.
-- Optional: a property that you show cannot fail on any module the verifier accepts, and that has no user outside `tests/idr/expect/`, is deleted.
+- Optional: a property that you show cannot fail on any module the verifier accepts, and that has no user outside `tests/expect-allocation/`, is deleted.
 - Later: an exported crash-site predicate for K1, which K1's dispatch defers too.
 Fixed decisions:
-- **Fixture placement.** The failing fixture of a property lives in `tests/idr/expect/`, whatever X1 keeps or culls elsewhere. There is one new fixture per Expect source file, named after that file in kebab case (table below), each a `<name>.mlir` plus `<name>/run` and `<name>/expected`.
+- **Fixture placement.** The failing fixture of a property lives in `tests/expect-allocation/`, whatever X1 keeps or culls elsewhere. There is one new fixture per Expect source file, named after that file in kebab case (table below), each a `<name>.mlir` plus `<name>/run` and `<name>/expected`.
 - **Siblings of an existing fixture.** `labels` joins `closures.mlir` (both are in `Closures.cpp`). `specialized-once` joins `one-clone.mlir` (both are in `Clones.cpp`).
 - **Fixture shape.** Line 1 is `// NEEDS-ACCEPTANCE: <what to confirm>`. Then come:
   - one holding RUN: `idris-mlir-opt %s --idr-expect=holds=<every holding request> -o /dev/null`;
@@ -301,11 +301,11 @@ Fixed decisions:
 - **Facts must be consistent.** Every hand-written `idr.func` that declares `effects` declares at least what its body does, because lane F's program verifier refuses anything less (§4.3). Concretely: no `total` means `diverge`; a world parameter or an `idr.world.new` means `io`; a guard or a crash op means `crash`; a call adds the callee's declared effects; and in the higher stage an `idr.apply` or `idr.force` means all three. A module that declares no `effects` is never checked.
 - **One new property, `folded=@f`, and no new export.** Lane N's fuzz check needs it (packet §4.7): `folded=@f` holds when no op left in any copy of `@f` that has no memory effect, is not a call and is not a constant has only constants as operands (an op such a fold would have replaced). It lives in a new `lib/Transforms/Expect/Folded.cpp`, is added to `Lookup.cpp`'s table and declared in `Expect.h` beside the others, and gets a fixture in `tests/expect-folded/expect-folded.mlir` where it holds (all arithmetic over constants folded by `--canonicalize`) and where it fails (an `arith.addi` of two constants left in place: `expected folded: ...`). No other new property. K1's contracts call `quantitiesKept`, `crashSites`, `foldsBalanced`, `functionsOf` and `names` as declared at HEAD: their names, signatures and behaviour stay, and none of the five is ever deleted.
 - **`folds-balanced` is exempt.** It reads `IdrDialect::foldLeakCount()` (`IdrBase.td:47-48`, counted in `lib/IR/Fold/Scope.cpp:31`). Only a defective folder makes that count nonzero, so no module can make the property fail. §4.1's K1 calls the same count. It stays, with no failing fixture, and the coverage test names it as the one exemption, with the reason.
-- **Deleting a property.** You may delete one only if both hold: it has no use in any file outside `tests/idr/expect/` (search the whole `tests/` tree, RUN lines joined across `\`, and `mlir.expect` files), and you can state why no verified module can make it fail. A property that cannot fail but is still used elsewhere is kept and escalated with the list of its users.
+- **Deleting a property.** You may delete one only if both hold: it has no use in any file outside `tests/expect-allocation/` (search the whole `tests/` tree, RUN lines joined across `\`, and `mlir.expect` files), and you can state why no verified module can make it fail. A property that cannot fail but is still used elsewhere is kept and escalated with the list of its users.
 Inputs: nothing from a sibling at dispatch. The fixtures must satisfy lane F's verifier rules as §4.3 states them (effects coverage). X1's `--verify-roundtrip` in the harness means every hand-written module must round-trip.
 Outputs:
 - `Expect.h` unchanged except for a property deleted under step 5. K1 consumes it as at HEAD.
-- Fixtures under `tests/idr/expect/`.
+- Fixtures under `tests/expect-allocation/`.
 - `tests/expect-coverage/`.
 Implement:
 1. **Fix `structured-loops.mlir`.** `structure::structurable` (`lib/Transforms/StructureLoops/Forms.cpp:127-129`) is now `isa<TabulateOp, TabulateIOOp, FoldLastOp, ScanLastOp, TransposeOp>`, and the failure message is `<op> is left unlowered in @f` (`StructuredLoops.cpp:32`). The fixture's `@left` holds an `scf.for`, which today gives `no structured op in @left`, and its LEFT check expects text the source no longer prints.
@@ -355,7 +355,7 @@ Implement:
 4. **Add the coverage test.** Create `tests/expect-coverage/run` (POSIX sh: `. "$IDRIS_MLIR_ROOT/harness/testutils.sh"`, then `cd "$root"`, using `$work` and `say` as `tests/no-behaviour-options/run` does), plus `expected`. It:
    - reads the names with `sed -n 's/^ *\.Case("\([^"]*\)".*/\1/p' foreign/idr/lib/Transforms/Expect/Lookup.cpp`;
    - says `properties: found` (or `properties: none found`), which is its non-vacuity witness;
-   - for each name except those in `exempt='folds-balanced'` (a comment gives the reason above), requires `grep -qF "expected <name>: " tests/idr/expect/*.mlir`;
+   - for each name except those in `exempt='folds-balanced'` (a comment gives the reason above), requires `grep -qF "expected <name>: " tests/expect-allocation/*.mlir`;
    - says either `every property has a fixture where it fails, folds-balanced aside`, or `no fixture where it fails:` followed by the names;
    - says `exempt and unknown:` followed by the name, for an exemption Lookup.cpp no longer has.
    
@@ -368,14 +368,14 @@ Implement:
 6. **Check.** If step 5 changed C++, run `python3 tools/check-units.py` on every Expect unit you touched (Lookup.cpp at least). Run `IDRIS_MLIR_ROOT=$PWD sh tests/expect-coverage/run` and diff it against `expected`. Because the mark is that file's first line, compare from line 2.
 Delete: The LEFT check and the `scf.for` case of `structured-loops.mlir`'s `@left` (replaced in step 1). Any property deleted under step 5, together with its declaration and its case. Nothing else: every other property has users and keeps its definition.
 NOT TO DO:
-- Do not edit, cull or restate any fixture outside `tests/idr/expect/`, even one whose idr-expect check you find wrong; report it instead.
+- Do not edit, cull or restate any fixture outside `tests/expect-allocation/`, even one whose idr-expect check you find wrong; report it instead.
 - Do not reword a property's message to make a fixture easier to write.
 - Do not add a property, an option, an export or a helper to idr-expect.
 - Do not make a failing fixture depend on a transform pass's output where a hand-written module can fail (only the owned-stage exception allows `--idr-rc`).
 - Do not touch `harness/lib/lit.sh` (X1's), `Passes.td` (K2's) or `tests/ACCEPTANCE.md` (X3's).
 - Do not make `folds-balanced` fail through a test-only folder or a hook in the dialect.
 Stop and return: Return when the following hold:
-- the 68 properties each have a failing case and a holding case under `tests/idr/expect/`;
+- the 68 properties each have a failing case and a holding case under `tests/expect-allocation/`;
 - `structured-loops.mlir` is fixed;
 - the coverage test's run matches its expected lines.
 
@@ -383,16 +383,16 @@ If a property cannot fail and has outside users, return its name, the reason, an
 Acceptance:
 - `folded`: `idris-mlir-opt tests/expect-folded/expect-folded.mlir --idr-expect=holds=folded=@<the holding function>` exits 0, and the failing invocation reports `expected folded:` once; the property is in `Lookup.cpp`'s table, so a misspelling is an error.
 - **On the owner's build:**
-  - every `RUN n` of every `tests/idr/expect/*` fixture prints `ok`;
+  - every `RUN n` of every `tests/expect-allocation/*` fixture prints `ok`;
   - each failing RUN exits 1 with exactly the CHECK-DAG errors, one per failing place;
   - each holding RUN exits 0.
-- **Discriminator:** replace any one of the 68 properties' bodies with `return success();` and its fixture's `%status 1` line fails (`RUN n: failed`). Today, for the 69 names that have no failing case under `tests/idr/expect/`, no test notices that replacement.
+- **Discriminator:** replace any one of the 68 properties' bodies with `return success();` and its fixture's `%status 1` line fails (`RUN n: failed`). Today, for the 69 names that have no failing case under `tests/expect-allocation/`, no test notices that replacement.
 - **The coverage test:** today it would print the 69 names (68 once `folds-balanced` is exempted); after the lane it prints the holding line.
 - **On this machine:** check-units on the changed Expect units, and the coverage run diffed against its expected lines.
 - **Only the owner's build can show** that each hand-written module verifies under lane F's rules and that each message pattern matches.
 Tempting partial solution: Write failing RUN lines that pass because of an argument error (`no function @f`), or one RUN per property that only checks `%status 1`. The fixed-words-in-the-message rule and the count line reject both: an argument error prints other words, and a property that reports two errors where its specification says one fails the count. Writing fixtures only for the easy properties and calling the rest exempt fails the coverage test, which allows exactly one exemption.
 Escalate if:
-- A property cannot fail on any verified module but is used outside `tests/idr/expect/`.
+- A property cannot fail on any verified module but is used outside `tests/expect-allocation/`.
 - A property's `Expect.h` comment contradicts what its `.cpp` checks, so that a fixture written to one fails the other.
 - A fixture can only be written by violating lane F's §4.3 rules.
 - A property you would delete is one of K1's five (`quantitiesKept`, `crashSites`, `foldsBalanced`, `functionsOf`, `names`), or K1 asks for an export this wave.

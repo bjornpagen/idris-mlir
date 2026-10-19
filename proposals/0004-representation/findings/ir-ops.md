@@ -53,7 +53,7 @@ attribute constraints, parameterized custom directives) is hand-written C++.
 | Correction | One op interface, `Idr_YieldTargetsOpInterface` with `ValueRange getYieldTargets()` (the arrays the yield's leading values move into), which `GeneratingOpInterface` and `UpdateOpInterface` both declare as a base (Tabulate/TabulateIO: `getArrays()`; Fold/Scan: `getResults()`; updates: `getArray()`). The yield forwards `values.drop_front(targets.size())` and flows `zip(values, targets)`; its parent rule is "the parent implements the interface". |
 | Deletion | Both `TypeSwitch`es (10 cases, 2 `DefaultUnreachable`), the `count == 0` case, the size guard, the `ParentOneOf` list. |
 | Consumers | `IdrInterfaces.td`, `IdrArrayOps.td`, `OpsGenerating.cpp`, `OpsTabulate.cpp`, `OpsFolds.cpp`, `OpsArrays.cpp`. |
-| Discriminator | `RegionBranchOpInterface`'s verifier and the flow tests over each array op (`tests/idr/arrays`, the bufferize fixtures) unchanged; a yield whose parent declares no targets is refused by the verifier, not by `llvm_unreachable`. |
+| Discriminator | `RegionBranchOpInterface`'s verifier and the flow tests over each array op (`tests/arrays-byte-buffer`, the bufferize fixtures) unchanged; a yield whose parent declares no targets is refused by the verifier, not by `llvm_unreachable`. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 30 lines become 8. Low risk. |
 | Insight | 7. |
@@ -158,7 +158,7 @@ attribute constraints, parameterized custom directives) is hand-written C++.
 | Correction | `custom<ResultAtGrade>(type($r), "::idr::StrType::get($_ctxt)")` and `custom<Read>($x, type($x), "...")`: a custom directive takes a C++ string with `$_ctxt` (`Operations.md:1012-1015`). |
 | Deletion | The 12 wrappers. |
 | Consumers | `Ops.cpp`; `IdrStringOps.td`, `IdrBigOps.td`, `IdrIOOps.td`, `IdrPlatformOps.td`, `IdrCheckOps.td` (70 directive uses, mechanical). The Idris side emits ops generically and reads no op format. |
-| Discriminator | `tests/idr/asm` and `syntax` round trips unchanged. |
+| Discriminator | `tests/asm-aliases` and `syntax` round trips unchanged. |
 | Verification here | `make typecheck`. |
 | Size and risk | 60 lines. Trivial risk. |
 | Insight | 14. |
@@ -173,7 +173,7 @@ attribute constraints, parameterized custom directives) is hand-written C++.
 | Correction | `Idr_LiteralTypeInterface` (type interface): `bool isLiteral(Attribute)` and `ParseResult parseLiteral(AsmParser&, Attribute&)`, on `StrType`, `BigType`, `NatType` and, by external model, `IntegerType`. `match_lit`'s scrutinee is a read of a type with the interface; verify, parse and `isBuildableWith` dispatch once. |
 | Deletion | Both ladders in the match ops, the scalar cases of `isBuildableWith`, the duplicated natural rule. |
 | Consumers | `IdrInterfaces.td`, `IdrTypes.td`, `Types.cpp` or `ValueFacts.cpp` (external model registration), `IdrMatchOps.td`, `OpsMatch.cpp`, `OpsMatchSyntax.cpp`, `Constants.cpp`. |
-| Discriminator | `tests/idr/verify` literal-key fixtures unchanged; a natural key and a natural constant `-1` are refused by the one rule. |
+| Discriminator | `tests/reduce-regions` literal-key fixtures unchanged; a natural key and a natural constant `-1` are refused by the one rule. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 35 lines go. Low. |
 | Insight | 7. |

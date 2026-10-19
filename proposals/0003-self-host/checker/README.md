@@ -1168,7 +1168,7 @@ fixtures or the self compile:
   computes;
 - a family value that applies one of its family arguments to what holds
   another (`\g, x => g (List x)`): beta sums two arguments' heights, which
-  no weight states (`tests/reject/polymorphism-growth-family-sum`);
+  no weight states (`tests/polymorphism-growth-mutual`);
 - a lambda family forwarded through another definition, when what lands
   there is open.
 

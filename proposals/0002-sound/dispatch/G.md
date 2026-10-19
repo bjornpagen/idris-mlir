@@ -409,7 +409,7 @@ Handoff:
 - **Shape (per parts/common.md):** changed paths, each mapped to an obligation; contracts supplied; consumer adaptations made; hub text the coordinator must apply; checks actually run with their results, or NotRun; unresolved seams, each with its evidence.
 - **Requests:**
   1. For X3: `tests/no-behaviour-options/run`, add `report` to `kept` after `o c`. This is an output, as §4.4 says.
-  2. Fixture texts for the coordinator to place under `tests/idr/obs/` (X1's), each with a first-line `NEEDS-ACCEPTANCE`. Give the full text for:
+  2. Fixture texts for the coordinator to place under `tests/obs-debug-counter/` (X1's), each with a first-line `NEEDS-ACCEPTANCE`. Give the full text for:
      - `report-accepted.mlir`: exit-42's module, `--report`, and FileCheck of `verdict: accepted`, `CHECK-NOT: diagnostic:`, and a `statistic: idr-optimize.` line;
      - `report-refused.mlir`: the knot chunk, `%status 3`, `verdict: refused`, `diagnostic: error cycle `;
      - `lowered-input.mlir`: `idris-mlir-opt --idr-target --idr-pipeline`, then `idris-mlir -c`, `%cc` and `%status 42`;

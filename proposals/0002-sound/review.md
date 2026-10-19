@@ -207,7 +207,7 @@ Verified by reading (not running).
 | F04 | real | `Optimize.h:233-239` `InnerCounts` has `identityCalls, pureErased, pureMerged, redirected, constants`; no canonicalizer or CSE count. |
 | F05 | real | `Passes.td` has 25 `def ...: Pass<...>`; no role. **The snippet in §4.2 does not compile**: `class IdrPass<string arg, string anchor, string role> : Pass<arg, anchor> { string role = role; }` gives `error: Recursion / self-assignment forbidden` under the pinned `llvm-tblgen` (run on `/tmp/rev/t.td`). Renaming the parameter works. Edit applied. |
 | F06 | real at the source level, test claim unverified | `OpsCon.cpp:146-150` accepts `isOwned(value.getType()) && view(value.getType()) == expected`. `view` (`Grades.cpp:86-90`, changed in bfdcac70 after the check was written in 1e1a3827) returns `q<many, borrow, !idr.str>` for an owned `!idr.str`, and field types are stored exactly as parsed (`DataBody.cpp:176-210`, `Types.cpp:199`), so `expected` is plain `!idr.str`; `q<many,borrow,..> != !idr.str`. `tests/idr/ownership/consumed-effects.mlir:20-30` (`idr.con !idr.own<!P> @P(%s : !idr.own<!idr.str>)`) is therefore refused, unless a normalization I did not find exists. The same commit edited that fixture, so the author believed it passed. Needs one run to settle; the fix (compare at the value's own grade) is right. |
-| F07 | real | `tools/idris-mlir-reduce.cpp:20-35` registers no reduction patterns and does not use `idr/Support/Stack.h`; `tests/idr/verify/reduce-regions.mlir` header describes the stuck reduction. `DialectReductionPatternInterface` exists at the pin (`mlir/include/mlir/Reducer/`). |
+| F07 | real | `tools/idris-mlir-reduce.cpp:20-35` registers no reduction patterns and does not use `idr/Support/Stack.h`; `tests/reduce-regions/reduce-regions.mlir` header describes the stuck reduction. `DialectReductionPatternInterface` exists at the pin (`mlir/include/mlir/Reducer/`). |
 | F08 | real, but a reversal of documented intent | `Run.cpp:63-68`: "A refusal decides the verdict whatever else was reported: the program is what the compiler does not take." `enum class Verdict { Clean, Internal, Rejected }` with `std::max` at `:238` is deliberate. The frontend `statusOfAll` is the reverse. Which is right is a product decision, D1. |
 | F09 | real | `Run.cpp:203-215` builds `handoff` with exactly the frontend's dialects. |
 | F10 | not recomputed | no box exists for the rules named; plausible. |
@@ -253,7 +253,7 @@ list contains tests whose op text *is* the contract. Concrete cases found:
    rather than a failed assertion; that is weaker but arguably adequate.
 4. **`tests/fold-string-offsets/fold-string-offsets.mlir`**: dies with F14's op (not a loss).
 5. **The dialect round trip.** F18 says `--verify-roundtrip` replaces the
-   fixtures that "checked nothing else" but the `tests/idr/syntax` and `asm`
+   fixtures that "checked nothing else" but the `tests/syntax-closures` and `asm`
    fixtures check *printing* contracts (the one place text is the contract).
    If X1 deletes by pattern, the printer of `#idr.con`, `!idr.data` and
    `idr.func` loses its specification. `--verify-roundtrip` checks print-parse
@@ -365,7 +365,7 @@ no `effects` counts as everything.
   (`@A.eff ... effects = #idr.effects<none>`, no `total`) and
   `tests/canon-case-of-case/canon-case-of-case.mlir` shapes are candidates the new verifier
   rejects. No lane's inputs include repairing these (X1 owns them; its Consumes
-  are "§2, §4.1"; E's `tests/idr/expect/**` too). Prerequisite: name the
+  are "§2, §4.1"; E's `tests/expect-allocation/**` too). Prerequisite: name the
   fixtures that become invalid (or have F state the exact verifier domain and
   X1/E repair them).
 - **`total` provenance.** §4.3 says no pass sets `total` and that the verifier

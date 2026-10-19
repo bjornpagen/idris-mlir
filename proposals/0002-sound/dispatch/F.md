@@ -301,7 +301,7 @@ Read first:
   - `lib/Reducer/Tester.cpp` (a candidate that fails to verify is uninteresting).
   - `lib/Tools/mlir-reduce/MlirReduceMain.cpp:66` (it constructs its own `llvm::InitLLVM`).
   - `mlir/lib/Dialect/Func/Extensions/InlinerExtension.cpp:89` (`dialect->addInterfaces<...>()` from a registry extension).
-  - `tests/idr/verify/reduce-regions.mlir` (the counterexample).
+  - `tests/reduce-regions/reduce-regions.mlir` (the counterexample).
 Permitted outcome:
 - **Mandatory (F02):**
   - The program verifier refuses an `idr.func` whose declared `effects` do not cover its body, as an internal error naming the function, its declared set and the uncovered bits.
@@ -385,7 +385,7 @@ Acceptance:
   - Input: `idr.con !idr.own<!P> @P(%s : !idr.own<!idr.str>)` in an owned program. Outcome: verifies (at HEAD it fails with `field has type ... expected !idr.str`).
   - Input: `idr.con` with a `!idr.q<many, borrow, !idr.str>` field. Outcome: still refused.
   - Input: an `idr.array.get` of `memref<?x!idr.str, #idr.world>` giving `!idr.str` at the first stage. Outcome: verifies (at HEAD it fails).
-- **F07:** running `tests/idr/verify/reduce-regions.mlir`'s command leaves no `arith.addi`, `arith.subi` or `arith.constant` inside the matches' regions; they become `ub.poison`. At HEAD every op stays. A module nested deeper than the process stack allows runs the reducer, not a SIGSEGV.
+- **F07:** running `tests/reduce-regions/reduce-regions.mlir`'s command leaves no `arith.addi`, `arith.subi` or `arith.constant` inside the matches' regions; they become `ub.poison`. At HEAD every op stays. A module nested deeper than the process stack allows runs the reducer, not a SIGSEGV.
 - **This machine:** check-units on the eight units, plus `make typecheck-tblgen` and `make typecheck-dialects`.
 - **Only the owner's build:** every fixture's behaviour, including the consumer fixtures under Handoff, which will fail until the coordinator or X1 adapts them.
 Tempting partial solution:
@@ -404,7 +404,7 @@ Handoff:
 - **Consumer fixtures (X1's; the coordinator routes them).** Each new fixture carries a first-line `NEEDS-ACCEPTANCE`. Give the full text for:
   - a new `tests/verify-effects/verify-effects.mlir` (`-split-input-file -verify-diagnostics`), with four chunks: IO under `none`; a crash callee under `none`; a non-total function declaring `none`; and a covered pair that verifies. Take op syntax from `tests/effects-io/effects-io.mlir` and `idr-effects.mlir`.
   - a new `tests/verify-con-owned-field/verify-con-owned-field.mlir`: an owned field verifies; a borrow field is refused with `field has type`.
-  - `tests/idr/verify/reduce-regions.mlir`: `// CHECK-NOT: arith.` and its comment rewritten.
+  - `tests/reduce-regions/reduce-regions.mlir`: `// CHECK-NOT: arith.` and its comment rewritten.
 - **Breakage to report:**
   - `tests/dedup-keep-apart/dedup-keep-apart.mlir:18,22`: `@A.eff` and `@B.eff` declare no `diverge` without `total`, and need `total`.
   - `tests/canon-facts/canon-facts.mlir:36`: `@applies` declares `crash, diverge` over an `idr.apply`, and needs `io` too, or no attribute.

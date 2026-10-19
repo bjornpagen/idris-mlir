@@ -106,7 +106,7 @@ The defects fall into five groups:
 | Correction | Three predicates, written once beside `Stage` (in `IdrOps.td` `extraClassDeclaration` of `ProgramOp`, or `IdrDialect.h`): `holdsClosures(s) = s < First`, `counts(s) = s >= Owned`, `holdsIdrFunctions(s) = s < Lowered`. Every reader asks these. |
 | Deletion | `StageFacts`, `factsOf`, its `optional`; Narrow's `counted` switch; `verifyFlow`'s stage read and its dead `!program` arm (`verify::function` calls it only when `holdsClosures`); the comparisons in Identities and the effects pass. |
 | Consumers | `include/idr/IR/IdrOps.td` or `IdrDialect.h`; `lib/IR/Verify/Program.cpp`, `Flow.cpp`; `lib/Transforms/Narrow/Facts.cpp`, `Transforms/Effects/Effects.cpp`; `lib/Analysis/Identities.cpp`. |
-| Discriminator | A type check, not a test: no reader holds a stage boolean of its own. The existing stage fixtures (`tests/idr/verify/*stage*`) must not change. |
+| Discriminator | A type check, not a test: no reader holds a stage boolean of its own. The existing stage fixtures (`tests/reduce-regions/*stage*`) must not change. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 40 lines out, 2 switches, 1 dead branch, 1 invalid combination. Low risk. Essential and kept: Lowered as a stage (decided in the representation wave, D3 and §11). |
 | Insight | 4, 11 (the order is the coordinate) |
@@ -301,7 +301,7 @@ The defects fall into five groups:
 | Correction | `enum class Role { Untracked, Owned, Carried, View }`, decided once per value at its definition and memoized. The state is one `DenseMap<Value, Slot>` with `Slot = std::variant<Held{int}, Viewing{SmallVector<Value>}>`. (If ir-verify-12 lands, `Carried` goes too.) |
 | Deletion | `transit`; the predicate chains (`switch (role)` at each site); the repeated `isStatic` walks. |
 | Consumers | `include/idr/IR/Verify.h`; `lib/IR/Verify/{Owned,OwnedOps,OwnedRegions}.cpp`. |
-| Discriminator | The owned fixtures (`tests/idr/ownership/**`, `tests/idr/verify/owned*`) must not change. |
+| Discriminator | The owned fixtures (`tests/idr/ownership/**`, `tests/reduce-regions/owned*`) must not change. |
 | Verification here | `make typecheck`. |
 | Size and risk | About 30 lines out; few branches deleted (each role's arm is essential). Low to medium risk. Value is clarity and cost. |
 | Insight | 4 |
