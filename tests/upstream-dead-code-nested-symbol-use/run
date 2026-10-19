@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/29-dead-code-nested-symbol-use is carried: a non-call use of a
+# symbol of a nested symbol table marks its function's callers unknown, so
+# remove-dead-values keeps what a function reached only through
+# func.constant returns. Without the patch it returns ub.poison, a silent
+# miscompile. The witness is upstream's own dialects, through mlir-opt.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/29-dead-code-nested-symbol-use/nested-symbol-use.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" --remove-dead-values -o "$work/out.mlir" 2> "$work/err"; then
+  say "mlir-opt failed, which is not this bug"
+  show "$work/err"
+elif grep -q 'ub.poison' "$work/out.mlir"; then
+  say "the return value is replaced by poison"
+else
+  say "the return value is kept"
+fi

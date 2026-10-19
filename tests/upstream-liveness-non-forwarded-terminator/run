@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/28-liveness-non-forwarded-terminator is carried: liveness revisits
+# a terminator whose operands are all non-forwarded when its parent's
+# results become live, so remove-dead-values keeps the element an
+# idr.tabulate's region yields when the array is read only through a call.
+# Without the patch the element is replaced by ub.poison, a silent
+# miscompile.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/28-liveness-non-forwarded-terminator/tabulate-across-call.mlir
+if ! bounded "$idris_mlir_opt" "$input" --remove-dead-values -o "$work/out.mlir" 2> "$work/err"; then
+  say "idris-mlir-opt failed, which is not this bug"
+  show "$work/err"
+elif grep -q 'ub.poison' "$work/out.mlir"; then
+  say "the element is replaced by poison"
+else
+  say "the element is kept"
+fi

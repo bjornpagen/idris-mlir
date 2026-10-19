@@ -1,0 +1,43 @@
+Subject: [PATCH] [mlir][dataflow] Revisit a terminator whose operands are all non-forwarded
+
+LivenessAnalysis::visitBranchOperand gives a non-forwarded operand of a
+RegionBranchTerminatorOpInterface the liveness of its parent's results,
+read with getLatticeElement, which subscribes nothing. visitOperation
+then subscribes the parent, not the terminator. A terminator with a
+successor operand is subscribed to its parent's results by that
+operand's meet, so it is visited again when one of them becomes live;
+one whose operands are all non-forwarded never is. When the parent's
+results become live only after the terminator was first visited (a
+result of a private function that its caller reads), the operands stay
+dead, and remove-dead-values erases the ops that define them, leaving
+ub.poison in their place.
+
+Each result's lattice now subscribes the point after the operand's owner
+(addDependency), which is the terminator (or the branch op, for a
+non-forwarded operand of its own).
+
+---
+diff --git a/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp b/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp
+--- a/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp
+@@ -153,9 +153,18 @@
+   auto *visitOp =
+       isa<RegionBranchTerminatorOpInterface>(op) ? op->getParentOp() : op;
+   Liveness *operandLiveness[] = {getLatticeElement(operand.get())};
++  // The operand's liveness follows the results of `visitOp`, so `op`, the
++  // owner of the operand, must be visited again when one of them becomes
++  // live. For a terminator, `visitOperation` only subscribes `visitOp`
++  // itself: a terminator whose operands are all non-forwarded (none is a
++  // successor operand, whose meet would subscribe it) would never be
++  // visited again, and its operands would stay dead.
+   SmallVector<const Liveness *, 4> resultsLiveness;
+-  for (const Value result : visitOp->getResults())
+-    resultsLiveness.push_back(getLatticeElement(result));
++  for (const Value result : visitOp->getResults()) {
++    Liveness *resultLiveness = getLatticeElement(result);
++    addDependency(resultLiveness, getProgramPointAfter(op));
++    resultsLiveness.push_back(resultLiveness);
++  }
+   LDBG() << "Visiting operation for non-forwarded branch operand: "
+          << OpWithFlags(visitOp, OpPrintingFlags().skipRegions());
+   (void)visitOperation(visitOp, operandLiveness, resultsLiveness);

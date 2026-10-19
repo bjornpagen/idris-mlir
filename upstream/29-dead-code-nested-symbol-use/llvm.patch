@@ -1,0 +1,31 @@
+Subject: [PATCH] [mlir][dataflow] Find a non-call symbol use in the nested table it names
+
+DeadCodeAnalysis::initializeSymbolCallables walks every symbol table
+under the analysis' top and marks a callable with a non-call use (a
+func.constant, a closure) as having unknown predecessors. It resolves
+each use with lookupSymbolIn(top, ...), but the use's flat reference
+names a symbol of the table being walked, which may be nested below
+`top`: the lookup then finds nothing and the use is skipped. The
+callable's call sites count as all known, so a function reached only
+through such a use has no callers, and liveness finds its return values
+dead: remove-dead-values replaces them with ub.poison.
+
+Inside the walk of one table, `top` is now that table: a use is resolved
+where it names its symbol, and the fallback for uses that cannot be
+gathered marks the callables of that table, which are all a use in it
+can name.
+
+---
+--- a/mlir/lib/Analysis/DataFlow/DeadCodeAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/DeadCodeAnalysis.cpp
+@@ -170,6 +170,10 @@
+   analysisScope = top;
+   hasSymbolTable = top->hasTrait<OpTrait::SymbolTable>();
+   auto walkFn = [&](Operation *symTable, bool allUsesVisible) {
++    // A use in this table names a symbol of this table, which may be nested
++    // below the analysis' top: it is resolved here, and the callables a use
++    // that cannot be gathered might name are this table's.
++    Operation *top = symTable;
+     LDBG() << "[init] Processing symbol table op: "
+            << OpWithFlags(symTable, OpPrintingFlags().skipRegions());
+     Region &symbolTableRegion = symTable->getRegion(0);

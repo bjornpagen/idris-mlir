@@ -97,6 +97,46 @@ each, and this file's sweep.
 The accepted toolchain release series live only in `toolchain.lock.json`,
 which the top-level CMake configure gate reads.
 
+## liveness-non-forwarded-terminator
+
+- symptom: on main at 7208ba24, liveness never revisits a region
+  terminator whose operands are all non-forwarded, so they keep the
+  liveness its parent's results had when it was first visited;
+  `remove-dead-values` then erases the ops that define them and leaves
+  ub.poison. `idr.array.yield` is such a terminator (each element is stored
+  at its index): an array tabulated in a private function and read only
+  through a call had every element poisoned, a silent miscompile
+- sites: foreign/idr/lib/Transforms/Pipeline.cpp (remove-dead-values runs
+  before idr-structure-loops); the idr ops whose regions end in
+  idr.array.yield (idr.tabulate, idr.fold_last, idr.scan_last)
+- workaround: `upstream/28-liveness-non-forwarded-terminator/llvm.patch`:
+  `visitBranchOperand` reads the parent's results with a dependency on the
+  operand's owner; checked by tests/upstream-liveness-non-forwarded-terminator
+- retire: drop the patch when the pin has the fix
+- upstream: upstream/28-liveness-non-forwarded-terminator; plan in its
+  README: an issue and a PR with a test-dialect test
+- status (2026-10-18): carried; not filed
+
+## dead-code-nested-symbol-use
+
+- symptom: on main at 7208ba24 (and on main on 2026-10-19), dead-code
+  analysis resolves a non-call symbol use against the analysis' top, not
+  the symbol table being walked, so a use in a nested table finds nothing
+  and its function's callers count as all known; liveness then finds what
+  the function returns dead, and `remove-dead-values` makes it return
+  ub.poison. Every idr program is a symbol table nested in the module, and
+  a label reached only through an idr.closure returned poison, a silent
+  miscompile
+- sites: foreign/idr/lib/Transforms/Pipeline.cpp (remove-dead-values on the
+  program); every analysis on MLIR's solver that loads DeadCodeAnalysis
+- workaround: `upstream/29-dead-code-nested-symbol-use/llvm.patch`: the use
+  is resolved in the table being walked; checked by
+  tests/upstream-dead-code-nested-symbol-use
+- retire: drop the patch when the pin has the fix
+- upstream: upstream/29-dead-code-nested-symbol-use; plan in its README: an
+  issue and a PR with a remove-dead-values test
+- status (2026-10-19): carried; not filed
+
 ## remove-dead-values-unreachable
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`
