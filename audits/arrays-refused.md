@@ -1,4 +1,14 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Why array programs are refused
+
+Status (2026-10-19, arrays lane): §4.A is built. Every type constructor's
+argument has one role (Keyed, Formed, Held, Index; Translate/State.idr),
+the data keys hold a shape's form, and R1, R2, R3, R6 and R7 are the
+program tests arrays-key-*, R4 and R5 the reject tests
+polymorphism-growing-extents and polymorphism-tower-of-ranks. Group A
+compiles and runs; what the programs met after the frontend is in
+audits/bugs.md. Groups B and C are upstream patches 56 and 57.
 
 The investigation was run against HEAD 6f774119 with `build/dev` as built at
 04:16 on 2026-10-19. The reproducers below were compiled with
