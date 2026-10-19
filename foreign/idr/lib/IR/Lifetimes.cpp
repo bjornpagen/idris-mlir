@@ -139,10 +139,15 @@ LogicalResult idr::verify::lifetimes(FuncOp fn) {
       return fn.emitOpError("returns a value of the frame, ")
              << result << ", which dies with the frame";
   using namespace lifetimes;
+  auto ofFrame = [](Value value) { return lifetimeOf(value.getType()) == Lifetime::Frame; };
   WalkResult walked = fn.walk([&](Operation *op) {
+    // Every edge of an op moves something an operand of it holds, so an op
+    // that reads no value of the frame has no edge to judge.
+    if (llvm::none_of(op->getOperands(), ofFrame))
+      return WalkResult::advance();
     LogicalResult held = success();
     edgesOf(op, [&](Value from, const Edge &edge) {
-      if (failed(held) || lifetimeOf(from.getType()) != Lifetime::Frame)
+      if (failed(held) || !ofFrame(from))
         return;
       held = std::visit(
           llvm::makeVisitor(
