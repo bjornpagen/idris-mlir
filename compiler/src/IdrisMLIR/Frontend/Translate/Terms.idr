@@ -1123,7 +1123,8 @@ mutual
 
       call : FC -> Loc -> Name -> Maybe Shown -> Nat -> ClosedTerm -> List (Arg vars nv) -> Core (Term nv)
       call fc loc n lowered arity ty xs = do
-        (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        Just (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+          | Nothing => pure (Unreachable loc)
         Nothing <- resolveMethod ph fc n kinds xs
           | Just resolved => pure resolved
         inst <- request fc ctx.owner n kinds
@@ -1147,7 +1148,8 @@ mutual
              v <- value.translated
              applyOver ctx env fc loc (pure (show name)) v !(typeAfter ty now) rest
            else do
-             (kinds, resTy) <- classify fc ctx.owner arity ty (argValues xs)
+             Just (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues xs)
+               | Nothing => pure (Unreachable loc)
              given <- arguments loc kinds xs
              mk <- lastOf (runtimeBinders kinds)
              finish loc kinds arity given mk resTy xs
@@ -1195,7 +1197,8 @@ mutual
       -- world, after which nothing runs.
       exitAction : FC -> Loc -> Nat -> ClosedTerm -> List (Arg vars nv) -> Core (Term nv)
       exitAction fc loc arity ty xs = do
-        (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        Just (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+          | Nothing => pure (Unreachable loc)
         given <- arguments loc kinds (take arity xs)
         mk <- exits (runtimeBinders kinds)
         finish loc kinds arity given mk resTy xs
@@ -1234,7 +1237,8 @@ mutual
       -- `NatOperation`); partially applied, it is eta-expanded like a call.
       natOperation : FC -> Loc -> Maybe Shown -> NatMeaning -> Nat -> ClosedTerm -> List (Arg vars nv) -> Core (Term nv)
       natOperation fc loc lowered m arity ty xs = do
-        (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        Just (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+          | Nothing => pure (Unreachable loc)
         given <- arguments loc kinds (take arity xs)
         case m of
           Primitive {k} p => do
@@ -1307,7 +1311,8 @@ mutual
       -- runtime field the field itself, since such a value is its field's.
       constructor : FC -> Loc -> GlobalDef -> Nat -> List (Arg vars nv) -> Core (Term nv)
       constructor fc loc def arity xs = do
-        (kinds, resTy) <- classify fc ctx.owner arity (type def) (argValues (take arity xs))
+        Just (kinds, resTy) <- classifyCall fc ctx.owner arity (type def) (argValues (take arity xs))
+          | Nothing => pure (Unreachable loc)
         given <- arguments loc kinds (take arity xs)
         case natRole def of
           Just role => natConstructor fc loc role kinds arity given resTy xs
@@ -1449,7 +1454,8 @@ mutual
       -- of the call's result type.
       arrayCall : FC -> Loc -> Nat -> IOPrim -> ClosedTerm -> List (Arg vars nv) -> Core (Term nv)
       arrayCall fc loc arity p ty xs = do
-        (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        Just (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+          | Nothing => pure (Unreachable loc)
         given <- arguments loc kinds (take arity xs)
         res <- onlyCon fc 2 !(coreType fc ctx.owner ValueType !(normaliseClosed resTy))
         what <- gives fc (ioResult p) res
@@ -1660,7 +1666,8 @@ mutual
       -- order of the implicits.
       generating : FC -> Loc -> ArrayPrim -> Nat -> ClosedTerm -> List (Arg vars nv) -> Core (Term nv)
       generating fc loc g arity ty xs = do
-        (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        Just (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+          | Nothing => pure (Unreachable loc)
         given <- arguments loc kinds (take arity xs)
         rt <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
         typeArgs <- traverse (\t => coreType fc ctx.owner ValueType !(normaliseClosed t)) (typeParams kinds)

@@ -15,6 +15,7 @@ import Libraries.Data.List.Thin
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.Recursion
@@ -256,20 +257,80 @@ staticsOver owner (S k) ty vals = do
   (kinds, res) <- staticsOver owner k !(normaliseClosed (subst (maybe (Erased EmptyFC Placeholder) fst given) sc)) vals'
   pure (kind :: kinds, res)
 
+||| A callee's parameters, classified over its arguments (`classifyCall`),
+||| and the type after them; or nothing, when an implementation the call
+||| takes is a dictionary field no construction site has given yet.
+public export
+Classified : Type
+Classified = Maybe (List PKind, ClosedTerm)
+
+||| The implementation a projection of a dictionary field reads from a
+||| runtime value (`eqOf d`, with `d : HasEq Int`): the one the field holds
+||| in the whole program (`Dictionaries`), as a match on the record binds
+||| it; `Just Nothing` when no construction site has given it yet, which a
+||| match takes as never built too, the instance being translated waiting
+||| on the field; `Nothing` when the term is no such read.
+dictionaryRead : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                 FC -> String -> ClosedTerm -> Core (Maybe (Maybe ClosedTerm))
+dictionaryRead fc owner tm = do
+  -- A record's field function (`eqOf`) reaches its projection (`.eqOf`)
+  -- once unfolded: the projection applied to the runtime record is where
+  -- the reduction is stuck.
+  stuck <- whnf tm
+  case stuck of
+    Stuck (OnValue t) => projected t
+    Stuck (OnRuntime t) => projected t
+    _ => pure Nothing
+  where
+    -- The type of parameter `i` of a function type, the parameters before
+    -- it given the arguments.
+    parameterType : ClosedTerm -> List ClosedTerm -> Nat -> Core (Maybe ClosedTerm)
+    parameterType ty _ Z = do
+      Bind _ _ (Pi _ _ _ a) _ <- showingBinder ty
+        | _ => pure Nothing
+      pure (Just a)
+    parameterType ty (x :: xs) (S j) = do
+      Bind _ _ (Pi {}) sc <- showingBinder ty
+        | _ => pure Nothing
+      parameterType !(normaliseClosed (subst x sc)) xs j
+    parameterType ty [] (S _) = pure Nothing
+
+    projected : ClosedTerm -> Core (Maybe (Maybe ClosedTerm))
+    projected t = case getFnArgs t of
+      (Ref _ Func p, args) => do
+        Just pr <- projection p
+          | Nothing => pure Nothing
+        def <- lookupDef fc owner p
+        Just held <- parameterType (type def) args pr.matched
+          | Nothing => pure Nothing
+        Just (inst, _) <- dataOf fc owner !(normaliseClosed held)
+          | Nothing => pure Nothing
+        Just cid <- conIdOf inst !(lookupDef fc owner pr.con)
+          | Nothing => pure Nothing
+        let Just info = lookup cid (!(get TState)).cons
+          | Nothing => pure Nothing
+        case getAt pr.field info.args of
+          Just (DictArg key _) => Just <$> dictionaryOf key
+          _ => pure Nothing
+      _ => pure Nothing
+
 ||| Walks a callee's type over its arguments: which are type parameters or
 ||| implementations, which are erased, which are runtime (and their types).
+||| Nothing when an implementation the call takes is a dictionary field no
+||| construction site has given yet: no value holds the field, so the call
+||| never runs, and the instance being translated waits on the field.
 export
-classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            FC -> String -> Nat -> ClosedTerm -> ArgValues ->
-           Core (List PKind, ClosedTerm)
-classify fc owner Z ty _ = pure ([], ty)
-classify fc owner (S k) ty vals = do
+           Core Classified
+classifyCall fc owner Z ty _ = pure (Just ([], ty))
+classifyCall fc owner (S k) ty vals = do
   Bind bfc _ (Pi _ rig _ a) sc <- showingBinder ty
     | _ => internal fc "more arguments than the type has binders"
   parameter bfc rig a sc
   where
     -- The parameter a binder binds, and the rest of the type after it.
-    parameter : FC -> RigCount -> ClosedTerm -> TT [x] -> Core (List PKind, ClosedTerm)
+    parameter : FC -> RigCount -> ClosedTerm -> TT [x] -> Core Classified
     parameter bfc rig a sc = do
       a' <- normaliseClosed a
       let (given, vals') = nextStatic vals
@@ -282,15 +343,66 @@ classify fc owner (S k) ty vals = do
           let Just v = given
             | Nothing => reject fc owner StaticArgument "a shape that is not known statically"
           form <- formOf <$> spineOf fc owner !(v.normalised)
-          (rest, res) <- classify fc owner k !(normaliseClosed (subst form sc)) vals'
-          pure (FormParam form :: rest, res)
+          map (mapFst (FormParam form ::)) <$> classifyCall fc owner k !(normaliseClosed (subst form sc)) vals'
         Unkeyed => do
-          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) vals'
-          pure (ErasedParam :: rest, res)
+          map (mapFst (ErasedParam ::)) <$> classifyCall fc owner k (subst (Erased bfc Placeholder) sc) vals'
         Implemented => do
           let Just v = given
             | Nothing => reject fc owner StaticArgument "an implementation that is not known statically"
           written <- v.written
+          -- A dictionary field read from a runtime record is the one
+          -- implementation the field holds, as a match binds it; one no
+          -- construction site has given yet is never read.
+          read <- if !(runtimeDependent written) then dictionaryRead fc owner written else pure Nothing
+          case read of
+            Just Nothing => pure Nothing
+            Just (Just held) =>
+              map (mapFst (DictParam held Nothing ::)) <$> classifyCall fc owner k !(normaliseClosed (subst held sc)) vals'
+            Nothing => implemented v written vals'
+        Runtime dependence => do
+          when !(erasedOutsideIndices owner a') $ do
+            reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
+          b <- coreBinder fc owner ValueType rig a'
+          -- The rest of the type may have to reduce on the parameter's value
+          -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
+          -- in Data.SortedMap, where `delType` reduces on the constructors of
+          -- `n`). Then the argument's shape, the constructors it is built
+          -- with as written, everything else erased (`S _`), stands for the
+          -- parameter in the type and keys the instance, so that the type
+          -- reduces at each one as it does at each call; only as much of it
+          -- as the type needs (`neededShape`), so that a recursion that
+          -- builds its argument deeper below what the type looks at stays in
+          -- one instance. The shape is read off the argument as written; it
+          -- is computed only for a closed argument, one that mentions no
+          -- runtime value, that the type is stuck without (`argumentShape`),
+          -- by normalising it as the type itself is normalised. An argument
+          -- that mentions a runtime value is any computation, which the
+          -- compiler must not run. An argument with no constructor at its
+          -- head, written or reduced to, has no shape, and a parameter the
+          -- type does not mention, or mentions only as an index
+          -- (`Vect n Int`), keys nothing, so a function on naturals has one
+          -- instance.
+          shape <- case (dependence, given) of
+            (Reduces, Just arg) => do
+              Just found <- argumentShape owner (\x => subst x sc) arg
+                | Nothing => pure Nothing
+              neededShape owner (\x => subst x sc) found
+            _ => pure Nothing
+          let value = fromMaybe (Erased bfc Placeholder) shape
+          map (mapFst (ValueParam b shape a' ::)) <$> classifyCall fc owner k !(normaliseClosed (subst value sc)) vals'
+      where
+        -- A type, normalised, keys the instance.
+        typed : Maybe ArgValue -> ArgValues -> Core Classified
+        typed given after = do
+          let Just v = given
+            | Nothing => reject fc owner StaticArgument "a type argument that is not known statically"
+          val <- v.normalised
+          map (mapFst (TypeParam val ::)) <$> classifyCall fc owner k !(normaliseClosed (subst val sc)) after
+
+        -- An implementation given as written, at a parameter of an
+        -- interface's type.
+        implemented : ArgValue -> ClosedTerm -> ArgValues -> Core Classified
+        implemented v written vals' = do
           -- An implementation can be a function of a runtime value
           -- (`{y : a} -> Show (p y)`, applied to the first component of a
           -- dependent pair), which Idris resolved at every value: constant
@@ -325,46 +437,16 @@ classify fc owner (S k) ty vals = do
               key <- implementationOf shape
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
               pure (key, Just (MkHoles tys (MkBinder Many held)))
-          (rest, res) <- classify fc owner k !(normaliseClosed (subst key sc)) vals'
-          pure (DictParam key holes :: rest, res)
-        Runtime dependence => do
-          when !(erasedOutsideIndices owner a') $ do
-            reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
-          b <- coreBinder fc owner ValueType rig a'
-          -- The rest of the type may have to reduce on the parameter's value
-          -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
-          -- in Data.SortedMap, where `delType` reduces on the constructors of
-          -- `n`). Then the argument's shape, the constructors it is built
-          -- with as written, everything else erased (`S _`), stands for the
-          -- parameter in the type and keys the instance, so that the type
-          -- reduces at each one as it does at each call; only as much of it
-          -- as the type needs (`neededShape`), so that a recursion that
-          -- builds its argument deeper below what the type looks at stays in
-          -- one instance. The shape is read off the argument as written; it
-          -- is computed only for a closed argument, one that mentions no
-          -- runtime value, that the type is stuck without (`argumentShape`),
-          -- by normalising it as the type itself is normalised. An argument
-          -- that mentions a runtime value is any computation, which the
-          -- compiler must not run. An argument with no constructor at its
-          -- head, written or reduced to, has no shape, and a parameter the
-          -- type does not mention, or mentions only as an index
-          -- (`Vect n Int`), keys nothing, so a function on naturals has one
-          -- instance.
-          shape <- case (dependence, given) of
-            (Reduces, Just arg) => do
-              Just found <- argumentShape owner (\x => subst x sc) arg
-                | Nothing => pure Nothing
-              neededShape owner (\x => subst x sc) found
-            _ => pure Nothing
-          let value = fromMaybe (Erased bfc Placeholder) shape
-          (rest, res) <- classify fc owner k !(normaliseClosed (subst value sc)) vals'
-          pure (ValueParam b shape a' :: rest, res)
-      where
-        -- A type, normalised, keys the instance.
-        typed : Maybe ArgValue -> ArgValues -> Core (List PKind, ClosedTerm)
-        typed given after = do
-          let Just v = given
-            | Nothing => reject fc owner StaticArgument "a type argument that is not known statically"
-          val <- v.normalised
-          (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) after
-          pure (TypeParam val :: rest, res)
+          map (mapFst (DictParam key holes ::)) <$> classifyCall fc owner k !(normaliseClosed (subst key sc)) vals'
+
+||| `classifyCall` where no argument can be a dictionary field's read: a
+||| callee classified on its type alone, or on the static arguments an
+||| instance was requested with.
+export
+classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+           FC -> String -> Nat -> ClosedTerm -> ArgValues ->
+           Core (List PKind, ClosedTerm)
+classify fc owner arity ty vals = do
+  Just found <- classifyCall fc owner arity ty vals
+    | Nothing => internal fc "a dictionary field read where no argument is given"
+  pure found
