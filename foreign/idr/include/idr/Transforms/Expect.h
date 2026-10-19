@@ -160,7 +160,6 @@ mlir::LogicalResult tailCalls(const Request<Pair> &);
 mlir::LogicalResult countedLoop(const Request<Functions> &);
 mlir::LogicalResult wordLoop(const Request<Functions> &);
 mlir::LogicalResult structuredLoops(const Request<Roots> &);
-mlir::LogicalResult typedReads(const Request<Functions> &);
 mlir::LogicalResult inPlace(const Request<Roots> &);
 mlir::LogicalResult fused(const Request<Functions> &);
 mlir::LogicalResult largestFunction(const Request<Bound> &);

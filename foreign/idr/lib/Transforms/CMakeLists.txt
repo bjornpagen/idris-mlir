@@ -443,7 +443,6 @@ add_mlir_library(IdrExpect
 	Expect/Stage.cpp
 	Expect/StructuredLoops.cpp
 	Expect/TestsNothing.cpp
-	Expect/TypedReads.cpp
 	Expect/Values.cpp
 	Expect/Vectorized.cpp
 	Expect/Words.cpp

@@ -96,9 +96,6 @@ const Property properties[] = {
     // No op is left that idr-structure-loops lowers, and some linalg op is
     // there.
     property<Roots, structuredLoops>("structured-loops"),
-    // No index of a tensor access in @f comes from a guard, and @f accesses
-    // a tensor.
-    property<Functions, typedReads>("typed-reads"),
     // After bufferization, nothing copies a buffer, and a buffer is there.
     property<Roots, inPlace>("in-place"),
     // No result of a linalg op in @f that has one use is used by another
