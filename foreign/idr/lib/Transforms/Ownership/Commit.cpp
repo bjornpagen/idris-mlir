@@ -77,7 +77,10 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &sy
                      unsigned &exclusives) {
   // A call's results are its callee's, which idr-rc-exclusive set from the
   // signature already: on a path the solver never reached, a call has no
-  // lattice of its own.
+  // lattice of its own. An op that keeps its operand's value (Idr_SameValue:
+  // a linear position, a view) has its operand's grade as committed, which
+  // a walk in order has written: it is that value, so no proof of its own
+  // may tell it from its operand.
   fn.walk<WalkOrder::PreOrder>([&](Block *block) {
     for (BlockArgument arg : block->getArguments()) {
       if (solved.proves(arg))
@@ -86,7 +89,9 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &sy
     }
     for (Operation &op : *block)
       for (Value result : op.getResults()) {
-        if (!isa<CallOp>(op) && solved.proves(result))
+        bool proven = op.hasTrait<SameValue>() ? isExclusive(op.getOperand(0).getType())
+                                               : !isa<CallOp>(op) && solved.proves(result);
+        if (proven && isOwned(result.getType()))
           result.setType(exclusive(result.getType()));
         exclusives += isExclusive(result.getType());
       }
