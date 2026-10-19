@@ -1,0 +1,6 @@
+prepared: prints 9223372036854775806
+archive: prints 9223372036854775806
+prepared from another archive: refused, naming the runtime and archive's digest
+another archive: refused, naming the runtime and archive's digest
+another CPU: refused, naming the runtime and its CPU is planted-cpu
+other features: refused, naming the runtime and its features are +planted-feature

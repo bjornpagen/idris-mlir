@@ -1,0 +1,84 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Reading a runtime archive (--prepare-runtime) compiles every function of
+# it for the program's CPU, as a program function is, so that it inlines
+# into one: the target attributes its unit's flags gave it go, and what is
+# left of it must inline into a program function as the inliner judges it.
+# Every function of the runtime is compiled with the baseline CPU's flags,
+# whose features the build derived from them (runtime/baseline-cpu-features);
+# a function compiled with fewer was compiled with other flags, and is
+# refused. Each refusal names the member, the function and why. Shown on
+# archives of one member, compiled with the baseline's flags: as compiled
+# (prepared), with the baseline's first feature taken off its function's
+# features in its bitcode (refused, naming the feature), and with strict
+# floating-point exceptions, whose function a program function, which has
+# none, cannot inline (refused).
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+triple=$("$idris_mlir" --print-target-triple)
+runtime_fact baseline-cpu-flags || exit 0
+baseline_flags=$runtime_fact_value
+runtime_fact baseline-cpu-features || exit 0
+first_feature=$(printf '%s\n' "$runtime_fact_value" | sed -n 1p)
+if [ -z "$first_feature" ]; then
+  say "the build names no baseline feature"
+  exit 0
+fi
+
+# member NAME [FLAG...]: the member NAME.c, compiled with the baseline's
+# flags and FLAG..., as bitcode text at NAME.ll.
+member() {
+  member_name=$1
+  shift
+  printf '%s\n' "double idris_rt_$member_name(double x, double y) { return x / y; }" \
+    > "$work/$member_name.c"
+  # shellcheck disable=SC2086 # the flags are words
+  if bounded "$pinned_cc" --target="$triple" $baseline_flags "$@" -O2 -S -emit-llvm \
+      "$work/$member_name.c" -o "$work/$member_name.ll" > "$work/cc.log" 2>&1; then
+    return 0
+  fi
+  say "$member_name: does not compile"
+  show "$work/cc.log"
+  return 1
+}
+# prepare NAME [WHAT SAID]: the member's bitcode text NAME.ll, assembled,
+# in an archive of its own, prepared: the exit status, and of a refusal,
+# whether it names the member, its function and WHAT, which the output
+# calls SAID.
+prepare() {
+  if ! bounded "$llvm_bin/opt" "$work/$1.ll" -o "$work/$1.bc" > "$work/opt.log" 2>&1; then
+    say "$1: opt cannot assemble it"
+    show "$work/opt.log"
+    return
+  fi
+  rm -f "$work/$1.a"
+  bounded "$llvm_bin/llvm-ar" rcs "$work/$1.a" "$work/$1.bc"
+  bounded "$idris_mlir" --prepare-runtime --runtime="$work/$1.a" -o "$work/$1.prepared.o" \
+    > "$work/prepare.log" 2>&1
+  prepare_status=$?
+  if [ "$prepare_status" -eq 0 ]; then
+    say "$1: prepared"
+  elif grep -qF "$1.bc" "$work/prepare.log" && grep -qF "idris_rt_$1" "$work/prepare.log" &&
+       grep -qF -- "$2" "$work/prepare.log"; then
+    say "$1: refused, naming the member, its function and $3"
+  else
+    say "$1: exit $prepare_status, without naming the member, its function and $3"
+    show "$work/prepare.log"
+  fi
+}
+
+member baseline && prepare baseline
+# The baseline's first feature off the function's features, wherever it is
+# in the list.
+if member short; then
+  sed -e "/\"target-features\"=/s/\"$first_feature,/\"/" -e "/\"target-features\"=/s/,$first_feature\([,\"]\)/\1/" \
+    "$work/short.ll" > "$work/short.planted.ll"
+  if cmp -s "$work/short.ll" "$work/short.planted.ll"; then
+    say "short: its features hold no $first_feature to take off"
+  else
+    mv "$work/short.planted.ll" "$work/short.ll"
+    prepare short "$first_feature" "the feature taken off"
+  fi
+fi
+member strict -ffp-exception-behavior=strict &&
+  prepare strict "does not inline into a program function" "that it does not inline"

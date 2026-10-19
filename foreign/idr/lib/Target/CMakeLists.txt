@@ -4,7 +4,7 @@
 # width of its vectors), the schedule library that vectorizes by it, what
 # LLVM says of it (its machine and the optimization pipeline) and the
 # partition of the program into the objects code is generated for. The
-# triple and CPU are the target entry's.
+# triple and CPUs are the target entry's (idr/TargetEntry.h).
 add_mlir_library(IdrTarget
 	Target.cpp
 	Optimize.cpp
@@ -44,4 +44,3 @@ add_mlir_library(IdrTarget
 	LLVMBitWriter
 	${IDR_LLVM_CODEGEN_LIBS}
 )
-target_compile_definitions(IdrTarget PRIVATE ${IDR_TARGET_DEFINITIONS})

@@ -94,15 +94,16 @@ cl::opt<std::string> runtimePath("runtime",
 // the target entry, after its objects, the runtime and -o, is one argument
 // of the pinned C compiler per line: --target with the triple, then the
 // entry's executable and program link flags and GMP; the link and the tests
-// that link by hand use these. The CPU is what other compilers need to
-// compile for the same machine, bench/run.sh's C versions among them.
+// that link by hand use these. The CPU's flags are what the pinned C
+// compiler needs to compile for the same machine, bench/run.sh's C versions
+// among them.
 enum class Action {
   Compile,
   PrepareRuntime,
   PrintRuntime,
   PrintTargetTriple,
   PrintLinkFlags,
-  PrintTargetCpu,
+  PrintCpuFlags,
 };
 cl::opt<Action> action(
     cl::values(clEnumValN(Action::PrintRuntime, "print-runtime",
@@ -118,8 +119,9 @@ cl::opt<Action> action(
                clEnumValN(Action::PrintLinkFlags, "print-link-flags",
                           "Print the arguments that link a program for the target, after its "
                           "objects, the runtime and -o, one per line, and exit"),
-               clEnumValN(Action::PrintTargetCpu, "print-target-cpu",
-                          "Print the CPU code is compiled for, and exit")),
+               clEnumValN(Action::PrintCpuFlags, "print-cpu-flags",
+                          "Print the C compiler's flags for the CPU code is compiled for, one "
+                          "per line, and exit")),
     cl::desc("Instead of compiling the input"), cl::init(Action::Compile));
 
 // A count of threads, which is at least one: no thread runs no compilation.
@@ -261,8 +263,8 @@ llvm::Expected<Invocation> idr::driver::readInvocation() {
     return print(Question::TargetTriple);
   case Action::PrintLinkFlags:
     return print(Question::LinkFlags);
-  case Action::PrintTargetCpu:
-    return print(Question::TargetCpu);
+  case Action::PrintCpuFlags:
+    return print(Question::CpuFlags);
   }
   llvm_unreachable("every action is read");
 }

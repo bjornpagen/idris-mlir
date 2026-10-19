@@ -1,0 +1,114 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A compilation joins a runtime idris-mlir is built with and no other: one
+# read from an archive the build made, by its digest (the runtime, whose
+# native code idris-mlir links and its folders run, or the checked
+# runtime), for the program's CPU. The build's archive, and the runtime
+# the build prepared from it, compile Main.idr, which runs and prints its
+# sum. Each other runtime is refused, and the refusal names the
+# runtime and what differs: a runtime prepared from another archive (its
+# archive's digest), the archive itself of another runtime (the same), and
+# the build's prepared runtime with another CPU or other features recorded
+# (its CPU, its features), planted in its bitcode's flags. A runtime's
+# bitcode is in the prepared object's .llvm.lto section or the file beside
+# it, wherever the target entry keeps it.
+step_limit=300
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+runtime=$("$idris_mlir" --print-runtime)
+archive=$dev_prefix/runtime/libidris_rt.a
+
+# program NAME RUNTIME: Main.idr compiled against RUNTIME, run: its output.
+program() {
+  mkdir -p "$work/$1"
+  cp "$here/Main.idr" "$work/$1/"
+  compile_program --runtime="$2" "$work/$1/Main.idr" "$work/$1/prog"
+  if [ "$compiled" -ne 0 ]; then
+    say "$1: refused, exit $compiled"
+    show "$work/compile.err"
+    return
+  fi
+  say "$1: prints $(bounded "$work/$1/build/exec/prog" | paste -s -d ' ' -)"
+}
+# refused NAME RUNTIME WHAT...: Main.idr compiled against RUNTIME is
+# refused, and the refusal names RUNTIME and each WHAT.
+refused() {
+  refused_name=$1
+  refused_runtime=$2
+  shift 2
+  mkdir -p "$work/$refused_name"
+  cp "$here/Main.idr" "$work/$refused_name/"
+  compile_program --runtime="$refused_runtime" "$work/$refused_name/Main.idr" "$work/$refused_name/prog"
+  if [ "$compiled" -eq 0 ]; then
+    say "$refused_name: compiled"
+    return
+  fi
+  if ! grep -qF -- "$refused_runtime" "$work/compile.err"; then
+    say "$refused_name: refused without naming the runtime"
+    show "$work/compile.err"
+    return
+  fi
+  for what in "$@"; do
+    if ! grep -qF -- "$what" "$work/compile.err"; then
+      say "$refused_name: refused without naming $what"
+      show "$work/compile.err"
+      return
+    fi
+  done
+  say "$refused_name: refused, naming the runtime and $*"
+}
+
+program prepared "$runtime"
+program archive "$archive"
+
+# Another archive: one member, compiled with the baseline's flags.
+printf '%s\n' 'int idris_rt_answer(void) { return 42; }' > "$work/other.c"
+runtime_fact baseline-cpu-flags || exit 0
+baseline_flags=$runtime_fact_value
+# shellcheck disable=SC2086 # the flags are words
+if ! bounded "$pinned_cc" --target="$("$idris_mlir" --print-target-triple)" $baseline_flags \
+    -flto=full -c "$work/other.c" -o "$work/other.o" > "$work/cc.log" 2>&1; then
+  say "other archive: does not compile"
+  show "$work/cc.log"
+  exit 0
+fi
+bounded "$llvm_bin/llvm-ar" rcs "$work/other.a" "$work/other.o"
+if ! bounded "$idris_mlir" --prepare-runtime --runtime="$work/other.a" -o "$work/other-rt.o" \
+    > "$work/prepare.log" 2>&1; then
+  say "other archive: --prepare-runtime failed"
+  show "$work/prepare.log"
+  exit 0
+fi
+refused "prepared from another archive" "$work/other-rt.o" "archive's digest"
+refused "another archive" "$work/other.a" "archive's digest"
+
+# The build's prepared bitcode, as text, and back with one flag planted.
+if [ -f "${runtime%.o}.bc" ]; then
+  cp "${runtime%.o}.bc" "$work/built.bc"
+elif ! bounded "$llvm_bin/llvm-objcopy" --dump-section=.llvm.lto="$work/built.bc" "$runtime" \
+    "$work/objcopy.o" > "$work/objcopy.log" 2>&1; then
+  say "the prepared runtime's bitcode: not found"
+  show "$work/objcopy.log"
+  exit 0
+fi
+if ! bounded "$llvm_bin/opt" -S "$work/built.bc" -o "$work/built.ll" > "$work/opt.log" 2>&1; then
+  say "the prepared runtime's bitcode: opt cannot read it"
+  show "$work/opt.log"
+  exit 0
+fi
+# plant NAME FLAG VALUE: the bitcode with FLAG's string VALUE, at NAME.bc.
+plant() {
+  sed "s/^\(!.* !\"$2\", !\)\"[^\"]*\"}/\1\"$3\"}/" "$work/built.ll" > "$work/$1.ll"
+  if cmp -s "$work/built.ll" "$work/$1.ll"; then
+    say "$1: no flag $2 to plant in"
+    return 1
+  fi
+  bounded "$llvm_bin/opt" "$work/$1.ll" -o "$work/$1.bc" > "$work/opt.log" 2>&1 && return 0
+  say "$1: opt cannot write it"
+  show "$work/opt.log"
+  return 1
+}
+plant cpu idris-rt-prepared-cpu planted-cpu &&
+  refused "another CPU" "$work/cpu.bc" "its CPU is planted-cpu"
+plant features idris-rt-prepared-features +planted-feature &&
+  refused "other features" "$work/features.bc" "its features are +planted-feature"

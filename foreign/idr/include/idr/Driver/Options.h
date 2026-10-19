@@ -55,8 +55,9 @@ struct Prepare {
 
 // What the build decided, which a --print option asks and the answer
 // prints: the runtime it prepared, the target triple, the arguments that
-// link a program for the target, and the CPU code is compiled for.
-enum class Question { Runtime, TargetTriple, LinkFlags, TargetCpu };
+// link a program for the target, and the flags of the CPU code is compiled
+// for.
+enum class Question { Runtime, TargetTriple, LinkFlags, CpuFlags };
 struct Print {
   Question question;
 };
@@ -71,15 +72,6 @@ using Invocation = std::variant<Compile, Prepare, Print>;
 // the command line alone rules out are each a usage error, said in the
 // Error, before anything runs or is written.
 llvm::Expected<Invocation> readInvocation();
-
-// Code is compiled for the triple the runtime is built for (the target
-// entry's), which its bitcode carries, and for the entry's CPU, which every
-// machine of the target since that CPU has; an executable names what an
-// older one lacks (idris_rt_start). The module records both as its
-// #llvm.target (idr-target); every link of a program is for the triple too
-// (the --target of --print-link-flags).
-inline constexpr llvm::StringLiteral targetTriple = IDRIS_MLIR_TARGET_TRIPLE;
-inline constexpr llvm::StringLiteral targetCpu = IDRIS_MLIR_TARGET_CPU;
 
 // The pinned clang, which links every program for the target (its
 // configuration file gives the target's C library, the runtimes, lld and

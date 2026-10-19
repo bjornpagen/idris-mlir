@@ -149,13 +149,9 @@ The C++ builds through `CMakePresets.json`: `dev`, `release` (full LTO),
 `hardened`, `lint` and `typecheck`. A profile is a run, not a
 build: `--time-trace` on the tools, taken by `tools/profile.sh`. `make build PRESET=<name>` picks one.
 
-A build for one family of a target's machines names its CPU once, in the
-build's cache: on Linux on Apple Silicon,
-`cmake --preset dev -DIDRIS_MLIR_TARGET_CPU=apple-m1`, then `make build`
-as always (`-UIDRIS_MLIR_TARGET_CPU` goes back to the target's own). The
-programs it compiles refuse to start on a processor without that CPU's
-features. A preset of your own, in an untracked `CMakeUserPresets.json`,
-can carry the same setting. There is no cross-compilation: the toolchain
+Each target compiles programs for the CPU its entry in `CMakeLists.txt`
+names, and nothing configures another: a program refuses to start on a
+processor without that CPU's features. There is no cross-compilation: the toolchain
 builds for the machine it is built on, so each target builds on its own
 machine, or a VM of it.
 

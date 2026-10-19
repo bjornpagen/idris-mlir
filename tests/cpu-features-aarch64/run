@@ -5,7 +5,7 @@
 # AArch64 target entry names, read by the pinned clang's frontend, which
 # knows AArch64 without its code generator: each feature's two names are
 # one feature, function multiversioning's (which __builtin_cpu_supports
-# tests) and LLVM's (which idr-lower and idris-mlir look for), since a
+# tests) and LLVM's (which idr-entry asks the target's machine for), since a
 # function versioned for the first is compiled with the second; the bits
 # are 0 up, each once, under 64, and no name is two features' (a check
 # shown refusing a list planted to break each). The processor test that reads them

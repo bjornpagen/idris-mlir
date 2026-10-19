@@ -115,5 +115,3 @@ add_mlir_dialect_library(IdrIR
 	MLIRBytecodeOpInterface
 )
 target_include_directories(IdrIR PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-# idr.os folds to the target's operating system.
-target_compile_definitions(IdrIR PRIVATE ${IDR_TARGET_DEFINITIONS})

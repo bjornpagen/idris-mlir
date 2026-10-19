@@ -97,18 +97,16 @@ endif()
 # built for too, and its toolchain file the page size (IDRIS_MLIR_PAGE_SIZE,
 # the machine's that built the toolchain); the two select one entry below,
 # which may decide other facts by the page size. idris-mlir writes the
-# triple and CPU on every module as its #llvm.target, with LLVM's data
-# layout, and every later step reads them there; every other fact of the
-# target is one of the entry's, which the build hands to whatever needs it.
-# An entry sets each of these:
+# triple and the program's CPU on every module as its #llvm.target, with
+# LLVM's data layout, and every later step reads them there; every other
+# fact of the target is one of the entry's, which the build hands to
+# whatever needs it. An entry sets each of these:
 #
-#   IDRIS_MLIR_TARGET_CPU               the CPU programs are compiled for,
-#                                       an LLVM name; the entry's is the
-#                                       default (see below the entries)
-#   IDRIS_MLIR_RUNTIME_BASELINE         the flags of the CPU runtime code is
-#                                       compiled for, which every machine of
-#                                       the target has (idris-mlir raises
-#                                       it to the program's CPU)
+#   IDRIS_MLIR_PROGRAM_CPU              the pinned C compiler's flags for
+#                                       the CPU programs are compiled for
+#   IDRIS_MLIR_BASELINE_CPU             its flags for the CPU every machine
+#                                       of the target has, which the
+#                                       runtime is compiled for
 #   IDRIS_MLIR_RUNTIME_CPU_TEST         the runtime's test of the processor
 #                                       at a program's entry, the runtime's
 #                                       unit for it (runtime/Platform/)
@@ -205,8 +203,8 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-gnu$" AND IDRIS_MLIR_P
 	# (2013) and AMD's Zen, and an executable names what an older one lacks.
 	# snmalloc needs CMPXCHG16B, which the baseline lacks.
 	# PIN(runtime-cx16) — see PINS.md
-	set(IDRIS_MLIR_TARGET_CPU "x86-64-v3")
-	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
+	set(IDRIS_MLIR_PROGRAM_CPU -march=x86-64-v3)
+	set(IDRIS_MLIR_BASELINE_CPU -march=x86-64 -mcx16)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_x86_64.h)
 	# 4-level paging: user space ends below 2^47.
@@ -220,8 +218,8 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	# Snapdragon X, Linux in a VM on a Mac. generic is armv8-a, which the
 	# Pis' Cortex-A53 and A72 are, and a program compiled for a later CPU
 	# names what an older one lacks.
-	set(IDRIS_MLIR_TARGET_CPU "generic")
-	set(IDRIS_MLIR_RUNTIME_BASELINE -march=armv8-a)
+	set(IDRIS_MLIR_PROGRAM_CPU -mcpu=generic)
+	set(IDRIS_MLIR_BASELINE_CPU -march=armv8-a)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	# The fewest bits a kernel of the target gives user space: Raspberry
@@ -239,8 +237,8 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	# (ARMv8.2-A with crypto, dot product, RCpc, fp16 and SSBS), whose
 	# features every Apple CPU has, so it is the baseline too, as apple-m1
 	# is on Darwin.
-	set(IDRIS_MLIR_TARGET_CPU "cortex-a76")
-	set(IDRIS_MLIR_RUNTIME_BASELINE -mcpu=cortex-a76)
+	set(IDRIS_MLIR_PROGRAM_CPU -mcpu=cortex-a76)
+	set(IDRIS_MLIR_BASELINE_CPU -mcpu=cortex-a76)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	# 16 KiB pages give user space 47 bits with three levels of tables and
@@ -254,8 +252,8 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 	# has, and a program compiled for a later one names what an older lacks.
 	# Function multiversioning tests the features at a program's entry, and
 	# compiler-rt reads them from sysctl only when the test asks.
-	set(IDRIS_MLIR_TARGET_CPU "apple-m1")
-	set(IDRIS_MLIR_RUNTIME_BASELINE -mcpu=apple-m1)
+	set(IDRIS_MLIR_PROGRAM_CPU -mcpu=apple-m1)
+	set(IDRIS_MLIR_BASELINE_CPU -mcpu=apple-m1)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	# snmalloc chooses its Apple platform itself (mach_vm, arc4random); the
@@ -288,15 +286,39 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 else()
 	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET} with ${IDRIS_MLIR_PAGE_SIZE}-byte pages: give it each fact the comment above the entries lists, in CMakeLists.txt")
 endif()
-# A configure may name another CPU of the triple than its entry's
-# (-DIDRIS_MLIR_TARGET_CPU=apple-m1 for Linux on Apple Silicon), which builds
-# the compiler for that family of the target's machines: the runtime stays
-# at the entry's baseline, which idris-mlir raises to the program's CPU,
-# and a program's entry refuses a processor that lacks what the CPU has.
-# The entry's is never cached, so a configure that names none takes it.
-if(DEFINED CACHE{IDRIS_MLIR_TARGET_CPU})
-	set(IDRIS_MLIR_TARGET_CPU "$CACHE{IDRIS_MLIR_TARGET_CPU}")
-endif()
+# Each CPU as the code generator reads it, an LLVM CPU name and features,
+# derived once, here, from the entry's flags by the C compiler that compiles
+# the runtime with them: what it writes on a function it compiles with
+# them, with nothing of its own, is what every runtime function it compiles
+# has (idris-mlir parses that of each). This is the target's one
+# description of a CPU: idris-mlir compiles programs for the program's,
+# whose features are its flags' and then the baseline's (which every
+# machine has, and the runtime's code may use), so that no program CPU
+# lacks what the runtime was compiled to use; and the runtime's functions
+# take the program's (foreign/idr/lib/Driver/ReadRuntime.cpp).
+file(WRITE "${CMAKE_BINARY_DIR}/cpu-probe.cpp" "void idris_mlir_cpu_probe() {}\n")
+function(idris_mlir_cpu out)
+	execute_process(
+		COMMAND "${CMAKE_CXX_COMPILER}" "--target=${CMAKE_CXX_COMPILER_TARGET}" ${ARGN}
+			-O3 -S -emit-llvm -o - "${CMAKE_BINARY_DIR}/cpu-probe.cpp"
+		OUTPUT_VARIABLE ir ERROR_VARIABLE error RESULT_VARIABLE status)
+	if(NOT status EQUAL 0 OR NOT ir MATCHES "\"target-cpu\"=\"([^\"]*)\"")
+		message(FATAL_ERROR "${CMAKE_CXX_COMPILER} names no CPU for the flags ${ARGN}: ${error}")
+	endif()
+	set(${out}_NAME "${CMAKE_MATCH_1}" PARENT_SCOPE)
+	set(features "")
+	if(ir MATCHES "\"target-features\"=\"([^\"]*)\"")
+		string(REPLACE "," ";" features "${CMAKE_MATCH_1}")
+	endif()
+	set(${out}_FEATURES "${features}" PARENT_SCOPE)
+endfunction()
+idris_mlir_cpu(IDRIS_MLIR_BASELINE_CPU ${IDRIS_MLIR_BASELINE_CPU})
+idris_mlir_cpu(IDRIS_MLIR_PROGRAM_CPU ${IDRIS_MLIR_PROGRAM_CPU})
+# The baseline's last: LLVM reads a later feature over an earlier one.
+list(REMOVE_ITEM IDRIS_MLIR_PROGRAM_CPU_FEATURES ${IDRIS_MLIR_BASELINE_CPU_FEATURES})
+list(APPEND IDRIS_MLIR_PROGRAM_CPU_FEATURES ${IDRIS_MLIR_BASELINE_CPU_FEATURES})
+list(JOIN IDRIS_MLIR_BASELINE_CPU_FEATURES "," IDRIS_MLIR_BASELINE_CPU_FEATURES)
+list(JOIN IDRIS_MLIR_PROGRAM_CPU_FEATURES "," IDRIS_MLIR_PROGRAM_CPU_FEATURES)
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

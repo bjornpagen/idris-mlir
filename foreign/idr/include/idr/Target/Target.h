@@ -8,6 +8,10 @@
 #ifndef IDR_TARGET_TARGET_H
 #define IDR_TARGET_TARGET_H
 
+// The target entry's description, generated from CMakeLists.txt.
+#include "idr/TargetEntry.h"
+
+#include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
@@ -41,14 +45,34 @@ namespace idr {
 
 namespace idr::target {
 
+// A CPU of the target as the code generator reads it: LLVM's name for it
+// and its features, the list a function's "target-features" holds.
+struct Cpu {
+  llvm::StringLiteral name;
+  llvm::StringLiteral features;
+};
+
+// The target, as its entry describes it once (CMakeLists.txt), each CPU as
+// the pinned C compiler derives it from the entry's flags: the triple; the
+// CPU programs are compiled for, whose features hold the baseline's; and
+// the baseline, which every machine of the target has and the runtime's
+// code is compiled for. A program's code, and every function of the
+// runtime but the baseline's, is compiled for the program's CPU and nothing
+// else (idr/Driver/Runtime.h).
+inline constexpr llvm::StringLiteral triple = IDRIS_MLIR_TARGET_TRIPLE;
+inline constexpr Cpu programCpu{IDRIS_MLIR_PROGRAM_CPU_NAME, IDRIS_MLIR_PROGRAM_CPU_FEATURES};
+inline constexpr Cpu baselineCpu{IDRIS_MLIR_BASELINE_CPU_NAME, IDRIS_MLIR_BASELINE_CPU_FEATURES};
+
+// The program's target as the module's #llvm.target, which idr-target
+// writes and every later step reads.
+mlir::LLVM::TargetAttr programTarget(mlir::MLIRContext *context);
+
 // The machine a program, or the runtime prepared for every program, is
-// compiled for: IEEE arithmetic with no fused operations, every function
-// and datum in a section of its own, position-independent, optimized as
-// far as LLVM goes. The triple, CPU and features are the module's target.
-// The error says that LLVM has no machine for them.
-llvm::Expected<std::unique_ptr<llvm::TargetMachine>>
-machine(const llvm::Target &target, const llvm::Triple &triple, llvm::StringRef cpu,
-        llvm::StringRef features);
+// compiled for: the target's triple and the program's CPU, IEEE arithmetic
+// with no fused operations, every function and datum in a section of its
+// own, position-independent, optimized as far as LLVM goes. The error says
+// that LLVM has no machine for them.
+llvm::Expected<std::unique_ptr<llvm::TargetMachine>> machine(const llvm::Target &target);
 
 // LLVM's O3 pipeline for the machine, with MergeFunctions: identical
 // functions (clones that specialization left equal) become one.

@@ -63,16 +63,14 @@ namespace {
 // handoff module, which holds an idr.program and goes through the pipeline
 // and then LLVM; or the pipeline's output, the LLVM dialect alone, which
 // goes to LLVM as it is, compiled for the target it names, which a module
-// of it must name for the build's triple.
+// of it must name: the build's, the one target idris-mlir compiles for.
 struct Handoff {};
-struct Lowered {
-  mlir::LLVM::TargetAttr target;
-};
+struct Lowered {};
 
 // The module's kind: an idr.program among its ops makes it a handoff
 // module, whose every op must be of a dialect the frontend writes;
 // otherwise every op must be the LLVM dialect's, and the module must name
-// its target for the build's triple. An error at the first op that is not,
+// the build's target. An error at the first op that is not,
 // naming it (idris-mlir prints no op on a diagnostic), or at the module
 // that names no such target: a module half lowered (an arith op in an
 // llvm.func) is neither kind, and LLVM's translation would fail on it with
@@ -114,12 +112,14 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
     return module.emitError()
            << "names no target (#llvm.target): a module of the LLVM dialect alone, the "
               "pipeline's output, is compiled for the target it names";
-  // The runtime it is linked with and every link are for the build's
-  // triple; a module lowered for another cannot join them.
-  if (target.getTriple().getValue() != targetTriple)
-    return module.emitError() << "is compiled for " << target.getTriple().getValue()
-                              << ", and idris-mlir for " << targetTriple;
-  return std::variant<Handoff, Lowered>(Lowered{target});
+  // The runtime it is linked with, every link and the machine its code is
+  // compiled by are for the build's target, the program's CPU among it; a
+  // module lowered for another cannot join them.
+  mlir::LLVM::TargetAttr built = idr::target::programTarget(module.getContext());
+  if (target != built)
+    return module.emitError() << "is compiled for " << target << ", and idris-mlir for "
+                              << built;
+  return std::variant<Handoff, Lowered>(Lowered{});
 }
 
 // The pipeline, idr-target first, in one manager, so that what a pass
@@ -165,20 +165,17 @@ mlir::LogicalResult runPipeline(mlir::ModuleOp module, Outcome &outcome,
 // LLVM IR, joined with the runtime into one module; every symbol but the
 // process entry internalized; LLVM's O3 pipeline once, on the whole
 // program; then the optimized module cut into bins, each compiled to
-// object code for the module's target on `pool`. Each stage has a timer of
-// its own, so -mlir-timing says which one a compilation spends its time on.
-mlir::LogicalResult toObjects(mlir::ModuleOp module, mlir::LLVM::TargetAttr moduleTarget,
-                              llvm::StringRef runtime, Artifacts &artifacts,
-                              const llvm::Target &target, const llvm::Triple &triple,
-                              llvm::ThreadPoolInterface &pool, mlir::TimingScope &rootTiming) {
+// object code for the module's target, the build's, on `pool`. Each stage
+// has a timer of its own, so -mlir-timing says which one a compilation
+// spends its time on.
+mlir::LogicalResult toObjects(mlir::ModuleOp module, llvm::StringRef runtime,
+                              Artifacts &artifacts, const llvm::Target &target,
+                              const llvm::Triple &triple, llvm::ThreadPoolInterface &pool,
+                              mlir::TimingScope &rootTiming) {
   mlir::MLIRContext &context = *module.getContext();
   mlir::Location unknown = mlir::UnknownLoc::get(&context);
   mlir::TimingScope llvmTiming = rootTiming.nest("LLVM");
-  std::string features =
-      moduleTarget.getFeatures() ? moduleTarget.getFeatures().getFeaturesString() : "";
-  llvm::StringRef cpu = moduleTarget.getChip().getValue();
-  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> made =
-      idr::target::machine(target, triple, cpu, features);
+  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> made = idr::target::machine(target);
   if (!made)
     return mlir::emitError(unknown) << llvm::toString(made.takeError());
   llvm::TargetMachine &machine = **made;
@@ -199,7 +196,7 @@ mlir::LogicalResult toObjects(mlir::ModuleOp module, mlir::LLVM::TargetAttr modu
   {
     IDR_ZONE_IN("link runtime", LLVM);
     mlir::TimingScope stage = llvmTiming.nest("link runtime");
-    if (mlir::failed(linkRuntime(*llvmModule, module, runtime, target, triple, machine)))
+    if (mlir::failed(linkRuntime(*llvmModule, module, runtime, machine)))
       return mlir::failure();
     // The program is whole, so nothing but the process entry the lowering
     // makes is visible outside it; O3 then removes what the entry does not
@@ -219,7 +216,7 @@ mlir::LogicalResult toObjects(mlir::ModuleOp module, mlir::LLVM::TargetAttr modu
   // never from the pool's.
   IDR_ZONE_IN("codegen", LLVM);
   mlir::TimingScope stage = llvmTiming.nest("codegen");
-  return writeObjects(*llvmModule, target, triple, cpu, features, pool, artifacts, context);
+  return writeObjects(*llvmModule, target, triple, pool, artifacts, context);
 }
 
 // The refusals the frontend left in the module in place of a program, in
@@ -255,7 +252,7 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
                                      mlir::MLIRContext &context, llvm::SourceMgr &sources,
                                      llvm::ThreadPoolInterface &pool,
                                      mlir::TimingScope &rootTiming, Outcome &outcome) {
-  llvm::Triple triple(targetTriple);
+  llvm::Triple triple(idr::target::triple);
   mlir::FailureOr<const llvm::Target *> target = nativeTarget(triple, context);
   if (mlir::failed(target))
     return mlir::failure();
@@ -297,22 +294,15 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
     debugConfig.addLogActionLocFilter(&loggedTags);
   mlir::tracing::InstallDebugHandler debugHandler(context, debugConfig);
 
-  // The target the module is compiled for: a lowered module's own, a handoff
-  // module's as idr-target, the pipeline's first pass, wrote it.
-  mlir::FailureOr<mlir::LLVM::TargetAttr> moduleTarget = std::visit(
+  // A handoff module goes through the pipeline, whose first pass,
+  // idr-target, writes the build's target on it; a lowered module names it
+  // already.
+  mlir::LogicalResult lowered = std::visit(
       llvm::makeVisitor(
-          [&](Handoff) -> mlir::FailureOr<mlir::LLVM::TargetAttr> {
-            if (mlir::failed(runPipeline(*module, outcome, rootTiming)))
-              return mlir::failure();
-            return llvm::cast<mlir::LLVM::TargetAttr>(
-                (*module)->getAttr(mlir::LLVM::LLVMDialect::getTargetAttrName()));
-          },
-          [](const Lowered &lowered) -> mlir::FailureOr<mlir::LLVM::TargetAttr> {
-            return lowered.target;
-          }),
+          [&](Handoff) { return runPipeline(*module, outcome, rootTiming); },
+          [](Lowered) { return mlir::success(); }),
       *kind);
-  if (mlir::failed(moduleTarget))
+  if (mlir::failed(lowered))
     return mlir::failure();
-  return toObjects(*module, *moduleTarget, invocation.runtime, artifacts, **target, triple, pool,
-                   rootTiming);
+  return toObjects(*module, invocation.runtime, artifacts, **target, triple, pool, rootTiming);
 }

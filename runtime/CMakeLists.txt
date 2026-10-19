@@ -122,8 +122,9 @@ endfunction()
 
 # The runtime's profile, in every configuration:
 # - optimized, since optnone bitcode would stay unoptimized in programs;
-# - the target's baseline (its entry in CMakeLists.txt): idris-mlir
-#   raises every runtime function to the program's CPU;
+# - the target's baseline CPU (its entry in CMakeLists.txt), which the
+#   native code idris-mlir links has; in a program every runtime function
+#   but the baseline's takes the program's CPU;
 # - bitcode with the native code, as the target's entry carries it: bitcode
 #   for programs, native code for idris-mlir;
 # - each function and datum in its own section, so the linker drops the
@@ -133,7 +134,7 @@ endfunction()
 add_library(idris_mlir_runtime_profile INTERFACE)
 target_compile_options(idris_mlir_runtime_profile INTERFACE
 	-O3
-	${IDRIS_MLIR_RUNTIME_BASELINE}
+	${IDRIS_MLIR_BASELINE_CPU}
 	${IDRIS_MLIR_RUNTIME_BITCODE_FLAGS}
 	-ffp-contract=off
 	${IDRIS_MLIR_RUNTIME_SECTIONS}
@@ -284,13 +285,22 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/codegen-symbols" "${IDRIS_MLIR_CODEGEN_S
 # a test takes off a symbol the linker tool prints (harness/lib/heap.sh).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/symbol-prefix"
 	CONTENT "${IDRIS_MLIR_SYMBOL_PREFIX}\n")
+# The baseline CPU's flags and its features, one a line, which tests
+# compile runtime members with (harness/lib/heap.sh, runtime_fact).
+list(JOIN IDRIS_MLIR_BASELINE_CPU "\n" IDRIS_MLIR_BASELINE_CPU_TEXT)
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/baseline-cpu-flags"
+	CONTENT "${IDRIS_MLIR_BASELINE_CPU_TEXT}\n")
+string(REPLACE "," "\n" IDRIS_MLIR_BASELINE_FEATURES_TEXT "${IDRIS_MLIR_BASELINE_CPU_FEATURES}")
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/baseline-cpu-features"
+	CONTENT "${IDRIS_MLIR_BASELINE_FEATURES_TEXT}\n")
 
 set_target_properties(idris_rt_simdutf PROPERTIES CXX_CLANG_TIDY "")
 set_target_properties(idris_rt_ryu PROPERTIES C_CLANG_TIDY "")
 set_target_properties(idris_rt PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
 # idris-mlir reads the runtime's bitcode from here, and the checked
-# runtime's from beside it.
+# runtime's from beside it, and links the runtime's native code; the build
+# identifies each archive by its digest (foreign/idr/CMakeLists.txt).
 set(IDRIS_MLIR_RUNTIME_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/libidris_rt.a" PARENT_SCOPE)
 set(IDRIS_MLIR_CHECKED_RUNTIME_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/libidris_rt_checked.a" PARENT_SCOPE)
 

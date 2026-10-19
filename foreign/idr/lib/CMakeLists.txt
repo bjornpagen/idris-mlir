@@ -93,9 +93,9 @@ add_subdirectory(Transforms)
 
 # idris-mlir: the compilation (the frontend, one pass manager, LLVM), the
 # runtime's preparation and the link. It reads the runtime's C ABI
-# (idris_rt.h, the reserved-stack runner) and the target entry's list of
-# processor features (cpu_features.h), whose include directory idris_rt
-# gives, and the target entry's link flags (idr/TargetEntry.h, generated).
+# (idris_rt.h, the reserved-stack runner), whose include directory
+# idris_rt gives, and the target entry's description and link flags
+# (idr/TargetEntry.h, generated).
 add_mlir_library(IdrDriver
 	Driver/Artifacts.cpp
 	Driver/Compile.cpp
@@ -183,4 +183,4 @@ add_mlir_library(IdrDriver
 	LLVMBitWriter
 	${IDR_LLVM_CODEGEN_LIBS}
 )
-target_compile_definitions(IdrDriver PRIVATE ${IDR_DRIVER_DEFINITIONS} ${IDR_TARGET_DEFINITIONS})
+target_compile_definitions(IdrDriver PRIVATE ${IDR_DRIVER_DEFINITIONS})

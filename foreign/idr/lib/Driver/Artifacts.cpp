@@ -192,8 +192,7 @@ using Compiled = std::variant<Object, Failed>;
 // its own, cut down to the bin, compiled by a machine of its own. Nothing is
 // shared with another task but the bitcode and the partition, both read.
 Compiled compileBin(const idr::target::Partition &partition, unsigned bin, llvm::StringRef bitcode,
-                    const llvm::Target &target, const llvm::Triple &triple, llvm::StringRef cpu,
-                    llvm::StringRef features) {
+                    const llvm::Target &target) {
   idr::profile::ThreadTrace thread;
   const std::string &name = partition.bins()[bin].name;
   IDR_ZONE_IN(name, LLVM);
@@ -205,7 +204,7 @@ Compiled compileBin(const idr::target::Partition &partition, unsigned bin, llvm:
   if (llvm::Error error = partition.extract(bin, **module))
     return Failed{llvm::toString(std::move(error))};
   llvm::Expected<std::unique_ptr<llvm::TargetMachine>> machine =
-      idr::target::machine(target, triple, cpu, features);
+      idr::target::machine(target);
   if (!machine)
     return Failed{"bin " + name + ": " + llvm::toString(machine.takeError())};
   Object object;
@@ -260,8 +259,7 @@ mlir::LogicalResult writeAsArchive(llvm::ArrayRef<idr::target::Bin> bins,
 } // namespace
 
 mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llvm::Target &target,
-                                              const llvm::Triple &triple, llvm::StringRef cpu,
-                                              llvm::StringRef features,
+                                              const llvm::Triple &triple,
                                               llvm::ThreadPoolInterface &pool,
                                               Artifacts &artifacts, mlir::MLIRContext &context) {
   mlir::Location unknown = mlir::UnknownLoc::get(&context);
@@ -292,7 +290,7 @@ mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llv
     llvm::ThreadPoolTaskGroup tasks(pool);
     for (unsigned bin : order)
       tasks.async([&, bin] {
-        compiled[bin] = compileBin(*partition, bin, bitcode, target, triple, cpu, features);
+        compiled[bin] = compileBin(*partition, bin, bitcode, target);
       });
     tasks.wait();
   }

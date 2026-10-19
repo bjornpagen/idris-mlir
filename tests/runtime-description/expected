@@ -1,0 +1,3 @@
+baseline: prepared
+short: refused, naming the member, its function and the feature taken off
+strict: refused, naming the member, its function and that it does not inline

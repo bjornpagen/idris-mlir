@@ -49,6 +49,16 @@ inline constexpr llvm::StringLiteral linkFlags[] = {
 #undef IDR_LINK_FLAG
 };
 
+// The pinned C compiler's flags for the CPU programs are compiled for, the
+// target entry's, from which the build derived the program's CPU
+// (idr::target::programCpu): what compiles C for the same machine, as
+// bench/run.sh's C versions are; --print-cpu-flags prints it.
+inline constexpr llvm::StringLiteral programCpuFlags[] = {
+#define IDR_CPU_FLAG(flag) flag,
+    IDRIS_MLIR_PROGRAM_CPU_FLAGS(IDR_CPU_FLAG)
+#undef IDR_CPU_FLAG
+};
+
 // idris-mlir-front beside this executable, by its real path: the build
 // links the frontend there, and a copy of idris-mlir alone runs no other
 // frontend, nor one found on PATH.

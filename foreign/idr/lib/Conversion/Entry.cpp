@@ -19,7 +19,10 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Target/LLVMIR/Transforms/TargetUtils.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/Target/TargetMachine.h"
 
 // The target entry's list of CPU features, an X-macro, and the runtime's
 // C ABI, whose feature bits it names.
@@ -61,17 +64,23 @@ FailureOr<func::FuncOp> takeApart(ProgramOp program, SymbolTable &symbols) {
   return root;
 }
 
-// The IDRIS_RT_CPU_FEATURES bits of the features the module's target
-// enables, found by their LLVM names. A module with no target states no
-// requirement.
-uint64_t requiredCpuFeatures(ModuleOp module) {
+// The IDRIS_RT_CPU_FEATURES bits of the features the module's code may use:
+// those its target's machine has, the CPU's and its features with all they
+// imply, as the code generator reads them, found by their LLVM names. A
+// module with no target states no requirement; one whose target LLVM has
+// no machine for is an error.
+FailureOr<uint64_t> requiredCpuFeatures(ModuleOp module) {
   auto target = module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
-  LLVM::TargetFeaturesAttr features = target ? target.getFeatures() : nullptr;
   uint64_t bits = 0;
-  if (!features)
+  if (!target)
     return bits;
+  LLVM::detail::initializeBackendsOnce();
+  FailureOr<std::unique_ptr<llvm::TargetMachine>> machine = LLVM::detail::getTargetMachine(target);
+  if (failed(machine) || !*machine)
+    return module.emitError() << "internal error: idr-entry: no target machine for " << target;
+  const llvm::MCSubtargetInfo &subtarget = (*machine)->getMCSubtargetInfo();
 #define IDR_REQUIRED_FEATURE(bit, test, name)                                                   \
-  if (features.contains("+" name))                                                             \
+  if (subtarget.checkFeatures("+" name))                                                       \
     bits |= uint64_t{1} << (bit);
   IDRIS_RT_CPU_FEATURES(IDR_REQUIRED_FEATURE)
 #undef IDR_REQUIRED_FEATURE
@@ -88,6 +97,9 @@ uint64_t requiredCpuFeatures(ModuleOp module) {
 // reserved stack once the CPU has shown it has the features the module's
 // target enables, and which ends a status outside 0 to 255 as a crash.
 LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols) {
+  FailureOr<uint64_t> required = requiredCpuFeatures(module);
+  if (failed(required))
+    return failure();
   FailureOr<func::FuncOp> found = takeApart(program, symbols);
   if (failed(found))
     return failure();
@@ -148,8 +160,7 @@ LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols
   b.setInsertionPointToStart(entry);
   Value function = func::ConstantOp::create(b, loc, bodyType, body.getSymName());
   Value pointer = UnrealizedConversionCastOp::create(b, loc, ptr, function).getResult(0);
-  Value cpu =
-      LLVM::ConstantOp::create(b, loc, i64, static_cast<int64_t>(requiredCpuFeatures(module)));
+  Value cpu = LLVM::ConstantOp::create(b, loc, i64, static_cast<int64_t>(*required));
   Value started = LLVM::CallOp::create(b, loc, start,
                                        ValueRange{pointer, cpu, entry->getArgument(0),
                                                   entry->getArgument(1)})

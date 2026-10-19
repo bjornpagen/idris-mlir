@@ -21,7 +21,10 @@
 # calls LLVM makes by itself for the target (copies, fills, and what else
 # its code generation emits), one per line; symbol-prefix, the prefix the
 # object format puts before a C name, one line ("_" on Mach-O, empty on
-# ELF, which is a fact like any other). Without the file, one line naming
+# ELF, which is a fact like any other); baseline-cpu-flags and
+# baseline-cpu-features, the pinned C compiler's flags for the baseline CPU
+# the runtime is compiled for and the features the build derived from
+# them, one per line. Without the file, one line naming
 # it and status 1: the harness has no fact to check against, and no check
 # runs on a guessed one.
 runtime_fact() {

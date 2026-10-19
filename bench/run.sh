@@ -5,8 +5,9 @@
 # the stock Idris Chez backend (the same source), and by the pinned clang -O2
 # (the main.c beside it; linked as our programs are, with the flags
 # idris-mlir --print-link-flags names for the target, GMP among them), on
-# the same input. clang compiles for the CPU this compiler targets
-# (idris-mlir --print-target-cpu), and without floating-point contraction,
+# the same input. clang compiles for the CPU this compiler targets, with
+# the flags it was derived from (idris-mlir --print-cpu-flags), and without
+# floating-point contraction,
 # which this compiler never does: the columns compare compilers, not
 # instruction sets or rounding. Prints
 # what it ran on (the host, its CPU, the stack limit and every compiler's
@@ -81,10 +82,10 @@ bounded() {
   return "$bounded_status"
 }
 
-# The CPU is decided in one place, idris-mlir, and clang is told it as
-# LLVM's target CPU, which every target takes; the driver's spellings
-# differ by architecture (-march on x86-64, -mcpu on arm64).
-target_cpu=$("$idris_mlir" --print-target-cpu) || die "idris-mlir names no target CPU; run make build"
+# The CPU is decided in one place, the target entry, as the pinned clang's
+# flags for it, from which the build derived the CPU programs are compiled
+# for; clang compiles the C versions with the same flags.
+cpu_flags=$("$idris_mlir" --print-cpu-flags) || die "idris-mlir names no CPU flags; run make build"
 target_triple=$("$idris_mlir" --print-target-triple) || die "idris-mlir names no target triple; run make build"
 # How the target links a program (a PIE on the system's C library) is
 # decided there too; the C programs and the input
@@ -140,7 +141,7 @@ revision=$(git -C "$root" describe --always --dirty 2> /dev/null) || revision=un
     *) echo "Stack: $stack KiB (ulimit -s), the most this system allows." ;;
   esac
   echo
-  echo "- this compiler: $revision, for $target_triple, CPU $target_cpu; link flags: $(printf "%s" "$link_flags" | tr "\n" " ")"
+  echo "- this compiler: $revision, for $target_triple, CPU flags: $(printf "%s\n" "$cpu_flags" | paste -s -d ' ' -); link flags: $(printf "%s" "$link_flags" | tr "\n" " ")"
   echo "- Idris Chez: $(first_line "$idris2" --version); Chez Scheme $(first_line "${CHEZ:-scheme}" --version)"
   echo "- clang -O2: $(first_line "$pinned_cc" --version)"
 } > "$record/about"
@@ -179,8 +180,8 @@ build() {
         > "$work/build.log" 2>&1 && cmd=$work/chez/build/exec/prog
       ;;
     'clang -O2')
-      # shellcheck disable=SC2086 # link_flags holds flags, split on spaces
-      bounded "$pinned_cc" -O2 -Xclang -target-cpu -Xclang "$target_cpu" -ffp-contract=off \
+      # shellcheck disable=SC2086 # cpu_flags and link_flags hold flags, split on spaces
+      bounded "$pinned_cc" -O2 $cpu_flags -ffp-contract=off \
         "$bench/$name/main.c" \
         -o "$work/$name-c" $link_flags -lm > "$work/build.log" 2>&1 &&
         cmd=$work/$name-c

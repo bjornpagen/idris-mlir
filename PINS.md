@@ -803,9 +803,9 @@ which the top-level CMake configure gate reads.
 
 - symptom: snmalloc requires CMPXCHG16B, which the x86-64 baseline lacks
 - sites: CMakeLists.txt, the x86_64 target entry — `-march=x86-64 -mcx16`
-- workaround: the runtime is compiled for the baseline plus CMPXCHG16B;
-  idris-mlir raises every runtime function to the program's CPU
-  (x86-64-v3, which has it)
+- workaround: the runtime is compiled for the baseline plus CMPXCHG16B,
+  which the program's CPU then has too (its features are its flags' and
+  the baseline's)
 - retire: never; every x86-64 CPU since 2006 has it
 - upstream: none
 

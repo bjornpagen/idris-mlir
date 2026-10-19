@@ -11,6 +11,7 @@
 #include "idr/Driver/Runtime.h"
 #include "idr/Support/Profile.h"
 #include "idr/Support/Stack.h"
+#include "idr/Target/Target.h"
 
 #include "mlir/Debug/CLOptionsSetup.h"
 #include "mlir/IR/AsmState.h"
@@ -40,14 +41,15 @@ static void answer(Question question) {
     llvm::outs() << preparedRuntime << "\n";
     return;
   case Question::TargetTriple:
-    llvm::outs() << targetTriple << "\n";
+    llvm::outs() << idr::target::triple << "\n";
     return;
   case Question::LinkFlags:
     for (llvm::StringRef flag : linkFlags)
       llvm::outs() << flag << "\n";
     return;
-  case Question::TargetCpu:
-    llvm::outs() << targetCpu << "\n";
+  case Question::CpuFlags:
+    for (llvm::StringRef flag : programCpuFlags)
+      llvm::outs() << flag << "\n";
     return;
   }
   llvm_unreachable("every question has its answer");

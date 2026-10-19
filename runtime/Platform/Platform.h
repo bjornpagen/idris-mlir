@@ -10,8 +10,7 @@
 // What runs before the processor test (the page-size check, the test, and
 // what they write and how they end the process) is marked
 // IDRIS_RT_BASELINE (idris_rt.h): idris-mlir keeps such a function compiled
-// for the target's baseline, where it raises every other to the program's
-// CPU.
+// for the target's baseline, where every other takes the program's CPU.
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 

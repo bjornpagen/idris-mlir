@@ -299,7 +299,7 @@ typedef struct idris_rt_memref {
 /* The mark of what runs before the processor test (the page-size check, the
  * test, and what they write and how they end the process): idris-mlir finds
  * a function annotated with it by this name, and keeps it compiled for the
- * target's baseline, where it raises every other to the program's CPU. */
+ * target's baseline, where every other takes the program's CPU. */
 #define IDRIS_RT_BASELINE_MARK "idris-rt-baseline"
 #define IDRIS_RT_BASELINE __attribute__((annotate(IDRIS_RT_BASELINE_MARK)))
 

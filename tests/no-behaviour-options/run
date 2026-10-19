@@ -22,7 +22,7 @@
 # comment.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 kept='o c p package-path prefix no-prelude log-actions-tags runtime
-print-runtime prepare-runtime print-target-triple print-link-flags print-target-cpu num-threads
+print-runtime prepare-runtime print-target-triple print-link-flags print-cpu-flags num-threads
 time-trace time-trace-granularity report idr-contracts'
 checks='ListOption<"holds", "holds"'
 

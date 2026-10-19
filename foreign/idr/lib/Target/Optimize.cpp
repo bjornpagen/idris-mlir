@@ -7,6 +7,7 @@
 
 #include "idr/Support/Profile.h"
 
+#include "llvm/ADT/Twine.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/LoopAnalysisManager.h"
 #include "llvm/IR/Module.h"
@@ -15,6 +16,7 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/TargetParser/Triple.h"
 
 #include <memory>
 #include <optional>
@@ -33,14 +35,13 @@ static llvm::TargetOptions targetOptions() {
 }
 
 llvm::Expected<std::unique_ptr<llvm::TargetMachine>>
-idr::target::machine(const llvm::Target &target, const llvm::Triple &triple, llvm::StringRef cpu,
-                     llvm::StringRef features) {
+idr::target::machine(const llvm::Target &target) {
   std::unique_ptr<llvm::TargetMachine> made(target.createTargetMachine(
-      triple, cpu, features, targetOptions(), llvm::Reloc::PIC_, std::nullopt,
-      llvm::CodeGenOptLevel::Aggressive));
+      llvm::Triple(triple), programCpu.name, programCpu.features, targetOptions(),
+      llvm::Reloc::PIC_, std::nullopt, llvm::CodeGenOptLevel::Aggressive));
   if (!made)
-    return llvm::createStringError("LLVM has no target machine for " + triple.str() + " (" +
-                                   cpu + ")");
+    return llvm::createStringError(llvm::Twine("LLVM has no target machine for ") + triple +
+                                   " (" + programCpu.name + ")");
   return made;
 }
 

@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's bitcode linked into the program's module, and its functions
-// raised to the program's CPU.
+// The runtime's bitcode linked into the program's module: the runtime
+// idris-mlir is built with, and no other.
 
 #include "idr/Driver/Runtime.h"
 #include "idr/IR/IdrDialect.h"
-
-// The target entry's list of processor features, an X-macro.
-#include "cpu_features.h"
+#include "idr/Target/Target.h"
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
@@ -15,17 +13,15 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/IR/Function.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Linker/Linker.h"
-#include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/TargetParser/Triple.h"
 
 #include <memory>
 #include <string>
@@ -34,24 +30,34 @@
 
 using namespace idr::driver;
 
-// Whether the prepared runtime's native half runs wherever the program does:
-// the program's CPU has every feature of the CPU that half was compiled for
-// that the processor test at the program's entry can name
-// (IDRIS_RT_CPU_FEATURES), so the test covers both. The build prepares the
-// runtime for the CPU every program is compiled for, so this fails only for
-// a runtime prepared elsewhere for a larger one, whose bodies the program
-// then compiles itself.
-static bool nativeRuns(const PreparedFor &prepared, const llvm::Target &target,
-                       const llvm::Triple &triple, const llvm::TargetMachine &machine) {
-  std::unique_ptr<llvm::MCSubtargetInfo> native(
-      target.createMCSubtargetInfo(triple, prepared.cpu, prepared.features));
-  const llvm::MCSubtargetInfo &program = machine.getMCSubtargetInfo();
-#define IDR_FEATURE(bit, test, name)                                                             \
-  if (native->checkFeatures("+" name) && !program.checkFeatures("+" name))                       \
-    return false;
-  IDRIS_RT_CPU_FEATURES(IDR_FEATURE)
-#undef IDR_FEATURE
-  return true;
+// The runtime read from `path` is one idris-mlir is built with: read from
+// an archive the build made, for the program's CPU. Another archive, or a
+// runtime prepared from one or for another CPU, would make a program's
+// runtime code other than what the compiler is: it is refused, by what
+// differs.
+static mlir::LogicalResult isBuilt(const Identity &read, llvm::StringRef path,
+                                   mlir::Location at) {
+  llvm::SmallVector<std::string, 3> differs;
+  llvm::ArrayRef<BuiltArchive> archives = builtArchives();
+  auto named = [](const BuiltArchive &archive) {
+    return (llvm::Twine(archive.digest) + " (" + archive.name + ")").str();
+  };
+  if (llvm::none_of(archives,
+                    [&](const BuiltArchive &archive) { return archive.digest == read.archive; }))
+    differs.push_back("its archive's digest is " + read.archive + ", and the build's archives' " +
+                      llvm::join(llvm::map_range(archives, named), ", "));
+  const idr::target::Cpu &program = idr::target::programCpu;
+  if (read.cpu != program.name)
+    differs.push_back("its CPU is " + read.cpu + ", and the program's " + program.name.str());
+  if (read.features != program.features)
+    differs.push_back("its features are " + read.features + ", and the program's " +
+                      program.features.str());
+  if (differs.empty())
+    return mlir::success();
+  mlir::InFlightDiagnostic refusal = idr::refuse(at, idr::Rule::Runtime);
+  refusal << "runtime " << path << " is not the runtime idris-mlir is built with: "
+          << llvm::join(differs, "; ");
+  return refusal;
 }
 
 // The name the linker sees for a symbol, as LLVM's Mangler writes it from the
@@ -94,58 +100,22 @@ static mlir::LogicalResult namesApart(const llvm::Module &program, const llvm::M
   return mlir::success();
 }
 
-void idr::driver::retarget(llvm::Module &runtime, const llvm::TargetMachine &machine) {
-  std::string cpuFeatures = machine.getTargetFeatureString().str();
-  for (llvm::Function &function : runtime) {
-    // A declaration has no code to compile for a CPU, and a baseline
-    // function keeps the baseline.
-    if (function.isDeclaration() || function.hasFnAttribute(baselineMark))
-      continue;
-    std::string features = function.getFnAttribute(featuresMark).getValueAsString().str();
-    if (!cpuFeatures.empty())
-      features = features.empty() ? cpuFeatures : cpuFeatures + "," + features;
-    function.addFnAttr("target-cpu", machine.getTargetCPU());
-    function.removeFnAttr("tune-cpu");
-    if (features.empty())
-      function.removeFnAttr("target-features");
-    else
-      function.addFnAttr("target-features", features);
-  }
-}
-
 mlir::LogicalResult idr::driver::linkRuntime(llvm::Module &program, mlir::ModuleOp source,
-                                             llvm::StringRef path, const llvm::Target &target,
-                                             const llvm::Triple &triple,
+                                             llvm::StringRef path,
                                              const llvm::TargetMachine &machine) {
+  mlir::Location at = mlir::UnknownLoc::get(source.getContext());
   mlir::FailureOr<std::variant<Archived, Prepared>> read =
-      readRuntime(path, program.getContext(), program.getTargetTriple(), program.getDataLayout(),
-                  *source.getContext());
+      readRuntime(path, program.getContext(), machine, *source.getContext());
   if (mlir::failed(read))
     return mlir::failure();
-  // The archive's bodies are definitions; a prepared runtime's join as
-  // available_externally only where its native half runs on the program's
-  // CPU.
-  std::unique_ptr<llvm::Module> runtime = std::visit(
-      llvm::makeVisitor([](Archived &archived) { return std::move(archived.module); },
-                        [&](Prepared &prepared) {
-                          if (!nativeRuns(prepared.target, target, triple, machine))
-                            for (llvm::GlobalValue &value : prepared.module->global_values())
-                              if (value.hasAvailableExternallyLinkage())
-                                value.setLinkage(llvm::GlobalValue::ExternalLinkage);
-                          return std::move(prepared.module);
-                        }),
-      *read);
+  if (mlir::failed(
+          isBuilt(std::visit([](const auto &kind) { return kind.identity; }, *read), path, at)))
+    return mlir::failure();
+  std::unique_ptr<llvm::Module> runtime =
+      std::visit([](auto &kind) { return std::move(kind.module); }, *read);
   if (mlir::failed(namesApart(program, *runtime, source)))
     return mlir::failure();
-  retarget(*runtime, machine);
   if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded))
-    return mlir::emitError(mlir::UnknownLoc::get(source.getContext()))
-           << "linking the runtime into the program failed";
-  // The marks are the runtime's, read by retarget alone: once the runtime
-  // has joined, they go.
-  for (llvm::Function &function : program) {
-    function.removeFnAttr(cpuMark);
-    function.removeFnAttr(featuresMark);
-  }
+    return mlir::emitError(at) << "linking the runtime into the program failed";
   return mlir::success();
 }

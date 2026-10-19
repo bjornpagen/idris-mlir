@@ -16,7 +16,6 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/LLVMContext.h"
@@ -62,33 +61,25 @@ static mlir::LogicalResult externalize(llvm::Module &runtime, mlir::Location at)
   return mlir::success();
 }
 
-// The archive's runtime, `runtime`, raised to the target's CPU, optimized
-// and written as the object at `output` with its bitcode where the target
-// entry keeps it.
-static mlir::LogicalResult prepareArchive(llvm::Module &runtime, llvm::TargetMachine &machine,
+// The archive's runtime, read for the program's CPU, optimized and written
+// as the object at `output` with its bitcode where the target entry keeps
+// it, which records what it is.
+static mlir::LogicalResult prepareArchive(Archived &archived, llvm::TargetMachine &machine,
                                           llvm::StringRef output, mlir::MLIRContext &context) {
   mlir::Location at = mlir::UnknownLoc::get(&context);
+  llvm::Module &runtime = *archived.module;
   llvm::LLVMContext &llvmContext = runtime.getContext();
-  retarget(runtime, machine);
   // Programs reach the C ABI and nothing else.
   llvm::internalizeModule(runtime, [](const llvm::GlobalValue &value) {
     return value.getName().starts_with("idris_rt_");
   });
   idr::target::optimize(runtime, machine);
-  // A clone keeps the marks of the function it was made from; one that lost
-  // them could not be raised by a compilation.
-  for (const llvm::Function &function : runtime)
-    if (!function.isDeclaration() &&
-        (!function.hasFnAttribute(cpuMark) || !function.hasFnAttribute(featuresMark)))
-      return mlir::emitError(at) << "the optimization made the runtime function "
-                                 << function.getName()
-                                 << " without the marks of what it was compiled for";
   if (mlir::failed(externalize(runtime, at)))
     return mlir::failure();
-  runtime.addModuleFlag(llvm::Module::Error, preparedCpuFlag,
-                        llvm::MDString::get(llvmContext, machine.getTargetCPU()));
-  runtime.addModuleFlag(llvm::Module::Error, preparedFeaturesFlag,
-                        llvm::MDString::get(llvmContext, machine.getTargetFeatureString()));
+  for (auto [flag, value] : {std::pair{preparedArchiveFlag, &archived.identity.archive},
+                             std::pair{preparedCpuFlag, &archived.identity.cpu},
+                             std::pair{preparedFeaturesFlag, &archived.identity.features}})
+    runtime.addModuleFlag(llvm::Module::Error, flag, llvm::MDString::get(llvmContext, *value));
   // The bitcode half: the same module, every definition available_externally.
   std::string bitcode;
   {
@@ -129,25 +120,23 @@ static mlir::LogicalResult prepareRuntime(const Prepare &invocation, mlir::MLIRC
   mlir::Location at = mlir::UnknownLoc::get(&context);
   if (mlir::failed(makeDirectoryOf(invocation.output, context)))
     return mlir::failure();
-  llvm::Triple triple(targetTriple);
-  mlir::FailureOr<const llvm::Target *> target = nativeTarget(triple, context);
+  mlir::FailureOr<const llvm::Target *> target =
+      nativeTarget(llvm::Triple(idr::target::triple), context);
   if (mlir::failed(target))
     return mlir::failure();
-  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> made =
-      idr::target::machine(**target, triple, targetCpu, "");
+  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> made = idr::target::machine(**target);
   if (!made)
     return mlir::emitError(at) << llvm::toString(made.takeError());
   llvm::TargetMachine &machine = **made;
   llvm::LLVMContext llvmContext;
   mlir::FailureOr<std::variant<Archived, Prepared>> runtime =
-      readRuntime(invocation.archive, llvmContext, triple, machine.createDataLayout(), context);
+      readRuntime(invocation.archive, llvmContext, machine, context);
   if (mlir::failed(runtime))
     return mlir::failure();
   // Only the archive is prepared.
   return std::visit(llvm::makeVisitor(
                         [&](Archived &archived) {
-                          return prepareArchive(*archived.module, machine, invocation.output,
-                                                context);
+                          return prepareArchive(archived, machine, invocation.output, context);
                         },
                         [&](const Prepared &) -> mlir::LogicalResult {
                           return mlir::emitError(at) << "runtime " << invocation.archive

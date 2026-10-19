@@ -6,10 +6,13 @@
 # environment or operating system: it compares what the triples name (clang writes a Darwin
 # triple with its OS version normalized, arm64-apple-macosx14.0 as
 # arm64-apple-macosx14.0.0), not their text. Each member is bitcode, as
-# the runtime's members carry theirs, prepared alone (--prepare-runtime).
+# the runtime's members carry theirs, compiled with the baseline CPU's
+# flags, as the runtime's are, and prepared alone (--prepare-runtime).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 target=$("$idris_mlir" --print-target-triple)
 arch=${target%%-*}
+runtime_fact baseline-cpu-flags || exit 0
+baseline_flags=$runtime_fact_value
 
 # prepare NAME TRIPLE: a member compiled for TRIPLE, in an archive of its
 # own, prepared; the exit status, and of a refusal, whether it names the
@@ -17,8 +20,9 @@ arch=${target%%-*}
 # target's triple: what it is about, not its wording.
 prepare() {
   printf '%s\n' 'int idris_rt_answer(void) { return 42; }' > "$work/$1.c"
-  if ! bounded "$llvm_bin/clang" --target="$2" -flto=full -c "$work/$1.c" -o "$work/$1.o" \
-      > "$work/cc.log" 2>&1; then
+  # shellcheck disable=SC2086 # the flags are words
+  if ! bounded "$llvm_bin/clang" --target="$2" $baseline_flags -flto=full -c "$work/$1.c" \
+      -o "$work/$1.o" > "$work/cc.log" 2>&1; then
     say "$1: does not compile"
     show "$work/cc.log"
     return

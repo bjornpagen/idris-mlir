@@ -177,14 +177,13 @@ mlir::LogicalResult emit(llvm::Module &module, llvm::TargetMachine &machine, llv
 
 // The optimized program's object code, one object per bin of its partition:
 // the module written once as bitcode, each bin read lazily in a context of
-// its own and compiled for the target, CPU and features on a task of
-// `pool`, the largest first; for an executable each object written whole at
+// its own and compiled by the target's machine (idr::target::machine) on a
+// task of `pool`, the largest first; for an executable each object written whole at
 // its artifacts.addObject, for an archive all of them as the archive, in
 // the order of their names. The objects are the
 // same whatever the pool's size. Each failure is an error in `context`.
 mlir::LogicalResult writeObjects(llvm::Module &optimized, const llvm::Target &target,
-                                 const llvm::Triple &triple, llvm::StringRef cpu,
-                                 llvm::StringRef features, llvm::ThreadPoolInterface &pool,
+                                 const llvm::Triple &triple, llvm::ThreadPoolInterface &pool,
                                  Artifacts &artifacts, mlir::MLIRContext &context);
 
 } // namespace idr::driver

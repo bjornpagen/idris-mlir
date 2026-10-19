@@ -6,6 +6,8 @@
 // (IdrIOOps.td).
 
 #include "idr/IR/IdrDialect.h"
+// The target entry's triple, generated from CMakeLists.txt.
+#include "idr/TargetEntry.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/TargetParser/Triple.h"
