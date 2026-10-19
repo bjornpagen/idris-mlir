@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/56-cse-nested-linalg-index is carried: cse identifies two
+# linalg.index ops only under the same structured op, so the index of a
+# generic nested in another's body stays its own, while two of one generic
+# are still one value. Without the patch cse replaces the inner index by the
+# outer one, a silent miscompile. The witness is upstream's own dialects,
+# through mlir-opt: of the reproducer's three indices, two of the outer
+# generic and one of the inner, two are left.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/56-cse-nested-linalg-index/nested-linalg-index.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" --cse -o "$work/out.mlir" 2> "$work/err"; then
+  say "mlir-opt failed, which is not this bug"
+  show "$work/err"
+else
+  case $(grep -c 'linalg\.index' "$work/out.mlir") in
+    1) say "the inner index is replaced by the outer one" ;;
+    2) say "each generic keeps one index" ;;
+    *) say "cse keeps two indices of the same generic"; show "$work/out.mlir" ;;
+  esac
+fi

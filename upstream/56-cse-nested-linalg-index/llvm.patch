@@ -1,0 +1,168 @@
+Subject: [PATCH] [mlir] CSE linalg.index only under one parent
+
+linalg.index is the iteration index of its parent structured op, but it
+is Pure and has no operand, so OperationEquivalence finds the index of a
+linalg.generic nested in another's body identical to the outer one's of
+the same dimension. CSE keeps one scope of known values across nested
+regions that are not isolated from above, and replaced the inner index
+with the outer one.
+
+Add the DependsOnParent trait, for an op whose results depend on its
+parent and not only on its operands and attributes, and give it to
+linalg.index. CSE's key for such an op includes its parent, so it is
+never replaced by an op of another parent. linalg.index must be an
+immediate child of the LinalgOp it indexes, so the index itself is the
+only op that can depend on an enclosing op's iteration; comparing two
+structured ops still compares their bodies' indices as equivalent.
+
+Fixes #62644.
+
+---
+diff --git a/mlir/docs/Traits/_index.md b/mlir/docs/Traits/_index.md
+index 7d01f8517..bd5a124cd 100644
+--- a/mlir/docs/Traits/_index.md
++++ b/mlir/docs/Traits/_index.md
+@@ -250,6 +250,19 @@ See [The `Broadcastable` Trait](Broadcastable.md) for details.
+ This trait adds the property that the operation is commutative, i.e. `X op Y ==
+ Y op X`
+ 
++### DependsOnParent
++
++*   `OpTrait::DependsOnParent` -- `DependsOnParent`
++
++This trait signals that the results of an operation depend on its parent
++operation, and not only on its operands, attributes and properties: the
++operation reads a value that its parent defines for each execution of the
++region it is in. `linalg.index`, the iteration index of the enclosing structured
++operation, is one. Two such operations are equivalent only under the same
++parent: the `linalg.index 0` of a `linalg.generic` nested in the body of another
++is the inner iteration index, not the outer one, although the two ops are
++otherwise identical.
++
+ ### ElementwiseMappable
+ 
+ *   `OpTrait::ElementwiseMappable` -- `ElementwiseMappable`
+diff --git a/mlir/include/mlir/Dialect/Linalg/IR/LinalgOps.td b/mlir/include/mlir/Dialect/Linalg/IR/LinalgOps.td
+index 2754ee3b4..2ea8503c1 100644
+--- a/mlir/include/mlir/Dialect/Linalg/IR/LinalgOps.td
++++ b/mlir/include/mlir/Dialect/Linalg/IR/LinalgOps.td
+@@ -46,7 +46,7 @@ def Linalg_YieldOp : Linalg_Op<"yield", [Pure, ReturnLike, Terminator]>,
+   let hasVerifier = 1;
+ }
+ 
+-def Linalg_IndexOp : Linalg_Op<"index", [Pure]>,
++def Linalg_IndexOp : Linalg_Op<"index", [Pure, DependsOnParent]>,
+     Arguments<(ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim)>,
+     Results<(outs Index:$result)> {
+   let summary = "linalg index operation";
+diff --git a/mlir/include/mlir/IR/OpBase.td b/mlir/include/mlir/IR/OpBase.td
+index a130d5847..d39f1ac5f 100644
+--- a/mlir/include/mlir/IR/OpBase.td
++++ b/mlir/include/mlir/IR/OpBase.td
+@@ -79,6 +79,8 @@ def Idempotent : NativeOpTrait<"IsIdempotent">;
+ def Involution : NativeOpTrait<"IsInvolution">;
+ // Op behaves like a constant.
+ def ConstantLike : NativeOpTrait<"ConstantLike">;
++// Op results depend on its parent op, not only on its operands and attributes.
++def DependsOnParent : NativeOpTrait<"DependsOnParent">;
+ // Op is isolated from above.
+ def IsolatedFromAbove : NativeOpTrait<"IsIsolatedFromAbove">;
+ // Op results are float or vectors/tensors thereof.
+diff --git a/mlir/include/mlir/IR/OpDefinition.h b/mlir/include/mlir/IR/OpDefinition.h
+index 0ab667918..81d6fa4c8 100644
+--- a/mlir/include/mlir/IR/OpDefinition.h
++++ b/mlir/include/mlir/IR/OpDefinition.h
+@@ -1267,6 +1267,14 @@ public:
+   }
+ };
+ 
++/// This class provides the API for ops whose results depend on their parent
++/// operation, and not only on their operands, attributes and properties: the
++/// op reads a value that its parent defines for each execution of the region
++/// it is in (an iteration index, for example). Two such ops are equivalent only
++/// when they have the same parent.
++template <typename ConcreteType>
++class DependsOnParent : public TraitBase<ConcreteType, DependsOnParent> {};
++
+ /// This class provides the API for ops that are known to be isolated from
+ /// above.
+ template <typename ConcreteType>
+diff --git a/mlir/lib/Transforms/Utils/CSE.cpp b/mlir/lib/Transforms/Utils/CSE.cpp
+index 5af76bc99..ef642b9fc 100644
+--- a/mlir/lib/Transforms/Utils/CSE.cpp
++++ b/mlir/lib/Transforms/Utils/CSE.cpp
+@@ -27,17 +27,27 @@ using namespace mlir;
+ namespace {
+ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
+   static unsigned getHashValue(const Operation *opC) {
+-    return OperationEquivalence::computeHash(
+-        const_cast<Operation *>(opC),
++    auto *op = const_cast<Operation *>(opC);
++    llvm::hash_code hash = OperationEquivalence::computeHash(
++        op,
+         /*hashOperands=*/OperationEquivalence::directHashValue,
+         /*hashResults=*/OperationEquivalence::ignoreHashValue,
+         OperationEquivalence::IgnoreLocations);
++    if (op->hasTrait<OpTrait::DependsOnParent>())
++      return llvm::hash_combine(hash, op->getParentOp());
++    return hash;
+   }
+   static bool isEqual(const Operation *lhsC, const Operation *rhsC) {
+     auto *lhs = const_cast<Operation *>(lhsC);
+     auto *rhs = const_cast<Operation *>(rhsC);
+     if (lhs == rhs)
+       return true;
++    // The scope of known values spans nested regions that are not isolated
++    // from above, so an op that depends on its parent may meet an identical
++    // op of another parent, which computes another value.
++    if (lhs->hasTrait<OpTrait::DependsOnParent>() &&
++        lhs->getParentOp() != rhs->getParentOp())
++      return false;
+     return OperationEquivalence::isEquivalentTo(
+         const_cast<Operation *>(lhsC), const_cast<Operation *>(rhsC),
+         OperationEquivalence::IgnoreLocations);
+diff --git a/mlir/test/Transforms/cse.mlir b/mlir/test/Transforms/cse.mlir
+index 4b2907287..003f7e1ef 100644
+--- a/mlir/test/Transforms/cse.mlir
++++ b/mlir/test/Transforms/cse.mlir
+@@ -683,3 +683,40 @@ func.func @cse_pointer_write_does_not_block_non_addressable_read() -> i32 {
+   %2 = arith.addi %0, %1 : i32
+   return %2 : i32
+ }
++
++// -----
++
++/// `linalg.index` is the iteration index of its parent: the index of a nested
++/// generic is not the enclosing generic's, while two of the same generic are
++/// one value.
++#map = affine_map<(d0) -> (d0)>
++// CHECK-LABEL: @nested_linalg_index
++func.func @nested_linalg_index(%n: index, %m: index) -> tensor<?xindex> {
++  %e = tensor.empty(%n) : tensor<?xindex>
++  // CHECK: linalg.generic
++  %r = linalg.generic {indexing_maps = [#map], iterator_types = ["parallel"]} outs(%e : tensor<?xindex>) {
++  ^bb0(%out: index):
++    // CHECK-NEXT: ^bb0
++    // CHECK-NEXT: %[[I:.*]] = linalg.index 0 : index
++    %i = linalg.index 0 : index
++    %i2 = linalg.index 0 : index
++    %ie = tensor.empty(%m) : tensor<?xindex>
++    // CHECK: linalg.generic
++    %inner = linalg.generic {indexing_maps = [#map], iterator_types = ["parallel"]} outs(%ie : tensor<?xindex>) {
++    ^bb1(%o: index):
++      // CHECK-NEXT: ^bb0
++      // CHECK-NEXT: %[[J:.*]] = linalg.index 0 : index
++      // CHECK-NEXT: linalg.yield %[[J]] : index
++      %j = linalg.index 0 : index
++      linalg.yield %j : index
++    } -> tensor<?xindex>
++    %c0 = arith.constant 0 : index
++    %x = tensor.extract %inner[%c0] : tensor<?xindex>
++    // CHECK: %[[S:.*]] = arith.addi %[[I]], %{{.*}} : index
++    // CHECK-NEXT: arith.addi %[[S]], %[[I]] : index
++    %s = arith.addi %i, %x : index
++    %t = arith.addi %s, %i2 : index
++    linalg.yield %t : index
++  } -> tensor<?xindex>
++  return %r : tensor<?xindex>
++}

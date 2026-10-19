@@ -158,6 +158,26 @@ which the top-level CMake configure gate reads.
   issue and a PR with an llc test
 - status (2026-10-19): carried; not filed
 
+## cse-nested-linalg-index
+
+- symptom: on main at 7208ba24 (and on main on 2026-10-19), cse replaces
+  the `linalg.index` of a structured op nested in another's body by the
+  enclosing op's index of the same dimension: `linalg.index` is `Pure` with
+  no operand, and cse shares its known values across nested regions that
+  are not isolated from above. An array tabulated in a tabulate's body read
+  its row index for its column index after the cse that follows
+  idr-bufferize, a silent miscompile (tests/linarray-rows-crash-order)
+- sites: foreign/idr/lib/Transforms/StructureLoops (a tabulate in a
+  tabulate's body is a linalg.generic in another's body);
+  foreign/idr/lib/Transforms/Pipeline.cpp (cse after idr-bufferize)
+- workaround: `upstream/56-cse-nested-linalg-index/llvm.patch`: the trait
+  `DependsOnParent` on `linalg.index`, and cse's key for such an op holds
+  its parent; checked by tests/upstream-cse-nested-linalg-index
+- retire: drop the patch when the pin has the fix
+- upstream: upstream/56-cse-nested-linalg-index; plan in its README: a PR
+  that fixes issue #62644, perhaps after an RFC for the trait
+- status (2026-10-19): carried; not filed
+
 ## remove-dead-values-unreachable
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

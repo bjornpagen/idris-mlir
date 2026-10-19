@@ -106,6 +106,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 53 | constructor-implicit-mark | nothing (**Idris**) | carried as fork code (compiler/idris); series 50 → 52 → 53, the diff applied after 52's and recording 54 too |
 | 54 | erased-constant-pattern | nothing (**Idris**) | carried as fork code (compiler/idris), in 53's diff |
 | 55 | lazy-case-scrutinee | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| 56 | cse-nested-linalg-index | a comment on #62644 and a PR that fixes it: the trait `DependsOnParent` on `linalg.index`, and CSE's key for such an op holds its parent (cse.mlir), perhaps after an RFC for the trait | carried; not filed; tested on a private mlir-opt |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
