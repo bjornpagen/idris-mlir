@@ -61,6 +61,7 @@ add_mlir_library(IdrSpecialize
 	Specialize/Requests.cpp
 	Specialize/Specialization.cpp
 	Specialize/Keys.cpp
+	Specialize/Order.cpp
 	Specialize/Consumer.cpp
 	Specialize/Raise.cpp
 	Specialize/Redirect.cpp
