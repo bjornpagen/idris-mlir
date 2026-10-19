@@ -1,0 +1,51 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# One checkout's compile is another's ccache hit: the launcher the build
+# configured (the LAUNCHER of build.ninja's compiles) names the checkout as ccache's
+# base directory, hashes no build directory, and every compile maps the
+# checkout's paths away (-ffile-prefix-map), so the same unit compiled under
+# another root is found in the cache. Run with the dev build's launcher and
+# a compile command of its own (compile_commands.json, a runtime unit), into
+# a cache of the test's own with the shared cache's settings: once from the
+# checkout, then from a second root that is the same tree under another
+# path, as a clone of the repository is.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+commands=$dev_prefix/compile_commands.json
+launcher=$(sed -n 's/^[[:space:]]*LAUNCHER = //p' "$dev_prefix/build.ninja" 2> /dev/null | head -n 1)
+if [ -z "$launcher" ]; then
+  say "the dev build's compiles have no ccache launcher ($dev_prefix/build.ninja)"
+  exit 0
+fi
+unit=$root/runtime/Rc/Counting.cpp
+command=$(awk -v unit="\"file\": \"$unit\"" '
+  /"command":/ { line = $0 }
+  index($0, unit) { sub(/^[[:space:]]*"command": "/, "", line); sub(/",$/, "", line); print line; exit }' "$commands" |
+  sed 's/\\\\/\x01/g; s/\\"/"/g; s/\x01/\\/g')
+if [ -z "$command" ]; then
+  say "compile_commands.json holds no command for $unit"
+  exit 0
+fi
+mkdir "$work/cache"
+cp "$root/.toolchain/ccache/ccache.conf" "$work/cache/" 2> /dev/null
+alias=$work/alias
+ln -s "$root" "$alias"
+# compile ROOT: the unit, compiled by the launcher as ROOT's build would
+# write it, into the test's cache; ccache's count of hits after it.
+compile() {
+  compile_launcher=$(printf '%s' "$launcher" | sed "s|$root|$1|g; s|CCACHE_DIR=[^ ]*|CCACHE_DIR=$work/cache|")
+  compile_command=$(printf '%s' "$command" | sed "s|$root|$1|g; s| -o [^ ]*| -o $work/unit.o|")
+  (cd "$1/build/$dev_preset" && PWD=$1/build/$dev_preset && export PWD &&
+    sh -c "$compile_launcher $compile_command") > "$work/compile.log" 2>&1 ||
+    { say "the compile under $1 fails"; show "$work/compile.log"; exit 0; }
+  CCACHE_DIR=$work/cache ccache --print-stats | sed -n 's/^direct_cache_hit[[:space:]]*//p; s/^preprocessed_cache_hit[[:space:]]*//p' |
+    awk '{ n += $1 } END { print n + 0 }'
+}
+first=$(compile "$root")
+second=$(compile "$alias")
+say "this checkout: $first hits, the unit cached"
+if [ "$second" -gt "$first" ]; then
+  say "another checkout: a hit"
+else
+  say "another checkout: a miss, so no checkout shares another's compiles"
+fi

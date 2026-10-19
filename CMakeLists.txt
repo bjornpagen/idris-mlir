@@ -35,18 +35,29 @@ endif()
 # ccache, when the machine has one (on PATH, or MacPorts'), launches every
 # C and C++ compile, on the cache tools/bootstrap.sh configures
 # (.toolchain/ccache): a rebuild recompiles only what changed, in every
-# preset, as in the toolchain's builds. CMake copies it onto each target
-# created after it. No target uses a precompiled header, which ccache
-# cannot cache. The launcher changes nothing a compile produces.
+# preset and every checkout, as in the toolchain's builds. Each checkout
+# names its own root as ccache's base directory, so every path under it is
+# hashed relative to it and one checkout's compile is another's hit; the
+# cache's settings (tools/bootstrap.sh) hash no build directory, which is
+# right because no object holds it (-ffile-prefix-map, below), and
+# tests/ccache-shared checks the hit. CMake copies the launcher onto
+# each target created after it. No target uses a precompiled header, which
+# ccache cannot cache. The launcher changes nothing a compile produces.
 find_program(IDRIS_MLIR_CCACHE ccache HINTS /opt/local/bin)
 if(IDRIS_MLIR_CCACHE)
 	set(IDRIS_MLIR_CCACHE_LAUNCHER "${CMAKE_COMMAND}" -E env
-		"CCACHE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.toolchain/ccache" "${IDRIS_MLIR_CCACHE}")
+		"CCACHE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.toolchain/ccache"
+		"CCACHE_BASEDIR=${CMAKE_CURRENT_SOURCE_DIR}" "${IDRIS_MLIR_CCACHE}")
 	set(CMAKE_C_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
 	set(CMAKE_CXX_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
 endif()
 
 project(idris_mlir LANGUAGES C CXX)
+
+# What a compile writes holds no path of the checkout it ran in: its debug
+# info, its __FILE__s and its coverage name files relative to the
+# checkout's root, so an object is the same whichever checkout built it.
+add_compile_options("-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=.")
 
 # The typecheck build (make typecheck, the typecheck preset, whose
 # toolchain file tools/bootstrap.sh typecheck writes): every unit of

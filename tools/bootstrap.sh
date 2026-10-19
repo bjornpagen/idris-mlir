@@ -248,16 +248,20 @@ jobs=$ncpu
 # recompiles only what changed. It is no input of any step, since it does
 # not change what a step builds. The cache is .toolchain/ccache, and its
 # settings are its own configuration file, which every run of ccache on it
-# reads (ours, our CMake build's, `ccache -s`), so that the one thing a
-# user of the cache names is CCACHE_DIR: a 1T cap; paths under the
-# repository hashed relative to it; and the times of headers ignored, since
-# the patched llvm-project is written just before it is built.
+# reads (ours, our CMake build's, `ccache -s`): a 1T cap; the times of
+# headers ignored, since the patched llvm-project is written just before it
+# is built; and no build directory hashed, since a compile of the same unit
+# in another directory, or another checkout, makes the same object (our
+# build maps its paths away). What a user of the cache names is CCACHE_DIR
+# and its own root, CCACHE_BASEDIR, under which paths are hashed relative
+# to it, so the cache is shared by every checkout and names none.
 ccache=$(host_path ccache) || ccache=
 if [ -n "$ccache" ]; then
   CCACHE_DIR=$toolchain/ccache
-  export CCACHE_DIR
+  CCACHE_BASEDIR=$root
+  export CCACHE_DIR CCACHE_BASEDIR
   mkdir -p "$CCACHE_DIR"
-  printf '%s\n' 'max_size = 1T' "base_dir = $root" 'sloppiness = include_file_ctime,include_file_mtime' \
+  printf '%s\n' 'max_size = 1T' 'sloppiness = include_file_ctime,include_file_mtime' 'hash_dir = false' \
     > "$CCACHE_DIR/ccache.conf"
   ccache_state="ccache $CCACHE_DIR"
 else
