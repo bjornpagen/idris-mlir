@@ -127,10 +127,10 @@ void BigFromUIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   setBounds(getResult(), idr::ranges::ofInteger(ranges[0], isSigned), setResultRange);
 }
 
-// A small's word is read signed.
+// A small is its word, which the op's writer proved inside the small range.
 void BigSmallOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                    SetIntRangeFn setResultRange) {
-  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], /*isSigned=*/true), setResultRange);
+  setBounds(getResult(), idr::ranges::ofSmall(ranges[0]), setResultRange);
 }
 
 // The value, wrapped to the width: exact when every value fits the width.

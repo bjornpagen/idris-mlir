@@ -42,6 +42,22 @@ public:
       return success();
     return IntegerRangeAnalysis::visitOperation(op, operands, results);
   }
+
+  // A literal match's default binds the scrutinee itself, at its view: its
+  // argument has the scrutinee's range, which the match forwards to no
+  // region as an operand (the region binds it in place), so MLIR's
+  // analysis would start it at its type's range and lose a natural's bound
+  // in every arm that takes a successor apart.
+  void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
+                                    ValueRange inputs,
+                                    ArrayRef<IntegerValueRangeLattice *> lattices) override {
+    auto match = dyn_cast<idr::MatchLitOp>(op);
+    if (!match || successor.getSuccessor() != &match.getDefaultRegion() || inputs.size() != 1)
+      return IntegerRangeAnalysis::visitNonControlFlowArguments(op, successor, inputs, lattices);
+    const IntegerValueRangeLattice *scrutinee = getLatticeElementFor(
+        getProgramPointBefore(&match.getDefaultRegion().front()), match.getScrutinee());
+    propagateIfChanged(lattices.front(), lattices.front()->join(scrutinee->getValue()));
+  }
 };
 
 } // namespace

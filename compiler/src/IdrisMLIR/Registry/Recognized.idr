@@ -128,7 +128,9 @@ identityOn ns name = MkEntry (Def (MkQName ns name)) Bodiless IdentityOnLastArgu
 ||| The array language's two value types, whose shape type the entries pin;
 ||| its generating set and the operations of its linear arrays, whose calls
 ||| are the tensor operations of their sequential meaning; and base's
-||| `natToFinLT`, the identity on its natural, a `Fin` being one.
+||| `natToFinLT` and `finToNat`, the identity on a natural, a `Fin` being
+||| one: a coordinate is its natural, so an index's position reads as the
+||| index, and a loop over an array computes on words.
 arrayLanguage : List Entry
 arrayLanguage =
   [ MkEntry (Def (MkQName arrayCore "Array")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
@@ -159,6 +161,9 @@ arrayLanguage =
   , generating larrayCore "grow" AGrow
   , MkEntry (Def (MkQName ["Data", "Fin"] "natToFinLT"))
             (Typed (arg nat (implicits 2 (Head (Def (MkQName ["Data", "Fin"] "Fin")) [Hole]))))
+            IdentityOnLastArgument
+  , MkEntry (Def (MkQName ["Data", "Fin"] "finToNat"))
+            (Typed (implicits 1 (arg (Head (Def (MkQName ["Data", "Fin"] "Fin")) [Hole]) nat)))
             IdentityOnLastArgument ]
 
 ------------------------------------------------------------------------------

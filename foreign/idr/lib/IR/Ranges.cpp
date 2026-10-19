@@ -73,6 +73,15 @@ Bounds mul(Bounds a, Bounds b) noexcept {
   return {};
 }
 
+Bounds ofSmall(const ConstantIntRanges &range) noexcept {
+  int64_t lo = IDRIS_RT_SMALL_MIN, hi = IDRIS_RT_SMALL_MAX;
+  if (range.smin().getBitWidth() == 64) {
+    lo = std::clamp(range.smin().getSExtValue(), lo, hi);
+    hi = std::clamp(range.smax().getSExtValue(), lo, hi);
+  }
+  return {lo, hi};
+}
+
 Bounds ofInteger(const ConstantIntRanges &range, bool isSigned) noexcept {
   unsigned width = range.smin().getBitWidth();
   if (width == 0 || width > 64)

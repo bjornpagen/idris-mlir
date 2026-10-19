@@ -47,6 +47,10 @@ Bounds add(Bounds a, Bounds b) noexcept;
 Bounds sub(Bounds a, Bounds b) noexcept;
 Bounds mul(Bounds a, Bounds b) noexcept;
 
+// The bounds of a 64-bit word known to fit a small, of range `range`: the
+// range cut to the small range, so both bounds are known.
+Bounds ofSmall(const mlir::ConstantIntRanges &range) noexcept;
+
 // The bounds of an integer operand of range `range`, read as `isSigned`
 // says.
 Bounds ofInteger(const mlir::ConstantIntRanges &range, bool isSigned) noexcept;
