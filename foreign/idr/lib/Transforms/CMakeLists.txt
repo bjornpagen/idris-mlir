@@ -222,6 +222,7 @@ add_mlir_library(IdrOwnership
 add_mlir_library(IdrTail
 	Tail/Accumulate.cpp
 	Tail/Frames.cpp
+	Tail/FramesPlan.cpp
 	Tail/AccumulatorPlan.cpp
 	Tail/Trmc.cpp
 	Tail/TailLoops.cpp

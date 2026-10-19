@@ -27,6 +27,7 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -125,6 +126,49 @@ struct Site {
 // The accumulator tails of `fn`, or none when a self call is not one or
 // none of them is an addition.
 llvm::SmallVector<Site> accumulatorSites(FuncOp fn);
+
+//===----------------------------------------------------------------------===//
+// Frames
+//===----------------------------------------------------------------------===//
+
+// A component's functions, by name.
+using Members = llvm::DenseMap<mlir::StringAttr, FuncOp>;
+
+// The member `op` calls, when it is a call of one.
+FuncOp memberCalled(mlir::Operation *op, const Members &members);
+
+// A call of a member that runs a part of a closure, in a tail block of its
+// function, and what the rest of the block reads that the call does not
+// make: the values its frame holds. A constant the rest reads is made
+// again where it resumes.
+struct Frame {
+  CallOp call;
+  FuncOp owner, callee;
+  llvm::SetVector<mlir::Value> held;
+};
+
+// The ops of the call's block after `call`, its terminator among them.
+llvm::iterator_range<mlir::Block::iterator> restOf(CallOp call);
+// Whether `value` is made by an op of the rest after `call`, or bound by a
+// region of one.
+bool madeInRest(CallOp call, mlir::Value value);
+bool isConstant(mlir::Value value);
+
+// What becomes of one component: its members, its frames, the stack's data
+// type, each member's run and resume.
+struct FramesPlan {
+  llvm::SmallVector<FuncOp> members;
+  Members byName;
+  llvm::SmallVector<Frame> frames;
+  mlir::StringAttr stack;
+  llvm::DenseMap<mlir::Operation *, std::pair<mlir::StringAttr, mlir::StringAttr>> names;
+};
+
+// The plan of a component; none when no member has a frame, or when the
+// members differ in what they may do or in their proof that they end,
+// which their runs and resumes, each running the others' rests, share.
+mlir::FailureOr<std::optional<FramesPlan>>
+framesPlanOf(llvm::ArrayRef<mlir::Operation *> component, mlir::SymbolTable &symbols);
 
 //===----------------------------------------------------------------------===//
 // Returned arguments
