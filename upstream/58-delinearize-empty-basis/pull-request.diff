@@ -1,0 +1,53 @@
+Subject: [PATCH] [mlir][affine] Verify that affine.delinearize_index has a result
+
+The generated verifier of affine.delinearize_index reads the type of its
+first result to compare it with the linear index's (the TypesMatchWith
+that infers the linear index's type when parsing), so an op with an
+empty basis and no result, which the builders make, asserted instead of
+being reported. Such an op cannot be meant: the custom form cannot spell
+it and the folder returns one result for it. Declare that the op has a
+result, before the type check, and say so in its description.
+
+---
+diff --git a/mlir/include/mlir/Dialect/Affine/IR/AffineOps.td b/mlir/include/mlir/Dialect/Affine/IR/AffineOps.td
+index 6215d5c29..8eea8b475 100644
+--- a/mlir/include/mlir/Dialect/Affine/IR/AffineOps.td
++++ b/mlir/include/mlir/Dialect/Affine/IR/AffineOps.td
+@@ -1109,6 +1109,8 @@ def AffineVectorStoreOp : AffineStoreOpBase<"vector_store"> {
+ def AffineDelinearizeIndexOp : Affine_Op<"delinearize_index",
+     [Pure, Elementwise,
+      DeclareOpInterfaceMethods<InferIntDivisibilityOpInterface>,
++     // Checked before the first result type is read below.
++     PredOpTrait<"has at least one result", CPred<"$_op.getNumResults() != 0">>,
+      // Infer linear_index type from the first result type during parsing.
+      TypesMatchWith<"linear_index type must match result types",
+                     "multi_index", "linear_index", "$_self[0]">
+@@ -1138,7 +1140,8 @@ def AffineDelinearizeIndexOp : Affine_Op<"delinearize_index",
+     In other words, `%0:3 = affine.delinearize_index %x into (B, C)` produces
+     `%0 = {%x / (B * C), (%x mod (B * C)) / C, %x mod C}`.
+ 
+-    The basis may either contain `N` or `N-1` elements, where `N` is the number of results.
++    The basis may either contain `N` or `N-1` elements, where `N` is the number of results,
++    of which there is at least one.
+     If there are N basis elements, the first one will not be used during computations,
+     but may be used during analysis and canonicalization to eliminate terms from
+     the `affine.delinearize_index` or to enable conclusions about the total size of
+diff --git a/mlir/test/Dialect/Affine/invalid.mlir b/mlir/test/Dialect/Affine/invalid.mlir
+index 3afebfcc0..ceaa41334 100644
+--- a/mlir/test/Dialect/Affine/invalid.mlir
++++ b/mlir/test/Dialect/Affine/invalid.mlir
+@@ -522,6 +522,14 @@ func.func @delinearize(%idx: index) {
+ 
+ // -----
+ 
++func.func @delinearize_no_result(%idx: index) {
++  // expected-error@+1 {{'affine.delinearize_index' op failed to verify that has at least one result}}
++  "affine.delinearize_index"(%idx) <{static_basis = array<i64>}> : (index) -> ()
++  return
++}
++
++// -----
++
+ func.func @linearize(%idx: index, %basis0: index, %basis1 :index) -> index {
+   // expected-error@+1 {{'affine.linearize_index' op should be passed a basis element for each index except possibly the first}}
+   %0 = affine.linearize_index [%idx] by (%basis0, %basis1) : index

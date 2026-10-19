@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The upstream bug upstream/58-delinearize-empty-basis still reproduces with
+# the pinned mlir-opt: the generated verifier of an affine.delinearize_index
+# with no result reads the first result's type and asserts, where it should
+# report the op. This repository carries no patch for it (the README says
+# why). When this fails, the bug is fixed: the report and this test go
+# (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/58-delinearize-empty-basis/delinearize-empty-basis.mlir
+bounded "$llvm_bin/mlir-opt" "$input" -o "$work/out.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -gt 128 ] && grep -q 'invalid index into type range' "$work/err"; then
+  say "still reproduces (the verifier asserts reading a result type)"
+elif [ "$status" -eq 1 ]; then
+  say "no longer reproduces (the verifier reports the op)"
+  show "$work/err"
+else
+  say "mlir-opt exits $status, which is not this bug"
+  show "$work/err"
+fi

@@ -37,8 +37,8 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   **Rules for sending**).
 - `pull-request.diff`: for LLVM, the pull request for a change this
   repository does not carry as a patch (08, 17, since the pipeline
-  cutover 02, 16 and 22, and 25 and 27, which nothing in the tree ever
-  reached, **When nothing reaches the bug** below), which the bootstrap
+  cutover 02, 16 and 22, and 25, 27 and 58, which nothing in the tree
+  reaches, **When nothing reaches the bug** below), which the bootstrap
   therefore never applies; apply it with `git apply`, and take the commit
   message from `submission.md`, never from the file's header. For simdutf
   and snmalloc (48, 49), the pull request to that project, which no patch
@@ -108,6 +108,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 55 | lazy-case-scrutinee | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 56 | cse-nested-linalg-index | a comment on #62644 and a PR that fixes it: the trait `DependsOnParent` on `linalg.index`, and CSE's key for such an op holds its parent (cse.mlir), perhaps after an RFC for the trait | carried; not filed; tested on a private mlir-opt |
 | 57 | linalg-index-int-range | PR: an `InferIntRangeInterface` model for `linalg.index`, [0, extent - 1] (Linalg int-range-interface.mlir) | carried; not filed; tested on a private mlir-opt |
+| 58 | delinearize-empty-basis | issue + PR: affine.delinearize_index declares that it has a result, which the generated verifier checks before it reads the first result's type (Affine invalid.mlir) | not carried (nothing in the tree reaches it); not filed; pull-request.diff; tested on a private mlir-opt |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
