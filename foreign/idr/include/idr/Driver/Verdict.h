@@ -23,14 +23,16 @@
 namespace idr::driver {
 
 // What a compilation's errors make of it, each worse than the one before.
-// Refused: an error that names a rule, the program's. Internal: any other
-// error, the compiler's: every step that fails says why in the
+// Refused: an error that names a rule, the program's. Environment: a tool
+// the compilation runs (the frontend beside the driver) could not run or
+// did not finish, which is the installation's, so the program was never
+// judged. Internal: any other error, the compiler's: every step that fails says why in the
 // compilation's diagnostic engine, so a failure is always an error. The
 // worst seen wins. A refusal fails the step that makes it, so no step runs
 // after it and no error is its cascade: an internal error beside a refusal
 // is from the same step, the compiler's, which must be fixed before the
 // refusal can be believed.
-enum class Verdict : std::uint8_t { Accepted, Refused, Internal };
+enum class Verdict : std::uint8_t { Accepted, Refused, Environment, Internal };
 
 // What a verdict is outside the compiler: its name in a report and the
 // exit status it gives. The one table of both, which statusOf and nameOf
@@ -46,6 +48,8 @@ inline VerdictRow rowOf(Verdict verdict) {
     return {"accepted", ok};
   case Verdict::Refused:
     return {"refused", rejected};
+  case Verdict::Environment:
+    return {"environment", failure};
   case Verdict::Internal:
     return {"internal", failure};
   }

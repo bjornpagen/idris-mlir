@@ -9,6 +9,7 @@
 
 #include "idr/Driver/Artifacts.h"
 #include "idr/Driver/Options.h"
+#include "idr/Driver/Report.h"
 #include "idr/Driver/Verdict.h"
 #include "idr/Support/Profile.h"
 
@@ -42,9 +43,11 @@ using namespace idr::driver;
 // reads no environment, so its prefix and package directories are its
 // arguments. It prints no refusal: it writes each into the module it
 // leaves (run reads them), so its exit status once it finished is all this
-// returns. One that did not run or did not finish is the compiler's.
+// returns. One that did not run or did not finish is the installation's,
+// said in the driver's own form and recorded as such: no diagnostic of the
+// compilation's says it.
 static mlir::FailureOr<int> frontend(llvm::StringRef frontendPath, const FromIdris &idris,
-                                     mlir::MLIRContext &context) {
+                                     Outcome &outcome) {
   const FrontendArgs &options = idris.frontend;
   std::vector<std::string> args{frontendPath.str(), "--prefix", options.prefix};
   for (const std::string &directory : options.packagePath)
@@ -59,13 +62,14 @@ static mlir::FailureOr<int> frontend(llvm::StringRef frontendPath, const FromIdr
   bool notRun = false;
   int status = llvm::sys::ExecuteAndWait(frontendPath, argv, std::nullopt, {}, 0, 0, &error,
                                          &notRun);
-  mlir::Location unknown = mlir::UnknownLoc::get(&context);
-  if (notRun)
-    return mlir::emitError(unknown) << "cannot run " << frontendPath << ": " << error;
   // A negative status is no exit of the frontend's: it was killed, or not
   // waited for.
-  if (status < 0)
-    return mlir::emitError(unknown) << frontendPath << " did not finish: " << error;
+  if (notRun || status < 0) {
+    Report() << "the frontend " << frontendPath << (notRun ? " cannot run: " : " did not finish: ")
+             << error;
+    outcome.see(Verdict::Environment);
+    return mlir::failure();
+  }
   return status;
 }
 
@@ -103,7 +107,7 @@ static void chain(llvm::StringRef frontendPath, const Compile &invocation, Artif
                      [&](const FromIdris &idris) {
                        IDR_ZONE_IN("frontend", Driver);
                        mlir::TimingScope frontendTiming = rootTiming.nest("frontend");
-                       return frontend(frontendPath, idris, context);
+                       return frontend(frontendPath, idris, outcome);
                      },
                      [](const FromModule &) { return mlir::FailureOr<int>(ok); }),
                  artifacts.source);

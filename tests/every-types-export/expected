@@ -1,7 +1,5 @@
 compile: exit 0
 artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
+cases: each as expected
 universal: holds
 prelude Prelude.Types: 122 exports, each used (8 compile-time only: (<=>) Dec Either Maybe MkRange Nat Range Stream.Stream)

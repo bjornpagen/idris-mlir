@@ -19,6 +19,7 @@
 ||| tests nothing, so a clause that holds one at run time still matches.
 module IdrisMLIR.Frontend.Translate.Forced
 
+import Core.Case.CaseBuilder
 import Core.Case.CaseTree
 import Core.Context
 import Core.Core
@@ -80,7 +81,7 @@ mutual
   patternOf (PCon _ n _ _ ps) = MkPattern [] (Con n (patternsOf ps))
   patternOf (PTyCon _ n _ ps) = MkPattern [] (Con n (patternsOf ps))
   patternOf (PConst _ c) = MkPattern [] (Lit c)
-  patternOf (PArrow _ _ s t) = MkPattern [] (Con (UN (Basic "->")) [patternOf s, patternOf t])
+  patternOf (PArrow _ _ s t) = MkPattern [] (Con arrowConName [patternOf s, patternOf t])
   patternOf (PDelay _ _ t p) = MkPattern [] (Suspended (patternOf t) (patternOf p))
   patternOf (PLoc _ n) = MkPattern (binderOf n) Untested
   patternOf (PUnmatchable _ _) = wildcard

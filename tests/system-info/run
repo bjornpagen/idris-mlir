@@ -4,7 +4,7 @@
 # The processor count is the host's (tools/host.sh), so expected-stdout is
 # written here: the rest of it is the same on every host.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-mkdir "$work/fixture"
+mkdir -p "$work/fixture/cases/no-input"
 cp Main.idr "$work/fixture/"
-printf '%s\n' "a name" no mlir "$ncpu_total" > "$work/fixture/expected-stdout"
+printf '%s\n' "a name" no mlir "$ncpu_total" > "$work/fixture/cases/no-input/expected-stdout"
 e2e_io "$work/fixture"

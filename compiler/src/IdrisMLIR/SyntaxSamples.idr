@@ -202,8 +202,7 @@ block vs ss = MkRegion (map (\v => MkArgument v (At noLoc)) vs) ss
 index : Integer -> Op
 index n = Arith.constantOp (IntegerAttr n IndexType) IndexType
 
-||| One op of each shape, in a function of the values they use: the root
-||| the program names.
+||| One op of each shape, in a function of the values they use.
 sample : Statement
 sample =
   let v = MkValue "%v" dataT
@@ -308,6 +307,14 @@ thunk =
   in stmt (Idr.funcOp {noInline = True} "thunk"
             (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
 
+||| The program's root, which gives back the world it is given: a root's
+||| type is the verifier's rule, which @sample's values are no part of.
+root : Statement
+root =
+  let w = MkValue "%w" world
+  in stmt (Idr.funcOp "root" (FunctionType (MkSignature [world] [world]))
+            (block [w] [stmt (Idr.returnOp [w])]))
+
 ||| A function that returns nothing.
 nothing : Statement
 nothing =
@@ -315,19 +322,19 @@ nothing =
          (block [] [stmt (Idr.returnOp [])]))
 
 ||| The module, with the type and attribute samples as its discardable
-||| attributes, and the program of the op samples, whose root is `@sample`.
+||| attributes, and the program of the op samples, whose root is `@root`.
 containers : List Container
 containers =
   [ (At noLoc, \body => { attributes := named "sample.t" (map TypeAttr types) ++ named "sample.a" attrs }
                           (Builtin.moduleOp body))
-  , (At noLoc, Idr.programOp "samples" "sample" Stage.Higher) ]
+  , (At noLoc, Idr.programOp "samples" "root" Stage.Higher) ]
 
 ||| Writes the samples to `path`.
 writeSamples : String -> IO ()
 writeSamples path = do
   Right w <- newWriter table
     | Left e => die ("syntax-samples: " ++ e)
-  for_ [sample, callee, thunk, nothing] $ \s => do
+  for_ [sample, callee, thunk, nothing, root] $ \s => do
     Right () <- writeTopLevel w s
       | Left e => die ("syntax-samples: " ++ e)
     pure ()

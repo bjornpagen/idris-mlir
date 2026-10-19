@@ -63,6 +63,13 @@ Class Classes::classOf(Value value) {
   Operation *def = value.getDefiningOp();
   if (!holdsReferences(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def))
     return Class::Untracked;
+  // A capture a force takes over from a memo cell's label
+  // (forceTakesCaptures), bound by a case or read by idr.field, is owned,
+  // and no read takes another; static data's too, whose drop runs nothing,
+  // so that it is counted as its type says wherever a later pass moves it.
+  if (std::optional<std::pair<DataType, Tag>> read = labelRead(value);
+      read && forceTakesCaptures(read->first, read->first.getCtor(read->second)))
+    return Class::Owned;
   // An op that only changes a grade but takes its operand over (a linear
   // position) holds what that operand holds once counted: a static operand
   // gets a reference of its own there, which no count reaches but which
@@ -87,14 +94,6 @@ Class Classes::classOf(Value value) {
   // value, which only an unreachable block makes, finds it owned. A value
   // read from another that is not alive at each of its uses, and an
   // element, take a reference of their own where they are read.
-  // A capture a force takes over from a memo cell's label
-  // (forceTakesCaptures), bound by a case or read by idr.field, is owned,
-  // and no read takes another.
-  if (std::optional<std::pair<DataType, Tag>> read = labelRead(value);
-      read && forceTakesCaptures(read->first, read->first.getCtor(read->second))) {
-    classes[value] = Class::Owned;
-    return Class::Owned;
-  }
   std::optional<Value> from = readThrough(value);
   Class result = from ? Class::OwnedAtRead : Class::Owned;
   classes[value] = result;

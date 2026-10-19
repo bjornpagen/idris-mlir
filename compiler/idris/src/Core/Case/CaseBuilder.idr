@@ -32,6 +32,12 @@ import Libraries.Text.PrettyPrint.Prettyprinter
 
 %hide Symbols.equals
 
+||| The name a case tree gives the alternative of a function type: the
+||| type constructor `->`, applied to its domain and codomain.
+export
+arrowConName : Name
+arrowConName = UN (Basic "->")
+
 public export
 data Phase = CompileTime RigCount | RunTime
 
@@ -590,7 +596,7 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
     -- The type of 'ConGroup' ensures that we refer to the arguments by
     -- the same name in each of the clauses
     addConG n tag src pargs pats pid rhs []
-        = do cty <- if n == UN (Basic "->")
+        = do cty <- if n == arrowConName
                       then pure $ NBind fc (MN "_" 0) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN "top" 0)))) $
                               (\d, a => pure $ NBind fc (MN "_" 1) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NErased fc Placeholder)))
                                 (\d, a => pure $ NType fc (MN "top" 0)))
@@ -689,7 +695,7 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
            then addConG n 0 src pargs pats pid rhs acc
            else throw (CaseCompile cfc fn (NotFullyApplied n))
     addGroup src (PArrow _ _ s t) pprf pats pid rhs acc
-         = addConG (UN $ Basic "->") 0 src [s, t] pats pid rhs acc
+         = addConG arrowConName 0 src [s, t] pats pid rhs acc
     -- Go inside the delay; we'll flag the case as needing to force its
     -- scrutinee (need to check in 'caseGroups below)
     addGroup src (PDelay _ _ pty parg) pprf pats pid rhs acc
