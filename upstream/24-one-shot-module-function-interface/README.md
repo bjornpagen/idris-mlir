@@ -397,6 +397,26 @@ Not built: no LLVM is built on the machine this was written on.
 
 Stage 2 on each target, then the pull requests' pre-merge CI, are the first
 runs. `check-mlir` has not run with it.
+
+On a private build (2026-10-19, arm64 macOS, Release with assertions, every
+carried patch and 56-58), upstream's lit tests of Dialect/Linalg,
+Bufferization, Tensor, SCF, Affine and Transforms showed what the patch
+breaks:
+- Linalg's matmul-shared-memory-padding.mlir and
+  one-shot-bufferize-empty-tensor-elimination.mlir crashed (SIGSEGV), and
+  pass without the patch. The definite-alias rule asks every value for its
+  aliasing OpOperands, and for an entry block argument of an op that is not
+  bufferizable (a `func.func` outside module bufferization)
+  `detail::unknownGetAliasingOpOperands` read the operands of
+  `value.getDefiningOp()`, null for a block argument. Its comment says the
+  OpOperands are those of the op that owns the block, as
+  `unknownGetAliasingValues` has them; the patch now reads them from
+  `getOwnerOfValue`, and both tests pass.
+- Bufferization's one-shot-module-bufferize.mlir (`@relu_unranked`: "would
+  write to read-only buffer" on the call, and the CHECK at line 54) and
+  one-shot-non-module-bufferize.mlir fail with the patch and pass without
+  it: the call model's writability changes what they expect. Not resolved:
+  each pull request has to update or answer them.
 `tests/upstream-one-shot-module-function-interface` checks the reproducers
 with the toolchain once stage 2 carries the patch.
 

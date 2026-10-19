@@ -468,6 +468,18 @@ index e39b204..1acc98f 100644
                                     const BufferizationOptions &options) {
      if (auto tensorType = mlir::dyn_cast<TensorType>(type)) {
        if (layoutMapOption == LayoutMapOption::IdentityLayoutMap)
+@@ -1032,9 +1032,9 @@ bufferization::detail::unknownGetAliasingOpOperands(Value value) {
+ 
+   // Unknown op: Conservatively assume that each OpResult may alias with every
+   // OpOperand. In addition, each block argument of an entry block may alias
+-  // with every OpOperand.
++  // with every OpOperand of the op that owns the block.
+   AliasingOpOperandList r;
+-  for (OpOperand &operand : value.getDefiningOp()->getOpOperands())
++  for (OpOperand &operand : getOwnerOfValue(value)->getOpOperands())
+     if (isa<TensorLikeType>(operand.get().getType()))
+       r.addAlias({&operand, BufferRelation::Unknown, /*isDefinite=*/false});
+   return r;
 diff --git a/mlir/lib/Dialect/Bufferization/Transforms/BufferUtils.cpp b/mlir/lib/Dialect/Bufferization/Transforms/BufferUtils.cpp
 index c0e0809..c4399d6 100644
 --- a/mlir/lib/Dialect/Bufferization/Transforms/BufferUtils.cpp

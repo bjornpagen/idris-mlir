@@ -77,12 +77,10 @@ Built into a private mlir-opt (Release, assertions, arm64 macOS) from the
 pin with every carried patch and 56, 57 and 58's diff. The patch applies to
 the pristine pin alone and after every carried patch. The reproducer is
 fixed, the new test passes, and fails on the toolchain's mlir-opt. Of
-the lit tests of mlir/test/Transforms, Dialect/Linalg and Dialect/Affine,
-345 of 347 pass; the two that fail (Linalg's
-matmul-shared-memory-padding.mlir and
-one-shot-bufferize-empty-tensor-elimination.mlir) crash in
-`eliminateEmptyTensors` the same way with the toolchain's mlir-opt, which
-has neither patch (audits/bugs.md). check-mlir as a whole was not run.
+the lit tests of mlir/test/Transforms and Dialect/Linalg, Affine,
+Bufferization, Tensor and SCF, 487 of 490 pass, one is an expected
+failure, and the two that fail are Bufferization's that carried patch 24
+breaks (its README). check-mlir as a whole was not run.
 
 ## Upstreaming plan
 
