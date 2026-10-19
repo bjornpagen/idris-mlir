@@ -56,6 +56,12 @@ bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
       (void)goals.push({pred.getValue(), again});
       continue;
     }
+    // An op that only changes its operand's grade (idr.borrow, which
+    // counting puts before each read) gives the same natural.
+    if (Operation *def = value.getDefiningOp(); def && def->hasTrait<ResultCarriesOperand>()) {
+      (void)goals.push({def->getOperand(0), again});
+      continue;
+    }
     if (auto forwarded = dyn_cast<BlockArgument>(value)) {
       if (forwarded.getOwner() != &loop.getAfter().front())
         return false;
@@ -99,7 +105,7 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts
   Block &before = loop.getBefore().front();
   auto yield = cast<scf::YieldOp>(loop.getAfter().front().getTerminator());
   for (BlockArgument arg : before.getArguments())
-    if (isa<NatType>(arg.getType()) && !facts.fits(arg) &&
+    if (isa<NatType>(unrestricted(arg.getType())) && !facts.fits(arg) &&
         descends(yield.getOperand(arg.getArgNumber()), arg, loop))
       return arg.getArgNumber();
   return std::nullopt;
@@ -117,13 +123,35 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
   Type nat = init.getType();
   rewriter.setInsertionPoint(loop);
   APInt max(64, static_cast<uint64_t>(IDRIS_RT_SMALL_MAX), /*isSigned=*/true);
-  Value bound = ConstantOp::create(rewriter, loc, nat, BigAttr::get(ctx, max));
-  Value small = BigCmpOp::create(rewriter, loc, CmpPredicate::lte, init, bound);
-  auto branch = scf::IfOp::create(rewriter, loc, loop.getResultTypes(), small,
-                                  /*withElseRegion=*/true);
+  // The bound is static data: plain before counting, a view after it.
+  Value bound =
+      ConstantOp::create(rewriter, loc, isOwned(nat) ? view(nat) : nat, BigAttr::get(ctx, max));
+  // After counting an owned natural is read through a view of it.
+  Value seen = isOwned(nat) ? BorrowOp::create(rewriter, loc, init).getResult() : init;
+  Value small = BigCmpOp::create(rewriter, loc, CmpPredicate::lte, seen, bound);
+  // The branch gives back the results something reads. A result nothing
+  // reads is what the loop's condition forwards on the path not taken
+  // (poison): left unread in each copy, it stays that, which the owned
+  // stage's verifier sees, and passing it through the branch would not.
+  SmallVector<unsigned> read;
+  SmallVector<Type> types;
+  for (OpResult result : loop->getResults())
+    if (!result.use_empty()) {
+      read.push_back(result.getResultNumber());
+      types.push_back(result.getType());
+    }
+  auto given = [&](Operation *copy) {
+    return llvm::map_to_vector(read, [&](unsigned at) { return Value(copy->getResult(at)); });
+  };
+  auto branch = scf::IfOp::create(rewriter, loc, types, small, /*withElseRegion=*/true);
+  // A branch that gives nothing back was built with its yields.
+  auto yield = [&](ValueRange values) {
+    if (!values.empty())
+      scf::YieldOp::create(rewriter, loc, values);
+  };
 
   rewriter.setInsertionPointToStart(branch.thenBlock());
-  Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), init);
+  Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), seen);
   Value mask =
       arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(IDRIS_RT_SMALL_MAX));
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
@@ -134,12 +162,14 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
     DropOp::create(rewriter, loc, init);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
-  scf::YieldOp::create(rewriter, loc, copy->getResults());
+  yield(given(copy));
 
   rewriter.setInsertionPointToStart(branch.elseBlock());
   Operation *otherwise = rewriter.clone(*loop);
-  scf::YieldOp::create(rewriter, loc, otherwise->getResults());
-  rewriter.replaceOp(loop, branch.getResults());
+  yield(given(otherwise));
+  for (auto [at, result] : llvm::zip_equal(read, branch.getResults()))
+    rewriter.replaceAllUsesWith(loop->getResult(at), result);
+  rewriter.eraseOp(loop);
 }
 
 struct VersionDescending : OpRewritePattern<scf::WhileOp> {

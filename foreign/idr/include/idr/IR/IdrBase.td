@@ -314,9 +314,11 @@ class Idr_BaseListOf<list<Type> elements> : Type<And<[
     Or<!foreach(e, elements, SubstLeaves<"$_self", "::idr::dataTypeOf($_self).getListElement()", e.predicate>)>]>,
     "base's list of " # !interleave(!foreach(e, elements, e.summary), " or "), "::mlir::Type">;
 
-// What a closure, a suspension or a delay captures: any value but the
-// world, which none of them holds.
-def Idr_Capture : Type<CPred<"!::idr::isWorld($_self)">, "a value other than the world", "::mlir::Type">;
+// What a closure, a suspension or a delay captures: a capture becomes a
+// field of a constructor of its sum, so any value a field holds
+// (isFieldType) but the world, which none of them holds.
+def Idr_Capture : Type<CPred<"::idr::isFieldType($_self) && !::idr::isWorld($_self)">,
+                       "a value a field holds, other than the world", "::mlir::Type">;
 
 // The constructor tags a match's cases name: never negative.
 def Idr_TagArray : ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>]>;

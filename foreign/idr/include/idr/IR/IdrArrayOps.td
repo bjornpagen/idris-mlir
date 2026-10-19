@@ -415,7 +415,9 @@ def Idr_ElementUpdateOp : Idr_Op<"element.update", [RecursiveMemoryEffects, Sing
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
   let extraClassDeclaration = [{
-    ::mlir::MemRefType getArrayType() { return getArray().getType(); }
+    ::mlir::MemRefType getArrayType() {
+      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArrayMutable().get().getType()));
+    }
     // The element moved out, which the region rebuilds.
     ::mlir::BlockArgument getElement() { return getBody()->getArgument(0); }
     // The buffer the region's first value moves back into: the operand's

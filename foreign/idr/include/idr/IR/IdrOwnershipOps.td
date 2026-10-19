@@ -372,14 +372,11 @@ def Idr_OwnGiveOp : Idr_Op<"own.give", [Idr_NoRuntimeForm, DeclareOpInterfaceMet
 
 // Idris lets any value fill a quantity-1 binder: what enters is used once
 // from then on.
-// Neither hides the value from an analysis: the integer range of what
-// enters is that of what is used.
 def Idr_LinEnterOp : Idr_Op<"lin.enter", [Idr_ResultCarriesOperand, Idr_SameValue,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     TypesMatchWith<"the operand is the value at any quantity", "result", "value",
-                   "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
+                   "::idr::atQuantity($_self, ::idr::Quantity::Many)">]> {
   let summary = "a value handed to a linear position";
   let arguments = (ins AnyType:$value);
   let results = (outs Res<Idr_LinType, "", [MemAlloc<Idr_LinResource>]>:$result);
@@ -391,8 +388,7 @@ def Idr_LinEnterOp : Idr_Op<"lin.enter", [Idr_ResultCarriesOperand, Idr_SameValu
 def Idr_LinUseOp : Idr_Op<"lin.use", [Idr_ResultCarriesOperand, Idr_SameValue,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     TypesMatchWith<"the result is the value at any quantity", "linear", "result",
-                   "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
+                   "::idr::atQuantity($_self, ::idr::Quantity::Many)">]> {
   let summary = "the one use of a linear value";
   let arguments = (ins Idr_LinType:$linear);
   let results = (outs Res<AnyType, "", [MemAlloc<Idr_LinResource>]>:$result);

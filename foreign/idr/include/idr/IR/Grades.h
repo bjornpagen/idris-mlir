@@ -163,6 +163,22 @@ bool fieldReadOnce(mlir::Value value, unsigned index);
 // grade (graded).
 mlir::Type fieldType(mlir::Type scrutinee, mlir::Type field);
 
+struct Ctor;
+class DataType;
+
+// Whether a force takes over the captures of `ctor`, a constructor of
+// `data`: a label of a memo cell that memoizes. The force enters the cell
+// before it reads them (idr.memo.enter), after which nothing else reads the
+// label's state, and settling it overwrites them, so they are the force's
+// to drop. A label run by name is never written over: its cell keeps them.
+bool forceTakesCaptures(DataType data, const Ctor &ctor);
+
+// The type a match's case binds field `field` of constructor `ctor` at, for
+// a scrutinee of type `scrutinee`: fieldType, but owned where it holds
+// references when a force takes the captures over (forceTakesCaptures) of
+// a cell counting has graded.
+mlir::Type caseFieldType(mlir::Type scrutinee, const Ctor &ctor, mlir::Type field);
+
 // `value` held as `type`, its own type at another quantity: entered into a
 // linear type, or used out of one; itself when the types agree.
 mlir::Value heldAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Type type);

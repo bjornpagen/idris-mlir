@@ -38,6 +38,11 @@ enum class Use { Consume, Borrow };
 // view.
 Use useOf(mlir::OpOperand &operand);
 
+// Whether an op of upstream's writes the value `operand` holds into memory
+// (a memref.store's value): the memory then holds it, and the reference
+// with it.
+bool storedBy(mlir::OpOperand &operand);
+
 // Whether `value` is static: a constant, poison, or a field read from one.
 bool isStatic(mlir::Value value);
 

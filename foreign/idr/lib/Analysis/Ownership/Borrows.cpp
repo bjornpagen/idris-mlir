@@ -8,7 +8,7 @@
 // from it
 //   - is taken apart (its cell is reused only if it is owned);
 //   - is passed to an owned parameter of a call;
-//   - is itself stored in a constructor;
+//   - is itself stored in a constructor, or written into a buffer;
 //   - is returned, or forwarded on (a match's yield, the value a loop
 //     carries round), which owns what it holds;
 // and when an owned value is passed to it by a tail call from the same
@@ -200,6 +200,10 @@ private:
       return ownParameters(con.getFields());
     if (auto init = dyn_cast<CellInitOp>(op))
       return ownParameters(init.getFields());
+    // An op of upstream's that writes a value into memory stores it too.
+    for (OpOperand &operand : op->getOpOperands())
+      if (holdsReferences(operand.get().getType()) && ownership::storedBy(operand))
+        ownParameters(operand.get());
     // Borrowed, a returned or forwarded parameter would need a reference
     // of its own to move on with, and the caller's value would be shared
     // from then on.

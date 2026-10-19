@@ -168,7 +168,8 @@ bool isCountdown(FuncOp fn) {
   if (fn.getNumArguments() != 1 || fn.getNumResults() != 1)
     return false;
   BlockArgument arg = fn.getArgument(0);
-  if (!isa<NatType>(arg.getType()) || !isa<NatType, BigType>(fn.getResultTypes()[0]))
+  if (!isa<NatType>(unrestricted(arg.getType())) ||
+      !isa<NatType, BigType>(unrestricted(fn.getResultTypes()[0])))
     return false;
 
   MatchLitOp match;
@@ -203,7 +204,7 @@ void returnArgument(FuncOp fn, RewriterBase &rewriter) {
   clearBlock(rewriter, entry);
   rewriter.setInsertionPointToStart(&entry);
   Value result = fn.getArgument(0);
-  if (isa<BigType>(fn.getResultTypes()[0]))
+  if (isa<BigType>(unrestricted(fn.getResultTypes()[0])))
     result = NatToBigOp::create(rewriter, fn.getLoc(), result).getResult();
   ReturnOp::create(rewriter, fn.getLoc(), ValueRange{result});
 }

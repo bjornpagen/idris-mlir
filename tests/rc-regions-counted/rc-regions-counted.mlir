@@ -11,7 +11,8 @@
 // arms of an scf.if with an else and of an scf.index_switch, and the
 // region of an array.update, each count what they take (@branches,
 // @switch, @bump); and a self tail call that passes an element of its
-// array is still a tail call, so the walk runs in constant stack (@walk).
+// array is still a tail call, so the walk, a match as the frontend writes
+// one, runs in constant stack (@walk).
 // The root runs each of them on what the input byte sets: buffers of 0 to
 // 3 strings, each filled before it is read, 0 to 3 doublings, both arms of
 // the if, the three cases of the switch, and an element updated; every run
@@ -90,16 +91,19 @@ idr.program @"regions-counted" root(@root) stage(first) {
   }
   idr.func @walk(%a: memref<?x!idr.str>, %i: index, %n: index, %acc: i64) -> i64 {
     %done = arith.cmpi uge, %i, %n : index
-    %r = scf.if %done -> (i64) {
-      scf.yield %acc : i64
-    } else {
+    %r = idr.match_lit %done : i1 -> (i64) {
+    case true {
+      idr.yield %acc : i64
+    }
+    default(%more: i1) {
       %s = memref.load %a[%i] : memref<?x!idr.str>
       %l = idr.str.length %s
       %a2 = arith.addi %acc, %l : i64
       %c1 = arith.constant 1 : index
       %j = arith.addi %i, %c1 : index
       %z = idr.call @walk(%a, %j, %n, %a2) : (memref<?x!idr.str>, index, index, i64) -> i64
-      scf.yield %z : i64
+      idr.yield %z : i64
+    }
     }
     return %r : i64
   }

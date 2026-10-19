@@ -11,6 +11,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
+#include "idr/IR/Ranges.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -224,3 +225,25 @@ void OwnGiveOp::getEffects(
 
 // A view is a view of the owned value it borrows.
 Value BorrowOp::getViewSource() { return getValue(); }
+
+// Each op that only changes its operand's grade gives its operand's range
+// (Idr_ResultCarriesOperand).
+void BorrowOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                             SetIntLatticeFn setResultRange) {
+  ranges::carried(getResult(), ranges.front(), setResultRange);
+}
+
+void ShareOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                            SetIntLatticeFn setResultRange) {
+  ranges::carried(getResult(), ranges.front(), setResultRange);
+}
+
+void LinEnterOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                               SetIntLatticeFn setResultRange) {
+  ranges::carried(getResult(), ranges.front(), setResultRange);
+}
+
+void LinUseOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                             SetIntLatticeFn setResultRange) {
+  ranges::carried(getResult(), ranges.front(), setResultRange);
+}

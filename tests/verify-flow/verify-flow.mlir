@@ -1,10 +1,9 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 // Every op that holds, takes or gives a closure or a suspension declares
-// how it moves, through the flow interface or through upstream's branch
-// and region-branch interfaces, and the verifier refuses one that does
-// not, where it is written: no pass meets a closure whose labels it cannot
-// follow. arith.select declares nothing, so a choice of two suspensions is
-// written as a match (defunc-memo-sum), never as a select.
+// how it moves, through the flow interface or through upstream's branch,
+// region-branch and select-like interfaces, and the verifier refuses one
+// that does not, where it is written: no pass meets a closure whose labels
+// it cannot follow. builtin.unrealized_conversion_cast declares nothing.
 idr.program @flow root(@Main.main) stage(higher) {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
@@ -20,8 +19,8 @@ idr.program @flow root(@Main.main) stage(higher) {
     %b = arith.cmpi eq, %c, %z : i32
     %x = idr.suspend @one() : () -> !idr.lazy<i64>
     %y = idr.suspend @two() : () -> !idr.lazy<i64>
-    // expected-error @+1 {{closure or suspension}}
-    %t = arith.select %b, %x, %y : !idr.lazy<i64>
+    // expected-error @+1 {{takes a closure or a suspension as operand #0, and declares no edge}}
+    %t = builtin.unrealized_conversion_cast %x : !idr.lazy<i64> to !idr.lazy<i64>
     %v = idr.force %t : !idr.lazy<i64> -> i64
     %w2 = idr.io.put_sint %v, %w1 : i64
     return %w2 : !idr.world
@@ -40,8 +39,8 @@ idr.program @flow root(@root) stage(higher) {
   idr.func @pick(%b: i1) -> !idr.fn<(i64) -> (i64)> {
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
     %g = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
-    // expected-error @+1 {{closure or suspension}}
-    %h = arith.select %b, %f, %g : !idr.fn<(i64) -> (i64)>
+    // expected-error @+1 {{takes a closure or a suspension as operand #0, and declares no edge}}
+    %h = builtin.unrealized_conversion_cast %f : !idr.fn<(i64) -> (i64)> to !idr.fn<(i64) -> (i64)>
     return %h : !idr.fn<(i64) -> (i64)>
   }
   // The program's root, which the functions above are no part of.
@@ -79,9 +78,9 @@ idr.program @flow root(@root) stage(higher) {
 // -----
 
 // The nearest each refusal above has that verifies: the choice of two
-// suspensions, and of two closures, written as a match, whose regions
-// declare their flow; a select of what holds no closure; and a delay into
-// the lazy type of the closure's own carrier.
+// suspensions, and of two closures, written as a select, which declares
+// that its result is either operand, and as a match, whose regions declare
+// their flow; and a delay into the lazy type of the closure's own carrier.
 idr.program @flow root(@root) stage(higher) {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
@@ -119,9 +118,18 @@ idr.program @flow root(@root) stage(higher) {
     }
     return %h : !idr.fn<(i64) -> (i64)>
   }
-  idr.func @words(%b: i1, %x: i64, %y: i64) -> i64 {
-    %s = arith.select %b, %x, %y : i64
-    return %s : i64
+  idr.func @selected(%b: i1) -> i64 {
+    %x = idr.suspend @one() : () -> !idr.lazy<i64>
+    %y = idr.suspend @one() : () -> !idr.lazy<i64>
+    %t = arith.select %b, %x, %y : !idr.lazy<i64>
+    %v = idr.force %t : !idr.lazy<i64> -> i64
+    return %v : i64
+  }
+  idr.func @selectedFn(%b: i1) -> !idr.fn<(i64) -> (i64)> {
+    %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
+    %g = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
+    %h = arith.select %b, %f, %g : !idr.fn<(i64) -> (i64)>
+    return %h : !idr.fn<(i64) -> (i64)>
   }
   idr.func @held() -> !idr.lazy<!idr.fn<(i64) -> (i64)>> {
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>

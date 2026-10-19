@@ -182,7 +182,8 @@ LogicalResult idr::verify::OwnedWalk::operands(Operation &op,
       consumed.push_back(value);
       break;
     case Role::View:
-      if (!moves && (ownership::useOf(operand) == ownership::Use::Consume || storedBy(operand)))
+      if (!moves && (ownership::useOf(operand) == ownership::Use::Consume ||
+                     ownership::storedBy(operand)))
         return fail(op, value, "consumes a view, which holds no reference; a reference of "
                                "its own (idr.dup) is consumed, and an owned value's is given "
                                "to a store (idr.own.give)");
@@ -207,30 +208,11 @@ LogicalResult idr::verify::OwnedWalk::operands(Operation &op,
   return success();
 }
 
-// Whether an op of upstream's writes the value `operand` holds into memory:
-// the value of a memref.store, not the buffer it writes. The buffer then
-// holds the value, and the reference with it.
-bool idr::verify::OwnedWalk::storedBy(OpOperand &operand) {
-  Operation *user = operand.getOwner();
-  auto memory = dyn_cast<MemoryEffectOpInterface>(user);
-  if (isa_and_nonnull<IdrDialect>(user->getDialect()) || !memory)
-    return false;
-  SmallVector<MemoryEffects::EffectInstance> effects;
-  memory.getEffects(effects);
-  auto writes = [](const MemoryEffects::EffectInstance &effect) {
-    return isa<MemoryEffects::Write>(effect.getEffect());
-  };
-  return llvm::any_of(effects, writes) &&
-         llvm::none_of(effects, [&](const MemoryEffects::EffectInstance &effect) {
-           return writes(effect) && effect.getValue() == operand.get();
-         });
-}
-
 // A reference crossing the boundary moves on at its one use: into the
 // grade of the idr.own.adopt that takes a fresh buffer over, or into the
 // memory an op of upstream's stores it in.
 bool idr::verify::OwnedWalk::takesCarried(OpOperand &operand) {
-  return isa<OwnAdoptOp>(operand.getOwner()) || storedBy(operand);
+  return isa<OwnAdoptOp>(operand.getOwner()) || ownership::storedBy(operand);
 }
 
 // The values `op` reads without taking them over or passing them on: what

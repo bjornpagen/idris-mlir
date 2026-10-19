@@ -93,9 +93,13 @@ FuncOp Calls::target(CallOp call, function_ref<bool(Value)> isExclusive) const {
 namespace {
 
 // Reachability alone. The dead-code analysis asks a constant lattice which
-// region a branch takes, and a region only a constant would skip is the
-// canonicalizer's to fold, not the solver's to leave ungraded: every value
-// is a constant it does not know, so every region can run.
+// region a branch takes, and which region a terminator leaves for, and a
+// region only a constant would skip is the canonicalizer's to fold, not the
+// solver's to leave ungraded: every value is a constant it does not know,
+// so every region can run. That holds of a parameter and a call's result
+// too, which the lattice would otherwise read off the calls the program
+// names: a copy no call names yet runs when Running says it does, and what
+// it returns is then reached all the same.
 class NoConstants : public SparseForwardDataFlowAnalysis<Lattice<ConstantValue>> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NoConstants)
@@ -103,9 +107,19 @@ public:
 
   LogicalResult visitOperation(Operation *, ArrayRef<const Lattice<ConstantValue> *>,
                                ArrayRef<Lattice<ConstantValue> *> results) override {
-    for (Lattice<ConstantValue> *lattice : results)
-      setToEntryState(lattice);
+    setAllToEntryStates(results);
     return success();
+  }
+
+  LogicalResult visitCallOperation(CallOpInterface, ArrayRef<const AbstractSparseLattice *>,
+                                   ArrayRef<AbstractSparseLattice *> results) override {
+    AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(results);
+    return success();
+  }
+
+  void visitCallableOperation(CallableOpInterface,
+                              ArrayRef<AbstractSparseLattice *> params) override {
+    AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(params);
   }
 
   void setToEntryState(Lattice<ConstantValue> *lattice) override {

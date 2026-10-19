@@ -1,5 +1,5 @@
-// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
-// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce),idr-expect{holds=not-called=@loops,not-called=@drift,not-called=@flip,not-called=@bump})' -verify-diagnostics -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-effects,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-effects,idr-optimize,symbol-dce),idr-expect{holds=not-called=@loops,not-called=@drift,not-called=@flip,not-called=@bump})' -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@weaken,not-called=@weakenTerm,not-called=@weakenUnder,not-called=@weakenTree,not-called=@weakenForest,not-called=@carry,not-called=@same,not-called=@second -o /dev/null
 // A function that only rebuilds its argument gives it back, and every call
 // of it becomes the argument. The optimizer finds this per component of
@@ -12,7 +12,10 @@
 // argument, whose call becomes the argument's one use; one that passes its
 // argument on whole, counting down another, which Idris proved ends; and
 // one of two arguments of the type it gives back, whose calls become that
-// argument and not the other. None of them is called afterwards. A
+// argument and not the other. None of them is called afterwards. As in
+// the pipeline, idr-effects runs first: a call relies on its callee
+// returning by its effects, which a total function's own calls of itself
+// have only once the component's are solved. A
 // function that calls itself on its whole argument without that proof,
 // counting down or not, is not known to return and keeps its calls, as
 // does one that swaps a node's children, which calls itself on the

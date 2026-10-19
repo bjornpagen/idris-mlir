@@ -534,4 +534,4 @@ idrAttrText t a WorldSpaceAttr = "#idr.world"
 -- attribute KeyHoleAttr: the passes' alone (idris = 0)
 -- attribute KeyRaiseAttr: the passes' alone (idris = 0)
 -- attribute SpecKeyAttr: the passes' alone (idris = 0)
--- fingerprint: 438043566-1524110 1571706321-20035
+-- fingerprint: 498987761-1524274 1571706321-20035

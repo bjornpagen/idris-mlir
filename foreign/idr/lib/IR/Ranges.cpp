@@ -115,4 +115,12 @@ IntegerValueRange ofType(Type type) {
   return IntegerValueRange(ConstantIntRanges::maxRange(width));
 }
 
+void carried(Value result, const IntegerValueRange &range, SetIntLatticeFn setResultRange) {
+  if (range.isUninitialized())
+    return;
+  IntegerValueRange any = ofType(result.getType());
+  bool sameWidth = range.getValue().umin().getBitWidth() == any.getValue().umin().getBitWidth();
+  setResultRange(result, sameWidth ? range : any);
+}
+
 } // namespace idr::ranges

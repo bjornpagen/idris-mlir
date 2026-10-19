@@ -99,20 +99,35 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     // constant is its constant: upstream's driver folds each conversion by
     // its own folder, and erases what no one reads (the conversions made, a
     // versioned loop's start once its copy took the word, and a big made of
-    // a word that every reader now takes as the word), these ops and no
-    // other.
+    // a word that every reader now takes as the word, with the views
+    // counting read such a big through, and a big constant whose readers
+    // now read its word), these ops and no other.
     SmallVector<Operation *> conversions;
+    auto conversion = [&](Operation *op) {
+      return op && (facts.made(op) || isa<BigSmallOp, BigFromSIntOp, BigFromUIntOp>(op) ||
+                    (isa<ConstantOp>(op) && isBig(op->getResult(0).getType())));
+    };
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
-      if (facts.made(op) || isa<BigSmallOp, BigFromSIntOp, BigFromUIntOp>(op))
+      if (conversion(op) || (op->hasTrait<ResultCarriesOperand>() &&
+                             conversion(op->getOperand(0).getDefiningOp())))
         conversions.push_back(op);
     });
+    // A conversion every reader of which now reads its word is made only to
+    // be dropped: without its drops it is made for nothing, and erased.
+    bool dropped = false;
+    for (Operation *op : conversions)
+      if (!op->use_empty() && llvm::all_of(op->getUsers(), llvm::IsaPred<DropOp>)) {
+        for (Operation *drop : llvm::make_early_inc_range(op->getUsers()))
+          drop->erase();
+        dropped = true;
+      }
     bool changed = false;
     (void)support::perform<NarrowFoldAction>(fn, [&] {
       (void)applyOpPatternsGreedily(
           conversions, FrozenRewritePatternSet(),
           GreedyRewriteConfig().setStrictness(GreedyRewriteStrictness::ExistingOps), &changed);
     });
-    if (carried == 0 && narrowed == 0 && !changed)
+    if (carried == 0 && narrowed == 0 && !dropped && !changed)
       markAllAnalysesPreserved();
   }
 };

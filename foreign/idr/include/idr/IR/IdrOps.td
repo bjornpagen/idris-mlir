@@ -285,7 +285,7 @@ def Idr_ConOp : Idr_Op<"con", [
   // `idr.con !T @Cons(%x : i64)`: the value's type, then the constructor's
   // name in it, then the fields.
   let assemblyFormat = [{
-    type($result) custom<CtorRef>(ref(type($result)), $tag)
+    type($result) custom<CtorRef>(ref(type($result)), $tag) ``
     custom<Fields>($fields, type($fields)) attr-dict
   }];
   let hasFolder = 1;

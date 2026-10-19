@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The ops on buffers whose meaning is the runtime's: the reads and writes
-// of elements of ours, and the copies that count or that no memcpy covers.
-// Every other memref op of a function is upstream's: its memref-to-LLVM
-// patterns lower extents, casts, views and contiguous copies of what holds
+// of elements of ours, and the copies that count or that no memcpy covers;
+// and the casts between ranked buffers, which change the components a
+// buffer is. Every other memref op of a function is upstream's: its
+// memref-to-LLVM patterns lower extents, views and contiguous copies of what holds
 // no reference on the descriptor built at the use (Arrays.h), and the reads
 // and writes of words, with the linalg ops over words, stay for upstream's
 // vectorizer. An access tests nothing itself: its index is within the
@@ -137,6 +138,25 @@ struct LowerRuntimeCopy : IdrPattern<memref::CopyOp> {
     return success();
   }
 };
+// A cast between ranked buffers keeps the cell and changes which fields
+// of its descriptor are words of its own and which its type fixes (an
+// extent made dynamic is the word its static size was). Upstream's cast
+// gives back the source's value as it is, which is a descriptor's and not
+// the components of a buffer of the result's type.
+struct LowerCast : IdrPattern<memref::CastOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(memref::CastOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    auto from = dyn_cast<MemRefType>(op.getSource().getType());
+    auto to = dyn_cast<MemRefType>(op.getType());
+    if (!from || !to)
+      return rewriter.notifyMatchFailure(op, "an unranked buffer is upstream's");
+    Location loc = op.getLoc();
+    Descriptor d = unpack(rewriter, loc, from, adaptor.getSource());
+    rewriter.replaceOpWithMultiple(op, {pack(rewriter, loc, to, d)});
+    return success();
+  }
+};
 
 } // namespace
 
@@ -145,8 +165,8 @@ struct LowerRuntimeCopy : IdrPattern<memref::CopyOp> {
 void populateMemrefPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
   MLIRContext *ctx = patterns.getContext();
-  patterns.add<LowerElementLoad, LowerElementStore, LowerRuntimeCopy>(converter, ctx, layouts,
-                                                                      runtime, ownLowering);
+  patterns.add<LowerElementLoad, LowerElementStore, LowerRuntimeCopy, LowerCast>(
+      converter, ctx, layouts, runtime, ownLowering);
 }
 
 } // namespace idr::conversion

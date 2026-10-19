@@ -30,63 +30,59 @@
 // ALL: {{^}}0650256.1243449628172810.694124696732443256.0{{$}}
 idr.program @rows root(@root) stage(higher) {
   idr.func @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
-    %c0 = arith.constant 0 : index
-    %c1 = arith.constant 1 : index
-    %e = tensor.empty(%n) : tensor<?xi64>
-    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xi64>) {
+    %t = idr.tabulate [%n] {
+    ^bb0(%i: index):
       %x = arith.index_cast %i : index to i64
       %sq = arith.muli %x, %x : i64
-      %a1 = tensor.insert %sq into %a[%i] : tensor<?xi64>
-      scf.yield %a1 : tensor<?xi64>
-    }
-    return %r : tensor<?xi64>
+      idr.array.yield %sq : i64
+    } : tensor<?xi64>
+    return %t : tensor<?xi64>
   }
   idr.func @ones(%n: index) -> tensor<?xf64> attributes {total, no_inline} {
-    %c0 = arith.constant 0 : index
-    %c1 = arith.constant 1 : index
-    %one = arith.constant 1.0 : f64
-    %e = tensor.empty(%n) : tensor<?xf64>
-    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xf64>) {
-      %a1 = tensor.insert %one into %a[%i] : tensor<?xf64>
-      scf.yield %a1 : tensor<?xf64>
-    }
-    return %r : tensor<?xf64>
+    %t = idr.tabulate [%n] {
+    ^bb0(%i: index):
+      %one = arith.constant 1.0 : f64
+      idr.array.yield %one : f64
+    } : tensor<?xf64>
+    return %t : tensor<?xf64>
   }
+  // Row i is the sum over j of v[j] / (i + 1 + j), added in order of j.
   idr.func @rows(%n: index, %v: tensor<?xf64>) -> tensor<?xf64> attributes {total, no_inline} {
     %c0 = arith.constant 0 : index
-    %c1 = arith.constant 1 : index
-    %zero = arith.constant 0.0 : f64
-    %one = arith.constant 1 : i64
     %m = tensor.dim %v, %c0 : tensor<?xf64>
-    %e = tensor.empty(%n) : tensor<?xf64>
-    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xf64>) {
+    %zeros = idr.tabulate [%n] {
+    ^bb0(%i: index):
+      %zero = arith.constant 0.0 : f64
+      idr.array.yield %zero : f64
+    } : tensor<?xf64>
+    %r = idr.fold_last %zeros [%m] {
+    ^bb0(%i: index, %j: index, %acc: f64):
+      %one = arith.constant 1 : i64
       %ii = arith.index_cast %i : index to i64
       %i1 = arith.addi %ii, %one : i64
-      %s = scf.for %j = %c0 to %m step %c1 iter_args(%acc = %zero) -> (f64) {
-        %x = tensor.extract %v[%j] : tensor<?xf64>
-        %jj = arith.index_cast %j : index to i64
-        %ij = arith.addi %i1, %jj : i64
-        %d = arith.sitofp %ij : i64 to f64
-        %q = arith.divf %x, %d : f64
-        %t = arith.addf %acc, %q : f64
-        scf.yield %t : f64
-      }
-      %a1 = tensor.insert %s into %a[%i] : tensor<?xf64>
-      scf.yield %a1 : tensor<?xf64>
-    }
+      %x = tensor.extract %v[%j] : tensor<?xf64>
+      %jj = arith.index_cast %j : index to i64
+      %ij = arith.addi %i1, %jj : i64
+      %d = arith.sitofp %ij : i64 to f64
+      %q = arith.divf %x, %d : f64
+      %t = arith.addf %acc, %q : f64
+      idr.array.yield %t : f64
+    } : tensor<?xf64> -> tensor<?xf64>
     return %r : tensor<?xf64>
   }
   idr.func @sumf(%v: tensor<?xf64>) -> f64 attributes {total, no_inline} {
     %c0 = arith.constant 0 : index
-    %c1 = arith.constant 1 : index
     %zero = arith.constant 0.0 : f64
     %m = tensor.dim %v, %c0 : tensor<?xf64>
-    %s = scf.for %j = %c0 to %m step %c1 iter_args(%acc = %zero) -> (f64) {
+    %z = tensor.from_elements %zero : tensor<f64>
+    %s = idr.fold_last %z [%m] {
+    ^bb0(%j: index, %acc: f64):
       %x = tensor.extract %v[%j] : tensor<?xf64>
       %t = arith.addf %acc, %x : f64
-      scf.yield %t : f64
-    }
-    return %s : f64
+      idr.array.yield %t : f64
+    } : tensor<f64> -> tensor<f64>
+    %r = tensor.extract %s[] : tensor<f64>
+    return %r : f64
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : index

@@ -45,6 +45,27 @@ std::optional<Value> viewedFrom(Value value) {
 
 } // namespace
 
+// Whether an op of upstream's writes the value `operand` holds into memory:
+// the value of a memref.store, not the buffer it writes. The buffer then
+// holds the value, and the reference with it. A buffer the op reads (a
+// copy's source, a linalg op's input) is memory it reads, not a value it
+// stores: an operand any effect of the op names is never stored.
+bool idr::ownership::storedBy(OpOperand &operand) {
+  Operation *user = operand.getOwner();
+  auto memory = dyn_cast<MemoryEffectOpInterface>(user);
+  if (isa_and_nonnull<IdrDialect>(user->getDialect()) || !memory)
+    return false;
+  SmallVector<MemoryEffects::EffectInstance> effects;
+  memory.getEffects(effects);
+  auto writes = [](const MemoryEffects::EffectInstance &effect) {
+    return isa<MemoryEffects::Write>(effect.getEffect());
+  };
+  return llvm::any_of(effects, writes) &&
+         llvm::none_of(effects, [&](const MemoryEffects::EffectInstance &effect) {
+           return effect.getValue() == operand.get();
+         });
+}
+
 // An op that allocates nothing and reads no reference makes its value from
 // nothing a count reaches: a constant, poison, a small big, a pending
 // field, a global's buffer. What is read from such a value, or is such a
@@ -71,13 +92,18 @@ Value idr::ownership::readFrom(Value value) {
   Source source = sourceOf(value);
   if (const auto *field = std::get_if<Field>(&source))
     return field->scrutinee;
-  // A view of a buffer lives while the buffer it views does.
+  // A view of a buffer lives while the buffer it views does. A counted
+  // element is read from its buffer, which holds its reference. Each is
+  // read off the operand itself, not the op's typed accessor: idr-rc grades
+  // a buffer (`!idr.own<memref<...>>`) a step before it gives each read of
+  // it the plain view upstream's op takes, and the steps between ask what
+  // was read from what. Every view-like op, upstream's and ours, takes its
+  // source first.
   if (auto view = value.getDefiningOp<ViewLikeOpInterface>(); view && view.getViewDest() == value)
-    return view.getViewSource();
-  // A counted element is read from its buffer, which holds its reference.
+    return view->getOperand(0);
   if (auto load = value.getDefiningOp<memref::LoadOp>();
       load && holdsReferences(load.getType()))
-    return load.getMemref();
+    return load.getMemrefMutable().get();
   return nullptr;
 }
 

@@ -1,13 +1,14 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@alloc2:[@idris_rt_array_new],call-order=@alloc2:[@idris_rt_array_new],calls-only=@copyStrings:[@idris_rt_memref_copy],calls-only=@copyWords:[],calls-only=@copyStrided:[@idris_rt_memref_copy]' -o /dev/null
-// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@loadString:[],calls-only=@storeString:[@idris_rt_dec],calls-only=@extent:[@idris_rt_crash],crash-sites=@extent:1,calls-only=@tied:[],lowered=@tied' -o /dev/null
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@loadString:[@idris_rt_inc],calls-only=@storeString:[@idris_rt_dec],calls-only=@extent:[@idris_rt_crash],crash-sites=@extent:1,calls-only=@tied:[],lowered=@tied' -o /dev/null
 // A buffer bufferization made is a cell of the runtime: an allocation of
 // any rank is one idris_rt_array_new of the saturating product of its
 // sizes, with no allocator of upstream's, so no function asks for any
 // other. A copy of elements that hold references is the runtime's counted
 // copy; a copy of contiguous words is one memcpy, and a copy through a
 // strided view the runtime's again. A load of a counted element takes no
-// reference (counting places it); a store releases the element it
+// reference: counting places one where it is needed, here the one the
+// returned element gives its caller; a store releases the element it
 // overwrites. A natural too large to be an extent is the crash `array too
 // large`. A tie is no op at run time. Static data is named by its content
 // under a reserved name, and a descriptor of a cell holds the cell, never

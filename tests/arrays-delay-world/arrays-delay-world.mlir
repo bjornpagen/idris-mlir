@@ -5,7 +5,7 @@
 
 idr.program @"delay-world" root(@f) stage(higher) {
   idr.func @f(%w: !idr.world) {
-    // expected-error @+1 {{operand #0 must be a value other than the world, but got '!idr.world'}}
+    // expected-error @+1 {{operand #0 must be a value a field holds, other than the world, but got '!idr.world'}}
     %t = idr.delay %w : !idr.world -> !idr.lazy<!idr.world>
     return
   }

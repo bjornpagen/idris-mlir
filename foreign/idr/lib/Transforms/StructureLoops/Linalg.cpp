@@ -184,11 +184,14 @@ void lowerInterchange(RewriterBase &rewriter, LastAxisFoldOpInterface op) {
     return std::tuple(offsets, sizes, strides);
   };
   SmallVector<Value> outputs(accumulators);
-  for (auto [result, init] : llvm::zip_equal(results, inits)) {
-    auto [offsets, sizes, strides] = sliceAt(result);
-    outputs.push_back(tensor::ExtractSliceOp::create(
-        rewriter, loc, cast<RankedTensorType>(init.getType()), result, offsets, sizes, strides));
-  }
+  // A fold carries its accumulators alone; a scan also its results, each
+  // written at the step as its init's slice.
+  if (scan)
+    for (auto [result, init] : llvm::zip_equal(results, inits)) {
+      auto [offsets, sizes, strides] = sliceAt(result);
+      outputs.push_back(tensor::ExtractSliceOp::create(
+          rewriter, loc, cast<RankedTensorType>(init.getType()), result, offsets, sizes, strides));
+    }
   SmallVector<AffineMap> maps(outputs.size(), AffineMap::getMultiDimIdentityMap(frame, ctx));
   // Held apart from the region, which the linalg op takes.
   SmallVector<Type> stepTypes(ValueRange(op.getAccumulators()).getTypes());

@@ -65,19 +65,31 @@ struct Changes {
 class Placement {
 public:
   Placement(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols)
-      : rewriter(rewriter), fn(fn), classes(fn), symbols(symbols) {}
+      : rewriter(rewriter), fn(fn), symbols(symbols) {}
 
-  // Places every value of the function, materializes the counts, and
-  // grades the views that are left; gives the counts it added.
+  // Places every value of the function, grades the values it placed,
+  // materializes the counts, and grades the views that are left; gives the
+  // counts it added. Every class is decided, and every value placed, on
+  // the function as it came: a graded buffer (`!idr.own<memref<...>>`) is
+  // no operand an op of upstream's or an update over a buffer takes until
+  // its read gets the plain view, so nothing is asked of such an op while
+  // its operand is graded and its view not yet made.
   Counted run() {
-    SmallVector<Value> values;
+    // The classes of the function as reshaping left it, the last change
+    // they read.
+    Classes classes(fn);
+    SmallVector<std::pair<Value, Class>> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
-      llvm::append_range(values, block->getArguments());
+      for (BlockArgument arg : block->getArguments())
+        values.emplace_back(arg, classes.classOf(arg));
       for (Operation &op : *block)
-        llvm::append_range(values, op.getResults());
+        for (Value result : op.getResults())
+          values.emplace_back(result, classes.classOf(result));
     });
-    for (Value value : values)
-      plan(value);
+    for (auto [value, kind] : values)
+      plan(value, kind);
+    for (auto [value, type] : grades)
+      value.setType(type);
     materialize();
     gradeViews();
     return counted;
@@ -85,23 +97,23 @@ public:
 
 private:
   // Each value is placed from where it is defined, along the ops after it
-  // in its block, as its class says.
-  void plan(Value value) {
+  // in its block, as its class `kind` says.
+  void plan(Value value, Class kind) {
     Point defined = definedAt(value);
     Block &block = blockOf(defined);
     Block::iterator from = firstAt(defined);
-    switch (classes.classOf(value)) {
+    switch (kind) {
     case Class::Untracked:
       return;
     case Class::Phantom:
       // Owned by type; no count reaches it.
-      value.setType(owned(value.getType()));
+      grades.emplace_back(value, owned(value.getType()));
       return;
     case Class::Constant:
       // A view, at the view grade, which each consuming use takes a
       // reference of its own to: no count reaches static data, so the dup
       // runs nothing.
-      value.setType(view(value.getType()));
+      grades.emplace_back(value, view(value.getType()));
       placeBorrowed(value, block, from);
       return;
     case Class::StaticRead:
@@ -114,7 +126,7 @@ private:
       // that every use of it now uses, which is placed as an owned value.
       return;
     case Class::Owned:
-      value.setType(owned(value.getType()));
+      grades.emplace_back(value, owned(value.getType()));
       placeOwned(value, block, from, /*keep=*/false);
       return;
     }
@@ -326,9 +338,9 @@ private:
       if (auto cases = dyn_cast<MatchOp>(op)) {
         DataType data = cases.getDataType();
         for (unsigned index : llvm::seq(cases.getNumCases())) {
-          ArrayRef<Type> fields = data.getCtor(cases.getCaseTag(index)).fields;
+          const Ctor &ctor = data.getCtor(cases.getCaseTag(index));
           for (BlockArgument arg : cases.getCaseRegion(index).getArguments())
-            arg.setType(fieldType(scrutinee, fields[arg.getArgNumber()]));
+            arg.setType(caseFieldType(scrutinee, ctor, ctor.fields[arg.getArgNumber()]));
         }
       }
       // An exhaustive match's default region is empty: it never runs.
@@ -339,10 +351,9 @@ private:
 
   RewriterBase &rewriter;
   FuncOp fn;
-  // The classes of the function as reshaping left it, the last change they
-  // read: placement only grades values until it materializes the counts.
-  Classes classes;
   const SymbolTable &symbols;
+  // The grade each placed value takes once every value is placed.
+  SmallVector<std::pair<Value, Type>> grades;
   // What goes right before each op.
   llvm::MapVector<Operation *, Changes> changes;
   Counted counted;

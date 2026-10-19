@@ -6,6 +6,7 @@
 // is the arrays' unit's.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Support/Worklist.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
@@ -211,6 +212,18 @@ Type idr::fieldType(Type scrutinee, Type field) {
   // Before counting no value is graded; after it, a field read out of a
   // value is a view of that value.
   return gradeOf(scrutinee).permission == Permission::Plain ? plain : view(plain);
+}
+
+bool idr::forceTakesCaptures(DataType data, const Ctor &ctor) {
+  const auto *label = std::get_if<role::Label>(&ctor.role);
+  return data && data.isMemo() && label && !label->byName;
+}
+
+Type idr::caseFieldType(Type scrutinee, const Ctor &ctor, Type field) {
+  Type read = fieldType(scrutinee, field);
+  bool takes = forceTakesCaptures(dataTypeOf(scrutinee), ctor) &&
+               gradeOf(scrutinee).permission != Permission::Plain;
+  return takes && holdsReferences(read) ? owned(read) : read;
 }
 
 Value idr::heldAs(OpBuilder &b, Location loc, Value value, Type type) {

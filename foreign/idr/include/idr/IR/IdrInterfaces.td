@@ -233,7 +233,11 @@ def Idr_UpdateOpInterface : OpInterface<"UpdateOpInterface", [Idr_YieldTargetsOp
   let cppNamespace = "::idr";
   let description = "An element of an array or of a value array's buffer rebuilt in its place.";
   let methods = [
-    InterfaceMethod<"The array or buffer that holds the element.", "::mlir::Value", "getArray">,
+    // Read off the operand, never the op's typed accessor: idr-rc grades a
+    // buffer before it gives each read of it the plain view the op takes,
+    // and asks what each update consumes in between.
+    InterfaceMethod<"The array or buffer that holds the element.", "::mlir::Value", "getArray",
+                    (ins), [{ return $_op.getArrayMutable().get(); }]>,
     InterfaceMethod<"Its memref type, with no grade.", "::mlir::MemRefType", "getArrayType">,
     InterfaceMethod<"The element's indices, one per dimension.", "::mlir::OperandRange",
                     "getIndices">,
@@ -325,7 +329,11 @@ def Idr_NoRuntimeForm : NativeOpTrait<"NoRuntimeForm"> { let cppNamespace = "::i
 def Idr_CarriesOperand : NativeOpTrait<"ResultCarriesOperand"> { let cppNamespace = "::idr"; }
 
 // An op that carries its operand is its operand at run time, so carrying
-// says Idr_NoRuntimeForm with it, once.
-def Idr_ResultCarriesOperand : TraitList<[Idr_CarriesOperand, Idr_NoRuntimeForm]>;
+// says Idr_NoRuntimeForm with it, once; and no analysis of integer ranges
+// loses the value through it: its result has its operand's range
+// (::idr::ranges::carried), as every range analysis reads it, upstream's
+// included.
+def Idr_ResultCarriesOperand : TraitList<[Idr_CarriesOperand, Idr_NoRuntimeForm,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]>;
 
 #endif // IDR_INTERFACES

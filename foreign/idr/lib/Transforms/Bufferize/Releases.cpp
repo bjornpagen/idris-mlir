@@ -129,7 +129,11 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
   IRRewriter rewriter(program->getContext());
 
   program->walk([&](tensor::EmptyOp empty) {
-    for (OpOperand *use : llvm::drop_begin(usesOf(empty.getResult()))) {
+    // The first use keeps the op; one nothing uses has no first.
+    SmallVector<OpOperand *> uses = usesOf(empty.getResult());
+    if (uses.empty())
+      return;
+    for (OpOperand *use : llvm::drop_begin(uses)) {
       rewriter.setInsertionPointAfter(empty);
       Operation *own = rewriter.clone(*empty);
       rewriter.modifyOpInPlace(use->getOwner(), [&] { use->set(own->getResult(0)); });

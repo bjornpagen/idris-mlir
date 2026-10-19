@@ -118,7 +118,7 @@ LogicalResult MatchOp::verify() {
       return emitOpError("has two cases for @") << ctor.name.getValue();
     SmallVector<Type> expected;
     for (Type field : ctor.fields)
-      expected.push_back(fieldType(getScrutinee().getType(), field));
+      expected.push_back(caseFieldType(getScrutinee().getType(), ctor, field));
     TypeRange args = getCaseRegion(index).getArgumentTypes();
     if (args != TypeRange(expected))
       return emitOpError("case @") << ctor.name.getValue()

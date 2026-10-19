@@ -95,9 +95,13 @@ LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols
   if (failed(found))
     return failure();
   func::FuncOp root = *found;
-  if (symbols.lookup(entrySymbol))
-    return module.emitError() << "internal error: idr-entry: @" << entrySymbol
-                              << " names a symbol already";
+  // The entry's name is the C entry's. A function of the program that
+  // has it, private once lowered as every function but the entry is, takes
+  // a name of its own, its uses following it.
+  if (Operation *taken = symbols.lookup(entrySymbol))
+    if (failed(symbols.renameToUnique(taken, {})))
+      return module.emitError() << "internal error: idr-entry: @" << entrySymbol
+                                << " names a symbol that cannot be renamed";
   // The lowered stage's verifier admits a root only of a type rootKind
   // gives a kind.
   RootKind kind = *rootKind(root.getFunctionType(), Stage::Lowered);

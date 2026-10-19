@@ -8,7 +8,8 @@
 // sum, so the pass refuses nothing, and fails only when the compiler broke
 // its own invariant. The labels whose runs the outside observes are found
 // next, over the calls and the labels each apply and force runs, so that
-// each memo sum is made once with its `by_name` labels. The decision is
+// each memo sum is made once with its `by_name` labels; a label a static
+// suspension names is never one. The decision is
 // made whole, every sum and every dispatch function with it, then each
 // function the program had converts on its own, in parallel, reading the
 // decision and a plan of its own values: under its target no closure,
@@ -66,10 +67,16 @@ void addTarget(ConversionTarget &target, const SlotTypeConverter &types) {
     return fn.getFunctionType() == slots->signature(fn.getSymNameAttr()).converted &&
            llvm::all_of(fn.getArguments(), [&](Value arg) { return converter->legal(arg); });
   });
+  // A constant is converted once its value holds no closure, which is what
+  // the decision makes of one; what it made is the pattern's to write. The
+  // constant's address is no key here: a function's conversion erases what
+  // it replaced, and a constant another makes after may take that address.
   target.addDynamicallyLegalOp<idr::ConstantOp>([=](idr::ConstantOp constant) {
-    Attribute converted = slots->constantOf(constant);
-    return converter->legal(constant.getResult()) &&
-           (!converted || converted == constant.getValue());
+    bool holdsClosure =
+        constant.getValue()
+            .walk([](idr::ClosureAttr) { return WalkResult::interrupt(); })
+            .wasInterrupted();
+    return converter->legal(constant.getResult()) && !holdsClosure;
   });
   target.markUnknownOpDynamicallyLegal([=](Operation *op) { return converter->legal(op); });
 }
@@ -106,11 +113,25 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
           for (auto label : labels.runs(runner).getAsRange<FlatSymbolRefAttr>())
             run.push_back(labels.function(label.getAttr()));
         });
+    // A label a static suspension names keeps its memo, effect or not: a
+    // constant names one value, evaluated once, and its effect is observed
+    // that once. A static suspension is a closure constant that captures
+    // every parameter of its label.
+    llvm::DenseSet<idr::FuncOp> statics;
+    program.walk([&](idr::ConstantOp constant) {
+      constant.getValue().walk([&](idr::ClosureAttr closure) {
+        auto label = symbols.lookup<idr::FuncOp>(closure.getCallee().getAttr());
+        if (label && closure.getCaptures().size() == label.getNumArguments())
+          statics.insert(label);
+      });
+    });
     // The functions the program had: the decision adds a dispatch function
     // for each memo sum, made converted.
     SmallVector<idr::FuncOp> functions(program.getOps<idr::FuncOp>());
-    FailureOr<std::unique_ptr<Slots>> slots = Slots::decide(
-        program, labels, symbols, [&](idr::FuncOp label) { return observed.contains(label); });
+    FailureOr<std::unique_ptr<Slots>> slots =
+        Slots::decide(program, labels, symbols, [&](idr::FuncOp label) {
+          return observed.contains(label) && !statics.contains(label);
+        });
     if (failed(slots))
       return signalPassFailure();
     const Slots &decision = **slots;

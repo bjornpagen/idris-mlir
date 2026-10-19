@@ -143,7 +143,8 @@ void lowerMatchLit(RewriterBase &rewriter, MatchLitOp op) {
     rewriter.setInsertionPointToEnd(continued);
     Value literal = ConstantOp::create(rewriter, loc, scrutinee.getType(), op.getCases()[i]);
     auto eq = CmpPredicate::eq;
-    Value equal = isa<StrType>(scrutinee.getType())
+    // The scrutinee is graded once counted: its kind is its carrier's.
+    Value equal = isa<StrType>(unrestricted(scrutinee.getType()))
                       ? Value(StrCmpOp::create(rewriter, loc, eq, scrutinee, literal))
                       : Value(BigCmpOp::create(rewriter, loc, eq, scrutinee, literal));
     auto link = scf::IfOp::create(rewriter, loc, results, equal, /*addThenBlock=*/false,

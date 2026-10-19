@@ -13,9 +13,10 @@
 // The key set is decided before anything changes, on one solve: the
 // functions some call gives exclusive values while another shares, and,
 // since a copy calls what its original calls with values its own
-// exclusive parameters may make exclusive, every function a key calls that
-// takes a followed parameter shared. That set closes over a finite call
-// graph, each function added once. The copies call what their originals
+// exclusive parameters may make exclusive, and gives back what may be
+// exclusive, every function that takes a followed parameter shared and
+// that a key calls or that a call of a key feeds its result. That set
+// closes over a finite call graph, each function added once. The copies call what their originals
 // call. One solve of the program with its copies then sends each call of
 // a key or of its copy where it gives: to the copy when it gives exclusive
 // values at every followed parameter, else to the original, deciding as it
@@ -99,11 +100,21 @@ FailureOr<Copies> specializeOnGrade(ProgramOp program, const Exclusivity &solved
           return givesExclusive(solved, fn, call);
         }))
       (void)keys.push(fn);
-  while (std::optional<FuncOp> key = keys.pop())
-    key->walk([&](CallOp call) {
-      if (FuncOp callee = calleeOf(call, symbols); copyable(solved, callee))
-        (void)keys.push(callee);
-    });
+  auto ask = [&](CallOp call) {
+    if (FuncOp callee = calleeOf(call, symbols); copyable(solved, callee))
+      (void)keys.push(callee);
+  };
+  while (std::optional<FuncOp> key = keys.pop()) {
+    key->walk(ask);
+    // A call of a key gives what the copy returns once it goes there, which
+    // may be exclusive, and a call that result feeds may then go to its own
+    // callee's copy.
+    if (std::optional<ArrayRef<CallOp>> callers = solved.callers(*key))
+      for (CallOp call : *callers)
+        for (Operation *user : call->getUsers())
+          if (auto fed = dyn_cast<CallOp>(user))
+            ask(fed);
+  }
 
   // Each key's copy, right after its original. It keeps every fact of its
   // original. A name the table already holds is another key's: two keys

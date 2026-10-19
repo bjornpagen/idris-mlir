@@ -87,24 +87,6 @@ void IntHeadUOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn se
 // The linear positions
 //===----------------------------------------------------------------------===//
 
-namespace {
-
-// A linear value has the range of the value that entered it, at the width
-// the value's type proves its range at (ofType, which ignores the grade).
-// A range of another width, the one upstream gives a value whose type is no
-// integer, or none yet, stands for no value it knows of: the result then
-// has the range its type proves, every value of it.
-void passRange(Value result, const IntegerValueRange &range, SetIntLatticeFn setResultRange) {
-  IntegerValueRange any = idr::ranges::ofType(result.getType());
-  if (!range.isUninitialized() &&
-      range.getValue().umin().getBitWidth() == any.getValue().umin().getBitWidth())
-    setResultRange(result, range);
-  else
-    setResultRange(result, any);
-}
-
-} // namespace
-
 // The value an entry used at once held, and the linear value a use entered
 // at once was. A value that holds a linear one is linear by its type (a
 // closure's quantity is its type), so no entry takes one: the value an
@@ -123,19 +105,4 @@ OpFoldResult LinEnterOp::fold(FoldAdaptor) {
     if (use.getResult().hasOneUse())
       return use.getLinear();
   return {};
-}
-
-// A linear value has the range of the value that entered it; its use then
-// has every value of its type, where an entry's use waits for the entry's.
-void LinEnterOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
-                                               SetIntLatticeFn setResultRange) {
-  if (!ranges.front().isUninitialized())
-    passRange(getResult(), ranges.front(), setResultRange);
-}
-
-void LinUseOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
-                                             SetIntLatticeFn setResultRange) {
-  if (ranges.front().isUninitialized() && getLinear().getDefiningOp<LinEnterOp>())
-    return;
-  passRange(getResult(), ranges.front(), setResultRange);
 }

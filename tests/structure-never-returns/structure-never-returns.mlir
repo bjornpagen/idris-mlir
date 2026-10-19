@@ -1,14 +1,16 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-structure-loops)))' -o %t.mlir
 // RUN: %differential %s %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=structured-loops=@gen,crash-sites=@gen:1 -o /dev/null
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=counted-loop=@gen,crash-sites=@gen:1 -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=counted-loop=@gen -o /dev/null
 // A tabulation whose region never returns ends in its crash, and its
 // region's terminator is ub.unreachable: no element is ever made, and no
 // value stands for one. The crash is the program's at the first index,
-// never the compiler's error, and it is kept where the op is lowered. The
-// root makes 0 to 2 elements, as the input byte sets: an empty domain
-// makes none and so does not crash, and prints its size, 0; any other
-// crashes before it prints. The lowered program does the same on every
-// byte.
+// never the compiler's error, and it is kept where the op is lowered: a
+// counted loop, which no tabulation was before the pass, and no linalg
+// op, since no element is ever made. The root makes 0 to 2 elements, as
+// the input byte sets: an empty domain makes none and so does not crash,
+// and prints its size, 0; any other crashes before it prints. The lowered
+// program does the same on every byte.
 idr.program @"never-returns" root(@root) stage(first) {
   idr.func @gen(%n: index) -> tensor<?xi64> {
     %t = idr.tabulate [%n] {

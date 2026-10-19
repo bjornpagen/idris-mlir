@@ -38,13 +38,15 @@ idr.program @io root(@Prog.main) stage(first) {
 
   // A forged world (a trusted library's unsafePerformIO) starts a chain of
   // its own; two of them are two, however alike, and neither is removed, nor
-  // the IO on them: the effects order them where no world does.
+  // the IO on them: the effects order them where no world does. A forged
+  // world itself performs nothing and reads no memory, so it may be made
+  // later, up to its first use, which stays where it is.
   idr.func @forged(%c: i32) {
-    // expected-remark @below {{facts: []}}
+    // expected-remark @below {{facts: [delay]}}
     %w = idr.world.new
     // expected-remark @below {{facts: []}}
     %w1 = idr.io.put_char %c, %w
-    // expected-remark @below {{facts: []}}
+    // expected-remark @below {{facts: [delay]}}
     %v = idr.world.new
     // expected-remark @below {{facts: []}}
     %v1 = idr.io.put_char %c, %v

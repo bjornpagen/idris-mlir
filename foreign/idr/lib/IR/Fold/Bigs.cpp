@@ -171,9 +171,13 @@ OpFoldResult BigSmallOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
   // An integer made a big and back at its own width is itself, whichever
-  // way it was read: idr-narrow leaves these pairs where a word meets a
-  // word.
-  if (Operation *from = getValue().getDefiningOp();
+  // way it was read, through any view of the big: idr-narrow leaves these
+  // pairs where a word meets a word.
+  Value big = getValue();
+  for (Operation *def = big.getDefiningOp(); def && def->hasTrait<ResultCarriesOperand>();
+       def = big.getDefiningOp())
+    big = def->getOperand(0);
+  if (Operation *from = big.getDefiningOp();
       isa_and_nonnull<BigFromSIntOp, BigFromUIntOp, BigSmallOp>(from) &&
       from->getOperand(0).getType() == getType())
     return from->getOperand(0);

@@ -109,6 +109,12 @@ void tabulated(RewriterBase &rewriter, Operation *op, unsigned rank, TypeRange a
       rewriter, loc, any,
       [&](OpBuilder &b, Location l) {
         SmallVector<Value> first = cloneRegion(b, op, argsAt(zeros, state), given);
+        // A domain of no dimension has one cell, the first: it is each
+        // array, and the state it gave is the state.
+        if (rank == 0) {
+          scf::YieldOp::create(b, l, first);
+          return;
+        }
         SmallVector<Value> empties;
         for (auto [type, cell] : llvm::zip(arrays, first)) {
           auto array = cast<RankedTensorType>(type);

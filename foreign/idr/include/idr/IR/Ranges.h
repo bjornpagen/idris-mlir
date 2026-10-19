@@ -66,6 +66,15 @@ mlir::ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max);
 // box, a string), which leaves no op's inference without its operands.
 mlir::IntegerValueRange ofType(mlir::Type type);
 
+// The range an op that only changes its operand's grade gives `result`
+// (::idr::ResultCarriesOperand: a view, a share, a linear position): the
+// operand's `range`, once it has one, at the width the result's type proves
+// its range at (ofType, which ignores the grade). A range of another width,
+// the one upstream gives a value whose type is no integer, stands for no
+// value it knows of: the result then has every value its type allows.
+void carried(mlir::Value result, const mlir::IntegerValueRange &range,
+             mlir::SetIntLatticeFn setResultRange);
+
 } // namespace idr::ranges
 
 #endif // IDR_IR_RANGES_H

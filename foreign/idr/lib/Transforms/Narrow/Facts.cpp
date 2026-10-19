@@ -83,15 +83,23 @@ Value Facts::word(OpBuilder &b, Location loc, Value value) {
     convert(poison);
     return ub::PoisonOp::create(b, loc, i64);
   }
-  if (auto small = value.getDefiningOp<BigSmallOp>())
+  // What made the big, through the ops that only change its grade (the
+  // view counting reads it through).
+  Value made = value;
+  for (Operation *def = made.getDefiningOp(); def && def->hasTrait<ResultCarriesOperand>();
+       def = made.getDefiningOp())
+    made = def->getOperand(0);
+  if (auto small = made.getDefiningOp<BigSmallOp>())
     return small.getValue();
   // A big made of a narrower integer is that integer, extended as the op
   // that made it reads it.
-  if (auto from = value.getDefiningOp<BigFromSIntOp>())
+  if (auto from = made.getDefiningOp<BigFromSIntOp>())
     return widened<arith::ExtSIOp>(b, loc, from.getValue());
-  if (auto from = value.getDefiningOp<BigFromUIntOp>())
+  if (auto from = made.getDefiningOp<BigFromUIntOp>())
     return widened<arith::ExtUIOp>(b, loc, from.getValue());
-  Value converted = BigToIntOp::create(b, loc, i64, value);
+  // After counting an owned big is read through a view of it.
+  Value seen = isOwned(value.getType()) ? BorrowOp::create(b, loc, value).getResult() : value;
+  Value converted = BigToIntOp::create(b, loc, i64, seen);
   convert(converted.getDefiningOp());
   return converted;
 }

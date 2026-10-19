@@ -68,6 +68,16 @@ Class Classes::classOf(Value value) {
   // value, which only an unreachable block makes, finds it owned. A value
   // read from another that is not alive at each of its uses, and an
   // element, take a reference of their own where they are read.
+  // A capture a force takes over from a memo cell's label
+  // (forceTakesCaptures) is owned, and no read takes another.
+  if (auto arg = dyn_cast<BlockArgument>(value))
+    if (auto match = dyn_cast<MatchOp>(arg.getOwner()->getParentOp()))
+      if (Region *region = arg.getOwner()->getParent(); region != &match.getDefaultRegion())
+        if (DataType data = match.getDataType();
+            forceTakesCaptures(data, data.getCtor(match.getCaseTag(match.caseOf(*region))))) {
+          classes[value] = Class::Owned;
+          return Class::Owned;
+        }
   std::optional<Value> from = readThrough(value);
   Class result = from ? Class::OwnedAtRead : Class::Owned;
   classes[value] = result;

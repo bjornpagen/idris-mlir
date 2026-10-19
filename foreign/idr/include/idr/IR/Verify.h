@@ -156,7 +156,6 @@ private:
   mlir::LogicalResult exclusive(mlir::Operation &op);
   mlir::LogicalResult operands(mlir::Operation &op,
                                const llvm::DenseSet<mlir::OpOperand *> &forwarded);
-  bool storedBy(mlir::OpOperand &operand);
   bool takesCarried(mlir::OpOperand &operand);
   llvm::SmallVector<mlir::Value> readBy(mlir::Operation &op,
                                         const llvm::DenseSet<mlir::OpOperand *> &forwarded);

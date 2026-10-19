@@ -14,11 +14,13 @@ using namespace mlir;
 namespace idr::expect {
 
 // The folders released every reference they took from the runtime: no
-// fold, on any thread, left a cell live. idr-expect loads the idr dialect,
-// which holds the count.
+// fold, on any thread, left a cell live. The idr dialect holds the count;
+// a context that never loaded it ran no folder of ours (a module of
+// upstream's dialects alone, which the contracts check too).
 LogicalResult foldsBalanced(const Request<Nothing> &request) {
   ModuleOp module = request.module;
-  int64_t left = module->getContext()->getLoadedDialect<IdrDialect>()->foldLeakCount();
+  const auto *idr = module->getContext()->getLoadedDialect<IdrDialect>();
+  int64_t left = idr ? idr->foldLeakCount() : 0;
   if (left == 0)
     return success();
   fail(module.getLoc(), request.property) << left << " cells the folders left live";

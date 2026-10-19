@@ -11,6 +11,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Ownership.h"
 #include "idr/Transforms/Ownership.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -27,8 +28,10 @@ namespace {
 // `operand` where `expected` is taken: an exclusive value is shared into
 // an owned position. An owned one in an exclusive position is on a path
 // the solver never reached (whose values it never graded), where it is
-// poison; anywhere else it is the solver and the commit disagreeing,
-// which is a bug here, never a program to compile.
+// poison, and the reference the operand took over is dropped where it
+// was, so the path still counts every reference once; anywhere else it is
+// the solver and the commit disagreeing, which is a bug here, never a
+// program to compile.
 LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand &operand,
                    Type expected) {
   Type type = operand.get().getType();
@@ -45,6 +48,8 @@ LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand 
     if (solved.live(op->getBlock()))
       return op->emitOpError("idr-rc-exclusive: gives a value of ")
              << type << " where the solver proved " << expected;
+    if (ownership::useOf(operand) == ownership::Use::Consume)
+      DropOp::create(rewriter, op->getLoc(), operand.get());
     Value poison = ub::PoisonOp::create(rewriter, op->getLoc(), expected);
     rewriter.modifyOpInPlace(op, [&] { operand.set(poison); });
   }

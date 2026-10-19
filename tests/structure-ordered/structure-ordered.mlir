@@ -62,7 +62,10 @@ idr.program @ordered root(@root) stage(first) {
     } : tensor<?xi64>
     return %t, %w1 : tensor<?xi64>, !idr.world
   }
-  idr.func @sumi(%x: tensor<?xi64>, %n: index) -> tensor<i64> {
+  // The fold's extent is the array's length, tied at the entry as the
+  // frontend ties it, so the reduction reads its domain off the array.
+  idr.func @sumi(%given: tensor<?xi64>, %n: index) -> tensor<i64> {
+    %x = idr.tie_shape %given dims(%n) : tensor<?xi64>
     %zero = arith.constant 0 : i64
     %z = tensor.from_elements %zero : tensor<i64>
     %s = idr.fold_last %z [%n] {

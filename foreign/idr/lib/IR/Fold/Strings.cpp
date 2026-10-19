@@ -219,14 +219,20 @@ Attribute stringOfList(MLIRContext *ctx, Attribute list) {
   if (!elements)
     return {};
   Scope scope(ctx);
-  const idris_rt_str *s = scope.str(StringAttr::get(ctx, ""));
+  // Each string is kept once the next is made from it; the last is the
+  // attribute's, which keeps it.
+  const idris_rt_str *s = idris_rt_str_from_utf8("", 0);
+  auto step = [&](const idris_rt_str *next) {
+    scope.keep(s);
+    s = next;
+  };
   if (isa<StrType>(unrestricted(cast<ConAttr>(list).getData().getListElement()))) {
     for (Attribute p : *elements)
-      s = scope.keep(fold::runtime<StrAppendOp>(s, scope.str(cast<StringAttr>(p))));
+      step(fold::runtime<StrAppendOp>(s, scope.str(cast<StringAttr>(p))));
     return scope.attr(s);
   }
   for (Attribute c : llvm::reverse(*elements))
-    s = scope.keep(fold::runtime<StrConsOp>(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
+    step(fold::runtime<StrConsOp>(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
   return scope.attr(s);
 }
 
