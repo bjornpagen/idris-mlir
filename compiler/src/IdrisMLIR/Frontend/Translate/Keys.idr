@@ -1032,7 +1032,10 @@ instanceKey fc owner n term given = do
     Nothing => do
       origin <- keyOrigin full
       (printed, lost) <- keyed writer args'
-      print <- if lost
+      -- Whole only when the print keeps all of the identity and fits a
+      -- symbol (keyText).
+      let fits = length (utf8 (keyPrint origin printed)) <= symbolBytes
+      print <- if lost || not fits
                  then (\t => Lossy (xxh3_128 (utf8 t)).low) <$> linkText link
                  else pure Whole
       let key = MkInstanceKey origin printed print

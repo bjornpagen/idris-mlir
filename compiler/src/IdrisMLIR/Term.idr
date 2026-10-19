@@ -544,25 +544,46 @@ record Source where
   root : TFn
   others : List TFn
 
-||| A key printed: its origin, then its arguments in brackets when it has
-||| any, and when that print dropped part of the instance's identity, `;`
-||| and the low 64 bits of the identity's hash as 16 hex digits. It is the
-||| symbol of a function or data instance, in the Core dump and in the
-||| module alike, a function of the key alone (no other key changes it). An
-||| argument is a position of the definition, written as `keyArgument`
-||| writes it. No print ends in `;` and 16 hex digits: a print shows `;`
-||| only inside a string or character literal, which ends in its quote.
+||| The most UTF-8 bytes a symbol has: a file name holds 255 on the targets'
+||| file systems, and MLIR's IR tree dump names a directory after each
+||| function's symbol, behind its op's name.
+export
+symbolBytes : Nat
+symbolBytes = 200
+
+||| The longest prefix of a string whose UTF-8 is at most `n` bytes.
+export
+prefixWithin : Nat -> String -> String
+prefixWithin n s = pack (go n (unpack s))
+  where
+    go : Nat -> List Char -> List Char
+    go _ [] = []
+    go room (c :: cs) =
+      let w = length (utf8 (singleton c)) in
+      if w <= room then c :: go (room `minus` w) cs else []
+
+||| A key printed whole: its origin, then its arguments in brackets when it
+||| has any. An argument is a position of the definition, written as
+||| `keyArgument` writes it.
+export
+keyPrint : String -> KeyArguments -> String
+keyPrint origin NoArguments = origin
+keyPrint origin arguments@(UpTo _ _) = fastConcat [origin, "[", joinBy ", " (argumentsText arguments), "]"]
+
+||| A key as its symbol, the symbol of a function or data instance in the
+||| Core dump and in the module alike, a function of the key alone (no other
+||| key changes it): its print whole, or, when the print drops part of the
+||| instance's identity or is longer than symbolBytes, as much of it as
+||| fits, `;` and the low 64 bits of the identity's hash as 16 hex digits.
+||| No print ends in `;` and 16 hex digits: a print shows `;` only inside a
+||| string or character literal, which ends in its quote.
 export
 keyText : InstanceKey -> String
-keyText k = printed ++ suffix k.print
+keyText k = symbol k.print
   where
-    printed : String
-    printed = case k.arguments of
-      NoArguments => k.origin
-      UpTo _ _ => fastConcat [k.origin, "[", joinBy ", " (argumentsText k.arguments), "]"]
-    suffix : KeyPrint -> String
-    suffix Whole = ""
-    suffix (Lossy h) = ";" ++ hex16 h
+    symbol : KeyPrint -> String
+    symbol Whole = keyPrint k.origin k.arguments
+    symbol (Lossy h) = prefixWithin (symbolBytes `minus` 17) (keyPrint k.origin k.arguments) ++ ";" ++ hex16 h
 
 ------------------------------------------------------------------------------
 -- Printing

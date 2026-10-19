@@ -51,18 +51,18 @@ EOF
 # every check of what a compilation leaves, keeps or compares reads them
 # through artifact_patterns. A build named NAME leaves its Core, the module
 # the frontend hands the driver (bytecode, which every tool reads by its
-# magic), the objects code generation writes, one per bin, each named
-# NAME.<bin>.o, and the executable.
+# magic), the objects code generation writes, one per bin, each <bin>.o in
+# the directory NAME.objects, and the executable.
 artifact_kinds='core module objects executable'
 
-# artifact_patterns KIND NAME: the file names of KIND for the build NAME,
-# as find's -name patterns, one per line.
+# artifact_patterns KIND NAME: the paths of KIND for the build NAME, as
+# find's -path patterns, one per line.
 artifact_patterns() {
   case $1 in
-    core) say "$2.core" ;;
-    module) say "$2.mlirbc" ;;
-    objects) say "$2.*.o" ;;
-    executable) say "$2" ;;
+    core) say "*/$2.core" ;;
+    module) say "*/$2.mlirbc" ;;
+    objects) say "*/$2.objects/*.o" ;;
+    executable) say "*/$2" ;;
   esac
 }
 
@@ -70,7 +70,7 @@ artifact_patterns() {
 # under DIR/build, sorted, one per line.
 artifact_files() {
   artifact_patterns "$3" "$2" | while IFS= read -r artifact_pattern; do
-    find "$1/build" -type f -name "$artifact_pattern" 2> /dev/null
+    find "$1/build" -type f -path "$artifact_pattern" 2> /dev/null
   done | LC_ALL=C sort -u
 }
 

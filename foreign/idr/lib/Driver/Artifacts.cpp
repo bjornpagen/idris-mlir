@@ -84,6 +84,13 @@ std::vector<std::string> Plan::outputs() const {
   return paths;
 }
 
+std::optional<std::string> Plan::objectsDirectory() const {
+  return std::visit(llvm::makeVisitor(
+                        [&](const Executable &) { return std::optional(base + ".objects"); },
+                        [](const Archive &) { return std::optional<std::string>(); }),
+                    product);
+}
+
 std::vector<std::string> Plan::written() const {
   std::vector<std::string> paths = outputs();
   if (report)
@@ -106,17 +113,26 @@ mlir::LogicalResult Plan::makeDirectories(mlir::MLIRContext &context) const {
 Artifacts::Artifacts(Plan plan) : Plan(std::move(plan)) {
   for (const std::string &path : outputs())
     removers.push_back(std::make_unique<llvm::FileRemover>(path));
+  if (std::optional<std::string> directory = objectsDirectory())
+    (void)llvm::sys::fs::remove_directories(*directory);
+}
+
+Artifacts::~Artifacts() {
+  if (std::optional<std::string> directory = objectsDirectory(); directory && !kept)
+    (void)llvm::sys::fs::remove_directories(*directory);
 }
 
 void Artifacts::keep() {
   for (const std::unique_ptr<llvm::FileRemover> &remover : removers)
     remover->releaseFile();
+  kept = true;
 }
 
 const std::string &Artifacts::addObject(llvm::StringRef bin) {
-  std::string path = base + "." + bin.str() + ".o";
-  removers.push_back(std::make_unique<llvm::FileRemover>(path));
-  objects.push_back(std::move(path));
+  llvm::SmallString<256> path(*objectsDirectory());
+  (void)llvm::sys::fs::create_directories(path);
+  llvm::sys::path::append(path, bin + ".o");
+  objects.push_back(path.str().str());
   return objects.back();
 }
 

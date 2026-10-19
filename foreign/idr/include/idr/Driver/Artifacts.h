@@ -73,8 +73,10 @@ using Product = std::variant<Executable, Archive>;
 
 // What a compilation reads and writes, each named from one base by
 // appending to it: for an executable the base is its path, and each bin of
-// the program's code is the object <base>.<bin>.o; for an archive the base
-// is its path without its extension. Idris source also leaves <base>.core
+// the program's code is the object <bin>.o in the directory
+// <base>.objects, which holds this compilation's objects and nothing else;
+// for an archive the base is its path without its extension, and the
+// objects are the archive's members. Idris source also leaves <base>.core
 // and <base>.mlirbc, the module the pipeline reads, as MLIR bytecode.
 //
 // The files every plan writes, its outputs and its report, are distinct
@@ -114,6 +116,10 @@ protected:
   // Idris source, and the product.
   std::vector<std::string> outputs() const;
 
+  // The directory of an executable's objects, <base>.objects; none for an
+  // archive, whose objects are its members.
+  std::optional<std::string> objectsDirectory() const;
+
 private:
   // Every file the compilation writes whose name is known before anything
   // runs: the outputs, and the report when there is one.
@@ -122,12 +128,12 @@ private:
 
 // A plan under way: from its making, every file the compilation writes is
 // removed unless the whole compilation succeeds (keep), a stale one from
-// an earlier success too where the name is known before anything runs, so
-// that nothing outlives a failure. Nothing is removed before: a usage error
-// leaves every file as it was. The bins are known only once the program is
-// optimized, so a bin's object is named and armed when it is about to be
-// written; an object an earlier success wrote for a bin this compilation
-// does not make is not one of its files.
+// an earlier success too, so that nothing outlives a failure. Nothing is
+// removed before: a usage error leaves every file as it was. The bins are
+// known only once the program is optimized, but their objects' directory
+// is known before anything runs: it is emptied when the plan is made, so
+// it holds this compilation's objects alone, and removed whole unless the
+// compilation succeeds.
 class Artifacts : public Plan {
 public:
   explicit Artifacts(Plan plan);
@@ -135,8 +141,8 @@ public:
   // The compilation succeeded: what it wrote stays.
   void keep();
 
-  // The object of the bin named `bin`, <base>.<bin>.o, appended to
-  // `objects` and removed unless the compilation succeeds.
+  // The object of the bin named `bin`, <bin>.o in the objects' directory,
+  // appended to `objects`.
   const std::string &addObject(llvm::StringRef bin);
 
   // For an executable, the bins' objects in the order of their names: what
@@ -145,6 +151,12 @@ public:
 
 private:
   std::vector<std::unique_ptr<llvm::FileRemover>> removers;
+  bool kept = false;
+
+public:
+  Artifacts(const Artifacts &) = delete;
+  Artifacts &operator=(const Artifacts &) = delete;
+  ~Artifacts();
 };
 
 // The compiler's error, in `context`, that the file at `path` cannot be
