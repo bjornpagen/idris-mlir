@@ -57,9 +57,11 @@ data ArgumentText : Type
 ||| One argument a site writes, whole: the target's parameter it is at (of
 ||| a dispatched method, its own, in the order its field's lambdas take
 ||| them), its kind, the template written there and its root, as its
-||| kind's one reading gives them (`rooted`), and what a message shows it
-||| by. Only a refusal prints that, and most arguments are in none, so it
-||| is read where a message is made (`showArgument`).
+||| kind's one reading gives them (`rooted`), the closed term it was read
+||| off, over the writer's markers (none for a part of a type already
+||| read), and what a message shows it by. Only a refusal prints that, and
+||| most arguments are in none, so it is read where a message is made
+||| (`showArgument`).
 public export
 record Argument where
   constructor MkArgument
@@ -67,6 +69,7 @@ record Argument where
   kind : Static
   template : Template
   root : Root
+  term : Maybe ClosedTerm
   shown : ArgumentText
 
 ||| One site: who wrote it (whose parameters the templates' `Var`s are), the
@@ -398,7 +401,7 @@ built at fc a cs = do
   where
     -- A part of a type already read, with no term of its own to root.
     argument : (Nat, Template) -> Argument
-    argument (j, t) = MkArgument j AType t Unrooted (TemplateText at.writerDef t)
+    argument (j, t) = MkArgument j AType t Unrooted Nothing (TemplateText at.writerDef t)
 
 mutual
   ||| The sites at every type constructor of a template, at any depth: in a
@@ -546,8 +549,9 @@ mutual
 
 ||| A static argument at a position, read off the closed term its key holds
 ||| at its kind (`rooted`), with how a message shows it.
+export
 readArgument : {auto c : Ref Ctxt Defs} -> Nat -> Static -> ClosedTerm -> ArgumentText -> Core Argument
-readArgument j k t shown = (\(tm, root) => MkArgument j k tm root shown) <$> rooted k t
+readArgument j k t shown = (\(tm, root) => MkArgument j k tm root (Just t) shown) <$> rooted k t
 
 ||| What the callee of a dictionary that closes over runtime values does
 ||| with them: it holds them as one value, the first and a pair of the rest

@@ -28,6 +28,7 @@ import IdrisMLIR.Frontend.Growth.Implementations
 import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Fields
 import IdrisMLIR.Frontend.Growth.Caps
+import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
@@ -459,7 +460,7 @@ record Projection where
 record Raw where
   constructor MkRaw
   drawn : List Drawn
-  projections : List Projection
+  projections : List Graph.Projection
   constant : Nat
   arity : Nat
   heaviest : Nat
@@ -540,19 +541,27 @@ mutual
   carriedAll fs fl w d (t :: ts) = both (carriedAt fs fl w d t) (carriedAll fs fl w d ts)
 
 -- What lands at one position twice: a value that computes, closed values
--- no higher than the taller height, or values not all closed.
+-- no higher than the taller height, closed values some of which compute,
+-- or values not all closed. A closed inert value's term is not kept, so
+-- with closed computing ones beside it the position is evaluated at none.
 landed : Landing -> Landing -> Landing
 landed Computed _ = Computed
 landed _ Computed = Computed
+landed (Evaluable a) (Evaluable b) = Evaluable (a ++ b)
+landed (Evaluable _) _ = Computed
+landed _ (Evaluable _) = Computed
 landed (Closed a) (Closed b) = Closed (max a b)
 landed _ _ = Open
 
--- What a template is, landing: a value that computes (`beta`), a closed
--- one no higher than its height, or one whose height an arc carries.
-landingOf : Template -> Landing
-landingOf t = case beta t of
-  Computes => Computed
-  Inert => if selfBounded t then Closed (height t) else Open
+-- What an argument is, landing: a closed value that computes (`beta`),
+-- which is its term; any other that computes; a closed one no higher than
+-- its height; or one whose height an arc carries.
+landingOf : Argument -> Landing
+landingOf x = case (beta x.template, selfBounded x.template, x.term) of
+  (Computes, True, Just tm) => Evaluable [tm]
+  (Computes, _, _) => Computed
+  (Inert, True, _) => Closed (height x.template)
+  (Inert, False, _) => Open
 
 -- The walked edges' one traversal, which every reading of what they place
 -- shares: each argument placed, in the walk's order, with the node whose
@@ -588,7 +597,7 @@ put p l m = insert p (maybe l (landed l) (lookup p m)) m
 -- What lands at each position an argument is placed at, as written there:
 -- its keys are the positions the arguments name.
 written : List (Node, List (Site, Reached)) -> SortedMap Position Landing
-written = eachPlaced (\m, _, _, callee, pl => put (callee, pl.parameter) (landingOf pl.argument.template) m) empty
+written = eachPlaced (\m, _, _, callee, pl => put (callee, pl.parameter) (landingOf pl.argument) m) empty
 
 -- Where a writer no template states lands as well, so nothing there is
 -- closed: at a leading arc's position, what J's own writers gave J; at a
@@ -681,6 +690,7 @@ landings nodes leads walked at =
       number = SortedMap.fromList (zip ps (indices ps))
       seeds = mapMaybe (\(p, l) => case l of
                                       Computed => lookup p number
+                                      Evaluable _ => lookup p number
                                       _ => Nothing) (SortedMap.toList at) in
   case seeds of
     [] => at
@@ -690,8 +700,10 @@ landings nodes leads walked at =
                          (applying number walked)
           askedSet = SortedSet.fromList (map finToNat asked)
           onward = \x => filter (\y => contains (finToNat y) askedSet) (fromMaybe [] (lookup (finToNat x) cs.onward))
+          -- What a computing value is carried on to: a position it lands
+          -- at as written keeps its landing (an evaluable one its values).
           found = spread onward (replicate (length ps) False) (wellFounded _) []
-                         (filter (\x => contains (finToNat x) askedSet) seeds)
+                         (filter (\x => contains (finToNat x) askedSet) seeds >>= onward)
           byNumber = Vect.fromList ps in
       foldl (\m, x => insert (Vect.index x byNumber) Computed m) at found
 
@@ -832,6 +844,74 @@ nameOf a = do
     Just n => show <$> toFullNames n
     Nothing => pure (show a)
 
+-- A term with the writer's family markers given values: each `markerAt i
+-- 0` whose parameter the list names is that value.
+mutual
+  givenFamilies : List (Nat, ClosedTerm) -> TT vs -> TT vs
+  givenFamilies ms tm@(Ref _ _ n) = case Template.markerOf n of
+    Just (i, Z) => maybe tm embedClosed (lookup i ms)
+    _ => tm
+  givenFamilies ms (App fc f a) = App fc (givenFamilies ms f) (givenFamilies ms a)
+  givenFamilies ms (Bind fc x b sc) = Bind fc x (givenIn ms b) (givenFamilies ms sc)
+  givenFamilies ms (TDelayed fc r t) = TDelayed fc r (givenFamilies ms t)
+  givenFamilies ms (TDelay fc r t a) = TDelay fc r (givenFamilies ms t) (givenFamilies ms a)
+  givenFamilies ms (TForce fc r t) = TForce fc r (givenFamilies ms t)
+  givenFamilies ms (As fc u a p) = As fc u (givenFamilies ms a) (givenFamilies ms p)
+  givenFamilies ms tm = tm
+
+  givenIn : List (Nat, ClosedTerm) -> TTBinder (TT vs) -> TTBinder (TT vs)
+  givenIn ms (Lam fc rig info ty) = Lam fc rig info (givenFamilies ms ty)
+  givenIn ms (Let fc rig v ty) = Let fc rig (givenFamilies ms v) (givenFamilies ms ty)
+  givenIn ms (Pi fc rig info ty) = Pi fc rig info (givenFamilies ms ty)
+  givenIn ms (PVar fc rig info ty) = PVar fc rig info (givenFamilies ms ty)
+  givenIn ms (PLet fc rig v ty) = PLet fc rig (givenFamilies ms v) (givenFamilies ms ty)
+  givenIn ms (PVTy fc rig ty) = PVTy fc rig (givenFamilies ms ty)
+
+-- Every choice of one value for each family, from the values each takes.
+choices : List (Nat, List ClosedTerm) -> List (List (Nat, ClosedTerm))
+choices [] = [[]]
+choices ((i, vs) :: rest) = [(i, v) :: c | v <- vs, c <- choices rest]
+
+-- The values a family's position takes when they are closed values only,
+-- some computing (`Evaluable`).
+evaluable : Landing -> Maybe (List ClosedTerm)
+evaluable (Evaluable vs) = Just vs
+evaluable _ = Nothing
+
+||| The walk's arguments, each one that applies only families given closed
+||| values (`Evaluable`) evaluated: its term with each such family given
+||| each value that lands at it, normalised and read again at its kind, one
+||| argument for each choice of values, so that what the family computes is
+||| a closed type whose height is a constant of the graph, as a closed
+||| argument's is, and no arc out of a position that is only ever given
+||| closed values is unmeasured. An argument that applies a family given
+||| any other value, or whose evaluation is no closed template, stays as
+||| written: the arc it draws is the one the check refuses.
+evaluated : {auto c : Ref Ctxt Defs} -> SortedMap Position Landing ->
+            List (Node, List (Site, Reached)) -> Core (List (Node, List (Site, Reached)))
+evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$> reachedAt w e) edges)
+  where
+    -- One closed reading of an argument at a choice of values: nothing
+    -- when the reading still holds a marker or applies a family.
+    readingAt : Argument -> ClosedTerm -> List (Nat, ClosedTerm) -> Core (Maybe Argument)
+    readingAt x tm given = do
+      read <- readArgument x.position x.kind !(normaliseClosed (givenFamilies given tm)) x.shown
+      pure (if selfBounded read.template then Just read else Nothing)
+
+    evaluate : Node -> Argument -> Core (List Argument)
+    evaluate w x = case (x.term, applyingIn x.template) of
+      (Just tm, fs@(_ :: _)) => case traverse (\i => (i,) <$> evaluable (closedAt ls w i)) (nub fs) of
+        Nothing => pure [x]
+        Just values => do
+          reads <- traverse (readingAt x tm) (choices values)
+          pure (fromMaybe [x] (sequence reads))
+      _ => pure [x]
+
+    reachedAt : Node -> Reached -> Core Reached
+    reachedAt w e = do
+      placed <- traverse (\pl => map (\x => the Placed ({ argument := x } pl)) <$> evaluate w pl.argument) e.placed
+      pure ({ placed := concat placed } e)
+
 ||| The growth graph of the program from main: every static position its
 ||| reachable nodes have, numbered, with the arcs between them, the caps,
 ||| K, and the sizes the worklist's universe needs. It throws only an
@@ -863,16 +943,20 @@ build main = do
     | Left (Unread x) => do
         n <- nameOf x.definition
         internal fc ("the growth graph met a node at heads its flow did not give: " ++ n)
-  let walked = found.done <>> []
-  let nodes = byDefinition (.definition) (map fst walked)
-  let leads = leadsOf walked
+  let walked0 = found.done <>> []
+  let nodes = byDefinition (.definition) (map fst walked0)
+  let leads = leadsOf walked0
   -- The positions the arguments name, with what lands at each.
-  let placed = written walked
+  let placed0 = written walked0
   -- A capped position takes no arc: its cap, which the graph holds and a
   -- feasible potential meets, stands for every value of its height, so no
   -- listed site targets it. A position only a data type's arguments give
   -- is a type argument, which no cap applies to.
-  capped <- capsOf (keys placed)
+  capped <- capsOf (keys placed0)
+  let lands0 = landings nodes leads walked0 (opened (leadingPositions leads ++ keys capped) placed0)
+  -- What a family given only closed values computes, evaluated at each.
+  walked <- evaluated lands0 walked0
+  let placed = written walked
   let lands = landings nodes leads walked (opened (leadingPositions leads ++ keys capped) placed)
   let r = raw entered.fields fl lands nodes leads walked
   -- The positions: every place an argument lands, every end of an arc, and

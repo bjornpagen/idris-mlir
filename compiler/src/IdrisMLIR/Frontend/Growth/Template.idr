@@ -1033,9 +1033,11 @@ mutual
 ||| What lands at the position of a family the writer was given, over the
 ||| growth graph's walk: only closed values no higher than k, each inert; or
 ||| inert values not all closed, whose height an arc carries; or a value
-||| that computes, written there or carried there from where one lands.
+||| that computes, carried there from where one lands or written there not
+||| closed; or closed values only, some computing, which are these terms:
+||| a family applied there is evaluated at each (`Graph.evaluated`).
 public export
-data Landing = Closed Nat | Open | Computed
+data Landing = Closed Nat | Open | Computed | Evaluable (List ClosedTerm)
 
 mutual
   -- The writer's families a template carries on as families: the whole
@@ -1089,6 +1091,7 @@ argumentsBeta c ts = both (betaAll ts) (if any computing (ts >>= familiesIn) the
     computing : Nat -> Bool
     computing i = case c i of
       Computed => True
+      Evaluable _ => True
       _ => False
 
 mutual
@@ -1109,6 +1112,7 @@ mutual
     let ts' = allWithClosed c ts in
     case (c i, argumentsBeta c ts') of
       (Computed, _) => Computing i d ts'
+      (Evaluable _, _) => Computing i d ts'
       (_, Computes) => Computing i d ts'
       (Closed k, Inert) => raise k (Head Nothing ts')
       (Open, Inert) => Applied i d ts'
