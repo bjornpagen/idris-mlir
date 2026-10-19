@@ -217,13 +217,11 @@ keyingOf rig a' sc offer = case use rig of
     if isTypeLike a' then pure (case a' of
                                   Bind _ _ (Pi {}) _ => Family
                                   _ => Typed) else do
-      -- An erased shape of the array language that a value array's
-      -- type needs is its form: a tensor's rank is its type, so it
-      -- keys the instance. Any other erased argument keys nothing.
-      needed <- if isShapeType (shapeOf !(toFullNames a'))
-                  then formNeeded (\x => subst x sc)
-                  else pure False
-      pure (if needed then Formed else Unkeyed)
+      -- An erased shape of the array language that the rest of the type
+      -- puts in a form is its form: a tensor's rank is its type, so it
+      -- keys the instance, by the rule a data type's parameter is formed
+      -- by. Any other erased argument keys nothing.
+      pure (if !(formNeeded a' (\x => subst x sc)) then Formed else Unkeyed)
   Used _ => case offer of
     AnImplementation => pure Implemented
     AValue =>
@@ -283,9 +281,7 @@ classify fc owner (S k) ty vals = do
         Formed => do
           let Just v = given
             | Nothing => reject fc owner StaticArgument "a shape that is not known statically"
-          shape <- v.normalised
-          let Just form = shapeForm shape
-            | Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ !(showTT shape))
+          form <- formOf <$> spineOf fc owner !(v.normalised)
           (rest, res) <- classify fc owner k !(normaliseClosed (subst form sc)) vals'
           pure (FormParam form :: rest, res)
         Unkeyed => do
