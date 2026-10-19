@@ -140,7 +140,7 @@ private:
   llvm::SmallVector<Turn, 0> gather(const Step &first, OnceWorklist<Step> &ready);
   void settle(llvm::MutableArrayRef<Turn> wave);
   void insert(specialize::Node *made);
-  bool appliesKnownClosure(const specialize::Key &key) const;
+  bool stepOfRecursion(const specialize::Node &made) const;
   void finalize(Scc &scc, Finished done, const mlir::SymbolUserMap &users);
   void want(Node *requester, Node *node);
   void waitOnCalls(Node *node);

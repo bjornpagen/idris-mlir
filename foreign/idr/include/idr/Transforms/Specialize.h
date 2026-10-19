@@ -293,11 +293,16 @@ unsigned countHoles(mlir::Attribute pattern);
 std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
                                    llvm::ArrayRef<BindingTime> seen);
 
-// Whether `key`, a key over parameters of types `params`, fixes a closure:
-// a constructor of a sum defunctionalization made, built where the call is
-// or constant, at a parameter that holds one. A node of such a key applies
-// that closure: its body is the closure's code run on what the key fixed.
-bool fixesClosure(SpecKeyAttr key, mlir::TypeRange params);
+// What `key`, a key over parameters of types `params`, fixes when it fixes
+// closures alone: the labels of those closures (constructors of the sums
+// defunctionalization made, their captures included); none when it fixes
+// a parameter that holds no closure, or a structure a recursion could walk
+// is among them: a constructor of another data type, or a closure that
+// captures, at any depth, a closure of its own label. A node of a
+// key that fixes closures alone applies them: its body is their code run
+// on what they carry.
+std::optional<llvm::SmallVector<mlir::StringAttr>> closuresFixed(SpecKeyAttr key,
+                                                                 mlir::TypeRange params);
 // Whether `call` passes a closure, or a closure or suspension it captures,
 // that something else uses too: a node it asks for that fixes the closure
 // copies its code wherever it is inlined, where applying the closure once

@@ -108,7 +108,8 @@ class Node {
     llvm::SmallVector<BindingTime> times;
     // Whether it is a step of a recursion on static data: the function the
     // program held that it stands for is on a cycle of calls, and its key
-    // fixes no closure (Scheduler::insert).
+    // fixes no closure, or one of a label of that recursion
+    // (Scheduler::stepOfRecursion).
     bool stepOfRecursion = false;
   };
 
@@ -163,7 +164,7 @@ private:
   // step of that recursion, and inlining it hands its caller the next
   // step's static arguments, which ask for the next node, so the recursion
   // would unroll into its callers up to the caller cap. A node that applies
-  // a known closure is no such step.
+  // known closures of labels outside the recursion is no such step.
   bool stepOfRecursion() const {
     const auto *made = std::get_if<Made>(&origin);
     return made && made->stepOfRecursion;

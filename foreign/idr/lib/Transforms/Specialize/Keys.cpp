@@ -182,12 +182,68 @@ Attribute liftPart(Attribute earlier, Attribute part, unsigned &next,
   return hole(Lifted{part});
 }
 
+// Each label of the closures `pattern`, at a value of `type`, holds, when
+// it holds closures alone: a constructor of a closure sum is its label,
+// and its captures are read at their own types; a hole is a value of run
+// time, and a scalar a closure captured is data it carries. False at a
+// structure a recursion could walk: a constructor of another data type, or
+// a closure that holds, among its captures at any depth, a closure of its
+// own label (a chain of compositions, of continuations). `path` holds the
+// labels of the closures `pattern` is a capture of.
+bool closuresIn(Attribute pattern, Type type, SmallVectorImpl<StringAttr> &labels,
+                SmallVectorImpl<StringAttr> &path) {
+  if (isa<KeyHoleAttr>(pattern))
+    return true;
+  DataType data = dataTypeOf(type);
+  if (!data || !data.isClosures())
+    return false;
+  auto capturesIn = [&](Attribute capture, Type captureType) {
+    if (isa<KeyHoleAttr>(capture))
+      return true;
+    if (DataType held = dataTypeOf(captureType); held && held.isClosures())
+      return closuresIn(capture, captureType, labels, path);
+    return !isa<KeyConAttr, ConAttr>(capture);
+  };
+  // A closure sum's constructors are its labels.
+  auto enter = [&](Tag tag) -> const Ctor * {
+    const Ctor &found = data.getCtor(tag);
+    StringAttr label = std::get_if<role::Label>(&found.role)->fn.getAttr();
+    if (llvm::is_contained(path, label))
+      return nullptr;
+    labels.push_back(label);
+    path.push_back(label);
+    return &found;
+  };
+  bool alone = true;
+  if (auto con = dyn_cast<KeyConAttr>(pattern)) {
+    const Ctor *found = enter(con.getTag());
+    if (!found)
+      return false;
+    for (auto [capture, captureType] : llvm::zip_equal(con.getFields(), found->fields))
+      alone = alone && capturesIn(capture, captureType);
+  } else {
+    auto constant = dyn_cast<ConAttr>(pattern);
+    if (!constant || constant.getRunLength() > 1)
+      return false;
+    const Ctor *found = enter(constant.getTag());
+    if (!found)
+      return false;
+    constant.walkFields([&](Attribute capture, unsigned i) {
+      alone = alone && capturesIn(capture, found->fields[i]);
+    });
+  }
+  path.pop_back();
+  return alone;
+}
+
 } // namespace
 
-bool fixesClosure(SpecKeyAttr key, TypeRange params) {
-  return llvm::any_of(llvm::zip_equal(key.getPatterns(), params), [](auto pattern) {
-    return isClosureValue(std::get<1>(pattern)) && !isa<KeyHoleAttr>(std::get<0>(pattern));
-  });
+std::optional<SmallVector<StringAttr>> closuresFixed(SpecKeyAttr key, TypeRange params) {
+  SmallVector<StringAttr> labels, path;
+  for (auto [pattern, type] : llvm::zip_equal(key.getPatterns(), params))
+    if (!closuresIn(pattern, type, labels, path))
+      return std::nullopt;
+  return labels;
 }
 
 namespace {

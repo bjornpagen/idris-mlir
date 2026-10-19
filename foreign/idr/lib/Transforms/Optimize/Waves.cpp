@@ -204,15 +204,48 @@ void Scheduler::waitOnCalls(Node *node) {
   }
 }
 
-// Whether a node of `key` applies a known closure: a spec key that fixes a
-// closure at a parameter of the function it specializes, which its key
-// names.
-bool Scheduler::appliesKnownClosure(const specialize::Key &key) const {
-  const auto *spec = std::get_if<SpecKeyAttr>(&key);
-  if (!spec)
+// Whether the node `made` is a step of a recursion on static data: its
+// origin is on a cycle of calls (its component holds another function, or
+// its body calls itself), and its key fixes more than closures, or a
+// closure of a label of that recursion. A key that fixes closures alone,
+// of labels outside the recursion, makes a node that applies them, which
+// is beta reduction: inlined, it consumes the closure constructors its
+// caller built, and the next step is a node only where the caller's code
+// built another. A structure the key fixes (closuresFixed says which), at
+// a parameter or captured by a closure, is what the recursion walks, so
+// the node of the next step asks for the rest of it; and a closure of the
+// recursion's own label was built by the recursion (a continuation that
+// captures the one before it). A closure something else uses too
+// (sharedClosure) is not consumed: inlined, its code would be copied at
+// each use, and each copy would ask for the next step again. In each case
+// inlining the node would unroll the recursion into its callers.
+bool Scheduler::stepOfRecursion(const specialize::Node &made) const {
+  const ReadySet &set = analyses.set;
+  Node *origin = set.byName.lookup(made.origin);
+  if (!origin)
     return false;
-  Node *owner = analyses.set.nodeOf(spec->getOrigin());
-  return owner && specialize::detail::fixesClosure(*spec, owner->fn.getArgumentTypes());
+  StringAttr name = origin->fn.getSymNameAttr();
+  bool recursive = origin->scc->members.size() > 1 ||
+                   origin->fn.getBody()
+                       .walk([&](CallOp call) {
+                         return call.getCalleeAttr().getAttr() == name ? WalkResult::interrupt()
+                                                                       : WalkResult::advance();
+                       })
+                       .wasInterrupted();
+  if (!recursive)
+    return false;
+  const auto *spec = std::get_if<SpecKeyAttr>(&made.key);
+  if (!spec || made.sharedClosure)
+    return true;
+  Node *owner = set.nodeOf(spec->getOrigin());
+  if (!owner)
+    return true;
+  std::optional<SmallVector<StringAttr>> labels =
+      specialize::detail::closuresFixed(*spec, owner->fn.getArgumentTypes());
+  return !labels || labels->empty() || llvm::any_of(*labels, [&](StringAttr label) {
+           Node *fn = set.byName.lookup(label);
+           return fn && fn->sharesComponentWith(*origin);
+         });
 }
 
 // A built node goes into the program: after its owner and the owner's nodes
@@ -228,28 +261,7 @@ void Scheduler::insert(specialize::Node *made) {
   auto scc = std::make_unique<Scc>();
   scc->order = static_cast<unsigned>(set.all.size());
   specialize::Built &built = std::get<specialize::Built>(made->state);
-  // A step of a recursion on static data: its origin is on a cycle of
-  // calls (its component holds another function, or its body calls
-  // itself), and it applies no closure its requests consume. A key that
-  // fixes a closure (fixesClosure) makes a node that applies a known
-  // closure, which is beta reduction, not a step of the recursion: inlined,
-  // it consumes the closure, and the next step is a node only where the
-  // caller's code or static data holds another. A closure something else
-  // uses too (sharedClosure) is not consumed: inlined, its code would be
-  // copied at each use, and each copy would ask for the next step again.
-  bool stepOfRecursion = false;
-  if (Node *origin = set.byName.lookup(made->origin)) {
-    StringAttr name = origin->fn.getSymNameAttr();
-    stepOfRecursion = (origin->scc->members.size() > 1 ||
-                       origin->fn.getBody()
-                           .walk([&](CallOp call) {
-                             return call.getCalleeAttr().getAttr() == name
-                                        ? WalkResult::interrupt()
-                                        : WalkResult::advance();
-                           })
-                           .wasInterrupted()) &&
-                      !(appliesKnownClosure(made->key) && !made->sharedClosure);
-  }
+  bool stepOfRecursion = this->stepOfRecursion(*made);
   auto node =
       std::make_unique<Node>(built.fn, Node::Made{std::move(built.times), stepOfRecursion}, *scc);
   scc->members.push_back(node.get());

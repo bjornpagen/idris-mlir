@@ -46,8 +46,9 @@ struct Facts {
 // (calls - 1) * (size - kSmall) <= kProduct. `calls` is the number of the
 // program's idr.call sites naming `fn` when idr-optimize began, 1 for a
 // specialization node, one per request. A specialization node of a
-// recursive function on static data is `shared`; one whose key fixes a
-// closure applies it, and is not (optimize::Node::stepOfRecursion).
+// recursive function on static data is `shared`; one whose key fixes
+// only closures of labels outside the recursion applies them, and is not
+// (optimize::Node::stepOfRecursion).
 Facts factsOf(idr::FuncOp fn, unsigned calls, bool shared);
 
 // Whether a caller of `callerSize` ops stays at or under kCallerCap with
