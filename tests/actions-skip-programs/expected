@@ -1,4 +1,5 @@
 lazy-list-frame
+skipped none: each case as expected
 skipped idr-stack-cell-count=0: each case as expected
 skipped idr-reuse-site-count=0: each case as expected
 skipped idr-optimize-inline-count=0: each case as expected
@@ -6,6 +7,7 @@ skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=
 skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
 skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected
 memo-shared-stream
+skipped none: each case as expected
 skipped idr-stack-cell-count=0: each case as expected
 skipped idr-reuse-site-count=0: each case as expected
 skipped idr-optimize-inline-count=0: each case as expected
@@ -13,6 +15,7 @@ skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=
 skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
 skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected
 thunk-consumes-list
+skipped none: each case as expected
 skipped idr-stack-cell-count=0: each case as expected
 skipped idr-reuse-site-count=0: each case as expected
 skipped idr-optimize-inline-count=0: each case as expected
@@ -20,6 +23,7 @@ skipped idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=
 skipped idr-stack-cell-skip=drawn,idr-stack-cell-count=1: each case as expected
 skipped idr-reuse-site-skip=drawn,idr-reuse-site-count=1: each case as expected
 linear-string-iterator
+skipped none: each case as expected
 skipped idr-stack-cell-count=0: each case as expected
 skipped idr-reuse-site-count=0: each case as expected
 skipped idr-optimize-inline-count=0: each case as expected

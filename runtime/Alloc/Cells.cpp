@@ -193,6 +193,12 @@ void release(void *block) { snmalloc::dealloc(block); }
 
 [[gnu::always_inline]] void freeCell(void *cell) {
   --liveCells;
+  if constexpr (checked) {
+    // Kept, and marked: no later cell takes its memory, so a reference
+    // left to it still reads the mark.
+    static_cast<idris_rt_header *>(cell)->info = freedInfo;
+    return;
+  }
   snmalloc::dealloc(cell);
 }
 

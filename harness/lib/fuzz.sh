@@ -184,3 +184,59 @@ fuzz_report() {
     say "$1: ok"
   fi
 }
+
+# The lazy fuzzer (harness/Lazy.idr): programs of lazy structures (CAF
+# streams, streams and lazy lists made at run time, chains of memo cells),
+# each read once, twice, in rounds of a loop or by two calls.
+lazy_cases=8
+
+# fuzz_lazy SEED: the lazy program of SEED and its stdin, compiled with
+# the checked runtime (runtime/Alloc/Alloc.h), which ends a program at the
+# first count operation on a cell that died or on a stack cell whose frame
+# has returned, and run on its stdin (run_ours: no cell live at exit); two
+# checks, a line each:
+#   - the build compiles, runs, exits 0 and writes nothing on stderr;
+#   - each case prints the lines its model computes (--lazy-check).
+# The second says `not run`, which fails, when the first stopped before
+# the program ran.
+fuzz_lazy() {
+  fuzz_seed=$1
+  fuzz_dir=$work/lazy-$fuzz_seed
+  mkdir -p "$fuzz_dir/prog"
+  for fuzz_check_file in compiled model; do
+    : > "$work/fuzz.$fuzz_check_file"
+  done
+  fuzz_stopped=
+  fuzz_lazy_check
+  fuzz_report "lazy: every build compiles, runs, exits 0 and writes nothing on stderr" compiled
+  fuzz_report "lazy: each case prints its model" model
+}
+
+fuzz_lazy_check() {
+  for fuzz_file in main stdin; do
+    if ! "$runtests" --lazy-program "$fuzz_seed" "$lazy_cases" "$fuzz_file" > "$fuzz_dir/$fuzz_file"; then
+      say "$fuzz_seed: no $fuzz_file" >> "$work/fuzz.compiled"
+      fuzz_stopped="no $fuzz_file was generated"
+      return
+    fi
+  done
+  cp "$fuzz_dir/main" "$fuzz_dir/prog/Main.idr"
+  compile_program "--runtime=$dev_prefix/foreign/idr/idris_rt_checked.o" \
+    "$fuzz_dir/prog/Main.idr" prog
+  if [ "$compiled" -ne 0 ]; then
+    say "$fuzz_seed: compile exit $compiled" >> "$work/fuzz.compiled"
+    cat "$work/compile.out" "$work/compile.err" | head -n 10 | sed 's/^/  | /' >> "$work/fuzz.compiled"
+    fuzz_stopped="the compile exited $compiled"
+    return
+  fi
+  run_ours prog "$fuzz_dir/prog/build/exec/prog" "$fuzz_dir/stdin"
+  if [ "$ran" -ne 0 ] || [ -s "$work/prog.err" ]; then
+    say "$fuzz_seed: prog exited $ran" >> "$work/fuzz.compiled"
+    head -n 5 "$work/prog.err" | sed 's/^/  | /' >> "$work/fuzz.compiled"
+  fi
+  if ! "$runtests" --lazy-check "$fuzz_seed" "$lazy_cases" "$work/prog.out" \
+      >> "$work/fuzz.model" 2> "$work/fuzz-check.err"; then
+    say "$fuzz_seed: no model check" >> "$work/fuzz.model"
+    show "$work/fuzz-check.err" >> "$work/fuzz.model"
+  fi
+}

@@ -10,8 +10,14 @@
 // The rule under both: an owned value an op makes holds a reference only
 // from a source the op declares (OwnedWalk::make): a use it takes over, a
 // fresh value, a callee's result, what an exchange moved out, or a
-// reference of its own (idr.dup). The last program is the near neighbour
-// that verifies: the captures moved out by the force, dropped once.
+// reference of its own (idr.dup). Static data its op makes from nothing a
+// count reaches is no source either: at a view's grade it is a view that
+// lives as long as the program, and what is read from it is a view of it,
+// so the forced value of a static memo cell moved into another cell
+// without a reference of its own (two holders, one reference) is refused
+// as any consumed view is. The last two programs are the near neighbours
+// that verify: the static value's reference taken by an idr.dup, and the
+// captures moved out by the force, dropped once.
 
 !T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
 idr.program @"sources" root(@Main.main) stage(owned) {
@@ -45,6 +51,73 @@ idr.program @"sources" root(@Main.main) stage(owned) {
     }
     case @forced(%v: !idr.q<many, borrow, !idr.str>) {
       %c = arith.constant 3 : i64
+      idr.yield %c : i64
+    }
+    }
+    return %r : i64
+  }
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
+    return %w : !idr.world
+  }
+}
+
+// -----
+
+!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
+idr.program @"sources" root(@Main.main) stage(owned) {
+  idr.func @stat(%o: !idr.q<many, borrow, !idr.box<!T>>) -> i64 {
+    %t = idr.constant !idr.q<many, borrow, !idr.box<!T>> #idr.con<!T, @forced, ["abc"]>
+    %r = idr.match %t : !idr.q<many, borrow, !idr.box<!T>> -> (i64) {
+    case @lbl(%s: !idr.q<many, borrow, !idr.str>) {
+      %c = arith.constant 0 : i64
+      idr.yield %c : i64
+    }
+    case @running() {
+      idr.crash "a suspension forced itself"
+      ub.unreachable
+    }
+    // expected-note @+1 {{the value is defined here}}
+    case @forced(%v: !idr.q<many, borrow, !idr.str>) {
+      idr.memo.run %o : !idr.q<many, borrow, !idr.box<!T>> @lbl {
+      ^bb0(%c: !idr.own<!idr.str>):
+        idr.drop %c : !idr.own<!idr.str>
+        // expected-error @+1 {{consumes a view, which holds no reference}}
+        idr.array.yield %v : !idr.q<many, borrow, !idr.str>
+      }
+      %c = arith.constant 1 : i64
+      idr.yield %c : i64
+    }
+    }
+    return %r : i64
+  }
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
+    return %w : !idr.world
+  }
+}
+
+// -----
+
+!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
+idr.program @"sources" root(@Main.main) stage(owned) {
+  idr.func @stat(%o: !idr.q<many, borrow, !idr.box<!T>>) -> i64 {
+    %t = idr.constant !idr.q<many, borrow, !idr.box<!T>> #idr.con<!T, @forced, ["abc"]>
+    %r = idr.match %t : !idr.q<many, borrow, !idr.box<!T>> -> (i64) {
+    case @lbl(%s: !idr.q<many, borrow, !idr.str>) {
+      %c = arith.constant 0 : i64
+      idr.yield %c : i64
+    }
+    case @running() {
+      idr.crash "a suspension forced itself"
+      ub.unreachable
+    }
+    case @forced(%v: !idr.q<many, borrow, !idr.str>) {
+      idr.memo.run %o : !idr.q<many, borrow, !idr.box<!T>> @lbl {
+      ^bb0(%c: !idr.own<!idr.str>):
+        idr.drop %c : !idr.own<!idr.str>
+        %d = idr.dup %v : !idr.q<many, borrow, !idr.str>
+        idr.array.yield %d : !idr.own<!idr.str>
+      }
+      %c = arith.constant 1 : i64
       idr.yield %c : i64
     }
     }

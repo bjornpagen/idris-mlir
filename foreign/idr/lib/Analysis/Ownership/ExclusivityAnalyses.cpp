@@ -190,8 +190,8 @@ class ExclusiveAnalysis : public SparseForwardDataFlowAnalysis<CellsLattice> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ExclusiveAnalysis)
 
-  ExclusiveAnalysis(DataFlowSolver &solver, const Calls &calls)
-      : SparseForwardDataFlowAnalysis(solver), calls(calls) {}
+  ExclusiveAnalysis(DataFlowSolver &solver, const Calls &calls, const Captures &captures)
+      : SparseForwardDataFlowAnalysis(solver), calls(calls), captures(captures) {}
 
   // Each followed result is what reaches it whole (new, a use of a value
   // moved into it or out of a part of one, a copy, a constant), joined with
@@ -236,7 +236,26 @@ public:
       Sharing sharing = whole == Sharing::Unknown ? Sharing::Shared : std::max(whole, parts);
       propagateIfChanged(lattice, lattice->join(Cells::of(sharing)));
     }
+    if (auto init = dyn_cast<CellInitOp>(op))
+      fillCaptures(init, operands);
     return success();
+  }
+
+  // A memo cell's captures, which its force moves out of the cell: what
+  // every init moved into each (fillCaptures), and shared where Captures
+  // says no init decides it.
+  void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
+                                    ValueRange inputs, ArrayRef<CellsLattice *> lattices) override {
+    auto force = dyn_cast<MemoRunOp>(op);
+    if (!force)
+      return SparseForwardDataFlowAnalysis::visitNonControlFlowArguments(op, successor, inputs,
+                                                                         lattices);
+    for (auto [input, lattice] : llvm::zip_equal(inputs, lattices)) {
+      auto capture = cast<BlockArgument>(input);
+      if (!ownership::followed(capture) ||
+          captures.shared(force.getDataType(), force.getTag(), capture.getArgNumber()))
+        propagateIfChanged(lattice, lattice->join(Cells::of(Sharing::Shared)));
+    }
   }
 
   // A value the program does not show every source of is shared.
@@ -318,16 +337,40 @@ private:
     return exclusive(lattice) ? Sharing::Exclusive : Sharing::Shared;
   }
 
+  // An init of a cell of a memoizing label moves each field into the
+  // memory every force of that label moves it out of: each capture of
+  // those forces holds what each init moves in.
+  void fillCaptures(CellInitOp init, ArrayRef<const CellsLattice *> operands) {
+    DataType data = init.getDataType();
+    if (!data.isMemo())
+      return;
+    for (MemoRunOp force : captures.forcesOf(data, init.getTag()))
+      for (BlockArgument capture : force.getCaptures()) {
+        if (!ownership::followed(capture))
+          continue;
+        Value field = init.getField(capture.getArgNumber());
+        auto given = llvm::find_if(init->getOpOperands(),
+                                   [&](OpOperand &operand) { return operand.get() == field; });
+        if (!field || given == init->getOpOperands().end())
+          continue;
+        CellsLattice *lattice = getLatticeElement(capture);
+        propagateIfChanged(lattice,
+                           lattice->join(Cells::of(held(*operands[given->getOperandNumber()]))));
+      }
+  }
+
   const Calls &calls;
+  const Captures &captures;
 };
 
 } // namespace
 
-void loadAnalyses(DataFlowSolver &solver, const Calls &calls) {
+void loadAnalyses(DataFlowSolver &solver, const Calls &calls, const Captures &captures) {
   solver.load<DeadCodeAnalysis>();
   solver.load<NoConstants>();
   solver.load<Running>(calls);
-  solver.load<ExclusiveAnalysis>(calls);
+  solver.load<ExclusiveAnalysis>(calls, captures);
 }
 
 } // namespace idr::detail::exclusivity
+

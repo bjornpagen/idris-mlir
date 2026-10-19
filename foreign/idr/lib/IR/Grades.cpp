@@ -121,7 +121,10 @@ Lifetime idr::lifetimeOf(Type type) {
   return gradeOf(type).lifetime;
 }
 
-bool idr::mayBeFrame(Type type) { return isa<BoxType, DataType>(unrestricted(type)); }
+bool idr::mayBeFrame(Type type) {
+  Type value = unrestricted(type);
+  return isa<BoxType, DataType>(value) && holdsReferences(value);
+}
 
 Type idr::atLifetime(Type type, Lifetime lifetime) {
   if (!mayBeFrame(type))

@@ -1,0 +1,38 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The lazy fuzzer (harness/Lazy.idr) on each seed of its regression corpus
+# and on one seed drawn from the clock: programs of lazy structures (CAF
+# streams, streams and lazy lists made at run time, chains of memo cells),
+# each read once, twice, in rounds of a loop or by two calls, compiled with
+# the checked runtime. Every run exits 0 with nothing on stderr: no count
+# operation on a cell that died or on a stack cell of a returned frame, and
+# no cell live at exit. Each case prints the sums its model computes. Each
+# line names its seed; the drawn one's lines name it only when one fails,
+# with what replays it (IDRIS_MLIR_FUZZ_SEED), so the transcript is the
+# same whatever was drawn. First, the checker's own checks, on the runner:
+# the model's output names no case, and one with a line changed or left
+# out names that case.
+# One compilation of a generated program per seed.
+test_limit=1800
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+"$runtests" --lazy-program checks > "$work/checker"
+if [ ! -s "$work/checker" ]; then
+  say "the checker's own checks: none printed"
+elif grep -qv ': ok$' "$work/checker"; then
+  say "the checker's own checks: some fail on the runner:"
+  grep -v ': ok$' "$work/checker" | sed 's/^/  /'
+else
+  say "the checker's own checks: each holds on the runner"
+fi
+for seed in 1 2; do
+  fuzz_lazy "$seed" | sed "s/^/seed $seed: /"
+done
+drawn=${IDRIS_MLIR_FUZZ_SEED:-$((3 + $(date +%s) % 1000000))}
+fuzz_lazy "$drawn" > "$work/drawn"
+if ! grep -qv ': ok$' "$work/drawn"; then
+  sed 's/^/drawn seed: /' "$work/drawn"
+else
+  say "drawn seed: $drawn, which IDRIS_MLIR_FUZZ_SEED=$drawn replays:"
+  sed 's/^/drawn seed: /' "$work/drawn"
+fi

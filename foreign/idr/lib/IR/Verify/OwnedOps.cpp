@@ -87,8 +87,12 @@ LogicalResult idr::verify::OwnedWalk::regrade(Operation &op) {
       viewOf(to, from);
     return success();
   case Role::Untracked:
+    // Static data at another grade: owned, it stands for a value; a view of
+    // it lives as long as the program.
     if (roleOf(to) == Role::Owned)
       set(to, 1);
+    else if (roleOf(to) == Role::View)
+      viewOf(to, {});
     return success();
   }
   llvm_unreachable("a role");
@@ -266,12 +270,22 @@ bool declaresSource(Operation &op, Value value) {
 
 } // namespace
 
+// Whether `op` reads static data that stands for a value (madeStatic, at
+// an owned grade): what it reads out of it is static too.
+bool idr::verify::OwnedWalk::readsStatic(Operation &op) {
+  return llvm::any_of(op.getOperands(), [&](Value operand) {
+    return roleOf(operand) == Role::Untracked &&
+           Carriers::of(operand.getType()).contains(Carrier::Reference);
+  });
+}
+
 // A value an op makes, not one it is forwarded: an owned value holds its
 // own reference, a cell included, which its op declares a source of
 // (declaresSource); a Carried one, a buffer the op allocates or
 // idr.own.give's result, holds the reference its plain type cannot say,
 // until its one use takes it over; and a view is a view of what the op
-// read (`from`), alive while each of those is.
+// read (`from`), alive while each of those is, or static data the op makes
+// (madeStatic) or reads out of such data, alive as long as the program.
 LogicalResult idr::verify::OwnedWalk::make(Operation &op, Value value, ArrayRef<Value> from) {
   switch (roleOf(value)) {
   case Role::Owned:
@@ -285,7 +299,7 @@ LogicalResult idr::verify::OwnedWalk::make(Operation &op, Value value, ArrayRef<
     set(value, 1);
     return success();
   case Role::View:
-    if (from.empty())
+    if (from.empty() && !ownership::madeStatic(value) && !readsStatic(op))
       return fail(op, value, "makes a value that holds references, which neither holds one of "
                              "its own nor is read from a value that does");
     viewOf(value, from);

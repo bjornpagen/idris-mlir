@@ -39,6 +39,11 @@
 |||                                     a program or a case of the fuzzer (Fuzz.idr)
 |||     runtests --fuzz-check overran|agree|model|first|modelled <request> [<stdout-file>]
 |||                                     what a fuzzer program printed, checked (Fuzz.idr)
+|||     runtests --lazy-program <seed> <cases> main|stdin | checks
+|||                                     a program of the lazy fuzzer (Lazy.idr),
+|||                                     or its checker's own checks
+|||     runtests --lazy-check <seed> <cases> <stdout-file>
+|||                                     what it printed, checked against its model
 |||     runtests --lock                 the check of toolchain.lock.json
 module Main
 
@@ -56,6 +61,7 @@ import System.Path
 import Test.Golden
 
 import Fuzz
+import Lazy
 import Lock
 import Runner
 import Sem
@@ -228,6 +234,9 @@ takeOwn [] = (Nothing, [])
 fuzzCheckUsage : String
 fuzzCheckUsage = "runtests --fuzz-check overran|agree|model|first|modelled program <seed> <cases> <part> | replay <tape> <part> [<stdout-file>]"
 
+lazyUsage : String
+lazyUsage = "runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks | --lazy-check <seed> <cases> <stdout-file>"
+
 runnerUsage : String
 runnerUsage = unlines
   [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list]"
@@ -235,6 +244,7 @@ runnerUsage = unlines
   , "       runtests --sem-program <name> | --sem-expected <name> | --lock"
   , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
   , "       " ++ fuzzCheckUsage
+  , "       " ++ lazyUsage
   ]
 
 ||| The repository root: IDRIS_MLIR_ROOT, or the parent of `tests/`.
@@ -321,5 +331,11 @@ main = do
       maybe (die "usage: runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...") putStr
             (Fuzz.programOf fuzz)
     ("--fuzz-check" :: check) => fuzzCheck check
+    ("--lazy-program" :: request) =>
+      maybe (die ("usage: " ++ lazyUsage)) putStr (Lazy.programOf request)
+    ["--lazy-check", seed, n, file] => do
+      output <- bytesOrDie file
+      maybe (die ("usage: " ++ lazyUsage)) putStr (Lazy.checkOf [seed, n] output)
+    ("--lazy-check" :: _) => die ("usage: " ++ lazyUsage)
     ["--lock"] => Lock.check !root
     rest => runSuites (fromMaybe "runtests" (head' args)) rest

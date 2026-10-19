@@ -225,14 +225,33 @@ private:
                      if (idr::tail::inTailPosition(passes.call) &&
                          cycles.together(caller, callee))
                        escapes.insert(from);
+                     // A parameter of a function that loops in its frame
+                     // is passed on to the next iteration, which a value
+                     // of the frame may never be: whatever its own self
+                     // call passes there, its type is the parameter's.
+                     if (loopsInFrame(callee))
+                       escapes.insert(from);
                      add(callee.getArgument(passes.index), here);
                    },
                    [&](idr::lifetimes::Escape) { escapes.insert(from); }),
                edge);
   }
 
+  // Whether `fn` holds a self call that is the next iteration of a loop in
+  // its frame (lifetimes::loopsInFrame), asked once per function.
+  bool loopsInFrame(idr::FuncOp fn) {
+    auto [it, fresh] = loops.try_emplace(fn.getOperation(), false);
+    if (fresh)
+      it->second = fn.walk([](idr::CallOp call) {
+                       return idr::lifetimes::loopsInFrame(call) ? WalkResult::interrupt()
+                                                                 : WalkResult::advance();
+                     }).wasInterrupted();
+    return it->second;
+  }
+
   const SymbolTable &symbols;
   const idr::CallCycles &cycles;
+  DenseMap<Operation *, bool> loops;
   SmallVector<idr::CellNewOp> cells;
   DenseMap<Operation *, unsigned> index;
   llvm::MapVector<Value, llvm::BitVector> reach;

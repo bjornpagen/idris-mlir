@@ -11,6 +11,7 @@
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
+#include "Alloc/Alloc.h"
 #include "idris_rt.h"
 
 #include <stdint.h>
@@ -18,6 +19,19 @@
 namespace rt::rc {
 
 inline constexpr uint32_t saturated = UINT32_MAX;
+
+// The checked runtime's test of a cell a count operation is about to touch
+// (rt::alloc::checked): a heap cell that died, or a stack cell whose frame
+// has returned, ends the program, naming which. Out of line, so that the
+// frame it reads its bound from is its own, below every live frame.
+void checkLive(const idris_rt_header *cell);
+
+// Every count operation's cell passes here first: nothing in the runtime
+// as it is built for programs, the test in the checked one.
+inline void touch(const idris_rt_header *cell) {
+  if constexpr (rt::alloc::checked)
+    checkLive(cell);
+}
 
 // A pointer to an object, and not NULL or an odd word (a small big).
 inline bool isObject(const void *o) {
@@ -34,6 +48,7 @@ inline bool isStack(uint32_t info) { return (info & IDRIS_RT_STACK_CELL) != 0; }
 
 // A cell whose fields may move out of it, and whose memory may be reused.
 inline bool isExclusive(const idris_rt_header *cell) {
+  touch(cell);
   return cell->count == 1 && !isStack(cell->info);
 }
 
@@ -42,6 +57,7 @@ inline idris_rt_header *lastReference(void *o) {
   if (!isObject(o))
     return nullptr;
   idris_rt_header *cell = headerOf(o);
+  touch(cell);
   uint32_t count = cell->count;
   if (!isCounted(count))
     return nullptr;
@@ -62,12 +78,14 @@ void release(idris_rt_header *cell);
 // persistent cell is never written, so it may be read-only.
 inline void incCell(const void *o) {
   idris_rt_header *cell = headerOf(const_cast<void *>(o));
+  touch(cell);
   if (isCounted(cell->count))
     ++cell->count;
 }
 
 inline void decCell(const void *o) {
   idris_rt_header *cell = headerOf(const_cast<void *>(o));
+  touch(cell);
   uint32_t count = cell->count;
   if (!isCounted(count))
     return;

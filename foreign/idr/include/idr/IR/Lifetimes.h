@@ -75,6 +75,11 @@ enum class Escape : std::uint8_t {
   Unknown,
 };
 
+// Whether `op` is a self call that becomes the next iteration of a loop in
+// the same frame (idr-tail-loops, idr-trmc): its operands are the next
+// iteration's parameters, so no parameter of its function is of the frame.
+bool loopsInFrame(mlir::Operation *op);
+
 // A short text of an escape, for a diagnostic.
 llvm::StringRef describe(Escape escape);
 

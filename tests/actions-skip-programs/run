@@ -2,13 +2,17 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # Programs of lazy structures, reuse and frame cells, each with the stack,
-# reuse and inlining actions skipped in each set of lib/actions.sh, holding
-# every case of their own fixture: a static lazy list and one read at run
+# reuse and inlining actions skipped in each set of lib/actions.sh and
+# linked with the checked runtime, holding every case of their own
+# fixture: a static lazy list and one read at run
 # time and forced twice, whose tails a frame once held (lazy-list-frame);
 # memoized streams shared by two readers, top-level and local
 # (memo-shared-stream); a lazy list a force consumes (thunk-consumes-list);
 # and the linear string iterator, whose unpack is a lazy list
 # (linear-string-iterator).
+# Seven compilations of each of four programs through the pipeline, each
+# run on its cases: 300 s ran out under a loaded machine.
+test_limit=900
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 for fixture in lazy-list-frame memo-shared-stream thunk-consumes-list linear-string-iterator; do
   say "$fixture"

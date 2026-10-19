@@ -121,12 +121,17 @@ void releaseOwned(idris_rt_header *cell, Dying &dying) {
 }
 
 // A dead cell's memory is freed, but a stack cell's belongs to its frame:
-// there the count becomes 0, so the dead cell is inert.
+// there the count becomes 0, so the dead cell is inert, and in the checked
+// runtime it is marked as a heap cell that died is, until its op runs again
+// and writes its header anew.
 void freeDead(idris_rt_header *cell) {
-  if (rt::rc::isStack(cell->info))
-    cell->count = 0;
-  else
+  if (!rt::rc::isStack(cell->info)) {
     rt::alloc::freeCell(cell);
+    return;
+  }
+  cell->count = 0;
+  if constexpr (rt::alloc::checked)
+    cell->info = rt::alloc::freedInfo;
 }
 
 // The cells that died while others were released, each released and freed
@@ -165,6 +170,7 @@ void persistHeld(idris_rt_header *cell) {
     if (!isObject(slot))
       return;
     idris_rt_header *held = headerOf(slot);
+    touch(held);
     if (held->count == 0 || isStack(held->info))
       return;
     held->count = 0;

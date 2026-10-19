@@ -54,8 +54,8 @@ bool endsRepeatedRun(Operation *op) {
   return loop && loop.isRepetitiveRegion(op->getParentRegion()->getRegionNumber());
 }
 
-// Whether `op` is a self call that becomes the next iteration of a loop in
-// the same frame.
+} // namespace
+
 bool loopsInFrame(Operation *op) {
   auto call = dyn_cast<CallOp>(op);
   if (!call)
@@ -64,8 +64,6 @@ bool loopsInFrame(Operation *op) {
   return fn && tail::isSelfCall(call, fn) &&
          (tail::inTailPosition(call) || tail::inTailPositionModuloContext(call));
 }
-
-} // namespace
 
 void edgesOf(Operation *op, function_ref<void(Value from, const Edge &edge)> each) {
   auto frameable = [](Value value) { return mayBeFrame(value.getType()); };

@@ -1,0 +1,7 @@
+the checker's own checks: each holds on the runner
+seed 1: lazy: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+seed 1: lazy: each case prints its model: ok
+seed 2: lazy: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+seed 2: lazy: each case prints its model: ok
+drawn seed: lazy: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+drawn seed: lazy: each case prints its model: ok

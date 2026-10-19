@@ -14,6 +14,7 @@
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -99,11 +100,38 @@ private:
   llvm::DenseMap<FuncOp, llvm::SmallVector<ReturnOp>> returnsOf;
 };
 
+// The captures of each memoizing label: the memory a cell of a memo sum
+// holds a label's fields in, which idr.cell.init writes once, when the
+// cell is made, and idr.memo.run moves out at the force, with the cell's
+// reference. A capture moved out is exclusive when every value any init
+// moved into that field was, and nothing else reaches it while the cell
+// holds it: no static memo cell holds the label (static data is no one's
+// to take apart), and no read of the field as a view (a match's case
+// binding, an idr.field) is used, which is how a second reference to it
+// would be taken. Fixed before the solve, which joins the inits into the
+// region arguments of the program's memo.run ops of each label.
+class Captures {
+public:
+  explicit Captures(ProgramOp program);
+
+  // The forces of the label `tag` of the memo sum `memo`.
+  llvm::ArrayRef<MemoRunOp> forcesOf(DataType memo, Tag tag) const;
+  // Whether field `index` of that label is shared whatever the inits move
+  // into it.
+  bool shared(DataType memo, Tag tag, unsigned index) const;
+
+private:
+  using Label = std::pair<DataType, Tag>;
+  llvm::DenseMap<Label, llvm::SmallVector<MemoRunOp>> forces;
+  llvm::DenseSet<std::pair<Label, unsigned>> sharedFields;
+};
+
 // Loads into `solver` the analyses of one solve, whose calls go as `calls`
-// says, which must outlive the solver's run: the run fills a CellsLattice
-// for each value and a Runs for each function, beside upstream's Executable
-// for each block and PredecessorState for each function.
-void loadAnalyses(mlir::DataFlowSolver &solver, const Calls &calls);
+// says and whose memo captures are as `captures` says, both of which must
+// outlive the solver's run: the run fills a CellsLattice for each value
+// and a Runs for each function, beside upstream's Executable for each
+// block and PredecessorState for each function.
+void loadAnalyses(mlir::DataFlowSolver &solver, const Calls &calls, const Captures &captures);
 
 } // namespace idr::detail::exclusivity
 

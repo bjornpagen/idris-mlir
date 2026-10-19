@@ -5,15 +5,18 @@
 // object slots or of more than the header's objs field counts, arrays whose
 // elements hold objects) and runs operations on them as compiled code does:
 // references taken and dropped, stores into slots, copies of array views,
-// static memo cells forced and released. A slot holds NULL, an odd word (a
+// static memo cells forced, which makes what they hold persistent. A slot
+// holds NULL, an odd word (a
 // small big, or a grouped sum's group word), static data or an object made
 // before its holder, so the heap is acyclic, as Idris's values are.
 //
 // The model knows only the meaning: an object's count is the references
-// the test holds plus the slots of live objects and of unreleased memo
-// cells that hold it, and an object is live while its count is above 0.
-// After every operation the runtime must agree: its live cells, each live
-// object's count and exclusivity, each slot's word, static data untouched.
+// the test holds plus the slots of live objects that hold it, and an
+// object is live while its count is above 0; an object a forced static
+// memo cell reaches is persistent, count 0 and no live cell, for good, and
+// so is everything it reaches. After every operation the runtime must
+// agree: its live cells, each live object's count and exclusivity, each
+// persistent object's count 0, each slot's word, static data untouched.
 // A fixed list of cases foresees only the shapes its author thought of; a
 // free that read a group word as a reference crashed past all of them, and
 // this searches the shapes instead.
@@ -85,13 +88,14 @@ enum ValueFamily : unsigned { Null, GroupWord, SmallBig, Static, Older, valueFam
 enum Operation : unsigned { MakeCell, MakeArray, Inc, Dec, Store, Copy, Force, operations };
 constexpr unsigned makings = Inc;
 
-// What a case saw die, for the report: the most telling class names it.
-enum Freed : unsigned { FreedAny = 1, FreedOdd = 2, FreedArray = 4, FreedWide = 8, ReleasedMemo = 16 };
+// What a case saw die or made persistent, for the report: the most telling
+// class names it.
+enum Freed : unsigned { FreedAny = 1, FreedOdd = 2, FreedArray = 4, FreedWide = 8, Persisted = 16 };
 
 // An object the case made: a box or a thunk, one element of n slots, or an
 // array of m elements of k slots each, `stride` bytes apart; its slots are
 // numbered element after element, and `held` is what the model says each
-// holds.
+// holds. A persistent object is no longer live: no count reaches it.
 struct Object {
   char *first;
   uint32_t kind;
@@ -100,6 +104,7 @@ struct Object {
   unsigned elements;
   unsigned references;
   bool live;
+  bool persistent;
   Value held[slotLimit];
 
   unsigned slots() const { return elements * elementSlots; }
@@ -134,8 +139,8 @@ public:
       if (!agrees())
         return false;
     }
-    // The end of a case: the test's references dropped, then each memo cell
-    // released once and cleared, as the program's end does.
+    // The end of a case: the test's references dropped; what static data
+    // holds stays, as it does until a program ends.
     for (unsigned i = 0; i < made_; ++i) {
       while (objects_[i].references > 0) {
         note("dec #%u", i);
@@ -145,32 +150,20 @@ public:
           return false;
       }
     }
-    for (unsigned m = 0; m < memoCount; ++m) {
-      note("caf_release memo %u", m);
-      for (unsigned s = 0; s < memoSlots; ++s)
-        if (memoHeld_[m][s] != null)
-          freed_ |= ReleasedMemo;
-      idris_rt_caf_release(&memoCells[m]);
-      for (unsigned s = 0; s < memoSlots; ++s) {
-        memoCells[m].slots[s] = nullptr;
-        memoHeld_[m][s] = null;
-      }
-      if (!agrees())
-        return false;
-    }
-    tally.classify(freed_ & FreedWide      ? "a wide cell freed"
-                   : freed_ & FreedArray   ? "an array holding objects freed"
-                   : freed_ & FreedOdd     ? "a cell holding odd words freed"
-                   : freed_ & ReleasedMemo ? "a memo cell released"
-                   : freed_ & FreedAny     ? "cells freed"
-                                           : "nothing freed");
+    tally.classify(freed_ & FreedWide    ? "a wide cell freed"
+                   : freed_ & FreedArray ? "an array holding objects freed"
+                   : freed_ & FreedOdd   ? "a cell holding odd words freed"
+                   : freed_ & Persisted  ? "cells made persistent"
+                   : freed_ & FreedAny   ? "cells freed"
+                                         : "nothing freed");
     return true;
   }
 
 private:
   // Every case starts from the documented state: static data as written,
-  // memo cells never forced. A case that failed may have left cells live;
-  // the live count is taken from here, so they do not count.
+  // memo cells never forced. A case that failed may have left cells live,
+  // and every case leaves what its memo cells made persistent; the live
+  // count is taken from here, so they do not count.
   void reset() {
     made_ = 0;
     freed_ = 0;
@@ -297,6 +290,7 @@ private:
     o.elements = 1;
     o.references = 1;
     o.live = true;
+    o.persistent = false;
     words_[constants + i] = cell;
     for (unsigned at = 0; at < n; ++at) {
       Value v = drawValue(p, i);
@@ -324,6 +318,7 @@ private:
     o.elements = m;
     o.references = 1;
     o.live = true;
+    o.persistent = false;
     memset(o.held, 0, sizeof o.held);
     words_[constants + i] = array;
     ++made_;
@@ -402,8 +397,10 @@ private:
             from.held[(source.offset + e * source.stride) * k + s];
   }
 
-  // A memo cell's first force: a slot still NULL takes a live object, with
-  // a reference of its own, taken first.
+  // A static memo cell's first force: a slot still NULL takes a live
+  // object, with a reference of its own, taken first; then, as every force
+  // ends, idris_rt_persist_held makes what the cell holds persistent: the
+  // object and every object it reaches, which are older.
   void force(FuzzedDataProvider &p) {
     unsigned open[memoCount * memoSlots], n = 0;
     for (unsigned m = 0; m < memoCount; ++m)
@@ -421,21 +418,32 @@ private:
     idris_rt_inc(words_[constants + i]);
     memoCells[m].slots[s] = words_[constants + i];
     memoHeld_[m][s] = static_cast<Value>(constants + i);
+    idris_rt_persist_held(&memoCells[m]);
+    persist(i);
+  }
+
+  void persist(unsigned i) {
+    Object &o = objects_[i];
+    if (o.persistent)
+      return;
+    o.persistent = true;
+    o.live = false;
+    freed_ |= Persisted;
+    for (unsigned at = 0; at < o.slots(); ++at)
+      if (o.held[at] >= constants)
+        persist(o.held[at] - constants);
   }
 
   // The expected counts, from the meaning alone: the test's references,
-  // plus each slot of a live object or of a memo cell that holds the
-  // object. Every holder is newer than what it holds, so walking from the
-  // newest object to the oldest settles each one's count, and with it
-  // whether it lives, before the objects it holds are reached. An object
-  // whose count reaches 0 is dead for good.
+  // plus each slot of a live object that holds the object. Every holder is
+  // newer than what it holds, so walking from the newest object to the
+  // oldest settles each one's count, and with it whether it lives, before
+  // the objects it holds are reached. An object whose count reaches 0 is
+  // dead for good. A memo cell holds only persistent objects, and a
+  // persistent object only persistent ones, which no count reaches.
   void settle(unsigned *counts) {
     for (unsigned i = 0; i < made_; ++i)
       counts[i] = objects_[i].references;
-    for (unsigned m = 0; m < memoCount; ++m)
-      for (unsigned s = 0; s < memoSlots; ++s)
-        if (memoHeld_[m][s] >= constants)
-          ++counts[memoHeld_[m][s] - constants];
     for (unsigned j = made_; j-- > 0;) {
       Object &o = objects_[j];
       if (!o.live)
@@ -479,20 +487,20 @@ private:
                    static_cast<unsigned long long>(cells), live);
     for (unsigned i = 0; i < made_; ++i) {
       const Object &o = objects_[i];
+      auto *header = static_cast<const idris_rt_header *>(words_[constants + i]);
+      if (o.persistent && header->count != 0)
+        return fails("#%u: count %u, where the model has it persistent", i, header->count);
+      if (o.persistent && !slotsAgree(i))
+        return false;
       if (!o.live)
         continue;
-      auto *header = static_cast<const idris_rt_header *>(words_[constants + i]);
       if (header->count != counts[i])
         return fails("#%u: count %u, where the model counts %u", i, header->count, counts[i]);
       if (idris_rt_is_unique(header) != (counts[i] == 1))
         return fails("#%u: idris_rt_is_unique is %d at count %u", i,
                      idris_rt_is_unique(header) ? 1 : 0, counts[i]);
-      for (unsigned at = 0; at < o.slots(); ++at)
-        if (*o.slot(at) != words_[o.held[at]]) {
-          char text[16];
-          return fails("#%u: slot %u holds %p, where the model holds %s", i, at, *o.slot(at),
-                       describe(o.held[at], text, sizeof text));
-        }
+      if (!slotsAgree(i))
+        return false;
     }
     if (staticBoxCell.count != 0 || staticBoxCell.info != staticBoxInfo)
       return fails("the static box: count %u, info %#x", staticBoxCell.count, staticBoxCell.info);
@@ -500,6 +508,18 @@ private:
       if (memoCells[m].header.count != 0 || memoCells[m].header.info != memoInfo)
         return fails("memo %u: count %u, info %#x", m, memoCells[m].header.count,
                      memoCells[m].header.info);
+    return true;
+  }
+
+  // Whether each slot of object i holds the word the model says.
+  bool slotsAgree(unsigned i) {
+    const Object &o = objects_[i];
+    for (unsigned at = 0; at < o.slots(); ++at)
+      if (*o.slot(at) != words_[o.held[at]]) {
+        char text[16];
+        return fails("#%u: slot %u holds %p, where the model holds %s", i, at, *o.slot(at),
+                     describe(o.held[at], text, sizeof text));
+      }
     return true;
   }
 

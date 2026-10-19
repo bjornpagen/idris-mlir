@@ -8,6 +8,38 @@
 #include "Rc/Rc.h"
 #include "idris_rt.h"
 
+#include <stddef.h>
+
+namespace {
+
+[[noreturn]] void misused(const char *cause, size_t length) { idris_rt_crash(cause, length); }
+
+} // namespace
+
+namespace rt::rc {
+
+// A cell that died is marked (rt::alloc::freedInfo) and kept, so a count
+// operation on it is a release once too often or a reference that outlived
+// its cell. A stack cell lies in the frame of the function that made it,
+// and the stack grows down on every target, as the runner's guard below
+// it says (Start/Runner.cpp): this function's own frame is below every
+// frame that is live, so a stack cell below it is in a frame that has
+// returned. One above it may be too, in memory a later call has taken
+// again: that one is not seen.
+[[gnu::noinline]] void checkLive(const idris_rt_header *cell) {
+  if (cell->info == rt::alloc::freedInfo) [[unlikely]] {
+    static constexpr char cause[] = "a count operation on a cell that died";
+    misused(cause, sizeof cause - 1);
+  }
+  if (isStack(cell->info) && static_cast<const void *>(cell) < __builtin_frame_address(0))
+      [[unlikely]] {
+    static constexpr char cause[] = "a count operation on a cell of a frame that has returned";
+    misused(cause, sizeof cause - 1);
+  }
+}
+
+} // namespace rt::rc
+
 // One more owned reference; a count that would reach UINT32_MAX saturates
 // there.
 extern "C" void idris_rt_inc(void *o) { rt::rc::inc(o); }
@@ -36,6 +68,7 @@ extern "C" void idris_rt_free_cell(void *o) {
   if (!rt::rc::isObject(o))
     return;
   idris_rt_header *cell = rt::rc::headerOf(o);
+  rt::rc::touch(cell);
   if (rt::rc::isCounted(cell->count) && !rt::rc::isStack(cell->info))
     rt::alloc::freeCell(cell);
 }
@@ -47,6 +80,7 @@ extern "C" void idris_rt_free_cell(void *o) {
 // force, on the cell, which is a cell, never NULL or an odd word.
 extern "C" void idris_rt_persist_held(void *o) {
   idris_rt_header *cell = rt::rc::headerOf(o);
+  rt::rc::touch(cell);
   if (cell->count == 0) [[unlikely]]
     rt::rc::persistHeld(cell);
 }

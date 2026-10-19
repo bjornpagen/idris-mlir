@@ -4,7 +4,7 @@
 
 Taken on 6f774119 (arm64 macOS, `build/dev`), 2026-10-19. Every count below
 was measured on that build; the reproducers and fixtures are now tests
-(see Status), the one still open in `audits/leaks/`.
+(see Status), and `audits/leaks/` is gone.
 
 ## Status (2026-10-19, the ownership lane)
 
@@ -32,14 +32,34 @@ What §3.9 planned, as it landed:
   the memo-state memory resource that would replace builtStateHolds.
 - Step 4: persistence done (idris_rt_persist_held after every force; the
   CAF release, `__idr$release$cafs`, its runtime function and the live-cells
-  marks deleted, and the harness's `live-cells` case field with them). The
-  static lifetime (§3.1's static as a view, deleting isStatic and the
-  Phantom/Constant/StaticRead classes) is open: static-view-settled.mlir
-  here is its witness, still accepted.
+  marks deleted, and the harness's `live-cells` case field with them).
+  Static is a view in the verifier: static data its op makes from nothing
+  a count reaches (ownership::madeStatic) is, at a view's grade, a view
+  that lives as long as the program, and what is read from it a view of
+  it, so consuming one takes an idr.dup (static-view-settled is refused,
+  tests/verify-sources); at an owned grade (poison, a small big) it stands
+  for a value and holds no reference. The verifier no longer asks
+  isStatic's search of the definition chain. Still open: the lifetime in
+  the grade (`static` beside heap and frame), which would delete isStatic
+  from counting (Classes' Phantom/Constant/StaticRead), narrowing, reuse
+  and the program verifier.
 - Step 5: an unreached path ends in ub.unreachable (Commit.cpp).
-- Tests: T2 (verify-frame, verify-sources), T3 (actions-skip-programs, with
-  an `idr-reuse-site` action added), T4 holds by the verifier after every
-  pass. T1's generators, T5's checked runtime and T6's measurement are open.
+- Tests: T1, the lazy fuzzer (harness/Lazy.idr, tests/fuzz-lazy): CAF
+  streams, a static lazy list, streams and lazy lists made at run time,
+  chains of memo cells, each read once, twice, in rounds of a loop or by
+  two calls, compiled with the checked runtime, each case against its
+  model, every run ending with live cells 0. T2 (verify-frame,
+  verify-sources). T3 (actions-skip-programs: no action skipped too, every
+  program linked with the checked runtime). T4 holds by the verifier after
+  every pass. T5, the checked runtime (libidris_rt_checked.a,
+  runtime/Alloc/Alloc.h; tests/runtime-checked): a cell that dies keeps its
+  memory with its header marked, and a count operation on it, or on a
+  stack cell below the frame of the operation, ends the program naming
+  which. T6's measurement is open.
+- Memo captures are exclusive where every init moved an exclusive value
+  in and no read of the field as a view is used (exclusivity's Captures);
+  the char-list and split-prefixes tests still find shared values before
+  them (audits/bugs.md).
 
 ## 0. In short
 

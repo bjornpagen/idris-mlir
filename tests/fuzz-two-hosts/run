@@ -1,19 +1,20 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The generators' checks of themselves (Gen, Sem, TwoLevels and Fuzz's
-# checks: replay against seeding, the shrinker's order, the checkers'
-# verdicts on planted outputs), compiled by idris-mlir: each must print ok.
+# The generators' checks of themselves (Gen, Sem, TwoLevels, Fuzz's and
+# Lazy's checks: replay against seeding, the shrinker's order, the
+# checkers' verdicts on planted outputs), compiled by idris-mlir: each must
+# print ok.
 # A draw and a tape's reset take apart only exclusive cells, count nothing,
 # and build each cell in the one they took (mlir.expect).
-# Debt: the limits are not measured; one compilation of five modules and
+# Debt: the limits are not measured; one compilation of six modules and
 # their run, sized on the owner's build.
 step_limit=600
 test_limit=900
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 mkdir "$work/two-hosts"
 cp -R Main.idr cases mlir.expect packages "$work/two-hosts/"
-for two_hosts_module in Gen Prims Fuzz Sem TwoLevels; do
+for two_hosts_module in Gen Prims Fuzz Lazy Sem TwoLevels; do
   cp "$root/harness/$two_hosts_module.idr" "$work/two-hosts/"
 done
 e2e_io "$work/two-hosts"

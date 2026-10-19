@@ -1,0 +1,10 @@
+checked held: exit 0
+  stderr | idris-rt: live cells 0
+checked twice: exit 1
+  stderr | idris-mlir: a count operation on a cell that died
+checked holder: exit 1
+  stderr | idris-mlir: a count operation on a cell that died
+checked dead: exit 1
+  stderr | idris-mlir: a count operation on a cell that died
+checked returned: exit 1
+  stderr | idris-mlir: a count operation on a cell of a frame that has returned

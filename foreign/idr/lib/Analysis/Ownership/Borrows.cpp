@@ -200,7 +200,12 @@ private:
       return ownParameters(con.getFields());
     if (auto init = dyn_cast<CellInitOp>(op))
       return ownParameters(init.getFields());
-    // An op of upstream's that writes a value into memory stores it too.
+    // An op of upstream's that writes a value into memory stores it too,
+    // and so does idr.own.give, which hands its operand's reference to the
+    // store that consumes its result, upstream's store then writing the
+    // give's plain result: either way the value moves into memory.
+    if (auto give = dyn_cast<OwnGiveOp>(op))
+      return ownParameters(give->getOperands());
     for (OpOperand &operand : op->getOpOperands())
       if (holdsReferences(operand.get().getType()) && ownership::storedBy(operand))
         ownParameters(operand.get());

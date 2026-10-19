@@ -8,6 +8,7 @@ depends = contrib, test
 sourcedir = "."
 modules = Fuzz
         , Gen
+        , Lazy
         , Lock
         , Prims
         , Runner

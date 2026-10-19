@@ -5,8 +5,9 @@
 # small stack, a wide cell's slots after the word that counts them, and
 # never an odd word an object slot holds; a new array's object slots are
 # NULL from birth; a copy of a memref's view counts each object it copies
-# before it releases what it overwrites; idris_rt_caf_release frees what a
-# forced static memo cell holds and touches nothing else; and a program
+# before it releases what it overwrites; a static memo cell's force makes
+# what it then holds persistent (idris_rt_persist_held), and a counted
+# one's leaves it counted; and a program
 # that returns reports its live cells when IDRIS_RT_LIVE is exactly 1, and
 # a crash never does. Every entry point that takes a handle gives, on each
 # kind of handle (null, the standard streams, a file open and closed, a

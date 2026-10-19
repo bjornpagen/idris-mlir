@@ -15,6 +15,7 @@ add_mlir_library(IdrAnalysis
 	Ownership/Borrows.cpp
 	Ownership/Reuses.cpp
 	Ownership/Exclusivity.cpp
+	Ownership/Captures.cpp
 	Ownership/ExclusivityAnalyses.cpp
 	Ranges.cpp
 	Recursion.cpp

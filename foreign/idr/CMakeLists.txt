@@ -179,6 +179,26 @@ else()
 		VERBATIM
 	)
 	add_custom_target(idris_rt_prepared ALL DEPENDS "${IDRIS_MLIR_RUNTIME_PREPARED}")
+
+	# The checked runtime (runtime/CMakeLists.txt), prepared the same way
+	# beside it, for the test that compiles programs with it
+	# (--runtime=idris_rt_checked.o).
+	set(IDRIS_MLIR_CHECKED_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt_checked.o")
+	set(IDRIS_MLIR_CHECKED_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED}")
+	if(IDRIS_MLIR_RUNTIME_BITCODE_HOME STREQUAL "BesideObject")
+		list(APPEND IDRIS_MLIR_CHECKED_RUNTIME_PREPARED_FILES
+			"${CMAKE_CURRENT_BINARY_DIR}/idris_rt_checked.bc")
+	endif()
+	add_custom_command(
+		OUTPUT ${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED_FILES}
+		COMMAND idris-mlir --prepare-runtime "--runtime=${IDRIS_MLIR_CHECKED_RUNTIME_ARCHIVE}"
+			-o "${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED}"
+		DEPENDS idris-mlir idris_rt_checked
+		COMMENT "Optimizing and compiling the checked runtime once, for the tests that link it"
+		VERBATIM
+	)
+	add_custom_target(idris_rt_checked_prepared ALL
+		DEPENDS "${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED}")
 endif()
 
 # mlir-tblgen with the generator of the Idris side's vocabulary of each

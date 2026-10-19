@@ -43,7 +43,13 @@ Use useOf(mlir::OpOperand &operand);
 // with it.
 bool storedBy(mlir::OpOperand &operand);
 
-// Whether `value` is static: a constant, poison, or a field read from one.
+// Whether `value` is static data its op makes from nothing a count
+// reaches: a constant, poison, a small big, a global's buffer. The op has
+// no regions, is pure, and reads no reference.
+bool madeStatic(mlir::Value value);
+
+// Whether `value` is static: made static (madeStatic), or a field read from
+// such a value, or such a value at another grade.
 bool isStatic(mlir::Value value);
 
 // The value a field was read from: the operand of an idr.field, the

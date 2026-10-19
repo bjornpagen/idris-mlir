@@ -74,8 +74,13 @@ LogicalResult idr::verify::OwnedWalk::check() {
 // A value's role, from its type and its definition alone, so that it is
 // the same wherever the walk meets the value. In this order:
 // - a value that carries no reference, as its flow edges move it
-//   (Carriers, the fact useOf reads: a cell carries its box's), or static
-//   data, which no count reaches, is Untracked;
+//   (Carriers, the fact useOf reads: a cell carries its box's), is
+//   Untracked, and so is static data its op makes (madeStatic) at an owned
+//   grade, which stands for a value (poison, a small big) and holds no
+//   reference to give up; static data at a view's grade is a view that
+//   lives as long as the program (make), so a use that consumes it takes a
+//   reference of its own (idr.dup), as of any view, and what is read from
+//   it is a view of it;
 // - an owned grade holds a reference of its own, and so does a cell, which
 //   its type lets be used once and its init consumes: a cell is decided
 //   here, before the allocation its source declares;
@@ -90,7 +95,8 @@ idr::verify::Role idr::verify::OwnedWalk::roleOf(Value value) {
     return known->second;
   Role role = [&] {
     Type type = value.getType();
-    if (!Carriers::of(type).contains(Carrier::Reference) || ownership::isStatic(value))
+    if (!Carriers::of(type).contains(Carrier::Reference) ||
+        (ownership::madeStatic(value) && (isOwned(type) || isLinearByType(type))))
       return Role::Untracked;
     if (isOwned(type) || isLinearByType(type))
       return Role::Owned;

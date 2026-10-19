@@ -99,9 +99,11 @@ mlir::Type shared(mlir::Type type);
 bool forgets(mlir::Type from, mlir::Type to);
 
 // The lifetime of a type: its grade's, or a cell's own (CellType), which
-// takes no grade. Whether a value of `type` may be frame: a box, or a sum,
-// whose fields may hold one; nothing else reaches a cell of the frame. The
-// type at `lifetime`, where it may be frame, and itself otherwise.
+// takes no grade. Whether a value of `type` may be frame: a box, or a sum
+// whose fields hold references, one of which may be a box; nothing else
+// reaches a cell of the frame, and no reference moves out of a sum of
+// words, so no edge (Flow.h) could carry the frame to it. The type at
+// `lifetime`, where it may be frame, and itself otherwise.
 Lifetime lifetimeOf(mlir::Type type);
 bool mayBeFrame(mlir::Type type);
 mlir::Type atLifetime(mlir::Type type, Lifetime lifetime);

@@ -107,15 +107,15 @@ set(IDRIS_RT_SOURCES
 # (idris_rt.h, the C ABI; cpu_features.h; each part's header, by its path
 # from here) and the target entry's list of the processor features programs
 # may be compiled to use, which cpu_features.h includes and idr-lower and
-# idris-mlir read too. idris_rt carries them, with SCOPE, to every library
-# that links it.
+# idris-mlir read too. TARGET, a runtime archive, carries them with SCOPE:
+# idris_rt to every library that links it.
 set(IDRIS_RT_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}"
 	# idris_rt_ops.h: the C declarations of the functions the dialect's ops
 	# call, generated from their ODS (foreign/idr/include/idr/IR).
 	"${PROJECT_BINARY_DIR}/foreign/idr/include/idr/IR")
-function(idris_rt_headers scope)
-	target_include_directories(idris_rt ${scope} ${IDRIS_RT_INCLUDE_DIRECTORIES})
-	target_compile_definitions(idris_rt ${scope}
+function(idris_rt_headers target scope)
+	target_include_directories(${target} ${scope} ${IDRIS_RT_INCLUDE_DIRECTORIES})
+	target_compile_definitions(${target} ${scope}
 		"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
 	)
 endfunction()
@@ -155,8 +155,10 @@ set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
 )
 
 # How TARGET compiles the runtime's units: the profile, the warnings, the
-# vendored libraries' headers and what they are told.
-function(idris_rt_compile target)
+# vendored libraries' headers and what they are told; CHECKED is 1 for the
+# checked runtime (rt::alloc::checked, Alloc/Alloc.h), 0 for the one every
+# program links.
+function(idris_rt_compile target checked)
 	target_include_directories(${target} SYSTEM PRIVATE
 		"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
 		"${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
@@ -178,6 +180,7 @@ function(idris_rt_compile target)
 		IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
 		# The target's user address width (Platform/Address.h), the entry's.
 		IDRIS_RT_USER_ADDRESS_BITS=${IDRIS_MLIR_USER_ADDRESS_BITS}
+		IDRIS_RT_CHECKED=${checked}
 	)
 	target_link_libraries(${target} PRIVATE snmalloc idris_mlir_runtime_profile idris_mlir_warnings)
 endfunction()
@@ -191,7 +194,7 @@ endfunction()
 # compile.
 if(IDRIS_MLIR_TYPECHECK)
 	add_library(idris_rt INTERFACE)
-	idris_rt_headers(INTERFACE)
+	idris_rt_headers(idris_rt INTERFACE)
 	find_file(IDRIS_MLIR_TYPECHECK_GMP_HEADER gmp.h
 		HINTS "${PROJECT_SOURCE_DIR}/.toolchain/sysroot/usr/include"
 		DOC "GMP's header, for the typecheck build's compile of the runtime")
@@ -202,7 +205,7 @@ if(IDRIS_MLIR_TYPECHECK)
 		"${CMAKE_CURRENT_BINARY_DIR}/typecheck-gmp/gmp.h" COPYONLY)
 	add_library(idris_rt_typecheck OBJECT ${IDRIS_RT_SOURCES})
 	target_link_libraries(idris_rt_typecheck PRIVATE idris_rt)
-	idris_rt_compile(idris_rt_typecheck)
+	idris_rt_compile(idris_rt_typecheck 0)
 	target_include_directories(idris_rt_typecheck SYSTEM PRIVATE
 		"${CMAKE_CURRENT_BINARY_DIR}/typecheck-gmp")
 	add_dependencies(idris_rt_typecheck IdrRuntimeAbiIncGen)
@@ -231,18 +234,39 @@ add_library(idris_rt STATIC
 	$<TARGET_OBJECTS:idris_rt_simdutf>
 	$<TARGET_OBJECTS:idris_rt_ryu>
 )
-idris_rt_headers(PUBLIC)
-idris_rt_compile(idris_rt)
+idris_rt_headers(idris_rt PUBLIC)
+idris_rt_compile(idris_rt 0)
 add_dependencies(idris_rt IdrRuntimeAbiIncGen)
 # Its bigs call GMP, so whatever links it links GMP.
 target_link_libraries(idris_rt INTERFACE ${IDRIS_MLIR_GMP})
+
+# The checked runtime: the same units, in which a cell that dies keeps its
+# memory with its header marked, and a count operation on such a cell, or
+# on a stack cell whose frame has returned, ends the program naming it
+# (Alloc/Alloc.h). Nothing links it by default: a test compiles a program
+# with it (--runtime, the object foreign/idr prepares from it) to find the
+# double releases and dangling references that live cells cannot see.
+add_library(idris_rt_checked STATIC
+	${IDRIS_RT_SOURCES}
+	$<TARGET_OBJECTS:idris_rt_simdutf>
+	$<TARGET_OBJECTS:idris_rt_ryu>
+)
+idris_rt_headers(idris_rt_checked PRIVATE)
+idris_rt_compile(idris_rt_checked 1)
+add_dependencies(idris_rt_checked IdrRuntimeAbiIncGen)
+set_target_properties(idris_rt_checked PROPERTIES CXX_CLANG_TIDY ""
+	ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
 # The same number for the tests, which build parts of the runtime for
 # another page size and must not assume this one (tests/page-size-mismatch).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/page-size" CONTENT "${IDRIS_MLIR_PAGE_SIZE}\n")
 # What a C program that includes idris_rt.h is compiled with, one flag a
 # line: the runtime's include directories, the generated one among them,
-# from the one list above (the runtime's tests compile against the ABI).
+# from the one list above (the runtime's tests compile against the ABI),
+# and what a unit of the runtime it compiles is told of the runtime it
+# joins, the one every program links.
 list(TRANSFORM IDRIS_RT_INCLUDE_DIRECTORIES PREPEND "-I" OUTPUT_VARIABLE IDRIS_RT_C_FLAGS)
+list(APPEND IDRIS_RT_C_FLAGS "-DIDRIS_RT_CHECKED=0")
 list(JOIN IDRIS_RT_C_FLAGS "\n" IDRIS_RT_C_FLAGS_TEXT)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/c-flags" CONTENT "${IDRIS_RT_C_FLAGS_TEXT}\n")
 # The library calls code generation makes for the target, as C names (the
@@ -265,8 +289,10 @@ set_target_properties(idris_rt_simdutf PROPERTIES CXX_CLANG_TIDY "")
 set_target_properties(idris_rt_ryu PROPERTIES C_CLANG_TIDY "")
 set_target_properties(idris_rt PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
-# idris-mlir reads the runtime's bitcode from here.
+# idris-mlir reads the runtime's bitcode from here, and the checked
+# runtime's from beside it.
 set(IDRIS_MLIR_RUNTIME_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/libidris_rt.a" PARENT_SCOPE)
+set(IDRIS_MLIR_CHECKED_RUNTIME_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/libidris_rt_checked.a" PARENT_SCOPE)
 
 # The link check. Every member of the archive is linked into one
 # executable of the target with no C++ library and no unwinder, so a

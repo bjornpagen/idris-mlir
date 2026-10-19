@@ -17,8 +17,9 @@
 // value was taken apart into, and the token of that take; the box
 // idr.cell.init writes into its cell, of exclusive fields), when it is a
 // call's result that every return makes exclusive or a parameter every
-// caller passes exclusive, or when it is a copy of static data built only
-// of atoms. A cell is new when idr.cell.new makes it or idr.cell.recycle
+// caller passes exclusive, a memo cell's capture that its force moved out
+// of a field every init moved an exclusive value into (Captures), or when
+// it is a copy of static data built only of atoms. A cell is new when idr.cell.new makes it or idr.cell.recycle
 // gives it the token's. So the pair of empty lists that span and splitAt
 // give at the end of their input joins the pair they build around an
 // exclusive one, and the join stays exclusive. Any other copy, a constant,
@@ -70,8 +71,9 @@ using Sharing = Exclusivity::Sharing;
 
 FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Copies &copies) {
   exclusivity::Calls calls(program, copies);
+  exclusivity::Captures captures(program);
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
-  exclusivity::loadAnalyses(solver, calls);
+  exclusivity::loadAnalyses(solver, calls, captures);
   if (mlir::failed(solver.initializeAndRun(program)))
     return failure();
 
