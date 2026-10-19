@@ -246,7 +246,7 @@ public:
   Node *nodeOf(mlir::StringAttr name) const { return byName.lookup(name); }
   // How many nodes it holds: the program's functions and the made nodes.
   size_t nodeCount() const { return all.size(); }
-  bool holds(mlir::StringAttr name) const override;
+  Node *held(mlir::StringAttr name) const override { return nodeOf(name); }
   std::optional<specialize::FinalCallee> finalCallee(mlir::StringAttr name) const override;
   bool sameComponent(mlir::StringAttr a, mlir::StringAttr b) const override;
 

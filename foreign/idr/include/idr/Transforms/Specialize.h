@@ -119,9 +119,10 @@ struct FinalCallee {
 class Schedule {
 public:
   virtual ~Schedule() = default;
-  // Whether the program holds a function named `name`: one it held when the
-  // run began, or a node placed between two waves.
-  virtual bool holds(mlir::StringAttr name) const = 0;
+  // The ready set's node of the function the program holds under `name`:
+  // one it held when the run began, or a node placed between two waves;
+  // null for none.
+  virtual optimize::Node *held(mlir::StringAttr name) const = 0;
   // The function the program holds under `name`, a function of the
   // program, once its component is final and nothing writes it again;
   // nothing before.

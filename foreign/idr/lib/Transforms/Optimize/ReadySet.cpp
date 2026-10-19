@@ -76,8 +76,6 @@ ReadySet::ReadySet(ProgramOp program, const CallCycles &cycles) {
 
 ReadySet::~ReadySet() = default;
 
-bool ReadySet::holds(StringAttr name) const { return byName.contains(name); }
-
 // A node the table made and has not placed is no node of the ready set yet,
 // and not final.
 std::optional<specialize::FinalCallee> ReadySet::finalCallee(StringAttr name) const {

@@ -163,8 +163,10 @@ StringRef kindOf(const Key &key) {
 
 // The node of `key`, made if new, given to `requester`, which is `mine`
 // when it is a node. A node not in the program yet takes the requester as
-// a parent. A name that another key or a function of the program already
-// holds is an internal error at `at`. Under the lock.
+// a parent. A name another key holds is an internal error at `at`. A name
+// is its key's content, so a function the program held under it when the
+// run began is the node of the same key an earlier run made, already
+// placed: the request calls it. Under the lock.
 FailureOr<Node *> grant(Nodes::State &s, idr::FuncOp requester, const Node *mine, const Key &key,
                         Operation *at) {
   Attribute attr = attributeOf(key);
@@ -175,13 +177,12 @@ FailureOr<Node *> grant(Nodes::State &s, idr::FuncOp requester, const Node *mine
         s.names.intern(at->getLoc(), owner.getValue(), kindOf(key), canonicalHash(attr));
     if (failed(name))
       return failure();
-    if (s.schedule.holds(*name))
-      return at->emitError() << "internal error: two keys name " << name->getValue()
-                             << ": a function of the program and " << canonicalText(attr);
     auto made = std::make_unique<Node>();
     made->key = key;
     made->origin = originOf(s, owner);
     made->name = FlatSymbolRefAttr::get(*name);
+    if (optimize::Node *earlier = s.schedule.held(*name))
+      made->state = Placed{earlier};
     s.byName[*name] = made.get();
     found = s.byKey.insert({attr, std::move(made)}).first;
   }
