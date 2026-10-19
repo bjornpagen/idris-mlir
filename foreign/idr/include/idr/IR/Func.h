@@ -45,8 +45,9 @@ Effect componentEffects(llvm::ArrayRef<FuncOp> component, const mlir::SymbolTabl
 
 // Gives `fn` the effects `effects`, and every idr.call of it among `users`
 // (the symbol's users, upstream's map, built where no worker holds a caller)
-// the same: the one writer of a function's effects, so a call never holds
-// less than its callee, which its verifier refuses.
+// the same, so a call never holds less than its callee, which its verifier
+// refuses. idr-optimize writes its calls as each caller's turn begins
+// instead (Analysis/Effects.h).
 void writeEffects(FuncOp fn, Effect effects, const mlir::SymbolUserMap &users);
 
 // The resource effects that the dialect's bits stand for, one table, each

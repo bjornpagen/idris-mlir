@@ -276,16 +276,20 @@ void Scheduler::insert(specialize::Node *made) {
 
 // The component's summaries are written, each whole from what its turn
 // solved and what its final body says, and become readable by every other
-// component; its entry becomes its members' `effects` and every call's of
-// them, `users` naming the calls, which the passes of every later wave read.
-void Scheduler::finalize(Scc &scc, Finished done, const SymbolUserMap &users) {
+// component; its entry becomes its members' `effects`, and every call's of
+// them: the calls among the members now, and every other call when its
+// caller's turn begins (writeCallEffects), since every caller outside the
+// component finishes after it. No walk of the program is needed.
+void Scheduler::finalize(Scc &scc, Finished done) {
   for (auto [member, body] : llvm::zip_equal(scc.members, done.members)) {
-    writeEffects(member->fn, done.effects, users);
+    member->fn.setEffects(done.effects);
     Solved &solved = std::get<Node::Done>(member->state).solved;
     member->published.emplace(Summary{done.effects, solved.givesBack, std::move(solved.times),
                                       std::move(body.constants), body.facts});
     ++numFinal;
   }
+  for (Node *member : scc.members)
+    writeCallEffects(*member);
   for (Node *caller : scc.callers)
     --caller->scc->unfinishedCallees;
 }
@@ -303,15 +307,9 @@ void Scheduler::settle(MutableArrayRef<Turn> wave) {
   });
   for (specialize::Node *made : built)
     insert(made);
-  // The calls of the program now, the wave's nodes' among them, taken once
-  // for every component the wave finished.
-  if (llvm::any_of(wave, [](const Turn &turn) { return turn.finished.has_value(); })) {
-    SymbolTableCollection tables;
-    SymbolUserMap users(tables, analyses.program);
-    for (Turn &turn : wave)
-      if (turn.finished)
-        finalize(turn.scc, std::move(*turn.finished), users);
-  }
+  for (Turn &turn : wave)
+    if (turn.finished)
+      finalize(turn.scc, std::move(*turn.finished));
   // A node asked for was claimed and built by a turn of the wave that asked
   // for it, so it is placed now.
   for (Turn &turn : wave)

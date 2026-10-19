@@ -128,6 +128,9 @@ private:
   // it is not final; whether it parked.
   mlir::FailureOr<bool> parks(Node *node, llvm::SmallVector<specialize::Node *> asked,
                               Turn &turn);
+  // Each call in `node`'s body of a callee final now carries the callee's
+  // entry: the one place a call takes a final callee's effects.
+  void writeCallEffects(const Node &node) const;
   // The inner pipeline on a member, each of its calls of a final callee
   // first given the callee's effects.
   mlir::LogicalResult runInner(Node *node);
@@ -141,7 +144,7 @@ private:
   void settle(llvm::MutableArrayRef<Turn> wave);
   void insert(specialize::Node *made);
   bool stepOfRecursion(const specialize::Node &made) const;
-  void finalize(Scc &scc, Finished done, const mlir::SymbolUserMap &users);
+  void finalize(Scc &scc, Finished done);
   void want(Node *requester, Node *node);
   void waitOnCalls(Node *node);
   bool reaches(Scc &from, Scc &to);

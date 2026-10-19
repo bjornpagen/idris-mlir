@@ -61,9 +61,17 @@ SmallVector<FuncOp> functionsOf(ArrayRef<Node *> members) {
   return fns;
 }
 
+} // namespace
+
+Scheduler::Scheduler(Analyses in, RunPipeline run)
+    : analyses(in), runPipeline(std::move(run)), inner(FuncOp::getOperationName()) {
+  buildInnerPipeline(inner, analyses.inner);
+}
+
 // Each call in `node`'s body of a callee final now carries the callee's
 // entry. The node's turn holds its body.
-void writeCallEffects(const ReadySet &set, const Node &node) {
+void Scheduler::writeCallEffects(const Node &node) const {
+  const ReadySet &set = analyses.set;
   FuncOp fn = node.fn;
   fn.getBody().walk([&](CallOp call) {
     Callee callee = set.callee(node, call.getCalleeAttr().getAttr());
@@ -72,15 +80,8 @@ void writeCallEffects(const ReadySet &set, const Node &node) {
   });
 }
 
-} // namespace
-
-Scheduler::Scheduler(Analyses in, RunPipeline run)
-    : analyses(in), runPipeline(std::move(run)), inner(FuncOp::getOperationName()) {
-  buildInnerPipeline(inner, analyses.inner);
-}
-
 LogicalResult Scheduler::runInner(Node *node) {
-  writeCallEffects(analyses.set, *node);
+  writeCallEffects(*node);
   OpPassManager *pm = nullptr;
   {
     std::lock_guard<std::mutex> lock(pipelinesMutex);
@@ -206,7 +207,7 @@ LogicalResult Scheduler::runMember(Node *node, Turn &turn) {
 // component reads them before settle makes it final.
 Finished Scheduler::finish(const Scc &scc) {
   for (Node *member : scc.members)
-    writeCallEffects(analyses.set, *member);
+    writeCallEffects(*member);
   Finished done{componentEffects(functionsOf(scc.members), analyses.symbols), {}};
   bool shared = scc.members.size() > 1;
   for (Node *member : scc.members)

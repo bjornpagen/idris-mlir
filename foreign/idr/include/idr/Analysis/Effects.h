@@ -5,9 +5,12 @@
 // its entry (everything, idr::anyEffect, until a pass has found less), and
 // of each idr.call. A call carries its callee's effects, as an llvm.call
 // carries its memory effects, so that MLIR's own effects question has its
-// answer at the call. idr::writeEffects (Func.h) is the one writer, of a
-// function's effects and every call's of it at once: one written without
-// the other would leave a call the verifier refuses.
+// answer at the call. idr::writeEffects (Func.h) writes a function's
+// effects and every call's of it at once: one written without the other
+// would leave a call the verifier refuses. idr-optimize, whose callers
+// finish after their callees, writes a final component's members and the
+// calls among them, and each caller's calls when its turn begins, before
+// anything verifies it (Scheduler::writeCallEffects).
 // Once the program is first-order a function runs the callee of each
 // idr.call in its body and nothing else: a force is a call of its memo sum's
 // dispatch function, which calls the label. So the bits flow along
