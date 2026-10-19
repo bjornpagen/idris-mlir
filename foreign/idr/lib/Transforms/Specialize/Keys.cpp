@@ -190,6 +190,26 @@ bool fixesClosure(SpecKeyAttr key, TypeRange params) {
   });
 }
 
+namespace {
+
+// Whether `value`, or a closure or suspension among the parts of a
+// constructor that built it, is used by something else too: the parts a key
+// fixes are read through the constructors that build them, and through the
+// grades on the way.
+bool sharedPart(Value value) {
+  Value made = throughLinear(value);
+  if (isClosureValue(value.getType()) && (!value.hasOneUse() || !made.hasOneUse()))
+    return true;
+  auto built = made.getDefiningOp<ConOp>();
+  return built && llvm::any_of(built.getFields(), sharedPart);
+}
+
+} // namespace
+
+bool sharesClosure(idr::CallOp call) {
+  return llvm::any_of(call.getArgs(), sharedPart);
+}
+
 std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
                                    ArrayRef<BindingTime> seen) {
   // A closed call is left to run at run time.

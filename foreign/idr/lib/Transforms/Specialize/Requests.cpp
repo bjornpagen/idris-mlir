@@ -205,6 +205,7 @@ FailureOr<std::optional<SpecGrant>> requestSpec(Nodes::State &s, idr::FuncOp req
   FailureOr<Node *> node = grant(s, requester, mine, key, at);
   if (failed(node))
     return failure();
+  (*node)->sharedClosure |= sharesClosure(cast<idr::CallOp>(at));
   return std::optional<SpecGrant>(SpecGrant{(*node)->name, key, std::move(sources)});
 }
 

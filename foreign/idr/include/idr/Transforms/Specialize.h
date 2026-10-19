@@ -105,6 +105,9 @@ struct Node {
   llvm::SmallVector<const Node *> parents;
   // Changed only under the table's lock.
   std::variant<Requested, Claimed, Built, Placed> state;
+  // Whether a request of it passed a closure something else uses too
+  // (sharesClosure). Set under the table's lock.
+  bool sharedClosure = false;
 };
 
 // A callee whose component is final: its function and the binding time of
@@ -295,6 +298,11 @@ std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> 
 // or constant, at a parameter that holds one. A node of such a key applies
 // that closure: its body is the closure's code run on what the key fixed.
 bool fixesClosure(SpecKeyAttr key, mlir::TypeRange params);
+// Whether `call` passes a closure, or a closure or suspension it captures,
+// that something else uses too: a node it asks for that fixes the closure
+// copies its code wherever it is inlined, where applying the closure once
+// would consume it.
+bool sharesClosure(idr::CallOp call);
 
 // The order a key is compared by with the keys on its request chain and
 // the keys its requester was given. It remembers the size of each constant

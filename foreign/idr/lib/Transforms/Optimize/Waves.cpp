@@ -230,11 +230,13 @@ void Scheduler::insert(specialize::Node *made) {
   specialize::Built &built = std::get<specialize::Built>(made->state);
   // A step of a recursion on static data: its origin is on a cycle of
   // calls (its component holds another function, or its body calls
-  // itself), and its key fixes no closure. A key that fixes one makes a
-  // node that applies a known closure, which is beta reduction, not a step
-  // of the recursion: inlined, it consumes the closure constructor its
-  // caller built, and the next step is a node only where the caller's code
-  // built another.
+  // itself), and it applies no closure its requests consume. A key that
+  // fixes a closure (fixesClosure) makes a node that applies a known
+  // closure, which is beta reduction, not a step of the recursion: inlined,
+  // it consumes the closure, and the next step is a node only where the
+  // caller's code or static data holds another. A closure something else
+  // uses too (sharedClosure) is not consumed: inlined, its code would be
+  // copied at each use, and each copy would ask for the next step again.
   bool stepOfRecursion = false;
   if (Node *origin = set.byName.lookup(made->origin)) {
     StringAttr name = origin->fn.getSymNameAttr();
@@ -246,7 +248,7 @@ void Scheduler::insert(specialize::Node *made) {
                                         : WalkResult::advance();
                            })
                            .wasInterrupted()) &&
-                      !appliesKnownClosure(made->key);
+                      !(appliesKnownClosure(made->key) && !made->sharedClosure);
   }
   auto node =
       std::make_unique<Node>(built.fn, Node::Made{std::move(built.times), stepOfRecursion}, *scc);
