@@ -177,10 +177,11 @@ Each has its default taken in the proposal that owns it:
   through a relink kit.
 - **0017 §4:** whether a port's changes note names only what changed.
   *Default:* yes.
-- **0005 §9:** the programs' CPU on arm64 Linux, where the Linux targets
-  run, and how glibc is pinned. *Default:* `armv8.2-a` on both arm64
-  Linux targets; Fedora 44 VMs on the Mac for arm64 Linux and a
-  native x86_64 machine; the build host's glibc exactly 2.43.
+- **0005 §9:** the programs' CPU on 16 KiB arm64 Linux, where the Linux
+  targets run, and how glibc is pinned. *Default:* `armv8.2-a` (the
+  4 KiB target's `armv8-a` is decided, for the Pi Zero 2 W, Pi 3 and
+  Pi 4); Fedora 44 VMs on the Mac for arm64 Linux and a native x86_64
+  machine; the build host's glibc exactly 2.43.
 - **0007 §5:** where G1's x86_64 Linux leg runs. *Default:* a native
   machine of the owner's.
 - **0006:** the ryu pin. *Default:* stay.

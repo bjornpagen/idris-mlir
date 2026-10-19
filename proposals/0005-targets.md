@@ -61,7 +61,7 @@ there.
 | page size | 16384 | 16384 | 4096 | 4096 |
 | C library | libSystem, the host's SDK | glibc 2.43 | glibc 2.43 | glibc 2.43 |
 | format, linker | Mach-O, `ld64.lld` | ELF, `ld.lld` | ELF, `ld.lld` | ELF, `ld.lld` |
-| programs' CPU | `apple-m1` | `armv8.2-a` (*proposed*) | `armv8.2-a` (*proposed*) | `x86-64-v3` |
+| programs' CPU | `apple-m1` | `armv8.2-a` (*proposed*) | `armv8-a` (*decision*) | `x86-64-v3` |
 | user address bits | 47 | read from the kernel at L2 | read from the kernel at L2 | 47 |
 | runtime bitcode | beside the object | in the object | in the object | in the object |
 
@@ -82,9 +82,15 @@ there.
   the 16 KiB entry takes `armv8.2-a`, not `apple-m1`. A 4 KiB Linux runs
   on Graviton, Ampere, Snapdragon X, VMs on Macs, a Pi 5 booted with
   `kernel8.img`, and the older 64-bit Pis: the Zero 2 W and Pi 3
-  (Cortex-A53) and the Pi 4 (Cortex-A72), which are ARMv8.0-A.
-  `armv8.2-a` covers all but the older Pis; `armv8-a` covers them too, at
-  the cost of a lower baseline for the rest. Default `armv8.2-a`.
+  (Cortex-A53) and the Pi 4 (Cortex-A72), which are ARMv8.0-A. They are
+  supported (*decision*, the owner, 2026-10-18), on their 64-bit kernel
+  (the Zero 2 W boots a 32-bit one unless told otherwise), so the 4 KiB
+  target takes `armv8-a`; what a later processor adds, a program reaches
+  through the CPU test, as on the other targets. The runtime already fits
+  a 512 MiB board: its stack and its 4 GiB heap region are reservations
+  Linux does not count against memory (`MAP_NORESERVE`), and a system
+  that grants no heap region leaves the heap to grow without one (*read*:
+  `runtime/Platform/Posix/Memory.cpp`, `runtime/Alloc/Cells.cpp`).
 - **The CPU test on arm64 Linux.** Apple's compiler-rt reads the
   processor's features from sysctl when the test asks
   (`__init_cpu_features_resolver()`, *read*:
@@ -209,9 +215,9 @@ These are the machines, not choices:
 
 ## 9. Questions for the owner
 
-1. **The programs' CPU on arm64 Linux.** Default: `armv8.2-a` on both
-   arm64 Linux targets. `armv8-a` on the 4 KiB one if the Pi Zero 2 W,
-   Pi 3 and Pi 4 are to run programs (§3).
+1. **The programs' CPU on 16 KiB arm64 Linux.** Default: `armv8.2-a`,
+   the Pi 5's (§3). The 4 KiB target's is decided: `armv8-a`, for the
+   Pi Zero 2 W, Pi 3 and Pi 4.
 2. **Where the Linux targets run.** Default: Fedora 44 VMs on the arm64
    Mac for both arm64 Linux targets, one per kernel, and a native
    x86_64 machine for x86_64 Linux, since emulation does not count as
