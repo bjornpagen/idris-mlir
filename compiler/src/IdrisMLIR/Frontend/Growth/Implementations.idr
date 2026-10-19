@@ -66,14 +66,14 @@ fieldRead (Plain t r) = (t, r)
 ||| binder: a static argument of a kind (at quantity 0, the interface's own
 ||| type arguments; at a dictionary binder, a parent), or a method's field,
 ||| which Idris writes as a lambda wrapping the method's own function.
-data Role = Reads Static | Wrapped
+data Binding = Reads Static | Wrapped
 
-||| A binder's role, by its quantity, then, for a used binder, by whether
+||| A binder's binding, by its quantity, then, for a used binder, by whether
 ||| its type is an implementation's (`implementationType`), which decides
 ||| in any scope, as it does for a function's parameters and a
 ||| constructor's fields, so the binders before it need no stand-ins.
-roleOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> RigCount -> TT vs -> Core Role
-roleOf rig a = case use rig of
+bindingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> RigCount -> TT vs -> Core Binding
+bindingOf rig a = case use rig of
   Erased => pure (Reads AType)
   Used _ => (\dict => if dict then Reads ADictionary else Wrapped) <$> implementationType a
 
@@ -174,11 +174,11 @@ methodField owner field = do
     value (Own _) = Erased EmptyFC Placeholder
     value (Fixed t) = t
 
-||| One field, by the role of the binder that holds it: a static argument
+||| One field, by the binding of the binder that holds it: a static argument
 ||| as its key holds it, with the root of the dictionary it is; a method's
 ||| field by the function it applies.
 fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          (owner : String) -> Role -> ClosedTerm -> Core Field
+          (owner : String) -> Binding -> ClosedTerm -> Core Field
 fieldOf owner (Reads k) a = do
   t <- templateOf k a
   r <- dictionaryRoot a
@@ -190,7 +190,7 @@ fieldOf owner Wrapped a = methodField owner a
 fieldsAlong : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> TT vs -> List ClosedTerm -> Core (List Field)
 fieldsAlong owner (Bind _ _ (Pi _ rig _ a) sc) (x :: xs) = do
-  field <- fieldOf owner !(roleOf rig a) x
+  field <- fieldOf owner !(bindingOf rig a) x
   (field ::) <$> fieldsAlong owner sc xs
 fieldsAlong _ _ _ = pure []
 
