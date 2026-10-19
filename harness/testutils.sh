@@ -72,6 +72,17 @@ if [ -z "$timeout_cmd" ]; then
 fi
 step_limit=${step_limit:-60}
 test_limit=${test_limit:-300}
+# No test can exhaust the machine's memory either. A program this compiler
+# built holds no more heap than its one region, which IDRIS_RT_HEAP sizes
+# (runtime/Alloc/Cells.cpp), and no more stack than its reserved one, so
+# every process a test starts gets heap_limit bytes of heap: the programs,
+# a differential's among them, and the folds idris-mlir runs. As the time
+# limit ends a run that hangs, the heap's end ends one that runs away, with
+# `out of memory`, and as many tests as the runner runs at once hold a
+# gibibyte each at most.
+heap_limit=${heap_limit:-1073741824}
+IDRIS_RT_HEAP=$heap_limit
+export IDRIS_RT_HEAP
 # The output is bounded too, at 256 KiB, since the runner reads all of it:
 # a longer one is cut, and says so, which fails the test.
 if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then

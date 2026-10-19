@@ -184,6 +184,9 @@ void checkPageSize() noexcept;
 // more; the caller keeps `size + alignment` from wrapping.
 char *reserve(size_t size, size_t alignment = pageSize()) noexcept;
 
+// The bytes of physical memory the system has; 0 when it does not say.
+size_t physicalMemory() noexcept;
+
 // Makes the n bytes at p, whole pages, inaccessible.
 bool protect(char *p, size_t n) noexcept;
 

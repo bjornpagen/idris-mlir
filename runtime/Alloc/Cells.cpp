@@ -18,6 +18,7 @@
 #include "Alloc/Alloc.h"
 #include "Platform/Address.h"
 #include "Platform/Platform.h"
+#include "Start/Start.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
@@ -28,22 +29,44 @@
 
 namespace rt::alloc {
 
-// The heap starts in one region of 4 GiB, aligned to 4 GiB, so every cell of
-// a heap smaller than that has the same upper 32 bits as every other. That is
-// what a data memory-dependent prefetcher asks of a word before it follows
-// it (Apple's, which scans each cache line a load fills and fetches what a
-// word in it points to, only when the word and its address share their 4 GiB
-// region). A heap that outgrows the region grows from snmalloc's platform
-// layer, as it would without one. The region is address space alone, which
-// costs nothing on a target with no such prefetcher.
-constexpr size_t heapRegion = size_t{1} << 32;
+// The heap is one region of address space, reserved at the first
+// allocation, and nothing more: it never grows from the system, so no
+// program, however it runs away, holds more memory than its region, as no
+// program holds more stack than its reserved stack (Start/Entry.cpp). The
+// region's bytes are IDRIS_RT_HEAP's, when it is set, else half the
+// physical memory, so that a program left to run leaves the system the
+// rest; either rounded down to a power of two, which the global range
+// keeps its blocks in, and to no less than a chunk. A system that does not
+// say how much memory it has gets 4 GiB. An allocation that does not fit
+// ends the program as out of memory.
+//
+// The region is aligned to 4 GiB at least, and the global range hands out
+// its lowest blocks first, so the cells of a heap smaller than 4 GiB share
+// their upper 32 bits. That is what a data memory-dependent prefetcher asks
+// of a word before it follows it (Apple's, which scans each cache line a
+// load fills and fetches what a word in it points to, only when the word
+// and its address share their 4 GiB region). The region is address space
+// alone, committed as it is touched.
+constexpr size_t prefetchRegion = size_t{1} << 32;
+
+size_t heapBytes() {
+  size_t bytes = rt::start::byteSetting("IDRIS_RT_HEAP");
+  if (bytes == 0) {
+    size_t physical = rt::platform::physicalMemory();
+    bytes = physical == 0 ? prefetchRegion : physical / 2;
+  }
+  if (bytes < snmalloc::MIN_CHUNK_SIZE)
+    return snmalloc::MIN_CHUNK_SIZE;
+  return size_t{1} << (snmalloc::bits::BITS - 1 - snmalloc::bits::clz(bytes));
+}
 
 // snmalloc's standard configuration (StandardConfigClientMeta in
 // snmalloc/backend/globalconfig.h, with no client metadata and without the
-// metadata protection no mitigation of ours enables), with one addition: its
-// initialisation, on the first allocation, gives the global range the heap's
-// region before anything is drawn from it, as snmalloc's fixed-range
-// configuration gives it its one range.
+// metadata protection no mitigation of ours enables), with the base range
+// of its fixed-range configuration: EmptyRange, StandardLocalState's
+// default, which grants nothing. Its initialisation, on the first
+// allocation, gives the global range the heap's region, which is then all
+// the heap has.
 class HeapConfig final : public snmalloc::CommonConfig {
   using GlobalPoolState = snmalloc::PoolState<snmalloc::Allocator<HeapConfig>>;
 
@@ -60,13 +83,11 @@ private:
   using ConcreteAuthmap = snmalloc::FlatPagemap<snmalloc::MinBaseSizeBits<Pal>(),
                                                 snmalloc::capptr::Arena<void>, Pal, false>;
   using Authmap = snmalloc::DefaultAuthmap<ConcreteAuthmap>;
-  using Base = snmalloc::Pipe<snmalloc::PalRange<Pal>, snmalloc::PagemapRegisterRange<Pagemap>,
-                              snmalloc::PagemapRegisterRange<Authmap>>;
   static_assert(!snmalloc::mitigations(snmalloc::metadata_protection),
                 "the standard local state, not the metadata-protecting one");
 
 public:
-  using LocalState = snmalloc::StandardLocalState<Pal, Pagemap, Base>;
+  using LocalState = snmalloc::StandardLocalState<Pal, Pagemap>;
   using Backend = snmalloc::BackendAllocator<Pal, PagemapEntry, Pagemap, Authmap, LocalState>;
 
   static constexpr snmalloc::Flags Options{};
@@ -86,22 +107,23 @@ private:
   SNMALLOC_REQUIRE_CONSTINIT inline static snmalloc::stl::Atomic<bool> initialised{false};
   SNMALLOC_REQUIRE_CONSTINIT inline static snmalloc::FlagWord initialising{};
 
-  // The region enters the global range as a block from the platform layer
-  // would, registered first: the range keeps its free blocks in their
-  // pagemap entries. A system that grants no such region leaves the range
-  // empty, and the heap grows from the platform layer alone.
+  // The region enters the global range registered, as a block from the
+  // platform layer would: the range keeps its free blocks in their pagemap
+  // entries. A system that grants no such region leaves the range empty,
+  // and the first allocation is out of memory.
   static void addRegion() {
-    char *region = rt::platform::reserve(heapRegion, heapRegion);
+    size_t size = heapBytes();
+    size_t alignment = size > prefetchRegion ? size : prefetchRegion;
+    char *region = rt::platform::reserve(size, alignment);
     if (region == nullptr)
       return;
     auto arena = snmalloc::capptr::Arena<void>::unsafe_from(region);
-    if (!Pagemap::register_range(arena, heapRegion) ||
-        !Authmap::register_range(arena, heapRegion)) {
-      rt::platform::release(region, heapRegion);
+    if (!Pagemap::register_range(arena, size) || !Authmap::register_range(arena, size)) {
+      rt::platform::release(region, size);
       return;
     }
     LocalState::GlobalR global;
-    global.dealloc_range(arena, heapRegion);
+    global.dealloc_range(arena, size);
   }
 
   SNMALLOC_SLOW_PATH static void initialise() {
@@ -183,6 +205,8 @@ void *reallocate(void *block, size_t size) {
 }
 
 void release(void *block) { snmalloc::dealloc(block); }
+
+void reserveHeap() { HeapConfig::ensure_init(); }
 
 [[gnu::always_inline]] void *newCell(size_t size, uint32_t info) {
   auto *cell = static_cast<idris_rt_header *>(allocate(size));

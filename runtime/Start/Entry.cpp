@@ -4,6 +4,7 @@
 // arguments, its stack, and its exit status. rt::io reads the program's
 // arguments from here, so rt::start does not use rt::io.
 // PIN(runtime-quarantine) — see PINS.md
+#include "Alloc/Alloc.h"
 #include "Platform/Address.h"
 #include "Platform/Platform.h"
 #include "Start/Start.h"
@@ -35,20 +36,8 @@ char **argumentText = nullptr;
 size_t programStack() {
   constexpr size_t gibibyte = size_t{1} << 30;
   constexpr size_t ceiling = size_t{1} << (rt::platform::userAddressBits - 3);
-  if (const char *text = rt::platform::environment("IDRIS_RT_STACK")) {
-    size_t bytes = 0;
-    bool valid = *text != '\0';
-    for (; valid && *text != '\0'; ++text) {
-      unsigned digit = static_cast<unsigned>(*text - '0');
-      valid = digit < 10 && bytes <= (SIZE_MAX - digit) / 10;
-      bytes = bytes * 10 + digit;
-    }
-    if (!valid || bytes == 0) {
-      static constexpr char cause[] = "IDRIS_RT_STACK is not a number of bytes above 0";
-      idris_rt_crash(cause, sizeof cause - 1);
-    }
+  if (size_t bytes = rt::start::byteSetting("IDRIS_RT_STACK"))
     return bytes;
-  }
   size_t limit = rt::platform::stackLimit();
   return limit < gibibyte ? gibibyte : limit > ceiling ? ceiling : limit;
 }
@@ -138,6 +127,30 @@ void checkStatus(int64_t status, Ending ending) {
   idris_rt_crash(cause, n);
 }
 
+size_t byteSetting(const char *name) {
+  const char *text = rt::platform::environment(name);
+  if (text == nullptr)
+    return 0;
+  size_t bytes = 0;
+  bool valid = *text != '\0';
+  for (; valid && *text != '\0'; ++text) {
+    unsigned digit = static_cast<unsigned>(*text - '0');
+    valid = digit < 10 && bytes <= (SIZE_MAX - digit) / 10;
+    bytes = bytes * 10 + digit;
+  }
+  if (valid && bytes != 0)
+    return bytes;
+  static constexpr char suffix[] = " is not a number of bytes above 0";
+  char cause[64 + sizeof suffix];
+  size_t n = 0;
+  for (; name[n] != '\0' && n < 64; ++n)
+    cause[n] = name[n];
+  for (char c : suffix)
+    if (c != '\0')
+      cause[n++] = c;
+  idris_rt_crash(cause, n);
+}
+
 int64_t argumentCount() { return argumentTotal; }
 
 const idris_rt_str *argument(int64_t i) {
@@ -157,7 +170,8 @@ const idris_rt_str *argument(int64_t i) {
 // processor lacks one of the features, it names them, a bit no feature names
 // by its number, and ends the process with IDRIS_RT_CRASHED before the
 // program runs; it is compiled for the target's baseline, and idris-mlir
-// keeps it there. Otherwise it points GMP at the runtime's allocator
+// keeps it there. Otherwise it reserves the heap (rt::alloc::reserveHeap,
+// IDRIS_RT_HEAP's bytes), points GMP at the runtime's allocator
 // (idris_rt_gmp_init) and runs body on a reserved stack
 // (idris_rt_run_on_stack) of programStack's bytes; when that stack runs out,
 // the output written so far is flushed and the process ends as a crash whose
@@ -171,6 +185,7 @@ idris_rt_start(int64_t (*body)(void), uint64_t cpu, int argc, char **argv) {
   checkCpu(cpu);
   argumentTotal = argc;
   argumentText = argv;
+  rt::alloc::reserveHeap();
   idris_rt_gmp_init();
   Program program{body, 0};
   if (idris_rt_run_on_stack(runProgram, &program, programStack(), size_t{1} << 20,
