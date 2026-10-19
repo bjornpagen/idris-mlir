@@ -78,7 +78,7 @@ for version in original edited; do
     edited) copy_fixture "$here/edited/Main.idr" "$work/$version" ;;
   esac
   # shellcheck disable=SC2046 # the dump options are words
-  compile_program $(dump_options "$work/$version/build/exec/prog.dump") "$work/$version/Main.idr" prog
+  compile_program $(dump_options "$work/$version/build/exec/prog.dump" all) "$work/$version/Main.idr" prog
   say "$version: compile exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"

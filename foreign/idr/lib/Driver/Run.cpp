@@ -15,6 +15,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
+#include "idr/Transforms/Contracts.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
@@ -131,15 +132,18 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
 // statistics around each of its runs, before MLIR merges the copies'
 // statistics to print them. The timer is added last: the instrumentations
 // unwind in reverse, so it stops before IR is printed, and a pass's row is
-// the pass's own time. The manager goes, and prints its statistics, before
-// LLVM starts.
-mlir::LogicalResult runPipeline(mlir::ModuleOp module, Outcome &outcome,
+// the pass's own time. Under --idr-contracts the contracts come first, as
+// idris-mlir-opt installs them, so the profile times each pass without its
+// checks. The manager goes, and prints its statistics, before LLVM starts.
+mlir::LogicalResult runPipeline(mlir::ModuleOp module, PassChecks checks, Outcome &outcome,
                                 mlir::TimingScope &rootTiming) {
   mlir::PassManager pm(module.getContext());
   if (llvm::AreStatisticsEnabled())
     pm.enableStatistics(mlir::PassDisplayMode::List);
   mlir::LogicalResult ran = mlir::applyPassManagerCLOptions(pm);
   if (mlir::succeeded(ran)) {
+    if (checks == PassChecks::Contracts)
+      pm.addInstrumentation(std::make_unique<idr::ContractInstrumentation>());
     idr::profile::addInstrumentation(pm);
     pm.addInstrumentation(foldStatistics(outcome));
     pm.enableTiming(rootTiming);
@@ -299,7 +303,7 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
   // already.
   mlir::LogicalResult lowered = std::visit(
       llvm::makeVisitor(
-          [&](Handoff) { return runPipeline(*module, outcome, rootTiming); },
+          [&](Handoff) { return runPipeline(*module, invocation.checks, outcome, rootTiming); },
           [](Lowered) { return mlir::success(); }),
       *kind);
   if (mlir::failed(lowered))

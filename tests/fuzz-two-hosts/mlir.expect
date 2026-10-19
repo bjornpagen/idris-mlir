@@ -1,4 +1,4 @@
 # A draw, and a tape's reset, take apart only exclusive cells, count
 # nothing, and build every cell in the one they took: no copy.
-idr-rc: tests-nothing=@Gen.drawLoop counts-nothing=@Gen.drawLoop reuses-in-place=@Gen.drawLoop
-idr-rc: tests-nothing=@Gen.reverseOnto counts-nothing=@Gen.reverseOnto reuses-in-place=@Gen.reverseOnto
+idr-rc-exclusive: tests-nothing=@Gen.drawLoop counts-nothing=@Gen.drawLoop reuses-in-place=@Gen.drawLoop
+idr-rc-exclusive: tests-nothing=@Gen.reverseOnto counts-nothing=@Gen.reverseOnto reuses-in-place=@Gen.reverseOnto

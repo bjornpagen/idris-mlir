@@ -118,6 +118,7 @@ add_mlir_library(IdrDriver
 
 	LINK_LIBS PUBLIC
 	IdrPipeline
+	IdrContracts
 	IdrTarget
 	IdrIR
 	IdrSupport

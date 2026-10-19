@@ -111,25 +111,13 @@ object_imports() {
 }
 
 # heap_free TEST DUMPS: for a marked test, nothing in the module that
-# idr-lower lowers, the last step dumped before it in DUMPS, allocates a
-# heap cell; for any other, nothing. Without a dump of idr-lower the
-# module it lowers is not known, and the check fails rather than read the
-# last dump, a lowered module, of which the property holds vacuously.
+# idr-lower lowers, its dump before idr-lower in DUMPS (checked_steps),
+# allocates a heap cell; for any other, nothing. Without that dump the
+# module it lowers is not known, and the check fails.
 heap_free() {
   [ -f "$1/heap-free" ] || return 0
-  heap_module=
-  heap_lowered=
-  for heap_dump in $(step_dumps "$2"); do
-    if [ "$(step_of "$heap_dump")" = idr-lower ]; then
-      heap_lowered=yes
-      break
-    fi
-    heap_module=$heap_dump
-  done
-  if [ -z "$heap_lowered" ]; then
-    say "heap: no module dumped after idr-lower, so the module it lowers is not known"
-  elif [ -z "$heap_module" ]; then
-    say "heap: no module was dumped before lowering"
+  if ! heap_module=$(step_module idr-lower "" "$2"); then
+    say "heap: no module dumped before idr-lower, so the module it lowers is not known"
   elif expect_holds "$heap_module" no-heap-allocation; then
     say "heap: nothing is allocated on the heap"
   else

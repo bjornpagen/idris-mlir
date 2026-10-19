@@ -148,13 +148,22 @@ cl::opt<unsigned, false, ThreadCount> numThreads(
     cl::desc("Threads for the pipeline's parallel function passes and the bins' code "
              "generation, one at least (default: every CPU); output bytes do not depend on it"));
 
+// A test's check of every pass as it runs (idr/Transforms/Contracts.h), as
+// idris-mlir-opt has it: it fails the compilation naming the pass that
+// broke a contract, and is never a choice of how a program is compiled.
+cl::opt<bool> contracts("idr-contracts",
+                        cl::desc("Check after every pass on the module or the program the "
+                                 "relations it must keep, and fail naming the pass that broke "
+                                 "one"),
+                        cl::init(false));
+
 // Every option of the driver's own, each read by the actions that name it
 // below; MLIR's and LLVM's are theirs. (A cl::list's & is its vector's.)
 const cl::Option *const driverOptions[] = {
     std::addressof(inputPath),      std::addressof(outputPath),  std::addressof(reportPath),
     std::addressof(objectOnly),     std::addressof(packages),    std::addressof(packagePath),
     std::addressof(idrisPrefix),    std::addressof(noPrelude),   std::addressof(logActionsTags),
-    std::addressof(runtimePath),    std::addressof(numThreads),
+    std::addressof(runtimePath),    std::addressof(numThreads),  std::addressof(contracts),
 };
 
 // The frontend's options, which only Idris source reads.
@@ -234,7 +243,8 @@ llvm::Expected<Invocation> compileInvocation() {
   unsigned threads = given(std::addressof(numThreads))
                          ? numThreads.getValue()
                          : std::max(1u, llvm::hardware_concurrency().compute_thread_count());
-  return Compile{std::move(*plan), runtimePath, threads, logActionsTags};
+  return Compile{std::move(*plan), runtimePath, threads, logActionsTags,
+                 contracts ? PassChecks::Contracts : PassChecks::Verifier};
 }
 
 } // namespace

@@ -11,8 +11,8 @@
 // relation idr-expect states is idr-expect's typed check, called with the
 // copy; the others compare each function the pass kept with its copy. A
 // pass on each function is checked as the group its nest runs on the
-// program. idris-mlir-opt installs it under --idr-contracts; idris-mlir
-// never does.
+// program. idris-mlir-opt and idris-mlir install it under --idr-contracts,
+// which the tests give; no compilation otherwise pays for it.
 #ifndef IDR_TRANSFORMS_CONTRACTS_H
 #define IDR_TRANSFORMS_CONTRACTS_H
 

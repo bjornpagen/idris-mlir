@@ -82,8 +82,9 @@ fuzz_check() {
   fuzz_dumps=$fuzz_dir/prog/build/exec/prog.dump
   # The one module a check reads, the program after idr-optimize, is the
   # one dumped: a dump after every step takes most of the compilation.
-  compile_program "--num-threads=$fuzz_threads" --mlir-print-ir-after=idr-optimize \
-    "--mlir-print-ir-tree-dir=$fuzz_dumps" --mlir-print-debuginfo "$fuzz_dir/prog/Main.idr" prog
+  # shellcheck disable=SC2046 # the dump options are words
+  compile_program "--num-threads=$fuzz_threads" $(dump_options "$fuzz_dumps" after:idr-optimize) \
+    "$fuzz_dir/prog/Main.idr" prog
   if [ "$compiled" -ne 0 ]; then
     say "$fuzz_seed: compile exit $compiled" >> "$work/fuzz.compiled"
     cat "$work/compile.out" "$work/compile.err" | head -n 10 | sed 's/^/  | /' >> "$work/fuzz.compiled"

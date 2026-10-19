@@ -48,7 +48,7 @@ determinism() {
     rm -rf "$work/det/build"
     # shellcheck disable=SC2046,SC2086 # the packages and the dump options are words
     compile_program $det_packages --num-threads="$det_threads" \
-      $(dump_options "$work/det/build/exec/prog.dump") "$work/det/Main.idr" prog
+      $(dump_options "$work/det/build/exec/prog.dump" all) "$work/det/Main.idr" prog
     if [ "$det_threads" -eq 1 ]; then det_what="1 thread"; else det_what="$det_threads threads"; fi
     [ "$det_run" -eq 5 ] && det_what="a drawn count of threads"
     case " $det_seen " in *" $det_threads "*) det_what="$det_what, a second process" ;; esac

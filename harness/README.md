@@ -25,9 +25,11 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   sources `testutils.sh`, prints one line per check, and its stdout must
   be its `expected`.
 - a `Main.idr` and no `run`: a compiled program (`kinds/program`,
-  `e2e_io` in `lib/e2e.sh`). It is compiled once with its dumps and
-  checked as every compilation is (the dumps, quantities kept, the
-  object's imports, live cells), then run once per case of its `cases`
+  `e2e_io` in `lib/e2e.sh`). It is compiled once, with every pass's
+  contracts checked as it runs (`--idr-contracts`) and only the modules
+  its checks read dumped (`checked_steps`, `lib/mlir.sh`), and checked as
+  every compilation is (the dumps parse again, the object's imports, live
+  cells), then run once per case of its `cases`
   (below); with no `cases` it is compiled only (a program that never
   ends). `mlir.expect` states properties of its module (idr-expect);
   `packages`, `heap-free` and `covers` are marks of the

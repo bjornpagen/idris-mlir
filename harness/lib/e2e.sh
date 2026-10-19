@@ -3,10 +3,10 @@
 # The end-to-end programs: compiled, run on each of their cases, and held
 # to what each case says the run gives.
 #
-# Each fixture is compiled once with every module of the pipeline dumped,
-# and everything that holds of a compilation is read off that one
-# compilation and its dumps (lib/properties.sh); then the executable runs
-# once per case.
+# Each fixture is compiled once, with the passes' contracts checked as they
+# run and the modules its checks read dumped (checked_steps), and
+# everything that holds of a compilation is read off that one compilation
+# (lib/properties.sh); then the executable runs once per case.
 
 # stdout_within_a_few_ulp EXPECTED OURS LINES: EXPECTED and OURS print the
 # same text, except that the numbered lines LINES (one number per line) hold
@@ -40,14 +40,16 @@ e2e_io() {
   fixture_files_known "$io_fixture" || return
   cases_known "$io_fixture" || return
   io_packages=$(package_options "$io_fixture")
-  # Every compilation prints the module after each step (dump_options):
-  # the checks of the fixture's modules read those dumps, and so do the
-  # checks of every compilation (universal).
+  # The compilation checks every pass's contracts as it runs
+  # (--idr-contracts), which is what holds of every compilation's steps,
+  # and prints the modules the fixture's checks read (checked_steps), and
+  # no other.
   mkdir "$work/ours"
   copy_fixture "$io_fixture" "$work/ours"
   io_dumps=$work/ours/build/exec/prog.dump
-  # shellcheck disable=SC2046 # the dump options are words
-  compile_program $io_packages $(dump_options "$io_dumps") "$work/ours/Main.idr" prog
+  # shellcheck disable=SC2046 # the steps and the dump options are words
+  compile_program $io_packages --idr-contracts $(dump_options "$io_dumps" $(checked_steps "$io_fixture")) \
+    "$work/ours/Main.idr" prog
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"
@@ -57,7 +59,7 @@ e2e_io() {
   io_module=$(artifact_file "$work/ours" prog module)
   [ -d "$io_fixture/cases" ] && e2e_cases
   # shellcheck disable=SC2046 # one path per object, none with a space
-  universal "$io_module" "$io_dumps" $(artifact_files "$work/ours" prog objects)
+  universal "$io_dumps" $(artifact_files "$work/ours" prog objects)
   heap_free "$io_fixture" "$io_dumps"
   module_checks "$io_fixture" "$io_module" "$io_dumps" "$(artifact_file "$work/ours" prog core)"
 }
