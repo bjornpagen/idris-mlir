@@ -284,13 +284,16 @@ implementations() {
 # registry_value FULL: whether the registry translates a call of FULL to a
 # value, which leaves no call for Core to name: a pointer cast is the
 # identity on the handle it is given (prim__castPtr, prim__forgetPtr), and
-# the null pointer is the null handle, a literal (prim__getNullAnyPtr). The
+# so are replace and rewrite__impl on the value they transport, applied to
+# it or not; the null pointer is the null handle, a literal
+# (prim__getNullAnyPtr). The
 # registry's hooks are the compiler's Idris source, which this check
 # cannot ask, so these names are written down, as the decided exclusions
 # are; an export the registry gives another hook is still asked of Core.
 registry_value() {
   case $1 in
-    PrimIO.prim__castPtr | PrimIO.prim__forgetPtr | PrimIO.prim__getNullAnyPtr)
+    PrimIO.prim__castPtr | PrimIO.prim__forgetPtr | PrimIO.prim__getNullAnyPtr | \
+      Builtin.replace | Builtin.rewrite__impl)
       return 0 ;;
   esac
   return 1
@@ -443,8 +446,11 @@ names_in() {
 # (Prelude.Basics.List[Int]::::( is (::)).
 core_uses() {
   awk -v full="$1" '
-    # Whether `s` ends in NS.Type, after one balanced [...] if it has one.
+    # Whether `s` ends in NS.Type, after one balanced [...] if it has one,
+    # and the hash an instance whose print drops part of its identity
+    # carries after it (`;` and hexadecimal digits).
     function type_of_space(s,    depth, k, c) {
+      sub(/\];[0-9a-f]+$/, "]", s)
       if (substr(s, length(s), 1) == "]") {
         depth = 0
         for (k = length(s); k > 0; k--) {

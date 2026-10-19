@@ -16,9 +16,9 @@ data Box : Nat -> Type where
 unbox : Box n -> Int
 unbox (MkBox x) = x
 
--- `rewrite` elaborates to rewrite__impl. Applied to all its arguments,
--- it and replace are the identity on the last, so each is also applied
--- to all but the last, which keeps the definition.
+-- `rewrite` elaborates to rewrite__impl. It and replace are the
+-- registry's identity on their last argument, applied to it or not, so
+-- Core names neither: the program's own calls are what use them.
 rewriteBox : (0 prf : x = y) -> Box y -> Box x
 rewriteBox prf b = rewrite prf in b
 
