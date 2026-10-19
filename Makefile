@@ -8,8 +8,8 @@
 #   make check             the tests of the repository (their `suite` file names
 #                          check): the pins, the commands and the layout;
 #                          always, without a build
-#   make build             the C++ dev preset (PRESET=release, hardened
-#                          or lint for another), the Idris side's modules of the
+#   make build             the C++ dev preset (PRESET=release or lint
+#                          for another), the Idris side's modules of the
 #                          dialects (tools/dialects.sh), the fork of Idris's
 #                          compiler (compiler/idris), the frontend, and the
 #                          frontend's prefix: the packages the pinned Idris
@@ -47,8 +47,8 @@
 # the whole run ends after 4 hours, so that nothing can hold the tree for
 # ever, each command a test runs after 60 s and each test after 300 s, or
 # what its run script sets. They take only='NAME...' and except='NAME...'
-# (substrings of test names such as hello) and threads=N (default: NCPU,
-# the one CPU budget below). Each ends with the number of tests that
+# (substrings of test names such as hello), and run NCPU tests at once
+# (the one CPU budget below). Each ends with the number of tests that
 # passed of those selected, the tests not run on this host, and the tests
 # that failed or gave no verdict, and fails if any did.
 
@@ -107,20 +107,17 @@ export CHEZ := $(call toolchain,chez_scheme)
 # NCPU=N (or IDRIS_MLIR_NCPU=N) to leave the machine headroom.
 NCPU ?= $(call toolchain,ncpu)
 export IDRIS_MLIR_NCPU := $(NCPU)
-threads ?= $(NCPU)
 only ?=
 except ?=
-GOLDEN = --threads $(threads) --only '$(only)' --except '$(except)'
-# The tests running at once share the budget: each compilation a test
-# makes gets NCPU / threads of it (at least one), so that the runner's
-# threads times each compile's --num-threads stays within NCPU and a
-# step's time limit measures the step, not the load the other tests make.
-TEST_NCPU = $(shell n=$$(( $(NCPU) / $(threads) )); [ "$$n" -ge 1 ] || n=1; echo "$$n")
+GOLDEN = --threads $(NCPU) --only '$(only)' --except '$(except)'
+# The tests running at once share the budget: the runner runs NCPU of
+# them, and each compilation a test makes takes one thread of it, so that
+# a step's time limit measures the step, not the load the other tests make.
 # A runner that hangs fails instead of holding the tree's lock; without
 # coreutils' timeout (tools/host.sh) no test command runs.
 TIMEOUT := $(call toolchain,timeout_cmd)
 TIMEOUT_MISSING := $(call toolchain,timeout_missing)
-RUN_TESTS = IDRIS_MLIR_NCPU=$(TEST_NCPU) $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
+RUN_TESTS = IDRIS_MLIR_NCPU=1 $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build fork frontend prefix libs host-libs \
         test test-idr test-mlir-tools test-unit runner compile bench self self-fork typecheck \

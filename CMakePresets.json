@@ -9,8 +9,7 @@
       "toolchainFile": "${sourceDir}/.toolchain/llvm/toolchain.cmake",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja",
-        "IDRIS_MLIR_IDRIS_PREFIX": "${sourceDir}/build/idris2"
+        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja"
       }
     },
     {
@@ -27,15 +26,6 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "hardened",
-      "displayName": "Release build with undefined-behavior traps and the mitigations",
-      "inherits": "release",
-      "cacheVariables": {
-        "IDRIS_MLIR_PRESET_COMPILE_FLAGS": "-fsanitize=undefined;-fsanitize-trap=all;-ftrivial-auto-var-init=zero;-fstack-protector-strong;-fzero-call-used-regs=used-gpr;-fno-delete-null-pointer-checks;-fno-strict-aliasing;-fstrict-flex-arrays=3",
-        "IDRIS_MLIR_PRESET_LINK_FLAGS": "-fsanitize=undefined;-fsanitize-trap=all"
       }
     },
     {
@@ -60,7 +50,6 @@
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "hardened", "configurePreset": "hardened" },
     { "name": "lint", "configurePreset": "lint" },
     { "name": "typecheck", "configurePreset": "typecheck" }
   ]

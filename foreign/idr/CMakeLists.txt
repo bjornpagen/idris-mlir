@@ -80,17 +80,17 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/include/idr/TargetEntry.h" CO
 # into one object, native code for every executable's link line with the
 # same functions as bitcode for inlining, kept as the target entry's
 # container says (CMakeLists.txt), which is the runtime the driver links by
-# default (--runtime overrides the path, with the archive itself if need be;
-# --print-runtime tells the link line where it is). The driver's options
+# default (--runtime names another the build made: the archive itself, or
+# the checked runtime; --print-runtime tells the link line where it is). The driver's options
 # read where it is. So do the two other things idris-mlir runs or reads
 # besides its frontend (which is beside it, wherever it is): the pinned
 # clang, which links every program and is the C compiler of this build (the
 # preset's toolchain file names it), and the Idris prefix the frontend reads
-# its packages from: the preset's, or what make build gives, the prefix it
-# builds. IdrDriver (lib/CMakeLists.txt) is compiled with these.
+# its packages from, which make build gives: the prefix it builds
+# (tools/toolchain.sh's checkout_prefix). IdrDriver (lib/CMakeLists.txt) is compiled with these.
 set(IDRIS_MLIR_IDRIS_PREFIX "" CACHE PATH "The Idris prefix idris-mlir's frontend reads its packages from")
 if(IDRIS_MLIR_IDRIS_PREFIX STREQUAL "")
-	message(FATAL_ERROR "IDRIS_MLIR_IDRIS_PREFIX names the Idris prefix the frontend reads; use a preset")
+	message(FATAL_ERROR "IDRIS_MLIR_IDRIS_PREFIX names the Idris prefix the frontend reads, tools/toolchain.sh's checkout_prefix; make build passes it")
 endif()
 set(IDRIS_MLIR_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.o")
 set(IDR_DRIVER_DEFINITIONS

@@ -29,22 +29,15 @@ llvm_name=$(lock_field llvm tag)
 [ -n "$llvm_name" ] || llvm_name=$(lock_field llvm describe)
 echo "LLVM pin: $llvm_name $(lock_field llvm revision)"
 # What the host provides, only to build the pinned tools, and what the
-# scripts run on it (tools/host.sh): coreutils' timeout, SHA-256 and, where
-# date has no nanoseconds (macOS), perl's clock.
+# scripts run on it (tools/host.sh): coreutils' timeout, sha256sum and
+# date, and ccache, which launches every compile.
 for tool in git make cc c++ python3 m4 curl tar unzip; do
   echo "$tool: $(command -v "$tool" 2> /dev/null || echo 'not found')"
 done
 echo "timeout: ${timeout_cmd:-not found: $timeout_missing}"
-# ccache is optional: tools/bootstrap.sh launches the LLVM builds' compilers
-# through it when there is one.
-echo "ccache: $(host_path ccache || echo 'not found (optional; it caches the LLVM builds: sudo port install ccache)')"
-# The SHA-256 tool the scripts use: tools/host.sh's choice, made by running it.
-sha256 < /dev/null > /dev/null 2>&1 || true
-echo "SHA-256: ${sha256_tool:-not found: sha256sum (coreutils) or shasum}"
-case $host_clock in
-  date) echo "clock: date's %N" ;;
-  perl) echo "clock: perl's Time::HiRes: $(now_ns > /dev/null 2>&1 && echo found || echo 'not found')" ;;
-esac
+echo "ccache: $(host_path ccache || echo 'not found (sudo port install ccache)')"
+echo "SHA-256: ${sha256_tool:-not found: sha256sum (coreutils)}"
+echo "date: ${date_cmd:-not found: date (coreutils)}"
 case $(uname -s) in
   Linux)
     echo "C library: $(getconf GNU_LIBC_VERSION 2> /dev/null || echo 'not found')"
@@ -60,11 +53,11 @@ case $(uname -s) in
     else
       echo "macOS SDK: not found (xcode-select --install)"
     fi
-    # MacPorts' coreutils supply gtimeout and gsha256sum, which the
-    # benchmarks and the tests need (coreutils' timeout), and which a
-    # non-interactive shell's PATH may not name. Homebrew's names are
-    # checked too, since it installs the same two.
-    for gnu in gtimeout gsha256sum; do
+    # MacPorts' coreutils supply gtimeout, gsha256sum and gdate, which the
+    # benchmarks and the tests need, and which a non-interactive shell's
+    # PATH may not name. Homebrew's names are checked too, since it
+    # installs the same.
+    for gnu in gtimeout gsha256sum gdate; do
       echo "coreutils $gnu: $(command -v "$gnu" 2> /dev/null || { [ -x "/opt/local/bin/$gnu" ] && echo "/opt/local/bin/$gnu"; } || echo "not found (sudo port install coreutils)")"
     done
     echo "stack hard limit: $(stack_hard_max 2> /dev/null || echo unknown) KiB (macOS caps it near 64 MiB)"

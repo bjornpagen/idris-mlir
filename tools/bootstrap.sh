@@ -62,17 +62,18 @@
 #
 # The builds run as many compile jobs as the one CPU budget allows
 # (tools/host.sh: IDRIS_MLIR_NCPU, which the caller sets, else every
-# core), and one link at a time, as LLVM's build advises for its links. ccache on PATH, or MacPorts' if
-# there is one, is the compiler launcher of every C and C++ compile, with
+# core), and one link at a time, as LLVM's build advises for its links. ccache, on PATH or MacPorts',
+# is the compiler launcher of every C and C++ compile, with
 # its cache in .toolchain/ccache, capped at 1T: room for many pins and
 # patch sets of LLVM, MLIR and clang.
 #
 # The host provides: a C and C++ compiler (cc and c++), make, git, python3
-# (LLVM's configure), m4 (GMP), tar, sha256sum, and curl to check release
+# (LLVM's configure), m4 (GMP), tar, coreutils (sha256sum, timeout, date),
+# ccache, and curl to check release
 # tarballs; the system's C library to build against: on Linux glibc's
 # development files and the kernel's headers (Fedora's glibc-devel and
-# kernel-headers), on Darwin the SDK of Xcode's command line tools. ccache
-# is optional. Each step logs
+# kernel-headers), on Darwin the SDK of Xcode's command line tools. Each
+# step logs
 # to .toolchain/logs/STEP.log; a failure prints the log's end and exits 1, a
 # usage error exits 2.
 
@@ -243,8 +244,8 @@ done
 jobs=$ncpu
 
 # ccache, the compiler launcher of every C and C++ compile the steps run
-# (CMake, Ninja, stage 1, the runtimes, stage 2, GMP, Chez), when
-# there is one: a rebuild after a patch, a pin move or a failed run
+# (CMake, Ninja, stage 1, the runtimes, stage 2, GMP, Chez): a rebuild
+# after a patch, a pin move or a failed run
 # recompiles only what changed. It is no input of any step, since it does
 # not change what a step builds. The cache is .toolchain/ccache, and its
 # settings are its own configuration file, which every run of ccache on it
@@ -255,18 +256,14 @@ jobs=$ncpu
 # build maps its paths away). What a user of the cache names is CCACHE_DIR
 # and its own root, CCACHE_BASEDIR, under which paths are hashed relative
 # to it, so the cache is shared by every checkout and names none.
-ccache=$(host_path ccache) || ccache=
-if [ -n "$ccache" ]; then
-  CCACHE_DIR=$toolchain/ccache
-  CCACHE_BASEDIR=$root
-  export CCACHE_DIR CCACHE_BASEDIR
-  mkdir -p "$CCACHE_DIR"
-  printf '%s\n' 'max_size = 1T' 'sloppiness = include_file_ctime,include_file_mtime' 'hash_dir = false' \
-    > "$CCACHE_DIR/ccache.conf"
-  ccache_state="ccache $CCACHE_DIR"
-else
-  ccache_state="no ccache"
-fi
+ccache=$(host_path ccache) || die "no ccache on PATH or in /opt/local/bin (sudo port install ccache)"
+CCACHE_DIR=$toolchain/ccache
+CCACHE_BASEDIR=$root
+export CCACHE_DIR CCACHE_BASEDIR
+mkdir -p "$CCACHE_DIR"
+printf '%s\n' 'max_size = 1T' 'sloppiness = include_file_ctime,include_file_mtime' 'hash_dir = false' \
+  > "$CCACHE_DIR/ccache.conf"
+ccache_state="ccache $CCACHE_DIR"
 
 # ccache_flags: the launcher, for a CMake configure. Like the job count, it
 # is passed beside a step's recipe, not in it. ccache cannot cache a
@@ -274,17 +271,16 @@ fi
 # default), so with ccache there are none: they only speed a compile up,
 # and change nothing it produces.
 ccache_flags() {
-  [ -z "$ccache" ] ||
-    printf '%s\n' "-DCMAKE_C_COMPILER_LAUNCHER=$ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache" \
-      -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
+  printf '%s\n' "-DCMAKE_C_COMPILER_LAUNCHER=$ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache" \
+    -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 }
 
 # ccache_cc VARIABLE COMPILER: the launcher, for a configure that names its
 # compiler in a variable (VARIABLE=COMPILER, as the step's recipe gives
 # it): the same assignment behind ccache, which, coming after the recipe's,
-# is the one the configure keeps. Nothing without ccache.
+# is the one the configure keeps.
 ccache_cc() {
-  [ -z "$ccache" ] || printf '%s\n' "$1=$ccache $2"
+  printf '%s\n' "$1=$ccache $2"
 }
 # lock_get TOOL KEY: a string of toolchain.lock.json (one field per line).
 lock_get() {

@@ -798,10 +798,12 @@ which the top-level CMake configure gate reads.
   every target
 - sites: CMakePresets.json, which has no `asan-ubsan` preset;
   tests/mlir-layout checks that it has none
-- workaround: the hardened preset builds our tools with trap-mode UBSan
-  (`-fsanitize=undefined -fsanitize-trap=all`), which needs no runtime
+- workaround: none: no build runs a sanitizer. Trap-mode UBSan
+  (`-fsanitize=undefined -fsanitize-trap=all`) needs no runtime, and its
+  place is the build every test runs, not an opt-in preset
+  (audits/config.md)
 - retire: when a sanitizer build is worth building compiler-rt's
-  sanitizers for; the preset comes back then, with what it builds
+  sanitizers for
 - upstream: none
 
 ## runtime-quarantine

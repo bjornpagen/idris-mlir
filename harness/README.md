@@ -11,9 +11,9 @@ build), `make test` (the compiler on programs, and what it builds), `make
 test-idr` (the `idr` dialect), `make test-mlir-tools` (the upstream bugs
 still reproduce), `make test-unit` (the googletest boxes of
 `foreign/idr/unittests`, once `make build` has built them). `only=NAME`
-runs the tests whose name contains NAME, `except=NAME` leaves them out,
-`threads=N` runs N at once, each compilation getting `NCPU / N` of the
-CPU budget. A run ends with how many of the selected tests passed, the
+runs the tests whose name contains NAME, `except=NAME` leaves them out;
+NCPU of them run at once (the CPU budget), each compilation on one
+thread. A run ends with how many of the selected tests passed, the
 tests not run on this host, and the tests that failed or gave no verdict;
 it fails if any did.
 

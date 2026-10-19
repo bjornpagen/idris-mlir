@@ -69,38 +69,30 @@ host_path() {
 timeout_cmd=$(host_path timeout gtimeout) || timeout_cmd=
 timeout_missing="no timeout command (coreutils; on macOS: sudo port install coreutils, for gtimeout)"
 
-# The nanosecond clock: GNU date's %N on Linux; macOS's date has none, so
-# perl's Time::HiRes there, which ships with macOS and reads microseconds.
-case $(date +%N 2> /dev/null) in
-  '' | *[!0-9]*) host_clock=perl ;;
-  *) host_clock=date ;;
+# coreutils' date, whose %N is the nanoseconds: `date` on Linux, and on
+# macOS coreutils' `gdate` from MacPorts (macOS's own date has no %N).
+case $(uname -s) in
+  Darwin) date_cmd=$(host_path gdate) || date_cmd= ;;
+  *) date_cmd=$(host_path date) || date_cmd= ;;
 esac
 
 # now_ns: the wall clock in nanoseconds since the epoch.
 now_ns() {
-  case $host_clock in
-    date) date +%s%N ;;
-    perl)
-      perl -MTime::HiRes=gettimeofday -e '($s, $us) = gettimeofday; printf "%d%06d000\n", $s, $us' ||
-        { echo "no nanosecond clock: neither GNU date's %N nor perl's Time::HiRes" >&2; return 1; } ;;
-  esac
+  [ -n "$date_cmd" ] || { echo "no coreutils date (on macOS: sudo port install coreutils, for gdate)" >&2; return 1; }
+  "$date_cmd" +%s%N
 }
 
-# sha256 [FILE...]: each FILE's SHA-256 (stdin's without one), as
-# coreutils' sha256sum prints it: coreutils' on Linux, and on macOS
-# coreutils' `gsha256sum` from MacPorts (macOS ships a `sha256sum` of its
-# own on recent releases; coreutils' is tried first where both exist);
-# `shasum -a 256`, which prints the same, is the fallback.
+# sha256 [FILE...]: each FILE's SHA-256 (stdin's without one): coreutils'
+# sha256sum on Linux, and on macOS coreutils' `gsha256sum` from MacPorts
+# (not the `sha256sum` macOS ships on recent releases, which is another
+# tool).
+case $(uname -s) in
+  Darwin) sha256_tool=$(host_path gsha256sum) || sha256_tool= ;;
+  *) sha256_tool=$(host_path sha256sum) || sha256_tool= ;;
+esac
 sha256() {
-  case $(uname -s) in
-    Darwin) sha256_tool=$(host_path gsha256sum sha256sum shasum) || sha256_tool= ;;
-    *) sha256_tool=$(host_path sha256sum gsha256sum shasum) || sha256_tool= ;;
-  esac
-  case ${sha256_tool##*/} in
-    shasum) shasum -a 256 "$@" ;;
-    '') echo "no sha256sum (coreutils) or shasum (perl's) to compute a SHA-256" >&2; return 1 ;;
-    *) "$sha256_tool" "$@" ;;
-  esac
+  [ -n "$sha256_tool" ] || { echo "no sha256sum (coreutils; on macOS: sudo port install coreutils, for gsha256sum)" >&2; return 1; }
+  "$sha256_tool" "$@"
 }
 
 # memory_used_kib: the memory in use on the machine, in KiB: what is not

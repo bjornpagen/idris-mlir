@@ -196,11 +196,9 @@ endfunction()
 if(IDRIS_MLIR_TYPECHECK)
 	add_library(idris_rt INTERFACE)
 	idris_rt_headers(idris_rt INTERFACE)
-	find_file(IDRIS_MLIR_TYPECHECK_GMP_HEADER gmp.h
-		HINTS "${PROJECT_SOURCE_DIR}/.toolchain/sysroot/usr/include"
-		DOC "GMP's header, for the typecheck build's compile of the runtime")
-	if(NOT IDRIS_MLIR_TYPECHECK_GMP_HEADER)
-		message(FATAL_ERROR "the typecheck build compiles the runtime, which includes gmp.h: run tools/bootstrap.sh gmp, or set IDRIS_MLIR_TYPECHECK_GMP_HEADER to the host's gmp.h")
+	set(IDRIS_MLIR_TYPECHECK_GMP_HEADER "${PROJECT_SOURCE_DIR}/.toolchain/sysroot/usr/include/gmp.h")
+	if(NOT EXISTS "${IDRIS_MLIR_TYPECHECK_GMP_HEADER}")
+		message(FATAL_ERROR "the typecheck build compiles the runtime, which includes gmp.h: run tools/bootstrap.sh gmp")
 	endif()
 	configure_file("${IDRIS_MLIR_TYPECHECK_GMP_HEADER}"
 		"${CMAKE_CURRENT_BINARY_DIR}/typecheck-gmp/gmp.h" COPYONLY)

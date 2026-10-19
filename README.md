@@ -146,7 +146,7 @@ make self              # the compiler compiling itself
 ```
 
 The C++ builds through `CMakePresets.json`: `dev`, `release` (full LTO),
-`hardened`, `lint` and `typecheck`. A profile is a run, not a
+`lint` and `typecheck`. A profile is a run, not a
 build: `--time-trace` on the tools, taken by `tools/profile.sh`. `make build PRESET=<name>` picks one.
 
 Each target compiles programs for the CPU its entry in `CMakeLists.txt`

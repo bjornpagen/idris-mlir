@@ -13,10 +13,6 @@ if(NOT CMAKE_GENERATOR STREQUAL "Ninja")
 	message(FATAL_ERROR "Ninja is the only supported generator (got ${CMAKE_GENERATOR})")
 endif()
 
-if(NOT CMAKE_MAKE_PROGRAM)
-	find_program(CMAKE_MAKE_PROGRAM ninja REQUIRED)
-endif()
-
 execute_process(
 	COMMAND "${CMAKE_MAKE_PROGRAM}" --version
 	RESULT_VARIABLE IDRIS_MLIR_NINJA_STATUS
@@ -32,10 +28,10 @@ if(NOT CMAKE_VERSION MATCHES "^${IDRIS_MLIR_CMAKE_SERIES}\\.")
 	message(FATAL_ERROR "CMake ${IDRIS_MLIR_CMAKE_SERIES}.x is required (got ${CMAKE_VERSION})")
 endif()
 
-# ccache, when the machine has one (on PATH, or MacPorts'), launches every
-# C and C++ compile, on the cache tools/bootstrap.sh configures
-# (.toolchain/ccache): a rebuild recompiles only what changed, in every
-# preset and every checkout, as in the toolchain's builds. Each checkout
+# ccache (on PATH, or MacPorts') launches every C and C++ compile, on the
+# cache tools/bootstrap.sh configures (.toolchain/ccache): a rebuild
+# recompiles only what changed, in every preset and every checkout, as in
+# the toolchain's builds. Each checkout
 # names its own root as ccache's base directory, so every path under it is
 # hashed relative to it and one checkout's compile is another's hit; the
 # cache's settings (tools/bootstrap.sh) hash no build directory, which is
@@ -43,14 +39,12 @@ endif()
 # tests/ccache-shared checks the hit. CMake copies the launcher onto
 # each target created after it. No target uses a precompiled header, which
 # ccache cannot cache. The launcher changes nothing a compile produces.
-find_program(IDRIS_MLIR_CCACHE ccache HINTS /opt/local/bin)
-if(IDRIS_MLIR_CCACHE)
-	set(IDRIS_MLIR_CCACHE_LAUNCHER "${CMAKE_COMMAND}" -E env
-		"CCACHE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.toolchain/ccache"
-		"CCACHE_BASEDIR=${CMAKE_CURRENT_SOURCE_DIR}" "${IDRIS_MLIR_CCACHE}")
-	set(CMAKE_C_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
-	set(CMAKE_CXX_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
-endif()
+find_program(IDRIS_MLIR_CCACHE ccache HINTS /opt/local/bin REQUIRED)
+set(IDRIS_MLIR_CCACHE_LAUNCHER "${CMAKE_COMMAND}" -E env
+	"CCACHE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.toolchain/ccache"
+	"CCACHE_BASEDIR=${CMAKE_CURRENT_SOURCE_DIR}" "${IDRIS_MLIR_CCACHE}")
+set(CMAKE_C_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
+set(CMAKE_CXX_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
 
 project(idris_mlir LANGUAGES C CXX)
 
@@ -379,14 +373,6 @@ target_compile_options(idris_mlir_language_profile INTERFACE
 target_link_options(idris_mlir_language_profile INTERFACE
 	"$<$<CONFIG:Release>:-flto=full>"
 )
-
-# What a preset adds to our tools' compiles and links, and to nothing else
-# (the runtime has its own profile): the hardened preset's sanitizer traps
-# and mitigations. Empty in the other presets.
-set(IDRIS_MLIR_PRESET_COMPILE_FLAGS "" CACHE STRING "The flags the preset adds to every compile of our tools")
-set(IDRIS_MLIR_PRESET_LINK_FLAGS "" CACHE STRING "The flags the preset adds to every link of our tools")
-target_compile_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_PRESET_COMPILE_FLAGS})
-target_link_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_PRESET_LINK_FLAGS})
 
 # The target's own flags for our tools, from its entry above. FORTIFY is
 # the Linux entries': it is inert in Apple's SDK for C++

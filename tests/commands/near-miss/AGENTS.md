@@ -2,4 +2,4 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # Working here
 
-Run `make build`, then `make test only=hello threads=2`.
+Run `make build`, then `make test only=hello except=bench`.
