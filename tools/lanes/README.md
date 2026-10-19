@@ -53,7 +53,7 @@ in its own `build/`.
   grep ...; do sleep` loop, a poll of a log) has a deadline and checks that
   the run it waits for is still alive; a dead producer ends the wait. Kill
   what you start when you are done with it. A reaper kills any wait loop
-  over 30 minutes, any idris-mlir or idris-mlir-opt over 15 minutes and any
+  over 2 hours, any idris-mlir or idris-mlir-opt over 15 minutes and any
   orphaned test process over 5 minutes, so a stuck wait costs you its work.
 - `make build`, then the checks AGENTS.md names: `make check` always;
   `make test` after compiler changes; `make test-idr` and `make test-unit`
