@@ -48,7 +48,8 @@ struct ColumnsConvertAction : idr::support::TaggedAction<ColumnsConvertAction> {
 struct Columns : idr::impl::IdrColumnsBase<Columns> {
   void runOnProgram(ProgramOp program) override {
     MLIRContext *ctx = &getContext();
-    ColumnConverter converter;
+    Records records(program);
+    ColumnConverter converter(records);
     RewritePatternSet patterns(ctx);
     ConversionTarget target(*ctx);
     populateColumnPatterns(converter, patterns, target);

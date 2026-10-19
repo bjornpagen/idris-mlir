@@ -321,9 +321,12 @@ def IdrColumns : IdrPass<"idr-columns", "::idr::ProgramOp", IdrRoleOptimization,
     record is its leaves. A record keeps its tensor whole when a field is
     graded (a linear field is used once, and its column would be used as
     the tensor is), is an array a world orders, is a tensor whose shape its
-    type leaves dynamic, or is a tensor of records. Where an op the
-    conversion does not take holds a tensor of records (a constructor's
-    field, say), the tensor is gathered from its columns there by an
+    type leaves dynamic, or is a tensor of records, and when a data type of
+    the program holds a tensor of it: a constructor's field holds the tensor
+    whole, so its columns would be copied into a fresh tensor at every
+    constructor and out of it at every match, and a linear tensor's columns
+    used twice. Where another op the conversion does not take holds a
+    tensor of records, the tensor is gathered from its columns there by an
     `idr.tabulate` and taken apart into them where it comes out: the
     program is the same, held two ways at that boundary. It never refuses
     a program. It runs right after the optimizer, so that what only reads

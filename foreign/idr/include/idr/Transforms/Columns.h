@@ -16,10 +16,11 @@
 // whose field is graded (a linear field is used once, and its column would
 // be used as the array is), an array a world orders, an array of a shape
 // its type leaves dynamic (records of one array type may hold arrays of
-// different lengths), or an array of records. Where an array of records
-// meets an op the conversion does not take (a constructor's field holds
-// one, say), it is gathered from its columns there, and taken apart into
-// them again where it comes out: the program is the same, held in two
+// different lengths), or an array of records; and one an array of which a
+// data type of the program holds, as a constructor's field holds it whole
+// (Records). Where an array of records meets another op the conversion
+// does not take, it is gathered from its columns there, and taken apart
+// into them again where it comes out: the program is the same, held in two
 // ways at that boundary.
 //
 //===----------------------------------------------------------------------===//
@@ -33,6 +34,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
@@ -52,49 +54,82 @@ struct Record {
   llvm::ArrayRef<mlir::Type> fields() const { return data.getCtor(tag).fields; }
 };
 
-// The record a value of `type` is, when an array of it is held as one
-// array per leaf; nothing for any other type.
-std::optional<Record> recordOf(mlir::Type type);
+// The records of a program whose arrays are held as their columns, and
+// how a record is read from its columns, written into them, built and
+// taken apart. A record splits when the conversion can hold its arrays so
+// and no data type of the program holds an array of it: a constructor's
+// field holds the array whole, so its columns would be gathered into a
+// fresh array at every constructor and taken apart at every match, a copy
+// of the array each time, and a linear array's columns would be used both
+// by the gather and where the conversion reads them. The program decides
+// it once, and every reading of a record below asks it.
+class Records {
+public:
+  explicit Records(ProgramOp program);
 
-// The leaves of a record of `type`, in field order, each record among its
-// fields its own leaves in turn.
-void leavesOf(mlir::Type type, llvm::SmallVectorImpl<mlir::Type> &leaves);
+  // The record a value of `type` is, when an array of it is held as one
+  // array per leaf; nothing for any other type.
+  std::optional<Record> recordOf(mlir::Type type) const;
 
-// The arrays an array of `array`'s type is held as: one per leaf of its
-// record, or itself when its element is no record.
-void columnsOf(mlir::RankedTensorType array, llvm::SmallVectorImpl<mlir::Type> &columns);
+  // The leaves of a record of `type`, in field order, each record among
+  // its fields its own leaves in turn.
+  void leavesOf(mlir::Type type, llvm::SmallVectorImpl<mlir::Type> &leaves) const;
 
-// The leaves of `value`, a value of `record`: the fields its idr.con was
-// given, or its fields read.
-llvm::SmallVector<mlir::Value> takeApart(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value,
-                                         Record record);
+  // The arrays an array of `array`'s type is held as: one per leaf of its
+  // record, or itself when its element is no record.
+  void columnsOf(mlir::RankedTensorType array, llvm::SmallVectorImpl<mlir::Type> &columns) const;
 
-// The value of `record` built of the leaves at the front of `leaves`, which
-// it takes.
-mlir::Value build(mlir::OpBuilder &b, mlir::Location loc, Record record, mlir::ValueRange &leaves);
+  // The leaves of `value`, a value of `record`: the fields its idr.con was
+  // given, or its fields read.
+  llvm::SmallVector<mlir::Value> takeApart(mlir::OpBuilder &b, mlir::Location loc,
+                                           mlir::Value value, Record record) const;
 
-// The value at `indices` of an array of `element` held as `columns`; the
-// columns with `value`, of `element`, written at `indices`.
-mlir::Value readRecord(mlir::OpBuilder &b, mlir::Location loc, Record element,
-                       mlir::ValueRange columns, mlir::ValueRange indices);
-llvm::SmallVector<mlir::Value> writeRecord(mlir::OpBuilder &b, mlir::Location loc,
-                                           mlir::Value value, Record element,
-                                           mlir::ValueRange columns, mlir::ValueRange indices);
+  // The value of `record` built of the leaves at the front of `leaves`,
+  // which it takes.
+  mlir::Value build(mlir::OpBuilder &b, mlir::Location loc, Record record,
+                    mlir::ValueRange &leaves) const;
 
-// The array of `type`, whose element is `element`, gathered from its
-// columns, and the columns of `array`, of `types`, taken apart from it:
-// each an idr.tabulate, where an array of records meets what holds it whole.
-mlir::Value gather(mlir::OpBuilder &b, mlir::Location loc, mlir::RankedTensorType type,
-                   Record element, mlir::ValueRange columns);
-llvm::SmallVector<mlir::Value> scatter(mlir::OpBuilder &b, mlir::Location loc, mlir::Value array,
-                                       Record element, mlir::TypeRange types);
+  // The value at `indices` of an array of `element` held as `columns`; the
+  // columns with `value`, of `element`, written at `indices`.
+  mlir::Value readRecord(mlir::OpBuilder &b, mlir::Location loc, Record element,
+                         mlir::ValueRange columns, mlir::ValueRange indices) const;
+  llvm::SmallVector<mlir::Value> writeRecord(mlir::OpBuilder &b, mlir::Location loc,
+                                             mlir::Value value, Record element,
+                                             mlir::ValueRange columns,
+                                             mlir::ValueRange indices) const;
+
+  // The array of `type`, whose element is `element`, gathered from its
+  // columns, and the columns of `array`, of `types`, taken apart from it:
+  // each an idr.tabulate, where an array of records meets what holds it
+  // whole.
+  mlir::Value gather(mlir::OpBuilder &b, mlir::Location loc, mlir::RankedTensorType type,
+                     Record element, mlir::ValueRange columns) const;
+  llvm::SmallVector<mlir::Value> scatter(mlir::OpBuilder &b, mlir::Location loc,
+                                         mlir::Value array, Record element,
+                                         mlir::TypeRange types) const;
+
+private:
+  bool splits(DataType data) const;
+  // The records an array of which some data type of the program holds.
+  llvm::DenseSet<mlir::Type> held;
+};
 
 // The conversion: arrays of records, at any grade, to their columns, with
-// the gather and the scatter at its boundary.
+// the gather and the scatter at its boundary, as the program's records
+// split.
 class ColumnConverter : public mlir::TypeConverter {
 public:
-  ColumnConverter();
+  explicit ColumnConverter(const Records &records);
+  const Records &records() const { return split; }
+
+private:
+  const Records &split;
 };
+
+// The records of the conversion a pattern is given.
+inline const Records &recordsOf(const mlir::TypeConverter &converter) {
+  return static_cast<const ColumnConverter &>(converter).records();
+}
 
 // The patterns of each op that carries an array of records, each added with
 // the legality that asks for it: those of what carries an array between

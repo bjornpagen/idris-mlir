@@ -47,6 +47,7 @@ struct FoldColumns : OpConversionPattern<OpT> {
   LogicalResult matchAndRewrite(OpT op, typename OpConversionPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     const TypeConverter &converter = *this->getTypeConverter();
+    const Records &records = recordsOf(converter);
     SmallVector<Type> results;
     SmallVector<unsigned> counts;
     if (failed(convertEach(converter, op->getResultTypes(), results, counts)))
@@ -55,8 +56,8 @@ struct FoldColumns : OpConversionPattern<OpT> {
     TypeConverter::SignatureConversion signature(body->getNumArguments());
     for (BlockArgument arg : body->getArguments()) {
       SmallVector<Type> types;
-      if (recordOf(arg.getType()))
-        leavesOf(arg.getType(), types);
+      if (records.recordOf(arg.getType()))
+        records.leavesOf(arg.getType(), types);
       else if (failed(converter.convertType(arg.getType(), types)))
         return failure();
       signature.addInputs(arg.getArgNumber(), types);
@@ -70,16 +71,19 @@ struct FoldColumns : OpConversionPattern<OpT> {
 };
 
 // What a region of the generating set yields: each record taken apart into
-// its leaves, each cell of records its columns. An update's region yields
-// into an array a world orders, which holds its records whole.
+// its leaves, each cell of records its columns. Any other op whose region
+// yields (an update, into an array a world orders; a memo cell's force,
+// into the cell) holds what it is given whole.
 struct ArrayYieldColumns : OpConversionPattern<ArrayYieldOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult matchAndRewrite(ArrayYieldOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    const Records &records = recordsOf(*getTypeConverter());
     SmallVector<Value> operands;
     for (auto [value, columns] : llvm::zip_equal(op.getValues(), adaptor.getValues())) {
-      if (std::optional<Record> record = recordOf(value.getType()))
-        llvm::append_range(operands, takeApart(rewriter, op.getLoc(), columns.front(), *record));
+      if (std::optional<Record> record = records.recordOf(value.getType()))
+        llvm::append_range(operands,
+                           records.takeApart(rewriter, op.getLoc(), columns.front(), *record));
       else
         llvm::append_range(operands, columns);
     }
@@ -93,8 +97,8 @@ struct ArrayYieldColumns : OpConversionPattern<ArrayYieldOp> {
 // A tabulation makes each array of records as its columns, its region
 // yielding the leaves of each record (ResultColumns, ArrayYieldColumns). A
 // fold or a scan is legal once its region's accumulators are converted too,
-// and a yield of the generating set once it yields no record, or always
-// under an update, whose array holds its records whole.
+// and a yield of the generating set once it yields no record; a yield of
+// any other op is always legal, as its op holds its records whole.
 void populateArrayColumnPatterns(const TypeConverter &converter, RewritePatternSet &patterns,
                                  ConversionTarget &target) {
   ConversionTarget::DynamicLegalityCallbackFn legal = whole(converter);
@@ -110,10 +114,11 @@ void populateArrayColumnPatterns(const TypeConverter &converter, RewritePatternS
   addColumns<ArrayYieldColumns, ArrayYieldOp>(
       converter, patterns, target, [&converter](Operation *op) -> std::optional<bool> {
         auto yield = cast<ArrayYieldOp>(op);
-        if (isa<UpdateOpInterface>(yield->getParentOp()))
+        if (!isa<GeneratingOpInterface>(yield->getParentOp()))
           return true;
-        return converter.isLegal(op) && llvm::none_of(yield.getValues().getTypes(), [](Type type) {
-                 return recordOf(type).has_value();
+        return converter.isLegal(op) &&
+               llvm::none_of(yield.getValues().getTypes(), [&converter](Type type) {
+                 return recordsOf(converter).recordOf(type).has_value();
                });
       });
 }

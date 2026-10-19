@@ -206,11 +206,12 @@ struct ExtractColumns : OpConversionPattern<tensor::ExtractOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult matchAndRewrite(tensor::ExtractOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    std::optional<Record> element = recordOf(op.getType());
+    const Records &records = recordsOf(*getTypeConverter());
+    std::optional<Record> element = records.recordOf(op.getType());
     if (!element)
       return rewriter.notifyMatchFailure(op, "reads no record");
-    rewriter.replaceOp(op, readRecord(rewriter, op.getLoc(), *element, adaptor.getTensor(),
-                                      flatten(adaptor.getIndices())));
+    rewriter.replaceOp(op, records.readRecord(rewriter, op.getLoc(), *element,
+                                              adaptor.getTensor(), flatten(adaptor.getIndices())));
     return success();
   }
 };
@@ -219,12 +220,13 @@ struct InsertColumns : OpConversionPattern<tensor::InsertOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult matchAndRewrite(tensor::InsertOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    std::optional<Record> element = recordOf(op.getScalar().getType());
+    const Records &records = recordsOf(*getTypeConverter());
+    std::optional<Record> element = records.recordOf(op.getScalar().getType());
     if (!element)
       return rewriter.notifyMatchFailure(op, "writes no record");
-    SmallVector<Value> made = writeRecord(rewriter, op.getLoc(), adaptor.getScalar().front(),
-                                          *element, adaptor.getDest(),
-                                          flatten(adaptor.getIndices()));
+    SmallVector<Value> made = records.writeRecord(rewriter, op.getLoc(),
+                                                  adaptor.getScalar().front(), *element,
+                                                  adaptor.getDest(), flatten(adaptor.getIndices()));
     rewriter.replaceOpWithMultiple(op, {made});
     return success();
   }
