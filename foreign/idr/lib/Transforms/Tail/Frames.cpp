@@ -238,7 +238,7 @@ void fillRun(RewriterBase &rewriter, const Plan &plan, const Made &made, FuncOp 
   for (auto [index, frame] : llvm::enumerate(plan.frames)) {
     if (frame.owner != member)
       continue;
-    auto call = cast<CallOp>(mapping.lookup(frame.call.getOperation()));
+    auto call = cast<CallOp>(mapping.lookup(static_cast<Operation *>(frame.call)));
     Block *block = call->getBlock();
     Operation *terminator = block->getTerminator();
     // The rest is a resume's now: its ops go, users first, once the call
@@ -299,7 +299,7 @@ void fillResume(RewriterBase &rewriter, const Plan &plan, const Made &made, Func
       continue;
     }
     IRMapping map;
-    map.map(frame.call.getResult(0), value);
+    map.map(static_cast<Operation *>(frame.call)->getResult(0), value);
     for (auto [held, arg] : llvm::zip_first(frame.held, block->getArguments()))
       map.map(held, heldAs(rewriter, loc, arg, held.getType()));
     // The constants the rest reads, made again here.
