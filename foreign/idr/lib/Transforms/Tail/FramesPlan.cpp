@@ -20,17 +20,28 @@ FuncOp memberCalled(Operation *op, const Members &members) {
   return call ? members.lookup(call.getCalleeAttr().getAttr()) : FuncOp();
 }
 
-// The ops of `block` after `call`, its terminator among them.
-llvm::iterator_range<Block::iterator> restOf(CallOp call) {
-  return llvm::make_range(std::next(call->getIterator()), call->getBlock()->end());
+// The ops of `site`'s block after it, its terminator among them.
+llvm::iterator_range<Block::iterator> restOf(Operation *site) {
+  return llvm::make_range(std::next(site->getIterator()), site->getBlock()->end());
 }
 
-// Whether `value` is made by an op of the rest after `call`, or bound by a
+// Whether `value` is made by an op of the rest after `site`, or bound by a
 // region of one.
-bool madeInRest(CallOp call, Value value) {
+bool madeInRest(Operation *site, Value value) {
   Operation *def = value.getDefiningOp();
   Operation *anchor = def ? def : cast<BlockArgument>(value).getOwner()->getParentOp();
-  return llvm::any_of(restOf(call), [&](Operation &op) { return op.isAncestor(anchor); });
+  return llvm::any_of(restOf(site), [&](Operation &op) { return op.isAncestor(anchor); });
+}
+
+// The member whose call a case of a match gives as its value, if any.
+FuncOp caseCallee(Region &region, const Members &members) {
+  if (region.empty())
+    return FuncOp();
+  Operation *terminator = region.front().getTerminator();
+  if (!isa<YieldOp>(terminator) || terminator->getNumOperands() != 1)
+    return FuncOp();
+  Operation *def = terminator->getOperand(0).getDefiningOp();
+  return def && def->getNextNode() == terminator ? memberCalled(def, members) : FuncOp();
 }
 
 bool isConstant(Value value) {
@@ -40,28 +51,45 @@ bool isConstant(Value value) {
 
 namespace {
 
-// The frame of `block`, a tail block of `owner`: a case of a match on a
-// closure, and in it a call of a member not in tail position, whose rest
-// calls members again only in tail position, which goes on with the stack.
-std::optional<Frame> frameAt(Block &block, FuncOp owner, const Members &members) {
-  auto match = dyn_cast_or_null<MatchOp>(block.getParentOp());
-  if (!match || !match.knownTag(*block.getParent()) || !match.getDataType() ||
-      !match.getDataType().isClosures())
-    return std::nullopt;
+// The members whose closures `op` runs for its one value, which the rest
+// of its block then needs: `op`, not in tail position, is a call of one,
+// or a match (the dispatch of an action) a case of which gives a call of
+// one as its value.
+SmallVector<FuncOp, 2> closuresRun(Operation &op, const Members &members, const Labels &labels) {
+  SmallVector<FuncOp, 2> callees;
+  if (op.getNumResults() != 1 || inTailPosition(&op))
+    return callees;
+  auto add = [&](FuncOp callee) {
+    if (callee && labels.contains(callee.getSymNameAttr()) && !llvm::is_contained(callees, callee))
+      callees.push_back(callee);
+  };
+  if (isa<CallOp>(op))
+    add(memberCalled(&op, members));
+  else if (isa<MatchOpInterface>(op))
+    for (Region &region : op.getRegions())
+      add(caseCallee(region, members));
+  return callees;
+}
+
+// The frame of `block`, a tail block of `owner`: an op that runs the
+// closure of a member (a function a closure sum names as a label), not in
+// tail position, whose rest calls members again only in tail position,
+// which goes on with the stack. A recursion over data, which calls no
+// closure's function, keeps its calls.
+std::optional<Frame> frameAt(Block &block, FuncOp owner, const Members &members,
+                             const Labels &labels) {
   for (Operation &op : block) {
-    FuncOp callee = memberCalled(&op, members);
-    auto call = dyn_cast<CallOp>(op);
-    if (!callee || call->getNumResults() != 1 || inTailPosition(call))
+    SmallVector<FuncOp, 2> callees = closuresRun(op, members, labels);
+    if (callees.empty())
       continue;
-    Frame frame{call, owner, callee, {}};
+    Frame frame{&op, owner, std::move(callees), {}};
     bool callsAgain = false;
-    for (Operation &later : restOf(call))
+    for (Operation &later : restOf(&op))
       later.walk([&](Operation *inner) {
         if (memberCalled(inner, members) && !inTailPosition(inner))
           callsAgain = true;
         for (Value operand : inner->getOperands())
-          if (operand != call.getResult(0) && !madeInRest(call, operand) &&
-              !isConstant(operand))
+          if (operand != op.getResult(0) && !madeInRest(&op, operand) && !isConstant(operand))
             frame.held.insert(operand);
       });
     // A call of a member the rest makes elsewhere would need a frame of its
@@ -76,24 +104,46 @@ std::optional<Frame> frameAt(Block &block, FuncOp owner, const Members &members)
 // The frames of the blocks that end in a tail position from `block` on:
 // its own, the rest of which holds every tail after it, or those of the
 // regions of the match in tail position it ends with.
-void framesFrom(Block &block, FuncOp owner, const Members &members,
+void framesFrom(Block &block, FuncOp owner, const Members &members, const Labels &labels,
                 SmallVectorImpl<Frame> &frames) {
-  if (std::optional<Frame> frame = frameAt(block, owner, members)) {
+  if (std::optional<Frame> frame = frameAt(block, owner, members, labels)) {
     frames.push_back(std::move(*frame));
     return;
   }
   if (Operation *match = tailMatch(block.getTerminator()))
     for (Region &region : match->getRegions())
       if (!region.empty())
-        framesFrom(region.front(), owner, members, frames);
+        framesFrom(region.front(), owner, members, labels, frames);
 }
 
 } // namespace
 
+// Every function a closure sum of the program names as a label.
+Labels closureLabels(ProgramOp program) {
+  Labels labels;
+  auto add = [&](Type type) {
+    if (DataType data = dataTypeOf(type); data && data.isClosures())
+      for (const Ctor &ctor : data.getCtors())
+        if (const auto *label = std::get_if<role::Label>(&ctor.role))
+          labels.insert(label->fn.getAttr());
+  };
+  program.walk([&](Operation *op) {
+    for (Type type : op->getResultTypes())
+      add(type);
+    for (Region &region : op->getRegions())
+      for (Block &block : region)
+        for (Type type : block.getArgumentTypes())
+          add(type);
+  });
+  return labels;
+}
+
 // The plan of a component; none when no member has a frame, or when the
-// members differ in what they may do or in their proof that they end,
-// which their runs and resumes, each running the others' rests, share.
-FailureOr<std::optional<FramesPlan>> framesPlanOf(ArrayRef<Operation *> component, SymbolTable &symbols) {
+// members differ in what they may do, which their runs and resumes, each
+// running the others' rests, share (the effects solve gives a cycle one
+// set). Those end when every member does.
+FailureOr<std::optional<FramesPlan>> framesPlanOf(ArrayRef<Operation *> component,
+                                                  const Labels &labels, SymbolTable &symbols) {
   FramesPlan plan;
   for (Operation *op : component) {
     auto fn = dyn_cast<FuncOp>(op);
@@ -104,20 +154,30 @@ FailureOr<std::optional<FramesPlan>> framesPlanOf(ArrayRef<Operation *> componen
   }
   FuncOp first = plan.members.front();
   if (llvm::any_of(plan.members, [&](FuncOp fn) {
-        return fn.getEffects() != first.getEffects() || fn.getTotal() != first.getTotal();
+        return fn.getEffects() != first.getEffects();
       }))
     return std::optional<FramesPlan>();
+  plan.total = llvm::all_of(plan.members, [](FuncOp fn) { return fn.getTotal(); });
   for (FuncOp fn : plan.members)
-    framesFrom(fn.getBody().front(), fn, plan.byName, plan.frames);
+    framesFrom(fn.getBody().front(), fn, plan.byName, labels, plan.frames);
   if (plan.frames.empty())
     return std::optional<FramesPlan>();
-  for (FuncOp fn : plan.members) {
-    FailureOr<StringAttr> run = copyName(fn, "run", symbols);
-    FailureOr<StringAttr> resume = copyName(fn, "resume", symbols);
-    if (failed(run) || failed(resume))
-      return failure();
-    plan.names[fn] = {*run, *resume};
-  }
+  for (FuncOp fn : plan.members)
+    if (!llvm::is_contained(plan.answers, fn.getResultTypes()[0]))
+      plan.answers.push_back(fn.getResultTypes()[0]);
+  for (Type answer : plan.answers)
+    for (FuncOp fn : plan.members) {
+      auto name = [&](StringRef kind) {
+        return StringAttr::get(fn.getContext(),
+                               contentName(fn.getSymName(), kind, canonicalHash(answer)));
+      };
+      StringAttr run = name("run"), resume = name("resume");
+      if (symbols.lookup(run) || symbols.lookup(resume))
+        return fn.emitError() << "internal error: the name " << run.getValue() << " or "
+                              << resume.getValue() << " of a run of @" << fn.getSymName()
+                              << " is taken";
+      plan.names[{fn, answer}] = {run, resume};
+    }
   plan.stack = StringAttr::get(first.getContext(), contentName(first.getSymName(), "frames", ""));
   return std::optional<FramesPlan>(std::move(plan));
 }

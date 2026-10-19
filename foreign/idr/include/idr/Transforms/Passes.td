@@ -426,10 +426,11 @@ def IdrBufferize : IdrPass<"idr-bufferize", "::idr::ProgramOp", IdrRoleLowering,
 
 def IdrFrames : IdrPass<"idr-frames", "::idr::ProgramOp", IdrRoleOptimization,
       IdrStageFirst, IdrStageFirst> {
-  let summary = "Carry the rest of a run of a closure's part on a stack of frames";
+  let summary = "Carry the rest of a run of a closure on a stack of frames";
   let description = [{
-    A call of a function of the caller's own call cycle that runs a part of
-    a closure (in a case of a match on a closure sum, in tail position),
+    A call of a function of the caller's own call cycle that runs a closure
+    (one a closure sum names as a label, or a dispatch whose cases give such
+    calls, in a tail block),
     whose result the rest of its block consumes, becomes a tail call: the
     values the rest reads are a frame pushed on a stack the cycle's
     functions take (`<f>.frames`, a data type of an empty stack and a frame

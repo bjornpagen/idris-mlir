@@ -137,38 +137,52 @@ using Members = llvm::DenseMap<mlir::StringAttr, FuncOp>;
 // The member `op` calls, when it is a call of one.
 FuncOp memberCalled(mlir::Operation *op, const Members &members);
 
-// A call of a member that runs a part of a closure, in a tail block of its
-// function, and what the rest of the block reads that the call does not
+// The functions closure sums name as labels: each runs a closure.
+using Labels = llvm::DenseSet<mlir::StringAttr>;
+Labels closureLabels(ProgramOp program);
+
+// An op that runs the closure of a member for its value (a call of one, or
+// a match a case of which gives a call of one), in a tail block of its
+// function, and what the rest of the block reads that the op does not
 // make: the values its frame holds. A constant the rest reads is made
 // again where it resumes.
 struct Frame {
-  CallOp call;
-  FuncOp owner, callee;
+  mlir::Operation *site;
+  FuncOp owner;
+  llvm::SmallVector<FuncOp, 2> callees;
   llvm::SetVector<mlir::Value> held;
 };
 
-// The ops of the call's block after `call`, its terminator among them.
-llvm::iterator_range<mlir::Block::iterator> restOf(CallOp call);
-// Whether `value` is made by an op of the rest after `call`, or bound by a
+// The ops of the site's block after `site`, its terminator among them.
+llvm::iterator_range<mlir::Block::iterator> restOf(mlir::Operation *site);
+// Whether `value` is made by an op of the rest after `site`, or bound by a
 // region of one.
-bool madeInRest(CallOp call, mlir::Value value);
+bool madeInRest(mlir::Operation *site, mlir::Value value);
 bool isConstant(mlir::Value value);
+// The member whose call a case of a match gives as its value, if any.
+FuncOp caseCallee(mlir::Region &region, const Members &members);
 
 // What becomes of one component: its members, its frames, the stack's data
-// type, each member's run and resume.
+// type, and for each answer (what the call that started on the empty stack
+// returns, one member's result type) each member's run and resume.
 struct FramesPlan {
+  using Copy = std::pair<mlir::Operation *, mlir::Type>;
   llvm::SmallVector<FuncOp> members;
   Members byName;
   llvm::SmallVector<Frame> frames;
+  // Whether every member ends, and so each run and resume.
+  bool total = false;
+  llvm::SmallVector<mlir::Type> answers;
   mlir::StringAttr stack;
-  llvm::DenseMap<mlir::Operation *, std::pair<mlir::StringAttr, mlir::StringAttr>> names;
+  llvm::DenseMap<Copy, std::pair<mlir::StringAttr, mlir::StringAttr>> names;
 };
 
 // The plan of a component; none when no member has a frame, or when the
-// members differ in what they may do or in their proof that they end,
-// which their runs and resumes, each running the others' rests, share.
-mlir::FailureOr<std::optional<FramesPlan>>
-framesPlanOf(llvm::ArrayRef<mlir::Operation *> component, mlir::SymbolTable &symbols);
+// members differ in what they may do, which their runs and resumes, each
+// running the others' rests, share. Those end when every member does.
+mlir::FailureOr<std::optional<FramesPlan>> framesPlanOf(llvm::ArrayRef<mlir::Operation *> component,
+                                                        const Labels &labels,
+                                                        mlir::SymbolTable &symbols);
 
 //===----------------------------------------------------------------------===//
 // Returned arguments
