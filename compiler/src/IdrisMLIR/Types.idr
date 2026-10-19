@@ -245,9 +245,6 @@ data TensorOp t
     ||| extents given outermost first; the result's dimensions after them are
     ||| the cell's.
     Reshape t (List t)
-  | ||| The array along the axis with lo copies of the cell before and hi
-    ||| after: lo, hi, the cell, the array.
-    Pad Nat t t t t
 
 export
 Functor TensorOp where
@@ -259,7 +256,6 @@ Functor TensorOp where
   map f (Concat a x y) = Concat a (f x) (f y)
   map f (Transpose a x) = Transpose a (f x)
   map f (Reshape x es) = Reshape (f x) (map f es)
-  map f (Pad a lo hi v x) = Pad a (f lo) (f hi) (f v) (f x)
 
 export
 Foldable TensorOp where
@@ -271,7 +267,6 @@ Foldable TensorOp where
   foldr f z (Concat _ x y) = f x (f y z)
   foldr f z (Transpose _ x) = f x z
   foldr f z (Reshape x es) = f x (foldr f z es)
-  foldr f z (Pad _ lo hi v x) = f lo (f hi (f v (f x z)))
 
 export
 Traversable TensorOp where
@@ -283,7 +278,6 @@ Traversable TensorOp where
   traverse f (Concat a x y) = Concat a <$> f x <*> f y
   traverse f (Transpose a x) = Transpose a <$> f x
   traverse f (Reshape x es) = Reshape <$> f x <*> traverse f es
-  traverse f (Pad a lo hi v x) = Pad a <$> f lo <*> f hi <*> f v <*> f x
 
 ||| An operation's name, as the dump writes it.
 export
@@ -296,7 +290,6 @@ tensorOpName (Drop a _ _) = "drop" ++ show a
 tensorOpName (Concat a _ _) = "concat" ++ show a
 tensorOpName (Transpose a _) = "transpose" ++ show a
 tensorOpName (Reshape _ _) = "reshape"
-tensorOpName (Pad a _ _ _ _) = "pad" ++ show a
 
 ||| What a tie states of an axis of an array: the extent of another
 ||| array's axis, exact, or any natural, converted as an extent.

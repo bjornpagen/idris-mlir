@@ -96,7 +96,6 @@ mutual
   opUses v (Concat _ x y) = mostUses v x + mostUses v y
   opUses v (Transpose _ x) = mostUses v x
   opUses v (Reshape x es) = mostUses v x + allUses v es
-  opUses v (Pad _ lo hi e x) = mostUses v lo + mostUses v hi + mostUses v e + mostUses v x
 
   statedUses : Fin n -> List (Nat, Stated (Term n)) -> Nat
   statedUses v [] = 0

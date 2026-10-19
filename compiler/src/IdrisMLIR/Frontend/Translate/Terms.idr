@@ -1545,9 +1545,13 @@ mutual
           a <- theElement
           let axis = lastAxis xTy a
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [x, y] => Tensor loc rt (Concat axis (Var loc x) (Var loc y))))
-        (APad, [_, _, vTy, xTy]) =>
+        (APad, [_, _, vTy, xTy]) => do
+          let axis = lastAxis xTy vTy
+              front = alongAxis axis xTy
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [lo, hi, v, x] =>
-                  Tensor loc rt (Pad (lastAxis xTy vTy) (Var loc lo) (Var loc hi) (Var loc v) (Var loc x))))
+                  Tensor loc rt (Concat axis
+                    (Tensor loc front (Concat axis (copies xTy axis (Var loc x) (Var loc lo) (Var loc v)) (Var loc x)))
+                    (copies xTy axis (Var loc x) (Var loc hi) (Var loc v)))))
         (AWithArray, [eTy, vTy, FunT (MkBinder _ arrTy) _]) => do
           eSnoc <- snocCons fc eTy
           let r = minus (rank arrTy) (rank vTy)
@@ -1577,9 +1581,10 @@ mutual
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [l] =>
                   ConApp loc res [ snocValue loc s (map (\j => Tensor loc NatT (Extent j (Var loc l))) (axesOf r))
                                  , Var loc l ]))
-        (AGrow, [_, vTy, lTy]) =>
+        (AGrow, [_, vTy, lTy]) => do
+          let axis = lastAxis lTy vTy
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [k, v, l] =>
-                  Tensor loc rt (Pad (lastAxis lTy vTy) (Literal loc (LNat 0)) (Var loc k) (Var loc v) (Var loc l))))
+                  Tensor loc rt (Concat axis (Var loc l) (copies lTy axis (Var loc l) (Var loc k) (Var loc v)))))
         (ATabulateIO, [eTy, FunT (MkBinder _ idxTy) (FunT (MkBinder _ WorldT) (DataT step))]) => do
           FunT _ (DataT done) <- pure rt
             | _ => internal fc "a world-ordered tabulation whose result is no action"
@@ -1612,6 +1617,28 @@ mutual
           -- The shape's last axis of an array whose cell has the type given.
           lastAxis : Ty -> Ty -> Nat
           lastAxis xTy cellTy = minus (minus (rank xTy) 1) (rank cellTy)
+
+          -- An array like one of type `xTy` with the length of its axis
+          -- `a` left to its value.
+          alongAxis : Nat -> Ty -> Ty
+          alongAxis a (TensorT ds e) = TensorT (zipWith (\j, d => if j == a then Dynamic else d) (axesOf (length ds)) ds) e
+          alongAxis a t = t
+
+          -- `n` copies of the cell `v` along axis `a` of an array like `x`,
+          -- of type `xTy`, its other axes `x`'s, the cell's among them: a
+          -- new array of every element, each copy its own, whatever the
+          -- element holds. A pad, and a growth, is the array joined to
+          -- such copies, so that every slot of the result is written once.
+          copies : {0 m : Nat} -> Ty -> Nat -> (x, n, v : Term m) -> Term m
+          copies xTy a x n v =
+            let es = map (\j => if j == a then n else Tensor loc NatT (Extent j x)) (axesOf (rank xTy))
+                v' = weakenUnder (length es) v
+                cell = map (Var loc . Bound) (drop (S a) (toList (Data.Vect.allFins (length es))))
+                body = case (cell, xTy) of
+                         ([], _) => v'
+                         (_, TensorT _ e) => Tensor loc e (Extract v' cell)
+                         _ => v'
+            in Tabulate loc (alongAxis a xTy) (fromList es) body
 
           insert : Ty -> Ty -> Ty -> Vect 3 Binder -> Core (Maker 3)
           insert xTy iTy vTy three = do

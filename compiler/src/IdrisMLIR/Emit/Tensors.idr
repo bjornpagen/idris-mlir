@@ -5,7 +5,7 @@
 ||| last axis `idr.fold_last`, a scan `idr.scan_last`, each a region from
 ||| indices (and an accumulator) to an element, and a transpose
 ||| `idr.transpose`; a read is `tensor.extract`, a write `tensor.insert`,
-||| and a slice, a join, a reshape and a pad the `tensor` ops of each. Nothing here decides that an iteration's order is
+||| and a slice, a join and a reshape the `tensor` ops of each. Nothing here decides that an iteration's order is
 ||| free: the MLIR side does, once it knows what a region does. A coordinate
 ||| is an `index` at its access, unguarded, since its type bounds it by an
 ||| extent; an extent enters `index` at an allocation, guarded. An array of
@@ -420,32 +420,6 @@ tensorOp ix l binder rt (Reshape x extents) = do
     unitGroups (S c) =
       map (\i => IntegerAttr (cast i) (IntegerType 64)) [0, 1]
         :: map (\i => [IntegerAttr (cast i) (IntegerType 64)]) (take c [2 .. S c])
-tensorOp ix l binder rt (Pad a lo hi v x) = do
-  xv <- plainOperand ix l x
-  ds <- dimsOf x
-  (before, own, after) <- ownAxis "a pad" a ds
-  -- The padded length, guarded as an extent: the total of three sizes is
-  -- converted whole, its parts then coordinates.
-  len <- natural l !(sizeValue l !(sizeAt l xv own))
-  front <- value ix l NatT (Idr.bigAddOp !(plainOperand ix l lo) (operand len))
-  whole <- value ix l NatT (Idr.bigAddOp (operand front) !(plainOperand ix l hi))
-  _ <- extent ix l whole
-  low <- coordinate ix l lo
-  high <- coordinate ix l hi
-  let (lows, staticLow) = mixed (map (const (Right 0)) before ++ Left low :: map (const (Right 0)) after)
-      (highs, staticHigh) = mixed (map (const (Right 0)) before ++ Left high :: map (const (Right 0)) after)
-      padded = TensorT (map snd before ++ Dynamic :: map snd after) (elementOf x.type)
-  -- The region gives the value at each index of the padding: the cell's
-  -- element at the cell's axes.
-  ivs <- traverse (\_ => (\n => MkValue n IndexType) <$> fresh) ds
-  (yielded, ops) <- collect $ case v.type of
-    TensorT _ el => do
-      vv <- plainOperand ix l v
-      mlirValue l (mlirType el) (Tensor.extractOp vv (drop (S a) ivs))
-    _ => plainOperand ix l v
-  let body = MkRegion (map (\i => MkArgument i (At l)) ivs)
-                      (ops ++ [MkStatement Nothing (Tensor.yieldOp yielded) (At l)])
-  fitted {binder} ix l (Just rt) padded (Tensor.padOp xv lows highs staticLow staticHigh body)
 
 ------------------------------------------------------------------------------
 -- New arrays and reductions

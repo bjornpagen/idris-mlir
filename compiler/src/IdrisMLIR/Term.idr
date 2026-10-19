@@ -298,7 +298,6 @@ mutual
   renameOp f (Concat a x y) = Concat a (rename f x) (rename f y)
   renameOp f (Transpose a x) = Transpose a (rename f x)
   renameOp f (Reshape x es) = Reshape (rename f x) (renameAll f es)
-  renameOp f (Pad a lo hi v x) = Pad a (rename f lo) (rename f hi) (rename f v) (rename f x)
 
   renameStated : (Fin n -> Fin m) -> List (Nat, Stated (Term n)) -> List (Nat, Stated (Term m))
   renameStated f [] = []
@@ -474,7 +473,6 @@ mutual
   paraOp alg (Concat a x y) = Concat a (sub alg x) (sub alg y)
   paraOp alg (Transpose a x) = Transpose a (sub alg x)
   paraOp alg (Reshape x es) = Reshape (sub alg x) (paraAll alg es)
-  paraOp alg (Pad a lo hi v x) = Pad a (sub alg lo) (sub alg hi) (sub alg v) (sub alg x)
 
   paraStated : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
                List (Nat, Stated (Term n)) -> List (Nat, Stated (Sub f n))
