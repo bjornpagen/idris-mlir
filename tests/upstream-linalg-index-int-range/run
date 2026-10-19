@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/57-linalg-index-int-range is carried: linalg.index has a range,
+# [0, extent - 1] for a static loop and below the largest signed index
+# otherwise, so the range analysis folds a comparison an index cannot fail,
+# as it does for an scf.for induction variable. Without the patch the index
+# has no range, idr-narrow cannot prove a natural made from it small, and
+# the loop bodies of arrays stay on bigs. The witness is upstream's own
+# dialects, through mlir-opt.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/57-linalg-index-int-range/linalg-index-range.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" --int-range-optimizations -o "$work/out.mlir" 2> "$work/err"; then
+  say "mlir-opt failed, which is not this bug"
+  show "$work/err"
+elif grep -q 'arith\.cmpi' "$work/out.mlir"; then
+  say "a comparison of an index stays"
+else
+  say "every comparison of an index folds"
+fi

@@ -1,0 +1,256 @@
+Subject: [PATCH] [mlir][linalg] Infer the integer range of linalg.index
+
+The integer range analysis bounds an scf.for induction variable by its
+loop, but knows nothing of linalg.index. Give linalg.index an external
+InferIntRangeInterface model, beside its ValueBoundsOpInterface one: the
+index of loop d is in [0, extent - 1] where the operands' shapes fix the
+extent, and in [0, signed max - 1] otherwise, a dimension being a
+non-negative index. A loop of extent 0 runs no iteration, and its index
+gets no range.
+
+---
+diff --git a/mlir/include/mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h b/mlir/include/mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h
+new file mode 100644
+index 000000000..9fc56a2ef
+--- /dev/null
++++ b/mlir/include/mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h
+@@ -0,0 +1,20 @@
++//===- InferIntRangeInterfaceImpl.h - Impl. of InferIntRangeInterface -----===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef MLIR_DIALECT_LINALG_IR_INFERINTRANGEINTERFACEIMPL_H
++#define MLIR_DIALECT_LINALG_IR_INFERINTRANGEINTERFACEIMPL_H
++
++namespace mlir {
++class DialectRegistry;
++
++namespace linalg {
++void registerInferIntRangeInterfaceExternalModels(DialectRegistry &registry);
++} // namespace linalg
++} // namespace mlir
++
++#endif // MLIR_DIALECT_LINALG_IR_INFERINTRANGEINTERFACEIMPL_H
+diff --git a/mlir/lib/Dialect/Linalg/IR/CMakeLists.txt b/mlir/lib/Dialect/Linalg/IR/CMakeLists.txt
+index fcba43785..ef73590dc 100644
+--- a/mlir/lib/Dialect/Linalg/IR/CMakeLists.txt
++++ b/mlir/lib/Dialect/Linalg/IR/CMakeLists.txt
+@@ -1,4 +1,5 @@
+ add_mlir_dialect_library(MLIRLinalgDialect
++  InferIntRangeInterfaceImpl.cpp
+   LinalgInterfaces.cpp
+   LinalgOps.cpp
+   LinalgDialect.cpp
+@@ -26,6 +27,7 @@ add_mlir_dialect_library(MLIRLinalgDialect
+   MLIRDialectUtils
+   MLIRFunctionInterfaces
+   MLIRIndexingMapOpInterface
++  MLIRInferIntRangeInterface
+   MLIRInferTypeOpInterface
+   MLIRIR
+   MLIRParser
+diff --git a/mlir/lib/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.cpp b/mlir/lib/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.cpp
+new file mode 100644
+index 000000000..241e6f92d
+--- /dev/null
++++ b/mlir/lib/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.cpp
+@@ -0,0 +1,62 @@
++//===- InferIntRangeInterfaceImpl.cpp - Impl. of InferIntRangeInterface ---===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h"
++
++#include "mlir/Dialect/Linalg/IR/Linalg.h"
++#include "mlir/Interfaces/InferIntRangeInterface.h"
++
++using namespace mlir;
++
++namespace mlir {
++namespace linalg {
++namespace {
++
++struct IndexOpInterface
++    : public InferIntRangeInterface::ExternalModel<IndexOpInterface, IndexOp> {
++  void inferResultRanges(Operation *op, ArrayRef<ConstantIntRanges> argRanges,
++                         SetIntRangeFn setResultRange) const {
++    auto indexOp = cast<IndexOp>(op);
++    unsigned width = IndexType::kInternalStorageBitWidth;
++    // An iteration index lies in [0, extent - 1]. An extent the shapes leave
++    // dynamic is still a dimension, at most the largest signed index.
++    APInt extent = APInt::getSignedMaxValue(width);
++    if (auto linalgOp = dyn_cast_or_null<LinalgOp>(op->getParentOp())) {
++      int64_t staticExtent =
++          linalgOp.getStaticLoopRanges()[indexOp.getDim()];
++      if (!ShapedType::isDynamic(staticExtent))
++        extent = APInt(width, staticExtent);
++    }
++    // A loop of extent 0 runs no iteration: its index has no value to bound.
++    if (extent.isZero())
++      return;
++    setResultRange(indexOp.getResult(),
++                   ConstantIntRanges::fromSigned(APInt::getZero(width),
++                                                 extent - 1));
++  }
++
++  // The interface's default reads the op as one declaring the interface,
++  // which an op with an external model is not.
++  void inferResultRangesFromOptional(Operation *op,
++                                     ArrayRef<IntegerValueRange> argRanges,
++                                     SetIntLatticeFn setResultRanges) const {
++    intrange::detail::defaultInferResultRanges(
++        cast<InferIntRangeInterface>(op), argRanges, setResultRanges);
++  }
++};
++
++} // namespace
++} // namespace linalg
++} // namespace mlir
++
++void mlir::linalg::registerInferIntRangeInterfaceExternalModels(
++    DialectRegistry &registry) {
++  registry.addExtension(+[](MLIRContext *ctx, linalg::LinalgDialect *dialect) {
++    IndexOp::attachInterface<IndexOpInterface>(*ctx);
++  });
++}
+diff --git a/mlir/lib/Dialect/Linalg/IR/LinalgDialect.cpp b/mlir/lib/Dialect/Linalg/IR/LinalgDialect.cpp
+index 5f7e5cc23..589ce43ff 100644
+--- a/mlir/lib/Dialect/Linalg/IR/LinalgDialect.cpp
++++ b/mlir/lib/Dialect/Linalg/IR/LinalgDialect.cpp
+@@ -18,6 +18,7 @@
+ #include "mlir/Dialect/Shard/Interfaces/ShardingInterface.h"
+ #include "mlir/Dialect/Tensor/IR/Tensor.h"
+ #include "mlir/IR/DialectImplementation.h"
++#include "mlir/Interfaces/InferIntRangeInterface.h"
+ #include "mlir/Interfaces/SubsetOpInterface.h"
+ #include "mlir/Interfaces/ValueBoundsOpInterface.h"
+ #include "mlir/Support/LLVM.h"
+@@ -130,6 +131,9 @@ void mlir::linalg::LinalgDialect::initialize() {
+   // ValueBoundsOpInterface
+   declarePromisedInterface<ValueBoundsOpInterface, IndexOp>();
+ 
++  // InferIntRangeInterface
++  declarePromisedInterface<InferIntRangeInterface, IndexOp>();
++
+   declarePromisedInterface<PartialReductionOpInterface, linalg::GenericOp>();
+ 
+   // Tiling Interface
+diff --git a/mlir/lib/Dialect/Linalg/Transforms/AllInterfaces.cpp b/mlir/lib/Dialect/Linalg/Transforms/AllInterfaces.cpp
+index ba94ad790..9f48e3b02 100644
+--- a/mlir/lib/Dialect/Linalg/Transforms/AllInterfaces.cpp
++++ b/mlir/lib/Dialect/Linalg/Transforms/AllInterfaces.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "mlir/Dialect/Linalg/Transforms/AllInterfaces.h"
+ 
++#include "mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h"
+ #include "mlir/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.h"
+ #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
+ #include "mlir/Dialect/Linalg/Transforms/ShardingInterfaceImpl.h"
+@@ -17,6 +18,7 @@
+ void mlir::linalg::registerAllDialectInterfaceImplementations(
+     DialectRegistry &registry) {
+   registerBufferizableOpInterfaceExternalModels(registry);
++  registerInferIntRangeInterfaceExternalModels(registry);
+   registerShardingInterfaceExternalModels(registry);
+   registerSubsetOpInterfaceExternalModels(registry);
+   registerTilingInterfaceExternalModels(registry);
+diff --git a/mlir/test/Dialect/Linalg/int-range-interface.mlir b/mlir/test/Dialect/Linalg/int-range-interface.mlir
+new file mode 100644
+index 000000000..0a67e29ac
+--- /dev/null
++++ b/mlir/test/Dialect/Linalg/int-range-interface.mlir
+@@ -0,0 +1,58 @@
++// RUN: mlir-opt -int-range-optimizations %s | FileCheck %s
++
++// The iteration index of a static loop of extent N is in [0, N - 1].
++// CHECK-LABEL: func @index_static
++// CHECK: test.reflect_bounds <umin = 0 : index, umax = 7 : index, smin = 0 : index, smax = 7 : index>
++// CHECK: test.reflect_bounds <umin = 0 : index, umax = 4 : index, smin = 0 : index, smax = 4 : index>
++func.func @index_static(%t: tensor<8x5xindex>) -> tensor<8x5xindex> {
++  %r = linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
++                       iterator_types = ["parallel", "parallel"]}
++      outs(%t : tensor<8x5xindex>) {
++  ^bb0(%out: index):
++    %i = linalg.index 0 : index
++    %j = linalg.index 1 : index
++    %bi = test.reflect_bounds %i : index
++    %bj = test.reflect_bounds %j : index
++    %s = arith.addi %bi, %bj : index
++    linalg.yield %s : index
++  } -> tensor<8x5xindex>
++  return %r : tensor<8x5xindex>
++}
++
++// A dynamic extent is still a dimension, so the index is non-negative and
++// below the largest signed index: comparing it against 0 folds.
++// CHECK-LABEL: func @index_dynamic
++// CHECK: %[[TRUE:.*]] = arith.constant true
++// CHECK: test.reflect_bounds <umin = 0 : index, umax = 9223372036854775806 : index, smin = 0 : index, smax = 9223372036854775806 : index>
++// CHECK: linalg.yield %[[TRUE]]
++func.func @index_dynamic(%t: tensor<?xi1>) -> tensor<?xi1> {
++  %c0 = arith.constant 0 : i64
++  %r = linalg.generic {indexing_maps = [affine_map<(d0) -> (d0)>],
++                       iterator_types = ["parallel"]}
++      outs(%t : tensor<?xi1>) {
++  ^bb0(%out: i1):
++    %i = linalg.index 0 : index
++    %b = test.reflect_bounds %i : index
++    %w = arith.index_castui %b : index to i64
++    %nonneg = arith.cmpi sge, %w, %c0 : i64
++    linalg.yield %nonneg : i1
++  } -> tensor<?xi1>
++  return %r : tensor<?xi1>
++}
++
++// The extent comes from the loop the index names, which an operand's shape
++// fixes through the indexing maps.
++// CHECK-LABEL: func @index_transposed
++// CHECK: test.reflect_bounds <umin = 0 : index, umax = 2 : index, smin = 0 : index, smax = 2 : index>
++func.func @index_transposed(%a: tensor<?x3xindex>, %t: tensor<3x?xindex>) -> tensor<3x?xindex> {
++  %r = linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d1, d0)>,
++                                        affine_map<(d0, d1) -> (d0, d1)>],
++                       iterator_types = ["parallel", "parallel"]}
++      ins(%a : tensor<?x3xindex>) outs(%t : tensor<3x?xindex>) {
++  ^bb0(%in: index, %out: index):
++    %i = linalg.index 0 : index
++    %b = test.reflect_bounds %i : index
++    linalg.yield %b : index
++  } -> tensor<3x?xindex>
++  return %r : tensor<3x?xindex>
++}
+diff --git a/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel b/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel
+index 007c2e7fe..1713190b9 100644
+--- a/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel
++++ b/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel
+@@ -11724,12 +11724,14 @@ cc_library(
+ cc_library(
+     name = "LinalgDialect",
+     srcs = [
++        "lib/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.cpp",
+         "lib/Dialect/Linalg/IR/LinalgDialect.cpp",
+         "lib/Dialect/Linalg/IR/LinalgInterfaces.cpp",
+         "lib/Dialect/Linalg/IR/LinalgOps.cpp",
+         "lib/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.cpp",
+     ],
+     hdrs = [
++        "include/mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h",
+         "include/mlir/Dialect/Linalg/IR/Linalg.h",
+         "include/mlir/Dialect/Linalg/IR/LinalgDialect.h",
+         "include/mlir/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.h",
+@@ -11749,6 +11751,7 @@ cc_library(
+         ":FunctionInterfaces",
+         ":IR",
+         ":IndexingMapOpInterface",
++        ":InferIntRangeInterface",
+         ":InferTypeOpInterface",
+         ":InliningUtils",
+         ":LinalgEnumsIncGen",

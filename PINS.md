@@ -178,6 +178,28 @@ which the top-level CMake configure gate reads.
   that fixes issue #62644, perhaps after an RFC for the trait
 - status (2026-10-19): carried; not filed
 
+## linalg-index-int-range
+
+- symptom: on main at 7208ba24 (and on main on 2026-10-19), `linalg.index`
+  has no integer range, so the range analysis cannot bound a value computed
+  from a loop's index as it bounds an `scf.for` induction variable.
+  idr-narrow could not prove the naturals an array's loop body makes from
+  its index small, the bodies stayed on bigs, and the vectorizer took none
+  of them (tests linarray-combinators, linarray-lanes-exact,
+  linarray-lanes-wide, determinism-threads-linarray-lanes)
+- sites: foreign/idr/lib/Transforms/Narrow (the range analysis after
+  idr-structure-loops); foreign/idr/lib/Driver/Register.cpp, which
+  registers the model
+- workaround: `upstream/57-linalg-index-int-range/llvm.patch`: an external
+  model of `InferIntRangeInterface` for `linalg.index`, [0, extent - 1],
+  promised by the Linalg dialect; checked by
+  tests/upstream-linalg-index-int-range
+- retire: drop the patch, and the registration in Register.cpp, when the
+  pin has the fix (in ODS, the registration goes with it)
+- upstream: upstream/57-linalg-index-int-range; plan in its README: a PR
+  with a Linalg int-range test
+- status (2026-10-19): carried; not filed
+
 ## remove-dead-values-unreachable
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

@@ -33,6 +33,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
+#include "mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -86,7 +87,8 @@ void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
   // The models of them the passes read. idr-bufferize's One-Shot asks each
   // op on tensors for its bufferization, and its empty-tensor elimination
   // asks an insertion for its subset; the narrowing, the loop structuring
-  // and upstream's folds and tiling ask an op for its value bounds;
+  // and upstream's folds and tiling ask an op for its value bounds, and the
+  // narrowing's range analysis asks a loop's index for its range;
   // bufferization asks a tensor op for its shape; the schedule tiles a loop
   // by its tiling interface; and the vectorizer and bufferization ask an op
   // whether it is a cast.
@@ -97,6 +99,7 @@ void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
   mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);
   mlir::linalg::registerSubsetOpInterfaceExternalModels(registry);
   mlir::tensor::registerSubsetOpInterfaceExternalModels(registry);
+  mlir::linalg::registerInferIntRangeInterfaceExternalModels(registry);
   mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
   mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
   mlir::bufferization::registerValueBoundsOpInterfaceExternalModels(registry);

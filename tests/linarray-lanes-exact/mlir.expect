@@ -5,5 +5,5 @@
 # structuring and the vectorization each run over the functions in a
 # group, which dumps no module: each property is read at the first step
 # after its group.
-eliminate-empty-tensors: structured-loops
+idr-bufferize: structured-loops
 idr-returned-arguments: vectorized
