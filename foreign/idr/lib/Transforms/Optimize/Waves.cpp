@@ -28,8 +28,8 @@
 //
 // A wait may close a cycle: a node waits on one that waits, through
 // requests and calls, on the node's own component. Every component on the
-// cycle then becomes one, whose members finish together and never inline
-// one another. Each wave's waits are recorded in a fixed order, built nodes
+// cycle then becomes one, whose members finish together and inline one
+// another only as beta reduction (Inline.cpp). Each wave's waits are recorded in a fixed order, built nodes
 // by name after the turns in wave order, and the cycles they close do not
 // depend on that order, so neither do the components.
 

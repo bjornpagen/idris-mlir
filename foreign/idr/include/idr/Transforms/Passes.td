@@ -246,7 +246,10 @@ def IdrOptimize : IdrPass<"idr-optimize", "::idr::ProgramOp", IdrRoleOptimizatio
         and has at most 40 ops, or any callee on no cycle of calls with
         (calls - 1) * (size - 60) <= 320, the size counted in ops on the
         callee's final body and the calls in call sites when the pass
-        starts. A function on a cycle of calls is never inlined. Calls are
+        starts. A function on a cycle of calls is inlined only into a
+        member of its cycle that hands it a closure or suspension of a
+        function outside the cycle, built for the call, where the inline
+        leaves no call of the cycle (beta reduction). Calls are
         inlined in call-site order while the caller stays at or under
         10,000 ops; a call past that stays a call;
       - then one pipeline runs on the function, once: idr-identity,

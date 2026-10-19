@@ -1,0 +1,47 @@
+diff --git a/mlir/lib/Dialect/Math/IR/MathOps.cpp b/mlir/lib/Dialect/Math/IR/MathOps.cpp
+--- a/mlir/lib/Dialect/Math/IR/MathOps.cpp
++++ b/mlir/lib/Dialect/Math/IR/MathOps.cpp
+@@ -591,8 +591,13 @@
+ OpFoldResult math::SqrtOp::fold(FoldAdaptor adaptor) {
+   return constFoldUnaryOpConditional<FloatAttr>(
+       adaptor.getOperands(), [](const APFloat &a) -> std::optional<APFloat> {
+-        if (a.isNegative())
+-          return {};
++        // The square root of a number below zero is a NaN (IEEE 754, and
++        // llvm.sqrt, which this lowers to); LLVM fixes neither its sign nor
++        // its payload, so any quiet NaN is the value. Of -0 it is -0.
++        if (a.isNaN())
++          return {};
++        if (a.isNegative() && !a.isZero())
++          return APFloat::getQNaN(a.getSemantics());
+ 
+         switch (APFloat::SemanticsToEnum(a.getSemantics())) {
+         case APFloat::Semantics::S_IEEEdouble:
+diff --git a/mlir/test/Dialect/Math/canonicalize.mlir b/mlir/test/Dialect/Math/canonicalize.mlir
+--- a/mlir/test/Dialect/Math/canonicalize.mlir
++++ b/mlir/test/Dialect/Math/canonicalize.mlir
+@@ -148,6 +148,24 @@
+   return %0 : vector<4xf32>
+ }
+ 
++// CHECK-LABEL: @sqrt_fold_negative
++// CHECK: %[[cst:.+]] = arith.constant 0x7FC00000 : f32
++// CHECK: return %[[cst]]
++func.func @sqrt_fold_negative() -> f32 {
++  %c = arith.constant -2.5 : f32
++  %r = math.sqrt %c : f32
++  return %r : f32
++}
++
++// CHECK-LABEL: @sqrt_fold_negative_zero
++// CHECK: %[[cst:.+]] = arith.constant -0.000000e+00 : f64
++// CHECK: return %[[cst]]
++func.func @sqrt_fold_negative_zero() -> f64 {
++  %c = arith.constant -0.0 : f64
++  %r = math.sqrt %c : f64
++  return %r : f64
++}
++
+ // CHECK-LABEL: @abs_fold
+ // CHECK: %[[cst:.+]] = arith.constant 4.000000e+00 : f32
+ // CHECK: return %[[cst]]

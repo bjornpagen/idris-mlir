@@ -22,7 +22,9 @@ struct Step {
 
 // Inlines, in walk order, each idr.call `caller` holds when the step
 // starts whose callee, as `callee` answers it, is final and inlined by the
-// rule, while the caller stays within the cap. The caller loses Idris's
+// rule, or a member of the caller's component the call applies to a
+// closure or suspension of a final function (beta reduction), while the
+// caller stays within the cap. The caller loses Idris's
 // proof of termination where it takes in a body without one. A callee that
 // never returns leaves the rest of its call's block unreachable, which goes
 // once the step's calls are all taken.

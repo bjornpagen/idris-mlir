@@ -71,14 +71,15 @@ struct Summary {
 
 // A callee as the ready set answers it to a reader, one of three: final,
 // with its function and summary, which no one writes again; a sibling, of
-// the reader's own component and taken up, with what its turn solved; or
-// pending, not final and nothing yet known of it, which a reader reads
-// nothing of.
+// the reader's own component and taken up, with its function, which only
+// the component's turn writes, and what its turn solved; or pending, not
+// final and nothing yet known of it, which a reader reads nothing of.
 struct Final {
   idr::FuncOp fn;
   const Summary &summary;
 };
 struct Sibling {
+  idr::FuncOp fn;
   const Solved &solved;
 };
 struct Pending {};

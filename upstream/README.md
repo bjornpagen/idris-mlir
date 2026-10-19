@@ -38,8 +38,9 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
 - `pull-request.diff`: for LLVM, the pull request for a change this
   repository does not carry as a patch (08, 17, since the pipeline
   cutover 02, 16 and 22, and 25, 27 and 58, which nothing in the tree
-  reaches, **When nothing reaches the bug** below), which the bootstrap
-  therefore never applies; apply it with `git apply`, and take the commit
+  reaches, **When nothing reaches the bug** below, and 60, which the
+  fuzzer reaches and the next toolchain build is to carry), which the
+  bootstrap therefore never applies; apply it with `git apply`, and take the commit
   message from `submission.md`, never from the file's header. For simdutf
   and snmalloc (48, 49), the pull request to that project, which no patch
   project applies. For Idris (18, 20, 21, 50, 51, 52, 53, 59 and the six fork-* directories),

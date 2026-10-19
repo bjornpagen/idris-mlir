@@ -104,11 +104,11 @@ Callee ReadySet::callee(const Node &reader, StringAttr name) const {
   if (!node.sharesComponentWith(reader))
     return Pending{};
   return std::visit(llvm::makeVisitor([](const Node::Waiting &) -> Callee { return Pending{}; },
-                                      [](const Node::Parked &parked) -> Callee {
-                                        return Sibling{parked.solved};
+                                      [&](const Node::Parked &parked) -> Callee {
+                                        return Sibling{node.fn, parked.solved};
                                       },
-                                      [](const Node::Done &done) -> Callee {
-                                        return Sibling{done.solved};
+                                      [&](const Node::Done &done) -> Callee {
+                                        return Sibling{node.fn, done.solved};
                                       }),
                     node.state);
 }
