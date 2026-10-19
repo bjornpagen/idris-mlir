@@ -21,8 +21,9 @@ namespace idr::detail::escapes {
 using mlir::dataflow::Lattice;
 
 // Where the uses one way of standing for a value reach. `escapes`: a use
-// that lets it go. `tailCalled`: a call in tail position of a function on
-// its function's cycle, which ends the frame. `loops`: the loops whose
+// that lets it go. `tailCalled`: a call in tail position (modulo a
+// constructor, which idr-trmc makes a loop) of a function on its
+// function's cycle, which ends the frame. `loops`: the loops whose
 // terminators forward it to the next iteration or out. The last two
 // are about the frame of the value's own function, so they never cross a
 // call: a cell passed to a callee is in the caller's frame, which outlives

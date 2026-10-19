@@ -9,6 +9,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -23,6 +24,17 @@ DataType idr::dataTypeOf(Type type) {
 }
 
 bool idr::isBoxed(Type type) { return isa<BoxType>(unrestricted(type)); }
+
+bool idr::builtStateHolds(Value value, Operation *reader) {
+  DataType data = dataTypeOf(value.getType());
+  if (!data || !data.isMemo())
+    return true;
+  if (!value.getDefiningOp<ConOp>())
+    return false;
+  return llvm::all_of(value.getUsers(), [&](Operation *user) {
+    return !isa<MemoEnterOp, MemoSettleOp>(user) || reader->isAncestor(user);
+  });
+}
 
 std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
   // The only user of `v`, if it has one.

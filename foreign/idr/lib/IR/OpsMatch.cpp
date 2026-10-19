@@ -150,12 +150,15 @@ std::optional<Tag> MatchOp::knownTag(Region &region) {
 }
 
 // A constant constructor, or the constructor of the idr.con that built the
-// scrutinee, also through a linear position; else what an enclosing match
-// on the same value established.
+// scrutinee, also through a linear position, where that still holds
+// (builtStateHolds); else what an enclosing match on the same value
+// established.
 Region *MatchOp::getTakenRegion(Attribute value) {
   std::optional<int32_t> tag;
   Value source = throughLinear(getScrutinee());
   ConAttr constant;
+  if (!builtStateHolds(source, getOperation()))
+    return takenFromEnclosing(*this);
   if (auto con = dyn_cast_or_null<ConAttr>(value))
     tag = static_cast<int32_t>(con.getTag());
   else if (auto built = source.getDefiningOp<ConOp>())

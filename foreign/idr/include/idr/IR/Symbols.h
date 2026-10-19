@@ -37,6 +37,13 @@ DataType dataTypeOf(mlir::Type type);
 // Whether a value of `type` is a box, a reference to a cell, through a grade.
 bool isBoxed(mlir::Type type);
 
+// Whether how `value` was built (its idr.con, its constant) still says its
+// constructor where `reader` reads it. Always, but for a memo cell, whose
+// state every force writes: never for a constant, one static cell every
+// run of the program shares and forces, and for a cell an idr.con built
+// only while nothing but `reader` enters or settles it.
+bool builtStateHolds(mlir::Value value, mlir::Operation *reader);
+
 // A constructor written by its name, `@Name`, in the data type of `type` (a
 // data type or its box, at any grade), and read back into its tag, an i32
 // attribute: the one place a constructor's name becomes its tag. An op's

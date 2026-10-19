@@ -293,6 +293,8 @@ LogicalResult FieldOp::verify() {
 OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto index = static_cast<unsigned>(getIndex());
   Value source = throughLinear(getValue());
+  if (!builtStateHolds(source, getOperation()))
+    return {};
   if (auto con = source.getDefiningOp<ConOp>())
     if (con.getTag() == getTag()) {
       // A field read at another grade than the constructor took it is

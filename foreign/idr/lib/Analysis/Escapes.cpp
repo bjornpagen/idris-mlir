@@ -298,8 +298,11 @@ void Solve::visitCallOperand(OpOperand &operand) {
 // no function is without one.
 void Solve::visitCall(CallOp call) {
   auto callee = cast<FuncOp>(call.resolveCallableInTable(&tables));
-  bool ends =
-      tail::inTailPosition(call) && cycles.together(call->getParentOfType<FuncOp>(), callee);
+  // A call in tail position ends the frame, and so does one in tail
+  // position but for the constructor its result goes into: idr-trmc makes
+  // it the next iteration of a loop in the same frame, writing the field.
+  bool ends = (tail::inTailPosition(call) || tail::inTailPositionModuloConstructor(call)) &&
+              cycles.together(call->getParentOfType<FuncOp>(), callee);
   ProgramPoint *after = getProgramPointAfter(call);
   for (auto [index, operand] : llvm::enumerate(call.getArgs())) {
     if (!holdsCells(operand.getType()))
