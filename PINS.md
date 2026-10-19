@@ -435,6 +435,26 @@ which the top-level CMake configure gate reads.
   tests/upstream-lazy-case-scrutinee and this entry go
 - upstream: nothing is sent (upstream/README.md, **Idris**)
 
+## literal-partial-fold
+
+- symptom: at the pinned Idris, a literal elaborated while its type still
+  holds a hole (`index 2 v` in a lambda checked before the vector that
+  fixes `Fin ?n`) is folded by `normalisePrims` to a stuck partial normal
+  form: base's Fin `fromInteger` unfolds into the caller, the erased
+  `believe_me` of its where block's `lemma` with it, so the profile
+  refused the caller as an escape hatch. The fork inherited it
+- sites: the fork, Core/Normalise.idr (`normalisePrims`: in an
+  expression the fold is kept only when it reaches a value, else the call
+  stays); and the compiler's profile, compiler/src/IdrisMLIR/Frontend/
+  Profile.idr (`proofOnly`: a trusted library's definitions of quantity 0
+  are not walked)
+- workaround: none; the fork carries the change of
+  upstream/59-literal-partial-fold/pull-request.diff, after 18's. The
+  stock Idris is not patched: nothing it builds meets the bug
+- retire: when a re-sync brings upstream's fix; then the report,
+  tests/upstream-literal-partial-fold and this entry go
+- upstream: nothing is sent (upstream/README.md, **Idris**)
+
 ## remove-dead-values-address-taken
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

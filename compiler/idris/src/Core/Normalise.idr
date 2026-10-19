@@ -330,6 +330,11 @@ replace = replace' 0
 -- A pattern (all) is matched against the constant, so there a literal
 -- whose conversion needs another primitive is an error: the call left in it
 -- would be unmatchable, and an unmatchable pattern matches anything.
+-- In an expression the conversion is folded only to a value, a term that
+-- applies no function: one stuck on what elaboration has not solved yet (a
+-- Fin's bound, at `[<2]` in a lambda whose array's shape is still a hole)
+-- would put the conversion's own body in the caller, the erased proofs of
+-- its where block among them, so the call stays as written.
 export
 normalisePrims : {auto c : Ref Ctxt Defs} -> {vs : _} ->
                  -- size heuristic for when to unfold
@@ -367,4 +372,18 @@ normalisePrims boundSafe viewConstant all prims n args tm env
                         ("Can't match on a literal whose value depends on the backend: "
                          ++ "its conversion applies a primitive other than Integer's "
                          ++ "arithmetic or a cast from Integer"))
-        pure (Just tm')
+        pure (if all || not (appliesFunction tm') then Just tm' else Nothing)
+  where
+    -- Whether a term applies a function anywhere: a reference to a
+    -- definition that is neither a constructor nor a type.
+    appliesFunction : Term ws -> Bool
+    appliesFunction (Ref _ Func _) = True
+    appliesFunction (Meta _ _ _ args) = any appliesFunction args
+    appliesFunction (Bind _ _ b sc) = any appliesFunction b || appliesFunction sc
+    appliesFunction (App _ f a) = appliesFunction f || appliesFunction a
+    appliesFunction (As _ _ a p) = appliesFunction a || appliesFunction p
+    appliesFunction (TDelayed _ _ t) = appliesFunction t
+    appliesFunction (TDelay _ _ ty t) = appliesFunction ty || appliesFunction t
+    appliesFunction (TForce _ _ t) = appliesFunction t
+    appliesFunction (Erased _ (Dotted t)) = appliesFunction t
+    appliesFunction _ = False

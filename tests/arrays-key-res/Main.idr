@@ -9,18 +9,14 @@ import Prelude
 import Array
 import Linear.Notation
 
-first, last : Index [<2, 3]
-first = [<0, 0]
-last = [<1, 2]
-
 main : IO ()
 main = do
   line <- getLine
   let k = the Int (cast line)
   let MkBang x = withArray [<2, 3] k (\a =>
-        let a = LArray.write a last (k + 1)
-            x # a = LArray.read a first
-            y # a = LArray.read a last
+        let a = LArray.write a [<1, 2] (k + 1)
+            x # a = LArray.read a [<0, 0]
+            y # a = LArray.read a [<1, 2]
             MkBang _ = LArray.freeze a
         in MkBang (x + y))
   printLn x

@@ -220,6 +220,15 @@ mutual
 ||| What a definition refers to, with the metavariables its body mentions:
 ||| the translation follows a solved one to its solution. Of a definition
 ||| whose hook answers for its body, only the type.
+||| Whether a name is a definition of quantity 0, which exists for the
+||| type checker alone and never runs.
+proofOnly : {auto c : Ref Ctxt Defs} -> Name -> Core Bool
+proofOnly n = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => pure False
+  pure (isErased (multiplicity def))
+
 refsOf : Hooks -> GlobalDef -> List Name
 refsOf hs def =
   let fromType = keys (Core.TT.getRefs (UN (Basic "")) (type def)) in
@@ -397,8 +406,14 @@ checkReachable fc roots = do
           PMDef _ _ tree _ _ =>
             when (treeMentionsWorld tree) $ reject (location def) key WorldUse "uses %MkWorld"
           _ => pure ()
-      -- A library's own totality assertions are trusted.
-      let refs' = if trusted then filter (not . assertion . qname) refs else refs
+      -- A library's own totality assertions are trusted, and so are its
+      -- proofs: a definition of quantity 0 (the `0 lemma` of a where block,
+      -- which base's Fin literals prove their bound by) never runs, so
+      -- nothing it reaches is the program's. A user's is walked, since a
+      -- proof it forges is a bound the compiler would trust.
+      refs' <- if trusted
+                 then filterM (\r => not <$> proofOnly r) (filter (not . assertion . qname) refs)
+                 else pure refs
       pure (map (\r => MkReach r here (if trusted then Library placement else User)) refs')
 
     -- The definitions to visit, breadth first, so that a path in a message

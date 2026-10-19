@@ -8,12 +8,9 @@ import Prelude
 import Array
 import Linear.Notation
 
-lastOf3 : Index [<3]
-lastOf3 = [<2]
-
 main : IO ()
 main = do
   line <- getLine
   let k = the Int (cast line)
-  let MkBang v = withArray [<3] k (\a => LArray.freeze (LArray.write a lastOf3 (k * 10)))
+  let MkBang v = withArray [<3] k (\a => LArray.freeze (LArray.write a [<2] (k * 10)))
   printLn (v !! [<0] + v !! [<1] + v !! [<2])
