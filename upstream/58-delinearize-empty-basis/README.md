@@ -55,9 +55,8 @@ Built into a private mlir-opt with the carried patches and 56 and 57;
 the diff applies to the pristine pin and after every carried patch.
 `delinearize-empty-basis.mlir` is reported (exit 1, "failed to verify that
 has at least one result"), the new test passes, and the lit tests of
-Dialect/Affine pass. check-mlir on the same build (with patch 24's fix): 4098 passed, 639
-unsupported, 1 skipped, 1 expectedly failed, and 2 failed, the two
-Bufferization tests patch 24 breaks.
+Dialect/Affine pass. check-mlir on the same build, with patch 24 as
+amended on 2026-10-19: 4100 passed, none failed.
 
 ## Upstreaming plan
 

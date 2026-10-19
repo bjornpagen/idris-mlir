@@ -168,9 +168,11 @@ hand to run them.)
   callee's body does, so a recursive function that reads its argument after
   calling itself passes it without a copy, and a recursion that writes what
   the level below returns writes it in place.
-- A call result is writable only when the callee is analyzed and returns, as
-  that result, no buffer that is not writable. Otherwise the caller copies
-  before it writes. A value that definitely aliases one of its op's
+- A call result is not writable when its callee may return, as that result,
+  a buffer of its own that is not writable, or is not analyzed yet (a call
+  in a cycle); the caller copies before it writes. A function without a
+  body writes each argument and may return it, so its results are
+  writable, as its arguments are. A value that definitely aliases one of its op's
   OpOperands, as a call result equivalent to an argument does, is writable
   on its own: in place it is that OpOperand's buffer, checked through its
   alias set; out of place it is the copy.
@@ -314,8 +316,13 @@ current driver, with its cause fixed, and fixes defects 2 to 5.
   records the return values whose alias set holds a value that is not
   writable. The function's own entry block arguments are left
   out, since a result that aliases one aliases the call's operand at the
-  caller. A function without a body may return anything, so all of its
-  tensor results are recorded. `funcOpNonWritableReturnValsAnalysis` fills
+  caller. A function without a body has none recorded: a call of it writes
+  each tensor operand and may return any of them, and One-Shot holds one
+  writability for all the values of an alias set (an aliasing value that is
+  not writable makes the OpOperand's buffer read-only, as an unknown op's
+  entry block argument does), so a result that is not writable would make
+  the buffers the callee writes read-only. Its results are writable, as its
+  arguments are (the calling convention). `funcOpNonWritableReturnValsAnalysis` fills
   it after each function's analysis. The call model's `isWritable` reads it,
   and it is false for a callee that is not analyzed (yet).
   `OneShotAnalysisState::isWritable` returns true for a value with an
@@ -359,14 +366,14 @@ Tests:
   the result is the copy, written in place: one copy in all.
 - `one-shot-module-bufferize-non-writable-result.mlir` covers a returned
   constant copied before the caller writes it, a returned allocation written
-  in place, and a call of a function without a body, whose result is copied.
+  in place, and a call of a function without a body, whose result is
+  written in place.
 - `one-shot-non-module-bufferize.mlir` gains a case: a constant's global
   inside a `test.symbol_scope_isolated`.
 - `one-shot-non-module-empty-tensor-elimination.mlir` runs the elimination on
   a `test.symbol_scope_isolated` and finds the empty tensor through a call.
-- The other `one-shot-module-bufferize*.mlir` files are unchanged. Writing a
-  call result of a function without a body now copies, which none of them
-  does; "Two functions calling each other recursively" bufferizes as before,
+- The other `one-shot-module-bufferize*.mlir` files are unchanged and pass;
+  "Two functions calling each other recursively" bufferizes as before,
   since neither function reads or writes its argument.
 
 The patch touches no file another carried patch touches, so it applies to
@@ -396,7 +403,7 @@ Not built: no LLVM is built on the machine this was written on.
   model: `OneShotAnalysis.cpp` passes `-fsyntax-only` the same way.
 
 Stage 2 on each target, then the pull requests' pre-merge CI, are the first
-runs. `check-mlir` has not run with it.
+runs. Before 2026-10-19 `check-mlir` had not run with it.
 
 On a private build (2026-10-19, arm64 macOS, Release with assertions, every
 carried patch and 56-58), upstream's lit tests of Dialect/Linalg,
@@ -412,13 +419,29 @@ breaks:
   OpOperands are those of the op that owns the block, as
   `unknownGetAliasingValues` has them; the patch now reads them from
   `getOwnerOfValue`, and both tests pass.
-- Bufferization's one-shot-module-bufferize.mlir (`@relu_unranked`: "would
-  write to read-only buffer" on the call, and the CHECK at line 54) and
-  one-shot-non-module-bufferize.mlir fail with the patch and pass without
-  it: the call model's writability changes what they expect. Not resolved:
-  each pull request has to update or answer them.
-- check-mlir on that build, with the fix above: 4098 passed, 639
-  unsupported, 1 skipped, 1 expectedly failed, and these two failed.
+- Bufferization's one-shot-module-bufferize.mlir failed: `@foo` and
+  `@relu_unranked`, calls of functions without a body, got a copy of their
+  operand, and the unranked one "would write to read-only buffer". The
+  definite-alias rule was not the cause; it only ever makes a value
+  writable. The patch recorded every tensor result of a function without a
+  body as not writable, while the call model says that such a call writes
+  each operand and may return it; One-Shot reads an aliasing value that is
+  not writable as making the OpOperand's own buffer read-only (that is how
+  an unknown op's entry block argument keeps its operand out of place in
+  one-shot-bufferize-analysis.mlir), so the call's write of its own operand
+  was a write to a read-only buffer. Such a function's results are now
+  writable, as at the pin; non-writable-result.mlir's external case says
+  so, and a returned constant of an analyzed callee is still copied.
+  Narrowing the conflict check instead (an aliasing value's own
+  writability not counted for the OpOperand's write) broke that
+  one-shot-bufferize-analysis.mlir case, so it was not kept.
+- one-shot-non-module-bufferize.mlir failed on the patch's own case: a
+  `CHECK-LABEL` between the definition of `[[GLOBAL]]` and its use clears
+  it. It is a `CHECK` now.
+- check-mlir on that build, with both fixes: 4100 passed, 639 unsupported,
+  1 skipped, 1 expectedly failed, none failed. The in-tree check
+  (`tests/upstream-one-shot-module-function-interface`, its mlir-opt
+  pointed at that build) gives its expected output.
 `tests/upstream-one-shot-module-function-interface` checks the reproducers
 with the toolchain once stage 2 carries the patch.
 

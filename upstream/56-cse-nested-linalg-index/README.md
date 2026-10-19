@@ -76,13 +76,9 @@ generic keeps one).
 Built into a private mlir-opt (Release, assertions, arm64 macOS) from the
 pin with every carried patch and 56, 57 and 58's diff. The patch applies to
 the pristine pin alone and after every carried patch. The reproducer is
-fixed, the new test passes, and fails on the toolchain's mlir-opt. Of
-the lit tests of mlir/test/Transforms and Dialect/Linalg, Affine,
-Bufferization, Tensor and SCF, 487 of 490 pass, one is an expected
-failure, and the two that fail are Bufferization's that carried patch 24
-breaks (its README). check-mlir on the same build (with patch 24's fix): 4098 passed, 639
-unsupported, 1 skipped, 1 expectedly failed, and 2 failed, the two
-Bufferization tests patch 24 breaks.
+fixed, the new test passes, and fails on the toolchain's mlir-opt. check-mlir
+on that build, with patch 24 as amended on 2026-10-19: 4100 passed, 639
+unsupported, 1 skipped, 1 expectedly failed, none failed.
 
 ## Upstreaming plan
 
@@ -90,4 +86,4 @@ A comment on #62644 and a PR to llvm/llvm-project, `[mlir] Add the
 DependsOnParent trait; CSE linalg.index only under one parent`, Fixes
 #62644, with the cse.mlir test; a new core trait may first want a short
 RFC on Discourse, linked from the thread above. Status: not filed;
-carried; tested on a private mlir-opt with check-mlir (only patch 24's two failures).
+carried; check-mlir passes on a private build.

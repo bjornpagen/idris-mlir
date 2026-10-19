@@ -447,7 +447,7 @@ index e17d526..68c2bd1 100644
  
  /// A function type that defines a callback to control the construction
 diff --git a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
-index e39b204..1acc98f 100644
+index e39b204..696211e 100644
 --- a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
 +++ b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
 @@ -389,7 +389,7 @@ FailureOr<Value> defaultCreateCast(OpBuilder &b, Location loc, Type dest,
@@ -1451,7 +1451,7 @@ index e8b3404..02dfd64 100644
            getOptions().dynCastBufferizableOp(getOwnerOfValue(value)))
      return bufferizableOp.isWritable(value, *this);
 diff --git a/mlir/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp b/mlir/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp
-index 41d9a37..53559c1 100644
+index 41d9a37..ba370ad 100644
 --- a/mlir/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp
 +++ b/mlir/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp
 @@ -8,14 +8,26 @@
@@ -1653,7 +1653,7 @@ index 41d9a37..53559c1 100644
        // If the function has no body, conservatively assume that all args are
        // read + written.
        isRead = true;
-@@ -269,111 +283,179 @@ funcOpBbArgReadWriteAnalysis(FuncOp funcOp, OneShotAnalysisState &state,
+@@ -269,111 +283,178 @@ funcOpBbArgReadWriteAnalysis(FuncOp funcOp, OneShotAnalysisState &state,
      if (state.getOptions().testAnalysisOnly)
        annotateFuncArgAccess(funcOp, idx, isRead, isWritten);
      if (isRead)
@@ -1670,17 +1670,16 @@ index 41d9a37..53559c1 100644
 +/// the returned value may alias, in the function, a value that is not
 +/// writable (e.g., the buffer of a constant). A bbArg of the function is not
 +/// considered: a call result that aliases it aliases the call operand, whose
-+/// writability is the caller's. When run on a function without a body, we
-+/// conservatively assume that every tensor return value may not be writable.
++/// writability is the caller's. A function without a body has none: a call of
++/// it writes each tensor operand and may return any of them, and the analysis
++/// holds one writability for all the values of an alias set, so a result that
++/// is not writable would make the operands' buffers, which the callee writes,
++/// read-only. Its results are writable, as its arguments are.
 +static void funcOpNonWritableReturnValsAnalysis(FunctionOpInterface funcOp,
 +                                                OneShotAnalysisState &state,
 +                                                FuncBoundaryFacts &facts) {
-+  if (funcOp.isExternal()) {
-+    for (const auto &resultIt : llvm::enumerate(funcOp.getResultTypes()))
-+      if (isa<TensorLikeType>(resultIt.value()))
-+        facts.nonWritableReturnVals.insert(resultIt.index());
++  if (funcOp.isExternal())
 +    return;
-+  }
 +
 +  Block *entryBlock = &funcOp.getFunctionBody().front();
 +  for (Operation *returnOp : getReturnOps(funcOp)) {
@@ -1740,19 +1739,19 @@ index 41d9a37..53559c1 100644
 -         llvm::any_of(funcOp.getFunctionType().getResults(),
 -                      llvm::IsaPred<TensorLikeType>);
 +         llvm::any_of(funcOp.getResultTypes(), llvm::IsaPred<TensorLikeType>);
++}
++
++/// Return "true" if the given op is a function that Module Bufferization
++/// bufferizes across its boundary: a function op with a
++/// `BufferizableOpInterface` implementation.
++static bool isBufferizableFunction(Operation *op) {
++  return isa<FunctionOpInterface>(op) && isa<BufferizableOpInterface>(op);
  }
  
 -/// Store all functions of the `moduleOp` in `orderedFuncOps`, sorted by
 -/// callee-caller order (i.e., callees without callers first). Store all
 -/// remaining functions (i.e., the ones that call each other recursively) in
 -/// `remainingFuncOps`. Does not traverse nested symbol tables.
-+/// Return "true" if the given op is a function that Module Bufferization
-+/// bufferizes across its boundary: a function op with a
-+/// `BufferizableOpInterface` implementation.
-+static bool isBufferizableFunction(Operation *op) {
-+  return isa<FunctionOpInterface>(op) && isa<BufferizableOpInterface>(op);
-+}
-+
 +namespace {
 +/// A function of a call graph and the functions it calls: what
 +/// `llvm::scc_iterator` walks.
@@ -1907,7 +1906,7 @@ index 41d9a37..53559c1 100644
    return success();
  }
  
-@@ -395,10 +477,10 @@ static Value unpackCast(Value v) {
+@@ -395,10 +476,10 @@ static Value unpackCast(Value v) {
  }
  
  /// Helper function that returns the return types (skipping casts) of the given
@@ -1922,7 +1921,7 @@ index 41d9a37..53559c1 100644
    assert(!returnOps.empty() && "expected at least one ReturnOp");
    int numOperands = returnOps.front()->getNumOperands();
  
-@@ -428,22 +510,22 @@ static SmallVector<Type> getReturnTypes(SmallVector<func::ReturnOp> returnOps) {
+@@ -428,22 +509,22 @@ static SmallVector<Type> getReturnTypes(SmallVector<func::ReturnOp> returnOps) {
  /// most generic layout map as function return types. After bufferizing the
  /// entire function body, a more concise memref type can potentially be used for
  /// the return type of the function.
@@ -1952,7 +1951,7 @@ index 41d9a37..53559c1 100644
      for (OpOperand &operand : returnOp->getOpOperands()) {
        // Bail if no common result type was found.
        if (resultTypes[operand.getOperandNumber()]) {
-@@ -457,13 +539,142 @@ static void foldMemRefCasts(func::FuncOp funcOp) {
+@@ -457,13 +538,142 @@ static void foldMemRefCasts(func::FuncOp funcOp) {
    for (int i = 0; i < static_cast<int>(resultTypes.size()); ++i) {
      if (resultTypes[i])
        continue;
@@ -2099,7 +2098,7 @@ index 41d9a37..53559c1 100644
  }
  
  LogicalResult
-@@ -474,25 +685,26 @@ mlir::bufferization::analyzeModuleOp(Operation *moduleOp,
+@@ -474,25 +684,26 @@ mlir::bufferization::analyzeModuleOp(Operation *moduleOp,
           "expected that function boundary bufferization is activated");
    FuncAnalysisState &funcState = getOrCreateFuncAnalysisState(state);
  
@@ -2138,7 +2137,7 @@ index 41d9a37..53559c1 100644
      if (!state.getOptions().isOpAllowed(funcOp))
        continue;
  
-@@ -503,29 +715,9 @@ mlir::bufferization::analyzeModuleOp(Operation *moduleOp,
+@@ -503,29 +714,9 @@ mlir::bufferization::analyzeModuleOp(Operation *moduleOp,
      if (failed(analyzeOp(funcOp, state, statistics)))
        return failure();
  
@@ -2171,7 +2170,7 @@ index 41d9a37..53559c1 100644
    }
  
    return success();
-@@ -535,8 +727,11 @@ void mlir::bufferization::removeBufferizationAttributesInModule(
+@@ -535,8 +726,11 @@ void mlir::bufferization::removeBufferizationAttributesInModule(
      Operation *moduleOp) {
    for (mlir::Region &region : moduleOp->getRegions()) {
      for (mlir::Block &block : region.getBlocks()) {
@@ -2185,7 +2184,7 @@ index 41d9a37..53559c1 100644
            removeBufferizationAttributes(bbArg);
        }
      }
-@@ -550,13 +745,8 @@ LogicalResult mlir::bufferization::bufferizeModuleOp(
+@@ -550,13 +744,8 @@ LogicalResult mlir::bufferization::bufferizeModuleOp(
           "expected that function boundary bufferization is activated");
    IRRewriter rewriter(moduleOp->getContext());
  
@@ -2201,7 +2200,7 @@ index 41d9a37..53559c1 100644
  
    // A mapping of FuncOps to their callers.
    FuncCallerMap callerMap;
-@@ -564,20 +754,23 @@ LogicalResult mlir::bufferization::bufferizeModuleOp(
+@@ -564,20 +753,23 @@ LogicalResult mlir::bufferization::bufferizeModuleOp(
    // Try to bufferize functions in calling order. I.e., first bufferize
    // functions that do not call other functions. This allows us to infer
    // accurate buffer types for function return values. Functions that call
@@ -2232,7 +2231,7 @@ index 41d9a37..53559c1 100644
        // This function was not analyzed and RaW conflicts were not resolved.
        // Buffer copies must be inserted before every write.
        OneShotBufferizationOptions updatedOptions = options;
-@@ -600,7 +793,7 @@ LogicalResult mlir::bufferization::bufferizeModuleOp(
+@@ -600,7 +792,7 @@ LogicalResult mlir::bufferization::bufferizeModuleOp(
        for (mlir::Operation &op :
             llvm::make_early_inc_range(block.getOperations())) {
          // Functions were already bufferized.
@@ -2241,7 +2240,7 @@ index 41d9a37..53559c1 100644
            continue;
          if (failed(bufferizeOp(&op, options, state, statistics)))
            return failure();
-@@ -629,12 +822,13 @@ LogicalResult mlir::bufferization::runOneShotModuleBufferize(
+@@ -629,12 +821,13 @@ LogicalResult mlir::bufferization::runOneShotModuleBufferize(
        // FuncOps whose names are specified in options.noAnalysisFuncFilter will
        // not be analyzed. Ops in these FuncOps will not be analyzed as well.
        OpFilter::Entry::FilterFn analysisFilterFn = [=](Operation *op) {
@@ -2557,10 +2556,10 @@ index 0000000..240af6d
 +}
 diff --git a/mlir/test/Dialect/Bufferization/Transforms/one-shot-module-bufferize-non-writable-result.mlir b/mlir/test/Dialect/Bufferization/Transforms/one-shot-module-bufferize-non-writable-result.mlir
 new file mode 100644
-index 0000000..1773337
+index 0000000..38a547e
 --- /dev/null
 +++ b/mlir/test/Dialect/Bufferization/Transforms/one-shot-module-bufferize-non-writable-result.mlir
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,71 @@
 +// RUN: mlir-opt %s -one-shot-bufferize="bufferize-function-boundaries" -split-input-file | FileCheck %s
 +
 +// A function may return a buffer that is not writable, such as the buffer of
@@ -2615,15 +2614,17 @@ index 0000000..1773337
 +
 +// -----
 +
-+// The result of a call of a function without a body may be any buffer.
++// A function without a body writes each tensor argument and may return any of
++// them, so its results are writable, as its arguments are, and a caller writes
++// them in place.
 +
 +func.func private @external() -> tensor<4xf32>
 +
 +// CHECK-LABEL: func @writes_external(
 +//       CHECK:   %[[RESULT:.*]] = call @external()
-+//       CHECK:   %[[ALLOC:.*]] = memref.alloc
-+//       CHECK:   memref.copy %[[RESULT]], %[[ALLOC]]
-+//       CHECK:   memref.store %{{.*}}, %[[ALLOC]]
++//   CHECK-NOT:   memref.alloc
++//   CHECK-NOT:   memref.copy
++//       CHECK:   memref.store %{{.*}}, %[[RESULT]]
 +func.func @writes_external(%f: f32) -> tensor<4xf32> {
 +  %c0 = arith.constant 0 : index
 +  %0 = func.call @external() : () -> tensor<4xf32>
@@ -2681,7 +2682,7 @@ index 0283837..7488e3b 100644
  
    // CHECK: memref.load %[[arg0]]
 diff --git a/mlir/test/Dialect/Bufferization/Transforms/one-shot-non-module-bufferize.mlir b/mlir/test/Dialect/Bufferization/Transforms/one-shot-non-module-bufferize.mlir
-index 09fdf82..95a5073 100644
+index 09fdf82..ca90dc1 100644
 --- a/mlir/test/Dialect/Bufferization/Transforms/one-shot-non-module-bufferize.mlir
 +++ b/mlir/test/Dialect/Bufferization/Transforms/one-shot-non-module-bufferize.mlir
 @@ -29,3 +29,20 @@
@@ -2696,8 +2697,8 @@ index 09fdf82..95a5073 100644
 +
 +// CHECK: "test.symbol_scope_isolated"() ({
 +// CHECK-NEXT: memref.global "private" constant @[[GLOBAL:.*]] : memref<3xi64> = dense<[1, 2, 3]>
-+// CHECK-LABEL: func @constant(
-+//       CHECK:   memref.get_global @[[GLOBAL]]
++// CHECK:      func @constant(
++// CHECK:        memref.get_global @[[GLOBAL]]
 +"test.symbol_scope_isolated"() ({
 +  func.func @constant() -> tensor<3xi64> {
 +    %c = arith.constant dense<[1, 2, 3]> : tensor<3xi64>
