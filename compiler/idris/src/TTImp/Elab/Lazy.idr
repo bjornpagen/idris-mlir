@@ -34,6 +34,29 @@ checkDelayed rig elabinfo nest env fc r tm exp
          (tm', gty) <- check rig elabinfo nest env tm (Just (gType fc u))
          pure (TDelayed fc r tm', gty)
 
+-- `tm` checked at the type under a delay of reason `r`, and delayed: the
+-- one place a delay is elaborated, for an explicit `Delay` and for a case
+-- block written where a delayed value is expected (checkCase).
+export
+checkDelayAt : {vars : _} ->
+               {auto c : Ref Ctxt Defs} ->
+               {auto m : Ref MD Metadata} ->
+               {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
+               {auto e : Ref EST (EState vars)} ->
+               {auto s : Ref Syn SyntaxInfo} ->
+               {auto o : Ref ROpts REPLOpts} ->
+               RigCount -> ElabInfo ->
+               NestedNames vars -> Env Term vars ->
+               FC -> LazyReason -> RawImp -> (under : NF vars) ->
+               Core (Term vars, Glued vars)
+checkDelayAt rig elabinfo nest env fc r tm under
+    = do defs <- get Ctxt
+         (tm', gty) <- check rig elabinfo nest env tm (Just (glueBack defs env under))
+         tynf <- getNF gty
+         ty <- getTerm gty
+         pure (TDelay fc r ty tm', glueBack defs env (NDelayed fc r tynf))
+
 -- The elaborator of a delay, given the cell of delayed elaborators and the
 -- expected type, which a retry evaluates again (see delayOnFailure). It is
 -- a function of its own rather than the body of a lambda in checkDelay: a
@@ -53,14 +76,7 @@ checkDelayDelayed : {vars : _} ->
                     Core (Term vars, Glued vars)
 checkDelayDelayed rig elabinfo nest env fc tm expected
     = case !(getNF expected) of
-           NDelayed _ r expnf =>
-              do defs <- get Ctxt
-                 (tm', gty) <- check rig elabinfo nest env tm
-                                     (Just (glueBack defs env expnf))
-                 tynf <- getNF gty
-                 ty <- getTerm gty
-                 pure (TDelay fc r ty tm',
-                       glueBack defs env (NDelayed fc r tynf))
+           NDelayed _ r expnf => checkDelayAt rig elabinfo nest env fc r tm expnf
            ty => do logNF "elab.delay" 5 "Expected delay type" env ty
                     throw (GenericMsg fc ("Can't infer delay type"))
 

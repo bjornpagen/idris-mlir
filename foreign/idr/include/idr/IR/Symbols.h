@@ -58,8 +58,10 @@ void printCtorRef(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::Type t
 // through the one use of a linear value, where the value may first pass a
 // linear position entered and used at once. Each step is the one use of
 // the step before, so the dispatch is all the use does with the value. The
-// dispatch is an idr.match whose scrutinee is of a closure sum: what an
-// application became. It is what raising moves into a clone of a callee
+// dispatch is the first op that eliminates a closure sum, what an
+// application became: an idr.match of the sum, or an idr.field of it, which
+// is the match of a sum of one label once canonicalized; a field of a value
+// of any other data type is a step. It is what raising moves into a clone of a callee
 // whose result it eliminates, where it meets the closure each tail builds;
 // so a call's result that has one is worth moving to where the elimination
 // is.
@@ -71,7 +73,9 @@ struct Elimination {
   std::optional<FieldOp> field;
   // The one use of what is dispatched on, when it is linear.
   std::optional<LinUseOp> use;
-  MatchOp dispatch;
+  // An idr.match or idr.field of a closure sum, its operand the last step's
+  // result.
+  mlir::Operation *dispatch;
 
   // The ops from the use to the dispatch, each the one use of the one
   // before, in the order they run.

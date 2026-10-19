@@ -355,6 +355,23 @@ which the top-level CMake configure gate reads.
   tests/upstream-erased-constant-pattern and this entry go
 - upstream: nothing is sent (upstream/README.md, **Idris**)
 
+## lazy-case-scrutinee
+
+- symptom: at the pinned Idris, a case block or an if where a `Lazy t` is
+  expected delays each alternative and not the block, so its scrutinee is
+  computed where the argument is built: `pick (case boom 1 of ...)` with
+  `pick : Lazy Int -> Int` that never forces it runs `boom 1`. The fork
+  inherited it
+- sites: the fork, TTImp/Elab/Case.idr (`checkCaseExpected`: a block at a
+  delayed type is elaborated as a delay of the block) and
+  TTImp/Elab/Lazy.idr (`checkDelayAt`, the one elaborator of a delay)
+- workaround: none; the fork carries the change of
+  upstream/55-lazy-case-scrutinee/pull-request.diff. The stock Idris is
+  not patched: nothing it builds meets the bug
+- retire: when a re-sync brings upstream's fix; then the report,
+  tests/upstream-lazy-case-scrutinee and this entry go
+- upstream: nothing is sent (upstream/README.md, **Idris**)
+
 ## remove-dead-values-address-taken
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

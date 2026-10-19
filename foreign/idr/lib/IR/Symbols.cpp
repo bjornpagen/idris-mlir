@@ -49,7 +49,7 @@ std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
     e.passed = {enter, exit};
     user = next(value = exit.getResult());
   }
-  if (auto field = dyn_cast_or_null<FieldOp>(user)) {
+  if (auto field = dyn_cast_or_null<FieldOp>(user); field && !field.getDataType().isClosures()) {
     e.field = field;
     user = next(value = field.getResult());
   }
@@ -57,9 +57,16 @@ std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
     e.use = linear;
     user = next(value = linear.getResult());
   }
-  e.dispatch = dyn_cast_or_null<MatchOp>(user);
-  if (!e.dispatch || e.dispatch.getScrutinee() != value || !e.dispatch.getDataType().isClosures())
+  auto eliminates = [&](Operation *op) {
+    if (auto match = dyn_cast_or_null<MatchOp>(op))
+      return match.getScrutinee() == value && match.getDataType().isClosures();
+    if (auto field = dyn_cast_or_null<FieldOp>(op))
+      return field.getValue() == value && field.getDataType().isClosures();
+    return false;
+  };
+  if (!eliminates(user))
     return std::nullopt;
+  e.dispatch = user;
   return e;
 }
 

@@ -13,6 +13,7 @@ import Idris.REPL.Opts
 import TTImp.Elab.Check
 import TTImp.Elab.Delayed
 import TTImp.Elab.ImplicitBind
+import TTImp.Elab.Lazy
 import TTImp.Elab.Utils
 import TTImp.ProcessFnOpt
 import TTImp.TTImp
@@ -450,6 +451,34 @@ checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
                _ => guessScrType xs
     guessScrType (_ :: xs) = guessScrType xs
 
+-- A case block written where a delayed value is expected, Lazy t or Inf
+-- t, is the delayed value: it is elaborated as a delay of the block (which
+-- checks the block at t). Checked at the delayed type, each alternative
+-- would be delayed instead, so the block, and its scrutinee, would be
+-- computed where the value is built: `ifThenElse True 1 (if boom 1 then 2
+-- else 3)` would compute `boom 1`, which the program delays with the rest
+-- of the argument.
+checkCaseExpected : {vars : _} ->
+                    {auto c : Ref Ctxt Defs} ->
+                    {auto m : Ref MD Metadata} ->
+                    {auto u : Ref UST UState} ->
+                    {auto dl : Ref DLY DelayedElabs} ->
+                    {auto e : Ref EST (EState vars)} ->
+                    {auto s : Ref Syn SyntaxInfo} ->
+                    {auto o : Ref ROpts REPLOpts} ->
+                    RigCount -> ElabInfo ->
+                    NestedNames vars -> Env Term vars ->
+                    FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
+                    Maybe (Glued vars) ->
+                    Core (Term vars, Glued vars)
+checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts Nothing
+    = checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts Nothing
+checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts (Just expected)
+    = case !(getNF expected) of
+           NDelayed _ r under =>
+              checkDelayAt rig elabinfo nest env fc r (ICase fc opts scr scrty_in alts) under
+           _ => checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts (Just expected)
+
 export
 checkCase : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
@@ -466,4 +495,4 @@ checkCase : {vars : _} ->
             Core (Term vars, Glued vars)
 checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
     = delayElab fc rig env exp CaseBlock $ \dl, exp' =>
-        checkCaseDelayed {dl} rig elabinfo nest env fc opts scr scrty_in alts exp'
+        checkCaseExpected {dl} rig elabinfo nest env fc opts scr scrty_in alts exp'

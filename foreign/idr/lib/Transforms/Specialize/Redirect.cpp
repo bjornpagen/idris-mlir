@@ -68,7 +68,7 @@ idr::CallOp redirect(RewriterBase &rewriter, idr::CallOp call, FlatSymbolRefAttr
 // before, go from the dispatch back, and the call last.
 idr::CallOp redirect(RewriterBase &rewriter, idr::CallOp call, FlatSymbolRefAttr target,
                      const RaiseWant &want) {
-  MatchOp dispatch = want.consumer.dispatch;
+  Operation *dispatch = want.consumer.dispatch;
   rewriter.setInsertionPoint(dispatch);
   auto fresh = idr::CallOp::create(rewriter, call.getLoc(), dispatch->getResultTypes(), target,
                                    want.operands, /*arg_attrs=*/ArrayAttr(),

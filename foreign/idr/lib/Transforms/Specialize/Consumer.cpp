@@ -52,7 +52,7 @@ std::optional<Consumer> consumerOf(idr::CallOp call) {
   // its consumer; any other only after ops that only compute. What a call
   // does is its own effects, each op between's its own.
   if (call.getEffects() != idr::Effect::none)
-    for (Operation *op = call->getNextNode(); op != e->dispatch.getOperation();
+    for (Operation *op = call->getNextNode(); op != e->dispatch;
          op = op->getNextNode())
       if (!idr::onlyAllocates(op))
         return std::nullopt;
@@ -65,7 +65,7 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
   // The steps from the call's result to the dispatch, each the one use of
   // the one before, in the order they run.
   SmallVector<Operation *> steps = consumer.steps();
-  MatchOp dispatch = consumer.dispatch;
+  Operation *dispatch = consumer.dispatch;
 
   // The values the dispatch's regions read from outside it, in the order a
   // pre-order walk first reads them, but the call's result and what the
@@ -75,7 +75,7 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
   made.insert(call);
   llvm::SetVector<Value> outside;
   dispatch->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (op == dispatch.getOperation())
+    if (op == dispatch)
       return;
     for (Value operand : op->getOperands()) {
       if (Operation *def = operand.getDefiningOp(); def && made.contains(def))
@@ -94,7 +94,7 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
   idr::FuncOp::Properties properties;
   properties.setSymName(b.getStringAttr("consumer"));
   properties.setFunctionType(
-      TypeAttr::get(FunctionType::get(ctx, inputs, dispatch.getResultTypes())));
+      TypeAttr::get(FunctionType::get(ctx, inputs, dispatch->getResultTypes())));
   auto fn = idr::FuncOp::create(b, loc, TypeRange(), ValueRange(), properties);
   Block *entry =
       b.createBlock(&fn.getBody(), {}, inputs, SmallVector<Location>(inputs.size(), loc));
