@@ -137,6 +137,27 @@ which the top-level CMake configure gate reads.
   issue and a PR with a remove-dead-values test
 - status (2026-10-19): carried; not filed
 
+## aarch64-sibcall-callee-pop
+
+- symptom: on main at 7208ba24 (and on main on 2026-10-19), AArch64 lowers a
+  call in tail position from a function that pops its own stack arguments
+  (`tailcc`) to a C function as a sibling call, which pops nothing, so the
+  caller's caller gets its stack pointer back the argument area's size too
+  low. A `tailcc` function of idr-tail-calls with more arguments than the
+  argument registers, ending in a runtime call, made six programs crash
+  after main returned: `__idr$entry$body` reloaded its frame record 16
+  bytes low and returned into the heap
+- sites: foreign/idr/lib/Conversion/TailCalls.cpp and TailCallPlan.cpp
+  (which functions take `tailcc`); every arm64 target
+- workaround: `upstream/30-aarch64-sibcall-callee-pop/llvm.patch`: a
+  function with stack arguments to pop makes no sibling call, under
+  SelectionDAG and GlobalISel; checked by
+  tests/upstream-aarch64-sibcall-callee-pop
+- retire: drop the patch when the pin has the fix
+- upstream: upstream/30-aarch64-sibcall-callee-pop; plan in its README: an
+  issue and a PR with an llc test
+- status (2026-10-19): carried; not filed
+
 ## remove-dead-values-unreachable
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

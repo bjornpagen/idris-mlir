@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/30-aarch64-sibcall-callee-pop is carried: a tailcc function with
+# stack arguments makes no sibling call of a C function, so its caller finds
+# the stack pointer where it left it. Without the patch AArch64 returns to
+# the caller with the arguments still on the stack, and the caller's own
+# epilogue faults or returns to the wrong place. The witness is upstream's
+# LLVM dialect, compiled for the target by idris-mlir, whose LLVM is the one
+# that compiles every program; on a target whose LLVM never had the bug it
+# holds all the same.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/30-aarch64-sibcall-callee-pop/stack-args-sibcall.mlir
+if ! bounded "$idris_mlir_opt" "$input" --idr-target -o "$work/targeted.mlir" 2> "$work/err" ||
+  ! bounded "$idris_mlir" "$work/targeted.mlir" -o "$work/prog" > "$work/err" 2>&1; then
+  say "the program did not compile, which is not this bug"
+  show "$work/err"
+else
+  (cd "$work" && bounded ./prog) > /dev/null 2>&1
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    say "the stack pointer is where the caller left it"
+  else
+    say "the program exits $status: the stack pointer is not where the caller left it"
+  fi
+fi

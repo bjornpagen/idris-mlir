@@ -1,0 +1,94 @@
+Subject: [PATCH] [AArch64] Don't sibcall from a function that pops its own stack arguments
+
+A function whose calling convention makes it pop its incoming stack
+arguments (tailcc, swifttailcc, fastcc with -tailcallopt) restores
+AArch64FunctionInfo::ArgumentStackToRestore bytes on return. A call in
+tail position to a callee of another convention, e.g. a C function, was
+still lowered as a sibling call: the TCRETURN adjusts the stack by FPDiff,
+0 for a sibcall, so the epilogue pops nothing, and the callee returns to
+the caller's caller with the arguments still on the stack. That caller's
+stack pointer is then off by the size of the argument area, and its own
+epilogue restores its frame record and return address from the wrong
+slots.
+
+Refuse the sibcall when the caller has bytes to restore, in both
+SelectionDAG and GlobalISel, as X86 does when the callee would not pop
+what the caller must. A tail call between two such functions is not a
+sibcall and is unaffected: it adjusts the stack by FPDiff and the callee
+pops the area.
+
+---
+--- a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
++++ b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
+@@ -10114,6 +10114,13 @@
+   if (canGuaranteeTCO(CalleeCC, getTargetMachine().Options.GuaranteedTailCallOpt))
+     return CCMatch;
+ 
++  // A sibling call leaves the stack as the caller found it, and its callee
++  // returns straight to the caller's caller. A caller that must pop its own
++  // incoming stack arguments on return (e.g. tailcc) would leave them on the
++  // stack, so it cannot make one.
++  if (MF.getInfo<AArch64FunctionInfo>()->getArgumentStackToRestore() != 0)
++    return false;
++
+   // Externally-defined functions with weak linkage should not be
+   // tail-called on AArch64 when the OS does not support dynamic
+   // pre-emption of symbols, as the AAELF spec requires normal calls
+--- a/llvm/lib/Target/AArch64/GISel/AArch64CallLowering.cpp
++++ b/llvm/lib/Target/AArch64/GISel/AArch64CallLowering.cpp
+@@ -1114,6 +1114,15 @@
+   // We don't have -tailcallopt, so we're allowed to change the ABI (sibcall).
+   // Try to find cases where we can do that.
+ 
++  // A sibling call leaves the stack as the caller found it, and its callee
++  // returns straight to the caller's caller. A caller that must pop its own
++  // incoming stack arguments on return (e.g. tailcc) would leave them on the
++  // stack, so it cannot make one.
++  if (MF.getInfo<AArch64FunctionInfo>()->getArgumentStackToRestore() != 0) {
++    LLVM_DEBUG(dbgs() << "... Caller must pop its stack arguments.\n");
++    return false;
++  }
++
+   // I want anyone implementing a new calling convention to think long and hard
+   // about this assert.
+   assert((!Info.IsVarArg || CalleeCC == CallingConv::C) &&
+--- /dev/null
++++ b/llvm/test/CodeGen/AArch64/tailcc-sibcall-callee-pop.ll
+@@ -0,0 +1,37 @@
++; RUN: llc -mtriple=aarch64-linux-gnu < %s | FileCheck %s
++; RUN: llc -mtriple=aarch64-linux-gnu -global-isel -global-isel-abort=1 < %s | FileCheck %s
++; RUN: llc -mtriple=arm64-apple-macosx < %s | FileCheck %s --check-prefix=DARWIN
++
++; A tailcc function pops its incoming stack arguments when it returns. A
++; call to a C function in tail position cannot be a sibling call there: the
++; callee would return straight to the caller's caller and pop nothing, so
++; that caller would find its stack pointer below where it left it.
++
++declare i64 @c(i64)
++
++define tailcc i64 @pops(i64 %a0, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6, i64 %a7, i64 %a8, i64 %a9) {
++; CHECK-LABEL: pops:
++; CHECK-NOT:     b c
++; CHECK:         bl c
++; CHECK:         add sp, sp, #16
++; CHECK-NEXT:    ret
++; DARWIN-LABEL: _pops:
++; DARWIN-NOT:     b _c
++; DARWIN:         bl _c
++; DARWIN:         add sp, sp, #16
++; DARWIN-NEXT:    ret
++  %s = add i64 %a8, %a9
++  %r = tail call i64 @c(i64 %s)
++  ret i64 %r
++}
++
++; With no incoming stack arguments there is nothing to pop, and the call
++; stays a sibling call.
++define tailcc i64 @pops_nothing(i64 %a0) {
++; CHECK-LABEL: pops_nothing:
++; CHECK:         b c
++; DARWIN-LABEL: _pops_nothing:
++; DARWIN:         b _c
++  %r = tail call i64 @c(i64 %a0)
++  ret i64 %r
++}
