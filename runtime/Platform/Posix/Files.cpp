@@ -87,7 +87,7 @@ int64_t waitForInput(int fd) noexcept {
 bool isTerminal(int fd) noexcept { return isatty(fd) == 1; }
 
 // A write a signal interrupts before it wrote anything is tried again, as
-// musl's stdio does; any other failure abandons the rest.
+// the C library's stdio does; any other failure abandons the rest.
 IDRIS_RT_BASELINE void writeAll(int fd, const char *p, size_t n) noexcept {
   while (n > 0) {
     ssize_t written = write(fd, p, n);

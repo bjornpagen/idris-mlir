@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 /* regex-redux on one core, the same patterns and the same order as
    Main.idr here. The game's C entries link PCRE or PCRE2; this uses POSIX
-   regex, which macOS libc and musl both have, so the suite pins no second
+   regex, which libSystem and glibc both have, so the suite pins no second
    regex library. POSIX is the slower matcher. */
 #include <regex.h>
 #include <stdio.h>

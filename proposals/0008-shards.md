@@ -148,8 +148,8 @@ LLVM releases: one pinned LLVM compiles a program and the runtime's
 bitcode.
 
 **decision Colouring.** Stackful frames need a stack switch (inline
-assembly, or `makecontext`, which musl lacks), so the compiler colours,
-as little as it can. `wait` is one more case of `Idr_Effect` beside
+assembly, or `makecontext`, which POSIX removed in 2008), so the compiler
+colours, as little as it can. `wait` is one more case of `Idr_Effect` beside
 `io`, `crash` and `diverge` (`foreign/idr/include/idr/IR/IdrAttrs.td`),
 solved by the one bottom-up summary (`idr/Analysis/Effects.h`), never a
 second analysis. `idr::bodyEffect` sets it for an op with a `Waits`
@@ -590,8 +590,8 @@ of five is more than 2% faster with it on both targets (the cutover's
 - **M:N work stealing on one heap** (Go, Tokio, Lean): every count
   atomic, tagged or traced, paid on one thread too. **A heap per task**
   (Erlang): every value two tasks on one core see is a copy (§4).
-- **Stackful coroutines:** inline assembly, or `makecontext`, absent from
-  musl. **A thunk as an LLVM coroutine:** a null test on every force
+- **Stackful coroutines:** inline assembly, or `makecontext`, removed
+  from POSIX in 2008. **A thunk as an LLVM coroutine:** a null test on every force
   (read: `sources/papers/peytonjones-1992-stg` §3.1.2) and a frame MLIR
   cannot see.
 - **The async dialect:** a second count and pool, an error channel the

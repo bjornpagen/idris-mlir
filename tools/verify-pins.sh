@@ -121,23 +121,17 @@ check() {
       ;;
     sysroot)
       # What programs link against, as the steps that made it recorded it
-      # (tools/bootstrap.sh): the target's C library, the runtimes beside the
-      # pinned clang, and GMP in the sysroot. The C library's stamp says
-      # which it is: musl, at the lock's revision, or libSystem in an SDK,
-      # which must be the one the host has now.
+      # (tools/bootstrap.sh): the system's C library, which must be the one
+      # the host has now (glibc's version, or the macOS SDK's), the runtimes
+      # beside the pinned clang, and GMP in the sysroot.
       stamp=$sysroot/provenance/libc.json
       [ -f "$stamp" ] || fail "The sysroot has no C library; run: tools/bootstrap.sh libc"
       case $(stamp_value "$stamp" libc) in
-        musl)
-          [ "$(stamp_value "$stamp" revision)" = "$(lock_field musl revision)" ] ||
-            fail "The sysroot's musl is stale; rerun tools/bootstrap.sh libc"
-          ;;
-        sdk)
-          [ "$(stamp_value "$stamp" sdk_version)" = "$(xcrun --show-sdk-version 2> /dev/null)" ] ||
-            fail "The toolchain was built against another macOS SDK than the host's; rerun tools/bootstrap.sh libc"
-          ;;
-        *) fail "The sysroot's C library stamp names no C library; rerun tools/bootstrap.sh libc" ;;
+        glibc) libc_now=$(getconf GNU_LIBC_VERSION) ;;
+        *) libc_now="macOS SDK $(xcrun --show-sdk-version)" ;;
       esac
+      [ "$(stamp_value "$stamp" libc_version)" = "$libc_now" ] ||
+        fail "The toolchain was built against another C library than the host's, $libc_now; rerun tools/bootstrap.sh libc"
       stamp=$toolchain/runtimes/provenance.json
       [ -f "$stamp" ] || fail "The LLVM runtimes are missing; run: tools/bootstrap.sh runtimes"
       [ "$(stamp_value "$stamp" revision)" = "$(lock_field llvm revision)" ] ||

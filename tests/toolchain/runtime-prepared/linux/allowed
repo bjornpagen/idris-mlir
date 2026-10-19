@@ -1,11 +1,13 @@
-# What the prepared runtime may need on x86_64 Linux beyond ../allowed,
-# in the same form.
+# What the prepared runtime may need on Linux, x86_64 or arm64, beyond
+# ../allowed, in the same form.
 #
-# musl: errno's location, and the system calls snmalloc's Linux platform
+# glibc: errno's location, and the system calls snmalloc's Linux platform
 # makes by number (its waits on an address, its entropy).
 __errno_location
 syscall
 #
-# compiler-rt: the CPU model __builtin_cpu_supports reads at the program's
-# entry.
+# compiler-rt: the CPU features __builtin_cpu_supports reads at the
+# program's entry, x86-64's model or arm64's features.
 __cpu_*
+__aarch64_cpu_features
+__init_cpu_features

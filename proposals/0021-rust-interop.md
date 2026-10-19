@@ -924,8 +924,7 @@ heap.
   triple, with the entry's deployment target) and
   `IDRIS_MLIR_RUST_BITCODE_FLAGS`. On Linux the Rust triples are
   `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`, against the
-  pinned glibc 2.43 (0005), which R0 checks the `libc` crate's ABI
-  against.
+  system's glibc, as every program links it.
 - **C inside `-sys` crates**, the only C in a program: built by the
   crate's `cc` script with `CC` the pinned clang, the target's sysroot and
   the entry's bitcode flags, so it joins too. A `-sys` crate over C++ (a

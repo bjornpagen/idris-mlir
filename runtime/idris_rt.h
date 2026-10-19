@@ -83,7 +83,7 @@ typedef struct idris_rt_header {
 /* A word: a pointer, an object slot, the header. The compiler places object
  * slots by the target's data layout and rejects a target whose pointers are
  * not words of this size, so every target the runtime is built for must
- * have them: x86_64 Linux and arm64 macOS are both LP64. */
+ * have them: every target, Linux and macOS, x86_64 and arm64, is LP64. */
 #define IDRIS_RT_WORD_BYTES 8u
 #ifdef __cplusplus
 #define IDRIS_RT_STATIC_ASSERT static_assert

@@ -10,7 +10,6 @@ moves a pin (PINS.md records the pins).
 
 | Part | Used as | License (SPDX) | Text |
 | --- | --- | --- | --- |
-| musl | the target's libc (Linux sysroot) | MIT | `third_party/musl/COPYRIGHT` |
 | snmalloc | the runtime's allocator | MIT | `third_party/snmalloc/LICENSE` |
 | ryu | float printing in the runtime | Apache-2.0 OR BSL-1.0 | `third_party/ryu/LICENSE-Apache2`, `LICENSE-Boost` |
 | fast_float | float parsing in the runtime | Apache-2.0 OR MIT OR BSL-1.0 | `third_party/fast_float/LICENSE-*` |

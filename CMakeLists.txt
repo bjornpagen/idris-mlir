@@ -58,12 +58,12 @@ project(idris_mlir LANGUAGES C CXX)
 # file.
 option(IDRIS_MLIR_TYPECHECK "Compile foreign/idr with the host's clang against the TableGen-only LLVM/MLIR, and link nothing but idris-mlir-tblgen" OFF)
 
-# PIN(platform-gate-x86_64): the build runs on the two machines whose
-# targets the compiler has, Linux x86_64 and Darwin arm64, the same
+# PIN(platform-gate): the build runs on the machines whose targets the
+# compiler has, Linux x86_64 and aarch64 and Darwin arm64, the same
 # machines tools/bootstrap.sh builds a toolchain on.
-if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|aarch64)$")
 		AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64"))
-	message(FATAL_ERROR "the machine boundary is Linux x86_64 and Darwin arm64 (got ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR})")
+	message(FATAL_ERROR "the machine boundary is Linux x86_64 and aarch64 and Darwin arm64 (got ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR})")
 endif()
 
 # The production compiler is the stage-2 clang of the pinned
@@ -83,7 +83,9 @@ if(NOT IDRIS_MLIR_TYPECHECK)
 endif()
 # The target programs are compiled for is decided here and nowhere else. The
 # preset names its triple (CMAKE_CXX_COMPILER_TARGET), which the runtime is
-# built for too, and selects one entry below. idris-mlir writes the
+# built for too, and its toolchain file the page size (IDRIS_MLIR_PAGE_SIZE,
+# the machine's that built the toolchain); the two select one entry below,
+# which may decide other facts by the page size. idris-mlir writes the
 # triple and CPU on every module as its #llvm.target, with LLVM's data
 # layout, and every later step reads them there; every other fact of the
 # target is one of the entry's, which the build hands to whatever needs it.
@@ -124,8 +126,6 @@ endif()
 #                                       executable of the target
 #   IDRIS_MLIR_PROGRAM_LINK_FLAGS       the link flags that drop and fold
 #                                       what no program needs twice
-#   IDRIS_MLIR_GMP                      what links GMP: a flag or the path of
-#                                       its archive
 #   IDRIS_MLIR_NO_UNWINDER              the link flags that leave out the
 #                                       unwinder, so that the runtime's link
 #                                       check fails on a reference to it
@@ -139,11 +139,6 @@ endif()
 #                                       for the target calls, the only calls
 #                                       a program's object may make that its
 #                                       source does not
-#   IDRIS_MLIR_PAGE_SIZE                the size of a page of the target, the
-#                                       one number the runtime's startup
-#                                       check compares with the system's:
-#                                       16384 on Darwin arm64, 4096 on Linux
-#                                       x86-64. Nothing else may assume it.
 #   IDRIS_MLIR_USER_ADDRESS_BITS        the bits of the highest address user
 #                                       space reaches, which bound a stack
 #                                       cell's address and the program's
@@ -156,10 +151,47 @@ endif()
 #   IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS  the Release link's own flags, such
 #                                       as dropping unused sections
 #
+# The page size, which the toolchain file names and no entry sets, is the
+# one number the runtime's startup check compares with the system's: 16384
+# on Darwin arm64 and on 16 KiB arm64 Linux, 4096 on x86-64 and on 4 KiB
+# arm64 Linux. Nothing else may assume it.
+#
 # A program's link line is the pinned C compiler with its object, the
 # runtime and -o, then idris-mlir --print-link-flags: --target with the
-# triple, the executable flags, the program link flags and GMP.
-if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
+# triple, the executable flags, the program link flags and GMP, the
+# sysroot's archive beside the pinned clang on every target. Its path is
+# derived from the compiler the preset names, so a toolchain elsewhere
+# still resolves.
+get_filename_component(IDRIS_MLIR_CLANG_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
+get_filename_component(IDRIS_MLIR_TOOLCHAIN_ROOT "${IDRIS_MLIR_CLANG_BIN}/../.." ABSOLUTE)
+set(IDRIS_MLIR_GMP "${IDRIS_MLIR_TOOLCHAIN_ROOT}/sysroot/usr/lib/libgmp.a")
+if(CMAKE_CXX_COMPILER_TARGET MATCHES "-linux-gnu$")
+	# Linux: ELF executables linked against glibc, the system's C library,
+	# dynamically, and against everything else statically, by the pinned
+	# lld. snmalloc takes its entropy and its waits from the kernel's
+	# headers, which the system's C library ships beside its own.
+	set(IDRIS_MLIR_RUNTIME_DEFINITIONS SNMALLOC_HAS_LINUX_RANDOM_H SNMALLOC_HAS_LINUX_FUTEX_H)
+	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
+	# LTO object's, is excluded from every link.
+	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
+	set(IDRIS_MLIR_RUNTIME_BITCODE_HOME InObject)
+	set(IDRIS_MLIR_RUNTIME_SECTIONS -ffunction-sections -fdata-sections)
+	# A PIE against glibc, the driver's default.
+	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
+	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,--gc-sections -Wl,--icf=all)
+	set(IDRIS_MLIR_NO_UNWINDER --unwindlib=none)
+	set(IDRIS_MLIR_SYMBOL_PREFIX "")
+	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS .init_array .fini_array .ctors .dtors .preinit_array)
+	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS "")
+	# Our tools: glibc's fortified functions where they are compiled with
+	# the optimization those need (Release); bound at load, read-only after
+	# relocation, no executable stack. The Release link drops unused
+	# sections (lld's ELF spelling).
+	set(IDRIS_MLIR_TOOL_FORTIFY "$<$<CONFIG:Release>:-D_FORTIFY_SOURCE=3>")
+	set(IDRIS_MLIR_TOOL_LINK_FLAGS LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack LINKER:-z,nodlopen)
+	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS LINKER:--gc-sections)
+endif()
+if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-gnu$" AND IDRIS_MLIR_PAGE_SIZE EQUAL 4096)
 	# x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since Haswell
 	# (2013) and AMD's Zen, and an executable names what an older one lacks.
 	# snmalloc needs CMPXCHG16B, which the baseline lacks.
@@ -168,34 +200,47 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_x86_64.h)
-	set(IDRIS_MLIR_RUNTIME_DEFINITIONS SNMALLOC_HAS_LINUX_RANDOM_H SNMALLOC_HAS_LINUX_FUTEX_H)
-	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
-	# LTO object's, is excluded from every link.
-	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
-	set(IDRIS_MLIR_RUNTIME_BITCODE_HOME InObject)
-	set(IDRIS_MLIR_RUNTIME_SECTIONS -ffunction-sections -fdata-sections)
-	# Static-PIE on musl; GMP is the pinned sysroot's, which the pinned
-	# clang's configuration file names.
-	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld -static-pie)
-	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,--gc-sections -Wl,--icf=all)
-	set(IDRIS_MLIR_GMP -lgmp)
-	set(IDRIS_MLIR_NO_UNWINDER --unwindlib=none)
-	set(IDRIS_MLIR_SYMBOL_PREFIX "")
-	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS .init_array .fini_array .ctors .dtors .preinit_array)
-	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS "")
-	set(IDRIS_MLIR_PAGE_SIZE 4096)
 	# 4-level paging: user space ends below 2^47.
 	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
-	# Our tools: PIE code with CET and stack-clash probes; static-PIE on musl,
-	# read-only after relocation, no executable stack. PIN(musl-thread-stacks):
-	# LLVM takes the libc's default thread stack, which musl reads from
-	# PT_GNU_STACK — see PINS.md. The Release link drops unused sections
-	# (lld's ELF spelling).
-	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -fcf-protection=full -fstack-clash-protection)
-	set(IDRIS_MLIR_TOOL_LINK_FLAGS -static-pie LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack
-		LINKER:-z,nodlopen LINKER:-z,stack-size=8388608)
-	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS LINKER:--gc-sections)
-elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
+	# Our tools: PIE code with CET and stack-clash probes.
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -fcf-protection=full -fstack-clash-protection
+		${IDRIS_MLIR_TOOL_FORTIFY})
+elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_MLIR_PAGE_SIZE EQUAL 4096)
+	# arm64 Linux on the kernel's default 4 KiB pages: every 64-bit
+	# Raspberry Pi before the 5 (Zero 2 W, 3, 4), Graviton, Ampere,
+	# Snapdragon X, Linux in a VM on a Mac. generic is armv8-a, which the
+	# Pis' Cortex-A53 and A72 are, and a program compiled for a later CPU
+	# names what an older one lacks.
+	set(IDRIS_MLIR_TARGET_CPU "generic")
+	set(IDRIS_MLIR_RUNTIME_BASELINE -march=armv8-a)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
+	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
+	# The fewest bits a kernel of the target gives user space: Raspberry
+	# Pi's kernels configure 39 with 4 KiB pages, where 48 is common
+	# (recalled; read from each machine's kernel when it first runs).
+	set(IDRIS_MLIR_USER_ADDRESS_BITS 39)
+	# Our tools: PIE code with branch protection (PAC and BTI, live on Linux
+	# where the CPU has them and NOPs where it does not) and stack-clash
+	# probes.
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -mbranch-protection=standard -fstack-clash-protection
+		${IDRIS_MLIR_TOOL_FORTIFY})
+elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_MLIR_PAGE_SIZE EQUAL 16384)
+	# arm64 Linux on 16 KiB pages: the Raspberry Pi 5 family under Raspberry
+	# Pi OS, and Apple Silicon under Linux. cortex-a76 is the Pi 5's core
+	# (ARMv8.2-A with crypto, dot product, RCpc, fp16 and SSBS), whose
+	# features every Apple CPU has, so it is the baseline too, as apple-m1
+	# is on Darwin.
+	set(IDRIS_MLIR_TARGET_CPU "cortex-a76")
+	set(IDRIS_MLIR_RUNTIME_BASELINE -mcpu=cortex-a76)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
+	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
+	# 16 KiB pages give user space 47 bits with three levels of tables and
+	# 48 with four (recalled; read from each machine's kernel when it first
+	# runs): the fewer.
+	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -mbranch-protection=standard -fstack-clash-protection
+		${IDRIS_MLIR_TOOL_FORTIFY})
+elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PAGE_SIZE EQUAL 16384)
 	# Apple Silicon: apple-m1 is the baseline every Apple CPU since the M1
 	# has, and a program compiled for a later one names what an older lacks.
 	# Function multiversioning tests the features at a program's entry, and
@@ -219,18 +264,11 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# A dynamic PIE against libSystem, linked by the pinned ld64.lld.
 	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
 	set(IDRIS_MLIR_PROGRAM_LINK_FLAGS -Wl,-dead_strip -Wl,--icf=all)
-	# The pinned clang's configuration file names the sysroot beside it;
-	# GMP is its one library on Darwin. The path is derived from the
-	# compiler the preset names, so a toolchain elsewhere still resolves.
-	get_filename_component(IDRIS_MLIR_CLANG_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
-	get_filename_component(IDRIS_MLIR_TOOLCHAIN_ROOT "${IDRIS_MLIR_CLANG_BIN}/../.." ABSOLUTE)
-	set(IDRIS_MLIR_GMP "${IDRIS_MLIR_TOOLCHAIN_ROOT}/sysroot/usr/lib/libgmp.a")
 	# libSystem is the unwinder; there is no separate one to leave out.
 	set(IDRIS_MLIR_NO_UNWINDER "")
 	set(IDRIS_MLIR_SYMBOL_PREFIX "_")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS __mod_init_func __mod_term_func __init_offsets)
 	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS bzero memset_pattern16 __sincos_stret __sincosf_stret __exp10 __exp10f)
-	set(IDRIS_MLIR_PAGE_SIZE 16384)
 	# MACH_VM_MAX_ADDRESS (mach/arm/vm_param.h) is 2^47 - 32 MiB.
 	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
 	# Our tools: Darwin's PIE executables need nothing beyond the profile.
@@ -240,7 +278,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	set(IDRIS_MLIR_TOOL_LINK_FLAGS "")
 	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS "")
 else()
-	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET}: give it each fact the comment above the entries lists, in CMakeLists.txt")
+	message(FATAL_ERROR "no target entry for ${CMAKE_CXX_COMPILER_TARGET} with ${IDRIS_MLIR_PAGE_SIZE}-byte pages: give it each fact the comment above the entries lists, in CMakeLists.txt")
 endif()
 
 set(CMAKE_CXX_STANDARD 26)
@@ -311,8 +349,8 @@ set(IDRIS_MLIR_PRESET_LINK_FLAGS "" CACHE STRING "The flags the preset adds to e
 target_compile_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_PRESET_COMPILE_FLAGS})
 target_link_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_PRESET_LINK_FLAGS})
 
-# The target's own flags for our tools, from its entry above. FORTIFY is in
-# neither: it is inert on musl and in Apple's SDK for C++
+# The target's own flags for our tools, from its entry above. FORTIFY is
+# the Linux entries': it is inert in Apple's SDK for C++
 # (PIN(darwin-inert-mitigations) — see PINS.md).
 target_compile_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_TOOL_COMPILE_FLAGS})
 target_link_options(idris_mlir_language_profile INTERFACE

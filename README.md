@@ -107,18 +107,19 @@ primitives. There is no C interop.
 
 ## Setup
 
-Two first-class targets, built by one recipe: x86_64 Linux (musl, static
-PIE) and arm64 macOS (PIE on libSystem). `make bootstrap` builds every
-pinned tool into `.toolchain/`: CMake, Ninja, a two-stage LLVM and MLIR,
-the target's C library, GMP, Chez Scheme and Idris 2. Nothing comes
-from the host but a C++ compiler and a few build tools, and nothing global
-is modified. The full LLVM build takes hours. `make typecheck` builds only
+Four first-class targets, built by one recipe: arm64 macOS, arm64 Linux
+at 16 KiB and at 4 KiB pages, and x86_64 Linux, each linking the system's
+C library (libSystem, glibc) and nothing else shared. `make bootstrap`
+builds every pinned tool into `.toolchain/`: CMake, Ninja, a two-stage
+LLVM and MLIR, GMP, Chez Scheme and Idris 2. Nothing comes from the host
+but its C library, a C++ compiler and a few build tools, and nothing
+global is modified. The full LLVM build takes hours. `make typecheck` builds only
 TableGen and checks that every unit compiles, in minutes.
 
-On Ubuntu 24.04:
+On Fedora 44, x86_64 or aarch64:
 
 ```sh
-sudo apt-get install -y git make gcc g++ python3 m4 curl linux-libc-dev libgmp-dev ccache
+sudo dnf install -y git make gcc gcc-c++ python3 m4 curl glibc-devel kernel-headers ccache
 ```
 
 On arm64 macOS, with the Command Line Tools and MacPorts:

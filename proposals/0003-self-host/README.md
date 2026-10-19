@@ -186,9 +186,9 @@ packages outside the table (`Registry/Libraries.idr:102`, refused at
 - **S4, `make self` on arm64 macOS** (owner's machine). `tools/self.sh` as
   D5 and D6 amend it. Verified: stage 2 = stage 3; each stage's time and
   peak memory, and D5's record, in HANDOFF.md.
-- **S5, `make self` on x86_64 Linux** (the Linux machine, after 0005's
-  L1 puts it on glibc, and after 0007's Linux build and suite). The same,
-  there. `make self` holds then (D8).
+- **S5, `make self` on x86_64 Linux** (the Linux machine, after the
+  owner's build of 0005 there, on glibc, and after 0007's Linux build and
+  suite). The same, there. `make self` holds then (D8).
 
 After it, not in it: G1 (0007, re-cut to follow `make self`), the test
 machinery under both hosts (D7), the toolchain bump (0006), and

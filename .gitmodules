@@ -1,9 +1,6 @@
 [submodule "third_party/Idris2"]
 	path = third_party/Idris2
 	url = https://github.com/idris-lang/Idris2.git
-[submodule "third_party/musl"]
-	path = third_party/musl
-	url = https://github.com/kraj/musl.git
 [submodule "third_party/gmp"]
 	path = third_party/gmp
 	url = https://github.com/arthenica/gmp.git

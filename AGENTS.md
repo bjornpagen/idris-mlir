@@ -9,27 +9,30 @@ the best fix is usually an MLIR mechanism we are not using yet. Comments
 explain why the code is the way it is; they do not cite documents or rule
 numbers.
 
-- Two first-class targets: x86_64 Linux (musl, static PIE) and arm64
-  macOS (aarch64-apple-darwin, PIE on libSystem). Neither is the
-  default and neither is the port: one recipe builds the toolchain on
-  either (`tools/bootstrap.sh`), and a change, a toolchain bump included,
-  is done when it builds and passes on both. Nothing may assume x86,
-  Linux, ELF, musl or a page size outside the one place the target is
-  decided (the module's target triple and data layout, which every tool
-  reads, from the target's entry in CMakeLists.txt; for the toolchain,
-  the bootstrap's target section). Per-target cases elsewhere are bugs.
+- Four first-class targets: arm64 macOS (aarch64-apple-darwin, PIE on
+  libSystem), arm64 Linux with 16 KiB pages, arm64 Linux with 4 KiB
+  pages, and x86_64 Linux (each PIE on glibc). None is the default and
+  none is the port: one recipe builds the toolchain on any of them
+  (`tools/bootstrap.sh`), and a change, a toolchain bump included, is
+  done when it builds and passes on all four. Nothing may assume x86,
+  arm64, Linux, ELF, glibc or a page size outside the one place the
+  target is decided (the module's target triple and data layout, which
+  every tool reads, from the target's entry in CMakeLists.txt, chosen by
+  the triple and the page size; for the toolchain, the bootstrap's
+  target section). Per-target cases elsewhere are bugs.
   A new target is a new entry, not a rewrite: intrinsics through LLVM,
   no inline asm, no cpuid outside the target's startup check, OS calls
   behind the runtime's platform layer. Heap references stay raw, untagged
   addresses, which is what Apple's data-memory-dependent prefetcher
   follows.
-- Everything we build is linked statically: our tools, every program, and
-  the toolchain's LLVM. On macOS it may also link the operating system's
-  own shared libraries (/usr/lib, /System/Library: libSystem and the like),
-  which is the only form macOS ships them in; never a shared library of
-  ours or of a third party, and never the system's libc++, since the
-  pinned libc++ is static. Nothing of ours is loaded at run time or looked
-  up with dlopen. On Linux every executable is a static PIE.
+- Every target links the operating system's own C library dynamically
+  and nothing else shared: libSystem on macOS (/usr/lib, /System/Library:
+  libSystem and the like, the only form macOS ships them in), glibc on
+  Linux, whichever the build machine has, as the macOS SDK is. Everything
+  we build is otherwise linked statically: our tools, every program, and
+  the toolchain's LLVM; never a shared library of ours or of a third
+  party, and never the system's libc++, since the pinned libc++ is
+  static. Nothing of ours is loaded at run time or looked up with dlopen.
   `tools/bootstrap.sh` refuses an executable that breaks this, and
   `tests/toolchain/static-linking` checks our tools and programs. The
   exception is the host side of the frontend: Idris 2 and the test runner

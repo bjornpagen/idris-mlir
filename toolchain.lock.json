@@ -21,15 +21,6 @@
     "version": "1.13.2",
     "accept": "1.13"
   },
-  "musl": {
-    "path": "third_party/musl",
-    "repository": "https://github.com/kraj/musl.git",
-    "revision": "9fa28ece75d8a2191de7c5bb53bed224c5947417",
-    "tag": "v1.2.6",
-    "version": "1.2.6",
-    "release": "https://musl.libc.org/releases/musl-1.2.6.tar.gz",
-    "release_sha256": "d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a"
-  },
   "gmp": {
     "path": "third_party/gmp",
     "repository": "https://github.com/arthenica/gmp.git",

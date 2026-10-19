@@ -12,7 +12,7 @@ same source through the stock Chez backend (none for a program over
 and the pinned clang at `-O2`
 on `bench/c/<name>.c`, linked
 as `idris-mlir --print-link-flags` says the target links a program (a
-static PIE on musl, a dynamic executable on Darwin), for this
+PIE on the system's C library, on every target), for this
 compiler's target CPU without floating-point contraction, as our programs
 are built. Every program runs with the largest stack the system allows
 (on macOS the hard limit, about 64 MiB; only cfold needs a deep one, and
@@ -107,7 +107,7 @@ old solver does not produce that string, so there is no program to add.
 | mandelbrot-pbm | 16000 | gcc #8, Greg Buchholz, the single-threaded scalar bitmap. The other C entries are threaded |
 | n-body | 50000000 | gcc #1, Christoph Bauer, the symplectic integrator. The C entries are all single-threaded; gcc #4 and #9 add SIMD |
 | pidigits | 10000 | gcc #1, GMP, single-threaded. gcc #2 (Oleksii Prudkyi) is the other, also GMP |
-| regex-redux | fasta 5000000 | the patterns and the order of gcc #2, Mike Pall, the single-threaded entry. That entry links PCRE; gcc #5 links PCRE2 and is threaded. Ours uses POSIX `regex.h` (macOS libc and musl), and is the slower matcher. No PCRE is pinned |
+| regex-redux | fasta 5000000 | the patterns and the order of gcc #2, Mike Pall, the single-threaded entry. That entry links PCRE; gcc #5 links PCRE2 and is threaded. Ours uses POSIX `regex.h` (libSystem and glibc), and is the slower matcher. No PCRE is pinned |
 | reverse-complement | fasta 25000000 | gcc #4, Bob W, single-threaded. gcc #5 (Mr Ledrug) is the other single-threaded C entry; the rest are threaded |
 | spectral-norm | 5500 | gcc #8, the only single-threaded C entry. The others are OpenMP |
 | fasta-redux | 25000000 | no current C entry; the game no longer measures it. The retired page did not answer here (the live site has no such page, and archive.org did not connect), so the split is the one fasta's own rules still draw: this program indexes a table of every generator residue instead of searching the probabilities. The table is every residue, so the text is fasta's |

@@ -151,7 +151,7 @@ function(idris_rt_compile target)
 		# no thread teardown of its own, since both of the others need a static
 		# destructor (pthread keys register one with [[gnu::destructor]]) or the
 		# C++ runtime: a thread's cached memory is returned only if the
-		# C library calls _malloc_thread_cleanup, which neither musl nor
+		# C library calls _malloc_thread_cleanup, which neither glibc nor
 		# libSystem does. Programs are single-threaded. In idris-mlir, whose
 		# folders run on worker threads, a thread that ends keeps its cache,
 		# and frees other threads make to its memory wait in its queue: a cost

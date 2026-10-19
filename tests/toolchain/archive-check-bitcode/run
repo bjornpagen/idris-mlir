@@ -78,7 +78,7 @@ check() {
   sed "s|$work/||g; s/^/  | /" "$work/check.out"
 }
 
-elf=x86_64-unknown-linux-musl
+elf=x86_64-unknown-linux-gnu
 macho=x86_64-apple-macosx14.0
 for source in clean ctor cxx; do
   carried elf "$elf" "$source" -flto=full -ffat-lto-objects || exit 0

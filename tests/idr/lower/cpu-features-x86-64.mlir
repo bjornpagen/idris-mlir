@@ -5,7 +5,7 @@
 // entry's list (runtime/cpu_x86_64.h), x86-64-v3 is bits 0 to 15 (v2's
 // seven and v3's nine), and no AVX-512: the runtime's own word.
 // An x86-64 test: it needs that entry.
-module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-musl", chip = "x86-64-v3">} {
+module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu", chip = "x86-64-v3">} {
   idr.program @"cpu-features-x86-64" root(@Prog.main) stage(owned) {
     idr.func @Prog.main() -> i64 {
       %c = arith.constant 7 : i64

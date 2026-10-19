@@ -11,7 +11,7 @@ replaced by the output, when the output says what the line asks.
 
 The files are the tree's own list, `grep -rl NEEDS-ACCEPTANCE tests`
 less this page, as it stood on 2026-10-18, each with its first mark as
-its reason: 445 files. Proposal 0002's culls removed the marks of the
+its reason: 446 files. Proposal 0002's culls removed the marks of the
 tests they deleted, and the tests it changed or wrote carry new ones. A
 change that adds or removes a mark lists it here again.
 
@@ -576,7 +576,7 @@ change that adds or removes a mark lists it here again.
 
 - `tests/spec/driver-shape/expected`: that the driver's shape holds as lane L18 left it (D1, D2, S1, D6, mlir-6 of proposal 0004): each line below, with nothing found
 
-## tests/toolchain (13)
+## tests/toolchain (14)
 
 - `tests/toolchain/heap-region/expected`: that every cell of a heap under 4 GiB lies in the first cell's 4 GiB region and the heap grows past it, its arrays usable and every cell freed, on both targets
 - `tests/toolchain/io-buffer/expected`: that the IO units built for a buffer of 4 and of 7 bytes print what the default build prints, and that echo gives back its input
@@ -591,6 +591,7 @@ change that adds or removes a mark lists it here again.
 - `tests/toolchain/runtime-text/expected`: that the pinned clang builds text.cpp through prop_build with no C++ library on both targets, that every property and box below holds at the run's case count, and that the count, marked as debt in run, ends well within step_limit
 - `tests/toolchain/runtime-triple/expected`: that a runtime member compiled for another triple is an internal error of the driver (D1: driver failures are diagnostics, classed by the one verdict fold), the rest as before
 - `tests/toolchain/runtime-utf8/expected`: runtime-utf8 is new: confirm that utf8.cpp builds through prop_build with no C++ library and that its 7 properties hold on both targets (each target's simdutf kernel), that runtime-utf8/report is written, and set --cases in run
+- `tests/toolchain/static-linking/expected`: that idris-mlir, idris-mlir-opt and a program link the system's C library and nothing else shared, on every target: on Linux only glibc's libraries (libc.so.6, libm.so.6, the dynamic loader), on macOS only /usr/lib and /System/Library, never a shared libc++
 
 ## tests/two-levels (1)
 

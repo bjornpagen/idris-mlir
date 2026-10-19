@@ -49,8 +49,7 @@ dev_prefix=$root/build/$dev_preset
 # configuration file, read for the target its callers name, gives the
 # target's C library, the runtimes, lld and the kind of executable.
 pinned_cc=$llvm_bin/clang
-# The sysroot programs link against: the target's C library where it is
-# built (musl), and GMP.
+# The sysroot programs link against: GMP, beside the system's C library.
 sysroot=$toolchain/sysroot
 cmake=$toolchain/cmake/bin/cmake
 # What `make build` makes: idris-mlir, the one command, with its frontend

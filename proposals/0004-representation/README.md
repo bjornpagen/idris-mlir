@@ -44,8 +44,8 @@ dispatch.
   S4's take split), which the coordinator rewrites with one script at
   integration (§8, §9 B7): lanes do not hand-edit those lines in other
   lanes' fixtures, and do edit them in their own.
-- **Targets:** both first-class targets (x86_64 Linux musl static PIE; arm64
-  macOS). Nothing here may add a per-target case outside the target's entry.
+- **Targets:** every first-class target (AGENTS.md). Nothing here may add
+  a per-target case outside the target's entry.
 - **Verification cadence** (§8): Idris lanes build and run on Chez in
   private copies, byte for byte against the base. The runtime lane (L19) is
   not compile-only (ruling A3): it builds the runtime privately with host

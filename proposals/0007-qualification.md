@@ -54,9 +54,8 @@ its own first baseline.
   Linux branches and the Linux check of the retirements PINS.md records.
   A failure that reproduces with upstream dialects and tools is a patch
   in `upstream/`; any other is ours, fixed in the tree. Waits on the
-  owner's arm64 build, on 0005's L1, which puts x86_64 Linux on glibc,
-  and on §5's machine. The two arm64 Linux targets join after 0005's L2,
-  by the same steps.
+  owner's arm64 build, on 0005, which puts x86_64 Linux on glibc, and on
+  §5's machine. The two arm64 Linux targets run the same steps.
 - **The bench** (AFTER-SELF). `bench/run.sh --record` on each target.
   On arm64 each program's ratio to its own C is read against
   `bench/runs/2026-10-13-9a1b7b1-darwin-arm64`; a ratio worse by more

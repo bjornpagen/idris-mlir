@@ -10,10 +10,9 @@
 #   stage1    clang and lld, with the backends of both      -> .toolchain/stage1
 #             targets, built with the host's C++ compiler;
 #             they build the next three steps
-#   libc      the target's C library: musl                  -> .toolchain/sysroot
-#             (third_party/musl) and the kernel's UAPI
-#             headers, built with stage 1, on Linux;
-#             libSystem in the macOS SDK, recorded, on Darwin
+#   libc      the system's C library, recorded: glibc on    -> .toolchain/sysroot
+#             Linux, libSystem in the macOS SDK on Darwin;
+#             the sysroot, empty, for GMP
 #   runtimes  compiler-rt's builtins and the C++ runtimes   -> .toolchain/runtimes,
 #             (libc++ and libc++abi; libunwind on Linux),      and beside stage 1
 #             built with stage 1 for the target
@@ -70,9 +69,10 @@
 #
 # The host provides: a C and C++ compiler (cc and c++), make, git, python3
 # (LLVM's configure), m4 (GMP), tar, sha256sum, and curl to check release
-# tarballs; on Linux, its UAPI headers (linux-libc-dev) and GMP's headers
-# and library (libgmp-dev), which Idris's support library links; on Darwin,
-# the SDK of Xcode's command line tools. ccache is optional. Each step logs
+# tarballs; the system's C library to build against: on Linux glibc's
+# development files and the kernel's headers (Fedora's glibc-devel and
+# kernel-headers), on Darwin the SDK of Xcode's command line tools. ccache
+# is optional. Each step logs
 # to .toolchain/logs/STEP.log; a failure prints the log's end and exits 1, a
 # usage error exits 2.
 
@@ -128,10 +128,15 @@ llvm_targets='AArch64;X86'
 # operating system forces, and the rest of the script reads them:
 #
 #   triple          the target programs are compiled for; CMakeLists.txt's
-#                   target entry decides every fact of it the build needs
+#                   target entry for it and the page size decides every
+#                   fact of it the build needs
 #   object_format   elf or macho: what an executable is, and what checks it
-#   libc            musl, built into the sysroot by the libc step; or sdk,
-#                   libSystem in the macOS SDK, which the step records
+#   libc            the system's C library, which every program and tool
+#                   links dynamically: glibc on Linux, libSystem on Darwin
+#   libc_version    which the host has, which the libc step records, so
+#                   that another makes the steps built against it stale
+#   libc_flags      what the pinned clang's driver is told of it, on every
+#                   compile and link (config_file)
 #   cxx_libdir      where clang's driver finds the C++ runtimes beside it:
 #                   the Linux driver searches lib/<triple>, the Darwin
 #                   driver names no such directory, and the configuration
@@ -140,16 +145,13 @@ llvm_targets='AArch64;X86'
 #                   directory: the triple on Linux, darwin on Darwin
 #   gmp_host        GMP's name for the target, and gmp_fat its run-time CPU
 #                   dispatch, an x86 feature
-#   sysroot_is_host whether host programs can use the sysroot: Idris's
-#                   support library is a host program, and the sysroot's
-#                   GMP is built for the target's C library, which is the
-#                   host's on Darwin and musl, not the host's glibc, on Linux
-#   stage2_disk     GiB a stage-2 build and install takes (measured)
+#   stage2_disk     GiB a stage-2 build and install takes (measured on
+#                   x86_64 Linux and arm64 Darwin)
 host_kind=
 case $(uname -s):$(uname -m) in
-  Linux:x86_64) host_kind=linux ;;
+  Linux:x86_64 | Linux:aarch64) host_kind=linux ;;
   Darwin:arm64) host_kind=darwin ;;
-  *) die "no target for a $(uname -s) $(uname -m) host: the targets are x86_64 Linux and arm64 macOS" ;;
+  *) die "no target for a $(uname -s) $(uname -m) host: the targets are x86_64 and arm64 Linux and arm64 macOS" ;;
 esac
 # machine_fact SYSCTL GETCONF: a fact of the machine, from the kernel that
 # decides it: sysctl's SYSCTL on Darwin, getconf's GETCONF on Linux, whose
@@ -165,37 +167,46 @@ machine_fact() {
   esac
   printf '%s\n' "$machine_fact_out"
 }
-# The page size, recorded in stage 2's recipe and stamp and read at a
-# program's entry (CMakeLists.txt's target entry): 16384 on Apple Silicon,
-# where Linux x86-64 uses 4096.
+# The page size, recorded in stage 2's recipe and stamp, named in the
+# toolchain file, where CMakeLists.txt's target entry reads it, and checked
+# at a program's entry: 16384 on Apple Silicon and the Raspberry Pi 5's
+# Linux, 4096 on x86-64 and arm64 Linux's default kernel.
 page_size=$(machine_fact hw.pagesize PAGESIZE) || exit 1
 case $host_kind in
   linux)
-    triple=x86_64-unknown-linux-musl
+    triple=$(uname -m)-unknown-linux-gnu
     object_format=elf
-    libc=musl
-    sdk=
-    sdk_version=
+    libc=glibc
+    libc_version=$(getconf GNU_LIBC_VERSION)
+    # The pinned C++ runtimes and their unwinder, where the Linux driver's
+    # defaults are GCC's.
+    libc_flags='-stdlib=libc++
+--unwindlib=libunwind'
     cxx_libdir=lib/$triple
     builtins_dir=$triple
-    gmp_host=x86_64-pc-linux-musl
-    gmp_fat=--enable-fat
-    sysroot_is_host=no
+    case $triple in
+      x86_64-*) gmp_host=x86_64-pc-linux-gnu gmp_fat=--enable-fat ;;
+      aarch64-*) gmp_host=aarch64-unknown-linux-gnu gmp_fat= ;;
+    esac
     stage2_disk=13
     ;;
   darwin)
     triple=arm64-apple-macosx14.0
     object_format=macho
-    libc=sdk
-    sdk=$(xcrun --show-sdk-path 2> /dev/null) ||
-      die "no macOS SDK; run: xcode-select --install"
-    [ -d "$sdk" ] || die "the macOS SDK path $sdk is not a directory"
-    sdk_version=$(xcrun --show-sdk-version 2> /dev/null) || sdk_version=unknown
+    libc=libSystem
+    sdk=$(xcrun --show-sdk-path)
+    libc_version="macOS SDK $(xcrun --show-sdk-version)"
+    # The SDK, which upstream clang does not look for itself; and the pinned
+    # libc++ beside the clang, which the Darwin driver names no directory
+    # for, where -L makes -lc++ the static libc++.a, not the SDK's
+    # libc++.tbd. Its headers the driver takes beside it, before the SDK's.
+    libc_flags="-isysroot
+$sdk
+-L<CFGDIR>/../lib"
     cxx_libdir=lib
     builtins_dir=darwin
     gmp_host=aarch64-apple-darwin
     gmp_fat=
-    sysroot_is_host=yes
     stage2_disk=40
     ;;
 esac
@@ -232,7 +243,7 @@ done
 jobs=$ncpu
 
 # ccache, the compiler launcher of every C and C++ compile the steps run
-# (CMake, Ninja, stage 1, musl, the runtimes, stage 2, GMP, Chez), when
+# (CMake, Ninja, stage 1, the runtimes, stage 2, GMP, Chez), when
 # there is one: a rebuild after a patch, a pin move or a failed run
 # recompiles only what changed. It is no input of any step, since it does
 # not change what a step builds. The cache is .toolchain/ccache, and its
@@ -328,8 +339,6 @@ cmake_version=$(lock_value cmake version) || exit 1
 ninja_revision=$(lock_value ninja revision) || exit 1
 ninja_tag=$(lock_value ninja tag) || exit 1
 ninja_version=$(lock_value ninja version) || exit 1
-musl_revision=$(lock_value musl revision) || exit 1
-musl_version=$(lock_value musl version) || exit 1
 gmp_revision=$(lock_value gmp revision) || exit 1
 gmp_version=$(lock_value gmp version) || exit 1
 chez_revision=$(lock_value chez revision) || exit 1
@@ -558,13 +567,15 @@ version_is() {
   esac
 }
 
-# static_pie READELF FILE: a static-PIE executable has a dynamic
-# section, for its self-relocation, but no interpreter and no DT_NEEDED.
-static_pie() {
-  static_pie_out=$("$1" --file-header --program-headers --dynamic "$2") || die "$1 cannot read $2"
-  case $static_pie_out in *'Type:'*DYN*) ;; *) die "$2 is not position-independent" ;; esac
-  case $static_pie_out in *INTERP*) die "$2 has an interpreter" ;; esac
-  case $static_pie_out in *NEEDED*) die "$2 needs a shared library" ;; esac
+# glibc_pie READELF FILE: an ELF executable is position-independent (type
+# DYN) and needs no shared library but glibc's own: the C library, its
+# math library and the dynamic loader.
+glibc_pie() {
+  glibc_pie_out=$("$1" --file-header --dynamic "$2") || die "$1 cannot read $2"
+  case $glibc_pie_out in *'Type:'*DYN*) ;; *) die "$2 is not position-independent" ;; esac
+  glibc_pie_others=$(printf '%s\n' "$glibc_pie_out" | sed -n 's/.*(NEEDED).*\[\(.*\)\]$/\1/p' |
+    grep -v -x -e 'libc\.so\.6' -e 'libm\.so\.6' -e 'ld-linux-.*\.so\.[0-9]*') || true
+  [ -z "$glibc_pie_others" ] || die "$2 needs shared libraries that are not glibc's: $(echo $glibc_pie_others)"
 }
 
 # mh_pie OBJDUMP FILE: a Mach-O executable is position-independent when its
@@ -589,13 +600,13 @@ arm64_only() {
 }
 
 # check_executable PREFIX FILE: FILE is an executable as the target's
-# programs are, read by PREFIX's tools: on ELF a static PIE; on Mach-O a PIE
-# of arm64 code alone whose shared libraries are the operating system's own
-# (/usr/lib, /System/Library), never another's, and never the system's
-# libc++, since the pinned libc++ is static.
+# programs are, read by PREFIX's tools: a PIE whose shared libraries are the
+# system's C library and nothing else, never a libc++, since the pinned
+# libc++ is static: on ELF glibc's alone; on Mach-O, of arm64 code alone,
+# the operating system's own (/usr/lib, /System/Library).
 check_executable() {
   case $object_format in
-    elf) static_pie "$1/bin/llvm-readelf" "$2" ;;
+    elf) glibc_pie "$1/bin/llvm-readelf" "$2" ;;
     macho)
       mh_pie "$1/bin/llvm-objdump" "$2"
       arm64_only "$1/bin/llvm-objdump" "$2"
@@ -828,52 +839,21 @@ install_staged() {
 # the Linux clang's default triple is the target's, but the Darwin clang's
 # is the host's arm64-apple-darwin<kernel version>, never the triple LLVM
 # was configured with, so a caller that did not name it would find no file.
+# On every target: the system's C library and headers, linked dynamically
+# (libc_flags); compiler-rt's builtins, the pinned libc++ and lld beside
+# this clang, linked statically; GMP in the sysroot beside it, its headers
+# system headers. Executables are PIE, both drivers' default.
 config_file() {
-  case $libc in
-    musl) config_file_musl ;;
-    sdk) config_file_sdk ;;
-  esac
-}
-
-# On musl: the C library, and GMP, from the sysroot beside this clang; the
-# C++ runtimes in its own tree, where its driver looks; compiler-rt and
-# libunwind; lld; static-PIE executables.
-config_file_musl() {
-  cat << 'CFG'
-# idris-mlir's toolchain for x86_64-unknown-linux-musl, written
-# by tools/bootstrap.sh: musl and GMP from the sysroot next to this clang;
-# libc++, libc++abi and libunwind beside it; compiler-rt; lld; static-PIE
-# executables.
---sysroot=<CFGDIR>/../../sysroot
---rtlib=compiler-rt
---unwindlib=libunwind
--stdlib=libc++
--fuse-ld=lld
--static-pie
-CFG
-}
-
-# On the SDK: the C library and headers are libSystem in the SDK, which
-# upstream clang does not look for itself; compiler-rt's builtins are in
-# this clang's resource directory; GMP is the sysroot beside it, its headers
-# system headers as on Linux; the pinned ld64.lld links dynamic PIE
-# executables. The pinned libc++ is installed beside the clang, where the
-# Darwin driver takes its headers before the SDK's (as system headers); -L
-# makes -lc++ the static libc++.a there, not the SDK's libc++.tbd.
-config_file_sdk() {
   cat << CFG
 # idris-mlir's toolchain for $triple, written by tools/bootstrap.sh:
-# this clang links the pinned libc++ and compiler-rt beside it. The C
-# library and headers are libSystem in the macOS SDK ($sdk_version); GMP
-# is in the sysroot beside this clang. idris-mlir's programs are PIE
-# executables linked against libSystem.
--isysroot
-$sdk
+# the system's C library ($libc_version), linked dynamically; the pinned
+# libc++, compiler-rt and lld beside this clang, linked statically; GMP in
+# the sysroot beside it.
 --rtlib=compiler-rt
--L<CFGDIR>/../lib
+-fuse-ld=lld
+$libc_flags
 -isystem<CFGDIR>/../../sysroot/usr/include
 -L<CFGDIR>/../../sysroot/usr/lib
--fuse-ld=lld
 CFG
 }
 
@@ -895,6 +875,7 @@ set(CMAKE_NM "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-nm" CACHE FILEPATH "the pinned
 set(CMAKE_OBJDUMP "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-objdump" CACHE FILEPATH "the pinned objdump")
 set(CMAKE_READELF "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-readelf" CACHE FILEPATH "the pinned readelf")
 set(MLIR_DIR "\${CMAKE_CURRENT_LIST_DIR}/lib/cmake/mlir" CACHE PATH "the pinned MLIR's package")
+set(IDRIS_MLIR_PAGE_SIZE $page_size CACHE STRING "the target's page size, the machine's that built this toolchain")
 CMAKE
 }
 
@@ -909,7 +890,7 @@ stage1_tools() {
 }
 
 # LLVM's optional host dependencies, all off: the tools depend on nothing
-# of the host, the same on every target (musl has no liblzma to link).
+# of the host but its C library, the same on every target.
 llvm_without_host_libraries() {
   printf '%s\n' -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_ENABLE_LIBEDIT=OFF -DLLVM_ENABLE_LIBXML2=OFF \
     -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LZMA=OFF -DLLVM_ENABLE_LIBPFM=OFF \
@@ -959,22 +940,8 @@ recipe_stage1() {
   config_file
 }
 
-# musl, by stage 1, for the target.
-args_musl() {
-  printf '%s\n' --prefix=/usr "--target=$triple" --disable-shared --disable-wrapper \
-    "CC=$stage1/bin/clang" "AR=$stage1/bin/llvm-ar" "RANLIB=$stage1/bin/llvm-ranlib" \
-    CFLAGS=-ffp-contract=off
-}
-
 recipe_libc() {
-  case $libc in
-    musl)
-      recipe_stage1_inputs=$(inputs stage1) || exit 1
-      printf '%s\n' "musl $musl_revision" "stage1 $recipe_stage1_inputs"
-      args_musl
-      ;;
-    sdk) printf '%s\n' "sdk $sdk" "sdk version $sdk_version" ;;
-  esac
+  printf '%s\n' "$libc $libc_version" "$libc_flags"
 }
 
 # compiler-rt's builtins, by stage 1, for the target, into the runtimes'
@@ -1001,7 +968,7 @@ args_builtins() {
 }
 
 # The C++ runtimes, by stage 1, for the target, static, into the runtimes'
-# tree as clang's driver expects them beside it (cxx_libdir). On musl,
+# tree as clang's driver expects them beside it (cxx_libdir). On glibc,
 # LLVM's unwinder too; libSystem is Darwin's unwinder.
 args_libcxx() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -1014,19 +981,19 @@ args_libcxx() {
     -DLIBCXX_ENABLE_TIME_ZONE_DATABASE=OFF -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DLIBCXX_INCLUDE_TESTS=OFF
   native_cmake_flags
   case $libc in
-    musl)
+    glibc)
       printf '%s\n' '-DLLVM_ENABLE_RUNTIMES=libunwind;libcxxabi;libcxx' \
         -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
         -DLIBUNWIND_ENABLE_SHARED=OFF -DLIBUNWIND_USE_COMPILER_RT=ON \
         -DLIBCXXABI_USE_COMPILER_RT=ON -DLIBCXXABI_USE_LLVM_UNWINDER=ON \
-        -DLIBCXX_USE_COMPILER_RT=ON -DLIBCXX_HAS_MUSL_LIBC=ON
+        -DLIBCXX_USE_COMPILER_RT=ON
       ;;
     # libSystem loads the system's libc++ into every process, and dyld
     # binds a weak definition to the first image that exports it: a
     # static libc++ that exported its symbols would have its locales and
     # streams bound to the system's, two implementations freeing each
     # other's memory. Built hermetic, it exports nothing.
-    sdk)
+    libSystem)
       printf '%s\n' '-DLLVM_ENABLE_RUNTIMES=libcxxabi;libcxx' \
         -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF -DLIBCXXABI_USE_LLVM_UNWINDER=OFF \
         -DLIBCXX_HERMETIC_STATIC_LIBRARY=ON -DLIBCXXABI_HERMETIC_STATIC_LIBRARY=ON
@@ -1053,8 +1020,8 @@ stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;l
 # compiler cache relinks without optimizing LLVM again. Statistics are
 # forced on, so that llvm-config.h says they count to every includer, as
 # they do in an LLVM with assertions: a pass statistic's layout follows it,
-# and our Release build defines NDEBUG. On ELF a static PIE; on Mach-O a PIE
-# linked against libSystem, since no executable is static there.
+# and our Release build defines NDEBUG. On every target a PIE linked
+# against the system's C library.
 args_stage2() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
   stage1_tools
@@ -1068,7 +1035,7 @@ args_stage2() {
   native_cmake_flags
   case $object_format in
     elf)
-      printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld.lld" -DLLVM_ENABLE_PIC=OFF -DLLVM_BUILD_STATIC=ON
+      printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld.lld" -DLLVM_ENABLE_PIC=OFF
       ;;
     macho)
       printf '%s\n' "-DCMAKE_LINKER=$stage1/bin/ld64.lld" -DLLVM_ENABLE_PIC=ON -DLLVM_BUILD_STATIC=OFF
@@ -1092,7 +1059,7 @@ recipe_stage2() {
 
 # GMP, static and position-independent, by the stage-2 clang for the
 # target: every x86-64 kernel selected at run time (gmp_fat), one arm64
-# build on Darwin, where there is no run-time dispatch to ask for.
+# build, where there is no run-time dispatch to ask for.
 args_gmp() {
   printf '%s\n' --prefix=/usr "--build=$gmp_host" "--host=$gmp_host"
   [ -z "$gmp_fat" ] || printf '%s\n' "$gmp_fat"
@@ -1193,6 +1160,7 @@ set(CMAKE_CXX26_EXTENSION_COMPILE_OPTION "-std=gnu++2c")
 set(MLIR_DIR "$builds/typecheck-llvm/lib/cmake/mlir" CACHE PATH "the TableGen-only MLIR's package")
 set(LLVM_DIR "$builds/typecheck-llvm/lib/cmake/llvm" CACHE PATH "the TableGen-only LLVM's package")
 set(IDRIS_MLIR_TYPECHECK ON CACHE BOOL "compile our code against the TableGen-only LLVM/MLIR" FORCE)
+set(IDRIS_MLIR_PAGE_SIZE $page_size CACHE STRING "the target's page size, this machine's")
 CMAKE
 }
 
@@ -1283,67 +1251,18 @@ step_stage1() {
   finish
 }
 
-# The target's C library. On musl, built with stage 1 into the sysroot,
-# with the kernel's UAPI headers, which musl does not ship and libc++ and
-# snmalloc include (PIN(linux-uapi-from-host)). On the SDK, libSystem is
-# the SDK's: the step records which SDK, so that a new one makes the steps
-# built against it stale, and makes the sysroot that GMP goes into. Either
-# way the sysroot starts empty, since what is in it was built for the C
-# library before.
+# The target's C library, the system's: the step records which the host
+# has, so that another makes the steps built against it stale, and makes
+# the sysroot that GMP goes into, empty, since what was in it was built
+# against the C library before.
 step_libc() {
-  case $libc in
-    musl)
-      begin libc "musl $musl_version, with stage 1" || return 0
-      require stage1
-      ;;
-    sdk) begin libc "libSystem in the macOS SDK $sdk_version" || return 0 ;;
-  esac
+  begin libc "$libc, the system's ($libc_version)" || return 0
   rm -rf "$sysroot"
   mkdir -p "$sysroot/usr/include" "$sysroot/usr/lib"
   build_dir
-  case $libc in
-    musl) libc_musl ;;
-    sdk) libc_sdk ;;
-  esac
-  finish
-}
-
-libc_musl() {
-  need git make
-  submodule third_party/musl musl > /dev/null
-  verify_release musl third_party/musl
-  uapi=
-  for uapi_candidate in "/usr/include/${triple%%-*}-linux-gnu" /usr/include; do
-    if [ -f "$uapi_candidate/asm/unistd.h" ]; then uapi=$uapi_candidate; break; fi
-  done
-  if [ -z "$uapi" ] || [ ! -f /usr/include/linux/futex.h ] || [ ! -d /usr/include/asm-generic ]; then
-    die "the host's Linux UAPI headers are missing; install its kernel headers package (linux-libc-dev)"
-  fi
-  export_source "$root/third_party/musl" "$build/src"
-  mkdir -p "$build/out"
-  eval "set -- $({ args_musl; ccache_cc CC "$stage1/bin/clang"; } | quote_lines)"
-  run configure in_dir "$build/out" "$build/src/configure" "$@"
-  run build in_dir "$build/out" make -j "$jobs"
-  run install in_dir "$build/out" make install "DESTDIR=$sysroot"
-  run "the host's Linux UAPI headers" cp -RL /usr/include/linux /usr/include/asm-generic "$uapi/asm" "$sysroot/usr/include/"
-  for musl_file in usr/lib/libc.a usr/lib/rcrt1.o usr/lib/crti.o usr/lib/crtn.o usr/include/stdio.h \
-    usr/include/linux/futex.h usr/include/asm/unistd.h; do
-    [ -f "$sysroot/$musl_file" ] || die "the libc step installed no $musl_file"
-  done
-  uapi_sha256=$(cd "$sysroot/usr/include" && find linux asm asm-generic -type f | sort |
-    while IFS= read -r uapi_file; do sha256 "$uapi_file" || exit 1; done | digest)
-  uapi_package=$(dpkg-query -W -f='${Version}' linux-libc-dev 2> /dev/null) || uapi_package=unknown
-  write_stamp "$(stamp_of libc)" step libc libc musl revision "$musl_revision" version "$musl_version" \
-    inputs "$step_inputs" release "$release_check" uapi_headers "$uapi" \
-    uapi_package "$uapi_package" uapi_sha256 "$uapi_sha256" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-
-libc_sdk() {
-  for sdk_file in usr/include/stdio.h usr/include/pthread.h usr/lib/libSystem.tbd; do
-    [ -f "$sdk/$sdk_file" ] || die "the macOS SDK $sdk has no $sdk_file"
-  done
-  write_stamp "$(stamp_of libc)" step libc libc sdk sdk "$sdk" sdk_version "$sdk_version" \
+  write_stamp "$(stamp_of libc)" step libc libc "$libc" libc_version "$libc_version" \
     inputs "$step_inputs" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  finish
 }
 
 # The runtimes, with stage 1, for the target: compiler-rt's builtins and the
@@ -1465,7 +1384,7 @@ step_stage2() {
   done
   write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
     "$llvm_name_key" "$llvm_name" version "$llvm_version" triple "$triple" targets "$llvm_targets" \
-    libc "$libc" sdk "$sdk" sdk_version "$sdk_version" page_size "$page_size" \
+    libc "$libc" libc_version "$libc_version" page_size "$page_size" \
     inputs "$step_inputs" patches "$(patch_stamp llvm)" jobs "$jobs" compiler_cache "$ccache_state" \
     seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
     baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \
@@ -1572,15 +1491,12 @@ idris_make() {
     CHEZ=$chez
     PATH=$idris_prefix/bin:$PATH
     export CHEZ PATH
-    # Idris's C support library uses GMP. Where the sysroot's C library is
-    # the host's (sysroot_is_host), its GMP serves the host's C compiler too,
-    # through its include and library directories (command-line variables,
-    # which reach the sub-makes); on musl it does not, and gmp.h is the
-    # host's.
-    if [ "$sysroot_is_host" = yes ]; then
-      set -- "$@" "CPPFLAGS=-I$sysroot/usr/include" "LDFLAGS=-L$sysroot/usr/lib"
-    fi
-    cd "$build/src" && make "$@" "PREFIX=$idris_prefix" "SCHEME=$chez" "VERSION_TAG=$idris_version_tag"
+    # Idris's C support library uses GMP, the sysroot's, built against the
+    # system's C library, which the host's C compiler links too: through its
+    # include and library directories (command-line variables, which reach
+    # the sub-makes).
+    cd "$build/src" && make "$@" "CPPFLAGS=-I$sysroot/usr/include" "LDFLAGS=-L$sysroot/usr/lib" \
+      "PREFIX=$idris_prefix" "SCHEME=$chez" "VERSION_TAG=$idris_version_tag"
   )
 }
 

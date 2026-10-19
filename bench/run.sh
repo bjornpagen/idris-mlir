@@ -93,8 +93,8 @@ bounded() {
 # differ by architecture (-march on x86-64, -mcpu on arm64).
 target_cpu=$("$idris_mlir" --print-target-cpu) || die "idris-mlir names no target CPU; run make build"
 target_triple=$("$idris_mlir" --print-target-triple) || die "idris-mlir names no target triple; run make build"
-# How the target links a program (a static PIE on musl, a dynamic
-# executable on Darwin) is decided there too; the C programs and the input
+# How the target links a program (a PIE on the system's C library) is
+# decided there too; the C programs and the input
 # generators are linked so, as this compiler's programs are.
 link_flags=$("$idris_mlir" --print-link-flags) ||
   die "idris-mlir --print-link-flags names no link flags for the target; run make build"

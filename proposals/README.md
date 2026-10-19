@@ -114,9 +114,9 @@ The rules every proposal holds to, each stated in AGENTS.md or here:
   built; the owner's build qualifies it with the self-host (HANDOFF.md).
 - [0005](0005-targets.md): four first-class targets (arm64 macOS, arm64
   Linux at 16 KiB and at 4 KiB pages, x86_64 Linux), each linking the
-  system's C library dynamically and nothing else shared; musl goes and
-  glibc is pinned at Fedora 44's 2.43. The owner's decisions; nothing is
-  built. L1 after 0003's S4, then L2.
+  system's C library dynamically and nothing else shared; musl is gone.
+  Landed 2026-10-18 as one cutover, unbuilt: the owner's builds on all
+  four qualify it, arm64 macOS first.
 - [0006](0006-toolchain-bump.md): the toolchain bump. Idris 2 alone, then
   CMake and LLVM together, then a fresh survey. Right after `make self`,
   whose stage 2 = stage 3 check is the bump's strongest. It holds the
@@ -177,11 +177,10 @@ Each has its default taken in the proposal that owns it:
   through a relink kit.
 - **0017 §4:** whether a port's changes note names only what changed.
   *Default:* yes.
-- **0005 §9:** the programs' CPU on 16 KiB arm64 Linux, where the Linux
-  targets run, and how glibc is pinned. *Default:* `armv8.2-a` (the
-  4 KiB target's `armv8-a` is decided, for the Pi Zero 2 W, Pi 3 and
-  Pi 4); Fedora 44 VMs on the Mac for arm64 Linux and a native x86_64
-  machine; the build host's glibc exactly 2.43.
+- **0005:** where the Linux targets run, and the 16 KiB arm64 Linux
+  target's CPU. *Default:* Fedora 44 VMs on the Mac for arm64 Linux, at
+  4 KiB and at 16 KiB, and a native x86_64 machine; `cortex-a76`, the
+  Raspberry Pi 5's.
 - **0007 §5:** where G1's x86_64 Linux leg runs. *Default:* a native
   machine of the owner's.
 - **0006:** the ryu pin. *Default:* stay.

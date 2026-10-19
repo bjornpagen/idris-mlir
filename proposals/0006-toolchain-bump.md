@@ -18,7 +18,7 @@ and why.
 | Idris 2 | 1c630e67 | main 89ba32eb (still main, *measured* 2026-10-15) | bump: base only |
 | CMake | v4.2.8 | v4.4.4, the newest release (4.5.0-rc1 is a candidate) | bump: the gate's series moves |
 | Chez Scheme | v10.4.1 | v10.4.1 (no 10.5.0 tag yet) | stay until 10.5.0 is tagged |
-| Ninja, musl, GMP, simdutf, fast_float, snmalloc | v1.13.2, v1.2.6, v6.3.0, v9.3.0, v8.3.2, 0.7.6 | the same: each is its newest release (*measured*) | stay |
+| Ninja, GMP, simdutf, fast_float, snmalloc | v1.13.2, v6.3.0, v9.3.0, v8.3.2, 0.7.6 | the same: each is its newest release (*measured*) | stay |
 | ryu | v2.0-108 | no release since v2.0 (2019) | the owner's question (Decisions) |
 
 ## LLVM

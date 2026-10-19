@@ -91,7 +91,7 @@ The LLVM pin is a commit of llvm main, not a release: the patch we carry
 for a bug we send upstream is then its pull request, one diff, not two.
 It moves when a patch of ours lands upstream, or about monthly otherwise.
 Each bump is one commit: the lock, the toolchain rebuilt from it by the one
-recipe (`tools/bootstrap.sh`) on both targets, the full suites green on
+recipe (`tools/bootstrap.sh`) on every target, the full suites green on
 each, and this file's sweep.
 
 The accepted toolchain release series live only in `toolchain.lock.json`,
@@ -598,28 +598,30 @@ which the top-level CMake configure gate reads.
 - upstream: the generalization is planned (the pipeline cutover's proposal
   at 484d6403, §7 item 1), not written
 
-## platform-gate-x86_64
+## platform-gate
 
 - symptom: the adopted profile's gate accepts Darwin arm64 only; this
-  project's two first-class targets are x86_64 Linux and arm64 macOS (the
-  user's decision), built by one recipe (`tools/bootstrap.sh`) and checked
-  by the same suites on each
-- sites: CMakeLists.txt — the platform gate, which accepts exactly those
-  two hosts, and each target entry's tool flags (`-fcf-protection=full`,
-  CET, in the x86_64 Linux entry)
-- workaround: accept Linux x86_64 beside Darwin arm64; each target entry
-  names its own hardening
+  project's first-class targets are arm64 macOS, arm64 Linux at 16 KiB and
+  at 4 KiB pages, and x86_64 Linux (the owner's decision), built by one
+  recipe (`tools/bootstrap.sh`) and checked by the same suites on each
+- sites: CMakeLists.txt — the platform gate, which accepts exactly their
+  hosts, Linux x86_64 and aarch64 and Darwin arm64, and each target
+  entry's tool flags (`-fcf-protection=full`, CET, in the x86_64 Linux
+  entry; `-mbranch-protection=standard` in the arm64 Linux entries)
+- workaround: accept those hosts; each target entry names its own
+  hardening
 - retire: never; this is a scope decision
 - upstream: none
 
 ## darwin-inert-mitigations
 
-- symptom: `_FORTIFY_SOURCE` does nothing with musl (it has no fortified
-  functions) or with Apple's SDK for C++, and `-mbranch-protection=standard`
-  executes as NOP in plain-arm64 Darwin processes
+- symptom: `_FORTIFY_SOURCE` does nothing with Apple's SDK for C++, and
+  `-mbranch-protection=standard` executes as NOP in plain-arm64 Darwin
+  processes
 - sites: CMakeLists.txt — the target entries' tool flags, which the
-  language profile applies: none define `_FORTIFY_SOURCE`, and the arm64
-  macOS entry names no branch protection
+  language profile applies: the arm64 macOS entry defines no
+  `_FORTIFY_SOURCE` and names no branch protection, which the Linux
+  entries, where both are live, do
 - workaround: select the live mitigations in CMake, never behind a C++ `#ifdef`
 - retire: never; platform ABI facts
 - upstream: none
@@ -628,7 +630,7 @@ which the top-level CMake configure gate reads.
 
 - symptom: the adopted profile is GCC with libstdc++; this project's
   compiler is the stage-2 clang of the pinned llvm-project with the pinned
-  libc++, statically linked, on both targets. GCC-only diagnostics
+  libc++, statically linked, on every target. GCC-only diagnostics
   of the profile (`-Wduplicated-cond`, `-Wlogical-op`, `-Wuseless-cast` and
   the like) and libstdc++'s `_GLIBCXX_ASSERTIONS` have no clang spelling
 - sites: CMakeLists.txt — the compiler gate (Clang, the lock's LLVM series,
@@ -652,27 +654,15 @@ which the top-level CMake configure gate reads.
 ## no-sanitizer-runtimes
 
 - symptom: cpp-starter's `asan-ubsan` preset needs compiler-rt's sanitizer
-  runtimes; the pinned toolchain builds only compiler-rt's builtins, on both
-  targets, and on x86_64 Linux ASan does not support static executables
+  runtimes; the pinned toolchain builds only compiler-rt's builtins, on
+  every target
 - sites: CMakePresets.json, which has no `asan-ubsan` preset;
   tests/spec/mlir-layout checks that it has none
 - workaround: the hardened preset builds our tools with trap-mode UBSan
   (`-fsanitize=undefined -fsanitize-trap=all`), which needs no runtime
 - retire: when a sanitizer build is worth building compiler-rt's
-  sanitizers for (and, on musl, dynamic executables); the preset comes
-  back then, with what it builds
+  sanitizers for; the preset comes back then, with what it builds
 - upstream: none
-
-## musl-thread-stacks
-
-- symptom: musl's default thread stack is 128 KiB unless the executable's
-  PT_GNU_STACK asks for more; LLVM and MLIR run deep recursions on threads
-  of their own
-- sites: CMakeLists.txt — the x86_64 Linux target entry's tool link flags,
-  `-z stack-size=8388608`
-- workaround: 8 MiB, glibc's default, recorded in PT_GNU_STACK
-- retire: never while the tools link musl
-- upstream: none — musl's documented behaviour
 
 ## runtime-quarantine
 
@@ -744,34 +734,22 @@ which the top-level CMake configure gate reads.
   instruction as an intrinsic, is a submission
 - retire: when the snmalloc pin moves past upstream's change
 - upstream: upstream/49-snmalloc-arm-yield-intrinsic (not filed)
-## linux-uapi-from-host
-
-- symptom: musl ships no kernel headers, but libc++ (`<linux/futex.h>`) and
-  snmalloc (`<linux/random.h>`, `<linux/futex.h>`) include them
-- sites: tools/bootstrap.sh (step `libc`, on musl)
-- workaround: the host's Linux UAPI headers (`linux/`, `asm/`,
-  `asm-generic/`) are copied into the sysroot; the musl stamp records their
-  package version and SHA-256. The UAPI is the kernel's stable ABI
-- retire: when the kernel's headers are pinned and installed from source
-- upstream: none
-
 ## mirrored-sources
 
-- symptom: musl's and GMP's official hosts (git.musl-libc.org, gmplib.org)
-  are unreachable here; the submodules are clones of GitHub mirrors
-  (kraj/musl, arthenica/gmp)
+- symptom: GMP's official host (gmplib.org) is unreachable here; the
+  submodule is a clone of a GitHub mirror (arthenica/gmp)
 - sites: .gitmodules, toolchain.lock.json (`release`, `release_sha256`),
   tools/bootstrap.sh (`verify_release`)
-- workaround: each is pinned by commit to its release tag; the lock records
+- workaround: it is pinned by commit to its release tag; the lock records
   the official release tarball and its SHA-256 (as buildroot and Homebrew
-  publish it). The musl and gmp steps fetch the tarball when they can and
+  publish it). The gmp step fetches the tarball when it can and
   refuse a SHA-256 that differs, or a file the release ships that the
   pinned commit lacks or holds otherwise; the files the commit has beyond
   the release (GMP's release leaves out its development tests, and one
   x86-64 assembly file, `mpn/x86_64/addaddmul_1msb0.asm`) are named in the
-  stamp. The build is the commit's files either way. When they cannot
-  fetch it, they say so and the stamp records `not verified`
-- retire: when the official hosts are reachable and the check has passed
+  stamp. The build is the commit's files either way. When it cannot
+  fetch it, it says so and the stamp records `not verified`
+- retire: when the official host is reachable and the check has passed
   once
 - upstream: none
 
@@ -780,8 +758,7 @@ which the top-level CMake configure gate reads.
 - symptom: the pinned toolchain builds everything else with the stage-2
   clang, for the target, but Idris's C support library is a shared object
   loaded by Chez Scheme, a dynamically linked process of the host's C
-  library (glibc on Linux, libSystem on macOS): a host program, which on
-  Linux the target's C library, musl, is not
+  library (glibc on Linux, libSystem on macOS): a host program
 - sites: tools/bootstrap.sh (steps `chez` and `idris`)
 - workaround: the pinned Chez Scheme and Idris 2 are built with the host's C
   compiler; they are host programs and never link into an executable

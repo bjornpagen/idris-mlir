@@ -47,10 +47,11 @@ case $host_clock in
 esac
 case $(uname -s) in
   Linux)
-    if [ -f /usr/include/linux/futex.h ] && [ -d /usr/include/asm-generic ]; then
-      echo "Linux UAPI headers: found"
+    echo "C library: $(getconf GNU_LIBC_VERSION 2> /dev/null || echo 'not found')"
+    if [ -f /usr/include/stdio.h ] && [ -f /usr/include/linux/futex.h ]; then
+      echo "C library and kernel headers: found"
     else
-      echo "Linux UAPI headers: not found"
+      echo "C library and kernel headers: not found (Fedora: glibc-devel, kernel-headers)"
     fi
     ;;
   Darwin)

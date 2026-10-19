@@ -66,7 +66,7 @@ fi
 
 # libc, GMP and compiler-rt define only C names, so every mangled name comes
 # from the C++ library. The rest is the C++ ABI (but the two __cxa_ functions
-# musl defines), the personality routines and the unwinder.
+# the C library defines), the personality routines and the unwinder.
 grep -E '^(_Z|__cxa_|__cxxabi|__gxx_|__gcc_personality|_Unwind_|__dynamic_cast$)' "$work/external" |
   grep -vxE '__cxa_atexit|__cxa_finalize' > "$work/cxx" || true
 

@@ -1,5 +1,32 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
+# Checkpoint (2026-10-18, four targets on the system's C library)
+
+Proposal 0005 landed as one cutover, unbuilt: every target links the
+system's C library dynamically (glibc on Linux, whichever the machine has;
+libSystem on macOS) and nothing else shared; musl is gone; arm64 Linux at
+4 KiB and at 16 KiB pages are targets. The bootstrap's shared code changed,
+so every step rebuilds on every target, stage 1 included.
+
+Pull it after the self-host run in progress, which keeps the bootstrap it
+started with. Then, on each target, arm64 macOS first:
+1. `git pull` (third_party/musl leaves the tree), `make check`,
+   `make bootstrap`, `make build`, and the suites. On Linux the host needs
+   glibc's development files and the kernel's headers (Fedora:
+   `glibc-devel`, `kernel-headers`); it no longer needs its own GMP.
+2. `tests/toolchain/static-linking` is owed acceptance: the one linking
+   rule, on every target.
+3. What 0005 wrote from memory, listed in its "What remains", is confirmed
+   or corrected on the first build that reaches it: arm64 Linux's user
+   address bits (read `CONFIG_ARM64_VA_BITS` from the kernel), compiler-rt's
+   Linux start of the AArch64 features, glibc's start files found without
+   GCC, the executable check's set of glibc's libraries.
+
+`make check` here: 32/35. The three that fail fail on files of earlier
+commits, none of this one's: spec/licenses (six runtime tests' `report`
+files and `audits/machinery.md`), spec/file-size (eight units over 400
+lines) and spec/dialect-text (five idr tests that FileCheck module text).
+
 # Checkpoint (2026-10-18, the representation wave on the typecheck machine)
 
 Proposal 0004 landed as 2c042728: 27 lanes, one hard cutover (the commit
