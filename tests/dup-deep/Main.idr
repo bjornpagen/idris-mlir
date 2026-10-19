@@ -2,9 +2,9 @@ module Main
 
 -- A recursion that returns its own result two constructors deep, each
 -- element twice, is written top down through the destination of the inner
--- cell and runs in constant stack: a million elements, where the harness
--- gives a program a 1 MiB stack. The list is built by a tail-recursive
--- loop and summed by one, so what is tested is dup.
+-- cell and runs in constant stack (mlir.expect), over a million elements.
+-- The list is built by a tail-recursive loop and summed by one, so what is
+-- tested is dup.
 
 import Prelude
 

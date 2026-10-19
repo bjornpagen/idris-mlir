@@ -6,9 +6,9 @@ module Main
 -- inside the bind that runs it, and both branches of the if build it. The
 -- fold is still written top down, through the destination of the closure
 -- that holds the rest, across the if's join, so building it runs in
--- constant stack; running what it built is a chain of tail calls. Over
--- 200000 elements, where the harness gives a program a 1 MiB stack. The
--- list is built by a tail-recursive loop, so the fold is what is tested.
+-- constant stack (mlir.expect); running what it built is a chain of tail
+-- calls. The list is built by a tail-recursive loop, so the fold is what
+-- is tested.
 
 import Prelude
 
