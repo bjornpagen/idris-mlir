@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: %differential %s %t.mlir
 // RUN: sed -n 's|^// REF: ||p' %s > %t.ref.mlir
 // RUN: %differential %t.ref.mlir %t.mlir
@@ -8,8 +8,10 @@
 // @bind of @put and of @seq, which forces the thunk of the next statement.
 // Defunctionalization makes every action a constructor of a dispatch sum,
 // and the optimizer, callee first, folds each dispatch on a known
-// constructor into a call and inlines it: the whole block unfolds into the
-// root, in order, and no call of @bind or of @seq is left. In order: the
+// constructor into a call and inlines it: @bind is recursive, but a copy of
+// it for a known action applies that closure, which is beta reduction, not
+// a step of the recursion. The whole block unfolds into the root, in
+// order, and no call of @bind or of @seq is left. In order: the
 // optimized program prints 1 to 16, a line each, as the program as written
 // and the reference at the end (REF), a loop, do (%differential, on the
 // one input, none, since it reads none).

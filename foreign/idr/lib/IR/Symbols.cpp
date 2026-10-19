@@ -62,6 +62,8 @@ std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
       return match.getScrutinee() == value && match.getDataType().isClosures();
     if (auto field = dyn_cast_or_null<FieldOp>(op))
       return field.getValue() == value && field.getDataType().isClosures();
+    if (auto output = dyn_cast_or_null<PutStrOp>(op))
+      return output.getStr() == value;
     return false;
   };
   if (!eliminates(user))

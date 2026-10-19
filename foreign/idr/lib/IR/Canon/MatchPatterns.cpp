@@ -131,27 +131,47 @@ void populate(RewritePatternSet &results, MLIRContext *context, StringRef root) 
 
 namespace idr::canon {
 
+namespace {
+
+// The value whose fields a match on `scrutinee` is read from once it is
+// inlined: the scrutinee seen through the linear positions it passed, back
+// to the value nearest where it was made that is held at quantity many.
+// Every read of it takes its fields apart again, so it is a value read any
+// number of times; a constructor among the positions further on is what
+// those reads then fold against. None when every value on the way is
+// linear: the match takes a linear value apart, and its one read is the
+// match.
+std::optional<Value> fieldsReadFrom(Value scrutinee) {
+  SmallVector<Value, 4> positions = linearPositions(scrutinee);
+  auto plain = llvm::find_if(llvm::reverse(positions), [](Value value) {
+    return quantityOf(value.getType()) != Quantity::One;
+  });
+  if (plain == llvm::reverse(positions).end())
+    return std::nullopt;
+  return *plain;
+}
+
+} // namespace
+
 // A case's argument is the declared field at the scrutinee's grade; read
-// from the value seen through a linear position, it is the field at that
-// value's grade, as idr.field reads it, and the read is then held as the
-// argument. The default's argument is the scrutinee, which it binds back.
+// from the value fieldsReadFrom gives, it is the field at that value's
+// grade, as idr.field reads it, and the read is then held as the argument.
+// The default's argument is the scrutinee, which it binds back.
 Value readField(OpBuilder &builder, Location loc, Value value) {
   auto arg = cast<BlockArgument>(value);
   auto match = cast<MatchOpInterface>(arg.getOwner()->getParentOp());
   Region &region = *arg.getParentRegion();
   if (&region == &match.getDefaultRegion())
     return match.getScrutinee();
-  Value field = FieldOp::create(builder, loc, throughLinear(match.getScrutinee()),
+  Value field = FieldOp::create(builder, loc, *fieldsReadFrom(match.getScrutinee()),
                                 *match.knownTag(region), arg.getArgNumber());
   return heldAs(builder, loc, field, arg.getType());
 }
 
-// One whose value entered its grade from a plain value reads that value's
-// fields; a literal match reads a value, never a linear one, and binds no
-// field.
+// One whose fields are read from a value held at quantity many; a literal
+// match reads a value, never a linear one, and binds no field.
 LogicalResult readsPlainValue(Operation *op) {
-  auto match = cast<MatchOpInterface>(op);
-  return success(quantityOf(throughLinear(match.getScrutinee()).getType()) != Quantity::One);
+  return success(fieldsReadFrom(cast<MatchOpInterface>(op).getScrutinee()).has_value());
 }
 
 // Case-of-case and sinking are tried at every op, so the one hook adds

@@ -106,9 +106,10 @@ class Node {
   };
   struct Made {
     llvm::SmallVector<BindingTime> times;
-    // Whether the function the program held that it stands for is on a
-    // cycle of calls (Scheduler::insert).
-    bool ofRecursion = false;
+    // Whether it is a step of a recursion on static data: the function the
+    // program held that it stands for is on a cycle of calls, and its key
+    // fixes no closure (Scheduler::insert).
+    bool stepOfRecursion = false;
   };
 
 public:
@@ -158,13 +159,14 @@ private:
   }
 
   // Whether the inline rule keeps its calls, as it keeps those of a function
-  // on a cycle: a node made of a recursive function is one step of that
-  // recursion on static arguments, and inlining it hands its caller the
-  // next step's static arguments, which ask for the next node, so the
-  // recursion would unroll into its callers up to the caller cap.
+  // on a cycle: a node made of a recursive function on static data is one
+  // step of that recursion, and inlining it hands its caller the next
+  // step's static arguments, which ask for the next node, so the recursion
+  // would unroll into its callers up to the caller cap. A node that applies
+  // a known closure is no such step.
   bool stepOfRecursion() const {
     const auto *made = std::get_if<Made>(&origin);
-    return made && made->ofRecursion;
+    return made && made->stepOfRecursion;
   }
 
   // The call sites the inline rule weighs.

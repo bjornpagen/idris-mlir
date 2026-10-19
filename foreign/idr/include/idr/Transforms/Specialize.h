@@ -290,6 +290,12 @@ unsigned countHoles(mlir::Attribute pattern);
 std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
                                    llvm::ArrayRef<BindingTime> seen);
 
+// Whether `key`, a key over parameters of types `params`, fixes a closure:
+// a constructor of a sum defunctionalization made, built where the call is
+// or constant, at a parameter that holds one. A node of such a key applies
+// that closure: its body is the closure's code run on what the key fixed.
+bool fixesClosure(SpecKeyAttr key, mlir::TypeRange params);
+
 // The order a key is compared by with the keys on its request chain and
 // the keys its requester was given. It remembers the size of each constant
 // it measured; one per run, under the table's lock.

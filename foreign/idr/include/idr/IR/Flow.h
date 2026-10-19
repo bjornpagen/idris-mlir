@@ -96,6 +96,19 @@ bool onlyAllocates(mlir::Operation *op);
 // only compute, though it may crash or not return.
 bool performsIO(mlir::Operation *op);
 
+// Whether `call` may run at `at`, an op after it in its block, in place of
+// where it is: nothing between can tell. What a call reads is its
+// arguments and what each is the same value as or a part of (sourceOf); an
+// op between that writes or frees one of those, as a drop of the value a
+// borrowed argument views does, could tell. A call that only computes (its
+// effects are none: no IO, no crash, and it returns) may run after
+// anything else between; any other only after ops that perform no IO,
+// which its crash or its loop would be ordered with, and that write or
+// free only memory made after it, which nothing it is given reaches.
+// Raising asks it of a call whose result it takes to its consumer, and
+// idr-trmc of a call it moves to the end of a tail.
+bool mayRunAt(CallOp call, mlir::Operation *at);
+
 } // namespace idr
 
 #endif // IDR_IR_FLOW_H

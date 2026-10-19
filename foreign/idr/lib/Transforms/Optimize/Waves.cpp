@@ -204,6 +204,17 @@ void Scheduler::waitOnCalls(Node *node) {
   }
 }
 
+// Whether a node of `key` applies a known closure: a spec key that fixes a
+// closure at a parameter of the function it specializes, which its key
+// names.
+bool Scheduler::appliesKnownClosure(const specialize::Key &key) const {
+  const auto *spec = std::get_if<SpecKeyAttr>(&key);
+  if (!spec)
+    return false;
+  Node *owner = analyses.set.nodeOf(spec->getOrigin());
+  return owner && specialize::detail::fixesClosure(*spec, owner->fn.getArgumentTypes());
+}
+
 // A built node goes into the program: after its owner and the owner's nodes
 // whose names sort before its own (the table places it), into the symbol
 // table, the analysis manager and the ready set, as a node of a component
@@ -217,21 +228,28 @@ void Scheduler::insert(specialize::Node *made) {
   auto scc = std::make_unique<Scc>();
   scc->order = static_cast<unsigned>(set.all.size());
   specialize::Built &built = std::get<specialize::Built>(made->state);
-  // Its origin is on a cycle of calls when its component holds another
-  // function or its body calls itself.
-  bool ofRecursion = false;
+  // A step of a recursion on static data: its origin is on a cycle of
+  // calls (its component holds another function, or its body calls
+  // itself), and its key fixes no closure. A key that fixes one makes a
+  // node that applies a known closure, which is beta reduction, not a step
+  // of the recursion: inlined, it consumes the closure constructor its
+  // caller built, and the next step is a node only where the caller's code
+  // built another.
+  bool stepOfRecursion = false;
   if (Node *origin = set.byName.lookup(made->origin)) {
     StringAttr name = origin->fn.getSymNameAttr();
-    ofRecursion = origin->scc->members.size() > 1 ||
-                  origin->fn.getBody()
-                      .walk([&](CallOp call) {
-                        return call.getCalleeAttr().getAttr() == name ? WalkResult::interrupt()
-                                                                       : WalkResult::advance();
-                      })
-                      .wasInterrupted();
+    stepOfRecursion = (origin->scc->members.size() > 1 ||
+                       origin->fn.getBody()
+                           .walk([&](CallOp call) {
+                             return call.getCalleeAttr().getAttr() == name
+                                        ? WalkResult::interrupt()
+                                        : WalkResult::advance();
+                           })
+                           .wasInterrupted()) &&
+                      !appliesKnownClosure(made->key);
   }
   auto node =
-      std::make_unique<Node>(built.fn, Node::Made{std::move(built.times), ofRecursion}, *scc);
+      std::make_unique<Node>(built.fn, Node::Made{std::move(built.times), stepOfRecursion}, *scc);
   scc->members.push_back(node.get());
   analyses.nodes.insert(*made, analyses.program, *node);
   analyses.symbols.insert(node->fn);

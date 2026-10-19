@@ -111,10 +111,16 @@ bool isLazyType(mlir::Type type);
 llvm::SmallVector<mlir::Value, 4>
 definitionChain(mlir::Value start, llvm::function_ref<std::optional<mlir::Value>(mlir::Value)> step);
 
-// The value `value` was made from, seen through the linear positions it
-// passed: `lin.enter %x` and `lin.use (lin.enter %x)` are %x. What a value
-// is (its constructor, a field) does not change on the way; whether a read
-// may take a linear part of it is the reader's to decide.
+// The linear positions `value` passed, `value` first and the value it was
+// made from last: each step is an op that keeps its operand's value
+// (Idr_SameValue) at another quantity, the entry into a linear type or the
+// use out of one, so `lin.use %c` reaches the constructor %c however it
+// came to be linear. What a value is (its constructor, a field) does not
+// change on the way; whether a read may take a linear part of it is the
+// reader's to decide.
+llvm::SmallVector<mlir::Value, 4> linearPositions(mlir::Value value);
+
+// The last of linearPositions: the value `value` was made from.
 mlir::Value throughLinear(mlir::Value value);
 
 // What a value is made of, structurally: the same value as another (the

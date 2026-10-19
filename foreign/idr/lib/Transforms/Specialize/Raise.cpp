@@ -4,13 +4,15 @@
 // dispatch that is all its one use does with it (through one field of it,
 // `idr.field %r[@C, i]`, for an action in a constructor such as `MkIO f`,
 // and through the one use of a linear value; the result may first pass a
-// linear position, entered and used at once), moves into a copy of the
-// callee that takes the values the consumer reads too and returns what the
-// consumer returns (arity raising). In the copy, the consumer moves to
-// every tail of the body: the operand of its return and, through each match
-// whose result reaches the return and has no other use, the yields of its
-// regions. There it meets the constructor the body built and is case of a
-// known constructor, which the copy's own pipeline folds. Its parameters
+// linear position, entered and used at once), or the output of a string,
+// moves into a copy of the callee that takes the values the consumer reads
+// too (the world an output writes) and returns what the consumer returns
+// (arity raising). In the copy, the consumer moves to every tail of the
+// body: the operand of its return and, through each match whose result
+// reaches the return and has no other use, the yields of its regions.
+// There it meets the constructor the body built and is case of a known
+// constructor, or the string the body built and writes it in pieces
+// (output fusion), which the copy's own pipeline folds. Its parameters
 // are the callee's, then the consumer's free values. Where a tail is a call
 // whose result the consumer meets again, the node's own redirect walk makes
 // it a call of the node for that callee and this consumer: the node itself,

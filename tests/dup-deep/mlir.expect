@@ -1,0 +1,4 @@
+# Every recursion of the program is a loop or a guaranteed tail call once
+# idr-tail-calls has run: dup's included, which writes each pair of cells
+# to the destination it was given.
+idr-tail-calls: constant-stack=@$idris-mlir.root

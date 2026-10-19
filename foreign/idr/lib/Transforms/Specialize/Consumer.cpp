@@ -6,12 +6,12 @@
 //
 // Raising moves the consumer of a call's result into the callee's tails:
 // the dispatch that is all its one use does with it, the match an apply
-// became. Nothing may run between the call and the dispatch that could
-// tell: the dispatch and its steps are in the call's block, and either the
-// call only computes (its effects say it performs no IO, cannot crash and
-// returns; building actions is no IO), or every op between it and the
-// dispatch only computes. A call that passes a world is never raised: the
-// callee's body would take part in the world chain.
+// became, or the output of a string (idr::eliminationAt). Nothing may run
+// between the call and the dispatch that could tell: the dispatch and its
+// steps are in the call's block, and the call may run at the dispatch
+// (idr::mayRunAt, the rule idr-trmc moves a call by; building actions is
+// no IO). A call that passes a world is never raised: the callee's body
+// would take part in the world chain.
 //
 // A raise node is keyed by its callee and its consumer's form: the consumer
 // written as a function of the call's result and the values it reads from
@@ -48,14 +48,9 @@ std::optional<Consumer> consumerOf(idr::CallOp call) {
   std::optional<Elimination> e = eliminationAt(*call->getResult(0).getUses().begin());
   if (!e || e->dispatch->getBlock() != call->getBlock())
     return std::nullopt;
-  // A call that only computes may run later, after anything between it and
-  // its consumer; any other only after ops that only compute. What a call
-  // does is its own effects, each op between's its own.
-  if (call.getEffects() != idr::Effect::none)
-    for (Operation *op = call->getNextNode(); op != e->dispatch;
-         op = op->getNextNode())
-      if (!idr::onlyAllocates(op))
-        return std::nullopt;
+  // The call runs where its consumer is.
+  if (!idr::mayRunAt(call, e->dispatch))
+    return std::nullopt;
   return e;
 }
 
@@ -67,16 +62,14 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
   SmallVector<Operation *> steps = consumer.steps();
   Operation *dispatch = consumer.dispatch;
 
-  // The values the dispatch's regions read from outside it, in the order a
-  // pre-order walk first reads them, but the call's result and what the
-  // steps make, which the copy makes itself. The steps read only the step
-  // before.
+  // The values the dispatch and its regions read from outside it (the
+  // world an output writes, what a case reads), in the order a pre-order
+  // walk first reads them, but the call's result and what the steps make,
+  // which the copy makes itself. The steps read only the step before.
   llvm::SmallPtrSet<Operation *, 4> made(steps.begin(), steps.end());
   made.insert(call);
   llvm::SetVector<Value> outside;
   dispatch->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (op == dispatch)
-      return;
     for (Value operand : op->getOperands()) {
       if (Operation *def = operand.getDefiningOp(); def && made.contains(def))
         continue;

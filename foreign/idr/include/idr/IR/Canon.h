@@ -52,12 +52,13 @@ void addPutListPatterns(mlir::RewritePatternSet &results, mlir::MLIRContext *con
 void addMoveOutPatterns(mlir::RewritePatternSet &results, mlir::MLIRContext *context);
 
 // A match's region replaces it: a case region's arguments are its
-// constructor's fields, read from the value the scrutinee entered its grade
-// from and held as the region binds them; the default region's argument is
-// the scrutinee itself.
+// constructor's fields, read from the scrutinee seen back through its
+// linear positions to the earliest value held at quantity many, and held as
+// the region binds them; the default region's argument is the scrutinee
+// itself.
 mlir::Value readField(mlir::OpBuilder &builder, mlir::Location loc, mlir::Value value);
-// A match on a linear value takes it apart, and stays: the value has no
-// other reader to read its fields from.
+// A match on a value that is linear at every position it passed takes it
+// apart, and stays: the value has no other reader to read its fields from.
 mlir::LogicalResult readsPlainValue(mlir::Operation *op);
 
 // Record eta: a constructor rebuilt from the fields of a value known to be

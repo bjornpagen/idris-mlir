@@ -120,15 +120,17 @@ Quantity idr::quantityOf(Type type) {
 
 namespace {
 
-// What `value` was entered into its linear position from, when it is one:
-// `lin.enter %x`, or `lin.use (lin.enter %x)`.
-std::optional<Value> enteredFrom(Value value) {
-  if (auto enter = value.getDefiningOp<LinEnterOp>())
-    return enter.getValue();
-  if (auto use = value.getDefiningOp<LinUseOp>())
-    if (auto enter = use.getLinear().getDefiningOp<LinEnterOp>())
-      return enter.getValue();
-  return std::nullopt;
+// The value an entry into a linear type or a use out of one moved: the
+// operand of an op that keeps its operand's value (Idr_SameValue) at
+// another quantity.
+std::optional<Value> linearPositionOf(Value value) {
+  Operation *def = value.getDefiningOp();
+  if (!def || !def->hasTrait<SameValue>())
+    return std::nullopt;
+  Value moved = def->getOperand(0);
+  if (quantityOf(moved.getType()) == quantityOf(value.getType()))
+    return std::nullopt;
+  return moved;
 }
 
 } // namespace
@@ -143,7 +145,11 @@ SmallVector<Value, 4> idr::definitionChain(Value start,
   return chain;
 }
 
-Value idr::throughLinear(Value value) { return definitionChain(value, enteredFrom).back(); }
+SmallVector<Value, 4> idr::linearPositions(Value value) {
+  return definitionChain(value, linearPositionOf);
+}
+
+Value idr::throughLinear(Value value) { return linearPositions(value).back(); }
 
 // An op says it keeps its operand's value (Idr_SameValue), and a match
 // says which region is a case of which constructor (knownTag); a default

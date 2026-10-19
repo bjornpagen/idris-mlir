@@ -131,3 +131,61 @@ bool idr::performsIO(Operation *op) {
                   isa<IOResource>(effect.getResource());
          }) == Does::Touches;
 }
+
+namespace {
+
+// What `value` is the same value as or a part of, back to where it was
+// made (sourceOf), itself first.
+SmallVector<Value, 4> sourcesOf(Value value) {
+  return definitionChain(value, [](Value each) -> std::optional<Value> {
+    Source source = sourceOf(each);
+    if (const auto *same = std::get_if<Same>(&source))
+      return same->value;
+    if (const auto *field = std::get_if<Field>(&source))
+      return field->scrutinee;
+    return std::nullopt;
+  });
+}
+
+// Whether `value` was made by `call` or after it, by an op of its block
+// after it or inside one: nothing the call is given reaches it.
+bool madeAfter(Value value, CallOp call) {
+  Value made = sourcesOf(value).back();
+  Operation *def = made.getDefiningOp();
+  if (!def)
+    return false;
+  Operation *at = call->getBlock()->findAncestorOpInBlock(*def);
+  return at && (at == call.getOperation() || call->isBeforeInBlock(at));
+}
+
+} // namespace
+
+bool idr::mayRunAt(CallOp call, Operation *at) {
+  llvm::SmallPtrSet<Value, 8> read;
+  for (Value arg : call.getArgs())
+    for (Value value : sourcesOf(arg))
+      read.insert(value);
+  bool computes = call.getEffects() == Effect::none;
+  for (Operation *op = call->getNextNode(); op != at; op = op->getNextNode()) {
+    std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
+    if (!effects)
+      return false;
+    for (const MemoryEffects::EffectInstance &effect : *effects) {
+      // IO, a crash or a loop that may not end, ordered with the call's own.
+      if (isa<IOResource>(effect.getResource())) {
+        if (!computes)
+          return false;
+        continue;
+      }
+      if (!isa<MemoryEffects::Write, MemoryEffects::Free>(effect.getEffect()))
+        continue;
+      // Memory made after the call is no memory it reads.
+      Value value = effect.getValue();
+      if (value && madeAfter(value, call))
+        continue;
+      if (!computes || read.contains(value))
+        return false;
+    }
+  }
+  return true;
+}

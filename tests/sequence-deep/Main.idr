@@ -2,9 +2,10 @@ module Main
 
 -- sequence_ over a list of a million actions. It is the Prelude's foldr of
 -- (*>), which builds the whole action before any of it runs: the fold of
--- the rest is the argument of (*>), not a call in tail position, so the
--- building goes a million calls deep. Running what it built takes constant
--- stack.
+-- the rest is held two closures deep in the action of each element, and
+-- is written top down through the destination of the one that holds it,
+-- so building it runs in constant stack, on the 1 MiB stack the harness
+-- gives a program. Running what it built is a chain of tail calls.
 
 import Prelude
 

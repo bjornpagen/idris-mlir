@@ -184,6 +184,12 @@ Attribute liftPart(Attribute earlier, Attribute part, unsigned &next,
 
 } // namespace
 
+bool fixesClosure(SpecKeyAttr key, TypeRange params) {
+  return llvm::any_of(llvm::zip_equal(key.getPatterns(), params), [](auto pattern) {
+    return isClosureValue(std::get<1>(pattern)) && !isa<KeyHoleAttr>(std::get<0>(pattern));
+  });
+}
+
 std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
                                    ArrayRef<BindingTime> seen) {
   // A closed call is left to run at run time.

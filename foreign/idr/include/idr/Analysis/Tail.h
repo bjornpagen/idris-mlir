@@ -41,30 +41,48 @@ mlir::Operation *tailMatch(mlir::Operation *terminator);
 // Whether `op` is a call of `fn` itself, by name.
 bool isSelfCall(mlir::Operation *op, FuncOp fn);
 
-// A tail modulo constructor: the self call whose result is field `index`
-// of the box `built` writes into its cell, which the block's terminator
-// passes on. idr-trmc runs after idr-rc, when every box a constructor with
-// fields builds is a cell written by idr.cell.init. The result may change
-// its grade on its way to the field (`grades`, nearest the field first): a
-// grade has no runtime form, and goes with the call.
-struct Modulo {
-  CallOp call;
-  CellInitOp built;
+// A tail modulo a context: a self call whose result the value the tail
+// returns holds, somewhere inside it, and nothing else reaches. The result
+// goes, through grades, into a field of a fresh cell, the holed cell; the
+// holed cell's box is then moved into parts of values (fields of cells,
+// fields of constructors without a cell), read back out as the part it is
+// (idr.unpack, idr.field of such a constructor), regraded, and carried
+// through a match's yield to its result, until the tail returns the value
+// that holds it. It is never read whole: no match, no field read, no call,
+// no copy and no drop of it. idr-trmc builds the holed cell with the field
+// a hole and calls a clone with its destination once the returned value is
+// built, so the call is the last thing the tail does; it runs after idr-rc,
+// when every box a constructor with fields builds is a cell written by
+// idr.cell.init. One constructor around the call is the context whose holed
+// cell is the returned one.
+//
+// The result is used once on each path: once in the block, or once in each
+// region of the matches it is carried across, one of which runs. So there
+// is a holed cell per such region (`holes`), and each match whose regions
+// hold one (`joins`, innermost first) gives that region's destination as
+// one more result: exactly one destination arrives where the tail ends.
+struct Hole {
+  CellInitOp init;
   unsigned index;
+};
+struct Context {
+  CallOp call;
+  llvm::SmallVector<Hole, 1> holes;
+  // The grades between the call's result and its holes, in the order the
+  // walk met them: a grade has no runtime form, and goes with the call.
   llvm::SmallVector<mlir::Operation *, 2> grades;
+  llvm::SmallVector<mlir::Operation *, 1> joins;
 };
 
-// The tail modulo constructor of `block` in `fn`: the box written into its
-// cell right before its terminator, and a self call in the block whose one
-// result reaches a field of it, with only ops between them that neither
-// touch memory nor can fail, or the cell's own producer, which the call
-// then moves past.
-std::optional<Modulo> moduloAt(mlir::Block &block, FuncOp fn);
+// The tail modulo a context of `block` in `fn`: a self call in the block
+// whose result the block's terminator passes on inside a context, and that
+// may run right before that terminator (mayRunAt).
+std::optional<Context> contextAt(mlir::Block &block, FuncOp fn);
 
-// Whether `call` is the self call of a tail modulo constructor in a block
-// in tail position: idr-trmc writes its result into the constructor the
-// block returns, which it builds before the call.
-bool inTailPositionModuloConstructor(CallOp call);
+// Whether `call` is the self call of a tail modulo a context in a block in
+// tail position: idr-trmc writes its result into the value the block
+// returns, which it builds before the call.
+bool inTailPositionModuloContext(CallOp call);
 
 } // namespace idr::tail
 

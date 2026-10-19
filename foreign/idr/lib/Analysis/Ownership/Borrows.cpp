@@ -229,7 +229,7 @@ private:
     auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
     auto fn = call->getParentOfType<FuncOp>();
     bool tail = cycles.together(callee, fn) &&
-                (tail::inTailPosition(call) || tail::inTailPositionModuloConstructor(call));
+                (tail::inTailPosition(call) || tail::inTailPositionModuloContext(call));
     for (auto [arg, param] : llvm::zip_equal(call.getArgOperands(), callee.getArguments())) {
       if (ownsItself(getOrCreateFor<HoldingState>(after, Value(param))->holding()))
         own(arg);

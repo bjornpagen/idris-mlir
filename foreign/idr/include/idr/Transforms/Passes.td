@@ -589,24 +589,27 @@ def IdrDemand : IdrPass<"idr-demand", "::idr::ProgramOp", IdrRoleCheck,
 
 def IdrTrmc : IdrPass<"idr-trmc", "::idr::ProgramOp", IdrRoleOptimization,
       IdrStageOwned, IdrStageOwned> {
-  let summary = "Make a recursion that returns a constructor around its own result a tail call with a destination";
+  let summary = "Make a recursion that returns its own result inside a context a tail call with a destination";
   let description = [{
-    A self call whose result is a field of the boxed constructor a tail
-    position returns (`Cons x (copy xs)`) becomes a tail call: the
-    constructor is built first, with that field pending, and the call
-    takes the field as a destination (`!idr.dest`) to write its result
-    to. The function keeps its signature and does that for its first
-    level; the calls go to a clone, named from its content
-    (`<f>.trmc.<hash>`), that takes a destination and returns nothing, whose own such tails write the cell they build to the
-    destination they got and recurse on the new one, and whose other
-    tails write their value. idr-tail-loops then makes the clone a loop:
-    the structure is written top down in constant stack. A self call in
-    any other position (one whose result is inspected) stays a call of the
+    A self call whose result the value a tail position returns holds, in
+    cells and parts of values nothing else reaches (`Cons x (copy xs)`,
+    `x :: x :: dup xs`, the action of the rest inside the actions that run
+    it, across a join), becomes a tail call: each cell that takes the
+    result is built first, with that field pending, and the call takes the
+    field as a destination (`!idr.dest`) to write its result to, once the
+    value the tail returns is built. The function keeps its signature and
+    does that for its first level; the calls go to a clone, named from its
+    content (`<f>.trmc.<hash>`), that takes a destination and returns
+    nothing, whose own such tails write the value they build to the
+    destination they got and recurse on the new one, and whose other tails
+    write their value. idr-tail-loops then makes the clone a loop: the
+    structure is written top down in constant stack. A self call in any
+    other position (one whose result is inspected) stays a call of the
     function.
   }];
   let statistics = [
     Statistic<"numFunctions", "functions", "Functions given a destination-passing clone">,
-    Statistic<"numTails", "tails", "Constructors around a self call that became tail calls">,
+    Statistic<"numTails", "tails", "Contexts around a self call that became tail calls">,
   ];
 }
 
