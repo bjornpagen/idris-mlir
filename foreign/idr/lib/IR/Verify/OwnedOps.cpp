@@ -10,8 +10,7 @@
 // allocation's fresh reference rides its plain buffer until the
 // idr.own.adopt that takes it over, an owned value's rides idr.own.give's
 // plain result into the store that writes it, and an element loaded from a
-// buffer is a view of the buffer until the idr.dup right after it gives it
-// a reference of its own.
+// buffer is a view of the buffer until the buffer is written again.
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -35,13 +34,14 @@ LogicalResult idr::verify::OwnedWalk::visit(Operation &op) {
                           "its cell explicit (idr.cell.new and idr.cell.init)");
   if (op.hasTrait<ResultCarriesOperand>())
     return regrade(op);
-  if (failed(loaded(op)) || failed(exclusive(op)))
+  if (failed(exclusive(op)))
     return failure();
   llvm::DenseSet<OpOperand *> forwarded;
   if (op.hasTrait<OpTrait::IsTerminator>())
     forwardedValues(&op, [&](OpOperand &operand, Value) { forwarded.insert(&operand); });
   if (failed(operands(op, forwarded)))
     return failure();
+  writes(op);
   SmallVector<Value> from = readBy(op, forwarded);
   for (Value result : op.getResults())
     if (failed(make(op, result, from)))
@@ -96,24 +96,6 @@ LogicalResult idr::verify::OwnedWalk::regrade(Operation &op) {
     return success();
   }
   llvm_unreachable("a role");
-}
-
-// A counted element an op of upstream's reads out of memory (memref.load)
-// is a view of the buffer, which a store into the buffer may release while
-// the view lives: its one use is the idr.dup right after it, which gives it
-// a reference of its own.
-LogicalResult idr::verify::OwnedWalk::loaded(Operation &op) {
-  if (isa_and_nonnull<IdrDialect>(op.getDialect()) || !hasEffect<MemoryEffects::Read>(&op))
-    return success();
-  for (Value result : op.getResults()) {
-    if (roleOf(result) != Role::View)
-      continue;
-    auto dup = dyn_cast_or_null<DupOp>(op.getNextNode());
-    if (!result.hasOneUse() || !dup || dup.getValue() != result)
-      return fail(op, result, "reads an element that holds references out of memory, whose one "
-                              "use is not the idr.dup right after it");
-  }
-  return success();
 }
 
 // An exclusive value alone reaches its cells: no view of it (or of what
@@ -302,7 +284,7 @@ LogicalResult idr::verify::OwnedWalk::make(Operation &op, Value value, ArrayRef<
     if (from.empty() && !ownership::madeStatic(value) && !readsStatic(op))
       return fail(op, value, "makes a value that holds references, which neither holds one of "
                              "its own nor is read from a value that does");
-    viewOf(value, from);
+    viewOf(value, from, placesOf(op, value, from));
     return success();
   case Role::Untracked:
     return success();

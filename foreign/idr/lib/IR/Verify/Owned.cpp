@@ -19,6 +19,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
+#include "idr/IR/Symbols.h"
 #include "idr/IR/Verify.h"
 #include "idr/Support/Worklist.h"
 
@@ -129,9 +130,10 @@ const idr::verify::OwnedWalk::Viewing *idr::verify::OwnedWalk::viewing(Value val
 }
 
 // Whether `value` may be used here: every reference it holds or was read
-// from is still held. The walk up its owners meets each value once, so it
-// ends with the values in scope.
-bool idr::verify::OwnedWalk::alive(Value value) {
+// from is still held, and no memory it was read out of has been written
+// since. The walk up its owners meets each value once, so it ends with the
+// values in scope.
+idr::verify::OwnedWalk::Dead idr::verify::OwnedWalk::deadness(Value value) {
   OnceWorklist<Value> work;
   work.push(value);
   while (std::optional<Value> at = work.pop()) {
@@ -139,12 +141,15 @@ bool idr::verify::OwnedWalk::alive(Value value) {
     case Role::Owned:
     case Role::Carried:
       if (references(*at) < 1)
-        return false;
+        return Dead::Released;
       break;
     case Role::View: {
       const Viewing *view = viewing(*at);
       if (!view)
-        return false;
+        return Dead::Released;
+      for (auto [place, epoch] : view->places)
+        if (written.lookup(place) != epoch)
+          return Dead::Written;
       for (Value owner : view->owners)
         work.push(owner);
       break;
@@ -153,7 +158,53 @@ bool idr::verify::OwnedWalk::alive(Value value) {
       break;
     }
   }
-  return true;
+  return Dead::No;
+}
+
+// A field of a memoizing label is read out of the memo cell, which its
+// force writes (idr.memo.run moves the captures out); an element of a
+// buffer is read out of the buffer, which a store writes. Each such view
+// is alive until its place is written again: the place is the cell or the
+// buffer as it was made (viewRoot), seen at its last write.
+SmallVector<std::pair<Value, unsigned>, 1>
+idr::verify::OwnedWalk::placesOf(Operation &op, Value value, ArrayRef<Value>) {
+  SmallVector<std::pair<Value, unsigned>, 1> out;
+  auto at = [&](Value container) {
+    Value place = ownership::viewRoot(container);
+    out.emplace_back(place, written.lookup(place));
+  };
+  Source source = sourceOf(value);
+  if (const auto *field = std::get_if<Field>(&source)) {
+    DataType data = dataTypeOf(field->scrutinee.getType());
+    if (data && data.isMemo() && std::holds_alternative<role::Label>(data.getCtor(field->tag).role))
+      at(field->scrutinee);
+  } else if (isa<IdrDialect>(op.getDialect())) {
+    return out;
+  } else if (Value from = ownership::readFrom(value); from && hasEffect<MemoryEffects::Read>(&op)) {
+    at(from);
+  }
+  return out;
+}
+
+// What `op` writes, each place a value an effect of it names, as made: the
+// views read out of it before die (deadness).
+void idr::verify::OwnedWalk::writes(Operation &op) {
+  auto memory = dyn_cast<MemoryEffectOpInterface>(op);
+  if (!memory)
+    return;
+  SmallVector<MemoryEffects::EffectInstance> effects;
+  memory.getEffects(effects);
+  for (const MemoryEffects::EffectInstance &effect : effects) {
+    Value target = effect.getValue();
+    if (!target || !isa<MemoryEffects::Write>(effect.getEffect()))
+      continue;
+    Value place = ownership::viewRoot(target);
+    auto it = written.find(place);
+    std::optional<unsigned> old =
+        it == written.end() ? std::nullopt : std::optional<unsigned>(it->second);
+    log.push_back({place, std::nullopt, old, /*place=*/true});
+    written[place] = old.value_or(0) + 1;
+  }
 }
 
 // Only an Owned or Carried value is set, and its slot is References from
@@ -168,13 +219,21 @@ void idr::verify::OwnedWalk::set(Value value, int count) {
   it->second = References{count};
 }
 
-void idr::verify::OwnedWalk::viewOf(Value value, ArrayRef<Value> from) {
-  slots.insert_or_assign(value, Slot(Viewing{llvm::to_vector<1>(from)}));
+void idr::verify::OwnedWalk::viewOf(Value value, ArrayRef<Value> from,
+                                    ArrayRef<std::pair<Value, unsigned>> places) {
+  slots.insert_or_assign(value, Slot(Viewing{llvm::to_vector<1>(from), llvm::to_vector<1>(places)}));
 }
 
 // The changes since `mark`, undone last first.
 void idr::verify::OwnedWalk::undo(size_t mark) {
   for (const Change &change : llvm::reverse(ArrayRef<Change>(log).drop_front(mark))) {
+    if (change.place) {
+      if (change.written)
+        written[change.value] = *change.written;
+      else
+        written.erase(change.value);
+      continue;
+    }
     if (change.old)
       slots.insert_or_assign(change.value, Slot(*change.old));
     else
@@ -189,7 +248,7 @@ llvm::MapVector<Value, int> idr::verify::OwnedWalk::changesSince(size_t mark) {
   llvm::MapVector<Value, int> changes;
   llvm::DenseSet<Value> seen;
   for (size_t i = mark; i < log.size(); ++i) {
-    if (!seen.insert(log[i].value).second || !log[i].old)
+    if (log[i].place || !seen.insert(log[i].value).second || !log[i].old)
       continue;
     changes[log[i].value] = references(log[i].value);
   }
@@ -212,9 +271,16 @@ LogicalResult idr::verify::OwnedWalk::consume(Operation &op, Value value) {
 }
 
 LogicalResult idr::verify::OwnedWalk::use(Operation &op, Value value) {
-  if (!alive(value))
+  switch (deadness(value)) {
+  case Dead::No:
+    return success();
+  case Dead::Released:
     return fail(op, value, "uses a value whose last reference is gone on this path");
-  return success();
+  case Dead::Written:
+    return fail(op, value, "uses a view of memory that has been written since it was read: "
+                           "a reference of its own (idr.dup) is taken before the write");
+  }
+  llvm_unreachable("a deadness");
 }
 
 // Every value `block` defines holds no reference at its end: an Owned or

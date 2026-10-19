@@ -113,18 +113,24 @@ private:
   };
   // The values that hold the references a view was read from: it is alive
   // while each of them is. None: it is alive throughout, a borrowed
-  // parameter, which its caller keeps alive, or read from one.
+  // parameter, which its caller keeps alive, or read from one. A view read
+  // out of memory that may be written (a label's field of a memo cell, a
+  // buffer's element) is alive, besides, until that memory is written
+  // again: each place it was read from, at the write it was read after.
   struct Viewing {
     llvm::SmallVector<mlir::Value, 1> owners;
+    llvm::SmallVector<std::pair<mlir::Value, unsigned>, 1> places;
   };
   // A value's state, by its role; an Untracked value has none.
   using Slot = std::variant<References, Viewing>;
 
-  // The references a value held before a change, so that each region of
-  // an op starts from the same state.
+  // The references a value held before a change, or the write a place had
+  // seen, so that each region of an op starts from the same state.
   struct Change {
     mlir::Value value;
     std::optional<References> old;
+    std::optional<unsigned> written = std::nullopt;
+    bool place = false;
   };
 
   // What an op with regions forwards, and to where: for each value a
@@ -143,9 +149,20 @@ private:
   Role roleOf(mlir::Value value);
   int references(mlir::Value value) const;
   const Viewing *viewing(mlir::Value value) const;
-  bool alive(mlir::Value value);
+  // Why a value may not be used here, if it may not: a reference it holds
+  // or was read from is gone, or memory it was read out of was written.
+  enum class Dead { No, Released, Written };
+  Dead deadness(mlir::Value value);
+  bool alive(mlir::Value value) { return deadness(value) == Dead::No; }
+  // The places a value made by `op` is read out of, at their last write:
+  // the memory `op` reads it from, and the places of the views it reads.
+  llvm::SmallVector<std::pair<mlir::Value, unsigned>, 1>
+  placesOf(mlir::Operation &op, mlir::Value value, llvm::ArrayRef<mlir::Value> from);
+  // Each place `op` writes is written once more.
+  void writes(mlir::Operation &op);
   void set(mlir::Value value, int count);
-  void viewOf(mlir::Value value, llvm::ArrayRef<mlir::Value> from);
+  void viewOf(mlir::Value value, llvm::ArrayRef<mlir::Value> from,
+              llvm::ArrayRef<std::pair<mlir::Value, unsigned>> places = {});
   void undo(size_t mark);
   llvm::MapVector<mlir::Value, int> changesSince(size_t mark);
   mlir::InFlightDiagnostic fail(mlir::Operation &op, mlir::Value value, const llvm::Twine &what);
@@ -156,7 +173,6 @@ private:
   // One op without regions (OwnedOps.cpp).
   mlir::LogicalResult visit(mlir::Operation &op);
   mlir::LogicalResult regrade(mlir::Operation &op);
-  mlir::LogicalResult loaded(mlir::Operation &op);
   mlir::LogicalResult exclusive(mlir::Operation &op);
   mlir::LogicalResult operands(mlir::Operation &op,
                                const llvm::DenseSet<mlir::OpOperand *> &forwarded);
@@ -189,6 +205,9 @@ private:
   // The state of each value in scope that has one: the references of an
   // Owned or Carried value, the owners of a View.
   llvm::DenseMap<mlir::Value, Slot> slots;
+  // How often each place, a memo cell or a buffer as it was made, has been
+  // written on this path.
+  llvm::DenseMap<mlir::Value, unsigned> written;
   llvm::SmallVector<Change> log;
 };
 

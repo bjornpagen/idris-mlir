@@ -28,8 +28,15 @@ What §3.9 planned, as it landed:
   Idr_TakesReference on idr.dup and idr.array.get) and R2 (a write into
   memory that exists before the op is an exchange, an overwrite, which
   idr.array.set and memref.store now declare, or a hole), in the flow
-  edges' verifier. R3 (views of places die at writes) is open, and so is
-  the memo-state memory resource that would replace builtStateHolds.
+  edges' verifier. R3 in the owned walk: a view read out of memory that
+  may be written (a memoizing label's field of a memo cell, a buffer's
+  element) is alive until that memory, as it was made (viewRoot), is
+  written again by any op whose effects write it; loaded()'s rule (the one
+  use of a loaded element is the idr.dup right after it) is deleted
+  (tests/verify-sources). Within a loop's body a view read before the loop
+  and used after a write of an earlier iteration is not yet seen: the walk
+  runs a body once. The memo-state memory resource that would replace
+  builtStateHolds is open.
 - Step 4: persistence done (idris_rt_persist_held after every force; the
   CAF release, `__idr$release$cafs`, its runtime function and the live-cells
   marks deleted, and the harness's `live-cells` case field with them).

@@ -119,6 +119,7 @@ FailureOr<idr::verify::OwnedWalk::Reach> idr::verify::OwnedWalk::walkRegions(Ope
       entry.insert(&operand);
   if (failed(operands(op, entry)))
     return failure();
+  writes(op);
   SmallVector<Value> reads = readBy(op, entry);
 
   // An op that does not branch between its regions runs each as it will
