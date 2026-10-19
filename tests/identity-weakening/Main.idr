@@ -1,7 +1,8 @@
 module Main
 
 -- Functions that are the identity once Idris's indices are erased:
--- Data.Fin's weaken, finToNat and last; the weakening of a term to a larger
+-- Data.Fin's weaken and last (finToNat too, which the registry makes the
+-- identity outright); the weakening of a term to a larger
 -- scope, which rebuilds every node and weakens every variable, alone and
 -- with a count of binders it carries and never gives back; and a tree and
 -- a forest weakened by mutual recursion, main calling both, so that
