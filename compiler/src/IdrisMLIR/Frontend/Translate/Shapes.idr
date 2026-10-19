@@ -41,67 +41,43 @@ import Data.Vect
 ||| tags, the order the declaration gives them, `Lin` (tag 0) of the
 ||| element type alone, and `:<` (tag 1) of the element type, the rest and
 ||| the last. Anything else (a variable, a computation that is stuck) is
-||| no such value. A shape may stand under binders: a family's body holds
-||| one over the family's variable (`\n => Vector n Int`).
+||| no such value.
 public export
-data ShapeView : TT vs -> Type where
+data ShapeView : ClosedTerm -> Type where
   ||| `Lin` applied to the element type.
-  SLin : {0 f : FC} -> (lin, e : TT vs) -> ShapeView (App f lin e)
+  SLin : {0 f : FC} -> (lin, e : ClosedTerm) -> ShapeView (App f lin e)
   ||| `:<` applied to the element type, the rest and the last.
-  SSnoc : {0 f, f', f'' : FC} -> (snoc, e, rest, n : TT vs) -> ShapeView (App f (App f' (App f'' snoc e) rest) n)
+  SSnoc : {0 f, f', f'' : FC} -> (snoc, e, rest, n : ClosedTerm) -> ShapeView (App f (App f' (App f'' snoc e) rest) n)
   SOther : ShapeView t
 
 ||| The one reading of a shape's constructors.
 export
-shapeView : (t : TT vs) -> ShapeView t
+shapeView : (t : ClosedTerm) -> ShapeView t
 shapeView (App _ lin@(Ref _ (DataCon 0 _) _) e) = SLin lin e
 shapeView (App _ (App _ (App _ snoc@(Ref _ (DataCon 1 _) _) e) rest) n) = SSnoc snoc e rest n
 shapeView _ = SOther
 
-||| A shape read as a snoc list of extents down to `Lin`: `Lin` applied to
-||| the element type, and each axis, outermost first, as `:<` applied to
-||| the element type, with the axis's extent. Its rank, the number of its
-||| axes, is its form; its extents are the sizes.
-public export
-record Spine (vs : Scope) where
-  constructor MkSpine
-  base : TT vs
-  axes : List (TT vs, TT vs)
-
-||| A normalised shape's spine; nothing when the shape is no snoc list of
-||| extents down to `Lin`.
+||| The extents of a normalised shape, outermost first; nothing when the
+||| shape is no snoc list of extents down to `Lin`.
 export
-readSpine : TT vs -> Maybe (Spine vs)
-readSpine t = (\(b, sx) => MkSpine b (sx <>> [])) <$> go t
+shapeSpine : ClosedTerm -> Maybe (List ClosedTerm)
+shapeSpine t = (<>> []) <$> spine t
   where
-    go : TT vs -> Maybe (TT vs, SnocList (TT vs, TT vs))
-    go t with (shapeView t)
-      go _ | SLin lin e = Just (App EmptyFC lin e, [<])
-      go _ | SSnoc snoc e rest n = (\(b, sx) => (b, sx :< (App EmptyFC snoc e, n))) <$> go rest
-      go _ | SOther = Nothing
+    spine : ClosedTerm -> Maybe (SnocList ClosedTerm)
+    spine t with (shapeView t)
+      spine _ | SLin _ _ = Just [<]
+      spine _ | SSnoc _ _ rest n = (:< n) <$> spine rest
+      spine _ | SOther = Nothing
 
-||| The spine of a shape a value array's type or a data instance's key
-||| needs: the one place such a shape is read. A shape that is no snoc list
-||| of extents (a variable no instance fixes, a recursion that builds it
-||| deeper) has no rank, and a tensor has nothing else, so the program is
-||| refused here, before any type or key is made of it.
-export
-spineOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-          FC -> String -> TT vs -> Core (Spine vs)
-spineOf fc owner t = case readSpine t of
-  Just sp => pure sp
-  Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ show !(toFullNames t))
-
-||| A spine's extents, outermost first.
-export
-extents : Spine vs -> List (TT vs)
-extents sp = map snd sp.axes
-
-||| A spine's form: its constructors with every extent erased, what keys an
+||| A shape's form: its spine with every extent erased, what keys an
 ||| instance whose types need the rank and not the sizes.
 export
-formOf : Spine vs -> TT vs
-formOf sp = foldl (\r, (snoc, _) => App EmptyFC (App EmptyFC snoc r) (Erased EmptyFC Placeholder)) sp.base sp.axes
+shapeForm : ClosedTerm -> Maybe ClosedTerm
+shapeForm t with (shapeView t)
+  shapeForm _ | SLin lin e = Just (App EmptyFC lin e)
+  shapeForm _ | SSnoc snoc e rest _ =
+    (\r => App EmptyFC (App EmptyFC (App EmptyFC snoc e) r) (Erased EmptyFC Placeholder)) <$> shapeForm rest
+  shapeForm _ | SOther = Nothing
 
 ||| Whether a type constructor is a value array's.
 valueArray : {auto c : Ref Ctxt Defs} -> Name -> Core Bool
@@ -129,18 +105,30 @@ arrayView t with (arrayParts t)
   arrayView _ | ArrayOf n s a = pure (if !(valueArray n) then Just (s, a) else Nothing)
   arrayView _ | NoArray = pure Nothing
 
-||| A parameter put in a type to see whether the type puts it in a form
-||| (`Types.formNeeded`): a name no definition has, at which reduction
-||| stops.
-export
+||| A parameter put in a type to see whether a value array's shape mentions
+||| it: a name no definition has, at which reduction stops.
 formProbe : ClosedTerm
 formProbe = probeTerm ProbeForm
 
-export
 isFormProbe : TT vs -> Bool
 isFormProbe t = case probeOfTerm t of
   Just ProbeForm => True
   _ => False
+
+||| Does the rest of a type need a parameter's form: does a value array's
+||| shape in it mention the parameter (the rest with `formProbe` for it)?
+||| A shape the rest of the type does not put in a value array keys
+||| nothing, as any erased value does.
+export
+formNeeded : {auto c : Ref Ctxt Defs} -> (ClosedTerm -> ClosedTerm) -> Core Bool
+formNeeded rest = do
+  ty <- toFullNames !(normaliseClosed (rest formProbe))
+  pure (mentions inShape ty)
+  where
+    inShape : TT vs -> Bool
+    inShape t with (arrayParts t)
+      inShape _ | ArrayOf n s _ = (hooksOf n).valueArray && mentions isFormProbe s
+      inShape _ | NoArray = False
 
 ------------------------------------------------------------------------------
 -- Runtime parameters
@@ -231,7 +219,7 @@ dimensionSources : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (List (Maybe S
 dimensionSources t with (arrayParts t)
   dimensionSources _ | ArrayOf n s a =
     if !(valueArray n)
-      then (map sourceOf (maybe [] extents (readSpine s)) ++) <$> dimensionSources a
+      then (map sourceOf (fromMaybe [] (shapeSpine s)) ++) <$> dimensionSources a
       else pure []
   dimensionSources _ | NoArray = pure []
 

@@ -281,67 +281,17 @@ data Natness = NotNat     -- not Nat-like
              | Numeral    -- Nat-like (Idris's ZERO/SUCC), but a constructor takes an erased argument (Fin's FS)
              | Chain      -- Nat-like, every constructor argument at run time: a shape is a chain of S
 
-||| What the argument at a position of a type constructor is to a data
-||| instance of it, decided once per position (`Types.tyConFacts`):
-|||
-||| - `Keyed`: a type parameter a value represents, which keys the instance
-|||   whole, its own indices erased;
-||| - `Formed`: a parameter of the shape type that a value array's shape
-|||   reads, which keys the instance by its form, the rank kept and the
-|||   extents erased, since a tensor's rank is its type;
-||| - `Held`: an index whose kind is a universe and that the values hold,
-|||   which keys nothing but the growth check watches;
-||| - `Index`: compile-time information alone.
-|||
-||| The key keeps the `Keyed` and `Formed` arguments, and the growth check
-||| watches every position but an `Index`, reading a `Formed` one as the
-||| key's form, so that what the key holds and what the check bounds are
-||| read off one role.
-public export
-data Role = Keyed | Formed | Held | Index
-
-public export
-Eq Role where
-  Keyed == Keyed = True
-  Formed == Formed = True
-  Held == Held = True
-  Index == Index = True
-  _ == _ = False
-
 ||| What the translation reads of a type constructor's definition: its
-||| parameters, the role of the argument at each position (`Role`), the
-||| first first, and what its values are as numbers go.
+||| parameters, the type parameters among them that a value represents, what
+||| its values are as numbers go, and the arguments its values hold, which
+||| the growth check watches (`Types.represented`).
 public export
 record TyConFacts where
   constructor MkTyConFacts
   params : List Nat
-  roles : List Role
+  typeParams : List Nat
   natness : Natness
-
-||| The role of the argument at a position: past the type constructor's
-||| arguments, none is there to key anything.
-public export
-roleAt : Nat -> List Role -> Role
-roleAt j rs = fromMaybe Index (getAt j rs)
-
-||| The positions whose role the test picks, in order.
-public export
-positionsOf : (Role -> Bool) -> List Role -> List Nat
-positionsOf p rs = map fst (filter (p . snd) (zip [0 .. length rs] rs))
-
-||| Does the key hold the argument at a position of this role?
-public export
-inKey : Role -> Bool
-inKey Keyed = True
-inKey Formed = True
-inKey Held = False
-inKey Index = False
-
-||| Does the growth check watch the argument at a position of this role?
-public export
-watched : Role -> Bool
-watched Index = False
-watched _ = True
+  represented : List Nat
 
 ||| A data instance as registered: declared, a sum of its constructors; or a
 ||| newtype, one constructor of one runtime field, not declared, its

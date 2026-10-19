@@ -349,17 +349,16 @@ typeConstructorAt a = do
           _ => Nothing)
 
 mutual
-  ||| A template with every child at a type constructor's position read by
-  ||| its role (`Role`), at every head, the written ones and those
-  ||| unfolding made alike: an `Index` as a closed part, a `Formed` shape as
-  ||| its form (`formedTemplate`), and any other as itself. The data key
-  ||| holds no more than this of each argument (`Types.argumentKey`), so a
-  ||| height read here bounds the key's.
+  ||| A template with every child at a type constructor's position that a
+  ||| value does not represent read as a closed part, at every head, the
+  ||| written ones and those unfolding made alike. The data key erases at
+  ||| least these (its type parameters are among the represented
+  ||| positions), so a height read here bounds the key's.
   eraseIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Template -> Core Template
   eraseIn (Head (Just a) cs) = do
     Just def <- typeConstructorAt a
       | Nothing => Head (Just a) <$> eraseAll cs
-    Head (Just a) <$> erasedAt (!(tyConFacts def)).roles 0 cs
+    Head (Just a) <$> erasedAt !(represented def) 0 cs
   eraseIn (Head Nothing cs) = Head Nothing <$> eraseAll cs
   eraseIn (Choice t ls) = Choice <$> eraseIn t <*> eraseAll ls
   eraseIn (Opaque a cs) = Opaque a <$> eraseAll cs
@@ -376,15 +375,9 @@ mutual
   eraseAll [] = pure []
   eraseAll (t :: ts) = (::) <$> eraseIn t <*> eraseAll ts
 
-  erasedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Role -> Nat -> List Template -> Core (List Template)
-  erasedAt rs j [] = pure []
-  erasedAt rs j (t :: ts) = (::) <$> asRole (roleAt j rs) t <*> erasedAt rs (S j) ts
-
-  asRole : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Role -> Template -> Core Template
-  asRole Keyed t = eraseIn t
-  asRole Formed t = formedTemplate t
-  asRole Held t = eraseIn t
-  asRole Index _ = pure (Leaf 1)
+  erasedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Nat -> Nat -> List Template -> Core (List Template)
+  erasedAt ps j [] = pure []
+  erasedAt ps j (t :: ts) = (::) <$> (if elem j ps then eraseIn t else pure (Leaf 1)) <*> erasedAt ps (S j) ts
 
 ||| The site a type constructor's head writes: `Builds` at the arguments a
 ||| value of it represents, each already read without what no value
@@ -1098,7 +1091,7 @@ conStands ps v r ca cdef con args = do
       Just tdef <- lookupCtxtExact tn (gamma defs)
         | Nothing => pure []
       facts <- tyConFacts tdef
-      pure (paramLayout facts.params facts.roles ty)
+      pure (paramLayout facts.params facts.typeParams ty)
 
     -- A runtime field: of a shape not matched yet, a shape one match
     -- deeper; of anything else, a runtime value.
