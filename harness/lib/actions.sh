@@ -40,9 +40,6 @@ skipped_actions() {
     show "$work/compile.out" "$work/compile.err"
     return
   fi
-  io_fixture=$sa_fixture
-  io_stack=small
-  [ -f "$sa_fixture/default-stack" ] && io_stack=
   mkdir -p "$work/ours/build/exec"
   for sa_set in $actions_skipped; do
     sa_name=$(printf '%s' "$sa_set" | sed 's/-skip=[0-9]*,/-skip=drawn,/')

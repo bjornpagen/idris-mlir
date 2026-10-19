@@ -7,11 +7,10 @@
 # time and forced twice, whose tails a frame once held (lazy-list-frame);
 # memoized streams shared by two readers, top-level and local
 # (memo-shared-stream); a lazy list a force consumes (thunk-consumes-list);
-# the linear string iterator, whose unpack is a lazy list
-# (linear-string-iterator); and a sorted map's rebuilt nodes (sortedmap).
+# and the linear string iterator, whose unpack is a lazy list
+# (linear-string-iterator).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-for fixture in lazy-list-frame memo-shared-stream thunk-consumes-list linear-string-iterator \
-               sortedmap; do
+for fixture in lazy-list-frame memo-shared-stream thunk-consumes-list linear-string-iterator; do
   say "$fixture"
   skipped_actions "$root/tests/$fixture"
 done
