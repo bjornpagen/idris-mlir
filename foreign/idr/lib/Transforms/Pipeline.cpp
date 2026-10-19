@@ -127,6 +127,9 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
   // returns. Counting borrows that result and drops it after the addition,
   // and the call would no longer be the tail.
   program.addPass(idr::createIdrAccumulate());
+  // Before counting, as idr-accumulate: a run of a closure's part whose
+  // result the rest of its tail consumes carries that rest as a frame.
+  program.addPass(idr::createIdrFrames());
   // Counting runs on functional code, where recursion is still a call and
   // a match's yield is its join point; every later pass keeps its rule.
   addRc(program);

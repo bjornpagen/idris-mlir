@@ -424,6 +424,28 @@ def IdrBufferize : IdrPass<"idr-bufferize", "::idr::ProgramOp", IdrRoleLowering,
 // Memory and loops (lib/Transforms/Ownership, Stack, Demand, Tail, Narrow)
 //===----------------------------------------------------------------------===//
 
+def IdrFrames : IdrPass<"idr-frames", "::idr::ProgramOp", IdrRoleOptimization,
+      IdrStageFirst, IdrStageFirst> {
+  let summary = "Carry the rest of a run of a closure's part on a stack of frames";
+  let description = [{
+    A self call that runs a part of a closure (in a case of a match on a
+    closure sum, in tail position), whose result the rest of its block
+    consumes, becomes a tail call: the values the rest reads are a frame
+    pushed on a stack the function takes (`<f>.frames`, a data type of an
+    empty stack and a frame per call), and a tail that would return a value
+    gives it to `<f>.resume` with the stack, which pops a frame and runs its
+    rest, or returns the value on the empty stack. `<f>.run` is the body on
+    the stack; f calls it with the empty one. The run of an IO action is
+    the case: a bind whose left action is a bind runs it as a tail call, so
+    binds nested to the left run in constant stack, their nesting on the
+    heap. A recursion over data keeps its calls.
+  }];
+  let statistics = [
+    Statistic<"numFunctions", "functions", "Functions given a run and a resume">,
+    Statistic<"numFrames", "frames", "Self calls whose rest became a frame">,
+  ];
+}
+
 def IdrAccumulate : IdrPass<"idr-accumulate", "::idr::ProgramOp", IdrRoleOptimization,
       IdrStageFirst, IdrStageFirst> {
   let summary = "Make a recursion that adds its own result a tail call with an accumulator";

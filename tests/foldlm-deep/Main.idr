@@ -2,8 +2,9 @@ module Main
 
 -- foldlM over a list of a million numbers. The Prelude's foldlM folds the
 -- list into a chain of binds nested to the left, ((pure 0 >>= f 1) >>= f
--- 2) >>= ..., and running a bind runs the action it binds first, as a call
--- whose result the rest needs: a million calls deep.
+-- 2) >>= ..., and running a bind runs the action it binds first, before
+-- its continuation: the continuation waits as a frame on the heap and the
+-- run is a tail call, so the chain runs in constant stack (mlir.expect).
 
 import Prelude
 

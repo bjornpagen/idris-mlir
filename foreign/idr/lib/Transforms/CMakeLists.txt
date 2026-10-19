@@ -220,6 +220,7 @@ add_mlir_library(IdrOwnership
 # idr-accumulate, idr-trmc, idr-tail-loops and idr-returned-arguments.
 add_mlir_library(IdrTail
 	Tail/Accumulate.cpp
+	Tail/Frames.cpp
 	Tail/AccumulatorPlan.cpp
 	Tail/Trmc.cpp
 	Tail/TailLoops.cpp
