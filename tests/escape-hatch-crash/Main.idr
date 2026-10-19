@@ -1,4 +1,5 @@
--- expect: escape hatch, line 7
+-- expect: escape hatch, line 8
+-- message: prim__crash
 module Main
 import Prelude
 

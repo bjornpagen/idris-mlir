@@ -1,7 +1,5 @@
 compile: exit 0
 artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
+cases: each as expected
 universal: holds
 mlir.expect: holds

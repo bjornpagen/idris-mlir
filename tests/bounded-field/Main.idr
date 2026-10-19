@@ -17,5 +17,13 @@ Show nm => Show (T nm) where
   show (Leaf x) = show x
   show (Node xs) = "Node " ++ show xs
 
+-- A tree as deep as the input says, shown by the same implementations.
+grow : Nat -> T Int
+grow Z = Leaf 0
+grow (S k) = Node [("n", grow k)]
+
 main : IO ()
-main = printLn [Node [("a", Leaf 1), ("b", Node [("c", Leaf 2)])], Leaf (the Int 3)]
+main = do
+  line <- getLine
+  printLn [Node [("a", Leaf 1), ("b", Node [("c", Leaf 2)])], Leaf (the Int 3)]
+  printLn (grow (integerToNat (cast line)))

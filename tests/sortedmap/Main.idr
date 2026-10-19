@@ -4,7 +4,8 @@ module Main
 -- (`Empty : Ord k => ...`): a dictionary held in a field, which the compiler
 -- holds as a compile-time value of the map's data instance. Two maps, keyed
 -- by String and by Int, one of them in a record: insert, lookup, delete,
--- toList, folds, and the keys in order.
+-- toList, folds, and the keys in order; the empty map's, and a key
+-- deleted that the map does not hold.
 
 import Prelude
 import Data.List
@@ -38,3 +39,6 @@ main = do
   putStrLn (show (foldr (\v, acc => v + acc) 0 t.entries))
   putStrLn (show (keys (insert 0 0 (fromList [(12, 144), (11, 121)]))))
   putStrLn (show (values (update (map (* 2)) 3 t.entries)))
+  let none = the (SortedMap Int Int) empty
+  putStrLn (show (lookup 0 none) ++ " " ++ show (keys none) ++ " " ++ show (keys (delete 0 none)))
+  putStrLn (show (SortedMap.toList (delete 11 (squares 2))) ++ " " ++ show (SortedMap.toList (squares 0)))

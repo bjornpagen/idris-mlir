@@ -1,5 +1,3 @@
-make -n build: exit 0
-cmake --preset: yes
-cmake --build --preset: yes
-pinned idris2 --build: yes
-direct ninja/compiler calls: none
+make build: cmake --preset, cmake --build --preset and the pinned idris2 --build, no direct ninja or compiler
+witness: each planted file is found
+near miss: nothing found

@@ -1,5 +1,5 @@
 -- expect: dictionary field, line 20
--- message: holds two implementations
+-- message: Main.backward
 module Main
 
 -- Data.SortedMap holds its Ord in the map's constructors: one map type

@@ -12,6 +12,13 @@
 # tool's (the editor's, the agent's worktrees), never a source zone, so none
 # is searched; nor is upstream/, whose C++ is a reproducer of a bug in
 # upstream tools, built by its check and never by the build.
+#
+# The rule is `zones ROOT`, run on the repository and on the planted trees
+# (lib/planted.sh): witness/ holds C++ in no zone (each extension the list
+# does not keep, a .cpp under include, a googletest program two levels
+# down, a source of tools/) and units that declare and import a module;
+# near-miss/ holds a file of every zone, MLIR text in a string, a call
+# whose name starts with `import`, and a reproducer under upstream/.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 zones='^foreign/idr/lib/.*\.(cpp|td)$
 ^foreign/idr/include/.*\.(h|td)$
@@ -20,34 +27,37 @@ zones='^foreign/idr/lib/.*\.(cpp|td)$
 ^runtime/.*\.(cpp|h)$
 ^harness/prop/[^/]*\.h$
 ^tests/runtime-[^/]*/[^/]*\.(cpp|h)$'
-(cd "$root" && find . \( -name third_party -o -name build -o -name sources -o -name upstream -o -name '.?*' \) -prune \
-   -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.cppm' -o -name '*.td' -o -name '*.inc' \) \
-   -print) | sed 's|^\./||' | sort > "$work/cpp"
-if [ -s "$work/cpp" ]; then say "C++: found"; else say "C++: none found"; fi
-if grep -q '^runtime/' "$work/cpp"; then say "C++: the runtime under runtime/"; else say "C++: no runtime under runtime/"; fi
 printf '%s\n' "$zones" > "$work/zones"
-if grep -vE -f "$work/zones" "$work/cpp" > "$work/outside"; then
+
+# zones ROOT: the findings in the tree at ROOT, `path: what` or
+# `path:line: what`. A test's planted trees are no C++ of the tree.
+zones() (
+  cd "$1" || exit 1
+  find . \( -name third_party -o -name build -o -name sources -o -name upstream -o -name '.?*' \
+            -o -path './tests/*/witness' -o -path './tests/*/near-miss' \) -prune \
+     -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cc' -o -name '*.cppm' -o -name '*.td' -o -name '*.inc' \) \
+     -print | sed 's|^\./||' | LC_ALL=C sort > "$work/cpp"
+  grep -vE -f "$work/zones" "$work/cpp" | sed 's/$/: C++ in no zone of the list/'
+  # No C++20 module: an interface unit (.cppm) is in no zone above, and no
+  # unit declares or imports one. A declaration ends in `;`, which tells it
+  # from MLIR text a unit holds in a string (`module attributes {...} {`).
+  # shellcheck disable=SC2046
+  [ -s "$work/cpp" ] && grep -HnE '^[[:space:]]*(export[[:space:]]+)?(module|import)([[:space:]]+[A-Za-z_.:<"][^;{]*)?;' \
+    $(cat "$work/cpp") 2> /dev/null | sed 's/^\([^:]*:[0-9]*\):.*/\1: declares or imports a C++20 module/'
+)
+
+(cd "$root" && find runtime -name '*.cpp' | grep -q .) && say "C++: the runtime under runtime/" || say "C++: no runtime under runtime/"
+zones "$root" > "$work/found"
+if grep -q ': C++ in no zone' "$work/found"; then
   say "C++ in no zone of the list:"
-  cat "$work/outside"
+  grep ': C++ in no zone' "$work/found" | sed 's/: C++ in no zone.*//; s/^/  /'
 else
   say "C++: each file in a zone of the list, with that zone's extensions"
 fi
-
-# No C++20 module: an interface unit (.cppm) is in no zone above, and no
-# unit declares or imports one. A declaration ends in `;`, which tells it
-# from MLIR text a unit holds in a string (`module attributes {...} {`).
-# A planted unit that imports one is the witness that the matcher sees.
-modules() {
-  grep -HnE '^[[:space:]]*(export[[:space:]]+)?(module|import)([[:space:]]+[A-Za-z_.:<"][^;{]*)?;' "$@" 2> /dev/null
-}
-printf '%s\n' 'import idr.planted;' > "$work/planted.cpp"
-# shellcheck disable=SC2046
-(cd "$root" && modules $(cat "$work/cpp")) > "$work/modules"
-if [ -s "$work/modules" ]; then
+if grep -q ': declares or imports' "$work/found"; then
   say "C++20 modules declared or imported:"
-  show "$work/modules"
-elif [ -z "$(modules "$work/planted.cpp")" ]; then
-  say "C++20 modules: the planted import is not found"
+  grep ': declares or imports' "$work/found" | sed 's/^/  /'
 else
   say "C++: no unit declares or imports a C++20 module"
 fi
+planted zones

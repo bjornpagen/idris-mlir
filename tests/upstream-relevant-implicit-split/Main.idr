@@ -97,3 +97,7 @@ main = do
   printLn (wb xs True)
   printLn (wb xs False)
   printLn (cb [])
+  -- The empty list, and one whose elements are negative and zero.
+  let ys = the (All IsF [F (-5), F 0, F 7]) [ItIsF, ItIsF, ItIsF]
+  printLn (sumF (the (All IsF []) []), count (fp4 (the (All IsF []) [])), wb (the (All IsF []) []) True)
+  printLn (sumF ys, count (fp4 ys), wb ys False)

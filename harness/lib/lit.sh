@@ -177,7 +177,9 @@ lit_stages() {
 # shell ran them, with no lit and no Python: %s is FILE, %t a path in the
 # work directory, %cc the pinned C compiler linking a program as the chain
 # does (lit_cc), %runtime the runtime object idris-mlir reads and every
-# program links, and `%status N CMD` checks that CMD exits with status N. A
+# program links, `%status N CMD` checks that CMD exits with status N, and
+# `%differential BEFORE AFTER` that two modules' programs mean the same
+# on every input (lit_differential). A
 # `%%` stays as it is, never read as the start of one of these, so an awk
 # program's printf can write a `%` of the module it prints. A line fails
 # when any command of its pipelines fails (pipefail); a trailing \
@@ -230,6 +232,7 @@ lit() {
       -e 's/(^|[|&;(][[:space:]]*)not (diff|cmp|grep) /\1%status 1 \2 /g' \
       -e 's/(^|[|&;(][[:space:]]*)not /\1lit_not /g' | sed \
       -e "s|%status|lit_status|g" \
+      -e "s|%differential|lit_differential|g" \
       -e "s|%cc|lit_cc|g" \
       -e "s|%runtime|$(sed_escape "$lit_runtime")|g" \
       -e "s|%s|$(sed_escape "$lit_file")|g" \

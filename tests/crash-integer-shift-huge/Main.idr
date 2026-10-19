@@ -4,4 +4,6 @@ import Prelude
 import Prog
 
 main : IO ()
-main = printLn Prog.result
+main = do
+  printLn Prog.small
+  printLn Prog.result

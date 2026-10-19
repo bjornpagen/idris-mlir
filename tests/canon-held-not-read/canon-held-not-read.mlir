@@ -2,11 +2,25 @@
 // RUN: builds-where-used=@one_region,builds-where-used=@two_regions,calls-closed=@closed_call:@twice,\
 // RUN: grows-nothing=@open_call:%s -o /dev/null
 // RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize -o %t.mlir
+// RUN: %differential %s %t.mlir
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=builds-where-used=@one_region,builds-where-used=@two_regions,calls-closed=@closed_call:@twice' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=calls-closed=@open_call:@both' -o /dev/null
+// RUN: awk '/^  idr.func @chain/ { inside = 1 } inside && /^    %l3 = / { printf "    %%unused = arith.addi %%a, %%b : i64\n"; inside = 0 } { print }' %s > %t.grown.mlir
+// RUN: %status 1 idris-mlir-opt %t.grown.mlir --idr-expect=holds=grows-nothing=@chain:%s -o /dev/null
+// BEFORE-DAG: expected builds-where-used: {{.*}}@one_region
+// BEFORE-DAG: expected builds-where-used: {{.*}}@two_regions
+// BEFORE-DAG: expected calls-closed: {{.*}}@twice in @closed_call
 // A consumer moves into the regions of a match only where it then folds or
 // canonicalizes against what it meets there. A constructor that holds a
 // value beside a field that is not a constant folds against nothing,
 // wherever it is built, and a box constructor does not fold into static
 // data.
+// The root runs every function on what it reads, and the program prints
+// after canonicalize what it printed before, on every byte. What the pass
+// makes hold did not hold before it; a call of @both that takes a value is
+// not closed, and a copy of @chain with one more op than the file's grows.
 
 // Three choices, each consed onto the list the one before built, as a
 // generator unrolled at compile time conses its characters: each match
@@ -148,9 +162,48 @@ idr.program @"held-not-read" root(@root) stage(first) {
     %y = idr.call @both(%x, %b) : (i64, i64) -> i64
     return %y : i64
   }
-  // The program's root, which the functions above are no part of.
-  idr.func @root() -> i64 {
-    %zero = arith.constant 0 : i64
-    return %zero : i64
+  // Writes the characters of a list.
+  idr.func @put_chars(%l: !idr.box<!List>, %w: !idr.world) -> !idr.world {
+    %r = idr.match %l : !idr.box<!List> -> (!idr.world) {
+    case @Nil() {
+      idr.yield %w : !idr.world
+    }
+    case @Cons(%c: i32, %t: !idr.box<!List>) {
+      %w1 = idr.io.put_char %c, %w
+      %w2 = idr.call @put_chars(%t, %w1) : (!idr.box<!List>, !idr.world) -> !idr.world
+      idr.yield %w2 : !idr.world
+    }
+    }
+    return %r : !idr.world
+  }
+  // The program's root runs every function above on what it reads: each
+  // choice is a bit of the byte, and the rest of it a number.
+  idr.func @root(%w: !idr.world) -> !idr.world {
+    %ch, %w0 = idr.io.get_byte %w
+    %byte = arith.extui %ch : i32 to i64
+    %c1 = arith.constant 1 : i64
+    %c2 = arith.constant 2 : i64
+    %c4 = arith.constant 4 : i64
+    %c8 = arith.constant 8 : i64
+    %a = arith.andi %byte, %c1 : i64
+    %b1 = arith.andi %byte, %c2 : i64
+    %c3 = arith.andi %byte, %c4 : i64
+    %rest = arith.shrui %byte, %c8 : i64
+    %nil = idr.con !idr.box<!List> @Nil()
+    %bang = arith.constant 33 : i32
+    %tail = idr.con !idr.box<!List> @Cons(%bang : i32, %nil : !idr.box<!List>)
+    %l0 = idr.call @chain(%a, %b1, %c3, %tail) : (i64, i64, i64, !idr.box<!List>) -> !idr.box<!List>
+    %w1 = idr.call @put_chars(%l0, %w0) : (!idr.box<!List>, !idr.world) -> !idr.world
+    %l1 = idr.call @all_constant(%b1) : (i64) -> !idr.box<!List>
+    %w2 = idr.call @put_chars(%l1, %w1) : (!idr.box<!List>, !idr.world) -> !idr.world
+    %l2 = idr.call @one_region(%a, %ch, %tail) : (i64, i32, !idr.box<!List>) -> !idr.box<!List>
+    %w3 = idr.call @put_chars(%l2, %w2) : (!idr.box<!List>, !idr.world) -> !idr.world
+    %l3 = idr.call @two_regions(%c3, %ch, %tail) : (i64, i32, !idr.box<!List>) -> !idr.box<!List>
+    %w4 = idr.call @put_chars(%l3, %w3) : (!idr.box<!List>, !idr.world) -> !idr.world
+    %r0 = idr.call @closed_call(%b1) : (i64) -> i64
+    %w5 = idr.io.put_sint %r0, %w4 : i64
+    %r1 = idr.call @open_call(%a, %byte) : (i64, i64) -> i64
+    %w6 = idr.io.put_sint %r1, %w5 : i64
+    return %w6 : !idr.world
   }
 }

@@ -1,4 +1,5 @@
-witness: two FileChecks of module text and an orphan check line are found, a FileCheck of diagnostics is not
 dialect fixtures: found
 module text: no FileCheck reads any outside the fixtures of printed syntax
 orphan checks: every check line names a prefix a RUN line of its file checks
+witness: each planted file is found
+near miss: nothing found

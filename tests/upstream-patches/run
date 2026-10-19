@@ -9,44 +9,58 @@
 # after the patches before it, as tools/bootstrap.sh applies them. The
 # pinned sources are only read: each patch is checked against one with
 # `git apply --check`, and the patches are applied in order to a copy of
-# the files they touch.
+# the files they touch. The policy is `upstream_policy ROOT`, run on the
+# repository and on the planted trees (lib/planted.sh): witness/ holds a
+# bug for each way of breaking it (no README, no plan, neither a patch nor
+# its reason, both, a patch named for no project); near-miss/ holds a bug
+# with a patch for each project and one with the reason it has none.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 . "$root/tools/patches.sh"
 
-: > "$work/readmes"
-for dir in "$root"/upstream/*/; do
-  bug=$(basename "$dir")
-  readme=$dir/README.md
-  if [ ! -f "$readme" ]; then
-    say "$bug: no README.md" >> "$work/readmes"
-    continue
-  fi
-  grep -qx '## Upstreaming plan' "$readme" || say "$bug: no '## Upstreaming plan'" >> "$work/readmes"
-  patch_files=$(find "$dir" -maxdepth 1 -type f -name '*.patch')
-  reason=no
-  if grep -qx '## Why there is no patch' "$readme"; then reason=yes; fi
-  if [ -z "$patch_files" ] && [ "$reason" = no ]; then
-    say "$bug: no patch, and no '## Why there is no patch'" >> "$work/readmes"
-  fi
-  if [ -n "$patch_files" ] && [ "$reason" = yes ]; then
-    say "$bug: a patch, and '## Why there is no patch'" >> "$work/readmes"
-  fi
-  if [ -n "$patch_files" ] && ! grep -qx '## Patch' "$readme"; then
-    say "$bug: a patch, and no '## Patch' saying what it does" >> "$work/readmes"
-  fi
-  for file in $(find "$dir" -maxdepth 1 -type f -name '*.patch' -exec basename {} \;); do
-    case " $patch_projects " in
-      *" ${file%.patch} "*) ;;
-      *) say "$bug: $file names no project (tools/patches.sh: $patch_projects)" >> "$work/readmes" ;;
-    esac
+# upstream_policy ROOT: each bug of ROOT/upstream that does not keep the
+# policy, `path: what`, at the file the fault is in: every file of a bug
+# with no README, the README that lacks a section, the patch that
+# contradicts it or names no project.
+upstream_policy() (
+  cd "$1" || exit 1
+  for dir in upstream/*/; do
+    [ -d "$dir" ] || continue
+    dir=${dir%/}
+    readme=$dir/README.md
+    if [ ! -f "$readme" ]; then
+      find "$dir" -type f | LC_ALL=C sort | sed 's/$/: no README.md beside it/'
+      continue
+    fi
+    grep -qx '## Upstreaming plan' "$readme" || say "$readme: no '## Upstreaming plan'"
+    patch_files=$(find "$dir" -maxdepth 1 -type f -name '*.patch' | LC_ALL=C sort)
+    reason=no
+    if grep -qx '## Why there is no patch' "$readme"; then reason=yes; fi
+    if [ -z "$patch_files" ] && [ "$reason" = no ]; then
+      say "$readme: no patch, and no '## Why there is no patch'"
+    fi
+    if [ -n "$patch_files" ] && ! grep -qx '## Patch' "$readme"; then
+      say "$readme: a patch, and no '## Patch' saying what it does"
+    fi
+    for file in $patch_files; do
+      [ "$reason" = yes ] && say "$file: a patch, beside '## Why there is no patch'"
+      name=${file##*/}
+      case " $patch_projects " in
+        *" ${name%.patch} "*) ;;
+        *) say "$file: names no project (tools/patches.sh: $patch_projects)"
+           say "$readme: its bug carries $name, a patch for no project" ;;
+      esac
+    done
   done
-done
+)
+
+upstream_policy "$root" > "$work/readmes"
 if [ -s "$work/readmes" ]; then
   say "upstream/ does not keep the policy:"
-  cat "$work/readmes"
+  sed 's/^/  /' "$work/readmes"
 else
   say "upstream/: every bug has a README with an upstreaming plan, and a patch or the reason it has none"
 fi
+planted upstream_policy
 
 # check_project PROJECT SOURCE WHAT: PROJECT's patches against SOURCE, a
 # checkout of its pinned commit.

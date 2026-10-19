@@ -1,5 +1,5 @@
--- expect: polymorphism, line 12
--- message: growing it by 1 each round, and nothing bounds how far it grows
+-- expect: polymorphism, line 13
+-- message: Prelude.Basics.(:<)
 module Main
 import Prelude
 import Array
@@ -8,7 +8,8 @@ import Array
 -- instances must take are unbounded: an array's rank is its type's, and
 -- deeper passes its own shape back to itself as s :< 2, one axis longer at
 -- each round. The program is refused, naming that growth, rather than
--- compiled to an array of a rank only the run knows.
+-- compiled to an array of a rank only the run knows. near/ passes the
+-- same shape back, doubled, so deeper has one instance.
 deeper : Array s Int -> Nat -> Int
 deeper x Z = sum x
 deeper x (S k) = deeper (tabulate (shape x :< 2) (\(i :< _) => x !! i)) k

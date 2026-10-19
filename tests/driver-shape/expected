@@ -1,2 +1,4 @@
 option declarations: in Options.cpp alone
 registration: what the compiler uses, no registerAll
+witness: each planted file is found
+near miss: nothing found

@@ -1,3 +1,5 @@
 counting: built
 counting: ok
 counting: exit 0
+mutants: each caught
+counting --mutants: exit 0

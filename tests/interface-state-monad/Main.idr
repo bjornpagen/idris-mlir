@@ -44,7 +44,22 @@ prog = do
   twice x
   ret x
 
+-- An Int from stdin: digits after an optional '-'.
+readInt : IO Int
+readInt = do
+  c <- getChar
+  if c == '-' then map negate (go 0) else if isDigit c then go (cast (ord c - 48)) else pure 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
+
+-- prog run from the state on stdin: its result, and the state 11 past the
+-- one it started from (shouts of 1, 5 and 5), in Int's wrapping arithmetic.
 main : IO ()
-main = let (r, s) = run prog 100 in do
+main = do
+  s0 <- readInt
+  let (r, s) = run prog s0
   putStrLn (prim__cast_IntString r)
   putStrLn (prim__cast_IntString s)

@@ -1,5 +1,5 @@
--- expect: runtime closure, line 26
--- message: an implementation chosen at runtime
+-- expect: runtime closure, line 27
+-- message: Main.MkSize
 module Main
 
 import Prelude
@@ -7,7 +7,8 @@ import Prelude
 -- As implementation-shape-value, with the
 -- implementation built of the shaped argument given to a constructor's
 -- constraint, which holds one compile-time implementation for the whole
--- program, not a value passed at runtime.
+-- program, not a value passed at runtime. near/ holds the Nat and builds
+-- the implementation where it is used.
 
 Res : Nat -> Type
 Res Z = String

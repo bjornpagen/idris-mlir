@@ -139,6 +139,35 @@ idr.program @"binding-times" root(@Main.main) stage(higher) {
     }
     return %r : i64
   }
+  // spin n = spin n, through the default region of a match on n: the
+  // region's value is n itself, passed back.
+  // expected-remark @below {{@spin: fixed}}
+  idr.func @spin(%n: i64) -> i64 {
+    %r = idr.match_lit %n : i64 -> (i64) {
+    case 0 {
+      idr.yield %n : i64
+    }
+    default(%d: i64) {
+      %y = idr.call @spin(%d) : (i64) -> i64
+      idr.yield %y : i64
+    }
+    }
+    return %r : i64
+  }
+  // swap a b = swap b a: each passed back, but in the other's position.
+  // expected-remark @below {{@swap: varies, varies}}
+  idr.func @swap(%a: i64, %b: i64) -> i64 {
+    %r = idr.match_lit %a : i64 -> (i64) {
+    case 0 {
+      idr.yield %b : i64
+    }
+    default(%d: i64) {
+      %y = idr.call @swap(%b, %a) : (i64, i64) -> i64
+      idr.yield %y : i64
+    }
+    }
+    return %r : i64
+  }
   // A function on no cycle.
   // expected-remark @below {{@plus: fixed, fixed}}
   idr.func @plus(%a: i64, %b: i64) -> i64 {

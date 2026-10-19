@@ -1,5 +1,5 @@
 -- expect: dictionary field, line 14
--- message: where Lib.Meters is opaque to the program
+-- message: Lib.Meters
 module Main
 
 import Prelude

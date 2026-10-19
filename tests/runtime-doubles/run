@@ -4,12 +4,16 @@
 # The runtime's doubles as text and text as doubles, held to IEEE 754 and to
 # the runtime's words: show_f64's digits judged on the exact interval of the reals
 # that round to the double, its layout, str_to_double against the C
-# library's strtod, to_int, and ownership (doubles.cpp states each). One
-# line per property; the classes each reached go to the report.
+# library's strtod, to_int, and ownership (doubles.cpp states each), on
+# doubles that include IEEE 754's words (signed zeros, infinities, NaNs of
+# every payload), subnormals, ties and the integer edges 2^53, 2^62, 2^63
+# and 2^64. Each run draws from a fresh seed, which a failure names; then
+# each check runs with its own planted fault and must catch it. One line
+# per property; the classes each reached go to the report.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 . "$root/harness/prop/prop.sh"
 prop_build "$here/doubles.cpp" "$work/doubles" || exit 0
 # The case count is debt: 1000 cases took 3 s on an arm64 Mac (host clang,
 # -O1); set it on the owner's build so the program ends well within
 # step_limit on both targets.
-prop_run "$work/doubles" --seed 1 --cases 1000
+prop_run "$work/doubles" --cases 1000

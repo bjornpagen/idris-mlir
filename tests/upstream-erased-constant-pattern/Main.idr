@@ -20,6 +20,10 @@ h _ = 2
 hFive : h 5 = 2
 hFive = Refl
 
+-- The constant is a match: 0 takes the first clause.
+hZero : h 0 = 1
+hZero = Refl
+
 -- A value whose type holds `h 5`, which only `Two` can be.
 data Count : Integer -> Type where
   Two : Count 2
@@ -38,6 +42,9 @@ tp _ = 2
 tpString : tp String = 2
 tpString = Refl
 
+tpInteger : tp Integer = 1
+tpInteger = Refl
+
 data P : Type where
   MkP : (0 n : Integer) -> P
 
@@ -48,6 +55,9 @@ pv (MkP _) = 2
 pvFive : pv (MkP 5) = 2
 pvFive = Refl
 
+pvZero : pv (MkP 0) = 1
+pvZero = Refl
+
 -- A type a constructor's implicit takes by unification is no match:
 -- `(::)`'s element type is Integer here, and `len` covers every list.
 0 len : List Integer -> Nat
@@ -56,6 +66,9 @@ len (_ :: xs) = S (len xs)
 
 lenTwo : len [1, 2] = 2
 lenTwo = Refl
+
+lenNone : len [] = 0
+lenNone = Refl
 
 -- The same inside a pattern unification fixed: `All`'s implicit `x` is
 -- found to be the pair the clause writes, and the types in it are no match.

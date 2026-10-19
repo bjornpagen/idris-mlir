@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+runtime/Gone.cpp: constexpr int gone = 4; -- a policy whose file is gone
+runtime/Spin.cpp has no text and no reason

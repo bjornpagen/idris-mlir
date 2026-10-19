@@ -1,6 +1,8 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@span,tests-nothing=@break,tests-nothing=@splitAt -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@withCell -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=SHARED < %t.err
+// RUN: idris-mlir-opt %s --idr-rc -o %t.owned.mlir
+// RUN: %differential %s %t.owned.mlir
 // span, break and splitAt give a pair of empty lists where their input ends:
 // static data, an unboxed sum whose two slots are the empty list's atom.
 // No take hands out a cell of it, and nothing counts, frees or writes it,
@@ -12,23 +14,30 @@
 // do the lists it holds; taking the first apart tests the count. (The pair
 // itself, an unboxed sum, is its fields already: its unpack tests
 // nothing.)
+// The input byte sets the list, 1 up to 0 to 15, and splitAt's count, 0 to
+// 4: every function ends at the empty list on short lists and stops at its
+// element (a 10, or the first count elements) on long ones, so every path
+// of each is run, and each run means what it meant before counting and
+// leaves no cell live.
 // SHARED: error: expected tests-nothing: idr.take in @withCell tests
 !L = !idr.data<"L", list [@N() nil, @C(i32, !idr.box<!idr.data<"L">>) cons]>
 !P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>
 idr.program @"atom-pairs" root(@root) stage(first) {
-  idr.func @build(%n: i32) -> !idr.box<!L> {
-    %k = arith.extsi %n : i32 to i64
+  // The list i, i + 1, ..., n.
+  idr.func @upto(%i: i32, %n: i32) -> !idr.box<!L> {
+    %past = arith.cmpi sgt, %i, %n : i32
+    %k = arith.extui %past : i1 to i64
     %r = idr.match_lit %k : i64 -> (!idr.box<!L>) {
     case 0 {
-      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
-      idr.yield %e : !idr.box<!L>
+      %one = arith.constant 1 : i32
+      %j = arith.addi %i, %one : i32
+      %t = idr.call @upto(%j, %n) : (i32, i32) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%i : i32, %t : !idr.box<!L>)
+      idr.yield %c : !idr.box<!L>
     }
     default(%d0: i64) {
-      %one = arith.constant 1 : i32
-      %m = arith.subi %n, %one : i32
-      %t = idr.call @build(%m) : (i32) -> !idr.box<!L>
-      %c = idr.con !idr.box<!L> @C(%n : i32, %t : !idr.box<!L>)
-      idr.yield %c : !idr.box<!L>
+      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
+      idr.yield %e : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
@@ -208,22 +217,27 @@ idr.program @"atom-pairs" root(@root) stage(first) {
     return %r : i32
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %c12 = arith.constant 12 : i32
-    %c2 = arith.constant 2 : i64
-    %z = arith.constant 0 : i32
-    %l1 = idr.call @build(%c12) : (i32) -> !idr.box<!L>
+    %ch, %w0 = idr.io.get_byte %w
+    %c16 = arith.constant 16 : i32
+    %c5 = arith.constant 5 : i32
+    %c1 = arith.constant 1 : i32
+    %n = arith.remui %ch, %c16 : i32
+    %q = arith.divui %ch, %c16 : i32
+    %k32 = arith.remui %q, %c5 : i32
+    %c2 = arith.extui %k32 : i32 to i64
+    %l1 = idr.call @upto(%c1, %n) : (i32, i32) -> !idr.box<!L>
     %p1 = idr.call @span(%l1) : (!idr.box<!L>) -> !P
     %s1 = idr.call @sums(%p1) : (!P) -> i32
-    %l2 = idr.call @build(%c12) : (i32) -> !idr.box<!L>
+    %l2 = idr.call @upto(%c1, %n) : (i32, i32) -> !idr.box<!L>
     %p2 = idr.call @break(%l2) : (!idr.box<!L>) -> !P
     %s2 = idr.call @sums(%p2) : (!P) -> i32
-    %l3 = idr.call @build(%c12) : (i32) -> !idr.box<!L>
+    %l3 = idr.call @upto(%c1, %n) : (i32, i32) -> !idr.box<!L>
     %p3 = idr.call @splitAt(%c2, %l3) : (i64, !idr.box<!L>) -> !P
     %s3 = idr.call @sums(%p3) : (!P) -> i32
-    %l4 = idr.call @build(%c12) : (i32) -> !idr.box<!L>
+    %l4 = idr.call @upto(%c1, %n) : (i32, i32) -> !idr.box<!L>
     %p4 = idr.call @withCell(%l4) : (!idr.box<!L>) -> !P
     %s4 = idr.call @sums(%p4) : (!P) -> i32
-    %w1 = idr.io.put_sint %s1, %w : i32
+    %w1 = idr.io.put_sint %s1, %w0 : i32
     %w2 = idr.io.put_sint %s2, %w1 : i32
     %w3 = idr.io.put_sint %s3, %w2 : i32
     %w4 = idr.io.put_sint %s4, %w3 : i32

@@ -8,9 +8,16 @@
 # namespace the registry classifies, and no Idris name is built from a
 # literal. `allowlist` lists the lines allowed anyway, one per line as
 # `path: text -- reason`; it is empty.
+#
+# The rule is `registry_only ROOT`, its list ROOT/tests/registry-only/
+# allowlist, run on the repository and on the planted trees
+# (lib/planted.sh): witness/ names a definition by a qualified literal, a
+# namespace alone and a name built from a literal, in the Idris and in the
+# dialect's C++ and ODS, and its list has an entry without its reason;
+# near-miss/ holds what is allowed: the registry's own names, the dialect
+# samples' and the googletest boxes', an include, literals that are no
+# qualified name, and a listed line.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-allowlist=$here/allowlist
-cd "$root" || exit 1
 
 # A qualified name: a capitalized namespace, a dot and the rest, with no
 # space ("Prelude.IO.prim__putStr", or the prefix "Builtin.").
@@ -20,61 +27,58 @@ namespaces='"(Builtin|PrimIO|Prelude|Data|Control|Decidable|Syntax|Main)"'
 # An Idris name built from a literal (`UN (Basic "main")`).
 built='Basic "[^"]'
 
-# The compiler's sources, not its test programs: the dialect samples
-# (SyntaxSamples.idr, the program tests/dialect-syntax runs) and the
-# googletest boxes (foreign/idr/unittests) name what they test with, which
-# is data of the test and no name the compiler knows.
-idris_sources() {
-  find compiler/src -name '*.idr' ! -path '*/build/*' \
-    ! -path 'compiler/src/IdrisMLIR/Registry/*' ! -path 'compiler/src/IdrisMLIR/Registry.idr' \
-    ! -path 'compiler/src/IdrisMLIR/SyntaxSamples.idr' | sort
-}
-# The dialect's own sources.
-dialect_sources() {
-  find foreign/idr -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) \
-    ! -path 'foreign/idr/unittests/*' | sort
-}
-
-: > "$work/found"
-for f in $(idris_sources); do
-  grep -nE "$qualified|$namespaces|$built" "$f" | sed "s|^|$f:|" >> "$work/found"
-done
-for f in $(dialect_sources); do
-  grep -nE "$qualified" "$f" | grep -v '^[0-9]*:#include' | sed "s|^|$f:|" >> "$work/found"
-done
-
-# The allowlist's entries, blank lines and comments aside; each needs a
-# path, a text and a reason.
-grep -v '^[[:space:]]*#' "$allowlist" | grep -v '^[[:space:]]*$' > "$work/allowed"
-while IFS= read -r entry; do
-  case $entry in
-    *': '*' -- '?*) ;;
-    *) say "allowlist entry without a path, a text and a reason: $entry" ;;
-  esac
-done < "$work/allowed"
-
-# A line found is allowed when an entry names its path and a text it holds.
-allowed=0
-: > "$work/left"
-while IFS= read -r hit; do
-  keep=yes
-  while IFS= read -r entry; do
-    path=${entry%%: *}
-    rest=${entry#*: }
-    text=${rest% -- *}
-    case $hit in "$path:"*"$text"*) keep=no ;; esac
+# registry_only ROOT: the findings in the tree at ROOT, `path:line: what`.
+registry_only() (
+  cd "$1" || exit 1
+  list=tests/registry-only/allowlist
+  # The compiler's sources, not its test programs: the dialect samples
+  # (SyntaxSamples.idr, the program tests/dialect-syntax runs) and the
+  # googletest boxes (foreign/idr/unittests) name what they test with,
+  # which is data of the test and no name the compiler knows.
+  {
+    [ -d compiler/src ] && find compiler/src -name '*.idr' ! -path '*/build/*' \
+      ! -path 'compiler/src/IdrisMLIR/Registry/*' ! -path 'compiler/src/IdrisMLIR/Registry.idr' \
+      ! -path 'compiler/src/IdrisMLIR/SyntaxSamples.idr' | LC_ALL=C sort | while IFS= read -r f; do
+        grep -nE "$qualified|$namespaces|$built" "$f" | sed "s|^|$f:|"
+      done
+    [ -d foreign/idr ] && find foreign/idr -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) \
+      ! -path 'foreign/idr/unittests/*' | LC_ALL=C sort | while IFS= read -r f; do
+        grep -nE "$qualified" "$f" | grep -v '^[0-9]*:[[:space:]]*#[[:space:]]*include' | sed "s|^|$f:|"
+      done
+  } > "$work/found"
+  # The list's entries, blank lines and comments aside; each needs a
+  # path, a text and a reason.
+  if [ -f "$list" ]; then
+    awk '!/^[[:space:]]*#/ && !/^[[:space:]]*$/ { print FNR "\t" $0 }' "$list" > "$work/allowed"
+  else
+    : > "$work/allowed"
+  fi
+  : > "$work/entries"
+  while IFS='	' read -r n entry; do
+    case $entry in
+      *': '*' -- '?*) printf '%s\t%s\n' "$n" "$entry" >> "$work/entries" ;;
+      *) printf '%s:%s: an entry without a path, a text and a reason\n' "$list" "$n" ;;
+    esac
   done < "$work/allowed"
-  if [ $keep = yes ]; then printf '%s\n' "$hit" >> "$work/left"; else allowed=$((allowed + 1)); fi
-done < "$work/found"
+  # A line found is allowed when an entry, with its reason, names its path
+  # and a text it holds.
+  while IFS= read -r hit; do
+    keep=yes
+    while IFS='	' read -r n entry; do
+      path=${entry%%: *}
+      rest=${entry#*: }
+      text=${rest% -- *}
+      case $hit in "$path:"*"$text"*) keep=no ;; esac
+    done < "$work/entries"
+    [ $keep = yes ] && printf '%s\n' "$hit" | sed 's/^\([^:]*:[0-9]*\):\(.*\)/\1: names an Idris definition outside the registry: \2/'
+  done < "$work/found"
+)
 
-# The patterns must find the registry's own names, or they would find none.
-inside=$(find compiler/src/IdrisMLIR/Registry compiler/src/IdrisMLIR/Registry.idr -name '*.idr' |
-  xargs grep -hE "$qualified|$namespaces" | wc -l | tr -d ' ')
-if [ "$inside" -gt 0 ]; then
-  say "the patterns find the registry's names: yes"
+registry_only "$root" > "$work/left"
+if [ -s "$work/left" ]; then
+  say "names outside the registry:"
+  sed 's/^/  /' "$work/left"
 else
-  say "the patterns find the registry's names: no"
+  say "names outside the registry: none, and every line of the allowlist names a path, a text and a reason"
 fi
-sed 's/^/outside the registry: /' "$work/left"
-say "names outside the registry: $(wc -l < "$work/left" | tr -d ' ')"
-say "lines allowed with a reason: $allowed"
+planted registry_only

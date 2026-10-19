@@ -1,32 +1,37 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # Determinism: the same program compiles to the same bytes whatever the
-# number of threads: one compilation at each of 1, 3, 5 and 13 threads and
-# one more at 13 in a second process, byte for byte; and one module
-# through the pipeline under one thread and under MLIR's pool.
+# number of threads: one compilation at each of 1, 3, 5 and 13 threads, one
+# at a count drawn for the run, and one more at 13 in a second process,
+# byte for byte; each executable they made gives the same bytes on every
+# input; and one module through the pipeline under one thread and under
+# MLIR's pool.
 
 # The compilations every determinism check makes, by their thread counts:
 # 1 runs serially; 3, 5 and 13 are pairwise coprime, so no two of them
 # split a list of work at the same boundaries, and 13 is more threads than
 # a small program has functions, so some threads get none; the last, 13
 # again, is a second process, so nothing a process draws when it starts
-# (where its allocator places things) reaches an artifact.
-determinism_runs='1 3 5 13 13'
-# The same compilations in words, as the transcripts name them: the
-# distinct counts, and a second process for a count that comes again.
-# shellcheck disable=SC2086 # the counts are words
-determinism_phrase=$(printf '%s\n' $determinism_runs | awk '
-  seen[$1]++ { again = 1; next }
-  { count[++n] = $1 }
-  END {
-    for (i = 1; i <= n; i++) words = words (i == 1 ? "" : i == n ? " and " : ", ") count[i]
-    print words " threads" (again ? " and in a second process" : "")
-  }')
+# (where its allocator places things) reaches an artifact. Beside them, a
+# count from 2 to 31 drawn from the clock (determinism_seed, which a
+# failure names, and which IDRIS_MLIR_DETERMINISM_SEED replays), so that
+# over many runs every split of the work is tried.
+determinism_seed=${IDRIS_MLIR_DETERMINISM_SEED:-$(date +%s)}
+determinism_drawn=$((2 + determinism_seed % 30))
+case $determinism_drawn in 3 | 5 | 13) determinism_drawn=$((determinism_drawn + 1)) ;; esac
+determinism_runs="1 3 5 13 $determinism_drawn 13"
+# The same compilations in words, as the transcripts name them, the same
+# whatever count was drawn.
+determinism_phrase='1, 3, 5 and 13 threads, a drawn count and in a second process'
 
-# determinism FIXTURE: an IO program in Main.idr with the installed
-# packages its `packages` names, compiled by each of determinism_runs,
-# gives byte-identical artifacts of every kind (lib/compile.sh) and the
-# same module after every step of the pipeline. --num-threads comes after
+# determinism FIXTURE [INPUT...]: an IO program in Main.idr with the
+# installed packages its `packages` names, compiled by each of
+# determinism_runs, gives byte-identical artifacts of every kind
+# (lib/compile.sh) and the same module after every step of the pipeline;
+# and the executable of every compilation, each run in a process of its
+# own, prints the same bytes and exits alike on every input: the stdin of
+# each of the fixture's cases, the empty input, and each INPUT, a line
+# written to stdin. --num-threads comes after
 # the one tools/compile.sh passes, so it is the one that counts. Every
 # compilation runs in the one directory, so nothing differs by where it
 # ran, and its build is moved aside to $work/det<n> after it, n counting
@@ -45,10 +50,12 @@ determinism() {
     compile_program $det_packages --num-threads="$det_threads" \
       $(dump_options "$work/det/build/exec/prog.dump") "$work/det/Main.idr" prog
     if [ "$det_threads" -eq 1 ]; then det_what="1 thread"; else det_what="$det_threads threads"; fi
+    [ "$det_run" -eq 5 ] && det_what="a drawn count of threads"
     case " $det_seen " in *" $det_threads "*) det_what="$det_what, a second process" ;; esac
     det_seen="$det_seen $det_threads"
     say "compile at $det_what: exit $compiled"
     if [ "$compiled" -ne 0 ]; then
+      [ "$det_run" -eq 5 ] && say "  the drawn count: $det_threads threads (IDRIS_MLIR_DETERMINISM_SEED=$determinism_seed)"
       show "$work/compile.out" "$work/compile.err"
       return
     fi
@@ -76,6 +83,7 @@ determinism() {
     done
     if [ -n "$det_differ" ]; then
       say "$det_kind: differs at $determinism_phrase"
+      say "  the drawn count: $determinism_drawn threads (IDRIS_MLIR_DETERMINISM_SEED=$determinism_seed)"
     else
       say "$det_kind: identical at $determinism_phrase"
     fi
@@ -97,8 +105,41 @@ determinism() {
     say "dumps: none"
   elif [ -n "$det_differ" ]; then
     say "dumps: differ at $determinism_phrase:$det_differ"
+    say "  the drawn count: $determinism_drawn threads (IDRIS_MLIR_DETERMINISM_SEED=$determinism_seed)"
   else
     say "dumps: identical at $determinism_phrase"
+  fi
+  # The runs: each input, to each compilation's executable.
+  det_fixture=$1
+  shift
+  mkdir "$work/inputs"
+  : > "$work/inputs/empty"
+  for det_case in "$det_fixture"/cases/*/; do
+    [ -f "$det_case/stdin" ] && cp "$det_case/stdin" "$work/inputs/case-$(basename "$det_case")"
+  done
+  det_n=0
+  for det_input in "$@"; do
+    det_n=$((det_n + 1))
+    printf '%s\n' "$det_input" > "$work/inputs/given-$det_n"
+  done
+  det_differ=
+  for det_input in "$work"/inputs/*; do
+    det_first=
+    for det_run in $det_runs; do
+      run_program "run$det_run" "$(artifact_file "$work/det$det_run" prog executable)" "$det_input"
+      printf '%s\n' "$ran" > "$work/run$det_run.status"
+      if [ -z "$det_first" ]; then
+        det_first=$det_run
+      elif ! cmp -s "$work/run$det_first.out" "$work/run$det_run.out" ||
+           ! cmp -s "$work/run$det_first.status" "$work/run$det_run.status"; then
+        det_differ="$det_differ ${det_input##*/} (compilation $det_run)"
+      fi
+    done
+  done
+  if [ -n "$det_differ" ]; then
+    say "runs: the executables differ in what they print or how they exit on:$det_differ"
+  else
+    say "runs: every executable prints the same bytes and exits alike on each input"
   fi
 }
 

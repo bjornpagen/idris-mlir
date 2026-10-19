@@ -1,2 +1,3 @@
-witness: a planted erased name and a planted import of the fork's are found
 compiler/src reads no input that has already erased facts
+witness: each planted file is found
+near miss: nothing found

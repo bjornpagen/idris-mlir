@@ -1,3 +1,5 @@
 C++ sources searched: yes
 RUN lines searched: yes
 no code, command or RUN line turns the verifier off
+witness: each planted file is found
+near miss: nothing found

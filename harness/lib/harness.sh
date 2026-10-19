@@ -60,11 +60,12 @@ empty() {
 
 # copy_fixture FIXTURE DEST: a fixture file, or the files and module
 # directories of a fixture directory but the golden test's own and a build
-# left in it.
+# left in it, and the cases and the neighbour (near/) the harness reads in
+# place.
 copy_fixture() {
   if [ -d "$1" ]; then
     for copy_file in "$1"/* "$1"/.[!.]*; do
-      case ${copy_file##*/} in run|expected|expected.*|suite|targets|build) continue ;; esac
+      case ${copy_file##*/} in run|expected|expected.*|suite|targets|build|cases|near) continue ;; esac
       # A module in a namespace is a file in its directory (Data/Evil.idr).
       if [ -d "$copy_file" ]; then
         cp -Rp "$copy_file" "$2/"

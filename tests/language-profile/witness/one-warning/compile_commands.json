@@ -1,0 +1,7 @@
+[
+  {
+    "directory": "/build",
+    "command": "/clang++ -std=c++26 -fno-exceptions -fno-rtti -Werror=unused -c runtime/E.cpp",
+    "file": "runtime/E.cpp"
+  }
+]

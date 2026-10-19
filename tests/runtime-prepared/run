@@ -9,7 +9,8 @@
 # is one its target's allowlist allows, of the C library, GMP or
 # compiler-rt: `allowed` holds what every target allows, and NAME/allowed
 # what the target allows besides, NAME one of the names the host answers to
-# (IDRIS_MLIR_HOST_NAMES), as the runner names an expected.NAME. A program's
+# (IDRIS_MLIR_HOST_NAMES), as the runner names an expected.NAME; and no
+# allowlist allows the dynamic loader or the C++ runtime. A program's
 # object needs nothing beyond the runtime's symbols and these
 # (harness/lib/heap.sh checks each e2e program for that).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
@@ -113,6 +114,15 @@ allowed() {
   done < "$work/allowed"
   return 1
 }
+# What no allowlist may allow, which the matcher is shown refusing: the
+# dynamic loader (nothing of ours is loaded at run time), the C++ runtime's
+# allocation, exceptions and static destructors, and a symbol of no
+# library.
+for refused in dlopen dlsym _Znwm __cxa_throw __cxa_atexit idris_rt_not_a_symbol; do
+  if allowed "$refused"; then
+    say "the allowlist allows $refused"
+  fi
+done
 while IFS= read -r symbol; do
   allowed "$symbol" || say "$symbol"
 done < "$work/needs" > "$work/outside"

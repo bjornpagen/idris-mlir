@@ -6,40 +6,37 @@
 # it once and hands it down, so no cl::opt or cl::list is declared in any
 # other unit of the driver; and the compiler registers what it uses, never
 # MLIR's registerAll* (idris-mlir-opt and idris-mlir-reduce, which are
-# tools over every dialect, do). Each rule's matcher runs on the driver and
-# on a planted unit that breaks it, which it must find. Searched with
-# comments left in, as each rule is a fact of the code, not of its prose.
+# tools over every dialect, do). Searched with comments left in, as each
+# rule is a fact of the code, not of its prose. The rule is `driver_shape
+# ROOT`, run on the repository and on the planted trees (lib/planted.sh):
+# witness/ declares an option outside Options.cpp, of each kind, and calls
+# registerAll*; near-miss/ declares its options in Options.cpp and reads
+# them, and registers each dialect it uses by name, outside the driver too.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
-# declared DRIVER: each option declared outside DRIVER/Options.cpp.
-declared() {
-  grep -rnE 'cl::(opt|list)<' "$1" | grep -v '/Options\.cpp:'
-}
+# driver_shape ROOT: the findings in ROOT's driver, `path:line: what`.
+driver_shape() (
+  cd "$1" || exit 1
+  driver=foreign/idr/lib/Driver
+  [ -d "$driver" ] || exit 0
+  grep -rnE 'cl::(opt|list)<' "$driver" | grep -v "^$driver/Options\.cpp:" |
+    sed 's/^\([^:]*:[0-9]*\):.*/\1: an option declared outside Options.cpp/'
+  grep -rn 'registerAll' "$driver" | sed 's/^\([^:]*:[0-9]*\):.*/\1: MLIR'"'"'s registerAll/'
+)
 
-# registered DRIVER: each use of MLIR's registerAll*.
-registered() {
-  grep -rn 'registerAll' "$1"
-}
-
-# rule NAME TEXT MATCHER: TEXT when MATCHER finds nothing in the driver and
-# finds the planted unit, else what it found or that it is blind.
-rule() {
-  "$3" "$root/foreign/idr/lib/Driver" > "$work/hits"
-  "$3" "$work/planted" > "$work/planted-hits"
-  if [ -s "$work/hits" ]; then
-    say "$1: found where it must not be:"
-    show "$work/hits"
-  elif [ ! -s "$work/planted-hits" ]; then
-    say "$1: the planted unit is not found"
-  else
-    say "$1: $2"
-  fi
-}
-
-mkdir -p "$work/planted"
-cat > "$work/planted/Planted.cpp" << 'EOF'
-llvm::cl::opt<bool> planted("planted");
-void planted(mlir::DialectRegistry &registry) { mlir::registerAllDialects(registry); }
-EOF
-rule "option declarations" "in Options.cpp alone" declared
-rule "registration" "what the compiler uses, no registerAll" registered
+(cd "$root" && find foreign/idr/lib/Driver -name '*.cpp' | grep -q Options.cpp) ||
+  say "driver: no Options.cpp"
+driver_shape "$root" > "$work/found"
+if grep -q 'outside Options.cpp' "$work/found"; then
+  say "option declarations: found where they must not be:"
+  grep 'outside Options.cpp' "$work/found" | sed 's/^/  /'
+else
+  say "option declarations: in Options.cpp alone"
+fi
+if grep -q 'registerAll' "$work/found"; then
+  say "registration: registerAll found:"
+  grep 'registerAll' "$work/found" | sed 's/^/  /'
+else
+  say "registration: what the compiler uses, no registerAll"
+fi
+planted driver_shape

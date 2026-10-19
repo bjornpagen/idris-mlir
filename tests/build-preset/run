@@ -3,25 +3,38 @@
 # Copyright (c) 2026 Bjorn Pagen
 # make build builds C++ through the CMake presets alone, with the pinned
 # CMake, and never invokes Ninja or the compiler directly; it builds the
-# compiler with the pinned Idris.
+# compiler with the pinned Idris. The rule is `build_preset ROOT`, read off
+# what `make -n build` would run in the tree at ROOT, and run on the
+# repository and on the planted trees (lib/planted.sh): witness/ holds a
+# Makefile whose build calls Ninja and the compilers directly, after a
+# separator too, and no preset; near-miss/ holds one that builds through
+# the presets and the pinned Idris and only says the tools' names.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-(
-  unset MAKEFLAGS MAKELEVEL MFLAGS
-  make --no-print-directory -n -C "$root" build
-) > "$work/build" 2>&1
-say "make -n build: exit $?"
-present() {
-  if grep -q -- "$2" "$work/build"; then say "$1: yes"; else say "$1: no"; fi
-}
-present 'cmake --preset' '\.toolchain/cmake/bin/cmake --preset '
-present 'cmake --build --preset' '\.toolchain/cmake/bin/cmake --build --preset '
-present 'pinned idris2 --build' '\.toolchain/idris2/bin/idris2 --build'
-# A command word, at the start of a line or after &&, ;, | or ||, with or
-# without a directory.
-direct='(^|&&|;|\|)[[:space:]]*([^[:space:]]*/)?(ninja|clang\+\+|clang|c\+\+|g\+\+|gcc|cc)([[:space:]]|$)'
-if grep -Eq "$direct" "$work/build"; then
-  say "direct ninja/compiler calls:"
-  grep -E "$direct" "$work/build" | sed "s|$root|<root>|g"
+
+# build_preset ROOT: what make build in ROOT does against the rule, each
+# finding `Makefile: what`.
+build_preset() (
+  (
+    unset MAKEFLAGS MAKELEVEL MFLAGS
+    make --no-print-directory -n -C "$1" build
+  ) > "$work/build" 2>&1 || { say "Makefile: make -n build fails"; sed 's/^/  | /' "$work/build"; exit 0; }
+  absent() {
+    grep -q -- "$2" "$work/build" || say "Makefile: make build does not run $1"
+  }
+  absent 'cmake --preset' '\.toolchain/cmake/bin/cmake --preset '
+  absent 'cmake --build --preset' '\.toolchain/cmake/bin/cmake --build --preset '
+  absent 'the pinned idris2 --build' '\.toolchain/idris2/bin/idris2 --build'
+  # A command word, at the start of a line or after &&, ;, | or ||, with
+  # or without a directory.
+  direct='(^|&&|;|\|)[[:space:]]*([^[:space:]]*/)?(ninja|clang\+\+|clang|c\+\+|g\+\+|gcc|cc)([[:space:]]|$)'
+  grep -E "$direct" "$work/build" | sed "s|$1|<root>|g; s/^/Makefile: make build runs a tool directly: /"
+)
+
+build_preset "$root" > "$work/found"
+if [ -s "$work/found" ]; then
+  say "make build does not build through the presets alone:"
+  sed 's/^/  /' "$work/found"
 else
-  say "direct ninja/compiler calls: none"
+  say "make build: cmake --preset, cmake --build --preset and the pinned idris2 --build, no direct ninja or compiler"
 fi
+planted build_preset

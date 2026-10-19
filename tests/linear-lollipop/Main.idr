@@ -1,6 +1,7 @@
 -- A constructor typed with -@ is the one with explicit linear binders:
 -- `a -@ b` is `(1 _ : a) -> b`. The same list, written both ways, and a
--- parameterised one, compute the same sums.
+-- parameterised one, compute the same sums, for the n read: 0 is the
+-- empty list, and past 40 the sums wrap as Int arithmetic does.
 module Main
 
 import Prelude
@@ -51,9 +52,17 @@ sumP : Int -> Poly Int -> Int
 sumP acc PNil = acc
 sumP acc (PCons x xs) = sumP (acc * 3 + x) xs
 
+readInt : IO Int
+readInt = go 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
+
 main : IO ()
 main = do
-  n <- pure 30
+  n <- readInt
   printLn (sumB 0 (revB (buildB n BNil) BNil))
   printLn (sumA 0 (revA (buildA n ANil) ANil))
   printLn (sumP 0 (revP (buildP n PNil) PNil))

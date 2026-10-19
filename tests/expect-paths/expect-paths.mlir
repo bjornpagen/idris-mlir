@@ -1,10 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=loops=@sum,loops=@sum:1,loops=@line:0,straight-line=@line -o /dev/null
-// RUN: idris-mlir-opt %s --idr-expect=holds=loops=@sum:2,loops=@line,straight-line=@choose -verify-diagnostics -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=loops=@sum:2,loops=@sum:0,loops=@line,straight-line=@choose -verify-diagnostics -o /dev/null
 // The shape of a function's control: @sum has one loop, @line runs one
 // path and has no loop, and @choose chooses between the regions of a
-// match.
+// match. A count of loops is exact: @sum's one is neither 0 nor 2.
 idr.program @paths root(@root) stage(first) {
-  // expected-error @below {{expected loops: }}
+  // expected-error @below {{expected loops: @sum has 1 loops, not 2}}
+  // expected-error @below {{expected loops: @sum has 1 loops, not 0}}
   idr.func @sum(%n: index) -> i64 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

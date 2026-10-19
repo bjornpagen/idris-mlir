@@ -3,10 +3,15 @@
 // RUN: FileCheck %s < %t.err
 // RUN: FileCheck %s --check-prefix=REPORT < %t.report
 // RUN: test ! -e %t.o
+// RUN: idris-mlir-opt %t.untargeted.mlir --idr-target -o %t.targeted.mlir
+// RUN: idris-mlir -c %t.targeted.mlir -o %t.targeted.o
+// RUN: %cc %t.targeted.o -o %t.targeted
+// RUN: %status 42 %t.targeted
 // The pipeline's output names the target it is compiled for, which a
 // module of the LLVM dialect alone must, for the build's triple: one that
 // names none is the input's fault, said at the module when its kind is
-// read.
+// read. The target is all it lacks: the same module given the build's
+// (--idr-target) compiles, links and exits with its 42.
 // CHECK: error: {{.*}}#llvm.target
 // REPORT: verdict: internal
 // UNTARGETED: llvm.func @main() -> i64 {

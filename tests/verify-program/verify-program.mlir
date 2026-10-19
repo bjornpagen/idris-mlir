@@ -420,3 +420,77 @@ idr.program @program root(@a) stage(first) {
     return %r : tensor<4x!idr.str>
   }
 }
+
+// -----
+
+// The alignment a buffer may have is at most a cell element's, 8 bytes:
+// the next, 16, is refused as 64 is.
+idr.program @program root(@a) stage(owned) {
+  idr.func @a() -> i64 {
+    %c = arith.constant 0 : i64
+    return %c : i64
+  }
+  idr.func @wide(%n: index) -> !idr.own<memref<?xf64>> {
+    // expected-error @+1 {{is aligned to 16 bytes, past a cell's element, whose alignment is at most 8}}
+    %b = "memref.alloc"(%n) <{alignment = 16 : i64, operandSegmentSizes = array<i32: 1, 0>}> : (index) -> memref<?xf64>
+    %o = idr.own.adopt %b : memref<?xf64>
+    return %o : !idr.own<memref<?xf64>>
+  }
+}
+
+// -----
+
+// The nearest the refusals above have that verifies, where none is above:
+// a memo sum held in a box; a data type written with its body; buffers
+// aligned to 8 bytes, the most a cell's element has, in an allocation and
+// a global; a buffer of the identity layout, and one of a strided layout,
+// the one a cell's is; and a linalg op of words.
+!M = !idr.data<"M", memo [@k() label @k, @running() running, @forced(i64) forced]>
+idr.program @program root(@a) stage(first) {
+  idr.func @k() -> i64 {
+    %c = arith.constant 1 : i64
+    return %c : i64
+  }
+  idr.func @a() -> i64 {
+    %c = arith.constant 0 : i64
+    return %c : i64
+  }
+  idr.func @b(%m: !idr.box<!M>) -> !idr.box<!M> {
+    return %m : !idr.box<!M>
+  }
+  idr.func @c(%x: !idr.data<"Somewhere", plain [@S()]>) {
+    return
+  }
+  idr.func @copies(%in: tensor<4xi64>, %out: tensor<4xi64>) -> tensor<4xi64> {
+    %r = linalg.generic {indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>],
+                         iterator_types = ["parallel"]}
+        ins(%in : tensor<4xi64>) outs(%out : tensor<4xi64>) {
+    ^bb0(%x: i64, %y: i64):
+      linalg.yield %x : i64
+    } -> tensor<4xi64>
+    return %r : tensor<4xi64>
+  }
+}
+
+// -----
+
+idr.program @program root(@a) stage(owned) {
+  idr.func @a() -> i64 {
+    %c = arith.constant 0 : i64
+    return %c : i64
+  }
+  idr.func @aligned(%n: index) -> !idr.own<memref<?xf64>> {
+    %b = "memref.alloc"(%n) <{alignment = 8 : i64, operandSegmentSizes = array<i32: 1, 0>}> : (index) -> memref<?xf64>
+    %o = idr.own.adopt %b : memref<?xf64>
+    return %o : !idr.own<memref<?xf64>>
+  }
+  idr.func @plain() -> !idr.own<memref<4x4xf64>> {
+    %b = memref.alloc() : memref<4x4xf64>
+    %o = idr.own.adopt %b : memref<4x4xf64>
+    return %o : !idr.own<memref<4x4xf64>>
+  }
+  idr.func @strided(%b: memref<8xf64, strided<[1]>>) {
+    return
+  }
+  "memref.global"() <{alignment = 8 : i64, constant, initial_value = dense<[1, 2]> : tensor<2xi64>, sym_name = "table", sym_visibility = "private", type = memref<2xi64>}> : () -> ()
+}

@@ -76,3 +76,50 @@ idr.program @widths root(@root) stage(owned) {
     return %zero : i64
   }
 }
+
+// -----
+
+// The nearest each refusal above has that verifies: the same ops at the
+// widths next to the refused ones, 8 bits for 7 and 1, 64 for 128, and
+// the count of a value that holds a reference.
+idr.program @widths root(@root) stage(first) {
+  idr.func @f8(%a: i8, %b: i8) -> i8 {
+    %q = idr.divs %a, %b : i8
+    return %q : i8
+  }
+  idr.func @f64(%a: i64, %b: i64) -> i64 {
+    %q = idr.divs %a, %b : i64
+    return %q : i64
+  }
+  idr.func @char(%a: i8) -> i32 {
+    %c = idr.to_char_u %a : i8
+    return %c : i32
+  }
+  idr.func @int(%d: f64) -> i64 {
+    %i = idr.to_int %d : i64
+    return %i : i64
+  }
+  idr.func @put(%a: i8, %w: !idr.world) -> !idr.world {
+    %w1 = idr.io.put_uint %a, %w : i8
+    return %w1 : !idr.world
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @widths root(@root) stage(owned) {
+  idr.func @f(%x: !idr.q<many, borrow, !idr.str>) -> !idr.own<!idr.str> {
+    %o = idr.dup %x : !idr.q<many, borrow, !idr.str>
+    return %o : !idr.own<!idr.str>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}

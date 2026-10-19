@@ -4,7 +4,9 @@ import Prelude
 
 -- The shape of upstream allschemes/memo002: a Lazy Nat made by adding the
 -- previous constant to itself ten times, twenty deep. Forcing the last is
--- two hundred additions when each constant is forced once.
+-- two hundred additions when each constant is forced once. The constants
+-- read after it are each already forced, and each is 10^k: l18 is below
+-- 2^62, the runtime's small naturals, l19 past 2^63 and l20 past 2^64.
 
 l0 : Lazy Nat
 l0 = 1
@@ -70,4 +72,9 @@ l20 : Lazy Nat
 l20 = l19 + l19 + l19 + l19 + l19 + l19 + l19 + l19 + l19 + l19
 
 main : IO ()
-main = printLn (the Nat (force l20 + force l20))
+main = do
+  printLn (the Nat (force l20 + force l20))
+  printLn (the Nat (force l0))
+  printLn (the Nat (force l18))
+  printLn (the Nat (force l19))
+  printLn (the Nat (force l20))

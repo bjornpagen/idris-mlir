@@ -1,4 +1,5 @@
--- expect: program, line 5
+-- expect: program, line 6
+-- message: Language.JSON
 module Main
 
 import Prelude

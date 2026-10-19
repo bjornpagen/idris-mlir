@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce),idr-expect{holds=specialized-once=@sum})' -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // A partially static list, [1, 2, n]: its spine and first two elements are
 // the static shape, n is a runtime leaf and becomes the copy's parameter.
 // The copy's match folds, and its recursive call is on the tail [2, n],
@@ -8,6 +10,8 @@
 // element: no copy calls another copy of @sum. The copy, a step of @sum's
 // recursion, stays a call. Each function carries the location Emit gives
 // it, its definition's name, by which a copy names what it was made from.
+// The differential holds the optimized program to the one as written on
+// every input byte.
 !L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @"partial-list" root(@Main.main) stage(first) {
   idr.func @sum(%xs: !idr.box<!L>) -> i64 attributes {total} {

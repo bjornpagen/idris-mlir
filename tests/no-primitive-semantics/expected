@@ -1,2 +1,4 @@
 primitives: compiler/src calls none but the allowed serializations
 allowlist: each entry allows a call
+witness: each planted file is found
+near miss: nothing found

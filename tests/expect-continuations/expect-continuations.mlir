@@ -1,8 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=contified -verify-diagnostics -o /dev/null
+// RUN: idris-mlir-opt %s --idr-contify --idr-expect=holds=contified -o /dev/null
 // A function called once, from a function it calls back, is a
 // continuation of that function, still out of line (@step.case, the case
 // block of @step's `if`); a recursion that is one function has none
-// (@count).
+// (@count). Once contification has taken @step.case into @step, none is
+// left, and the property holds of the module.
 idr.program @continuations root(@root) stage(first) {
   idr.func @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64

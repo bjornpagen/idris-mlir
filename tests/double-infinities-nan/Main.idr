@@ -4,7 +4,9 @@ module Main
 -- and nan, a NaN whatever its sign. They read back through `cast`, and
 -- `show` puts -inf in parentheses, as any negative number. Values made from
 -- stdin, so that the runtime computes them, and 1.0 / 0.0, which the
--- compiler folds through the same runtime.
+-- compiler folds through the same runtime. On the digit 0 every value made
+-- from it is NaN, x / 0 being 0 / 0; on 1, x times 1.7e308 is still finite,
+-- and on 2 it is past the largest double.
 
 import Builtin
 import Prelude

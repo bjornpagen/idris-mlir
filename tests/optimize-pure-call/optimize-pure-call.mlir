@@ -1,7 +1,9 @@
 // RUN: idris-mlir-opt %s --idr-effects --canonicalize --cse -o %t.upstream.mlir
+// RUN: %differential %s %t.upstream.mlir
 // RUN: idris-mlir-opt %t.upstream.mlir --idr-expect=holds=not-called=@unread,not-called=@consume,calls-distinct=@Main.main:@sum,calls-read=@Main.main:@sum,calls=@Main.main:@spin,calls=@Main.main:@check,calls-read=@Main.main:@fresh -o /dev/null
 // RUN: idris-mlir-opt %s --idr-effects --canonicalize --cse --idr-expect=holds=calls-distinct=@Main.main:@spin,calls-read=@Main.main:@spin,calls-distinct=@Main.main:@check,calls-read=@Main.main:@check,calls-distinct=@Main.main:@fresh -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@unread,not-called=@consume,calls-distinct=@Main.main:@sum,calls-read=@Main.main:@sum,calls=@Main.main:@spin,calls=@Main.main:@check,calls-read=@Main.main:@fresh -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-rc --idr-expect=holds=stage=owned -o /dev/null
 // A call says what it may do by its own effects, as an llvm.call holds its
@@ -26,6 +28,10 @@
 //     was, as the owned verifier checks after idr-rc counts the program.
 //   - @fresh is pure and gives a linear string: its two identical calls,
 //     each read, stay two.
+// What goes and what stays keeps the program's outcome: on every one-byte
+// input, 0 crashing in @check and the rest printing, the program after
+// upstream canonicalize and cse, and after the optimizer, prints and exits
+// as the program as written does (%differential).
 idr.program @"pure-call" root(@Main.main) stage(first) {
   idr.func @unread(%n: i64) -> i64 attributes {total, no_inline} {
     %r = arith.muli %n, %n : i64

@@ -1,10 +1,17 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@add
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@dbl
 // An IORef of functions is an array of rank 0, made with no size and
 // written with no index. What a read of it may give is every label that was
 // made into it or written over it, the one slot of its element type, which
 // the fill and the written value join from wherever they stand among the
 // op's operands. The apply of what it read then calls both.
+// The program means after the pass what it meant before it, on every input
+// (the differential), and no property here held before the pass.
 idr.program @"ioref-closure" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

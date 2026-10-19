@@ -1,4 +1,7 @@
+before: no build
 compile: exit 0
 artifacts: core module objects executable
 compile an unsupported change: exit 3
 artifacts after the failure: none
+compile it good again: exit 0
+artifacts: core module objects executable

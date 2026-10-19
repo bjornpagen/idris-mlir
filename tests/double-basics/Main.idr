@@ -6,7 +6,9 @@ module Main
 -- rounded: another platform's may differ from expected-stdout in the last
 -- place, which the comparison allows on those lines only. The infinities,
 -- NaN and subnormals are printed by the fixtures double-infinities-nan and
--- double-subnormals.
+-- double-subnormals; here they arise only on the digit 0, where 1 / x is
+-- inf, its arcsine and arccosine NaN, the logarithm -inf and the halves
+-- signed zeros. A large x, 207, is the end of input (getChar's 255).
 
 import Builtin
 import Prelude

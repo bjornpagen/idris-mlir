@@ -1,5 +1,5 @@
 -- expect: polymorphism, line 12
--- message: growing it by 1 each round, and nothing bounds how far it grows
+-- message: (Builtin.Pair a a)
 module Main
 
 import Prelude
@@ -7,7 +7,7 @@ import Prelude
 -- depth calls itself at a pair of what it was given, so the types its
 -- instances need are Char, (Char, Char), ((Char, Char), (Char, Char)),
 -- ..., one level deeper at each round, as many as its count says. The
--- program is refused, naming that growth.
+-- program is refused, naming that growth. near/ passes x on as it is.
 
 depth : Int -> a -> Int
 depth 0 _ = 0

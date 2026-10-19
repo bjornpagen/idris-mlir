@@ -6,8 +6,9 @@
 # knows AArch64 without its code generator: each feature's two names are
 # one feature, function multiversioning's (which __builtin_cpu_supports
 # tests) and LLVM's (which idr-lower and idris-mlir look for), since a
-# function versioned for the first is compiled with the second; and the
-# bits are 0 up, each once, under 64. The processor test that reads them
+# function versioned for the first is compiled with the second; the bits
+# are 0 up, each once, under 64, and no name is two features' (a check
+# shown refusing a list planted to break each). The processor test that reads them
 # (runtime/Platform/Aarch64/Cpu.cpp) is compiled by the AArch64 build with
 # its own flags, and runs at the entry of every program a test runs there;
 # runtime-start asks it for a feature no processor has.
@@ -25,12 +26,31 @@ if ! bounded "$clang" -E -P -I"$root/runtime" "$work/list.cc" > "$work/list.i" 2
 fi
 tr ';' '\n' < "$work/list.i" | tr -d '"' | awk 'NF == 3' > "$work/list"
 if [ -s "$work/list" ]; then say "features: found"; else say "features: none found"; fi
-if awk '$1 != NR - 1 || $1 >= 64 { bad = 1 } END { exit bad }' "$work/list"; then
-  say "bits: 0 up, each once, under 64"
+
+# bits_hold LIST: LIST's bits are 0 up, each once, under 64, and no test
+# name or LLVM name is two features'.
+bits_hold() {
+  awk '$1 != NR - 1 || $1 >= 64 || seen_test[$2]++ || seen_name[$3]++ { bad = 1 } END { exit bad }' "$1"
+}
+if bits_hold "$work/list"; then
+  say "bits: 0 up, each once, under 64; each name one feature's"
 else
-  say "bits: not 0 up, each once, under 64"
+  say "bits: not 0 up, each once, under 64, or a name two features'"
   show "$work/list"
 fi
+# The check refuses each way a list can break it: a bit skipped, a bit
+# twice, a 65th bit, a test name twice and an LLVM name twice.
+printf '0 a x\n2 b y\n' > "$work/skipped"
+printf '0 a x\n0 b y\n' > "$work/twice"
+awk 'BEGIN { for (bit = 0; bit <= 64; ++bit) print bit, "t" bit, "n" bit }' > "$work/past"
+printf '0 a x\n1 a y\n' > "$work/test-twice"
+printf '0 a x\n1 b x\n' > "$work/name-twice"
+for planted in skipped twice past test-twice name-twice; do
+  if bits_hold "$work/$planted"; then
+    say "bits: the planted list $planted holds"
+  fi
+done
+say "bits: each planted list refused"
 
 # Each feature, versioned for its test name (with a default version), and
 # tested; versioned functions are compiled for the generic CPU's features

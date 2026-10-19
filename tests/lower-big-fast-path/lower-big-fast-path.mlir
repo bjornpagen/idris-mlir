@@ -1,8 +1,15 @@
+// RUN: sed -n 's|^// REF: ||p' %s > %t.ref.mlir
+// RUN: %differential %t.ref.mlir %s
+// RUN: sed 's/root(@small)/root(@large)/' %s > %t.large.mlir
+// RUN: idris-mlir -c %t.large.mlir -o %t.large.o
+// RUN: %cc %t.large.o -o %t.large
+// RUN: printf '4611686018427387903\n1\n' | %t.large | FileCheck %s --match-full-lines --check-prefix=UP
+// RUN: printf -- '-4611686018427387904\n-1\n' | %t.large | FileCheck %s --match-full-lines --check-prefix=DOWN
+// RUN: printf '18446744073709551616\n-18446744073709551615\n' | %t.large | FileCheck %s --match-full-lines --check-prefix=BACK
+// RUN: printf '170141183460469231731687303715884105727\n1\n' | %t.large | FileCheck %s --match-full-lines --check-prefix=WIDE
 // RUN: idris-mlir -c %s -o %t.small.o
 // RUN: llvm-nm --undefined-only --format=just-symbols %t.small.o > %t.small.imports
 // RUN: not grep -E '^_?(idris_rt_big|idris_rt_nat|_ZN2rt3big)' %t.small.imports
-// RUN: sed 's/root(@small)/root(@large)/' %s > %t.large.mlir
-// RUN: idris-mlir -c %t.large.mlir -o %t.large.o
 // RUN: llvm-nm --undefined-only --format=just-symbols %t.large.o > %t.large.imports
 // RUN: grep -E '^_?_ZN2rt3big' %t.large.imports
 // RUN: not grep -E '^_?idris_rt_big_add$' %t.large.imports
@@ -15,11 +22,21 @@
 // than the small range, results that fit) imports no big function of the
 // runtime at all, so each small case is inline and its large case gone
 // (the root @small); a program on bigs of any size (the root @large, which
-// the fourth RUN line makes the program's) imports a large case, which is
+// a sed of the root makes the program's) imports a large case, which is
 // of the runtime's big namespace, and not the add's entry. It reads and shows its bigs through the
 // runtime's own functions, which have no small case and which it may well
 // import. A symbol is matched with and without the leading underscore an
 // object format may write.
+// Inline or not, each case computes what Integer and Nat say. On every
+// one-byte input c the small root prints 2c, 0, c * c, 1 and c, as the
+// reference at the end (REF), on words alone, does (%differential); and
+// the large root's sum crosses the small range's edges both ways: up from
+// its largest small value, 2^62 - 1, and down from its smallest, -2^62,
+// back to a small value from two large ones, and on to 2^127.
+// UP: 4611686018427387904
+// DOWN: -4611686018427387905
+// BACK: 1
+// WIDE: 170141183460469231731687303715884105728
 idr.program @"big-fast-path" root(@small) stage(higher) {
   idr.func @sum(%x: i32, %y: i32) -> i64 {
     %a = idr.big.from_sint %x : i32
@@ -96,3 +113,20 @@ idr.program @"big-fast-path" root(@small) stage(higher) {
     return %w3 : !idr.world
   }
 }
+// The reference:
+// REF: idr.program @ref root(@small) stage(higher) {
+// REF:   idr.func @small(%w: !idr.world) -> !idr.world {
+// REF:     %c, %w1 = idr.io.get_byte %w
+// REF:     %x = arith.extui %c : i32 to i64
+// REF:     %s = arith.addi %x, %x : i64
+// REF:     %z = arith.constant 0 : i64
+// REF:     %p = arith.muli %x, %x : i64
+// REF:     %one = arith.constant 1 : i64
+// REF:     %w2 = idr.io.put_sint %s, %w1 : i64
+// REF:     %w3 = idr.io.put_sint %z, %w2 : i64
+// REF:     %w4 = idr.io.put_sint %p, %w3 : i64
+// REF:     %w5 = idr.io.put_sint %one, %w4 : i64
+// REF:     %w6 = idr.io.put_sint %x, %w5 : i64
+// REF:     return %w6 : !idr.world
+// REF:   }
+// REF: }

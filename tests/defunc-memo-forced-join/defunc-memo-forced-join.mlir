@@ -1,9 +1,17 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=forces-nothing=@Main.main,calls=@Main.main:@inc,calls=@Main.main:@twice' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=forces-nothing=@Main.main,calls=@Main.main:@inc,calls=@Main.main:@twice' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// BEFORE-DAG: expected forces-nothing: {{.*}}@Main.main
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@inc
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@twice
 // Two suspensions of one Lazy slot whose labels return closures of
 // different labels: the cell's one forced field holds what either label
 // returns, so both labels return into the one slot, the join of their
 // labels, and the force gives that slot's sum.
+// The program means after the pass what it meant before it, on every input
+// (the differential), and no property here held before the pass.
 idr.program @"memo-forced-join" root(@Main.main) stage(higher) {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64

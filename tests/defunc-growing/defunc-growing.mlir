@@ -1,11 +1,34 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.pick:result:[@Main.inc,@Main.twice],labels=@Main.twice:arg0:[@Main.inc,@Main.twice],labels=@Main.later:result:[@Main.one,@Main.force],labels=@Main.force:arg0:[@Main.one,@Main.force],calls=@Main.main:@Main.neg' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@Main.pick:result:[@Main.inc,@Main.twice],labels=@Main.twice:arg0:[@Main.inc,@Main.twice],labels=@Main.later:result:[@Main.one,@Main.force],labels=@Main.force:arg0:[@Main.one,@Main.force],calls=@Main.main:@Main.neg' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.pick:result:[@Main.inc]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.twice:arg0:[@Main.twice]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.later:result:[@Main.one]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.force:arg0:[@Main.force]' -o /dev/null
+// BEFORE-DAG: expected labels: @Main.pick {{.*}}
+// BEFORE-DAG: expected labels: @Main.twice {{.*}}
+// BEFORE-DAG: expected labels: @Main.later {{.*}}
+// BEFORE-DAG: expected labels: @Main.force {{.*}}
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@Main.neg
+// STDIN: \0000
+// STDIN: \0001
+// STDIN: \0002
+// STDIN: \0003
+// STDIN: \0007
+// STDIN: \0020
+// STDIN: \0024
 // Closures that a recursion on a runtime value makes larger: each level
 // captures a closure of its own type, so no unboxed sum over labels stands
 // for them, and each key holds its own label and the one that grows it.
 // pick's closures and later's suspensions grow alike. The unrelated
 // closure type in the same module has its one label, which the apply in
 // @Main.main calls.
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 idr.program @growing root(@Main.main) stage(higher) {
   idr.func @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

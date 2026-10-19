@@ -29,7 +29,14 @@ firstWith : {0 start : Nat} -> {end : Nat} -> Span start end -> Nat
 firstWith sp with (True)
   firstWith (MkSpan len) | b = if b then start + end else len
 
+-- start + end is 2 * start + len: each of start and len 0 and not.
+spans : List (Nat, Nat)
+spans = [(first (MkSpan {start = 0} 0), firstWith (MkSpan {start = 0} 0)),
+         (first (MkSpan {start = 5} 0), firstWith (MkSpan {start = 5} 0)),
+         (first (MkSpan {start = 0} 6), firstWith (MkSpan {start = 0} 6))]
+
 main : IO ()
 main = do
   printLn (first (MkSpan {start = 3} 4))
   printLn (firstWith (MkSpan {start = 3} 4))
+  printLn spans

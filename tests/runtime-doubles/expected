@@ -13,3 +13,5 @@ to_int: truncated toward zero, modulo 2^64: ok
 box: every exponent with the edge significands: ok
 every operation borrows its argument and returns one owned result: ok
 doubles: exit 0
+mutants: each caught
+doubles --mutants: exit 0

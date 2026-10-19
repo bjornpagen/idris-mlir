@@ -1,9 +1,18 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
+# The chain Main.idr names its implementation through, written where its
+# line `-- CHAIN` is, a hundred definitions deep and a thousand: each
+# compiles, and on each case the implementation chosen at compile time
+# shows the colour read at run time (`g` green; anything else, `G` and no
+# input among it, red).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-mkdir "$work/fixture"
-cp stdin expected-stdout "$work/fixture/"
-awk '/^-- CHAIN$/ { for (i = 1; i <= 100; i++) printf "step%d : Show Colour\nstep%d = step%d\n\n", i, i, i - 1; next }
-     { print }' Main.idr > "$work/fixture/Main.idr"
-e2e_io "$work/fixture"
+for depth in 100 1000; do
+  mkdir "$work/fixture-$depth"
+  cp -R cases "$work/fixture-$depth/"
+  awk -v depth="$depth" '
+    /^-- CHAIN$/ { for (i = 1; i <= depth; i++) printf "step%d : Show Colour\nstep%d = step%d\n\n", i, i, i - 1; next }
+    /@\{step100\}/ { sub(/step100/, "step" depth) }
+    { print }' Main.idr > "$work/fixture-$depth/Main.idr"
+  e2e_io "$work/fixture-$depth" | sed "s/^/$depth deep: /"
+done

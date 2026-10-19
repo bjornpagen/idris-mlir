@@ -1,0 +1,18 @@
+forbidden_word:
+  witness: each planted file is found
+  near miss: nothing found
+at_line_start:
+  witness: planted files the check does not find:
+    docs/word.txt
+  near miss: nothing found
+finds_nothing:
+  witness: planted files the check does not find:
+    docs/start.txt
+    docs/word.txt
+  near miss: nothing found
+every_line:
+  witness: each planted file is found
+  near miss: found, though it keeps the rule:
+    | docs/word.txt:1:# SPDX-License-Identifier: 0BSD
+    | docs/word.txt:2:# Copyright (c) 2026 Bjorn Pagen
+    | docs/word.txt:3:This line says FORBIDDENLY and forbidden, which are not the word.

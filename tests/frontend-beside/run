@@ -4,7 +4,9 @@
 # idris-mlir runs the frontend beside its own real path, idris-mlir-front,
 # and no other: a copy of idris-mlir alone compiles no Idris source, says
 # which frontend it could not run, and leaves no artifact. A module needs
-# no frontend, so the copy still compiles one.
+# no frontend, so the copy still compiles one. With the frontend linked
+# beside the copy, the source compiles; with one beside it that cannot
+# start, the error names it and is no internal error.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 mkdir "$work/bin"
 cp "$idris_mlir" "$work/bin/idris-mlir"
@@ -36,3 +38,37 @@ bounded "$work/bin/idris-mlir" -c "$root/tests/e2e-exit-42/e2e-exit-42.mlir" -o 
 module_status=$?
 say "a module needs no frontend: exit $module_status"
 [ "$module_status" -eq 0 ] || show "$work/module.log"
+# The frontend beside a copy of the driver, as a link to the real one:
+# the source compiles and the program runs.
+mkdir "$work/both"
+cp "$idris_mlir" "$work/both/idris-mlir"
+ln -s "$idris_mlir_front" "$work/both/idris-mlir-front"
+rm -rf "$work/build"
+(cd "$work" && bounded "$work/both/idris-mlir" --no-prelude Main.idr -o build/exec/prog) > "$work/both.log" 2>&1
+both_status=$?
+say "compile with the frontend beside it: exit $both_status"
+if [ "$both_status" -eq 0 ] && [ "$("$work/build/exec/prog")" = hello ]; then
+  say "the program prints hello"
+else
+  say "the program does not print hello"
+  show "$work/both.log"
+fi
+# A frontend beside it that cannot start (the launcher without the program
+# it starts): the compilation fails naming the frontend, an error of the
+# environment, not an internal error of the compiler.
+mkdir "$work/broken"
+cp "$idris_mlir" "$work/broken/idris-mlir"
+printf '#!/bin/sh\nexit 127\n' > "$work/broken/idris-mlir-front"
+chmod +x "$work/broken/idris-mlir-front"
+rm -rf "$work/build"
+(cd "$work" && bounded "$work/broken/idris-mlir" --no-prelude Main.idr -o build/exec/prog) > "$work/broken.log" 2>&1
+say "compile with a frontend that cannot start: exit $?"
+if grep -q 'internal error' "$work/broken.log"; then
+  say "the error is an internal error"
+  show "$work/broken.log"
+elif grep -qF 'idris-mlir-front' "$work/broken.log"; then
+  say "the error names the frontend"
+else
+  say "the error does not name the frontend"
+  show "$work/broken.log"
+fi

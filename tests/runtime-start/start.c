@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 /* The runtime's entry, idris_rt_start, as a program's @main calls it: the
- * argument picks the program, the processor requirement and what body
- * returns, and the test reads the exit status, stdout and stderr. */
+ * argument picks the program (deep, million), the processor requirement
+ * (cpu, cpu-two) or, as a decimal number, the value body returns, and the
+ * test reads the exit status, stdout and stderr. */
 #include "idris_rt.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static const char *mode = "";
@@ -26,13 +28,8 @@ static int64_t body(void) {
     return deep(INT64_C(1) << 40) == 0;
   if (strcmp(mode, "million") == 0)
     return deep(1000000) == INT64_C(500000500000) ? 0 : 1;
-  if (strcmp(mode, "255") == 0)
-    return 255;
-  if (strcmp(mode, "256") == 0)
-    return 256;
-  if (strcmp(mode, "negative") == 0)
-    return -1;
-  return 0;
+  /* Any other mode is the decimal value body returns. */
+  return strtoll(mode, NULL, 10);
 }
 
 int main(int argc, char **argv) {
@@ -44,6 +41,9 @@ int main(int argc, char **argv) {
    * names the bit by its number. */
   if (strcmp(mode, "cpu") == 0)
     required = UINT64_C(1) << 63;
+  /* Two such bits, each named. */
+  if (strcmp(mode, "cpu-two") == 0)
+    required = UINT64_C(1) << 61 | UINT64_C(1) << 63;
   int32_t status = idris_rt_start(body, required, argc, argv);
   idris_rt_flush();
   return status;

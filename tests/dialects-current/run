@@ -5,7 +5,9 @@
 # (compiler/src/IdrisMLIR/Syntax/ and Dialect/), are what idris-mlir-tblgen
 # writes from the dialects' ODS and its own source now: tools/dialects.sh
 # check, which needs no build, finds each current. On a copy, it finds a
-# module edited by hand, and every module stale once the generator changes.
+# module edited by hand, and every module stale once the generator changes;
+# a comment in the ODS and a generator touched but unchanged, which change
+# no record and no source, leave every module current.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 # make check runs where stage 2 is not built, and there the TableGen of the
 # typecheck step reads the same records, so the fingerprints are the same.
@@ -48,6 +50,11 @@ cp "$root/foreign/idr/tools/idris-mlir-tblgen.cpp" "$copy/foreign/idr/tools/"
 cp -R "$root/compiler/src/IdrisMLIR/Syntax" "$root/compiler/src/IdrisMLIR/Dialect" \
   "$root/compiler/src/IdrisMLIR/Encoding" "$copy/compiler/src/IdrisMLIR/"
 export IDRIS_MLIR_TOOLCHAIN="$toolchain"
+# A comment in the ODS changes no record, and a generator touched but not
+# changed is the same generator: neither makes a module stale.
+printf '%s\n' '// a comment no record holds' >> "$copy/foreign/idr/include/idr/IR/IdrBase.td"
+touch "$copy/foreign/idr/tools/idris-mlir-tblgen.cpp"
+check "$copy" "a comment in the ODS and a generator touched"
 printf '%s\n' '-- a line no generator wrote' >> "$copy/compiler/src/IdrisMLIR/Dialect/UB.idr"
 check "$copy" "a module edited by hand"
 printf '%s\n' '// a change of the generator' >> "$copy/foreign/idr/tools/idris-mlir-tblgen.cpp"

@@ -3,7 +3,9 @@ module Main
 -- `cast` from String reads the whole string as an optional sign and a
 -- literal of the target type as Idris writes it; any other string is 0.
 -- Every number type reads an integer literal, in any base and with
--- underscores, an integer type modulo its width; Double also reads a
+-- underscores, an integer type modulo its width and Double as the double
+-- nearest the integer, as fromInteger takes it (so -0 is 0.0, the integer
+-- 0; the inputs cross 127, 255, 2^62, 2^63 and 2^64); Double also reads a
 -- decimal literal, a double's text as `show` writes it, and IEEE 754's
 -- inf, infinity and nan, in any case. The lines of stdin are cast at run
 -- time, the constants at the end by the compiler, through the same runtime.

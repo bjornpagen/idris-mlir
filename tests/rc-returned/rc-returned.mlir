@@ -1,8 +1,13 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=counts-nothing=@pick -o /dev/null
+// RUN: idris-mlir-opt %s --idr-rc -o %t.owned.mlir
+// RUN: %differential %s %t.owned.mlir
 // A parameter that a function returns leaves the call with the reference it
 // came with: it is owned. Borrowed, `pick` would take a reference of its
 // own to return it, and the list its caller built would be shared from
-// then on, so that `bump` could not update it in place.
+// then on, so that `bump` could not update it in place. The input byte
+// sets the list's length, 0 to 3, so bump and the root's match run on the
+// empty list and on cells, and every run prints what it printed before
+// counting and leaves no cell live.
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @returned root(@root) stage(first) {
   idr.func @pick(%a: !idr.box<!L>, %b: i64) -> !idr.box<!L> {
@@ -24,10 +29,29 @@ idr.program @returned root(@root) stage(first) {
     }
     return %r : !idr.box<!L>
   }
+  idr.func @build(%n: i64) -> !idr.box<!L> {
+    %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
+    case 0 {
+      %e = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
+      idr.yield %e : !idr.box<!L>
+    }
+    default(%d0: i64) {
+      %one = arith.constant 1 : i64
+      %m = arith.subi %n, %one : i64
+      %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%n : i64, %t : !idr.box<!L>)
+      idr.yield %c : !idr.box<!L>
+    }
+    }
+    return %r : !idr.box<!L>
+  }
   idr.func @root(%w: !idr.world) -> !idr.world {
+    %ch, %w0 = idr.io.get_byte %w
+    %byte = arith.extui %ch : i32 to i64
+    %c4 = arith.constant 4 : i64
+    %k = arith.remui %byte, %c4 : i64
     %x = arith.constant 7 : i64
-    %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
-    %l = idr.con !idr.box<!L> @C(%x : i64, %n : !idr.box<!L>)
+    %l = idr.call @build(%k) : (i64) -> !idr.box<!L>
     %p = idr.call @pick(%l, %x) : (!idr.box<!L>, i64) -> !idr.box<!L>
     %b = idr.call @bump(%p) : (!idr.box<!L>) -> !idr.box<!L>
     %s = idr.match %b : !idr.box<!L> -> (i64) {
@@ -38,7 +62,7 @@ idr.program @returned root(@root) stage(first) {
       idr.yield %h : i64
     }
     }
-    %w2 = idr.io.put_sint %s, %w : i64
+    %w2 = idr.io.put_sint %s, %w0 : i64
     return %w2 : !idr.world
   }
 }

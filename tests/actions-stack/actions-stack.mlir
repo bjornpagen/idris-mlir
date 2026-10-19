@@ -3,6 +3,11 @@
 // RUN: diff %t.none.mlir %t.skipped.mlir
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr.func(idr-rc-cells),idr-rc-stack))' -o %t.done.mlir
 // RUN: %status 1 diff %t.none.mlir %t.done.mlir
+// RUN: %differential %s %t.done.mlir
+// With every action skipped the pass is the identity, and with none it
+// changes the module. The root runs every function on the byte it reads,
+// and the program prints with the cells on the stack what it printed with
+// them on the heap, on every byte.
 !Big = !idr.data<"Big", plain [@Big(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
 !Huge = !idr.data<"Huge", plain [@Huge(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
@@ -77,8 +82,24 @@ idr.program @budget root(@Prog.main) stage(first) {
     }
     return %r : i64
   }
-  idr.func @Prog.main() -> i64 {
-    %zero = arith.constant 0 : i64
-    return %zero : i64
+  // The program's root runs every function above on the byte it reads,
+  // @recursive on the byte modulo 16 and a list of one cell.
+  idr.func @Prog.main(%w: !idr.world) -> !idr.world {
+    %ch, %w0 = idr.io.get_byte %w
+    %a = arith.extui %ch : i32 to i64
+    %x0 = idr.call @largest(%a) : (i64) -> i64
+    %w1 = idr.io.put_sint %x0, %w0 : i64
+    %x1 = idr.call @large(%a) : (i64) -> i64
+    %w2 = idr.io.put_sint %x1, %w1 : i64
+    %x2 = idr.call @frame(%a) : (i64) -> i64
+    %w3 = idr.io.put_sint %x2, %w2 : i64
+    %c15 = arith.constant 15 : i64
+    %k = arith.andi %a, %c15 : i64
+    %nil = idr.con !idr.box<!List> @Nil()
+    %c9 = arith.constant 9 : i64
+    %t = idr.con !idr.box<!List> @Cons(%c9 : i64, %nil : !idr.box<!List>)
+    %x3 = idr.call @recursive(%k, %t) : (i64, !idr.box<!List>) -> i64
+    %w4 = idr.io.put_sint %x3, %w3 : i64
+    return %w4 : !idr.world
   }
 }

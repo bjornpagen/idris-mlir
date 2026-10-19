@@ -18,6 +18,8 @@ width : Shape -> Int
 width (Circle _ r) = prim__mul_Int 2 r
 width (Rect a b) = prim__sub_Int b.x a.x
 
+-- The rectangle's width in the hundreds, the circle's in the units, so that
+-- neither can make up for an error in the other.
 public export
 result : Int
-result = prim__add_Int (width (Rect (MkPoint 1 2) (add (MkPoint 10 20) (MkPoint 5 5)))) (width (Circle (MkPoint 0 0) 3))
+result = prim__add_Int (prim__mul_Int 100 (width (Rect (MkPoint 1 2) (add (MkPoint 10 20) (MkPoint 5 5))))) (width (Circle (MkPoint 0 0) 3))

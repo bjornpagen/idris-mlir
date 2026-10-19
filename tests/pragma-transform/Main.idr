@@ -1,4 +1,5 @@
--- expect: pragma, line 11
+-- expect: pragma, line 12
+-- message: %transform
 module Main
 import Prelude
 

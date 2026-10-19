@@ -12,11 +12,11 @@
 fuzz_cases=30
 
 # fuzz SEED: for each part, `runtime` then `static`, the program of SEED,
-# compiled at the seed's thread count with every module dumped and run on
-# its stdin, and four checks, a line each:
+# compiled at the seed's thread count with its module after idr-optimize
+# dumped and run on its stdin, and four checks, a line each:
 #   - the build compiles, runs, exits 0 and writes nothing on stderr, and
 #     no case ran out of its tape;
-#   - each case's lines (d, j, r, s) print one value;
+#   - each case's lines (d, j, r, s) print one value, each of them once;
 #   - after idr-optimize no op of main computes on constants alone
 #     (folded=@Main.main), so the folders computed every d line;
 #   - each case the model covers prints the value its integers mean.
@@ -25,7 +25,8 @@ fuzz_cases=30
 # model is shrunk (fuzz_shrink) under its check's line. A check whose input
 # was never made, because the program was not generated, compiled or run,
 # reports `not run` and the step that stopped it, which fails the test: an
-# empty list of problems is no evidence for a check that never looked.
+# empty list of problems is no evidence for a check that never looked. So
+# does the model's check when no case of the program has a model.
 fuzz() {
   fuzz_seed=$1
   if ! fuzz_threads=$("$runtests" --fuzz-program threads "$fuzz_seed"); then
@@ -38,11 +39,13 @@ fuzz() {
     done
     fuzz_failing=
     fuzz_stopped=
+    fuzz_unmodelled=
     fuzz_check "$fuzz_part"
     fuzz_report "$fuzz_part: every build compiles, runs, exits 0 and writes nothing on stderr" compiled
     fuzz_report "$fuzz_part: each case prints one value, whoever computes it" agree
     case $fuzz_failing in *' agree') fuzz_shrink "$fuzz_part" $fuzz_failing ;; esac
     fuzz_report "$fuzz_part: every d line is folded" folded
+    [ -n "$fuzz_unmodelled" ] && [ -z "$fuzz_stopped" ] && fuzz_stopped=$fuzz_unmodelled
     fuzz_report "$fuzz_part: each case over integers prints its documented value" model
     case $fuzz_failing in *' model') fuzz_shrink "$fuzz_part" $fuzz_failing ;; esac
   done
@@ -77,8 +80,10 @@ fuzz_check() {
   fuzz_checked "$work/fuzz.compiled" overran program "$fuzz_seed" "$fuzz_cases" "$1"
   cp "$fuzz_dir/main" "$fuzz_dir/prog/Main.idr"
   fuzz_dumps=$fuzz_dir/prog/build/exec/prog.dump
-  # shellcheck disable=SC2046 # the dump options are words
-  compile_program "--num-threads=$fuzz_threads" $(dump_options "$fuzz_dumps") "$fuzz_dir/prog/Main.idr" prog
+  # The one module a check reads, the program after idr-optimize, is the
+  # one dumped: a dump after every step takes most of the compilation.
+  compile_program "--num-threads=$fuzz_threads" --mlir-print-ir-after=idr-optimize \
+    "--mlir-print-ir-tree-dir=$fuzz_dumps" --mlir-print-debuginfo "$fuzz_dir/prog/Main.idr" prog
   if [ "$compiled" -ne 0 ]; then
     say "$fuzz_seed: compile exit $compiled" >> "$work/fuzz.compiled"
     cat "$work/compile.out" "$work/compile.err" | head -n 10 | sed 's/^/  | /' >> "$work/fuzz.compiled"
@@ -99,7 +104,14 @@ fuzz_check() {
     show "$work/expect.log" >> "$work/fuzz.folded"
   fi
   fuzz_checked "$work/fuzz.agree" agree program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
-  fuzz_checked "$work/fuzz.model" model program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
+  # The model's check holds of no case when no case has a model, so it is
+  # not run then, and says so.
+  fuzz_modelled=$("$runtests" --fuzz-check modelled program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out")
+  if [ "${fuzz_modelled:-0}" -eq 0 ]; then
+    fuzz_unmodelled="no case of the program has a model"
+  else
+    fuzz_checked "$work/fuzz.model" model program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
+  fi
   fuzz_failing=$("$runtests" --fuzz-check first program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out")
 }
 

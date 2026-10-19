@@ -1,5 +1,9 @@
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: idris-mlir -c %s -o %t.o --mlir-disable-threading -mlir-print-ir-module-scope -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.d
+// RUN: %cc %t.o -o %t
+// RUN: printf '\000' | %t | FileCheck %s --check-prefix=ONE
+// RUN: printf '\006' | %t | FileCheck %s --check-prefix=SEVEN
+// RUN: printf '\377' | %t | FileCheck %s --check-prefix=ALL
 // RUN: sh -c 'cp %t.d/builtin_module_no-symbol-name/func_func_squares/*_transform-interpreter.mlir %t.squares.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_rows/*_transform-interpreter.mlir %t.rows.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_sumf/*_transform-interpreter.mlir %t.sumf.mlir'
 // RUN: sh -c 'for f in squares rows sumf; do idris-mlir-opt %t.$f.mlir --transform-interpreter=entry-point=idr.vectorization.cleanup -o /dev/null || exit 1; done'
 // RUN: idris-mlir-opt %t.squares.mlir --idr-expect=holds=vectorized=@squares -o /dev/null
@@ -16,6 +20,14 @@
 // order and computes on no vector, so its result is the same on every
 // target. The schedule library's unit-dimension cleanup, run again with
 // its failure not suppressed on what the schedule left, converges.
+// The program makes arrays of 1 to 256 elements, as the input byte says,
+// and prints the first and the last of the squares and of the row sums and
+// the lone sum, each fold's in index order, as IEEE doubles added in index
+// order give them: one element, seven (no whole number of lanes on any
+// target) and 256.
+// ONE: {{^}}001.01.01.0{{$}}
+// SEVEN: {{^}}0362.59285714285714250.73013375513375527.0{{$}}
+// ALL: {{^}}0650256.1243449628172810.694124696732443256.0{{$}}
 idr.program @rows root(@root) stage(higher) {
   idr.func @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
     %c0 = arith.constant 0 : index
@@ -78,18 +90,24 @@ idr.program @rows root(@root) stage(higher) {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %b, %w1 = idr.io.get_byte %w
     %b64 = arith.extui %b : i32 to i64
-    %n = arith.index_cast %b64 : i64 to index
+    %bi = arith.index_cast %b64 : i64 to index
+    %n = arith.addi %bi, %c1 : index
     %sq = idr.call @squares(%n) : (index) -> tensor<?xi64>
     %s0 = tensor.extract %sq[%c0] : tensor<?xi64>
+    %sl = tensor.extract %sq[%bi] : tensor<?xi64>
     %w2 = idr.io.put_sint %s0, %w1 : i64
+    %ws = idr.io.put_sint %sl, %w2 : i64
     %v = idr.call @ones(%n) : (index) -> tensor<?xf64>
     %r = idr.call @rows(%n, %v) : (index, tensor<?xf64>) -> tensor<?xf64>
     %r0 = tensor.extract %r[%c0] : tensor<?xf64>
-    %w3 = idr.io.put_double %r0, %w2
+    %rl = tensor.extract %r[%bi] : tensor<?xf64>
+    %w3 = idr.io.put_double %r0, %ws
+    %wr = idr.io.put_double %rl, %w3
     %t = idr.call @sumf(%v) : (tensor<?xf64>) -> f64
-    %w4 = idr.io.put_double %t, %w3
+    %w4 = idr.io.put_double %t, %wr
     return %w4 : !idr.world
   }
 }

@@ -1,3 +1,5 @@
+// RUN: idris-mlir-opt %s --idr-rc -o %t.owned.mlir
+// RUN: %differential %s %t.owned.mlir
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=exclusive-copy=@keep,exclusive-copy=@bump -o /dev/null
 // A list built once and given once is the only reference to its cells,
 // so the call of @keep on it goes to @keep's exclusive copy, while the call
@@ -8,7 +10,10 @@
 // @bump is given an exclusive value nowhere else, so its exclusive copy is
 // there only if the call @keep's copy feeds was followed. Each function
 // carries the location Emit gives it, its definition's name, by which a
-// copy names what it was made from.
+// copy names what it was made from. The input byte sets the lists'
+// length, 0 to 4, so every function runs on the empty list and on cells,
+// and every run prints what it printed before counting and leaves no cell
+// live.
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 idr.program @"second-redirect" root(@root) stage(first) {
   idr.func @build(%n: i64) -> !idr.box<!L> {
@@ -60,7 +65,10 @@ idr.program @"second-redirect" root(@root) stage(first) {
     return %r : i64
   } loc("sum")
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %c3 = arith.constant 3 : i64
+    %ch, %w0 = idr.io.get_byte %w
+    %byte = arith.extui %ch : i32 to i64
+    %c5 = arith.constant 5 : i64
+    %c3 = arith.remui %byte, %c5 : i64
     %z = arith.constant 0 : i64
     %q = idr.call @build(%c3) : (i64) -> !idr.box<!L>
     %a = idr.call @keep(%q) : (!idr.box<!L>) -> !idr.box<!L>
@@ -71,7 +79,7 @@ idr.program @"second-redirect" root(@root) stage(first) {
     %y = idr.call @bump(%x) : (!idr.box<!L>) -> !idr.box<!L>
     %s2 = idr.call @sum(%y, %z) : (!idr.box<!L>, i64) -> i64
     %s3 = idr.call @sum(%p, %z) : (!idr.box<!L>, i64) -> i64
-    %w1 = idr.io.put_sint %s1, %w : i64
+    %w1 = idr.io.put_sint %s1, %w0 : i64
     %w2 = idr.io.put_sint %s2, %w1 : i64
     %w3 = idr.io.put_sint %s3, %w2 : i64
     return %w3 : !idr.world

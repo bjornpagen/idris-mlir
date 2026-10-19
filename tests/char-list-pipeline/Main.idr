@@ -69,4 +69,4 @@ main : IO ()
 main = do
   input <- readAll []
   process input
-  lines 42 3
+  lines 42 4

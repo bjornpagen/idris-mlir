@@ -1,4 +1,5 @@
-// RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading --log-actions-to=%t.log -o /dev/null
+// RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading --log-actions-to=%t.log -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: grep 'begins.*idr-optimize-node' %t.log | count 5
 // RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node[^@]*@\([^(]*\)(.*/\1/p' | sort | uniq -d | count 0
 // RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node[^@]*@\([^(]*\)(.*/\1/p' | sort -u | count 5
@@ -8,6 +9,9 @@
 // root, a pair that call each other, a leaf and a caller of the leaf, and
 // no argument a specialization could take as static: five nodes, each
 // begun once, whatever the bounded loop that follows a node does.
+// The optimized program means what the program as written does: on every
+// one-byte input n,  and  each end on n of each parity, and both
+// print alike (%differential).
 idr.program @once root(@Main.main) stage(first) {
   idr.func @leaf(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

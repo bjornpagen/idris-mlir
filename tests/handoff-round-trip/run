@@ -11,8 +11,9 @@
 # lost or added nothing the frontend wrote.
 #
 # The programs: data and its matches, specialization and reference counts
-# (bench/rbtree), and arrays, tabulated and folded
-# (tests/linarray-combinators).
+# (bench/rbtree), arrays, tabulated and folded (tests/linarray-combinators),
+# Doubles at their ties and edges (tests/double-ties), and strings past
+# ASCII (tests/high-chars).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 # opt_print NAME INPUT OUTPUT [FLAG]: idris-mlir-opt prints INPUT to OUTPUT,
@@ -64,6 +65,6 @@ round_trip() {
   fi
 }
 
-for fixture in bench/rbtree tests/linarray-combinators; do
+for fixture in bench/rbtree tests/linarray-combinators tests/double-ties tests/high-chars; do
   round_trip "$root/$fixture"
 done

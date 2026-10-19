@@ -1,16 +1,36 @@
 // RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "x" | %status 1 %t > %t.out 2> %t.err
-// RUN: FileCheck %s --check-prefix=OUT < %t.out
-// RUN: FileCheck %s --check-prefix=ERR < %t.err
+// RUN: FileCheck %s --check-prefix=OUT --match-full-lines --implicit-check-not={{.}} < %t.out
+// RUN: FileCheck %s --check-prefix=ERR --match-full-lines --implicit-check-not={{.}} < %t.err
+// RUN: echo -n "y" | %t > %t.y.out 2> %t.y.err
+// RUN: FileCheck %s --check-prefix=Y --match-full-lines --implicit-check-not={{.}} < %t.y.out
+// RUN: count 0 < %t.y.err
+// RUN: printf '\351' | %status 1 %t > %t.e9.out 2> %t.e9.err
+// RUN: FileCheck %s --check-prefix=E9 --match-full-lines --implicit-check-not={{.}} < %t.e9.out
+// RUN: FileCheck %s --check-prefix=ERR --match-full-lines --implicit-check-not={{.}} < %t.e9.err
+// RUN: %status 1 %t < /dev/null > %t.end.out 2> %t.end.err
+// RUN: FileCheck %s --check-prefix=END --match-full-lines --implicit-check-not={{.}} < %t.end.out
+// RUN: FileCheck %s --check-prefix=ERR --match-full-lines --implicit-check-not={{.}} < %t.end.err
 // A list packed or concatenated only to be written is written as it is
 // walked, and its bytes are those of the string built from it where the
 // string is kept: UTF-8 for a character from 128 up, in order with the
 // program's other output, all of it written before a crash's message.
-// The first character is read, so that neither list is a constant.
+// The first character is read, so that neither list is a constant: an
+// ASCII letter; the byte 0xe9, read as U+00E9, two bytes of UTF-8 in each
+// list; and the end of input, read as 0xff, U+00FF. Each but "y" crashes
+// after the two lines, at the crash's place in this file; "y" writes its
+// own string and ends.
 // OUT: [xé€😀] [xé€😀] 4
 // OUT-NEXT: [ab-x] [ab-x] 4
-// ERR: idris-mlir: done
+// Y: [yé€😀] [yé€😀] 4
+// Y-NEXT: [ab-y] [ab-y] 4
+// Y-NEXT: y
+// E9: [éé€😀] [éé€😀] 4
+// E9-NEXT: [ab-é] [ab-é] 4
+// END: [ÿé€😀] [ÿé€😀] 4
+// END-NEXT: [ab-ÿ] [ab-ÿ] 4
+// ERR: idris-mlir: done at {{.*}}e2e-put-list.mlir:{{[0-9]+:[0-9]+}}
 !Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
 !Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
 idr.program @"put-list" root(@Prog.main) stage(higher) {

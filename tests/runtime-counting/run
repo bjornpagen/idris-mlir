@@ -6,11 +6,14 @@
 # runtime's live cells, each live object's count and exclusivity, each
 # slot's word and the static cells agree with the model, wide cells, odd
 # words in slots, arrays held by boxes, view copies and memo cells
-# included; at a case's end nothing it made is live.
+# included; at a case's end nothing it made is live. Each run draws from a
+# fresh seed, which a failure names; then the property runs with a planted
+# fault (the model blind to a wide cell's slots past what objs counts) and
+# must catch it.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 . "$root/harness/prop/prop.sh"
 prop_build "$here/counting.cpp" "$work/counting" || exit 0
 # 10000 cases ran in 0.3 s on the host build of the runtime for arm64
 # macOS; the owner's build of both targets confirms they end well within
 # step_limit.
-prop_run "$work/counting" --seed 1 --cases 10000
+prop_run "$work/counting" --cases 10000

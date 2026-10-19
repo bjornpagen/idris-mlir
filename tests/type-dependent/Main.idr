@@ -1,5 +1,10 @@
--- expect: type, line 13
+-- expect: type, line 18
+-- message: Main.Box
 module Main
+
+-- Box's value depends on an Int, which an instance cannot take apart, so
+-- unbox's parameter type depends on another argument. near/ indexes Box
+-- by a Nat.
 
 import Prelude
 

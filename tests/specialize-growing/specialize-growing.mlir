@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce),idr-expect{holds=specialized-once=@iter})' -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // iter f n x = if n == 0 then f x else iter (\y => f (f y)) (n - 1) x: the
 // closure grows on every iteration, so f is no fixed parameter: the
 // entering call keys the closure it is given once, and the recursion keys
@@ -6,6 +8,9 @@
 // copy is made for a call in another; specializing on each would make a
 // copy per iteration. Each function carries the location Emit gives it,
 // its definition's name, by which a copy names what it was made from.
+// The count is the input byte's low four bits, so the closure grows to
+// 2^15 applications, and the differential holds the optimized program to
+// the one as written on every byte.
 idr.program @growing root(@Main.main) stage(higher) {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
@@ -35,7 +40,9 @@ idr.program @growing root(@Main.main) stage(higher) {
   } loc("iter")
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
-    %x = arith.extui %c : i32 to i64
+    %b = arith.extui %c : i32 to i64
+    %c16 = arith.constant 16 : i64
+    %x = arith.remui %b, %c16 : i64
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
     %r = idr.call @iter(%f, %x, %x) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
     %w2 = idr.io.put_sint %r, %w1 : i64

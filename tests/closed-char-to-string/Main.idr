@@ -4,4 +4,6 @@ import Prelude
 import Prog
 
 main : IO ()
-main = putStrLn Prog.eAcute
+main = do
+  putStrLn Prog.eAcute
+  traverse_ putStrLn Prog.ends

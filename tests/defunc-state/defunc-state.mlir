@@ -1,5 +1,18 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.twice:arg0:[@Main.tick],labels=@Main.twice:arg1:[@Main.tick],labels=@Main.seq:arg0:[@Main.twice],labels=@Main.seq:arg1:[@Main.loop],labels=@Main.run:result:[@Main.done,@Main.seq]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@Main.twice:arg0:[@Main.tick],labels=@Main.twice:arg1:[@Main.tick],labels=@Main.seq:arg0:[@Main.twice],labels=@Main.seq:arg1:[@Main.loop],labels=@Main.run:result:[@Main.done,@Main.seq]' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.twice:arg0:[@Main.tick,@Main.loop]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.twice:arg1:[@Main.loop]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.seq:arg0:[@Main.twice,@Main.tick]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.seq:arg1:[@Main.loop,@Main.seq]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.run:result:[@Main.seq]' -o /dev/null
+// BEFORE-DAG: expected labels: @Main.twice {{.*}}
+// BEFORE-DAG: expected labels: @Main.twice {{.*}}
+// BEFORE-DAG: expected labels: @Main.seq {{.*}}
+// BEFORE-DAG: expected labels: @Main.seq {{.*}}
+// BEFORE-DAG: expected labels: @Main.run {{.*}}
 // A state monad's shape (tests/state-monad):
 // run n = if n == 0 then done else seq twice (loop n), where every value is
 // a state transformer of the one type T = i64 -> i64. seq's closure
@@ -7,6 +20,10 @@
 // tick, so the labels never lead back to seq: each (T, labels) gets its own
 // sum, and no closure is left. Keying by the type alone would have called T
 // infinite.
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 idr.program @state root(@Main.main) stage(higher) {
   idr.func @Main.tick(%s: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

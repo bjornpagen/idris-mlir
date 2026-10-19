@@ -1,4 +1,8 @@
 the lock as it is: the gate passes
 llvm: the gate refuses a series no release is in, and names it
+llvm: the gate refuses the pinned series cut inside a number, and names it
 cmake: the gate refuses a series no release is in, and names it
+cmake: the gate passes the pinned series' wider one
 ninja: the gate refuses a series no release is in, and names it
+ninja: the gate refuses the pinned series cut inside a number, and names it
+ninja: the gate passes the pinned series' wider one

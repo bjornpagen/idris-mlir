@@ -1,3 +1,8 @@
 rounded: exit 10
 no-guard: exit 10
+wide-guard: exit 10
+whole: exit 10
+below: exit 10
 tiny: exit 10
+planted-short: exit 11
+planted-long: exit 11

@@ -1,0 +1,5 @@
+--- a/mlir/lib/Pass/Pass.cpp
++++ b/mlir/lib/Pass/Pass.cpp
+@@ -1,1 +1,2 @@
+ void f(PassManager &pm) {
++  pm.enableVerifier(false);

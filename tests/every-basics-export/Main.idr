@@ -2,7 +2,9 @@ module Main
 
 -- Every run-time export of Prelude.Basics, each used (covers): its
 -- combinators, Bool's operators, and the constructors of List and
--- SnocList, each line printed so that what it computes is checked.
+-- SnocList, each line printed so that what it computes is checked: the
+-- Bool operators at every pair of operands, and none computing an operand
+-- the first decides.
 
 import Prelude
 
@@ -25,6 +27,14 @@ listLength (_ :: xs) = 1 + listLength xs
 twice : ((Int -> Int) -> Int -> Int) -> Int
 twice app = app inc (app inc 1)
 
+-- A Bool that crashes the program when it is computed: (&&), (||) and
+-- ifThenElse take the operand they may not need lazily, so where the first
+-- decides, it is never computed.
+partial
+boom : Int -> Bool
+boom 0 = True
+
+partial
 main : IO ()
 main = do
   printLn (inc $ 41)
@@ -44,6 +54,8 @@ main = do
   printLn (intToBool 0, intToBool 3)
   printLn (not False)
   printLn (True && False, False || True)
+  printLn ((False && False, False && True, True && False, True && True), (False || False, False || True, True || False, True || True))
+  printLn (False && boom 1, True || boom 1, ifThenElse False (boom 1) True, ifThenElse True (the Int 1) (if boom 1 then 2 else 3))
   printLn (on (+) inc 1 2)
   printLn (listLength (1 :: 2 :: Nil))
   printLn (snocLength (Lin :< 1 :< 2 :< 3))

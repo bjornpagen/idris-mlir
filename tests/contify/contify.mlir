@@ -1,11 +1,15 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=contified -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %s --idr-contify --idr-expect=holds=contified,calls=@root:@twice,calls=@root:@named,calls=@lonely:@lonely -o /dev/null
+// RUN: idris-mlir-opt %s --idr-contify -o %t.mlir
+// RUN: %differential %s %t.mlir
 // A function called once, from another function, is a continuation of that
 // function: Idris makes one of every `if` on a right-hand side, and here
 // `@step`'s case block calls `@step` back, a cycle the inliner refuses.
 // idr-contify inlines it into its one caller. A function called twice, one
 // a closure names, and one only its own call reaches are not continuations,
-// and stay, called as before.
+// and stay, called as before. The root counts down from the byte it
+// reads, doubling from 1 at each step, and the program prints after the
+// pass what it printed before, on every byte.
 idr.program @contify root(@root) stage(higher) {
   idr.func @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
@@ -41,14 +45,15 @@ idr.program @contify root(@root) stage(higher) {
     return %y : i64
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %c0 = arith.constant 0 : i64
-    %n = arith.constant 7 : i64
+    %ch, %w1 = idr.io.get_byte %w
+    %n = arith.extui %ch : i32 to i64
+    %c1 = arith.constant 1 : i64
     %t = idr.call @twice(%n) : (i64) -> i64
     %f = idr.closure @named() : () -> !idr.fn<(i64) -> (i64)>
     %g = idr.call @named(%t) : (i64) -> i64
     %v = idr.apply %f(%g) : !idr.fn<(i64) -> (i64)>
-    %r = idr.call @step(%v, %c0) : (i64, i64) -> i64
-    %w2 = idr.io.put_sint %r, %w : i64
+    %r = idr.call @step(%v, %c1) : (i64, i64) -> i64
+    %w2 = idr.io.put_sint %r, %w1 : i64
     return %w2 : !idr.world
   }
 }

@@ -1,0 +1,31 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The planted form of a repository rule (lib/planted.sh) fails a check that
+# finds too little or too much, so a rule test that uses it cannot pass by
+# finding nothing. The rule here is a toy, no .txt under docs/ says the word
+# FORBIDDEN, and its witness/ breaks it twice, mid-line and at a line's
+# start; its near-miss/ holds the word's neighbours. The right check finds
+# each planted file and nothing in the near miss; one that finds only a
+# line's start misses a witness, one that finds nothing misses both, and
+# one that finds every line finds the near miss.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# The rule's checks, each of a tree's root, findings as `path:line: text`.
+forbidden_word() {
+  (cd "$1" && grep -rnw FORBIDDEN docs)
+}
+at_line_start() {
+  (cd "$1" && grep -rn '^FORBIDDEN' docs)
+}
+finds_nothing() {
+  :
+}
+every_line() {
+  (cd "$1" && grep -rn . docs)
+}
+
+for check in forbidden_word at_line_start finds_nothing every_line; do
+  say "$check:"
+  planted "$check" | sed 's/^/  /'
+done

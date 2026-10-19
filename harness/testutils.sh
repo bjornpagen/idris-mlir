@@ -10,31 +10,20 @@
 # prints one line, the same on every successful run, and more lines only when
 # it fails, so `expected` holds the successful output and a failure shows as
 # a difference. Expectations are read from the fixtures in place (headers,
-# stdin, expected-stdout, expected-exit, expected-crash and mlir.expect),
-# so each has one source of truth. Everything is built in a
-# temporary directory, removed on exit. The Idris environment is the
-# Makefile's.
+# each case's files under cases/, mlir.expect), so each has one source of
+# truth. Everything is built in a temporary directory, removed on exit. The
+# Idris environment is the Makefile's.
 #
-# A fixture may carry a mark, a file named for what it changes; any other
-# file but the test's own and its modules fails the test
-# (fixture_files_known, in e2e.sh, which holds the one list):
+# A program fixture may carry a mark, a file named for what it changes in
+# its compilation; what a run reads and gives, and the marks of one run,
+# are the files of a case (case_fields, e2e_case in e2e.sh). Any other file
+# but the test's own and its modules fails the test (fixture_files_known,
+# in e2e.sh, which holds the one list):
 #
 #     heap-free       no op of the lowered module allocates a heap cell
 #                     (heap.sh)
-#     libm-lines      the numbered output lines are libm results, whose last
-#                     places are the platform libm's and may differ from
-#                     expected-stdout's (e2e.sh)
 #     default-stack   the program runs on the default stack instead of the
 #                     1 MiB one; the file says why (e2e.sh)
-#     live-cells      the first word is how many heap cells are still live
-#                     when main returns: a reference-count cycle the runtime
-#                     does not collect. That count is taken off stderr, as 0
-#                     is; any other count stays and fails the empty-stderr check
-#     constant-stack  the program loops in constant stack on a long input:
-#                     its stdin is the fixture's stdin as many times over as
-#                     the file's first word says, so many iterations that a
-#                     loop keeping one frame per iteration exhausts the 1 MiB
-#                     stack it runs on; the file says what loops (e2e.sh)
 #     covers          the program uses every run-time export of the prelude
 #                     module the file names, as its Core shows (prelude.sh)
 #
@@ -51,13 +40,16 @@
 #     mlir.sh          the modules a compilation dumps, step by step
 #     expect.sh        properties of a module by name (idr-expect), mlir.expect
 #     prelude.sh       a prelude module whose every export a program uses
-#     e2e.sh           the end-to-end programs, each compiled once, and the
-#                      generated semantics tests
+#     e2e.sh           the end-to-end programs, each compiled once and run on
+#                      each case, the generated semantics tests, and a refused
+#                      program's neighbour
 #     properties.sh    what holds of every compilation, off its dumps, as one line
 #     profile.sh       the profile's accept and reject fixtures
 #     determinism.sh   compilations at 1, 3, 5 and 13 threads and in a second
 #                      process, and one thread against the pool, byte for byte
 #     lit.sh           the dialect tests' RUN lines
+#     differential.sh  %differential: two modules' programs agree on every input
+#     planted.sh       a repository rule on its planted witness and near miss
 #     fuzz.sh          the fuzzer
 #     idris-lex.sh     Idris source, code told from comments and strings
 #     cpp-lex.sh       C and C++ source, code told from comments and literals
@@ -96,7 +88,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
 fi
 
 for lib_file in harness timing rules compile run heap mlir expect prelude properties e2e \
-                profile determinism lit fuzz idris-lex cpp-lex bench; do
+                profile determinism lit differential planted fuzz idris-lex cpp-lex bench; do
   . "$root/harness/lib/$lib_file.sh"
 done
 unset lib_file

@@ -1,6 +1,7 @@
 module Main
 
 import Prelude
+import Data.String
 
 -- check traverses an Either (List e) (List Int) in IO: traverse is a
 -- method of Traversable (Either (List e)) with a constraint of its own,
@@ -20,8 +21,9 @@ report (Right ys) = printLn ys
 
 main : IO ()
 main = do
+  line <- getLine
   let err = Just (Just (Just (Just (Just "empty"))))
   a <- check err []
   report a
-  b <- check err [1, 2, 3]
+  b <- check err (map cast (words line))
   report b

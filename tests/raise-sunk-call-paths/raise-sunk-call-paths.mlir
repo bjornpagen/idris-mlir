@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@every_crash:@cmk,calls-where-used=@every_diverge:@dmk,calls-where-used=@pure_after_output:@pmk,crashes-before-output=@crash_after_output,calls-where-used=@one_linear:@lmk -o /dev/null
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce),idr-expect{holds=calls-where-used=@one_crash:@cmk,calls-where-used=@crash_after_output:@cmk})' -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-rc --idr-expect=holds=stage=owned -o /dev/null
@@ -18,6 +19,20 @@
 // so no region knows a call's arguments and folds it; every function that
 // holds a match is never inlined, and every callee that builds a closure
 // is on a cycle of its own.
+// Moving a call changes no path's outcome: the optimized program prints
+// and exits as the program as written does (%differential) on two bytes,
+// n and then b, that take each match down each region: b of 0, of 1, and
+// the end of input, for n of 0, 1 and 255.
+// STDIN: \0000\0000
+// STDIN: \0000\0001
+// STDIN: \0000
+// STDIN: \0001\0000
+// STDIN: \0001\0001
+// STDIN: \0001
+// STDIN: \0377\0000
+// STDIN: \0377\0001
+// STDIN: \0377
+// STDIN:
 idr.program @"sunk-call-paths" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

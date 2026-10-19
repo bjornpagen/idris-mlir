@@ -50,9 +50,19 @@ report : Opt Int -> IO ()
 report None = putStrLn "none"
 report (Some n) = putStrLn (prim__cast_IntString n)
 
+-- Each step's test at its edge: a difference of 0 is kept and one of -1
+-- stops the chain, at the first bind and at the second; fmap and ap carry
+-- a value through and a None through.
 main : IO ()
 main = do
   report (calc 100 5 2)
   report (calc 1 5 2)
   report (fmap (prim__mul_Int 2) (calc 100 5 2))
   report (calc 10 3 8)
+  report (calc 5 5 0)
+  report (calc 5 6 0)
+  report (calc 5 0 5)
+  report (calc 5 0 6)
+  report (fmap (prim__mul_Int 2) (calc 1 5 2))
+  report (ap (pure' (prim__add_Int 1)) (calc 100 5 2))
+  report (ap (pure' (prim__add_Int 1)) (calc 5 0 6))

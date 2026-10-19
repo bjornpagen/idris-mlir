@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A refused program's nearest accepted neighbour (near/, lib/e2e.sh,
+# near_neighbour) is compiled and held to its cases, from both sides: a
+# program refused for an %inline pragma, whose neighbour without the pragma
+# compiles and prints what one case says and not what the other says, and
+# only the second is named. A neighbour that is itself marked refused, or
+# that holds a test's own file, is said before anything compiles.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# refused DIR: a test refused by the pragma rule in DIR, and its neighbour.
+refused() {
+  mkdir -p "$1/near/cases/prints-one" "$1/near/cases/prints-two"
+  printf '%s\n' '-- expect: pragma, line 5' 'module Main' 'import Prelude' '' '%inline' \
+    'one : Int' 'one = 1' '' 'main : IO ()' 'main = printLn one' > "$1/Main.idr"
+  printf '%s\n' 'module Main' 'import Prelude' '' \
+    'one : Int' 'one = 1' '' 'main : IO ()' 'main = printLn one' > "$1/near/Main.idr"
+  printf '1\n' > "$1/near/cases/prints-one/expected-stdout"
+  printf '2\n' > "$1/near/cases/prints-two/expected-stdout"
+}
+
+refused "$work/pragma-near"
+(work=$work/near.work && mkdir "$work" && profile_reject "$work/../pragma-near"; near_neighbour "$work/../pragma-near")
+
+refused "$work/pragma-marked"
+cp "$work/pragma-marked/Main.idr" "$work/pragma-marked/near/Main.idr"
+near_neighbour "$work/pragma-marked"
+
+refused "$work/pragma-own"
+: > "$work/pragma-own/near/expected"
+near_neighbour "$work/pragma-own"

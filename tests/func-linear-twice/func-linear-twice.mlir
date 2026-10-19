@@ -6,13 +6,30 @@
 // of a match is once on each path for it too (the last split). The rule is
 // one function's, checked by idr.func's own verifier after the ops of its
 // body, so it holds in a module that is no whole program as in one that
-// is, and a second use is refused where it is.
+// is, and a second use is refused at the op of the value's own block after
+// which it has been used twice: the use itself, or the match whose region
+// holds it. So on one path, also when the first use is before a match and
+// the second in one of its regions, or both are in nested regions of one
+// path, the match is refused; and one region may leave it unused.
 
 !Box = !idr.data<"Box", plain [@MkBox(!idr.lin<i64>)]>
 idr.program @"linear-twice" root(@root) stage(first) {
 idr.func @take(%x: !idr.lin<i64>) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   return %v : i64
+}
+// At most once on each path: one region may leave it unused.
+idr.func @one_side(%b: i64, %x: !idr.lin<i64>) -> i64 {
+  %r = idr.match_lit %b : i64 -> (i64) {
+  case 0 {
+    %v = idr.lin.use %x : !idr.lin<i64>
+    idr.yield %v : i64
+  }
+  default(%d: i64) {
+    idr.yield %b : i64
+  }
+  }
+  return %r : i64
 }
 // Once on each path: passed on in one region, used in the other.
 idr.func @branch(%b: i64, %x: !idr.lin<i64>) -> i64 {
@@ -266,6 +283,64 @@ idr.program @"linear-twice" root(@root) stage(first) {
     }
     }
     return %r : !idr.world
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+// A use before a match and one in a region of it are on one path.
+idr.program @"linear-twice" root(@root) stage(first) {
+  idr.func @before(%b: i64, %x: !idr.lin<i64>) -> i64 {
+    %a = idr.lin.use %x : !idr.lin<i64>
+    // expected-error @+1 {{already used on the same path}}
+    %r = idr.match_lit %b : i64 -> (i64) {
+    case 0 {
+      %v = idr.lin.use %x : !idr.lin<i64>
+      idr.yield %v : i64
+    }
+    default(%d: i64) {
+      idr.yield %a : i64
+    }
+    }
+    return %r : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+// So are uses in a region and in a region nested in it.
+idr.program @"linear-twice" root(@root) stage(first) {
+  idr.func @nested(%b: i64, %c: i64, %x: !idr.lin<i64>) -> i64 {
+    // expected-error @+1 {{already used on the same path}}
+    %r = idr.match_lit %b : i64 -> (i64) {
+    case 0 {
+      %a = idr.lin.use %x : !idr.lin<i64>
+      %s = idr.match_lit %c : i64 -> (i64) {
+      case 0 {
+        %v = idr.lin.use %x : !idr.lin<i64>
+        idr.yield %v : i64
+      }
+      default(%e: i64) {
+        idr.yield %a : i64
+      }
+      }
+      idr.yield %s : i64
+    }
+    default(%d: i64) {
+      idr.yield %b : i64
+    }
+    }
+    return %r : i64
   }
   // The program's root, which the functions above are no part of.
   idr.func @root() -> i64 {

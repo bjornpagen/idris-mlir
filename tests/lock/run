@@ -3,6 +3,42 @@
 # Copyright (c) 2026 Bjorn Pagen
 # toolchain.lock.json (schema 4) pins every tool by revision, repository,
 # version, and a tag or a `git describe`, within the series the configure
-# gate accepts (harness/Lock.idr).
+# gate accepts (harness/Lock.idr): a version continues its series after a
+# dot, as the gate matches it, so 1.1 does not hold 1.13.2.
+#
+# The check is `lock_check ROOT`, run on the repository's lock and on the
+# planted trees (lib/planted.sh), each lock of them in a directory of its
+# own: witness/ holds a lock for each way of breaking the rule; near-miss/
+# holds locks of what it allows (a tag, a describe, a series equal to the
+# version's own and a wider one, no series, fields the check does not
+# read).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-"$runtests" --lock
+
+# lock_check ROOT: what the check finds wrong with ROOT's lock, or with
+# each lock one directory under ROOT when it has none, `path: what`.
+lock_check() (
+  if [ -f "$1/toolchain.lock.json" ]; then
+    locks=$1/toolchain.lock.json
+  else
+    locks=$(find "$1" -mindepth 2 -maxdepth 2 -name toolchain.lock.json | LC_ALL=C sort)
+  fi
+  for lock in $locks; do
+    dir=${lock%/*}
+    IDRIS_MLIR_ROOT=$dir "$runtests" --lock 2>&1 |
+      grep -vx -e 'schema_version: 4' \
+        -e 'every tool is pinned by revision, repository, version, and tag or describe' \
+        -e "every accepted release series holds its tool's pinned version" |
+      sed "s|^|${lock#"$1"/}: |"
+  done
+)
+
+lock_check "$root" > "$work/found"
+if [ -s "$work/found" ]; then
+  say "toolchain.lock.json does not pin every tool in its series:"
+  sed 's/^/  /' "$work/found"
+else
+  say "schema_version: 4"
+  say "every tool is pinned by revision, repository, version, and tag or describe"
+  say "every accepted release series holds its tool's pinned version"
+fi
+planted lock_check

@@ -1,10 +1,17 @@
 // RUN: idris-mlir-opt %s -split-input-file --idr-defunctionalize --idr-expect=holds=calls=@main:@label -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s -split-input-file --idr-expect=holds=calls=@main:@label -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// BEFORE: expected calls: @main {{.*}}@label
+// BEFORE: expected calls: @main {{.*}}@label
+// BEFORE: expected calls: @main {{.*}}@label
 // A closure converts whatever grade it moves through: each edge it moves
 // along (lin.enter, lin.use, a constructor's field, a match's region
 // argument) joins two values of one carrier, the type without its
 // outermost grade, so its one label fits the key, and the apply becomes a
 // call of the label. The quantities Idris proved stay where they were,
-// which the contracts check of the pass. Each split is one grade shape.
+// which the contracts check of the pass. Each split is one grade shape,
+// and in each the call was not there before the pass (one failure per
+// split).
 
 // A plain closure, entered into a linear value and used back as plain,
 // then kept in a constructor's field.

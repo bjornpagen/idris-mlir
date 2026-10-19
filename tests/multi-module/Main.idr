@@ -8,3 +8,4 @@ main : IO ()
 main = do
   greet "world"
   putStrLn (prim__cast_IntString (count 5))
+  putStrLn (prim__cast_IntString (count 0))

@@ -1,0 +1,7 @@
+[
+  {
+    "directory": "/build",
+    "command": "/clang++ -std=c++26 -fexceptions -fno-rtti -Werror -c runtime/Io/B.cpp",
+    "file": "runtime/Io/B.cpp"
+  }
+]

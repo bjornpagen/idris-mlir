@@ -1,5 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@use:arg0:[@one,@twice],forces-nothing=@use,forces-nothing=@Main.main' -o /dev/null
+// RUN: %differential %s %t.mlir
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@use:arg0:[@one,@twice],forces-nothing=@use' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@use:arg0:[@one,@twice],forces-nothing=@use' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@use:arg0:[@one]' -o /dev/null
+// BEFORE-DAG: expected labels: @use {{.*}}
+// BEFORE-DAG: expected forces-nothing: {{.*}}@use
 // A choice between two suspensions made at run time, forced later: the
 // match's yields reach its result through the region-branch edges
 // upstream's interface declares, so the forced cell may be either
@@ -8,6 +14,10 @@
 // of the sum's dispatch, so no force is left. An op that does not
 // declare how a suspension moves through it is refused by the verifier
 // where it is written (verify-flow).
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 idr.program @"memo-sum" root(@Main.main) stage(higher) {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64

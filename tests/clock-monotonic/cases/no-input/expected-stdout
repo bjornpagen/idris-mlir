@@ -1,0 +1,4 @@
+monotonic, not earlier: True
+monotonic over 100000 readings: True
+gcCPU: Nothing
+gcReal: Nothing

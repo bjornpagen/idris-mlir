@@ -23,5 +23,12 @@ before (Step t p) Here = case t of
   S k => k
 before (Step t p) (There e) = before p e
 
+-- Entered at the first, second and third target, at a target of 0 (the
+-- match's Z) and above it.
 main : IO ()
-main = printLn (before {x = 0} (Step 1 (Step 5 Stay)) (There Here))
+main = do
+  printLn (before {x = 0} (Step 1 (Step 5 Stay)) (There Here))
+  printLn (before {x = 0} (Step 7 Stay) Here)
+  printLn (before {x = 0} (Step 0 Stay) Here)
+  printLn (before {x = 0} (Step 3 (Step 0 (Step 9 Stay))) (There (There Here)))
+  printLn (before {x = 0} (Step 3 (Step 0 (Step 9 Stay))) (There Here))

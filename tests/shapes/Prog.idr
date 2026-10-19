@@ -19,6 +19,8 @@ countdown : Int -> Int
 countdown 0 = 6
 countdown n = countdown (prim__sub_Int n 1)
 
+-- Both shapes' areas, the circle's in the thousands, so that each is read
+-- off the one number printed.
 public export
 result : Int
-result = keep 99 (area (Rect (countdown 100000) 7))
+result = prim__add_Int (keep 99 (area (Rect (countdown 100000) 7))) (prim__mul_Int 1000 (area (Circle 2)))

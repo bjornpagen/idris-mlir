@@ -225,13 +225,13 @@ bool readDecimal(const char *t, size_t n, Decimal &d) {
 // is in [-3, 9], which is "from 1e-3 up to 1e10" (and Printing.cpp's
 // choice), with a digit after the point; else D's first digit, the rest
 // after a point when there is a rest, `e` and E. Returns its length; out
-// has room for 64.
-size_t layout(const Decimal &d, char *out) {
+// has room for 64. `top`, the last positional E, is 9 but for a mutant's.
+size_t layout(const Decimal &d, char *out, long top = 9) {
   size_t at = 0;
   if (d.negative)
     out[at++] = '-';
   long e = d.exponent;
-  if (e >= -3 && e <= 9) {
+  if (e >= -3 && e <= top) {
     if (e >= 0) {
       auto whole = static_cast<size_t>(e) + 1;
       for (size_t k = 0; k < whole; ++k)
@@ -271,10 +271,103 @@ const char *wordFor(double x) {
   return negativeBit(x) ? "-inf" : "inf";
 }
 
+// The faults each check must notice, planted where it reads the runtime
+// (prop.h): most are the mistakes a printer or a reader of doubles makes,
+// at the edges where its cases must reach them (a digit too many or too
+// few, a tie, the layout's turn, the fast path's 19 digits, 2^63).
+constexpr prop::Mutant dropsDigit{"writes the shortest text's last digit dropped"};
+constexpr prop::Mutant seventeenDigits{"writes 17 significant digits, as %.17g does"};
+constexpr prop::Mutant otherNeighbour{"writes the other text of as many digits that reads back, where there is one"};
+constexpr prop::Mutant scientificAt1e9{"turns to the scientific form at 1e9, not 1e10"};
+constexpr prop::Mutant positiveZero{"has put_double write a negative zero as 0.0"};
+constexpr prop::Mutant truncatesAt19{"reads a decimal text's digits past the 19th significant one as zeros"};
+constexpr prop::Mutant literalModulo{"reads an integer literal modulo 2^64"};
+constexpr prop::Mutant lowercaseWords{"reads inf, infinity and nan in lower case only, else 0.0"};
+constexpr prop::Mutant leadingPoint{"reads a text that starts at its point, such as .5, as strtod does"};
+constexpr prop::Mutant sixteenDigits{"writes 16 significant digits, as %.16g does"};
+constexpr prop::Mutant saturates{"gives to_int of a double past the int64 range as -2^63, as x86's conversion does"};
+constexpr prop::Mutant subnormalsAsZero{"writes a subnormal as a zero"};
+constexpr prop::Mutant extraReference{"gives show_f64's text one reference too many"};
+
+// x's magnitude to n significant digits, correctly rounded as printf's %.*e
+// writes it, the trailing zeros dropped as %g drops them; with x's sign.
+void printfDigits(double x, int n, Decimal &d) {
+  char text[64];
+  snprintf(text, sizeof text, "%.*e", n - 1, fabs(x));
+  d.negative = negativeBit(x);
+  d.length = 0;
+  const char *at = text;
+  for (; *at != 'e'; ++at)
+    if (isDigit(*at))
+      d.digits[d.length++] = *at;
+  d.exponent = strtol(at + 1, nullptr, 10);
+  while (d.length > 1 && d.digits[d.length - 1] == '0')
+    --d.length;
+  d.digits[d.length] = '\0';
+}
+
+// The exact value of a Decimal's magnitude: D * 10^(E - len(D) + 1).
+void decimalValue(const Decimal &d, mpq_t out) {
+  Q scale;
+  mpz_set_str(mpq_numref(out), d.digits, 10);
+  mpz_set_ui(mpq_denref(out), 1);
+  powerOfTen(scale.v, d.exponent - static_cast<long>(d.length) + 1);
+  mpq_mul(out, out, scale.v);
+}
+
+// d moved by one in its last digit, either way, without a carry, to a text
+// that still reads back as the double of magnitude `magnitude`; false when
+// neither does.
+bool otherOfAsMany(double magnitude, Decimal &d) {
+  Interval interval(magnitude);
+  for (int delta : {1, -1}) {
+    Decimal c = d;
+    char &last = c.digits[c.length - 1];
+    if ((delta > 0 && last == '9') || (delta < 0 && last == (c.length == 1 ? '1' : '0')))
+      continue;
+    last = static_cast<char>(last + delta);
+    Q v;
+    decimalValue(c, v.v);
+    if (interval.contains(v.v)) {
+      d = c;
+      return true;
+    }
+  }
+  return false;
+}
+
+// show_f64 of a double, or the text a planted mutant writes in its place.
+const idris_rt_str *showOf(double x) {
+  if (exponentOf(bitsOf(x)) == 0 && finiteNonzero(x) && prop::planted(subnormalsAsZero))
+    return idris_rt_str_show_f64(negativeBit(x) ? -0.0 : 0.0);
+  const idris_rt_str *shown = idris_rt_str_show_f64(x);
+  Decimal d;
+  if (!finiteNonzero(x) || !readDecimal(idris_rt_str_bytes(shown), shown->bytes, d))
+    return shown;
+  long top = 9;
+  bool changed = true;
+  if (d.length > 1 && prop::planted(dropsDigit))
+    d.digits[--d.length] = '\0';
+  else if (prop::planted(seventeenDigits))
+    printfDigits(x, 17, d);
+  else if (prop::planted(sixteenDigits))
+    printfDigits(x, 16, d);
+  else if (d.exponent == 9 && prop::planted(scientificAt1e9))
+    top = 8;
+  else
+    changed = prop::planted(otherNeighbour) && otherOfAsMany(fabs(x), d);
+  if (!changed)
+    return shown;
+  idris_rt_str_release(shown);
+  char text[64];
+  size_t n = layout(d, text, top);
+  return idris_rt_str_from_utf8(text, n);
+}
+
 // show_f64 of a double, released when it goes.
 struct Shown {
   const idris_rt_str *string;
-  explicit Shown(double x) : string(idris_rt_str_show_f64(x)) {}
+  explicit Shown(double x) : string(showOf(x)) {}
   ~Shown() { idris_rt_str_release(string); }
   Shown(const Shown &) = delete;
   Shown &operator=(const Shown &) = delete;
@@ -466,8 +559,12 @@ bool putsItsText(const double *xs, size_t count) {
   for (size_t i = 0; i < count; ++i) {
     Shown shown(xs[i]);
     size_t n = shown.length();
+    // The mutant's put_double, which writes 0.0 for -0.0, read against show_f64.
+    const char *put = captured + at;
+    if (bitsOf(xs[i]) == signBit && prop::planted(positiveZero) && at + 4 <= written)
+      put = "0.0\n";
     bool holds = at + n + 1 <= written && at + n + 1 <= sizeof captured &&
-                 memcmp(captured + at, shown.bytes(), n) == 0 && captured[at + n] == '\n' &&
+                 memcmp(put, shown.bytes(), n) == 0 && put[n] == '\n' &&
                  idris_rt_double_head(xs[i]) == shown.bytes()[0];
     if (!holds) {
       prop::explain("%s: show_f64 wrote \"%.*s\"; put_double wrote \"%.*s\"; double_head gave %d", Named(xs[i]).text,
@@ -512,6 +609,8 @@ bool truncates(double x) {
   mpz_fdiv_r_2exp(t.v, t.v, 64);
   auto want = static_cast<int64_t>(static_cast<uint64_t>(mpz_get_ui(t.v)));
   int64_t got = idris_rt_to_int(x);
+  if (fabs(x) >= 0x1p63 && prop::planted(saturates))
+    got = INT64_MIN;
   if (got != want)
     prop::explain("%s: to_int gave %lld, not %lld", Named(x).text, static_cast<long long>(got),
                   static_cast<long long>(want));
@@ -596,6 +695,24 @@ constexpr DoubleFamily doubleFamilies[] = {
      [](FuzzedDataProvider &p) {
        const double anchors[] = {doubleOf(1), doubleOf(significandMask), doubleOf(significandMask + 1),
                                  doubleOf((exponentMask - 1) << significandBits | significandMask)};
+       return nearAnchor(p, anchors, sizeof anchors / sizeof anchors[0]);
+     }},
+    // The doubles IEEE 754 spells as words: a zero, an infinity, and NaNs,
+    // quiet and signalling, of the least and the most payload; drawDouble
+    // gives each its sign, so -0.0, -inf and the negative NaNs too.
+    {"words",
+     [](FuzzedDataProvider &p) {
+       constexpr uint64_t anchors[] = {0, exponentMask << significandBits, 0x7FF8000000000000u,
+                                       0x7FF0000000000001u, 0x7FF4000000000000u, 0x7FFFFFFFFFFFFFFFu};
+       return doubleOf(p.PickValueInArray(anchors));
+     }},
+    // Where a word stops holding a double's integer: 2^52 and 2^53, past
+    // which the doubles skip integers; 2^62, the small range's end; 2^63 and
+    // 2^64, the int64 and uint64 ends, where to_int wraps; 2^116 and 2^117,
+    // past which no bit of the integer is below 2^64.
+    {"word edges",
+     [](FuzzedDataProvider &p) {
+       constexpr double anchors[] = {0x1p52, 0x1p53, 0x1p62, 0x1p63, 0x1p64, 0x1p116, 0x1p117};
        return nearAnchor(p, anchors, sizeof anchors / sizeof anchors[0]);
      }},
 };
@@ -779,6 +896,20 @@ bool roundsTo(const DecimalText &t, double r) {
 bool readsAsStrtod(const DecimalText &t) {
   double want = strtod(t.text, nullptr);
   double got = readByRuntime(t.text, t.length);
+  // The mutant's reader: each digit after the 19th significant one a 0.
+  char cut[decimalRoom];
+  memcpy(cut, t.text, t.length + 1);
+  size_t significant = 0;
+  bool exponentPart = false;
+  for (size_t k = 0; k < t.length; ++k) {
+    exponentPart |= cut[k] == 'e';
+    if (exponentPart || !isDigit(cut[k]) || (significant == 0 && cut[k] == '0'))
+      continue;
+    if (++significant > 19)
+      cut[k] = '0';
+  }
+  if (significant > 19 && prop::planted(truncatesAt19))
+    got = strtod(cut, nullptr);
   if (bitsOf(got) != bitsOf(want)) {
     prop::explain("\"%.200s\"%s", t.text, t.length > 200 ? "..." : "");
     prop::explain("strtod: %s, which the text's value %s", Named(want).text,
@@ -921,8 +1052,8 @@ bool everyShowProperty(uint64_t field) {
 bool showOwned(double x) {
   uint64_t before = idris_rt_live_cells();
   const idris_rt_str *s = idris_rt_str_show_f64(x);
-  bool owned = s->header.count == 1 && idris_rt_live_cells() == before + 1;
-  uint32_t count = s->header.count;
+  uint32_t count = s->header.count + (prop::planted(extraReference) ? 1 : 0);
+  bool owned = count == 1 && idris_rt_live_cells() == before + 1;
   idris_rt_str_release(s);
   bool released = idris_rt_live_cells() == before;
   if (!(owned && released))
@@ -949,21 +1080,21 @@ bool readBorrows(const char *text, size_t n) {
 int main(int argc, char **argv) {
   prop::Run run(argc, argv);
 
-  run.property("show_f64: reads back as the double",
+  run.property("show_f64: reads back as the double", dropsDigit,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, readsBack); });
-  run.property("show_f64: no shorter text reads back",
+  run.property("show_f64: no shorter text reads back", seventeenDigits,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, noShorter); });
-  run.property("show_f64: the nearest of the shortest, ties to the even digit",
+  run.property("show_f64: the nearest of the shortest, ties to the even digit", otherNeighbour,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, nearestOfShortest); });
-  run.property("show_f64: the runtime's layout",
+  run.property("show_f64: the runtime's layout", scientificAt1e9,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, inLayout); });
-  run.property("put_double, double_head: show_f64's text", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("put_double, double_head: show_f64's text", positiveZero, [](FuzzedDataProvider &p, prop::Tally &tally) {
     double xs[prop::caseBytes];
     size_t n = drawDoubles(p, tally, xs);
     return putsItsText(xs, n);
   });
 
-  run.property("str_to_double: strtod's double for every decimal text",
+  run.property("str_to_double: strtod's double for every decimal text", truncatesAt19,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, textFamilyCount);
                  do {
@@ -979,7 +1110,7 @@ int main(int argc, char **argv) {
                  return true;
                });
 
-  run.property("str_to_double: integer literals of every base read as the nearest double",
+  run.property("str_to_double: integer literals of every base read as the nearest double", literalModulo,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, magnitudeFamilyCount);
                  do {
@@ -987,6 +1118,13 @@ int main(int argc, char **argv) {
                    drawLiteral(p, mask, tally, l);
                    double want = literalWant(l);
                    double got = readByRuntime(l.text, l.length);
+                   if (prop::planted(literalModulo)) {
+                     Z v;
+                     mpz_set_str(v.v, l.decimal + 1, 10);
+                     mpz_fdiv_r_2exp(v.v, v.v, 64);
+                     double low = static_cast<double>(static_cast<uint64_t>(mpz_get_ui(v.v)));
+                     got = l.text[0] == '-' ? -low : low;
+                   }
                    if (bitsOf(got) != bitsOf(want)) {
                      prop::explain("\"%.200s\": str_to_double %s, strtod of its value %s", l.text, Named(got).text,
                                    Named(want).text);
@@ -996,7 +1134,7 @@ int main(int argc, char **argv) {
                  return true;
                });
 
-  run.property("str_to_double: inf, infinity and nan in any case, signed",
+  run.property("str_to_double: inf, infinity and nan in any case, signed", lowercaseWords,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  do {
                    const Word &word = p.PickValueInArray(words);
@@ -1006,9 +1144,15 @@ int main(int argc, char **argv) {
                    size_t n = 0;
                    if (sign != '\0')
                      text[n++] = sign;
-                   for (const char *c = word.text; *c != '\0'; ++c)
-                     text[n++] = p.ConsumeBool() ? static_cast<char>(*c - 'a' + 'A') : *c;
+                   bool upper = false;
+                   for (const char *c = word.text; *c != '\0'; ++c) {
+                     bool letter = p.ConsumeBool();
+                     upper |= letter;
+                     text[n++] = letter ? static_cast<char>(*c - 'a' + 'A') : *c;
+                   }
                    double got = readByRuntime(text, n);
+                   if (upper && prop::planted(lowercaseWords))
+                     got = 0.0;
                    double infinity = sign == '-' ? -INFINITY : INFINITY;
                    bool holds = word.nan ? got != got : bitsOf(got) == bitsOf(infinity);
                    if (!holds) {
@@ -1019,7 +1163,7 @@ int main(int argc, char **argv) {
                  return true;
                });
 
-  run.property("str_to_double: every named malformed text reads as 0.0",
+  run.property("str_to_double: every named malformed text reads as 0.0", leadingPoint,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  do {
                    const Malformed &family = p.PickValueInArray(malformed);
@@ -1029,6 +1173,10 @@ int main(int argc, char **argv) {
                    for (const char *c = family.pattern; *c != '\0'; ++c)
                      text[n++] = *c == '#' ? p.ConsumeIntegralInRange<char>('0', '9') : *c;
                    double got = readByRuntime(text, n);
+                   if (n > 0 && text[0] == '.' && prop::planted(leadingPoint)) {
+                     text[n] = '\0';
+                     got = strtod(text, nullptr);
+                   }
                    if (bitsOf(got) != 0) {
                      prop::explain("\"%.*s\": str_to_double %s, not 0.0", static_cast<int>(n), text, Named(got).text);
                      return false;
@@ -1037,14 +1185,14 @@ int main(int argc, char **argv) {
                  return true;
                });
 
-  run.property("round trip: str_to_double of show_f64",
+  run.property("round trip: str_to_double of show_f64", sixteenDigits,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, roundTrips); });
-  run.property("to_int: truncated toward zero, modulo 2^64",
+  run.property("to_int: truncated toward zero, modulo 2^64", saturates,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, truncates); });
 
-  run.box("box: every exponent with the edge significands", exponentMask + 1, everyShowProperty);
+  run.box("box: every exponent with the edge significands", exponentMask + 1, subnormalsAsZero, everyShowProperty);
 
-  run.property("every operation borrows its argument and returns one owned result",
+  run.property("every operation borrows its argument and returns one owned result", extraReference,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, doubleFamilyCount);
                  uint64_t literals = prop::swarm(p, magnitudeFamilyCount);

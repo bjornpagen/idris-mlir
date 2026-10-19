@@ -9,6 +9,9 @@
 // which runs after every pass, instead of reading a freed cell. As written,
 // each read comes before the drop. Which op of the sunk chain the verifier
 // names is the sink's choice, so each split is checked for the error alone.
+// A read that both regions use has no one region to move into, so the
+// third split, where both use it, stays before its drop: no error, and the
+// two errors are the first two splits'.
 // CHECK-COUNT-2: error: '{{idr\.[a-z_]+}}' op uses a value whose last reference is gone on this path
 
 !P = !idr.data<"P", plain [@P(i64, i64)]>
@@ -49,6 +52,31 @@ idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
     default(%d: i1) {
       %z = arith.constant 0 : i64
       idr.yield %z : i64
+    }
+    }
+    return %r : i64
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}
+
+// -----
+
+!P = !idr.data<"P", plain [@P(i64, i64)]>
+idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
+  idr.func @both(%b: i1, %p: !idr.own<!idr.box<!P>>) -> i64 {
+    %v = idr.borrow %p : !idr.own<!idr.box<!P>>
+    %x = idr.field %v : !idr.q<many, borrow, !idr.box<!P>> @P[0] -> i64
+    idr.drop %p : !idr.own<!idr.box<!P>>
+    %r = idr.match_lit %b : i1 -> (i64) {
+    case true {
+      idr.yield %x : i64
+    }
+    default(%d: i1) {
+      %s = arith.addi %x, %x : i64
+      idr.yield %s : i64
     }
     }
     return %r : i64

@@ -22,5 +22,11 @@ same d x y = (==) @{eqOf d} x y
 found : Eq a => () -> Eq a
 found @{e} _ = e
 
+-- Two lines, compared as Ints and as Strings, each by the implementation
+-- its record holds: "3" and "03" are one Int and two strings.
 main : IO ()
-main = printLn (same (viaUnit found) (the Int 3) 3)
+main = do
+  x <- getLine
+  y <- getLine
+  printLn (same (viaUnit found) (the Int (cast x)) (cast y))
+  printLn (same (viaUnit found) x y)

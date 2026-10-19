@@ -22,8 +22,17 @@ g L = L
 build : Int -> T
 build n = if n <= 0 then L else N (build (n - 1)) n
 
+readInt : IO Int
+readInt = go 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
+
+-- n read: 0 is the leaf alone, and 1 and 2 reach each clause first.
 main : IO ()
 main = do
-  n <- pure 10
+  n <- readInt
   let MkC c = sz (g (build n)) 0
   printLn c

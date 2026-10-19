@@ -11,4 +11,4 @@ interface Describe a where
   data Colour = Red | Green
 
 main : IO ()
-main = putStrLn "unreached"
+main = putStrLn "main"

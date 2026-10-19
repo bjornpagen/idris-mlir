@@ -96,6 +96,19 @@ int compareOf(const Model &a, const Model &b) {
   return a.length < b.length ? -1 : a.length > b.length ? 1 : 0;
 }
 
+// The faults each check must notice, planted where it reads the runtime
+// (prop.h): the mistakes of an operation that takes bytes for scalars, or
+// that misses an end of the string, a reference or the one empty string.
+constexpr prop::Mutant lengthOfBytes{"counts a string's length in bytes"};
+constexpr prop::Mutant tailOfAByte{"has tail drop one byte, not one scalar"};
+constexpr prop::Mutant reverseOfBytes{"reverses a string's bytes, not its scalars"};
+constexpr prop::Mutant startFromTheEnd{"reads a negative substr start as counted from the end"};
+constexpr prop::Mutant signedBytes{"orders strings by their bytes read as signed chars"};
+constexpr prop::Mutant givenBackUncounted{"gives an operand back without its one more reference"};
+constexpr prop::Mutant pastTheEndEmpty{"gives the empty string for a substr whose length runs past the end"};
+constexpr prop::Mutant keepsReference{"keeps a reference to a counted operand"};
+constexpr prop::Mutant secondEmpty{"makes an empty string of its own for substr of no scalars"};
+
 // A string's scalars, for an explanation.
 struct Shown {
   char text[resultLimit * 9 + 1];
@@ -294,8 +307,12 @@ bool borrowed(const char *operation, const idris_rt_str *const *operands, size_t
   uint64_t live = idris_rt_live_cells();
   call();
   bool holds = idris_rt_live_cells() == live;
-  for (size_t i = 0; i < n; ++i)
-    holds = holds && operands[i]->header.count == counts[i];
+  for (size_t i = 0; i < n; ++i) {
+    uint32_t count = operands[i]->header.count;
+    if (count != 0 && prop::planted(keepsReference))
+      ++count;
+    holds = holds && count == counts[i];
+  }
   if (!holds)
     prop::explain("%s: an operand's count or the live cells changed", operation);
   return holds;
@@ -325,7 +342,8 @@ struct Owns {
     if (e.givenBack != 0) {
       for (size_t i = 0; i < e.operandCount; ++i)
         if ((e.givenBack >> i & 1) != 0 && r == e.operands[i])
-          owned = r->header.count == oneMore(counts[i]);
+          owned = r->header.count ==
+                  (counts[i] != 0 && prop::planted(givenBackUncounted) ? counts[i] : oneMore(counts[i]));
     } else {
       owned = r->header.count == (r->bytes == 0 ? 0u : 1u);
     }
@@ -355,7 +373,10 @@ struct Every {
 template <typename Judge> bool tail(const Operand &s, Judge judge) {
   if (s.model.length == 0)
     return true;
-  return judge(Expected{"tail", {s.string}, 1, 0, tailOf(s.model)}, [&] { return idris_rt_str_tail(s.string); });
+  return judge(Expected{"tail", {s.string}, 1, 0, tailOf(s.model)}, [&] {
+    return prop::planted(tailOfAByte) ? idris_rt_str_from_bytes(idris_rt_str_bytes(s.string) + 1, s.string->bytes - 1)
+                                      : idris_rt_str_tail(s.string);
+  });
 }
 template <typename Judge> bool cons(uint32_t c, const Operand &s, Judge judge) {
   return judge(Expected{"cons", {s.string}, 1, 0, consOf(c, s.model)},
@@ -371,12 +392,25 @@ template <typename Judge> bool append(const Operand &a, const Operand &b, Judge 
                [&] { return idris_rt_str_append(a.string, b.string); });
 }
 template <typename Judge> bool reverse(const Operand &s, Judge judge) {
-  return judge(Expected{"reverse", {s.string}, 1, s.model.length == 0 ? 1u : 0u, reverseOf(s.model)},
-               [&] { return idris_rt_str_reverse(s.string); });
+  return judge(Expected{"reverse", {s.string}, 1, s.model.length == 0 ? 1u : 0u, reverseOf(s.model)}, [&] {
+    if (s.model.length > 0 && prop::planted(reverseOfBytes)) {
+      char bytes[operandLimit * scalarBytes];
+      for (uint64_t k = 0; k < s.string->bytes; ++k)
+        bytes[k] = idris_rt_str_bytes(s.string)[s.string->bytes - 1 - k];
+      return idris_rt_str_from_bytes(bytes, s.string->bytes);
+    }
+    return idris_rt_str_reverse(s.string);
+  });
 }
 template <typename Judge> bool substr(const Operand &s, int64_t start, int64_t length, Judge judge) {
-  bool holds = judge(Expected{"substr", {s.string}, 1, 0, substrOf(s.model, start, length)},
-                     [&] { return idris_rt_str_substr(s.string, start, length); });
+  auto n = static_cast<int64_t>(s.model.length);
+  bool holds = judge(Expected{"substr", {s.string}, 1, 0, substrOf(s.model, start, length)}, [&] {
+    if (start < 0 && start > INT64_MIN && n > 0 && prop::planted(startFromTheEnd))
+      return idris_rt_str_substr(s.string, n + start < 0 ? 0 : n + start, length);
+    if (start >= 0 && start < n && length > n - start && prop::planted(pastTheEndEmpty))
+      return idris_rt_str_substr(s.string, start, 0);
+    return idris_rt_str_substr(s.string, start, length);
+  });
   if (!holds)
     prop::explain("substr of %zu scalars from %lld, at most %lld", s.model.length, static_cast<long long>(start),
                   static_cast<long long>(length));
@@ -405,7 +439,10 @@ bool stringOperations(const Operand &a, const Operand &b, const Arguments &args,
 
 // length, index at every index, and head of a nonempty string: the model's.
 bool scalarsOf(const Operand &s) {
-  bool holds = idris_rt_str_length(s.string) == static_cast<int64_t>(s.model.length);
+  int64_t length = idris_rt_str_length(s.string);
+  if (prop::planted(lengthOfBytes))
+    length = static_cast<int64_t>(s.string->bytes);
+  bool holds = length == static_cast<int64_t>(s.model.length);
   for (size_t i = 0; i < s.model.length && holds; ++i)
     holds = static_cast<uint32_t>(idris_rt_str_index(s.string, static_cast<int64_t>(i))) == s.model.at[i];
   if (holds && s.model.length > 0)
@@ -421,8 +458,21 @@ bool scalarsOf(const Operand &s) {
 bool compares(const Operand &a, const Operand &b) {
   auto sign = [](int32_t c) { return c < 0 ? -1 : c > 0 ? 1 : 0; };
   const Operand *pairs[][2] = {{&a, &b}, {&b, &a}, {&a, &a}, {&b, &b}};
+  // The mutant's order: the first byte that differs, read as a signed char,
+  // else the shorter first.
+  auto signedOrder = [](const idris_rt_str *x, const idris_rt_str *y) {
+    for (uint64_t k = 0; k < x->bytes && k < y->bytes; ++k) {
+      auto c = static_cast<signed char>(idris_rt_str_bytes(x)[k]);
+      auto d = static_cast<signed char>(idris_rt_str_bytes(y)[k]);
+      if (c != d)
+        return c < d ? -1 : 1;
+    }
+    return x->bytes < y->bytes ? -1 : x->bytes > y->bytes ? 1 : 0;
+  };
   for (const auto &pair : pairs) {
     int got = sign(idris_rt_str_cmp(pair[0]->string, pair[1]->string));
+    if (prop::planted(signedBytes))
+      got = signedOrder(pair[0]->string, pair[1]->string);
     int want = compareOf(pair[0]->model, pair[1]->model);
     if (got != want) {
       prop::explain("cmp gives %d where the order of the scalars is %d:", got, want);
@@ -491,7 +541,8 @@ bool emptiesAreOne(const Operand &s) {
           one->header.info == idris_rt_info(0, 0, IDRIS_RT_KIND_STRING);
   for (size_t i = 0; i < count; ++i) {
     const Made &m = made[i];
-    if (holds && m.string != one) {
+    bool other = m.string != one || (strcmp(m.operation, "substr of no scalars") == 0 && prop::planted(secondEmpty));
+    if (holds && other) {
       prop::explain("%s: a string of %llu bytes and count %u, not the one empty string", m.operation,
                     static_cast<unsigned long long>(m.string->bytes), m.string->header.count);
       holds = false;
@@ -518,33 +569,35 @@ Model boxString(uint64_t index) {
 int main(int argc, char **argv) {
   prop::Run run(argc, argv);
 
-  run.property("length, index, head: the model's", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("length, index, head: the model's", lengthOfBytes, [](FuzzedDataProvider &p, prop::Tally &tally) {
     Case k(p, tally);
     return scalarsOf(k.a) && scalarsOf(k.b);
   });
 
-  run.property("tail, cons, from_char, append: the model's", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("tail, cons, from_char, append: the model's", tailOfAByte,
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
     Case k(p, tally);
     return tailConsFromCharAppend(k.a, k.b, k.arguments, Models{});
   });
 
-  run.property("reverse: the model's", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("reverse: the model's", reverseOfBytes, [](FuzzedDataProvider &p, prop::Tally &tally) {
     Case k(p, tally);
     return reverse(k.a, Models{}) && reverse(k.b, Models{});
   });
 
-  run.property("substr: the model's, negative and past-the-end arguments included",
+  run.property("substr: the model's, negative and past-the-end arguments included", startFromTheEnd,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Case k(p, tally);
                  return substrs(k.a, k.arguments, Models{});
                });
 
-  run.property("cmp: the order of the scalars", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("cmp: the order of the scalars", signedBytes, [](FuzzedDataProvider &p, prop::Tally &tally) {
     Case k(p, tally);
     return compares(k.a, k.b);
   });
 
   run.property("results: canonical, the empty one persistent, an operand returned with one more reference",
+               givenBackUncounted,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Case k(p, tally);
                  return stringOperations(k.a, k.b, k.arguments, Owns{});
@@ -553,7 +606,7 @@ int main(int argc, char **argv) {
   // Each input: a string and its form, then another and its form.
   constexpr uint64_t operands = boxStrings * formCount;
   run.box("box: every string of at most 3 scalars over a, U+00E9, U+20AC, U+1F600, every operation",
-          operands * operands, [](uint64_t index) {
+          operands * operands, pastTheEndEmpty, [](uint64_t index) {
             uint64_t first = index / operands;
             uint64_t second = index % operands;
             Operand a(boxString(first / formCount), forms[first % formCount]);
@@ -570,13 +623,14 @@ int main(int argc, char **argv) {
                    scalarOperationsBorrow(a, b);
           });
 
-  run.property("every operation borrows its operands and returns one owned result",
+  run.property("every operation borrows its operands and returns one owned result", keepsReference,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Case k(p, tally);
                  return stringOperations(k.a, k.b, k.arguments, Borrows{}) && scalarOperationsBorrow(k.a, k.b);
                });
 
   run.property("the empty string: every operation that makes one gives the one persistent empty string",
+               secondEmpty,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Case k(p, tally);
                  return emptiesAreOne(k.a) && emptiesAreOne(k.b);

@@ -7,26 +7,47 @@
 # property's fixed words, `{{expected <name>: `, in a diagnostic it
 # expects, so the names are read from the rows of the one table of them
 # and each is looked for in the expectations of the fixtures, never in
-# their prose.
+# their prose. The rule is `expect_coverage ROOT`, run on the repository
+# and on the planted trees (lib/planted.sh): witness/ holds a table of a
+# property no fixture makes fail, one a fixture names only in its prose
+# and in a RUN line that states it, and one whose name only begins
+# another's that fails; near-miss/ holds a table whose every property has
+# its failing fixture, and the exemption.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cd "$root" || exit 1
 # folds-balanced reads the folders' own count of the cells they left live,
 # which only a defective folder makes nonzero: no module makes it fail, so
 # it is the one exemption.
 exempt='folds-balanced'
-sed -n 's/^ *property<[^>]*>("\([^"]*\)".*/\1/p' foreign/idr/lib/Transforms/Expect/Lookup.cpp > "$work/names"
-if [ -s "$work/names" ]; then say "properties: found"; else say "properties: none found"; fi
-: > "$work/unfailed"
-while IFS= read -r name; do
-  case " $exempt " in *" $name "*) continue ;; esac
-  grep -qF "{{expected $name: " tests/*/*.mlir || printf '%s\n' "$name" >> "$work/unfailed"
-done < "$work/names"
+table=foreign/idr/lib/Transforms/Expect/Lookup.cpp
+
+# expect_coverage ROOT: each property of ROOT's table with no fixture of
+# ROOT where it fails, `path:line: what`, and each fixture that names it
+# otherwise, `path: what`.
+expect_coverage() (
+  cd "$1" || exit 1
+  [ -f "$table" ] || exit 0
+  sed -n 's/^ *property<[^>]*>("\([^"]*\)".*/\1/p; =' "$table" |
+    awk '/^[0-9]+$/ { if (held != "") print $0 "\t" held; held = ""; next } { held = $0 }' |
+    while IFS='	' read -r n name; do
+      case " $exempt " in *" $name "*) continue ;; esac
+      cat tests/*/*.mlir 2> /dev/null | grep -qF "{{expected $name: " && continue
+      printf '%s:%s: %s has no fixture where it fails\n' "$table" "$n" "$name"
+      for fixture in tests/*/*.mlir; do
+        [ -f "$fixture" ] && grep -qF -- "$name" "$fixture" &&
+          printf '%s: names %s, but expects no failure of it\n' "$fixture" "$name"
+      done
+    done
+)
+
+if grep -q '^ *property<' "$root/$table"; then say "properties: found"; else say "properties: none found"; fi
+for name in $exempt; do
+  grep -qE "^ *property<[^>]*>\(\"$name\"" "$root/$table" || say "exempt and unknown: $name"
+done
+expect_coverage "$root" > "$work/unfailed"
 if [ -s "$work/unfailed" ]; then
   say "no fixture where it fails:"
-  cat "$work/unfailed"
+  sed 's/^/  /' "$work/unfailed"
 else
   say "every property has a fixture where it fails, folds-balanced aside"
 fi
-for name in $exempt; do
-  grep -qxF "$name" "$work/names" || say "exempt and unknown: $name"
-done
+planted expect_coverage

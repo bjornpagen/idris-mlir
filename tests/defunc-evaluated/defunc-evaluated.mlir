@@ -1,5 +1,15 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@closureHeld:@add,forces-nothing=@closureHeld,forces-nothing=@suspensionHeld,labels=@use:arg0:[@later],forces-nothing=@use,forces-nothing=@Main.main' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@closureHeld:@add,forces-nothing=@closureHeld,forces-nothing=@suspensionHeld,labels=@use:arg0:[@later],forces-nothing=@use,forces-nothing=@Main.main' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@use:arg0:[@later,@one]' -o /dev/null
+// BEFORE-DAG: expected calls: @closureHeld {{.*}}@add
+// BEFORE-DAG: expected forces-nothing: {{.*}}@closureHeld
+// BEFORE-DAG: expected forces-nothing: {{.*}}@suspensionHeld
+// BEFORE-DAG: expected labels: @use {{.*}}
+// BEFORE-DAG: expected forces-nothing: {{.*}}@use
+// BEFORE-DAG: expected forces-nothing: {{.*}}@Main.main
 // An evaluated suspension, `idr.delay %value`, is a cell already forced:
 // it names no label, and holds its value in the forced state of its cell,
 // which every cell of its lazy type shares. Its key has a memo sum like
@@ -16,6 +26,10 @@
 //   so they share @later's memo sum, since lazy sets are unified: the
 //   evaluated one is built forced in it, never rebuilt.
 // - @Main.main forces an evaluated suspension of its own.
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 idr.program @evaluated root(@Main.main) stage(higher) {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64

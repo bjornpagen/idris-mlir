@@ -1,6 +1,6 @@
 -- The linear data of libs/linear, whose constructors are typed with -@:
 -- a list of unrestricted Ints built, reversed and summed in place, and its
--- length counted as a linear natural.
+-- length counted as a linear natural, n read: 0 is the empty list.
 module Main
 
 import Prelude
@@ -27,9 +27,17 @@ toInt : Int -> LNat -@ !* Int
 toInt acc Zero = MkBang acc
 toInt acc (Succ n) = toInt (acc + 1) n
 
+readInt : IO Int
+readInt = go 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
+
 main : IO ()
 main = do
-  n <- pure 30
+  n <- readInt
   let MkBang s = sumL 0 (rev (build n []) [])
   printLn s
   let MkBang l = toInt 0 (len (build n []))

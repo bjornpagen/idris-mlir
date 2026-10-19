@@ -1,13 +1,25 @@
 // RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
-// RUN: %t > %t.out
-// RUN: FileCheck %s < %t.out
+// RUN: echo -n 00 | %t | FileCheck %s --match-full-lines --implicit-check-not={{.}}
+// RUN: echo -n 10 | %t | tail -n 1 | FileCheck %s --check-prefix=ONE --match-full-lines --implicit-check-not={{.}}
+// RUN: echo -n 20 | %t | tail -n 1 | FileCheck %s --check-prefix=TWO --match-full-lines --implicit-check-not={{.}}
+// RUN: echo -n 30 | %t | tail -n 1 | FileCheck %s --check-prefix=THREE --match-full-lines --implicit-check-not={{.}}
+// RUN: echo -n 40 | %t | tail -n 1 | FileCheck %s --check-prefix=FOUR --match-full-lines --implicit-check-not={{.}}
+// RUN: echo -n 16 | %t | tail -n 1 | FileCheck %s --check-prefix=MILLION --match-full-lines --implicit-check-not={{.}}
 // Loops of every shape idr-tail-loops makes run as the recursion they
 // replace: a count up to a bound (an scf.for), a count down to zero, a
 // fold over a list, output before the decision, an IO fold whose
 // result is its recursive call's rebuilt (record eta), and a count up to a
 // bound that returns its counter (an scf.for whose counter ends past the
 // bound by part of a step, or at its start when it never runs).
+//
+// The last line runs the three counting loops to a bound read at run
+// time, d * 10^e for the input's two digits d and e: 0, where no loop
+// runs; 1, 2, 3 and 4, where the counter that steps by 3 ends past the
+// bound by 2, by 1, at it, and by 2 again after a second step; and a
+// million, which only a loop runs on the stack: the sum of the squares
+// below the bound, the count, and the counter. The lines before it do not
+// read the input, and are checked on the first run alone.
 // CHECK: 285
 // CHECK-NEXT: 7
 // CHECK-NEXT: 6
@@ -20,6 +32,12 @@
 // CHECK-NEXT: 3
 // CHECK-NEXT: 12
 // CHECK-NEXT: 5
+// CHECK-NEXT: 0 0 0
+// ONE: 0 1 3
+// TWO: 1 2 3
+// THREE: 5 3 3
+// FOUR: 14 4 6
+// MILLION: 333332833333500000 1000000 1000002
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
@@ -124,6 +142,22 @@ idr.program @loops root(@Prog.main) stage(higher) {
     }
     return %r : !IORes
   }
+  idr.func @pow10(%e: i64, %acc: i64) -> i64 attributes {total} {
+    %r = idr.match_lit %e : i64 -> (i64) {
+    case 0 {
+      idr.yield %acc : i64
+    }
+    default(%d: i64) {
+      %c1 = arith.constant 1 : i64
+      %c10 = arith.constant 10 : i64
+      %f = arith.subi %e, %c1 : i64
+      %a = arith.muli %acc, %c10 : i64
+      %x = idr.call @pow10(%f, %a) : (i64, i64) -> i64
+      idr.yield %x : i64
+    }
+    }
+    return %r : i64
+  }
   idr.func @Prog.main(%w: !idr.world) -> (!Unit, !idr.world) {
     %nl = arith.constant 10 : i32
     %c0 = arith.constant 0 : i64
@@ -156,6 +190,25 @@ idr.program @loops root(@Prog.main) stage(higher) {
     %z = idr.call @until(%c5, %c2) : (i64, i64) -> i64
     %w11 = idr.io.put_sint %z, %w10 : i64
     %w12 = idr.io.put_char %nl, %w11
-    return %unit, %w12 : !Unit, !idr.world
+    %digit, %w13 = idr.io.get_byte %w12
+    %places, %w14 = idr.io.get_byte %w13
+    %c48 = arith.constant 48 : i32
+    %dv = arith.subi %digit, %c48 : i32
+    %ev = arith.subi %places, %c48 : i32
+    %d = arith.extsi %dv : i32 to i64
+    %e = arith.extsi %ev : i32 to i64
+    %p = idr.call @pow10(%e, %c1) : (i64, i64) -> i64
+    %n = arith.muli %d, %p : i64
+    %sp = arith.constant 32 : i32
+    %un = idr.call @upto(%c0, %n, %c0) : (i64, i64, i64) -> i64
+    %w15 = idr.io.put_sint %un, %w14 : i64
+    %w16 = idr.io.put_char %sp, %w15
+    %kn = idr.call @count(%c0, %n) : (i64, i64) -> i64
+    %w17 = idr.io.put_sint %kn, %w16 : i64
+    %w18 = idr.io.put_char %sp, %w17
+    %fn = idr.call @until(%c0, %n) : (i64, i64) -> i64
+    %w19 = idr.io.put_sint %fn, %w18 : i64
+    %w20 = idr.io.put_char %nl, %w19
+    return %unit, %w20 : !Unit, !idr.world
   }
 }

@@ -1,5 +1,5 @@
--- expect: uniqueness, line 25
--- message: which rebuilds it in place
+-- expect: uniqueness, line 26
+-- message: Main.bump
 module Main
 
 import Prelude
@@ -9,7 +9,8 @@ import Linear.List
 -- A linear list's type promises that a function that rebuilds it in its
 -- own cells is passed it exclusive, on every program. Here the list is
 -- read again after the call, so the call passes it shared, and the promise
--- refuses the call.
+-- refuses the call. near/ builds a second list to read, so each list is
+-- passed once, and the first exclusive.
 
 build : Int -> LList (!* Int) -@ LList (!* Int)
 build n acc = if n <= 0 then acc else build (n - 1) (MkBang n :: acc)

@@ -1,0 +1,5 @@
+--- a/x.cpp
++++ b/x.cpp
+@@ -1 +1 @@
+-int x;
++int x; // PIN(no-such-entry)

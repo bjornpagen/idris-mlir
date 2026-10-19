@@ -1,5 +1,7 @@
 -- Remove duplicates from a sorted linked list (LeetCode 83), on a linear
--- list: a kept cell is rebuilt in place, a dropped one is freed.
+-- list: a kept cell is rebuilt in place, a dropped one is freed. The result
+-- is strictly increasing, which the check finds false of the input with its
+-- runs, and holds each value once (its count).
 module Main
 
 import Prelude
@@ -27,6 +29,15 @@ count : (1 xs : LList (!* Int)) -> Int -> Int
 count [] n = n
 count (MkBang _ :: xs) n = count xs (n + 1)
 
+drain : LList (!* Int) -@ ()
+drain [] = ()
+drain (MkBang _ :: xs) = drain xs
+
+-- Whether each value is above the one before it.
+increasing : Int -> (1 xs : LList (!* Int)) -> Bool
+increasing _ [] = True
+increasing prev (MkBang x :: xs) = if x <= prev then let 1 () = drain xs in False else increasing x xs
+
 readInt : IO Int
 readInt = go 0
   where
@@ -40,3 +51,5 @@ main = do
   n <- readInt
   putStrLn (render (dedup (build (n `div` 12500) 2 [])) "")
   printLn (count (dedup (build n 1 [])) 0)
+  printLn (increasing 0 (dedup (build n 1 [])))
+  printLn (increasing 0 (build n 1 []))

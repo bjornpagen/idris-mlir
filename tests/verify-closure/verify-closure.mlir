@@ -110,3 +110,31 @@ idr.program @closure root(@f) stage(higher) {
     return %r : !idr.world
   }
 }
+
+// -----
+
+// The nearest each refusal above has that verifies: @g's leading
+// parameter captured, both, and none, each at the type it leaves; a
+// closure of a function the program has; and an apply whose argument and
+// result are the closure's types.
+idr.program @closure root(@root) stage(higher) {
+  idr.func @g(%a: i64, %b: f64) -> i64 {
+    idr.crash "no body"
+    ub.unreachable
+  }
+  idr.func @f(%x: i64, %d: f64) {
+    %c = idr.closure @g(%x) : (i64) -> !idr.fn<(f64) -> (i64)>
+    %e = idr.closure @g(%x, %d) : (i64, f64) -> !idr.fn<() -> (i64)>
+    %n = idr.closure @g() : () -> !idr.fn<(i64, f64) -> (i64)>
+    return
+  }
+  idr.func @apply(%c: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
+    %r = "idr.apply"(%c, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+    return %r : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}

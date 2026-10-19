@@ -1,10 +1,17 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@run:@add,calls=@run:@dbl' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@run:@add,calls=@run:@dbl' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// BEFORE-DAG: expected calls: @run {{.*}}@add
+// BEFORE-DAG: expected calls: @run {{.*}}@dbl
 // A closure kept in a constructor's field and bound again by a match's
 // region argument: the field's anchor holds every label any constructor
 // put there, and the match declares that each region argument reads its
 // field's anchor, so the bound closure's labels are known and its apply is
 // a dispatch.
+// The program means after the pass what it meant before it, on every input
+// (the differential), and no property here held before the pass.
 !Op = !idr.data<"Op", plain [@Unary(!idr.fn<(i64) -> (i64)>), @None()]>
 idr.program @"match-field" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {

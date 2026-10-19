@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@f,not-called=@g,not-called=@pair -o /dev/null
 // A copy made by raising is keyed by its callee and what consumes the
 // result: a dispatch of it, or of one field of it, whatever the call's
@@ -6,6 +7,9 @@
 // too: the raising is decided before any specialization of the call. @f,
 // @g and @pair loop, so none is inlined; none is called after the
 // optimizer.
+// Whatever the copies are keyed by, each call keeps its own arguments: on
+// every one-byte input the optimized program prints what the program as
+// written does (%differential).
 !Pair = !idr.data<"Pair", plain [@MkPair(!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]>
 idr.program @"shared-key" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {

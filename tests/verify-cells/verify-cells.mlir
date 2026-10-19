@@ -123,3 +123,37 @@ idr.program @cells root(@root) stage(owned) {
     return %zero : i64
   }
 }
+
+// -----
+
+// The nearest each refusal above has that verifies: a cell of @C, the
+// constructor of "L" with fields, its fields at their types; the hole at
+// the box's field, written once through its destination; and a value of
+// a constructor without a cell taken apart by idr.unpack. (The first
+// module above is the nearest for idr.take, at its results' types.)
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+!S = !idr.data<"S", plain [@A(i64, !idr.str), @B()]>
+idr.program @cells root(@root) stage(owned) {
+  idr.func @right(%t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
+    %x = arith.constant 1 : i64
+    %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
+    %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.own<!idr.box<!L>>)
+    return %b : !idr.own<!idr.box<!L>>
+  }
+  idr.func @hole(%t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
+    %x = arith.constant 1 : i64
+    %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
+    %b, %d = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, dest)
+    idr.dest.write %d, %t : !idr.dest<!idr.box<!L>>, !idr.own<!idr.box<!L>>
+    return %b : !idr.own<!idr.box<!L>>
+  }
+  idr.func @unpack(%s: !idr.own<!S>) -> i64 {
+    %f:2 = idr.unpack %s : !idr.own<!S> @A -> (i64, !idr.own<!idr.str>)
+    idr.drop %f#1 : !idr.own<!idr.str>
+    return %f#0 : i64
+  }
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}

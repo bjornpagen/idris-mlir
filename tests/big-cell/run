@@ -1,7 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# A large big's digits are in its cell, one load from its word.
+# A large big's digits are in its cell, one load from its word, at the
+# small range's edges and the limb's, both ways: the test reads the
+# runtime's cells, and the runtime reads the test's (cell.c).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 runtime=$dev_prefix/runtime/libidris_rt.a
 if ! runtime_c link_program -O1 "$here/cell.c" "$runtime" -o "$work/cell" \

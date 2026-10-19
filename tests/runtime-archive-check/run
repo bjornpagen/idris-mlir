@@ -5,8 +5,9 @@
 # that references no symbol of the C++ runtime and has no static
 # constructor, and fails one that does, or that it cannot read as the
 # spellings it is given say (no runtime entry, idris_rt_start, among its C
-# names): a check that reads nothing passes nothing. One table, each row an
-# archive of one member and the verdict the check owes it:
+# names): a check that reads nothing passes nothing. A destructor's
+# section is a constructor's too. One table, each row an archive of one
+# member and the verdict the check owes it:
 #   - the build's own runtime archive, and members of this target's object
 #     format, through the wrapper the build writes with the target entry's
 #     spellings;
@@ -19,7 +20,9 @@
 #     that a reference only one half makes is seen;
 #   - a Mach-O member read with ELF's spellings, which reads no C name;
 #   - an arm64 Mach-O member with embedded bitcode, as the Darwin runtime's
-#     members are.
+#     members are;
+# and after it, an archive of a clean member and then one that is not, and
+# one of no member.
 # A row's verdict is the check's exit status and the name its report must
 # hold: the C++ runtime symbol referenced, the member with a constructor,
 # or the entry it did not find.
@@ -36,6 +39,10 @@ printf '%s\n' "$entry" > "$work/clean.cc"
 printf '%s\n' "$entry" 'int *cell() { return new int; }' > "$work/cxx.cc"
 printf '%s\n' "$entry" 'extern "C" int answer(void);' \
   'struct S { int v; S() : v(answer()) {} }; S s;' > "$work/ctor.cc"
+# A destructor that does something: an empty one is optimized away. Mach-O
+# registers it from a constructor, with __cxa_atexit.
+printf '%s\n' "$entry" 'extern "C" void farewell(void);' \
+  '__attribute__((destructor)) static void bye(void) { farewell(); }' > "$work/dtor.cc"
 printf '%s\n' 'extern "C" int other(void) { return 0; }' > "$work/blind.cc"
 
 # compile TRIPLE SOURCE OUT FLAG...: $work/SOURCE.cc for TRIPLE, with FLAG...
@@ -117,10 +124,12 @@ done << EOF
 clean target plain clean - wrapper 0 -
 cxx target plain cxx - wrapper 1 _Znwm
 ctor target plain ctor - wrapper 1 ctor.o
+dtor target plain dtor - wrapper 1 dtor.o
 blind target plain blind - wrapper 1 idris_rt_start
 elf-clean $elf plain clean - elf 0 -
 elf-cxx $elf plain cxx - elf 1 _Znwm
 elf-ctor $elf plain ctor - elf 1 .init_array
+elf-dtor $elf plain dtor - elf 1 .fini_array
 elf-carried-clean $elf carried clean - elf 0 -
 elf-carried-cxx $elf carried cxx - elf 1 _Znwm
 elf-carried-ctor $elf carried ctor - elf 1 .init_array
@@ -129,6 +138,7 @@ elf-native-clean-bitcode-cxx $elf mixed clean cxx elf 1 _Znwm
 macho-clean $macho plain clean - macho 0 -
 macho-cxx $macho plain cxx - macho 1 _Znwm
 macho-ctor $macho plain ctor - macho 1 __mod_init_func
+macho-dtor $macho plain dtor - macho 1 __mod_init_func
 macho-carried-clean $macho carried clean - macho 0 -
 macho-carried-cxx $macho carried cxx - macho 1 _Znwm
 macho-carried-ctor $macho carried ctor - macho 1 __mod_init_func
@@ -137,3 +147,20 @@ macho-native-clean-bitcode-cxx $macho mixed clean cxx macho 1 _Znwm
 macho-as-elf $macho plain cxx - elf 1 idris_rt_start
 macho-arm64-embedded arm64-apple-macosx14.0 embedded clean - macho 0 -
 EOF
+
+# The check reads every member, not the first, and an archive of none is
+# one it reads nothing of: a clean member before one that is not, and an
+# empty archive.
+rm -f "$work/clean-then-cxx.a" "$work/empty.a"
+if bounded "$llvm_bin/llvm-ar" rcs "$work/clean-then-cxx.a" "$work/clean.o" "$work/cxx.o" > "$work/ar.log" 2>&1; then
+  verdict clean-then-cxx 1 _Znwm sh "$wrapper" "$work/clean-then-cxx.a"
+else
+  say "clean-then-cxx: does not archive"
+  show "$work/ar.log"
+fi
+if bounded "$llvm_bin/llvm-ar" rcs "$work/empty.a" > "$work/ar.log" 2>&1 && [ -f "$work/empty.a" ]; then
+  verdict empty 1 idris_rt_start sh "$wrapper" "$work/empty.a"
+else
+  say "empty: does not archive"
+  show "$work/ar.log"
+fi

@@ -53,13 +53,28 @@ bool textIs(const char *what, const idris_rt_str *s, const char *want, size_t n)
   return ok;
 }
 
+// The faults each check must notice, planted where it reads the runtime
+// (prop.h): most are a word's mistakes at its edges (2^63, -2^63) or a
+// reader's at the grammar's (an underscore, a prefix's case).
+constexpr prop::Mutant unsignedShownSigned{"has show_u write a word of 2^63 or more as signed"};
+constexpr prop::Mutant unsignedPutSigned{"has put_int_u write a word of 2^63 or more as signed"};
+constexpr prop::Mutant bigShownByWord{"writes a large big's text from its low 64 bits"};
+constexpr prop::Mutant literalByWord{"reads a literal through a signed word, wrapping past the int64 range"};
+constexpr prop::Mutant trailingUnderscore{
+    "reads a literal that ends in an underscore as if the underscore were not there"};
+constexpr prop::Mutant smallestOverflows{"reads -2^63's text as 0, its magnitude past int64"};
+constexpr prop::Mutant upperPrefix{"reads 0B and 0O as prefixes, as 0X is"};
+constexpr prop::Mutant keepsString{"keeps a reference to its counted operand"};
+
 // The words a property draws, simplest first: 0 and +-1; the edges of int64
-// and uint64, 2^63 - 1, 2^63 and 2^64 - 1, and one either side; +-10^k and
-// one either side, where the decimal text gains a digit; and any word.
+// and uint64, 2^63 - 1, 2^63 and 2^64 - 1, and of the runtime's small
+// range, +-2^62, each with one either side; +-10^k and one either side,
+// where the decimal text gains a digit; and any word.
 constexpr unsigned wordFamilies = 4;
 constexpr const char *wordNames[wordFamilies] = {"0 and +-1", "the words' edges", "powers of ten", "any word"};
 uint64_t drawWord(FuzzedDataProvider &p, unsigned family) {
-  static constexpr uint64_t edges[] = {uint64_t{INT64_MAX}, uint64_t{1} << 63, UINT64_MAX};
+  static constexpr uint64_t edges[] = {uint64_t{INT64_MAX}, uint64_t{1} << 63, UINT64_MAX, uint64_t{1} << 62,
+                                       0 - (uint64_t{1} << 62)};
   static constexpr uint64_t offByOne[] = {0, 1, UINT64_MAX};
   uint64_t word;
   switch (family) {
@@ -93,7 +108,9 @@ bool shown(uint64_t word) {
   char signedText[wordText], unsignedText[wordText];
   auto ns = static_cast<size_t>(snprintf(signedText, sizeof signedText, "%" PRId64, x));
   auto nu = static_cast<size_t>(snprintf(unsignedText, sizeof unsignedText, "%" PRIu64, word));
-  Text s(idris_rt_str_show_s(x)), u(idris_rt_str_show_u(word));
+  Text s(idris_rt_str_show_s(x)),
+      u(word >= uint64_t{1} << 63 && prop::planted(unsignedShownSigned) ? idris_rt_str_show_s(x)
+                                                                        : idris_rt_str_show_u(word));
   bool ok = textIs("show_s", s.get(), signedText, ns);
   ok &= textIs("show_u", u.get(), unsignedText, nu);
   int32_t headS = idris_rt_int_head_s(x), headU = idris_rt_int_head_u(word);
@@ -128,7 +145,10 @@ bool put(FuzzedDataProvider &p, prop::Tally &tally) {
         for (unsigned i = 0; i < count; ++i) {
           idris_rt_io_put_int_s(static_cast<int64_t>(words[i]));
           idris_rt_io_put_char('\n');
-          idris_rt_io_put_int_u(words[i]);
+          if (words[i] >= uint64_t{1} << 63 && prop::planted(unsignedPutSigned))
+            idris_rt_io_put_int_s(static_cast<int64_t>(words[i]));
+          else
+            idris_rt_io_put_int_u(words[i]);
           idris_rt_io_put_char('\n');
         }
       },
@@ -158,7 +178,8 @@ constexpr size_t bigText = 20 * bigmodel::maxLimbs + 2;
 bool bigShown(const Operand &a) {
   char want[bigText];
   mpz_get_str(want, 10, a.value());
-  Text s(idris_rt_big_show(a.word()));
+  bool byWord = (a.word() & 1) == 0 && prop::planted(bigShownByWord);
+  Text s(byWord ? idris_rt_str_show_s(static_cast<int64_t>(low64(a.value()))) : idris_rt_big_show(a.word()));
   return textIs("big_show", s.get(), want, strlen(want));
 }
 
@@ -248,6 +269,8 @@ void generate(FuzzedDataProvider &p, uint64_t mask, const Base &base, Literal &o
   mpz_mul_si(out.value, magnitude, sign[0] == '-' ? -1 : 1);
 }
 
+void castValue(const char *s, size_t n, mpz_ptr value);
+
 // The n bytes at text read by both integer casts: big_from_str gives
 // `value` exactly, canonical, and str_to_int its low 64 bits.
 bool reads(const char *text, size_t n, mpz_srcptr value) {
@@ -256,10 +279,16 @@ bool reads(const char *text, size_t n, mpz_srcptr value) {
   Result big(idris_rt_big_from_str(s.get()));
   int64_t wrapped = idris_rt_str_to_int(s.get());
   bool shaped = bigmodel::canonical(big.word());
-  bool exact = mpz_cmp(big.value(), value) == 0;
+  Z got;
+  mpz_set(got, big.value());
+  if (!mpz_fits_slong_p(got) && prop::planted(literalByWord))
+    mpz_set_si(got, static_cast<long>(low64(got)));
+  if (n > 1 && text[n - 1] == '_' && prop::planted(trailingUnderscore))
+    castValue(text, n - 1, got);
+  bool exact = mpz_cmp(got, value) == 0;
   bool modular = static_cast<uint64_t>(wrapped) == low64(value);
   if (!shaped || !exact || !modular)
-    explainValues("big_from_str gives %Zd and str_to_int %lld, where the value is %Zd", big.value(),
+    explainValues("big_from_str gives %Zd and str_to_int %lld, where the value is %Zd", static_cast<mpz_srcptr>(got),
                   static_cast<long long>(wrapped), value);
   return shaped && exact && modular;
 }
@@ -431,6 +460,8 @@ template <typename Call> bool borrows(const char *name, const void *operand, Cal
   uint64_t live = idris_rt_live_cells();
   const void *result = call();
   uint32_t during = referencesOf(operand);
+  if (before != 0 && prop::planted(keepsString))
+    ++during;
   idris_rt_dec(const_cast<void *>(result));
   uint64_t after = idris_rt_live_cells();
   bool ok = during == before && referencesOf(operand) == before && after == live;
@@ -450,15 +481,16 @@ int main(int argc, char **argv) {
   idris_rt_gmp_init();
   prop::Run run(argc, argv);
 
-  run.property("show_s, show_u, int_head_s, int_head_u: snprintf's text", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("show_s, show_u, int_head_s, int_head_u: snprintf's text", unsignedShownSigned,
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
     unsigned family = prop::pick(p, prop::swarm(p, wordFamilies));
     tally.classify(wordNames[family]);
     return shown(drawWord(p, family));
   });
 
-  run.property("put_int_s, put_int_u: snprintf's text on standard output", put);
+  run.property("put_int_s, put_int_u: snprintf's text on standard output", unsignedPutSigned, put);
 
-  run.property("big_show: GMP's decimal text", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("big_show: GMP's decimal text", bigShownByWord, [](FuzzedDataProvider &p, prop::Tally &tally) {
     Z v;
     bigmodel::draw(p, prop::pick(p, prop::swarm(p, bigmodel::families)), v);
     explainValues("a = %#Zx", static_cast<mpz_srcptr>(v));
@@ -468,7 +500,7 @@ int main(int argc, char **argv) {
     return bigShown(a);
   });
 
-  run.property("to_int, big_from_str: every literal the grammar generates reads as its value",
+  run.property("to_int, big_from_str: every literal the grammar generates reads as its value", literalByWord,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, magnitudeFamilies);
                  const Base &base = drawBase(p);
@@ -478,7 +510,7 @@ int main(int argc, char **argv) {
                  return reads(literal.text, literal.length, literal.value);
                });
 
-  run.property("to_int, big_from_str: every named malformed literal reads as 0",
+  run.property("to_int, big_from_str: every named malformed literal reads as 0", trailingUnderscore,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, magnitudeFamilies);
                  unsigned family = prop::pick(p, prop::swarm(p, malformedFamilies));
@@ -489,10 +521,13 @@ int main(int argc, char **argv) {
                  return reads(literal.text, literal.length, zero);
                });
 
-  run.property("round trip: to_int of show_s, big_from_str of big_show", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("round trip: to_int of show_s, big_from_str of big_show", smallestOverflows,
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
     auto x = static_cast<int64_t>(drawWord(p, prop::pick(p, prop::swarm(p, wordFamilies))));
     Text s(idris_rt_str_show_s(x));
     int64_t back = idris_rt_str_to_int(s.get());
+    if (x == INT64_MIN && prop::planted(smallestOverflows))
+      back = 0;
     bool ok = back == x;
     if (!ok)
       prop::explain("to_int of show_s gives %lld", static_cast<long long>(back));
@@ -512,15 +547,24 @@ int main(int argc, char **argv) {
     return ok && shaped;
   });
 
-  run.box("box: every string of at most 3 characters over the literal alphabet", shortStrings, [](uint64_t input) {
+  run.box("box: every string of at most 3 characters over the literal alphabet", shortStrings, upperPrefix,
+          [](uint64_t input) {
     char text[3];
     size_t n = shortString(input, text);
     Z value;
     castValue(text, n, value);
+    // The mutant's grammar, which takes 0B and 0O for 0b and 0o.
+    size_t at = n > 0 && (text[0] == '+' || text[0] == '-');
+    if (n >= at + 2 && text[at] == '0' && (text[at + 1] == 'B' || text[at + 1] == 'O') && prop::planted(upperPrefix)) {
+      char lowered[3];
+      memcpy(lowered, text, n);
+      lowered[at + 1] = static_cast<char>(lowered[at + 1] - 'A' + 'a');
+      castValue(lowered, n, value);
+    }
     return reads(text, n, value);
   });
 
-  run.property("every operation borrows its argument and returns one owned result",
+  run.property("every operation borrows its argument and returns one owned result", keepsString,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, magnitudeFamilies);
                  uint64_t word = drawWord(p, prop::pick(p, prop::swarm(p, wordFamilies)));

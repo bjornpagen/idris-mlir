@@ -11,6 +11,9 @@
 // RUN: idris-mlir-opt %t.long.mlir --emit-bytecode -o %t.long.mlirbc
 // RUN: idris-mlir-opt %t.long.mlirbc -o %t.bytecode.mlir
 // RUN: cmp %t.text.mlir %t.bytecode.mlir
+// RUN: sed '/%one = /s/]>$/] along 1>/' %s > %t.onerun.mlir
+// RUN: not cmp -s %s %t.onerun.mlir
+// RUN: not idris-mlir-opt %t.onerun.mlir -o /dev/null 2>&1 | FileCheck %s --check-prefix=ONERUN
 // A list constant is flat: its cells of one constructor, linked through one
 // field, are one attribute, a run, however long the list. A list is read
 // into that form however it is written, cell by cell or as a run, so the
@@ -22,6 +25,13 @@
 // PRINT-LABEL: idr.func @same(
 // PRINT-NEXT: constant !idr.box<!List> #idr.con<!List, @Cons, [1], [2], [3], [4, #idr.con<!List, @Nil, []>] along 1>
 // PRINT-NEXT: constant !idr.box<!List> #idr.con<!List, @Cons, [1], [2], [3], [4, #idr.con<!List, @Nil, []>] along 1>
+// One cell is a constructor, never a run of one: the run starts at two
+// cells, and the one written as a run is refused.
+// PRINT-LABEL: idr.func @edges(
+// PRINT-NEXT: constant !idr.box<!List> #idr.con<!List, @Cons, [1, #idr.con<!List, @Nil, []>]>
+// PRINT-NEXT: constant !idr.box<!List> #idr.con<!List, @Cons, [1], [2, #idr.con<!List, @Nil, []>] along 1>
+// PRINT-NEXT: constant !idr.box<!List> #idr.con<!List, @Nil, []>
+// ONERUN: error: expects @Cons of one cell to run along no field, got field 1
 // LONG: #idr.con<!List, @Cons, [0], [1], [2], {{.*}}, [9998], [9999, #idr.con<!List, @Nil, []>] along 1>
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
 idr.program @run root(@root) stage(first) {
@@ -29,6 +39,12 @@ idr.program @run root(@root) stage(first) {
     %cells = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [1, #idr.con<!List, @Cons, [2, #idr.con<!List, @Cons, [3, #idr.con<!List, @Cons, [4, #idr.con<!List, @Nil, []>]>]>]>]>
     %run = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [1], [2], [3], [4, #idr.con<!List, @Nil, []>] along 1>
     return %cells, %run : !idr.box<!List>, !idr.box<!List>
+  }
+  idr.func @edges() -> (!idr.box<!List>, !idr.box<!List>, !idr.box<!List>) {
+    %one = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [1, #idr.con<!List, @Nil, []>]>
+    %two = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [1, #idr.con<!List, @Cons, [2, #idr.con<!List, @Nil, []>]>]>
+    %nil = idr.constant !idr.box<!List> #idr.con<!List, @Nil, []>
+    return %one, %two, %nil : !idr.box<!List>, !idr.box<!List>, !idr.box<!List>
   }
   // The program's root, which the functions above are no part of.
   idr.func @root() -> i64 {

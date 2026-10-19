@@ -3,9 +3,13 @@
 // RUN: diff %t.none.mlir %t.skipped.mlir
 // RUN: idris-mlir-opt %s --idr-contify -o %t.done.mlir
 // RUN: not diff %t.none.mlir %t.done.mlir
+// RUN: %differential %s %t.done.mlir
 // idr-contify is an optimization: each move of a function into its one
 // call is an action, and with every move skipped the pass leaves the
-// module exactly as no pass does.
+// module exactly as no pass does. With every move made the module differs,
+// and means the same: the root counts as far as the input byte says, 0 to
+// 31 steps, each doubling from 1, and the program contify made prints what
+// the one as written prints, on every byte.
 idr.program @contify root(@root) stage(higher) {
   idr.func @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
@@ -40,14 +44,17 @@ idr.program @contify root(@root) stage(higher) {
     return %y : i64
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %c0 = arith.constant 0 : i64
-    %n = arith.constant 7 : i64
+    %ch, %w0 = idr.io.get_byte %w
+    %b = arith.extui %ch : i32 to i64
+    %c32 = arith.constant 32 : i64
+    %c0 = arith.constant 1 : i64
+    %n = arith.remui %b, %c32 : i64
     %t = idr.call @twice(%n) : (i64) -> i64
     %f = idr.closure @named() : () -> !idr.fn<(i64) -> (i64)>
     %g = idr.call @named(%t) : (i64) -> i64
     %v = idr.apply %f(%g) : !idr.fn<(i64) -> (i64)>
     %r = idr.call @step(%v, %c0) : (i64, i64) -> i64
-    %w2 = idr.io.put_sint %r, %w : i64
+    %w2 = idr.io.put_sint %r, %w0 : i64
     return %w2 : !idr.world
   }
 }

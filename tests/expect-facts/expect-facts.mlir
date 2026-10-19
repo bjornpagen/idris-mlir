@@ -3,11 +3,16 @@
 // and stated where the test expects it, not as a mark the IR under test
 // carries: an output may be neither dropped, moved, delayed nor merged; a
 // call of a function that only computes, which idr-effects writes on the
-// call, may be all four.
+// call, may be all four; a guard, which may crash, may only be delayed, and
+// so may a call of a function whose guard may.
 idr.program @facts root(@root) stage(first) {
   idr.func @square(%x: i64) -> i64 attributes {total} {
     %r = arith.muli %x, %x : i64
     return %r : i64
+  }
+  idr.func @guarded(%x: i64) -> i64 attributes {total} {
+    %g = idr.check.nonzero %x, "division by zero" : i64
+    return %g : i64
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
@@ -16,6 +21,10 @@ idr.program @facts root(@root) stage(first) {
     %x = arith.constant 3 : i64
     // expected-remark @below {{facts: [drop move delay merge]}}
     %unused = idr.call @square(%x) : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %g = idr.check.nonzero %x, "division by zero" : i64
+    // expected-remark @below {{facts: [delay]}}
+    %h = idr.call @guarded(%x) : (i64) -> i64
     return %w1 : !idr.world
   }
 }

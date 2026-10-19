@@ -39,7 +39,9 @@ close (MkHandle _) = ()
 measured : ((1 _ : Handle) -> Res Nat (const Handle)) -> Nat -> Nat
 measured f k = let n # h = f (MkHandle k) in let () = close h in n
 
+-- The size is read, a natural of any size, and both measures are one line.
 main : IO ()
 main = do
-  printLn (measured twice 3)
-  printLn (measured once 3)
+  line <- getLine
+  let k = the Nat (cast line)
+  putStrLn (show (measured twice k) ++ " " ++ show (measured once k))

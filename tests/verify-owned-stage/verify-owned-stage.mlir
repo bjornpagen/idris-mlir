@@ -124,3 +124,43 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
     return %z : i64
   }
 }
+
+// -----
+
+// The nearest each refusal above has that verifies: the owned value
+// dropped once read; the box built in a new cell; the cell filled, the
+// box it gives dropped; and a box built in a cell of the frame owned, not
+// exclusive, read and dropped.
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+  idr.func @noleak(%s: !idr.own<!idr.str>) -> i64 {
+    %v = idr.borrow %s : !idr.own<!idr.str>
+    %n = idr.str.length borrow %v
+    idr.drop %s : !idr.own<!idr.str>
+    return %n : i64
+  }
+  idr.func @cons(%x: i64, %t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
+    %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
+    %l = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.own<!idr.box<!L>>)
+    return %l : !idr.own<!idr.box<!L>>
+  }
+  idr.func @filled(%t: !idr.own<!idr.box<!L>>) -> i64 {
+    %x = arith.constant 0 : i64
+    %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
+    %l = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.own<!idr.box<!L>>)
+    idr.drop %l : !idr.own<!idr.box<!L>>
+    return %x : i64
+  }
+  idr.func @frame(%x: i64, %t: !idr.own<!idr.box<!L>>) -> i64 {
+    %c = idr.cell.stack : !idr.cell<!idr.box<!L>, @C>
+    %b = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%x : i64, %t : !idr.own<!idr.box<!L>>)
+    %v = idr.borrow %b : !idr.own<!idr.box<!L>>
+    %k = idr.tag %v : !idr.q<many, borrow, !idr.box<!L>>
+    idr.drop %b : !idr.own<!idr.box<!L>>
+    return %k : i64
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}

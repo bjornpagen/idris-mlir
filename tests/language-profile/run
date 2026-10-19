@@ -7,34 +7,54 @@
 # clang's reflection is a stub: PINS.md clang-no-reflection). Read from the
 # compile commands the dev build ran, the flags actually used, not from
 # how CMakeLists.txt spells them.
+#
+# The rule is `profiled COMMANDS`, a compile_commands.json, run on the dev
+# build's and, through `profiled_tree ROOT`, on the planted trees
+# (lib/planted.sh), each list of commands in a directory of its own:
+# witness/ holds a unit compiled against the profile once per way (an
+# older standard, exceptions, RTTI, a flag that only begins like a
+# profile's, warnings as errors only for one warning, reflection);
+# near-miss/ holds units compiled by the profile, flags in another order,
+# and units that are not C++ of ours (a C source of the runtime, a
+# third-party unit).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# profiled COMMANDS: each C++ unit of ours COMMANDS compiles against the
+# profile, `unit: what`, one line a flag.
+profiled() {
+  awk -v root="$root/" '
+    /^[ \t]*"command":/ { command = $0 }
+    /^[ \t]*"file":/ {
+      file = $0; sub(/^[ \t]*"file":[ \t]*"/, "", file); sub(/",?[ \t]*$/, "", file)
+      if (index(file, root) == 1) file = substr(file, length(root) + 1)
+      if (file ~ /^(foreign\/idr|runtime)\// && file ~ /\.(cpp|cc)$/) print file "\t" command
+    }' "$1" | LC_ALL=C sort -u > "$work/units"
+  for flag in -std=c++26 -fno-exceptions -fno-rtti -Werror; do
+    awk -F'\t' -v flag="$flag" 'index($2 " ", " " flag " ") == 0 { print $1 ": compiled without " flag }' "$work/units"
+  done
+  awk -F'\t' 'index($2 " ", " -freflection") != 0 { print $1 ": compiled with -freflection" }' "$work/units"
+}
+
+# profiled_tree ROOT: profiled on each compile_commands.json one directory
+# under ROOT, each finding prefixed by its path from ROOT.
+profiled_tree() {
+  for commands in "$1"/*/compile_commands.json; do
+    [ -f "$commands" ] || continue
+    profiled "$commands" | sed "s|^|${commands#"$1"/}: |"
+  done
+}
+
 commands=$dev_prefix/compile_commands.json
 if [ ! -s "$commands" ]; then
   say "compile commands: missing (make build writes them)"
   exit 0
 fi
-# Each unit of ours that is C++, with the command that compiled it.
-awk -v root="$root/" '
-  /^[ \t]*"command":/ { command = $0 }
-  /^[ \t]*"file":/ {
-    file = $0; sub(/^[ \t]*"file":[ \t]*"/, "", file); sub(/",?[ \t]*$/, "", file)
-    if (index(file, root) == 1) file = substr(file, length(root) + 1)
-    if (file ~ /^(foreign\/idr|runtime)\// && file ~ /\.(cpp|cc)$/) print file "\t" command
-  }' "$commands" | LC_ALL=C sort -u > "$work/units"
+profiled "$commands" > "$work/found"
 if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
-for flag in -std=c++26 -fno-exceptions -fno-rtti -Werror; do
-  awk -F'\t' -v flag="$flag" 'index($2 " ", " " flag " ") == 0 { print $1 }' "$work/units" > "$work/without"
-  if [ -s "$work/without" ]; then
-    say "units compiled without $flag:"
-    show "$work/without"
-  else
-    say "every unit: $flag"
-  fi
-done
-awk -F'\t' 'index($2 " ", " -freflection") != 0 { print $1 }' "$work/units" > "$work/reflection"
-if [ -s "$work/reflection" ]; then
-  say "units compiled with -freflection:"
-  show "$work/reflection"
+if [ -s "$work/found" ]; then
+  say "units compiled against the profile:"
+  sed 's/^/  /' "$work/found"
 else
-  say "no unit: -freflection"
+  say "every unit: -std=c++26 -fno-exceptions -fno-rtti -Werror, and no -freflection"
 fi
+planted profiled_tree

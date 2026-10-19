@@ -1,8 +1,15 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@Main.main:@now,calls=@Main.main:@later' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@Main.main:@now,calls=@Main.main:@later' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@now
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@later
 // A Lazy value picked at runtime, stored in a field and forced later: the
 // suspensions become constructors of a sum, the field's type follows, and
 // the apply is a match that calls the suspended function.
+// The program means after the pass what it meant before it, on every input
+// (the differential), and no property here held before the pass.
 !Box = !idr.data<"Box", plain [@MkBox(!idr.fn<() -> (i64)>)]>
 idr.program @lazy root(@Main.main) stage(higher) {
   idr.func @now() -> i64 attributes {total} {

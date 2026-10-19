@@ -1,5 +1,8 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
+// RUN: idris-mlir-opt %s -o %t.once.mlir
+// RUN: idris-mlir-opt %t.once.mlir -o %t.twice.mlir
+// RUN: diff %t.once.mlir %t.twice.mlir
 // Under idr.func the ops of the dialect print without its prefix, as
 // func.func prints its own: `call`, `return`, `apply`. Only a name of one
 // dot loses it, so `idr.str.length` and `idr.lin.enter` keep theirs, and

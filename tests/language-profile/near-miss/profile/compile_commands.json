@@ -1,0 +1,22 @@
+[
+  {
+    "directory": "/build",
+    "command": "/clang++ -std=c++26 -fno-exceptions -fno-rtti -Werror -c foreign/idr/lib/A.cpp",
+    "file": "foreign/idr/lib/A.cpp"
+  },
+  {
+    "directory": "/build",
+    "command": "/clang++ -Werror -fno-rtti -std=c++26 -O2 -fno-exceptions -c runtime/Io/B.cpp",
+    "file": "runtime/Io/B.cpp"
+  },
+  {
+    "directory": "/build",
+    "command": "/clang++ -std=c11 -Werror -c runtime/Start.c",
+    "file": "runtime/Start.c"
+  },
+  {
+    "directory": "/build",
+    "command": "/clang++ -std=c++17 -fexceptions -c third_party/snmalloc/G.cpp",
+    "file": "third_party/snmalloc/G.cpp"
+  }
+]

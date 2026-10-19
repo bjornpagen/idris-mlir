@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %s --idr-defunctionalize --mlir-disable-threading > %t.serial.mlir
 // RUN: cmp %t.mlir %t.serial.mlir
 // RUN: awk 'BEGIN { ORS = "" } NR == 1, /^idr\.program / { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
@@ -8,12 +9,24 @@
 // RUN: grep '= !idr.data<' %t2.mlir | sort > %t2.sums
 // RUN: diff %t.sums %t2.sums
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.onlyB:result:[@Main.b],labels=@Main.neg:result:[@Main.zneg],labels=@Main.use:arg0:[@Main.a,@Main.b]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@Main.onlyB:result:[@Main.b],labels=@Main.neg:result:[@Main.zneg],labels=@Main.use:arg0:[@Main.a,@Main.b]' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.onlyB:result:[@Main.a,@Main.b]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.neg:result:[]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.use:arg0:[@Main.b]' -o /dev/null
+// BEFORE-DAG: expected labels: @Main.onlyB {{.*}}
+// BEFORE-DAG: expected labels: @Main.neg {{.*}}
+// BEFORE-DAG: expected labels: @Main.use {{.*}}
 // A sum is named from its key, the closure type and its labels, never by
 // where it first appears: the same module with its functions in reverse
 // order makes the same sums under the same names. Each (type, labels) is
 // one sum: {@Main.b} of i64 -> i64 (the result of @Main.onlyB),
 // {@Main.zneg} of i1 -> i1, and {@Main.a, @Main.b} of i64 -> i64 (the
 // argument of @Main.use).
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 idr.program @"sum-names" root(@Main.main) stage(higher) {
   idr.func @Main.a(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

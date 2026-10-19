@@ -3,3 +3,9 @@ symbols: no code-point escape, and no name Idris made up for a block
 symbols: a case block is <parent>.case<k>, a with block <parent>.with<k>
 program: one idr.program, at stage higher, which names its root
 ops: no func.func, func.call or func.return
+planted escaped: names fails, alone
+planted made-up: names fails, alone
+planted block: blocks fails, alone
+planted stage: program fails, alone
+planted two-programs: program fails, alone
+planted func: ops fails, alone

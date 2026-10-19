@@ -117,6 +117,26 @@ idr.program @cycle root(@Prog.main) stage(first) {
 
 // -----
 
+// The nearest the first refusals have that holds no knot: a node holding
+// an IORef of words, written into an IORef of nodes, and the same node as
+// an array's element; the type on the cycle's way back changed, from Node
+// to a word.
+!Node = !idr.data<"Node", plain [@MkNode(memref<i64, #idr.world>)]>
+idr.program @cycle root(@Prog.main) stage(first) {
+  idr.func @knot(%node: !idr.box<!Node>, %w: !idr.world) -> !idr.world {
+    %one = arith.constant 1 : i64
+    %r, %w1 = idr.array.new [], %node, %w : !idr.box<!Node> -> memref<!idr.box<!Node>, #idr.world>
+    %a, %w2 = idr.array.new [%one], %node, %w1 : !idr.box<!Node> -> memref<?x!idr.box<!Node>, #idr.world>
+    return %w2 : !idr.world
+  }
+  idr.func @Prog.main() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
 idr.program @cycle root(@Prog.main) stage(higher) {
   idr.func @zero() -> i64 attributes {total} {
     %c = arith.constant 0 : i64

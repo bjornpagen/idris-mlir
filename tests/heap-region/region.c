@@ -7,8 +7,8 @@
  * runtime reserves its stack before the heap's first cell: cells of sizes
  * from a header and a field up to 4 KiB, between byte arrays of 64 MiB (each
  * one 64 MiB block of the allocator, of which only the first page and the
- * last are touched), to 3 GiB; then 2 GiB more arrays; then it releases
- * every one. */
+ * last are touched), to 3 GiB; then 2 GiB more arrays, of which some
+ * must lie past the region; then it releases every one. */
 #include "idris_rt.h"
 
 #include <stdint.h>
@@ -55,12 +55,18 @@ static int64_t body(void) {
   printf("under 4 GiB: %d arrays of 64 MiB and %zu cells, %zu outside the first cell's 4 GiB "
          "region\n",
          UNDER, made, outside);
+  /* The region is left only once the heap is past it: 5 GiB of arrays
+   * cannot all lie in one 4 GiB region, so some must be outside it, which
+   * shows the count above can see an address that is. */
+  size_t past = 0;
   for (int a = UNDER; a < UNDER + PAST; ++a) {
     arrays[a] = idris_rt_array_new(arrayBytes, bytes);
     unusable += !usable(arrays[a]);
+    past += regionOf(arrays[a]) != region;
   }
-  printf("past 4 GiB: %d more arrays of 64 MiB; arrays whose bytes did not hold: %d\n", PAST,
-         unusable);
+  printf("past 4 GiB: %d more arrays of 64 MiB, %s outside the first cell's region; arrays whose bytes "
+         "did not hold: %d\n",
+         PAST, past > 0 ? "some" : "none", unusable);
   for (size_t c = 0; c < made; ++c)
     idris_rt_dec(cells[c]);
   for (int a = 0; a < UNDER + PAST; ++a)

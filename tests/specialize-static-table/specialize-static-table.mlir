@@ -1,10 +1,15 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce),idr-expect{holds=one-clone=@go})' -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // go table i acc walks a static table from index i down to 0, the table
 // the same at every step. The table is passed unchanged along the
 // recursion, so the copy is keyed on it once and calls itself; the index
 // changes at every step and keys nothing: one copy, not one per index.
 // Each function carries the location Emit gives it, its definition's
 // name, by which a copy names what it was made from.
+// The differential holds the optimized program to the one as written on
+// every input byte: indices past the table's end read 0, and 0 sums
+// nothing.
 !Table = !idr.data<"Table", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"Table">>) cons]>
 idr.program @"static-table" root(@Main.main) stage(first) {
   idr.func @at(%t: !idr.box<!Table>, %i: i64) -> i64 attributes {total} {

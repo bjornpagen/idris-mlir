@@ -1,0 +1,7 @@
+(0 ** "x")
+[(0 ** True), (1 ** False)]
+(0 ** Zero)
+(0 ** [])
+(0 ** (1 ** Next Zero))
+(0 ** MkTagged 0)
+5

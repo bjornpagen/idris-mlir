@@ -8,3 +8,5 @@ round trip: to_int of show_s, big_from_str of big_show: ok
 box: every string of at most 3 characters over the literal alphabet: ok
 every operation borrows its argument and returns one owned result: ok
 text: exit 0
+mutants: each caught
+text --mutants: exit 0

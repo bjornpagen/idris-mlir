@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce),idr-expect{holds=one-clone=@sumTo,not-called=@plus})' -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // An interface dictionary: a record of closures without captures, built at
 // the call. After defunctionalization each closure is a constructor of its
 // sum, so the record is entirely static. @sumTo loops, so it is never
@@ -8,6 +10,8 @@
 // and every call made from it reaches the one copy.
 // Each function carries the location Emit gives it, its definition's
 // name, by which a copy names what it was made from.
+// The differential holds the optimized program to the one as written on
+// every input byte, the sum of 0 to 255 included.
 !Num = !idr.data<"Num", plain [@MkNum(!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]>
 idr.program @dictionary root(@Main.main) stage(higher) {
   idr.func @plus(%a: i64, %b: i64) -> i64 attributes {total} {

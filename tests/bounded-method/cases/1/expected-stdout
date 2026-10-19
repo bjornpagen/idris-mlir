@@ -1,0 +1,2 @@
+[bind [x=y]][bind [z=let [w=x] in w]]
+[bind [z=let [v=x] in v]]

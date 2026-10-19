@@ -111,3 +111,37 @@ idr.program @"grades-invalid" root(@root) stage(first) {
     return %zero : i64
   }
 }
+
+// -----
+
+// The nearest each refusal above has that verifies: a grade other than
+// the plain type's, of a runtime type, its quantity spelt one; the world
+// and a destination at no grade.
+!T = !idr.data<"T", plain [@A()]>
+idr.program @"grades-invalid" root(@root) stage(first) {
+  idr.func @one(%a0: !idr.q<one, plain, i64>, %a1: !idr.world, %a2: !idr.dest<!idr.box<!T>>) {
+    idr.crash "no body"
+    ub.unreachable
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+// In the owned stage: the world at no grade, and a linear reference
+// owned, its grade of the plain type.
+idr.program @"grades-invalid" root(@root) stage(owned) {
+  idr.func @graded(%a0: !idr.world, %a1: !idr.q<one, own, !idr.str>) {
+    idr.crash "no body"
+    ub.unreachable
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}

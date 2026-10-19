@@ -1,8 +1,13 @@
--- expect: runtime closure, line 20
--- message: an implementation chosen at runtime
+-- expect: runtime closure, line 25
+-- message: Main.choose
 module Main
 
 import Prelude
+
+-- Which implementation op runs is chosen by the input: a set of
+-- implementations at one site that only the run decides, refused, naming
+-- the choice. near/ makes the same choice between two calls, each of one
+-- implementation the program fixes.
 
 interface Semi a where
   op : a -> a -> a
@@ -22,4 +27,6 @@ combine k =
   op @{choose k} 6 7
 
 main : IO ()
-main = putStrLn (prim__cast_IntString (combine 0))
+main = do
+  line <- getLine
+  putStrLn (prim__cast_IntString (combine (cast line)))

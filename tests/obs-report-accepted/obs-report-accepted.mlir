@@ -2,6 +2,7 @@
 // RUN: FileCheck %s < %t.1.report
 // RUN: grep '^statistic: ' %t.1.report > %t.statistics
 // RUN: env LC_ALL=C sort -c %t.statistics
+// RUN: sed 's/=.*//' %t.statistics | uniq -d | count 0
 // RUN: idris-mlir -c %s -o %t.3.o --num-threads 3 --report=%t.3.report
 // RUN: cmp %t.1.report %t.3.report
 // RUN: idris-mlir -c %s -o %t.5.o --num-threads 5 --report=%t.5.report
@@ -12,7 +13,8 @@
 // and each statistic of every pass that ran, summed over the pass's runs,
 // as `<pass>.<statistic>` in the bytewise order of the keys. A sum does not
 // depend on how the runs were spread over threads, so neither does the
-// report.
+// report. Each key is on one line: a pass that runs more than once
+// (canonicalize, cse, symbol-dce) has its runs summed, not listed.
 // CHECK: verdict: accepted
 // CHECK-NOT: diagnostic:
 // CHECK: statistic: idr-optimize.

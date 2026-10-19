@@ -1,4 +1,5 @@
--- expect: escape hatch, line 10
+-- expect: escape hatch, line 11
+-- message: prim__believe_me
 module Main
 import Prelude
 

@@ -1,6 +1,9 @@
 -- Merge two sorted linked lists (LeetCode 21), on linear lists: the result
 -- is relinked from the inputs' cells, and the recursion under the
--- constructor runs as a loop writing each cell's tail.
+-- constructor runs as a loop writing each cell's tail. The merge of the
+-- odd and the even numbers to n is in order, with every one of them (its
+-- count and sum), and the order check fails on the evens put before the
+-- odds.
 module Main
 
 import Prelude
@@ -30,6 +33,11 @@ render : (1 xs : LList (!* Int)) -> String -> String
 render [] acc = acc
 render (MkBang x :: xs) acc = render xs (acc ++ show x ++ " ")
 
+-- The count and the sum.
+stats : (1 xs : LList (!* Int)) -> (Int, Int) -> (Int, Int)
+stats [] acc = acc
+stats (MkBang x :: xs) (c, s) = stats xs (c + 1, s + x)
+
 readInt : IO Int
 readInt = go 0
   where
@@ -43,3 +51,5 @@ main = do
   n <- readInt
   putStrLn (render (merge (build (n `div` 10000 - 1) 2 []) (build (n `div` 10000) 2 [])) "")
   printLn (sorted (merge (build (n - 1) 2 []) (build n 2 [])) 0 0)
+  printLn (stats (merge (build (n - 1) 2 []) (build n 2 [])) (0, 0))
+  printLn (sorted (build n 2 (build (n - 1) 2 [])) 0 0)

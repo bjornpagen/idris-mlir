@@ -20,29 +20,46 @@
 # golden output and this test are not searched. A patch carried for a
 # pinned upstream (upstream/) is searched in the lines it adds: the lines
 # around them quote upstream's source, which this repository does not run.
+#
+# The rule is `verifier_off ROOT`, run on the repository and on the
+# planted trees (lib/planted.sh): witness/ turns the verifier off once per
+# way (in C++ through either call, in a RUN line, in a script, on parsing,
+# and in a line a patch adds); near-miss/ holds what is allowed: both calls
+# given true or nothing, -verify-each set on, the flags in a document, and
+# a patch whose context and removed lines turn it off.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cd "$root" || exit 1
-searched() {
-  find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name sources \
-            -o -name .claude -o -name .muse -o -path ./tests/verifier-every-pass \) -prune \
-     -o -type f ! -name '*.md' ! -name output "$@"
-}
 call='(enableVerifier|verifyPasses)[[:space:]]*\('
 on='(enableVerifier|verifyPasses)[[:space:]]*\([[:space:]]*(true)?[[:space:]]*\)'
 off_flag='verify-each=(false|0)|disable-verifier'
-searched -print | sort > "$work/files"
-grep -qE '^\./foreign/.*\.(cpp|h|cc)$' "$work/files" && say "C++ sources searched: yes" || say "C++ sources searched: no"
-grep -q '^\./tests/[^/]*/[^/]*\.mlir$' "$work/files" && say "RUN lines searched: yes" || say "RUN lines searched: no"
-searched ! -name '*.patch' ! -name '*.diff' -exec grep -HnIE "$call" {} + |
-  grep -vE "$on" > "$work/off"
-searched ! -name '*.patch' ! -name '*.diff' -exec grep -HniIE "$off_flag" {} + >> "$work/off"
-searched \( -name '*.patch' -o -name '*.diff' \) -exec awk '
-  /^\+/ && !/^\+\+\+ / { print FILENAME ":" FNR ":" $0 }' {} + > "$work/added"
-grep -E "$call" "$work/added" | grep -vE "$on" >> "$work/off"
-grep -iE "$off_flag" "$work/added" >> "$work/off"
+
+# verifier_off ROOT: each place in the tree at ROOT that turns the
+# verifier off, `path:line: text`. A test's planted trees, and this test,
+# are not searched.
+verifier_off() (
+  cd "$1" || exit 1
+  searched() {
+    find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name sources \
+              -o -name .claude -o -name .muse -o -path ./tests/verifier-every-pass \
+              -o -path './tests/*/witness' -o -path './tests/*/near-miss' \) -prune \
+       -o -type f ! -name '*.md' ! -name output "$@"
+  }
+  {
+    searched ! -name '*.patch' ! -name '*.diff' -exec grep -HnIE "$call" {} + | grep -vE "$on"
+    searched ! -name '*.patch' ! -name '*.diff' -exec grep -HniIE "$off_flag" {} +
+    searched \( -name '*.patch' -o -name '*.diff' \) -exec awk '
+      /^\+/ && !/^\+\+\+ / { print FILENAME ":" FNR ":" $0 }' {} + > "$work/added"
+    grep -E "$call" "$work/added" | grep -vE "$on"
+    grep -iE "$off_flag" "$work/added"
+  } | sed 's|^\./||' | LC_ALL=C sort -u
+)
+
+(cd "$root" && find foreign -name '*.cpp' | grep -q .) && say "C++ sources searched: yes" || say "C++ sources searched: no"
+(cd "$root" && find tests -path 'tests/*/*.mlir' | grep -q .) && say "RUN lines searched: yes" || say "RUN lines searched: no"
+verifier_off "$root" > "$work/off"
 if [ -s "$work/off" ]; then
   say "the verifier is turned off at:"
-  sed 's|^\./||' "$work/off" | sort
+  sed 's/^/  /' "$work/off"
 else
   say "no code, command or RUN line turns the verifier off"
 fi
+planted verifier_off

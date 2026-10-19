@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce),idr-expect{holds=not-called=@loops,not-called=@drift,not-called=@flip,not-called=@bump})' -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@weaken,not-called=@weakenTerm,not-called=@weakenUnder,not-called=@weakenTree,not-called=@weakenForest,not-called=@carry,not-called=@same,not-called=@second -o /dev/null
-// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce),idr-expect{holds=not-called=@loops,not-called=@drift,not-called=@flip})' -verify-diagnostics -o /dev/null
 // A function that only rebuilds its argument gives it back, and every call
 // of it becomes the argument. The optimizer finds this per component of
 // the call graph, callee first, and its cleanup of each caller replaces
@@ -16,7 +16,10 @@
 // function that calls itself on its whole argument without that proof,
 // counting down or not, is not known to return and keeps its calls, as
 // does one that swaps a node's children, which calls itself on the
-// children.
+// children, and one that rebuilds its argument with one more (@bump,
+// weaken's nearest neighbour, FS (FS (bump k))). The functions that keep
+// their calls are checked before those that lose them, so that each side
+// holds whatever the other finds.
 !Term = !idr.data<"Term", plain [@Var(!idr.nat), @App(!idr.box<!idr.data<"Term">>, !idr.box<!idr.data<"Term">>), @Lam(!idr.box<!idr.data<"Term">>), @Lit(!idr.big)]>
 !Tree = !idr.data<"Tree", plain [@Leaf(!idr.nat), @Node(!idr.box<!idr.data<"Forest", plain [@Done(), @More(!idr.box<!idr.data<"Tree">>, !idr.box<!idr.data<"Forest">>)]>>)]>
 !Forest = !idr.data<"Forest", plain [@Done(), @More(!idr.box<!idr.data<"Tree", plain [@Leaf(!idr.nat), @Node(!idr.box<!idr.data<"Forest">>)]>>, !idr.box<!idr.data<"Forest">>)]>
@@ -31,6 +34,24 @@ idr.program @identity root(@root) stage(first) {
     default(%d2: !idr.nat) {
       %k = idr.big.pred %i
       %w = idr.call @weaken(%k) : (!idr.nat) -> !idr.nat
+      %one = idr.constant !idr.nat #idr.big<1>
+      %s = idr.big.add %w, %one : !idr.nat
+      idr.yield %s : !idr.nat
+    }
+    }
+    return %r : !idr.nat
+  }
+  // bump FZ = FS FZ; bump (FS k) = FS (bump k): one more than its argument.
+  idr.func @bump(%i: !idr.nat) -> !idr.nat attributes {total} {
+    %r = idr.match_lit %i : !idr.nat -> (!idr.nat) {
+    case #idr.big<0> {
+      %z = idr.constant !idr.nat #idr.big<1>
+      idr.yield %z : !idr.nat
+    }
+    default(%d2: !idr.nat) {
+      %k = idr.big.pred %i
+      // expected-error @below {{@bump is still called}}
+      %w = idr.call @bump(%k) : (!idr.nat) -> !idr.nat
       %one = idr.constant !idr.nat #idr.big<1>
       %s = idr.big.add %w, %one : !idr.nat
       idr.yield %s : !idr.nat
@@ -248,6 +269,8 @@ idr.program @identity root(@root) stage(first) {
     %t2 = idr.call @weakenUnder(%d, %t1) : (!idr.nat, !idr.box<!Term>) -> !idr.box<!Term>
     %f1 = idr.call @weakenForest(%f) : (!idr.box<!Forest>) -> !idr.box<!Forest>
     %j = idr.call @weaken(%i) : (!idr.nat) -> !idr.nat
+    // expected-error @below {{@bump is still called}}
+    %b = idr.call @bump(%j) : (!idr.nat) -> !idr.nat
     %fl = idr.lin.enter %f : !idr.lin<!idr.box<!Forest>>
     %f2 = idr.call @same(%fl) : (!idr.lin<!idr.box<!Forest>>) -> !idr.box<!Forest>
     // expected-error @below {{@loops is still called}}
@@ -261,7 +284,7 @@ idr.program @identity root(@root) stage(first) {
     %r = idr.call @drift(%k, %f) : (i64, !idr.box<!Forest>) -> !idr.box<!Forest>
     %l = idr.call @leans(%t) : (!idr.box<!Term>) -> !idr.box<!Term>
     %g = idr.call @second(%f4, %f) : (!idr.box<!Forest>, !idr.box<!Forest>) -> !idr.box<!Forest>
-    return %t1, %t2, %f1, %j, %f2, %f3, %f4, %z, %s, %c, %r, %l, %g : !idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>
+    return %t1, %t2, %f1, %b, %f2, %f3, %f4, %z, %s, %c, %r, %l, %g : !idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>
   }
   // Values known only at run time: loops, which nothing inlines.
   idr.func @term(%k: i64) -> !idr.box<!Term> {

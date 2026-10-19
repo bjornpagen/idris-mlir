@@ -1,0 +1,52 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A program test's cases (lib/e2e.sh, e2e_cases) hold each run to what its
+# case says, from both sides: Main.idr, compiled once, runs on a case of
+# each kind that holds (an output, an exit status, a crash's cause) and on
+# one of each kind that does not, and only those that do not are named, each
+# by what differs. A cases directory that cannot be read as cases (a file no
+# field names, a crash beside an exit status, no case at all) stops the test
+# before anything compiles, naming the fault, so no case passes unread.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# fixture DIR: a program test in DIR, Main.idr its only module.
+fixture() {
+  mkdir -p "$1"
+  cp "$here/Main.idr" "$1/"
+}
+
+# case_of DIR NAME STDIN [FIELD TEXT]...: the case NAME of the fixture DIR, its
+# stdin STDIN (a line) and each FIELD's text (a line).
+case_of() {
+  cs_dir=$1/cases/$2
+  mkdir -p "$cs_dir"
+  printf '%s\n' "$3" > "$cs_dir/stdin"
+  shift 3
+  while [ "$#" -ge 2 ]; do
+    printf '%s\n' "$2" > "$cs_dir/$1"
+    shift 2
+  done
+}
+
+# Runs that hold, and runs that must each be named.
+fixture "$work/runs"
+case_of "$work/runs" holds-output 5 expected-stdout 20
+case_of "$work/runs" holds-exit 7 expected-stdout 14 expected-exit 7
+case_of "$work/runs" holds-crash 0 expected-crash 'division by zero at Main.idr:10:1'
+case_of "$work/runs" wrong-output 4 expected-stdout 20
+case_of "$work/runs" wrong-exit 7 expected-stdout 14
+case_of "$work/runs" wrong-crash 0 expected-crash 'index out of bounds'
+case_of "$work/runs" no-crash 5 expected-stdout 20 expected-crash 'division by zero at Main.idr:10:1'
+(work=$work/runs.work && mkdir "$work" && e2e_io "$work/../runs")
+
+# Cases that cannot be read as cases: nothing compiles.
+fixture "$work/unread"
+case_of "$work/unread" misspelt 5 expected-stdot 20
+case_of "$work/unread" both 0 expected-exit 1 expected-crash 'division by zero'
+mkdir -p "$work/unread/cases/no-file"
+: > "$work/unread/cases/a-file"
+(work=$work/unread.work && mkdir "$work" && e2e_io "$work/../unread")
+fixture "$work/none"
+mkdir "$work/none/cases"
+(work=$work/none.work && mkdir "$work" && e2e_io "$work/../none")

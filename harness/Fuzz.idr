@@ -716,11 +716,13 @@ record Verdict where
   ||| The first case that fails, and how: a disagreement first.
   first : Maybe String
 
-||| What a scan of the output has met: each case's first line, the cases
-||| found to disagree and to miss their model, and what was said of each.
+||| What a scan of the output has met: each case's first line, how many
+||| times each label was printed, the cases found to disagree and to miss
+||| their model, and what was said of each.
 record Scan where
   constructor MkScan
   firsts : SortedMap Nat (String, String)
+  printed : SortedMap String Nat
   disagreed : SortedSet Nat
   missed : SortedSet Nat
   agreeing : SnocList String
@@ -728,18 +730,26 @@ record Scan where
 
 ||| The verdict on the output of a request's cases: its lines read back by
 ||| their labels, each held to its case's first line and to its case's
-||| model.
+||| model, and each of a case's renderings printed exactly once, so that an
+||| output missing a line, or saying one twice, cannot agree by saying
+||| less.
 checked : (name : String) -> Part -> List Case -> (output : String) -> Verdict
 checked name part cs output =
   let numbered = zip [the Nat 1 .. length cs] cs
-      byLabel = SortedMap.fromList (numbered >>= \(n, c) => map (\m => (label m n, n)) (renderings part c))
+      expected = numbered >>= \(n, c) => map (\m => (label m n, n)) (renderings part c)
+      byLabel = SortedMap.fromList expected
       models = SortedMap.fromList (mapMaybe (\(n, c) => (\v => (n, show v)) <$> modelled c.body) numbered)
-      scanned = foldl (step byLabel models) (MkScan empty empty empty [<] [<]) (lines output)
+      scanned = foldl (step byLabel models) (MkScan empty empty empty empty [<] [<]) (lines output)
+      miscounted = mapMaybe (\(l, n) => case fromMaybe 0 (lookup l scanned.printed) of
+                                          1 => Nothing
+                                          k => Just (n, l, k)) expected
+      disagreed = foldr (\(n, _, _) => insert n) scanned.disagreed miscounted
+      miscounts = map (\(n, l, k) => name ++ ": case " ++ show n ++ ": " ++ l ++ " printed " ++ show k ++ " times, not once") miscounted
       silent = mapMaybe (unprintedModel models scanned.firsts) numbered
       missed = foldr (\(n, _) => insert n) scanned.missed silent
       unprinted = map (\(n, m) => name ++ ": case " ++ show n ++ ": m" ++ show n ++ " " ++ m ++ ", but no line") silent
-      failed = mapMaybe (howFails scanned.disagreed missed) numbered
-  in MkVerdict (scanned.agreeing <>> []) ((scanned.modelling <>> []) ++ unprinted)
+      failed = mapMaybe (howFails disagreed missed) numbered
+  in MkVerdict ((scanned.agreeing <>> []) ++ miscounts) ((scanned.modelling <>> []) ++ unprinted)
                (map (\(n, how) => show n ++ " " ++ how) (head' failed))
   where
     said : Nat -> String -> String -> String
@@ -750,12 +760,13 @@ checked name part cs output =
       case lookup lbl byLabel of
         Nothing => scan
         Just n =>
-          let afterFirst = case lookup n scan.firsts of
-                Nothing => { firsts $= insert n (lbl, value) } scan
+          let counted = { printed $= insert lbl (1 + fromMaybe 0 (lookup lbl scan.printed)) } scan
+              afterFirst = case lookup n counted.firsts of
+                Nothing => { firsts $= insert n (lbl, value) } counted
                 Just (l1, v1) =>
-                  if value /= v1 && not (contains n scan.disagreed)
-                     then { disagreed $= insert n, agreeing $= (:< said n (l1 ++ " " ++ v1) l) } scan
-                     else scan
+                  if value /= v1 && not (contains n counted.disagreed)
+                     then { disagreed $= insert n, agreeing $= (:< said n (l1 ++ " " ++ v1) l) } counted
+                     else counted
           in case lookup n models of
                Just m =>
                  if value /= m && not (contains n afterFirst.missed)
@@ -771,12 +782,13 @@ checked name part cs output =
       if contains n disagreed then Just (n, "agree")
       else if contains n missed then Just (n, "model") else Nothing
 
-data Check = Agree | Model | First
+data Check = Agree | Model | First | Modelled
 
 parseCheck : String -> Maybe Check
 parseCheck "agree" = Just Agree
 parseCheck "model" = Just Model
 parseCheck "first" = Just First
+parseCheck "modelled" = Just Modelled
 parseCheck _ = Nothing
 
 ||| `runtests --fuzz-check overran <request>`: the first case of the
@@ -790,10 +802,11 @@ overranOf request = do
     Just (n, _) => name ++ ": overran: case " ++ show n ++ "\n"
     Nothing => ""
 
-||| `runtests --fuzz-check agree|model|first <request> <stdout-file>`, of
-||| the file's text: the cases whose lines disagree, the cases that miss
-||| their model, or the first case that fails and how (`<n> agree` or
-||| `<n> model`), a line each.
+||| `runtests --fuzz-check agree|model|first|modelled <request>
+||| <stdout-file>`, of the file's text: the cases whose lines disagree, the
+||| cases that miss their model, or the first case that fails and how
+||| (`<n> agree` or `<n> model`), a line each; or how many of the cases
+||| have a model, which the model's check needs one of to check anything.
 export covering
 checkOf : (how : String) -> List String -> (output : String) -> Maybe String
 checkOf how request output = do
@@ -804,6 +817,7 @@ checkOf how request output = do
     Agree => unlines verdict.agree
     Model => unlines verdict.model
     First => maybe "" (++ "\n") verdict.first
+    Modelled => show (length (mapMaybe (\(c, _) => modelled c.body) cs)) ++ "\n"
 
 ||| The check's own checks, on the cases of seed 1's program of three cases
 ||| at run time, each of whose lines prints the case's model, or one value
@@ -817,10 +831,18 @@ checkerChecks =
       agreeing = unlines (numbered >>= \(n, c) =>
                    map (\m => label m n ++ " " ++ maybe ("v" ++ show n) show (modelled c.body)) (renderings Runtime c))
       ok = checked "1" Runtime cs agreeing
-      bad = checked "1" Runtime cs (agreeing ++ label Read 2 ++ " x\n") in
+      bad = checked "1" Runtime cs (agreeing ++ label Read 2 ++ " x\n")
+      before3 = sum (map (\c => length (renderings Runtime c)) (take 2 cs))
+      dropped = lines agreeing
+      short = checked "1" Runtime cs (unlines (take before3 dropped ++ drop (S before3) dropped))
+      silent = checked "1" Runtime cs "" in
   [ ("an agreeing output names no case", null ok.agree && null ok.model && isNothing ok.first)
   , ("an output with one disagreeing line names that case",
-     map (isPrefixOf "1: case 2: ") bad.agree == [True] && bad.first == Just "2 agree") ]
+     not (null bad.agree) && all (isPrefixOf "1: case 2: ") bad.agree && bad.first == Just "2 agree")
+  , ("an output missing one line of a case names that case",
+     map (\l => isPrefixOf "1: case 3: " l && isInfixOf " printed 0 times" l) short.agree == [True]
+       && short.first == Just "3 agree")
+  , ("an empty output names every case", length silent.agree >= 3 && silent.first == Just "1 agree") ]
 
 ------------------------------------------------------------------------------
 -- The text both hosts print

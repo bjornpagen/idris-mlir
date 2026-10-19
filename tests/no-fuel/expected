@@ -1,9 +1,9 @@
 sources: the C++ of foreign/idr and runtime searched
-C++ witness: a planted limit and endless loop are found
+idris sources: compiler/src and libs searched
 iteration limits: none, no rewrite stops at a count of iterations
 endless loops: none, every loop states when it ends
 policies: each with its reason, and each still in its file
-idris sources: compiler/src and libs searched
-Idris witness: a planted covering module, partial definition and assertion are found
 covering: every module and definition is total but those a policy names
 assertions: only where a policy names them
+witness: each planted file is found
+near miss: nothing found

@@ -1,5 +1,4 @@
--- expect: runtime closure, line 22
--- message: an implementation chosen at runtime
+-- expect: runtime closure, line 23
 module Main
 
 import Prelude
@@ -8,6 +7,8 @@ import Prelude
 -- compile-time value when the function returns one implementation at every
 -- value (`Show (DPair a p)` over the Prelude's `Show (Tag n)`). This one
 -- picks between two by the value, which only the running program knows.
+-- near/ picks between two calls by the value, each given a function that
+-- returns one implementation at every value.
 
 data Tag : Nat -> Type where
   Zero : Tag Z
@@ -25,7 +26,12 @@ describe (y ** t) = show t
 tagged : DPair Nat Tag -> String
 tagged = describe @{\{y} => if y == 0 then loud else quiet}
 
+tag : (n : Nat) -> Tag n
+tag Z = Zero
+tag (S k) = Next (tag k)
+
 main : IO ()
 main = do
   line <- getLine
-  putStrLn (tagged (Z ** Zero))
+  let n = the Nat (cast line)
+  putStrLn (tagged (n ** tag n))

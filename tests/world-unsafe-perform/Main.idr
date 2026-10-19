@@ -1,4 +1,5 @@
--- expect: world, line 6
+-- expect: world, line 7
+-- message: PrimIO.unsafePerformIO
 module Main
 
 import Prelude

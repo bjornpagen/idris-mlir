@@ -10,7 +10,8 @@
 // the op. The effects, a property, print before the symbol; the others
 // print after `attributes`, by name; each reads back as itself, and the ops
 // of the body print without the dialect's prefix. A fact of the wrong kind
-// is refused when the op is read.
+// is refused when the op is read, each of the three: the first split is
+// the nearest each refusal has.
 // CHECK-LABEL: idr.func effects<io, crash> @f(
 // CHECK-SAME: attributes {instance = #idr.instance<"Prelude.f", ["Prelude.Types.Nat"]>, no_inline, total} {
 // CHECK-NEXT: {{^ *}}return %{{.*}} : i64
@@ -40,6 +41,36 @@ idr.program @"facts-roundtrip" root(@root) stage(first) {
 idr.program @"facts-roundtrip" root(@root) stage(first) {
   // expected-error @+1 {{attribute 'total' failed to satisfy constraint: unit attribute}}
   idr.func @f() attributes {total = 1 : i64} {
+    return
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @"facts-roundtrip" root(@root) stage(first) {
+  // expected-error @+1 {{attribute 'no_inline' failed to satisfy constraint: unit attribute}}
+  idr.func @f() attributes {no_inline = 1 : i64} {
+    return
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+// An instance names the definition and its arguments; the name alone is
+// of the wrong kind.
+idr.program @"facts-roundtrip" root(@root) stage(first) {
+  // expected-error @+1 {{attribute 'instance' failed to satisfy constraint}}
+  idr.func @f() attributes {instance = "Prelude.f"} {
     return
   }
   // The program's root, which the functions above are no part of.

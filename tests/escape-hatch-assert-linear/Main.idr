@@ -1,4 +1,5 @@
--- expect: escape hatch, line 8
+-- expect: escape hatch, line 9
+-- message: Builtin.assert_linear
 module Main
 
 import Prelude

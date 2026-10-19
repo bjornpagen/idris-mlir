@@ -4,7 +4,10 @@
 # The runtime's string operations held to a model of scalars: every result
 # the model's, canonical and owned as idris_rt.h says, every operand
 # borrowed, on persistent and counted operands (strings.cpp states each
-# property). One line per property; the classes each reached go to the
+# property). Each run draws from a fresh seed, which a failure names; then
+# each check runs with its own planted fault (bytes taken for scalars, an
+# end of the string missed, a reference or the one empty string lost) and
+# must catch it. One line per property; the classes each reached go to the
 # report.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 . "$root/harness/prop/prop.sh"
@@ -12,4 +15,4 @@ prop_build "$here/strings.cpp" "$work/strings" || exit 0
 # The case count is debt: 1000 cases took 0.5 s on an arm64 Mac (host
 # clang, -O1); set it on the owner's build so the program ends well within
 # step_limit on both targets.
-prop_run "$work/strings" --seed 1 --cases 1000
+prop_run "$work/strings" --cases 1000

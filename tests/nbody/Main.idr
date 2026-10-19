@@ -3,6 +3,9 @@ module Main
 -- The n-body benchmark of the Computer Language Benchmarks Game: five
 -- bodies, immutable records, one function per pair interaction. Record
 -- updates put implementations under a `let`, which the frontend reduces.
+-- Every operation is a correctly rounded double operation, so the energies
+-- are exact: those the same operations in the same order give, at 0 steps
+-- (both energies equal), 1, 1000 and 20000.
 
 import Arith
 

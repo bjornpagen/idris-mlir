@@ -1,11 +1,24 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@step:arg0:[],labels=@run:arg0:[],forces-nothing=@step' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@step:arg0:[],labels=@run:arg0:[],forces-nothing=@step' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@step:arg0:[@first]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@run:arg0:[@step]' -o /dev/null
+// BEFORE-DAG: expected labels: @step {{.*}}
+// BEFORE-DAG: expected labels: @run {{.*}}
+// BEFORE-DAG: expected forces-nothing: {{.*}}@step
+// STDIN:
 // A list of Lazy actions that no constructor ever builds: @first is called
 // with the empty list only, so the case for a cell forces a suspension no
 // label reaches (@step's), and applies the closure its value holds, which
 // no label reaches either (@run's). The cell's key is still a memo sum,
 // with no label, so that nothing lazy is left, and the closure's key is
 // the empty set, so its apply runs nowhere.
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 !Act = !idr.data<"Act", plain [@MkAct(!idr.fn<(i64) -> (i64)>)]>
 !List = !idr.data<"List", list [@Nil() nil, @Cons(!idr.lazy<!Act>, !idr.box<!idr.data<"List">>) cons]>
 idr.program @"unreached-cell" root(@Prog.main) stage(higher) {

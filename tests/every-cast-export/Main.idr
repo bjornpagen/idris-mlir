@@ -109,6 +109,18 @@ main = do
     , cast (the Bits16 65535), cast (the Bits32 4294967295)
     , cast (the Bits64 18446744073709551615), cast (the Int8 (-128))
     , cast (the Int16 (-32768)), cast (the Int32 (-2147483648)) ]
+  -- Across 2^62, where the runtime's small integers end, each way.
+  line "Integer at 2^62" $ map show $ the (List Integer)
+    [ cast (the Int 4611686018427387903), cast (the Int 4611686018427387904)
+    , cast (the Int (-4611686018427387904)), cast (the Int (-4611686018427387905))
+    , cast (the Nat 4611686018427387904), cast (the Double 4611686018427387904.0)
+    , cast (the Bits64 4611686018427387904), cast "-4611686018427387905" ]
+  line "Int at 2^62" $ map show $ the (List Int)
+    [ cast (the Integer 4611686018427387904), cast (the Integer (-4611686018427387905))
+    , cast (the Nat 4611686018427387904), cast (the Bits64 4611686018427387904) ]
+  line "Nat at 2^62" $ map show $ the (List Nat)
+    [ cast (the Integer 4611686018427387904), cast (the Int 4611686018427387904)
+    , cast (the Integer (-4611686018427387904)) ]
   line "same type"
     [ cast "same", show (the Int (cast (the Int 5)))
     , show (the Double (cast (the Double 0.5))), show (the Char (cast 'c')) ]

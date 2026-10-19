@@ -118,3 +118,55 @@ idr.program @nat root(@root) stage(first) {
     return %zero : i64
   }
 }
+
+// -----
+
+// The nearest each refusal above has that verifies: the least natural, 0;
+// the difference as an Integer, of the naturals made Integers; the sum of
+// two naturals; the predecessor of a natural; the clamping conversion; the
+// word read as unsigned; and a key that is a natural.
+idr.program @nat root(@root) stage(first) {
+  idr.func @zero_constant() -> !idr.nat {
+    %n = idr.constant !idr.nat #idr.big<0>
+    return %n : !idr.nat
+  }
+  idr.func @difference(%a: !idr.nat) -> !idr.big {
+    %b = "idr.nat.to_big"(%a) : (!idr.nat) -> !idr.big
+    %d = "idr.big.sub"(%b, %b) : (!idr.big, !idr.big) -> !idr.big
+    return %d : !idr.big
+  }
+  idr.func @same(%a: !idr.nat, %b: !idr.nat) -> !idr.nat {
+    %s = "idr.big.add"(%a, %b) : (!idr.nat, !idr.nat) -> !idr.nat
+    return %s : !idr.nat
+  }
+  idr.func @natural_predecessor(%a: !idr.nat) -> !idr.nat {
+    %p = "idr.big.pred"(%a) : (!idr.nat) -> !idr.nat
+    return %p : !idr.nat
+  }
+  idr.func @clamped(%a: !idr.big) -> !idr.nat {
+    %n = "idr.nat.from_big"(%a) : (!idr.big) -> !idr.nat
+    return %n : !idr.nat
+  }
+  idr.func @unsigned_word(%x: i64) -> !idr.nat {
+    %n = idr.big.from_uint %x : i64 : !idr.nat
+    return %n : !idr.nat
+  }
+  idr.func @zero_key(%n: !idr.nat) -> i64 {
+    %r = idr.match_lit %n : !idr.nat -> (i64) {
+    case #idr.big<0> {
+      %a = arith.constant 1 : i64
+      idr.yield %a : i64
+    }
+    default(%d: !idr.nat) {
+      %b = arith.constant 0 : i64
+      idr.yield %b : i64
+    }
+    }
+    return %r : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}

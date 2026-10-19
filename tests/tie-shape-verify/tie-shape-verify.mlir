@@ -65,12 +65,16 @@ idr.program @verify root(@root) stage(first) {
 
 // -----
 
-// What the verifier accepts: a size per dynamic dimension, a static one
-// taking none, on a tensor or a value buffer.
+// What the verifier accepts, the nearest each refusal above has: a size
+// per dynamic dimension, two for two, a static one taking none, so an
+// array of static shape takes no size, on a ranked tensor or a value
+// buffer.
 idr.program @verify root(@root) stage(first) {
-  idr.func @f(%x: tensor<4x?xi64>, %b: memref<?x?xf64>, %n: index, %m: index) -> (tensor<4x?xi64>, memref<?x?xf64>) {
+  idr.func @f(%x: tensor<4x?xi64>, %b: memref<?x?xf64>, %z: tensor<?x?xi64>, %k: tensor<4xi64>, %n: index, %m: index) -> (tensor<4x?xi64>, memref<?x?xf64>) {
     %y = idr.tie_shape %x dims(%n) : tensor<4x?xi64>
     %c = idr.tie_shape %b dims(%n, %m) : memref<?x?xf64>
+    %t = idr.tie_shape %z dims(%n, %m) : tensor<?x?xi64>
+    %s = idr.tie_shape %k dims() : tensor<4xi64>
     return %y, %c : tensor<4x?xi64>, memref<?x?xf64>
   }
   // The program's root, which the functions above are no part of.

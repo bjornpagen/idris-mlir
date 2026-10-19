@@ -1,0 +1,14 @@
+compile: exit 3
+unsupported (pragma): the only error
+line: as the header says
+artifacts: none
+near: compile: exit 0
+near: artifacts: core module objects executable
+near: case prints-two: stdout differs from expected-stdout
+near:   | 1c1
+near:   | < 2
+near:   | ---
+near:   | > 1
+near: universal: holds
+near: its Main.idr names a rule, but the neighbour is accepted
+near: holds expected, which is the refused test's own

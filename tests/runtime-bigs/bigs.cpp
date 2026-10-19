@@ -45,14 +45,16 @@ private:
   mpq_t q_;
 };
 
-// r is canonical and is the integer `want`.
-bool is(const char *what, const Result &r, mpz_srcptr want) {
+// r is canonical and is the integer `want`, its value read as `got` (r's
+// own, but where a mutant changes what the runtime is read to give).
+bool is(const char *what, const Result &r, mpz_srcptr got, mpz_srcptr want) {
   bool shaped = bigmodel::canonical(r.word());
-  bool equal = mpz_cmp(r.value(), want) == 0;
+  bool equal = mpz_cmp(got, want) == 0;
   if (!shaped || !equal)
-    explainValues("%s gives %#Zx, where %#Zx is the integer", what, r.value(), want);
+    explainValues("%s gives %#Zx, where %#Zx is the integer", what, got, want);
   return shaped && equal;
 }
+bool is(const char *what, const Result &r, mpz_srcptr want) { return is(what, r, r.value(), want); }
 
 // x and y are the same integer, each canonical.
 bool same(const char *what, idris_rt_big x, idris_rt_big y) {
@@ -93,6 +95,40 @@ void drawBig(FuzzedDataProvider &p, uint64_t mask, mpz_ptr out, const char *name
 
 using Binary = idris_rt_big (*)(idris_rt_big, idris_rt_big);
 using Unary = idris_rt_big (*)(idris_rt_big);
+
+// The faults each check must notice, planted where it reads the runtime
+// (prop.h). Most are the faults a word operation makes at the small range's
+// edges, so that a check catches its mutant only when its cases reach them.
+constexpr prop::Mutant missedOverflow{"misses the overflow of a small add, sub or mul, wrapping it to 63 bits"};
+constexpr prop::Mutant truncatedDivision{"divides as C does, the quotient toward zero and the remainder with a's sign"};
+constexpr prop::Mutant magnitudeBits{"takes and, or and xor of the magnitudes, with the operation on the signs"};
+constexpr prop::Mutant shrTowardZero{"shifts a negative value down toward zero"};
+constexpr prop::Mutant cmpOfWords{"compares two bigs by their low 64 bits"};
+constexpr prop::Mutant unsignedAsSigned{"reads from_int_u's word as signed"};
+constexpr prop::Mutant toDoubleTruncates{"rounds to_double toward zero"};
+constexpr prop::Mutant fromDoubleFloors{"rounds from_double down, not toward zero"};
+constexpr prop::Mutant andIdentity{"takes 2^62 - 1, the small range's top, for and's identity"};
+constexpr prop::Mutant shlKeepsWord{"keeps a left shift's low 64 bits"};
+constexpr prop::Mutant smallPathWraps{"wraps a small path's add, sub or mul to 63 bits where its large path does not"};
+constexpr prop::Mutant overflowAtTop{"tests a small add's overflow past 2^62 and not at it, so 2^62 wraps to -2^62"};
+constexpr prop::Mutant smallShlKeepsWord{"shifts a small value left as a 64-bit word does"};
+constexpr prop::Mutant leaksResult{"leaks every large result's cell"};
+
+// v wrapped to 63 bits of two's complement, the small range, where every
+// integer has a small image: the families' values past the range fold onto
+// its edges.
+void wrapSmall(mpz_srcptr v, mpz_ptr out) {
+  Z half;
+  mpz_setbit(half, 62);
+  mpz_add(out, v, half);
+  mpz_fdiv_r_2exp(out, out, 63);
+  mpz_sub(out, out, half);
+}
+
+// v's low 64 bits read as a signed word.
+void wrapWord(mpz_srcptr v, mpz_ptr out) { mpz_set_si(out, static_cast<long>(low64(v))); }
+
+bool isSmall(mpz_srcptr v) { return mpz_cmp_si(v, IDRIS_RT_SMALL_MIN) >= 0 && mpz_cmp_si(v, IDRIS_RT_SMALL_MAX) <= 0; }
 
 // add, sub, mul: each entry, its large path, and the integer GMP computes.
 struct Arithmetic {
@@ -136,11 +172,18 @@ constexpr Single singles[] = {{"neg", idris_rt_big_neg, rt::big::negLarge},
 // 1. Each of add, sub and mul is the integer GMP computes.
 bool sums(const Operand &a, const Operand &b, prop::Tally &tally) {
   bool ok = true;
+  bool smallOperands = isSmall(a.value()) && isSmall(b.value());
   for (const Arithmetic &op : arithmetic) {
     Result r(op.entry(a.word(), b.word()));
-    Z want;
+    Z want, got;
     op.integer(want, a.value(), b.value());
-    ok &= is(op.name, r, want);
+    mpz_set(got, r.value());
+    if (smallOperands && prop::planted(missedOverflow))
+      wrapSmall(got, got);
+    if (smallOperands && op.integer == mpz_add && mpz_sgn(want) > 0 && mpz_scan1(want, 0) == 62 &&
+        mpz_sizeinbase(want, 2) == 63 && prop::planted(overflowAtTop))
+      mpz_set_si(got, IDRIS_RT_SMALL_MIN);
+    ok &= is(op.name, r, got, want);
     tally.classify(formsOf(a.word(), b.word(), r.word()));
   }
   return ok;
@@ -162,13 +205,19 @@ bool division(const Operand &a, const Operand &drawn, prop::Tally &tally) {
   Result q(idris_rt_big_div(a.word(), b.word())), r(idris_rt_big_mod(a.word(), b.word()));
   bool qShaped = bigmodel::canonical(q.word()), rShaped = bigmodel::canonical(r.word());
   bool shaped = qShaped && rShaped;
+  Z qv, rv;
+  mpz_set(qv, q.value());
+  mpz_set(rv, r.value());
+  if (prop::planted(truncatedDivision))
+    mpz_tdiv_qr(qv, rv, a.value(), b.value());
   Z sum, magnitude;
-  mpz_mul(sum, q.value(), b.value());
-  mpz_add(sum, sum, r.value());
+  mpz_mul(sum, qv, b.value());
+  mpz_add(sum, sum, rv);
   mpz_abs(magnitude, b.value());
-  bool euclidean = mpz_cmp(sum, a.value()) == 0 && mpz_sgn(r.value()) >= 0 && mpz_cmp(r.value(), magnitude) < 0;
+  bool euclidean = mpz_cmp(sum, a.value()) == 0 && mpz_sgn(rv) >= 0 && mpz_cmp(rv, magnitude) < 0;
   if (!shaped || !euclidean)
-    explainValues("div and mod by %#Zx give %#Zx and %#Zx", b.value(), q.value(), r.value());
+    explainValues("div and mod by %#Zx give %#Zx and %#Zx", b.value(), static_cast<mpz_srcptr>(qv),
+                  static_cast<mpz_srcptr>(rv));
   tally.classify(formsOf(a.word(), b.word(), q.word()));
   return shaped && euclidean;
 }
@@ -183,18 +232,28 @@ bool bits(const Operand &a, const Operand &b, prop::Tally &tally) {
   for (const Bitwise &op : bitwise) {
     Result r(op.entry(a.word(), b.word()));
     ok &= bigmodel::canonical(r.word());
+    Z got;
+    mpz_set(got, r.value());
+    if (prop::planted(magnitudeBits)) {
+      Z x, y;
+      mpz_abs(x, a.value());
+      mpz_abs(y, b.value());
+      (op.entry == idris_rt_big_and ? mpz_and : op.entry == idris_rt_big_or ? mpz_ior : mpz_xor)(got, x, y);
+      if (op.bit(mpz_sgn(a.value()) < 0, mpz_sgn(b.value()) < 0) != 0)
+        mpz_neg(got, got);
+    }
     size_t width = mpz_sizeinbase(a.value(), 2);
     width = width > mpz_sizeinbase(b.value(), 2) ? width : mpz_sizeinbase(b.value(), 2);
-    width = width > mpz_sizeinbase(r.value(), 2) ? width : mpz_sizeinbase(r.value(), 2);
+    width = width > mpz_sizeinbase(got, 2) ? width : mpz_sizeinbase(got, 2);
     for (mp_bitcnt_t i = 0; i < width + 2; ++i)
-      if (mpz_tstbit(r.value(), i) != op.bit(mpz_tstbit(a.value(), i), mpz_tstbit(b.value(), i))) {
-        explainValues("%s gives %#Zx, whose bit %lu is not the operands'", op.name, r.value(), i);
+      if (mpz_tstbit(got, i) != op.bit(mpz_tstbit(a.value(), i), mpz_tstbit(b.value(), i))) {
+        explainValues("%s gives %#Zx, whose bit %lu is not the operands'", op.name, static_cast<mpz_srcptr>(got), i);
         ok = false;
         break;
       }
     bool negative = op.bit(mpz_sgn(a.value()) < 0, mpz_sgn(b.value()) < 0) != 0;
-    if ((mpz_sgn(r.value()) < 0) != negative) {
-      explainValues("%s gives %#Zx, whose sign is not the operands'", op.name, r.value());
+    if ((mpz_sgn(got) < 0) != negative) {
+      explainValues("%s gives %#Zx, whose sign is not the operands'", op.name, static_cast<mpz_srcptr>(got));
       ok = false;
     }
     tally.classify(formsOf(a.word(), b.word(), r.word()));
@@ -215,7 +274,7 @@ bool defined(mpz_srcptr a, mpz_srcptr e) { return mpz_cmp_ui(e, upLimit) <= 0 ||
 // are e's parts above and below 0. 0 moved any way is 0, so its p is 0; a
 // value moved down past its every bit is its sign, 0 or -1, so m stops at
 // one past a's width.
-bool moved(const char *what, const Result &r, mpz_srcptr a, mpz_srcptr e) {
+bool moved(const char *what, const Result &r, mpz_srcptr got, mpz_srcptr a, mpz_srcptr e) {
   unsigned long p = mpz_sgn(e) > 0 && mpz_sgn(a) != 0 ? mpz_get_ui(e) : 0;
   Z down;
   mpz_neg(down, e);
@@ -223,15 +282,15 @@ bool moved(const char *what, const Result &r, mpz_srcptr a, mpz_srcptr e) {
   unsigned long m = mpz_sgn(down) <= 0 ? 0 : mpz_cmp_ui(down, width) > 0 ? width : mpz_get_ui(down);
   Z unit, low, high, scaled;
   mpz_ui_pow_ui(unit, 2, m);
-  mpz_mul(low, r.value(), unit);
-  mpz_add_ui(high, r.value(), 1);
+  mpz_mul(low, got, unit);
+  mpz_add_ui(high, got, 1);
   mpz_mul(high, high, unit);
   mpz_ui_pow_ui(scaled, 2, p);
   mpz_mul(scaled, scaled, a);
   bool shaped = bigmodel::canonical(r.word());
   bool floor = mpz_cmp(low, scaled) <= 0 && mpz_cmp(scaled, high) < 0;
   if (!shaped || !floor)
-    explainValues("%s by 2^%Zd gives %#Zx", what, e, r.value());
+    explainValues("%s by 2^%Zd gives %#Zx", what, e, got);
   return shaped && floor;
 }
 
@@ -253,7 +312,17 @@ bool shiftsBy(const Operand &a, const Operand &amount) {
   bool ok = true;
   definedShifts(a.value(), amount.value(), [&](const Shift &op, mpz_srcptr e) {
     Result r(op.entry(a.word(), amount.word()));
-    ok &= moved(op.name, r, a.value(), e);
+    Z got;
+    mpz_set(got, r.value());
+    // Down by a whole number of places from a negative value.
+    if (op.way < 0 && mpz_sgn(e) < 0 && mpz_sgn(a.value()) < 0 && prop::planted(shrTowardZero)) {
+      Z places;
+      mpz_neg(places, e);
+      mpz_tdiv_q_2exp(got, a.value(), mpz_fits_ulong_p(places) ? mpz_get_ui(places) : ~0ul);
+    }
+    if (op.way > 0 && mpz_sgn(e) > 0 && isSmall(a.value()) && prop::planted(smallShlKeepsWord))
+      wrapWord(got, got);
+    ok &= moved(op.name, r, got, a.value(), e);
   });
   return ok;
 }
@@ -303,6 +372,10 @@ bool order(const Operand &a, const Operand &b, prop::Tally &tally) {
   mpz_neg(minus, a.value());
   bool ok = is("neg", negated, minus);
   int compared = idris_rt_big_cmp(a.word(), b.word());
+  if (prop::planted(cmpOfWords)) {
+    auto x = static_cast<int64_t>(low64(a.value())), y = static_cast<int64_t>(low64(b.value()));
+    compared = (x > y) - (x < y);
+  }
   if (signOf(compared) != signOf(mpz_cmp(a.value(), b.value()))) {
     prop::explain("cmp gives %d", compared);
     ok = false;
@@ -329,10 +402,13 @@ bool machine(const Operand &a, prop::Tally &tally) {
   uint64_t u = low64(a.value());
   auto x = static_cast<int64_t>(u);
   Result s(idris_rt_big_from_int_s(x)), n(idris_rt_big_from_int_u(u));
-  Z signedValue(x), unsignedValue;
+  Z signedValue(x), unsignedValue, gotUnsigned;
   mpz_set_ui(unsignedValue, u);
+  mpz_set(gotUnsigned, n.value());
+  if (prop::planted(unsignedAsSigned))
+    mpz_set_si(gotUnsigned, x);
   bool ok = is("from_int_s", s, signedValue);
-  ok &= is("from_int_u", n, unsignedValue);
+  ok &= is("from_int_u", n, gotUnsigned, unsignedValue);
   int64_t wrapped = idris_rt_big_to_int(a.word());
   if (static_cast<uint64_t>(wrapped) != u) {
     prop::explain("to_int gives %lld", static_cast<long long>(wrapped));
@@ -376,6 +452,14 @@ bool nearest(idris_rt_big word, prop::Tally &tally) {
     mpq_set_z(a, v);
   }
   double d = idris_rt_big_to_double(word);
+  if (d == d && prop::planted(toDoubleTruncates)) {
+    Q dq, ad, aa;
+    exactly(d, dq);
+    mpq_abs(ad, dq);
+    mpq_abs(aa, a);
+    if (mpq_cmp(ad, aa) > 0)
+      d = nextafter(d, 0.0);
+  }
   // NaN is near no integer.
   if (d != d) {
     prop::explain("to_double gives NaN");
@@ -452,16 +536,20 @@ bool truncated(double x, prop::Tally &tally) {
   Result r(idris_rt_big_from_double(x));
   Q xq, rq, ax, ar, above, one;
   mpq_set_d(xq, x);
-  mpq_set_z(rq, r.value());
+  Z got;
+  mpz_set(got, r.value());
+  if (prop::planted(fromDoubleFloors))
+    mpz_fdiv_q(got, mpq_numref(xq), mpq_denref(xq));
+  mpq_set_z(rq, got);
   mpq_abs(ax, xq);
   mpq_abs(ar, rq);
   mpq_set_ui(one, 1, 1);
   mpq_add(above, ar, one);
   bool shaped = bigmodel::canonical(r.word());
   bool within = mpq_cmp(ar, ax) <= 0 && mpq_cmp(ax, above) < 0;
-  bool sign = mpz_sgn(r.value()) == 0 || (mpz_sgn(r.value()) < 0) == (x < 0);
+  bool sign = mpz_sgn(got) == 0 || (mpz_sgn(got) < 0) == (x < 0);
   if (!shaped || !within || !sign)
-    explainValues("from_double of %a gives %Zd", x, r.value());
+    explainValues("from_double of %a gives %Zd", x, static_cast<mpz_srcptr>(got));
   static constexpr const char *names[] = {"large, fractional", "large, integral", "small, fractional",
                                           "small, integral"};
   tally.classify(names[static_cast<unsigned>(r.word() & 1) << 1 |
@@ -531,7 +619,7 @@ bool laws(const Operand &a, const Operand &b, const Operand &c, prop::Tally &tal
     Result abc(m.op(ab.word(), c.word())), bc(m.op(b.word(), c.word())), abc2(m.op(a.word(), bc.word()));
     snprintf(what, sizeof what, "%s associates", m.name);
     ok &= same(what, abc.word(), abc2.word());
-    Operand identity(m.identity);
+    Operand identity(m.op == idris_rt_big_and && prop::planted(andIdentity) ? IDRIS_RT_SMALL_MAX : m.identity);
     Result kept(m.op(a.word(), identity.word()));
     snprintf(what, sizeof what, "%s by %ld", m.name, m.identity);
     ok &= same(what, kept.word(), a.word());
@@ -560,28 +648,22 @@ bool laws(const Operand &a, const Operand &b, const Operand &c, prop::Tally &tal
 // shr a k = div a (shl 1 k).
 bool undo(const Operand &a, unsigned long j, unsigned long k, prop::Tally &tally) {
   Operand jw(static_cast<long>(j)), kw(static_cast<long>(k)), jk(static_cast<long>(j + k)), one(1L);
-  Result up(idris_rt_big_shl(a.word(), kw.word())), back(idris_rt_big_shr(up.word(), kw.word()));
+  Result up(idris_rt_big_shl(a.word(), kw.word()));
+  // The mutant's shift up, a word, stands for the runtime's.
+  bool wraps = prop::planted(shlKeepsWord);
+  Operand wrapped(wraps ? static_cast<long>(low64(up.value())) : 0L);
+  idris_rt_big upWord = wraps ? wrapped.word() : up.word();
+  Result back(idris_rt_big_shr(upWord, kw.word()));
   bool ok = same("shr (shl a k) k and a", back.word(), a.word());
   Result upJ(idris_rt_big_shl(a.word(), jw.word())), upJK(idris_rt_big_shl(upJ.word(), kw.word())),
       upSum(idris_rt_big_shl(a.word(), jk.word()));
   ok &= same("shl (shl a j) k and shl a (j + k)", upJK.word(), upSum.word());
   Result power(idris_rt_big_shl(one.word(), kw.word())), product(idris_rt_big_mul(a.word(), power.word()));
-  ok &= same("shl a k and a * shl 1 k", up.word(), product.word());
+  ok &= same("shl a k and a * shl 1 k", upWord, product.word());
   Result down(idris_rt_big_shr(a.word(), kw.word())), quotient(idris_rt_big_div(a.word(), power.word()));
   ok &= same("shr a k and div a (shl 1 k)", down.word(), quotient.word());
   tally.classify(formsOf(a.word(), up.word()));
   return ok;
-}
-
-// v wrapped to 63 bits of two's complement, the small range, where every
-// integer has a small image: the families' values past the range fold onto
-// its edges.
-void wrapSmall(mpz_srcptr v, mpz_ptr out) {
-  Z half;
-  mpz_setbit(half, 62);
-  mpz_add(out, v, half);
-  mpz_fdiv_r_2exp(out, out, 63);
-  mpz_sub(out, out, half);
 }
 
 // 11. Each entry gives what its large path gives, which takes any bigs.
@@ -591,8 +673,14 @@ bool paths(const Operand &a, const Operand &b, const Operand &amount, uint64_t w
     Result e(entry), l(large);
     ok &= same(name, e.word(), l.word());
   };
-  for (const Arithmetic &op : arithmetic)
-    relate(op.name, op.entry(a.word(), b.word()), op.large(a.word(), b.word()));
+  for (const Arithmetic &op : arithmetic) {
+    Result e(op.entry(a.word(), b.word())), l(op.large(a.word(), b.word()));
+    // The mutant's small path, wrapped, stands for the entry's result.
+    Z w;
+    wrapSmall(e.value(), w);
+    Operand wrapped(w);
+    ok &= same(op.name, prop::planted(smallPathWraps) ? wrapped.word() : e.word(), l.word());
+  }
   for (const Bitwise &op : bitwise)
     relate(op.name, op.entry(a.word(), b.word()), op.large(a.word(), b.word()));
   definedShifts(a.value(), amount.value(), [&](const Shift &op, mpz_srcptr) {
@@ -732,8 +820,9 @@ template <typename Call> bool borrows(const char *name, idris_rt_big a, idris_rt
   bool shaped = bigmodel::canonical(r);
   uint32_t ga = referencesOf(a), gb = referencesOf(b);
   bool kept = ga == ra + (r == a && (a & 1) == 0) && gb == rb + (r == b && (b & 1) == 0);
+  bool leaked = (r & 1) == 0 && prop::planted(leaksResult);
   idris_rt_big_release(r);
-  bool freed = idris_rt_live_cells() == live;
+  bool freed = idris_rt_live_cells() + leaked == live;
   bool restored = referencesOf(a) == ra && referencesOf(b) == rb;
   if (!kept || !freed || !restored)
     prop::explain("%s: operands' references %u and %u became %u and %u, then %u and %u; live cells %llu, then %llu",
@@ -790,7 +879,8 @@ int main(int argc, char **argv) {
   idris_rt_gmp_init();
   prop::Run run(argc, argv);
 
-  run.property("add, sub, mul: the integer GMP computes", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("add, sub, mul: the integer GMP computes", missedOverflow,
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
     uint64_t mask = prop::swarm(p, bigmodel::families);
     Z av, bv;
     drawBig(p, mask, av, "a");
@@ -799,7 +889,8 @@ int main(int argc, char **argv) {
     return sums(a, b, tally);
   });
 
-  run.property("div, mod: Euclidean: a = q*b + r and 0 <= r < |b|", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("div, mod: Euclidean: a = q*b + r and 0 <= r < |b|", truncatedDivision,
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
     uint64_t mask = prop::swarm(p, bigmodel::families);
     Z av, bv;
     drawBig(p, mask, av, "a");
@@ -808,7 +899,8 @@ int main(int argc, char **argv) {
     return division(a, b, tally);
   });
 
-  run.property("and, or, xor: two's complement, bit by bit", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("and, or, xor: two's complement, bit by bit", magnitudeBits,
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
     uint64_t mask = prop::swarm(p, bigmodel::families);
     Z av, bv;
     drawBig(p, mask, av, "a");
@@ -817,7 +909,7 @@ int main(int argc, char **argv) {
     return bits(a, b, tally);
   });
 
-  run.property("shl, shr: a * 2^k and floor(a / 2^k), the other way for k < 0",
+  run.property("shl, shr: a * 2^k and floor(a / 2^k), the other way for k < 0", shrTowardZero,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, bigmodel::families);
                  Z av, kv;
@@ -829,7 +921,7 @@ int main(int argc, char **argv) {
                  return shiftsBy(a, amount);
                });
 
-  run.property("neg, cmp, nat_from_big, pred", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("neg, cmp, nat_from_big, pred", cmpOfWords, [](FuzzedDataProvider &p, prop::Tally &tally) {
     uint64_t mask = prop::swarm(p, bigmodel::families);
     Z av, bv;
     drawBig(p, mask, av, "a");
@@ -838,7 +930,7 @@ int main(int argc, char **argv) {
     return order(a, b, tally);
   });
 
-  run.property("from_int_s, from_int_u, to_int: exact, and to_int modulo 2^64",
+  run.property("from_int_s, from_int_u, to_int: exact, and to_int modulo 2^64", unsignedAsSigned,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Z av;
                  drawBig(p, prop::swarm(p, bigmodel::families), av, "a");
@@ -846,7 +938,7 @@ int main(int argc, char **argv) {
                  return machine(a, tally);
                });
 
-  run.property("to_double: nearest, ties to even, infinity past the largest",
+  run.property("to_double: nearest, ties to even, infinity past the largest", toDoubleTruncates,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Z cv;
                  unsigned long s = widen(p, prop::pick(p, prop::swarm(p, wideFamilies)), cv);
@@ -858,11 +950,11 @@ int main(int argc, char **argv) {
                  return ok;
                });
 
-  run.property("from_double: truncated toward zero", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("from_double: truncated toward zero", fromDoubleFloors, [](FuzzedDataProvider &p, prop::Tally &tally) {
     return truncated(drawDouble(p, prop::pick(p, prop::swarm(p, doubleFamilies))), tally);
   });
 
-  run.property("laws: commutative, associative, distributive, identities, inverses",
+  run.property("laws: commutative, associative, distributive, identities, inverses", andIdentity,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, bigmodel::families);
                  Z av, bv, cv;
@@ -873,7 +965,7 @@ int main(int argc, char **argv) {
                  return laws(a, b, c, tally);
                });
 
-  run.property("laws: shifts compose and undo", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("laws: shifts compose and undo", shlKeepsWord, [](FuzzedDataProvider &p, prop::Tally &tally) {
     Z av, jv, kv;
     drawBig(p, prop::swarm(p, bigmodel::families), av, "a");
     uint64_t mask = prop::swarm(p, boundedShiftFamilies);
@@ -885,7 +977,8 @@ int main(int argc, char **argv) {
     return undo(a, mpz_get_ui(jv), mpz_get_ui(kv), tally);
   });
 
-  run.property("small path = large path on small operands", [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("small path = large path on small operands", smallPathWraps,
+               [](FuzzedDataProvider &p, prop::Tally &tally) {
     uint64_t mask = prop::swarm(p, bigmodel::families);
     Z drawn, av, bv, kv, wv;
     drawBig(p, mask, drawn, "drawn a");
@@ -899,7 +992,8 @@ int main(int argc, char **argv) {
     return paths(a, b, amount, low64(wv), tally);
   });
 
-  run.box("box: every pair of edge values, every operation", edges.count() * edges.count(), [](uint64_t input) {
+  run.box("box: every pair of edge values, every operation", edges.count() * edges.count(), overflowAtTop,
+          [](uint64_t input) {
     Z av, bv;
     edgeValue(input / edges.count(), av);
     edgeValue(input % edges.count(), bv);
@@ -917,6 +1011,7 @@ int main(int argc, char **argv) {
   });
 
   run.box("box: every edge value shifted by every amount of the box", edges.count() * amounts.count(),
+          smallShlKeepsWord,
           [](uint64_t input) {
             Z av;
             edgeValue(input / amounts.count(), av);
@@ -926,7 +1021,7 @@ int main(int argc, char **argv) {
             return shiftsBy(a, amount);
           });
 
-  run.property("every operation borrows its operands and returns one owned result",
+  run.property("every operation borrows its operands and returns one owned result", leaksResult,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  uint64_t mask = prop::swarm(p, bigmodel::families);
                  Z av, bv, kv;

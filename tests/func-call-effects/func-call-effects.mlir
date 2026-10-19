@@ -6,7 +6,9 @@
 // computes is dead when nothing reads it, moves across anything and is one
 // value with an equal call; one that may crash may still be delayed; one
 // that holds the default may do anything, though its callee may do less,
-// since a stale value says too much, never too little.
+// since a stale value says too much, never too little. Each set answers as
+// the worst effect in it: io, with or without others, nothing; diverge,
+// alone or with crash, as crash alone, delay.
 idr.program @"call-effects" root(@main) stage(first) {
   idr.func effects<none> @pure(%x: i64) -> i64 attributes {total} {
     return %x : i64
@@ -15,6 +17,18 @@ idr.program @"call-effects" root(@main) stage(first) {
     return %x : i64
   }
   idr.func effects<crash> @crashes(%x: i64) -> i64 attributes {total} {
+    return %x : i64
+  }
+  idr.func effects<io> @writes(%x: i64) -> i64 attributes {total} {
+    return %x : i64
+  }
+  idr.func effects<diverge> @loops(%x: i64) -> i64 {
+    return %x : i64
+  }
+  idr.func effects<crash, diverge> @either(%x: i64) -> i64 {
+    return %x : i64
+  }
+  idr.func effects<io, crash> @writes_or_crashes(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
   idr.func @main() -> i64 {
@@ -27,6 +41,14 @@ idr.program @"call-effects" root(@main) stage(first) {
     %d = idr.call @crashes(%c) effects<crash> : (i64) -> i64
     // expected-remark @below {{facts: []}}
     %e = idr.call @pure(%c) : (i64) -> i64
+    // expected-remark @below {{facts: []}}
+    %f = idr.call @writes(%c) effects<io> : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %g = idr.call @loops(%c) effects<diverge> : (i64) -> i64
+    // expected-remark @below {{facts: [delay]}}
+    %h = idr.call @either(%c) effects<crash, diverge> : (i64) -> i64
+    // expected-remark @below {{facts: []}}
+    %i = idr.call @writes_or_crashes(%c) effects<io, crash> : (i64) -> i64
     return %c : i64
   }
 }

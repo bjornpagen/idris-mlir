@@ -24,6 +24,16 @@ if ! runtime_c link_program -O1 "$root/tests/page-size-mismatch/start.c" \
   exit 0
 fi
 
+# outside_macho, outside_elf: of the shared libraries on stdin, one a
+# line, as a Mach-O file names them or as an ELF file's NEEDED entries do,
+# those the rule does not allow.
+outside_macho() {
+  awk '$0 ~ /libc\+\+/ || ($0 !~ /^\/usr\/lib\// && $0 !~ /^\/System\/Library\//)'
+}
+outside_elf() {
+  awk '$0 != "libc.so.6" && $0 != "libm.so.6" && $0 !~ /^ld-linux-.*\.so\.[0-9]+$/'
+}
+
 # shared FILE: what FILE needs of a dynamic loader beyond what the rule
 # allows, one per line: an ELF file's shared libraries that are not glibc's;
 # a Mach-O file's shared libraries that are not the system's, and a shared
@@ -31,14 +41,28 @@ fi
 shared() {
   if "$llvm_bin/llvm-objdump" --file-headers "$1" 2> /dev/null | grep -q 'file format mach-o'; then
     "$llvm_bin/llvm-objdump" --macho --dylibs-used "$1" |
-      sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' |
-      awk '$0 ~ /libc\+\+/ || ($0 !~ /^\/usr\/lib\// && $0 !~ /^\/System\/Library\//)'
+      sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' | outside_macho
   else
     "$llvm_bin/llvm-readelf" --dynamic "$1" |
-      awk '/\(NEEDED\)/ { n = $NF; gsub(/[][]/, "", n)
-        if (n != "libc.so.6" && n != "libm.so.6" && n !~ /^ld-linux-.*\.so\.[0-9]+$/) print n }'
+      awk '/\(NEEDED\)/ { n = $NF; gsub(/[][]/, "", n); print n }' | outside_elf
   fi
 }
+
+# Each rule refuses what it must and allows what it may, on both formats
+# whatever the host's: the system's libraries pass, and a shared libc++,
+# a library of ours by @rpath, a third party's and one of no system do not.
+printf '%s\n' /usr/lib/libSystem.B.dylib /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation \
+  /usr/lib/libc++.1.dylib @rpath/libLLVM.dylib /opt/local/lib/libgmp.10.dylib > "$work/macho-planted"
+printf '%s\n' /usr/lib/libc++.1.dylib @rpath/libLLVM.dylib /opt/local/lib/libgmp.10.dylib > "$work/macho-refused"
+printf '%s\n' libc.so.6 libm.so.6 ld-linux-x86-64.so.2 ld-linux-aarch64.so.1 libstdc++.so.6 libc++.so.1 \
+  libgmp.so.10 libLLVM.so.21 > "$work/elf-planted"
+printf '%s\n' libstdc++.so.6 libc++.so.1 libgmp.so.10 libLLVM.so.21 > "$work/elf-refused"
+if outside_macho < "$work/macho-planted" | cmp -s - "$work/macho-refused" &&
+   outside_elf < "$work/elf-planted" | cmp -s - "$work/elf-refused"; then
+  say "the rule: the system's libraries allowed, each planted other refused"
+else
+  say "the rule: does not refuse exactly the planted libraries it must"
+fi
 
 # The build's executables: each regular executable file outside CMake's
 # own directories whose object format llvm-objdump names.

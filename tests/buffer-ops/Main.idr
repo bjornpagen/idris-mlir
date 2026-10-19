@@ -2,7 +2,9 @@ module Main
 
 -- A buffer is a sized block of bytes. Wider values are the target's own
 -- load and store of those bytes, in the target's byte order: expected-stdout
--- is a little-endian target's, as both targets are.
+-- is a little-endian target's, as both targets are. Each width is written
+-- at its extremes (all ones, the least signed value) and at the last
+-- offset where it fits, and read back signed and unsigned.
 
 import Prelude
 import Data.Buffer
@@ -34,6 +36,17 @@ main = do
   printLn !(getInt64 buf 16)
   setInt buf 20 (-5)
   printLn !(getInt buf 20)
+  setBits64 buf 24 0xFFFFFFFFFFFFFFFF
+  printLn !(getBits64 buf 24)
+  setInt64 buf 24 (-9223372036854775808)
+  printLn !(getInt64 buf 24)
+  setBits16 buf 30 0xFFFF
+  printLn !(getBits16 buf 30)
+  printLn !(getInt16 buf 30)
+  setBits32 buf 28 0x80000000
+  printLn !(getInt32 buf 28)
+  printLn !(getInt8 buf 31)
+  printLn !(getBits8 buf 31)
   setDouble buf 1 1.0
   printLn !(getDouble buf 1)
   setBool buf 0 True

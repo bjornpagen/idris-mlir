@@ -3,7 +3,9 @@
 // The box of the range hooks of the big ops whose result is an integer:
 // each op built in a scratch block, its hook called on every interval as the
 // analysis holds one (rangeOf), and the range it states read as the
-// ConstantIntRanges it is, against the runtime's value of every member.
+// ConstantIntRanges it is, against the runtime's value of every member;
+// then against a runtime with a fault planted in the op, which the check
+// must catch, so that a hook that decides or bounds nothing would not pass.
 
 #include "idr/Testing/Box.h"
 
@@ -42,6 +44,15 @@ namespace {
 
 class HooksCompare : public Box<HooksCompare> {};
 
+// A judge for a mutant, which counts the cases that fail and reports none.
+struct Mutant {
+  unsigned failures = 0;
+  template <typename Operands>
+  void check(bool holds, Operands) {
+    failures += !holds;
+  }
+};
+
 // Dw, for big.to_int at `width` bits: D64 and, within 2 of each, where a
 // value stops fitting the width signed (±2^(w-1)) or unsigned (2^w), as an
 // i64 holds them: the two cases of the hook.
@@ -54,7 +65,10 @@ std::vector<int64_t> dw(unsigned width) {
   return points;
 }
 
-TEST_F(HooksCompare, Cmp) {
+// big.cmp's hook, where it decides a comparison, against the order `order`
+// gives every pair of members.
+template <typename Judge, typename Order>
+void checkCmp(Judge &box, Order order) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect, mlir::arith::ArithDialect>();
   idr::box::Scratch scratch(context);
@@ -79,8 +93,7 @@ TEST_F(HooksCompare, Cmp) {
           mlir::Attribute verdict = mlir::BoolAttr::get(&context, decided->getBoolValue());
           eachMember(d64, a, least, [&](int64_t x) {
             eachMember(d64, b, least, [&](int64_t y) {
-              int32_t order = Abi<idr::BigCmpOp>::function(big(x).get(), big(y).get());
-              check(idr::fold::compared(&context, predicate, order) == verdict, [&] {
+              box.check(idr::fold::compared(&context, predicate, order(x, y)) == verdict, [&] {
                 return testing::Message() << mlir::debugString(type) << ", "
                                           << idr::stringifyCmpPredicate(predicate) << ", a " << a
                                           << ", b " << b << ", x " << x << ", y " << y;
@@ -93,7 +106,22 @@ TEST_F(HooksCompare, Cmp) {
   }
 }
 
-TEST_F(HooksCompare, ToInt) {
+TEST_F(HooksCompare, Cmp) {
+  checkCmp(*this, [](int64_t x, int64_t y) {
+    return Abi<idr::BigCmpOp>::function(big(x).get(), big(y).get());
+  });
+  // A comparison that orders its operands the other way.
+  Mutant mutant;
+  checkCmp(mutant, [](int64_t x, int64_t y) {
+    return Abi<idr::BigCmpOp>::function(big(y).get(), big(x).get());
+  });
+  EXPECT_GT(mutant.failures, 0u);
+}
+
+// big.to_int's hook at each width, on every interval over Dw, against the
+// word `value` gives every member.
+template <typename Judge, typename Value>
+void checkToInt(Judge &box, Value value) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect, mlir::arith::ArithDialect>();
   idr::box::Scratch scratch(context);
@@ -111,15 +139,25 @@ TEST_F(HooksCompare, ToInt) {
       eachInterval(points, [&](Bounds b) {
         ConstantIntRanges range = inferred(op, {ranges::rangeOf(b)});
         eachMember(points, b, least, [&](int64_t x) {
-          auto value = llvm::cast<mlir::IntegerAttr>(
-              idr::fold::wrapped(result, Abi<idr::BigToIntOp>::function(big(x).get())));
-          check(member(range, value.getValue()), [&] {
+          auto word = llvm::cast<mlir::IntegerAttr>(idr::fold::wrapped(result, value(x)));
+          box.check(member(range, word.getValue()), [&] {
             return testing::Message() << mlir::debugString(type) << ", width " << width
                                       << ", b " << b << ", x " << x << ": " << range;
           });
         });
       });
     }
+}
+
+TEST_F(HooksCompare, ToInt) {
+  checkToInt(*this, [](int64_t x) { return Abi<idr::BigToIntOp>::function(big(x).get()); });
+  // A conversion whose word is one more, wrapping.
+  Mutant mutant;
+  checkToInt(mutant, [](int64_t x) {
+    auto word = static_cast<uint64_t>(Abi<idr::BigToIntOp>::function(big(x).get()));
+    return static_cast<int64_t>(word + 1);
+  });
+  EXPECT_GT(mutant.failures, 0u);
 }
 
 } // namespace

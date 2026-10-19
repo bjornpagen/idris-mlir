@@ -1,9 +1,18 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@pick:result:[@add,@dbl],calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@pick:result:[@add,@dbl],calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@pick:result:[@add]' -o /dev/null
+// BEFORE-DAG: expected labels: @pick {{.*}}
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@add
+// BEFORE-DAG: expected calls: @Main.main {{.*}}@dbl
 // A function picked at runtime between two labels, one with a capture: the
 // closure type becomes a sum with a constructor per label, whose fields are
 // the captures, and the application a match that calls the label. What is
-// left is no closure.
+// left is no closure, and the program prints what it printed on every
+// byte. None of it held before the pass, and the sum holds both labels,
+// not one of them.
 idr.program @choice root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

@@ -10,46 +10,55 @@
 # constant. Where the C++ is and in which extensions, and that none of it
 # is a C++20 module, is tests/zones'; the flags the build compiles it with
 # are tests/language-profile's, read from the build's own commands.
+#
+# The rule is `mlir_layout ROOT`, run on the repository and on the planted
+# trees (lib/planted.sh): witness/ breaks it once per way (presets that
+# lint with another clang-tidy, a plain add_library, the dialect as a plain
+# add_mlir_library, a static mutable, a std::atomic, a thread_local);
+# near-miss/ holds what is allowed: the three kinds of state, a constant, a
+# static function, and the words in comments and strings.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cd "$root" || exit 1
-idr=foreign/idr
 
-if grep -qF '.toolchain/llvm/bin/clang-tidy' CMakePresets.json; then
+# mlir_layout ROOT: the findings in the tree at ROOT, `path:line: what` or
+# `path: what`.
+mlir_layout() (
+  cd "$1" || exit 1
+  idr=foreign/idr
+  [ -d "$idr" ] || exit 0
+  if [ -f CMakePresets.json ] && ! grep -qF '.toolchain/llvm/bin/clang-tidy' CMakePresets.json; then
+    say "CMakePresets.json: lints without the stage-2 clang-tidy"
+  fi
+  find "$idr" -name CMakeLists.txt | LC_ALL=C sort > "$work/lists"
+  # Every library is an add_mlir_library; there is no plain add_library.
+  xargs grep -HnE '^[[:space:]]*add_library\(' < "$work/lists" | sed 's/^\([^:]*:[0-9]*\):.*/\1: a plain add_library/'
+  if ! xargs grep -qE '^[[:space:]]*add_mlir_dialect_library\(IdrIR$' < "$work/lists"; then
+    xargs grep -HnE '\(IdrIR([[:space:]]|$)' < "$work/lists" | sed 's/^\([^:]*:[0-9]*\):.*/\1: IdrIR is not an add_mlir_dialect_library/'
+    xargs grep -qE '\(IdrIR([[:space:]]|$)' < "$work/lists" || say "$idr: no library IdrIR"
+  fi
+  # State: nothing thread_local or std::atomic in a unit (the folders'
+  # count is the ODS's), and no static variable that is neither constant
+  # nor an option or an action's type identity. A static variable is
+  # defined by an `=` or ended by a `;` before any parenthesis; a static
+  # function has its parameters first, on its line or the next. Comments
+  # and literals are no code.
+  find "$idr" -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) -print | LC_ALL=C sort > "$work/units"
+  # shellcheck disable=SC2046
+  [ -s "$work/units" ] && cpp_lex $(cat "$work/units") > "$work/code"
+  grep -E '^[^:]*:[0-9]+:.*(\bthread_local\b|std::atomic\b)' "$work/code" 2> /dev/null |
+    sed 's/^\([^:]*:[0-9]*\):.*/\1: state shared between calls or threads/'
+  grep -E '^[^:]*:[0-9]+:[[:space:]]*static[[:space:]][^(]*[=;]' "$work/code" 2> /dev/null |
+    grep -vE '\bstatic[[:space:]]+(inline[[:space:]]+)?(const|constexpr|constinit)\b' |
+    grep -vE 'cl::(opt|list)<|SelfOwningTypeID' | sed 's/^\([^:]*:[0-9]*\):.*/\1: a static mutable/'
+)
+
+(cd "$root" && find foreign/idr -name '*.cpp' | grep -q .) && say "units: found" || say "units: none found"
+mlir_layout "$root" > "$work/found"
+if [ -s "$work/found" ]; then
+  say "foreign/idr is not in upstream's layout, or keeps state:"
+  sed 's/^/  /' "$work/found"
+else
   say "CMakePresets.json: lint with the stage-2 clang-tidy"
-else
-  say "CMakePresets.json: lint without the stage-2 clang-tidy"
-fi
-
-find "$idr" -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) -print | LC_ALL=C sort > "$work/units"
-if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
-
-# Every library is an add_mlir_library; there is no plain add_library.
-find "$idr" -name CMakeLists.txt | LC_ALL=C sort > "$work/lists"
-xargs grep -HnE '^[[:space:]]*add_library\(' < "$work/lists" > "$work/plain"
-if [ -s "$work/plain" ]; then
-  say "libraries that are not add_mlir_library:"
-  show "$work/plain"
-else
-  say "every library is an add_mlir_library"
-fi
-if xargs grep -qE '^[[:space:]]*add_mlir_dialect_library\(IdrIR$' < "$work/lists"; then
-  say "IdrIR is an add_mlir_dialect_library"
-else
-  say "IdrIR is not an add_mlir_dialect_library"
-fi
-
-# State: nothing thread_local or std::atomic in a unit (the folders' count
-# is the ODS's), and no static variable that is neither constant nor an
-# option or an action's type identity. A static variable is defined by an
-# `=` or ended by a `;` before any parenthesis; a static function has its
-# parameters first, on its line or the next.
-xargs grep -HnE '\bthread_local\b|std::atomic\b' < "$work/units" > "$work/state" 2> /dev/null
-xargs grep -HnE '^[[:space:]]*static[[:space:]][^(]*[=;]' < "$work/units" 2> /dev/null |
-  grep -vE '\bstatic[[:space:]]+(inline[[:space:]]+)?(const|constexpr|constinit)\b' |
-  grep -vE 'cl::(opt|list)<|SelfOwningTypeID' >> "$work/state"
-if [ -s "$work/state" ]; then
-  say "state that outlives a call:"
-  show "$work/state"
-else
+  say "every library is an add_mlir_library, IdrIR an add_mlir_dialect_library"
   say "no thread_local, static mutable or std::atomic but the three"
 fi
+planted mlir_layout

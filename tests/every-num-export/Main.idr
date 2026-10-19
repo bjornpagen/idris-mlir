@@ -7,7 +7,8 @@ module Main
 -- defaultInteger, the hint that types an unconstrained literal, used
 -- implicitly and explicitly. The interfaces' constructors are
 -- compile-time only. A fixed-width result wraps modulo the type's width;
--- div and mod are taken at each sign. Each line is printed so that what
+-- div and mod are taken at each sign, and Integer's arithmetic across 2^62,
+-- where the runtime's small integers end. Each line is printed so that what
 -- it computes is checked.
 
 import Prelude
@@ -39,6 +40,9 @@ mean xs = sumOf xs / sumOf (map (const 1) xs)
 main : IO ()
 main = do
   line "Integer" (arith (the Integer (-123456789012345678901)) 1000000007)
+  line "Integer at 2^62" (arith (the Integer 4611686018427387903) 2)
+  line "Integer at -2^62" (arith (the Integer (-4611686018427387904)) 3)
+  line "Integer from 2^62" (arith (the Integer 4611686018427387904) (-1))
   line "Int" (arith (the Int 9000000000000000000) 7)
   line "Int8" (arith (the Int8 (-100)) 7)
   line "Int16" (arith (the Int16 30000) (-7))

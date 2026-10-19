@@ -1,4 +1,5 @@
--- expect: pragma, line 8
+-- expect: pragma, line 9
+-- message: %inline
 module Main
 import Prelude
 

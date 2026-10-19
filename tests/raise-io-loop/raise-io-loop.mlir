@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
+// RUN: %differential %s %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main,no-heap-allocation=@Main.main -o /dev/null
 // An IO loop, in the shape Emit gives it: @countdown returns the action
 // `put n >>= \_ => countdown (n - 1)`, where @bind runs its first action,
@@ -10,7 +11,9 @@
 // where they are called and folds every dispatch on a constructor it
 // built, so the loop is a self tail call that allocates nothing. Then
 // idr-tail-loops makes it a loop, and no recursion is left that grows the
-// stack.
+// stack. The loop prints the countdown the actions did: on every one-byte
+// input n, n down to 1, none for 0, as the program as written does
+// (%differential).
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>

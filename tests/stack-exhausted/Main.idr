@@ -6,7 +6,8 @@ import Prelude
 -- call needs the result of the next before it can choose what to return,
 -- so every frame stays. The program's reserved stack (1 MiB here) runs
 -- out: "read", still in the output buffer, is written, the crash is
--- named, and the status is a crash's.
+-- named, and the status is a crash's. A thousand frames fit, and the
+-- recursion returns its value.
 depth : Int -> Int
 depth 0 = 0
 depth n = let r = depth (n - 1) in if r > n then r - n else r + n

@@ -1,0 +1,6 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
+module IdrisMLIR.Registry.Hooks
+
+builtin : String
+builtin = "Builtin."

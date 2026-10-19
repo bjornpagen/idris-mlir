@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=builds-nothing=@raised_past_call,no-heap-allocation=@lowered_with_call,no-heap-allocation=@across_computing,crashes-before-output=@across_computing,no-heap-allocation=@lowered_past_crash,crashes-before-output=@lowered_past_crash -o /dev/null
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=builds-nothing=@raised_past_call,no-heap-allocation=@lowered_with_call,no-heap-allocation=@across_computing -verify-diagnostics -o /dev/null
 // RUN: idris-mlir-opt %s --canonicalize='test-convergence=true region-simplify=disabled top-down=true' -o /dev/null
@@ -24,6 +25,12 @@
 // Every function is never inlined, and @maybe_of builds the
 // value @lowered_with_call takes behind a call, so no site is given a
 // known constructor and redirected to a specialization.
+// No move changes what the program prints before it crashes: on every
+// one-byte input x (0 crashes in @raised_past_call after @lowered_with_call
+// printed `Anone`; 1 takes every region that does not crash; the rest crash
+// in @across_computing after @lowered_past_crash printed), the optimized
+// program prints and exits as the program as written does
+// (%differential, which compares stdout and the exit status).
 !P = !idr.data<"P", plain [@MkP(i64, i64)]>
 !Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
 idr.program @"case-of-case-calls" root(@root) stage(first) {

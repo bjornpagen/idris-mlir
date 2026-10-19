@@ -1,3 +1,3 @@
-the patterns find the registry's names: yes
-names outside the registry: 0
-lines allowed with a reason: 0
+names outside the registry: none, and every line of the allowlist names a path, a text and a reason
+witness: each planted file is found
+near miss: nothing found

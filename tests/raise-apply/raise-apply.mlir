@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@pick,not-called=@add,not-called=@sub -o /dev/null
+// RUN: %differential %s %t.mlir
 // A call whose result is applied at once, with only an op without effects
 // between them: after defunctionalization the apply is a dispatch on the
 // call's result. @pick loops, so it is never inlined, and the call and the
@@ -8,6 +9,9 @@
 // meets the constructor each region builds and folds to a direct call,
 // which the copy inlines, and the recursive tail calls the copy itself. So
 // neither @pick nor the functions its closures name is called.
+// The raised program means what the program as written does: on every
+// one-byte input, which picks @sub (0), @add (1) or the recursion (the
+// rest), both print and exit alike (%differential).
 idr.program @apply root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

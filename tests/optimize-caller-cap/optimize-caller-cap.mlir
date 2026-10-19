@@ -1,5 +1,6 @@
 // RUN: awk '/^ *\/\/ CHAIN$/ { for (f = 1; f <= 12; f++) { printf "  // expected-error @below {{expected largest-function: @f%d holds}}\n  idr.func @f%d(%%x: i64) -> i64 attributes {total} {\n    %%v0 = arith.addi %%x, %%x : i64\n", f, f; for (i = 1; i < 2000; i++) printf "    %%v%d = arith.addi %%v%d, %%x : i64\n", i, i - 1; if (f < 12) printf "    %%r = idr.call @f%d(%%v1999) : (i64) -> i64\n    return %%r : i64\n  }\n", f + 1; else printf "    return %%v1999 : i64\n  }\n" } next } { print }' %s > %t.chain.mlir
 // RUN: idris-mlir-opt %t.chain.mlir --pass-pipeline='builtin.module(idr.program(idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %t.chain.mlir %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=largest-function=10000 -o /dev/null
 // RUN: grep -q 'call @f[0-9]*(' %t.mlir
 // RUN: idris-mlir-opt %t.chain.mlir --idr-expect=holds=largest-function=1000 -verify-diagnostics -o /dev/null
@@ -13,6 +14,8 @@
 // kept. The cap stops inlining and never rejects: the module optimizes.
 // The last line checks that the property reads sizes at all: before the
 // optimizer, each function of the chain is over a bound of 1,000.
+// What the cap leaves is the chain it was: on every one-byte input the
+// optimized program prints what the chain as written does (%differential).
 idr.program @"caller-cap" root(@Main.main) stage(first) {
   // CHAIN
   idr.func @Main.main(%w: !idr.world) -> !idr.world {

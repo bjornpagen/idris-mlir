@@ -1,4 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// RUN: %differential %s %t.mlir
+// RUN: sed -n 's|^// REF: ||p' %s > %t.ref.mlir
+// RUN: %differential %t.ref.mlir %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@bind,not-called=@seq -o /dev/null
 // A do block of 16 statements, in the shape Emit gives it: statement k is
 // @sk, the thunk `putStr "k" >> rest` that `>>` delays, whose action is
@@ -6,7 +9,11 @@
 // Defunctionalization makes every action a constructor of a dispatch sum,
 // and the optimizer, callee first, folds each dispatch on a known
 // constructor into a call and inlines it: the whole block unfolds into the
-// root, in order, and no call of @bind or of @seq is left.
+// root, in order, and no call of @bind or of @seq is left. In order: the
+// optimized program prints 1 to 16, a line each, as the program as written
+// and the reference at the end (REF), a loop, do (%differential, on the
+// one input, none, since it reads none).
+// STDIN:
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
@@ -227,3 +234,30 @@ idr.program @"do-block" root(@Main.main) stage(higher) {
     return %r : !IORes
   }
 }
+// The reference:
+// REF: idr.program @ref root(@Main.main) stage(higher) {
+// REF:   idr.func @count(%k: i64, %w: !idr.world) -> !idr.world {
+// REF:     %w1 = idr.io.put_sint %k, %w : i64
+// REF:     %nl = arith.constant 10 : i32
+// REF:     %w2 = idr.io.put_char %nl, %w1
+// REF:     %last = arith.constant 16 : i64
+// REF:     %done = arith.cmpi eq, %k, %last : i64
+// REF:     %r = idr.match_lit %done : i1 -> (!idr.world) {
+// REF:     case 1 {
+// REF:       idr.yield %w2 : !idr.world
+// REF:     }
+// REF:     default(%d: i1) {
+// REF:       %one = arith.constant 1 : i64
+// REF:       %next = arith.addi %k, %one : i64
+// REF:       %w3 = idr.call @count(%next, %w2) : (i64, !idr.world) -> !idr.world
+// REF:       idr.yield %w3 : !idr.world
+// REF:     }
+// REF:     }
+// REF:     return %r : !idr.world
+// REF:   }
+// REF:   idr.func @Main.main(%w: !idr.world) -> !idr.world {
+// REF:     %one = arith.constant 1 : i64
+// REF:     %w1 = idr.call @count(%one, %w) : (i64, !idr.world) -> !idr.world
+// REF:     return %w1 : !idr.world
+// REF:   }
+// REF: }

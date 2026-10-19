@@ -34,5 +34,15 @@ data Decl = Bind (List (String, Term))
 Out Decl where
   out (Bind bs) = "bind " ++ out bs
 
+-- A term nested as deep as the input says: each level is a Let whose
+-- binding holds the level below, and the implementations that write it are
+-- the same few at every depth.
+nest : Nat -> Term
+nest Z = Ref "x"
+nest (S k) = Let [("v", nest k)] (Ref "v")
+
 main : IO ()
-main = putStrLn ("" <+> out [Bind [("x", Ref "y")], Bind [("z", Let [("w", Ref "x")] (Ref "w"))]])
+main = do
+  line <- getLine
+  putStrLn ("" <+> out [Bind [("x", Ref "y")], Bind [("z", Let [("w", Ref "x")] (Ref "w"))]])
+  putStrLn (out [Bind [("z", nest (integerToNat (cast line)))]])

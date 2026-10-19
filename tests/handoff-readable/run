@@ -9,7 +9,8 @@
 # idr.program, at the stage before defunctionalization, which names its
 # root; and nothing of the func dialect is there before lowering. The
 # module is bytecode, so it is read through idris-mlir-opt's print of it,
-# which parses and verifies.
+# which parses and verifies. Each property is shown failing, alone, on the
+# printed module changed to break it.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 cat > "$work/Main.idr" <<'IDRIS'
 module Main
@@ -55,36 +56,79 @@ if ! bounded "$idris_mlir_opt" --mlir-disable-threading "$(artifact_file "$work"
 fi
 emitted=$work/emitted.mlir
 
-# Every symbol the module names, defined or used, one per line as written:
-# `@` and a bare identifier, or `@` and a quoted name.
-grep -oE '@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)' "$emitted" | sort -u > "$work/symbols"
-grep -E '\$[0-9]+\$' "$work/symbols" > "$work/escaped"
-grep -F -e '{arg:' -e 'case block' -e 'with block' "$work/symbols" > "$work/made-up"
-if [ -s "$work/escaped" ] || [ -s "$work/made-up" ]; then
-  say "symbols: some are escaped or made up by Idris"
-  show "$work/escaped" "$work/made-up"
-else
-  say "symbols: no code-point escape, and no name Idris made up for a block"
-fi
-if grep -qE '^@"?Main\.classify\.case[0-9]+' "$work/symbols" &&
-   grep -qE '^@"?Main\.sign\.with[0-9]+' "$work/symbols"; then
-  say "symbols: a case block is <parent>.case<k>, a with block <parent>.with<k>"
-else
-  say "symbols: no Main.classify.case<k> or no Main.sign.with<k>"
-  grep -E 'classify|sign' "$work/symbols" | show
-fi
+# readable MODULE: each property of a printed MODULE, a line each: its
+# name, then `ok`, or `failed` and what failed, indented.
+readable() {
+  # Every symbol the module names, defined or used, one per line as
+  # written: `@` and a bare identifier, or `@` and a quoted name.
+  grep -oE '@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)' "$1" | sort -u > "$work/symbols"
+  grep -E '\$[0-9]+\$' "$work/symbols" > "$work/escaped"
+  grep -F -e '{arg:' -e 'case block' -e 'with block' "$work/symbols" > "$work/made-up"
+  if [ -s "$work/escaped" ] || [ -s "$work/made-up" ]; then
+    say "names: failed"
+    show "$work/escaped" "$work/made-up"
+  else
+    say "names: ok"
+  fi
+  if grep -qE '^@"?Main\.classify\.case[0-9]+' "$work/symbols" &&
+     grep -qE '^@"?Main\.sign\.with[0-9]+' "$work/symbols"; then
+    say "blocks: ok"
+  else
+    say "blocks: failed"
+    grep -E 'classify|sign' "$work/symbols" | show
+  fi
+  if [ "$(grep -cE '^ *idr\.program @("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+) root\(@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)\) stage\(higher\) \{$' "$1")" = 1 ] &&
+     [ "$(grep -cE '^ *idr\.program ' "$1")" = 1 ]; then
+    say "program: ok"
+  else
+    say "program: failed"
+    grep -nE 'idr\.program' "$1" | cut -c 1-200 | show
+  fi
+  if grep -qE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$1"; then
+    say "ops: failed"
+    grep -nE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$1" | show
+  else
+    say "ops: ok"
+  fi
+}
 
-if [ "$(grep -cE '^ *idr\.program @("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+) root\(@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)\) stage\(higher\) \{$' "$emitted")" = 1 ] &&
-   [ "$(grep -cE '^ *idr\.program ' "$emitted")" = 1 ]; then
-  say "program: one idr.program, at stage higher, which names its root"
-else
-  say "program: not one idr.program at stage higher naming its root"
-  grep -nE 'idr\.program' "$emitted" | cut -c 1-200 | show
-fi
+readable "$emitted" > "$work/readable"
+# What each property says when it holds.
+while IFS= read -r line; do
+  case $line in
+    'names: ok') say "symbols: no code-point escape, and no name Idris made up for a block" ;;
+    'blocks: ok') say "symbols: a case block is <parent>.case<k>, a with block <parent>.with<k>" ;;
+    'program: ok') say "program: one idr.program, at stage higher, which names its root" ;;
+    'ops: ok') say "ops: no func.func, func.call or func.return" ;;
+    *) say "$line" ;;
+  esac
+done < "$work/readable"
 
-if grep -qE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$emitted"; then
-  say "ops: the func dialect before lowering"
-  grep -nE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$emitted" | show
-else
-  say "ops: no func.func, func.call or func.return"
-fi
+# Each property fails, alone, on the emitted module changed to break it
+# (a planted module): a symbol escaped, a symbol Idris made up, a case
+# block named otherwise, the program at a later stage, a second program,
+# and a func.call.
+first_symbol=$(grep -oE '@Main\.area' "$emitted" | head -n 1)
+planted_module() {
+  case $1 in
+    escaped) sed 's/@Main\.area\([^A-Za-z0-9_.]\)/@"Main.$97$rea"\1/g' "$emitted" ;;
+    made-up) sed 's/@Main\.area\([^A-Za-z0-9_.]\)/@"Main.case block in area"\1/g' "$emitted" ;;
+    block) sed 's/Main\.classify\.case\([0-9]\)/Main.classify.alt\1/g' "$emitted" ;;
+    stage) sed 's/stage(higher)/stage(first)/' "$emitted" ;;
+    two-programs) awk '{ print } /^ *idr\.program / && !done { print "  idr.program @other root(@other) stage(higher) {"; done = 1 }' "$emitted" ;;
+    func) awk '{ print } /^ *idr\.func / && !done { print "    func.call @planted() : () -> ()"; done = 1 }' "$emitted" ;;
+  esac
+}
+for planted in escaped:names made-up:names block:blocks stage:program two-programs:program func:ops; do
+  name=${planted%%:*}
+  property=${planted#*:}
+  planted_module "$name" > "$work/planted.mlir"
+  failed=$(readable "$work/planted.mlir" | sed -n 's/^\([a-z]*\): failed$/\1/p' | tr '\n' ' ')
+  if [ -z "$first_symbol" ]; then
+    say "planted $name: the emitted module has no @Main.area to change"
+  elif [ "$failed" = "$property " ]; then
+    say "planted $name: $property fails, alone"
+  else
+    say "planted $name: ${failed:-nothing} fails, where $property alone should"
+  fi
+done

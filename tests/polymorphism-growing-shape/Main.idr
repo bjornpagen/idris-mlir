@@ -1,12 +1,12 @@
 -- expect: polymorphism, line 19
--- message: growing it by 1 each round, and nothing bounds how far it grows
+-- message: (Prelude.Types.S n)
 module Main
 
 import Prelude
 
 -- Ints n is a tuple of n + 1 Ints: its representation needs all of n, and
 -- grow builds n one constructor deeper at each call, so each instance of
--- grow would need another.
+-- grow would need another. near/ passes n back unchanged, one instance.
 
 Ints : Nat -> Type
 Ints Z = Int

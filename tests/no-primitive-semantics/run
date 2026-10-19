@@ -12,54 +12,71 @@
 # `allowlist` lists the calls allowed anyway, as `path: text -- reason`:
 # serializing a literal is not computing with it. It only shrinks: an
 # entry that allows no call is stale, and so is found.
+#
+# The rule is `primitive_calls ROOT`, its list ROOT/tests/no-primitive-
+# semantics/allowlist, run on the repository and on the planted trees
+# (lib/planted.sh): witness/ calls a primitive, plainly and qualified, and
+# its list has an entry that allows no call and one without its reason;
+# near-miss/ holds what is allowed: the name in a comment and a string, as
+# the tail of a longer name, and a listed serialization.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-allowlist=$here/allowlist
-cd "$root" || exit 1
 
-: > "$work/found"
-for file in $(find compiler/src -name '*.idr' | LC_ALL=C sort); do
-  idris_lex code "$file" | grep -E 'prim__[A-Za-z0-9_]+' | sed 's/:.*//' |
-    while IFS= read -r n; do
-      printf '%s:%s: %s\n' "$file" "$n" "$(sed -n "${n}p" "$file")"
-    done >> "$work/found"
-done
-
-grep -v '^[[:space:]]*#' "$allowlist" | grep -v '^[[:space:]]*$' > "$work/allowed"
-: > "$work/stale"
-: > "$work/left"
-while IFS= read -r entry; do
-  case $entry in
-    *': '*' -- '?*) ;;
-    *) say "allowlist entry without a path, a text and a reason: $entry" ;;
-  esac
-done < "$work/allowed"
-while IFS= read -r entry; do
-  path=${entry%%: *}
-  rest=${entry#*: }
-  text=${rest% -- *}
-  grep -qF -- "$path:" "$work/found" && grep -F -- "$path:" "$work/found" | grep -qF -- "$text" ||
-    printf '%s\n' "$entry" >> "$work/stale"
-done < "$work/allowed"
-while IFS= read -r hit; do
-  keep=yes
-  while IFS= read -r entry; do
+# primitive_calls ROOT: the findings in the tree at ROOT, `path:line: what`.
+primitive_calls() (
+  cd "$1" || exit 1
+  list=tests/no-primitive-semantics/allowlist
+  [ -d compiler/src ] || exit 0
+  find compiler/src -name '*.idr' | LC_ALL=C sort | while IFS= read -r file; do
+    idris_lex code "$file" | grep -E "(^[0-9]+:|[^A-Za-z0-9_'])prim__[A-Za-z0-9_]+" | sed 's/:.*//' |
+      while IFS= read -r n; do
+        printf '%s\t%s\t%s\n' "$file" "$n" "$(sed -n "${n}p" "$file")"
+      done
+  done > "$work/found"
+  if [ -f "$list" ]; then
+    awk '!/^[[:space:]]*#/ && !/^[[:space:]]*$/ { print FNR "\t" $0 }' "$list" > "$work/allowed"
+  else
+    : > "$work/allowed"
+  fi
+  : > "$work/entries"
+  while IFS='	' read -r n entry; do
+    case $entry in
+      *': '*' -- '?*) printf '%s\t%s\n' "$n" "$entry" >> "$work/entries" ;;
+      *) printf '%s:%s: an entry without a path, a text and a reason\n' "$list" "$n" ;;
+    esac
+  done < "$work/allowed"
+  # allows FILE LINE: an entry of the list allows that line of FILE.
+  allows() {
+    while IFS='	' read -r allows_n entry; do
+      path=${entry%%: *}
+      rest=${entry#*: }
+      text=${rest% -- *}
+      [ "$path" = "$1" ] && case $2 in *"$text"*) return 0 ;; esac
+    done < "$work/entries"
+    return 1
+  }
+  while IFS='	' read -r file n line; do
+    allows "$file" "$line" || printf '%s:%s: calls a primitive: %s\n' "$file" "$n" "$line"
+  done < "$work/found"
+  while IFS='	' read -r n entry; do
     path=${entry%%: *}
     rest=${entry#*: }
     text=${rest% -- *}
-    case $hit in "$path:"*"$text"*) keep=no ;; esac
-  done < "$work/allowed"
-  [ $keep = yes ] && printf '%s\n' "$hit" >> "$work/left"
-done < "$work/found"
+    awk -F'\t' -v path="$path" -v text="$text" '$1 == path && index($3, text) > 0 { hit = 1 } END { exit !hit }' "$work/found" ||
+      printf '%s:%s: allows no call: %s\n' "$list" "$n" "$entry"
+  done < "$work/entries"
+)
 
-if [ -s "$work/left" ]; then
+primitive_calls "$root" > "$work/found-all"
+if grep -q ': calls a primitive' "$work/found-all"; then
   say "primitives called in compiler/src:"
-  show "$work/left"
+  grep ': calls a primitive' "$work/found-all" | sed 's/^/  /'
 else
   say "primitives: compiler/src calls none but the allowed serializations"
 fi
-if [ -s "$work/stale" ]; then
-  say "allowlist entries that allow no call:"
-  show "$work/stale"
+if grep -q '^tests/no-primitive-semantics/allowlist:' "$work/found-all"; then
+  say "allowlist entries that allow no call, or are not a path, a text and a reason:"
+  grep '^tests/no-primitive-semantics/allowlist:' "$work/found-all" | sed 's/^/  /'
 else
   say "allowlist: each entry allows a call"
 fi
+planted primitive_calls

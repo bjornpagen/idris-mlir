@@ -14,3 +14,5 @@ box: every pair of edge values, every operation: ok
 box: every edge value shifted by every amount of the box: ok
 every operation borrows its operands and returns one owned result: ok
 bigs: exit 0
+mutants: each caught
+bigs --mutants: exit 0

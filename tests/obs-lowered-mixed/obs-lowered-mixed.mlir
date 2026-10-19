@@ -2,16 +2,18 @@
 // RUN: %status 1 idris-mlir -c %t.halfway.mlir -o %t.halfway.o --report=%t.halfway.report 2> %t.halfway.err
 // RUN: FileCheck %s --check-prefix=MIXERR < %t.halfway.err
 // RUN: FileCheck %s --check-prefix=MIXED < %t.halfway.report
+// RUN: test ! -e %t.halfway.o
 // RUN: sed -n 's|^// FUNCTIONS: ||p' %s > %t.functions.mlir
 // RUN: %status 1 idris-mlir -c %t.functions.mlir -o %t.functions.o --report=%t.functions.report 2> %t.functions.err
 // RUN: FileCheck %s --check-prefix=FUNCERR < %t.functions.err
 // RUN: FileCheck %s --check-prefix=UNPARSED < %t.functions.report
+// RUN: test ! -e %t.functions.o
 // A module with no idr.program is the pipeline's output and holds only
 // LLVM dialect ops. One lowered half way (an arith op left in an
 // llvm.func) is no such module: idris-mlir says so at the op, as the
 // compiler's error, before LLVM's translation meets it. A func.func, of a
 // dialect neither the frontend nor the pipeline's output is written in,
-// is refused so too.
+// is refused so too. Neither writes an object.
 // MIXERR: error: {{.*}}'arith.constant' op
 // MIXED: verdict: internal
 // MIXED-NEXT: diagnostic: error - {{.*}}.halfway.mlir:2{{$}}

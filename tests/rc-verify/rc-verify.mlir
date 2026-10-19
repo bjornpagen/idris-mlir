@@ -4,7 +4,9 @@
 // what each value holds: `!idr.own<T>` one reference of its own, plain T
 // (a view) none. They also say which stage a program is in: one with an
 // owned value is in the owned stage, so its verifier keeps the rule, and
-// no attribute restates it.
+// no attribute restates it. Each refusal below has beside it, before or
+// after, the nearest module that verifies: the same function with the one
+// use the rule refuses put right.
 
 // A value that holds references and is consumed once on every path, read
 // through views where it is only read: accepted.
@@ -105,6 +107,30 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // -----
 
+// The nearest that agrees: the other region drops it too.
+idr.program @verify root(@Prog.main) stage(owned) {
+  idr.func @branch(%b: i1, %s: !idr.own<!idr.str>) -> i64 {
+    %z = arith.constant 0 : i64
+    %r = idr.match_lit %b : i1 -> (i64) {
+    case true {
+      idr.drop %s : !idr.own<!idr.str>
+      idr.yield %z : i64
+    }
+    default(%d0: i1) {
+      idr.drop %s : !idr.own<!idr.str>
+      idr.yield %z : i64
+    }
+    }
+    return %r : i64
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}
+
+// -----
+
 // A field is a view that lives as long as the value it was read from,
 // unless it takes a reference of its own.
 !P = !idr.data<"P", plain [@P(!idr.str)]>
@@ -155,6 +181,32 @@ idr.program @verify root(@Prog.main) stage(owned) {
       %c = idr.cell.recycle %w#0 : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @One>
       %o = idr.cell.init %c : !idr.cell<!idr.box<!L>, @One> (%w#1 : i64)
       idr.drop %w#2 : !idr.own<!idr.box<!L>>
+      idr.yield %o : !idr.own<!idr.box<!L>>
+    }
+    default(%d1: !idr.q<many, borrow, !idr.box<!L>>) {
+      idr.yield %l : !idr.own<!idr.box<!L>>
+    }
+    }
+    return %r : !idr.own<!idr.box<!L>>
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}
+
+// -----
+
+// The nearest that fits: the cell recycled as one of @C, its own size.
+!L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>), @One(i64)]>
+idr.program @verify root(@Prog.main) stage(owned) {
+  idr.func @swap(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
+    %v = idr.borrow %l : !idr.own<!idr.box<!L>>
+    %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {
+    case @C(%h: i64, %t: !idr.q<many, borrow, !idr.box<!L>>) {
+      %w:3 = idr.take %l : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
+      %c = idr.cell.recycle %w#0 : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
+      %o = idr.cell.init %c : !idr.cell<!idr.box<!L>, @C> (%w#1 : i64, %w#2 : !idr.own<!idr.box<!L>>)
       idr.yield %o : !idr.own<!idr.box<!L>>
     }
     default(%d1: !idr.q<many, borrow, !idr.box<!L>>) {
@@ -238,6 +290,23 @@ idr.program @verify root(@Prog.main) stage(owned) {
     idr.drop %l : !idr.own<!idr.box<!Chars>>
     // expected-error @+1 {{uses a value whose last reference is gone on this path}}
     %s = idr.str.pack %v : !idr.q<many, borrow, !idr.box<!Chars>> -> !idr.own<!idr.str>
+    return %s : !idr.own<!idr.str>
+  }
+  idr.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
+}
+
+// -----
+
+// The nearest that holds: the list packed while its reference lives.
+!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
+idr.program @verify root(@Prog.main) stage(owned) {
+  idr.func @pack(%l: !idr.own<!idr.box<!Chars>>) -> !idr.own<!idr.str> {
+    %v = idr.borrow %l : !idr.own<!idr.box<!Chars>>
+    %s = idr.str.pack %v : !idr.q<many, borrow, !idr.box<!Chars>> -> !idr.own<!idr.str>
+    idr.drop %l : !idr.own<!idr.box<!Chars>>
     return %s : !idr.own<!idr.str>
   }
   idr.func @Prog.main() -> i64 {

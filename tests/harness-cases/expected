@@ -1,0 +1,20 @@
+compile: exit 0
+artifacts: core module objects executable
+case no-crash: exit 0, but a crash exits 1
+case no-crash: stderr is not the crash expected-crash names
+  | 1d0
+  | < idris-mlir: division by zero at Main.idr:10:1
+case wrong-crash: stderr is not the crash expected-crash names
+  | 1c1
+  | < idris-mlir: index out of bounds
+  | ---
+  | > idris-mlir: division by zero at Main.idr:10:1
+case wrong-exit: exit 7, expected 0
+case wrong-output: stdout differs from expected-stdout
+  | 1c1
+  | < 20
+  | ---
+  | > 25
+universal: holds
+cases: a-file (not a directory) both (expected-exit beside expected-crash, whose status is 1) misspelt/expected-stdot (no field of a case)
+cases: (no case)

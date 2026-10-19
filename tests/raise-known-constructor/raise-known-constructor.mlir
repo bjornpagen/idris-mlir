@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@greet,not-called=@put,not-called=@done,not-called=@mk,not-called=@curry,not-called=@add -o /dev/null
 // Once a callee is inlined, a dispatch on its result meets the constructor
 // the inlined body built and folds to a direct call of the closure's
@@ -18,6 +19,9 @@
 // - @chained: a call whose result is applied, and that result applied
 //   again, through @mk and @curry to @add.
 // No call of any of them is left.
+// Each fold keeps the program's meaning: on every one-byte input, 0 taking
+// the constant action and the rest @put's, the optimized program prints
+// what the program as written does (%differential).
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>

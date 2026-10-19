@@ -1,5 +1,5 @@
 -- expect: cycle, line 18
--- message: an IORef of
+-- message: Main.Node
 module Main
 
 import Prelude

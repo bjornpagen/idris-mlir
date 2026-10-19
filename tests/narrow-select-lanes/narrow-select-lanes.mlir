@@ -1,4 +1,7 @@
 // RUN: idris-mlir-opt %s -o %t.before.mlir
+// RUN: sed 's/arith\.select %lt, \(.*\) : vector<4xi1>, /arith.addi \1 : /' %s > %t.wide.mlir
+// RUN: %status 1 idris-mlir-opt %t.wide.mlir --idr-expect=holds=narrowed-lanes=@pick -o /dev/null 2> %t.wide.err
+// RUN: FileCheck %s --check-prefix=WIDE < %t.wide.err
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(func.func(idr-narrow-lanes))' -o %t.after.mlir
 // RUN: diff %t.before.mlir %t.after.mlir
 // RUN: idris-mlir-opt %t.after.mlir --idr-expect=holds=narrowed-lanes=@pick -o /dev/null
@@ -6,6 +9,10 @@
 // comparison of 32-bit lanes: a select moves lanes and costs the same at
 // any width, so the loop computes on no wide lane, and idr-narrow-lanes
 // gives it no version, by the one rule narrowed-lanes reads too.
+// The rule tells the select from a computation: the same loop with an
+// addition of those 64-bit lanes in its place (the second RUN line's) does
+// compute on wide lanes, and narrowed-lanes says so of it.
+// WIDE: error: expected narrowed-lanes: {{.*}}@pick
 func.func @pick(%a: memref<?xi32>, %b: memref<?xi32>, %out: memref<?xi64>, %n: index) {
   %c0 = arith.constant 0 : index
   %c4 = arith.constant 4 : index

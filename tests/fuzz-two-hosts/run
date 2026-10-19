@@ -12,7 +12,7 @@ step_limit=600
 test_limit=900
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 mkdir "$work/two-hosts"
-cp Main.idr expected-stdout mlir.expect packages "$work/two-hosts/"
+cp -R Main.idr cases mlir.expect packages "$work/two-hosts/"
 for two_hosts_module in Gen Prims Fuzz Sem TwoLevels; do
   cp "$root/harness/$two_hosts_module.idr" "$work/two-hosts/"
 done

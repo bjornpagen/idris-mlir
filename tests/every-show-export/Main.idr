@@ -75,6 +75,8 @@ main : IO ()
 main = do
   line "Int" (signed (the Int 42) ++ [show (the Int 9223372036854775807), show (the Int (-9223372036854775808))])
   line "Integer" (signed (the Integer 123456789012345678901234567890))
+  line "Integer at 2^62" [ show (the Integer 4611686018427387904), show (the Integer (-4611686018427387905))
+                         , showPrec App (the Integer (-4611686018427387904)), showPrec App (the Integer 4611686018427387903) ]
   line "Int8" (signed (the Int8 127) ++ [show (the Int8 (-128))])
   line "Int16" (signed (the Int16 32767) ++ [show (the Int16 (-32768))])
   line "Int32" (signed (the Int32 2147483647) ++ [show (the Int32 (-2147483648))])
@@ -83,7 +85,9 @@ main = do
   line "Bits16" (show (the Bits16 65535) :: atEach (the Bits16 7))
   line "Bits32" (show (the Bits32 4294967295) :: atEach (the Bits32 7))
   line "Bits64" (show (the Bits64 18446744073709551615) :: atEach (the Bits64 7))
-  line "Double" (signed (the Double 2.5) ++ [show (the Double 0.1), show (the Double 1.0e100), show (the Double 0.0)])
+  line "Double" (signed (the Double 2.5) ++ [show (the Double 0.1), show (the Double 1.0e100), show (the Double 0.0)]
+                 ++ [ show (the Double (-0.0)), showPrec App (the Double (-0.0)), show (the Double (1.0 / 0.0))
+                    , showPrec App (the Double (-1.0 / 0.0)), showPrec App (the Double (0.0 / 0.0)) ])
   line "Nat" (show (the Nat 0) :: atEach (the Nat 12345678901234567890))
   line "Char" (map show ['a', '\'', '"', '\\', '\a', '\b', '\f', '\n', '\r', '\t', '\v', '\SO', '\DEL', '\0', '\ESC', '\US', ' ', '~', '\128', '\233', '\1234'] ++ atEach 'x')
   line "String" [ show "plain", show "quote \" and 'tick'", show "tab\tnewline\nbackslash\\"

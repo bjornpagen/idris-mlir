@@ -1,0 +1,7 @@
+[
+  {
+    "directory": "/build",
+    "command": "/clang++ -std=c++23 -fno-exceptions -fno-rtti -Werror -c foreign/idr/lib/A.cpp",
+    "file": "foreign/idr/lib/A.cpp"
+  }
+]

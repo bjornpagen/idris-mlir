@@ -37,12 +37,13 @@ idr.program @attributes root(@root) stage(first) {
 
 // -----
 
-// What the verifier accepts: the facts as the function's own, and
-// attributes, of a function or of an argument, of no dialect.
+// What the verifier accepts, the nearest the two refusals above have: the
+// facts as the function's own, and attributes, of an op, a function or an
+// argument, of no dialect.
 idr.program @attributes root(@main) stage(first) {
   idr.func effects<none> @f(%x: i64 {sample.x}) -> i64
       attributes {total, junk} {
-    %d = idr.divs %x, %x : i64
+    %d = idr.divs %x, %x {sample.y} : i64
     return %d : i64
   }
   idr.func effects<io, crash> @g(%x: !idr.lin<i64>, %y: i64)

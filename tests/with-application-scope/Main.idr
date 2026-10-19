@@ -3,7 +3,8 @@ module Main
 -- A with block called again, on a smaller value, from its own right-hand
 -- side, from a local definition, and in a record update's field. Each is
 -- accepted, compiles and runs: before the fork's fix the last two were
--- refused, the application left unrewritten.
+-- refused, the application left unrewritten. Each goes down to Z, from 5
+-- and from a number read at run time, and gives Z or the box unchanged.
 
 import Prelude
 
@@ -34,3 +35,6 @@ main = do
   printLn (direct 5)
   printLn (local 5)
   printLn (size (update 5 (MkBox 7)))
+  line <- getLine
+  let k = the Nat (cast (the Int (cast line)))
+  printLn (direct k, local k, size (update k (MkBox 7)))

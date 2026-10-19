@@ -10,8 +10,13 @@
 # LLVM reads are the lowering's interface with LLVM, so they are checked as
 # LLVM is given them, and that text is the contract itself. And in no
 # fixture is there a check line (prefix CHECK, or any prefix with a
-# FileCheck suffix) whose prefix no RUN line of its file checks. Each check
-# runs on a planted file first, which it must catch.
+# FileCheck suffix) whose prefix no RUN line of its file checks. The rule
+# is `dialect_text ROOT`, run on the repository and on the planted trees
+# (lib/planted.sh): witness/ holds a fixture for each tool whose module text
+# a pipe hands FileCheck, one that reads a module file, and one with an
+# orphan check line; near-miss/ holds what is allowed: diagnostics piped
+# with 2>&1, the fixtures of printed syntax and lower-llvm-facts, a prefix
+# its RUN line names, and a capitalized note that is no check.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 cd "$root" || exit 1
 
@@ -72,39 +77,34 @@ orphans() {
   done
 }
 
-cat > "$work/witness.mlir" <<'MLIR'
-// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// RUN: idris-mlir-opt %s -o %t.mlir
-// RUN: FileCheck %s --check-prefix=OUT < %t.mlir
-// RUN: %status 1 idris-mlir-opt %s -o /dev/null 2>&1 | FileCheck %s --check-prefix=ERR
-// CHECK: x
-// OUT: y
-// ERR: z
-// GONE-NEXT: w
-MLIR
-w_text=$(module_text "$work/witness.mlir" | sed 's/^.*: //' | tr '\n' ' ')
-w_orphans=$(orphans "$work/witness.mlir" | wc -l | tr -d ' ')
-if [ "$w_text" = "RUN 1 RUN 3 " ] && [ "$w_orphans" -eq 1 ]; then
-  say "witness: two FileChecks of module text and an orphan check line are found, a FileCheck of diagnostics is not"
-else
-  say "witness: the checks do not find what was planted (module text: ${w_text:-none}; orphans: $w_orphans)"
-fi
+# dialect_text ROOT: the findings in the fixtures of the tree at ROOT,
+# `path: RUN n: ...` or `path:line: ...`. A test's planted trees are no
+# fixtures of the tree.
+dialect_text() (
+  cd "$1" || exit 1
+  [ -d tests ] || exit 0
+  find tests \( -name build -o -path 'tests/*/witness' -o -path 'tests/*/near-miss' \) -prune \
+    -o -type f -name '*.mlir' -print | LC_ALL=C sort > "$work/fixtures"
+  # shellcheck disable=SC2046 # one path per fixture, none with a space
+  module_text $(grep -vE '^tests/(asm|syntax|verify)-' "$work/fixtures" |
+                grep -vx 'tests/lower-llvm-facts/lower-llvm-facts.mlir') |
+    sed 's/$/: FileCheck reads module text/'
+  # shellcheck disable=SC2046 # one path per fixture, none with a space
+  orphans $(cat "$work/fixtures") | sed 's/^\([^:]*:[0-9]*\):.*/\1: a check line no RUN line checks/'
+)
 
-find tests -name build -prune -o -type f -name '*.mlir' -print | LC_ALL=C sort > "$work/fixtures"
-if [ -s "$work/fixtures" ]; then say "dialect fixtures: found"; else say "dialect fixtures: none found"; fi
-# shellcheck disable=SC2046 # one path per fixture, none with a space
-module_text $(grep -vE '^tests/(asm|syntax|verify)-' "$work/fixtures" | grep -vx 'tests/lower-llvm-facts/lower-llvm-facts.mlir') > "$work/text"
-if [ -s "$work/text" ]; then
+(cd "$root" && find tests -name '*.mlir' | grep -q .) && say "dialect fixtures: found" || say "dialect fixtures: none found"
+dialect_text "$root" > "$work/found"
+if grep -q ': FileCheck reads module text$' "$work/found"; then
   say "module text checked by FileCheck outside the fixtures of printed syntax:"
-  sed 's/^/  /' "$work/text"
+  grep ': FileCheck reads module text$' "$work/found" | sed 's/^/  /'
 else
   say "module text: no FileCheck reads any outside the fixtures of printed syntax"
 fi
-# shellcheck disable=SC2046 # one path per fixture, none with a space
-orphans $(cat "$work/fixtures") > "$work/orphans"
-if [ -s "$work/orphans" ]; then
+if grep -q ': a check line no RUN line checks$' "$work/found"; then
   say "check lines no RUN line of their file checks:"
-  sed 's/^/  /' "$work/orphans"
+  grep ': a check line no RUN line checks$' "$work/found" | sed 's/^/  /'
 else
   say "orphan checks: every check line names a prefix a RUN line of its file checks"
 fi
+planted dialect_text

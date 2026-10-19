@@ -1,4 +1,5 @@
--- expect: escape hatch, line 12
+-- expect: escape hatch, line 13
+-- message: ?proof
 module Main
 import Prelude
 

@@ -1,6 +1,4 @@
 units: found
-every unit: -std=c++26
-every unit: -fno-exceptions
-every unit: -fno-rtti
-every unit: -Werror
-no unit: -freflection
+every unit: -std=c++26 -fno-exceptions -fno-rtti -Werror, and no -freflection
+witness: each planted file is found
+near miss: nothing found

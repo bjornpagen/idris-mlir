@@ -5,6 +5,14 @@
 // RUN: %status 1 idris-mlir-opt %s --idr-optimize --idr-expect=holds=moves-out=@printed,moves-out=@callsIO,moves-out=@inMatch,moves-out=@word -o /dev/null 2> %t.stays.err
 // RUN: FileCheck %s --check-prefix=STAYS < %t.stays.err
 // RUN: idris-mlir-opt %s --idr-effects '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=moves-out=@update,moves-out=@updateAt -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: idris-mlir-opt %s --idr-optimize -o %t.optimized.mlir
+// RUN: %differential %s %t.optimized.mlir
+// RUN: idris-mlir-opt %s --idr-effects --canonicalize -o %t.canonical.mlir
+// RUN: %differential %s %t.canonical.mlir
+// BEFORE-DAG: expected moves-out: {{.*}} in @update
+// BEFORE-DAG: expected moves-out: {{.*}} in @updateAt
 // UNSOLVED: expected moves-out: {{.*}} in @update
 // STAYS-DAG: expected moves-out: {{.*}} in @printed
 // STAYS-DAG: expected moves-out: {{.*}} in @callsIO
@@ -24,6 +32,8 @@
 // program's, where every call names its callee, so no force or apply is
 // left to say less. No function here is inlined, so @bump's call stays
 // between the read and the write, and each function stays to be checked.
+// Nothing moved out before the passes, and the program prints after each
+// what it printed before, on every byte.
 !R = !idr.data<"R", plain [@MkR(i64, i64)]>
 idr.program @"array-moves" root(@root) stage(first) {
   idr.func @bump(%r: !idr.box<!R>) -> !idr.box<!R> attributes {total, no_inline} {

@@ -28,6 +28,13 @@
 
 namespace {
 
+// The fault the property must notice, planted in the model it holds the
+// runtime to (prop.h): a free that walks only the slots a header's objs
+// field can count, so a wide cell's later slots would keep what they hold.
+// Planted, the model counts no reference of those slots, and the runtime,
+// which does, disagrees with it once a wide cell holds an object there.
+constexpr prop::Mutant objsFieldOnly{"counts only the slots a header's objs field can count, 254, of a wide cell"};
+
 // The objects of a case: a chain, a sharing, an array holding boxes, a box
 // holding an array and a wide cell holding the others fit in eight, and a
 // failing case stays short enough to read.
@@ -438,7 +445,8 @@ private:
         noteDeath(o);
         continue;
       }
-      for (unsigned at = 0; at < o.slots(); ++at)
+      unsigned counted = o.wide() && prop::planted(objsFieldOnly) ? IDRIS_RT_OBJS_WIDE - 1 : o.slots();
+      for (unsigned at = 0; at < counted; ++at)
         if (o.held[at] >= constants)
           ++counts[o.held[at] - constants];
     }
@@ -557,7 +565,7 @@ Model model;
 
 int main(int argc, char **argv) {
   prop::Run run(argc, argv);
-  run.property("counting", [](FuzzedDataProvider &provider, prop::Tally &tally) {
+  run.property("counting", objsFieldOnly, [](FuzzedDataProvider &provider, prop::Tally &tally) {
     return model.runCase(provider, tally);
   });
   return run.finish();

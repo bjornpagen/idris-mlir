@@ -67,9 +67,11 @@ pin (name, JObject fields) =
       (Just _, Just _) => Left ["both tag and describe"]
 pin (name, _) = Left [name ++ ": not an object"]
 
-||| Whether the accepted series, if any, holds the version.
+||| Whether the accepted series, if any, holds the version: the version
+||| continues the series after a dot, as the configure gate matches it
+||| (CMakeLists.txt), so 1 and 1.13 hold 1.13.2 and 1.1 does not.
 accepted : Pin -> Bool
-accepted p = maybe True (`isPrefixOf` p.version) p.accept
+accepted p = maybe True (\series => (series ++ ".") `isPrefixOf` p.version) p.accept
 
 report : String -> List String -> IO ()
 report verdict [] = putStrLn verdict

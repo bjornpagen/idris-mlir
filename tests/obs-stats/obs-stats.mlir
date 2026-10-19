@@ -2,9 +2,12 @@
 // RUN: FileCheck %s < %t.stats
 // RUN: idris-mlir -c %s -o %t.quiet.o 2> %t.quiet
 // RUN: FileCheck %s --check-prefix=QUIET --allow-empty < %t.quiet
+// RUN: cmp %t.o %t.quiet.o
 // --stats prints the statistics report of the driver's pass manager;
 // without --stats, nothing. Which statistics a pass keeps, and how MLIR
-// words them, is the pass's own business and no part of this check.
+// words them, is the pass's own business and no part of this check. What
+// is reported changes nothing compiled: the object is the same byte for
+// byte with --stats and without.
 // CHECK: Pass statistics report
 // QUIET-NOT: statistics
 idr.program @stats root(@Prog.main) stage(higher) {

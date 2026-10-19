@@ -6,49 +6,53 @@
 # them, and in its code (comments and strings aside) no name of them, the
 # fields of a definition that hold them among them, anywhere in
 # compiler/src. A name the frontend defines itself is its own, not the
-# fork's: a proof's `Lifted` relation is no lambda-lifted term. The matcher
-# runs first on a planted line of each kind, which it must find.
+# fork's: a proof's `Lifted` relation is no lambda-lifted term.
+#
+# The rule is `erased_inputs ROOT`, run on the repository and on the
+# planted trees (lib/planted.sh): witness/ names an erased form as a type,
+# as a field and as a call, and imports a module that defines one, publicly
+# too; near-miss/ holds what is allowed: the names in comments and strings
+# and as parts of longer names, a `Lifted` the tree defines itself, and
+# imports of the fork's modules that define none.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cd "$root" || exit 1
 erased='treeRT compexpr namedcompexpr schemeExpr CExp NamedCExp Lifted ANF VM getCompileData getIncCompileData'
-find compiler/src -name build -prune -o -type f -name '*.idr' -print | LC_ALL=C sort > "$work/sources"
-: > "$work/code"
-while IFS= read -r file; do
-  idris_lex code "$file" | sed "s|^|$file:|" >> "$work/code"
-done < "$work/sources"
-# The names compiler/src defines at the top level of a module: a type
-# signature, or a data type, record or interface it declares.
-sed -n -E 's/^[^:]*:[0-9]*:((public )?export )?(data|record|interface) ([A-Za-z_][A-Za-z0-9_'"'"']*).*/\4/p;
-           s/^[^:]*:[0-9]*:((public )?export )?([A-Za-z_][A-Za-z0-9_'"'"']*) *:.*/\3/p' "$work/code" |
-  LC_ALL=C sort -u > "$work/own"
-pattern=
-for name in $erased; do
-  grep -qxF "$name" "$work/own" && continue
-  pattern="$pattern${pattern:+|}$name"
-done
-# erased_found CODE: the lines of CODE, as idris_lex writes them prefixed
-# by their file, that read an input which has already erased facts.
-erased_found() {
+
+# erased_inputs ROOT: the lines of compiler/src under ROOT, `path:line:
+# what`, that read an input which has already erased facts.
+erased_inputs() (
+  cd "$1" || exit 1
+  [ -d compiler/src ] || exit 0
+  find compiler/src -name build -prune -o -type f -name '*.idr' -print | LC_ALL=C sort > "$work/sources"
+  : > "$work/code"
+  while IFS= read -r file; do
+    idris_lex code "$file" | sed "s|^|$file:|" >> "$work/code"
+  done < "$work/sources"
+  # The names compiler/src defines at the top level of a module: a type
+  # signature, or a data type, record or interface it declares.
+  sed -n -E 's/^[^:]*:[0-9]*:((public )?export )?(data|record|interface) ([A-Za-z_][A-Za-z0-9_'"'"']*).*/\4/p;
+             s/^[^:]*:[0-9]*:((public )?export )?([A-Za-z_][A-Za-z0-9_'"'"']*) *:.*/\3/p' "$work/code" |
+    LC_ALL=C sort -u > "$work/own"
+  pattern=
+  for name in $erased; do
+    grep -qxF "$name" "$work/own" && continue
+    pattern="$pattern${pattern:+|}$name"
+  done
   if [ -n "$pattern" ]; then
     awk -v pattern="^($pattern)\$" '{
         text = $0; sub(/^[^:]*:[0-9]*:/, "", text)
         n = split(text, words, /[^A-Za-z0-9_'"'"']+/)
         for (j = 1; j <= n; j++) if (words[j] ~ pattern) { print; break }
-      }' "$1"
+      }' "$work/code" | sed 's/^\([^:]*:[0-9]*\):.*/\1: names a form that has erased facts/'
   fi
-  grep -E '^[^:]*:[0-9]*:import[[:space:]]+(public[[:space:]]+)?Compiler\.(CompileExpr|LambdaLift|ANF|VMCode|Inline|Scheme|RefC|ES|Interpreter)([.[:space:]]|$)' "$1"
-  return 0
-}
-printf '%s\n' 'witness.idr:1:main = CExp' 'witness.idr:2:import Compiler.CompileExpr' > "$work/witness"
-if [ "$(erased_found "$work/witness" | wc -l | tr -d ' ')" -eq 2 ]; then
-  say "witness: a planted erased name and a planted import of the fork's are found"
-else
-  say "witness: a planted erased name or import of the fork's is not found"
-fi
-erased_found "$work/code" > "$work/found"
+  grep -E '^[^:]*:[0-9]*:import[[:space:]]+(public[[:space:]]+)?Compiler\.(CompileExpr|LambdaLift|ANF|VMCode|Inline|Scheme|RefC|ES|Interpreter)([.[:space:]]|$)' "$work/code" |
+    sed 's/^\([^:]*:[0-9]*\):.*/\1: imports a module of the fork that defines one/'
+)
+
+erased_inputs "$root" > "$work/found"
 if [ -s "$work/found" ]; then
   say "compiler/src reads inputs that have already erased facts:"
-  cat "$work/found"
+  sed 's/^/  /' "$work/found"
 else
   say "compiler/src reads no input that has already erased facts"
 fi
+planted erased_inputs

@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # A program refused by one rule, which the first line of its Main.idr
-# names, at the line it names (profile_reject, lib/profile.sh).
-# harness/one.sh runs it in the test's directory.
+# names, at the line it names (profile_reject, lib/profile.sh), and its
+# nearest accepted neighbour, when it holds one in near/ (near_neighbour,
+# lib/e2e.sh). harness/one.sh runs it in the test's directory.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 profile_reject .
+near_neighbour .

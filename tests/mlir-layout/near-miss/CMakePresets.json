@@ -1,0 +1,1 @@
+{ "configurePresets": [ { "name": "lint", "cacheVariables": { "CMAKE_CXX_CLANG_TIDY": "${sourceDir}/.toolchain/llvm/bin/clang-tidy;--warnings-as-errors=*" } } ] }

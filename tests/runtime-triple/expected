@@ -2,3 +2,4 @@ same: exit 0
 spelled: exit 0
 vendor: exit 1, naming the member, its triple and the target's
 environment: exit 1, naming the member, its triple and the target's
+system: exit 1, naming the member, its triple and the target's

@@ -4,7 +4,10 @@
 // with no attribute to say so and no look at the rest of the module. A
 // function whose owned value is never consumed is refused; another in the
 // same module, which holds no owned value, builds a plain constructor and
-// is not asked.
+// is not asked. The rule is that each reference is consumed exactly once on
+// every path: once is no error (the same function, dropping its value);
+// twice is, at the second consumer; and so is once on one path of a match
+// and not on the other, at the match.
 
 !P = !idr.data<"P", plain [@MkP(i64, i64)]>
 idr.program @"owned-not-consumed" root(@root) stage(owned) {
@@ -46,6 +49,67 @@ idr.program @"owned-not-consumed" root(@root) stage(owned) {
     }
     }
     return %r : !idr.own<!idr.box<!L>>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @"owned-not-consumed" root(@root) stage(owned) {
+  idr.func @consumed(%s: !idr.own<!idr.str>) -> i64 {
+    %v = idr.borrow %s : !idr.own<!idr.str>
+    %n = idr.str.length borrow %v
+    idr.drop %s : !idr.own<!idr.str>
+    return %n : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @"owned-not-consumed" root(@root) stage(owned) {
+  // expected-note @+1 {{the value is defined here}}
+  idr.func @twice(%s: !idr.own<!idr.str>) -> i64 {
+    %v = idr.borrow %s : !idr.own<!idr.str>
+    %n = idr.str.length borrow %v
+    idr.drop %s : !idr.own<!idr.str>
+    // expected-error @+1 {{consumes a reference that the value does not hold here: it was consumed before on this path}}
+    idr.drop %s : !idr.own<!idr.str>
+    return %n : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+idr.program @"owned-not-consumed" root(@root) stage(owned) {
+  // expected-note @+1 {{the value is defined here}}
+  idr.func @one_path(%b: i1, %s: !idr.own<!idr.str>) -> i64 {
+    %v = idr.borrow %s : !idr.own<!idr.str>
+    %n = idr.str.length borrow %v
+    // expected-error @+1 {{leaves a value with 0 references on one path and 1 on another}}
+    %r = idr.match_lit %b : i1 -> (i64) {
+    case true {
+      idr.drop %s : !idr.own<!idr.str>
+      idr.yield %n : i64
+    }
+    default(%d: i1) {
+      idr.yield %n : i64
+    }
+    }
+    return %r : i64
   }
   // The program's root, which the functions above are no part of.
   idr.func @root() -> i64 {

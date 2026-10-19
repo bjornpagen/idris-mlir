@@ -1,11 +1,24 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.mkInc:result:[@Main.inc],labels=@Main.mkAdd:result:[@Main.add],labels=@Main.use:arg0:[@Main.add,@Main.inc]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@Main.mkInc:result:[@Main.inc],labels=@Main.mkAdd:result:[@Main.add],labels=@Main.use:arg0:[@Main.add,@Main.inc]' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.mkInc:result:[@Main.inc,@Main.add]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.mkAdd:result:[@Main.add,@Main.inc]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.use:arg0:[@Main.inc]' -o /dev/null
+// BEFORE-DAG: expected labels: @Main.mkInc {{.*}}
+// BEFORE-DAG: expected labels: @Main.mkAdd {{.*}}
+// BEFORE-DAG: expected labels: @Main.use {{.*}}
 // Values of one closure type with different sets of labels: mkInc returns
 // only @Main.inc and mkAdd only @Main.add, while @Main.use and the join of
 // the match take either. Each (type, labels) is its own sum, and where a
 // value moves into a slot with more labels, at the calls of @Main.use and
 // at the yields of the match, a match rebuilds its constructor in the
 // larger sum.
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 idr.program @coerce root(@Main.main) stage(higher) {
   idr.func @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64

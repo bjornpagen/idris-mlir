@@ -1,39 +1,67 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# No C++ unit of ours (a .cpp or .h under foreign/idr or of the runtime) is over 400 lines: a unit holds one concept, one
-# function or the members of one type, and one that grows past a screenful
-# is two. The runtime's C ABI, idris_rt.h, is no unit: it is the list of
-# every entry C, generated code and the compiler call, kept in one file.
+# No C++ unit of ours (a .cpp or .h under foreign/idr or of the runtime) is
+# over 400 lines: a unit holds one concept, one function or the members of
+# one type, and one that grows past a screenful is two. The runtime's C
+# ABI, idris_rt.h, is no unit: it is the list of every entry C, generated
+# code and the compiler call, kept in one file.
 #
 # A ratchet: `allowed` lists the units over the limit today, and only
 # shrinks. A unit over the limit that is not listed fails, and so does a
 # listed one that is no longer over it (or gone), so that whoever splits a
 # unit removes its line.
+#
+# The rule is `file_size ROOT`, its list ROOT/tests/file-size/allowed, run
+# on the repository and on the planted trees (lib/planted.sh): witness/
+# holds a .cpp and a .h of 401 lines, of foreign/idr and of the runtime,
+# and a list naming a unit that is gone and one that is 400 lines;
+# near-miss/ holds what is allowed: a unit of exactly 400 lines,
+# idris_rt.h and an ODS file past the limit, and a listed unit past it.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 limit=400
-cd "$root" || exit 1
-{
-  find foreign/idr -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) -print
-  find runtime -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) ! -name idris_rt.h -print
-} | sort > "$work/units"
-if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
-while IFS= read -r unit; do
-  [ "$(wc -l < "$unit")" -gt "$limit" ] && printf '%s\n' "$unit"
-done < "$work/units" > "$work/found"
 
-grep -v '^[[:space:]]*#' "$here/allowed" | grep -v '^[[:space:]]*$' | sort -u > "$work/allowed"
-comm -23 "$work/found" "$work/allowed" > "$work/new"
-comm -13 "$work/found" "$work/allowed" > "$work/stale"
-if [ -s "$work/new" ]; then
+# file_size ROOT: the units over the limit ROOT's list does not allow, and
+# the list's lines that allow no such unit, as `path: what` and
+# `tests/file-size/allowed:line: what`.
+file_size() (
+  cd "$1" || exit 1
+  list=tests/file-size/allowed
+  for fs_dir in foreign/idr runtime; do
+    [ -d "$fs_dir" ] && find "$fs_dir" -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) \
+      ! -path runtime/idris_rt.h -print
+  done | LC_ALL=C sort > "$work/units"
+  while IFS= read -r unit; do
+    [ "$(wc -l < "$unit")" -gt "$limit" ] && printf '%s\n' "$unit"
+  done < "$work/units" > "$work/over"
+  if [ -f "$list" ]; then
+    awk '!/^[[:space:]]*#/ && !/^[[:space:]]*$/ { print $1 "\t" FNR }' "$list" > "$work/allowed"
+  else
+    : > "$work/allowed"
+  fi
+  cut -f1 "$work/allowed" | LC_ALL=C sort -u | LC_ALL=C comm -23 "$work/over" - |
+    sed "s/\$/: over $limit lines, and not allowed/"
+  while IFS='	' read -r unit n; do
+    if [ ! -f "$unit" ]; then
+      printf '%s:%s: allows %s, which is gone\n' "$list" "$n" "$unit"
+    elif ! grep -qxF "$unit" "$work/over"; then
+      printf '%s: allowed by %s:%s, and not over %s lines\n' "$unit" "$list" "$n" "$limit"
+    fi
+  done < "$work/allowed"
+)
+
+(cd "$root" && find foreign/idr runtime -name '*.cpp' | grep -q .) && say "units: found" || say "units: none found"
+file_size "$root" > "$work/found"
+if grep -q 'and not allowed$' "$work/found"; then
   say "units over $limit lines (split them):"
-  cat "$work/new"
+  grep 'and not allowed$' "$work/found" | sed 's/: over.*//'
 else
   say "no unit over $limit lines that is not allowed"
 fi
-if [ -s "$work/stale" ]; then
+if grep -qE '^tests/file-size/allowed:|: allowed by ' "$work/found"; then
   say "allowed units no longer over $limit lines (delete their lines from allowed):"
-  cat "$work/stale"
+  grep -E '^tests/file-size/allowed:|: allowed by ' "$work/found" | sed 's/^/  /'
 else
   say "every allowed unit is still over $limit lines"
 fi
+planted file_size

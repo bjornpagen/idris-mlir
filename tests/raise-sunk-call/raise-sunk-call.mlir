@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=calls-where-used=@Main.main:@pmk -o /dev/null
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce),idr-expect{holds=calls-where-used=@Main.main:@mk})' -verify-diagnostics -o /dev/null
 // A call whose result only one region of a later match applies moves into
@@ -10,6 +11,9 @@
 // and computes only, so its call moves; @mk is the same function without
 // Idris's proof that it ends, so its call may not return, and it stays
 // where it runs on every path. Both loop, so neither is inlined.
+// Moving the call changes no outcome: on every one-byte input, 0 taking
+// the region that applies and the rest the other, the optimized program
+// prints what the program as written does (%differential).
 idr.program @"sunk-call" root(@Main.main) stage(higher) {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64

@@ -62,3 +62,25 @@ idr.program @data root(@root) stage(first) {
 // The name alone is the type only inside its own body.
 // expected-error @+1 {{a data type is written without its body only inside its own body}}
 !T = !idr.data<"T">
+
+// -----
+
+// The nearest each refusal above has that verifies: a linear field of a
+// plain type; fields of the widths a field may have, f64, i8 and i64;
+// two constructors of two names; base's list, its cons holding a box of the
+// list, the type written without its body inside its body; and the same
+// body written twice for one name, which is one type.
+!T = !idr.data<"T", plain [@A(!idr.lin<i64>), @B(f64, i8, i64)]>
+!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
+!U = !idr.data<"U", plain [@A(i64)]>
+!V = !idr.data<"U", plain [@A(i64)]>
+idr.program @data root(@root) stage(first) {
+  idr.func @f(%t: !T, %l: !idr.box<!L>, %u: !U) -> (!T, !idr.box<!L>, !V) {
+    return %t, %l, %u : !T, !idr.box<!L>, !V
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}

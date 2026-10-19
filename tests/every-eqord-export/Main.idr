@@ -83,3 +83,15 @@ main = do
             ++ showSuit (min @{suitOrd} Spades Diamonds))
   putStrLn (showSuits (sort @{suitOrd} [Spades, Clubs, Hearts, Diamonds]))
   putStrLn (showSuits (sort @{Reverse @{suitOrd}} [Spades, Clubs, Hearts, Diamonds]))
+  -- At the edges: zeros of both signs and NaN, which is equal to nothing
+  -- and so compares as GT either way, the empty and non-ASCII strings,
+  -- and each width's least and greatest values.
+  printLn (the Double 0.0 == -0.0, the Double (0.0 / 0.0) /= 0.0 / 0.0,
+           compare (the Double (0.0 / 0.0)) 1.0, compare 1.0 (the Double (0.0 / 0.0)))
+  printLn (show (max (the Double (0.0 / 0.0)) 1.0), show (max 1.0 (the Double (0.0 / 0.0))),
+           the Double (0.0 / 0.0) <= 0.0 / 0.0)
+  printLn (compare "" "a", compare "a" "ab", compare "\233" "z", "" == "")
+  printLn (compare (the Bits64 18446744073709551615) 0,
+           compare (the Int (-9223372036854775808)) 9223372036854775807,
+           compare (the Integer (-4611686018427387905)) (-4611686018427387904),
+           max (the Int8 (-128)) 127)

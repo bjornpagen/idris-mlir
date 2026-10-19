@@ -1,0 +1,26 @@
+gen: splitmix64 from state 0, output 0: ok
+gen: splitmix64 from state 0, output 1: ok
+gen: splitmix64 from state 0, output 2: ok
+gen: replaying the tape of seed 1 gives its case: ok
+gen: replaying the tape of seed 2 gives its case: ok
+gen: replaying the tape of seed 3 gives its case: ok
+gen: seededEach gives each seed's case on one tape: ok
+gen: every tape of pair: six values: ok
+gen: every tape of dep, in the odometer's order: ok
+gen: an enumeration past its limit is not whole: ok
+gen: an enumeration past its capacity is not whole: ok
+gen: weighted picks by the running total, never an option of weight 0: ok
+gen: swarm zeroes every option on some tape and keeps it on another: ok
+gen: every candidate is before its tape in shortlex order: ok
+gen: shrinking ends at a failing tape no candidate of which fails: ok
+gen: a draw's loop sums the same seeded and replayed: ok
+sem: every table holds at most 120 cases: ok
+two-levels: every primitive has an argument set: ok
+two-levels: every term's text is unique: ok
+two-levels: no term's text holds " = ": ok
+fuzz-check: an agreeing output names no case: ok
+fuzz-check: an output with one disagreeing line names that case: ok
+fuzz-check: an output missing one line of a case names that case: ok
+fuzz-check: an empty output names every case: ok
+two-levels-check: an agreeing output names no term: ok
+two-levels-check: an output with one disagreeing line names that term: ok

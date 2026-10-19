@@ -50,6 +50,7 @@ NOTICE -- the attribution notices, which quote the parties' own
 */allowlist */allowed */uncovered */without-fixture -- a list a spec test reads
 tests/*/*.idr tests/*.mlir harness/templates/*.idr harness/templates/*.mlir -- a fixture's source, whose line numbers reach its expected output
 upstream/*/*.mlir upstream/*/*.ll upstream/*/*.sh upstream/*/*.idr upstream/*/*.c upstream/*/*.cpp -- a reproducer, which its report quotes and its upstream test copies
+tests/licenses/witness/* -- the files tests/licenses plants for this check to refuse, each without its line or with a wrong one
 bench/records/* -- a record of a measurement, kept as it was taken
 compiler/idris/MODULES -- the fork's list of kept modules, which tools/extract-idris.sh reads
 EOF

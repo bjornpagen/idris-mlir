@@ -1,6 +1,7 @@
 module Main
 
--- Named implementations chosen statically in each branch.
+-- Named implementations chosen statically in each branch, whether the
+-- branch is known at compile time or chosen by a byte of the input.
 
 import Prelude
 
@@ -21,3 +22,5 @@ main : IO ()
 main = do
   putStrLn (prim__cast_IntString (combine 0))
   putStrLn (prim__cast_IntString (combine 1))
+  c <- getChar
+  putStrLn (prim__cast_IntString (combine (prim__sub_Int (prim__cast_CharInt c) 48)))

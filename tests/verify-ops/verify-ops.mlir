@@ -109,3 +109,43 @@ idr.program @ops root(@root) stage(first) {
     return %zero : i64
   }
 }
+
+// -----
+
+// The nearest each refusal above has that verifies: an unsigned show of a
+// byte, the comparisons Idris has (equality among them), a list of
+// characters written, an IORef made with no size and an array with one,
+// and an element read at one index.
+!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
+idr.program @ops root(@root) stage(first) {
+  idr.func @show(%x: i8) -> !idr.str {
+    %s = idr.str.show_uint %x : i8
+    return %s : !idr.str
+  }
+  idr.func @cmp(%x: !idr.big) -> (i1, i1) {
+    %e = idr.big.cmp eq %x, %x
+    %l = idr.big.cmp lt %x, %x
+    return %e, %l : i1, i1
+  }
+  idr.func @put(%xs: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
+    %w1 = idr.io.put_list %xs, %w : !idr.box<!Chars>
+    return %w1 : !idr.world
+  }
+  idr.func @ref(%z: i64, %w: !idr.world) -> (memref<i64, #idr.world>, !idr.world) {
+    %r, %w1 = idr.array.new [], %z, %w : i64 -> memref<i64, #idr.world>
+    return %r, %w1 : memref<i64, #idr.world>, !idr.world
+  }
+  idr.func @array(%n: i64, %z: i64, %w: !idr.world) -> (memref<?xi64, #idr.world>, !idr.world) {
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64, #idr.world>
+    return %a, %w1 : memref<?xi64, #idr.world>, !idr.world
+  }
+  idr.func @get(%a: memref<?xi64, #idr.world>, %i: i64, %w: !idr.world) -> (i64, !idr.world) {
+    %x, %w1 = idr.array.get %a[%i], %w : memref<?xi64, #idr.world> -> i64
+    return %x, %w1 : i64, !idr.world
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}

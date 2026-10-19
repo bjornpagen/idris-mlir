@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# the one unit over the limit, allowed
+foreign/idr/tools/idris-mlir-tblgen.cpp

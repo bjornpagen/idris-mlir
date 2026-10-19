@@ -9,7 +9,8 @@
 // exactly when it is alone in its component and calls itself; every
 // component comes after the components of its callees; and a function is
 // recursive exactly when it is on a cycle, its own call of itself in tail
-// position (the next iteration of a loop in one frame) aside.
+// position (the next iteration of a loop in one frame) aside. The judgement
+// is shown failing each oracle planted with a fault.
 
 #include "idr/Analysis/CallCycles.h"
 #include "idr/Analysis/Escapes.h"
@@ -97,12 +98,23 @@ idr::FuncOp function(idr::ProgramOp program, StringRef symbol) {
       program, StringAttr::get(program.getContext(), symbol));
 }
 
-TEST(CallCycles, EveryGraphAgainstReachability) {
+// What a judge takes for the truth: reachability, and whether a function's
+// call of itself in tail position makes it recursive. The box's is
+// `reaches` and no; a mutant's is wrong, and the judge must say so.
+struct Oracle {
+  Graph (*reach)(const Graph &);
+  bool tailRecurses;
+};
+
+// The cases whose analyses disagree with `oracle`, every graph and every
+// choice of tail calls, up to `most`; each reported as a failure when
+// `report` is set.
+unsigned judge(Oracle oracle, unsigned most, bool report) {
   MLIRContext ctx;
   ctx.loadDialect<idr::IdrDialect, arith::ArithDialect>();
   constexpr uint32_t graphs = uint32_t{1} << (functions * functions);
   unsigned failures = 0;
-  for (uint32_t bits = 0; bits < graphs && failures < 10; ++bits) {
+  for (uint32_t bits = 0; bits < graphs && failures < most; ++bits) {
     Case base;
     for (unsigned i = 0; i < functions; ++i)
       for (unsigned j = 0; j < functions; ++j)
@@ -111,13 +123,18 @@ TEST(CallCycles, EveryGraphAgainstReachability) {
     uint32_t selves = 0;
     for (unsigned i = 0; i < functions; ++i)
       selves |= static_cast<uint32_t>(base.calls[i][i]) << i;
-    for (uint32_t tails = selves;; tails = (tails - 1) & selves) {
+    for (uint32_t tails = selves; failures < most; tails = (tails - 1) & selves) {
       Case c = base;
       for (unsigned i = 0; i < functions; ++i)
         c.tail[i] = ((tails >> i) & 1) != 0;
       std::string text = programOf(c);
       OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(text, &ctx);
-      ASSERT_TRUE(module) << text;
+      // A program the box writes and cannot read is the box's fault, and
+      // ends the judgement.
+      if (!module) {
+        ADD_FAILURE() << "the box's program does not parse\n" << text;
+        return failures + 1;
+      }
       idr::ProgramOp program = *module->getOps<idr::ProgramOp>().begin();
       ModuleAnalysisManager mam(*module, /*passInstrumentor=*/nullptr);
       AnalysisManager moduleAnalyses = mam;
@@ -128,10 +145,11 @@ TEST(CallCycles, EveryGraphAgainstReachability) {
       for (unsigned i = 0; i < functions; ++i)
         f[i] = function(program, name(i));
       idr::FuncOp main = function(program, "Prog.main");
-      Graph r = reaches(c.calls);
+      Graph r = oracle.reach(c.calls);
       auto fail = [&](const std::string &what) {
         ++failures;
-        ADD_FAILURE() << what << "\n" << text;
+        if (report)
+          ADD_FAILURE() << what << "\n" << text;
       };
       for (unsigned i = 0; i < functions; ++i) {
         bool alone = true;
@@ -148,7 +166,7 @@ TEST(CallCycles, EveryGraphAgainstReachability) {
           fail("callsItself(" + name(i) + ")");
         if (cycles.componentOf(f[i]) >= cycles.componentOf(main))
           fail(name(i) + "'s component is not before the root's");
-        bool recursive = !alone || (c.calls[i][i] && !c.tail[i]);
+        bool recursive = !alone || (c.calls[i][i] && (oracle.tailRecurses || !c.tail[i]));
         if (escapes.recursive(f[i]) != recursive)
           fail("recursive(" + name(i) + ")");
       }
@@ -158,6 +176,23 @@ TEST(CallCycles, EveryGraphAgainstReachability) {
         break;
     }
   }
+  return failures;
+}
+
+TEST(CallCycles, EveryGraphAgainstReachability) {
+  EXPECT_EQ(judge(Oracle{reaches, false}, 10, /*report=*/true), 0u);
+}
+
+// One call, not a chain of them: a cycle through three functions is then
+// no cycle.
+Graph oneCall(const Graph &calls) { return calls; }
+
+// The judgement can fail: each oracle with a planted fault disagrees with
+// the analyses on some case of the box, reachability that stops after one
+// call, and a call of itself in tail position taken for recursion.
+TEST(CallCycles, EachMutantOracleIsCaught) {
+  EXPECT_GT(judge(Oracle{oneCall, false}, 1, /*report=*/false), 0u);
+  EXPECT_GT(judge(Oracle{reaches, true}, 1, /*report=*/false), 0u);
 }
 
 // A function with no body is a component of its own, on no cycle.

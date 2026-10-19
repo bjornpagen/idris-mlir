@@ -10,7 +10,9 @@
 // holds, which idr-effects writes with its callee's, so a call of a
 // function that only computes is dead when nothing reads it. A match
 // answers from its regions, where an arm that crashes does what the crash
-// does. By the time effects are known, no closure is passed to a call.
+// does, and one that may not return what that call does; one whose arms
+// only compute is as free as they are. By the time effects are known, no
+// closure is passed to a call.
 // Upstream's dead code removal and CSE read these answers alone: the calls
 // of @square go, and every call that may crash, not return or perform IO
 // is kept, each one, two equal ones included.
@@ -83,6 +85,26 @@ idr.program @queries root(@root) stage(first) {
     default(%d1: i64) {
       idr.crash "no"
       ub.unreachable
+    }
+    }
+    // expected-remark @below {{facts: [drop move delay merge]}}
+    %m = idr.match_lit %x : i64 -> (i64) {
+    case 0 {
+      idr.yield %y : i64
+    }
+    default(%d2: i64) {
+      %sq = arith.muli %d2, %d2 : i64
+      idr.yield %sq : i64
+    }
+    }
+    // expected-remark @below {{facts: [delay]}}
+    %l = idr.match_lit %x : i64 -> (i64) {
+    case 0 {
+      %p = idr.call @partial(%y) : (i64) -> i64
+      idr.yield %p : i64
+    }
+    default(%d3: i64) {
+      idr.yield %y : i64
     }
     }
     %ch = arith.constant 65 : i32

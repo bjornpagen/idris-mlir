@@ -1,10 +1,13 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The program of the benchmark bench/rbtree, run on this fixture's input
-# against its expected files.
+# The program of the benchmark bench/rbtree on each of its cases: no input
+# and one that is no number (an empty tree), a tree of one key, trees either
+# side of the second key whose value is true (9, 10, 11 keys, every tenth
+# key's value is true), and larger trees; each prints how many values are
+# true, n/10 rounded up, as bench/rbtree/main.c does.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 mkdir "$work/fixture"
 cp "$root/bench/rbtree/Main.idr" "$work/fixture/"
-cp stdin expected-stdout mlir.expect "$work/fixture/"
+cp -R cases mlir.expect "$work/fixture/"
 e2e_io "$work/fixture"

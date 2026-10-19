@@ -1,24 +1,48 @@
 // RUN: awk 'BEGIN { ORS = "" } NR == 1, /^idr\.program / { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
 // RUN: sed 's/%q = arith.subi %y, %x : i64/%q = arith.addi %y, %x : i64/' %s > %t.edited.mlir
 // RUN: not cmp -s %s %t.edited.mlir
+// RUN: sed -e 's/@apply(%k, %f,/@apply(%k, %h,/' -e 's/@apply(%k, %g,/@apply(%k, %f,/' -e 's/@apply(%k, %h,/@apply(%k, %g,/' %s > %t.swapped.mlir
+// RUN: not cmp -s %s %t.swapped.mlir
 // RUN: idris-mlir-opt %s --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.input.names
-// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.names
-// RUN: idris-mlir-opt %t.reversed.mlir --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.reversed.names
-// RUN: idris-mlir-opt %t.edited.mlir --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | grep -v '"scale' | sort > %t.edited.names
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' -o %t.optimized.mlir
+// RUN: %differential %s %t.optimized.mlir
+// RUN: idris-mlir-opt %t.optimized.mlir --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.names
 // RUN: comm -13 %t.input.names %t.names | grep -q .
-// RUN: diff %t.names %t.reversed.names
-// RUN: grep -v '"scale' %t.names | diff - %t.edited.names
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' --mlir-disable-threading -o %t.serial.mlir
+// RUN: idris-mlir-opt %t.reversed.mlir --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' -o %t.reversed.optimized.mlir
+// RUN: idris-mlir-opt %t.edited.mlir --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' -o %t.edited.optimized.mlir
+// RUN: idris-mlir-opt %t.swapped.mlir --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize))' -o %t.swapped.optimized.mlir
+// RUN: awk '/^    idr\.func/ { if (f != "") print f; f = $0; next } /^  }$/ { if (f != "") print f; f = ""; next } f != "" { f = f " " $0 }' %t.optimized.mlir | sort > %t.functions
+// RUN: awk '/^    idr\.func/ { if (f != "") print f; f = $0; next } /^  }$/ { if (f != "") print f; f = ""; next } f != "" { f = f " " $0 }' %t.serial.mlir | sort | diff %t.functions -
+// RUN: awk '/^    idr\.func/ { if (f != "") print f; f = $0; next } /^  }$/ { if (f != "") print f; f = ""; next } f != "" { f = f " " $0 }' %t.reversed.optimized.mlir | sort | diff %t.functions -
+// RUN: awk '/^    idr\.func/ { if (f != "") print f; f = $0; next } /^  }$/ { if (f != "") print f; f = ""; next } f != "" { f = f " " $0 }' %t.edited.optimized.mlir | sort > %t.edited.functions
+// RUN: grep -v '^    idr\.func [^@]*@scale' %t.functions > %t.kept
+// RUN: grep -v '^    idr\.func [^@]*@scale' %t.edited.functions | diff %t.kept -
+// RUN: grep '^    idr\.func [^@]*@scale' %t.functions > %t.scale
+// RUN: grep '^    idr\.func [^@]*@scale' %t.edited.functions | not diff %t.scale -
+// RUN: awk '/^    idr\.func/ { if (f != "") print f; f = $0; next } /^  }$/ { if (f != "") print f; f = ""; next } f != "" { f = f " " $0 }' %t.swapped.optimized.mlir | grep -v '^    idr\.func [^@]*@Main\.main(' | sort > %t.swapped.functions
+// RUN: grep -v '^    idr\.func [^@]*@Main\.main(' %t.functions | diff - %t.swapped.functions
 // A function the optimizer makes is named from its key, the function it
 // copies and the static pattern it is copied for, never from a counter,
 // from the order the work ran in or from the module around it. @apply is
 // specialized on each of its two closures and @scale on its one, so the
-// optimizer makes functions the input does not hold (RUN 8). Then:
-// - the same module with its functions in reverse order (RUN 1) gives the
-//   same set of symbols (RUN 9);
-// - the module with the body of @scale alone edited (RUN 2) gives the same
-//   symbols for every function not made from @scale (RUN 10).
-// Symbols are read off the generic form's `sym_name`, so the custom form's
-// printing of a function is no part of the check.
+// optimizer makes functions the input does not hold (its symbols, read off
+// the generic form's `sym_name`, are not all the input's). Each function
+// of the optimized module, its name with its body (one line of the custom
+// form each, sorted), is then the same
+// - when the passes run on one thread (--mlir-disable-threading);
+// - when the module's functions come in reverse order (the first RUN line
+//   writes it);
+// - when the root calls @apply on its two closures in the other order (the
+//   third RUN line), for every function but the root, whose body that
+//   changes: a name counted in the order the calls are met would give the
+//   copy of @apply for @mul the name the copy for @add had;
+// - when the body of @scale alone is edited (the second RUN line), for
+//   every function not made from @scale, the root's call of @scale's copy
+//   among them; and the functions made from @scale differ, as they must,
+//   so the comparison reads bodies.
+// The optimized program means what the program as written does, on every
+// one-byte input (%differential).
 idr.program @keys root(@Main.main) stage(higher) {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %k : i64

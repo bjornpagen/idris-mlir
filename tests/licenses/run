@@ -8,7 +8,37 @@
 # the holders, and checks all of it; what it prints when all holds is that
 # every port is PINS.md's, and the identifiers in use, so a licence the
 # tree gains shows here (the ports are PINS.md's list).
+#
+# The check is run on the repository and, through `licenses_tree ROOT`, on
+# the planted trees (lib/planted.sh): each made a repository of its own,
+# with the check, the licence texts, PINS.md and an Idris pin whose src/
+# holds Upstream.idr. witness/ breaks the rule once per way (no line, a
+# wrong holder, our licence in the fork, an identifier with no text, a
+# file of no known kind); near-miss/ holds what is allowed: our files and
+# a script's, the fork's own and upstream's, and the kinds it excludes.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# licenses_tree ROOT: tools/licenses.sh's findings on the files of ROOT,
+# made a repository beside the repository's check, licence texts and
+# PINS.md, `path: what`.
+licenses_tree() (
+  tree=$(mktemp -d "$work/tree.XXXXXX") || exit 1
+  cp -Rp "$1"/. "$tree"/
+  mkdir -p "$tree/tools" "$tree/LICENSES" "$tree/third_party/Idris2/src"
+  cp -p "$root/tools/licenses.sh" "$tree/tools/"
+  cp -p "$root"/LICENSES/*.txt "$tree/LICENSES/"
+  cp -p "$root/PINS.md" "$tree/"
+  cd "$tree/third_party/Idris2" || exit 1
+  printf '%s\n' '-- the pin' > src/Upstream.idr
+  git init -q && git add src && git -c user.name=t -c user.email=t@t.invalid commit -q -m pin || exit 1
+  pin=$(git rev-parse HEAD)
+  cd "$tree" || exit 1
+  git init -q && git add -A -- . ':!third_party' &&
+    git update-index --add --cacheinfo "160000,$pin,third_party/Idris2" || exit 1
+  sh tools/licenses.sh | grep -v '^licenses: \|^ports: \|^texts: '
+)
+
 "$root/tools/licenses.sh" > "$work/licenses" 2>&1 ||
   say "licenses: not every file in scope names its licence:"
 sed 's/^ports: [0-9][0-9]*, /ports: /' "$work/licenses"
+planted licenses_tree

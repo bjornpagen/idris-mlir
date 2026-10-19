@@ -1,6 +1,8 @@
 -- Partition list (LeetCode 86): the values below the pivot, then the rest,
 -- each in their original order, on a linear list: both parts are built
--- from the input's cells, relinked.
+-- from the input's cells, relinked. The result is partitioned (no value
+-- below the pivot after one at or above it), which the check finds false
+-- of the input itself, and its hash of the sequence pins the order kept.
 module Main
 
 import Prelude
@@ -27,9 +29,19 @@ render : (1 xs : LList (!* Int)) -> String -> String
 render [] acc = acc
 render (MkBang x :: xs) acc = render xs (acc ++ show x ++ " ")
 
+drain : LList (!* Int) -@ ()
+drain [] = ()
+drain (MkBang _ :: xs) = drain xs
+
 sumL : (1 xs : LList (!* Int)) -> Int -> Int
 sumL [] acc = acc
 sumL (MkBang x :: xs) acc = sumL xs (acc * 7 + x)
+
+-- Whether no value below the pivot follows one at or above it.
+partitioned : Int -> Bool -> (1 xs : LList (!* Int)) -> Bool
+partitioned _ _ [] = True
+partitioned p seen (MkBang x :: xs) =
+  if seen && x < p then let 1 () = drain xs in False else partitioned p (seen || x >= p) xs
 
 readInt : IO Int
 readInt = go 0
@@ -44,3 +56,5 @@ main = do
   n <- readInt
   putStrLn (render (part 50 (build (n `div` 8000) 3 []) [] []) "")
   printLn (sumL (part 50 (build n 5 []) [] []) 0)
+  printLn (partitioned 50 False (part 50 (build n 5 []) [] []))
+  printLn (partitioned 50 False (build n 5 []))

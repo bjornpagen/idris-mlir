@@ -52,10 +52,18 @@ idr.program @effects root(@root) stage(first) {
 
 // -----
 
-// Covered: a function that is not total says it may not return, its call
-// and its caller say what it may do, and a function without `effects` calls
-// anything.
+// Covered, the nearest each refusal above has that verifies: a function
+// that writes says io, one that is not total says it may not return, its
+// call and its caller say what it may do, a set may say more than the body
+// does, and a function without `effects` calls anything.
 idr.program @effects root(@root) stage(first) {
+  idr.func effects<io> @writes(%s: !idr.str, %w: !idr.world) -> !idr.world attributes {total} {
+    %w1 = idr.io.put_str %s, %w
+    return %w1 : !idr.world
+  }
+  idr.func effects<io, crash, diverge> @more(%x: i64) -> i64 attributes {total} {
+    return %x : i64
+  }
   idr.func effects<crash, diverge> @checks(%x: i64) -> i64 {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64

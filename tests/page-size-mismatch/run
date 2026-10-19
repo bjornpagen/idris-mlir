@@ -5,10 +5,11 @@
 # idris_rt_start checks first that the target entry's page size
 # (IDRIS_MLIR_PAGE_SIZE, which the build records in runtime/page-size) is
 # the system's, and otherwise names both, runs nothing and exits as a
-# crash. The check is the platform layer's memory unit
-# (runtime/Platform/Posix/Memory.cpp), so that unit alone is compiled here,
+# crash, its stderr the crash's one line. The check is the platform
+# layer's memory unit (runtime/Platform/Posix/Memory.cpp), so that unit
+# alone is compiled here,
 # as the build compiles it, once for the build's page size and once each for
-# a smaller and a larger one, and linked ahead of the build's runtime
+# pages 2 and 4 times smaller and larger, and linked ahead of the build's runtime
 # archive, whose own copy of it the link then leaves out: the program is the
 # build's runtime, built for that page size. The unit and start.c read the
 # runtime's C ABI, part of which the build generates, so each compiles with
@@ -43,26 +44,34 @@ program() {
   fi
 }
 
-# start NAME PAGE: the program built for PAGE: its exit status, whether its
-# body ran, and whether what it said names the page size it was built for
-# and the build's, which is the system's (runtime-start runs the build's
-# runtime here).
+# start NAME PAGE WHAT: the program built for PAGE (a page WHAT names): its
+# exit status, whether its body ran, and whether what it said is the crash
+# that names the page size it was built for and the build's, which is the
+# system's (runtime-start runs the build's runtime here), exactly as the
+# runtime writes a crash: "idris-mlir: " and its cause.
 start() {
   program "$1" "$2" || return
   ( bounded "$work/$1" ) > "$work/$1.out" 2> "$work/$1.err"
   start_status=$?
   if grep -qx ran "$work/$1.out"; then ran="the program ran"; else ran="the program did not run"; fi
+  printf 'idris-mlir: the runtime is built for a %s-byte page, and this system has a %s-byte page\n' "$2" \
+    "$page" > "$work/$1.crash"
   if [ ! -s "$work/$1.err" ]; then
     said="nothing on stderr"
-  elif grep -q -- "$2" "$work/$1.err" && grep -q -- "$page" "$work/$1.err"; then
-    said="stderr names the page it was built for and the system's"
+  elif cmp -s "$work/$1.crash" "$work/$1.err"; then
+    said="stderr is the crash that names the page it was built for and the system's"
   else
-    said="stderr does not name both pages"
+    said="stderr is not the crash that names both pages"
   fi
   say "built for $3: exit $start_status, $ran, $said"
-  [ "$said" != "stderr does not name both pages" ] || show "$work/$1.err"
+  [ "$said" != "stderr is not the crash that names both pages" ] || show "$work/$1.err"
 }
 
+# The system's page, and the pages a factor of 2 and of 4 either side of
+# it: the nearest a build can be wrong by, and x86-64's 4 KiB against
+# arm64's 16 KiB.
 start same "$page" "the system's page"
-start smaller "$((page / 2))" "a smaller page"
-start larger "$((page * 4))" "a larger page"
+start half "$((page / 2))" "half the page"
+start quarter "$((page / 4))" "a quarter of the page"
+start double "$((page * 2))" "twice the page"
+start quadruple "$((page * 4))" "four times the page"

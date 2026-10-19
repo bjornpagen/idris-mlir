@@ -5,12 +5,39 @@
 // RUN: builds-nothing=@nested,reads-fields=@nested,builds-nothing=@never_yields,reads-no-fields=@never_yields,\
 // RUN: never-returns=@taken_never_completes,no-closures=@taken_never_completes -o /dev/null
 // RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize -o %t.mlir
+// RUN: %differential %s %t.mlir
+// RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=no-heap-allocation=@put_maybe,builds-nothing=@field_of,\
+// RUN: no-heap-allocation=@past_effect,no-heap-allocation=@crash_region,builds-nothing=@match_of_match,\
+// RUN: builds-nothing=@uses_later,builds-nothing=@nested,builds-nothing=@never_yields,reads-no-fields=@never_yields,\
+// RUN: never-returns=@taken_never_completes,no-closures=@taken_never_completes -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=crashes-before-output=@root -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=reads-fields=@match_of_match -o /dev/null
+// RUN: awk '/^  idr.func @nothing_to_meet/ { inside = 1 } inside && /^    %w1 = idr.io.put_str/ { printf "    %%unused = idr.str.length %%a\n"; inside = 0 } { print }' %s > %t.grown.mlir
+// RUN: %status 1 idris-mlir-opt %t.grown.mlir --idr-expect=holds=grows-nothing=@nothing_to_meet:%s -o /dev/null
+// BEFORE-DAG: expected no-heap-allocation: {{.*}} in @put_maybe
+// BEFORE-DAG: expected builds-nothing: {{.*}} in @field_of
+// BEFORE-DAG: expected no-heap-allocation: {{.*}} in @past_effect
+// BEFORE-DAG: expected no-heap-allocation: {{.*}} in @crash_region
+// BEFORE-DAG: expected builds-nothing: {{.*}} in @match_of_match
+// BEFORE-DAG: expected builds-nothing: {{.*}} in @uses_later
+// BEFORE-DAG: expected builds-nothing: {{.*}} in @nested
+// BEFORE-DAG: expected builds-nothing: {{.*}} in @never_yields
+// BEFORE-DAG: expected reads-no-fields: {{.*}} in @never_yields
+// BEFORE-DAG: expected never-returns: {{.*}}@taken_never_completes
+// BEFORE-DAG: expected no-closures: {{.*}} in @taken_never_completes
 // Case-of-case: the single consumer of a match's result moves into every
 // region that yields, when in some region it meets a value it folds or
 // canonicalizes against. Each function states what is left: no string
 // built only to be written (no heap allocation), no constructor built
 // only to be taken apart, no output before what may crash, and where
 // nothing folds, no copy of the consumer (the function grows nothing).
+// The program, run on every byte, prints after the pass what it printed
+// before it, crashes included. What canonicalize makes hold did not hold
+// before it; the root writes before what may crash, @match_of_match reads
+// no field once its matches are gone, and a copy of @nothing_to_meet with
+// one more op than the file's grows: each of those fails.
 
 // putStr (maybe "none" show m): each region writes its own string, and
 // `show` becomes put_int.
@@ -261,9 +288,75 @@ idr.program @"case-of-case" root(@root) stage(higher) {
     %y = idr.apply %f(%r) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }
-  // The program's root, which the functions above are no part of.
-  idr.func @root() -> i64 {
-    %zero = arith.constant 0 : i64
-    return %zero : i64
+  idr.func @plus(%k: i64, %x: i64) -> i64 attributes {total} {
+    %y = arith.addi %k, %x : i64
+    return %y : i64
+  }
+  // The program's root runs every function above on what it reads: the
+  // byte's low three bits pick which of the four that may crash runs last,
+  // and the rest of it is their argument and the others'.
+  idr.func @root(%w: !idr.world) -> !idr.world {
+    %c, %w0 = idr.io.get_byte %w
+    %byte = arith.extui %c : i32 to i64
+    %c1 = arith.constant 1 : i64
+    %c2 = arith.constant 2 : i64
+    %c3 = arith.constant 3 : i64
+    %c8 = arith.constant 8 : i64
+    %sel = arith.remui %byte, %c8 : i64
+    %a = arith.divui %byte, %c8 : i64
+    %odd = arith.remui %a, %c2 : i64
+    %half = arith.divui %a, %c2 : i64
+    %oddhalf = arith.remui %half, %c2 : i64
+    %a1 = arith.addi %a, %c1 : i64
+    %p = idr.con !P @MkP(%a : i64, %a1 : i64)
+    %m = idr.match_lit %odd : i64 -> (!Maybe) {
+    case 0 {
+      %n = idr.con !Maybe @Nothing()
+      idr.yield %n : !Maybe
+    }
+    default(%d: i64) {
+      %j = idr.con !Maybe @Just(%a : i64)
+      idr.yield %j : !Maybe
+    }
+    }
+    %r0 = idr.call @match_of_match(%odd) : (i64) -> i64
+    %w1 = idr.io.put_sint %r0, %w0 : i64
+    %r1 = idr.call @uses_later(%a) : (i64) -> i64
+    %w2 = idr.io.put_sint %r1, %w1 : i64
+    %r2 = idr.call @nested(%odd, %oddhalf, %p) : (i64, i64, !P) -> i64
+    %w3 = idr.io.put_sint %r2, %w2 : i64
+    %r3 = idr.call @field_of(%oddhalf, %p) : (i64, !P) -> i64
+    %w4 = idr.io.put_sint %r3, %w3 : i64
+    %w5 = idr.call @put_maybe(%m, %w4) : (!Maybe, !idr.world) -> !idr.world
+    %w6 = idr.call @past_effect(%m, %w5) : (!Maybe, !idr.world) -> !idr.world
+    %x = idr.constant !idr.str "x"
+    %y = idr.constant !idr.str "y"
+    %w7 = idr.call @nothing_to_meet(%m, %x, %y, %w6) : (!Maybe, !idr.str, !idr.str, !idr.world) -> !idr.world
+    %w8 = idr.match_lit %sel : i64 -> (!idr.world) {
+    case 0 {
+      %v = idr.call @both_effects(%a, %w7) : (i64, !idr.world) -> !idr.world
+      idr.yield %v : !idr.world
+    }
+    case 1 {
+      %k = arith.remui %a, %c3 : i64
+      %v = idr.call @crash_region(%k, %w7) : (i64, !idr.world) -> !idr.world
+      idr.yield %v : !idr.world
+    }
+    case 2 {
+      %r = idr.call @never_yields(%odd, %half) : (i64, i64) -> i64
+      %v = idr.io.put_sint %r, %w7 : i64
+      idr.yield %v : !idr.world
+    }
+    case 3 {
+      %f = idr.closure @plus(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
+      %r = idr.call @taken_never_completes(%f) : (!idr.fn<(i64) -> (i64)>) -> i64
+      %v = idr.io.put_sint %r, %w7 : i64
+      idr.yield %v : !idr.world
+    }
+    default(%d: i64) {
+      idr.yield %w7 : !idr.world
+    }
+    }
+    return %w8 : !idr.world
   }
 }

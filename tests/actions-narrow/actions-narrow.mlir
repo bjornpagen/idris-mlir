@@ -3,7 +3,11 @@
 // RUN: idris-mlir-opt %t.in.mlir --pass-pipeline='builtin.module(idr.program(idr-narrow))' --mlir-disable-threading -mlir-debug-counter=idr-narrow-version-count=0,idr-narrow-joint-count=0,idr-narrow-word-count=0,idr-narrow-fold-count=0 -o %t.skipped.mlir
 // RUN: diff %t.none.mlir %t.skipped.mlir
 // RUN: idris-mlir-opt %t.in.mlir --pass-pipeline='builtin.module(idr.program(idr-narrow))' -o %t.done.mlir
+// RUN: %differential %t.in.mlir %t.done.mlir
 // RUN: %status 1 diff %t.none.mlir %t.done.mlir
+// With every action skipped the pass is the identity, and with none it
+// changes the module; the program, counted, prints after the pass what it
+// printed before, on every byte.
 idr.program @descending root(@Main.main) stage(first) {
   idr.func @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (i1) {

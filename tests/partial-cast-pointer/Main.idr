@@ -4,7 +4,8 @@ module Main
 -- each partial application is a closure whose body is the saturated cast,
 -- the handle it is given, so the program means what it means at full
 -- arity. The null handle cast to a typed pointer and back is still null,
--- and so is stdin's handle, cast and forgotten, still stdin's.
+-- and each of the three standard handles, cast and forgotten, is still not
+-- null.
 
 import Prelude
 import System.File
@@ -12,7 +13,9 @@ import System.File
 main : IO ()
 main = do
   let FHandle input = stdin
-      handles = [prim__getNullAnyPtr, input, prim__getNullAnyPtr]
+      FHandle output = stdout
+      FHandle errors = stderr
+      handles = [prim__getNullAnyPtr, input, output, errors, prim__getNullAnyPtr]
       typed : List (Ptr String)
       typed = map prim__castPtr handles
       back = map prim__forgetPtr typed

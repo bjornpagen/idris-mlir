@@ -12,7 +12,7 @@
 # Prelude.Types.(<=>)[...]::MkEquivalence(,
 # and a definition the compiler's registry lowers another way in braces
 # after what its call became, as add_Nat{Prelude.Types.plus}(. And the
-# program's output is held to its expected-stdout as every e2e program's
+# program's output is held to its cases' expected-stdout as every e2e program's
 # is, so what it uses is also what it computes right. A module's exports
 # are the definitions it makes itself: one it re-exports is covered in the
 # module that defines it.

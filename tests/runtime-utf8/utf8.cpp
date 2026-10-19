@@ -44,6 +44,68 @@ struct Hex {
   }
 };
 
+// The faults each check must notice, planted where it reads the runtime or
+// the model (prop.h): the decoders' known mistakes, a Latin-1 fallback,
+// Java's overlong NUL, U+FFFD per byte, and simdutf's at its block
+// boundaries.
+constexpr prop::Mutant perByteReplacement{"gives each byte of an interrupted sequence its own U+FFFD"};
+constexpr prop::Mutant latin1Fallback{"reads a byte no sequence holds as the Latin-1 scalar of that number"};
+constexpr prop::Mutant overlongNul{"reads the overlong C0 80 as U+0000, as Java's modified UTF-8 does"};
+constexpr prop::Mutant boundaryLead{"reads a first byte at a block's last offset as a byte no sequence holds"};
+constexpr prop::Mutant boundaryCrossing{
+    "reads a sequence of three or four bytes that crosses a block boundary as ill-formed"};
+constexpr prop::Mutant countsUtf16{"has utf8_count count a four-byte scalar twice, as UTF-16 does"};
+constexpr prop::Mutant leaksString{"leaks the cell of every string it makes"};
+
+// The model's decoding with the planted fault of perByteReplacement: one
+// U+FFFD for each byte read of a sequence another byte interrupts.
+size_t decodePerByte(const unsigned char *p, size_t n, uint32_t *out) {
+  size_t count = 0;
+  for (size_t i = 0; i < n;) {
+    size_t row = utf8model::rowStartedBy(p[i]);
+    size_t read = 1;
+    while (row < utf8model::rows && read < table37[row].length && i + read < n &&
+           table37[row].bytes[read].holds(p[i + read]))
+      ++read;
+    if (row < utf8model::rows && read == table37[row].length) {
+      utf8model::decode(p + i, read, out + count);
+      ++count;
+    } else {
+      for (size_t k = 0; k < read; ++k)
+        out[count++] = utf8model::replacement;
+    }
+    i += read;
+  }
+  return count;
+}
+
+// The n bytes at p as a planted fault would have the runtime read them:
+// rewritten into `out` (room for 2n) as bytes the runtime reads that way.
+// Returns their length.
+size_t asMutantReads(const unsigned char *p, size_t n, unsigned char *out) {
+  size_t m = 0;
+  for (size_t i = 0; i < n; ++i) {
+    unsigned char byte = p[i];
+    size_t row = utf8model::rowStartedBy(byte);
+    bool stray = row == utf8model::rows && !(byte >= 0x80 && byte <= 0xBF);
+    if (stray && prop::planted(latin1Fallback)) {
+      m += utf8model::encode(byte, out + m);
+    } else if (byte == 0xC0 && i + 1 < n && p[i + 1] == 0x80 && prop::planted(overlongNul)) {
+      out[m++] = 0x00;
+      ++i;
+    } else if (row < utf8model::rows && table37[row].length > 1 && i % block == block - 1 &&
+               prop::planted(boundaryLead)) {
+      out[m++] = 0xFF;
+    } else if (row < utf8model::rows && table37[row].length > 2 && i % block + table37[row].length > block &&
+               prop::planted(boundaryCrossing)) {
+      out[m++] = 0xFF;
+    } else {
+      out[m++] = byte;
+    }
+  }
+  return m;
+}
+
 // The model's string of the n bytes at p: the encodings of the scalars
 // utf8model::decode reads, and their count.
 struct Decoded {
@@ -67,7 +129,9 @@ struct Decoded {
 // and from_bytes of its bytes, which are well-formed, gives them back.
 bool fromBytesIsTheModel(const unsigned char *p, size_t n) {
   Decoded want(p, n);
-  const idris_rt_str *got = idris_rt_str_from_bytes(reinterpret_cast<const char *>(p), n);
+  unsigned char read[2 * longest];
+  size_t m = asMutantReads(p, n, read);
+  const idris_rt_str *got = idris_rt_str_from_bytes(reinterpret_cast<const char *>(read), m);
   const char *bytes = idris_rt_str_bytes(got);
   const idris_rt_str *again = idris_rt_str_from_bytes(bytes, got->bytes);
   bool same = got->bytes == want.length && memcmp(bytes, want.bytes, want.length) == 0;
@@ -272,7 +336,8 @@ bool standardsExample() {
                                      0x62, 0x80, 0x63, 0x80, 0xBF, 0x64};
   constexpr uint32_t output[] = {0x61, 0xFFFD, 0xFFFD, 0xFFFD, 0x62, 0xFFFD, 0x63, 0xFFFD, 0xFFFD, 0x64};
   uint32_t got[sizeof input];
-  size_t count = utf8model::decode(input, sizeof input, got);
+  size_t count = prop::planted(perByteReplacement) ? decodePerByte(input, sizeof input, got)
+                                                   : utf8model::decode(input, sizeof input, got);
   bool holds = count == sizeof output / sizeof output[0] && memcmp(got, output, sizeof output) == 0;
   if (!holds) {
     char text[sizeof input * 7 + 1] = "";
@@ -295,7 +360,7 @@ template <typename Make> bool oneOwnedResult(const char *operation, Make make) {
   bool owned = s->bytes == 0 ? count == 0 && made == 0 : count == 1 && made == 1;
   bool empty = s->bytes == 0;
   idris_rt_str_release(s);
-  bool released = idris_rt_live_cells() == before;
+  bool released = idris_rt_live_cells() == before && !(!empty && prop::planted(leaksString));
   if (!(owned && released))
     prop::explain("%s: a result of %s with count %u, %llu cells made, %s after its release", operation,
                   empty ? "no byte" : "some bytes", count, static_cast<unsigned long long>(made),
@@ -308,10 +373,10 @@ template <typename Make> bool oneOwnedResult(const char *operation, Make make) {
 int main(int argc, char **argv) {
   prop::Run run(argc, argv);
 
-  run.box("box: the model gives the Standard's example its U+FFFDs", 1,
+  run.box("box: the model gives the Standard's example its U+FFFDs", 1, perByteReplacement,
           [](uint64_t) { return standardsExample(); });
 
-  run.property("from_bytes: Table 3-7's scalars, one U+FFFD per maximal subpart",
+  run.property("from_bytes: Table 3-7's scalars, one U+FFFD per maximal subpart", latin1Fallback,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  unsigned char input[longest];
                  size_t n = drawInput(p, input);
@@ -319,14 +384,14 @@ int main(int argc, char **argv) {
                  return fromBytesIsTheModel(input, n);
                });
 
-  run.box("box: every byte string of at most 2 bytes", 1 + 256 + 256 * 256, [](uint64_t index) {
+  run.box("box: every byte string of at most 2 bytes", 1 + 256 + 256 * 256, overlongNul, [](uint64_t index) {
     unsigned char input[2];
     return fromBytesIsTheModel(input, bijective256(index, input));
   });
 
   // Each pair of bytes at offsets 62, 63 and 64: ending at the first
   // boundary, across it, starting at it.
-  run.box("box: every byte pair across a 64-byte block boundary", 3 * 256 * 256, [](uint64_t index) {
+  run.box("box: every byte pair across a 64-byte block boundary", 3 * 256 * 256, boundaryLead, [](uint64_t index) {
     unsigned char input[runLength];
     memset(input, 'x', sizeof input);
     size_t at = block - 2 + index / (256 * 256);
@@ -335,7 +400,7 @@ int main(int argc, char **argv) {
     return fromBytesIsTheModel(input, sizeof input);
   });
 
-  run.box("box: every row of Table 3-7 and its truncations around a block boundary", tableInputs(),
+  run.box("box: every row of Table 3-7 and its truncations around a block boundary", tableInputs(), boundaryCrossing,
           [](uint64_t index) {
             size_t row = 0;
             for (; index >= rowInputs(table37[row]); ++row)
@@ -352,15 +417,19 @@ int main(int argc, char **argv) {
             return fromBytesIsTheModel(input, sizeof input);
           });
 
-  run.property("from_utf8, utf8_count: well-formed bytes as they are, counted",
+  run.property("from_utf8, utf8_count: well-formed bytes as they are, counted", countsUtf16,
                [](FuzzedDataProvider &p, prop::Tally &) {
                  unsigned char input[longest];
                  size_t scalars = 0;
                  size_t n = drawWellFormed(p, input, scalars);
                  const char *bytes = reinterpret_cast<const char *>(input);
                  const idris_rt_str *s = idris_rt_str_from_utf8(bytes, n);
+                 size_t counted = idris_rt_utf8_count(bytes, n);
+                 if (prop::planted(countsUtf16))
+                   for (size_t k = 0; k < n; ++k)
+                     counted += input[k] >= 0xF0;
                  bool holds = s->bytes == n && memcmp(idris_rt_str_bytes(s), input, n) == 0 &&
-                              s->scalars == scalars && idris_rt_utf8_count(bytes, n) == scalars;
+                              s->scalars == scalars && counted == scalars;
                  if (!holds) {
                    prop::explain("%zu scalars, %s", scalars, Hex(input, n).text);
                    prop::explain("from_utf8: %llu scalars, %s; utf8_count: %zu",
@@ -371,7 +440,7 @@ int main(int argc, char **argv) {
                  return holds;
                });
 
-  run.property("every operation borrows its argument and returns one owned result",
+  run.property("every operation borrows its argument and returns one owned result", leaksString,
                [](FuzzedDataProvider &p, prop::Tally &) {
                  unsigned char any[longest];
                  size_t n = drawInput(p, any);

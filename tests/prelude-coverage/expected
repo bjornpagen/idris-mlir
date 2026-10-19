@@ -1,2 +1,4 @@
 prelude modules: read from third_party/Idris2/libs/prelude/prelude.ipkg
 no prelude module without a covers fixture that is not listed
+witness: each planted file is found
+near miss: nothing found

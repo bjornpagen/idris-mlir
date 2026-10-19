@@ -18,8 +18,11 @@
 #   - MLIR.idr holds each generated sum in its types or attributes, and
 #     SyntaxSamples.idr, whose module the round trip reads back, samples
 #     each through the sum's list of mnemonics.
-# Each literal rule runs on a planted module that breaks it, which it must
-# find.
+# The literal rules are `literals ROOT`, run on the repository and on the
+# planted trees (lib/planted.sh): witness/ spells an op, a dialect's
+# prefix, a type and an attribute by hand, each where it may not; near-miss/
+# spells them in a comment, in a syntax module, and names of dialects
+# outside the contract or with no dot.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 cd "$root" || exit 1
 contract='idr arith math ub memref tensor builtin'
@@ -49,41 +52,40 @@ for dialect in $contract; do
   grep -qx "$dialect" "$work/built" || say "$dialect: built by no module"
 done
 
-# literals PATTERN FILE...: each string literal of FILE... that PATTERN
-# matches, as FILE:LINE:TEXT.
-literals() {
-  literals_pattern=$1
-  shift
-  for literals_file in "$@"; do
-    idris_lex strings "$literals_file" | grep -E "$literals_pattern" | sed "s|^|$literals_file:|"
+# literals ROOT: the string literals of the Idris under ROOT that spell a
+# name of a contract dialect where only generated code may: in a module
+# that writes a module (Emit.idr, Emit/*.idr, MLIR.idr, MLIR/Text.idr) an
+# op's name or its dialect's prefix, `<dialect>.`; outside the syntax and
+# dialect modules a type or an attribute, `!<dialect>.` or `#<dialect>.`.
+# As `path:line: what`.
+literals() (
+  cd "$1" || exit 1
+  [ -d "$src" ] || exit 0
+  for file in "$src"/Emit.idr "$src"/Emit/*.idr "$src"/MLIR.idr "$src"/MLIR/Text.idr; do
+    [ -f "$file" ] || continue
+    idris_lex strings "$file" | grep -E "^[0-9]+:($(printf '%s' "$contract" | tr ' ' '|'))\\." |
+      sed "s|^\([0-9]*\):\(.*\)|$file:\1: an op of a dialect spelled by hand, \2|"
   done
-}
+  find "$src" -path "$src/Syntax" -prune -o -path "$src/Dialect" -prune -o -name '*.idr' -print |
+    LC_ALL=C sort | while IFS= read -r file; do
+      idris_lex strings "$file" | grep -E '^[0-9]+:[!#][a-z_]+\.' |
+        sed "s|^\([0-9]*\):\(.*\)|$file:\1: a type or attribute spelled by hand, \2|"
+    done
+)
 
-# unwritten NAME TEXT PATTERN FILE...: TEXT when no literal of FILE...
-# matches PATTERN and the planted module's literal does, else the hits.
-unwritten() {
-  unwritten_name=$1 unwritten_text=$2 unwritten_pattern=$3
-  shift 3
-  literals "$unwritten_pattern" "$@" > "$work/hits"
-  if [ -s "$work/hits" ]; then
-    say "$unwritten_name: spelled by hand:"
-    show "$work/hits"
-  elif [ -z "$(literals "$unwritten_pattern" "$work/Planted.idr")" ]; then
-    say "$unwritten_name: the planted module's literal is not found"
-  else
-    say "$unwritten_name: $unwritten_text"
-  fi
-}
-
-printf '%s\n' 'planted : String' 'planted = "arith.addi" ++ "!idr.box"' > "$work/Planted.idr"
-unwritten "names of the dialects in Emit" "none spelled by hand" \
-  "^[0-9]+:($(printf '%s' "$contract" | tr ' ' '|'))\\." \
-  "$src"/Emit.idr "$src"/Emit/*.idr "$src"/MLIR.idr "$src"/MLIR/Text.idr
-find "$src" -path "$src/Syntax" -prune -o -path "$src/Dialect" -prune -o -name '*.idr' -print |
-  LC_ALL=C sort > "$work/outside"
-# shellcheck disable=SC2046
-unwritten "types and attributes" "none spelled outside the syntax modules" \
-  '^[0-9]+:[!#][a-z_]+\.' $(cat "$work/outside")
+literals "$root" > "$work/literals"
+if grep -q ': an op of' "$work/literals"; then
+  say "names of the dialects in Emit: spelled by hand:"
+  grep ': an op of' "$work/literals" | sed 's/^/  /'
+else
+  say "names of the dialects in Emit: none spelled by hand"
+fi
+if grep -q ': a type or attribute' "$work/literals"; then
+  say "types and attributes: spelled outside the syntax modules:"
+  grep ': a type or attribute' "$work/literals" | sed 's/^/  /'
+else
+  say "types and attributes: none spelled outside the syntax modules"
+fi
 
 # Each generated sum, with the list of its mnemonics, from the definitions
 # the syntax module gives them.
@@ -118,3 +120,4 @@ if [ -s "$work/unsampled" ]; then
 else
   say "generated sums: each sampled through its mnemonics"
 fi
+planted literals

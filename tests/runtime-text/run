@@ -6,7 +6,10 @@
 # snprintf's decimal text and big_show GMP's, `cast` from String to an
 # integer reads what its grammar generates as its value and every other
 # string as 0, the texts round-trip, and every operation borrows its
-# argument and returns one owned result (text.cpp). The report beside the
+# argument and returns one owned result (text.cpp). Words are drawn at the
+# edges of int64, uint64 and the small range (2^62), bigs at bigmodel's.
+# Each run draws from a fresh seed, which a failure names; then each check
+# runs with its own planted fault and must catch it. The report beside the
 # transcript says how the cases fell into classes.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 . "$root/harness/prop/prop.sh"
@@ -15,4 +18,4 @@ prop_build "$here/text.cpp" "$work/text" || exit 0
 # host's clang, arm64 macOS), most of it the capture's 20000 temporary
 # files; the owner's build sets the number so that the program ends well
 # within step_limit on both targets.
-prop_run "$work/text" --seed 1 --cases 20000
+prop_run "$work/text" --cases 20000

@@ -2,3 +2,7 @@ Count.idr: compile exit 0
 Count.idr: printed 7
 Named.idr: compile exit 0
 Named.idr: printed 7
+my-prog.idr: compile exit 0
+my-prog.idr: printed 7
+sub/Deep.idr: compile exit 0
+sub/Deep.idr: printed 7

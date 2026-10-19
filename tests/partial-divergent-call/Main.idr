@@ -33,3 +33,4 @@ main = do
   printLn (safeDiv 84 2)
   printLn (collatz 97 0)
   printLn (collatz 27 0)
+  printLn (collatz 1 0)

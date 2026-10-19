@@ -1,3 +1,5 @@
+// RUN: idris-mlir-opt %s --idr-rc -o %t.owned.mlir
+// RUN: %differential %s %t.owned.mlir
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=stage=owned -o /dev/null
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)),idr-expect{holds=constant-stack=@walk})' -o /dev/null
 // idr-rc counts what flows through every region op, and the owned stage's
@@ -10,10 +12,20 @@
 // region of an array.update, each count what they take (@branches,
 // @switch, @bump); and a self tail call that passes an element of its
 // array is still a tail call, so the walk runs in constant stack (@walk).
+// The root runs each of them on what the input byte sets: buffers of 0 to
+// 3 strings, each filled before it is read, 0 to 3 doublings, both arms of
+// the if, the three cases of the switch, and an element updated; every run
+// prints what it printed before counting and leaves no cell live.
 !B = !idr.data<"B", plain [@MkB(!idr.str)]>
 idr.program @"regions-counted" root(@root) stage(first) {
   idr.func @make(%n: index) -> memref<?x!idr.str> {
     %b = memref.alloc(%n) : memref<?x!idr.str>
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    scf.for %i = %c0 to %n step %c1 {
+      %s = idr.constant !idr.str "ab"
+      memref.store %s, %b[%i] : memref<?x!idr.str>
+    }
     return %b : memref<?x!idr.str>
   }
   idr.func @viewInLoop(%n: index) -> i64 {
@@ -91,8 +103,46 @@ idr.program @"regions-counted" root(@root) stage(first) {
     }
     return %r : i64
   }
-  idr.func @root() -> i64 {
+  idr.func @root(%w: !idr.world) -> !idr.world {
+    %ch, %w0 = idr.io.get_byte %w
+    %byte = arith.extui %ch : i32 to i64
+    %c1 = arith.constant 1 : i64
+    %c2 = arith.constant 2 : i64
+    %c3 = arith.constant 3 : i64
+    %c4 = arith.constant 4 : i64
     %zero = arith.constant 0 : i64
-    return %zero : i64
+    %k = arith.remui %byte, %c4 : i64
+    %q = arith.divui %byte, %c4 : i64
+    %which = arith.remui %q, %c3 : i64
+    %bit = arith.andi %byte, %c1 : i64
+    %c = arith.cmpi ne, %bit, %zero : i64
+    %n = arith.index_cast %k : i64 to index
+    %v = idr.call @viewInLoop(%n) : (index) -> i64
+    %s = idr.constant !idr.str "xyz"
+    %t = idr.constant !idr.str "!"
+    %acc = idr.call @accumulate(%n, %s) : (index, !idr.str) -> !idr.box<!B>
+    %accs = idr.field %acc : !idr.box<!B> @MkB[0] -> !idr.str
+    %accl = idr.str.length %accs
+    %br = idr.call @branches(%c, %s, %t) : (i1, !idr.str, !idr.str) -> !idr.str
+    %brl = idr.str.length %br
+    %wi = arith.index_cast %which : i64 to index
+    %sw = idr.call @switch(%wi, %s) : (index, !idr.str) -> !idr.str
+    %w1 = idr.io.put_str %sw, %w0
+    %one = idr.con !idr.box<!B> @MkB(%t : !idr.str)
+    %arr, %w2 = idr.array.new [%c2], %one, %w1 : !idr.box<!B> -> memref<?x!idr.box<!B>, #idr.world>
+    %i = idr.check.in_bounds %bit, %arr, "array index out of bounds" : memref<?x!idr.box<!B>, #idr.world>
+    %w3 = idr.call @bump(%arr, %i, %w2) : (memref<?x!idr.box<!B>, #idr.world>, i64, !idr.world) -> !idr.world
+    %e, %w4 = idr.array.get %arr[%i], %w3 : memref<?x!idr.box<!B>, #idr.world> -> !idr.box<!B>
+    %es = idr.field %e : !idr.box<!B> @MkB[0] -> !idr.str
+    %el = idr.str.length %es
+    %buf = idr.call @make(%n) : (index) -> memref<?x!idr.str>
+    %c0 = arith.constant 0 : index
+    %wk = idr.call @walk(%buf, %c0, %n, %zero) : (memref<?x!idr.str>, index, index, i64) -> i64
+    %w5 = idr.io.put_sint %v, %w4 : i64
+    %w6 = idr.io.put_sint %accl, %w5 : i64
+    %w7 = idr.io.put_sint %brl, %w6 : i64
+    %w8 = idr.io.put_sint %el, %w7 : i64
+    %w9 = idr.io.put_sint %wk, %w8 : i64
+    return %w9 : !idr.world
   }
 }

@@ -1,1 +1,0 @@
-[bind [x=y]][bind [z=let [w=x] in w]]

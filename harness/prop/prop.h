@@ -6,6 +6,11 @@
 // bytes; each property's classes go to the report file --report names, never
 // into it. A program's transcript is its property lines only.
 //
+// Every check (a property or a box) is given a mutant: a fault planted where
+// the check reads the runtime or states its oracle, which the check must
+// notice. `--mutants` runs each check with its own mutant planted, so a
+// check that cannot fail cannot pass for one that holds.
+//
 // Header-only, and nothing in it needs the C++ library at link time: a
 // property program links as a program does, with none.
 #pragma once
@@ -89,6 +94,30 @@ inline unsigned pick(FuzzedDataProvider &provider, uint64_t mask) {
   return static_cast<unsigned>(__builtin_ctzll(mask));
 }
 
+// A planted fault, named by what it does: `does` reads after "a runtime
+// that". Its identity is its address: a program declares each once and
+// gives it to the check that must catch it, and planted() asks for it
+// where the fault goes.
+struct Mutant {
+  const char *does;
+};
+
+namespace detail {
+// The mutant a --mutants run plants in the check running, else none; and
+// how many times planted() has said it is planted since the check began.
+inline const Mutant *planting = nullptr;
+inline uint64_t plantings = 0;
+} // namespace detail
+
+// Whether `m` is planted: only in a --mutants run, in the check given `m`.
+// Each call that says yes is counted, so a check that fails without its
+// mutant having been planted is told from one that caught it.
+inline bool planted(const Mutant &m) {
+  bool yes = detail::planting == &m;
+  detail::plantings += yes;
+  return yes;
+}
+
 namespace detail {
 // What explain() has said of the case or input running: whole lines, each
 // ending in '\n', then a NUL, in a buffer that is cleared before each case
@@ -156,15 +185,29 @@ template <typename Write> size_t captureStdout(Write write, char *out, size_t ca
 
 class Run {
 public:
-  // PROGRAM [--seed S] [--cases N] [--case I [--bytes L]] [--report FILE];
-  // defaults: seed 1, 1000 cases, every case, caseBytes, no report. Any other
-  // argument: a usage line on stderr and exit status 2.
+  // PROGRAM [--seed S] [--cases N] [--case I [--bytes L]] [--report FILE]
+  // [--mutants]; defaults: seed 1, 1000 cases, every case, caseBytes, no
+  // report, each check judged as it is. Any other argument: a usage line on
+  // stderr and exit status 2. splitmix64 is checked first against its
+  // published outputs (harness/Gen.idr checks the same three), since every
+  // case stands on it.
   Run(int argc, char **argv) : program_(argv[0]) {
+    if (caseSeed(0, 0) != 0xE220A8397B1DCDAFu || caseSeed(0, 1) != 0x6E789E6AA1B965F4u ||
+        caseSeed(0, 2) != 0x06C45D188009454Fu) {
+      fprintf(stderr, "prop: splitmix64 does not give its published outputs\n");
+      exit(2);
+    }
     uint64_t cases = 1000;
     bool replay = false;
-    // Every option takes a value: an option is argv[at], its value argv[at + 1].
+    // Every option but --mutants takes a value: an option is argv[at], its
+    // value argv[at + 1].
     for (int at = 1; at < argc; at += 2) {
       const char *option = argv[at];
+      if (equal(option, "--mutants")) {
+        mutants_ = true;
+        --at;
+        continue;
+      }
       const char *text = valueOf(argc, argv, at + 1);
       if (equal(option, "--seed")) {
         seed_ = number(text, 0, UINT64_MAX);
@@ -196,10 +239,23 @@ public:
   // once more for its explain() lines. Prints "<name>: ok", or
   // "<name>: failed", "  | case I of seed S, L bytes: rerun with --seed S
   // --case I --bytes L" and "  | <line>" for each explanation. Stdout is
-  // flushed after every line.
-  template <typename Body> void property(const char *name, Body body) {
+  // flushed after every line. In a --mutants run, the same cases with
+  // `mutant` planted (judgeMutant).
+  template <typename Body> void property(const char *name, const Mutant &mutant, Body body) {
     Entry &entry = enter(name, Kind::Property);
     uint8_t bytes[caseBytes];
+    if (mutants_) {
+      judgeMutant(name, mutant, [&] {
+        for (uint64_t index = first_; index < end_; ++index) {
+          fillCase(seed_, index, bytes, bytes_);
+          Tally tally;
+          if (!holdsOn(body, bytes, bytes_, tally))
+            return true;
+        }
+        return false;
+      });
+      return;
+    }
     for (uint64_t index = first_; index < end_; ++index) {
       fillCase(seed_, index, bytes, bytes_);
       Tally tally;
@@ -225,9 +281,21 @@ public:
   }
   // body(uint64_t input) -> bool on every input in [0, count), whatever
   // --case says. Prints "<name>: ok", or "<name>: failed", "  | input I" and
-  // the explanation lines of the first input that fails.
-  template <typename Body> void box(const char *name, uint64_t count, Body body) {
+  // the explanation lines of the first input that fails. In a --mutants
+  // run, the same inputs with `mutant` planted (judgeMutant).
+  template <typename Body> void box(const char *name, uint64_t count, const Mutant &mutant, Body body) {
     enter(name, Kind::Box).runs = count;
+    if (mutants_) {
+      judgeMutant(name, mutant, [&] {
+        for (uint64_t input = 0; input < count; ++input) {
+          detail::clearExplanation();
+          if (!body(input))
+            return true;
+        }
+        return false;
+      });
+      return;
+    }
     for (uint64_t input = 0; input < count; ++input) {
       detail::clearExplanation();
       if (body(input))
@@ -241,8 +309,17 @@ public:
     line("%s: ok", name);
   }
   // Writes the report when --report was given; returns 0 when every
-  // property and box held, else 1.
+  // property and box held, else 1. A --mutants run writes no report: it
+  // prints "mutants: each caught" when every check caught its mutant, else
+  // how many did not, and returns 0 when each did, else 1.
   int finish() {
+    if (mutants_) {
+      if (missed_ == 0)
+        line("mutants: each caught");
+      else
+        line("mutants: %u of %u not caught", missed_, entryCount_);
+      return missed_ == 0 ? 0 : 1;
+    }
     if (report_ != nullptr)
       writeReport();
     return held_ ? 0 : 1;
@@ -267,9 +344,25 @@ private:
   };
 
   [[noreturn]] void usage() {
-    fprintf(stderr, "usage: %s [--seed S] [--cases N] [--case I [--bytes L]] [--report FILE]\n",
+    fprintf(stderr, "usage: %s [--seed S] [--cases N] [--case I [--bytes L]] [--report FILE] [--mutants]\n",
             program_);
     exit(2);
+  }
+  // A check run with `mutant` planted: fails() runs it and says whether it
+  // failed. Caught when it failed and the mutant was planted on the way;
+  // else a line names the check and the mutant: not caught, when the check
+  // held, or failing unplanted, when it failed where nothing was planted
+  // (the check fails on the runtime itself, which its own run reports).
+  template <typename Fails> void judgeMutant(const char *name, const Mutant &mutant, Fails fails) {
+    detail::planting = &mutant;
+    detail::plantings = 0;
+    bool failed = fails();
+    detail::planting = nullptr;
+    if (failed && detail::plantings > 0)
+      return;
+    ++missed_;
+    line("%s: the mutant that %s is %s", name, mutant.does,
+         failed ? "failing unplanted" : detail::plantings > 0 ? "not caught" : "never planted");
   }
   static bool equal(const char *a, const char *b) { return strcmp(a, b) == 0; }
   // The value at argv[at], or the usage line when the arguments end first.
@@ -382,6 +475,8 @@ private:
   size_t bytes_ = caseBytes;
   const char *report_ = nullptr;
   bool held_ = true;
+  bool mutants_ = false;
+  unsigned missed_ = 0;
   Entry entries_[propertyLimit];
   unsigned entryCount_ = 0;
 };

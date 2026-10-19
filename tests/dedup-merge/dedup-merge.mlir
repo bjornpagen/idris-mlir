@@ -9,6 +9,7 @@
 // RUN: idris-mlir-opt %s -o %t.none.mlir
 // RUN: idris-mlir-opt %s --idr-deduplicate --mlir-disable-threading -mlir-debug-counter=idr-deduplicate-merge-count=0 -o %t.skipped.mlir
 // RUN: diff %t.none.mlir %t.skipped.mlir
+// RUN: %differential %s %t.mlir
 // MERGED-DAG: expected apart: {{.*}}@A.inc{{.*}}@B.inc
 // MERGED-DAG: expected apart: {{.*}}@A.id{{.*}}@B.id
 // MERGED-DAG: expected apart: {{.*}}@A.down{{.*}}@B.down
@@ -22,7 +23,9 @@
 // the two callers. A call, and a closure naming one of them, name the one
 // kept, whose location fuses its members' (so either name finds it). The
 // output is the same under one thread, a second run changes nothing, and
-// with every merge skipped the pass is the identity.
+// with every merge skipped the pass is the identity. The root runs every
+// function on what it reads, and the program prints after the pass what
+// it printed before, on every byte.
 idr.program @merge root(@root) stage(higher) {
   idr.func @A.inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
@@ -84,8 +87,9 @@ idr.program @merge root(@root) stage(higher) {
     }
     return %r : i64
   } loc("B.down")
-  idr.func @root(%w: !idr.world) -> !idr.world {
-    %n = arith.constant 7 : i64
+  idr.func @root(%w0: !idr.world) -> !idr.world {
+    %ch, %w = idr.io.get_byte %w0
+    %n = arith.extui %ch : i32 to i64
     %z = arith.constant 0 : i64
     %a = idr.call @A.inc(%n) : (i64) -> i64
     %b = idr.call @B.inc(%a) : (i64) -> i64

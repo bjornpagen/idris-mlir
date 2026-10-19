@@ -16,68 +16,85 @@
 # as the file spells it, and only shrinks. An include that is not listed
 # fails, and so does a listed one that is gone, so that whoever removes an
 # include removes its line.
+#
+# The rule is `local_headers ROOT`, its list ROOT/tests/no-local-headers/
+# allowed, run on the repository and on the planted trees
+# (lib/planted.sh): witness/ holds a header beside a .cpp, a unit of
+# foreign/idr and one of the runtime that include a header beside them,
+# a unit of foreign/idr that includes a runtime header unlisted, and a
+# list with a line that is gone (a forbidden include is a finding at the
+# includer and at the header); near-miss/ holds what is allowed: a public
+# header by its path, idris_rt.h, a runtime header by its path from
+# runtime/, a listed include, a generated one and a system one.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cd "$root" || exit 1
-find . \( -name third_party -o -name build -o -name sources -o -name '.?*' \) -prune \
-  -o -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cppm' -o -name '*.cpp' -o -name '*.h' \
-     -o -name '*.hpp' -o -name '*.inc' \) -print | sed 's|^\./||' | sort > "$work/sources"
-if [ -s "$work/sources" ]; then say "sources: found"; else say "sources: none found"; fi
 
-# No header beside a .cpp: every header of foreign/idr is under its include
-# directory.
-grep -E '^foreign/idr/.*\.(h|hpp)$' "$work/sources" | grep -v '^foreign/idr/include/' > "$work/beside"
-if [ -s "$work/beside" ]; then
+# local_headers ROOT: the findings in the tree at ROOT, `path:line: what`
+# or `path: what`. A test's planted trees are no sources of the tree.
+local_headers() (
+  cd "$1" || exit 1
+  list=tests/no-local-headers/allowed
+  find . \( -name third_party -o -name build -o -name sources -o -name '.?*' \
+            -o -path './tests/*/witness' -o -path './tests/*/near-miss' \) -prune \
+    -o -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cppm' -o -name '*.cpp' -o -name '*.h' \
+       -o -name '*.hpp' -o -name '*.inc' \) -print | sed 's|^\./||' | LC_ALL=C sort > "$work/sources"
+  # No header beside a .cpp: every header of foreign/idr is under its
+  # include directory.
+  grep -E '^foreign/idr/.*\.(h|hpp)$' "$work/sources" | grep -v '^foreign/idr/include/' |
+    sed 's/$/: a header outside foreign\/idr\/include/'
+  # Each quoted include that names a file of the repository: beside the
+  # including file, or on an include path of the build (foreign/idr/include,
+  # runtime). Those the rule allows are not kept.
+  while IFS= read -r file; do
+    grep -nE '^[[:space:]]*#[[:space:]]*include[[:space:]]*"' "$file" |
+      sed 's/^\([0-9]*\):[[:space:]]*#[[:space:]]*include[[:space:]]*"\([^"]*\)".*/\1 \2/' |
+      while read -r n header; do
+        for base in "${file%/*}" foreign/idr/include runtime; do
+          [ -f "$base/$header" ] || continue
+          case $base/$header in
+            runtime/idris_rt.h | foreign/idr/include/*) ;;
+            *) case $file:$base in
+                 runtime/*:runtime) ;;
+                 *) printf '%s\t%s\t%s\t%s\n' "$file" "$n" "$header" "$base/$header" ;;
+               esac ;;
+          esac
+          break
+        done
+      done
+  done < "$work/sources" > "$work/includes"
+  if [ -f "$list" ]; then
+    awk '!/^[[:space:]]*#/ && !/^[[:space:]]*$/ { print $0 "\t" FNR }' "$list" > "$work/allowed"
+  else
+    : > "$work/allowed"
+  fi
+  while IFS='	' read -r file n header path; do
+    awk -F'\t' -v entry="$file: $header" '$1 == entry { found = 1 } END { exit !found }' "$work/allowed" && continue
+    printf '%s:%s: includes %s, a header of the repository outside foreign/idr/include\n' "$file" "$n" "$header"
+    printf '%s: included by %s:%s\n' "$path" "$file" "$n"
+  done < "$work/includes"
+  while IFS='	' read -r entry n; do
+    awk -F'\t' -v entry="$entry" '$1 ": " $3 == entry { found = 1 } END { exit !found }' "$work/includes" ||
+      printf '%s:%s: allows %s, which is gone\n' "$list" "$n" "$entry"
+  done < "$work/allowed"
+)
+
+(cd "$root" && find foreign/idr runtime -name '*.cpp' | grep -q .) && say "sources: found" || say "sources: none found"
+local_headers "$root" > "$work/found"
+if grep -q ': a header outside' "$work/found"; then
   say "headers outside foreign/idr/include:"
-  cat "$work/beside"
+  grep ': a header outside' "$work/found" | sed 's/^/  /'
 else
   say "no header beside a .cpp"
 fi
-
-# Each quoted include that names a file of the repository: beside the
-# including file, or on an include path of the build (foreign/idr/include,
-# runtime).
-while IFS= read -r file; do
-  sed -n 's/^[[:space:]]*#[[:space:]]*include[[:space:]]*"\([^"]*\)".*/\1/p' "$file" |
-    while IFS= read -r header; do
-      for base in "${file%/*}" foreign/idr/include runtime; do
-        [ -f "$base/$header" ] || continue
-        case $base/$header in
-          runtime/idris_rt.h) printf 'exception %s\n' "$base/$header" ;;
-          foreign/idr/include/*) printf 'public %s\n' "$base/$header" ;;
-          *) case $file:$base in
-               runtime/*:runtime) printf 'runtime %s\n' "$base/$header" ;;
-               *) printf '%s: %s\n' "$file" "$header" ;;
-             esac ;;
-        esac
-        break
-      done
-    done
-done < "$work/sources" | sort -u > "$work/includes"
-# The rule's own cases show that the check finds what an include names.
-if grep -qx 'exception runtime/idris_rt.h' "$work/includes"; then
-  say "the check sees the includes of runtime/idris_rt.h"
-else
-  say "the check does not see the includes of runtime/idris_rt.h"
-fi
-if grep -qx 'public foreign/idr/include/idr/IR/IdrDialect.h' "$work/includes"; then
-  say "the check sees the includes of foreign/idr/include/idr/IR/IdrDialect.h"
-else
-  say "the check does not see the includes of foreign/idr/include/idr/IR/IdrDialect.h"
-fi
-grep -v -e '^exception ' -e '^public ' -e '^runtime ' "$work/includes" > "$work/found"
-
-grep -v '^[[:space:]]*#' "$here/allowed" | grep -v '^[[:space:]]*$' | sort -u > "$work/allowed"
-comm -23 "$work/found" "$work/allowed" > "$work/new"
-comm -13 "$work/found" "$work/allowed" > "$work/stale"
-if [ -s "$work/new" ]; then
+if grep -q ': includes ' "$work/found"; then
   say "includes of repository headers outside foreign/idr/include:"
-  cat "$work/new"
+  grep ': includes ' "$work/found" | sed 's/^/  /'
 else
   say "no include of a repository header that is not allowed"
 fi
-if [ -s "$work/stale" ]; then
+if grep -q '^tests/no-local-headers/allowed:' "$work/found"; then
   say "allowed includes that are gone (delete their lines from allowed):"
-  cat "$work/stale"
+  grep '^tests/no-local-headers/allowed:' "$work/found" | sed 's/^/  /'
 else
   say "every allowed include is still there"
 fi
+planted local_headers

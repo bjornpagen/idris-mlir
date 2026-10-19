@@ -1,7 +1,8 @@
 module Main
 
 -- A state record of 32 fields held in an IORef, read, rebuilt with one
--- field changed and written back, a million times in a loop. The read's
+-- field changed and written back, n times in a loop, n read (0 leaves the
+-- record as it was made, 1 rebuilds it once). The read's
 -- next IO is the write of the same IORef, so the read moves the record out
 -- of the cell (mlir.expect: moves-out) and holds its one reference.
 
@@ -64,10 +65,19 @@ loop ref n =
           writeIORef ref ({ f1 := s.f1 + 1 } s)
           loop ref (n - 1)
 
+readInt : IO Int
+readInt = go 0
+  where
+    go : Int -> IO Int
+    go acc = do
+      c <- getChar
+      if isDigit c then go (acc * 10 + cast (ord c - 48)) else pure acc
+
 main : IO ()
 main = do
+  n <- readInt
   ref <- newIORef initial
-  loop ref 1000000
+  loop ref n
   s <- readIORef ref
   printLn s.f1
   printLn (fieldSum s)

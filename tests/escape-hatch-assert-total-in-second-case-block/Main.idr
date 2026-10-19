@@ -1,4 +1,5 @@
--- expect: escape hatch, line 11
+-- expect: escape hatch, line 12
+-- message: Builtin.assert_total
 module Main
 
 import Prelude
@@ -13,4 +14,6 @@ count xs n = (case n of
                              (_ :: rest) => assert_total (count rest n))
 
 main : IO ()
-main = printLn (count [1, 2, 3] 0)
+main = do
+  line <- getLine
+  printLn (count [1, 2, 3] (cast line))

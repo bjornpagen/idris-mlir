@@ -24,14 +24,41 @@ prop_build() {
   fi
 }
 
-# prop_run PROGRAM ARG...: PROGRAM with ARG..., bounded, writing its report
-# to the work directory ($work/report). Prints
-# its stdout as it is, each line of its stderr as `  stderr | <line>`, then
-# PROGRAM's name and its exit status.
+# prop_run PROGRAM ARG...: PROGRAM with ARG... on this run's seed
+# (prop_seed), bounded, writing its report to the work directory
+# ($work/report), then again with --mutants (prop.h): each check with its
+# own mutant planted. Prints each run's stdout as it is, each line of its
+# stderr as `  stderr | <line>`, then PROGRAM's name and its exit status;
+# when either run failed, the seed, and how the test replays it.
 prop_run() {
-  bounded "$@" --report "$work/report" > "$work/prop-run.out" 2> "$work/prop-run.err"
+  if ! prop_run_seed=$(prop_seed); then
+    say "${1##*/}: no seed: /dev/urandom does not read"
+    return 1
+  fi
+  bounded "$@" --seed "$prop_run_seed" --report "$work/report" > "$work/prop-run.out" 2> "$work/prop-run.err"
   prop_run_status=$?
   cat "$work/prop-run.out"
   sed 's/^/  stderr | /' "$work/prop-run.err"
   say "${1##*/}: exit $prop_run_status"
+  bounded "$@" --seed "$prop_run_seed" --mutants > "$work/prop-mutants.out" 2> "$work/prop-mutants.err"
+  prop_mutants_status=$?
+  cat "$work/prop-mutants.out"
+  sed 's/^/  stderr | /' "$work/prop-mutants.err"
+  say "${1##*/} --mutants: exit $prop_mutants_status"
+  if [ "$prop_run_status" -ne 0 ] || [ "$prop_mutants_status" -ne 0 ]; then
+    say "  | seed $prop_run_seed: IDRIS_PROP_SEED=$prop_run_seed make test only=${here##*/} replays this run"
+  fi
+}
+
+# prop_seed: the seed of this run, IDRIS_PROP_SEED when it is set (a
+# failure's replay), else 64 fresh bits from /dev/urandom, so that each run
+# draws cases no run before it drew; the transcript of a run that holds
+# names no seed.
+prop_seed() {
+  if [ -n "${IDRIS_PROP_SEED:-}" ]; then
+    printf '%s\n' "$IDRIS_PROP_SEED"
+  else
+    prop_seed_bits=$(od -An -N8 -tu8 /dev/urandom) || return 1
+    printf '%s\n' $prop_seed_bits
+  fi
 }

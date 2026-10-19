@@ -1,6 +1,8 @@
-compile: exit 0
-artifacts: core module objects executable
-run: exit status as expected
-stdout: as expected
-stderr: empty
-universal: holds
+100 deep: compile: exit 0
+100 deep: artifacts: core module objects executable
+100 deep: cases: each as expected
+100 deep: universal: holds
+1000 deep: compile: exit 0
+1000 deep: artifacts: core module objects executable
+1000 deep: cases: each as expected
+1000 deep: universal: holds

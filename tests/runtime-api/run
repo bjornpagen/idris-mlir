@@ -7,10 +7,10 @@
 # NULL from birth; a copy of a memref's view counts each object it copies
 # before it releases what it overwrites; idris_rt_caf_release frees what a
 # forced static memo cell holds and touches nothing else; and a program
-# that returns reports its live cells when IDRIS_RT_LIVE is 1. Every entry
-# point that takes a handle gives, on each kind of handle (null, the standard
-# streams, a file open and closed, a directory), its result and the errno it
-# leaves (handles.c).
+# that returns reports its live cells when IDRIS_RT_LIVE is exactly 1, and
+# a crash never does. Every entry point that takes a handle gives, on each
+# kind of handle (null, the standard streams, a file open and closed, a
+# directory), its result and the errno it leaves (handles.c).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 # The runtime archive the build made, linked natively with GMP.
 runtime=$dev_prefix/runtime/libidris_rt.a
@@ -46,10 +46,16 @@ rc_mode() {
   sed 's/^/  stdout | /' "$work/mode.out"
   sed 's/^/  stderr | /' "$work/mode.err"
 }
+# The report is made only when the setting is exactly "1": not when it is
+# unset, empty, 0, a word, or a text that has a 1 and more.
 rc_mode leak 1
 rc_mode leak
+rc_mode leak ''
+rc_mode leak 0
 rc_mode leak yes
 rc_mode leak 11
+rc_mode leak 01
+rc_mode leak '1 '
 rc_mode crash 1
 
 build_test "$here/handles.c" "$work/handles" || exit 0

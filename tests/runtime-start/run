@@ -32,8 +32,22 @@ start() {
 start million
 start million 8388608
 start deep 16777216
+# main's value at the edges of an exit status and of the words a status
+# could be cut to: 2^32 and 2^32 + 255 are 0 and 255 in 32 bits.
+start 0
 start 255
 start 256
-start negative
-start million 12x
+start -1
+start 4294967296
+start 4294967551
+start -9223372036854775808
+# A setting that is no number of bytes above 0: letters after digits,
+# nothing, 0, a sign, a space, and 2^64, past every size.
+start 0 12x
+start 0 ''
+start 0 0
+start 0 -1
+start 0 ' 1'
+start 0 18446744073709551616
 start cpu
+start cpu-two

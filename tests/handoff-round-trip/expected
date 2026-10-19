@@ -2,3 +2,7 @@ bench/rbtree: printed, parsed and printed again, the same bytes
 bench/rbtree: the emitted module and its print, in the generic form, the same bytes
 tests/linarray-combinators: printed, parsed and printed again, the same bytes
 tests/linarray-combinators: the emitted module and its print, in the generic form, the same bytes
+tests/double-ties: printed, parsed and printed again, the same bytes
+tests/double-ties: the emitted module and its print, in the generic form, the same bytes
+tests/high-chars: printed, parsed and printed again, the same bytes
+tests/high-chars: the emitted module and its print, in the generic form, the same bytes

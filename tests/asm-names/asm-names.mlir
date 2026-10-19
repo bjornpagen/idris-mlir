@@ -1,5 +1,11 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s --mlir-use-nameloc-as-prefix | FileCheck %s --check-prefix=NAMED
+// RUN: idris-mlir-opt %s -o %t.once.mlir
+// RUN: idris-mlir-opt %t.once.mlir -o %t.twice.mlir
+// RUN: diff %t.once.mlir %t.twice.mlir
+// RUN: idris-mlir-opt %s --mlir-use-nameloc-as-prefix --mlir-print-debuginfo -o %t.named.once.mlir
+// RUN: idris-mlir-opt %t.named.once.mlir --mlir-use-nameloc-as-prefix --mlir-print-debuginfo -o %t.named.twice.mlir
+// RUN: diff %t.named.once.mlir %t.named.twice.mlir
 // The printer names a value for what it is: the world `w`, a string `s`,
 // an Integer or a natural `n`, a closure `f`, a suspension `lazy`, a token
 // `tok`, a graded value as its carrier; a constant by its kind or its
@@ -9,6 +15,8 @@
 // arguments, and a case's fields `f0`, `f1`, .... A value whose location
 // names the Idris binder it came from takes that name when the printer is
 // asked to. A repeated name is numbered apart, which no check reads.
+// Printed, the text reads back and prints as itself, and so does the
+// text printed with the binders' names and the locations that carry them.
 // CHECK-LABEL: idr.func @values(
 // CHECK-SAME: %w: !idr.world, %s: !idr.lin<!idr.str>, %n: !idr.big, %[[N:n_[0-9]+]]: !idr.nat, %f: !idr.fn<(i64) -> i64>, %lazy: !idr.lazy<i64>, %tok: !idr.token, %[[X:[a-z0-9_]+]]: i64)
 // CHECK: %str = constant !idr.str "a"

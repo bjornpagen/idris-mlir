@@ -1,4 +1,5 @@
--- expect: dependent field, line 6
+-- expect: dependent field, line 7
+-- message: Main.MkBox
 module Main
 import Prelude
 

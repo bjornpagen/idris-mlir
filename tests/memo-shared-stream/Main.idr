@@ -18,6 +18,9 @@ fibs = 0 :: 1 :: addS fibs (tail fibs)
 
 -- A stream made at run time from a seed: each element is a suspension of
 -- the sum of the two before it, which the next suspension reads again.
+-- Its k-th element is the seed times the (k+1)-th Fibonacci number, modulo
+-- 2^64 as Int's addition is: the seed 5 keeps the 88th below 2^63, and 9
+-- and the end of input (0xff) wrap it.
 fibsFrom : Lazy Int -> Lazy Int -> Stream Int
 fibsFrom a b = a :: fibsFrom b (a + b)
 

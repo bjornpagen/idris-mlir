@@ -1,6 +1,9 @@
 // RUN: idris-mlir-opt %s --idr-lower -o %t.mlir
+// RUN: %differential %s %t.mlir
+// RUN: sed -n 's|^// REF: ||p' %s > %t.ref.mlir
+// RUN: %differential %t.ref.mlir %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=lowered,direct-calls -o /dev/null
-// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=reads-nothing=@length,crash-sites=@length:0,crash-sites=@read:1,crash-sites=@write:1,crash-sites=@readD:1,crash-sites=@writeD:1,crash-sites=@readRef:0,crash-sites=@takeRef:0' -o /dev/null
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=reads-nothing=@length,crash-sites=@length:0,crash-sites=@readOpt:1,crash-sites=@writeOpt:1,crash-sites=@readD:1,crash-sites=@writeD:1,crash-sites=@readRef:0,crash-sites=@takeRef:0' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@make:@idris_rt_array_new,never-calls=@takeRef:@idris_rt_inc,never-calls=@takeRef:@idris_rt_dec' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls-only=@makeD:[@idris_rt_array_new],loops=@makeD:1,calls-only=@readD:[@idris_rt_crash],calls-only=@writeD:[@idris_rt_crash],calls-only=@readRefD:[],calls-only=@length:[]' -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-entry --canonicalize --cse --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts --idr-expect=holds=in-llvm -o /dev/null
@@ -13,31 +16,52 @@
 // a new element back and the old one out, moves the old one out with the
 // array's reference to it and stores the new one in its place: it counts
 // nothing. What reaches LLVM is LLVM's dialect alone.
+// The lowered program does what the program as written does, through the
+// rest of the pipeline, and what Idris says it does, as the reference
+// at the end (REF, no array in it) does: print 2.5 and 3 for an index in the
+// arrays, and crash at the first guard for one past them (%differential,
+// on the edges of the bounds: 0, 2, 3, 255 and the end of input, which
+// reads as 255).
+// STDIN: \0000
+// STDIN: \0002
+// STDIN: \0003
+// STDIN: \0377
+// STDIN:
 !Opt = !idr.data<"Opt", plain [@None(), @Some(!idr.str)]>
 idr.program @arrays root(@root) stage(owned) {
+  // The root indexes both arrays, of 3 elements, at the byte it reads: a
+  // read of the element there, a write of it back, and of the double one
+  // more than it, which it reads again and prints with the length.
   idr.func @root(%w: !idr.world) -> !idr.world {
+    %c, %w0 = idr.io.get_byte %w
+    %i = arith.extui %c : i32 to i64
     %n = arith.constant 3 : i64
-    %i = arith.constant 1 : i64
     %x = idr.con !idr.own<!Opt> @None()
-    %a, %w1 = idr.call @make(%n, %x, %w) : (i64, !idr.own<!Opt>, !idr.world) -> (!idr.own<memref<?x!Opt, #idr.world>>, !idr.world)
+    %a, %w1 = idr.call @make(%n, %x, %w0) : (i64, !idr.own<!Opt>, !idr.world) -> (!idr.own<memref<?x!Opt, #idr.world>>, !idr.world)
     %b = idr.borrow %a : !idr.own<memref<?x!Opt, #idr.world>>
-    %v, %w2 = idr.call @read(%b, %i, %w1) : (memref<?x!Opt, #idr.world>, i64, !idr.world) -> (!idr.own<!Opt>, !idr.world)
-    %w3 = idr.call @write(%b, %i, %v, %w2) : (memref<?x!Opt, #idr.world>, i64, !idr.own<!Opt>, !idr.world) -> !idr.world
+    %v, %w2 = idr.call @readOpt(%b, %i, %w1) : (memref<?x!Opt, #idr.world>, i64, !idr.world) -> (!idr.own<!Opt>, !idr.world)
+    %w3 = idr.call @writeOpt(%b, %i, %v, %w2) : (memref<?x!Opt, #idr.world>, i64, !idr.own<!Opt>, !idr.world) -> !idr.world
     %l = idr.call @length(%b) : (memref<?x!Opt, #idr.world>) -> index
     idr.drop %a : !idr.own<memref<?x!Opt, #idr.world>>
     %d = arith.constant 1.5 : f64
     %e, %w4 = idr.call @makeD(%n, %d, %w3) : (i64, f64, !idr.world) -> (!idr.own<memref<?xf64, #idr.world>>, !idr.world)
     %eb = idr.borrow %e : !idr.own<memref<?xf64, #idr.world>>
     %y, %w5 = idr.call @readD(%eb, %i, %w4) : (memref<?xf64, #idr.world>, i64, !idr.world) -> (f64, !idr.world)
-    %w6 = idr.call @writeD(%eb, %i, %y, %w5) : (memref<?xf64, #idr.world>, i64, f64, !idr.world) -> !idr.world
+    %one = arith.constant 1.0 : f64
+    %z = arith.addf %y, %one : f64
+    %w6 = idr.call @writeD(%eb, %i, %z, %w5) : (memref<?xf64, #idr.world>, i64, f64, !idr.world) -> !idr.world
+    %u, %w7 = idr.call @readD(%eb, %i, %w6) : (memref<?xf64, #idr.world>, i64, !idr.world) -> (f64, !idr.world)
     idr.drop %e : !idr.own<memref<?xf64, #idr.world>>
-    return %w6 : !idr.world
+    %w8 = idr.io.put_double %u, %w7
+    %li = arith.index_cast %l : index to i64
+    %w9 = idr.io.put_sint %li, %w8 : i64
+    return %w9 : !idr.world
   }
   idr.func @make(%n: i64, %x: !idr.own<!Opt>, %w: !idr.world) -> (!idr.own<memref<?x!Opt, #idr.world>>, !idr.world) {
     %a, %w1 = idr.array.new [%n], %x, %w : !idr.own<!Opt> -> !idr.own<memref<?x!Opt, #idr.world>>
     return %a, %w1 : !idr.own<memref<?x!Opt, #idr.world>>, !idr.world
   }
-  idr.func @read(%a: memref<?x!Opt, #idr.world>, %i: i64, %w: !idr.world) -> (!idr.own<!Opt>, !idr.world) {
+  idr.func @readOpt(%a: memref<?x!Opt, #idr.world>, %i: i64, %w: !idr.world) -> (!idr.own<!Opt>, !idr.world) {
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?x!Opt, #idr.world>
     %n = arith.index_cast %d : index to i64
@@ -45,7 +69,7 @@ idr.program @arrays root(@root) stage(owned) {
     %v, %w1 = idr.array.get %a[%j], %w : memref<?x!Opt, #idr.world> -> !idr.own<!Opt>
     return %v, %w1 : !idr.own<!Opt>, !idr.world
   }
-  idr.func @write(%a: memref<?x!Opt, #idr.world>, %i: i64, %y: !idr.own<!Opt>, %w: !idr.world) -> !idr.world {
+  idr.func @writeOpt(%a: memref<?x!Opt, #idr.world>, %i: i64, %y: !idr.own<!Opt>, %w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?x!Opt, #idr.world>
     %n = arith.index_cast %d : index to i64
@@ -103,3 +127,25 @@ idr.program @arrays root(@root) stage(owned) {
     return %v, %w1 : f64, !idr.world
   }
 }
+// The reference:
+// REF: idr.program @ref root(@root) stage(higher) {
+// REF:   idr.func @root(%w: !idr.world) -> !idr.world {
+// REF:     %c, %w1 = idr.io.get_byte %w
+// REF:     %three = arith.constant 3 : i32
+// REF:     %in = arith.cmpi ult, %c, %three : i32
+// REF:     %r = idr.match_lit %in : i1 -> (i64) {
+// REF:     case 1 {
+// REF:       %n = arith.constant 3 : i64
+// REF:       idr.yield %n : i64
+// REF:     }
+// REF:     default(%d: i1) {
+// REF:       idr.crash "array index out of bounds"
+// REF:       ub.unreachable
+// REF:     }
+// REF:     }
+// REF:     %x = arith.constant 2.5 : f64
+// REF:     %w2 = idr.io.put_double %x, %w1
+// REF:     %w3 = idr.io.put_sint %r, %w2 : i64
+// REF:     return %w3 : !idr.world
+// REF:   }
+// REF: }

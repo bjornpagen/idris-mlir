@@ -8,8 +8,15 @@
 # owed); never both, so the file only shrinks. The rules are the build's
 # list (harness/lib/rules.sh), so a rule the dialect gains is asked for at
 # once.
+#
+# What a tree can break on its own, a header or a line that names no rule,
+# a rule stated by both, a line that is not a rule, a kind and a reason,
+# once, is `rules_covered ROOT`, run on the repository and on the planted
+# trees (lib/planted.sh): witness/ breaks it once per way; near-miss/ holds
+# a fixture and a line of each kind, each naming its own rule, and a
+# program whose first line is no header. That every rule is stated is the
+# repository's alone, as a planted tree would restate the build's list.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cd "$root" || exit 1
 listed=tests/rules-covered/without-fixture
 rule_phrases | LC_ALL=C sort -u > "$work/rule-set"
 if [ ! -s "$work/rule-set" ]; then
@@ -17,34 +24,59 @@ if [ ! -s "$work/rule-set" ]; then
   exit 0
 fi
 say "rules: read from the build's list"
-for main in tests/*/Main.idr; do
-  [ -f "$main" ] && head -n 1 "$main"
-done | sed -n 's/^-- expect: \(.*\), line [0-9][0-9]*$/\1/p' | LC_ALL=C sort -u |
-  LC_ALL=C comm -12 - "$work/rule-set" > "$work/fixtures"
+
+# stated ROOT: each refused program's rule in the tree at ROOT, `rule TAB
+# path`; and listed ROOT: each line of its list, `rule TAB kind TAB reason
+# TAB line`.
+stated() {
+  for main in "$1"/tests/*/Main.idr; do
+    [ -f "$main" ] || continue
+    head -n 1 "$main" | sed -n "s|^-- expect: \(.*\), line [0-9][0-9]*\$|\1	${main#"$1"/}|p"
+  done | LC_ALL=C sort
+}
+listed() {
+  [ -f "$1/$listed" ] || return 0
+  awk '!/^#/ && /./ { print $0 "\t" FNR }' "$1/$listed"
+}
+
+# rules_covered ROOT: the findings in the tree at ROOT, `path:line: what`.
+rules_covered() (
+  stated "$1" > "$work/stated"
+  listed "$1" > "$work/lines"
+  while IFS='	' read -r rule main; do
+    grep -qxF "$rule" "$work/rule-set" || printf '%s:1: expects %s, which is no rule\n' "$main" "$rule"
+    awk -F'\t' -v rule="$rule" '$1 == rule { print $NF }' "$work/lines" | while IFS= read -r n; do
+      printf '%s:1: states %s, which %s:%s lists too\n' "$main" "$rule" "$listed" "$n"
+      printf '%s:%s: lists %s, which %s states\n' "$listed" "$n" "$rule" "$main"
+    done
+  done < "$work/stated"
+  awk -F'\t' -v listed="$listed" -v rules="$work/rule-set" '
+    BEGIN { while ((getline r < rules) > 0) rule[r] = 1 }
+    {
+      n = $NF
+      if (NF != 4 || ($2 != "unreachable" && $2 != "elsewhere" && $2 != "owed") || $3 == "")
+        print listed ":" n ": not a rule, a kind and a reason"
+      else if (!($1 in rule)) print listed ":" n ": " $1 " is no rule"
+      else if ($1 in seen) print listed ":" n ": " $1 " listed again, after line " seen[$1]
+      if (!($1 in seen)) seen[$1] = n
+    }' "$work/lines"
+)
+
+stated "$root" | cut -f1 | LC_ALL=C sort -u | LC_ALL=C comm -12 - "$work/rule-set" > "$work/fixtures"
 if [ -s "$work/fixtures" ]; then say "reject fixtures: found"; else say "reject fixtures: none found"; fi
-grep -v '^#' "$listed" | grep . > "$work/lines"
-awk -F'\t' 'NF != 3 || ($2 != "unreachable" && $2 != "elsewhere" && $2 != "owed") || $3 == "" { print "  " $0 }' \
-  "$work/lines" > "$work/malformed"
-cut -f1 "$work/lines" | LC_ALL=C sort > "$work/listed"
-LC_ALL=C uniq -d "$work/listed" | sed 's/^/  twice: /' >> "$work/malformed"
-LC_ALL=C sort -u "$work/listed" | LC_ALL=C comm -23 - "$work/rule-set" | sed 's/^/  no rule: /' >> "$work/malformed"
+listed "$root" | cut -f1 | LC_ALL=C sort -u > "$work/listed"
 LC_ALL=C sort -u "$work/fixtures" "$work/listed" | LC_ALL=C comm -23 "$work/rule-set" - > "$work/uncovered"
-LC_ALL=C sort -u "$work/listed" | LC_ALL=C comm -12 "$work/fixtures" - > "$work/both"
 if [ -s "$work/uncovered" ]; then
   say "rules with neither a reject fixture nor a line of $listed:"
   sed 's/^/  /' "$work/uncovered"
 else
   say "every rule has a reject fixture or a line of $listed"
 fi
-if [ -s "$work/both" ]; then
-  say "rules with both a fixture and a line (remove the line):"
-  sed 's/^/  /' "$work/both"
+rules_covered "$root" > "$work/found"
+if [ -s "$work/found" ]; then
+  say "fixtures and lines that name no rule, a rule twice, or a rule both ways:"
+  sed 's/^/  /' "$work/found"
 else
-  say "no rule has both a fixture and a line"
+  say "no rule has both a fixture and a line, and every line names a rule, once, with a kind and a reason"
 fi
-if [ -s "$work/malformed" ]; then
-  say "lines of $listed that are not a rule, a kind and a reason, once each:"
-  cat "$work/malformed"
-else
-  say "every line names a rule, once, with a kind and a reason"
-fi
+planted rules_covered

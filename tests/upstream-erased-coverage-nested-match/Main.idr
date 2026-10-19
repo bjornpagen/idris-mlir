@@ -53,6 +53,12 @@ g _ = 2
 gFive : g 5 = 2
 gFive = Refl
 
+gZero : g Z = 1
+gZero = Refl
+
+fpNone : fp [] = []
+fpNone = Refl
+
 -- A case on a variable, here in a type: the alternative's pattern is the
 -- clause's own, although it sits in the as-pattern that names the variable.
 0 Pick : Bool -> Type
@@ -60,6 +66,9 @@ Pick b = if b then Nat else String
 
 pickFalse : Pick False = String
 pickFalse = Refl
+
+pickTrue : Pick True = Nat
+pickTrue = Refl
 
 main : IO ()
 main = putStrLn "covering"

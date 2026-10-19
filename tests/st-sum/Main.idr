@@ -3,7 +3,8 @@ module Main
 -- A sum in a state thread: Control.Monad.ST's references are IORefs, and
 -- runST runs the thread for its value through base's unsafePerformIO. The
 -- loop is an explicit recursion in ST, which modifies the reference once
--- per number from 100000 down to 1.
+-- per number from 100000 down to 1; at 1 it runs once, and at 0 the
+-- thread only reads the reference it made.
 
 import Prelude
 import Control.Monad.ST
@@ -20,4 +21,7 @@ sumTo n = runST (do r <- newSTRef 0
                     readSTRef r)
 
 main : IO ()
-main = printLn (sumTo 100000)
+main = do
+  printLn (sumTo 100000)
+  printLn (sumTo 1)
+  printLn (sumTo 0)

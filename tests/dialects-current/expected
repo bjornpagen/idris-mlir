@@ -1,5 +1,7 @@
 the checked-in modules: exit 0
 modules: every one current
+a comment in the ODS and a generator touched: exit 0
+modules: every one current
 a module edited by hand: exit 1
 modules: IdrisMLIR.Dialect.UB edited by hand, every other one current
 a changed generator: exit 1

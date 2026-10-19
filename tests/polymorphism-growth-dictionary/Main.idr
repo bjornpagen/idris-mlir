@@ -1,5 +1,5 @@
--- expect: polymorphism, line 15
--- message: growing it by 1 each round, and nothing bounds how far it grows
+-- expect: polymorphism, line 16
+-- message: (Main.quoted a sh)
 module Main
 
 import Prelude
@@ -7,7 +7,8 @@ import Prelude
 -- quote shows its value inside as many pairs of quotes as its count says:
 -- each call passes itself the implementation quoted, built over the one it
 -- was given, so its instances need Show Int, quoted over it, quoted over
--- that, one more for each count the run's input gives.
+-- that, one more for each count the run's input gives. near/ quotes once,
+-- at main, and passes the implementation it is given on unchanged.
 
 [quoted] Show a => Show a where
   show x = "'" ++ show x ++ "'"

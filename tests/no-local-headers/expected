@@ -1,6 +1,6 @@
 sources: found
 no header beside a .cpp
-the check sees the includes of runtime/idris_rt.h
-the check sees the includes of foreign/idr/include/idr/IR/IdrDialect.h
 no include of a repository header that is not allowed
 every allowed include is still there
+witness: each planted file is found
+near miss: nothing found

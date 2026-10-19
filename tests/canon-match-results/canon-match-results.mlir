@@ -1,8 +1,22 @@
 // RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=results-used=@unused,matches=@unused,\
 // RUN: returns-argument=@same:1,matches-nothing=@same,results-used=@dead,crash-sites=@dead:1 -o /dev/null
 // RUN: idris-mlir-opt %s '--canonicalize=region-simplify=disabled test-convergence=true' -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize -o %t.mlir
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=results-used=@unused,returns-argument=@same:1,matches-nothing=@same,results-used=@dead' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=matches-nothing=@unused' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=crash-sites=@dead:0' -o /dev/null
+// RUN: %differential %s %t.mlir
+// BEFORE-DAG: expected results-used: {{.*}}@unused
+// BEFORE-DAG: expected returns-argument: {{.*}}@same
+// BEFORE-DAG: expected matches-nothing: {{.*}}@same
+// BEFORE-DAG: expected results-used: {{.*}}@dead
 // Results no one uses are dropped, and a result that every region yields
 // from the same outer value is that value (upstream's region patterns).
+// The root runs every function on what it reads, and the program prints
+// after canonicalize what it printed before, on every byte. What the pass
+// makes hold did not hold before it; @unused still matches, and @dead may
+// still crash, once.
 
 !B = !idr.data<"B", plain [@F(), @T()]>
 idr.program @"match-results" root(@root) stage(first) {
@@ -55,9 +69,38 @@ idr.program @"match-results" root(@root) stage(first) {
     }
     return
   }
-  // The program's root, which the functions above are no part of.
-  idr.func @root() -> i64 {
-    %zero = arith.constant 0 : i64
-    return %zero : i64
+  // The program's root runs every function above on what it reads: a
+  // constructor by the byte's low bit, and the rest of it as numbers;
+  // @dead last, on 0 when the second bit is clear and on the rest of the
+  // byte, where it crashes, when it is set.
+  idr.func @root(%w: !idr.world) -> !idr.world {
+    %ch, %w0 = idr.io.get_byte %w
+    %byte = arith.extui %ch : i32 to i64
+    %c1 = arith.constant 1 : i64
+    %c2 = arith.constant 2 : i64
+    %c3 = arith.constant 3 : i64
+    %c100 = arith.constant 100 : i64
+    %bit = arith.andi %byte, %c1 : i64
+    %second = arith.andi %byte, %c2 : i64
+    %x = arith.shrui %byte, %c2 : i64
+    %y = arith.subi %c100, %byte : i64
+    %b = idr.match_lit %bit : i64 -> (!B) {
+    case 0 {
+      %f = idr.con !B @F()
+      idr.yield %f : !B
+    }
+    default(%d: i64) {
+      %t = idr.con !B @T()
+      idr.yield %t : !B
+    }
+    }
+    %r0 = idr.call @unused(%b, %x, %y) : (!B, i64, i64) -> i64
+    %w1 = idr.io.put_sint %r0, %w0 : i64
+    %r1 = idr.call @same(%b, %y, %ch) : (!B, i64, i32) -> i64
+    %w2 = idr.io.put_sint %r1, %w1 : i64
+    %n = arith.muli %second, %x : i64
+    idr.call @dead(%n) : (i64) -> ()
+    %w3 = idr.io.put_sint %n, %w2 : i64
+    return %w3 : !idr.world
   }
 }

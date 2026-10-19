@@ -1,5 +1,5 @@
--- expect: polymorphism, line 13
--- message: growing a by 1 each level
+-- expect: polymorphism, line 14
+-- message: (Builtin.Pair a a)
 module Main
 
 import Prelude
@@ -10,6 +10,7 @@ import Prelude
 -- field holds T at (a, a), a constructor above a, so a grows by one at
 -- each level, and the program is refused at T's declaration, naming that
 -- field, rather than compiled to a uniform form or left to grow without end.
+-- near/ holds T at a itself, a regular recursion.
 data T a = L a | N (T (a, a))
 
 isLeaf : T a -> Bool

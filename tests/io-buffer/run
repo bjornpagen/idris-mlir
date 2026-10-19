@@ -10,8 +10,9 @@
 # data every boundary the default one reaches with much: a refill inside a
 # line and inside its "\r\n", a line longer than the buffer, a character
 # encoded at the buffer's end. The default build is the relation's other
-# side, not an oracle; at the default size, echo gives back its input
-# without the "\r" of each "\r\n", as idris_rt_io_get_line drops it.
+# side, not an oracle; at the default size, echo gives back each line of
+# its input without the "\r\n" or "\n" that ends it, a '\r' anywhere else
+# kept (idris_rt_io_get_line), then a "\n", and nothing for no input.
 #
 # Every IO unit is rebuilt for a size, not some: Scratch holds a buffer's
 # worth inline, so its layout is the size's, and every unit that holds one
@@ -33,12 +34,17 @@ esac
 target=$("$idris_mlir" --print-target-triple)
 
 # The input: lines of 0 to 20 bytes; a 2-byte and a 4-byte character each at
-# every offset from 0 to 8; one line of 9000 bytes, longer than the default
-# buffer. Every line ends in "\n", every third in "\r\n", and no "\r" is
-# anywhere else.
-if ! awk 'function line(text) {
+# every offset from 0 to 8; a '\r' that ends no line at every offset from 0
+# to 8; one line of 9000 bytes, longer than the default buffer; and last a
+# line that no '\n' ends, whose own '\r' is its last byte. Every line that
+# '\n' ends ends in it, every third in "\r\n". What echo gives back at the
+# default size, $work/stdin.lines, is written beside it: each line without
+# the "\r\n" or '\n' that ends it, then a '\n', as idris_rt_io_get_line
+# reads a line and echo writes it.
+if ! awk -v lines_file="$work/stdin.lines" 'function line(text) {
        lines++
        printf "%s%s\n", text, (lines % 3 == 0 ? "\r" : "")
+       printf "%s\n", text > lines_file
      }
      function run(n, c,   s) { s = ""; while (n-- > 0) s = s c; return s }
      BEGIN {
@@ -46,14 +52,17 @@ if ! awk 'function line(text) {
        for (o = 0; o <= 8; o++) {
          line(run(o, "x") "\303\251" "y")
          line(run(o, "x") "\360\237\230\200" "y")
+         line(run(o, "x") "\r" "y")
        }
        line(run(9000, "z"))
+       printf "end\r"
+       printf "end\r\n" > lines_file
      }' > "$work/stdin" 2> "$work/awk.err"; then
   say "the input could not be written"
   show "$work/awk.err"
   exit 0
 fi
-tr -d '\r' < "$work/stdin" > "$work/stdin.lines"
+: > "$work/empty"
 
 # build SIZE: io.c with every IO unit compiled for a buffer of SIZE bytes,
 # then the build's runtime, into $work/io-SIZE.
@@ -87,9 +96,12 @@ say "io: built at the default size, 4 and 7"
 
 # Each mode of each build on the input: its stdout, stderr and exit status
 # in $work/SIZE.MODE.out, .err and .status.
+# The mode echo-empty is echo on no input at all.
 for size in default 4 7; do
-  for mode in echo write crash; do
-    bounded "$work/io-$size" "$mode" < "$work/stdin" > "$work/$size.$mode.out" \
+  for mode in echo write crash echo-empty; do
+    input=$work/stdin
+    [ "$mode" = echo-empty ] && input=$work/empty
+    bounded "$work/io-$size" "${mode%-empty}" < "$input" > "$work/$size.$mode.out" \
       2> "$work/$size.$mode.err"
     say "$?" > "$work/$size.$mode.status"
   done
@@ -115,14 +127,19 @@ if [ "$(cat "$work/default.echo.status")" != 0 ]; then
   say "echo: exit $(cat "$work/default.echo.status") at the default size"
   show "$work/default.echo.err"
 elif cmp -s "$work/stdin.lines" "$work/default.echo.out"; then
-  say "echo: stdout is stdin without its line-ending carriage returns, at the default size"
+  say "echo: stdout is stdin's lines, each without the \"\\r\\n\" or \"\\n\" that ends it, at the default size"
 else
-  say "echo: stdout differs from stdin at byte $(first_difference "$work/stdin.lines" "$work/default.echo.out")"
+  say "echo: stdout differs from stdin's lines at byte $(first_difference "$work/stdin.lines" "$work/default.echo.out")"
+fi
+if [ "$(cat "$work/default.echo-empty.status")" != 0 ] || [ -s "$work/default.echo-empty.out" ]; then
+  say "echo: on no input, exit $(cat "$work/default.echo-empty.status") and $(wc -c < "$work/default.echo-empty.out" | tr -d ' ') bytes, at the default size"
+else
+  say "echo: no input, no line, at the default size"
 fi
 
 for size in 4 7; do
   : > "$work/differs"
-  for mode in echo write crash; do
+  for mode in echo write crash echo-empty; do
     for stream in out err; do
       if ! cmp -s "$work/default.$mode.$stream" "$work/$size.$mode.$stream"; then
         say "  $mode: std$stream differs at byte $(first_difference "$work/default.$mode.$stream" "$work/$size.$mode.$stream")" >> "$work/differs"

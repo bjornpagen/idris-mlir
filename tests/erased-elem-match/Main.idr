@@ -20,5 +20,12 @@ upTo Stay e = absurd e
 upTo (Step t p) Here = Step t Stay
 upTo (Step t p) (There e) = Step t (upTo p e)
 
+-- The path cut where it enters its first, second and third target: what
+-- is left are the targets up to that one.
 main : IO ()
-main = printLn (length (targets (upTo {x = 0} (Step 1 (Step 2 Stay)) (There Here))))
+main = do
+  printLn (length (targets (upTo {x = 0} (Step 1 (Step 2 Stay)) (There Here))))
+  printLn (targets (upTo {x = 0} (Step 1 (Step 2 Stay)) (There Here)))
+  printLn (targets (upTo {x = 0} (Step 4 Stay) Here))
+  printLn (targets (upTo {x = 0} (Step 1 (Step 2 (Step 3 Stay))) (There (There Here))))
+  printLn (targets (upTo {x = 0} (Step 1 (Step 2 (Step 3 Stay))) Here))

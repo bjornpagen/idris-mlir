@@ -1,4 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-rc --idr-expect=holds=tests-nothing=@sumAfterTag -o /dev/null
+// RUN: idris-mlir-opt %s --idr-rc -o %t.owned.mlir
+// RUN: %differential %s %t.owned.mlir
 // A box that dies in the region of the match that saw its constructor is
 // taken apart where it dies even when no constructor is built in its cell
 // (Perceus's drop specialization): one test of its count, instead of a
@@ -14,7 +16,11 @@
 // field of which that holds references lives on past it gains nothing from
 // the test (Perceus specializes a drop only where the children are used),
 // and is dropped where it dies: `headOnly` reads a list's head, a number,
-// and its tail dies with it; `numbers` reads a cell of two numbers.
+// and its tail dies with it; `numbers` reads a cell of two numbers. The
+// input byte sets the lists' lengths, 0 to 3 and 0 to 2, and whether the
+// cell of numbers is the empty one, and `tail` also gets the empty list of
+// lists: every case of every match is run, and each run prints what it
+// printed before counting and leaves no cell live.
 !L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
 !LL = !idr.data<"LL", list [@NN() nil, @CC(!idr.box<!L>, !idr.box<!idr.data<"LL">>) cons]>
 !V = !idr.data<"V", plain [@V0(), @V1(i64, i64)]>
@@ -105,8 +111,17 @@ idr.program @"dies-apart" root(@root) stage(first) {
     return %r : i64
   }
   idr.func @mkV(%n: i64) -> !idr.box<!V> {
-    %v = idr.con !idr.box<!V> @V1(%n : i64, %n : i64)
-    return %v : !idr.box<!V>
+    %r = idr.match_lit %n : i64 -> (!idr.box<!V>) {
+    case 0 {
+      %e = idr.constant !idr.box<!V> #idr.con<!V, @V0, []>
+      idr.yield %e : !idr.box<!V>
+    }
+    default(%d: i64) {
+      %v = idr.con !idr.box<!V> @V1(%n : i64, %n : i64)
+      idr.yield %v : !idr.box<!V>
+    }
+    }
+    return %r : !idr.box<!V>
   }
   // A cell of two numbers, read (its tag), and then its numbers used.
   idr.func @numbers(%n: i64) -> i64 {
@@ -126,8 +141,13 @@ idr.program @"dies-apart" root(@root) stage(first) {
     return %r : i64
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %three = arith.constant 3 : i64
-    %two = arith.constant 2 : i64
+    %ch, %w0 = idr.io.get_byte %w
+    %byte = arith.extui %ch : i32 to i64
+    %c4 = arith.constant 4 : i64
+    %c3 = arith.constant 3 : i64
+    %three = arith.remui %byte, %c4 : i64
+    %q = arith.divui %byte, %c4 : i64
+    %two = arith.remui %q, %c3 : i64
     %nn = idr.constant !idr.box<!LL> #idr.con<!LL, @NN, []>
     %a = idr.call @build(%three) : (i64) -> !idr.box<!L>
     %r = idr.call @sumAfterTag(%a) : (!idr.box<!L>) -> !idr.box<!L>
@@ -149,8 +169,11 @@ idr.program @"dies-apart" root(@root) stage(first) {
     %ho = idr.call @headOnly(%three) : (i64) -> i64
     %nu = idr.call @numbers(%two) : (i64) -> i64
     %hn = arith.addi %ho, %nu : i64
-    %all = arith.addi %s, %hn : i64
-    %w2 = idr.io.put_sint %all, %w : i64
+    %t0 = idr.call @tail(%nn) : (!idr.box<!LL>) -> !idr.box<!LL>
+    %g = idr.tag %t0 : !idr.box<!LL>
+    %sg = arith.addi %s, %g : i64
+    %all = arith.addi %sg, %hn : i64
+    %w2 = idr.io.put_sint %all, %w0 : i64
     return %w2 : !idr.world
   }
 }

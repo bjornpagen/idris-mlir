@@ -3,3 +3,7 @@ unsupported (cycle): the only error
 line: as the header says
 message: as the header says
 artifacts: none
+near: compile: exit 0
+near: artifacts: core module objects executable
+near: cases: each as expected
+near: universal: holds

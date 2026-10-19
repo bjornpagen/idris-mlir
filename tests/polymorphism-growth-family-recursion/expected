@@ -1,5 +1,0 @@
-compile: exit 3
-unsupported (polymorphism): the only error
-line: as the header says
-message: as the header says
-artifacts: none

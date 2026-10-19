@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+compiler/src/IdrisMLIR/Gone.idr: prim__cast_DoubleString d -- a serialization that is gone
+compiler/src/IdrisMLIR/Fold.idr: prim__add_Int

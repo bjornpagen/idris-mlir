@@ -61,4 +61,7 @@ w4B : w4 (C4 {x = B}) = 2
 w4B = Refl
 
 main : IO ()
-main = printLn (v1 (C1 (ItIsF {w = 5} :: [])), w3 (C3 {x = B}))
+main = do
+  printLn (v1 (C1 (ItIsF {w = 5} :: [])), w3 (C3 {x = B}))
+  -- Each of C3's implicits: A takes the first clause, the others the second.
+  printLn (w3 (C3 {x = A}), w3 (C3 {x = F 3}))

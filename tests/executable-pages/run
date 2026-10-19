@@ -8,6 +8,7 @@
 # that alignment. A Mach-O program has its __PAGEZERO, the unmapped
 # segment at address 0 that the Mach-O linkers give a 64-bit executable,
 # at least 4 GiB, so that no 32-bit value read as an address is mapped.
+# Each check is shown refusing tables planted to break it.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 build=${idris_mlir%/foreign/idr/idris-mlir}
 runtime=$build/runtime/libidris_rt.a
@@ -49,22 +50,49 @@ if [ ! -s "$work/decimal" ]; then
   say "no segment read from the program"
   exit 0
 fi
-awk -v page="$page" '
-  $1 != "__PAGEZERO" && ($2 % page != $3 % page || ($4 != 0 && $4 < page) ||
-                         ($4 == 0 && ($2 % page != 0 || $3 % page != 0))) {
-    print "  | " $0
-  }' "$work/decimal" > "$work/misaligned"
+# misaligned TABLE: the rows of TABLE (`NAME ADDRESS OFFSET ALIGN SIZE`,
+# decimal) not laid out in the target's pages, each as `  | ROW`.
+misaligned() {
+  awk -v page="$page" '
+    $1 != "__PAGEZERO" && ($2 % page != $3 % page || ($4 != 0 && $4 < page) ||
+                           ($4 == 0 && ($2 % page != 0 || $3 % page != 0))) {
+      print "  | " $0
+    }' "$1"
+}
+# guarded TABLE: TABLE, a Mach-O program's, has a __PAGEZERO at address 0
+# of at least 4 GiB.
+guarded() {
+  awk '$1 == "__PAGEZERO" && $2 == 0 && $5 >= 4294967296 { found = 1 } END { exit !found }' "$1"
+}
+misaligned "$work/decimal" > "$work/misaligned"
 if [ -s "$work/misaligned" ]; then
   say "segments not laid out in the target's pages:"
   cat "$work/misaligned"
 else
   say "every loaded segment is laid out in the target's pages"
 fi
-if grep -q '^__' "$work/decimal"; then
-  if awk '$1 == "__PAGEZERO" && $2 == 0 && $5 >= 4294967296 { found = 1 } END { exit !found }' \
-      "$work/decimal"; then
-    :
-  else
-    say "no __PAGEZERO of at least 4 GiB at address 0"
-  fi
+if grep -q '^__' "$work/decimal" && ! guarded "$work/decimal"; then
+  say "no __PAGEZERO of at least 4 GiB at address 0"
 fi
+
+# Each check finds the tables planted to break it, whatever the host's
+# format: an ELF segment whose address and offset sit at different places
+# in a page, one aligned below a page, a Mach-O segment off a page; a
+# __PAGEZERO below 4 GiB, one not at 0, and none.
+printf 'LOAD %d 0 %d 100\n' $((page + 8)) "$page" > "$work/incongruent"
+printf 'LOAD 0 0 %d 100\n' $((page / 2)) > "$work/under-aligned"
+printf '__TEXT 8 8 0 100\n' > "$work/off-page"
+for planted in incongruent under-aligned off-page; do
+  if [ -z "$(misaligned "$work/$planted")" ]; then
+    say "the planted table $planted is laid out in pages"
+  fi
+done
+printf '__PAGEZERO 0 0 0 %d\n' $((4294967296 - page)) > "$work/small-zero"
+printf '__PAGEZERO %d 0 0 4294967296\n' "$page" > "$work/moved-zero"
+printf '__TEXT 4294967296 0 0 %d\n' "$page" > "$work/no-zero"
+for planted in small-zero moved-zero no-zero; do
+  if guarded "$work/$planted"; then
+    say "the planted table $planted has its __PAGEZERO"
+  fi
+done
+say "every planted table is refused"

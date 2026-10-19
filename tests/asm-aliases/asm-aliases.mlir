@@ -1,5 +1,8 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
 // RUN: idris-mlir-opt %s | idris-mlir-opt | FileCheck %s
+// RUN: idris-mlir-opt %s -o %t.once.mlir
+// RUN: idris-mlir-opt %t.once.mlir -o %t.twice.mlir
+// RUN: diff %t.once.mlir %t.twice.mlir
 // A data type is written by a short name, defined once at the top of the
 // text with its body: its name is as long as the instance it names. The
 // short name is the name's pieces between brackets, commas and spaces,
@@ -10,6 +13,7 @@
 // constant with more than 256 constructors and closures in its tree is
 // written once, by name, too: spelled out wherever it occurs, a constant
 // whose parts are shared is as large as its tree.
+// Printed, the text reads back and prints as itself.
 // CHECK-DAG: !List_Nat = !idr.data<"Prelude.Types.List[Prelude.Types.Nat]", list [@Nil() nil, @Cons(!idr.nat, !idr.box<!idr.data<"Prelude.Types.List[Prelude.Types.Nat]">>) cons]>
 // CHECK-DAG: !Maybe_Nat = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
 // CHECK-DAG: !Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64)]>

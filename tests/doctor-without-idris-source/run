@@ -1,9 +1,17 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# make doctor reports a missing Idris checkout, and does not fail.
+# make doctor reports a missing Idris checkout, and does not fail: an empty
+# directory and a path that does not exist are each missing. The checkout
+# that is there is reported by its revision, the staged pin.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 mkdir "$work/empty"
-IDRIS_MLIR_IDRIS_SOURCE=$work/empty "$root/tools/doctor.sh" > "$work/out" 2>&1
-say "doctor: exit $?"
-grep '^Idris source:' "$work/out"
+for source in "$work/empty" "$work/absent"; do
+  IDRIS_MLIR_IDRIS_SOURCE=$source "$root/tools/doctor.sh" > "$work/out" 2>&1
+  say "doctor, ${source##*/}: exit $?"
+  grep '^Idris source:' "$work/out"
+done
+pin=$(git -C "$root" ls-files --stage -- third_party/Idris2 | awk '{ print $2 }')
+"$root/tools/doctor.sh" > "$work/out" 2>&1
+say "doctor, the checkout: exit $?"
+grep '^Idris source:' "$work/out" | sed "s/$pin/<pin>/"

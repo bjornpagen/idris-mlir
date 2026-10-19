@@ -8,8 +8,9 @@
 # in a row, and as the build did, byte for byte. A prepared runtime serves a
 # program as the build's does: its bitcode joins the program from where it
 # is kept, its object alone is on the link line, and the program (Main.idr,
-# compiled by idris-mlir) computes, frees every cell and exits; no
-# executable carries bitcode.
+# compiled by idris-mlir) computes, small bigs and large ones past 2^62,
+# frees every cell and exits; no executable carries bitcode, as a search
+# that finds the runtime's own bitcode says.
 step_limit=300
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 runtime=$("$idris_mlir" --print-runtime)
@@ -76,13 +77,21 @@ program() {
   fi
   ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$program" ) > "$program.out" 2> "$program.err"
   program_status=$?
-  say "$program_name: exit $program_status, prints $(cat "$program.out"), $(cat "$program.err")"
-  # Bitcode starts with these four bytes; they are nowhere in the
-  # executable.
-  printf '\102\103\300\336' > "$work/magic"
-  if LC_ALL=C grep -q -F -f "$work/magic" "$program"; then
+  say "$program_name: exit $program_status, prints $(paste -s -d ' ' "$program.out"), $(cat "$program.err")"
+  if carries_bitcode "$program"; then
     say "$program_name: the executable carries bitcode"
   fi
 }
+# carries_bitcode FILE: FILE holds the four bytes bitcode starts with,
+# which the prepared runtime's bitcode holds wherever the entry keeps it
+# (shown below, so the search could find what it looks for).
+printf '\102\103\300\336' > "$work/magic"
+carries_bitcode() {
+  LC_ALL=C grep -q -F -f "$work/magic" "$1"
+}
+if [ -f "$work/again.bc" ]; then kept=$work/again.bc; else kept=$work/again.o; fi
+if ! carries_bitcode "$kept"; then
+  say "bitcode: the search does not find the prepared runtime's own"
+fi
 program built "$runtime"
 program again "$work/again.o"

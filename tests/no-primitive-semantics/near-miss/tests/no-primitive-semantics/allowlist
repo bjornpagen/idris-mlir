@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+compiler/src/IdrisMLIR/MLIR/Text.idr: decimal (prim__cast_DoubleString d) -- the MLIR text of a Double literal; it computes nothing

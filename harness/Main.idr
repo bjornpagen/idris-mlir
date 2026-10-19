@@ -37,7 +37,7 @@
 |||     runtests --sem-expected <name>  the stdout its program must print
 |||     runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...
 |||                                     a program or a case of the fuzzer (Fuzz.idr)
-|||     runtests --fuzz-check overran|agree|model|first <request> [<stdout-file>]
+|||     runtests --fuzz-check overran|agree|model|first|modelled <request> [<stdout-file>]
 |||                                     what a fuzzer program printed, checked (Fuzz.idr)
 |||     runtests --lock                 the check of toolchain.lock.json
 module Main
@@ -226,7 +226,7 @@ takeOwn (arg :: rest) = let (suite, others) = takeOwn rest in (suite, arg :: oth
 takeOwn [] = (Nothing, [])
 
 fuzzCheckUsage : String
-fuzzCheckUsage = "runtests --fuzz-check overran|agree|model|first program <seed> <cases> <part> | replay <tape> <part> [<stdout-file>]"
+fuzzCheckUsage = "runtests --fuzz-check overran|agree|model|first|modelled program <seed> <cases> <part> | replay <tape> <part> [<stdout-file>]"
 
 runnerUsage : String
 runnerUsage = unlines
@@ -279,13 +279,32 @@ readOrDie path = do
     | Left err => die (path ++ ": " ++ show err)
   pure text
 
+||| A file's bytes, each the Char of its value: a program's output, which
+||| may hold NUL, where a read of the file's text (readFile, through C's
+||| lines) loses the rest of its line; or the runner's death naming it.
+bytesOrDie : String -> IO String
+bytesOrDie path = do
+  Right h <- openFile path Read
+    | Left err => die (path ++ ": " ++ show err)
+  bytes <- go h [<]
+  closeFile h
+  pure (pack bytes)
+  where
+    go : File -> SnocList Char -> IO (List Char)
+    go h acc = do
+      Right c <- fGetChar h
+        | Left err => die (path ++ ": " ++ show err)
+      True <- fEOF h
+        | False => go h (acc :< c)
+      pure (acc <>> [])
+
 ||| `--fuzz-check overran <request>`, or `--fuzz-check <how> <request>
-||| <stdout-file>`, the file read here.
+||| <stdout-file>`, the file read here, byte for byte.
 fuzzCheck : List String -> IO ()
 fuzzCheck ("overran" :: request) = maybe (die ("usage: " ++ fuzzCheckUsage)) putStr (Fuzz.overranOf request)
 fuzzCheck (how :: rest) = case [<] <>< rest of
   request :< file => do
-    output <- readOrDie file
+    output <- bytesOrDie file
     maybe (die ("usage: " ++ fuzzCheckUsage)) putStr (Fuzz.checkOf how (request <>> []) output)
   [<] => die ("usage: " ++ fuzzCheckUsage)
 fuzzCheck [] = die ("usage: " ++ fuzzCheckUsage)

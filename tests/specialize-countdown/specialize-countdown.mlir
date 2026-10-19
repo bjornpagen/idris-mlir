@@ -2,6 +2,13 @@
 // RUN: sed 's/%n = arith.constant 5 : i64/%n = arith.constant 1000000 : i64/' %s > %t.long.mlir
 // RUN: not cmp -s %s %t.long.mlir
 // RUN: idris-mlir-opt %t.long.mlir --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce),idr-expect{holds=one-clone=@loop,one-clone=@count})' -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
+// RUN: %differential %s %t.mlir
+// RUN: idris-mlir -c %s -o %t.o
+// RUN: %cc %t.o -o %t
+// RUN: printf '\177' | %t | FileCheck %s --check-prefix=BELOW
+// RUN: printf '\200' | %t | FileCheck %s --check-prefix=AT
+// RUN: printf '\377' | %t | FileCheck %s --check-prefix=ABOVE
 // Inside a recursive component a call keys only the positions passed
 // unchanged along the recursion, and a lone number is never a key
 // position.
@@ -18,6 +25,15 @@
 //   reaches one function.
 // Each function carries the location Emit gives it, its definition's
 // name, by which a copy names what it was made from.
+// The accumulator starts 128 below 2^62, where the runtime's small
+// integers end, so the counts read from the input byte cross into big
+// ones; the differential holds the optimized program to the one as written
+// on every byte, each side of that edge, and the program prints 5k and
+// 2^62 - 128 + k for the byte k: the last small integer, 2^62 - 1, at 127,
+// 2^62 at 128 and 2^62 + 127 at 255.
+// BELOW: {{^}}6354611686018427387903{{$}}
+// AT: {{^}}6404611686018427387904{{$}}
+// ABOVE: {{^}}12754611686018427388031{{$}}
 idr.program @countdown root(@Main.main) stage(higher) {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %k : i64
@@ -62,7 +78,7 @@ idr.program @countdown root(@Main.main) stage(higher) {
     %zero = arith.constant 0 : i64
     %r = idr.call @loop(%n, %f, %zero) : (i64, !idr.fn<(i64) -> (i64)>, i64) -> i64
     %w2 = idr.io.put_sint %r, %w1 : i64
-    %acc = idr.constant !idr.big #idr.big<0>
+    %acc = idr.constant !idr.big #idr.big<4611686018427387776>
     %s = idr.call @count(%acc, %k) : (!idr.big, i64) -> !idr.big
     %t = idr.big.show %s
     %w3 = idr.io.put_str %t, %w2

@@ -21,5 +21,21 @@ quote = Refl
 eAcute : prim__cast_CharString '\233' = "\233"
 eAcute = Refl
 
+doubleQuote : prim__cast_CharString '"' = "\""
+doubleQuote = Refl
+
+nul : prim__cast_CharString '\0' = "\0"
+nul = Refl
+
+delete : prim__cast_CharString '\DEL' = "\DEL"
+delete = Refl
+
+-- The first scalar value past the BMP, and the last one.
+astral : prim__cast_CharString '\x1F600' = "\x1F600"
+astral = Refl
+
+lastScalar : prim__cast_CharString '\x10FFFF' = "\x10FFFF"
+lastScalar = Refl
+
 main : IO ()
 main = putStrLn (prim__cast_CharString 'x')

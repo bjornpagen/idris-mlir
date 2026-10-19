@@ -9,3 +9,5 @@ box: every string of at most 3 scalars over a, U+00E9, U+20AC, U+1F600, every op
 every operation borrows its operands and returns one owned result: ok
 the empty string: every operation that makes one gives the one persistent empty string: ok
 strings: exit 0
+mutants: each caught
+strings --mutants: exit 0

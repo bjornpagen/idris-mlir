@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
+// RUN: %differential %s %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main -o /dev/null
 // RUN: idris-mlir-opt %s --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.input.names
 // RUN: idris-mlir-opt %t.mlir --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.names
@@ -11,6 +12,9 @@
 // the stack. No copy is made: the optimizer's module holds no function
 // the input does not (the last three RUN lines, which read symbols off the
 // generic form's `sym_name`).
+// The loop is the countdown it was: the program as written and the loop
+// both print 321 (%differential, on the one input the program reads, none).
+// STDIN:
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>

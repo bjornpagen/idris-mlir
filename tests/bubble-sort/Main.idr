@@ -4,7 +4,9 @@ module Main
 -- cell apart and builds the next list in the same cells. Idris lifts the
 -- `if` into a function of its own, a case block, which calls `bubble`
 -- back; once it is part of `bubble` again, the cell `bubble` takes apart is
--- the one its result is built in.
+-- the one its result is built in. n passes sort any list of n, so the
+-- result is sorted, and it is a permutation of the input: its length and
+-- sum are the input's.
 
 import Prelude
 
@@ -35,6 +37,15 @@ sorted : L -> Bool
 sorted (C x (C y ys)) = x <= y && sorted (C y ys)
 sorted _ = True
 
+-- The length and the sum, which a permutation keeps.
+size : L -> Int
+size N = 0
+size (C _ xs) = 1 + size xs
+
+total' : L -> Int
+total' N = 0
+total' (C x xs) = x + total' xs
+
 readInt : IO Int
 readInt = go 0
   where
@@ -48,3 +59,4 @@ main = do
   n <- readInt
   let xs = sortN n (build n n)
   printLn (sorted xs, digest xs)
+  printLn (size xs == n, total' xs == total' (build n n))

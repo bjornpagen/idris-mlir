@@ -1,10 +1,25 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
+// RUN: %differential %s %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.ping:result:[@Main.zero,@Main.p],labels=@Main.pong:result:[@Main.q],labels=@Main.p:arg0:[@Main.q],labels=@Main.q:arg0:[@Main.zero,@Main.p]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@Main.ping:result:[@Main.zero,@Main.p],labels=@Main.pong:result:[@Main.q],labels=@Main.p:arg0:[@Main.q],labels=@Main.q:arg0:[@Main.zero,@Main.p]' -o /dev/null 2> %t.before.err
+// RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.ping:result:[@Main.zero]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.pong:result:[@Main.q,@Main.p]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.p:arg0:[@Main.q,@Main.zero]' -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.q:arg0:[@Main.p]' -o /dev/null
+// BEFORE-DAG: expected labels: @Main.ping {{.*}}
+// BEFORE-DAG: expected labels: @Main.pong {{.*}}
+// BEFORE-DAG: expected labels: @Main.p {{.*}}
+// BEFORE-DAG: expected labels: @Main.q {{.*}}
 // ping 0 = zero; ping n = p (pong (n - 1)); pong n = q (ping (n - 1)):
 // @Main.p captures only closures of @Main.q, and @Main.q only closures of
 // @Main.p or @Main.zero, so the two keys of the type have different labels,
 // but each holds the other: a cycle, which no unboxed sum can stand for.
 // Each key still has exactly the labels that reach it.
+// The program means after the pass what it meant before it, on every input
+// (the differential); no property here held before the pass, and each list
+// of labels with one changed fails after it, so each sum is exactly its
+// labels.
 idr.program @cycle root(@Main.main) stage(higher) {
   idr.func @Main.zero(%x: i64) -> i64 attributes {total} {
     return %x : i64

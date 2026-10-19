@@ -1,7 +1,8 @@
 module Main
 
 -- Casting NaN to Int crashes, after the output written so far: here, that
--- NaN is not equal to itself.
+-- NaN is not equal to itself. x / x is NaN only when the digit read is 0;
+-- for any other x it is 1, equal to itself, and casts to 1.
 
 import Builtin
 import Prelude

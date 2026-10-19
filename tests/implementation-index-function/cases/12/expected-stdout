@@ -1,0 +1,7 @@
+(12 ** "x")
+[(12 ** True), (13 ** False)]
+(12 ** Next (Next (Next (Next (Next (Next (Next (Next (Next (Next (Next (Next Zero))))))))))))
+(12 ** [12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12])
+(12 ** (13 ** Next (Next (Next (Next (Next (Next (Next (Next (Next (Next (Next (Next (Next Zero))))))))))))))
+(12 ** MkTagged 12)
+17

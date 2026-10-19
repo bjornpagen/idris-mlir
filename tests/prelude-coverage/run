@@ -13,33 +13,59 @@
 # only shrinks. A module with no fixture that is not listed fails, and so
 # does a listed one that has a fixture now, so that whoever covers a module
 # removes its line.
+#
+# The rule is `prelude_coverage ROOT`, run on the repository and on the
+# planted trees (lib/planted.sh), each with its own prelude package, tests
+# and list: witness/ holds a module with no program that is not listed,
+# and one listed that a program covers (a finding at the list and at the
+# program); near-miss/ holds a covered module and a listed one.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cd "$root" || exit 1
 ipkg=third_party/Idris2/libs/prelude/prelude.ipkg
-awk '
-  /^modules[[:space:]]*=/ { listing = 1; sub(/^modules[[:space:]]*=/, "") }
-  listing {
-    n = split($0, names, ",")
-    for (i = 1; i <= n; i++) { gsub(/[[:space:]]/, "", names[i]); if (names[i] != "") print names[i] }
-    if ($0 !~ /,[[:space:]]*$/) listing = 0
-  }' "$ipkg" | sort -u > "$work/modules"
-if [ -s "$work/modules" ]; then say "prelude modules: read from $ipkg"; else say "prelude modules: none read from $ipkg"; fi
+list=tests/prelude-coverage/uncovered
 
-for covers in tests/*/covers; do
-  [ -f "$covers" ] && first_word "$covers"
-done | sort -u > "$work/covered"
-comm -23 "$work/modules" "$work/covered" > "$work/found"
+# prelude_coverage ROOT: the findings in the tree at ROOT, `path:line: what`
+# or `path: what`.
+prelude_coverage() (
+  cd "$1" || exit 1
+  [ -f "$ipkg" ] || exit 0
+  awk '
+    /^modules[[:space:]]*=/ { listing = 1; sub(/^modules[[:space:]]*=/, "") }
+    listing {
+      n = split($0, names, ",")
+      for (i = 1; i <= n; i++) { gsub(/[[:space:]]/, "", names[i]); if (names[i] != "") print names[i] "\t" FNR }
+      if ($0 !~ /,[[:space:]]*$/) listing = 0
+    }' "$ipkg" | LC_ALL=C sort > "$work/modules"
+  for covers in tests/*/covers; do
+    [ -f "$covers" ] && printf '%s\t%s\n' "$(first_word "$covers")" "$covers"
+  done | LC_ALL=C sort > "$work/covered"
+  if [ -f "$list" ]; then
+    awk '!/^[[:space:]]*#/ && !/^[[:space:]]*$/ { print $1 "\t" FNR }' "$list" | LC_ALL=C sort > "$work/listed"
+  else
+    : > "$work/listed"
+  fi
+  while IFS='	' read -r module n; do
+    grep -q "^$module	" "$work/covered" && continue
+    grep -q "^$module	" "$work/listed" && continue
+    printf '%s:%s: %s has no covers program, and is not listed\n' "$ipkg" "$n" "$module"
+  done < "$work/modules"
+  while IFS='	' read -r module n; do
+    grep "^$module	" "$work/covered" | cut -f2 | while IFS= read -r covers; do
+      printf '%s:%s: lists %s, which %s covers\n' "$list" "$n" "$module" "$covers"
+      printf '%s: covers %s, which %s:%s lists as uncovered\n' "$covers" "$module" "$list" "$n"
+    done
+  done < "$work/listed"
+)
 
-grep -v '^[[:space:]]*#' "$here/uncovered" | grep -v '^[[:space:]]*$' | sort -u > "$work/uncovered"
-comm -23 "$work/found" "$work/uncovered" > "$work/new"
-comm -13 "$work/found" "$work/uncovered" > "$work/stale"
-if [ -s "$work/new" ]; then
+if [ -f "$root/$ipkg" ]; then say "prelude modules: read from $ipkg"; else say "prelude modules: no $ipkg"; fi
+prelude_coverage "$root" > "$work/found"
+if grep -q 'has no covers program' "$work/found"; then
   say "prelude modules with no covers fixture (add one):"
-  cat "$work/new"
+  grep 'has no covers program' "$work/found" | sed 's/^/  /'
 else
   say "no prelude module without a covers fixture that is not listed"
 fi
-if [ -s "$work/stale" ]; then
+if grep -q "^$list:" "$work/found"; then
   say "listed as uncovered but covered now (remove the lines):"
-  cat "$work/stale"
+  grep "^$list:" "$work/found" | sed 's/^/  /'
 fi
+planted prelude_coverage

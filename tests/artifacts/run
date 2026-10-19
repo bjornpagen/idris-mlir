@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Artifacts exist after success, in build/exec, which does not exist before
 # and which idris-mlir makes, and are removed when the same module later
-# fails.
+# fails; the module made good again leaves every kind of them again.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 # listed: the artifacts of the build Main left, of every kind
@@ -22,10 +22,12 @@ import Prelude
 main : IO ()
 main = printLn (the Int 7)
 IDRIS
+if [ -e "$work/build" ]; then say "before: build exists"; else say "before: no build"; fi
 compile_program "$work/Main.idr" "$work/build/exec/Main"
 say "compile: exit $compiled"
 [ "$compiled" -eq 0 ] || show "$work/compile.out" "$work/compile.err"
 artifacts "$work" Main
+cp "$work/Main.idr" "$work/Good.idr"
 
 cat > "$work/Main.idr" <<'IDRIS'
 module Main
@@ -47,3 +49,8 @@ if [ -z "$left" ]; then
 else
   say "stale artifacts after the failure: $left"
 fi
+cp "$work/Good.idr" "$work/Main.idr"
+compile_program "$work/Main.idr" "$work/build/exec/Main"
+say "compile it good again: exit $compiled"
+[ "$compiled" -eq 0 ] || show "$work/compile.out" "$work/compile.err"
+artifacts "$work" Main

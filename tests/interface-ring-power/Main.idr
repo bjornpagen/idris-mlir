@@ -2,6 +2,8 @@ module Main
 
 -- Generic exponentiation by squaring over a user Ring, with a constrained
 -- implementation for 2x2 matrices: Fibonacci numbers from matrix powers.
+-- The powers 0 and 1 take each base case; 3^39 and fib 92 are the largest
+-- that an Int holds, and fib 93 is past it, wrapped as Int arithmetic is.
 
 import Builtin
 import Prelude
@@ -54,3 +56,11 @@ main = do
   putStrLn (prim__cast_IntString (fib 10))
   putStrLn (prim__cast_IntString (fib 50))
   putStrLn (prim__cast_IntString (fib 90))
+  putStrLn (prim__cast_IntString (power three 0))
+  putStrLn (prim__cast_IntString (power three 1))
+  putStrLn (prim__cast_IntString (power three 39))
+  putStrLn (prim__cast_IntString (fib 0))
+  putStrLn (prim__cast_IntString (fib 1))
+  putStrLn (prim__cast_IntString (fib 2))
+  putStrLn (prim__cast_IntString (fib 92))
+  putStrLn (prim__cast_IntString (fib 93))

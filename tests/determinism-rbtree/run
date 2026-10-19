@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # bench/rbtree, an IO program with data, specialization, TRMC and reference
-# counting, compiled by each of determinism_runs (lib/determinism.sh).
+# counting, compiled by each of determinism_runs (lib/determinism.sh), and
+# each executable run on the empty input, on a tree of no key, one, and
+# either side of the first true value (key 0 of 10), on larger trees, and
+# on an input that is no number.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-determinism "$root/bench/rbtree"
+determinism "$root/bench/rbtree" 0 1 9 10 11 1000 100000 x

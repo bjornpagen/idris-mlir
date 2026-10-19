@@ -1,4 +1,5 @@
--- expect: cycle, line 15
+-- expect: cycle, line 16
+-- message: Main.Node
 
 module Main
 

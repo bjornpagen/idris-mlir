@@ -1,16 +1,40 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The fuzzer (harness/Fuzz.idr) on each seed of its regression corpus:
-# closed expressions over every primitive, each written four ways, compiled
-# once per part at the seed's thread count; each case's lines must print
-# one value, the folders must have computed every d line, and a case over
-# the integers must print the value their documented meaning gives. Each
-# line names its seed.
+# The fuzzer (harness/Fuzz.idr) on each seed of its regression corpus and
+# on one seed drawn from the clock: closed expressions over every
+# primitive, each written four ways, compiled once per part at the seed's
+# thread count; each case's lines must print one value, each line once,
+# the folders must have computed every d line, and a case over the
+# integers must print the value their documented meaning gives. A check
+# that could not look (its program not generated, compiled or run, or no
+# case with a model) says `not run`, which fails. Each line names its
+# seed; the drawn one's lines name it only when one fails, with what
+# replays it (IDRIS_MLIR_FUZZ_SEED), so the transcript is the same
+# whatever was drawn. First, the checker's own checks, on the runner: an
+# output that agrees names no case, and one that disagrees, misses a line
+# or says nothing names the case.
 # Two compilations of generated programs per seed, and a shrink's when a
 # case fails, given half an hour.
 test_limit=1800
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+"$runtests" --fuzz-program two-hosts | sed -n '/^== /q; /^fuzz-check: /p' > "$work/checker"
+if [ ! -s "$work/checker" ]; then
+  say "the checker's own checks: none printed"
+elif grep -qv ': ok$' "$work/checker"; then
+  say "the checker's own checks: some fail on the runner:"
+  grep -v ': ok$' "$work/checker" | sed 's/^/  /'
+else
+  say "the checker's own checks: each holds on the runner"
+fi
 for seed in 1 2; do
   fuzz "$seed" | sed "s/^/seed $seed: /"
 done
+drawn=${IDRIS_MLIR_FUZZ_SEED:-$((3 + $(date +%s) % 1000000))}
+fuzz "$drawn" > "$work/drawn"
+if grep -q ': ok$' "$work/drawn" && ! grep -qvE '^[a-z]+: .*: ok$' "$work/drawn"; then
+  sed 's/^/drawn seed: /' "$work/drawn"
+else
+  say "drawn seed: $drawn, which IDRIS_MLIR_FUZZ_SEED=$drawn replays:"
+  sed 's/^/drawn seed: /' "$work/drawn"
+fi

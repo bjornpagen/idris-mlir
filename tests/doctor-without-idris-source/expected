@@ -1,2 +1,6 @@
-doctor: exit 0
+doctor, empty: exit 0
 Idris source: problem: Idris source missing; run: git submodule update --init
+doctor, absent: exit 0
+Idris source: problem: Idris source missing; run: git submodule update --init
+doctor, the checkout: exit 0
+Idris source: <pin>
