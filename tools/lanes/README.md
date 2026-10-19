@@ -15,7 +15,11 @@ in its own `build/`.
   both intents, then `git push origin main`. Push after every step that
   builds and passes its tests. Unfinished work is committed too, never
   left behind: a commit whose message starts `WIP, unfinished:` and says
-  exactly what remains. Never revert another lane's work; fix forward.
+  exactly what remains. A WIP commit still builds: every lane builds from
+  main, so one that breaks the build stops them all (keep unfinished code
+  where the build does not reach it yet). Push at least whenever you stop
+  to wait on a build or a suite. Never revert another lane's work; fix
+  forward.
 - **Hard cutover, representation first.** Read AGENTS.md and both skills
   in full before the first edit:
   `.claude/skills/representation-first/SKILL.md`
