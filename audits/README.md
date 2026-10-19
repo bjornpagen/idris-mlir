@@ -35,3 +35,10 @@ behind it, each citing the guideline section it rests on:
 `SUMMARY.md` is the synthesis: the categories across lanes, the full
 delete list, the rewrite list, the code bugs the audit found, and the
 shape of the suite rebuilt on these principles.
+
+## The 2026-10-19 leak audit
+
+`leaks.md`: the leak classes on 6f774119, each with its reproducer, its
+status and its root cause, why the owned stage's verifier let each
+through, and the ownership representation proposed to make them
+unrepresentable; the reproducers and fixtures it names are in `leaks/`.
