@@ -87,11 +87,11 @@ unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LIBS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_P
   CMAKE_TOOLCHAIN_FILE CMAKE_BUILD_TYPE CMAKE_INSTALL_PREFIX CLANG_NO_DEFAULT_CONFIG
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-# The host's tools where Linux and macOS differ: SHA-256, the memory.
-. "$root/tools/host.sh"
+# Where the toolchain and its parts are (tools/toolchain.sh, which sources
+# the host's tools where Linux and macOS differ: SHA-256, the memory).
+. "$root/tools/toolchain.sh"
 # The patches carried on the pinned upstreams.
 . "$root/tools/patches.sh"
-toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 lock=$root/toolchain.lock.json
 say() {
   printf '%s\n' "$*"
@@ -102,17 +102,14 @@ die() {
   exit 1
 }
 
+# The parts only the bootstrap names; the others (sysroot, llvm_prefix,
+# chez_prefix, idris_prefix, typecheck_toolchain, cmake) are
+# tools/toolchain.sh's.
 cmake_prefix=$toolchain/cmake
 ninja_prefix=$toolchain/ninja
 stage1=$toolchain/stage1
-sysroot=$toolchain/sysroot
 runtimes_prefix=$toolchain/runtimes
-llvm_prefix=$toolchain/llvm
-chez_prefix=$toolchain/chez
-idris_prefix=$toolchain/idris2
-typecheck_prefix=$toolchain/typecheck
 llvm_source=$toolchain/llvm-project
-cmake=$cmake_prefix/bin/cmake
 ninja=$ninja_prefix/bin/ninja
 logs=$toolchain/logs
 builds=$toolchain/build
@@ -386,7 +383,7 @@ stamp_of() {
     stage2) echo "$llvm_prefix/provenance.json" ;;
     chez) echo "$chez_prefix/provenance.json" ;;
     idris) echo "$idris_prefix/provenance.json" ;;
-    typecheck) echo "$typecheck_prefix/provenance.json" ;;
+    typecheck) echo "$typecheck_toolchain/provenance.json" ;;
     *) die "internal error: no step $1" ;;
   esac
 }
@@ -1545,14 +1542,14 @@ step_typecheck() {
     [ -e "$build/$typecheck_file" ] || die "the typecheck build made no $typecheck_file"
   done
   version_is "$build/bin/mlir-tblgen" "LLVM version $llvm_version"
-  mkdir -p "$typecheck_prefix"
-  typecheck_toolchain_file > "$typecheck_prefix/toolchain.cmake.new" &&
-    mv "$typecheck_prefix/toolchain.cmake.new" "$typecheck_prefix/toolchain.cmake" ||
-    die "cannot write $typecheck_prefix/toolchain.cmake"
+  mkdir -p "$typecheck_toolchain"
+  typecheck_toolchain_file > "$typecheck_toolchain/toolchain.cmake.new" &&
+    mv "$typecheck_toolchain/toolchain.cmake.new" "$typecheck_toolchain/toolchain.cmake" ||
+    die "cannot write $typecheck_toolchain/toolchain.cmake"
   write_stamp "$(stamp_of typecheck)" step typecheck revision "$llvm_revision" llvm_revision "$llvm_revision" \
     "$llvm_name_key" "$llvm_name" version "$llvm_version" triple "$triple" targets "$llvm_targets" \
     inputs "$step_inputs" patches "$(patch_stamp llvm)" tree "$llvm_tree" llvm_build "$build" \
-    toolchain_file "$typecheck_prefix/toolchain.cmake" \
+    toolchain_file "$typecheck_toolchain/toolchain.cmake" \
     host_compiler "$("$host_cxx" --version 2>&1 | head -n 1)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finished
 }

@@ -6,7 +6,12 @@
 # tools/upstream-idris/as-idris.
 # IDRIS_MLIR_TOOLCHAIN stands for .toolchain (the spec tests use it).
 
+# The toolchain by its physical path: what was built there records the
+# paths it was built at (a step's inputs, a compiler's own directory), so a
+# checkout whose .toolchain is a link to another's (tools/lanes) names it
+# as the checkout that built it did. One not built yet is named as given.
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
+if [ -d "$toolchain" ]; then toolchain=$(cd "$toolchain" && pwd -P); fi
 # The pinned Chez Scheme: Idris 2 runs on it, and so do the programs of
 # Idris's Chez backend, the tests' runner and bench/'s baseline.
 chez_prefix=$toolchain/chez

@@ -33,18 +33,8 @@ if [ -n "$triple" ] && [ -f "$llvm_bin/$triple.cfg" ]; then
 else
   say "toolchain file: missing, or its target ${triple:-(none)} has no configuration file"
 fi
-# clang names a file it finds by its own real path, and only then names a
-# directory at all; a checkout's .toolchain may be a link to another's, so
-# both sides are compared as physical paths.
 modules=$("$llvm_bin/clang++" "--target=$triple" -print-file-name=libc++.modules.json 2> /dev/null)
-modules_dir=$(cd "$(dirname "$modules")" 2> /dev/null && pwd -P)
-real_prefix=$(cd "$prefix" 2> /dev/null && pwd -P)
-case $modules_dir/ in
-  "$real_prefix"/*)
-    if [ -f "$modules" ]; then
-      say "runtimes: libc++ and its module manifest beside clang"
-    else
-      say "runtimes: clang names $modules, which is not there"
-    fi ;;
+case $modules in
+  "$prefix"/*) [ -f "$modules" ] && say "runtimes: libc++ and its module manifest beside clang" ;;
   *) say "runtimes: clang names no libc++.modules.json beside it (${modules:-nothing})" ;;
 esac

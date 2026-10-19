@@ -7,7 +7,7 @@
 # tools of those names already first on the caller's PATH, which lit must
 # put after the pinned ones.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-say "the pinned LLVM: ${llvm_bin#"$root"/}"
+say "the pinned LLVM: the toolchain's ${llvm_bin#"$toolchain"/}"
 llvm_bin=$work/llvm/bin
 mkdir -p "$llvm_bin"
 for tool in FileCheck not count; do
