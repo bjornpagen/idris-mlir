@@ -61,7 +61,7 @@ there.
 | page size | 16384 | 16384 | 4096 | 4096 |
 | C library | libSystem, the host's SDK | glibc 2.43 | glibc 2.43 | glibc 2.43 |
 | format, linker | Mach-O, `ld64.lld` | ELF, `ld.lld` | ELF, `ld.lld` | ELF, `ld.lld` |
-| programs' CPU | `apple-m1` | `apple-m1` (*proposed*) | `armv8.2-a` (*proposed*) | `x86-64-v3` |
+| programs' CPU | `apple-m1` | `armv8.2-a` (*proposed*) | `armv8.2-a` (*proposed*) | `x86-64-v3` |
 | user address bits | 47 | read from the kernel at L2 | read from the kernel at L2 | 47 |
 | runtime bitcode | beside the object | in the object | in the object | in the object |
 
@@ -75,11 +75,16 @@ there.
   never runs on a 4 KiB kernel, and nothing runs on a 64 KiB one, which
   has no entry.
 - **The programs' CPU on arm64 Linux** (*proposed*, §9). A 16 KiB Linux
-  runs in practice on Apple Silicon (Asahi Linux, Fedora's 16 KiB kernel
-  in a VM on a Mac), so it takes macOS's `apple-m1`. A 4 KiB one runs on
-  Graviton, Ampere, the Raspberry Pi 5, Snapdragon X and VMs on Macs, so
-  it takes `armv8.2-a`, which they all have and the Pi 4's Cortex-A72
-  does not.
+  runs on Apple Silicon (Asahi Linux, Fedora's 16 KiB kernel in a VM on a
+  Mac) and on the Raspberry Pi 5 family, whose Raspberry Pi OS kernel,
+  `kernel_2712.img`, has 16 KiB pages by default (Raspberry Pi's
+  documentation, read 2026-10-18). The Pi 5's Cortex-A76 is ARMv8.2-A, so
+  the 16 KiB entry takes `armv8.2-a`, not `apple-m1`. A 4 KiB Linux runs
+  on Graviton, Ampere, Snapdragon X, VMs on Macs, a Pi 5 booted with
+  `kernel8.img`, and the older 64-bit Pis: the Zero 2 W and Pi 3
+  (Cortex-A53) and the Pi 4 (Cortex-A72), which are ARMv8.0-A.
+  `armv8.2-a` covers all but the older Pis; `armv8-a` covers them too, at
+  the cost of a lower baseline for the rest. Default `armv8.2-a`.
 - **The CPU test on arm64 Linux.** Apple's compiler-rt reads the
   processor's features from sysctl when the test asks
   (`__init_cpu_features_resolver()`, *read*:
@@ -90,10 +95,12 @@ there.
 - **snmalloc on arm64 Linux** takes x86_64 Linux's definitions
   (`SNMALLOC_HAS_LINUX_RANDOM_H`, `SNMALLOC_HAS_LINUX_FUTEX_H`).
 - **User address bits** on arm64 Linux depend on how the kernel was
-  configured: 48 is usual with 4 KiB pages, and 47 or 48 with 16 KiB
-  (*recalled*). L2 reads them from each machine's kernel and writes the
-  number in the entry, with where it came from, as the x86_64 and macOS
-  entries do.
+  configured: 48 is usual with 4 KiB pages, and 47 or 48 with 16 KiB, and
+  Raspberry Pi's own kernels may configure fewer (39, *recalled*). An
+  entry's number is the smallest among the kernels it runs on, since the
+  runtime places its stack and heap below it. L2 reads it from each
+  machine's kernel and writes it in the entry, with where it came from,
+  as the x86_64 and macOS entries do.
 
 ## 4. The C library
 
@@ -202,8 +209,9 @@ These are the machines, not choices:
 
 ## 9. Questions for the owner
 
-1. **The programs' CPU on arm64 Linux.** Default: `apple-m1` with
-   16 KiB pages, `armv8.2-a` with 4 KiB (§3).
+1. **The programs' CPU on arm64 Linux.** Default: `armv8.2-a` on both
+   arm64 Linux targets. `armv8-a` on the 4 KiB one if the Pi Zero 2 W,
+   Pi 3 and Pi 4 are to run programs (§3).
 2. **Where the Linux targets run.** Default: Fedora 44 VMs on the arm64
    Mac for both arm64 Linux targets, one per kernel, and a native
    x86_64 machine for x86_64 Linux, since emulation does not count as
