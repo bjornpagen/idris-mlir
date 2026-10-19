@@ -1,4 +1,4 @@
 properties: found
-every property has a fixture where it fails, folds-balanced aside
+every property has a fixture where it fails, folds-balanced and labels-least aside
 witness: each planted file is found
 near miss: nothing found

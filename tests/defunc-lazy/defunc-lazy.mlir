@@ -3,6 +3,7 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@Main.main:@now,calls=@Main.main:@later' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@Main.main:@now,calls=@Main.main:@later' -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected calls: @Main.main {{.*}}@now
 // BEFORE-DAG: expected calls: @Main.main {{.*}}@later
 // A Lazy value picked at runtime, stored in a field and forced later: the

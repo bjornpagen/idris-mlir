@@ -3,6 +3,7 @@
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=forces-nothing=@user,forces-nothing=@Main.main,reaches=@user:@label -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --idr-expect=holds=forces-nothing=@user,forces-nothing=@Main.main,reaches=@user:@label -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected forces-nothing: {{.*}} in @user
 // BEFORE-DAG: expected forces-nothing: {{.*}} in @Main.main
 // BEFORE-DAG: expected reaches: @user {{.*}}@label

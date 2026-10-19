@@ -10,6 +10,19 @@ stores as many labels, because each class of its union-find owns a copy of
 its set. The measured growth is quadratic in both time and memory. At
 65,536 labels the run would need roughly 300 GB.
 
+**Status, 2026-10-19:** done as section 3 designs, with one change: a
+unification is stated as two inclusions, a cycle the next wave collapses,
+so the solve merges classes only in a wave, one union per component.
+Items 3, 4 and 5 of section 4 are fixed, `labels-least` (idr-expect)
+states the solution's contract on every defunc fixture, and the old and
+new solves agreed point for point on every solve the programs and
+fixtures under `tests/` reach (314 solves, 75,128 points; this fixture's
+own was out of the old solve's reach) before the old one was deleted. `idris-mlir-opt --idr-defunctionalize` on this
+fixture's program now takes 0.15, 0.30, 0.60, 1.19, 2.45, 5.06 and 10.4 s
+in the pass at n = 1k, 2k, 4k, 8k, 16k, 32k and 65,536 (Debug build),
+17 s and 509 MB for the whole run at 65,536. Item 6's symbol walkers do
+not grow on it; the full pipeline's quadratics on it are in `bugs.md`.
+
 This audit covers four things, in this order:
 1. How the solve works now, and where the quadratic time and space come from.
 2. Which nodes end up with the same set, and what the general case allows.

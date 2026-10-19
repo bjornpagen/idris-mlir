@@ -4,6 +4,7 @@
 // RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@closureHeld:@add,forces-nothing=@closureHeld,forces-nothing=@suspensionHeld,labels=@use:arg0:[@later],forces-nothing=@use,forces-nothing=@Main.main' -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@use:arg0:[@later,@one]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected calls: @closureHeld {{.*}}@add
 // BEFORE-DAG: expected forces-nothing: {{.*}}@closureHeld
 // BEFORE-DAG: expected forces-nothing: {{.*}}@suspensionHeld

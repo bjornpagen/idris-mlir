@@ -24,9 +24,7 @@ namespace {
 
 // Whether `a` is of `b`'s carrier and every label of `a` is one of `b`'s.
 bool within(const Key &a, const Key &b) {
-  return a.carrier == b.carrier && llvm::all_of(a.labels, [&](Attribute label) {
-           return llvm::is_contained(b.labels, label);
-         });
+  return a.carrier == b.carrier && labels::within(a.labels, b.labels);
 }
 
 } // namespace

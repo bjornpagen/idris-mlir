@@ -6,6 +6,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.mkInc:result:[@Main.inc,@Main.add]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.mkAdd:result:[@Main.add,@Main.inc]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.use:arg0:[@Main.inc]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @Main.mkInc {{.*}}
 // BEFORE-DAG: expected labels: @Main.mkAdd {{.*}}
 // BEFORE-DAG: expected labels: @Main.use {{.*}}

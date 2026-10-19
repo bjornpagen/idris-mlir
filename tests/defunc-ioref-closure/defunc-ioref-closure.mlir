@@ -3,6 +3,7 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected calls: @Main.main {{.*}}@add
 // BEFORE-DAG: expected calls: @Main.main {{.*}}@dbl
 // An IORef of functions is an array of rank 0, made with no size and

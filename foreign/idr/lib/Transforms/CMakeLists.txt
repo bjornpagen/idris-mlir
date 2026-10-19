@@ -405,6 +405,7 @@ add_mlir_library(IdrExpect
 	Expect/Calls.cpp
 	Expect/Clones.cpp
 	Expect/Closures.cpp
+	Expect/LabelsLeast.cpp
 	Expect/ComputesNothing.cpp
 	Expect/ConstantStack.cpp
 	Expect/Continuations.cpp

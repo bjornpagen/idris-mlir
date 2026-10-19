@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file --idr-defunctionalize --idr-expect=holds=calls=@main:@label -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s -split-input-file --idr-expect=holds=calls=@main:@label -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: idris-mlir-opt %s -split-input-file --idr-expect=holds=labels-least -o /dev/null
 // BEFORE: expected calls: @main {{.*}}@label
 // BEFORE: expected calls: @main {{.*}}@label
 // BEFORE: expected calls: @main {{.*}}@label

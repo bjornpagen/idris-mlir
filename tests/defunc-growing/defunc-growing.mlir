@@ -7,6 +7,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.twice:arg0:[@Main.twice]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.later:result:[@Main.one]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.force:arg0:[@Main.force]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @Main.pick {{.*}}
 // BEFORE-DAG: expected labels: @Main.twice {{.*}}
 // BEFORE-DAG: expected labels: @Main.later {{.*}}

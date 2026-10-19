@@ -3,6 +3,7 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=calls=@run:@add,calls=@run:@dbl' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=calls=@run:@add,calls=@run:@dbl' -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected calls: @run {{.*}}@add
 // BEFORE-DAG: expected calls: @run {{.*}}@dbl
 // A closure kept in a constructor's field and bound again by a match's

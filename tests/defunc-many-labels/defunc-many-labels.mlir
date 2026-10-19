@@ -4,6 +4,7 @@
 // RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@pick:result:[@aa,@bb,@cc,@dd,@ee,@ff,@mid,@zz]' -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@pick:result:[@aa,@bb,@cc,@dd,@ee,@ff,@mid]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @pick {{.*}}
 // Eight labels reach one closure type: some by a direct yield, the rest
 // through the field of a box, whose own four labels are a subset. The

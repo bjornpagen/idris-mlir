@@ -8,6 +8,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=by-name=@shout' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=not-by-name=@clocked' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=by-name=@errtext' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected by-name: {{.*}}@traced
 // BEFORE-DAG: expected not-by-name: {{.*}}@sized
 // BEFORE-DAG: expected not-by-name: {{.*}}@shout

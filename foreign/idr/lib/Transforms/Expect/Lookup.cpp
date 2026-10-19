@@ -24,6 +24,11 @@ const Property properties[] = {
     // closures or of a memo cell, whose labels run exactly the functions
     // the list names.
     property<Labels, labels>("labels"),
+    // Before idr-defunctionalize: the label solve's set at every point is
+    // the least the program's flow gives it, every label a source of it
+    // reaches along the edges and the dispatches that run what reaches
+    // them, and no other.
+    property<Nothing, labelsLeast>("labels-least"),
     // Nothing allocates a heap cell, anywhere, or in @f and every function
     // it names.
     property<Roots, noHeapAllocation>("no-heap-allocation"),

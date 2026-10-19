@@ -13,9 +13,14 @@
 // are finite and each grows at most `Lattice::kHeight` times.
 //
 // A value whose lattice grows with the program, a set over the program's
-// labels or functions, has no height a type can state. Its solve is a
-// OnceWorklist over (element, member) pairs instead: each member reaches each
-// element once, and the element's set is what has reached it.
+// labels or functions, has no height a type can state, and a solve over
+// (element, member) pairs holds and visits elements times members, however
+// few distinct sets there are. Such a solve interns its sets, so an element
+// holds a set's identity and a set exists once, and goes in sweeps over its
+// graph with each cycle collapsed: one sweep is a loop over a finite DAG,
+// and a sweep after the first exists only because an event of a finite set
+// happened for the first time in the one before (the label solve's
+// firings, Analysis/Labels.cpp).
 //
 // Both hand elements out first in, first out: an element queued early is not
 // starved by the work it causes, so a monotone solve re-enters less.

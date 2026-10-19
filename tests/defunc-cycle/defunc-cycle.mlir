@@ -7,6 +7,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.pong:result:[@Main.q,@Main.p]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.p:arg0:[@Main.q,@Main.zero]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.q:arg0:[@Main.p]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @Main.ping {{.*}}
 // BEFORE-DAG: expected labels: @Main.pong {{.*}}
 // BEFORE-DAG: expected labels: @Main.p {{.*}}

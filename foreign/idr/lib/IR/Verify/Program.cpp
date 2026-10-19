@@ -39,11 +39,13 @@ namespace {
 
 // Whether `type` names a closure or a suspension anywhere in it, through
 // grades and element types. A data type's body is the program's rule to
-// read, once per data type.
+// read, once per data type, so the walk, pre-order, never enters one.
 bool namesLabels(Type type) {
   return type
-      .walk([](Type inner) {
-        return isa<FnType, LazyType>(inner) ? WalkResult::interrupt() : WalkResult::advance();
+      .walk<WalkOrder::PreOrder>([](Type inner) {
+        if (isa<FnType, LazyType>(inner))
+          return WalkResult::interrupt();
+        return isa<DataType>(inner) ? WalkResult::skip() : WalkResult::advance();
       })
       .wasInterrupted();
 }

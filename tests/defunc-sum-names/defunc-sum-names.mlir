@@ -14,6 +14,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.onlyB:result:[@Main.a,@Main.b]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.neg:result:[]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@Main.use:arg0:[@Main.b]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @Main.onlyB {{.*}}
 // BEFORE-DAG: expected labels: @Main.neg {{.*}}
 // BEFORE-DAG: expected labels: @Main.use {{.*}}

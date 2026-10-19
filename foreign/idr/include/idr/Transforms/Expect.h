@@ -137,6 +137,7 @@ unsigned crashSitesOf(mlir::FunctionOpInterface fn, mlir::SymbolTable &symbols);
 // call them with the module before a pass and nothing.
 mlir::LogicalResult noClosures(const Request<Roots> &);
 mlir::LogicalResult labels(const Request<Labels> &);
+mlir::LogicalResult labelsLeast(const Request<Nothing> &);
 mlir::LogicalResult noHeapAllocation(const Request<Roots> &);
 mlir::LogicalResult oneClone(const Request<Symbol> &);
 mlir::LogicalResult specializedOnce(const Request<Functions> &);

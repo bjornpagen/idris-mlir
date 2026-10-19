@@ -3,6 +3,7 @@
 // RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@both:arg0:[]' -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@both:arg0:[@both]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @both {{.*}}
 // A closure no label reaches is a value the program never has: the sum of
 // @both's parameter holds no label, so an apply of it runs nowhere. A

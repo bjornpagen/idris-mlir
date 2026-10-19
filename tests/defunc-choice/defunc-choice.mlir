@@ -4,6 +4,7 @@
 // RUN: %status 1 idris-mlir-opt %s '--idr-expect=holds=labels=@pick:result:[@add,@dbl],calls=@Main.main:@add,calls=@Main.main:@dbl' -o /dev/null 2> %t.before.err
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@pick:result:[@add]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @pick {{.*}}
 // BEFORE-DAG: expected calls: @Main.main {{.*}}@add
 // BEFORE-DAG: expected calls: @Main.main {{.*}}@dbl

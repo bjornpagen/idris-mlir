@@ -54,12 +54,9 @@ Type Slots::typeOf(Type type, const Slot &slot) const {
 }
 
 Tag Slots::labelTag(const Key &key, FlatSymbolRefAttr label) const {
-  ArrayRef<Attribute> labels = key.labels.getValue();
-  const Attribute *at = llvm::partition_point(labels, [&](Attribute one) {
-    return cast<FlatSymbolRefAttr>(one).getValue() < label.getValue();
-  });
-  assert(at != labels.end() && *at == label && "a label of a slot is a label of its key");
-  return Tag{static_cast<uint32_t>(at - labels.begin())};
+  std::optional<unsigned> position = labels::positionIn(key.labels, label);
+  assert(position && "a label of a slot is a label of its key");
+  return Tag{*position};
 }
 
 FlatSymbolRefAttr Slots::forceOf(const Key &key) const {

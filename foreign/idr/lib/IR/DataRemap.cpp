@@ -204,13 +204,16 @@ void DataRemap::remakeAll(Operation *root, StringRef kind) {
         Type shape = shapeAt(field, FieldPlace{data, tag, static_cast<unsigned>(index)});
         direct |= shape != field;
         ctorShapes.push_back(shape);
+        // Pre-order, so the skip keeps the walk out of each data type's
+        // labels: a shape names the data types at its top, whatever they
+        // hold.
         AttrTypeWalker named;
         named.addWalk([&](DataType inner) {
           holders[inner].push_back(data);
           held[data].push_back(inner);
           return WalkResult::skip();
         });
-        named.walk(shape);
+        named.walk<WalkOrder::PreOrder>(shape);
       }
     }
     if (direct)

@@ -1,34 +1,40 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The label solve: a worklist of arrivals and firings over the classes of
-// a union-find, each class holding its labels, the nodes its labels flow
-// into and the dispatches its labels run. A label that reaches a class is
-// one arrival, which gives it to the class's successors and fires it at
-// the class's dispatches; a firing adds the label's edges at its call; two
-// classes that hold one cell are merged, never coerced. The sets are the
-// least solution of the edges, so they do not depend on the walk's or the
-// worklist's order.
+// The label solve, in waves over the classes of a union-find. A class holds
+// the id of its set, interned in the solve's table, and the nodes whose
+// classes include it; a dispatch holds the labels it has run. A wave takes
+// the classes downstream of a new edge, collapses each cycle of inclusions
+// among them into one class, since a cycle's sets are equal in every
+// solution (two points that hold one cell are a cycle of two), and
+// computes each class's set once, after every class it includes: one
+// union of its members' sets and of what its inputs owe it. A class with one distinct input set takes
+// that set's id and reads no label. Then each dispatch runs the labels its
+// callee holds that it has not run, each adding the label's edges, which
+// the next wave owes. The sets only grow, a wave gives each class it takes
+// the least set that holds the edges present, and a firing adds exactly
+// the edges of a label that has reached its call, so the waves end with
+// the least solution of the statements, whatever the order of the walk.
 //
-// A pair of a node and a label, or of a dispatch and a label, enters the
-// worklist at most once: a label arrives at a class only when it is new to
-// the class, and a merge queues each label at the side that lacked it,
-// whose node had never held it. There are finitely many nodes, dispatches
-// and labels, so the worklist ends with the least solution.
+// The waves end: a wave after the first exists only because the one before
+// ran a label new to a dispatch, and a dispatch's labels only grow, within
+// the program's finitely many. A wave is a loop over the classes it takes
+// and their edges.
 
 #include "idr/Analysis/Labels.h"
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Scc.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/SymbolTable.h"
 
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
 #include <algorithm>
 #include <cassert>
 #include <iterator>
+#include <utility>
 
 using namespace mlir;
 
@@ -58,26 +64,70 @@ unsigned at(Node node) { return llvm::to_underlying(node); }
 unsigned at(Label label) { return llvm::to_underlying(label); }
 unsigned at(Dispatch dispatch) { return llvm::to_underlying(dispatch); }
 
+bool byName(Attribute a, Attribute b) {
+  return cast<FlatSymbolRefAttr>(a).getValue() < cast<FlatSymbolRefAttr>(b).getValue();
+}
+
 } // namespace
 
-Graph::Graph(const SymbolTable &table) : out(table) {}
-
 //===----------------------------------------------------------------------===//
-// Labels
+// Sets
 //===----------------------------------------------------------------------===//
 
-// A label's number, given when it is first met.
-Label Graph::labelId(FlatSymbolRefAttr label) {
-  auto [it, made] =
-      labelIds.try_emplace(label.getAttr(), Label(static_cast<std::uint32_t>(labelNames.size())));
-  if (made)
-    labelNames.push_back(label);
-  return it->second;
+// The empty set is id 0, and is never looked up by its members.
+SetTable::SetTable() { sets.emplace_back(); }
+
+SetId SetTable::intern(ArrayRef<Label> members) {
+  if (members.empty())
+    return SetId{};
+  if (auto it = ids.find(members); it != ids.end())
+    return it->second;
+  ArrayRef<Label> kept = members.copy(storage);
+  auto id = SetId(static_cast<std::uint32_t>(sets.size()));
+  sets.push_back(kept);
+  ids.try_emplace(kept, id);
+  return id;
+}
+
+ArrayRef<Label> SetTable::members(SetId set) const { return sets[llvm::to_underlying(set)]; }
+
+bool SetTable::within(SetId part, SetId whole) const {
+  ArrayRef<Label> in = members(whole);
+  return llvm::all_of(members(part), [&](Label label) { return std::binary_search(in.begin(), in.end(), label); });
+}
+
+// The union of two or more distinct sets is the largest of them when it
+// holds the others, and is made once per tuple of ids.
+SetId SetTable::unite(SmallVectorImpl<SetId> &inputs) {
+  llvm::erase(inputs, SetId{});
+  llvm::sort(inputs);
+  inputs.erase(std::unique(inputs.begin(), inputs.end()), inputs.end());
+  if (inputs.empty())
+    return SetId{};
+  if (inputs.size() == 1)
+    return inputs.front();
+  if (auto it = unions.find(ArrayRef<SetId>(inputs)); it != unions.end())
+    return it->second;
+  SetId largest = *llvm::max_element(
+      inputs, [&](SetId a, SetId b) { return members(a).size() < members(b).size(); });
+  SetId result = largest;
+  if (!llvm::all_of(inputs, [&](SetId part) { return part == largest || within(part, largest); })) {
+    SmallVector<Label> all;
+    for (SetId part : inputs)
+      llvm::append_range(all, members(part));
+    llvm::sort(all);
+    all.erase(std::unique(all.begin(), all.end()), all.end());
+    result = intern(all);
+  }
+  unions.try_emplace(ArrayRef<SetId>(inputs).copy(storage), result);
+  return result;
 }
 
 //===----------------------------------------------------------------------===//
 // The union-find and the edges
 //===----------------------------------------------------------------------===//
+
+Graph::Graph(const SymbolTable &table) : out(table) {}
 
 Node Graph::find(Node node) {
   Node root = node;
@@ -95,144 +145,190 @@ Link linkOf(Carriers carriers) {
   return carriers.contains(Carrier::Suspension) ? Link::Unify : Link::Include;
 }
 
+// Two points that hold one set include each other: a cycle, which the
+// next wave collapses into one class like any other.
 void Graph::link(Node from, Node to, Link how) {
-  switch (how) {
-  case Link::Include:
-    return include(from, to);
-  case Link::Unify:
-    return unify(from, to);
-  }
-  llvm_unreachable("every link is listed");
+  include(from, to);
+  if (how == Link::Unify)
+    include(to, from);
 }
 
-// A successor added now is given every label at once, so it is owed
-// nothing of what the class gave before.
+// An edge added now owes its target its source's set at the next wave.
 void Graph::include(Node from, Node to) {
   Node source = find(from);
   if (source == find(to))
     return;
   classes[at(source)].successors.push_back(to);
-  for (Label label : classes[at(source)].labels)
-    reach(to, label);
+  added.emplace_back(from, to);
+  dirty.push_back(to);
 }
 
-// One class for both. Each side's successors and dispatches have been
-// given, or are owed, the labels of that side; each owes them the labels
-// only the other side held, queued as an arrival at the side that lacked
-// them, whose node now names the merged class. A successor met twice, or
-// one in the merged class itself, is kept once or dropped: it would only
-// be given the same labels again.
-void Graph::unify(Node a, Node b) {
-  Node x = find(a), y = find(b);
-  if (x == y)
-    return;
-  Class &into = classes[at(x)];
-  Class &from = classes[at(y)];
-  SmallVector<Label> onlyInto, onlyFrom, both;
-  std::set_difference(into.labels.begin(), into.labels.end(), from.labels.begin(),
-                      from.labels.end(), std::back_inserter(onlyInto));
-  std::set_difference(from.labels.begin(), from.labels.end(), into.labels.begin(),
-                      into.labels.end(), std::back_inserter(onlyFrom));
-  std::set_union(into.labels.begin(), into.labels.end(), from.labels.begin(), from.labels.end(),
-                 std::back_inserter(both));
+// The classes of the roots `x` and `y` as one, under the root whose list of
+// successors is the longer, so that no long list is copied twice; the
+// merged class's root. Its set is the wave's to compute, from both.
+Node Graph::merge(Node x, Node y) {
+  if (classes[at(x)].successors.size() < classes[at(y)].successors.size())
+    std::swap(x, y);
   parents[at(y)] = x;
-  into.labels.assign(both.begin(), both.end());
-  llvm::append_range(into.successors, from.successors);
-  llvm::append_range(into.dispatches, from.dispatches);
-  from = Class();
-  llvm::SmallDenseSet<Node, 8> roots;
-  llvm::erase_if(into.successors, [&](Node next) {
-    Node root = find(next);
-    return root == x || !roots.insert(root).second;
-  });
-  for (Label label : onlyFrom) {
-    [[maybe_unused]] bool fresh = work.push(Arrival{x, label});
-    assert(fresh && "a label new to a class arrives at it once");
-  }
-  for (Label label : onlyInto) {
-    [[maybe_unused]] bool fresh = work.push(Arrival{y, label});
-    assert(fresh && "a label new to a class arrives at it once");
-  }
-}
-
-// `label` reaches `to`'s class, which takes it if it lacks it, and then owes
-// it to everything the class gives to.
-void Graph::reach(Node to, Label label) {
-  Node root = find(to);
-  SmallVector<Label, 2> &held = classes[at(root)].labels;
-  auto it = llvm::lower_bound(held, label);
-  if (it != held.end() && *it == label)
-    return;
-  held.insert(it, label);
-  [[maybe_unused]] bool fresh = work.push(Arrival{root, label});
-  assert(fresh && "a label new to a class arrives at it once");
+  Class from = std::exchange(classes[at(y)], Class());
+  llvm::append_range(classes[at(x)].successors, from.successors);
+  return x;
 }
 
 //===----------------------------------------------------------------------===//
 // The solve
 //===----------------------------------------------------------------------===//
 
-// The class the arrival's node names now holds the label; its successors
-// take it, and each of its dispatches runs it. Neither changes the class's
-// lists: a successor in the class holds the label already.
-void Graph::arrive(Arrival arrival) {
-  auto [node, label] = arrival;
-  const Class &owing = classes[at(find(node))];
-  for (Node next : owing.successors)
-    reach(next, label);
-  for (Dispatch run : owing.dispatches)
-    work.push(Firing{run, label});
+// The labels by name, each a rank; each class holds the labels that start
+// at its points.
+void Graph::rank() {
+  for (const auto &source : sources)
+    labelNames.push_back(source.second);
+  llvm::sort(labelNames, byName);
+  labelNames.erase(std::unique(labelNames.begin(), labelNames.end()), labelNames.end());
+  llvm::DenseMap<StringAttr, Label> ranks;
+  for (auto [position, label] : llvm::enumerate(labelNames))
+    ranks.try_emplace(label.getAttr(), Label(static_cast<std::uint32_t>(position)));
+  std::vector<std::pair<Node, Label>> starts;
+  for (const auto &[node, label] : sources)
+    starts.emplace_back(find(node), ranks.at(label.getAttr()));
+  sources = {};
+  llvm::sort(starts);
+  starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
+  for (auto first = starts.begin(); first != starts.end();) {
+    Node root = first->first;
+    auto last = std::find_if(first, starts.end(), [&](const auto &start) { return start.first != root; });
+    SmallVector<Label> own;
+    for (auto it = first; it != last; ++it)
+      own.push_back(it->second);
+    SmallVector<SetId, 2> both = {classes[at(root)].labels, sets.intern(own)};
+    classes[at(root)].labels = sets.unite(both);
+    first = last;
+  }
 }
 
-// The label takes the call's arguments after its captures and gives its
-// results to the call's.
+// One wave: the classes downstream of a node the last wave left owed, its
+// cycles collapsed, each set computed after the sets it includes; then
+// the firings the dispatches owe.
+SmallVector<Firing> Graph::wave() {
+  // The classes the wave takes, as roots, each once: those owed, and every
+  // class that includes one taken.
+  llvm::DenseMap<Node, unsigned> vertexOf;
+  SmallVector<Node> order;
+  auto take = [&](Node node) {
+    Node root = find(node);
+    if (vertexOf.try_emplace(root, static_cast<unsigned>(order.size())).second)
+      order.push_back(root);
+  };
+  for (Node node : dirty)
+    take(node);
+  dirty.clear();
+  for (size_t v = 0; v < order.size(); ++v)
+    for (Node next : classes[at(order[v])].successors)
+      take(next);
+
+  // Each class's successors as the wave's roots, each once, itself never.
+  auto n = static_cast<unsigned>(order.size());
+  SmallVector<SmallVector<unsigned>> edges(n);
+  std::vector<unsigned> seen(n, n);
+  for (unsigned v = 0; v < n; ++v) {
+    SmallVector<Node, 2> kept;
+    for (Node next : classes[at(order[v])].successors) {
+      unsigned w = vertexOf.at(find(next));
+      if (w == v || seen[w] == v)
+        continue;
+      seen[w] = v;
+      edges[v].push_back(w);
+      kept.push_back(order[w]);
+    }
+    classes[at(order[v])].successors = std::move(kept);
+  }
+
+  // What each class is owed besides the sets it held: the sets of the
+  // edges added since the last wave, and of the classes it includes whose
+  // sets grow in this one.
+  std::vector<SmallVector<SetId, 1>> owed(n);
+  for (auto [from, to] : added)
+    owed[vertexOf.at(find(to))].push_back(classes[at(find(from))].labels);
+  added.clear();
+  std::vector<SetId> before(n);
+  for (unsigned v = 0; v < n; ++v)
+    before[v] = classes[at(order[v])].labels;
+
+  // The components come callees first, so the last includes no other
+  // class of the wave; each is one class once its members merge. A member
+  // whose set did not grow owes its successors nothing new.
+  SmallVector<SmallVector<unsigned>> parts = components(edges);
+  std::vector<unsigned> partOf(n);
+  for (auto [i, part] : llvm::enumerate(parts))
+    for (unsigned v : part)
+      partOf[v] = static_cast<unsigned>(i);
+  for (auto i = static_cast<unsigned>(parts.size()); i-- > 0;) {
+    ArrayRef<unsigned> part = parts[i];
+    SmallVector<SetId, 4> inputs;
+    for (unsigned v : part) {
+      inputs.push_back(before[v]);
+      llvm::append_range(inputs, owed[v]);
+    }
+    Node root = order[part.front()];
+    for (unsigned v : part.drop_front())
+      root = merge(root, order[v]);
+    SetId set = sets.unite(inputs);
+    classes[at(root)].labels = set;
+    for (unsigned v : part)
+      if (set != before[v])
+        for (unsigned w : edges[v])
+          if (partOf[w] != i)
+            owed[w].push_back(set);
+  }
+
+  // Each dispatch runs the labels its callee holds that it has not run: it
+  // has run a subset of them.
+  SmallVector<Firing> firings;
+  for (auto [d, run] : llvm::enumerate(runs)) {
+    SetId set = classes[at(find(run.callee))].labels;
+    if (set == run.ran)
+      continue;
+    SmallVector<Label> unrun;
+    ArrayRef<Label> now = sets.members(set), had = sets.members(run.ran);
+    std::set_difference(now.begin(), now.end(), had.begin(), had.end(), std::back_inserter(unrun));
+    for (Label label : unrun)
+      firings.emplace_back(Dispatch(static_cast<unsigned>(d)), label);
+    run.ran = set;
+  }
+  return firings;
+}
+
+// The label's edges at the dispatch's call, which the next wave owes.
 void Graph::fire(Firing firing) {
   auto [run, label] = firing;
-  CallOpInterface call = dispatches[at(run)];
-  FlatSymbolRefAttr name = labelNames[at(label)];
-  auto fn = out.table.lookup<FuncOp>(name.getAttr());
-  Operation::operand_range args = call.getArgOperands();
-  assert(fn && fn.getNumArguments() >= args.size() &&
-         "a label fits the carrier of the callee that holds it");
-  unsigned captures = fn.getNumArguments() - static_cast<unsigned>(args.size());
-  for (auto [i, arg] : llvm::enumerate(args))
-    if (carriesLabels(arg.getType()))
-      link(nodeOf(arg),
-           nodeOf(out.keyOf(FlowPoint::parameter(name, captures + static_cast<unsigned>(i)))),
-           linkOf(Carriers::of(arg.getType())));
-  for (auto [j, result] : llvm::enumerate(call->getResults()))
-    if (carriesLabels(result.getType()))
-      link(nodeOf(out.keyOf(FlowPoint::result(name, static_cast<unsigned>(j)))),
-           nodeOf(Value(result)), linkOf(Carriers::of(result.getType())));
+  Builder builder(*this);
+  readFiring(out.table, runs[at(run)].call, labelNames[at(label)], builder);
 }
 
-// A set's labels in name order. Two equal sets are one attribute: the
-// context uniques it.
-ArrayAttr Graph::attrOf(ArrayRef<Label> set) const {
-  SmallVector<FlatSymbolRefAttr> names;
-  for (Label label : set)
-    names.push_back(labelNames[at(label)]);
-  llvm::sort(names, [](FlatSymbolRefAttr a, FlatSymbolRefAttr b) {
-    return a.getValue() < b.getValue();
-  });
-  return ArrayAttr::get(out.empty.getContext(),
-                        SmallVector<Attribute>(names.begin(), names.end()));
-}
-
-// Every node's labels are its root's, written once each root's set has its
-// attribute.
+// Every node's labels are its root's, one attribute per set: its labels
+// in rank order, which is name order.
 Solution Graph::solve() && {
-  while (std::optional<Work> item = work.pop())
-    std::visit(llvm::makeVisitor([&](Arrival arrival) { arrive(arrival); },
-                                 [&](Firing firing) { fire(firing); }),
-               *item);
+  rank();
+  for (SmallVector<Firing> firings = wave(); !firings.empty(); firings = wave())
+    for (Firing firing : firings)
+      fire(firing);
+  llvm::DenseMap<SetId, ArrayAttr> attrs;
   auto n = static_cast<unsigned>(parents.size());
   out.labels.assign(n, out.empty);
-  for (unsigned node = 0; node < n; ++node)
-    if (parents[node] == Node(node) && !classes[node].labels.empty())
-      out.labels[node] = attrOf(classes[node].labels);
-  for (unsigned node = 0; node < n; ++node)
-    out.labels[node] = out.labels[at(find(Node(node)))];
+  for (unsigned node = 0; node < n; ++node) {
+    SetId set = classes[at(find(Node(node)))].labels;
+    if (set == SetId{})
+      continue;
+    auto [it, made] = attrs.try_emplace(set);
+    if (made) {
+      SmallVector<Attribute> names;
+      for (Label label : sets.members(set))
+        names.push_back(labelNames[at(label)]);
+      it->second = ArrayAttr::get(out.empty.getContext(), names);
+    }
+    out.labels[node] = it->second;
+  }
   return std::move(out);
 }
 
@@ -244,8 +340,8 @@ Solution::Solution(const SymbolTable &table)
     : table(table), empty(ArrayAttr::get(table.getOp()->getContext(), {})) {}
 
 ArrayAttr Solution::labelsOf(const PointKey &key) const {
-  std::optional<Node> node = lookup(key);
-  return node ? labels[at(*node)] : empty;
+  auto it = nodes.find(key);
+  return it == nodes.end() ? empty : labels[at(it->second)];
 }
 
 std::optional<FlowPoint> Solution::sinkOf(OpOperand &operand) const {
@@ -254,24 +350,28 @@ std::optional<FlowPoint> Solution::sinkOf(OpOperand &operand) const {
   return std::nullopt;
 }
 
+bool within(ArrayAttr a, ArrayAttr b) {
+  return a == b || llvm::all_of(a, [&](Attribute label) {
+           return std::binary_search(b.begin(), b.end(), label, byName);
+         });
+}
+
+std::optional<unsigned> positionIn(ArrayAttr set, FlatSymbolRefAttr label) {
+  ArrayRef<Attribute> labels = set.getValue();
+  const Attribute *it = llvm::lower_bound(labels, Attribute(label), byName);
+  if (it == labels.end() || *it != label)
+    return std::nullopt;
+  return static_cast<unsigned>(it - labels.begin());
+}
+
 } // namespace idr::labels
 
-#include "/private/tmp/claude-501/-Users-bjorn-Documents-idris-mlir/23a148d6-d050-49fa-a7a0-cb4b682ce965/scratchpad/dump/dump.inc"
 namespace idr {
 
-namespace {
-
-labels::Solution solveLabels(Operation *program, const SymbolTable &table) {
-  labels::Graph graph(table);
+Labels::Labels(Operation *program, AnalysisManager &am) : solution([&] {
+  labels::Graph graph(am.getAnalysis<SymbolTable>());
   graph.walk(program);
   return std::move(graph).solve();
-}
-
-} // namespace
-
-Labels::Labels(Operation *program, AnalysisManager &am)
-    : solution(solveLabels(program, am.getAnalysis<SymbolTable>())) {
-  dumpSolution(program, solution);
-}
+}()) {}
 
 } // namespace idr

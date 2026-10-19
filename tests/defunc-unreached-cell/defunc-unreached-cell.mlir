@@ -5,6 +5,7 @@
 // RUN: FileCheck %s --check-prefix=BEFORE < %t.before.err
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@step:arg0:[@first]' -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir '--idr-expect=holds=labels=@run:arg0:[@step]' -o /dev/null
+// RUN: idris-mlir-opt %s --idr-expect=holds=labels-least -o /dev/null
 // BEFORE-DAG: expected labels: @step {{.*}}
 // BEFORE-DAG: expected labels: @run {{.*}}
 // BEFORE-DAG: expected forces-nothing: {{.*}}@step
