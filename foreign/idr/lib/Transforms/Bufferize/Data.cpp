@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Cells and matches: idr.con stores a tensor into a cell and
-// idr.memo.settle into a memo cell, idr.field reads one from the heap, and
+// Cells and matches: idr.con stores a tensor into a cell and a memo cell's
+// force (idr.memo.run) into the memo cell, through its idr.array.yield,
+// idr.field and the force's captures read one from the heap, and
 // idr.match, idr.match_lit and idr.yield join the arrays their cases give.
 //
 // A store into a cell is a release, as an entry into a linear type is:
@@ -28,7 +29,7 @@ using namespace mlir::bufferization;
 
 namespace {
 
-// idr.con and idr.memo.settle: each tensor operand is stored in a cell.
+// idr.con: each tensor operand is stored in a cell.
 template <typename Store>
 struct StoreModel : BufferizableOpInterface::ExternalModel<StoreModel<Store>, Store> {
   bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
@@ -220,11 +221,138 @@ struct YieldModel : BufferizableOpInterface::ExternalModel<YieldModel, idr::Yiel
   }
 };
 
+// idr.memo.run: a capture is a tensor read from the heap, as idr.field
+// reads one, and each result is the array the region gives after the
+// value, which its yield stores.
+struct MemoRunModel : BufferizableOpInterface::ExternalModel<MemoRunModel, idr::MemoRunOp> {
+  // The yield's value that `result` is, after the one that moves in.
+  static OpOperand *forwarded(Operation *op, OpResult result) {
+    auto yield = dyn_cast<idr::ArrayYieldOp>(op->getRegion(0).front().getTerminator());
+    if (!yield)
+      return nullptr;
+    return &yield->getOpOperand(result.getResultNumber() + 1);
+  }
+
+  AliasingOpOperandList getAliasingOpOperands(Operation *op, Value value,
+                                              const AnalysisState &) const {
+    auto result = dyn_cast<OpResult>(value);
+    OpOperand *given = result ? forwarded(op, result) : nullptr;
+    if (!given)
+      return {};
+    return {{given, BufferRelation::Equivalent, /*isDefinite=*/true}};
+  }
+
+  bool isWritable(Operation *, Value value, const AnalysisState &) const {
+    return isa<OpResult>(value);
+  }
+
+  FailureOr<BufferLikeType> getBufferType(Operation *op, Value value,
+                                          const BufferizationOptions &options,
+                                          const BufferizationState &state,
+                                          SmallVector<Value> &invocationStack) const {
+    auto result = dyn_cast<OpResult>(value);
+    OpOperand *given = result ? forwarded(op, result) : nullptr;
+    // A capture, or the result of a region that never returns, which is
+    // never read.
+    if (!given)
+      return idr::bufferize::cellType(value);
+    Value yielded = given->get();
+    if (auto type = dyn_cast<BufferLikeType>(yielded.getType()))
+      return type;
+    return bufferization::getBufferType(yielded, options, state, invocationStack);
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options, BufferizationState &state) const {
+    SmallVector<Type> types;
+    for (OpResult result : op->getResults()) {
+      if (!isa<TensorLikeType>(result.getType())) {
+        types.push_back(result.getType());
+        continue;
+      }
+      FailureOr<BufferLikeType> type = bufferization::getBufferType(result, options, state);
+      if (failed(type))
+        return failure();
+      types.push_back(*type);
+    }
+    Operation *bufferized = rewriter.cloneWithoutRegions(*op);
+    for (auto [result, type] : llvm::zip_equal(bufferized->getResults(), types))
+      result.setType(type);
+    rewriter.inlineRegionBefore(op->getRegion(0), bufferized->getRegion(0),
+                                bufferized->getRegion(0).end());
+    if (failed(bufferizeBlockSignature(&bufferized->getRegion(0).front(), rewriter, options,
+                                       state)))
+      return failure();
+    replaceOpWithBufferizedValues(rewriter, op, bufferized->getResults());
+    return success();
+  }
+};
+
+// The end of a force's region, the one idr.array.yield that may yield a
+// tensor here (an array op's yield is in a loop by now, and an update's
+// yields an element, never an array): its
+// value is stored in the memo cell, a release as idr.con's fields are, and
+// the values after it are the force's results, never copied into a new
+// buffer where the region's own would do.
+struct MemoYieldModel : BufferizableOpInterface::ExternalModel<MemoYieldModel, idr::ArrayYieldOp> {
+  bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
+    return true;
+  }
+  bool bufferizesToMemoryWrite(Operation *, OpOperand &operand, const AnalysisState &) const {
+    return operand.getOperandNumber() == 0;
+  }
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &operand,
+                                      const AnalysisState &) const {
+    if (operand.getOperandNumber() == 0)
+      return {};
+    return {{op->getParentOp()->getResult(operand.getOperandNumber() - 1),
+             BufferRelation::Equivalent, /*isDefinite=*/true}};
+  }
+  bool mustBufferizeInPlace(Operation *, OpOperand &operand, const AnalysisState &) const {
+    return operand.getOperandNumber() != 0;
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options, BufferizationState &state) const {
+    SmallVector<Value> values;
+    for (OpOperand &operand : op->getOpOperands()) {
+      Value value = operand.get();
+      if (!isa<TensorLikeType>(value.getType())) {
+        values.push_back(value);
+        continue;
+      }
+      if (operand.getOperandNumber() == 0) {
+        FailureOr<Value> buffer = idr::bufferize::cellBuffer(rewriter, value, options, state);
+        if (failed(buffer))
+          return failure();
+        values.push_back(*buffer);
+        continue;
+      }
+      FailureOr<Value> buffer = getBuffer(rewriter, value, options, state);
+      if (failed(buffer))
+        return failure();
+      FailureOr<BufferLikeType> type = bufferization::getBufferType(
+          op->getParentOp()->getResult(operand.getOperandNumber() - 1), options, state);
+      if (failed(type))
+        return failure();
+      if (buffer->getType() != *type) {
+        buffer = options.castFn(rewriter, op->getLoc(), *type, *buffer);
+        if (failed(buffer))
+          return failure();
+      }
+      values.push_back(*buffer);
+    }
+    replaceOpWithNewBufferizedOp<idr::ArrayYieldOp>(rewriter, op, values);
+    return success();
+  }
+};
+
 } // namespace
 
 void idr::bufferize::attachDataModels(MLIRContext *ctx) {
   idr::ConOp::attachInterface<StoreModel<idr::ConOp>>(*ctx);
-  idr::MemoSettleOp::attachInterface<StoreModel<idr::MemoSettleOp>>(*ctx);
+  idr::MemoRunOp::attachInterface<MemoRunModel>(*ctx);
+  idr::ArrayYieldOp::attachInterface<MemoYieldModel>(*ctx);
   idr::FieldOp::attachInterface<HeapReadModel>(*ctx);
   idr::MatchOp::attachInterface<MatchModel<idr::MatchOp>>(*ctx);
   idr::MatchLitOp::attachInterface<MatchModel<idr::MatchLitOp>>(*ctx);

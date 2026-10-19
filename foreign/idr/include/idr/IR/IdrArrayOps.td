@@ -203,14 +203,15 @@ def Idr_TransposeOp : Idr_Op<"transpose", [Pure,
   let hasFolder = 1;
 }
 
-// The end of a region of an array op: what it gives at its index, each
-// value moving on with the reference it holds. Its leading values move into
-// the arrays its parent holds for them (YieldTargetsOpInterface), one each,
-// an element or the elements of a cell (its flow edges); the values after
-// them go on (the forwarding): of a tabulation in the world's order, the
-// world after the step, to the next step and out of the op; of an update,
-// the values after the element, out of the op as its results. Its parent is
-// an op that holds such arrays.
+// The end of a region of an array op or of a memo cell's force: what it
+// gives at its index, each value moving on with the reference it holds. Its
+// leading values move into the memory its parent holds for them
+// (YieldTargetsOpInterface), one each: into an array an element or the
+// elements of a cell, into a memo cell its value (its flow edges); the
+// values after them go on (the forwarding): of a tabulation in the world's
+// order, the world after the step, to the next step and out of the op; of
+// an update or a force, the values after the element or the value, out of
+// the op as its results. Its parent is an op that holds such memory.
 def Idr_ArrayYieldOp : Idr_Op<"array.yield", [Pure, Terminator,
     PredOpTrait<"its parent holds the arrays it yields into", CPred<
         "::llvm::isa_and_nonnull<::idr::YieldTargetsOpInterface>($_op.getParentOp())">>,

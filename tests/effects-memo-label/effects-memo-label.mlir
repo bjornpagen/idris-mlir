@@ -39,9 +39,11 @@ idr.program @"memo-label" root(@Prog.main) stage(first) {
   idr.func @Lazy.force(%t: !idr.box<!Lazy>) -> i64 attributes {total} {
     %r = idr.match %t : !idr.box<!Lazy> -> (i64) {
     case @divides(%x: i64) {
-      idr.memo.enter %t : !idr.box<!Lazy>
-      %v = idr.call @divides(%x) : (i64) -> i64
-      idr.memo.settle %t, %v : !idr.box<!Lazy>, i64
+      %v = idr.memo.run %t : !idr.box<!Lazy> @divides -> i64 {
+      ^bb0(%xc: i64):
+        %v0 = idr.call @divides(%xc) : (i64) -> i64
+        idr.array.yield %v0, %v0 : i64, i64
+      }
       idr.yield %v : i64
     }
     case @running() {

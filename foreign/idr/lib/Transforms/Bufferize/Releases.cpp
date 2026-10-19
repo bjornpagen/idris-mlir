@@ -3,7 +3,7 @@
 // Releases, and what may touch a released buffer after one.
 //
 // A release hands a buffer to a place One-Shot does not see: a cell's field
-// (idr.con, idr.memo.settle), a linear thread (idr.lin.enter), or a callee,
+// (idr.con, the yield of idr.memo.run), a linear thread (idr.lin.enter), or a callee,
 // which may keep it in either. The analysis sees the release read and write
 // the buffer, so a later read of it makes the release copy. It sees no read
 // after a later write that does not read: such a write would overwrite a

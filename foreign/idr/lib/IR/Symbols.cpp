@@ -32,7 +32,7 @@ bool idr::builtStateHolds(Value value, Operation *reader) {
   if (!value.getDefiningOp<ConOp>())
     return false;
   return llvm::all_of(value.getUsers(), [&](Operation *user) {
-    return !isa<MemoEnterOp, MemoSettleOp>(user) || reader->isAncestor(user);
+    return !isa<MemoRunOp>(user) || reader->isAncestor(user);
   });
 }
 

@@ -36,25 +36,6 @@ bool ownsReference(Class kind) {
   llvm_unreachable("a class of counting");
 }
 
-namespace {
-
-// The data type and constructor whose field `value` is, when a case binds
-// it or idr.field reads it.
-std::optional<std::pair<DataType, Tag>> labelRead(Value value) {
-  if (auto read = value.getDefiningOp<FieldOp>())
-    return std::pair(read.getDataType(), read.getTag());
-  auto arg = dyn_cast<BlockArgument>(value);
-  auto match = arg ? dyn_cast<MatchOp>(arg.getOwner()->getParentOp()) : MatchOp();
-  if (!match)
-    return std::nullopt;
-  Region *region = arg.getOwner()->getParent();
-  if (region == &match.getDefaultRegion())
-    return std::nullopt;
-  return std::pair(match.getDataType(), match.getCaseTag(match.caseOf(*region)));
-}
-
-} // namespace
-
 Class Classes::classOf(Value value) {
   // A reference crossing a boundary between counting and upstream's buffer
   // ops: a fresh allocation's, which its idr.own.adopt takes over, and the
@@ -63,13 +44,6 @@ Class Classes::classOf(Value value) {
   Operation *def = value.getDefiningOp();
   if (!holdsReferences(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def))
     return Class::Untracked;
-  // A capture a force takes over from a memo cell's label
-  // (forceTakesCaptures), bound by a case or read by idr.field, is owned,
-  // and no read takes another; static data's too, whose drop runs nothing,
-  // so that it is counted as its type says wherever a later pass moves it.
-  if (std::optional<std::pair<DataType, Tag>> read = labelRead(value);
-      read && forceTakesCaptures(read->first, read->first.getCtor(read->second)))
-    return Class::Owned;
   // An op that only changes a grade but takes its operand over (a linear
   // position) holds what that operand holds once counted: a static operand
   // gets a reference of its own there, which no count reaches but which

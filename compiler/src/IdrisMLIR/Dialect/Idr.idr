@@ -902,17 +902,11 @@ mayLoopOp : Op
 mayLoopOp =
   MkOp "idr.may_loop" [] [] [] [] []
 
-||| `idr.memo.enter`: marks a memo cell's force as running
+||| `idr.memo.run`: a memo cell's force: its captures moved out, its value moved in
 export
-memoEnterOp : (cell : Value) -> Op
-memoEnterOp cell =
-  MkOp "idr.memo.enter" [cell] [] [] [] []
-
-||| `idr.memo.settle`: stores a memo cell's value, its force done
-export
-memoSettleOp : (cell : Value) -> (value : Value) -> Op
-memoSettleOp cell value =
-  MkOp "idr.memo.settle" [cell, value] [] [] [] []
+memoRunOp : (cell : Value) -> (tag : Integer) -> (region : Region) -> (outs : List MlirType) -> Op
+memoRunOp cell tag region outs =
+  MkOp "idr.memo.run" [cell] [("tag", IntegerAttr tag (IntegerType 32))] [region] [] outs
 
 ||| `idr.mods`: Idris mod of a signed integer: Euclidean, by a divisor that is not zero
 export
@@ -1768,4 +1762,4 @@ ioOp ClockSecond os rs = MkGuarded (MkOp "idr.io.clock_second" os [] [] [] rs) [
 ioOp ClockNanosecond os rs = MkGuarded (MkOp "idr.io.clock_nanosecond" os [] [] [] rs) []
 ioOp HandleFree os rs = MkGuarded (MkOp "idr.io.handle_free" os [] [] [] rs) []
 
--- fingerprint: 498987761-1524274 2726377924-75455
+-- fingerprint: 4178862104-1523034 3499932848-75399

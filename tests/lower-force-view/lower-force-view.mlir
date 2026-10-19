@@ -5,18 +5,18 @@
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,crash-sites=@Thunk.force:1,calls=@Thunk.force:@one,calls=@Thunk.force:@plus,calls-only=@Thunk.force:[@one,@plus,@idris_rt_crash],aligned-access' -o /dev/null
 // A force is a call of its memo sum's dispatch, `<sum>.force`, which
 // idr-defunctionalize makes: a match on the cell's state. A cell in a
-// label's state has its captures moved out to the dispatch, is marked
-// running (idr.memo.enter) before the label's function is called, so a
-// force of it from inside the call finds it running and crashes, as a
-// suspension that forces itself does; the value is then stored in the cell,
-// which is marked forced (idr.memo.settle), and shared with the forcer. A
-// forced cell's value is read with no call at all. So the dispatch calls
-// each label's function directly, by name, and asks the runtime for
-// nothing but the crash of a cell forced from inside its own force.
-// Entering and settling write the cell's header: the memo sum is a box of
+// label's state is exchanged (idr.memo.run): its captures move out to the
+// region, and it is marked running while the label's function is called
+// there, so a force of it from inside the call finds it running and
+// crashes, as a suspension that forces itself does; the value the region
+// yields first is then stored in the cell, which is marked forced, and the
+// one after it shared with the forcer. A forced cell's value is read with
+// no call at all. So the dispatch calls each label's function directly, by
+// name, and asks the runtime for nothing but the crash of a cell forced
+// from inside its own force. The exchange writes the cell's header: the memo sum is a box of
 // @one and @plus, then running and forced, so running is tag 2 and forced
 // tag 3, each with the thunk kind, 1 << 24, the runtime's header words.
-// What is settled is what a later force reads: the root forces a cell of
+// What moves in is what a later force reads: the root forces a cell of
 // @plus of the byte x it reads twice, the second time in its forced
 // state, and one of @one, and then, for x of 0, one in the running state.
 // The program, lowered and as written, prints x + 1 twice and 1, and
@@ -40,15 +40,18 @@ idr.program @"force-view" root(@Main.main) stage(owned) {
   idr.func @Thunk.force(%t: !idr.q<many, borrow, !idr.box<!Thunk>>) -> i64 {
     %r = idr.match %t : !idr.q<many, borrow, !idr.box<!Thunk>> -> (i64) {
     case @one() {
-      idr.memo.enter %t : !idr.q<many, borrow, !idr.box<!Thunk>>
-      %v = idr.call @one() : () -> i64
-      idr.memo.settle %t, %v : !idr.q<many, borrow, !idr.box<!Thunk>>, i64
+      %v = idr.memo.run %t : !idr.q<many, borrow, !idr.box<!Thunk>> @one -> i64 {
+        %v0 = idr.call @one() : () -> i64
+        idr.array.yield %v0, %v0 : i64, i64
+      }
       idr.yield %v : i64
     }
     case @plus(%x: i64) {
-      idr.memo.enter %t : !idr.q<many, borrow, !idr.box<!Thunk>>
-      %v = idr.call @plus(%x) : (i64) -> i64
-      idr.memo.settle %t, %v : !idr.q<many, borrow, !idr.box<!Thunk>>, i64
+      %v = idr.memo.run %t : !idr.q<many, borrow, !idr.box<!Thunk>> @plus -> i64 {
+      ^bb0(%xc: i64):
+        %v0 = idr.call @plus(%xc) : (i64) -> i64
+        idr.array.yield %v0, %v0 : i64, i64
+      }
       idr.yield %v : i64
     }
     case @running() {

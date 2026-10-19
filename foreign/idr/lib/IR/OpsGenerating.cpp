@@ -6,6 +6,7 @@
 // an array op.
 
 #include "idr/IR/Arrays.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -157,9 +158,10 @@ void TransposeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
 
 // One rule for every parent, read from what the parent holds
 // (YieldTargetsOpInterface, which the yield's parent rule requires): with
-// k arrays, the j-th value, j < k, moves in at its index of the j-th array,
-// and the values from the k-th on go on to the parent's successor, a world
-// to the next step and out, an update's outs out of the op. The values that
+// k targets, the j-th value, j < k, moves into the j-th (at its index of an
+// array, or a memo cell's forced state), and the values from the k-th on go
+// on to the parent's successor, a world to the next step and out, an
+// update's or a force's outs out of the op. The values that
 // move in are the first min(k, n) of the n given: RegionBranchOpInterface's
 // verifier, which runs before the parent's own, may ask a yield of fewer
 // values than arrays, which then forwards none, and the parent's verifier
@@ -171,8 +173,15 @@ MutableOperandRange ArrayYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
   return MutableOperandRange(*this, leading, count - leading);
 }
 
+// Two kinds of memory hold what a yield moves in, each as its type says:
+// an array holds the value at an index, an element or the elements of a
+// cell, and a memo cell holds the value whole, as its forced state.
 void ArrayYieldOp::getFlowEdges(FlowEdges &edges) {
   ValueRange targets = cast<YieldTargetsOpInterface>((*this)->getParentOp()).getYieldTargets();
-  for (auto [value, array] : llvm::zip(getValuesMutable(), targets))
-    edges.flow(atIndex(value), elementsOf(array));
+  for (auto [value, target] : llvm::zip(getValuesMutable(), targets)) {
+    if (DataType memo = dataTypeOf(target.getType()); memo && memo.isMemo())
+      edges.flow(FlowPoint::of(value), FlowPoint::partOf(target, FlowAnchor::memoStateOf(memo)));
+    else
+      edges.flow(atIndex(value), elementsOf(target));
+  }
 }

@@ -144,9 +144,10 @@ def IdrDefunctionalize : IdrPass<"idr-defunctionalize", "::idr::ProgramOp", IdrR
     `Forced`. Each memo sum gets one dispatch function, named from the
     sum's content as `<sum>.force`, and every `idr.force` becomes an
     `idr.call` of it, so the call graph sees every function a force runs.
-    The dispatch matches the cell's state: on a label, `idr.memo.enter`
-    makes it Running, the label's function is called, and
-    `idr.memo.settle` makes it Forced with the value; on Running,
+    The dispatch matches the cell's state: on a label, `idr.memo.run`
+    exchanges it, its captures moving out into its region, where the cell
+    is Running and the label's function is called on them, and the value
+    moving in, the cell Forced with it; on Running,
     `idr.crash`, the loop; on Forced, the value. A memo label whose
     function reaches an observable output is `by_name` in its sum, by the
     effects solved over the call graph the dispatches make. Where a value
@@ -697,8 +698,8 @@ def IdrLower : IdrPass<"idr-lower", "::mlir::ModuleOp", IdrRoleLowering,
     use from its cell, and lowers by upstream's memref patterns; at a
     function boundary and in a cell's field it is its one-pointer
     components. A buffer is a cell of the runtime and a copy the runtime's
-    counted copy. `idr.memo.enter` and `idr.memo.settle` become writes of
-    the cell's header. Each guard becomes its comparison and a crash with
+    counted copy. `idr.memo.run` becomes the read of the label's captures
+    and the writes of the cell's header and forced value around its region. Each guard becomes its comparison and a crash with
     its cause. Constants become static data, named by their content, and
     `@__idr$release$cafs` releases what the static thunks among them hold
     once forced. A view (`memref.subview`, `expand_shape`, `collapse_shape`)

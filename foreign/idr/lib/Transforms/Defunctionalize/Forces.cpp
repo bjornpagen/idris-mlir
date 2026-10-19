@@ -3,11 +3,13 @@
 // The dispatch function of each memo sum, `<sum>.force`: what every force
 // of a cell of the sum becomes, a call, so that the call graph sees each
 // label a force may run, as it sees a call's callee. Its body matches the
-// cell's state. A label's case marks the cell Running, calls the label's
-// function with the captures it bound, and settles the cell Forced with
-// the value; a label `by_name` leaves the cell as it is, so that every
-// force runs its function and its effect. The Running case is a force that
-// reached its own cell again before settling it, a loop the program would
+// cell's state. A label's case is the exchange of the cell's state
+// (idr.memo.run): the captures move out of the cell, which is Running while
+// the label's function runs on them, and the value moves in, the cell
+// Forced with it; a label `by_name` leaves the cell as it is, calling its
+// function on views of the captures, so that every force runs its function
+// and its effect. The Running case is a force that reached its own cell
+// again before its value moved in, a loop the program would
 // never leave: the program crashes there instead. The Forced case is the
 // value. Each is defined once every sum has its body, before any function
 // converts, so a conversion only names it.
@@ -64,18 +66,35 @@ FailureOr<FuncOp> Slots::defineForce(const Key &key, DataType sum) {
         llvm::makeVisitor(
             [&](const role::Label &label) -> LogicalResult {
               const Signature &run = signature(label.fn.getAttr());
-              SmallVector<Value> args;
-              for (auto [capture, param] :
-                   llvm::zip_equal(state->getArguments(), run.converted.getInputs()))
-                args.push_back(heldAs(b, loc, capture, param));
-              if (!label.byName)
-                MemoEnterOp::create(b, loc, cell);
-              auto call = CallOp::create(b, loc, run.converted.getResults(), label.fn, args,
-                                         /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
-              Value value = heldAs(b, loc, call.getResult(0), valueType);
-              if (!label.byName)
-                MemoSettleOp::create(b, loc, cell, value);
-              YieldOp::create(b, loc, value);
+              // The label's function on `captures`, its value held as the
+              // force gives it.
+              auto call = [&](ValueRange captures) {
+                SmallVector<Value> args;
+                for (auto [capture, param] :
+                     llvm::zip_equal(captures, run.converted.getInputs()))
+                  args.push_back(heldAs(b, loc, capture, param));
+                auto called = CallOp::create(b, loc, run.converted.getResults(), label.fn, args,
+                                             /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
+                return heldAs(b, loc, called.getResult(0), valueType);
+              };
+              // By name: the captures the case binds, views of a cell that
+              // is never written.
+              if (label.byName) {
+                YieldOp::create(b, loc, call(state->getArguments()));
+                return success();
+              }
+              // Memoized: the exchange moves the captures out of the cell,
+              // runs the label on them, and moves the value in, which the
+              // force also gives.
+              auto memo = MemoRunOp::create(b, loc, TypeRange(valueType), cell,
+                                            tags[index]);
+              SmallVector<Type> captures(ctor.fields);
+              Block *body = b.createBlock(&memo.getRegion(), {}, captures,
+                                          SmallVector<Location>(captures.size(), loc));
+              Value value = call(body->getArguments());
+              ArrayYieldOp::create(b, loc, ValueRange{value, value});
+              b.setInsertionPointAfter(memo);
+              YieldOp::create(b, loc, memo.getResult(0));
               return success();
             },
             [&](const role::Running &) -> LogicalResult {

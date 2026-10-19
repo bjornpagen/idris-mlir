@@ -220,18 +220,6 @@ Type idr::fieldType(Type scrutinee, Type field) {
   return gradeOf(scrutinee).permission == Permission::Plain ? plain : view(plain);
 }
 
-bool idr::forceTakesCaptures(DataType data, const Ctor &ctor) {
-  const auto *label = std::get_if<role::Label>(&ctor.role);
-  return data && data.isMemo() && label && !label->byName;
-}
-
-Type idr::caseFieldType(Type scrutinee, const Ctor &ctor, Type field) {
-  Type read = fieldType(scrutinee, field);
-  bool takes = forceTakesCaptures(dataTypeOf(scrutinee), ctor) &&
-               gradeOf(scrutinee).permission != Permission::Plain;
-  return takes && holdsReferences(read) ? owned(read) : read;
-}
-
 Value idr::heldAs(OpBuilder &b, Location loc, Value value, Type type) {
   if (value.getType() == type)
     return value;

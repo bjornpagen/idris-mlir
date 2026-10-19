@@ -33,7 +33,7 @@ DataType FieldOp::getDataType() { return dataTypeOf(getValue().getType()); }
 void FieldOp::build(OpBuilder &builder, OperationState &state, Value value, Tag tag,
                     unsigned index) {
   const Ctor &ctor = dataTypeOf(value.getType()).getCtor(tag);
-  build(builder, state, caseFieldType(value.getType(), ctor, ctor.fields[index]), value, tag,
+  build(builder, state, fieldType(value.getType(), ctor.fields[index]), value, tag,
         uint64_t{index});
 }
 
@@ -45,8 +45,9 @@ LogicalResult FieldOp::verify() {
   ArrayRef<Type> fields = found->get().fields;
   if (getIndex() >= fields.size())
     return emitOpError("field index out of range");
-  // A field is read as a match binds it (caseFieldType).
-  Type expected = caseFieldType(getValue().getType(), found->get(), fields[getIndex()]);
+  // A field is read as a match binds it: a view of the value, a label's
+  // capture of a memo cell too, which only idr.memo.run moves out.
+  Type expected = fieldType(getValue().getType(), fields[getIndex()]);
   if (expected != getType())
     return emitOpError("has result ") << getType() << ", but the field of a "
                                       << getValue().getType() << " is read as " << expected;

@@ -28,8 +28,8 @@ def Idr_FlowOpInterface : OpInterface<"FlowOpInterface"> {
     only forwards holds no flow interface.
 
     Every op of ours with an edge to declare holds it, and so does an op
-    that reads a box or a sum in place without moving it (idr.tag,
-    idr.memo.enter), so that readers know the read is all it does. An op
+    that reads a box or a sum in place without moving it (idr.tag), so
+    that readers know the read is all it does. An op
     without it is unknown to the readers that follow references: what it
     takes may go anywhere, and what it gives may be shared.
 

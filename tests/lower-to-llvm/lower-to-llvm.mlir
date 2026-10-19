@@ -8,8 +8,8 @@
 // call of its memo sum's dispatch, which calls the label's function by
 // name, for a static cell and a new one alike, so no call goes through a
 // value. LLVM takes the module as it is: given the build's target, its
-// program forces the static cell twice, the second time reading what the
-// first settled in it, and the new cell once, and exits with 42 + 4 + 42,
+// program forces the static cell twice, the second time reading the value
+// the first moved into it, and the new cell once, and exits with 42 + 4 + 42,
 // as the program as written and the reference at the end (REF) do
 // (%differential, on the one input, none, since it reads none).
 // STDIN:
@@ -22,9 +22,11 @@ idr.program @"to-llvm" root(@Prog.main) stage(owned) {
   idr.func @Thunk.force(%t: !idr.q<many, borrow, !idr.box<!Thunk>>) -> i64 {
     %r = idr.match %t : !idr.q<many, borrow, !idr.box<!Thunk>> -> (i64) {
     case @add(%k: i64, %x: i64) {
-      idr.memo.enter %t : !idr.q<many, borrow, !idr.box<!Thunk>>
-      %v = idr.call @add(%k, %x) : (i64, i64) -> i64
-      idr.memo.settle %t, %v : !idr.q<many, borrow, !idr.box<!Thunk>>, i64
+      %v = idr.memo.run %t : !idr.q<many, borrow, !idr.box<!Thunk>> @add -> i64 {
+      ^bb0(%kc: i64, %xc: i64):
+        %v0 = idr.call @add(%kc, %xc) : (i64, i64) -> i64
+        idr.array.yield %v0, %v0 : i64, i64
+      }
       idr.yield %v : i64
     }
     case @running() {

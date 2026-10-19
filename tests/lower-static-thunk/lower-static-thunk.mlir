@@ -4,14 +4,14 @@
 // RUN: %differential %t.ref.mlir %t.mlir
 // RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,direct-calls,calls=@__idr$release$cafs:@idris_rt_caf_release,calls=@Prog.main:@Tail.force' -o /dev/null
 // A lazy constant is a memo cell in static data, which its first force
-// writes, once: its force is a call of the memo sum's dispatch, which
-// enters and settles the cell where it is. So its global is not constant,
+// writes, once: its force is a call of the memo sum's dispatch, whose
+// idr.memo.run exchanges the cell's state where it is. So its global is not constant,
 // and its info word says the thunk kind (1 << 24) with its label's tag,
 // here 0. Every other static cell stays constant, among them a constant
 // stream whose tail is that cell: it holds the cell's address.
 // @__idr$release$cafs releases what each such cell holds once forced,
 // when the program ends. The globals are the runtime's static data.
-// The cell, once forced, gives what it settled: the root walks the stream
+// The cell, once forced, gives the value that moved in: the root walks the stream
 // as many steps as the byte it reads, each a force of the same static
 // cell, and the program, lowered and as written, prints the sum of the
 // heads it met, one more than the byte, as the reference at the end (REF)
@@ -31,9 +31,10 @@ idr.program @"static-thunk" root(@Prog.main) stage(first) {
   idr.func @Tail.force(%t: !idr.box<!Tail>) -> !idr.box<!Stream> {
     %r = idr.match %t : !idr.box<!Tail> -> (!idr.box<!Stream>) {
     case @ones() {
-      idr.memo.enter %t : !idr.box<!Tail>
-      %v = idr.call @ones() : () -> !idr.box<!Stream>
-      idr.memo.settle %t, %v : !idr.box<!Tail>, !idr.box<!Stream>
+      %v = idr.memo.run %t : !idr.box<!Tail> @ones -> !idr.box<!Stream> {
+        %v0 = idr.call @ones() : () -> !idr.box<!Stream>
+        idr.array.yield %v0, %v0 : !idr.box<!Stream>, !idr.box<!Stream>
+      }
       idr.yield %v : !idr.box<!Stream>
     }
     case @running() {

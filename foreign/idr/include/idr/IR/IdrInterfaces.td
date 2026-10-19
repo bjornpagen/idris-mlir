@@ -182,13 +182,13 @@ def Idr_RunsLabelsOpInterface : OpInterface<"RunsLabelsOpInterface"> {
 }
 
 // What an idr.array.yield asks of the op it ends a region of, so that it
-// lists none: the arrays its leading values move into, one each. The yield
-// forwards the values after them.
+// lists none: the memory its leading values move into, one each, arrays or
+// a memo cell. The yield forwards the values after them.
 def Idr_YieldTargetsOpInterface : OpInterface<"YieldTargetsOpInterface"> {
   let cppNamespace = "::idr";
-  let description = "An op whose region yields values into arrays it holds.";
+  let description = "An op whose region yields values into memory it holds.";
   let methods = [
-    InterfaceMethod<"The arrays the yield's leading values move into, one each.",
+    InterfaceMethod<"The arrays or memo cell the yield's leading values move into, one each.",
                     "::mlir::ValueRange", "getYieldTargets">,
   ];
 }

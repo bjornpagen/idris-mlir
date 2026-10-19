@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Phase 2 of idr-lower for the writes of a memo cell's state. A force is a
-// call of its memo sum's dispatch function, which matches the cell's state;
-// a label's case marks the cell running before it calls the label's
-// function and settles it with the value after. Each is a write of the
-// cell's header, and a settle also a write of the value into the forced
-// state's field: the cell is allocated at its largest state's size, so
-// every state fits it. Neither counts: what the cell holds before and after
-// is the owned stage's to account for.
+// Phase 2 of idr-lower for the exchange of a memo cell's state. A force is
+// a call of its memo sum's dispatch function, which matches the cell's
+// state; a label's case is an idr.memo.run, which reads the label's
+// captures out of the cell, writes the cell's header Running, runs its
+// region on the captures, and writes the value into the forced state's
+// field and the header Forced. The cell is allocated at its largest
+// state's size, so every state fits it. Nothing counts: the captures move
+// out with the references the cell held, and the value moves in with its
+// own, as the owned stage accounted for.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -18,6 +19,7 @@
 #include "idr/Conversion/Words.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 // The runtime's C ABI: the stack mark of a cell's info is a macro.
@@ -41,33 +43,55 @@ void writeState(OpBuilder &b, Location loc, Runtime &runtime, Value cell,
   runtime.storeCellWords(b, loc, cell, state);
 }
 
-// The cell is running: a force that meets it again is the loop the
-// dispatch function crashes on.
-struct LowerMemoEnter : IdrPattern<MemoEnterOp> {
+// The captures move out of the label's fields into the region's
+// arguments, the cell is Running while the region runs, here, as an
+// scf.execute_region whose yield is the region's, and the first value it
+// yields moves into the forced state's field, the cell Forced; the values
+// after it are the op's results. A region that never returns ends as it
+// is, in ub.unreachable.
+struct LowerMemoRun : IdrPattern<MemoRunOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(MemoEnterOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    DataType memo = dataTypeOf(op.getCell().getType());
-    writeState(rewriter, op.getLoc(), runtime, adaptor.getCell().front(),
-               layouts.box(memo).cell(memo.getRunningTag()));
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// The cell is forced with the value, which moves into the forced state's
-// field.
-struct LowerMemoSettle : IdrPattern<MemoSettleOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(MemoSettleOp op, OneToNOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(MemoRunOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
+    DataType memo = op.getDataType();
+    // What the region yields, as the converter gives it, the one source of
+    // the region's converted signature: the value, then each result. Asked
+    // before any op is made, so a type the converter does not take leaves
+    // the op as it is.
+    SmallVector<Type> types{memo.getCtor(memo.getForcedTag()).fields.front()};
+    llvm::append_range(types, op.getOuts().getTypes());
+    SmallVector<SmallVector<Type>> yielded(types.size());
+    for (auto [type, converted] : llvm::zip_equal(types, yielded))
+      if (failed(getTypeConverter()->convertType(type, converted)))
+        return rewriter.notifyMatchFailure(op, "a value the region yields has no lowered type");
     Value cell = adaptor.getCell().front();
-    DataType memo = dataTypeOf(op.getCell().getType());
-    const layout::Cell &forced = layouts.box(memo).cell(memo.getForcedTag());
-    runtime.store(rewriter, loc, cell, cellAlignment(), forced.fields.front(), adaptor.getValue());
+    const layout::BoxLayout &box = layouts.box(memo);
+    const layout::Cell &label = box.cell(op.getTag());
+    TypeConverter::SignatureConversion entry(op.getBody()->getNumArguments());
+    for (BlockArgument capture : op.getCaptures())
+      entry.remapInput(capture.getArgNumber(),
+                       runtime.load(rewriter, loc, cell, cellAlignment(),
+                                    label.fields[capture.getArgNumber()]));
+    writeState(rewriter, loc, runtime, cell, box.cell(memo.getRunningTag()));
+    rewriter.applySignatureConversion(op.getBody(), entry, getTypeConverter());
+    SmallVector<Type> flat;
+    for (ArrayRef<Type> components : yielded)
+      llvm::append_range(flat, components);
+    auto run = scf::ExecuteRegionOp::create(rewriter, loc, flat);
+    rewriter.inlineRegionBefore(op.getRegion(), run.getRegion(), run.getRegion().end());
+    ValueRange values = run.getResults();
+    const layout::Cell &forced = box.cell(memo.getForcedTag());
+    runtime.store(rewriter, loc, cell, cellAlignment(), forced.fields.front(),
+                  values.take_front(yielded.front().size()));
     writeState(rewriter, loc, runtime, cell, forced);
-    rewriter.eraseOp(op);
+    values = values.drop_front(yielded.front().size());
+    SmallVector<SmallVector<Value>> results;
+    for (ArrayRef<Type> out : ArrayRef(yielded).drop_front()) {
+      results.push_back(SmallVector<Value>(values.take_front(out.size())));
+      values = values.drop_front(out.size());
+    }
+    rewriter.replaceOpWithMultiple(op, std::move(results));
     return success();
   }
 };
@@ -76,8 +100,7 @@ struct LowerMemoSettle : IdrPattern<MemoSettleOp> {
 
 void populateMemoPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                           const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerMemoEnter, LowerMemoSettle>(converter, patterns.getContext(), layouts,
-                                                runtime);
+  patterns.add<LowerMemoRun>(converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

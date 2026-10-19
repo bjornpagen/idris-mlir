@@ -41,7 +41,7 @@ bool isBoxed(mlir::Type type);
 // constructor where `reader` reads it. Always, but for a memo cell, whose
 // state every force writes: never for a constant, one static cell every
 // run of the program shares and forces, and for a cell an idr.con built
-// only while nothing but `reader` enters or settles it.
+// only while nothing but `reader` runs its force (idr.memo.run).
 bool builtStateHolds(mlir::Value value, mlir::Operation *reader);
 
 // A constructor written by its name, `@Name`, in the data type of `type` (a
