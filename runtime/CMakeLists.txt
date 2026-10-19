@@ -33,6 +33,10 @@ set(SNMALLOC_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(SNMALLOC_MIN_ALLOC_STEP_SIZE 8 CACHE STRING "" FORCE)
 set(SNMALLOC_PAGESIZE ${IDRIS_MLIR_PAGE_SIZE} CACHE STRING "" FORCE)
 set(SNMALLOC_USE_SELF_VENDORED_STL ON CACHE BOOL "" FORCE)
+# A program links the system's C library and nothing else, in every build:
+# snmalloc's build links the backtrace library in a debug build when it
+# finds it, so it finds none.
+set(CMAKE_DISABLE_FIND_PACKAGE_Backtrace TRUE)
 add_subdirectory("${IDRIS_MLIR_THIRD_PARTY}/snmalloc" "${CMAKE_CURRENT_BINARY_DIR}/snmalloc"
 	EXCLUDE_FROM_ALL SYSTEM)
 

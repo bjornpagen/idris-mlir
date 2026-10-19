@@ -848,16 +848,16 @@ void midpoint(FuzzedDataProvider &p, DecimalText &t, bool appended, long delta) 
   t.scale = -f;
 }
 
-// Property 6's texts, simplest first: the three forms both grammars read
-// the same way (never `E`, hexadecimal floats, spaces or words, where they
-// differ), and a midpoint between two adjacent doubles as it is, a hair
+// Property 6's texts, simplest first: the three forms of a decimal literal,
+// which both grammars read the same way (never `E`, hexadecimal floats,
+// spaces or words, where they differ; digits alone are an integer literal,
+// property 7's, whose zero has no sign), and a midpoint between two adjacent doubles as it is, a hair
 // above it (a 1 appended) and a hair below (its last digit lowered by one).
 struct TextFamily {
   const char *name;
   void (*write)(FuzzedDataProvider &, DecimalText &);
 };
 constexpr TextFamily textFamilies[] = {
-    {"digits", [](FuzzedDataProvider &p, DecimalText &t) { digitRun(p, t, mostDigits); }},
     {"a point", [](FuzzedDataProvider &p, DecimalText &t) { pointed(p, t); }},
     {"a point and an exponent",
      [](FuzzedDataProvider &p, DecimalText &t) {
@@ -959,8 +959,9 @@ constexpr Base bases[] = {{"", 10}, {"0b", 2}, {"0o", 8}, {"0x", 16}, {"0X", 16}
 constexpr size_t literalRoom = 1 + 2 + 2 * static_cast<size_t>(largestPower) + 1;
 
 // An integer literal as the runtime's grammar writes one, and the decimal
-// text of its value, which strtod reads to the nearest double, ties to
-// even, an infinity past the largest.
+// text of its value, signed, which strtod reads to the nearest double, ties
+// to even, an infinity past the largest. The value is an integer, so -0 is
+// 0, and its text has no sign.
 struct IntegerLiteral {
   char text[literalRoom];
   size_t length = 0;
@@ -991,13 +992,12 @@ void drawLiteral(FuzzedDataProvider &p, uint64_t mask, prop::Tally &tally, Integ
     out.text[out.length++] = upper ? static_cast<char>(digits[k] - 'a' + 'A') : digits[k];
   }
   out.text[out.length] = '\0';
-  out.decimal[0] = '-';
-  mpz_get_str(out.decimal + 1, 10, v.v);
+  if (sign == '-')
+    mpz_neg(v.v, v.v);
+  mpz_get_str(out.decimal, 10, v.v);
 }
-// strtod of the literal's decimal value, with its sign.
-double literalWant(const IntegerLiteral &l) {
-  return strtod(l.text[0] == '-' ? l.decimal : l.decimal + 1, nullptr);
-}
+// strtod of the literal's value.
+double literalWant(const IntegerLiteral &l) { return strtod(l.decimal, nullptr); }
 
 // The words IEEE 754 spells, read in any case with any sign.
 struct Word {
