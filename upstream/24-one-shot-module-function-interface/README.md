@@ -417,6 +417,8 @@ breaks:
   one-shot-non-module-bufferize.mlir fail with the patch and pass without
   it: the call model's writability changes what they expect. Not resolved:
   each pull request has to update or answer them.
+- check-mlir on that build, with the fix above: 4098 passed, 639
+  unsupported, 1 skipped, 1 expectedly failed, and these two failed.
 `tests/upstream-one-shot-module-function-interface` checks the reproducers
 with the toolchain once stage 2 carries the patch.
 

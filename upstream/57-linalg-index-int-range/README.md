@@ -70,10 +70,12 @@ fixed, the new test passes, and fails on the toolchain's mlir-opt (there the rep
 the lit tests of mlir/test/Transforms and Dialect/Linalg, Affine,
 Bufferization, Tensor and SCF, 487 of 490 pass, one is an expected
 failure, and the two that fail are Bufferization's that carried patch 24
-breaks (its README). check-mlir as a whole was not run.
+breaks (its README). check-mlir on the same build (with patch 24's fix): 4098 passed, 639
+unsupported, 1 skipped, 1 expectedly failed, and 2 failed, the two
+Bufferization tests patch 24 breaks.
 
 ## Upstreaming plan
 
 A PR to llvm/llvm-project, `[mlir][linalg] Infer the integer range of
 linalg.index`, with the int-range-interface.mlir test and Bazel's overlay
-(both in the patch); no issue needed. Status: not filed; carried; tested on a private mlir-opt, check-mlir not run.
+(both in the patch); no issue needed. Status: not filed; carried; tested on a private mlir-opt with check-mlir (only patch 24's two failures).

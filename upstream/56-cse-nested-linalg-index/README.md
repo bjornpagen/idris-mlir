@@ -80,7 +80,9 @@ fixed, the new test passes, and fails on the toolchain's mlir-opt. Of
 the lit tests of mlir/test/Transforms and Dialect/Linalg, Affine,
 Bufferization, Tensor and SCF, 487 of 490 pass, one is an expected
 failure, and the two that fail are Bufferization's that carried patch 24
-breaks (its README). check-mlir as a whole was not run.
+breaks (its README). check-mlir on the same build (with patch 24's fix): 4098 passed, 639
+unsupported, 1 skipped, 1 expectedly failed, and 2 failed, the two
+Bufferization tests patch 24 breaks.
 
 ## Upstreaming plan
 
@@ -88,4 +90,4 @@ A comment on #62644 and a PR to llvm/llvm-project, `[mlir] Add the
 DependsOnParent trait; CSE linalg.index only under one parent`, Fixes
 #62644, with the cse.mlir test; a new core trait may first want a short
 RFC on Discourse, linked from the thread above. Status: not filed;
-carried; tested on a private mlir-opt, check-mlir not run.
+carried; tested on a private mlir-opt with check-mlir (only patch 24's two failures).
