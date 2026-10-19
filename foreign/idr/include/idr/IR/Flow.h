@@ -101,13 +101,13 @@ bool performsIO(mlir::Operation *op);
 // where it is: nothing between can tell. What a call reads is its
 // arguments and what each is the same value as or a part of (sourceOf); an
 // op between that writes or frees one of those, as a drop of the value a
-// borrowed argument views does, could tell. A call that only computes (its
-// effects are none: no IO, no crash, and it returns) may run after
-// anything else between; any other only after ops that perform no IO,
-// which its crash or its loop would be ordered with, and that write or
-// free only memory made after it, which nothing it is given reaches.
-// Raising asks it of a call whose result it takes to its consumer, and
-// idr-trmc of a call it moves to the end of a tail.
+// borrowed argument views does, could tell. Any other memory an op between
+// writes or frees nothing after it reads before the call, and no crash or
+// loop of the call leaves a reader to tell. A call that only computes (its
+// effects are none: no IO, no crash, and it returns) may run after IO; any
+// other only after ops that perform none, which its crash or its loop
+// would be ordered with. Raising asks it of a call whose result it takes to
+// its consumer, and idr-trmc of a call it moves to the end of a tail.
 bool mayRunAt(CallOp call, mlir::Operation *at);
 
 } // namespace idr

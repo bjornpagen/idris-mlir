@@ -148,17 +148,6 @@ SmallVector<Value, 4> sourcesOf(Value value) {
   });
 }
 
-// Whether `value` was made by `call` or after it, by an op of its block
-// after it or inside one: nothing the call is given reaches it.
-bool madeAfter(Value value, CallOp call) {
-  Value made = sourcesOf(value).back();
-  Operation *def = made.getDefiningOp();
-  if (!def)
-    return false;
-  Operation *at = call->getBlock()->findAncestorOpInBlock(*def);
-  return at && (at == call.getOperation() || call->isBeforeInBlock(at));
-}
-
 } // namespace
 
 bool idr::mayRunAt(CallOp call, Operation *at) {
@@ -178,13 +167,8 @@ bool idr::mayRunAt(CallOp call, Operation *at) {
           return false;
         continue;
       }
-      if (!isa<MemoryEffects::Write, MemoryEffects::Free>(effect.getEffect()))
-        continue;
-      // Memory made after the call is no memory it reads.
-      Value value = effect.getValue();
-      if (value && madeAfter(value, call))
-        continue;
-      if (!computes || read.contains(value))
+      if (isa<MemoryEffects::Write, MemoryEffects::Free>(effect.getEffect()) &&
+          read.contains(effect.getValue()))
         return false;
     }
   }
