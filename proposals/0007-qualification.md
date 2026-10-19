@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0006: get back on track: the qualification (G1)
+# 0007: get back on track: the qualification (G1)
 
 **Status:** decided 2026-10-12. What remains is G1 (§3), the run that
 proves the tree on both targets. Each item is marked SELF-HOST (`make
@@ -54,11 +54,13 @@ its own first baseline.
   Linux branches and the Linux check of the retirements PINS.md records.
   A failure that reproduces with upstream dialects and tools is a patch
   in `upstream/`; any other is ours, fixed in the tree. Waits on the
-  owner's arm64 build and on §5's machine.
+  owner's arm64 build, on 0005's L1, which puts x86_64 Linux on glibc,
+  and on §5's machine. The two arm64 Linux targets join after 0005's L2,
+  by the same steps.
 - **The bench** (AFTER-SELF). `bench/run.sh --record` on each target.
   On arm64 each program's ratio to its own C is read against
   `bench/runs/2026-10-13-9a1b7b1-darwin-arm64`; a ratio worse by more
-  than 2%, best of five, is a regression, bisected and fixed (0009 D35,
+  than 2%, best of five, is a regression, bisected and fixed (0010 D35,
   D36: the five-run spread reaches 97%, so it bounds nothing). Linux
   records a fresh baseline.
 - **Compile times** (AFTER-SELF; *decision*, D19). `tools/compile-times.sh

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0009: a typed array language, MLIR first
+# 0010: a typed array language, MLIR first
 
 **Status:** decided by the owner 2026-10-12 (§18). Stage 1 is coded and
 integrated, never built: it landed with the pipeline cutover (c7aa7b62,
@@ -9,8 +9,8 @@ proposals' last texts are at 484d6403), and 0001 extended it (d06ed15c).
 §1 is its record. What remains is stage 1's proof, which **SELF-HOST**
 needs because it is part of the owner's build, plus two walls recorded
 at `make self`, and stages 2 to 8, which are **AFTER-SELF**: by the
-owner's order they are queued after sharding (0007's P1, P2 and P4, with
-0008's S-stages), and stage 8 also needs 0007's P4. x86_64 Linux is
+owner's order they are queued after sharding (0008's P1, P2 and P4, with
+0009's S-stages), and stage 8 also needs 0008's P4. x86_64 Linux is
 NotRun, and a stage is done only when it passes on both targets. Where
 the cutover's design governs a topic (pipeline order, promises as facts
 of library types, names from content, refusals as data, budgets that
@@ -36,9 +36,9 @@ An op, type or pass of ours exists only where upstream has none, and
 each names the gap it fills (§19). The array style is the compiler's
 organizing principle, but the compiler's own Idris also runs on the stock
 host, so it never reaches the `%extern` generating set. The frontend's
-and the fork's kernels (0010's, 0011's O6) use the library's plain-Idris
-layer (D45), and 0011's tables and 0015's joins are plain Idris over
-base. Only programs, 0012's layouts among them, compile through the ops
+and the fork's kernels (0011's, 0012's O6) use the library's plain-Idris
+layer (D45), and 0012's tables and 0016's joins are plain Idris over
+base. Only programs, 0013's layouts among them, compile through the ops
 directly.
 
 ## What remains
@@ -47,14 +47,14 @@ directly.
 |---|---|---|
 | Stage 1's proof (§16) | the owner's build | **SELF-HOST** |
 | The arrays stage's wall and the price of the IOArray double check, both on the self-compile (§7, §13) | `make self` | **SELF-HOST** (recorded, no gate) |
-| Stage 1's bench margins: array programs, an array of boxes, the IOArray programs (§16) | 0006's G1 | AFTER-SELF |
+| Stage 1's bench margins: array programs, an array of boxes, the IOArray programs (§16) | 0007's G1 | AFTER-SELF |
 | Stage 2: static extents, buffers in data-type bodies, dependent rewrites | stage 1's proof | AFTER-SELF |
 | Stage 3: fusion and schedules, plus the library vocabulary its proofs use | stage 1 (stage 2 for unmasked vectors) | AFTER-SELF |
 | Stage 4: order | stage 3 | AFTER-SELF |
 | Stage 5: index sets, data-dependent shapes, shape arithmetic, D12 | stage 1 | AFTER-SELF |
 | Stage 6: sparse | stage 3, U2 | AFTER-SELF |
-| Stage 7: relations, the compiler's consumers, and the plain-Idris layer they use (D45) | stage 6; 0011's typed ids; 0015's boundary | AFTER-SELF |
-| Stage 8: multicore | stage 3; 0007's P4 | AFTER-SELF |
+| Stage 7: relations, the compiler's consumers, and the plain-Idris layer they use (D45) | stage 6; 0012's typed ids; 0016's boundary | AFTER-SELF |
+| Stage 8: multicore | stage 3; 0008's P4 | AFTER-SELF |
 
 ## 1. What stage 1 built (record)
 
@@ -113,7 +113,7 @@ section works out one or more rows.
 | a linear thread (`LArray s a` at quantity 1) | `!idr.lin<tensor<...>>`, a destination-passing chain | One-Shot; each link `mustBufferizeInPlace` (§8) |
 | a word or float element | the builtin element type | vectorization |
 | an element of ours (box, string, natural, sum) | `tensor<?x!idr.T>` | tiling, fusion, bufferization; never vectorized (§4.5) |
-| a record element | one tensor per field | multi-result `linalg.generic` (§4.5, 0012) |
+| a record element | one tensor per field | multi-result `linalg.generic` (§4.5, 0013) |
 | an array of arrays of one cell shape | one tensor, the dimensions concatenated | `expand_shape`, `collapse_shape` |
 | a rank no analysis fixes | nothing: `unsupported (polymorphism)` naming the site | the request relation on data instances (`Frontend/Translate/Types.idr`, `Refusal`) |
 | a combine whose order is unobservable | a `linalg` reduction iterator (§6) | upstream's tiling, split-reduction and vectorization |
@@ -394,7 +394,7 @@ Built:
   conversion in `idr-columns` (D44). This is the one representation of
   columns.
 
-What remains is the sum element, which is 0012's to decide (a tag
+What remains is the sum element, which is 0013's to decide (a tag
 tensor and one tensor per field slot, or boxes; its F2).
 
 ## 5. Effects, order and the structuring (record)
@@ -409,7 +409,7 @@ structuring reads the callee's summary.
 - Anything else is an ordered nest (`Forms.cpp`, `formOf`; D10).
 
 The name follows D27. A `linalg` op comes only from a region that
-computes and crashes over words, so nothing in one counts. 0007's
+computes and crashes over words, so nothing in one counts. 0008's
 lowering of `scf.forall` relies on this (§14). Named ops are recovered
 after fusion (`linalg-specialize-generic-ops`, stage 3).
 
@@ -506,7 +506,7 @@ What remains (stage 3):
   Stage 3's parity rule is what changes them.
 
 That one shared library is safe under parallel interpretation is a
-conjecture, checked with 0006's G1 by `tests/determinism` at 1, 2 and 8
+conjecture, checked with 0007's G1 by `tests/determinism` at 1, 2 and 8
 threads and a ThreadSanitizer run. A race there is upstream's to fix.
 
 ### 7.2 Fusion (stage 3)
@@ -621,12 +621,12 @@ coordinates), and a conjunctive query is an einsum.
 | a semi-naive delta | `binary` with an empty overlap |
 | a recursive query | the delta's fixpoint, an `scf.while` |
 
-Coordinates are dense integers, so 0011's typed ids are this section's
+Coordinates are dense integers, so 0012's typed ids are this section's
 precondition. The subset is plans fixed at compile time. Co-iteration is
 linear in the sum of the two sizes, so it is not worst-case optimal.
 **The boundary** (D22): a plan that fits is a sparse array program.
-Everything else is 0015's: lazy or hash tries, Free Join, galloping,
-statistics, plan variants, the database. 0015's interpreter never
+Everything else is 0016's: lazy or hash tries, Free Join, galloping,
+statistics, plan variants, the database. 0016's interpreter never
 offers a second route for a plan that fits.
 
 ## 11. The compiler's own consumers (stage 7)
@@ -635,23 +635,23 @@ The frontend and the fork run on both hosts, so each kernel below is a
 D45 plain-Idris definition, and the array op is idris-mlir's faster
 lowering of it:
 
-- **0011's multiplicity check** is a fold in the 0/1/ω semiring over
+- **0012's multiplicity check** is a fold in the 0/1/ω semiring over
   occurrences grouped by binder, a CSR level. Its op is
   `sparse_tensor.reduce` over `i8` (§6's case 2).
 - **Size-change composition** is a semiring product over DCSR. The
   fork's `Libraries/Data/SparseMatrix.idr` is already DCSR in lists and
   is the layer's starting point. The closure `loopsTerminate` keeps only
   the weakest graphs per function, so it is a relational fixpoint with
-  subsumption, which is 0015's (its D9). The elaborator's
+  subsumption, which is 0016's (its D9). The elaborator's
   `calcTerminating` triple closure, a second copy of the analysis, is
-  deleted for it (0013 D13, 0011's O6 and D11).
-- **0010's kernels** are gathers, scatters, filters and `addi` scans
+  deleted for it (0014 D13, 0012's O6 and D11).
+- **0011's kernels** are gathers, scatters, filters and `addi` scans
   (§4.4), with no whole-array runtime primitive. They extend the layer
-  with what they use, in 0010's stage.
+  with what they use, in 0011's stage.
 
-0011's tables are plain Idris over base (0011 §1), as the fork's `Table`
-is (D38). **0012's layouts** serve programs: arrays of records and of
-sums are columns by representation (0012 D3, D6, D12).
+0012's tables are plain Idris over base (0012 §1), as the fork's `Table`
+is (D38). **0013's layouts** serve programs: arrays of records and of
+sums are columns by representation (0013 D3, D6, D12).
 
 ## 12. Constants and static normalization (record)
 
@@ -663,7 +663,7 @@ is a cell like any other and a write copies it
 (`lib/Conversion/Arrays.cpp`, `LowerGetGlobal`). A constant of any other
 element is built at startup.
 
-0010's static normalization is the later producer of closed array
+0011's static normalization is the later producer of closed array
 results. It runs as this lowering compiles them, never as a second
 implementation.
 
@@ -686,11 +686,11 @@ primitive checks it again. Two measurements remain:
 
 ## 14. Multicore, and devices later (stage 8)
 
-After 0007's P4, the tile-and-fuse schedule tiles a parallel dimension
-of a structured generic with `scf.forall`, and only 0007 §8 lowers it
+After 0008's P4, the tile-and-fuse schedule tiles a parallel dimension
+of a structured generic with `scf.forall`, and only 0008 §8 lowers it
 (a fork per shard and a join). `shard.grid` supplies only the grid and
-the running index (0007 §7.3). `sharding-propagation` and
-`shard-partition` come in only through 0007's P5, replacing that
+the running index (0008 §7.3). `sharding-propagation` and
+`shard-partition` come in only through 0008's P5, replacing that
 lowering whole. A reduction across shards is legal exactly when §6 says
 its order is not observed. Devices are a later target entry through the
 same tensor level.
@@ -722,7 +722,7 @@ test-idr` and `make test-mlir-tools` on both targets, and
 program's expected output unchanged, the array fixtures' `NEEDS-ACCEPTANCE`
 marks settled, `structured-loops`, `typed-reads` and `in-place` holding
 on the suites, and the release model of §8 accepted by One-Shot. Its
-measurements, which are AFTER-SELF and go with 0006's G1:
+measurements, which are AFTER-SELF and go with 0007's G1:
 
 - the array programs of `bench/` within D35's 2% of the 2026-10-13
   record;
@@ -827,7 +827,7 @@ The stages, each AFTER-SELF:
      hosts;
    - the same results with the hooks removed;
    - D22 applied to the first relational consumer.
-8. **Multicore** (§14), after 0007's P4. Proof: 0007's rules; `heat` and
+8. **Multicore** (§14), after 0008's P4. Proof: 0008's rules; `heat` and
    `matmul` give identical output on one shard and on all.
 
 ## 17. Rejected alternatives
@@ -919,7 +919,7 @@ D41, by its D6 and D7 (the array ops implement
 - **D21.** A sparse array is the dense type with an encoding, codegen
   only, semirings as `i8` (§9, stage 6).
 - **D22.** A plan that fits the sparse subset is a sparse array
-  program; the rest is 0015's (§10, stage 7).
+  program; the rest is 0016's (§10, stage 7).
 - **D30.** The bufferization pass is chosen by the plan's stage, never
   by content (§7, stage 6).
 - **D31.** `SparseElement` makes another element a type error (§9,
@@ -947,8 +947,8 @@ D41, by its D6 and D7 (the array ops implement
     use one, its `%extern` becomes a definition with a body in the same
     change.
   - **Who builds it.** Stage 7 builds the definitions its first
-    consumer uses (0011's O6, §11). Each later frontend consumer
-    (0010's kernels) adds what it uses, in its own stage.
+    consumer uses (0012's O6, §11). Each later frontend consumer
+    (0011's kernels) adds what it uses, in its own stage.
 
   Reason: the two-host rule. A body is the meaning both hosts can run,
   and a hook over it is speed, not a second meaning.

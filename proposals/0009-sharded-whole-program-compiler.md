@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0008: a sharded whole-program compiler
+# 0009: a sharded whole-program compiler
 
 **Status:** decided; what remains is design only. The pipeline cutover
 (c7aa7b62, 5d5f3312; its proposal's last text at 484d6403) built S1,
@@ -11,7 +11,7 @@ c7aa7b62. `make self` needs nothing from what remains. S0's second record
 is taken from `make self`'s own stage-1 run (§10). S2's second step comes
 after `make self`, unless that record shows the whole-module O3 does not
 fit the owner's machine. S3 to S6 are each taken by §10's measurement
-rule. S8 and S10 wait on 0007's P4 and on 0011's O3, which needs 0015's R1
+rule. S8 and S10 wait on 0008's P4 and on 0012's O3, which needs 0016's R1
 and R2 first. S9 follows S2's second step. A stage that lands deletes the
 form it replaces in the same change. Claims are marked *read*,
 *measured*, *recalled*, *conjecture* or *decision*. Paths are under
@@ -71,7 +71,7 @@ test holds:
 
 ### 3.1 Summaries
 
-A summary is a set of flat columnar relations (0012 D5), keyed by the
+A summary is a set of flat columnar relations (0013 D5), keyed by the
 content hash of what it summarizes, so an unchanged input's summary is
 reused (§6). There are two kinds:
 
@@ -80,7 +80,7 @@ reused (§6). There are two kinds:
   - TT call and reference edges;
   - data containment edges;
   - dictionary construction sites;
-  - the results of static normalization (0010 §7).
+  - the results of static normalization (0011 §7).
 - **Each C++ stage's, one per unit.** It holds what that stage's global
   part reads: sizes, call edges with their multiplicity, closure
   constructions and applies, whether each argument is passed shared or
@@ -90,8 +90,8 @@ reused (§6). There are two kinds:
 ### 3.2 Phase 2: whole-program facts
 
 Each stage's global part is computed from its summaries alone. The
-frontend computes its own facts in Idris: the instance set is 0011 D3's
-semi-naive fixpoint, on 0015's core. The C++ facts are computed in
+frontend computes its own facts in Idris: the instance set is 0012 D3's
+semi-naive fixpoint, on 0016's core. The C++ facts are computed in
 `foreign/idr` on MLIR's pool (D13). A fact that is a fixpoint is computed
 in bulk-synchronous rounds (§4). A fact that is a summary is computed
 callee first, over the SCC order. Phase 2 outputs:
@@ -209,7 +209,7 @@ prices it.
 ### 5.3 Static normalization lives in phase 1
 
 Static normalization runs per module, cached with the module's summary.
-Its budget counts steps and bytes (0010 D8), so its results are the same
+Its budget counts steps and bytes (0011 D8), so its results are the same
 on every schedule. Phases 2 to 4 never run program code (D6).
 
 ### 5.4 Two worlds
@@ -222,18 +222,18 @@ on one context is neither documented nor tested upstream
 (upstream-mlir-llvm §5). Per-worker contexts before lowering come only by
 S6's rule.
 
-**The Idris half (the owner, §12).** It is single-threaded until 0007's
+**The Idris half (the owner, §12).** It is single-threaded until 0008's
 typed shards exist. After that it runs on them under idris-mlir, and on
 Chez it runs the same code sequentially, through the plain-Idris layer
 §12 names. Summaries and units cross to the C++
 driver at the frontend's child-process boundary
 (`lib/Driver/Compile.cpp:3-6`) as files:
 
-- 0012's columns, whose id columns the reader checks once (0012 D11);
+- 0013's columns, whose id columns the reader checks once (0013 D11);
 - MLIR bytecode: one module today, and one per unit from S8.
 
 **Translation units at S8 (D18).** The frozen instance set, sorted by
-key, is cut into ranges of about 2^15 Core nodes, sized by 0011 D8's
+key, is cut into ranges of about 2^15 Core nodes, sized by 0012 D8's
 subtree sizes (*conjecture*: tens to hundreds of ranges at stage 0). Each
 shard writes one bytecode file per range. The driver then:
 
@@ -278,20 +278,20 @@ levels (`sources/papers/mokhov-2018-build-systems`; D15):
 - The precondition is that partitions do not drift under small edits
   (D4; wpas §2).
 
-## 7. 0007's and 0009's mechanisms inside the compiler
+## 7. 0008's and 0010's mechanisms inside the compiler
 
-- **Workers follow 0007's rules:**
-  - pure work is equal to the sequential run (0007 D2);
+- **Workers follow 0008's rules:**
+  - pure work is equal to the sequential run (0008 D2);
   - messages are columnar values;
   - work is balanced by over-decomposition, longest first (as
     `writeObjects` already orders its bins,
     `lib/Driver/Artifacts.cpp:263-268`), and by queue-depth placement;
-  - stealing comes only by 0007's D9;
+  - stealing comes only by 0008's D9;
   - a started unit never migrates.
 - **The C++ side's pool balances already:** `failableParallelForEach`
   hands out elements by an atomic index.
 - **The Idris side's array work is integer and semiring reductions**,
-  which 0009 D15 lets split:
+  which 0010 D15 lets split:
   - sorting keys, and scan labeling;
   - segmented reductions for sizes and per-site sharing;
   - histograms for partition sizes;
@@ -346,16 +346,16 @@ record shows the wall it would split above 5% of one-worker wall.
 
 | Stage | Content | When | Proof | Mark |
 | --- | --- | --- | --- | --- |
-| S0, second record | `make self`'s stage-1 run. `tools/self.sh` already writes `-mlir-timing` (every pass, and LLVM's translate, link runtime, optimize and codegen; `lib/Driver/Run.cpp:299-365`) and peak memory to `build/self/stage1/`. It is also 0006 §2's step-4 record: one run, read by both proposals. It adds three things nothing records yet: idr-optimize's wave count, its largest component (as pass statistics; `Passes.td` has neither), and the frontend's hashing time on Chez (D16). It is judged against the cutover's §10 thresholds: the optimizer under 600 s and the label solve under 10 s | the first stage-1 run | committed under `bench/profiles/` | **SELF-HOST**: taken by the run itself, and needs the two statistics first |
-| S2, second step | The bins are cut on the lowered module (§3.4). Each bin's lowering tail, translation, O3 and codegen run in an `MLIRContext` and an `LLVMContext` of its own. The facts LLVM would lose across units are written as attributes on cross-unit declarations | after `make self` and 0006's step 6 | byte-identical at every thread count; D41's fixture keeps the bytes of the bins an edit does not touch; bench runtime within 2% of the first step's | **AFTER-SELF**. It becomes **SELF-HOST** only if S0's second record shows LLVM's segment does not fit the owner's machine (0006 D10's rule). LLVM is measured only at test scale (3.8%, F0), and codegen is already split (*conjecture*: whole-module O3 fits) |
-| S2's owed fixtures | D33's two-group tail-call cycle; D41's edit fixture (§2) | D33 with 0006's G1; D41 with S9 | they run | **AFTER-SELF** |
-| S3 | The cheap global parts in parallel: the closed-world rule, the type graph and its value facts, layouts, deduplication's classes, contification's analysis, the tail-call plan, liveness sharded by §4 (D19), One-Shot's module analysis with 0012 D12's columns choice | by the rule, part by part or together | the module byte-identical on the corpus and stage 1's module | **AFTER-SELF** |
+| S0, second record | `make self`'s stage-1 run. `tools/self.sh` already writes `-mlir-timing` (every pass, and LLVM's translate, link runtime, optimize and codegen; `lib/Driver/Run.cpp:299-365`) and peak memory to `build/self/stage1/`. It is also 0007 §2's step-4 record: one run, read by both proposals. It adds three things nothing records yet: idr-optimize's wave count, its largest component (as pass statistics; `Passes.td` has neither), and the frontend's hashing time on Chez (D16). It is judged against the cutover's §10 thresholds: the optimizer under 600 s and the label solve under 10 s | the first stage-1 run | committed under `bench/profiles/` | **SELF-HOST**: taken by the run itself, and needs the two statistics first |
+| S2, second step | The bins are cut on the lowered module (§3.4). Each bin's lowering tail, translation, O3 and codegen run in an `MLIRContext` and an `LLVMContext` of its own. The facts LLVM would lose across units are written as attributes on cross-unit declarations | after `make self` and 0007's step 6 | byte-identical at every thread count; D41's fixture keeps the bytes of the bins an edit does not touch; bench runtime within 2% of the first step's | **AFTER-SELF**. It becomes **SELF-HOST** only if S0's second record shows LLVM's segment does not fit the owner's machine (0007 D10's rule). LLVM is measured only at test scale (3.8%, F0), and codegen is already split (*conjecture*: whole-module O3 fits) |
+| S2's owed fixtures | D33's two-group tail-call cycle; D41's edit fixture (§2) | D33 with 0007's G1; D41 with S9 | they run | **AFTER-SELF** |
+| S3 | The cheap global parts in parallel: the closed-world rule, the type graph and its value facts, layouts, deduplication's classes, contification's analysis, the tail-call plan, liveness sharded by §4 (D19), One-Shot's module analysis with 0013 D12's columns choice | by the rule, part by part or together | the module byte-identical on the corpus and stage 1's module | **AFTER-SELF** |
 | S4 | The label solve, sharded in C++ by §4 | by the rule (*conjecture*: never, being under 10 s) | the sums and the module byte-identical | **AFTER-SELF** |
 | S5 | Exclusivity and borrow grades as monotone duals (§4.3) | by the rule | `idr-demand`'s verdicts and the module byte-identical | **AFTER-SELF** |
 | S6 | Per-worker contexts or processes before lowering, with units as bytecode | by the rule, on the one context's shared state (the uniquer, and the serial nesting between waves) | byte-identical across workers; memory per worker recorded | **AFTER-SELF** |
-| S8 | The Idris half on 0007's shards, reached through §12's plain-Idris layer: phase 1 one module per task (0013's T7), 0011's Translate fixpoint sharded by §4, and per-unit bytecode (D18), from stage 1 on | after 0007's P4, that layer, and 0011's O3 | byte-identical across shard counts; the ranges' count and fixed cost recorded | **AFTER-SELF** |
+| S8 | The Idris half on 0008's shards, reached through §12's plain-Idris layer: phase 1 one module per task (0014's T7), 0012's Translate fixpoint sharded by §4, and per-unit bytecode (D18), from stage 1 on | after 0008's P4, that layer, and 0012's O3 | byte-identical across shard counts; the ranges' count and fixed cost recorded | **AFTER-SELF** |
 | S9 | The cache at four levels (§6; D15, D17) | after S2's second step | a no-op rebuild compiles nothing; a one-definition edit recompiles only the nodes and bins whose keys changed; a line added at the top of a module leaves every object byte unchanged | **AFTER-SELF** |
-| S10 | The Idris half balanced across shards: longest-first placement, then 0007's D9, then GLB-style stealing only if D9 is not enough | with S8 | idle time at the last join below a tenth of workers × wall | **AFTER-SELF** |
+| S10 | The Idris half balanced across shards: longest-first placement, then 0008's D9, then GLB-style stealing only if D9 is not enough | with S8 | idle time at the last join below a tenth of workers × wall | **AFTER-SELF** |
 
 ## 11. Rejected alternatives
 
@@ -363,7 +363,7 @@ record shows the wall it would split above 5% of one-worker wall.
   set, the closure sums and the every-caller facts.
 - **One module with MLIR threading as the end state:** LLVM's single
   module and the frontend stay serial.
-- **Work stealing over a shared heap:** 0007 rejects it.
+- **Work stealing over a shared heap:** 0008 rejects it.
 - **Asynchronous fixpoints:** their round counts depend on the schedule
   (D2).
 - **An outer delta loop between phase 2 and the optimizer** (D10).
@@ -378,7 +378,7 @@ record shows the wall it would split above 5% of one-worker wall.
 - **A partition that depends on P** (D4).
 - **LLVM's summary-based importer across units:** a second inlining
   analysis beside ours.
-- **The C++ facts on 0015's Idris core** (D13).
+- **The C++ facts on 0016's Idris core** (D13).
 - **A differential mode, a kept module pass or a schedule-perturbing
   mode:** each is an option, and the compiler has none (D12).
 - **Per-worker `MLIRContext`s before a measurement asks for them** (D7).
@@ -388,15 +388,15 @@ record shows the wall it would split above 5% of one-worker wall.
 
 1. A primitive of ours has no meaning on Chez, and nothing is shaped so
    that Chez can run it. Two things follow:
-   - The compiler's Idris half is single-threaded until 0007's shards
+   - The compiler's Idris half is single-threaded until 0008's shards
      exist, and then runs on them under idris-mlir. Code the stock host
      runs reaches no `libs/` `%extern` (the coordinator's two-hosts
      ruling of 2026-10-15, 0002 R3). So the frontend reaches the shards
      only through a plain-Idris layer with bodies, whose meaning is
      sequential and is what Chez runs. idris-mlir replaces that layer
-     with 0007's runtime through the registry's `Faster` hook, which
-     changes no byte (D1). This needs a layer 0007 does not yet name.
-   - From 0010's A3 the normalizer folds a primitive by calling
+     with 0008's runtime through the registry's `Faster` hook, which
+     changes no byte (D1). This needs a layer 0008 does not yet name.
+   - From 0011's A3 the normalizer folds a primitive by calling
      `runtime/`, so from A3 the bootstrap's default stage 0 is the
      native frontend built from the last commit before A3. That is only
      a build default: the frontend still compiles and runs under stock
@@ -419,7 +419,7 @@ record shows the wall it would split above 5% of one-worker wall.
   bounds, and a spent bound never refuses. Built (§2). The frontend's
   refusals at S8 are decided by D2's rounds, each naming the least key
   its round rejects.
-- D6. Static normalization runs in phase 1 (0010 D1). Phases 2 to 4
+- D6. Static normalization runs in phase 1 (0011 D1). Phases 2 to 4
   never run program code.
 - D7. The C++ half runs in one process on MLIR's pool. Each codegen unit
   has its own `LLVMContext` (built), and from S2's second step its own
@@ -427,7 +427,7 @@ record shows the wall it would split above 5% of one-worker wall.
   S6's rule.
 - D8. Units carry fact slices, never whole tables.
 - D9. Work is balanced by over-decomposition, longest first and
-  queue-depth placement. Stealing comes only by 0007's measured rules.
+  queue-depth placement. Stealing comes only by 0008's measured rules.
 - D10. A specialization request is a message to its key's node, and
   there is no outer delta loop. Built (§2).
 - D11. `calls(f)` is frozen when the optimizer starts, a function on a
@@ -436,7 +436,7 @@ record shows the wall it would split above 5% of one-worker wall.
 - D12. Every stage is proved binary against binary from a saved module,
   with no differential mode and no kept module pass.
 - D13. Whole-program facts are computed on the side that owns them: the
-  frontend's in Idris, the dialect's in C++. 0015 serves the Idris side
+  frontend's in Idris, the dialect's in C++. 0016 serves the Idris side
   only.
 - D14. Determinism is checked across the thread counts
   `tests/lib/determinism.sh` names, and from S8 across as many shard

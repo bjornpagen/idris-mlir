@@ -1,14 +1,14 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# Proposal 0020: Rust as the one foreign world
+# Proposal 0021: Rust as the one foreign world
 
 **Status:** parked; nothing is built. The tree has no `foreign/rust/`,
 `libs/mlir-rust/`, `IDRIS_RT_KIND_FOREIGN`, `!idr.foreign` or
 `idr.rust.call` (*read*, 2026-10-18). Every stage is **AFTER-SELF**:
 `make self` compiles the frontend, which reaches no foreign world, so
 self-hosting neither needs this nor waits for it. It is taken up when its
-first consumer starts: 0007's P3 (asynchronous Rust on the reactor),
-0013's T8 (solvers as Rust crates) or bumbledb's storage (LMDB through
+first consumer starts: 0008's P3 (asynchronous Rust on the reactor),
+0014's T8 (solvers as Rust crates) or bumbledb's storage (LMDB through
 heed, `../bumbledb/proposals/0003-idris-port.md`). Proposed 2026-10-04
 (6fda6d8), parked 2026-10-12, reconciled 2026-10-14, audited 2026-10-15.
 Revised 2026-10-18 at the owner's direction (§0). The revision's own
@@ -137,7 +137,7 @@ From AGENTS.md:
 - The heap stays acyclic (`lib/IR/Verify/Knots.cpp`), so a stored
   callback is an edge for the cycle check (§8.8).
 - No option or mode, so a check that stays is one behaviour (§10.2).
-- Two targets, decided in the target entry.
+- Four targets (0005), each decided in its target entry.
 - No primitive is implemented in Idris, and no Rust call runs at compile
   time (§14).
 - Reject with a named reason.
@@ -172,13 +172,13 @@ Idris closures as callbacks (§8.8); C libraries as Rust crates only.
 - A **tokio island**: async Rust on a Rust runtime, a second scheduler
   and I/O the runtime cannot see.
 - Rust calling into Idris from another thread. Counts are plain
-  arithmetic; under 0007's shards a foreign thread may wake a shard and
-  never touch a count, a cell or a world (0007 §3.3).
+  arithmetic; under 0008's shards a foreign thread may wake a shard and
+  never touch a count, a cell or a world (0008 §3.3).
 - Dynamic linking of Rust in any form.
 - `unsafe` functions and `static mut`, whose contracts a binding cannot
   uphold (§11.5).
 
-**Later:** async Rust polled from 0007's task frames, its P3 (§15);
+**Later:** async Rust polled from 0008's task frames, its P3 (§15);
 protocol overlays (§13).
 
 ## 4. The pieces
@@ -245,7 +245,7 @@ accepted and ignored.
   `std = "1"`, as `core` and `alloc` are, each requirement met by the
   pinned toolchain's version rather than by crates.io, and each compiled
   from the bootstrap's sysroot (§11.3).
-- No table marks a blocking call: 0007's P3 decides how one leaves the
+- No table marks a blocking call: 0008's P3 decides how one leaves the
   shard, without a manifest field (§15).
 - The binding modules are `Rust.<Crate>` and the generator's internal
   ones `RustShim.*` (§7). Both roots are the generator's, and a project
@@ -373,7 +373,7 @@ three rows *proposed*: `!`, arrays and sequences):
 
 | Rust | Idris | in | out |
 |---|---|---|---|
-| `i8`…`i64`, `u8`…`u64`, `isize`, `usize` | `Int8`…`Int64`, `Bits8`…`Bits64`; `isize`, `usize` as 64-bit (both targets are LP64, which `idris_rt.h` asserts) | the word | the word |
+| `i8`…`i64`, `u8`…`u64`, `isize`, `usize` | `Int8`…`Int64`, `Bits8`…`Bits64`; `isize`, `usize` as 64-bit (every target is LP64, which `idris_rt.h` asserts) | the word | the word |
 | `i128`, `u128` | `Integer` | the runtime's big conversions | the same |
 | `bool`, `char`, `f64` | `Bool`, `Char`, `Double` | the word (both chars are Unicode scalar values) | the word |
 | `f32` | `Double` | rounded to nearest | widened |
@@ -778,7 +778,7 @@ arithmetic). Rust may start threads of its own (rayon, a pool's reaper),
 and they may allocate and free, but nothing of Idris reaches them:
 `IdrisFn` is `!Send` and `!Sync`, so rustc keeps Idris callbacks on their
 thread, and an item whose bounds would need one to cross is left out
-(`send`). A handle is an Idris value. 0007's shards keep the rule (0007
+(`send`). A handle is an Idris value. 0008's shards keep the rule (0008
 §3.3).
 
 ### 10.5 One process
@@ -791,8 +791,8 @@ reasons leave out what would take the process from the runtime
 `Send`, so `send`; `std::env::set_var` and `std::alloc::alloc` are
 `unsafe`). A program that writes one stream from both sides, or reads
 standard input from both, gets what two buffers on one descriptor give;
-that is the program's doing, and nothing here arranges for it. Two
-things are not the program's doing:
+that is the program's doing, and nothing here arranges for it. One
+thing is not the program's doing:
 
 - **One ending.** A crate may end the process itself: `clap` exits after
   printing `--help` (*recalled*). The runtime writes its pending output
@@ -801,18 +801,11 @@ things are not the program's doing:
   the process, `exit` from C included, and `std::process::exit`, which
   flushes `std`'s own output and calls `exit` (*recalled*), ends a program
   as base's `exit` does.
-- **One start.** On Linux the kernel starts every static program in
-  musl's `_start`, which calls `main` with the arguments. A Rust program's
-  `main` is rustc's, which runs `std`'s start-up, and on musl that is where
-  `std` saves the arguments; glibc would hand them to `std` another way,
-  and on macOS `std` asks the system for them (*recalled*). Our `main` is
-  idris-mlir's `@main`, which passes them to `idris_rt_start` (*read*:
-  `lib/Conversion/Entry.cpp`, `runtime/Start/Entry.cpp`), so `std` never
-  saves them and `std::env::args` is empty on Linux alone. The runtime has
-  them, and gives them to `std`: R0 finds the means and checks that
-  `std::env::args` and base's `getArgs` agree on both targets. If `std`
-  offers none short of a change to its source, that change is made to the
-  pinned source as AGENTS.md says, with its plan to go upstream.
+
+The program's arguments need nothing: `std` reads them from the C
+library itself, from glibc's start-up on Linux and from libSystem on
+macOS (*recalled*), so they reach it although `std`'s own start-up never
+runs (§11.3).
 
 ## 11. The compiler
 
@@ -905,16 +898,15 @@ read after the runtime's, with no step of Rust's own:
   call and the Rust under it are optimized as one function.
 - A per-program archive is never prepared, so it takes the runtime's
   archive case: each body the program reaches becomes a definition
-  compiled with the program. That holds at both of 0008's steps with no
-  third case (0008 §3.5), and Rust's functions fall in the runtime's group
+  compiled with the program. That holds at both of 0009's steps with no
+  third case (0009 §3.5), and Rust's functions fall in the runtime's group
   by their dotless names (§12). A step of Rust's own would be a third
   case and a second representation of a part of the runtime.
 
 `std`'s `lang_start` never runs: the entry is `idris_rt_start`, and what
-`std` sets up there (*recalled*: arguments on some Linux targets, the
-stack guard, `SIGPIPE`) is the runtime's job, and §10.5 says how `std`
-still sees the process the runtime runs. R0 records what `std` does
-without `lang_start`.
+`std` sets up there (*recalled*: the stack guard, `SIGPIPE`) is the
+runtime's job, and the arguments `std` reads from the C library itself
+(§10.5). R0 records what `std` does without `lang_start`.
 
 **One archive per program:** one surface, one shim crate, one `std`, one
 `#[global_allocator]`, one panic runtime. Two archives from two graphs
@@ -930,14 +922,14 @@ heap.
   per target entry with `-Zbuild-std` (§17).
 - **Target entry:** two new facts, `IDRIS_MLIR_RUST_TARGET` (the Rust
   triple, with the entry's deployment target) and
-  `IDRIS_MLIR_RUST_BITCODE_FLAGS`. On Linux, Rust's self-contained musl
-  is not used (`-Clink-self-contained=no`): the program links the pinned
-  musl 1.2.6 (`toolchain.lock.json`), whose ABI R0 checks against the
-  `libc` crate's (*recalled*: Rust targets musl 1.2.3 or later).
+  `IDRIS_MLIR_RUST_BITCODE_FLAGS`. On Linux the Rust triples are
+  `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`, against the
+  pinned glibc 2.43 (0005), which R0 checks the `libc` crate's ABI
+  against.
 - **C inside `-sys` crates**, the only C in a program: built by the
   crate's `cc` script with `CC` the pinned clang, the target's sysroot and
   the entry's bitcode flags, so it joins too. A `-sys` crate over C++ (a
-  solver for 0013's T8) uses the pinned clang++ and the pinned static
+  solver for 0014's T8) uses the pinned clang++ and the pinned static
   libc++, never the system's. A build script that downloads fails, since
   the build is offline, and is named in the failure.
 
@@ -967,7 +959,7 @@ variant of one Rust enum in the generator, printed by name in
 | `pointer` | its signature holds a raw pointer or a function pointer |
 | `lifetime` | a result borrows from two parameters or from a `Buffer`; a borrowed argument is data holding an object; an argument must be `'static` |
 | `send` | it would move an Idris value to another thread |
-| `async` | it is an `async fn` or returns a future (until 0007's P3) |
+| `async` | it is an `async fn` or returns a future (until 0008's P3) |
 | `cfg` | its signature differs between the target entries |
 | `generic` | no candidate fits a type parameter; a const generic; an instance bigger than the closure allows; a trait method with type parameters of its own |
 | `dyn` | it returns `impl Trait` of a trait that is not dyn compatible |
@@ -997,8 +989,10 @@ why it comes where it does:
    one build. rustdoc runs inside the shim workspace, so Cargo unifies
    features for it as for the build (*recalled*: documenting one crate
    with `-p` outside that workspace can see other features; R0 checks).
-2. **Read.** rustdoc's JSON for every crate of the graph, per target
-   entry (`x86_64-unknown-linux-musl`, `aarch64-apple-darwin`), through
+2. **Read.** rustdoc's JSON for every crate of the graph, per Rust
+   triple of the target entries (`aarch64-apple-darwin`,
+   `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`: the two arm64
+   Linux entries share one, since a page size changes no API), through
    `rustdoc-types` at the version the rustc pin fixes. `std`'s, `core`'s
    and `alloc`'s come from the bootstrap's sysroot (§17, R0). rustdoc's
    JSON is the only reader: no Rust source, `Debug` output, constant
@@ -1013,8 +1007,8 @@ why it comes where it does:
    type, its kind, a mode per parameter and result; type aliases
    expanded) or a reason. Every refusal is made here, so the later stages
    have none.
-5. **Zip the targets.** An item whose records are equal on both entries
-   is kept; otherwise it is left out (`cfg`), its line naming both targets
+5. **Zip the targets.** An item whose records are equal on every triple
+   is kept; otherwise it is left out (`cfg`), its line naming the triples
    and the first part that differs. There is no per-target binding
    package (*decision*): it would be a per-target case outside the target
    entry.
@@ -1038,7 +1032,7 @@ why it comes where it does:
   project), `build/rust/shims/`, `build/rust/libidrs-<digest8>.a` (every
   member with its bitcode), `build/rust/surface.digest` (§10.1), and
   `rust.surface`, which the application commits beside `rust.lock`. Its
-  first line names the two target entries it is the intersection of;
+  first line names the Rust triples it is the intersection of;
   then one line per item in key order: the Rust path, and either the
   Idris name and type or `left out: <reason>`. The build regenerates it
   and fails on a difference, as a lock file does. No generator version is
@@ -1054,13 +1048,13 @@ why it comes where it does:
   record that also writes the declaration. §7 keeps every name inside the
   one mangling's alphabet, so it reaches the linker as printed;
   `namesApart` keeps it apart from the program's names, and it joins a
-  namespace group by 0008 §3.4's rule. The archive is named by the
+  namespace group by 0009 §3.4's rule. The archive is named by the
   surface's digest, so a package and an archive of different surfaces are
   never paired.
 - **Mangling** (*decision*): the shim crate's whole graph, `std`
   included, builds with `-Csymbol-mangling-version=v0`, whose names have
   no dot (*recalled*), so Rust's own functions join the runtime's
-  namespace group by 0008 §3.4's rule and the partitioner needs no rule
+  namespace group by 0009 §3.4's rule and the partitioner needs no rule
   of its own. R0 checks that no function of the archive has a dot in its
   name.
 
@@ -1080,19 +1074,19 @@ for third-party Idris packages. A library-level `ST` is not adopted (§18).
 ## 14. Compile-time evaluation
 
 No Rust call runs at compile time. Static normalization runs on the type
-checker's interpreter (0010), where code that reaches a world is stuck
-and runs at run time (0010 §2). Every binding takes the world, and a
+checker's interpreter (0011), where code that reaches a world is stuck
+and runs at run time (0011 §2). Every binding takes the world, and a
 constant's pure value is computed from a shim whose meaning is in the
 program's archive, never in the compiler's process, so to the type
 checker it is a neutral term, as any opaque constant is, and it is
 computed at run time. `Vect MAX_SIZE Bits8` does not reduce.
 
-## 15. Async: 0007's reactor is the executor
+## 15. Async: 0008's reactor is the executor
 
-Async Rust is 0007 §10's design and its P3, after its P2: the executor is
+Async Rust is 0008 §10's design and its P3, after its P2: the executor is
 the shard's reactor, a future is a task frame, and `Rust (FutT a)` is a
 foreign cell (§11.1) polled through a shim with the task's waker; P3
-needs R1 and R2 first, and 0007 D12's rule says which crates work. This
+needs R1 and R2 first, and 0008 D12's rule says which crates work. This
 proposal's half:
 
 - **I/O traits:** Rust's async I/O traits (`tokio::io::{AsyncRead,
@@ -1110,7 +1104,7 @@ proposal's half:
   `httparse`) talks to the network over sockets the program owns.
 - **Blocking calls:** every synchronous call runs on the calling thread,
   in world order. P3 decides how a call that blocks leaves the shard,
-  with no manifest field marking one (0007 §10.4).
+  with no manifest field marking one (0008 §10.4).
 - **Never** a tokio island (§3).
 
 ## 16. Testing
@@ -1121,7 +1115,7 @@ reads expected files is Idris in the test runner, with shell only as glue.
 - **The pool** `tests/programs/rust/`: each fixture has a `rust.toml`
   naming a fixture crate of its own (`path`) or a vendored real crate, an
   Idris program and committed expected files; its `run` generates,
-  compiles, runs and checks. Every fixture runs on both target entries,
+  compiles, runs and checks. Every fixture runs on every target entry,
   and one that cannot run on an entry fails there: none is skipped.
 - **The API record:** each fixture commits its `rust.surface`, the API it
   promises. The printed Idris and the shim crate are never expected
@@ -1148,12 +1142,12 @@ reads expected files is Idris in the test runner, with shell only as glue.
   and a static read in Idris, equal to what the crate prints.
 - **One process** (§10.5): a crate's `std::process::exit` keeps the
   output Idris wrote before it and the open files' buffers; and
-  `std::env::args` equals base's `getArgs` on both targets.
+  `std::env::args` equals base's `getArgs` on every target.
 - **Drop timing:** a destructor with a visible effect appears at a fixed
   point of stdout. `IDRIS_RT_LIVE=1` reports zero live cells at the end
   of every fixture, foreign cells included.
 - **Layout:** the support crate's `const` assertions (§11.1) compile on
-  both target entries.
+  every target entry.
 - **Linking:** on the object, a shim R0's fixture says is inlined leaves
   no relocation naming its symbol, read beside `tests/lib/heap.sh`'s
   `object_imports`; no archive function has a dot in its name;
@@ -1165,8 +1159,8 @@ reads expected files is Idris in the test runner, with shell only as glue.
   `build/rust/idris/` is overwritten by the next build; rustdoc and cargo
   given different features never reach a running program; an unknown
   manifest key fails the generator.
-- **Both targets from either host:** the generator's fixtures read
-  rustdoc's JSON for both entries with `--target`, so on either machine a
+- **Every target from any host:** the generator's fixtures read
+  rustdoc's JSON for every entry with `--target`, so on any machine a
   `#[cfg(target_os = "macos")]` item is left out (`cfg`) and the rest is
   bound.
 - **One graph:** a library's manifest and the application's give one
@@ -1185,7 +1179,7 @@ reads expected files is Idris in the test runner, with shell only as glue.
 
 Every stage is **AFTER-SELF**. It builds on the pipeline as it is; each
 stage ends with every suite AGENTS.md names, `tests/determinism`, and the
-new pool green on both target entries, and lands as a cutover with
+new pool green on every target entry, and lands as a cutover with
 nothing kept beside it.
 
 - **R0, the toolchain** (AFTER-SELF; needs only the bootstrap). A `rust`
@@ -1199,15 +1193,14 @@ nothing kept beside it.
   `std`, `core` and `alloc` beside it; a program's cargo build compiles
   only its own crates, in `build/rust/`, its only cache (*decision*:
   `std`'s flags are the entry's, and ccache does not compile Rust). Exit:
-  a hand-written one-function binding runs on both targets, its bitcode
+  a hand-written one-function binding runs on every target, its bitcode
   reads in the pinned LLVM, its call is inlined (§16), no archive
   function has a dot in its name, and no program build rebuilds `std`.
   Recorded: §11.3's facts (`std`'s constructors, appending globals and
   assembly members; life without `lang_start`); §19's question 2;
   rustdoc inside the shim workspace sees the build's features; the probe
   (§8.6) reads back through rustdoc's JSON; rustdoc `--target` for the
-  other entry works on either host; the layout assertions compile; and
-  how `std` gets the program's arguments (§10.5).
+  other entries works on any host; and the layout assertions compile.
 - **R1, objects, data and traits** (AFTER-SELF; after R0). Runtime: the
   foreign kind, its freeing, the borrow state, and the ending on every
   exit (§10.5). Dialect:

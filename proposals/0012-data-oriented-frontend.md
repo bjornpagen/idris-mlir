@@ -1,20 +1,20 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0011: a data-oriented, array-first frontend
+# 0012: a data-oriented, array-first frontend
 
 **Status:** proposed 2026-10-10, decided 2026-10-14, audited 2026-10-15
 against `main` at b843d8b5 while proposal 0002's lanes edit the frontend.
-Nothing of it is built. Every stage is **AFTER-SELF**: `make self` (0006
+Nothing of it is built. Every stage is **AFTER-SELF**: `make self` (0007
 §2 step 5) needs none of it. O0 is a record taken from the self-hosted
-frontend once `make self` holds; O1 onward start after 0010's A0, in the
+frontend once `make self` holds; O1 onward start after 0011's A0, in the
 order O0's costs give (D0). One contingency is **SELF-HOST** (§8): a
-frontend stage that does not fit the owner's machine in 0006 §2 step 4's
+frontend stage that does not fit the owner's machine in 0007 §2 step 4's
 record.
 
-The interned names and the term arena are 0010's (its A0); this proposal
+The interned names and the term arena are 0011's (its A0); this proposal
 builds the rest of the frontend's state as tables on them. O3,
-Translate's instance fixpoint, is 0015's first consumer (R1 and R2 come
-before it); O5's join, O7's constraint store and O8's laws are 0015's too.
+Translate's instance fixpoint, is 0016's first consumer (R1 and R2 come
+before it); O5's join, O7's constraint store and O8's laws are 0016's too.
 
 **Sources** (under `sources/`): `notes/flattened-data/columnar.md` §3,
 §6, §8, §9 (Zig's `MultiArrayList`, AST, ZIR and InternPool;
@@ -92,7 +92,7 @@ tables to tables**, built from scans, gathers, scatters, compaction,
 segmented folds, joins and fixpoints. It is Brooks's "show me your
 tables" (*recalled*) and bumbledb's data model, and Zig's self-hosted
 compiler is the existence proof (*read* through `columnar.md` §3). It is
-no rewrite (0013 §5): each stage changes one representation inside the
+no rewrite (0014 §5): each stage changes one representation inside the
 fork, proved by identical TTCs and the unchanged corpus.
 
 **Two hosts** (AGENTS.md; 0002 R3; the coordinator's ruling of
@@ -100,12 +100,12 @@ fork, proved by identical TTCs and the unchanged corpus.
 Idris on Chez and under idris-mlir, forever, so the tables run on Chez
 too. A table is plain Idris over base (`Data.IOArray`, `Data.Buffer`,
 linear data, definitions with bodies), as the fork's
-`Libraries/Data/Table.idr` already is (0009 D38). idris-mlir may speed a
+`Libraries/Data/Table.idr` already is (0010 D38). idris-mlir may speed a
 definition through the registry's `Faster` hook, its body staying the one
 meaning. A table is never `libs/mlir-array`'s generating set, whose
 bodiless `%extern`s serve programs and which no code the stock host runs
-may reach. This replaces "its tables are 0009 arrays and its passes 0009
-programs": a 0009 or 0015 mechanism serves the frontend through its
+may reach. This replaces "its tables are 0010 arrays and its passes 0010
+programs": a 0010 or 0016 mechanism serves the frontend through its
 plain-Idris layer, and a kernel that exists only as ops waits for one
 (D11, D12).
 
@@ -121,10 +121,10 @@ Two records, both of stage 0 (the frontend on Chez):
 
 Translate and print were 88% of the first run, both pointer chasing.
 Both records predate bytecode emission. Elaboration (about 75 s when the
-fork installs) is 0013's T0.
+fork installs) is 0014's T0.
 
 **Decision (D0):** O0 measures once, natively, on the self-compiled
-frontend, on one commit with 0013's T0, on both targets, with the
+frontend, on one commit with 0014's T0, on both targets, with the
 stage-0 run beside it as no target. Every threshold below is a ratio to
 O0. A stage whose phase is under 5% of the frontend's wall at O0 is not
 taken. Reasons: emission has changed since both records, so they measure
@@ -138,8 +138,8 @@ since on Chez a representation buys memory and little else (§6).
 | files | one byte buffer each | |
 | tokens | `kind : u8`, `start : u32` | Zig's `tokens` (*read* through `columnar.md` §3: `Ast.zig:17-31`) |
 | syntax nodes | `kind`, `main_token`, `subtree_size` in preorder, so a subtree is `[pre, pre + size)`; variable arity in an `extra` column decoded by `kind` | Zig's nodes (`Ast.zig:3014-3086`); Co-dfns (`cmp/TT.apl:1-6`); Carbon (`whole-program-at-scale.md` §7) |
-| names | interned (0010 §3) | |
-| terms | the hash-consed arena (0010 §3) | |
+| names | interned (0011 §3) | |
+| terms | the hash-consed arena (0011 §3) | |
 | metas | `meta → solved term or unsolved` | |
 | constraints | `(lhs, rhs, ctx, blocked_on)` | |
 | defs | by `Address`: name, type, body, multiplicity, totality, location | the fork's growable `Table` on base's `IOArray` |
@@ -158,10 +158,10 @@ since on Chez a representation buys memory and little else (§6).
   be one concept held twice.
 
 What falls out: equality of names, terms and types is an integer
-compare, which also makes 0014's "compared as values" regression an id
-compare (its proofs stay 0014's feature 6). Spans are free: a syntax node
+compare, which also makes 0015's "compared as values" regression an id
+compare (its proofs stay 0015's feature 6). Spans are free: a syntax node
 names its token, terms carry none, and Translate and Emit report at the
-definition (0010 §3 and its D10). Memory becomes a few large arrays; the
+definition (0011 §3 and its D10). Memory becomes a few large arrays; the
 9.1 GB peak is the first thing this should cut, on Chez too
 (*conjecture*).
 
@@ -210,14 +210,14 @@ max-scan. The block stack is an array, with no allocation per token.
 
 ### 4.3 Parsing
 **D2:** sequential, with an explicit stack, writing the preorder arrays
-with no recursion and no closures, as Carbon does. 0014's ledger already
+with no recursion and no closures, as Carbon does. 0015's ledger already
 made the combinators direct code; operator resolution stays sequential.
 Parallel parsing (Pareas, Voetter) is research-grade, and Idris's grammar
-is its hardest case (0013 §2.7).
+is its hardest case (0014 §2.7).
 
 ### 4.4 Name resolution is an interval join
 A reference resolves to the deepest binder of its name whose interval
-contains it, an Allen "during" join with a max-depth fold, on 0015's
+contains it, an Allen "during" join with a max-depth fold, on 0016's
 layer 1 (bumbledb's `src/allen.rs` the reference). That it beats a scope
 stack is *conjecture*, measured at O5, whose threshold a sequential
 resolution over the same tables meets if the join does not. De Bruijn
@@ -231,18 +231,18 @@ scatter: Elsman's expansion, O(M) work for M outputs (*read* through
 `flattening.md` §2).
 
 ### 4.6 Elaboration: representation, not SIMD
-The gains here come from representation (*conjecture*, sized by 0010's A0
+The gains here come from representation (*conjecture*, sized by 0011's A0
 and A2):
-- hash-consing and id-keyed caches (0010 D12);
+- hash-consing and id-keyed caches (0011 D12);
 - postponement as semi-naive evaluation: each round's newly solved metas
   join the blocked constraints on `blocked_on`, where the fork retries
   every postponed constraint until none progresses (`solveConstraints`,
   `Core/Unify.idr`, *read*);
 - meta-to-meta unification as union-find, never the conversion cache,
   since conversion with unfolding is not transitive;
-- one evaluator, 0010's machine;
-- shape arithmetic as a group-by (0009 §3.7; 0013 §2.4);
-- parallelism across definitions, not within one (0013 §2.7).
+- one evaluator, 0011's machine;
+- shape arithmetic as a group-by (0010 §3.7; 0014 §2.4);
+- parallelism across definitions, not within one (0014 §2.7).
 
 ### 4.7 Multiplicities and termination are semiring folds
 QTT usage checking groups occurrences by binder and folds each group in
@@ -257,8 +257,8 @@ to components by PINS.md `termination-closure`. The frontend's verdict,
 `loopsTerminate` (called from `Translate/Recursion.idr`), keeps only the
 weakest graphs per function reached (`search`, `Kept`, `weaker`, on
 `Dense n from to`). So the closure is a relational fixpoint with
-subsumption (0015 D9), and the triple closure goes for `loopsTerminate`,
-which carries the call path its message names (0013 D13). D11.
+subsumption (0016 D9), and the triple closure goes for `loopsTerminate`,
+which carries the call path its message names (0014 D13). D11.
 
 ### 4.8 Translate is semi-naive Datalog over the instance table
 Each round, the new instances gather their bodies. Type arguments are
@@ -296,10 +296,10 @@ One form each (D7), changing no byte of what is emitted (D5):
   reverse preorder, with binders hashed by depth. Two lambdas of one
   owner with one key are one function: a join against the names written,
   which `ES.keys` checks today. Two keys on one hash are an internal
-  error, never a merge (0008 §11).
+  error, never a merge (0009 §11).
 - **Instances.** An instance's row is keyed by its `Link`, the identity
   the finiteness proof stands on. Its symbol is the built rule (§0). When
-  0010's arena gives argument term ids, they replace `Written` only
+  0011's arena gives argument term ids, they replace `Written` only
   together with the proof, so there is one encoding of a static argument.
 - **Data types.** One datatypes row per data instance, with the
   constructor slice in tag order, its field types, quantities and roles.
@@ -329,8 +329,8 @@ One form each (D7), changing no byte of what is emitted (D5):
   unrepresentable.
 - **Incremental compilation** (*conjecture*, not planned): the tables as
   a persisted image and an edit as a delta (bumbledb's
-  `judge_incremental`). 0008's S9 would hold it.
-- **0015's first consumer:** the interval join and the laws are layer 1;
+  `judge_incremental`). 0009's S9 would hold it.
+- **0016's first consumer:** the interval join and the laws are layer 1;
   the instance fixpoint, the constraint store and the size-change closure
   layer 2; union-find layer 3.
 
@@ -350,10 +350,10 @@ One form each (D7), changing no byte of what is emitted (D5):
 
 Idris 2 fully: checked TT and its context in, only their representation
 changed. Two hosts (§1). One thing, one representation: a table replaces
-its tree, and the relational mechanisms live once, in 0015's library. No
+its tree, and the relational mechanisms live once, in 0016's library. No
 primitive implemented in Idris. Names from content: no arena id, row id
 or arrival order reaches a symbol, a key or a file (the cutover's D18;
-0008 D3). Facts in types. No refusal by budget: the fixpoint has no
+0009 D3). Facts in types. No refusal by budget: the fixpoint has no
 count, and the frontend's reduction has had no fuel since the
 representation wave's D4 and is total since 0001. Deterministic,
 byte-identical outputs on both targets.
@@ -362,15 +362,15 @@ byte-identical outputs on both targets.
 
 | Stage | Mark | Needs | Content | Proof |
 | --- | --- | --- | --- | --- |
-| O0 | AFTER-SELF | `make self` green on both targets; 0013's T0 on the same commit | the stage-3 frontend's phases by `--timing`, its peak memory, base's elaboration, and stage 0 beside it. `tools/self.sh` records only the driver's `-mlir-timing`, whose frontend is one scope, and peak memory, so `--timing` goes to `idris-mlir-front` directly | a committed record under `bench/profiles/` |
-| O1 | AFTER-SELF | 0010's A0 | token SoA over the interned names; names compared by id, replacing the name-equality traversal of 0014's ledger (the proofs stay 0014's feature 6) | identical TTCs and corpus |
+| O0 | AFTER-SELF | `make self` green on both targets; 0014's T0 on the same commit | the stage-3 frontend's phases by `--timing`, its peak memory, base's elaboration, and stage 0 beside it. `tools/self.sh` records only the driver's `-mlir-timing`, whose frontend is one scope, and peak memory, so `--timing` goes to `idris-mlir-front` directly | a committed record under `bench/profiles/` |
+| O1 | AFTER-SELF | 0011's A0 | token SoA over the interned names; names compared by id, replacing the name-equality traversal of 0015's ledger (the proofs stay 0015's feature 6) | identical TTCs and corpus |
 | O2 | AFTER-SELF | the cutover's emission and 0002's lane I, built by the owner | the core, datatypes and ops tables; lambdas lifted by interval queries; names from slice hashes; an instance as a row with its symbol as a print column (`TS.symbols` its check); operands as result positions; data types written once; the root as one id; each function's bytes by a size scan and a scatter | the bytecode bytes of today's writer on the corpus and the stage-0 self-compile; emission ≥ 5× faster than O0; peak memory not above O0's |
-| O3 | AFTER-SELF | 0015's R1 and R2 in plain Idris (O3 is R3) | Translate as semi-naive over the instance table keyed by `Link`; reachable as its query; the request-chain rule as a filter on the delta | identical Core; translate ≥ 3× faster than O0 |
-| O4 | | | moved: the term arena is 0010's A0 | |
-| O5 | AFTER-SELF | 0015's R1 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than 0010's A0 |
-| O6 | AFTER-SELF | 0009's stages 4 and 6 through a plain-Idris layer (D11) | multiplicity checking as a semiring fold; size-change composition as a semiring product (the closure stays `loopsTerminate` until 0015); `calcTerminating`'s triple closure deleted for `loopsTerminate` | identical totality and multiplicity verdicts, and identical totality messages, on base and the corpus |
-| O7 | AFTER-SELF | 0015's R2 and R4 | the constraint store and postponement on 0015; meta-to-meta unification on its union-find | 0010 A2's targets; identical TTCs |
-| O8 | AFTER-SELF | 0015's R1 | the laws of §5 as queries on every compilation | a seeded violation of each law caught by name; under 5% of the frontend's wall at O0 |
+| O3 | AFTER-SELF | 0016's R1 and R2 in plain Idris (O3 is R3) | Translate as semi-naive over the instance table keyed by `Link`; reachable as its query; the request-chain rule as a filter on the delta | identical Core; translate ≥ 3× faster than O0 |
+| O4 | | | moved: the term arena is 0011's A0 | |
+| O5 | AFTER-SELF | 0016's R1 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than 0011's A0 |
+| O6 | AFTER-SELF | 0010's stages 4 and 6 through a plain-Idris layer (D11) | multiplicity checking as a semiring fold; size-change composition as a semiring product (the closure stays `loopsTerminate` until 0016); `calcTerminating`'s triple closure deleted for `loopsTerminate` | identical totality and multiplicity verdicts, and identical totality messages, on base and the corpus |
+| O7 | AFTER-SELF | 0016's R2 and R4 | the constraint store and postponement on 0016; meta-to-meta unification on its union-find | 0011 A2's targets; identical TTCs |
+| O8 | AFTER-SELF | 0016's R1 | the laws of §5 as queries on every compilation | a seeded violation of each law caught by name; under 5% of the frontend's wall at O0 |
 
 The thresholds are *decisions*: each is the factor a representation
 change must buy on a phase D0 has shown to be worth one. A stage that
@@ -379,10 +379,10 @@ Among the stages whose needs are met, the largest phase at O0 goes first;
 on the 2026-10-10 record that is translate (O3), then emission (O2)
 (*conjecture* until O0).
 
-**Contingency (SELF-HOST).** If 0006 §2 step 4's record shows a stage of
+**Contingency (SELF-HOST).** If 0007 §2 step 4's record shows a stage of
 `make self` whose frontend does not fit the owner's machine, the
-frontend's memory is this proposal's ground (0006 D10). No stage above
-runs before 0010's A0, so the fix is the one the record names, in the
+frontend's memory is this proposal's ground (0007 D10). No stage above
+runs before 0011's A0, so the fix is the one the record names, in the
 structure that holds the memory today. Emission has since streamed
 bytecode per function (§0), the bytecode rule HANDOFF.md's 2026-10-12
 item on the 9.1 GB print-write names; its effect on the peak is
@@ -391,16 +391,16 @@ unmeasured.
 ## 9. Rejected alternatives
 
 - A from-scratch frontend: it loses Idris 2 compatibility and the corpus
-  proofs (0013 §5).
-- Full flattening of everything (DPH): 0012 rejects it.
-- The frontend's own Datalog or union-find: a second copy of 0015's.
+  proofs (0014 §5).
+- Full flattening of everything (DPH): 0013 rejects it.
+- The frontend's own Datalog or union-find: a second copy of 0016's.
 - `libs/mlir-array`'s ops in the frontend or the fork: Chez cannot run
   them (§1).
 - Lambdas as regions in the ops table, outlined later: the round trip
   the cutover deleted (`idr-isolate`).
 - Symbols numbered by order of appearance: creation order reaching
   output (the cutover's D18).
-- A count of instances as the refusal (the cutover's D17; 0014 D4).
+- A count of instances as the refusal (the cutover's D17; 0015 D4).
 - Data types as symbols a lookup resolves.
 
 Untyped ids, a parallel parser, storing `parent`, a carry-less multiply
@@ -424,7 +424,7 @@ D3.
   numbered once (built, §0).
 - D5. Every stage is proved by identical TTCs, the unchanged corpus and,
   from O2, identical bytecode; no stage keeps the tree it replaces.
-- D6. The arena is 0010's; this proposal keeps no second copy of a term.
+- D6. The arena is 0011's; this proposal keeps no second copy of a term.
 - D7. Emission's forms have one form each in the tables: a lambda is a
   core slice lifted with its captures by an interval query; a generated
   name is the owner and the slice's hash; an instance is its `Link`, its
@@ -436,11 +436,11 @@ D3.
   function row holds the location.
 - D10. The quote mask is a prefix XOR by shifts in plain Idris; a
   carry-less multiply waits on O0.
-- D11. O6 is executed as 0009's stage 7, with this proposal's gate, and
-  deletes the elaborator's triple closure for `loopsTerminate` (0013
+- D11. O6 is executed as 0010's stage 7, with this proposal's gate, and
+  deletes the elaborator's triple closure for `loopsTerminate` (0014
   D13). Its kernels reach the fork only through a plain-Idris layer
-  (§1). Until 0009 has one, O6 waits.
-- D12. O3, O5's join, O7 and O8 are built on 0015's plain-Idris layer;
+  (§1). Until 0010 has one, O6 waits.
+- D12. O3, O5's join, O7 and O8 are built on 0016's plain-Idris layer;
   O3 is its first consumer and takes it out of parking.
 - D13. The law queries run on every compilation, never in test builds
   alone, under 5% of the frontend's wall at O0. Reason: a check off in
@@ -449,6 +449,6 @@ D3.
 - D14. Built (§0): an instance's symbol carries its identity hash exactly
   when its key's print dropped part of the identity.
 
-Open, for the coordinator to place: whether 0009 and 0015 give their
+Open, for the coordinator to place: whether 0010 and 0016 give their
 kernels a plain-Idris layer the frontend and the fork can use, which D11
 and D12 now wait on.

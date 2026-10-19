@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0018: `Fin n` as a machine word where its bound is static
+# 0019: `Fin n` as a machine word where its bound is static
 
 **Status:** investigated 2026-10-16. Nothing is built and nothing is
 decided. The owner called the idea "very high leverage… worth
@@ -450,7 +450,7 @@ F2 deletes. F2 is built only when F0 shows that it pays.
   - **The representation-first answer is a library type, not a compiler
     rule.** For the frontend's own hot positions, that would be a word
     with an erased proof of its bound. This is an open question for the
-    owner and for 0011's typed ids (§13).
+    owner and for 0012's typed ids (§13).
 - **A closed bound past 2^64** stays a big. No representation limit
   refuses a program.
 - **A bound closed only in an erased variable of a shared instance:** F1
@@ -488,7 +488,7 @@ F2 deletes. F2 is built only when F0 shows that it pays.
 
 | Stage | Needs | Content | Proof |
 | --- | --- | --- | --- |
-| F0 **AFTER-SELF** | the owner's native build | (1) A sampling profile of the stage-1 self run and the bench set, by source location. It reports the share in code over closed-bound numerals (`addressOf`, `lowBits`, `doubled`, `sameAddress`, `Ord (Vect …)`, `Glyph`, `Form` codes) and over run-time bounds. (2) Fixtures written twice, with `Fin 256` and with `Bits8`: a record of fields, a `Vect 8` of them, and an array of them. The `Bits8` version is what F1 and F2 would make, so the ratio bounds their gain. | Decides F2. Go if closed-bound numerals inside type arguments take at least 2% of the self run, or if any `Bits8` fixture runs at least 1.3× faster (0012's bar) or takes at most half the memory. F1 goes on the owner's word alone. |
+| F0 **AFTER-SELF** | the owner's native build | (1) A sampling profile of the stage-1 self run and the bench set, by source location. It reports the share in code over closed-bound numerals (`addressOf`, `lowBits`, `doubled`, `sameAddress`, `Ord (Vect …)`, `Glyph`, `Form` codes) and over run-time bounds. (2) Fixtures written twice, with `Fin 256` and with `Bits8`: a record of fields, a `Vect 8` of them, and an array of them. The `Bits8` version is what F1 and F2 would make, so the ratio bounds their gain. | Decides F2. Go if closed-bound numerals inside type arguments take at least 2% of the self run, or if any `Bits8` fixture runs at least 1.3× faster (0013's bar) or takes at most half the memory. F1 goes on the owner's word alone. |
 | F1 **AFTER-SELF** | `Natness` (the swarm's) | D1 to D6. `Numeral`'s height. Words at the top of positions. `FZ`, `FS` and the match on words. Conversions at the boundaries. Array elements and closure domains read with indices erased. The countdown rewrite on words. | Fixtures, on both targets: a record of `Fin 256` fields; `FS` across 256 and 65536; a `Fin (power 2 64)` at its top value; a `Fin (power 2 100)` that stays a big; a closed-signature countdown at `Fin (power 2 62)`, which times out unless it is the identity; a closed `Fin` through an open-`n` function and through a closure in `map`; an `Elem` as a numeral. A new `idr-expect` property, `no-bigs=@f`: @f computes on no big and no natural. It holds of a closed-signature function after F1 and fails today. |
 | F2 **AFTER-SELF** | F0's go; F1 | Class keys for type arguments and for value binders that bound a numeral (§6.2). The `replace` case settled. | F0's fixtures, with `Fin 256` within 10% of the `Bits8` version. An array of `Fin 256` is a `memref` of `i8`. A property that no definition has more than five class instances. The self run's `Address` cells hold no counted byte. |
 
@@ -537,17 +537,17 @@ Rejected for their own reasons:
   - F1's words are words without its proof.
   - Its conversion folds remove the round trips F1's boundaries make.
   - Its seed stays `[0, +inf)` from `!idr.nat`.
-- **0012.** A `Vect 8 (Fin 256)` held as one 64-bit word is a 0012
-  layout over F2's byte element, and contiguity is 0012's choice. Indexed
+- **0013.** A `Vect 8 (Fin 256)` held as one 64-bit word is a 0013
+  layout over F2's byte element, and contiguity is 0013's choice. Indexed
   vectors do not imply contiguous storage (AGENTS.md).
 - **0003 S2.2, the growth checker, and its `Natness`.** F1 refines
   `Numeral` (§6.3). F2 adds a finite key component.
-- **0009.** Arrays of closed-bound numerals become `memref`s of bytes
+- **0010.** Arrays of closed-bound numerals become `memref`s of bytes
   under F2. An `Index`'s coordinates stay naturals, since their bounds
   are the shape's.
 - **idr-tail.** D6. Separately, the affine countdown that would make
   `Address` cheap (§4).
-- **0011.** Its typed ids are bounded at run time. This proposal does
+- **0012.** Its typed ids are bounded at run time. This proposal does
   not make them words (§7).
 
 ## 13. Questions for the owner
@@ -563,4 +563,4 @@ Each has its default:
 - **The frontend's run-time-bounded positions** (`Fin nv`,
   `Fin g.size`). They could become a library type, a word with an erased
   proof of its bound. That changes the frontend's code, not the
-  compiler. *Default:* not now; 0011 decides for its ids.
+  compiler. *Default:* not now; 0012 decides for its ids.

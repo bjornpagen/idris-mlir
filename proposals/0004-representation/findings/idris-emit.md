@@ -373,7 +373,7 @@ nothing reads the bytecode.
 - `reduce`'s rank-0 tensor for a scalar accumulator: the op's inits are
   tensors (`IdrArrayOps.td:144`); this is the boundary's coordinate.
 - SSA values identified by name strings (Bytecode's `Scope`, Closures'
-  `Seen`, `renameRegion`): 0002 §4.6 deferred typed SSA names to 0011.
+  `Seen`, `renameRegion`): 0002 §4.6 deferred typed SSA names to 0012.
 - The duplicate-symbol and collision checks (`Emit.idr`'s `written`,
   `ES.keys`, `membersOf`) and the data type named by its string in the
   table: decided in 0002 F11; MLIR identifies the data type by name.

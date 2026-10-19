@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# Proposals 0005 to 0019 against MLIR's grain
+# Proposals 0006 to 0020 against MLIR's grain
 
 **Status:** an audit, 2026-10-17, at the owner's request: "make sure we
 re-evaluate all our other proposals to be mlir friendly too ... and make
@@ -37,24 +37,24 @@ should take the MLIR form given here.
 
 | Proposal | Verdict | The change that buys most |
 |---|---|---|
-| 0005 toolchain bump | maps | the survey retires our gap fills against main |
-| 0006 qualification | maps | the structured refusal as a metadata attribute and a note |
-| 0007 shards | mostly | a `DeviceMappingAttrInterface` mapping chooses which `scf.forall` forks |
-| 0008 sharded compiler | mostly | whole-program facts as managed analyses; lazy bytecode for workers |
-| 0009 typed APL | mostly | the generating ops destination-style and tileable |
-| 0010 array interpreter | maps | none needed; §13 Q2's default has an MLIR reason |
-| 0011 data-oriented frontend | maps | attributes and properties in bytecode as data, not text |
-| 0012 flattened data | mostly | packed buffers on memref; D10 as a pass over a cached analysis |
-| 0013 typechecker | maps | none (no MLIR surface) |
-| 0014 self-host features | maps | the `Double` literal match as `arith.cmpf` |
-| 0015 relational core | maps | a rule for D3's new ops |
-| 0020 Rust interop | mostly | a symbol per binding; the run-time checks as guard ops |
-| 0016 licensing | maps | none (no MLIR surface) |
-| 0017 Apple DMP | maps | D3 as a schedule step at the lowered stage, no `idr.prefetch` |
-| 0018 Fin words | mostly | signedness as the op, not a flag |
-| 0019 niche sums | maps | none needed |
+| 0006 toolchain bump | maps | the survey retires our gap fills against main |
+| 0007 qualification | maps | the structured refusal as a metadata attribute and a note |
+| 0008 shards | mostly | a `DeviceMappingAttrInterface` mapping chooses which `scf.forall` forks |
+| 0009 sharded compiler | mostly | whole-program facts as managed analyses; lazy bytecode for workers |
+| 0010 typed APL | mostly | the generating ops destination-style and tileable |
+| 0011 array interpreter | maps | none needed; §13 Q2's default has an MLIR reason |
+| 0012 data-oriented frontend | maps | attributes and properties in bytecode as data, not text |
+| 0013 flattened data | mostly | packed buffers on memref; D10 as a pass over a cached analysis |
+| 0014 typechecker | maps | none (no MLIR surface) |
+| 0015 self-host features | maps | the `Double` literal match as `arith.cmpf` |
+| 0016 relational core | maps | a rule for D3's new ops |
+| 0021 Rust interop | mostly | a symbol per binding; the run-time checks as guard ops |
+| 0017 licensing | maps | none (no MLIR surface) |
+| 0018 Apple DMP | maps | D3 as a schedule step at the lowered stage, no `idr.prefetch` |
+| 0019 Fin words | mostly | signedness as the op, not a flag |
+| 0020 niche sums | maps | none needed |
 
-## 0005: the toolchain bump
+## 0006: the toolchain bump
 
 **Verdict: maps onto MLIR.** It moves pins and carried patches. Its rule
 (fix in upstream, carry the patch, retire it when the pin passes the fix)
@@ -71,7 +71,7 @@ is the MLIR-first rule. Two places to tighten:
 2. **No retirement check for our own gap fills.** The survey checks
    patches and headers. It never asks whether main closed a gap that an
    op or a pass of ours fills.
-   - *Upstream-shaped:* each bump checks 0009 §19's list against main and
+   - *Upstream-shaped:* each bump checks 0010 §19's list against main and
      deletes what main now covers, in the same commit, as 01's retirement
      is done. The list is:
      - `transform.idr.vectorize_lanes`, which exists because a transform
@@ -84,7 +84,7 @@ is the MLIR-first rule. Two places to tighten:
        passes on it).
    - *Buys:* our C++ shrinks at each bump, not only when someone notices.
 
-## 0006: the qualification (G1)
+## 0007: the qualification (G1)
 
 **Verdict: maps onto MLIR.** G1 runs suites. Two of its items already
 have an MLIR home.
@@ -115,10 +115,10 @@ have an MLIR home.
    construction (`lib/Transforms/Ownership/Rc.cpp:73-110`), so they can be
    computed twice and never show.
    - *Upstream-shaped:* every whole-program fact is a managed analysis
-     (0012's second item below). Then the record G1 reads covers them.
+     (0013's second item below). Then the record G1 reads covers them.
    - *Buys:* the check means what it says.
 
-## 0007: shards
+## 0008: shards
 
 **Verdict: mostly maps onto MLIR.** Most of it is the grain:
 - the fork is an isolated region whose operands are the message;
@@ -132,7 +132,7 @@ have an MLIR home.
 
 Three places do not:
 
-1. **"The one lowering of `scf.forall`" (§8).** It collides with 0009
+1. **"The one lowering of `scf.forall`" (§8).** It collides with 0010
    §7.1's tile-and-fuse. `transform.structured.tile_using_forall`
    (`M/include/mlir/Dialect/Linalg/TransformOps/LinalgTransformOps.td:2402`,
    `TileUsingForallOp`) makes the `scf.forall` that
@@ -187,7 +187,7 @@ Three places do not:
 on the runtime's allocator. Rejecting `async.execute` and
 `async-parallel-for` stands: both bring `mlirAsyncRuntime`.
 
-## 0008: a sharded whole-program compiler
+## 0009: a sharded whole-program compiler
 
 **Verdict: mostly maps onto MLIR.** What is built uses MLIR's threading,
 pass statistics and bytecode. Four places:
@@ -207,7 +207,7 @@ pass statistics and bytecode. Four places:
      (`M/lib/Pass/Pass.cpp:591`), so idr-rc's nested runs see the cache.
      S3 then parallelizes an analysis's construction, not a side table.
    - *Buys:* every step is a registered pass that `idris-mlir-opt` runs
-     alone; analyses appear in the timing record and in 0006's check;
+     alone; analyses appear in the timing record and in 0007's check;
      "frozen facts read by units" is the manager's cache by construction.
 2. **S6's units as bytecode.** S6 plans one bytecode file per unit.
    - *Upstream-shaped:* MLIR's reader loads isolated regions lazily:
@@ -235,11 +235,11 @@ pass statistics and bytecode. Four places:
    `InlinerConfig::setOpPipelines`). That is the ready set's shape, run
    serially. Running independent components in waves is what upstream
    lacks, so the ready set stays.
-   - *Upstream-shaped:* record it as a gap with its upstream plan, as 0009
+   - *Upstream-shaped:* record it as a gap with its upstream plan, as 0010
      §19 records its ops, so the bump that brings a parallel SCC walk
-     retires it (0005's second item).
+     retires it (0006's second item).
 
-## 0009: a typed array language
+## 0010: a typed array language
 
 **Verdict: mostly maps onto MLIR.** Its ruling (one MLIR image per fact,
 upstream's wherever one exists) is the grain, and most rows of its §2
@@ -349,11 +349,11 @@ point at upstream mechanisms. Four places do not:
    reads instead of always counting it; the lowering's hidden counts go.
 
 **Kept, the reason checked:** `transform.idr.vectorize_lanes` (no param
-arithmetic, 0005 above); `idr.tie_shape` (no upstream op ties a
+arithmetic, 0006 above); `idr.tie_shape` (no upstream op ties a
 parameter's dimension to a size); `#idr.world` as a memref memory space
 (the type the memref passes know).
 
-## 0010: the array interpreter
+## 0011: the array interpreter
 
 **Verdict: maps onto MLIR.** It is Idris. What it hands MLIR is ordinary
 IR: constants as `#idr.con` and `#idr.closure` in `idr.constant`, a
@@ -365,19 +365,19 @@ IR: constants as `#idr.con` and `#idr.closure` in `idr.constant`, a
    `lib/IR/Fold`), and across blocks by upstream's `sccp`
    (`M/include/mlir/Transforms/Passes.td:442`, `SCCPPass`). So a
    normalizer that applies no primitive loses only primitives inside a
-   recursion, which no C++ pass may run anyway (0008 D6).
+   recursion, which no C++ pass may run anyway (0009 D6).
    - *Upstream-shaped:* A3 emits what it stops at as calls whose constant
      arguments are `idr.constant` or `arith.constant` ops, so the folders
      and SCCP compose with it.
    - *Buys:* question 2 closes on its default. The alternative, folding
      through base's primitives, would be a second meaning beside the
      folders.
-2. **A5's hooks follow 0009's stage 4.** The kernels hook onto `idr.scan`
-   and `idr.scatter` (§6). If 0009 takes its first finding above, they
+2. **A5's hooks follow 0010's stage 4.** The kernels hook onto `idr.scan`
+   and `idr.scatter` (§6). If 0010 takes its first finding above, they
    hook onto the generating ops and the one scatter op instead. Nothing
-   changes here until 0009 decides.
+   changes here until 0010 decides.
 
-## 0011: a data-oriented frontend
+## 0012: a data-oriented frontend
 
 **Verdict: maps onto MLIR.** Its boundary with MLIR is the bytecode the
 frontend writes, in upstream's format. The format offers more than the
@@ -409,7 +409,7 @@ neither changes a table.
    - *Buys:* no dictionary per op, and O2's byte-identical rule holds
      against the C++ writer's own form.
 
-## 0012: compiler-chosen flattened layouts
+## 0013: compiler-chosen flattened layouts
 
 **Verdict: mostly maps onto MLIR.** A layout is a type over one
 declaration, columns go through dialect conversion's one-to-N rewrites
@@ -443,7 +443,7 @@ need a bufferization model beside upstream's. Two places do not fit:
    ... and step 5" puts a decision in the middle of `Rc.cpp`'s
    `runOnOperation`, reading the `Exclusivity` value step 4 hands to step
    5 by constructor (`Rc.cpp:95-110`).
-   - *Upstream-shaped:* `Exclusivity` is a program analysis (0008's first
+   - *Upstream-shaped:* `Exclusivity` is a program analysis (0009's first
      item). Step 5, `createRcCommit`, is a function pass nested under the
      program that reads it with `getCachedParentAnalysis`. The packing
      choice is its own pass between the grades and the commit, and keeps
@@ -452,7 +452,7 @@ need a bufferization model beside upstream's. Two places do not fit:
    - *Buys:* D10 adds a pass, not a branch in idr-rc. Each step runs alone
      in `idris-mlir-opt`.
 
-## 0013: a type checker for the fork
+## 0014: a type checker for the fork
 
 **Verdict: maps onto MLIR (no MLIR surface).** It is the fork's checker.
 It touches MLIR only in what it rejects: the `smt` dialect
@@ -460,7 +460,7 @@ It touches MLIR only in what it rejects: the `smt` dialect
 answer is no Idris term, and a C++ solver is outside the one foreign
 world). Nothing to change.
 
-## 0014: the features self-hosting asked for
+## 0015: the features self-hosting asked for
 
 **Verdict: maps onto MLIR.** Each feature compiles to ordinary idr data
 and calls, and no pass has a case for one (D9). That is the grain. One
@@ -476,7 +476,7 @@ place:
    - *Buys:* no `f64` case in `match_lit`, and no folder or lowering for
      one. arith's folders do the rest.
 
-## 0015: the relational core
+## 0016: the relational core
 
 **Verdict: maps onto MLIR.** It is an Idris library. Its MLIR boundary is
 `sparse_tensor` for the plans that fit and `linalg` fusion of specialized
@@ -493,7 +493,7 @@ pipelines, both upstream's. One rule to write down for D3:
      ours.
    - *Buys:* the dialect grows by data, not by control.
 
-## 0020: Rust as the one foreign world
+## 0021: Rust as the one foreign world
 
 **Verdict: mostly maps onto MLIR.** The grain holds for the foreign type
 (counted, answering `ValueFactsTypeInterface`), the effects (through
@@ -538,20 +538,20 @@ Two places do not:
      through the interface, as for every other check; a test the folder
      removed is visible in the IR before lowering.
 
-## 0016: licensing
+## 0017: licensing
 
 **Verdict: maps onto MLIR (no MLIR surface).** The one piece near MLIR,
 idris-mlir-tblgen writing the licence line into the modules it
 generates, is generation from one source. Nothing to change.
 
-## 0017: the heap as Apple's DMP reads it
+## 0018: the heap as Apple's DMP reads it
 
 **Verdict: maps onto MLIR.** Most of it is the runtime and LLVM. D3's
 placement is the one MLIR question.
 
 1. **Where D3's prefetch lives (§9).** Option (a) adds a pass of ours in
    the arrays stage and an `idr.prefetch` op on a box. The vectorization
-   schedule already runs after idr-entry (0009 §7), where a reference is
+   schedule already runs after idr-entry (0010 §7), where a reference is
    a lowered word (`!llvm.ptr`), so the op is not needed.
    - *Upstream-shaped:*
      - a reference is prefetched by `llvm.intr.prefetch`
@@ -574,9 +574,9 @@ placement is the one MLIR question.
      admits a prefetch stage (*conjecture*, P2 checks), else one transform
      op of ours beside `vectorize_lanes`, naming its gap.
    - *Buys:* no `idr.prefetch` and no pass outside the schedule. The
-     distance is one DLTI fact, as 0009 D20 and D29 want.
+     distance is one DLTI fact, as 0010 D20 and D29 want.
 
-## 0018: `Fin n` as a machine word
+## 0019: `Fin n` as a machine word
 
 **Verdict: mostly maps onto MLIR.** Option (c) is the grain: builtin
 integers, upstream's range analysis and the vectorizers, and no
@@ -613,7 +613,7 @@ place fights:
      the unsigned words F1 makes. L16 should take this form rather than
      only removing the two combinations.
 
-## 0019: niche layouts of sums
+## 0020: niche layouts of sums
 
 **Verdict: maps onto MLIR.** The dialect does not change: `idr.con`,
 `idr.field`, `idr.tag` and `idr.match` stay abstract over the layout.
@@ -632,31 +632,31 @@ progressively. Nothing to change; one note:
 
 ## Ranked: the redesigns that buy the most
 
-1. **0009.** The generating ops destination-style and tileable
+1. **0010.** The generating ops destination-style and tileable
    (`DestinationStyleOpInterface`, `TilingInterface`, partial reduction
    where any association is proved), stage 2's tensor-like wrapper as the
    design now, and one counted-element protocol. It deletes the nest
    builder, the planned second scan and scatter ops, the buffers retype,
    and the lowering's hidden counts, and every later array stage builds
    on it.
-2. **0007.** A `#idr.shard` forall mapping, `wait` as an effect resource,
+2. **0008.** A `#idr.shard` forall mapping, `wait` as an effect resource,
    and `idr.wait` as a `BranchOpInterface`. The first is a correctness
-   fix: without it, 0009's tile-and-fuse foralls fork across shards.
-3. **0012, with 0008's first item.** Whole-program facts as managed
+   fix: without it, 0010's tile-and-fuse foralls fork across shards.
+3. **0013, with 0009's first item.** Whole-program facts as managed
    analyses read through `getCachedParentAnalysis`, so idr-rc's steps and
    D10's choice are passes, and packed buffers on memref. It reaches past
-   0012: idr-rc, idr-optimize's callee table (transforms-b-10) and 0006's
+   0013: idr-rc, idr-optimize's callee table (transforms-b-10) and 0007's
    check all take the same mechanism.
-4. **0020.** A symbol declaration per binding, and guard ops for the
+4. **0021.** A symbol declaration per binding, and guard ops for the
    run-time checks.
-5. **0018.** Signedness as the op, across ten flagged ops; widens 0004's
+5. **0019.** Signedness as the op, across ten flagged ops; widens 0004's
    ir-ops-15.
-6. **0017.** D3 as a schedule step at the lowered stage, with no
+6. **0018.** D3 as a schedule step at the lowered stage, with no
    `idr.prefetch`.
-7. **0011.** Bytecode records for the attributes, and properties written
+7. **0012.** Bytecode records for the attributes, and properties written
    as properties.
-8. **0006.** The refusal as one metadata attribute and a note.
-9. **0008's rest.** Lazy bytecode for S6, liveness sharded upstream, the
+8. **0007.** The refusal as one metadata attribute and a note.
+9. **0009's rest.** Lazy bytecode for S6, liveness sharded upstream, the
    ready set recorded as a gap.
-10. **Small or none:** 0005 (retirement check), 0014 (`arith.cmpf`), 0015
-    (a rule for D3), 0010, 0019, 0013, 0016.
+10. **Small or none:** 0006 (retirement check), 0015 (`arith.cmpf`), 0016
+    (a rule for D3), 0011, 0020, 0014, 0017.

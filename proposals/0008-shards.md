@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0007: shards
+# 0008: shards
 
 **Status:** proposed 2026-10-09. Nothing is built, run or timed: the
 tree has no `idr.wait`, `idr.fork`, reactor or `libs/mlir-shard`. Every
@@ -11,9 +11,9 @@ question is open. **Self-hosting needs nothing here:** the frontend
 `make self` compiles is single-threaded until D14's plain-Idris layer
 exists, and reaches the shards only through it, never through a
 `%extern`. Every stage is **AFTER-SELF**: P1, P2 and P4 follow `make
-self`, x86_64 Linux, 0006's step 6 and 0008's S2 second step (the split
+self`, x86_64 Linux, 0007's step 6 and 0009's S2 second step (the split
 before O3), in the chain proposals/README.md gives; P3 is parked with
-0020; each item of P5 waits on its measurement. "The cutover's §N" and
+0021; each item of P5 waits on its measurement. "The cutover's §N" and
 "the representation wave's DN" refer to those waves' last texts, at
 484d6403. `M/` and `L/` are the pinned `.toolchain/llvm-project/mlir`
 and `llvm`; `SDK/` is the macOS SDK `xcrun --show-sdk-path` names
@@ -257,7 +257,7 @@ enqueued, in one walk of the counted graph it reaches:
 
 A value at the exclusive grade crosses as a move, its region with it,
 as Swift's `sending` does (read:
-`sources/docs/swift-evolution/proposals/`, SE-0430); 0012's packed
+`sources/docs/swift-evolution/proposals/`, SE-0430); 0013's packed
 layout reads the same fact. A copy's cells are allocated by the sender
 and owned by the receiver, and their frees go home as remote frees. The
 live-cell counter is per thread (`runtime/Alloc/Cells.cpp:42`), so zero
@@ -445,11 +445,11 @@ freezes before the optimizer runs, so a label that reaches a fork's
 type but never its value is still walked. A change of precision (such
 as polyvariance) changes which programs are accepted: a language change,
 in a proposal of its own. A runtime handle is an integer and passes; an
-`LArray` (0009 §3.8) is exclusive by type and moves.
+`LArray` (0010 §3.8) is exclusive by type and moves.
 
 ### 8. Parallel loops
 
-Which loops are parallel, and how they are tiled, is 0009's (§14 there):
+Which loops are parallel, and how they are tiled, is 0010's (§14 there):
 at its stage 8 the tile-and-fuse schedule tiles a parallel dimension to
 `scf.forall`. **decision** This proposal lowers an `scf.forall` to a
 fork per shard and a join, the one lowering of `scf.forall`. The arrays
@@ -457,9 +457,9 @@ reach every shard by pointer for the join's duration: the body touches
 no count, its elements are words, and each tile writes its own slice.
 **decision** "Counts nothing" (an idr-expect property today,
 `foreign/idr/lib/Transforms/Expect/CountsNothing.cpp`) becomes an
-assertion the lowering makes, never a choice between lowerings: 0009's
+assertion the lowering makes, never a choice between lowerings: 0010's
 structuring makes an `scf.forall` only from a body that counts nothing
-(0009 §5, §14), so one whose body counts is an internal error. Neither
+(0010 §5, §14), so one whose body counts is an internal error. Neither
 `async-parallel-for` nor `convert-scf-to-openmp`: each is a second
 runtime.
 
@@ -504,20 +504,20 @@ task, whose cancel path drops what it owns, a `FutT` included.
 
 #### 10.3 `FutT`
 
-`Rust (FutT a)` is a counted foreign cell (0020 §11.1) holding a pinned
+`Rust (FutT a)` is a counted foreign cell (0021 §11.1) holding a pinned
 future. `await` is a loop in a `wait` function: poll through the shim
 with this task's waker; on `Ready a` return `a`; on `Pending`, `idr.wait`
 for a wake of this slot and poll again. Rust futures need not be `Send`,
 since they never leave their shard; a one-word `Waker` is `Send + Sync`.
 An async Rust import needs P1, P2, runtime-owned sockets and timers
-behind Rust's async I/O traits (0020 §15), the waker, and cancellation as
+behind Rust's async I/O traits (0021 §15), the waker, and cancellation as
 destroy.
 
 #### 10.4 Blocking calls offloaded
 
-Synchronous bindings run on the calling shard, in world order (0020 §9).
+Synchronous bindings run on the calling shard, in world order (0021 §9).
 With a reactor, a synchronous call that blocks would stall the shard, and
-P3 decides how such a call leaves it; no manifest field marks one (0020
+P3 decides how such a call leaves it; no manifest field marks one (0021
 §5 has none). An offloaded call runs on a runtime-owned thread that runs
 only Rust: its arguments move into Rust's ownership, its completion is
 posted to the shard, and user code does not change, its type having been
@@ -539,14 +539,14 @@ larger than two bins; a program that never waits lowers byte-identical
 to the binary before P1 (the cutover's D22); D11's measurement.
 
 **P2. One reactor** (§3, §10.2). **AFTER-SELF**; after P1, and its epoll
-half needs x86_64 Linux running (0006's G1 is NotRun there). Change: the
+half needs x86_64 Linux running (0007's G1 is NotRun there). Change: the
 task table, wake queue and kick; kqueue with `EVFILT_USER` and epoll with
 an eventfd; sleep; same-shard fork and join. Proof: two tasks' sleeps
 overlap, and a post from a foreign thread wakes a sleeping reactor, on
 both targets.
 
-**P3. Asynchronous Rust** (§10). **AFTER-SELF**; parked with 0020, after
-P2 and 0020's foreign cells and shims. Change: the `FutT` loop, the
+**P3. Asynchronous Rust** (§10). **AFTER-SELF**; parked with 0021, after
+P2 and 0021's foreign cells and shims. Change: the `FutT` loop, the
 waker, runtime sockets and timers behind Rust's I/O traits, the blocking
 offload. Proof: a hyper client and server on one shard against committed
 expected files; cancellation frees the future (`IDRIS_RT_LIVE=1` reports
@@ -570,7 +570,7 @@ against its expected files and at more shards against the one-shard run
 forker's output and a `trace` in `x`, against one set of expected files
 at 1, 2 and 8 shards (D14); a reject fixture per `unsupported (send)`
 path; zero live cells summed over shards; D6's measurement; D11's
-cross-unit frame count beside the bench once 0008's S2 second step has
+cross-unit frame count beside the bench once 0009's S2 second step has
 landed; parallel binary-trees, spectral-norm and mandelbrot against one
 shard, with D9's idle-time record.
 
@@ -579,10 +579,10 @@ is met: lending (§5.3, D10); taking unstarted messages (§5.2, D9); pipes
 (§9, D7), after P1, P2 and P4; io_uring submission behind the waiter,
 when P3's hyper server at saturation spends more than a quarter of its
 time in readiness and transfer system calls; SPMD through upstream's
-`shard-partition` on 0009's tensor level (0009 §14), replacing P4's
+`shard-partition` on 0010's tensor level (0010 §14), replacing P4's
 `scf.forall` lowering whole, never beside it, when spectral-norm's best
 of five is more than 2% faster with it on both targets (the cutover's
-§10; 0009 D35, D36), naming what lowers its collectives (0009 rejects
+§10; 0010 D35, D36), naming what lowers its collectives (0010 rejects
 `ShardToMPI`, §17).
 
 ## Rejected alternatives
@@ -610,7 +610,7 @@ of five is more than 2% faster with it on both targets (the cutover's
   **io_uring as the wait**, commonly disabled under container seccomp
   profiles (recalled), so a later submission path (P5).
 - **A Rust future as our coroutine handle** (rustc's state machine is a
-  foreign value; the polling frame is ours); **a tokio island** (0020
+  foreign value; the polling frame is ours); **a tokio island** (0021
   §3); **Tokio's `Arc` waker** (§10.2).
 - **A generator coroutine for streams:** a pure language fuses producer
   and consumer instead (the contiguous-runs work, which has no
@@ -684,7 +684,7 @@ has joined every fork, and each reply flushed its worker.
 **D6. Top-level constants are per shard.** Evaluated at most once per
 shard that demands it, in that shard's slot (§6); with one shard, once,
 as today. Whether a closed call of total code becomes such a constant is
-0010's cost rule, computed at its first demand (0010 §2, D3). A `trace`
+0011's cost rule, computed at its first demand (0011 §2, D3). A `trace`
 in one prints once per shard that forces it. Rejected: one process-wide
 cell behind a once-guard, whose value, reachable from every shard, would
 be persistent and never freed (read: `threadsafety.tex`), with every
@@ -735,13 +735,13 @@ P1's proof runs 10^7 calls to a `wait` function whose wait completes at
 once and counts the frames allocated: zero per call after CoroElide. If
 our lowering lets the handle escape, our lowering is fixed; if
 CoroElide misses a case it should take, the case is reduced and fixed in
-LLVM. Elision needs caller and callee in one LLVM module: until 0008's
+LLVM. Elision needs caller and callee in one LLVM module: until 0009's
 S2 second step O3 runs on the whole module, so zero holds everywhere;
 from it, zero holds within a unit, and across two units, where elision
 is impossible by construction, the frame comes from the size-class fast
 path and the per-call count is recorded beside the bench. Keeping a
 coroutine with its callers would be a branch in the partition, a pure
-function of content (0008 D4); the idr inliner already inlines a small
+function of content (0009 D4); the idr inliner already inlines a small
 `wait` function before idr-lower makes it a coroutine (the cutover's
 §4.7). If the cross-unit count costs a bench program more than 2%, best
 of five, the fix goes into LLVM or our lowering, never the partition.
@@ -751,7 +751,7 @@ a crate works when its graph enables none of tokio's `rt`, `net` or
 `time` features and is generic over the async I/O traits the runtime
 implements (hyper 1.x, h2, `tokio-postgres` over a provided stream, the
 AWS SDK with a provided connector; recalled). Any other graph fails the
-generator, naming the crates (0020 §11.5, §15): a generator's failure
+generator, naming the crates (0021 §11.5, §15): a generator's failure
 stops the build before the compiler runs, so it is no refusal of a
 program and no case of the dialect's `Rule` enum. P3's fixture is a
 hyper client and server.
@@ -769,7 +769,7 @@ Idris half never calls them.
 
 **D14. Pure fork/join for code the stock host runs** (the coordinator's
 two-hosts ruling, 2026-10-15; lands with P4, **AFTER-SELF**). The
-owner's 2026-10-14 ruling (a4e763c7; 0008 §5.4, §12) puts the compiler's
+owner's 2026-10-14 ruling (a4e763c7; 0009 §5.4, §12) puts the compiler's
 Idris half on these shards from stage 1, and that half must also compile
 and run on the stock host, forever, reaching no `%extern`. So it reaches
 the shards through `Shard.Pure` (§7.1), plain Idris over base with

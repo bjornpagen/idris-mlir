@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0016: licensing: every file says whose it is
+# 0017: licensing: every file says whose it is
 
 **Status:** built. What remains is the owner's acceptance, his two
 questions (§3, §4) and four small edits (§2), all **AFTER-SELF**:

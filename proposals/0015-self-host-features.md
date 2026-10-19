@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0014: the compiler features self-hosting asked for
+# 0015: the compiler features self-hosting asked for
 
 **Status:** decided 2026-10-14; trimmed 2026-10-15 to what remains.
 Every remaining item is **AFTER-SELF**: `make self` needs none of them
@@ -142,7 +142,7 @@ never boxed.
 Each is built in the frontend, which holds the whole program's types and
 decides every set below (AGENTS.md: Idris does types). What the frontend
 emits is ordinary `idr` data and calls. No pass of the pipeline has a case
-for a feature (D9). Static normalization (0010's A3) will find more
+for a feature (D9). Static normalization (0011's A3) will find more
 values known in the frontend. They are listed roughly in order of cost
 (*conjecture*).
 
@@ -169,7 +169,7 @@ values known in the frontend. They are listed roughly in order of cost
      the frontend emits the sum's match with that arm alone reachable
      (Idris proved the others impossible), and canonicalization turns it
      into the variant's payload, with no test. A field type computed from
-     another field is the same sum inside the data's layout (0012 places
+     another field is the same sum inside the data's layout (0013 places
      it).
    - **The image** (*decision*) is computed from the type function
      itself. It is never computed by a flow analysis of runtime values,
@@ -186,7 +186,7 @@ values known in the frontend. They are listed roughly in order of cost
      whose body holds its constructors (the cutover's D29). An untagged
      union discriminated by another value is rejected: it would be a
      second kind of sum in the dialect. Whether the tag shares storage
-     with the value is a layout question, and 0012 decides it by
+     with the value is a layout question, and 0013 decides it by
      measurement.
 - **4. Existentials** (`SeqEat`, a tokenizer's hidden tag, a constraint
    field). A constructor that hides a type or holds an implementation is
@@ -204,7 +204,7 @@ values known in the frontend. They are listed roughly in order of cost
      never a restart. This deletes the dictionary passes that restart
      translation from `main` (`translateFrom` in `Frontend/Finite.idr`,
      whose finiteness 0002's lane Q proves or states as `covering`), and
-     with them that trust point. 0011's O3 is the same fixpoint, as
+     with them that trust point. 0012's O3 is the same fixpoint, as
      tables.
 - **5. Types at runtime** (`KeyVal` holding a `Type`; a match on
    `{a = Name}`). *Decision:* feature 4's relation for a field or argument
@@ -230,7 +230,7 @@ values known in the frontend. They are listed roughly in order of cost
      stays an escape hatch. Compiled, `decEq` is the primitive's test
      alone, and the fork's `nameEq`, `scopeEq` and the rest come back as
      upstream wrote them. The cost of comparing strings by traversal is
-     0011's O1 over 0010's interned names.
+     0012's O1 over 0011's interned names.
    - **Base's deprecated names** (*decision*, D14), in the same stage,
      since it edits the profile's rules. `setByte`, `getByte` and
      `bufferData` compile as base defines them:
@@ -279,7 +279,7 @@ equality code. Each stage brings:
   with `tests/determinism` as the suite runs it.
 - **The bench and the native self-compile**, old binary against new
   under identical conditions, best of five (the cutover's §10 margins;
-  0009 D35). No bench program may be more than 2% slower, the
+  0010 D35). No bench program may be more than 2% slower, the
   self-compile's wall no more than 5% slower, and neither may use more
   memory. Otherwise the replacement is not taken, and the stage says why.
 
@@ -312,7 +312,7 @@ c50d176d) measures Chez and is not the bar.
   the dictionary restart goes.
 - D7. Feature 5 is built, as feature 4's relation without a payload.
 - D8. Feature 6's rule: a trusted library's `believe_me` whose result
-  carries no runtime value. It does not wait for 0010's A0.
+  carries no runtime value. It does not wait for 0011's A0.
 - D9. Every feature is built in the frontend; no pass of the pipeline
   has a case for one.
 - D10. A variant keeps its payload's quantity in its type (`!idr.lin<T>`
@@ -322,7 +322,7 @@ c50d176d) measures Chez and is not the bar.
 - D11. `TokenKind` comes back with feature 3, and the `Compose` tag with
   feature 4, each as its stage's proof on real code, if the bar holds.
   Otherwise the rewrite stays (D1).
-- D12. Culled: 0009's stage 1, which it waited for, has landed.
+- D12. Culled: 0010's stage 1, which it waited for, has landed.
 - D13. A match on a `Double` literal is the runtime's `Double` equality,
   tested against each literal in the alternatives' order. This is the
   meaning the checker's evaluator gives it (`tryAlt`'s `ConstCase` in

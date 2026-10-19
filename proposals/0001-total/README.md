@@ -43,7 +43,7 @@ verification, the bugs review found and fixed, and the trust left.
   chosen by the startup check, the even-group free fixed
   (`tests/idr/e2e/even-group.mlir`), `<build>/runtime/c-flags`
   (`runtime/CMakeLists.txt`).
-- 0016's L5 and L6 (`tools/licenses.sh`); modular a reference submodule
+- 0017's L5 and L6 (`tools/licenses.sh`); modular a reference submodule
   (`.gitmodules`); simdutf v9.3.0 and fast_float v8.3.2
   (`toolchain.lock.json`). The C++ grew about 3,500 lines net
   (*measured* at d06ed15c).
@@ -78,10 +78,10 @@ Each item of the old §5 (b843d8b5), with its home:
 
 1. **The build and acceptance.** §2 above, and HANDOFF.md.
    **SELF-HOST.**
-2. **The toolchain bump.** [0005-toolchain-bump.md](../0005-toolchain-bump.md), after
+2. **The toolchain bump.** [0006-toolchain-bump.md](../0006-toolchain-bump.md), after
    `make self`. **AFTER-SELF.**
 3. **A chain that grows once and stops is refused.** The owner's ruling
-   (47f97059), recorded in 0014's feature 2. Decided.
+   (47f97059), recorded in 0015's feature 2. Decided.
 4. **The dictionary passes.**
    - Their `assert_total` goes in 0002's lane Q. Idris-mlir refuses a
      user module's assertion, and `IdrisMLIR.*` is the project's
@@ -89,7 +89,7 @@ Each item of the old §5 (b843d8b5), with its home:
      **SELF-HOST**, in 0002. The live tree has outcome B:
      `covering translateFrom`.
    - Their proof has no home: the request tree as a value before the
-     passes, then a pigeonhole measure. Q names it with 0011's O3, which
+     passes, then a pigeonhole measure. Q names it with 0012's O3, which
      does not yet hold it. **AFTER-SELF.**
 5. **The rest of Host.** 0002's lane I moves `Host` and its one
    `assert_total` into the fork (live:
@@ -105,9 +105,9 @@ Each item of the old §5 (b843d8b5), with its home:
 7. **The deferred designs.** Each is **AFTER-SELF**, and none has a
    home:
    - data-type bodies that hold buffers. The design deletes `DataRemap`'s
-     buffers remap; it is at b843d8b5 §5 item 7, and 0009 does not hold
+     buffers remap; it is at b843d8b5 §5 item 7, and 0010 does not hold
      it.
-   - carrying a `rewrite`'s equality into MLIR. It was named for 0009's
+   - carrying a `rewrite`'s equality into MLIR. It was named for 0010's
      stages 2 and 5, and neither holds it.
    - a vectorizer gather from a memref: upstream work, once a program
      needs one.
@@ -129,5 +129,5 @@ Each item of the old §5 (b843d8b5), with its home:
 10. **A pass to trim the C++.** No home. **AFTER-SELF.**
 11. **The submissions ready to file.** The owner's; `upstream/README.md`'s
     table is the list. **AFTER-SELF.**
-12. **The ryu pin.** The owner's question, moved to 0005-toolchain-bump.md.
+12. **The ryu pin.** The owner's question, moved to 0006-toolchain-bump.md.
     **AFTER-SELF.**

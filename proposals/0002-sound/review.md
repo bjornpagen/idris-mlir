@@ -380,7 +380,7 @@ no `effects` counts as everything.
   rule restated. Edit applied.
 - **`no_inline` "from idr-optimize's capped callees"**: no pass sets `no_inline`
   at HEAD (grep `no_inline|noInline|setNoInline`: only readers; `Inliner`
-  and `Analysis/Inline.cpp`), and 0007 deleted the caps. Edit applied
+  and `Analysis/Inline.cpp`), and 0008 deleted the caps. Edit applied
   (struck).
 - **Circularity.** Not circular in the data: `idr-effects` computes entries
   from bodies, the verifier checks entries cover bodies; the least solution

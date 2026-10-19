@@ -797,7 +797,7 @@ The answers to the area's own questions:
 - **`Numeral`:** a flat struct, but every consumer switches on `kind` first, so
   a sum would remove no branch.
 - **`formatDouble` re-parsing Ryu's text:** the pinned, unmodified Ryu exports
-  text only. A patch exposing `d2d` would be an upstream patch under 0005's ryu
+  text only. A patch exposing `d2d` would be an upstream patch under 0006's ryu
   pin.
 - **Schedules' `vectorWidth` optional and internal error:** idris-mlir-opt runs
   the transform on modules idr-target never saw, so it is a boundary.

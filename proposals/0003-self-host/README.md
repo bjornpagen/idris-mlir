@@ -23,12 +23,12 @@ each stage's frontend alone, then the pipeline on the module it kept, and
 
 The self-compile's frontend step finishes with no patch and no refusal
 (`bench/profiles/2026-10-17-self-growth.md`); the C++ reader and the
-pipeline on its module are S3, on the owner's build. It takes 0006's
+pipeline on its module are S3, on the owner's build. It takes 0007's
 former §2 (self-hosting's steps 4 to 6) and
 its decisions D10, D11 and D16 (their text at b843d8b5). Goal: the
 frontend (`compiler/src`) and the fork (`compiler/idris`), compiled by
 idris-mlir itself, stages 1 to 3, stage 2 the same as stage 3, on both
-targets. None of 0014's features is needed: stage 0 emitted the whole of
+targets. None of 0015's features is needed: stage 0 emitted the whole of
 the frontend and the fork with no frontend refusal (F0, 44495199,
 `bench/profiles/2026-10-14-f0-stage0.md`; *measured*). Claims are marked
 *read* (the path), *measured* (the record), *recalled*, *conjecture*,
@@ -116,7 +116,7 @@ and spells no escape hatch (*read*).
   `normalise` sites); S1 counts them.
 - (b) **The request-chain rule**, which refuses a chain that grows once and
   stops (`Frontend/Finite.idr:123-130`, `Polymorphism`; 47f97059), and its
-  data-instance form: never run on the fork (0014, feature 2).
+  data-instance form: never run on the fork (0015, feature 2).
 - (c) **The erased match** (`Translate/Cases.idr:585-590`, `Match`) on
   `Proof/`, Finite and 0002's typed identities. Their erased matches read
   so far have one constructor (`Finite.idr:247`, `Access`;
@@ -169,7 +169,7 @@ packages outside the table (`Registry/Libraries.idr:102`, refused at
   the fork's elaborator in one run (`Profile.idr:240-251`), and when none,
   writes the module. Recorded under `bench/profiles/`: the refusals, and
   once S2 has made it exit 0, the handoff's functions, operations and
-  bytes, the phases, and the frontend's peak memory (0006's old step 4).
+  bytes, the phases, and the frontend's peak memory (0007's old step 4).
 - **S2, the fixes** (typecheck machine; this proposal: the fork is ours,
   the frontend's files after 0002 releases them). Each S1 refusal, by D2;
   the `SyntaxInfo` knot, by D3. Verified: S1 again, exit 0; `make
@@ -186,12 +186,13 @@ packages outside the table (`Registry/Libraries.idr:102`, refused at
 - **S4, `make self` on arm64 macOS** (owner's machine). `tools/self.sh` as
   D5 and D6 amend it. Verified: stage 2 = stage 3; each stage's time and
   peak memory, and D5's record, in HANDOFF.md.
-- **S5, `make self` on x86_64 Linux** (the Linux machine, after 0006's
-  Linux build and suite). The same, there. `make self` holds then (D8).
+- **S5, `make self` on x86_64 Linux** (the Linux machine, after 0005's
+  L1 puts it on glibc, and after 0007's Linux build and suite). The same,
+  there. `make self` holds then (D8).
 
-After it, not in it: G1 (0006, re-cut to follow `make self`), the test
-machinery under both hosts (D7), the toolchain bump (0005), and
-0014's features, which may start then.
+After it, not in it: G1 (0007, re-cut to follow `make self`), the test
+machinery under both hosts (D7), the toolchain bump (0006), and
+0015's features, which may start then.
 
 ### S2.1 The handoff writes each data type once
 
@@ -663,13 +664,13 @@ Out of S2.1 (*read*, recorded for S3):
   `Idris.Syntax`, cannot name `SyntaxInfo` to take it as an argument
   (`compiler/idris/README.md:470-471`). Verified first by review, then by
   S3's verifier.
-- D4 (was 0006's D10). The diet and the memory are a record, not a gate,
+- D4 (was 0007's D10). The diet and the memory are a record, not a gate,
   unless a stage does not fit the owner's machine or does not finish;
   then the stage the record names is fixed first, where its design is
-  (the frontend's memory: 0011; the optimizer and labels: S3, by the
-  cutover's §10 rule; LLVM: 0008's split before O3). The frontend's and
+  (the frontend's memory: 0012; the optimizer and labels: S3, by the
+  cutover's §10 rule; LLVM: 0009's split before O3). The frontend's and
   the pipeline's peaks are recorded apart (S1, S3).
-- D5 (was 0006's D16). `make self` compares at the default thread count.
+- D5 (was 0007's D16). `make self` compares at the default thread count.
   Thread independence is `tests/determinism` on every suite run and one
   record of stage 3 compiling itself at the counts `tests/lib/
   determinism.sh:14` names (1, 3, 5, 13 and a second process), read from
@@ -683,7 +684,7 @@ Out of S2.1 (*read*, recorded for S3):
   N-1's `idris-mlir-front` alone, then its `idris-mlir` on the `.mlirbc`:
   the driver removes the module when a later step fails (§3.3), and the
   two peaks are D4's. The artifacts compared keep their names.
-- D7 (was 0006's D11, restated). The test machinery also builds and runs
+- D7 (was 0007's D11, restated). The test machinery also builds and runs
   under idris-mlir, and the stock host keeps running it: its process
   creation moves into sh glue and its imports to base. After `make self`;
   the owner is 0002's X3 and N lanes' successors.

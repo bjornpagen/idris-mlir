@@ -38,7 +38,7 @@ edited by hand), the ownership `ownership.json`, the orchestrator's prompt
   when green; lanes never commit.
 - **Concurrent design documents:** `proposals/0001-total/README.md` §5 (what
   remains; this wave takes items 6, 8, 9 and part of 4) and
-  `proposals/0005-toolchain-bump.md` (not touched; the bump follows
+  `proposals/0006-toolchain-bump.md` (not touched; the bump follows
   this wave or precedes it, the owner's order).
 
 ## 1. Intent and invariants

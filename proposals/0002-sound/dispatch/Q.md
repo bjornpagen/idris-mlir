@@ -284,7 +284,7 @@ Read first:
 Permitted outcome:
 - Mandatory: the consumer adaptations to §4.6 in your files; one of the two outcomes below, never both and never a third; the internal-error branches the link relation leaves in your files decided.
 - Optional: the proof (outcome A), which closes only if its universe can be built (Fixed decisions).
-- Later (named in the handoff, not done): the request tree computed as a value before the passes, which belongs with 0011's O3 (Translate's instance fixpoint).
+- Later (named in the handoff, not done): the request tree computed as a value before the passes, which belongs with 0012's O3 (Translate's instance fixpoint).
 - Outcome A: `translateFrom` recurses structurally on a measure the types state; the `assert_total` at `Finite.idr:295` is gone, and no other escape hatch, `partial`, `covering` or counter replaces it.
 - Outcome B (owner ruling R4, README §8): the `assert_total` is gone either way, since `make self` refuses an escape hatch in `IdrisMLIR.*`. `passes` calls itself plainly, `passes (union known (keySet st.dicts))`, and `translateFrom` is `covering`, the coverage-checked admission both hosts accept, which states exactly what is not proved where the assertion stated the opposite; `translateFrom`'s doc comment states the remaining gap in the exact text under Fixed decisions; the module's doc comment agrees with it; your handoff says B and why A did not close. The `covering` reaches `translateFrom`'s one caller, T's `translateIOProgram` (T writes it `covering` for this reason), and through it `Frontend/Program.idr`'s `program` and `Frontend/Driver.idr`'s `perform`, `frontend`, `main` (lane I's, already `covering`).
 

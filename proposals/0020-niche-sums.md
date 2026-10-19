@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0019: niche layouts of sums
+# 0020: niche layouts of sums
 
 **Status:** investigated 2026-10-16. Nothing is built and nothing is
 decided. The owner called the idea "very high leverage… worth
@@ -26,7 +26,7 @@ words. So no pass of the owned stage changes, and no count is added or
 removed.
 
 It is a change to the one in-place layout (`SumLayout`), not a second
-layout. It therefore stands as its own proposal, not as a stage of 0012
+layout. It therefore stands as its own proposal, not as a stage of 0013
 (D1).
 
 In the self compile:
@@ -177,7 +177,7 @@ The census below precedes defunctionalization and counts no closure
 - **A target's unmapped addresses** (macOS's 4 GiB page zero, Linux's
   `mmap_min_addr`). That would be a per-target case (AGENTS.md).
 - **An erased index.** `Fin n`'s bound is not in its representation, a
-  big, so it is no niche. Erased does not mean constant. Under 0018's
+  big, so it is no niche. Erased does not mean constant. Under 0019's
   D1, a `Fin` with a closed bound becomes a plain byte-class word with
   no niche, and `Maybe (Fin 256)` is then two one-byte components.
 - **The rest of a pointer's odd words, and a natural's negative small
@@ -254,13 +254,13 @@ heap sits in one such region (`runtime/Alloc/Cells.cpp:30-37`).
 - **The tag word goes.** An array of `Maybe (box T)` holds 8 references
   per 64-byte line instead of 4 references and 4 tag words. A cell
   shrinks by the word its tail byte took, so more cells keep every
-  reference in the line the first load fills. 0017's D2 counts that at
-  97.5% of corpus placements (0017, the DMP proposal, in the working
+  reference in the line the first load fills. 0018's D2 counts that at
+  97.5% of corpus placements (0018, the DMP proposal, in the working
   tree).
 - **Pointer tagging is rejected** (§8). That means a constructor in a
   cell address's low bits (GHC) or in its spare high bits (Swift's
   multi-payload enums, *recalled*).
-  - 0017 measured low tags as transparent to the DMP. Its D1 keeps every
+  - 0018 measured low tags as transparent to the DMP. Its D1 keeps every
     reference untagged anyway, so the DMP is not the reason here.
   - The reasons are the word: it would no longer be the cell's address,
     every load would pay an untag, and a niche needs no tag.
@@ -292,7 +292,7 @@ heap sits in one such region (`runtime/Alloc/Cells.cpp:30-37`).
   self dump on disk: `/tmp/0014-S21C/self/m.core`, written 2026-10-16
   06:08 by lane S21C's frontend over d1dc847e, with 394 refusals. It
   holds 5,932 data instances and 63,463 functions. (0003's census at
-  1380a9d0 counts 8,720 data instances, 0018 §4.)
+  1380a9d0 counts 8,720 data instances, 0019 §4.)
 
 **`Maybe`-shaped instances.** That means two constructors, with no
 field and one field after erasure: Idris's `NOTHING`/`JUST` shape at the
@@ -396,7 +396,7 @@ constructors and `DefImplicit`.
 
 **Not covered here: large records held in place.** `Defs` is passed as
 135 components in 1,958 signature positions (*measured*). Whether a
-record that large is held in place is no niche question. 0012 holds the
+record that large is held in place is no niche question. 0013 holds the
 layouts of records.
 
 ## 5. The design (question 5)
@@ -498,19 +498,19 @@ The handoff, per obligation:
     (`Components.cpp:31-34`).
   - One constructor has no component at all.
   - No enum allocates. An enum inside a cell is one tail byte.
-- **A tag that shares storage with another field** (0014's feature 3,
-  `tokValue`) stays with 0012. It is a fact relating two fields, not a
+- **A tag that shares storage with another field** (0015's feature 3,
+  `tokValue`) stays with 0013. It is a fact relating two fields, not a
   value a field never holds.
 
 ## 7. Decisions (proposed)
 
-- D1. **Own proposal, not a stage of 0012.**
-  - 0012's layouts are types (`!idr.packed<T>`, 0012 D1). Each is chosen
+- D1. **Own proposal, not a stage of 0013.**
+  - 0013's layouts are types (`!idr.packed<T>`, 0013 D1). Each is chosen
     per value by its access pattern and gated at 1.3×.
   - A niche is the encoding of the one in-place layout. It is not
     chosen, has no type, and needs a property rather than a speed bar.
   - Making it a type would hold one sum in two representations.
-  - Its stages need nothing of 0012, and 0012's F2 reads it (§11).
+  - Its stages need nothing of 0013, and 0013's F2 reads it (§11).
 - D2. **The layout decides,** from the monomorphic body. The frontend
   reads no `ConInfo` flag and gains no role.
   - Idris's `NOTHING`/`JUST` is a shape of the polymorphic type. It says
@@ -550,7 +550,7 @@ Rejected for the reasons in the decisions or sections named:
 Rejected for their own reasons:
 - **Boxing `Maybe`, as Idris's backends do:** an allocation per `Just`.
   idris-mlir already avoids it.
-- **A one-bit tag:** 0012 D6 rejected it for columns. LLVM stores an
+- **A one-bit tag:** 0013 D6 rejected it for columns. LLVM stores an
   `i1` in a byte, and it would be a second form of the tag.
 
 ## 9. Staged plan
@@ -558,7 +558,7 @@ Rejected for their own reasons:
 | Stage | Needs | Content | Proof |
 | --- | --- | --- | --- |
 | N1 **AFTER-SELF** | the owner's build of 0002 and 0001 | `layout::Component` with `type`, `counted` and `niche` replaces the parallel lists in `Layouts`, `SumLayout` and their callers. The niche table. The runtime's count-free predicate in `idris_rt.h`, read by `Rc.h` and the layout. `Facts.cpp`'s ranges read from niches. No layout changes. | The corpus passes on both targets, and its executables are byte-identical to N1's parent (a refactor). A googletest box, `Niches` (`make test-unit`): every counted niche word is count-free by the runtime's predicate, and a tag's niche is disjoint from `[0, n)`. |
-| N2 **AFTER-SELF** | N1 | Rule A in `sumLayout`; `encode` in `unboxedSum`, `decode` in `LowerTag`. A niche slot's remaining niche serves the sum that holds it. | The `Niches` box, over generated bodies (every source kind of §2, nested three deep). For each: decode after encode is the identity on every tag; no layout has more components than the tag layout; every word an encoding writes into a counted slot is count-free. e2e fixtures `tests/programs/data/niche-*`: `Maybe` of `String`, a box, `Integer`, `Nat`, `Bool`, `Ordering`, a record and `Decision`, and a nested `Maybe (Maybe (box T))`; each in a cell, in an array, as static data and through a closure, with `idris_rt_live_cells` back at its start. A new `idr-expect` property, `words=<sum>:<n>`: the sum is held in `n` components. It states the layout's guarantee, not an op sequence; `words=Maybe[String]:1` fails today. The bench, A/B against N2's parent on both targets: no program worse by more than 2%, best of five (0006's rule). The owner's stage-1 self run records the change in peak memory and in `TailCallPlan`'s results through memory. |
+| N2 **AFTER-SELF** | N1 | Rule A in `sumLayout`; `encode` in `unboxedSum`, `decode` in `LowerTag`. A niche slot's remaining niche serves the sum that holds it. | The `Niches` box, over generated bodies (every source kind of §2, nested three deep). For each: decode after encode is the identity on every tag; no layout has more components than the tag layout; every word an encoding writes into a counted slot is count-free. e2e fixtures `tests/programs/data/niche-*`: `Maybe` of `String`, a box, `Integer`, `Nat`, `Bool`, `Ordering`, a record and `Decision`, and a nested `Maybe (Maybe (box T))`; each in a cell, in an array, as static data and through a closure, with `idris_rt_live_cells` back at its start. A new `idr-expect` property, `words=<sum>:<n>`: the sum is held in `n` components. It states the layout's guarantee, not an op sequence; `words=Maybe[String]:1` fails today. The bench, A/B against N2's parent on both targets: no program worse by more than 2%, best of five (0007's rule). The owner's stage-1 self run records the change in peak memory and in `TailCallPlan`'s results through memory. |
 | N3 **AFTER-SELF** | N2 | `fit` boxes the non-thin types of each cycle, and the thin types on cycles of thin types alone. | A fixture of a tree with `Maybe` children: its live cells at the peak fall by the number of `Just`s. `words=` on the `Maybe`. A property that every cycle of containment in place passes through a box, over generated type graphs (the `Niches` box). |
 | N4 **AFTER-SELF** | N2 | Rule B. | The `Niches` box extended to several constructors with components. Fixtures: `Either String Int`, `Either Error Int`, and a sum of three constructors that share a slot. The bench rule of N2. |
 | N5 **AFTER-SELF** | N2; the owner's go | A boxed sum with one constructor with fields and at most two without holds those as NULL and 1; its match is a word compare. | Built only if it pays. A prototype must make a list-heavy bench program (`qsort`, `deriv`, `k-nucleotide`) at least 5% faster on both targets, with no program worse than 2%, best of five. |
@@ -587,8 +587,8 @@ Rejected for their own reasons:
 
 ## 11. Relations
 
-- **0012.**
-  - F2 (arrays of sums as columns, 0012 D6) reads the discriminant from
+- **0013.**
+  - F2 (arrays of sums as columns, 0013 D6) reads the discriminant from
     `SumLayout`.
   - A tagged sum splits as D6 says.
   - A niche sum has no tag tensor. Its niche slot holds what no value of
@@ -596,23 +596,23 @@ Rejected for their own reasons:
     array stays one tensor of the sum, whose element is its components.
   - The packed layout (F1) derives its bytes from the body and is
     unaffected.
-  - 0014's tag-sharing question stays with 0012 (§6).
-- **0017, the DMP.** Its D1 holds every reference to its cell's raw
+  - 0015's tag-sharing question stays with 0013 (§6).
+- **0018, the DMP.** Its D1 holds every reference to its cell's raw
   address in every layout, and this proposal adds no layout that does
   not. Its table of what the DMP reads has "a counted slot that a
   constructor does not use is NULL", and that stays true. The word 1 is
   a small odd word, whose upper bits are no heap region. N2's shrunken
-  cells are read against 0017's D2 (references in the first line).
-- **0018.** A closed-bound `Fin` becomes a byte-class word with no niche
+  cells are read against 0018's D2 (references in the first line).
+- **0019.** A closed-bound `Fin` becomes a byte-class word with no niche
   (§2). A `Fin` with a run-time bound stays a natural, whose niche is 0.
-  0018 counts 0 data instances that know a `Fin`'s bound, so the two do
+  0019 counts 0 data instances that know a `Fin`'s bound, so the two do
   not conflict in practice.
 - **0003, self-hosting.** Not needed for `make self`. The self compile
   is where this pays: §4's counts are the frontend's and the fork's own
   types.
-- **0006.** Its bench rule (2%, best of five) is N2's regression check.
-- **0009.** An array of `Maybe (box T)` elements halves its stride (§1).
-- **0007.** Messages copy in-place sums as they are, so niche sums cost
+- **0007.** Its bench rule (2%, best of five) is N2's regression check.
+- **0010.** An array of `Maybe (box T)` elements halves its stride (§1).
+- **0008.** Messages copy in-place sums as they are, so niche sums cost
   nothing new.
 
 ## 12. Questions for the owner
@@ -623,8 +623,8 @@ Each has its default:
 - **N5's bar:** 5% on a list-heavy program, 2% elsewhere. *Default:* as
   written, and N5 is not built until N2 to N4 have landed.
 - **The queue position.** It needs only built work. *Default:* after
-  0006, whose bench baseline makes N2's check readable; N1 may come
+  0007, whose bench baseline makes N2's check readable; N1 may come
   earlier.
 - **Large records held in place** (`Defs`, 135 components). This is no
-  question for this proposal. *Default:* recorded here; 0012 decides
+  question for this proposal. *Default:* recorded here; 0013 decides
   whether a record has a size past which it is boxed.

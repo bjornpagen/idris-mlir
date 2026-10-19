@@ -1,16 +1,16 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0015: the relational core, `mlir-relational`
+# 0016: the relational core, `mlir-relational`
 
 ## 0. Status
 
 **Parked, AFTER-SELF; nothing is built** (*read* at b843d8b5,
 2026-10-15: `libs/` holds `mlir-array` and `mlir-linear` only, and no
 commit touches `libs/mlir-relational`). Nothing on the path to `make
-self` needs it: neither 0006's self-host steps nor 0014's features name
-it. It is taken up when its first consumer, 0011's O3 (Translate's
+self` needs it: neither 0007's self-host steps nor 0015's features name
+it. It is taken up when its first consumer, 0012's O3 (Translate's
 instance fixpoint, R3 here), is next in the queue. R1 and R2 are then
-built first, as O3's prerequisites; 0011's O5 and O8 need only R1 (0011
+built first, as O3's prerequisites; 0012's O5 and O8 need only R1 (0012
 §8, D12). Every decision is taken, the rules written since parking
 included (§1).
 
@@ -55,7 +55,7 @@ last text at 484d6403) are named "the cutover's".
   (`compiler/idris/src/Core/Termination/SizeChange.idr:485-580`), and its
   replacement keeps that proof. Layer 3's saturation does not end in
   general. What it offers a tactic is bounded by the program, as
-  `%auto_implicit_depth` bounds search (0013 §2.3), never by a library
+  `%auto_implicit_depth` bounds search (0014 §2.3), never by a library
   budget, because a spent budget would fail a proof by a count
   (*decision*, from AGENTS.md).
 - **Size policies:** D1's 4 plan variants is a named constant with its
@@ -85,8 +85,8 @@ reference implementation is bumbledb's engine
 storage, laws or the log.
 
 1. **Relations and joins.** Relations are sets, held as columnar images
-   with no nulls. Programs hold them as 0009 §4.5's columns, one tensor
-   per field (not 0012's, which follows 0011), and the frontend holds
+   with no nulls. Programs hold them as 0010 §4.5's columns, one tensor
+   per field (not 0013's, which follows 0012), and the frontend holds
    them in plain Idris (§1). The layer has: COLT lazy tries in index-addressed
    pools, where a singleton child pins an image row (`exec/colt.rs:34-40`);
    Free Join, from binary hash join to worst-case optimal generic join
@@ -104,47 +104,47 @@ storage, laws or the log.
    optimal join (layer 1), and binders go through slotted e-graphs.
 
 **Prepared queries are specialized, not compiled by a query compiler**
-(D1, D7, D10). The planner is total, so 0010's A3 normalizes a known
+(D1, D7, D10). The planner is total, so 0011's A3 normalizes a known
 query's plan to a constant. The interpreter's call on that known
 constructor is then a request of the cutover's ready set, keyed by
 (interpreter, plan). Case of known constructor removes the dispatch on
 plan nodes, and `linalg` fusion merges each pipeline into one loop nest
-(0009 §7.2). Each step is optimization. Specialization stops at the
+(0010 §7.2). Each step is optimization. Specialization stops at the
 request-chain rule (`foreign/idr/include/idr/Transforms/Specialize.h:82`)
 or at the caller cap (`kCallerCap`, `tools/policies.txt`). A plan past
-0010's budget is a first-demand constant. Either way the query runs the
+0011's budget is a first-demand constant. Either way the query runs the
 interpreter and means the same.
 
 ## 3. Consumers
 
 Every consumer is Idris (D6).
-- **0011's frontend:**
+- **0012's frontend:**
   - O3, the first consumer: Translate as semi-naive evaluation over the
     instance table, reachability as its query, the refusals as filters on
-    the delta (layer 2; 0011 §4.8).
+    the delta (layer 2; 0012 §4.8).
   - O5: name resolution as an Allen "during" join with a max-depth fold
-    (layer 1; 0011 §4.4).
+    (layer 1; 0012 §4.4).
   - O7: the elaborator's constraint store and postponement (layer 2),
     with meta-to-meta unification on layer 3's union-find.
   - O8: the compiler's invariants as law queries on every compilation
-    (layer 1; 0011 §5, D13).
+    (layer 1; 0012 §5, D13).
   - The size-change closure as a fixpoint with subsumption (layer 2, D9).
-    Its composition kernel is 0009 §11's sparse semiring product.
-- **0013's elaborator:** e-graph saturation offered to tactics. It returns
-  a proof term the kernel checks and never extends conversion (0013 §2.0).
-- **0008's S8:** the instance fixpoint sharded through O3, as layer 2 in
-  bulk-synchronous rounds (0008 §4.2).
+    Its composition kernel is 0010 §11's sparse semiring product.
+- **0014's elaborator:** e-graph saturation offered to tactics. It returns
+  a proof term the kernel checks and never extends conversion (0014 §2.0).
+- **0009's S8:** the instance fixpoint sharded through O3, as layer 2 in
+  bulk-synchronous rounds (0009 §4.2).
 - **bumbledb's port:** the core plus storage, laws, the log and shards.
-  Its storage reaches LMDB through 0020, so it waits on 0020 too.
+  Its storage reaches LMDB through 0021, so it waits on 0021 too.
 - **User programs:** graph queries, rule engines and analyses.
 
 Not consumers, by the proposals that own them:
-- the multiplicity check (0009 §11);
+- the multiplicity check (0010 §11);
 - tabled instance search, whose answers are ordered and counted by the
-  ambiguity rule (0013 §2.3, D6);
-- shape arithmetic (0009 D11);
-- every C++ fixpoint, and the C++ optimizer (D6; 0008 D13 rejects "0CFA
-  on 0015"). Saturation over `idr` IR would be a proposal against the
+  ambiguity rule (0014 §2.3, D6);
+- shape arithmetic (0010 D11);
+- every C++ fixpoint, and the C++ optimizer (D6; 0009 D13 rejects "0CFA
+  on 0016"). Saturation over `idr` IR would be a proposal against the
   cutover's stage 6 that replaces its canonicalization whole.
 
 ## 4. What MLIR provides, and the boundary
@@ -159,7 +159,7 @@ the engine:
 - its formats and variable order are fixed at compile time, where COLT
   forces lazily.
 
-So it is a lowering target for the plans that fit (0009 §9 and §10 hold
+So it is a lowering target for the plans that fit (0010 §9 and §10 hold
 the inventory, with `linalg`, One-Shot Bufferize and typed indices), and
 D5 draws the line. `shard` propagates over array dimensions, not joins,
 so a join whose atoms are not co-partitioned is D8's.
@@ -181,7 +181,7 @@ so a join whose atoms are not co-partitioned is D8's.
   engine or a naive evaluator (*decision*: bumbledb's oracle compares
   with them at run time, which is the oracle AGENTS.md declines; the Rust
   engine is a speed reference only).
-- Each consumer's own gate, held in its proposal (0011 §8).
+- Each consumer's own gate, held in its proposal (0012 §8).
 
 Compiled and vectorized engines each win on different queries
 (*recalled*: Kersten et al., VLDB 2018). bumbledb's interpreter is
@@ -198,10 +198,10 @@ deleted in the same change. Every stage is **AFTER-SELF**.
 | --- | --- | --- | --- |
 | R1 | layer 1, its frontend paths in plain Idris (§1) | O3 next in the queue (§0) | bumbledb's 2,879 cases against committed expected files; its 32 read families at ≥ 80% of the Rust engine |
 | R2 | layer 2, lattice-valued relations (D9), termination in the type (§1) | R1 | within 1.5× of Soufflé (compiled) |
-| R3 | 0011's O3 | R2; 0011's O0 (at `make self`); 0010's A0 | identical Core; translate ≥ 3× faster than O0 |
+| R3 | 0012's O3 | R2; 0012's O0 (at `make self`); 0011's A0 | identical Core; translate ≥ 3× faster than O0 |
 | R4 | layer 3: e-graphs, relational e-matching, slotted binders | R2 | within 1.5× of egglog |
-| R5 | 0011's O7; saturation offered to tactics | R4; 0010's A2 | 0010 A2's targets; identical TTCs; a tactic's proof term checked by the kernel |
-| R6 | prepared-query specialization and plan variants (D1, D7) | R1; 0010's A3 | bumbledb's 34 scenario queries, prepared, at ≥ 1.5× the Rust engine; byte-identical across thread counts |
+| R5 | 0012's O7; saturation offered to tactics | R4; 0011's A2 | 0011 A2's targets; identical TTCs; a tactic's proof term checked by the kernel |
+| R6 | prepared-query specialization and plan variants (D1, D7) | R1; 0011's A3 | bumbledb's 34 scenario queries, prepared, at ≥ 1.5× the Rust engine; byte-identical across thread counts |
 
 ## 7. Rejected alternatives
 
@@ -214,9 +214,9 @@ deleted in the same change. Every stage is **AFTER-SELF**.
 - **`sparse_tensor` as the engine, a JIT, the library as the C++ side's
   engine:** §4 with D5, D10, D6.
 - **HyperCube partitioning across shards:** no stored source measures
-  it, while D8 is deterministic under 0008's rules (*recalled*).
+  it, while D8 is deterministic under 0009's rules (*recalled*).
 - **Trusting a solver for equalities:** saturation finds and the kernel
-  checks (0013 §2.5).
+  checks (0014 §2.5).
 
 ## 8. Decisions
 
@@ -225,13 +225,13 @@ deleted in the same change. Every stage is **AFTER-SELF**.
   and are separated from the plan by construction. A prepared query
   compiles at most 4 plan variants, the planner's covers under different
   cardinality assumptions, and a guard on image statistics picks one
-  (Umbra-style, bumbledb 0009 §4.4). The 4 bounds code size and never
+  (Umbra-style, bumbledb 0010 §4.4). The 4 bounds code size and never
   refuses.
 - D2. No consumer keeps its own copy of a mechanism the library provides
-  (0011 §9; 0013 D6).
+  (0012 §9; 0014 D6).
 - D3. What upstream lacks (hash tables, strings, tries, data-dependent
   control) becomes `idr` ops or runtime primitives, never hand code in
-  the library. The rule is bumbledb 0009 §4.2's measurement: at least
+  the library. The rule is bumbledb 0010 §4.2's measurement: at least
   90% of the Rust kernel's throughput on
   `crates/bumbledb/src/exec/kernel/bench.rs`, on both targets, and the
   hand-tuned NEON Allen kernel is the first test. On a path the frontend
@@ -240,17 +240,17 @@ deleted in the same change. Every stage is **AFTER-SELF**.
 - D4. The library lives in `libs/mlir-relational`; bumbledb depends on
   it as a package.
 - D5. A plan with fixed formats, variable order and join order, and no
-  hash level, lazy level or worst-case optimal intersection, is a 0009
+  hash level, lazy level or worst-case optimal intersection, is a 0010
   sparse array program. Every other plan runs the specialized
-  interpreter. Decided with 0009 D22: one route per plan.
+  interpreter. Decided with 0010 D22: one route per plan.
 - D6. Every consumer is Idris. The C++ side's fixpoints are C++ over
   MLIR's machinery: AGENTS.md puts the dialect's passes in `foreign/idr`,
-  and 0008 D13 computes each whole-program fact on the side that owns it.
+  and 0009 D13 computes each whole-program fact on the side that owns it.
 - D7. A prepared query is specialized by the cutover's ready set, on the
-  plan normalized by 0010's A3 as a known constructor. Reason: one
-  specializer for every sum (0010 §2), whose budgets stop it without
+  plan normalized by 0011's A3 as a known constructor. Reason: one
+  specializer for every sum (0011 §2), whose budgets stop it without
   rejecting.
-- D8. Layer 2 across shards follows 0008 §4. A tuple's owner is the hash
+- D8. Layer 2 across shards follows 0009 §4. A tuple's owner is the hash
   of a content-derived key; relations that join on a column share a
   bucket decomposition; recursion is partitioned on its pivot. A join
   whose atoms are not co-partitioned routes its derived tuples to their

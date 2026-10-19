@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0013: a state-of-the-art type checker and elaborator
+# 0014: a state-of-the-art type checker and elaborator
 
 **Status:** decided 2026-10-14. On 2026-10-15 it was cut to what remains,
 and its fork citations were re-read at b843d8b5 while 0002's wave was in
@@ -12,16 +12,16 @@ this file does not repeat it.
 
 **Goal.** The fork's elaborator (`compiler/idris`) becomes a type checker
 that is faster than Lean 4 and F* on measurable workloads (D15) and checks
-the same language (D7). It builds on 0010's arena and machine and adds
+the same language (D7). It builds on 0011's arena and machine and adds
 tabled instance search (T3), the rewrite ladder (T4), a separate kernel
 (T5), parallel checking (T7) and, parked, certificates from solvers (T8).
 
 **Where it sits** (*decision*). T0 is recorded at `make self`, on the
-commit that 0011's O0 measures, and the two are one record. 0010's A0 is
-a ratio to T0's elaboration figure, and 0010 §3 decides its TTC format
-from T0's share of TTC loading. T3 onward builds on 0010's A2, which
-follows sharding's first stages. T7's shard step waits on 0007's shards
-and their plain-Idris layer (§2.7). T8 is parked with 0020. D1: measure
+commit that 0012's O0 measures, and the two are one record. 0011's A0 is
+a ratio to T0's elaboration figure, and 0011 §3 decides its TTC format
+from T0's share of TTC loading. T3 onward builds on 0011's A2, which
+follows sharding's first stages. T7's shard step waits on 0008's shards
+and their plain-Idris layer (§2.7). T8 is parked with 0021. D1: measure
 first. Every target is a ratio to T0's record or to a named external
 benchmark.
 
@@ -107,17 +107,17 @@ The elaborator may succeed where it failed before only when two things
 hold. Its output is ordinary TT the kernel accepts, and the program asked
 for it by writing a `rewrite`, a tactic call or an `auto` argument. It
 never inserts an equality proof the program did not write. Reason: a
-definitional law changes conversion for every program (0009 D11). A
+definitional law changes conversion for every program (0010 D11). A
 smarter elaboration of one written construct changes only that construct,
 and the one kernel checks its output.
 
 The repository's own Idris uses no such extension, because it also
 compiles under the stock Idris, always (AGENTS.md).
 
-### 2.1–2.2 Terms and evaluation are 0010's (D2)
+### 2.1–2.2 Terms and evaluation are 0011's (D2)
 
-**D2.** The checker's terms are 0010's hash-consed arena, and its
-evaluator is 0010's wavefront machine. That gives one evaluator for types,
+**D2.** The checker's terms are 0011's hash-consed arena, and its
+evaluator is 0011's wavefront machine. That gives one evaluator for types,
 proofs and the program's static part.
 
 Caches hold only what is a function of their key:
@@ -128,7 +128,7 @@ Caches hold only what is a function of their key:
 - Terms with metavariables get a transient cache, which is dropped when
   constraints were postponed during the check.
 
-These caches are 0010's A2 (its D12).
+These caches are 0011's A2 (its D12).
 
 ### 2.3 Unification and search (D12, D8, D6)
 
@@ -141,11 +141,11 @@ already the conversion's: unification calls `convert`.
 
 Unification's speed comes from other proposals, and no stage here changes
 it:
-- 0010's A1 and A2 bring glued values and approximate conversion. That is
+- 0011's A1 and A2 bring glued values and approximate conversion. That is
   smalltt's bounded speculation, in place of the eighteen `clearDefs`
   round trips in `Core/Unify.idr`, which try a comparison without
   unfolding and then with it.
-- 0011's O7 wakes a constraint only on the metas it is blocked on, in
+- 0012's O7 wakes a constraint only on the metas it is blocked on, in
   place of `solveConstraints`' rescans.
 
 **What the fork's search answers** (*read*, `Core/AutoSearch.idr`):
@@ -167,7 +167,7 @@ depth and the stack above it.
 
 **D8. Tabling never changes an answer.**
 - The table keys a goal by its term and its environment, both ids in
-  0010's arena, together with the defaults flag.
+  0011's arena, together with the defaults flag.
 - An entry holds an answer or a failure only where that result is a
   function of the key: the goal has no unsolved meta, no branch was
   abandoned against a goal higher on the stack, and no branch was cut by
@@ -181,7 +181,7 @@ With failures tabled under the same rule, a failing tower of diamonds
 takes time linear in its height (Lean 4's measurement, elaborators §6).
 
 Two things are not taken. Selsam's consumers, which resume a suspended
-goal on a cycle, answer goals the fork abandons. 0015's relational core
+goal on a cycle, answer goals the fork abandons. 0016's relational core
 (D6) is not used either: the answers are ordered and the ambiguity rule
 counts them, which a set-valued fixpoint cannot express. Reason for the
 whole rule: the answer is which implementation a program means.
@@ -206,16 +206,16 @@ stops it.
 **The owner's question.** 0001 deleted `%totality_depth` because a count
 decided acceptance, and these two counts do the same. The default keeps
 them. The alternative replaces the depth with the frontend's request-chain
-rule applied to goals: refuse a chain whose goal grows (0014's feature 2).
+rule applied to goals: refuse a chain whose goal grows (0015's feature 2).
 That would change which programs the fork accepts.
 
 ### 2.4 Shape arithmetic and rewrite (D9, T4)
 
 **D9. No polynomial normalisation of `Nat` in conversion.** It would
 accept programs the fork refuses, and it would change conversion for every
-program. Shape arithmetic is 0009's library tactic `Array.Shape.solve`
-(0009 §3.7), which takes under 1 s per obligation. What this proposal owes
-it is speed on 0010's machine, checked in T4's proof.
+program. Shape arithmetic is 0010's library tactic `Array.Shape.solve`
+(0010 §3.7), which takes under 1 s per obligation. What this proposal owes
+it is speed on 0011's machine, checked in T4's proof.
 
 **The rewrite ladder**, in increasing order of reach:
 1. Refl elimination when the rewritten side is a variable.
@@ -239,14 +239,14 @@ term, and solvers are unstable (elaborators §9).
 
 How a solver is used:
 - A tactic reaches it as a pinned, statically linked Rust crate through
-  0020. It never goes through C, `%foreign`, MLIR's C++ `smt` dialect or a
+  0021. It never goes through C, `%foreign`, MLIR's C++ `smt` dialect or a
   subprocess.
 - The solver is chosen at T8, among those that emit a certificate the
   reconstruction reads (LRAT for SAT; Alethe or cvc5's format for SMT).
 - Its limit is a counted argument in the program's source.
 - Certificates are cached by the query's content hash.
 
-T8 waits for 0020, and for a library or corpus proof that names a goal
+T8 waits for 0021, and for a library or corpus proof that names a goal
 family a solver decides and no tactic does.
 
 ### 2.6 A small kernel (D4, D10, D13)
@@ -279,18 +279,18 @@ twice:
   (`Translate/Recursion.idr`).
 
 The triple closure goes, and `loopsTerminate` carries the call path that
-the checker's message names. That is 0011's O6; this proposal adds no
+the checker's message names. That is 0012's O6; this proposal adds no
 stage for it.
 
 **`Host` stays.** No stage here makes the evaluator or the elaborator
 provably terminating, since Idris's theory is not strongly normalizing.
-When 0010's A1 replaces the evaluator, `Host`'s `normalise` fields name
+When 0011's A1 replaces the evaluator, `Host`'s `normalise` fields name
 the machine instead. This is the answer to 0001 §3 item 5.
 
 ### 2.7 Parallelism (D5)
 
-**D5** (the owner's, 0008 §12, 2026-10-14). Modules check in dependency
-order, then definitions whose signatures are known, on 0007's shards.
+**D5** (the owner's, 0009 §12, 2026-10-14). Modules check in dependency
+order, then definitions whose signatures are known, on 0008's shards.
 Checking is single-threaded until the shards exist, and on Chez for good,
 where the shard layer runs sequentially (below).
 
@@ -312,20 +312,20 @@ pipeline cutover's names-from-content rule (its last text is at
 **How the shard step meets the two hosts** (the coordinator's binding
 ruling, 2026-10-15). The fork compiles and runs under the stock Idris and
 under idris-mlir, forever, and it reaches no `libs/` `%extern` (0002's
-R3). So the fork reaches the shards only through 0007's plain-Idris layer:
+R3). So the fork reaches the shards only through 0008's plain-Idris layer:
 definitions with bodies, which Chez runs sequentially. idris-mlir swaps in
-0007's runtime through the registry's `Faster` hook, with byte-identical
+0008's runtime through the registry's `Faster` hook, with byte-identical
 output. The body is the one meaning, and removing the hook leaves the same
 result. T7's shard step waits on that layer as well as on the shards.
 
 **The array core is used where the work is regular**, always through the
 libraries' plain-Idris layers, never the `%extern` array ops, which serve
 programs only (the same ruling):
-- constraint generation over a flat syntax tree (0011);
+- constraint generation over a flat syntax tree (0012);
 - size-change composition as a semiring product over
   `Algebra/SizeChange.idr`'s `Smaller | Same | Unknown`, while the closure
-  stays a relational fixpoint with subsumption over walks (0011 §4.7);
-- batched conversion of hash-consed terms (0010).
+  stays a relational fixpoint with subsumption over walks (0012 §4.7);
+- batched conversion of hash-consed terms (0011).
 
 GPU type checking and interaction-net normalisation wait for a measured
 case where elaboration is bound by normalisation that the CPU paths cannot
@@ -355,12 +355,12 @@ serve.
 
 | Stage | Content | Proof | Mark |
 | --- | --- | --- | --- |
-| T0 | §1's profile and plumbing; the headline workloads run once against Lean 4 and F* (D15) | the record under `bench/profiles/`, one with 0011's O0; the baseline of 0010's A0 | AFTER-SELF: `make self`'s first green run |
-| T3 | tabled search under D8 | identical TTCs; instance-heavy files at least 2× faster than 0010's A2; a failing diamond tower takes time linear in its height; no file slower by more than 5% (the pipeline cutover's §10 margin) | AFTER-SELF: 0010's A2 |
-| T4 | the rewrite ladder (§2.4) | the fork's rewrite failures listed in tests become passes; 0009's shape-equality corpus within 1 s per obligation; identical TTCs where the fork already succeeds | AFTER-SELF: 0010's A2 |
-| T5 | the kernel apart from elaboration, holding the one conversion (§2.6) | every TTC of base, `libs/`, the fork and the frontend re-checked in under 10% of the time to elaborate them; a seeded ill-typed term per rule, refused by name | AFTER-SELF: 0010's A2 |
-| T7 | names from content, then definitions on 0007's shards (§2.7) | names: TTCs identical to T5's up to generated names; shards: TTCs identical at 1, 2 and 8 shards, and wall time on base at most 1.5 / cores of T5's | AFTER-SELF: T5; the shard step also needs 0007's shards and their plain-Idris layer |
-| T8 | certificates from SAT/SMT, checked as terms (§2.5) | a fixture where the search succeeds and the kernel checks the result | parked with 0020 |
+| T0 | §1's profile and plumbing; the headline workloads run once against Lean 4 and F* (D15) | the record under `bench/profiles/`, one with 0012's O0; the baseline of 0011's A0 | AFTER-SELF: `make self`'s first green run |
+| T3 | tabled search under D8 | identical TTCs; instance-heavy files at least 2× faster than 0011's A2; a failing diamond tower takes time linear in its height; no file slower by more than 5% (the pipeline cutover's §10 margin) | AFTER-SELF: 0011's A2 |
+| T4 | the rewrite ladder (§2.4) | the fork's rewrite failures listed in tests become passes; 0010's shape-equality corpus within 1 s per obligation; identical TTCs where the fork already succeeds | AFTER-SELF: 0011's A2 |
+| T5 | the kernel apart from elaboration, holding the one conversion (§2.6) | every TTC of base, `libs/`, the fork and the frontend re-checked in under 10% of the time to elaborate them; a seeded ill-typed term per rule, refused by name | AFTER-SELF: 0011's A2 |
+| T7 | names from content, then definitions on 0008's shards (§2.7) | names: TTCs identical to T5's up to generated names; shards: TTCs identical at 1, 2 and 8 shards, and wall time on base at most 1.5 / cores of T5's | AFTER-SELF: T5; the shard step also needs 0008's shards and their plain-Idris layer |
+| T8 | certificates from SAT/SMT, checked as terms (§2.5) | a fixture where the search succeeds and the kernel checks the result | parked with 0021 |
 | — | the dead clock deleted (§2.3) | the fork builds on both hosts; identical TTCs | AFTER-SELF: nothing |
 
 **D15, the headline** (*conjecture until measured*): faster elaboration
@@ -395,5 +395,5 @@ now (§2.7). Three more:
   compatibility and lose the corpus proofs. The fork changes stage by
   stage, each stage proved by identical TTCs.
 - **Compiled reduction** (Coq's `native_compute`, a JIT inside the type
-  checker): a second compiler inside the first. 0010's array machine is
+  checker): a second compiler inside the first. 0011's array machine is
   the answer to heavy evaluation (its D3).

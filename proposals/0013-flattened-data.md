@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# 0012: compiler-chosen flattened layouts of algebraic data
+# 0013: compiler-chosen flattened layouts of algebraic data
 
 **Status:** decided 2026-10-14; nothing of it is built (*read*,
 2026-10-15: there is no `!idr.packed` type and no `Packed` library, and
@@ -8,10 +8,10 @@
 `foreign/idr/lib/Transforms/Columns/Records.cpp:22-41`). Every stage is
 **AFTER-SELF**. `make self` needs none of them, because every value
 already has a layout: cells, sums held in place, arrays of structs, and
-records in columns. With 0010's interpreter and 0011's tables, this is
-one of the three consumers of 0009's array style. It starts after
+records in columns. With 0011's interpreter and 0012's tables, this is
+one of the three consumers of 0010's array style. It starts after
 `make self` and sharding's first stages. F2 needs only what is already
-built, so it can come earlier if 0010's or 0011's tables hold an array
+built, so it can come earlier if 0011's or 0012's tables hold an array
 of a sum.
 
 This builds on work done elsewhere:
@@ -24,7 +24,7 @@ This builds on work done elsewhere:
   484d6403.
 - **Arrays of records are columns,** one tensor per leaf, by upstream's
   one-to-N conversion: `idr-columns` (`lib/Transforms/Columns/`,
-  bfdcac70; 0009 D44). That is the columns half of D1.
+  bfdcac70; 0010 D44). That is the columns half of D1.
 - **The layout limits are representations,** not refusals. A cell with
   more object slots than its header counts carries a count word. A box
   of a sum with more than 2^16 constructors has a two-level tag. An
@@ -68,7 +68,7 @@ between them from facts that the types and analyses already hold:
    and 29 bytes packed.
 2. **Columnar,** for what is not yet columns:
    - an array of sums (D6);
-   - lists, `Vect` and ragged children, as 0009's `Ragged` (0009 §3.7);
+   - lists, `Vect` and ragged children, as 0010's `Ragged` (0010 §3.7);
    - a recursive value, as preorder node arrays with a `subtree_size`
      column, Co-dfns style (`sources/code/co-dfns/cmp/TT.apl:1-6`).
 
@@ -79,7 +79,7 @@ On packed data, a traversal is a cursor walk whose end witnesses are SSA
 results (*conjecture*), and a fold streams through the buffer once.
 
 On columns, operations become array operations, lowered to `linalg`
-through the array core (0009 §4.4):
+through the array core (0010 §4.4):
 
 | Operation | Becomes |
 | --- | --- |
@@ -98,7 +98,7 @@ layout is chosen for each value where its access pattern pays.
   - **Cell:** as today.
   - **Packed:** `!idr.packed<T>`, where `T` is the identified data type.
     It wraps `T` as `!idr.box` does.
-  - **Columns:** 0009's tensors. There is no `!idr.columns` type.
+  - **Columns:** 0010's tensors. There is no `!idr.columns` type.
 
   A layout is never a discardable attribute, which a pass could drop. It
   is never a parameter inside the identified type either: each layout
@@ -127,7 +127,7 @@ layout is chosen for each value where its access pattern pays.
     0002 (in progress) makes `idr-columns` an optimization by role.
     Skipping its conversion leaves the array whole and the program's
     output unchanged.
-  - **The opt-in for columns** is 0009's array. A `Columns t` view would
+  - **The opt-in for columns** is 0010's array. A `Columns t` view would
     be a second way to write the same thing.
 
   The builder is linear and writes the tree once, in order. Cursors are
@@ -145,13 +145,13 @@ layout is chosen for each value where its access pattern pays.
   offsets, so freeing it walks nothing, as with GC-24 and CNF. When
   idr-rc proves the buffer unique, reuse in place covers all of it. A
   column set is N array cells, one per tensor, as One-Shot Bufferize
-  allocates them (0009 §4.5, §8). In-place reuse of columns is
-  One-Shot's decision (0009 D18). One allocation for all N columns, as
+  allocates them (0010 §4.5, §8). In-place reuse of columns is
+  One-Shot's decision (0010 D18). One allocation for all N columns, as
   Zig's `MultiArrayList` makes, would need a bufferization model of ours
   beside upstream's.
 - D5. Packed and columnar values are the message format between shards
-  (0007):
-  - an exclusive value moves, and its region goes with it (0007,
+  (0008):
+  - an exclusive value moves, and its region goes with it (0008,
     "Lessons from Swift's concurrency model");
   - any other value is sent as a copy of its buffers, with no detach
     walk.
@@ -162,7 +162,7 @@ layout is chosen for each value where its access pattern pays.
   - one tensor per shared slot.
 
   An array of a boxed type is a tensor of boxes, a counted element with
-  one path (0009 D17). This is Arrow's sparse union over typed shared
+  one path (0010 D17). This is Arrow's sparse union over typed shared
   slots (`Columnar.rst:933-1014`): a slot's width is the maximum over
   constructors of each slot type's use, not their sum. Two forms are
   rejected:
@@ -213,12 +213,12 @@ layout is chosen for each value where its access pattern pays.
   shards. Nothing loads it from a file, so there is no trusted header
   and no unchecked reader. The compiler's files, from its Idris half to
   the C++ driver, carry columns. Their reader checks each id column once
-  against the extent of the table it indexes (0008 §5.4, 0011 D1). A
+  against the extent of the table it indexes (0009 §5.4, 0012 D1). A
   packed buffer would need a walk over the whole tree to check its
   offsets.
 - D12. Columns for a collection that is not an array are chosen by a
   whole-program step before `idr-columns`, so that `idr-columns` turns
-  them into columns and 0009's arrays stage sees tensors. `idr-columns`
+  them into columns and 0010's arrays stage sees tensors. `idr-columns`
   runs right after idr-optimize and before dead-value removal
   (`lib/Transforms/Pipeline.cpp:48-76`). F3 settles exactly where the
   step sits.
@@ -232,9 +232,9 @@ layout is chosen for each value where its access pattern pays.
 | --- | --- | --- | --- |
 | F1 **AFTER-SELF** | identified data types (built) | `Packed t` with `!idr.packed<T>`, verified after every pass: the linear builder and cursors; a layout derived from the type's body (D3, D9); idr-rc's commit and idr-lower handle the buffer | fixtures that build a packed tree and fold it in preorder, with output equal to the cell version; an `idr-expect` property: one count per packed buffer |
 | F2 **AFTER-SELF** | `idr-columns` (built) | arrays of sums as columns (D6), in `idr-columns`' one conversion, together with records | output equal to the array-of-structs version; an `idr-expect` property: one array cell per column |
-| F3 **AFTER-SELF** | F2 | columns for lists and trees of records traversed field by field, converted to 0009 arrays before `idr-columns` (D12) | nbody-style records at least 1.3× faster than cells |
+| F3 **AFTER-SELF** | F2 | columns for lists and trees of records traversed field by field, converted to 0010 arrays before `idr-columns` (D12) | nbody-style records at least 1.3× faster than cells |
 | F4 **AFTER-SELF** | F1 | automatic packing of exclusive trees that are built once and traversed whole (D10) | Gibbon's tree add1, sum and repmax at least 1.3× faster than cells on both targets, and within 1.5× of Gibbon's published numbers on x86_64 Linux, where every Gibbon result was measured; a fixture for each drop the commit folds |
-| F5 **AFTER-SELF** | F1, F2; 0007's P4 | packed and columnar values as shard messages (D5) | 0007's message benchmarks: copy cost per byte against the detach walk |
+| F5 **AFTER-SELF** | F1, F2; 0008's P4 | packed and columnar values as shard messages (D5) | 0008's message benchmarks: copy cost per byte against the detach walk |
 
 ## Rejected alternatives
 
@@ -276,12 +276,12 @@ Three more, for their own reasons:
 
 ## Consumers
 
-- **0010's term arena and tables:** hash-consing makes the arena a DAG,
+- **0011's term arena and tables:** hash-consing makes the arena a DAG,
   so it is never packed; its tables are columns.
-- **0009's array core.**
-- **0011's syntax nodes and Core in preorder,** the columnar form of a
+- **0010's array core.**
+- **0012's syntax nodes and Core in preorder,** the columnar form of a
   tree.
 - **bumbledb's port** (`../bumbledb/proposals/0003-idris-port.md`).
-- **0014's sums over a field computed from another field:** 0014 leaves
+- **0015's sums over a field computed from another field:** 0015 leaves
   to this proposal whether the tag shares storage with that field, and
   this proposal does not design it yet.
