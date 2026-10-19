@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/60-print-local-aliases is carried: with -mlir-print-local-aliases
+# the IR printer writes a nested operation's aliases before it, so a type or
+# attribute used twice is written once. The witness is upstream's own
+# dialects, through mlir-opt: the reproducer's function holds one affine map
+# at two ops, which its dump after canonicalize names #map once.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/60-print-local-aliases/print-local-aliases.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" -allow-unregistered-dialect -mlir-print-ir-after-all \
+       -mlir-print-local-aliases -pass-pipeline='builtin.module(func.func(canonicalize))' \
+       -o /dev/null > "$work/out" 2>&1; then
+  say "mlir-opt refuses the option: the toolchain does not carry the patch"
+  show "$work/out"
+else
+  case $(grep -c '^#map = affine_map' "$work/out") in
+    1) say "the dump names the map once, before the function" ;;
+    *) say "the dump writes the map inline"; show "$work/out" ;;
+  esac
+fi

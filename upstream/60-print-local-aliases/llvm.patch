@@ -1,0 +1,162 @@
+Subject: [PATCH] [mlir] Print an operation's aliases with local scope on request
+
+An operation printed nested in another, or with local scope, writes every
+attribute and type inline at each use: aliases are printed only for a
+top-level operation at module scope. The IR printer prints each nested
+operation that way (-mlir-print-ir-after-all and
+-mlir-print-ir-tree-dir), so a dialect whose types nest other types
+(nominal types with bodies that hold further such types) repeats each
+type's whole text at every use, in every dump. In one compiler's 47-line
+program the dumps after every pass were 1.9 GB, 84% of it type text, and
+printing them took 36 of the compile's 43 seconds.
+
+Add OpPrintingFlags::printLocalAliases and -mlir-print-local-aliases:
+such a print collects the aliases of the operation it prints and writes
+them before it, as a top-level print does. Each dump is then a document
+of its own, parseable as a module, with each type written once. Off by
+default, so diagnostics and dumps are unchanged.
+
+---
+diff --git a/mlir/include/mlir/IR/OperationSupport.h b/mlir/include/mlir/IR/OperationSupport.h
+index 991d984..7f79a60 100644
+--- a/mlir/include/mlir/IR/OperationSupport.h
++++ b/mlir/include/mlir/IR/OperationSupport.h
+@@ -1285,6 +1285,12 @@ public:
+   /// the full module.
+   OpPrintingFlags &useLocalScope(bool enable = true);
+ 
++  /// Print the aliases of the attributes and types an operation holds before
++  /// it, as at module scope, when it is printed with local scope or nested
++  /// in another: each print is then a document of its own whose types are
++  /// written once each.
++  OpPrintingFlags &printLocalAliases(bool enable = true);
++
+   /// Print users of values as comments.
+   OpPrintingFlags &printValueUsers(bool enable = true);
+ 
+@@ -1328,6 +1334,10 @@ public:
+   /// Return if the printer should use local scope when dumping the IR.
+   bool shouldUseLocalScope() const;
+ 
++  /// Return if the printer should print aliases for an operation printed
++  /// with local scope or nested in another.
++  bool shouldPrintLocalAliases() const;
++
+   /// Return if the printer should print users of values.
+   bool shouldPrintValueUsers() const;
+ 
+@@ -1374,6 +1384,9 @@ private:
+ 
+   /// Print SSA IDs using NameLocs as prefixes
+   bool useNameLocAsPrefix : 1;
++
++  /// Print aliases before an operation printed with local scope or nested.
++  bool printLocalAliasesFlag : 1;
+ };
+ 
+ //===----------------------------------------------------------------------===//
+diff --git a/mlir/lib/IR/AsmPrinter.cpp b/mlir/lib/IR/AsmPrinter.cpp
+index f78d333..4c8dad0 100644
+--- a/mlir/lib/IR/AsmPrinter.cpp
++++ b/mlir/lib/IR/AsmPrinter.cpp
+@@ -193,6 +193,12 @@ struct AsmPrinterOptions {
+       llvm::cl::desc("Print with local scope and inline information (eliding "
+                      "aliases for attributes, types, and locations)")};
+ 
++  llvm::cl::opt<bool> printLocalAliasesOpt{
++      "mlir-print-local-aliases", llvm::cl::init(false),
++      llvm::cl::desc("Print the aliases of an operation printed with local "
++                     "scope or nested in another before it, as at module "
++                     "scope")};
++
+   llvm::cl::opt<bool> skipRegionsOpt{
+       "mlir-print-skip-regions", llvm::cl::init(false),
+       llvm::cl::desc("Skip regions when printing ops.")};
+@@ -228,7 +234,7 @@ OpPrintingFlags::OpPrintingFlags()
+       printGenericOpFormFlag(false), skipRegionsFlag(false),
+       assumeVerifiedFlag(false), printLocalScope(false),
+       printValueUsersFlag(false), printUniqueSSAIDsFlag(false),
+-      useNameLocAsPrefix(false) {
++      useNameLocAsPrefix(false), printLocalAliasesFlag(false) {
+   // Initialize based upon command line options, if they are available.
+   if (!clOptions.isConstructed())
+     return;
+@@ -244,6 +250,7 @@ OpPrintingFlags::OpPrintingFlags()
+   printGenericOpFormFlag = clOptions->printGenericOpFormOpt;
+   assumeVerifiedFlag = clOptions->assumeVerifiedOpt;
+   printLocalScope = clOptions->printLocalScopeOpt;
++  printLocalAliasesFlag = clOptions->printLocalAliasesOpt;
+   skipRegionsFlag = clOptions->skipRegionsOpt;
+   printValueUsersFlag = clOptions->printValueUsers;
+   printUniqueSSAIDsFlag = clOptions->printUniqueSSAIDs;
+@@ -307,6 +314,13 @@ OpPrintingFlags &OpPrintingFlags::useLocalScope(bool enable) {
+   return *this;
+ }
+ 
++/// Print the aliases of an operation printed with local scope or nested in
++/// another before it.
++OpPrintingFlags &OpPrintingFlags::printLocalAliases(bool enable) {
++  printLocalAliasesFlag = enable;
++  return *this;
++}
++
+ /// Print users of values as comments.
+ OpPrintingFlags &OpPrintingFlags::printValueUsers(bool enable) {
+   printValueUsersFlag = enable;
+@@ -381,6 +395,12 @@ bool OpPrintingFlags::shouldAssumeVerified() const {
+ /// Return if the printer should use local scope when dumping the IR.
+ bool OpPrintingFlags::shouldUseLocalScope() const { return printLocalScope; }
+ 
++/// Return if the printer should print aliases for an operation printed with
++/// local scope or nested in another.
++bool OpPrintingFlags::shouldPrintLocalAliases() const {
++  return printLocalAliasesFlag;
++}
++
+ /// Return if the printer should print users of values.
+ bool OpPrintingFlags::shouldPrintValueUsers() const {
+   return printValueUsersFlag;
+@@ -4245,7 +4265,8 @@ void Operation::print(raw_ostream &os, const OpPrintingFlags &printerFlags) {
+ }
+ void Operation::print(raw_ostream &os, AsmState &state) {
+   OperationPrinter printer(os, state.getImpl());
+-  if (!getParent() && !state.getPrinterFlags().shouldUseLocalScope()) {
++  if ((!getParent() && !state.getPrinterFlags().shouldUseLocalScope()) ||
++      state.getPrinterFlags().shouldPrintLocalAliases()) {
+     state.getImpl().initializeAliases(this);
+     printer.printTopLevelOperation(this);
+   } else {
+diff --git a/mlir/test/IR/print-local-aliases.mlir b/mlir/test/IR/print-local-aliases.mlir
+new file mode 100644
+index 0000000..5ac4bd9
+--- /dev/null
++++ b/mlir/test/IR/print-local-aliases.mlir
+@@ -0,0 +1,28 @@
++// RUN: mlir-opt %s -allow-unregistered-dialect -mlir-print-ir-after-all \
++// RUN:   -pass-pipeline='builtin.module(func.func(canonicalize))' -o /dev/null 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=INLINE
++// RUN: mlir-opt %s -allow-unregistered-dialect -mlir-print-ir-after-all \
++// RUN:   -mlir-print-local-aliases \
++// RUN:   -pass-pipeline='builtin.module(func.func(canonicalize))' -o /dev/null 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=ALIASES
++
++// A nested operation printed by the IR printer has local scope: by default
++// its attributes and types are written inline at every use; with
++// -mlir-print-local-aliases its aliases come first, as at module scope.
++
++// INLINE-LABEL: IR Dump After Canonicalizer
++// INLINE-NOT: #map =
++// INLINE: func.func @f()
++// INLINE: m = affine_map<(d0) -> (d0 + 1)>
++// INLINE: n = affine_map<(d0) -> (d0 + 1)>
++
++// ALIASES-LABEL: IR Dump After Canonicalizer
++// ALIASES: #map = affine_map<(d0) -> (d0 + 1)>
++// ALIASES: func.func @f()
++// ALIASES: m = #map
++// ALIASES: n = #map
++func.func @f() {
++  "test.op"() {m = affine_map<(d0) -> (d0 + 1)>} : () -> ()
++  "test.op"() {n = affine_map<(d0) -> (d0 + 1)>} : () -> ()
++  return
++}

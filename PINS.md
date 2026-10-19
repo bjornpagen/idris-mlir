@@ -158,6 +158,26 @@ which the top-level CMake configure gate reads.
   issue and a PR with an llc test
 - status (2026-10-19): carried; not filed
 
+## print-local-aliases
+
+- symptom: on main at 7208ba24, an operation printed nested in another, or
+  with local scope, writes every attribute and type inline at each use:
+  only a top-level print at module scope prints aliases. The IR printer
+  prints every nested operation so, and our data types print their bodies,
+  which hold other data types, so each dump unfolds the type DAG at every
+  use: directory-listing's dumps are 1.9 GB and its compile under the
+  harness crosses the 60 s step
+- sites: harness/lib/mlir.sh (dump_options: every program the harness
+  compiles prints its IR after every pass)
+- workaround: `upstream/60-print-local-aliases/llvm.patch`: the option
+  `-mlir-print-local-aliases`, under which such a print writes its
+  aliases first; checked by tests/upstream-print-local-aliases.
+  dump_options takes it once the toolchain carries the patch
+- retire: drop the patch when the pin has the option
+- upstream: upstream/60-print-local-aliases; plan in its README: one PR
+- status (2026-10-19): written and tested on a patched AsmPrinter linked
+  into idris-mlir; not yet built into the toolchain; not filed
+
 ## cse-nested-linalg-index
 
 - symptom: on main at 7208ba24 (and on main on 2026-10-19), cse replaces
