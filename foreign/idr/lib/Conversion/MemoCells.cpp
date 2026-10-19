@@ -69,10 +69,16 @@ struct LowerMemoRun : IdrPattern<MemoRunOp> {
     const layout::BoxLayout &box = layouts.box(memo);
     const layout::Cell &label = box.cell(op.getTag());
     TypeConverter::SignatureConversion entry(op.getBody()->getNumArguments());
-    for (BlockArgument capture : op.getCaptures())
-      entry.remapInput(capture.getArgNumber(),
-                       runtime.load(rewriter, loc, cell, cellAlignment(),
-                                    label.fields[capture.getArgNumber()]));
+    // A capture of no component (a sum of atoms held in place) is dropped,
+    // as the converter drops an argument it converts to nothing: an empty
+    // replacement would read as a position remapped.
+    for (BlockArgument capture : op.getCaptures()) {
+      unsigned at = capture.getArgNumber();
+      SmallVector<Value> loaded =
+          runtime.load(rewriter, loc, cell, cellAlignment(), label.fields[at]);
+      if (!loaded.empty())
+        entry.remapInput(at, loaded);
+    }
     writeState(rewriter, loc, runtime, cell, box.cell(memo.getRunningTag()));
     rewriter.applySignatureConversion(op.getBody(), entry, getTypeConverter());
     SmallVector<Type> flat;
