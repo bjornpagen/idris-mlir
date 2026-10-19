@@ -159,8 +159,7 @@ public:
 
 private:
   void visitFunction(FuncOp fn) {
-    ProgramPoint *start = getProgramPointBefore(entryOf(fn));
-    if (!getOrCreateFor<PredecessorState>(start, getProgramPointAfter(fn))->allPredecessorsKnown())
+    if (!Calls::showsEveryCall(fn))
       run(fn);
   }
 
@@ -243,7 +242,8 @@ public:
 
   // A memo cell's captures, which its force moves out of the cell: what
   // every init moved into each (fillCaptures), and shared where Captures
-  // says no init decides it.
+  // says no init decides it, or where no cell of the label is ever made,
+  // so that the force never runs and nothing is proved of it.
   void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
                                     ValueRange inputs, ArrayRef<CellsLattice *> lattices) override {
     auto force = dyn_cast<MemoRunOp>(op);
@@ -253,7 +253,8 @@ public:
     for (auto [input, lattice] : llvm::zip_equal(inputs, lattices)) {
       auto capture = cast<BlockArgument>(input);
       if (!ownership::followed(capture) ||
-          captures.shared(force.getDataType(), force.getTag(), capture.getArgNumber()))
+          captures.shared(force.getDataType(), force.getTag(), capture.getArgNumber()) ||
+          !captures.made(force.getDataType(), force.getTag()))
         propagateIfChanged(lattice, lattice->join(Cells::of(Sharing::Shared)));
     }
   }
@@ -292,7 +293,7 @@ protected:
     ProgramPoint *start = getProgramPointBefore(entryOf(fn));
     for (FuncOp named : calls.namesOf(fn)) {
       const auto *sites = getOrCreateFor<PredecessorState>(start, getProgramPointAfter(named));
-      if (!sites->allPredecessorsKnown())
+      if (!Calls::showsEveryCall(named))
         return AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(params);
       for (Operation *site : sites->getKnownPredecessors()) {
         auto call = cast<CallOp>(site);
@@ -373,4 +374,5 @@ void loadAnalyses(DataFlowSolver &solver, const Calls &calls, const Captures &ca
 }
 
 } // namespace idr::detail::exclusivity
+
 

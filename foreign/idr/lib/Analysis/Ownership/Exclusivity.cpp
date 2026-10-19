@@ -101,8 +101,7 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
   OnceWorklist<FuncOp> reached;
   for (FuncOp fn : program.getOps<FuncOp>()) {
     out.returnsOf.try_emplace(fn);
-    if (const auto *callers = solver.lookupState<PredecessorState>(solver.getProgramPointAfter(fn));
-        callers && !callers->allPredecessorsKnown())
+    if (!exclusivity::Calls::showsEveryCall(fn))
       (void)reached.push(fn);
   }
   // The calls that run, by the function each runs.
@@ -120,7 +119,12 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
         (void)reached.push(target);
       }
     });
+  // What the solve proved of the values the program runs: a function no
+  // call that runs goes to proves nothing, though upstream's dead-code
+  // analysis, which reads a label's name as an unknown caller, walked it.
   program.walk([&](Block *block) {
+    if (!out.liveBlocks.contains(block))
+      return;
     for (BlockArgument arg : block->getArguments())
       record(arg);
     for (Operation &inner : *block)
@@ -129,11 +133,7 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
   });
   for (FuncOp fn : program.getOps<FuncOp>()) {
     auto from = runsFrom.find(fn);
-    if (llvm::all_of(calls.namesOf(fn), [&](FuncOp named) {
-          const auto *callers =
-              solver.lookupState<PredecessorState>(solver.getProgramPointAfter(named));
-          return callers && callers->allPredecessorsKnown();
-        }))
+    if (llvm::all_of(calls.namesOf(fn), exclusivity::Calls::showsEveryCall))
       out.callersOf[fn] = from == runsFrom.end() ? SmallVector<CallOp>() : from->second;
     if (from == runsFrom.end())
       continue;

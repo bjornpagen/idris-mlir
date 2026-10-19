@@ -94,6 +94,14 @@ public:
   FuncOp target(CallOp call, llvm::function_ref<bool(mlir::Value)> isExclusive) const;
   // The returns of `fn`, a function of the program.
   llvm::ArrayRef<ReturnOp> returns(FuncOp fn) const { return returnsOf.at(fn); }
+  // Whether the program shows every call of `fn`: of every function but
+  // its root, which is called from outside. A program is whole and closed:
+  // once closures and suspensions are sums, each function runs only where
+  // an idr.call names it, and a label's name in a sum's body is a name, no
+  // address any op could call through. Upstream's dead-code analysis
+  // counts that name as a use it does not know, so its predecessors are
+  // read for the calls alone.
+  static bool showsEveryCall(FuncOp fn) { return !fn.isRoot(); }
 
 private:
   llvm::DenseMap<mlir::StringAttr, Callee> callees;
@@ -119,11 +127,14 @@ public:
   // Whether field `index` of that label is shared whatever the inits move
   // into it.
   bool shared(DataType memo, Tag tag, unsigned index) const;
+  // Whether any cell of that label is made: an init, or static data.
+  bool made(DataType memo, Tag tag) const { return makes.contains({memo, tag}); }
 
 private:
   using Label = std::pair<DataType, Tag>;
   llvm::DenseMap<Label, llvm::SmallVector<MemoRunOp>> forces;
   llvm::DenseSet<std::pair<Label, unsigned>> sharedFields;
+  llvm::DenseSet<Label> makes;
 };
 
 // Loads into `solver` the analyses of one solve, whose calls go as `calls`

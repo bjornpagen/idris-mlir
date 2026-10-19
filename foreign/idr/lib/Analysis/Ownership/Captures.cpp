@@ -20,13 +20,17 @@ Captures::Captures(ProgramOp program) {
   program.walk([&](Operation *op) {
     if (auto force = dyn_cast<MemoRunOp>(op))
       forces[{force.getDataType(), force.getTag()}].push_back(force);
+    if (auto init = dyn_cast<CellInitOp>(op); init && init.getDataType().isMemo())
+      makes.insert({init.getDataType(), init.getTag()});
     // Static data holding a cell of a label: its captures are static.
     if (auto constant = dyn_cast<ConstantOp>(op))
       constant.getValue().walk([&](ConAttr con) {
         DataType data = con.getData();
-        if (data.isMemo() && label(data, con.getTag()))
+        if (data.isMemo() && label(data, con.getTag())) {
+          makes.insert({data, con.getTag()});
           for (unsigned i = 0, e = static_cast<unsigned>(con.getCtor().fields.size()); i != e; ++i)
             sharedFields.insert({{data, con.getTag()}, i});
+        }
       });
     // A capture read as a view that is used: a reference of its own may be
     // taken there.
