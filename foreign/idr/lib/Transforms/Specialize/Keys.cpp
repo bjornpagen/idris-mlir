@@ -175,6 +175,26 @@ bool sharesClosure(idr::CallOp call) {
   return llvm::any_of(call.getArgs(), sharedPart);
 }
 
+std::optional<SmallVector<BindingTime>> appliesBuiltClosures(idr::CallOp call) {
+  SmallVector<BindingTime> times;
+  bool any = false;
+  for (Value arg : call.getArgs()) {
+    DataType data = dataTypeOf(arg.getType());
+    if (!data || !(data.isClosures() || data.isMemo())) {
+      times.push_back(BindingTime::Varies);
+      continue;
+    }
+    Value made = throughLinear(arg);
+    if (!made.getDefiningOp<ConOp>() || !arg.hasOneUse() || !made.hasOneUse())
+      return std::nullopt;
+    times.push_back(BindingTime::Fixed);
+    any = true;
+  }
+  if (!any)
+    return std::nullopt;
+  return times;
+}
+
 std::optional<Composed> composeKey(idr::CallOp call, std::optional<SpecKeyAttr> own,
                                    ArrayRef<BindingTime> seen) {
   // A closed call is left to run at run time.

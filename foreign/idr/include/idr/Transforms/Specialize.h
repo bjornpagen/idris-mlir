@@ -105,14 +105,13 @@ struct Node {
   llvm::SmallVector<const Node *> parents;
   // Changed only under the table's lock.
   std::variant<Requested, Claimed, Built, Placed> state;
-  // Whether a request of it passed a closure something else uses too
-  // (sharesClosure). Set under the table's lock.
+  // Whether a request of it passed a shared closure (sharesClosure).
   bool sharedClosure = false;
 };
 
-// A callee whose component is final: its function and the binding time of
-// each of its parameters, which no longer change.
-struct FinalCallee {
+// A callee a reader may read, its function and parameters' binding times:
+// final, or of the reader's component and written by its turn alone.
+struct KnownCallee {
   idr::FuncOp fn;
   llvm::ArrayRef<BindingTime> times;
 };
@@ -129,7 +128,11 @@ public:
   // The function the program holds under `name`, a function of the
   // program, once its component is final and nothing writes it again;
   // nothing before.
-  virtual std::optional<FinalCallee> finalCallee(mlir::StringAttr name) const = 0;
+  virtual std::optional<KnownCallee> finalCallee(mlir::StringAttr name) const = 0;
+  // `name` as `reader` may read it: final, or of `reader`'s component and
+  // taken up by its turn, the one that asks.
+  virtual std::optional<KnownCallee> knownCallee(mlir::StringAttr reader,
+                                                 mlir::StringAttr name) const = 0;
   // Whether the functions named `a` and `b`, both held by the program when
   // the run began, are one component of its call graph.
   virtual bool sameComponent(mlir::StringAttr a, mlir::StringAttr b) const = 0;
@@ -158,12 +161,11 @@ public:
   // goes from requested to claimed.
   bool claim(Node &node) const;
 
-  // The node's function, built detached from its owner's final body, and
-  // its binding times: the node goes from claimed to built. It requests
-  // nothing: its calls are redirected by its own turns, once insert has
-  // placed it and its request chain is whole. A failure is an internal
-  // error, emitted.
-  mlir::LogicalResult build(Node &node) const;
+  // The node's function, built detached from its owner's body as
+  // `claimant`, whose requests asked for it, reads it (knownCallee), and
+  // its binding times: the node goes from claimed to built. Its calls are
+  // its own turns' to redirect. A failure is an internal error, emitted.
+  mlir::LogicalResult build(Node &node, mlir::StringAttr claimant) const;
 
   // Puts the built function into `program`, after its owner and past every
   // node whose name sorts before its own, and the node goes from built to
@@ -362,6 +364,14 @@ mlir::FailureOr<std::optional<Want>> decide(idr::CallOp call, const Node *reques
                                             idr::FuncOp callee, const Node *calleeNode,
                                             llvm::ArrayRef<BindingTime> seen, Forms &forms);
 
+// A call of a member of its own component that applies closures built for
+// it alone (every closure or suspension it passes, and one at least): fixed
+// at those, varying elsewhere (Keys.cpp); and its spec key over them, or
+// none (Consumer.cpp), `calleeNode` the node the callee is, or null.
+std::optional<llvm::SmallVector<BindingTime>> appliesBuiltClosures(idr::CallOp call);
+std::optional<Want> decideApplied(idr::CallOp call, const Node *calleeNode,
+                                  llvm::ArrayRef<BindingTime> seen);
+
 // The nodes' bodies (Specialization.cpp, Raise.cpp), from the owner's final
 // function, detached. A raise node's consumer is its key's form in `forms`.
 mlir::FailureOr<idr::FuncOp> buildSpec(idr::FuncOp owner, SpecKeyAttr key, mlir::StringAttr name);
@@ -375,7 +385,7 @@ idr::FuncOp buildRaise(idr::FuncOp callee, RaiseKey key, mlir::StringAttr name,
 llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter, idr::CallOp call,
                                           const SpecWant &want, SpecKeyAttr key,
                                           llvm::ArrayRef<Source> sources,
-                                          const Schedule &schedule);
+                                          const KnownCallee &owner);
 // `call` becomes a call of `target`, a specialization node, with
 // `operands`.
 idr::CallOp redirect(mlir::RewriterBase &rewriter, idr::CallOp call,

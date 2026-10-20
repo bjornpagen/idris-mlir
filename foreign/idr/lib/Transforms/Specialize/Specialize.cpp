@@ -82,15 +82,16 @@ bool Nodes::claim(Node &node) const {
   return true;
 }
 
-LogicalResult Nodes::build(Node &node) const {
+LogicalResult Nodes::build(Node &node, StringAttr claimant) const {
   State &s = *state;
   // A node's key and name are fixed when it is made; only its state moves.
   StringAttr owner = ownerOf(node.key);
-  std::optional<FinalCallee> from = s.schedule.finalCallee(owner);
+  std::optional<KnownCallee> from = s.schedule.knownCallee(claimant, owner);
   if (!from)
     return emitError(UnknownLoc::get(node.name.getContext()))
            << "internal error: the owner @" << owner.getValue() << " of "
-           << node.name.getValue() << " is no final function of the program";
+           << node.name.getValue() << " is no function @" << claimant.getValue()
+           << " may read";
   StringAttr name = node.name.getAttr();
   FailureOr<idr::FuncOp> fn = std::visit(
       llvm::makeVisitor([&](SpecKeyAttr spec) { return buildSpec(from->fn, spec, name); },
@@ -107,10 +108,10 @@ LogicalResult Nodes::build(Node &node) const {
 }
 
 void Nodes::insert(Node &node, idr::ProgramOp program, optimize::Node &made) const {
-  // Its build found the owner final, and nothing erases a function while
+  // Its build read the owner, and nothing erases a function while
   // idr-optimize runs.
-  std::optional<FinalCallee> owner = state->schedule.finalCallee(ownerOf(node.key));
-  assert(owner && "a built node's owner is a final function of the program");
+  optimize::Node *owner = state->schedule.held(ownerOf(node.key));
+  assert(owner && "a built node's owner is a function of the program");
   idr::FuncOp fn = std::get<Built>(node.state).fn;
   Block &body = *program.getBody();
   Block::iterator at = std::next(Block::iterator(owner->fn.getOperation()));

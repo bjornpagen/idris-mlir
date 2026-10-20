@@ -187,4 +187,15 @@ FailureOr<std::optional<Want>> decide(idr::CallOp call, const Node *requester,
   return std::optional<Want>(SpecWant{composed->key, std::move(composed->values)});
 }
 
+std::optional<Want> decideApplied(idr::CallOp call, const Node *calleeNode,
+                                  ArrayRef<BindingTime> seen) {
+  std::optional<SpecKeyAttr> spec;
+  if (const auto *calleeSpec = calleeNode ? std::get_if<SpecKeyAttr>(&calleeNode->key) : nullptr)
+    spec = *calleeSpec;
+  std::optional<Composed> composed = composeKey(call, spec, seen);
+  if (!composed)
+    return std::nullopt;
+  return std::optional<Want>(SpecWant{composed->key, std::move(composed->values)});
+}
+
 } // namespace idr::specialize::detail

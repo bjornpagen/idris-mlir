@@ -78,11 +78,28 @@ ReadySet::~ReadySet() = default;
 
 // A node the table made and has not placed is no node of the ready set yet,
 // and not final.
-std::optional<specialize::FinalCallee> ReadySet::finalCallee(StringAttr name) const {
+std::optional<specialize::KnownCallee> ReadySet::finalCallee(StringAttr name) const {
   const Node *node = byName.lookup(name);
   if (!node || !node->isFinal())
     return std::nullopt;
-  return specialize::FinalCallee{node->fn, node->published->times};
+  return specialize::KnownCallee{node->fn, node->published->times};
+}
+
+std::optional<specialize::KnownCallee> ReadySet::knownCallee(StringAttr reader,
+                                                             StringAttr name) const {
+  const Node *from = byName.lookup(reader);
+  if (!from)
+    return std::nullopt;
+  return std::visit(
+      llvm::makeVisitor(
+          [](const Final &known) -> std::optional<specialize::KnownCallee> {
+            return specialize::KnownCallee{known.fn, known.summary.times};
+          },
+          [](const Sibling &sibling) -> std::optional<specialize::KnownCallee> {
+            return specialize::KnownCallee{sibling.fn, sibling.solved.times};
+          },
+          [](Pending) -> std::optional<specialize::KnownCallee> { return std::nullopt; }),
+      callee(*from, name));
 }
 
 bool ReadySet::sameComponent(StringAttr a, StringAttr b) const {

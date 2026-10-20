@@ -134,8 +134,10 @@ private:
   // The inner pipeline on a member, each of its calls of a final callee
   // first given the callee's effects.
   mlir::LogicalResult runInner(Node *node);
-  // Builds each requested node this worker claims.
-  mlir::LogicalResult build(llvm::ArrayRef<specialize::Node *> requests, Turn &turn);
+  // Builds each requested node this worker claims, the member whose
+  // requests they are reading its owner.
+  mlir::LogicalResult build(llvm::ArrayRef<specialize::Node *> requests, Node *claimant,
+                            Turn &turn);
   Finished finish(const Scc &scc);
 
   // Between waves, on the pass thread (Waves.cpp).

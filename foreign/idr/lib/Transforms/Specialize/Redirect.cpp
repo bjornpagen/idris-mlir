@@ -28,12 +28,10 @@ namespace idr::specialize::detail {
 
 SmallVector<Value> operandsOf(RewriterBase &rewriter, idr::CallOp call, const SpecWant &want,
                               SpecKeyAttr key, ArrayRef<Source> sources,
-                              const Schedule &schedule) {
-  // The key's owner is final: the callee, or the owner of the node it is.
-  std::optional<FinalCallee> owner = schedule.finalCallee(key.getOrigin());
-  assert(owner && "a spec key's owner is a final function of the program");
+                              const KnownCallee &owner) {
+  idr::FuncOp fn = owner.fn;
   SmallVector<Type> types;
-  for (auto [pattern, type] : llvm::zip_equal(key.getPatterns(), owner->fn.getArgumentTypes()))
+  for (auto [pattern, type] : llvm::zip_equal(key.getPatterns(), fn.getArgumentTypes()))
     holeTypes(pattern, type, types);
   rewriter.setInsertionPoint(call);
   SmallVector<Value> operands;

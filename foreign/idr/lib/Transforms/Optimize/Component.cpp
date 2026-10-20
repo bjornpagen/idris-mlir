@@ -125,16 +125,20 @@ void Scheduler::addInnerStatistics() {
 }
 
 // The table gives each node to one claimant, which builds it detached: the
-// build reads only its owner, which is final, and requests nothing, the
-// node's calls being its own turns' to redirect. Which turn of a wave
+// build reads only its owner, which is final, or a member of the
+// claimant's own component (a call of one that applies closures built for
+// it, Requests.cpp), which only this turn writes, and requests nothing,
+// the node's calls being its own turns' to redirect. Which turn of a wave
 // builds a node changes nothing, since its body is a function of its key
-// and its owner.
-LogicalResult Scheduler::build(ArrayRef<specialize::Node *> requests, Turn &turn) {
+// and its owner, and an owner of the claimant's component is asked for by
+// that component's turn alone.
+LogicalResult Scheduler::build(ArrayRef<specialize::Node *> requests, Node *claimant,
+                               Turn &turn) {
   const specialize::Nodes &nodes = analyses.nodes;
   for (specialize::Node *made : requests) {
     if (!nodes.claim(*made))
       continue;
-    if (failed(nodes.build(*made)))
+    if (failed(nodes.build(*made, claimant->fn.getSymNameAttr())))
       return failure();
     turn.built.push_back(made);
   }
@@ -157,7 +161,7 @@ LogicalResult Scheduler::round(Node *node, Turn &turn) {
 
 // A member that parks moves what its turn solved into its park.
 FailureOr<bool> Scheduler::parks(Node *node, SmallVector<specialize::Node *> asked, Turn &turn) {
-  if (failed(build(asked, turn)))
+  if (failed(build(asked, node, turn)))
     return failure();
   const specialize::Nodes &nodes = analyses.nodes;
   if (llvm::all_of(asked, [&](specialize::Node *made) { return nodes.ready(*made); }))

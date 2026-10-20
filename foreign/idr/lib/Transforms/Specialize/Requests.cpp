@@ -39,6 +39,18 @@
 // key grows nothing and is never lifted, and the raise keys are finitely
 // many by their forms (Order).
 //
+// A call of a member of the requester's own component is requested only
+// where it applies closures built for it (appliesBuiltClosures): every
+// closure or suspension it passes is a constructor the requester built for
+// this call alone. Its key fixes those, so its node takes their parts as
+// parameters and the closures are never built: the beta step of a
+// recursion whose rounds hand each other fresh closures, as a bind's run
+// hands the next statement its continuation. Its owner is not final, and
+// the node is built from the owner as the component's turn, the one that
+// asks, has left it; the table judges the key as every other, so a round
+// that builds the same closures calls the same node, and one that builds
+// them around the last round's is refused.
+//
 // Which requests made a node must not depend on which worker came first:
 // a node's parents are the requesters whose requests of its key were
 // followed in the wave that made it, each checked against its own chain,
@@ -55,6 +67,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
 #include <mutex>
 #include <optional>
 
@@ -225,7 +238,7 @@ FailureOr<FlatSymbolRefAttr> requestRaise(Nodes::State &s, idr::FuncOp requester
 // own; entering that component from outside, the callee is on no cycle the
 // call is on, and each is fixed.
 SmallVector<BindingTime> seenBy(Nodes::State &s, idr::FuncOp requester, StringAttr name,
-                                const FinalCallee &callee) {
+                                const KnownCallee &callee) {
   StringAttr from, to;
   {
     std::lock_guard lock(s.mutex);
@@ -253,12 +266,19 @@ FailureOr<unsigned> Nodes::redirectCalls(idr::FuncOp fn) const {
       continue;
     StringAttr name = call.getCalleeAttr().getAttr();
     // A callee not final is of the function's own component, or one it
-    // waits on: nothing is read of it.
-    std::optional<FinalCallee> callee = s.schedule.finalCallee(name);
-    if (!callee)
-      continue;
-    FailureOr<std::optional<Want>> want =
-        decide(call, requester, callee->fn, find(name), seenBy(s, fn, name, *callee), s.forms);
+    // waits on: nothing is read of it, but where the call applies closures
+    // built for it alone to a member of the component, which is the beta
+    // step of the recursion: the node of the closures it applies, the
+    // closures' parts its parameters, takes the call's place, and their
+    // cells are never built. Its key fixes those closures alone, judged as
+    // every key is, so a recursion that builds the same closures again
+    // calls the same node, and one that builds them deeper is refused.
+    FailureOr<std::optional<Want>> want = std::optional<Want>();
+    if (std::optional<KnownCallee> callee = s.schedule.finalCallee(name))
+      want = decide(call, requester, callee->fn, find(name), seenBy(s, fn, name, *callee), s.forms);
+    else if (s.schedule.knownCallee(fn.getSymNameAttr(), name))
+      if (std::optional<SmallVector<BindingTime>> times = appliesBuiltClosures(call))
+        want = decideApplied(call, find(name), *times);
     if (failed(want))
       return failure();
     if (!*want)
@@ -274,9 +294,14 @@ FailureOr<unsigned> Nodes::redirectCalls(idr::FuncOp fn) const {
               // Refused: the call stays a call.
               if (!*granted)
                 return success();
+              // The key's owner is the callee or the owner of the node it
+              // is: final, or of this function's component.
+              std::optional<KnownCallee> owner =
+                  s.schedule.knownCallee(fn.getSymNameAttr(), (*granted)->key.getOrigin());
+              assert(owner && "a spec key's owner is a function its requester may read");
               redirected += support::perform<SpecializeCloneAction>(call, [&] {
                 SmallVector<Value> operands = operandsOf(
-                    rewriter, call, spec, (*granted)->key, (*granted)->sources, s.schedule);
+                    rewriter, call, spec, (*granted)->key, (*granted)->sources, *owner);
                 redirect(rewriter, call, (*granted)->name, operands);
               });
               return success();

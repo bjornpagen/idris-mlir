@@ -224,7 +224,9 @@ public:
   // How many nodes it holds: the program's functions and the made nodes.
   size_t nodeCount() const { return all.size(); }
   Node *held(mlir::StringAttr name) const override { return nodeOf(name); }
-  std::optional<specialize::FinalCallee> finalCallee(mlir::StringAttr name) const override;
+  std::optional<specialize::KnownCallee> finalCallee(mlir::StringAttr name) const override;
+  std::optional<specialize::KnownCallee> knownCallee(mlir::StringAttr reader,
+                                                     mlir::StringAttr name) const override;
   bool sameComponent(mlir::StringAttr a, mlir::StringAttr b) const override;
 
   // The callee named `name` of a call in `reader`'s body, as `reader` sees
