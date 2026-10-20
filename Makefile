@@ -31,7 +31,8 @@
 #                          idris-mlir, through tools/compile.sh
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #   make self              the frontend compiled by itself (tools/self.sh): stages 1, 2
-#                          and 3, stage 2 the same as stage 3; after `make build`
+#                          and 3, stage 2 the same as stage 3, on the release build,
+#                          which it makes first
 #   make typecheck         whether the code compiles, without stage 2: foreign/idr by the
 #                          host's clang against a TableGen-only LLVM/MLIR
 #                          (tools/bootstrap.sh typecheck; nothing linked but
@@ -260,8 +261,12 @@ $(SELF_FORK_STAMP): $(FORK_SOURCES) $(LIBS_STAMP)
 	cd '$(CHECKOUT_PREFIX)-src/idris-compiler' && '$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --install idris-compiler.ipkg
 	@touch $@
 
+# The self compile runs the optimized build's pipeline (tools/self.sh),
+# built here first.
+SELF_PRESET := $(call toolchain,self_preset)
 self: self-fork
 	@$(PINS) built llvm sysroot
+	@$(MAKE) --no-print-directory build PRESET=$(SELF_PRESET)
 	$(ROOT)/tools/self.sh
 
 # Every test command rebuilds the runner while other runs may be using it.

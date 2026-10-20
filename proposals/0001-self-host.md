@@ -34,10 +34,12 @@ peak, an 82 MB module (*measured*). Since then:
 Each stage copies `compiler/src` afresh to `build/self/src` and runs two
 halves, each alone, under its own `peak_memory` and timeout:
 - **The frontend half** (limit 1800 s) writes the `.mlirbc` and the Core,
-  and keeps the TTCs. Stage 1 uses `make build`'s frontend, on Chez;
+  and keeps the TTCs. Stage 1 uses the build's frontend, on Chez;
   stage N uses stage N-1's `idris-mlir-front`.
-- **The pipeline half** (limit 7200 s; D10) is `make build`'s
-  `idris-mlir`, which compiles that module to `idris-mlir-front`. The
+- **The pipeline half** (limit 7200 s; D10) is the release build's
+  `idris-mlir` (`make self` builds it first: the self compile is a
+  production compile, and the dev build the tests run is not optimized),
+  which compiles that module to `idris-mlir-front`. The
   module is kept, so a failed pipeline half can be rerun by hand on it.
 
 At stage 3, `self.sh` compares stage 2 with stage 3 byte for byte: the

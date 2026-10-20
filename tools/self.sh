@@ -1,9 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The frontend compiled by itself: the stages of self-hosting, after
-# `make build` and the fork installed into the frontend's prefix (`make
-# self` makes both first).
+# The frontend compiled by itself: the stages of self-hosting, after the
+# optimized build (`make build PRESET=release`) and the fork installed into
+# the frontend's prefix (`make self` makes both first).
 #
 #     tools/self.sh [STAGE]
 #
@@ -13,9 +13,12 @@
 # Each half has its own time, its own peak memory and its own limit, and
 # the module stays when the pipeline fails: idris-mlir never writes or
 # removes a module it is given, so the pipeline half can be run again on
-# it by hand. Stage 1's frontend is the one `make build` made (Idris built
+# it by hand. Stage 1's frontend is the one the build made (Idris built
 # it; it runs on Chez); stage N's, after it, is the idris-mlir-front stage
-# N-1 made. The pipeline is `make build`'s idris-mlir in every stage.
+# N-1 made. The pipeline is the optimized build's idris-mlir in every
+# stage: the self compile is a production compile of the largest program
+# the compiler has, and the dev build, which the tests run, is not
+# optimized.
 #
 # Each stage compiles a fresh copy of compiler/src, at the one path
 # build/self/src, against the same prefix, so that nothing differs between
@@ -97,15 +100,15 @@ stage() {
   n=$1
   out=$self/stage$n
   # Stage 1's frontend is the one input of the chain the run does not
-  # make: `make build`'s.
+  # make: the build's.
   if [ "$n" -eq 1 ]; then
-    front=$idris_mlir_front
+    front=$self_idris_mlir_front
     limit=$stage1_pipeline_limit
   else
     front=$self/stage$((n - 1))/idris-mlir-front
     limit=$pipeline_limit
   fi
-  echo "==> stage $n: ${front#"$root"/}, then ${idris_mlir#"$root"/}"
+  echo "==> stage $n: ${front#"$root"/}, then ${self_idris_mlir#"$root"/}"
   # The fresh copy, or the run stops: cp -R into a directory that is still
   # there would copy into it, beside what an earlier stage left.
   rm -rf "$out" "$self/src" &&
@@ -117,7 +120,7 @@ stage() {
     --timing "$out/frontend-timing" --core "$out/idris-mlir-front.core" \
     -o "$out/idris-mlir-front.mlirbc" IdrisMLIR/Frontend/Driver.idr
   cp -R "$self/src/build" "$out/ttc" || exit 1
-  half pipeline "$limit" "$idris_mlir" --num-threads="$ncpu" -mlir-timing \
+  half pipeline "$limit" "$self_idris_mlir" --num-threads="$ncpu" -mlir-timing \
     "$out/idris-mlir-front.mlirbc" -o "$out/idris-mlir-front"
 }
 

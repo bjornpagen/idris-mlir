@@ -49,6 +49,12 @@ llvm_bin=$llvm_prefix/bin
 # directory it builds into, build/<preset>.
 dev_preset=dev
 dev_prefix=$root/build/$dev_preset
+# The preset `make self` builds and runs the pipeline of (tools/self.sh):
+# the self compile is a production compile of the largest program the
+# compiler has, so its pipeline is the optimized build, while the tests run
+# the dev build, which is not optimized.
+self_preset=release
+self_prefix=$root/build/$self_preset
 # The C compiler that links programs (idris-mlir, whose build records it, the
 # benchmarks' C, the tests that link by hand): the stage-2 clang, whose
 # configuration file, read for the target its callers name, gives the
@@ -63,6 +69,8 @@ cmake=$toolchain/cmake/bin/cmake
 idris_mlir=$dev_prefix/foreign/idr/idris-mlir
 idris_mlir_front=$dev_prefix/foreign/idr/idris-mlir-front
 idris_mlir_opt=$dev_prefix/foreign/idr/idris-mlir-opt
+self_idris_mlir=$self_prefix/foreign/idr/idris-mlir
+self_idris_mlir_front=$self_prefix/foreign/idr/idris-mlir-front
 idris_mlir_tblgen=$dev_prefix/foreign/idr/idris-mlir-tblgen
 # `make typecheck`: the typecheck step's prefix (tools/bootstrap.sh
 # typecheck), whose stamp names the TableGen-only LLVM/MLIR build and the

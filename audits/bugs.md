@@ -207,18 +207,6 @@ toolchain rebuild confirms or strikes it.
 
 ## upstream
 
-- **Upstream 62 and 63 are not in the toolchain.** The greedy driver
-  revisits an op of several regions after each change in any of them
-  (62, greedy-multi-region-ancestors), and liveness asks once per region
-  successor whether a region branch op is trivially dead (63,
-  liveness-trivially-dead): together canonicalize in idr-optimize and
-  remove-dead-values took 17, 56 and 234 s at n = 1k, 2k, 4k on
-  defunc-tag-limit's program (a match of n cases) through the whole
-  pipeline. Written and tested on a private build (4dde6b7f): 1.1, 1.9,
-  3.4 and 9.8 s at 1k, 2k, 4k, 16k. Owed: the coordinator's toolchain
-  rebuild with both; until then the suites are refused. Acceptance:
-  tests/upstream-greedy-multi-region-ancestors and
-  tests/upstream-liveness-trivially-dead pass on the shared toolchain.
 - **The crash after main is not yet confirmed fixed.** LLVM AArch64 made a
   sibling call out of a `tailcc` function with stack arguments, leaving
   its argument area on the stack (upstream/30-aarch64-sibcall-callee-pop,
