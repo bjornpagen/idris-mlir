@@ -34,6 +34,8 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/Transforms/Expect.h"
+
 #include "idr/IR/Tail.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -252,7 +254,7 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
         symbols.insert(clone, std::next(fn->getIterator()));
         auto dest = DestType::get(ctx, cast<BoxType>(unrestricted(fn.getResultTypes()[0])));
         unsigned arity = clone.getNumArguments();
-        (void)clone.insertArgument(arity, dest, DictionaryAttr(), passBinder(fn, "destination"));
+        (void)clone.insertArgument(arity, dest, DictionaryAttr(), passBinder(fn.getLoc(), "destination"));
         (void)clone.eraseResult(0);
         rewriteClone(rewriter, clone.getBody().front(), fn, clone, clone.getArgument(arity));
         for (const Context &tail : plan.tails)

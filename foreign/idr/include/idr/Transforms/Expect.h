@@ -34,6 +34,7 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
@@ -53,6 +54,16 @@ namespace idr {
 // Registers test-idr-facts, the pass that reports what the dialect answers
 // about each op of a function's body as a remark, for the effects' tests.
 void registerFactsTestPass();
+
+// Where a binder a pass makes is bound (a copy's sum, destination or stack,
+// a dispatch's capture): `at`, under the name of what the pass made, which
+// no binder of Idris's has. At `at` alone it would be a binder Emit wrote
+// there (a lambda's parameters are at its function's, a capture at the
+// parameter it becomes), and the quantity Idris proved of that one would
+// be read as its own (quantities-kept, Expect/Quantities.cpp).
+inline mlir::Location passBinder(mlir::Location at, llvm::StringRef kind) {
+  return mlir::NameLoc::get(mlir::StringAttr::get(at.getContext(), "%" + kind), at);
+}
 } // namespace idr
 
 namespace idr::expect {

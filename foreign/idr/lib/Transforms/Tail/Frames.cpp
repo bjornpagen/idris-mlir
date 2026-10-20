@@ -50,6 +50,8 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/Transforms/Expect.h"
+
 #include "idr/Analysis/CallCycles.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -237,7 +239,7 @@ void fillResume(RewriterBase &rewriter, const FramesPlan &plan, const Made &made
   Type result = member.getResultTypes()[0];
   Type stackBox = BoxType::get(stack.getContext(), stack);
   Block *entry = rewriter.createBlock(&resume.getBody(), {}, {result, stackBox},
-                                     {passBinder(member, "value"), passBinder(member, "stack")});
+                                     {passBinder(member.getLoc(), "value"), passBinder(member.getLoc(), "stack")});
   Value value = entry->getArgument(0);
   Value top = entry->getArgument(1);
   auto tags = llvm::to_vector(stack.getTags());
@@ -257,7 +259,7 @@ void fillResume(RewriterBase &rewriter, const FramesPlan &plan, const Made &made
     for (Type field : ctor.fields)
       bound.push_back(fieldType(stackBox, field));
     Block *block = rewriter.createBlock(&region, region.end(), bound,
-                                        SmallVector<Location>(bound.size(), passBinder(member, "held")));
+                                        SmallVector<Location>(bound.size(), passBinder(member.getLoc(), "held")));
     if (frame.site->getResult(0).getType() != result) {
       ub::UnreachableOp::create(rewriter, loc);
       continue;
@@ -313,7 +315,7 @@ LogicalResult perform(RewriterBase &rewriter, SymbolTable &symbols, Declarations
       SmallVector<Type> inputs(fn.getArgumentTypes());
       inputs.push_back(stackBox);
       (void)run.insertArgument(run.getNumArguments(), stackBox, DictionaryAttr(),
-                              passBinder(fn, "stack"));
+                              passBinder(fn.getLoc(), "stack"));
       run.setFunctionTypeAttr(TypeAttr::get(FunctionType::get(ctx, inputs, {answer})));
       symbols.insert(run, std::next(fn->getIterator()));
       made.run[{fn, answer}] = run;

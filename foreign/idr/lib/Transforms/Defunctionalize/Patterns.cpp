@@ -15,6 +15,7 @@
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Remake.h"
 #include "idr/Transforms/Defunctionalize.h"
+#include "idr/Transforms/Expect.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -137,9 +138,12 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
     for (Type param : label.fields)
       bound.push_back(fieldType(closure.getType(), param));
     // Each capture is bound where the label's function declares the
-    // parameter it becomes.
-    Block *block = rewriter.createBlock(&region, region.end(), bound,
-                                        ArrayRef(sig.parameterPlaces).take_front(bound.size()));
+    // parameter it becomes, as the dispatch's own binder: the capture is
+    // held as the sum holds it, not at the parameter's quantity.
+    SmallVector<Location> places;
+    for (Location place : ArrayRef(sig.parameterPlaces).take_front(bound.size()))
+      places.push_back(passBinder(place, "capture"));
+    Block *block = rewriter.createBlock(&region, region.end(), bound, places);
     SmallVector<Value> operands;
     for (auto [capture, param] : llvm::zip_equal(block->getArguments(), label.fields))
       operands.push_back(heldAs(rewriter, loc, capture, param));

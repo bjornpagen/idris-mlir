@@ -13,11 +13,10 @@
 // binder of one definition shares it, so the name over it is part of
 // the key. Passes copy locations with what they copy, so a binder that
 // was cloned or moved is still found; a binder a pass makes of its own
-// (a clone's destination, sum or stack, at the function's span under the
-// name of what the pass made, passBinder) or for a value
-// that was no binder when emitted (a capture, at the value's location)
-// carries a name no emitted binder at that span has, and one made by
-// inlining carries another location outright.
+// (a clone's destination, sum or stack, at the function's span, a
+// dispatch's capture at the parameter it becomes, each under the name of
+// what the pass made, passBinder) carries a name no emitted binder at that
+// span has, and one made by inlining carries another location outright.
 
 #include "idr/Transforms/Expect.h"
 

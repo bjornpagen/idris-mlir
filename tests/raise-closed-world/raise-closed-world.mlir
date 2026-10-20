@@ -2,16 +2,20 @@
 // RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
 // RUN: %differential %s %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main -o /dev/null
-// RUN: idris-mlir-opt %s --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.input.names
+// RUN: sed 's/arith.constant 3 : i64/arith.constant 30 : i64/' %s > %t.thirty.mlir
+// RUN: idris-mlir-opt %t.thirty.mlir --pass-pipeline='builtin.module(idr.program(idr-defunctionalize,idr-optimize,symbol-dce))' -o %t.thirty.out.mlir
 // RUN: idris-mlir-opt %t.mlir --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.names
-// RUN: comm -13 %t.input.names %t.names | count 0
+// RUN: idris-mlir-opt %t.thirty.out.mlir --mlir-print-op-generic | grep -o 'sym_name = "[^"]*"' | sort > %t.thirty.names
+// RUN: diff %t.names %t.thirty.names
 // The IO loop of io-loop.mlir, started with a literal. Each turn of the
 // loop builds the next actions anew, so no parameter of it is fixed, and
 // the loop is not unrolled at compile time one copy per count: no copy is
 // made, and the loop runs as a loop, with no recursion left that grows
-// the stack. No copy is made: the optimizer's module holds no function
-// the input does not (the last three RUN lines, which read symbols off the
-// generic form's `sym_name`).
+// the stack. No copy is made per count: started at 30 instead of 3, the
+// optimizer's module holds the same functions (the last RUN lines, which
+// read the symbols off the generic form's `sym_name`); the one copy it
+// holds beyond the input is @bind specialized for the loop's actions,
+// which the count passes through as a parameter.
 // The loop is the countdown it was: the program as written and the loop
 // both print 321 (%differential, on the one input the program reads, none).
 // STDIN:

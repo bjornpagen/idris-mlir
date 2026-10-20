@@ -20,6 +20,8 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/Transforms/Expect.h"
+
 #include "idr/IR/Tail.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -153,7 +155,7 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
   auto clone = cast<FuncOp>(fn->clone(mapping));
   clone.setSymNameAttr(plan.name);
   (void)clone.insertArgument(clone.getNumArguments(), result, DictionaryAttr(),
-                            passBinder(fn, "sum"));
+                            passBinder(fn.getLoc(), "sum"));
   symbols.insert(clone, std::next(fn->getIterator()));
   rewriteClone(rewriter, clone, plan.sites, mapping, clone.getArguments().back());
 

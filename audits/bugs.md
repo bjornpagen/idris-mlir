@@ -98,20 +98,6 @@ toolchain rebuild confirms or strikes it.
 
 ## defunc
 
-- **An apply's case binds its captures at the label's parameters, which
-  `quantities-kept` keys by location** (8e2fbec7; found by the data-table
-  cutover's test-idr run, 2026-10-20): expect-quantities, pipeline-do-block,
-  raise-closed-world and raise-io-loop fail after idr-defunctionalize with
-  "bound field 0 of @bind has quantity w, and Idris proved 1": the case
-  `@bind(%f0 ..., %f1 ...)` of the closure sum's dispatch binds the captures
-  at @bind's parameters' locations (63:18, 63:67 in raise-io-loop), the
-  captures are unrestricted, and the contract reads a binder by its location
-  alone (`Expect/Quantities.cpp`, "under every name, its line and columns
-  without its file"), so the parameters Idris proved linear read as widened.
-  Owed: the contract keyed by the binder, not its location (proposal 0003,
-  ownership section); until then an apply's captures carry a location of
-  their own beside the label's.
-
 - **idr-contify adds a crash site** (harness-cases, found once every e2e
   compilation checks the passes' contracts, 28274bd3): "contract
   crash-sites-not-added broken by idr-contify:

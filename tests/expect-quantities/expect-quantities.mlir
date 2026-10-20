@@ -71,7 +71,7 @@ idr.program @quantities root(@root) stage(higher) types #types {
   }
   idr.func @build.trmc(%n: i64 loc("arg"("Main.idr":22:1 to :17)), %h: !idr.lin<i64> loc("%destination"("Main.idr":22:1 to :17))) -> i64 { return %n : i64 }
   // SPAN: @below {{expected quantities-kept: parameter 0 of @wide }}
-  idr.func @wide(%w: !idr.lin<i64> loc("t"("Main.idr":71:1 to :20)), %a: i64 loc("arg"("Main.idr":71:1 to :20))) -> i64 {
+  idr.func @wide(%w: !idr.lin<i64> loc("t"("Main.idr":74:1 to :20)), %a: i64 loc("arg"("Main.idr":74:1 to :20))) -> i64 {
     return %a : i64
   }
   // The program's root, which the functions above are no part of.

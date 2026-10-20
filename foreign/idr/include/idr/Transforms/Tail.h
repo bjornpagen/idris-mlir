@@ -71,14 +71,6 @@ bool reachesTailCall(mlir::Block &block, FuncOp fn);
 // else, which is an internal error at `fn`, reported here.
 mlir::FailureOr<mlir::StringAttr> copyName(FuncOp fn, llvm::StringRef kind, mlir::SymbolTable &symbols);
 
-// Where a parameter a pass gives a copy of `fn` is bound (the `kind`
-// copy's sum, destination or stack): `fn`'s span under the name of what
-// the pass made, which no Idris binder has. At `fn`'s location alone it
-// would be a binder Emit wrote there (a lambda's parameters are at its
-// function's), and the quantities Idris proved of those would be read as
-// its own.
-mlir::Location passBinder(FuncOp fn, llvm::StringRef kind);
-
 //===----------------------------------------------------------------------===//
 // Loops
 //===----------------------------------------------------------------------===//
