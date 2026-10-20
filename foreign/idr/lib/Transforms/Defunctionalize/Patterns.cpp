@@ -136,8 +136,10 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
     SmallVector<Type> bound;
     for (Type param : label.fields)
       bound.push_back(fieldType(closure.getType(), param));
+    // Each capture is bound where the label's function declares the
+    // parameter it becomes.
     Block *block = rewriter.createBlock(&region, region.end(), bound,
-                                        SmallVector<Location>(bound.size(), loc));
+                                        ArrayRef(sig.parameterPlaces).take_front(bound.size()));
     SmallVector<Value> operands;
     for (auto [capture, param] : llvm::zip_equal(block->getArguments(), label.fields))
       operands.push_back(heldAs(rewriter, loc, capture, param));

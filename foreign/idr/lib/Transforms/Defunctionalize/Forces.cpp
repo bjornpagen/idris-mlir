@@ -21,6 +21,7 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Location.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -30,10 +31,44 @@ using namespace mlir;
 
 namespace idr::defunctionalize {
 
+namespace {
+
+// The places `loc` holds, without the names around them.
+void placesIn(Location loc, SmallVectorImpl<Location> &places) {
+  if (auto named = dyn_cast<NameLoc>(loc))
+    return placesIn(named.getChildLoc(), places);
+  if (auto fused = dyn_cast<FusedLoc>(loc)) {
+    for (Location part : fused.getLocations())
+      placesIn(part, places);
+    return;
+  }
+  if (!isa<UnknownLoc>(loc))
+    places.push_back(loc);
+}
+
+} // namespace
+
 FailureOr<FuncOp> Slots::defineForce(const Key &key, DataType sum) {
   FlatSymbolRefAttr name = forceOf(key);
   const Signature &sig = signature(name.getAttr());
-  Location loc = NameLoc::get(name.getAttr());
+  ArrayRef<Ctor> ctors = sum.getCtors();
+  // Each label's case is at the label's function, the code it runs. The
+  // dispatch, and what no one label does (a suspension that forced itself,
+  // whichever label it was running), is at the places of every label of
+  // the sum, under the dispatch's own name alone: a function is named by
+  // the names its location holds, and the dispatch is made from no
+  // label's code.
+  auto placeOf = [&](const Ctor &ctor) -> std::optional<Location> {
+    const auto *label = std::get_if<role::Label>(&ctor.role);
+    if (!label)
+      return std::nullopt;
+    return signature(label->fn.getAttr()).place;
+  };
+  SmallVector<Location> labelPlaces;
+  for (const Ctor &ctor : ctors)
+    if (std::optional<Location> place = placeOf(ctor))
+      placesIn(*place, labelPlaces);
+  Location loc = NameLoc::get(name.getAttr(), FusedLoc::get(ctx, labelPlaces));
   OpBuilder b(ctx);
   // Its own body bounds what it runs: a match, and a call of each label,
   // whose own termination the label's function answers for.
@@ -48,16 +83,16 @@ FailureOr<FuncOp> Slots::defineForce(const Key &key, DataType sum) {
   Value cell = entry->getArgument(0);
 
   // A case per constructor of the sum, and no default.
-  ArrayRef<Ctor> ctors = sum.getCtors();
   auto tags = llvm::to_vector(sum.getTags());
   auto match = MatchOp::create(b, loc, TypeRange(valueType), cell, ArrayRef<Tag>(tags));
   for (auto [index, ctor] : llvm::enumerate(ctors)) {
+    Location at = placeOf(ctor).value_or(loc);
     Region &region = match.getCaseRegion(static_cast<unsigned>(index));
     SmallVector<Type> bound;
     for (Type field : ctor.fields)
       bound.push_back(fieldType(cellType, field));
     Block *state =
-        b.createBlock(&region, region.end(), bound, SmallVector<Location>(bound.size(), loc));
+        b.createBlock(&region, region.end(), bound, SmallVector<Location>(bound.size(), at));
     // The body states no typed view of a memo sum: its constructors are
     // its labels and its two states by the body's rule, which is the type's
     // and checked when it was made, and a constructor of any other role is
@@ -72,29 +107,29 @@ FailureOr<FuncOp> Slots::defineForce(const Key &key, DataType sum) {
                 SmallVector<Value> args;
                 for (auto [capture, param] :
                      llvm::zip_equal(captures, run.converted.getInputs()))
-                  args.push_back(heldAs(b, loc, capture, param));
-                auto called = CallOp::create(b, loc, run.converted.getResults(), label.fn, args,
+                  args.push_back(heldAs(b, at, capture, param));
+                auto called = CallOp::create(b, at, run.converted.getResults(), label.fn, args,
                                              /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
-                return heldAs(b, loc, called.getResult(0), valueType);
+                return heldAs(b, at, called.getResult(0), valueType);
               };
               // By name: the captures the case binds, views of a cell that
               // is never written.
               if (label.byName) {
-                YieldOp::create(b, loc, call(state->getArguments()));
+                YieldOp::create(b, at, call(state->getArguments()));
                 return success();
               }
               // Memoized: the exchange moves the captures out of the cell,
               // runs the label on them, and moves the value in, which the
               // force also gives.
-              auto memo = MemoRunOp::create(b, loc, TypeRange(valueType), cell,
+              auto memo = MemoRunOp::create(b, at, TypeRange(valueType), cell,
                                             tags[index]);
               SmallVector<Type> captures(ctor.fields);
               Block *body = b.createBlock(&memo.getRegion(), {}, captures,
-                                          SmallVector<Location>(captures.size(), loc));
+                                          SmallVector<Location>(captures.size(), at));
               Value value = call(body->getArguments());
-              ArrayYieldOp::create(b, loc, ValueRange{value, value});
+              ArrayYieldOp::create(b, at, ValueRange{value, value});
               b.setInsertionPointAfter(memo);
-              YieldOp::create(b, loc, memo.getResult(0));
+              YieldOp::create(b, at, memo.getResult(0));
               return success();
             },
             [&](const role::Running &) -> LogicalResult {
@@ -103,7 +138,7 @@ FailureOr<FuncOp> Slots::defineForce(const Key &key, DataType sum) {
               return success();
             },
             [&](const role::Forced &) -> LogicalResult {
-              YieldOp::create(b, loc, heldAs(b, loc, state->getArgument(0), valueType));
+              YieldOp::create(b, at, heldAs(b, at, state->getArgument(0), valueType));
               return success();
             },
             [&](const auto &) -> LogicalResult {

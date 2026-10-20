@@ -43,8 +43,11 @@ Slots::Slots(ProgramOp top, Labels &labels, SymbolTable &symbols)
   for (FuncOp fn : program.getOps<FuncOp>()) {
     Signature &sig = signatures[fn.getSymNameAttr()];
     sig.type = fn.getFunctionType();
-    for (BlockArgument arg : fn.getArguments())
+    sig.place = fn.getLoc();
+    for (BlockArgument arg : fn.getArguments()) {
       sig.arguments.push_back(keyWith(arg.getType(), FlowPoint::of(Value(arg))));
+      sig.parameterPlaces.push_back(arg.getLoc());
+    }
     auto name = FlatSymbolRefAttr::get(fn.getSymNameAttr());
     for (auto [j, type] : llvm::enumerate(sig.type.getResults()))
       sig.results.push_back(keyWith(type, FlowPoint::result(name, static_cast<unsigned>(j))));

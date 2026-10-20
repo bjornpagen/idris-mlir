@@ -196,11 +196,6 @@ through it. The fork is ours; each loss is fixed in its encoder, with
 
 ## Defunctionalization and the optimizer (defunc lane)
 
-- **The force dispatch** (`Defunctionalize/Forces.cpp`) sits at a
-  `NameLoc` with no place, so "a suspension forced itself" names none.
-  Each label's case takes the label function's location. Apply cases
-  (`Patterns.cpp`) bind captures at the apply's location though the
-  label's parameters have their own.
 - **Analyses dropped and rebuilt.** `Effects.cpp` preserves only
   `SymbolTable` though it writes only effects, so Contify rebuilds
   `CallCycles`; `Defunctionalize/Pass.cpp` builds a `TypeGraph` outside

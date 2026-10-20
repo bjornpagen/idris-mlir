@@ -85,11 +85,15 @@ template <> struct llvm::DenseMapInfo<idr::defunctionalize::Key> {
 
 namespace idr::defunctionalize {
 
-// A function as the program declared it, and as its slots have it.
+// A function as the program declared it, and as its slots have it: where
+// the function and each of its parameters are, which code made from it
+// (a dispatch's case, an apply's binding of its captures) is placed at.
 struct Signature {
   mlir::FunctionType type;
   mlir::FunctionType converted;
   llvm::SmallVector<Slot> arguments, results;
+  std::optional<mlir::Location> place;
+  llvm::SmallVector<mlir::Location> parameterPlaces;
 };
 
 // What the conversion of one function reads of its own values, made from
