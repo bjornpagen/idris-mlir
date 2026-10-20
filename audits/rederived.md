@@ -28,6 +28,9 @@ lossy, and every definition the frontend reads, main's included
 through it. The fork is ours; each loss is fixed in its encoder, with
 `ttcVersion` bumped, and the frontend's reconstruction deleted.
 
+How far the fork's TTC stops matching upstream's, and the care each kept
+fact takes, is `compiler/idris/README.md`, "What a TTC keeps".
+
 - **Term locations. Done, 374e0e77.** Each node's FC is written and read
   back. Still owed from it: the frontend's own rebuilt terms take the FC
   of what they rebuild instead of `EmptyFC` (`Translate/Closed.idr`

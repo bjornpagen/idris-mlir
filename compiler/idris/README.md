@@ -512,12 +512,6 @@ merge; each says what changed in its interface.
   its type reads the definitions past it (`readDefinitions`), as the
   termination check does for the modules a context's imports reach
   (upstream/51-totality-unimported-callee).
-- A term in a TTC keeps each node's location (`Core.TTC`), written after
-  the node's tag against the location of the node it is part of, a few
-  bytes each, where upstream's writes none and reads every node back at
-  `emptyFC`. A main file is read back from its TTC once built, so without
-  them no term of the program the frontend reads would say where it came
-  from (upstream/fork-ttc-term-locations).
 - `buildMain` (`Idris.ModTree`) builds a main file in a session of its
   own: it makes the unification state, the delayed elaborators and the
   metadata, resets the context to the main module's origin and runs
@@ -533,6 +527,45 @@ merge; each says what changed in its interface.
 - `processDecls` and `processTTImpDecls` (`TTImp.ProcessDecls`) return
   nothing: upstream's returned `True` whatever happened, an error being
   thrown.
+
+### What a TTC keeps
+
+Every definition the frontend reads comes back through a TTC, a main
+file's included (`buildMain` reads it back once built). Upstream's TTC
+drops facts the elaborator had, and a frontend reading it can only guess
+them again. The fork's TTC stops matching upstream's here, and only this
+way (the owner, 2026-10-19: stop recomputing, without bugs from loose
+representations):
+- It keeps what Idris computed and decides nothing new: a type, a
+  location, a clause's index, a block's parent is written and read back.
+  An analysis of the frontend's stays in the frontend.
+- It keeps exactly the fact, in Idris's own type: a `Name`, not its print;
+  the index, not a count rebuilt; the `Term`, not an `Erased` placeholder.
+  Nothing stands for "absent" (no `STerm 0`, `emptyFC` or `""`) and no
+  `Maybe` holds what Idris always has. Where Idris itself holds a loose
+  form (a case block's parent as `prettyName` text), the fork stores the
+  typed form and prints the text from it where Idris shows it.
+- Decoding is total and round-trips: `decode . encode` is the identity on
+  every field kept, checked on the TTCs of prelude, base and the test
+  programs, and `ttcVersion` moves with each change, so no reader meets a
+  TTC of the old form.
+- What a reader concluded from the fact's absence is moved to a
+  representation of its own first (the frontend's `Erased _ Impossible`
+  marker for a run-time value relies on the TTC losing Idris's
+  `Impossible`); otherwise the kept fact silently changes the old reader's
+  answer.
+- Each kept fact deletes, in the same change, the frontend's
+  reconstruction of it: the guess, its fallback, its `Maybe`. The facts
+  still lost, and the reconstructions waiting on them, are in
+  `audits/rederived.md`.
+
+Kept so far:
+- A term in a TTC keeps each node's location (`Core.TTC`), written after
+  the node's tag against the location of the node it is part of, a few
+  bytes each, where upstream's writes none and reads every node back at
+  `emptyFC`. A main file is read back from its TTC once built, so without
+  them no term of the program the frontend reads would say where it came
+  from (upstream/fork-ttc-term-locations).
 
 ## tools/extract-idris.sh
 
