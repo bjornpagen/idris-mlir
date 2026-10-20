@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc-grades: the decisions counting takes on the program, the owned
 // grades they give every signature, and each body placed under them. The
-// boundaries with upstream's buffer ops come first, in each function:
+// boundaries with upstream's buffer ops come first, in each function, and
+// the static lifetime of static data and what is read from it:
 // reset/reuse and borrow inference decide by which use consumes a value, so
 // they read the adopts and gives that placement then counts. Then
 // reset/reuse (Reuses) decides where each dead box is taken apart and which
@@ -35,9 +36,14 @@ namespace {
 struct Grades : idr::impl::IdrRcGradesBase<Grades> {
   void runOnProgram(idr::ProgramOp program) override {
     namespace own = idr::ownership;
-    // Each function on its own, in parallel.
+    // Each function on its own, in parallel: its boundaries, then static
+    // data graded at the static lifetime, which reuse, borrowing and
+    // placement read off its type.
     SmallVector<idr::FuncOp> fns(program.getOps<idr::FuncOp>());
-    parallelForEach(&getContext(), fns, own::boundaries);
+    parallelForEach(&getContext(), fns, [](idr::FuncOp fn) {
+      own::boundaries(fn);
+      own::gradeStatic(fn);
+    });
     const idr::Reuses &reuses = getAnalysis<idr::Reuses>();
     const SymbolTable &symbols = getAnalysis<SymbolTable>();
     const idr::Borrows &borrows = getAnalysis<idr::Borrows>();

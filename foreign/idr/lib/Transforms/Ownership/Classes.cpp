@@ -40,7 +40,10 @@ Class Classes::classOf(Value value) {
   // one an idr.own.give hands to the store that consumes it. Counting
   // places nothing for either; the boundary op is its one use.
   Operation *def = value.getDefiningOp();
-  if (!holdsReferences(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def))
+  // A value made from nothing at an owned grade (gradeStatic: poison, a
+  // small big) stands for one, and no count reaches it.
+  if (!holdsReferences(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def) ||
+      (isOwned(value.getType()) && madeStatic(value)))
     return Class::Untracked;
   // Static data, as gradeStatic graded it once: its grade says so.
   if (lifetimeOf(value.getType()) == Lifetime::Static)

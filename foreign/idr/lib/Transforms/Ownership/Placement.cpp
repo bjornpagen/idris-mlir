@@ -47,6 +47,7 @@
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Ownership.h"
 
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/MapVector.h"
@@ -92,7 +93,7 @@ public:
     for (auto [value, type] : grades)
       value.setType(type);
     materialize();
-    gradeReads(fn);
+    gradeReads(fn, [](Value) { return true; });
     return counted;
   }
 
@@ -323,10 +324,13 @@ private:
 } // namespace
 
 // Every read reads a view once counted, so what it reads is a view too, of
-// the static lifetime when what it reads is static data.
-void gradeReads(FuncOp fn) {
+// the static lifetime when what it reads is static data. Only reads of a
+// value `of` admits are graded.
+void gradeReads(FuncOp fn, llvm::function_ref<bool(Value)> of) {
   fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (auto read = dyn_cast<FieldOp>(op)) {
+      if (!of(read.getValue()))
+        return;
       const Ctor &ctor = read.getDataType().getCtor(read.getTag());
       read.getResult().setType(
           fieldType(read.getValue().getType(), ctor.fields[static_cast<unsigned>(read.getIndex())]));
@@ -335,6 +339,8 @@ void gradeReads(FuncOp fn) {
     // A take's or an unpack's results are inferred from the value it takes
     // apart: each as inferred, an owned one kept at the owned grade it has.
     if (isa<TakeOp, UnpackOp>(op)) {
+      if (!of(op->getOperand(0)))
+        return;
       SmallVector<Type> types;
       if (failed(cast<InferTypeOpInterface>(op).inferReturnTypes(
               op->getContext(), op->getLoc(), op->getOperands(), op->getRawDictionaryAttrs(),
@@ -346,7 +352,7 @@ void gradeReads(FuncOp fn) {
       return;
     }
     auto match = dyn_cast<MatchOpInterface>(op);
-    if (!match)
+    if (!match || !of(match.getScrutinee()))
       return;
     Type scrutinee = match.getScrutinee().getType();
     // A constructor's case binds its fields; a literal's binds nothing.
@@ -366,11 +372,19 @@ void gradeReads(FuncOp fn) {
 
 void gradeStatic(FuncOp fn) {
   fn.walk([&](Operation *op) {
-    for (Value result : op->getResults())
-      if (madeStatic(result) && mayBeStatic(view(result.getType())))
-        result.setType(atLifetime(view(result.getType()), Lifetime::Static));
+    // Poison and a small big stand for a value, which a slot that takes
+    // one over may hold: each is owned by its type, and no count reaches
+    // it (an owned value made from nothing, untracked as the verifier
+    // reads it). Any other static data is a view.
+    bool standsFor = isa<ub::PoisonOp, BigSmallOp>(op);
+    for (Value result : op->getResults()) {
+      if (!madeStatic(result) || !mayBeStatic(view(result.getType())))
+        continue;
+      result.setType(standsFor ? owned(result.getType())
+                               : atLifetime(view(result.getType()), Lifetime::Static));
+    }
   });
-  gradeReads(fn);
+  gradeReads(fn, [](Value value) { return lifetimeOf(value.getType()) == Lifetime::Static; });
 }
 
 Counted place(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols) {
