@@ -16,9 +16,13 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/InstIterator.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Linker/Linker.h"
@@ -115,7 +119,23 @@ mlir::LogicalResult idr::driver::linkRuntime(llvm::Module &program, mlir::Module
       std::visit([](auto &kind) { return std::move(kind.module); }, *read);
   if (mlir::failed(namesApart(program, *runtime, source)))
     return mlir::failure();
+  llvm::StringSet<> runtimeFunctions;
+  for (const llvm::Function &function : *runtime)
+    if (!function.isDeclaration())
+      runtimeFunctions.insert(function.getName());
   if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded))
     return mlir::emitError(at) << "linking the runtime into the program failed";
+  // A program function past the budget calls the runtime
+  // (idr::target::inlineCallerInstructions).
+  for (llvm::Function &function : program) {
+    if (function.isDeclaration() || runtimeFunctions.contains(function.getName()) ||
+        function.getInstructionCount() <= idr::target::inlineCallerInstructions)
+      continue;
+    for (llvm::Instruction &instruction : llvm::instructions(function))
+      if (auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction))
+        if (const llvm::Function *callee = call->getCalledFunction();
+            callee && runtimeFunctions.contains(callee->getName()))
+          call->setIsNoInline();
+  }
   return mlir::success();
 }

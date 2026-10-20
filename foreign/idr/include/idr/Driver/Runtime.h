@@ -123,9 +123,10 @@ std::string besideObject(llvm::StringRef object);
 // they are, available_externally: the optimizer inlines what pays and drops
 // the rest, which the link line resolves in the native half, where every
 // piece of runtime state has its one definition; the archive's bodies are
-// definitions, which compile with the program. A program that defines a
-// symbol of the runtime is refused at `source`, the module it was
-// translated from. Every failure is an error.
+// definitions, which compile with the program; a program function past
+// the inlining budget calls them (idr::target::inlineCallerInstructions).
+// A program that defines a symbol of the runtime is refused at `source`,
+// the module it was translated from. Every failure is an error.
 mlir::LogicalResult linkRuntime(llvm::Module &program, mlir::ModuleOp source,
                                 llvm::StringRef path, const llvm::TargetMachine &machine);
 

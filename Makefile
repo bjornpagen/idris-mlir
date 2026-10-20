@@ -87,6 +87,9 @@ PINS := $(ROOT)/tools/verify-pins.sh
 # (tools/verify-pins.sh idris checks that), never one on PATH.
 unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
 CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
+# What every configure of the C++ build is told that tools/toolchain.sh
+# decides: the Idris prefix the frontend reads, which idris-mlir records.
+CONFIGURE_FACTS := -DIDRIS_MLIR_IDRIS_PREFIX='$(CHECKOUT_PREFIX)'
 HOST_PREFIX := $(call toolchain,host_prefix)
 # idris-mlir and its frontend read no environment: their prefix is an
 # argument, by default the one `build` configures, CHECKOUT_PREFIX. What reads
@@ -150,7 +153,7 @@ env:
 # prefix with a frontend older than the fork.
 build:
 	@$(PINS) cmake ninja llvm sysroot
-	cd $(ROOT) && $(CMAKE) --preset $(PRESET) -DIDRIS_MLIR_IDRIS_PREFIX='$(CHECKOUT_PREFIX)'
+	cd $(ROOT) && $(CMAKE) --preset $(PRESET) $(CONFIGURE_FACTS)
 	cd $(ROOT) && $(CMAKE) --build --preset $(PRESET) --parallel $(NCPU)
 	@$(PINS) idris
 	$(ROOT)/tools/dialects.sh generate
@@ -359,7 +362,7 @@ typecheck:
 # Afresh each time: the toolchain file is the bootstrap's, and a cached
 # check would outlive a change of it. Ninja recompiles only what changed.
 typecheck-configure:
-	cd $(ROOT) && $(CMAKE) --preset $(TYPECHECK_PRESET) --fresh
+	cd $(ROOT) && $(CMAKE) --preset $(TYPECHECK_PRESET) --fresh $(CONFIGURE_FACTS)
 
 typecheck-tblgen:
 	cd $(ROOT) && $(CMAKE) --build --preset $(TYPECHECK_PRESET) --parallel $(NCPU) --target idris-mlir-tblgen

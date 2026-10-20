@@ -108,6 +108,15 @@ inline constexpr llvm::StringLiteral cleanupSchedule = "idr.vectorization.cleanu
 // earliest and at twice it at the latest.
 inline constexpr std::uint64_t binInstructions = std::uint64_t{1} << 15;
 
+// The size, in LLVM instructions as the program's module is translated,
+// past which a program function calls the runtime instead of inlining it:
+// an optimization's budget, which leaves such a function's calls of the
+// runtime as calls and changes nothing it computes. Code generation is
+// superlinear in a function's size (LLVM's live ranges), and a function
+// this large holds thousands of counting calls, whose inlined branches
+// made one program's code generation 2.8 s become 95.
+inline constexpr std::uint64_t inlineCallerInstructions = std::uint64_t{1} << 12;
+
 // One bin: the name of its object, the hash of its members' names, and
 // the instructions it holds.
 struct Bin {
