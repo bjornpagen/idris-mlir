@@ -877,7 +877,6 @@ which the top-level CMake configure gate reads.
 - workaround: none: no build runs a sanitizer. Trap-mode UBSan
   (`-fsanitize=undefined -fsanitize-trap=all`) needs no runtime, and its
   place is the build every test runs, not an opt-in preset
-  (audits/config.md)
 - retire: when a sanitizer build is worth building compiler-rt's
   sanitizers for
 - upstream: none

@@ -41,7 +41,7 @@ form, and `pick` never forces it.
 ## Found by
 
 tests/every-basics-export, which checks that `ifThenElse` never computes
-the operand its condition does not choose (audits/bugs.md).
+the operand its condition does not choose.
 
 ## Cause
 

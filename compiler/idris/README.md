@@ -556,8 +556,8 @@ representations):
   answer.
 - Each kept fact deletes, in the same change, the frontend's
   reconstruction of it: the guess, its fallback, its `Maybe`. The facts
-  still lost, and the reconstructions waiting on them, are in
-  `audits/rederived.md`.
+  still lost, and the reconstructions waiting on them, are the
+  proposal "Each fact once".
 
 Kept so far:
 - A term in a TTC keeps each node's location (`Core.TTC`), written after

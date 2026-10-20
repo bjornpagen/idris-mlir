@@ -53,7 +53,7 @@ quantity of the function does not change which values its patterns cover.
 ## Found by
 
 The drafter of the checker packet's lanes P1 and P4
-(`proposals/0003-self-host/checker`), writing erased proofs over
+(the self-hosting proposal's checker packet, last at 77eaa5b1), writing erased proofs over
 `All` and the graph's certificates. Their sketches are now written without
 any function that meets it, so nothing in the tree reaches it.
 

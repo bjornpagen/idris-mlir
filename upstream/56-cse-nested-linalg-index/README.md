@@ -30,8 +30,8 @@ compiler this was a silent miscompile: idr-structure-loops makes an array
 tabulated in a tabulate's body a `linalg.generic` nested in the outer
 one's body, and the cse after idr-bufferize made the column index read
 the row index (tests/linarray-rows-crash-order printed -16 for -9, and
-divided by 0 where no crash was due; audits/arrays-refused.md §2 group
-C).
+divided by 0 where no crash was due; the arrays-refused audit at
+3c8a666a, §2 group C).
 
 ## Expected
 

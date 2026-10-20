@@ -1,89 +1,206 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <!-- Copyright (c) 2026 Bjorn Pagen -->
-# Compiler bugs the strengthened suite shows
+# Known compiler bugs, by lane
 
-Each lane's report (audits/strengthen-*.md) holds the evidence; this is the
-list the bug phase works through, with SUMMARY.md §5. An entry goes when
-its fix lands.
+The bugs known on main, each under the lane that owns its fix (lanes:
+tools/lanes/README.md). An entry gives the bug, the test or reproducer
+that shows it, its cause when known, and what is owed; it goes when its
+fix lands, the commit naming it. A bug in a pinned upstream is recorded
+here only until its patch is carried: then its report is
+`upstream/<bug>/README.md` and its status `PINS.md`'s.
 
-## strengthen-vocabulary.md strengthened 233
-- harness (fixed, own): planted's first version used awk NR==FNR, so a check with no findings read as finding every witness; caught by harness-planted before landing
-- harness (fixed, pre-existing): stdout_within_a_few_ulp used awk NR==FNR, so a libm case with an empty expected-stdout compared nothing
-- no new compiler bugs; observation: crash sites of primitives name the enclosing definition's first line (crash-div-zero: Prog.idr:5:1, the division is on line 7), array bounds name an expression
-## strengthen-programs-3.md strengthened 70
-- NEW: show-dependent-pair: printLn (2 ** [1,2]) followed by printLn (0 ** []) (Vect n Int) gives 'internal error: idr.match op leaves a value with 0 references on one path and 1 on another'; expected (2 ** [1, 2]) then (0 ** []). Each alone compiles and prints right, as do (2 ** ..) with (1 ** [3]). Under the harness the tree printer's File name too long lines hide the error.
-- NEW minimal leak (5.10): line <- getLine; printLn (the Int (cast line)) twice leaves 'idris-rt: live cells 1' on stdin '5\n'; used once, 0; on an empty line, 0. records-past-the-cell case 0 shows it in the suite.
-- Leak sizes grow with input (5.10): records-past-the-cell 4k+1; replicate-take-deep n cells for n elements; runtime-lazy-value-growing-choice about n/2; nat-large 1 only when p is past 2^62; st-sum 1 per runST.
-- Streams (5.20): stream-take sum (take n (countFrom 1 (+1))) gives 40 for n=10 (expected 55) and 490 for n=100 (expected 5050), right for 0 and 1. stream-take-before hangs (60 s timeout) for bounds 40, 64 and 2^61 (expected 63, 127, 2^62-1), right for bounds 0 and 1.
-- traverse_ constant stack (5.14): traverse-deep exhausts the 1 MiB stack already at 49999 and at 50000 elements.
-## strengthen-scripts-runtime.md strengthened 23
-- No new compiler or runtime bug: every strengthened check holds.
-- Known (SUMMARY item 36): a wrong user --runtime (another triple, a missing file, a non-archive) is reported as 'idris-mlir: internal error:'. The driver has no verdict for a user's bad input: every error that names no rule is internal. Not pinned by any test.
-- Test bug fixed: runtime-triple's environment row was the target's own triple on x86_64 and arm64 Linux, so it would have been accepted there.
-## strengthen-rejects.md strengthened 48
-- B2: two SortedMaps of different key types in one program leak: live cells 3 or 4 where 0 is expected. Each map alone leaks nothing. Shown by dictionary-field-opaque-type near.
-- B3: traverse in Either over a list leaks one cell when it returns Left (traverse (\x => if x > 0 then Right x else Left x) [0]). Shown by escape-hatch-hole-at-runtime near on 0 and -1.
-- B4: bounded-method leaks one cell when a constant term and a runtime-built nested term are written through the same Out implementations. Either line alone leaks nothing.
-- B5: idris-mlir aborts (exit 134, the assertion 'cast<Ty>() argument of incompatible type' in ViewLikeOpInterface::getViewSource on memref.cast, from idr::ownership::readFrom / Inference::visitCall) on the shape-polymorphic recursion double x (S k) = double (tabulate (shape x) (\i => (x !! i) * 2)) k. Shown by polymorphism-growing-rank near.
-- Known bugs hit again: 5.10 (IORef, IOArray and Buffer neighbours leak 1 cell: cycle-array-knot, cycle-ioref-knot, deprecated-get-byte), 5.29 (cycle-ioref-knot line 16 for 18), 5.12 (bounded-field, bounded-synonym), 5.38 (bounded-method-own), 5.9 (words in a for lambda; avoided in the hole neighbour).
-## strengthen-fixtures-4.md strengthened 58
-## strengthen-programs-1.md strengthened 61
-- every-basics-export: an argument of type Lazy Int that contains a case evaluates the case's scrutinee eagerly. `pick : Lazy Int -> Int; pick _ = 1; main = printLn (pick (case boom2 1 of {5 => 1; _ => 2}))`, where boom2 is partial and only defined at 0, should print 1; it crashes with 'unhandled input for Main.boom2'. The same happens with `ifThenElse True 1 (if boom 1 then 2 else 3)`. `pick (boom2 1)` prints 1 correctly.
-- array-of-arrays, stdin '0': the program prints 'no row' and the live-cell count, then jumps to address 0 on the program thread (EXC_BAD_ACCESS, exit 139). Here main ends in the `| Nothing =>` branch with an empty IOArray (IOArray Int). Inputs n >= 1 exit 0.
-- buffer-ops, both before and after this change: the program returns into a stack address after main (exit 139). The dump file-name error had been hiding it. Reproducer: `Nothing <- newBuffer (-1)`; putStrLn; `Just buf <- newBuffer 32`; setBits16 at 1; setBits32 at 3; setBits64 at 8; setInt8 at 0. Removing any one of these statements makes it exit 0.
-- base-trace: `trace` of a string read at run time leaks one cell. `line <- getLine; putStrLn (trace "x" line)` ends with live cells 1. With a literal value nothing is left live.
-- heap-free behaves differently in programs of the same shape (SUMMARY §5.13). After `c <- getChar`, printing an Int made from c allocates (show_sint and str.append in main.lam or main.delay) in absurd-body, erased-witness and crash-mod-zero, but not in enum-stepping or crash-div-zero.
-## strengthen-fixtures-1.md strengthened 66
-## strengthen-programs-2.md strengthened 64
-- NEW, reduced: a heap value let-bound in a do block and used by two IO actions is never freed. `main = do { line <- getLine; let k = the Nat (cast line); printLn k; printLn k }` with stdin 4611686018427387904 ends with live cells 1 (expected 0). A small Nat, or a single printLn, gives 0. A tree t used by `printLn (count t)` twice leaks 2n cells. A String used by three putStrLn leaks 1. This plausibly explains the leaks of ioref-closures, identity-weakening, implementation-runtime-scope and ioref-keeps-old-value, and is likely a common root of §5.10. Reproducers are in scratchpad p2/exp/leak2 and p2/exp/leak3.
-- Heap-free (§5.13 family): a main that reads a byte and then does two or more IO actions allocates idr.cell.new in main.delay and in the (>>) lambda; a recursive getChar loop allocates in io_bind's lambda. Found while making literal-match read its input; the test now makes one fused output and is still heap-free.
-- §5.12 (llvm.call operand mismatch i64 vs !llvm.ptr) has a new trigger: in leet-insertion-sort, adding `same : (Int,Int,Int) -> (Int,Int,Int) -> Bool`, a && of Int ==, makes the compile fail. The same function alone in a small program compiles. Also, == on a tuple of Ints gives a specialized symbol too long for the dump printer (§5.38).
-- §5.11 needs no large input: io-loop-through-helper's new 100-character buffer-edges case also exits 139 after main with 11 live cells. Its empty input does not crash.
-- Under §5.38, compiled without dumps: linarray-combinators, -lanes-exact, -lanes-wide and -rows-crash-order fail on §5.8 ('linalg.generic' op consumes a view), and implementation-index-function fails on §5.12.
-- Test bug, fixed: linarray-map-fold-traverse expected '(12, 12345, [...])', but Prelude shows a triple as nested pairs (Prelude/Show.idr:210), so the output is '(12, (12345, [...]))'. The expected file had never been checked because the program never compiled.
-## strengthen-fixtures-3.md strengthened 68
-- Re-optimizing an optimized program is an internal error. raise-builds-actions after defunctionalize+optimize+symbol-dce, run through `idris-mlir-opt --idr-optimize` again, gives 'internal error: two keys name then.spec.0f29be378093e8de: a function of the program and builtin.module {idr.key = ...}'. Test: raise-builds-actions RUN 2 (%differential).
-- lower-big-fast-path: the object of the small root imports _idris_rt_big_add, _cmp, _mul, _sub and others, so the small cases are not inlined (RUN 12; known before).
-- Known before and unchanged: raise-shared-key and pipeline-do-block fail their not-called properties (a recursive function still calls itself after idr-optimize).
-## strengthen-fixtures-2.md strengthened 82
-- Harness: lit_lowered in harness/lib/differential.sh reads a fixture's stage from the first line mentioning 'idr.program ... stage(...)', comment lines included. A REFERENCE module placed above the program made one fixture lower from the wrong stage; every reference now follows its module.
-- Harness: lit substitutes %s and %t inside SSA names on RUN lines, so a sed mutant naming %str, %twice or %two breaks. The fixtures avoid those prefixes.
-- Harness: dialect-text's orphan check reads only --check-prefix=, so --check-prefixes=A,B leaves A's and B's lines counted as orphans. e2e-loops now uses one prefix per FileCheck.
-## strengthen-scripts-other.md strengthened 58
-- harness (fixed): Lock.idr matched an accepted series as a string prefix, so `accept: 1.1` passed for ninja 1.13.2, which the CMake gate refuses
-- harness (fixed): the fuzz agree check passed a case missing a rendering line, and also passed an empty output
-- harness (fixed): fuzz-check read stdout with readFile, which lost the rest of a line after a NUL; prim__cast_IntChar (-1) outputs merged lines in seed 1 static
-- harness (fixed): the fuzz model check reported ok when no case had a model
-- harness (fixed): fuzz-seeds compiles timed out at 60s because every pass was dumped, so no check ever ran
-- check (fixed): frontend-imports treated compiler/src/IdrisMLIR/Frontend.idr as outside the frontend
-- check (fixed): registry-only let an allowlist entry without a reason allow lines
-- compiler/upstream (control lane; patch written, not carried): fuzz-seeds seed 1 static case 2: math.sqrt of constant -2.5 is not folded by idr-optimize (MLIR's SqrtOp::fold declines negative operands, still so on llvm main). upstream/61-sqrt-negative-fold has the report and the diff (a quiet NaN for a negative non-zero operand, -0 for -0), which applies to the pin but is unbuilt: carrying it rebuilds the shared toolchain, which no lane does; tests/upstream-sqrt-negative-fold checks the pinned mlir-opt still leaves it
-- compiler: fuzz-two-hosts (harness modules compiled by idris-mlir) exits 1 with 25 idr-rc-exclusive internal errors ('gives !idr.own where the solver proved !idr.excl'); HEAD's Fuzz.idr fails the same way
-- compiler: tests/linarray-lanes-wide and tests/linarray-combinators fail to compile with 'linalg.generic op consumes a view, which holds no reference', which breaks determinism-threads-linarray-lanes and handoff-round-trip
-- compiler: artifacts: a stale build/exec/Main.<hash>.o survives a refused rebuild (SUMMARY item 32); the HEAD test fails the same way
-- driver: a frontend beside idris-mlir that exits 127 is reported as 'internal error: ... idris-mlir-front did not finish'
-- compiler (pre-existing): registry-only finds 7 names built from literals outside the registry (Walk.idr probe names, Forced.idr:83 `UN (Basic "->")`)
-## found while fixing
-- arrays lane (open, found rerunning k-nucleotide): k-nucleotide's output is right again (the C version's, byte for byte, at 1k, 10k and 20k nucleotides), but its time was quadratic (50 s at 10k, 196 s at 20k; the 2026-10-13 record ran 25M in 3 s): every write of the counting table copied it, since slotAt's `Res` reached idr-bufferize as a constructor yielded by a match_lit, and the table bump writes was an idr.field of it, an array read from a value, which One-Shot copies. A match whose regions yield a constructor that is only taken apart now yields its fields (idr-yield-fields), and bump and roll have no copy left after idr-bufferize. Still open: the time at 25M, which waits on main compiling k-nucleotide again (idr-rc-grades refuses a con of closures it grades static at Main.idr:48, without this change too).
-- defunc-tag-limit (known failing, now measured): the label solve is quadratic in a key's labels when every label captures the key itself: each of the 65,537 labels arrives at the key's class, which has a successor per label's captured parameter, so about 4·10^9 reach steps; idr-defunctionalize times out at 60 s in Labels::Graph::arrive. A successor whose one source is the class could share its set (unify) instead of being given every label.
-- upstream MLIR: affine.delinearize_index with no results (an empty basis) crashes its generated verifier: TypesMatchWith reads $_self[0] of the empty result range (AffineOps.td). Reproduced with mlir-opt alone. idr-structure-loops no longer builds one (a domain of no dimension has one cell), so the fix is a submission, not carried: upstream/58-delinearize-empty-basis.
-- upstream MLIR, carried patch 24 (one-shot-module-function-interface), fixed 2026-10-19: on a private build it crashed two upstream Linalg lit tests in eliminate_empty_tensors (unknownGetAliasingOpOperands read a block argument's defining op) and failed Bufferization's one-shot-module-bufferize.mlir (a call of a function without a body got a copy of its operand, or "would write to read-only buffer": the results of such a function were recorded as not writable, which One-Shot reads as making the operands the callee writes read-only; they are writable now) and one-shot-non-module-bufferize.mlir (its own test's CHECK-LABEL cleared a variable). check-mlir passes with 24, 56, 57 and 58's diff (4100 passed, none failed).
-- crash after main (directory-listing, files-roundtrip, array-of-arrays, bounded-method-own, io-loop-through-helper, buffer-ops): cause found, audits/crash-after-main.md. Not a heap write: LLVM AArch64 compiles a call from a tailcc function with stack arguments to a C function as a sibling call that does not pop the caller's argument area, so the stack pointer returns 16 bytes low and __idr$entry$body returns through a stale slot. Patch written (upstream/30-aarch64-sibcall-callee-pop), not yet built into the shared toolchain; whether all six programs share the cause is unverified.
-- a static suspension forced once outside the root (control lane; not fixed): a constant suspension is forced by name in the root alone, the one function known to run once. A do block in a function the root calls once still memoizes its delayed statements and builds the action each settles (the heap allocation of audits/constant-stack-io.md §5 (b)). What is owed is a fact that a function runs at most once (called once from code that runs once, on no cycle), read where the force is.
-## label-solve.md (defunc lane)
-- Full pipeline on defunc-tag-limit's program (n labels, one idr.match_lit of n cases; the fixture itself runs idr-defunctionalize alone): CanonicalizerPass in IdrOptimize takes 30, 120 and 223 s at n = 1k, 2k and 4k, and RemoveDeadValues' liveness 10.9, 30.9 and 87 s (Debug). Upstream lane: upstream's RegionBranchOpInterface canonicalizations (MakeRegionBranchOpSuccessorInputsDead, RemoveDeadRegionBranchOpSuccessorInputs, RemoveDuplicateSuccessorInputUses) and LivenessAnalysis::visitNonControlFlowArguments each build getSuccessorInputOperandMapping over every region of the op on each visit, and the greedy driver revisits the match_lit after each change in one of its n regions. Control lane (IR/Canon): SinkConsumer::candidate calls meetsInSomeRegion and feeds over every region of the parent for each candidate op.
-- ownership (open, audits/leaks.md Status): the static lifetime in the grade (§3.1), deleting ownership::isStatic and the Phantom/Constant/StaticRead classes from counting, narrowing, reuse and the program verifier (the owned verifier no longer reads it). R3 holds in the owned walk; the Carried role stays (it is the boundary with upstream's buffer ops, not a view), and a view read before a loop and used after a write of an earlier iteration is not yet seen.
-- ownership/control (open): split-prefixes expects span[Char] and splitAt[Char] to take only exclusive cells. The lists reach them through `entry`'s do block, whose delayed statements are memo cells (the `(>>)` lambda's second action, Main.entry.case0.case0.delay): a force gives the value the cell keeps, so its reader's copy is shared (an idr.dup of the forced state), and with it the IO continuation's captures, the lists among them. That is right of a cell read twice; here each cell is forced once and dropped, which the solve, by provenance, cannot see. The cure is the force by name (Canon/Force.cpp) reaching these cells, which are not fresh with one use where it runs, or a memo cell that dies at its force moving its forced value out (exclusive) instead of copying it. char-list-accumulated and char-list-pipeline pass since exclusivity reads every function but the root as showing all its calls.
-- optimize (control lane's rule, ed9b2a0b; found by the ownership lane): ioref-keeps-old-value and ioref-record-in-place fail moves-out because the IORef's read and its write are no longer in one function after idr-optimize, so MoveOut, which rewrites a read and a write in one block, never meets them; nothing in exclusivity or reuse changed. The main checkout's 16:23 binary (4106cb9b plus the ccache change, before ed9b2a0b) inlines keeps-old-value's whole do block into the root (6 functions after symbol-dce, the update made by idr-optimize); a build with ed9b2a0b leaves 18: the root reads the IORef and then calls `io_bind[Unit, Unit].lam.spec.*`, which writes it. io_bind[Unit, Unit].lam is recursive (it dispatches the IO closure sum, which holds it), and its node's key fixes closures whose labels (the io_bind lambdas) share that component, so Scheduler::stepOfRecursion makes the node a step of its recursion, shared, never inlined, although every closure it fixes was built by the root, outside the recursion. 0a884489 and the memo-state effects are cleared (each switched off, the update is still missing). Owed (control): beta reduction decided by where the fixed closures were built, a node requested from outside its component being beta reduction and one requested by a member being a step, the bounded beta step lazy-branch-loop also needs; a do block's chain of binds then inlines into its caller again. Not confirmed by a build with the rule reverted: the toolchain was being rebuilt.
-- control (found by the ownership lane, fails on 651164af too, before the lane's later changes): e2e-eval RUN 4, @Prog.main no longer calls @dashes after idr-optimize; loops-trmc-counter RUN 1, @take's stack grows after idr-rc, idr-trmc and idr-tail-loops (a recycle between the self call and the init it fills).
-- control (found by the ownership lane's tests/actions-skip-programs): linear-string-iterator with every idr-optimize-inline action skipped (`--mlir-debug-counter=idr-optimize-inline-count=0`) fails idr-tail-loops: 'idr.tag op operand #0 must be a constructor value, read in place, but got !idr.lin<...UnconsResult>' at Main.idr:14 (codeSum's `case uncons str it of`). A skipped action must leave valid IR (Actions.h), so a pass after it may not build an idr.tag of a linear value.
-- lazy-branch-loop (control lane; not fixed, cause found): `no-heap-allocation=@Main.next` fails at idr-optimize on the closures `PrimIO.io_bind[Maybe Int, Int].lam.*` builds for its call of `io_bind[Maybe Int, Unit].lam.*`: the `set ...; if ...` statement's bind (a bind closure of the set, and `(>>)`'s closure capturing the `if` as a suspension, `Main.next.case0.delay.*`), built per round and run by the callee. Both functions are members of one component (the bind runs), and idr-optimize neither redirects nor inlines a call between members. Inlining a member is now allowed as beta reduction (Inline.cpp, betaReduces: when-unless-loops' `when`) only where the inline leaves no call of the component: the closure passed is of a final function and every member call of the callee is in another case of the dispatch on it. Here the callee also runs its left action, a bind closure of the component, so the inline would bring member calls in, which is the unrolling the members' rule is against (ed9b2a0b's CPS and static-data blowups). What is owed is a beta step bounded otherwise: e.g. the callee inlined once at a call whose every closure argument is built at the call, the calls it brings in not inlined again in that member's turn.
-- ownership (open), nat-parity: `word-loop=@Main.parity` fails at idr-narrow because counting dups the natural in the loop: the match_lit's default binds its scrutinee again (sourceOf's Same), and placement, which asks only whether a region names the owned scrutinee (usedIn), drops the scrutinee on entry to the default region, so the binding, read through it, is not alive at its uses and takes a reference of its own (an idr.dup, then the drop of the dup after idr.big.pred). A region that uses a value read through the owned value holds that value until its last such use; placeOwned and Classes::aliveAt each need that one fact (the uses of a value and of what is read through it), which is not yet built. The madeStatic refactor did not move it: isStatic's meaning is unchanged.
-- Compile time under the harness (defunc lane, measured 2026-10-19 evening, Debug, loaded machine): the dumps every program is compiled with are most of it. The IR printer writes each nested op's types inline at every use, and a data type's text holds the bodies of the types it holds, so directory-listing dumps 1.9 GB (84% type text, 7 -> 43 s CPU), files-roundtrip 3.3 GB (16 -> 56 s), every-types-export 3.9 GB (58 -> 98 s). upstream/60-print-local-aliases cuts each to tens of MB once the toolchain carries it and dump_options passes --mlir-print-local-aliases (coordinator).
-- records-past-the-cell's compile went from 8 s CPU (601a85ea, this morning) to 100 s: LLVM codegen 2.8 -> 65 s, in LiveIntervals::computeVirtRegs / LiveRangeCalc::findReachingDefs, on the same MLIR (io_bind's lambda 17k lines, buildN 11.5k lines, identical in both builds). The difference is 1c38fff5's runtime compiled for the program's CPU so every runtime call inlines again: thousands of dup/drop calls in those functions now inline, and LLVM's live-range computation is superlinear in the machine function's size (target lane: bound what inlines into a caller that large, or keep those calls). Fixed by the target lane: a program function past 4096 instructions keeps its runtime calls (idr::target::inlineCallerInstructions); the LLVM stage is 11 s.
+**Status, main at c4d38e9b (2026-10-19).** `make check` 34/34. No full
+suite has run on it: `make test`, `make test-idr` and
+`make test-mlir-tools` are refused by the pin check until the shared
+toolchain carries upstream 62 and 63 (4dde6b7f). The last full counts
+(arm64 macOS, before the ownership lane's static-lifetime cutover, which
+c4d38e9b took out) were `make test` 446-449 of 478, `make test-idr`
+331-332 of 333, `make test-mlir-tools` 30 of 30. An entry marked *not
+rerun since* X was last seen at X; the first full suite after the
+toolchain rebuild confirms or strikes it.
 
-- harness-cases (found by the target lane, 2026-10-19, once every e2e compilation checks the passes' contracts, --idr-contracts): idr-contify breaks crash-sites-not-added on harness-cases' program: `contract crash-sites-not-added broken by idr-contify: @System.exitWith[Builtin.Unit, PrimIO.IO, ...].lam.*`. The fixture compiled and ran before only because no e2e compile checked contracts (the harness checked quantities-kept alone, out of process). Owed: idr-contify adds no crash site a function did not have, or the contract states what contification may add.
-- records-past-the-cell's code generation (target lane, cause found; budget in place, owed to the ownership lane): its two largest functions are 17.3k and 11.5k LLVM lines with 22 and 2 blocks: straight-line take-aparts of NN's and NF's cells (3840 and 257 counted slots), each an `idris_rt_is_unique` test whose shared side increments every moving field and whose exclusive side decrements every dying one (Conversion/Counting.cpp, LowerTake): 4472 idris_rt_inc and 4472 idris_rt_dec calls in one function. Inlined, each is three or four blocks with thousands of field values live across them, and LiveIntervals' reaching-definition search is superlinear in that. The budget (idr::target::inlineCallerInstructions, 0781ed93) keeps those calls out of line; what is owed is the take-apart of a wide cell counted in one step: the moving fields' increments as one runtime call over the cell's object slots (or contiguous runs of them), as release already walks them, instead of one inc per field.
-- ownership (found by the control lane, 2026-10-19 evening): idr-rc-grades grades a static constant passed to an owned parameter as owned, which idr.constant's verifier refuses ("cannot hold ... as '!idr.own<...>'"). Reduced: a stage(first) program with `!T = plain [@E(), @N(i64, !idr.box<T>)]`, `@sum` matching its box argument and calling itself on the tail, and a root calling `@sum(N(n, E))`, lowered from first: idr-optimize specializes `@sum` on the static `E`, and the node's `idr.constant` of `E`, passed to `@sum`'s owned parameter, fails idr-rc-grades. fuzz-two-hosts fails the same way at d40d3c32 on string literals (`"gen"` as `!idr.own<!idr.str>`), with idr-frames or without.
-- compile time (found by the defunc lane, 2026-10-19 late): every-interfaces-export's IdrRcGrades went from about 3.5 s to about 21 s with the ownership lane's static-lifetime work (fc1a5daa, d40d3c32, ccc9f4e7), unconfirmed by bisection. Owed (ownership): the static grade decided once per value where it is made, not by a re-walk per use.
-- main at c4d38e9b (2026-10-19 close-out): make check 34/34. The ownership lane took its static-lifetime cutover out (467fa2f5, fc1a5daa, 4365c540, ccc9f4e7 graded a value static from where it came, not from what it holds, so a constructor of runtime words became static data and a constant printed a lifetime its uses did not parse), keeping rebindDefaults and Captures::keepMadeIn; the static grade derived at the op that builds a value is owed (audits/rederived.md, the ownership section). No full suite has run on it: test, test-idr and test-mlir-tools are refused until the toolchain is rebuilt with upstream 62 and 63 (4dde6b7f), and 2a02891f (control, a member call granted a node) has had no suite run at all.
+## ownership
+
+- **split-prefixes shares the lists its test says are new** (with the
+  control lane). The test expects `span[Char]` and `splitAt[Char]` to take
+  only exclusive cells. The lists reach them through `entry`'s do block,
+  whose delayed statements are memo cells (the `(>>)` lambda's second
+  action, `Main.entry.case0.case0.delay`): a force gives the value the
+  cell keeps, so its reader's copy is shared (an `idr.dup` of the forced
+  state), and with it the IO continuation's captures, the lists among
+  them. That is right of a cell read twice; here each cell is forced once
+  and dropped, which the exclusivity solve, by provenance, cannot see.
+  Owed: the force by name (`Canon/Force.cpp`) reaching these cells, which
+  are not fresh with one use where it runs, or a memo cell that dies at
+  its force moving its forced value out (exclusive) instead of copying it.
+  Acceptance: split-prefixes passes, and char-list-accumulated and
+  char-list-pipeline still do.
+- **A wide cell's take-apart is counted one field at a time.**
+  records-past-the-cell's two largest functions are 17.3k and 11.5k LLVM
+  lines: straight-line take-aparts of NN's and NF's cells (3840 and 257
+  counted slots), each an `idris_rt_is_unique` test whose shared side
+  increments every moving field and whose exclusive side decrements every
+  dying one (`Conversion/Counting.cpp`, `LowerTake`): 4472 `idris_rt_inc`
+  and 4472 `idris_rt_dec` calls in one function. The inlining budget
+  (`idr::target::inlineCallerInstructions`, 0781ed93) keeps LLVM's
+  live-range computation on them at 11 s instead of 65 s. Owed: the
+  moving fields' increments as one runtime call over the cell's object
+  slots (or contiguous runs of them), as release already walks them.
+  Acceptance: records-past-the-cell's functions no longer reach the
+  budget.
+- **A static constant passed to an owned parameter is graded owned**
+  (found 0ea323fa, during the cutover c4d38e9b took out; *not rerun
+  since*). idr-rc-grades gave `idr.constant` an owned grade, which its
+  verifier refuses ("cannot hold ... as '!idr.own<...>'"). Reduced: a
+  stage(first) program with `!T = plain [@E(), @N(i64, !idr.box<T>)]`,
+  `@sum` matching its box argument and calling itself on the tail, and a
+  root calling `@sum(N(n, E))`: idr-optimize specializes `@sum` on the
+  static `E`, and the node's `idr.constant` of `E` reaches `@sum`'s owned
+  parameter. fuzz-two-hosts failed the same way on string literals at
+  d40d3c32. escape-hatch-hole-at-runtime's near program, which failed in
+  idr-rc-grades under the cutover, passes at c4d38e9b. Owed: rerun the
+  reduction and fuzz-two-hosts; strike the entry if both pass.
+- **every-interfaces-export fails idr-rc's exclusivity check** (*not
+  rerun since* ed9b2a0b); at 6f774119 it, and the benchmarks regex-dna and
+  regex-redux, were refused by the owned verifier's "'idr.cell.init' op
+  builds an exclusive value of a field that may be shared", the verifier
+  refusing counting's output. Cause not found.
+- **show-dependent-pair** (*not rerun since* ef45c0a7):
+  `printLn (2 ** [1,2])` then `printLn (0 ** [])` at `Vect n Int` gives
+  "internal error: idr.match op leaves a value with 0 references on one
+  path and 1 on another"; each alone compiles and prints right, as does
+  `(2 ** ..)` with `(1 ** [3])`. Cause not found.
+- **stream-take-before hangs** (*not rerun since* ef45c0a7): bounds 40, 64
+  and 2^61 time out (expected 63, 127 and 2^62-1); 0 and 1 are right.
+  stream-take's wrong sums of the same date were a frame cell built in a
+  slot the previous iteration's list still read (fixed c2ad4aa7); whether
+  this is the same cause is *conjecture*.
+- **R3 holds within one iteration only.** The owned walk runs a loop's
+  body once, so a view read out of memory before the loop and used after a
+  write of that memory in an earlier iteration is not refused. **Owed:**
+  the walk carries the places written in the body around the back edge (a
+  second pass over the body with the first pass's writes, or the loop's
+  written places computed once and applied at the body's entry).
+  **Acceptance:** a verify-sources fixture of that shape is refused,
+  beside its neighbour (the view taken inside the iteration) that
+  verifies.
+
+## arrays
+
+- **k-nucleotide's time at 25M is unmeasured.** Its output is the C
+  version's, byte for byte, at 1k, 10k and 20k nucleotides, and
+  cd40ab41 (idr-yield-fields) removed the copy of the counting table on
+  every write that made it quadratic (50 s at 10k, 196 s at 20k). Owed:
+  bench k-nucleotide at 25M against the 2026-10-13 record (3 s). Waits on
+  k-nucleotide compiling on main: under the cutover idr-rc-grades refused
+  a constructor of closures it graded static (Main.idr:48); *not rerun
+  since* c4d38e9b.
+
+## defunc
+
+- **idr-contify adds a crash site** (harness-cases, found once every e2e
+  compilation checks the passes' contracts, 28274bd3): "contract
+  crash-sites-not-added broken by idr-contify:
+  @System.exitWith[Builtin.Unit, PrimIO.IO, ...].lam.*". Owed: idr-contify
+  adds no crash site a function did not have, or the contract states what
+  contification may add. Acceptance: harness-cases passes with its
+  contracts checked.
+
+## control
+
+- **A call between members of one component is neither inlined nor
+  redirected, so a do block's binds stay data.** Two tests:
+  - lazy-branch-loop: `no-heap-allocation=@Main.next` fails at
+    idr-optimize on the closures `PrimIO.io_bind[Maybe Int, Int].lam.*`
+    builds for its call of `io_bind[Maybe Int, Unit].lam.*`: the
+    `set ...; if ...` statement's bind (a bind closure of the set, and
+    `(>>)`'s closure capturing the `if` as a suspension), built per round
+    and run by the callee, a member of the same component.
+  - ioref-keeps-old-value and ioref-record-in-place fail moves-out: the
+    IORef's read and its write are no longer in one function after
+    idr-optimize, so MoveOut, which rewrites a read and a write in one
+    block, never meets them. The root reads the IORef and calls
+    `io_bind[Unit, Unit].lam.spec.*`, which writes it; that lambda is
+    recursive (it dispatches the IO closure sum, which holds it), so
+    `Scheduler::stepOfRecursion` (ed9b2a0b) makes its node a step of the
+    recursion, never inlined, although every closure it fixes was built
+    by the root, outside the recursion.
+
+  Inlining a member is beta reduction (Inline.cpp, `betaReduces`, d69ae5d6)
+  only where the inline leaves no call of the component, against the
+  unrolling ed9b2a0b removed (CPS and static data). Owed: beta reduction
+  decided by where the fixed closures were built, bounded otherwise: a
+  node requested from outside its component is beta reduction, one
+  requested by a member a step, and a member inlined once at a call whose
+  every closure argument is built at the call, the calls it brings in not
+  inlined again in that member's turn. 2a02891f (WIP: a member call that
+  applies closures built for it alone is granted a node) is that step for
+  lazy-branch-loop and has had no suite run. Acceptance: lazy-branch-loop,
+  ioref-keeps-old-value and ioref-record-in-place pass, and no program
+  ed9b2a0b brought back within its time leaves it.
+- **A static suspension forced once outside the root keeps its memo
+  cell.** A constant suspension is forced by name in the root alone, the
+  one function known to run once (6b997883). A do block in a function the
+  root calls once still memoizes its delayed statements and builds the
+  action each settles: a main that reads a byte and then runs two or more
+  IO actions allocates `idr.cell.new` in `main.delay` and in the `(>>)`
+  lambda, and a recursive `getChar` loop allocates in `io_bind`'s lambda.
+  No test pins it (literal-match was made to avoid it). Owed: a fact that
+  a function runs at most once (called once from code that runs once, on
+  no cycle), read where the force is; then a heap-free test of that shape.
+- **e2e-eval RUN 4**: `@Prog.main` no longer calls `@dashes` after
+  idr-optimize (fails at 651164af and 15cc58aa). Cause not found.
+- **A skipped inline leaves IR idr-tail-loops cannot take.**
+  linear-string-iterator with every idr-optimize-inline action skipped
+  (`--mlir-debug-counter=idr-optimize-inline-count=0`,
+  tests/actions-skip-programs) fails idr-tail-loops: "idr.tag op operand
+  #0 must be a constructor value, read in place, but got
+  !idr.lin<...UnconsResult>" at Main.idr:14 (codeSum's
+  `case uncons str it of`). A skipped action must leave valid IR
+  (Actions.h), so a pass after it may not build an `idr.tag` of a linear
+  value. Acceptance: actions-skip-programs passes on
+  linear-string-iterator.
+
+## target
+
+- **A user's bad `--runtime` is an internal error.** Another triple, a
+  missing file or a non-archive is reported "idris-mlir: internal error:";
+  the driver's verdicts (Driver/Verdict.h) have none for the user's own
+  input, so every error that names no rule is internal. Owed: such an
+  error is the user's, with its verdict, and runtime-triple holds a
+  missing file and a non-archive to it.
+- **`llvm.call` operand type mismatch, i64 against !llvm.ptr** (*not
+  rerun since* ef45c0a7): bounded-field, bounded-synonym and
+  implementation-index-function failed to compile on it, and so did
+  leet-insertion-sort with `same : (Int,Int,Int) -> (Int,Int,Int) -> Bool`
+  (an `&&` of Int `==`) added. 4108916a fixed the one cause then found
+  (`idr.match_lit` on a graded string); whether these share it is
+  unknown.
+- **dialect-text's orphan check reads only `--check-prefix=`**, so the
+  lines of `--check-prefixes=A,B` count as orphans (e2e-loops uses one
+  prefix per FileCheck to avoid it). Owed: the check reads both spellings,
+  with a witness of `--check-prefixes`.
+
+## upstream
+
+- **Upstream 62 and 63 are not in the toolchain.** The greedy driver
+  revisits an op of several regions after each change in any of them
+  (62, greedy-multi-region-ancestors), and liveness asks once per region
+  successor whether a region branch op is trivially dead (63,
+  liveness-trivially-dead): together canonicalize in idr-optimize and
+  remove-dead-values took 17, 56 and 234 s at n = 1k, 2k, 4k on
+  defunc-tag-limit's program (a match of n cases) through the whole
+  pipeline. Written and tested on a private build (4dde6b7f): 1.1, 1.9,
+  3.4 and 9.8 s at 1k, 2k, 4k, 16k. Owed: the coordinator's toolchain
+  rebuild with both; until then the suites are refused. Acceptance:
+  tests/upstream-greedy-multi-region-ancestors and
+  tests/upstream-liveness-trivially-dead pass on the shared toolchain.
+- **The crash after main is not yet confirmed fixed.** LLVM AArch64 made a
+  sibling call out of a `tailcc` function with stack arguments, leaving
+  its argument area on the stack (upstream/30-aarch64-sibcall-callee-pop,
+  carried in the toolchain rebuilt 2026-10-19). Owed: the first full
+  suite on it shows directory-listing, files-roundtrip, array-of-arrays
+  (stdin 0), bounded-method-own, buffer-ops and io-loop-through-helper
+  (its 100-character buffer-edges case included) exiting as their cases
+  say; that all six shared the cause was never verified, so one still
+  crashing is a new entry.

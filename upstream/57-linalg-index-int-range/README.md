@@ -21,7 +21,7 @@ makes from its index (`at i = cast (finToNat i)`) small, so the bodies
 stayed on bigs (`idris_rt_big_*` calls) and the vectorizer took none of
 them: tests linarray-combinators, linarray-lanes-exact,
 linarray-lanes-wide and determinism-threads-linarray-lanes
-(audits/arrays-refused.md §2 group B, item 2).
+(the arrays-refused audit at 3c8a666a, §2 group B, item 2).
 
 ## Expected
 
