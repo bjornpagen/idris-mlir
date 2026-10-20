@@ -72,77 +72,87 @@ using Sharing = Exclusivity::Sharing;
 FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Copies &copies) {
   exclusivity::Calls calls(program, copies);
   exclusivity::Captures captures(program);
-  DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
-  exclusivity::loadAnalyses(solver, calls, captures);
-  if (mlir::failed(solver.initializeAndRun(program)))
-    return failure();
+  // A label is made only where an op that makes it runs, which the solve
+  // decides, and the solve reads which labels are made: each solve keeps
+  // the labels the one before found made, until one finds made every label
+  // it read as made. Labels only ever go, so it ends.
+  for (;;) {
+    DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
+    exclusivity::loadAnalyses(solver, calls, captures);
+    if (mlir::failed(solver.initializeAndRun(program)))
+      return failure();
 
-  Exclusivity out;
-  auto record = [&](Value value) {
-    if (auto *lattice = solver.lookupState<CellsLattice>(value);
-        lattice && lattice->getValue().sharing != Sharing::Unknown)
-      out.sharing[value] = lattice->getValue().sharing;
-  };
-  // A value the solve never reached is unknown, which counts as exclusive.
-  auto passesExclusive = [&](Value arg) {
-    const CellsLattice *lattice = solver.lookupState<CellsLattice>(arg);
-    return !lattice || exclusive(*lattice);
-  };
-  auto executable = [&](Block *block) {
-    const Executable *state = solver.lookupState<Executable>(solver.getProgramPointBefore(block));
-    return state && state->isLive();
-  };
-  // The functions that run once each call goes where the solve finally sent
-  // it: those whose callers the program does not all show, and each a live
-  // call of one goes to, each function once. A copy a call went to before
-  // an argument of it was found shared, and none went to after, the solve
-  // ran (a function only ever starts to run) but the program never does:
-  // nothing of it is live, and none of its calls is any function's caller.
-  OnceWorklist<FuncOp> reached;
-  for (FuncOp fn : program.getOps<FuncOp>()) {
-    out.returnsOf.try_emplace(fn);
-    if (!exclusivity::Calls::showsEveryCall(fn))
-      (void)reached.push(fn);
-  }
-  // The calls that run, by the function each runs.
-  DenseMap<FuncOp, SmallVector<CallOp>> runsFrom;
-  while (std::optional<FuncOp> fn = reached.pop())
-    fn->walk([&](Block *block) {
-      if (!executable(block))
-        return;
-      out.liveBlocks.insert(block);
-      for (CallOp call : block->getOps<CallOp>()) {
-        FuncOp target = calls.target(call, passesExclusive);
-        if (std::holds_alternative<exclusivity::Calls::Pair>(calls.calleeOf(call)))
-          out.targets.try_emplace(call, target);
-        runsFrom[target].push_back(call);
-        (void)reached.push(target);
-      }
-    });
-  // What the solve proved of the values the program runs: a function no
-  // call that runs goes to proves nothing, though upstream's dead-code
-  // analysis, which reads a label's name as an unknown caller, walked it.
-  program.walk([&](Block *block) {
-    if (!out.liveBlocks.contains(block))
-      return;
-    for (BlockArgument arg : block->getArguments())
-      record(arg);
-    for (Operation &inner : *block)
-      for (Value result : inner.getResults())
-        record(result);
-  });
-  for (FuncOp fn : program.getOps<FuncOp>()) {
-    auto from = runsFrom.find(fn);
-    if (llvm::all_of(calls.namesOf(fn), exclusivity::Calls::showsEveryCall))
-      out.callersOf[fn] = from == runsFrom.end() ? SmallVector<CallOp>() : from->second;
-    if (from == runsFrom.end())
+    Exclusivity out;
+    auto record = [&](Value value) {
+      if (auto *lattice = solver.lookupState<CellsLattice>(value);
+          lattice && lattice->getValue().sharing != Sharing::Unknown)
+        out.sharing[value] = lattice->getValue().sharing;
+    };
+    // A value the solve never reached is unknown, which counts as exclusive.
+    auto passesExclusive = [&](Value arg) {
+      const CellsLattice *lattice = solver.lookupState<CellsLattice>(arg);
+      return !lattice || exclusive(*lattice);
+    };
+    auto executable = [&](Block *block) {
+      const Executable *state = solver.lookupState<Executable>(solver.getProgramPointBefore(block));
+      return state && state->isLive();
+    };
+    // The functions that run once each call goes where the solve finally sent
+    // it: those whose callers the program does not all show, and each a live
+    // call of one goes to, each function once. A copy a call went to before
+    // an argument of it was found shared, and none went to after, the solve
+    // ran (a function only ever starts to run) but the program never does:
+    // nothing of it is live, and none of its calls is any function's caller.
+    OnceWorklist<FuncOp> reached;
+    for (FuncOp fn : program.getOps<FuncOp>()) {
+      out.returnsOf.try_emplace(fn);
+      if (!exclusivity::Calls::showsEveryCall(fn))
+        (void)reached.push(fn);
+    }
+    // The calls that run, by the function each runs.
+    DenseMap<FuncOp, SmallVector<CallOp>> runsFrom;
+    while (std::optional<FuncOp> fn = reached.pop())
+      fn->walk([&](Block *block) {
+        if (!executable(block))
+          return;
+        out.liveBlocks.insert(block);
+        for (CallOp call : block->getOps<CallOp>()) {
+          FuncOp target = calls.target(call, passesExclusive);
+          if (std::holds_alternative<exclusivity::Calls::Pair>(calls.calleeOf(call)))
+            out.targets.try_emplace(call, target);
+          runsFrom[target].push_back(call);
+          (void)reached.push(target);
+        }
+      });
+    // A label made only where the program never runs is made by nothing:
+    // the solve read it as made, so it runs again without it.
+    if (captures.keepMadeIn(out.liveBlocks))
       continue;
-    SmallVector<ReturnOp> &returns = out.returnsOf[fn];
-    for (ReturnOp ret : calls.returns(fn))
-      if (out.liveBlocks.contains(ret->getBlock()))
-        returns.push_back(ret);
+    // What the solve proved of the values the program runs: a function no
+    // call that runs goes to proves nothing, though upstream's dead-code
+    // analysis, which reads a label's name as an unknown caller, walked it.
+    program.walk([&](Block *block) {
+      if (!out.liveBlocks.contains(block))
+        return;
+      for (BlockArgument arg : block->getArguments())
+        record(arg);
+      for (Operation &inner : *block)
+        for (Value result : inner.getResults())
+          record(result);
+    });
+    for (FuncOp fn : program.getOps<FuncOp>()) {
+      auto from = runsFrom.find(fn);
+      if (llvm::all_of(calls.namesOf(fn), exclusivity::Calls::showsEveryCall))
+        out.callersOf[fn] = from == runsFrom.end() ? SmallVector<CallOp>() : from->second;
+      if (from == runsFrom.end())
+        continue;
+      SmallVector<ReturnOp> &returns = out.returnsOf[fn];
+      for (ReturnOp ret : calls.returns(fn))
+        if (out.liveBlocks.contains(ret->getBlock()))
+          returns.push_back(ret);
+    }
+    return out;
   }
-  return out;
 }
 
 Sharing Exclusivity::of(Value value) const {

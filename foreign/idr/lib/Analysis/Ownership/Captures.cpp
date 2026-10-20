@@ -21,13 +21,13 @@ Captures::Captures(ProgramOp program) {
     if (auto force = dyn_cast<MemoRunOp>(op))
       forces[{force.getDataType(), force.getTag()}].push_back(force);
     if (auto init = dyn_cast<CellInitOp>(op); init && init.getDataType().isMemo())
-      makes.insert({init.getDataType(), init.getTag()});
+      makers[{init.getDataType(), init.getTag()}].push_back(init);
     // Static data holding a cell of a label: its captures are static.
     if (auto constant = dyn_cast<ConstantOp>(op))
       constant.getValue().walk([&](ConAttr con) {
         DataType data = con.getData();
         if (data.isMemo() && label(data, con.getTag())) {
-          makes.insert({data, con.getTag()});
+          makers[{data, con.getTag()}].push_back(constant);
           for (unsigned i = 0, e = static_cast<unsigned>(con.getCtor().fields.size()); i != e; ++i)
             sharedFields.insert({{data, con.getTag()}, i});
         }
@@ -55,6 +55,16 @@ Captures::Captures(ProgramOp program) {
 ArrayRef<MemoRunOp> Captures::forcesOf(DataType memo, Tag tag) const {
   auto it = forces.find({memo, tag});
   return it == forces.end() ? ArrayRef<MemoRunOp>() : ArrayRef<MemoRunOp>(it->second);
+}
+
+bool Captures::keepMadeIn(const llvm::DenseSet<Block *> &live) {
+  SmallVector<Label> unmade;
+  for (auto &[label, ops] : makers)
+    if (llvm::none_of(ops, [&](Operation *op) { return live.contains(op->getBlock()); }))
+      unmade.push_back(label);
+  for (const Label &label : unmade)
+    makers.erase(label);
+  return !unmade.empty();
 }
 
 bool Captures::shared(DataType memo, Tag tag, unsigned index) const {

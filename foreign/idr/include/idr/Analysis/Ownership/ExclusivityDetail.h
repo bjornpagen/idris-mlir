@@ -117,7 +117,10 @@ private:
 // to take apart), and no read of the field as a view (a match's case
 // binding, an idr.field) is used, which is how a second reference to it
 // would be taken. Fixed before the solve, which joins the inits into the
-// region arguments of the program's memo.run ops of each label.
+// region arguments of the program's memo.run ops of each label. A label is
+// made where an op that makes a cell of it runs, as the solve's own
+// liveness says (keepMadeIn): a label made only in code that never runs
+// is made by nothing, and its captures are shared.
 class Captures {
 public:
   explicit Captures(ProgramOp program);
@@ -127,14 +130,19 @@ public:
   // Whether field `index` of that label is shared whatever the inits move
   // into it.
   bool shared(DataType memo, Tag tag, unsigned index) const;
-  // Whether any cell of that label is made: an init, or static data.
-  bool made(DataType memo, Tag tag) const { return makes.contains({memo, tag}); }
+  // Whether a cell of that label is made where the program runs: an init,
+  // or static data.
+  bool made(DataType memo, Tag tag) const { return makers.contains({memo, tag}); }
+  // Keeps as made only the labels an op in a block of `live` makes;
+  // whether any label stopped being made.
+  bool keepMadeIn(const llvm::DenseSet<mlir::Block *> &live);
 
 private:
   using Label = std::pair<DataType, Tag>;
   llvm::DenseMap<Label, llvm::SmallVector<MemoRunOp>> forces;
   llvm::DenseSet<std::pair<Label, unsigned>> sharedFields;
-  llvm::DenseSet<Label> makes;
+  // The ops that make a cell of each label.
+  llvm::DenseMap<Label, llvm::SmallVector<mlir::Operation *>> makers;
 };
 
 // Loads into `solver` the analyses of one solve, whose calls go as `calls`
