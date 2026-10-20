@@ -60,37 +60,34 @@ targets (0001). Everything else waits for it unless it says otherwise.
    `test-mlir-tools`, under the lanes' lock). It confirms or strikes every
    `audits/bugs.md` entry marked *not rerun*, and gives 2a02891f
    (control: a member call granted a node) its first run.
-3. **Before S3, the two statistics S3's record needs:** idr-optimize's
-   wave count and its largest component, as pass statistics (0008 §10).
-4. **0001 S3: stage 1 on arm64 macOS** (`make self-fork`, then
+3. **0001 S3: stage 1 on arm64 macOS** (`make self-fork`, then
    `tools/self.sh 1`). The census: every refusal, internal error and
    superlinear pass it finds goes to `audits/bugs.md` under the lane that
-   owns it, and the lanes fix them. Its record also gives 0008's S0, 0018's
-   F0 and 0019's N2 their numbers. S3 does not wait for green suites
+   owns it, and the lanes fix them. S3 does not wait for green suites
    (0001 D9), and its pipeline half runs without a time limit (0001 D10).
-5. **The lanes make the suites green** on arm64 macOS: `audits/bugs.md`,
+4. **The lanes make the suites green** on arm64 macOS: `audits/bugs.md`,
    and what S3 adds to it.
-6. **0001 S4: `make self` on arm64 macOS,** stage 2 = stage 3, on a green
+5. **0001 S4: `make self` on arm64 macOS,** stage 2 = stage 3, on a green
    tree.
-7. **0002: the three Linux builds** (x86_64, arm64 at 4 KiB, arm64 at
+6. **0002: the three Linux builds** (x86_64, arm64 at 4 KiB, arm64 at
    16 KiB pages), then **0001 S5** on each. The Linux builds wait only on
    the machines and may start any time.
-8. **After `make self` on arm64 macOS,** in parallel with the Linux work:
+7. **After `make self` on arm64 macOS,** in parallel with the Linux work:
    0003 (each fact once: the binary format's reader generated first, then
    every location kept, then the TTC's facts, then the rest) and 0004 (the
-   test suite the audit planned, with 0001's D7, the runner under both
-   hosts).
-9. **After `make self` on the four targets:** 0005 (the toolchain bump),
+   test suite the audit planned, the runner under both hosts first).
+8. **After `make self` on the four targets:** 0005 (the toolchain bump),
    0006 (G1, the qualification), then the queue from 0007 on.
 
-Not on that path and free to run at any time: 0016's three small edits
-and its measurement, 0017's P0 (the native DMP measurement on this
-machine) and P1, 0019's N1.
+Off that path, and not started while self-hosting is the focus, though
+nothing blocks them: 0016's three small edits and its measurement, 0017's
+P0 (the native DMP measurement on this machine) and P1, 0019's N1.
 
 ## The queue
 
-- [0001](0001-self-host.md): **self-hosting, `make self` finishes.** S1
-  and S2 are done; S3 is next (above, steps 1 to 4), then S4 and S5.
+- [0001](0001-self-host.md): **self-hosting, `make self` finishes,** and
+  nothing else. S1 and S2 are done; S3 is next (above, steps 1 to 3),
+  then S4 and S5.
 - [0002](0002-targets.md): four first-class targets on the system's C
   library. Landed (102183f4) and running on arm64 macOS; what remains is
   the three Linux builds and the facts written from memory each confirms.

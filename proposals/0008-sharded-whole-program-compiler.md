@@ -5,8 +5,9 @@
 **Status (2026-10-19, read at 77eaa5b1):** open; S1, S2's first step
 and S7 are built (§2) and have run on arm64 macOS in every suite since
 2026-10-18. Nothing else is built, and `make self` needs nothing more
-from here. **First step: S0's second record**, taken by `make self`'s
-first stage-1 run, which needs two pass statistics written first (§10).
+from here. **First step: S0's second record**, taken from a stage-1 self
+run once two pass statistics are written (§10); self-hosting does not
+wait for them.
 From that record: S2's second step comes after `make self`, unless the
 record shows the whole-module O3 does not fit the owner's machine; S3 to
 S6 are each taken by §10's measurement rule. S8 and S10 wait on 0007's
@@ -359,7 +360,7 @@ record shows the wall it would split above 5% of one-worker wall.
 
 | Stage | Content | When | Proof | Mark |
 | --- | --- | --- | --- | --- |
-| S0, second record | `make self`'s stage-1 run. `tools/self.sh` already writes `-mlir-timing` (every pass, and LLVM's translate, link runtime, optimize and codegen; `lib/Driver/Run.cpp`) and peak memory to `build/self/stage1/`. It is also 0006's record of the self-compile: one run, read by both proposals. It adds three things nothing records yet: idr-optimize's wave count, its largest component (as pass statistics; `Passes.td` has neither), and the frontend's hashing time on Chez (D16). It is judged against the cutover's §10 thresholds: the optimizer under 600 s and the label solve under 10 s | the first stage-1 run, after the two statistics are added to `IdrOptimize` in `Passes.td` | committed under `bench/records/` | **SELF-HOST**: the first step; taken by the run itself |
+| S0, second record | `make self`'s stage-1 run. `tools/self.sh` already writes `-mlir-timing` (every pass, and LLVM's translate, link runtime, optimize and codegen; `lib/Driver/Run.cpp`) and peak memory to `build/self/stage1/`. It is also 0006's record of the self-compile: one run, read by both proposals. It adds three things nothing records yet: idr-optimize's wave count, its largest component (as pass statistics; `Passes.td` has neither), and the frontend's hashing time on Chez (D16). It is judged against the cutover's §10 thresholds: the optimizer under 600 s and the label solve under 10 s | the first stage-1 run, after the two statistics are added to `IdrOptimize` in `Passes.td` | committed under `bench/records/` | the first step; taken from a stage-1 run after the statistics land, not on self-hosting's path |
 | S2, second step | The bins are cut on the lowered module (§3.4). Each bin's lowering tail, translation, O3 and codegen run in an `MLIRContext` and an `LLVMContext` of its own. The facts LLVM would lose across units are written as attributes on cross-unit declarations | after `make self` and 0006's step 6 | byte-identical at every thread count; D41's fixture keeps the bytes of the bins an edit does not touch; bench runtime within 2% of the first step's | **AFTER-SELF**. It becomes **SELF-HOST** only if S0's second record shows LLVM's segment does not fit the owner's machine (0006 D10's rule). LLVM is measured only at test scale (3.8%, F0), and codegen is already split (*conjecture*: whole-module O3 fits) |
 | S2's owed fixtures | D33's two-group tail-call cycle; D41's edit fixture (§2) | D33 with 0006's G1; D41 with S9 | they run | **AFTER-SELF** |
 | S3 | The cheap global parts in parallel: the closed-world rule, the type graph and its value facts, layouts, deduplication's classes, contification's analysis, the tail-call plan, liveness sharded by §4 (D19), One-Shot's module analysis with 0012 D12's columns choice | by the rule, part by part or together | the module byte-identical on the corpus and stage 1's module | **AFTER-SELF** |

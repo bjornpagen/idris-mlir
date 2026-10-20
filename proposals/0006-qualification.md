@@ -10,6 +10,9 @@ starts once 0002's build and suites pass there.
 The pieces G1 needs exist:
 - the build, the suites and determinism run on arm64 macOS on every
   change (the `tests/determinism-*` tests, `harness/lib/determinism.sh`);
+  G1 adds one record of the self-hosted compiler compiling itself at each
+  thread count `harness/lib/determinism.sh` names, all byte-identical
+  (`make self` itself compares at the default count only);
 - the bench, `bench/run.sh`;
 - the compile-time recorder, `tools/compile-times.sh`.
 

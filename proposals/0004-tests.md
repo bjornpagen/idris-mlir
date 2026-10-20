@@ -5,8 +5,8 @@
 **Status (2026-10-19):** queued after self-hosting, beside "Each fact
 once"; nothing below is built. Self-hosting needs none of it, except
 where a stage meets a test that lies (§1), which is then fixed first.
-0001's D7 (the runner under both hosts) and §2's typed runner are one
-piece of work, done once.
+The runner under both hosts (§2.1) is the one item self-hosting was
+waiting to hand over: it starts once `make self` holds.
 
 What remains of the 2026-10-18 test-suite audit's plan (66fc1401), checked
 against `tests/` and `harness/` at 77eaa5b1. The audit judged every test
@@ -81,9 +81,19 @@ The runner still depends on `Test.Golden` and `contrib`
 `expected` is a hand-kept transcript of harness constants (`artifacts:
 core module objects executable`, `cases: each as expected`).
 
-1. **The runner builds under idris-mlir:** `Test.Golden` and contrib
-   dropped (the option parser, `filterTests`). Acceptance: `harness.ipkg`
-   depends on neither and idris-mlir compiles the runner.
+1. **The runner builds and runs under idris-mlir,** while the stock host
+   keeps running it (AGENTS.md: two hosts). What blocks it (*read*):
+   `harness/Runner.idr` calls `system`; `harness/Main.idr` and `Runner.idr`
+   import `Test.Golden`; `harness/Lock.idr` imports `Language.JSON`;
+   `harness/harness.ipkg` depends on `contrib` and `test`, which this
+   compiler does not ship. The fix: process creation moves into sh glue,
+   `Test.Golden` and contrib go (the option parser, `filterTests`), JSON
+   moves to base or `libs/`. The generators (`Gen`, `Sem`, `Fuzz`,
+   `TwoLevels`, `Prims`, `Lazy`) are written for both hosts already, and
+   `tests/fuzz-two-hosts` compiles them with idris-mlir (it fails on main
+   today, `audits/bugs.md`). Acceptance: `harness.ipkg` depends on neither
+   package, and `make test` runs with a runner idris-mlir built. After
+   `make self`; the coordinator's, as a lane of its own.
 2. **A `Fixture` record parsed once and a typed verdict** (`Check`,
    `Verdict`, with the outcome of "Each fact once"'s "ending lost"):
    unknown files and conflicting marks unrepresentable, and a program's
