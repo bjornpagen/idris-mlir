@@ -11,7 +11,10 @@ if ! bounded "$llvm_bin/mlir-opt" "$input" --canonicalize -o "$work/out.mlir" 2>
   show "$work/err"
 elif grep -q 'math\.sqrt' "$work/out.mlir"; then
   say "still reproduces (the square root of -2.5 stays a math.sqrt)"
+  show "$work/out.mlir"
+elif grep -q 'arith\.constant 0x7FF8000000000000 : f64' "$work/out.mlir"; then
+  say "folded: the square root of -2.5 is a quiet NaN"
 else
-  say "no longer reproduces (the square root of -2.5 is folded)"
+  say "folded, but not to a quiet NaN"
   show "$work/out.mlir"
 fi

@@ -62,6 +62,9 @@ dump_options() {
   if [ -n "$dump_before" ]; then say "--mlir-print-ir-before=${dump_before#,}"; fi
   say "--mlir-print-ir-tree-dir=$dump_dir"
   say --mlir-print-debuginfo
+  # A step's print is nested in the module, so it writes its aliases first
+  # (upstream/60): each data type once, not its body at every use.
+  say --mlir-print-local-aliases
 }
 
 # step_dumps DIR: the module, or the program, after each top-level pass, in

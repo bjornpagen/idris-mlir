@@ -1,1 +1,1 @@
-no longer reproduces (the square root of -2.5 is folded)
+folded: the square root of -2.5 is a quiet NaN
