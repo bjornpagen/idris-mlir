@@ -116,9 +116,18 @@ bool sinkable(Operation *value, Operation *match) {
         return llvm::any_of(result.getUses(), [&](OpOperand &use) { return meets(result, use); });
       }))
     return false;
+  // The copies past the first may hold the limit between them: the walk
+  // stops once the value holds more ops than that allows.
+  int64_t copies = static_cast<int64_t>(regions) - 1;
+  if (copies == 0)
+    return true;
   int64_t size = 0;
-  value->walk([&](Operation *) { ++size; });
-  return (static_cast<int64_t>(regions) - 1) * size <= kSinkDuplicationLimit;
+  return !value
+              ->walk([&](Operation *) {
+                return ++size * copies > kSinkDuplicationLimit ? WalkResult::interrupt()
+                                                               : WalkResult::advance();
+              })
+              .wasInterrupted();
 }
 
 // The walk of the ops inside a match, a step at a time: the ranges of the

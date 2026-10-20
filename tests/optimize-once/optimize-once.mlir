@@ -1,8 +1,8 @@
 // RUN: idris-mlir-opt %s --idr-optimize --mlir-disable-threading --log-actions-to=%t.log -o %t.mlir
 // RUN: %differential %s %t.mlir
 // RUN: grep 'begins.*idr-optimize-node' %t.log | count 5
-// RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node[^@]*@\([^(]*\)(.*/\1/p' | sort | uniq -d | count 0
-// RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node[^@]*@\([^(]*\)(.*/\1/p' | sort -u | count 5
+// RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node` @\([^ ]*\).*/\1/p' | sort | uniq -d | count 0
+// RUN: grep 'begins.*idr-optimize-node' %t.log | sed -n 's/.*idr-optimize-node` @\([^ ]*\).*/\1/p' | sort -u | count 5
 // The optimizer takes each function once, when every function it calls
 // outside its own component is final: its first step is one action,
 // idr-optimize-node, which begins once per node. Here five functions, a

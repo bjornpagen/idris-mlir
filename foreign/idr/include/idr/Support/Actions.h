@@ -16,14 +16,17 @@
 #include "mlir/IR/Unit.h"
 #include "mlir/Support/TypeID.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace idr::support {
 
-// `tag` in backquotes: how every tagged action prints.
-void printTag(llvm::raw_ostream &os, llvm::StringRef tag);
+// `tag` in backquotes, then the symbol each of `units` is or is nested in:
+// how every tagged action prints, so a profile attributes its work to the
+// function it is on.
+void printTag(llvm::raw_ostream &os, llvm::StringRef tag, llvm::ArrayRef<mlir::IRUnit> units);
 
 // An action whose only distinction is its tag, `Derived::tag`. The passes
 // that count or skip a transform (perform) each name one; the identity, the
@@ -38,7 +41,9 @@ struct TaggedAction : mlir::tracing::ActionImpl<Derived> {
     return id;
   }
 
-  void print(llvm::raw_ostream &os) const override { printTag(os, Derived::tag); }
+  void print(llvm::raw_ostream &os) const override {
+    printTag(os, Derived::tag, this->getContextIRUnits());
+  }
 };
 
 // Runs `transform` as an action A on `op`, unless the context's action
