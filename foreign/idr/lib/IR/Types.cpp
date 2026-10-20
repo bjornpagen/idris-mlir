@@ -298,7 +298,7 @@ LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Quanti
   if (lifetime == Lifetime::Frame && permission == Permission::Excl)
     return emitError() << "expects no exclusive value of the frame, whose cells the frame lends";
   if (lifetime == Lifetime::Static &&
-      (permission == Permission::Own || permission == Permission::Excl || !holdsReferences(value)))
+      (permission == Permission::Own || permission == Permission::Excl || !::idr::holdsReferences(value)))
     return emitError() << "expects static only of a view of a value that holds references: "
                           "static is a view's lifetime, and a reference of its own is the heap's";
   if (isa<RankedTensorType>(value) && grade != Grade{Quantity::One, Permission::Plain})
