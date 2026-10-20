@@ -27,7 +27,9 @@ bool ownsReference(Class kind) {
   case Class::Owned:
     return true;
   case Class::Untracked:
-  case Class::Static:
+  case Class::Phantom:
+  case Class::Constant:
+  case Class::StaticRead:
   case Class::Borrowed:
     return false;
   }
@@ -40,14 +42,23 @@ Class Classes::classOf(Value value) {
   // one an idr.own.give hands to the store that consumes it. Counting
   // places nothing for either; the boundary op is its one use.
   Operation *def = value.getDefiningOp();
-  // A value made from nothing at an owned grade (gradeStatic: poison, a
-  // small big) stands for one, and no count reaches it.
-  if (!holdsReferences(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def) ||
-      (isOwned(value.getType()) && madeStatic(value)))
+  if (!holdsReferences(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def))
     return Class::Untracked;
-  // Static data, as gradeStatic graded it once: its grade says so.
-  if (lifetimeOf(value.getType()) == Lifetime::Static)
-    return Class::Static;
+  // An op that only changes a grade but takes its operand over (a linear
+  // position) holds what that operand holds once counted: a static operand
+  // gets a reference of its own there, which no count reaches but which
+  // the grade says, so what the op gives is owned.
+  bool takesOver = def && def->hasTrait<ResultCarriesOperand>() && consumes(def->getOpOperand(0));
+  if (isStatic(value) && !takesOver) {
+    // A value that stands for one is owned by type; static data made by
+    // an op of its own is a constant, a view; anything else static (read
+    // from static data, or static data at another grade) keeps its grade.
+    if (isa_and_nonnull<ub::PoisonOp, BigSmallOp>(def))
+      return Class::Phantom;
+    if (!readThrough(value) && def && !def->hasTrait<ResultCarriesOperand>())
+      return Class::Constant;
+    return Class::StaticRead;
+  }
   auto known = classes.find(value);
   if (known != classes.end())
     return known->second;
@@ -89,7 +100,9 @@ bool Classes::aliveAt(Value value, Operation *op) {
   for (Value at : definitionChain(value, readThrough)) {
     switch (classOf(at)) {
     case Class::Untracked:
-    case Class::Static:
+    case Class::Phantom:
+    case Class::Constant:
+    case Class::StaticRead:
       return true;
     case Class::OwnedAtRead:
     case Class::Owned:

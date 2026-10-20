@@ -77,6 +77,11 @@ bool idr::ownership::madeStatic(Value value) {
          llvm::none_of(def->getOperandTypes(), [](Type type) { return holdsReferences(type); });
 }
 
+// What is read from static data, or is such a value at another grade, is
+// no more counted than it.
+bool idr::ownership::isStatic(Value value) {
+  return llvm::any_of(definitionChain(value, viewedFrom), madeStatic);
+}
 
 // A field is read from its constructor value (sourceOf's Field: an
 // idr.field, a memo cell's part included, or an argument a match's case

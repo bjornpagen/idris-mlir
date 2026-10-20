@@ -18,10 +18,9 @@
 //     region that ends in a crash is left alone. Any other op
 //     with regions (a loop) holds it for as long as it runs, each use
 //     inside taking a view of it, and its last use is the op itself;
-//   - a view (a borrowed parameter, a field, static data at the static
-//     lifetime gradeStatic gave it, each at the view grade `view(T)`, which
-//     is plain for a buffer's) holds none: each use that consumes one
-//     consumes an idr.dup of it, which for static data runs nothing;
+//   - a view (a borrowed parameter, a field, a constant, each at the view
+//     grade `view(T)`, which is plain for a buffer's) holds none: each use
+//     that consumes one consumes an idr.dup of it;
 //   - a field is a view when every use of it comes while the value it is
 //     read from is still alive: a borrowed parameter, or an owned value
 //     that is used again after it. Otherwise it takes a reference of its
@@ -47,7 +46,6 @@
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Ownership.h"
 
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/MapVector.h"
@@ -93,7 +91,7 @@ public:
     for (auto [value, type] : grades)
       value.setType(type);
     materialize();
-    gradeReads(fn, [](Value) { return true; });
+    gradeViews();
     return counted;
   }
 
@@ -107,7 +105,18 @@ private:
     switch (kind) {
     case Class::Untracked:
       return;
-    case Class::Static:
+    case Class::Phantom:
+      // Owned by type; no count reaches it.
+      grades.emplace_back(value, owned(value.getType()));
+      return;
+    case Class::Constant:
+      // A view, at the view grade, which each consuming use takes a
+      // reference of its own to: no count reaches static data, so the dup
+      // runs nothing.
+      grades.emplace_back(value, view(value.getType()));
+      placeBorrowed(value, block, from);
+      return;
+    case Class::StaticRead:
     case Class::Borrowed:
       // Graded as every read is.
       placeBorrowed(value, block, from);
@@ -292,28 +301,52 @@ private:
       Value view = BorrowOp::create(rewriter, op->getLoc(), operand->get());
       rewriter.modifyOpInPlace(op, [&] { operand->set(view); });
     }
-    // A view of static data is read at the static lifetime only by what
-    // reads through it (a field, a match, a take apart) or takes a
-    // reference of its own to it (idr.dup). Every other read of it, a
-    // call's argument, an operand of a value's own op, is a read of a view
-    // of the heap, as every owned value is read: it is lent there
-    // (idr.borrow), which static data outlives.
-    SmallVector<OpOperand *> lends;
-    fn.walk([&](Operation *op) {
-      if (isa<BorrowOp, DupOp, FieldOp, TakeOp, UnpackOp>(op))
+  }
+
+  // Every read now reads a view, so what it reads is a view too: a field
+  // read and a field a match binds are at their value's grade times the
+  // field's (fieldType), which for a view is the view grade, and the
+  // default region of a match, when it runs, takes back what the match
+  // took. A walk in order reaches each read after the value it reads.
+  void gradeViews() {
+    fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
+      if (auto read = dyn_cast<FieldOp>(op)) {
+        const Ctor &ctor = read.getDataType().getCtor(read.getTag());
+        read.getResult().setType(
+            fieldType(read.getValue().getType(), ctor.fields[static_cast<unsigned>(read.getIndex())]));
         return;
+      }
+      // A take's or an unpack's results are inferred from the value it takes
+      // apart, which is graded now: each as inferred, an owned one kept at
+      // the owned grade it has.
+      if (isa<TakeOp, UnpackOp>(op)) {
+        SmallVector<Type> types;
+        if (failed(cast<InferTypeOpInterface>(op).inferReturnTypes(
+                op->getContext(), op->getLoc(), op->getOperands(), op->getRawDictionaryAttrs(),
+                op->getPropertiesStorage(), op->getRegions(), types)))
+          return;
+        for (auto [result, type] : llvm::zip_equal(op->getResults(), types))
+          if (!(isOwned(result.getType()) && isOwned(type)))
+            result.setType(type);
+        return;
+      }
       auto match = dyn_cast<MatchOpInterface>(op);
-      for (OpOperand &operand : op->getOpOperands())
-        if (lifetimeOf(operand.get().getType()) == Lifetime::Static && !takes(operand) &&
-            !(match && operand.get() == match.getScrutinee()))
-          lends.push_back(&operand);
+      if (!match)
+        return;
+      Type scrutinee = match.getScrutinee().getType();
+      // A constructor's case binds its fields; a literal's binds nothing.
+      if (auto cases = dyn_cast<MatchOp>(op)) {
+        DataType data = cases.getDataType();
+        for (unsigned index : llvm::seq(cases.getNumCases())) {
+          const Ctor &ctor = data.getCtor(cases.getCaseTag(index));
+          for (BlockArgument arg : cases.getCaseRegion(index).getArguments())
+            arg.setType(fieldType(scrutinee, ctor.fields[arg.getArgNumber()]));
+        }
+      }
+      // An exhaustive match's default region is empty: it never runs.
+      if (Region &fallback = match.getDefaultRegion(); !fallback.empty())
+        fallback.getArgument(0).setType(scrutinee);
     });
-    for (OpOperand *operand : lends) {
-      Operation *op = operand->getOwner();
-      rewriter.setInsertionPoint(op);
-      Value view = BorrowOp::create(rewriter, op->getLoc(), operand->get());
-      rewriter.modifyOpInPlace(op, [&] { operand->set(view); });
-    }
   }
 
   RewriterBase &rewriter;
@@ -328,53 +361,6 @@ private:
 
 } // namespace
 
-// Every read reads a view once counted, so what it reads is a view too, of
-// the static lifetime when what it reads is static data. Only reads of a
-// value `of` admits are graded.
-void gradeReads(FuncOp fn, llvm::function_ref<bool(Value)> of) {
-  fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (auto read = dyn_cast<FieldOp>(op)) {
-      if (!of(read.getValue()))
-        return;
-      const Ctor &ctor = read.getDataType().getCtor(read.getTag());
-      read.getResult().setType(
-          fieldType(read.getValue().getType(), ctor.fields[static_cast<unsigned>(read.getIndex())]));
-      return;
-    }
-    // A take's or an unpack's results are inferred from the value it takes
-    // apart: each as inferred, an owned one kept at the owned grade it has.
-    if (isa<TakeOp, UnpackOp>(op)) {
-      if (!of(op->getOperand(0)))
-        return;
-      SmallVector<Type> types;
-      if (failed(cast<InferTypeOpInterface>(op).inferReturnTypes(
-              op->getContext(), op->getLoc(), op->getOperands(), op->getRawDictionaryAttrs(),
-              op->getPropertiesStorage(), op->getRegions(), types)))
-        return;
-      for (auto [result, type] : llvm::zip_equal(op->getResults(), types))
-        if (!(isOwned(result.getType()) && isOwned(type)))
-          result.setType(type);
-      return;
-    }
-    auto match = dyn_cast<MatchOpInterface>(op);
-    if (!match || !of(match.getScrutinee()))
-      return;
-    Type scrutinee = match.getScrutinee().getType();
-    // A constructor's case binds its fields; a literal's binds nothing.
-    if (auto cases = dyn_cast<MatchOp>(op)) {
-      DataType data = cases.getDataType();
-      for (unsigned index : llvm::seq(cases.getNumCases())) {
-        const Ctor &ctor = data.getCtor(cases.getCaseTag(index));
-        for (BlockArgument arg : cases.getCaseRegion(index).getArguments())
-          arg.setType(fieldType(scrutinee, ctor.fields[arg.getArgNumber()]));
-      }
-    }
-    // An exhaustive match's default region is empty: it never runs.
-    if (Region &fallback = match.getDefaultRegion(); !fallback.empty())
-      fallback.getArgument(0).setType(scrutinee);
-  });
-}
-
 void rebindDefaults(FuncOp fn) {
   fn.walk([](MatchOpInterface match) {
     Region &fallback = match.getDefaultRegion();
@@ -386,23 +372,6 @@ void rebindDefaults(FuncOp fn) {
     if (binding.getType() == scrutinee.getType())
       binding.replaceAllUsesWith(scrutinee);
   });
-}
-
-void gradeStatic(FuncOp fn) {
-  fn.walk([&](Operation *op) {
-    // Poison and a small big stand for a value, which a slot that takes
-    // one over may hold: each is owned by its type, and no count reaches
-    // it (an owned value made from nothing, untracked as the verifier
-    // reads it). Any other static data is a view.
-    bool standsFor = isa<ub::PoisonOp, BigSmallOp>(op);
-    for (Value result : op->getResults()) {
-      if (!madeStatic(result) || !mayBeStatic(view(result.getType())))
-        continue;
-      result.setType(standsFor ? owned(result.getType())
-                               : atLifetime(view(result.getType()), Lifetime::Static));
-    }
-  });
-  gradeReads(fn, [](Value value) { return lifetimeOf(value.getType()) == Lifetime::Static; });
 }
 
 Counted place(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols) {

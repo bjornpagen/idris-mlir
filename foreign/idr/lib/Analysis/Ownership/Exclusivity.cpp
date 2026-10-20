@@ -76,7 +76,8 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
   // decides, and the solve reads which labels are made: each solve keeps
   // the labels the one before found made, until one finds made every label
   // it read as made. Labels only ever go, so it ends.
-  for (;;) {
+  bool settled = false;
+  while (!settled) {
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
     exclusivity::loadAnalyses(solver, calls, captures);
     if (mlir::failed(solver.initializeAndRun(program)))
@@ -126,7 +127,8 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
       });
     // A label made only where the program never runs is made by nothing:
     // the solve read it as made, so it runs again without it.
-    if (captures.keepMadeIn(out.liveBlocks))
+    settled = !captures.keepMadeIn(out.liveBlocks);
+    if (!settled)
       continue;
     // What the solve proved of the values the program runs: a function no
     // call that runs goes to proves nothing, though upstream's dead-code
@@ -153,6 +155,7 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
     }
     return out;
   }
+  llvm_unreachable("a settled solve returns");
 }
 
 Sharing Exclusivity::of(Value value) const {

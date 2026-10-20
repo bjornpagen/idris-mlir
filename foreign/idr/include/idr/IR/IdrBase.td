@@ -93,22 +93,16 @@ def Idr_Permission : I32EnumAttr<"Permission", "what a value owns", [
   let genSpecializedAttr = 0;
 }
 
-// How long what a value reaches lives, the grade's third part, shortest
-// last: static data, which no count reaches and which lives as long as the
-// program; on the heap, as long as a reference to it does; or in the frame
-// of the function that holds the value, which dies with the frame or with
-// the loop iteration that made it. Static is a view's lifetime: static data
-// an op makes from nothing counted (a constant, poison, a small big) and
-// what is read from it, which idr-rc grades once, at its start; consuming
-// one takes a reference of its own (idr.dup), at the heap, which no count
-// reaches either. A value is frame when it may reach a cell of its frame
-// (idr.cell.stack): a field read from it, a constructor or closure that
-// holds it, and whatever it is forwarded into. Heap is every value's until
-// idr-rc decides otherwise, the case 0 a grade written without a lifetime
-// has.
+// How long what a value reaches lives, the grade's third part: on the
+// heap, as long as a reference to it does, or in the frame of the function
+// that holds the value, which dies with the frame or with the loop
+// iteration that made it. A value is frame when it may reach a cell of its
+// frame (idr.cell.stack): a field read from it, a constructor or closure
+// that holds it, and whatever it is forwarded into. Heap is every value's
+// until idr-rc's stack step decides otherwise, the case 0 a grade written
+// without a lifetime has.
 def Idr_Lifetime : I32EnumAttr<"Lifetime", "how long what a value reaches lives", [
-    I32EnumAttrCase<"Heap", 0, "heap">, I32EnumAttrCase<"Frame", 1, "frame">,
-    I32EnumAttrCase<"Static", 2, "static">]> {
+    I32EnumAttrCase<"Heap", 0, "heap">, I32EnumAttrCase<"Frame", 1, "frame">]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
 }

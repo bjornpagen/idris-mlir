@@ -27,11 +27,6 @@ Grade idr::gradeOf(Type type) {
 // which QType::verify refuses, so every grade function gives it unchanged.
 Type idr::graded(Grade grade, Type value) {
   value = unrestricted(value);
-  // Static is a view's lifetime: a value that holds a reference of its
-  // own (a dup of static data) holds it at the heap.
-  if (grade.lifetime == Lifetime::Static &&
-      (grade.permission == Permission::Own || grade.permission == Permission::Excl))
-    grade.lifetime = Lifetime::Heap;
   if (grade.plain() || isLinearByType(value))
     return value;
   return QType::get(value.getContext(), grade, value);
@@ -131,47 +126,19 @@ bool idr::mayBeFrame(Type type) {
   return isa<BoxType, DataType>(value) && holdsReferences(value);
 }
 
-bool idr::mayBeStatic(Type type) {
-  Type value = unrestricted(type);
-  return isa<IdrDialect>(value.getDialect()) && holdsReferences(value) &&
-         !isOwned(type) && !isLinearByType(value);
-}
-
 Type idr::atLifetime(Type type, Lifetime lifetime) {
-  bool may = lifetime == Lifetime::Heap ||
-             (lifetime == Lifetime::Frame ? mayBeFrame(type) : mayBeStatic(type));
-  Lifetime at = may ? lifetime : Lifetime::Heap;
-  Grade grade = gradeOf(type);
-  if (grade.lifetime == at)
+  if (!mayBeFrame(type))
     return type;
-  grade.lifetime = at;
+  Grade grade = gradeOf(type);
+  grade.lifetime = lifetime;
   return graded(grade, unrestricted(type));
 }
 
-namespace {
-
-// Static, then heap, then frame: how long each lives, longest first.
-unsigned rank(Lifetime lifetime) {
-  switch (lifetime) {
-  case Lifetime::Static:
-    return 0;
-  case Lifetime::Heap:
-    return 1;
-  case Lifetime::Frame:
-    return 2;
-  }
-  llvm_unreachable("a lifetime");
+bool idr::fitsIn(Lifetime lifetime, Lifetime slot) {
+  return lifetime == Lifetime::Heap || slot == Lifetime::Frame;
 }
-
-} // namespace
-
-bool idr::fitsIn(Lifetime lifetime, Lifetime slot) { return rank(lifetime) <= rank(slot); }
 
 Lifetime idr::joined(Lifetime a, Lifetime b) { return fitsIn(a, b) ? b : a; }
-
-Type idr::lent(Type type) {
-  return lifetimeOf(type) == Lifetime::Static ? atLifetime(type, Lifetime::Heap) : type;
-}
 
 Quantity idr::times(Quantity a, Quantity b) {
   switch (a) {

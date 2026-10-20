@@ -150,14 +150,19 @@ private:
     return uses;
   }
 
-  // Whether `box` holds its own reference: not static data, nor read from
-  // it (its lifetime says so), and not of the frame, whose cells the frame
-  // lends. A take's field always does. Borrow inference keeps a parameter
-  // that is taken apart owned. A memo cell is no one's to reuse: a force
-  // writes it.
+  // Whether `box` holds its own reference: not static, nor read from static
+  // data, and not of the frame, whose cells the frame lends. A take's field
+  // always does. Borrow inference keeps a parameter that is taken apart
+  // owned. A memo cell is no one's to reuse: a force writes it.
   bool reusable(const Held &box) {
-    Type type = typeOf(box);
-    return !isMemoCell(type) && lifetimeOf(type) == Lifetime::Heap;
+    if (isMemoCell(typeOf(box)) || lifetimeOf(typeOf(box)) == Lifetime::Frame)
+      return false;
+    const Value *held = std::get_if<Value>(&box);
+    if (!held)
+      return true;
+    // Up the chain of what each lives as long as (readThrough).
+    return llvm::none_of(definitionChain(*held, readThrough),
+                         [](Value value) { return isStatic(value); });
   }
 
   // Where `box`, built by the constructor `tag` of `data`, whose fields

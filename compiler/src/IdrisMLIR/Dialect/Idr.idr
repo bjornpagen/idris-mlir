@@ -227,7 +227,7 @@ bigXorOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 bigXorOp lhs rhs result =
   MkOp "idr.big.xor" [lhs, rhs] [] [] [] [result]
 
-||| `idr.borrow`: a view of an owned value, alive while its owner holds its reference, or of static data at the heap
+||| `idr.borrow`: a view of an owned value, alive while its owner holds its reference
 export
 borrowOp : (value : Value) -> (result : MlirType) -> Op
 borrowOp value result =
@@ -1762,4 +1762,4 @@ ioOp ClockSecond os rs = MkGuarded (MkOp "idr.io.clock_second" os [] [] [] rs) [
 ioOp ClockNanosecond os rs = MkGuarded (MkOp "idr.io.clock_nanosecond" os [] [] [] rs) []
 ioOp HandleFree os rs = MkGuarded (MkOp "idr.io.handle_free" os [] [] [] rs) []
 
--- fingerprint: 149240175-1534075 1443202169-75424
+-- fingerprint: 1021194486-1532636 3311063398-75393

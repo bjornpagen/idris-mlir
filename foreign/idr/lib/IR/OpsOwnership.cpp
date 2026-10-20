@@ -86,12 +86,11 @@ bool CellType::isCellPointer() const { return true; }
 // idr.dup
 //===----------------------------------------------------------------------===//
 
-// The result is the value, owned: the value, lent at the heap if it is
-// static, is the result at the permission it holds, a borrow or plain
-// static data, as its type bounds. An owned value lives on the heap.
+// The result is the value, owned: the value is the result at the
+// permission it holds, a borrow or plain static data, as its type bounds.
 LogicalResult DupOp::verify() {
   Type value = getValue().getType();
-  if (lent(value) != atPermission(getType(), gradeOf(value).permission))
+  if (value != atPermission(getType(), gradeOf(value).permission))
     return emitOpError("has result ") << getType() << ", which is not " << value << " owned";
   return success();
 }

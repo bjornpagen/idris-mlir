@@ -94,20 +94,14 @@ def Idr_DropOp : Idr_OwnedOp<"drop", [DeclareOpInterfaceMethods<Idr_FlowOpInterf
 // argument) take views, and a view lives only while its owner holds its
 // reference: every use of it comes before the owner's consuming use on
 // each path. It has no runtime form: the result is the operand's value,
-// at a grade that holds no reference. A view of static data is lent the
-// same way to a borrowed position of the heap, a parameter or a loop's
-// carried view, which takes it at the heap: static data lives longer.
-def Idr_Lendable : Type<Or<[CPred<"::idr::isOwned($_self)">,
-                            CPred<"::idr::lifetimeOf($_self) == ::idr::Lifetime::Static">]>,
-                        "an owned value or a view of static data", "::mlir::Type">;
-
+// at a grade that holds no reference.
 def Idr_BorrowOp : Idr_Op<"borrow", [Pure, Idr_ResultCarriesOperand, Idr_SameValue,
     DeclareOpInterfaceMethods<ViewLikeOpInterface>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
-    TypesMatchWith<"the view is the value without its reference, at the heap if it is static", "value", "result",
-                   "::idr::lent(::idr::view($_self))">]> {
-  let summary = "a view of an owned value, alive while its owner holds its reference, or of static data at the heap";
-  let arguments = (ins Idr_Lendable:$value);
+    TypesMatchWith<"the view is the value without its reference", "value", "result",
+                   "::idr::view($_self)">]> {
+  let summary = "a view of an owned value, alive while its owner holds its reference";
+  let arguments = (ins Idr_OwnType:$value);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }

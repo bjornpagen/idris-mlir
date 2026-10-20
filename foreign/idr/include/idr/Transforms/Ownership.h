@@ -104,14 +104,17 @@ void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved,
 // it gets, not only how long it lives.
 enum class Class {
   // Holds no reference counting sees: a value of a type that holds none,
-  // one whose reference a boundary with upstream's buffer ops moves, or
-  // one made from nothing that stands for a value at an owned grade
-  // (gradeStatic: poison, a small big).
+  // or one whose reference a boundary with upstream's buffer ops moves.
   Untracked,
-  // Static data, or read from it (the static lifetime, gradeStatic): a
-  // view no count reaches, alive throughout, which each consuming use takes
-  // a reference of its own to (an idr.dup that runs nothing).
-  Static,
+  // Stands for a value without holding a reference (poison, a small big):
+  // owned by type, and never counted.
+  Phantom,
+  // Static data counting never frees: a view, which each consuming use
+  // takes a reference of its own to (a dup that runs nothing).
+  Constant,
+  // Read from static data, or static data at another grade: keeps its
+  // grade, and each consuming use takes a reference of its own.
+  StaticRead,
   // A view of a value that is alive at each of its uses, or a parameter
   // borrow inference left a view: each consuming use takes a reference.
   Borrowed,
@@ -195,21 +198,6 @@ void boundaries(FuncOp fn);
 // itself, and the region holds the scrutinee until its last use there. A
 // linear scrutinee keeps its binding, since the match takes it.
 void rebindDefaults(FuncOp fn);
-
-// Static data graded once, before any analysis of idr-rc reads a value:
-// each value an op makes from nothing counted (ownership::madeStatic) of
-// ours that holds references is a view of the static lifetime, and so is
-// what is read from it (gradeReads); poison and a small big, which stand
-// for a value, are owned by their type.
-// Every reader after this asks the grade, never where a value came from.
-void gradeStatic(FuncOp fn);
-
-// Each read at the grade of what it reads: a field read and a field a
-// match binds at their value's grade times the field's (fieldType), a
-// take's and an unpack's results as inferred from what they take apart,
-// and a match's default binding at its scrutinee's, each read of a value
-// `of` admits. A walk in order reaches each read after the value it reads.
-void gradeReads(FuncOp fn, llvm::function_ref<bool(mlir::Value)> of);
 
 // The counts a step of placement added to a function.
 struct Counted {

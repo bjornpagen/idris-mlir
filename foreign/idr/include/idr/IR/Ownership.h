@@ -45,11 +45,12 @@ bool storedBy(mlir::OpOperand &operand);
 
 // Whether `value` is static data its op makes from nothing a count
 // reaches: a constant, poison, a small big, a global's buffer. The op has
-// no regions, is pure, and reads no reference. idr-rc grades such a value
-// once (gradeStatic), and what is read from it carries the static lifetime
-// in its grade; this asks the op alone, for what no grade can say (a
-// buffer of upstream's) or a pass made after counting.
+// no regions, is pure, and reads no reference.
 bool madeStatic(mlir::Value value);
+
+// Whether `value` is static: made static (madeStatic), or a field read from
+// such a value, or such a value at another grade.
+bool isStatic(mlir::Value value);
 
 // The value a field was read from: the operand of an idr.field, the
 // scrutinee of the match whose case region binds it, the source of a view

@@ -29,10 +29,8 @@ struct LowerDup : IdrPattern<DupOp> {
   LogicalResult matchAndRewrite(DupOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     ValueRange components = adaptor.getValue();
-    // Static data, as its grade says, holds no count.
-    if (lifetimeOf(op.getValue().getType()) != Lifetime::Static)
-      runtime.inc(rewriter, op.getLoc(),
-                  references(layouts.components(op.getValue().getType()), components));
+    runtime.inc(rewriter, op.getLoc(),
+                references(layouts.components(op.getValue().getType()), components));
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(components)});
     return success();
   }

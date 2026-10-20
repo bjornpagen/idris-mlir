@@ -281,8 +281,7 @@ LogicalResult idr::verify::OwnedWalk::make(Operation &op, Value value, ArrayRef<
     set(value, 1);
     return success();
   case Role::View:
-    if (from.empty() && lifetimeOf(value.getType()) != Lifetime::Static &&
-        !ownership::madeStatic(value) && !readsStatic(op))
+    if (from.empty() && !ownership::madeStatic(value) && !readsStatic(op))
       return fail(op, value, "makes a value that holds references, which neither holds one of "
                              "its own nor is read from a value that does");
     viewOf(value, from, placesOf(op, value, from));

@@ -37,17 +37,16 @@ Value widened(OpBuilder &b, Location loc, Value source) {
 } // namespace
 
 // The grade says whether a big holds a reference of its own, and a value
-// that stands for one (poison a pass made of an owned slot) holds none.
+// that stands for one (a small big, poison) holds none.
 bool Facts::owned(Value value) const {
-  return isOwned(value.getType()) && !ownership::madeStatic(value);
+  return isOwned(value.getType()) && !ownership::isStatic(value);
 }
 
 // From the owned stage on, which the passes that read it declare, every
-// value that holds references and is no view is graded owned; static data
-// is a view no reference holds alive.
+// value that holds references and is no view is graded owned.
 bool Facts::borrowed(Value value) const {
   Type type = value.getType();
-  return holdsReferences(type) && !isOwned(type) && lifetimeOf(type) != Lifetime::Static;
+  return holdsReferences(type) && !isOwned(type) && !ownership::isStatic(value);
 }
 
 Bounds Facts::of(Value value) const {
