@@ -116,14 +116,24 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &sy
     });
   });
   IRRewriter rewriter(fn.getContext());
-  // The paths never reached, each ended once every position is met: the
-  // walk found the positions inside an op before the op's own, so an
-  // inner path ends before the one that erases it.
+  // The paths never reached, each ended once every position is met, the
+  // deepest first: a path ends by erasing what follows it in its block,
+  // which may hold a deeper path that is then gone with it.
   llvm::MapVector<Block *, Operation *> dead;
   for (auto [operand, expected] : positions)
     if (failed(meet(rewriter, solved, *operand, expected, dead)))
       return failure();
+  auto depth = [](Block *block) {
+    unsigned n = 0;
+    for (Operation *op = block->getParentOp(); op; op = op->getParentOp())
+      ++n;
+    return n;
+  };
+  SmallVector<std::pair<unsigned, Operation *>> ends;
   for (auto [block, op] : dead)
+    ends.emplace_back(depth(block), op);
+  llvm::stable_sort(ends, [](const auto &a, const auto &b) { return a.first > b.first; });
+  for (auto [level, op] : ends)
     endPath(rewriter, op);
   // A share that gives its value at the value's own type, neither
   // exclusive nor raised to the frame, shares nothing.
