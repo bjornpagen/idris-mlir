@@ -152,7 +152,8 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
   IRMapping mapping;
   auto clone = cast<FuncOp>(fn->clone(mapping));
   clone.setSymNameAttr(plan.name);
-  (void)clone.insertArgument(clone.getNumArguments(), result, DictionaryAttr(), fn.getLoc());
+  (void)clone.insertArgument(clone.getNumArguments(), result, DictionaryAttr(),
+                            passBinder(fn, "sum"));
   symbols.insert(clone, std::next(fn->getIterator()));
   rewriteClone(rewriter, clone, plan.sites, mapping, clone.getArguments().back());
 

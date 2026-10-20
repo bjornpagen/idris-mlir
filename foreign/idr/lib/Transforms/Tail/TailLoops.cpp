@@ -78,6 +78,10 @@ bool reachesTailCall(Block &block, FuncOp fn) {
   });
 }
 
+Location passBinder(FuncOp fn, StringRef kind) {
+  return NameLoc::get(StringAttr::get(fn.getContext(), "%" + kind), fn.getLoc());
+}
+
 FailureOr<StringAttr> copyName(FuncOp fn, StringRef kind, SymbolTable &symbols) {
   auto name = StringAttr::get(fn.getContext(), contentName(fn.getSymName(), kind, ""));
   if (!symbols.lookup(name))

@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-trmc -o %t.trmc.mlir
+// RUN: idris-mlir-opt %t.trmc.mlir --idr-expect=holds=quantities-kept=%s -o /dev/null
 // RUN: idris-mlir-opt %t.trmc.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)),idr-expect{holds=constant-stack=@copy,constant-stack=@copyLin,constant-stack=@dup,constant-stack=@joined})' -o %t.mlir
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@depth -o /dev/null 2> %t.err && FileCheck %s --check-prefix=DEPTH < %t.err
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@peek -o /dev/null 2> %t.peek.err && FileCheck %s --check-prefix=PEEK < %t.peek.err
@@ -18,6 +19,10 @@
 // cell is returned, so their calls stay and the stack grows with them.
 // The result of a call may enter a grade on its way to the field: a grade
 // has no runtime form, and goes with the call.
+// A clone's destination is no binder Idris proved a quantity of: @copy's
+// parameter is at its function's location, as a lambda's are, and the
+// destination, linear, is at the function's span under a name of its own,
+// so the parameter's quantity is not read as the destination's.
 // DEPTH: expected constant-stack: {{.*}}@depth
 // PEEK: expected constant-stack: {{.*}}@peek
 //
@@ -36,7 +41,7 @@
 !List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
 !LList = !idr.data<"LList", list [@LNil() nil, @LCons(i64, !idr.lin<!idr.box<!idr.data<"LList">>>) cons]>
 idr.program @trmc root(@Main.main) stage(owned) {
-  idr.func @copy(%xs: !idr.q<many, borrow, !idr.box<!List>>) -> !idr.own<!idr.box<!List>> attributes {total} {
+  idr.func @copy(%xs: !idr.q<many, borrow, !idr.box<!List>> loc("copy"("Main.idr":3:1 to :30))) -> !idr.own<!idr.box<!List>> attributes {total} {
     %r = idr.match %xs : !idr.q<many, borrow, !idr.box<!List>> -> (!idr.own<!idr.box<!List>>) {
     case @Nil() {
       %nil = idr.constant !idr.q<many, borrow, !idr.box<!List>> #idr.con<!List, @Nil, []>
@@ -51,7 +56,7 @@ idr.program @trmc root(@Main.main) stage(owned) {
     }
     }
     return %r : !idr.own<!idr.box<!List>>
-  }
+  } loc("copy"("Main.idr":3:1 to :30))
   idr.func @copyLin(%xs: !idr.q<many, borrow, !idr.box<!LList>>) -> !idr.own<!idr.box<!LList>> attributes {total} {
     %r = idr.match %xs : !idr.q<many, borrow, !idr.box<!LList>> -> (!idr.own<!idr.box<!LList>>) {
     case @LNil() {

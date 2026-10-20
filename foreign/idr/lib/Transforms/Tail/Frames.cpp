@@ -235,7 +235,8 @@ void fillResume(RewriterBase &rewriter, const FramesPlan &plan, const Made &made
   Location loc = member.getLoc();
   Type result = member.getResultTypes()[0];
   Type stackBox = BoxType::get(stack.getContext(), stack);
-  Block *entry = rewriter.createBlock(&resume.getBody(), {}, {result, stackBox}, {loc, loc});
+  Block *entry = rewriter.createBlock(&resume.getBody(), {}, {result, stackBox},
+                                     {passBinder(member, "value"), passBinder(member, "stack")});
   Value value = entry->getArgument(0);
   Value top = entry->getArgument(1);
   auto tags = llvm::to_vector(stack.getTags());
@@ -255,7 +256,7 @@ void fillResume(RewriterBase &rewriter, const FramesPlan &plan, const Made &made
     for (Type field : ctor.fields)
       bound.push_back(fieldType(stackBox, field));
     Block *block = rewriter.createBlock(&region, region.end(), bound,
-                                        SmallVector<Location>(bound.size(), loc));
+                                        SmallVector<Location>(bound.size(), passBinder(member, "held")));
     if (frame.site->getResult(0).getType() != result) {
       ub::UnreachableOp::create(rewriter, loc);
       continue;
@@ -309,7 +310,8 @@ LogicalResult perform(RewriterBase &rewriter, SymbolTable &symbols, FramesPlan &
       run.setTotalAttr(plan.total ? UnitAttr::get(ctx) : UnitAttr());
       SmallVector<Type> inputs(fn.getArgumentTypes());
       inputs.push_back(stackBox);
-      (void)run.insertArgument(run.getNumArguments(), stackBox, DictionaryAttr(), fn.getLoc());
+      (void)run.insertArgument(run.getNumArguments(), stackBox, DictionaryAttr(),
+                              passBinder(fn, "stack"));
       run.setFunctionTypeAttr(TypeAttr::get(FunctionType::get(ctx, inputs, {answer})));
       symbols.insert(run, std::next(fn->getIterator()));
       made.run[{fn, answer}] = run;

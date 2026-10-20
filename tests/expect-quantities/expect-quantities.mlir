@@ -17,8 +17,8 @@
 // an error. A constructor's fields are its type's body, set once, so no
 // pass changes their quantities. A binder is its name over its
 // definition's span: the extra linear parameter a
-// destination-passing clone takes at its function's name over the
-// span of the function's one unrestricted parameter (@build.trmc,
+// destination-passing clone takes, under the name of what the pass made
+// over the span of the function's one unrestricted parameter (@build.trmc,
 // against the emitted module without it) is no binder Idris proved a
 // quantity of, and two parameters of one definition at the one span
 // under different names (@wide) are each held to their own.
@@ -66,7 +66,7 @@ idr.program @quantities root(@root) stage(higher) {
   idr.func @build(%n: i64 loc("arg"("Main.idr":22:1 to :17))) -> i64 {
     return %n : i64
   }
-  idr.func @build.trmc(%n: i64 loc("arg"("Main.idr":22:1 to :17)), %h: !idr.lin<i64> loc("build"("Main.idr":22:1 to :17))) -> i64 { return %n : i64 }
+  idr.func @build.trmc(%n: i64 loc("arg"("Main.idr":22:1 to :17)), %h: !idr.lin<i64> loc("%destination"("Main.idr":22:1 to :17))) -> i64 { return %n : i64 }
   // SPAN: @below {{expected quantities-kept: parameter 0 of @wide }}
   idr.func @wide(%w: !idr.lin<i64> loc("t"("Main.idr":71:1 to :20)), %a: i64 loc("arg"("Main.idr":71:1 to :20))) -> i64 {
     return %a : i64

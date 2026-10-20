@@ -252,7 +252,7 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
         symbols.insert(clone, std::next(fn->getIterator()));
         auto dest = DestType::get(ctx, cast<BoxType>(unrestricted(fn.getResultTypes()[0])));
         unsigned arity = clone.getNumArguments();
-        (void)clone.insertArgument(arity, dest, DictionaryAttr(), fn.getLoc());
+        (void)clone.insertArgument(arity, dest, DictionaryAttr(), passBinder(fn, "destination"));
         (void)clone.eraseResult(0);
         rewriteClone(rewriter, clone.getBody().front(), fn, clone, clone.getArgument(arity));
         for (const Context &tail : plan.tails)
