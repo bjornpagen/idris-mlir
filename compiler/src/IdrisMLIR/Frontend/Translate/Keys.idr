@@ -62,17 +62,18 @@ plainOrigin (NS ns (DN _ n)) = show (NS ns n)
 plainOrigin (DN _ n) = show n
 plainOrigin n = show n
 
-||| The blocks Idris makes of a definition: a case block and a with block,
-||| which it numbers with one counter for the whole build, and a nested
-||| (`where`) function, which it numbers with its parent's place in the
-||| context. None of those numbers says where the block is.
-data Block = CaseB | WithB | NestedB String
-
-blockOf : Name -> Maybe Block
+||| The kind of block Idris made of a definition, by the name it takes
+||| under its parent: `case` for a case block and `with` for a with block,
+||| which Idris numbers with one counter for the whole build, and a nested
+||| (`where`) function's own name, which Idris numbers with its parent's
+||| place in the context. None of those numbers says where the block is,
+||| and a name says it only up to the blocks of one kind under one parent:
+||| each clause's `where` may define the same name again.
+blockOf : Name -> Maybe String
 blockOf (NS _ n) = blockOf n
-blockOf (CaseBlock _ _) = Just CaseB
-blockOf (WithBlock _ _) = Just WithB
-blockOf (Nested _ inner) = Just (NestedB (plainOrigin inner))
+blockOf (CaseBlock _ _) = Just "case"
+blockOf (WithBlock _ _) = Just "with"
+blockOf (Nested _ inner) = Just (plainOrigin inner)
 blockOf _ = Nothing
 
 ------------------------------------------------------------------------------
@@ -148,22 +149,24 @@ referencesOf def =
     patRefs : (vs : Scope ** (Env Term vs, Term vs, Term vs)) -> List Reference
     patRefs (_ ** (_, lhs, rhs)) = termRefs (termRefs [<] lhs) rhs <>> []
 
-||| Where a walk that names blocks has got to: the counters of the blocks
-||| named so far under the definition being walked, and what the walk has
-||| entered, no more than where it was.
+||| Where a walk that names blocks has got to: how many blocks of each
+||| kind are named so far under the definition being walked (none of a
+||| kind the map does not hold), and what the walk has entered, no more
+||| than where it was.
 record Reached (w : Walked) where
   constructor MkReached
-  counters : (Nat, Nat)
+  counters : SortedMap String Nat
   after : Walked
   0 noMore : NoMore after w
 
 mutual
   ||| Names the blocks a definition refers to, depth first: each block not
   ||| yet named gets the next number of its kind under the definition that
-  ||| refers to it first, and its own references are walked at once under
-  ||| its new name. The numbers count from 0 in each parent, so a block's
-  ||| name changes only with its parent's definition, never with how many
-  ||| blocks the rest of the build made. An ordinary reference is walked
+  ||| refers to it first (`.case0`, `.with0`, `.go0`, `.go1`), and its own
+  ||| references are walked at once under its new name. The numbers count
+  ||| from 0 in each parent, so a block's name changes only with its
+  ||| parent's definition, never with how many blocks the rest of the build
+  ||| made. An ordinary reference is walked
   ||| too: a block is not always referred to by the definition being
   ||| translated or by the one Idris named it for (a case block of an
   ||| interface's default method is referred to by the implementation
@@ -175,7 +178,7 @@ mutual
   ||| ends: `w0` is where this level of it began, and every definition it
   ||| enters leaves fewer than `w0` to enter.
   nameUnder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              String -> (Nat, Nat) -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
+              String -> SortedMap String Nat -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
               (w : Walked) -> (0 _ : NoMore w w0) -> List Reference -> Core (Reached w)
   nameUnder origin ks w0 acc w p [] = pure (MkReached ks w (noMore w))
   nameUnder origin ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
@@ -189,7 +192,6 @@ mutual
         pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
   nameUnder origin ks w0 acc@(Access rec) w p (ARef r :: rest) = do
     full <- toFullNames r
-    let (cases, withs) = ks
     let Just kind = blockOf full
       | Nothing => do
           Element w1 q1 <- blocksFrom full w0 acc w p
@@ -203,12 +205,11 @@ mutual
       | Just _ => nameUnder origin ks w0 acc w p rest
     let Just (Element w1 q) = enter placement w
       | Nothing => nameUnder origin ks w0 acc w p rest
-    let (name, ks') : (String, (Nat, Nat)) = case kind of
-                        CaseB => (origin ++ ".case" ++ show cases, (S cases, withs))
-                        WithB => (origin ++ ".with" ++ show withs, (cases, S withs))
-                        NestedB inner => (origin ++ "." ++ inner, (cases, withs))
+    let k = fromMaybe 0 (lookup kind ks)
+    let name = origin ++ "." ++ kind ++ show k
+    let ks' = insert kind (S k) ks
     update TState { blockNames $= insert key name }
-    MkReached _ w2 q2 <- nameUnder name (0, 0) w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
+    MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
     MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
     pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
 
@@ -230,7 +231,7 @@ mutual
       | Nothing => pure (Element w (noMore w))
     let origin = plainOrigin full
     update TState { blockNames $= insert key origin }
-    MkReached _ w2 q2 <- nameUnder origin (0, 0) w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
+    MkReached _ w2 q2 <- nameUnder origin empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
     pure (Element w2 (thenNoMore q2 (fewer q)))
 
 ||| Names the blocks of a definition that is no block, once.
@@ -244,7 +245,7 @@ namespaceOf _ = Nothing
 
 ||| The definition's printed name, which a key starts with: Idris's full
 ||| name (`plainOrigin`), and for a case, with or nested block its
-||| parent's, then `.case<k>`, `.with<k>` or `.<name>`. A block is named
+||| parent's, then `.case<k>`, `.with<k>` or `.<name><k>`. A block is named
 ||| when a definition that refers to it is walked: first the one being
 ||| translated, then the block's root, and at last every definition in
 ||| the block's namespace and beyond, since neither of the first two
