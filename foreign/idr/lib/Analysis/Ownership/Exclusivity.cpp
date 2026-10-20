@@ -167,9 +167,13 @@ Sharing Exclusivity::of(Value value) const {
 // (a change of quantity), is that use's value, and is proved as that is,
 // solved or made after the solve. A share's value is reached whole by
 // nothing, so the solve found it shared. Only an owned value takes the
-// grade: a cell is followed but has none.
+// grade: a cell is followed but has none, and a value of the frame takes
+// none either, whose cells the frame lends: its lifetime already says
+// nothing outside the frame holds it, and excl at that lifetime is no
+// grade, which QType::verify refuses.
 bool Exclusivity::proves(Value value) const {
-  if (!isOwned(value.getType()) || !ownership::followed(value))
+  if (!isOwned(value.getType()) || lifetimeOf(value.getType()) == Lifetime::Frame ||
+      !ownership::followed(value))
     return false;
   if (auto flow = dyn_cast_or_null<FlowOpInterface>(value.getDefiningOp())) {
     FlowEdges edges;
