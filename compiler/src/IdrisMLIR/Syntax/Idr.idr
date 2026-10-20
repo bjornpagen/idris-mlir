@@ -83,29 +83,33 @@ ctorRoleValue CtorRole.Forced = 5
 namespace Lifetime
   ||| how long what a value reaches lives
   public export
-  data Lifetime = Heap | Frame
+  data Lifetime = Heap | Frame | Static
 
 export
 Prelude.EqOrd.Eq Lifetime where
   Lifetime.Heap == Lifetime.Heap = True
   Lifetime.Frame == Lifetime.Frame = True
+  Lifetime.Static == Lifetime.Static = True
   _ == _ = False
 
 export
 Show Lifetime where
   show Lifetime.Heap = "heap"
   show Lifetime.Frame = "frame"
+  show Lifetime.Static = "static"
 
 ||| The value of each Lifetime.
 export
 lifetimeValue : Lifetime -> Nat
 lifetimeValue Lifetime.Heap = 0
 lifetimeValue Lifetime.Frame = 1
+lifetimeValue Lifetime.Static = 2
 
 -- How the syntax below spells each Lifetime.
 lifetimeSpelling : Lifetime -> String
 lifetimeSpelling Lifetime.Heap = "heap"
 lifetimeSpelling Lifetime.Frame = "frame"
+lifetimeSpelling Lifetime.Static = "static"
 
 namespace Permission
   ||| what a value owns
@@ -561,4 +565,4 @@ idrAttrText t a WorldSpaceAttr = "#idr.world"
 -- attribute KeyHoleAttr: the passes' alone (idris = 0)
 -- attribute KeyRaiseAttr: the passes' alone (idris = 0)
 -- attribute SpecKeyAttr: the passes' alone (idris = 0)
--- fingerprint: 1021194486-1532636 485632571-20832
+-- fingerprint: 149240175-1534075 3920645420-20997
