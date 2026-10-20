@@ -292,21 +292,26 @@ private:
       Value view = BorrowOp::create(rewriter, op->getLoc(), operand->get());
       rewriter.modifyOpInPlace(op, [&] { operand->set(view); });
     }
-    // A parameter is of the heap: a view of static data given to a
-    // borrowed one is lent it there (idr.borrow).
-    SmallVector<std::pair<OpOperand *, Type>> lends;
-    fn.walk([&](CallOp call) {
-      auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
-      for (auto [operand, param] :
-           llvm::zip_equal(call.getArgsMutable(), callee.getArgumentTypes()))
-        if (lifetimeOf(operand.get().getType()) == Lifetime::Static &&
-            lent(operand.get().getType()) == param)
-          lends.emplace_back(&operand, param);
+    // A view of static data is read at the static lifetime only by what
+    // reads through it (a field, a match, a take apart) or takes a
+    // reference of its own to it (idr.dup). Every other read of it, a
+    // call's argument, an operand of a value's own op, is a read of a view
+    // of the heap, as every owned value is read: it is lent there
+    // (idr.borrow), which static data outlives.
+    SmallVector<OpOperand *> lends;
+    fn.walk([&](Operation *op) {
+      if (isa<BorrowOp, DupOp, FieldOp, TakeOp, UnpackOp>(op))
+        return;
+      auto match = dyn_cast<MatchOpInterface>(op);
+      for (OpOperand &operand : op->getOpOperands())
+        if (lifetimeOf(operand.get().getType()) == Lifetime::Static && !takes(operand) &&
+            !(match && operand.get() == match.getScrutinee()))
+          lends.push_back(&operand);
     });
-    for (auto [operand, param] : lends) {
+    for (OpOperand *operand : lends) {
       Operation *op = operand->getOwner();
       rewriter.setInsertionPoint(op);
-      Value view = BorrowOp::create(rewriter, op->getLoc(), param, operand->get());
+      Value view = BorrowOp::create(rewriter, op->getLoc(), operand->get());
       rewriter.modifyOpInPlace(op, [&] { operand->set(view); });
     }
   }
@@ -367,6 +372,19 @@ void gradeReads(FuncOp fn, llvm::function_ref<bool(Value)> of) {
     // An exhaustive match's default region is empty: it never runs.
     if (Region &fallback = match.getDefaultRegion(); !fallback.empty())
       fallback.getArgument(0).setType(scrutinee);
+  });
+}
+
+void rebindDefaults(FuncOp fn) {
+  fn.walk([](MatchOpInterface match) {
+    Region &fallback = match.getDefaultRegion();
+    Value scrutinee = match.getScrutinee();
+    if (fallback.empty() || !holdsReferences(scrutinee.getType()) ||
+        isLinearByType(scrutinee.getType()))
+      return;
+    BlockArgument binding = fallback.getArgument(0);
+    if (binding.getType() == scrutinee.getType())
+      binding.replaceAllUsesWith(scrutinee);
   });
 }
 

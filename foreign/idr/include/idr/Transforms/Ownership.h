@@ -190,6 +190,12 @@ void reuseAt(mlir::RewriterBase &rewriter, llvm::ArrayRef<Reuses::Site> sites);
 // outside the function.
 void boundaries(FuncOp fn);
 
+// A match's default region binds its scrutinee again: the same value, which
+// counting places as one, so each use of the binding uses the scrutinee
+// itself, and the region holds the scrutinee until its last use there. A
+// linear scrutinee keeps its binding, since the match takes it.
+void rebindDefaults(FuncOp fn);
+
 // Static data graded once, before any analysis of idr-rc reads a value:
 // each value an op makes from nothing counted (ownership::madeStatic) of
 // ours that holds references is a view of the static lifetime, and so is
