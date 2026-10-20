@@ -6,6 +6,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Worklist.h"
@@ -14,6 +15,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/Sequence.h"
 
 using namespace mlir;
 using namespace idr;
@@ -120,11 +122,108 @@ struct EndAfterNoYield : RewritePattern {
   }
 };
 
+// A result that every region that yields gives as a constructor of one tag
+// of a value sum, built there for the yield alone, and that is only ever
+// taken apart (each use reads a field of that tag): the match yields the
+// constructor's fields instead, and the constructor is built once after it,
+// where each read of a field folds to the field the regions gave. A field
+// is then the value its region built it of, a linear one the thread it
+// was, never a read of a value the match built: a linear array passed back
+// beside a value (`Res`) stays the one buffer each region wrote. Before
+// the grades, which fix each field's at its constructor's.
+struct YieldFields : RewritePattern {
+  YieldFields(StringRef root, MLIRContext *context)
+      : RewritePattern(root, PatternBenefit(1), context) {
+    setDebugName("idr-yield-fields");
+  }
+
+  LogicalResult matchAndRewrite(Operation *root, PatternRewriter &rewriter) const final {
+    auto match = cast<MatchOpInterface>(root);
+    auto fn = root->getParentOfType<idr::FuncOp>();
+    if (!fn || stageFacts(fn.getProgram().getStage()).grades())
+      return failure();
+    for (OpResult result : root->getResults())
+      if (std::optional<SmallVector<ConOp>> built = constructors(result)) {
+        split(match, result, built->front(), rewriter);
+        return success();
+      }
+    return failure();
+  }
+
+private:
+  // The constructor each region that yields gives as `result`, when the
+  // result is one to split.
+  static std::optional<SmallVector<ConOp>> constructors(OpResult result) {
+    if (!isa<DataType>(result.getType()) || result.use_empty())
+      return std::nullopt;
+    std::optional<Tag> tag;
+    for (Operation *user : result.getUsers()) {
+      auto field = dyn_cast<FieldOp>(user);
+      if (!field || (tag && *tag != field.getTag()))
+        return std::nullopt;
+      tag = field.getTag();
+    }
+    SmallVector<ConOp> built;
+    for (Region &region : result.getOwner()->getRegions()) {
+      auto yield = region.empty() ? YieldOp() : dyn_cast<YieldOp>(region.front().getTerminator());
+      if (!yield)
+        continue;
+      Value given = yield->getOperand(result.getResultNumber());
+      auto con = given.getDefiningOp<ConOp>();
+      if (!con || con->getBlock() != yield->getBlock() || !given.hasOneUse() ||
+          con.getTag() != *tag ||
+          (!built.empty() &&
+           !llvm::equal(built.front().getFields().getTypes(), con.getFields().getTypes())))
+        return std::nullopt;
+      built.push_back(con);
+    }
+    if (built.empty())
+      return std::nullopt;
+    return built;
+  }
+
+  // `first` is the constructor the first region that yields gives.
+  static void split(MatchOpInterface match, OpResult result, ConOp first,
+                    PatternRewriter &rewriter) {
+    // Read before the regions' constructors, `first` among them, are erased.
+    Tag tag = first.getTag();
+    unsigned index = result.getResultNumber();
+    unsigned kept = match->getNumResults() - 1;
+    SmallVector<Type> types;
+    for (auto [i, type] : llvm::enumerate(match->getResultTypes()))
+      if (i != index)
+        types.push_back(type);
+    llvm::append_range(types, first.getFields().getTypes());
+    Operation *fresh =
+        match.rebuild(rewriter, types, llvm::to_vector(llvm::seq(match.getNumCases())),
+                      &match.getDefaultRegion());
+    for (Region &region : fresh->getRegions()) {
+      auto yield = region.empty() ? YieldOp() : dyn_cast<YieldOp>(region.front().getTerminator());
+      if (!yield)
+        continue;
+      auto con = yield->getOperand(index).getDefiningOp<ConOp>();
+      SmallVector<Value> fields(con.getFields());
+      rewriter.modifyOpInPlace(yield, [&] {
+        yield->eraseOperand(index);
+        yield->insertOperands(yield->getNumOperands(), fields);
+      });
+      rewriter.eraseOp(con);
+    }
+    rewriter.setInsertionPointAfter(fresh);
+    Value rebuilt = ConOp::create(rewriter, result.getLoc(), result.getType(),
+                                  tag, fresh->getResults().drop_front(kept))
+                        .getResult();
+    SmallVector<Value> replacements(fresh->getResults().take_front(kept));
+    replacements.insert(replacements.begin() + index, rebuilt);
+    rewriter.replaceOp(match, replacements);
+  }
+};
+
 // What both matches canonicalize with besides upstream's region patterns,
 // which the hooks add first: each pattern rooted at the ops named `root`.
 void populate(RewritePatternSet &results, MLIRContext *context, StringRef root) {
   canon::addMerge(results, context, root);
-  results.add<EndAfterNoYield>(root, context);
+  results.add<EndAfterNoYield, YieldFields>(root, context);
 }
 
 } // namespace
