@@ -1,4 +1,4 @@
--- expect: runtime closure, line 25
+-- expect: runtime closure, line 27
 -- message: Main.choose
 module Main
 

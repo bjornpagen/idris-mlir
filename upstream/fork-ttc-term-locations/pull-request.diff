@@ -1,0 +1,488 @@
+diff --git a/compiler/idris/src/Core/Binary.idr b/compiler/idris/src/Core/Binary.idr
+index 21f32fa1..28dbbc06 100644
+--- a/compiler/idris/src/Core/Binary.idr
++++ b/compiler/idris/src/Core/Binary.idr
+@@ -36,7 +36,7 @@ import public Libraries.Utils.Binary
+ ||| blob (`writeTTCFile`), which upstream's do not.
+ export
+ ttcVersion : Int
+-ttcVersion = 1_2026_10_16_00
++ttcVersion = 1_2026_10_19_00
+ 
+ export
+ checkTTCVersion : String -> Int -> Int -> Core ()
+diff --git a/compiler/idris/src/Core/TTC.idr b/compiler/idris/src/Core/TTC.idr
+index f741fb11..adbcdaee 100644
+--- a/compiler/idris/src/Core/TTC.idr
++++ b/compiler/idris/src/Core/TTC.idr
+@@ -382,154 +382,252 @@ TTC UseSide where
+              1 => pure UseRight
+              _ => corrupt "UseSide"
+ 
+--- A term and the parts of one, each as its instance below writes it.
++-- A term keeps the location of each of its nodes, which a compiler reading
++-- the term back names in what it reports. A node's location is written
++-- against the location it is part of: the nearest enclosing node's that has
++-- one (`within`), whose file it nearly always shares, so a location in that
++-- file is its start line as a difference from that one's, its columns, and
++-- its line count, each small; any other is written whole. A term written on
++-- its own is part of no location.
++total
++within : FC -> FC -> FC
++within at EmptyFC = at
++within at fc = fc
++
++total
++originOf : FC -> Maybe OriginDesc
++originOf (MkFC o _ _) = Just o
++originOf (MkVirtualFC o _ _) = Just o
++originOf EmptyFC = Nothing
++
++-- A location of the file `at` is in, by tag `t`; any other, whole.
++total
++encodeAgainst : {auto b : Ref Bin Binary} -> (at : FC) -> (t : Int) -> FC ->
++                OriginDesc -> FilePos -> FilePos -> Core ()
++encodeAgainst at t fc o (sl, sc) (el, ec)
++    = case (originOf at, startOf at) of
++           (Just o', Just (al, _)) =>
++             if o == o'
++                then do tag t; toBuf (sl - al); toBuf sc; toBuf (el - sl); toBuf ec
++                else do tag 3; toBuf fc
++           _ => do tag 3; toBuf fc
++  where
++    startOf : FC -> Maybe FilePos
++    startOf (MkFC _ s _) = Just s
++    startOf (MkVirtualFC _ s _) = Just s
++    startOf EmptyFC = Nothing
++
++total
++encodeFC : {auto b : Ref Bin Binary} -> (at : FC) -> FC -> Core ()
++encodeFC at EmptyFC = tag 0
++encodeFC at fc@(MkFC o s e) = encodeAgainst at 1 fc o s e
++encodeFC at fc@(MkVirtualFC o s e) = encodeAgainst at 2 fc o s e
++
++total
++decodeFC : {auto b : Ref Bin Binary} -> (at : FC) -> Core FC
++decodeFC at
++    = case !getTag of
++           0 => pure EmptyFC
++           1 => against MkFC
++           2 => against MkVirtualFC
++           3 => fromBuf
++           _ => corrupt "FC"
++  where
++    against : (OriginDesc -> FilePos -> FilePos -> FC) -> Core FC
++    against mk
++        = case at of
++               MkFC o (al, _) _ => relative mk o al
++               MkVirtualFC o (al, _) _ => relative mk o al
++               EmptyFC => corrupt "FC"
++      where
++        relative : (OriginDesc -> FilePos -> FilePos -> FC) -> OriginDesc -> Int -> Core FC
++        relative mk o al
++            = do dl <- fromBuf; sc <- fromBuf; n <- fromBuf; ec <- fromBuf
++                 let sl = al + dl
++                 pure (mk o (sl, sc) (sl + n, ec))
++
++-- A term and the parts of one, each as its instance below writes it, read
++-- within the location `at` it is part of.
+ mutual
+   total
+-  decodePi : {vars : _} -> {auto b : Ref Bin Binary} ->
++  decodePi : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+              (n : Nat) -> (0 _ : Accessible LT n) -> Core (PiInfo (Term vars))
+-  decodePi n (Access rec)
++  decodePi at n (Access rec)
+       = do t <- getTag
+            Element m lt <- fewer n
+            case t of
+                 0 => pure Implicit
+                 1 => pure Explicit
+                 2 => pure AutoImplicit
+-                3 => do d <- decodeTerm m (rec m lt)
++                3 => do d <- decodeTerm at m (rec m lt)
+                         pure (DefImplicit d)
+                 _ => corrupt "PiInfo"
+ 
+   total
+ 
+-  decodeBinder : {vars : _} -> {auto b : Ref Bin Binary} ->
++  decodeBinder : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+                  (n : Nat) -> (0 _ : Accessible LT n) -> Core (Binder (Term vars))
+-  decodeBinder n (Access rec)
++  decodeBinder at n (Access rec)
+       = do t <- getTag
+            Element m lt <- fewer n
++           fc <- decodeFC at
++           let inner = within at fc
+            case t of
+                 0 => do c <- fromBuf
+-                        x <- decodePi m (rec m lt)
+-                        ty <- decodeTerm m (rec m lt)
+-                        pure (Lam emptyFC c x ty)
++                        x <- decodePi inner m (rec m lt)
++                        ty <- decodeTerm inner m (rec m lt)
++                        pure (Lam fc c x ty)
+                 1 => do c <- fromBuf
+-                        x <- decodeTerm m (rec m lt)
+-                        pure (Let emptyFC c x (Erased emptyFC Placeholder))
++                        x <- decodeTerm inner m (rec m lt)
++                        pure (Let fc c x (Erased emptyFC Placeholder))
+                 2 => do c <- fromBuf
+-                        x <- decodePi m (rec m lt)
+-                        y <- decodeTerm m (rec m lt)
+-                        pure (Pi emptyFC c x y)
++                        x <- decodePi inner m (rec m lt)
++                        y <- decodeTerm inner m (rec m lt)
++                        pure (Pi fc c x y)
+                 3 => do c <- fromBuf
+-                        p <- decodePi m (rec m lt)
+-                        ty <- decodeTerm m (rec m lt)
+-                        pure (PVar emptyFC c p ty)
++                        p <- decodePi inner m (rec m lt)
++                        ty <- decodeTerm inner m (rec m lt)
++                        pure (PVar fc c p ty)
+                 4 => do c <- fromBuf
+-                        x <- decodeTerm m (rec m lt)
+-                        pure (PLet emptyFC c x (Erased emptyFC Placeholder))
++                        x <- decodeTerm inner m (rec m lt)
++                        pure (PLet fc c x (Erased emptyFC Placeholder))
+                 5 => do c <- fromBuf
+-                        pure (PVTy emptyFC c (Erased emptyFC Placeholder))
++                        pure (PVTy fc c (Erased emptyFC Placeholder))
+                 _ => corrupt "Binder"
+ 
+   -- A list of terms as the list instance writes it: its length, then each
+   -- term, all within the bytes left after the length.
+   total
+-  decodeTerms : {vars : _} -> {auto b : Ref Bin Binary} ->
++  decodeTerms : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+                 (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
+-  decodeTerms n (Access rec)
++  decodeTerms at n (Access rec)
+       = do len <- fromBuf {a = Int}
+            Element m lt <- fewer n
+-           decodeTermList [] (integerToNat (cast len)) m (rec m lt)
++           decodeTermList at [] (integerToNat (cast len)) m (rec m lt)
+ 
+   total
+ 
+-  decodeTermList : {vars : _} -> {auto b : Ref Bin Binary} ->
++  decodeTermList : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+                    List (Term vars) -> (count : Nat) ->
+                    (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
+-  decodeTermList ts Z n acc = pure (reverse ts)
+-  decodeTermList ts (S k) n acc
+-      = do t <- decodeTerm n acc
+-           decodeTermList (t :: ts) k n acc
++  decodeTermList at ts Z n acc = pure (reverse ts)
++  decodeTermList at ts (S k) n acc
++      = do t <- decodeTerm at n acc
++           decodeTermList at (t :: ts) k n acc
++
++  -- The arguments of an application of `f` to several, as encodeArgs writes
++  -- them: their count, then each with the location of its application.
++  total
++  decodeArgs : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
++               Term vars -> (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
++  decodeArgs at f n (Access rec)
++      = do len <- fromBuf {a = Int}
++           Element m lt <- fewer n
++           decodeSpine at f (integerToNat (cast len)) m (rec m lt)
++
++  total
++  decodeSpine : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
++                Term vars -> (count : Nat) ->
++                (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
++  decodeSpine at f Z n acc = pure f
++  decodeSpine at f (S k) n acc
++      = do fc <- decodeFC at
++           a <- decodeTerm (within at fc) n acc
++           decodeSpine at (App fc f a) k n acc
+ 
+   total
+ 
+-  decodeTerm : {vars : _} -> {auto b : Ref Bin Binary} ->
++  decodeTerm : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+                (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
+-  decodeTerm {vars} n (Access rec)
++  decodeTerm {vars} at n (Access rec)
+       = do t <- getTag
+            Element m lt <- fewer n
++           -- An application to several arguments has no location of its
++           -- own: each of its applications has one, in the list of them.
++           fc <- if t == 12 then pure at else decodeFC at
++           let inner = within at fc
+            case t of
+                 0 => do c <- fromBuf
+                         idx <- fromBuf
+                         Element name p <- maybe (corrupt "Term") pure
+                                                 (isVarAt idx vars)
+-                        pure (Local {name} emptyFC c idx p)
++                        pure (Local {name} fc c idx p)
+                 1 => do nt <- fromBuf; name <- fromBuf
+-                        pure (Ref emptyFC nt name)
++                        pure (Ref fc nt name)
+                 2 => do mn <- fromBuf
+-                        xs <- decodeTerms m (rec m lt)
+-                        pure (Meta emptyFC mn 0 xs) -- needs resolving
++                        xs <- decodeTerms inner m (rec m lt)
++                        pure (Meta fc mn 0 xs) -- needs resolving
+                 3 => do x <- fromBuf
+-                        bnd <- decodeBinder m (rec m lt)
+-                        scope <- decodeTerm m (rec m lt)
+-                        pure (Bind emptyFC x bnd scope)
+-                4 => do fn <- decodeTerm m (rec m lt)
+-                        arg <- decodeTerm m (rec m lt)
+-                        pure (App emptyFC fn arg)
+-                5 => do as <- decodeTerm m (rec m lt)
++                        bnd <- decodeBinder inner m (rec m lt)
++                        scope <- decodeTerm inner m (rec m lt)
++                        pure (Bind fc x bnd scope)
++                4 => do fn <- decodeTerm inner m (rec m lt)
++                        arg <- decodeTerm inner m (rec m lt)
++                        pure (App fc fn arg)
++                5 => do as <- decodeTerm inner m (rec m lt)
+                         s <- fromBuf
+-                        tm <- decodeTerm m (rec m lt)
+-                        pure (As emptyFC s as tm)
++                        tm <- decodeTerm inner m (rec m lt)
++                        pure (As fc s as tm)
+                 6 => do lr <- fromBuf
+-                        tm <- decodeTerm m (rec m lt)
+-                        pure (TDelayed emptyFC lr tm)
++                        tm <- decodeTerm inner m (rec m lt)
++                        pure (TDelayed fc lr tm)
+                 7 => do lr <- fromBuf
+-                        ty <- decodeTerm m (rec m lt)
+-                        tm <- decodeTerm m (rec m lt)
+-                        pure (TDelay emptyFC lr ty tm)
++                        ty <- decodeTerm inner m (rec m lt)
++                        tm <- decodeTerm inner m (rec m lt)
++                        pure (TDelay fc lr ty tm)
+                 8 => do lr <- fromBuf
+-                        tm <- decodeTerm m (rec m lt)
+-                        pure (TForce emptyFC lr tm)
++                        tm <- decodeTerm inner m (rec m lt)
++                        pure (TForce fc lr tm)
+                 9 => do c <- fromBuf
+-                        pure (PrimVal emptyFC c)
+-                10 => pure (Erased emptyFC Placeholder)
+-                11 => do u <- fromBuf; pure (TType emptyFC u)
+-                12 => do fn <- decodeTerm m (rec m lt)
+-                         args <- decodeTerms m (rec m lt)
+-                         pure (apply emptyFC fn args)
++                        pure (PrimVal fc c)
++                10 => pure (Erased fc Placeholder)
++                11 => do u <- fromBuf; pure (TType fc u)
++                12 => do fn <- decodeTerm at m (rec m lt)
++                         decodeArgs at fn m (rec m lt)
+                 idxp => do c <- fromBuf
+                            let idx : Nat = fromInteger (cast (idxp - 13))
+                            let Just (Element name p) = isVarAt idx vars
+                                | Nothing => corrupt "Term"
+-                           pure (Local {name} emptyFC c idx p)
++                           pure (Local {name} fc c idx p)
+ 
+ -- A term and the parts of one written as their instances below write them,
+ -- each kind of node that holds terms by a function of its own, so that every
+--- recursive call is on a part of its argument. An application of a function
+--- to several arguments is written as its head and the list of them.
++-- recursive call is on a part of its argument, and each node's location
++-- after its tag, within the location `at` the node is part of. An
++-- application of a function to several arguments is written as its head
++-- and the list of them, each with the location of its application.
+ mutual
+   total
+-  encodePi : {auto b : Ref Bin Binary} -> PiInfo (Term vars) -> Core ()
+-  encodePi Implicit = tag 0
+-  encodePi Explicit = tag 1
+-  encodePi AutoImplicit = tag 2
+-  encodePi (DefImplicit r) = do tag 3; encodeTerm r
++  encodePi : {auto b : Ref Bin Binary} -> (at : FC) -> PiInfo (Term vars) -> Core ()
++  encodePi at Implicit = tag 0
++  encodePi at Explicit = tag 1
++  encodePi at AutoImplicit = tag 2
++  encodePi at (DefImplicit r) = do tag 3; encodeTerm at r
+ 
+   total
+-  encodeBinder : {auto b : Ref Bin Binary} -> Binder (Term vars) -> Core ()
+-  encodeBinder (Lam _ c x ty) = do tag 0; toBuf c; encodePi x; encodeTerm ty
+-  encodeBinder (Let _ c val ty) = do tag 1; toBuf c; encodeTerm val -- ; toBuf ty
+-  encodeBinder (Pi _ c x ty) = do tag 2; toBuf c; encodePi x; encodeTerm ty
+-  encodeBinder (PVar _ c p ty) = do tag 3; toBuf c; encodePi p; encodeTerm ty
+-  encodeBinder (PLet _ c val ty) = do tag 4; toBuf c; encodeTerm val -- ; toBuf ty
+-  encodeBinder (PVTy _ c ty) = do tag 5; toBuf c -- ; toBuf ty
++  encodeBinder : {auto b : Ref Bin Binary} -> (at : FC) -> Binder (Term vars) -> Core ()
++  encodeBinder at (Lam fc c x ty)
++      = do tag 0; encodeFC at fc; toBuf c; encodePi (within at fc) x; encodeTerm (within at fc) ty
++  encodeBinder at (Let fc c val ty)
++      = do tag 1; encodeFC at fc; toBuf c; encodeTerm (within at fc) val -- ; toBuf ty
++  encodeBinder at (Pi fc c x ty)
++      = do tag 2; encodeFC at fc; toBuf c; encodePi (within at fc) x; encodeTerm (within at fc) ty
++  encodeBinder at (PVar fc c p ty)
++      = do tag 3; encodeFC at fc; toBuf c; encodePi (within at fc) p; encodeTerm (within at fc) ty
++  encodeBinder at (PLet fc c val ty)
++      = do tag 4; encodeFC at fc; toBuf c; encodeTerm (within at fc) val -- ; toBuf ty
++  encodeBinder at (PVTy fc c ty)
++      = do tag 5; encodeFC at fc; toBuf c -- ; toBuf ty
+ 
+   -- As the list instance writes a list: its length, then each.
+   total
+-  encodeTerms : {auto b : Ref Bin Binary} -> List (Term vars) -> Core ()
+-  encodeTerms ts = do toBuf (the Int (cast (length ts))); encodeEach ts
++  encodeTerms : {auto b : Ref Bin Binary} -> (at : FC) -> List (Term vars) -> Core ()
++  encodeTerms at ts = do toBuf (the Int (cast (length ts))); encodeEach at ts
+ 
+   total
+-  encodeEach : {auto b : Ref Bin Binary} -> List (Term vars) -> Core ()
+-  encodeEach [] = pure ()
+-  encodeEach (t :: ts) = do encodeTerm t; encodeEach ts
++  encodeEach : {auto b : Ref Bin Binary} -> (at : FC) -> List (Term vars) -> Core ()
++  encodeEach at [] = pure ()
++  encodeEach at (t :: ts) = do encodeTerm at t; encodeEach at ts
+ 
+   -- The arguments an application's function is applied to, but the last,
+   -- and the function they are applied to.
+@@ -539,77 +637,78 @@ mutual
+   spineArgs _ = Z
+ 
+   total
+-  encodeArgs : {auto b : Ref Bin Binary} -> Term vars -> Core ()
+-  encodeArgs (App _ f a) = do encodeArgs f; encodeTerm a
+-  encodeArgs _ = pure ()
++  encodeArgs : {auto b : Ref Bin Binary} -> (at : FC) -> Term vars -> Core ()
++  encodeArgs at (App fc f a) = do encodeArgs at f; encodeFC at fc; encodeTerm (within at fc) a
++  encodeArgs at _ = pure ()
+ 
+   total
+-  encodeHead : {auto b : Ref Bin Binary} -> Term vars -> Core ()
+-  encodeHead (App _ f _) = encodeHead f
+-  encodeHead t = encodeTerm t
++  encodeHead : {auto b : Ref Bin Binary} -> (at : FC) -> Term vars -> Core ()
++  encodeHead at (App _ f _) = encodeHead at f
++  encodeHead at t = encodeTerm at t
+ 
+   total
+-  encodeTerm : {auto b : Ref Bin Binary} -> Term vars -> Core ()
+-  encodeTerm (Local {name} fc c idx y)
++  encodeTerm : {auto b : Ref Bin Binary} -> (at : FC) -> Term vars -> Core ()
++  encodeTerm at (Local {name} fc c idx y)
+       = if idx < 243
+            then do tag (13 + cast idx)
++                   encodeFC at fc
+                    toBuf c
+            else do tag 0
++                   encodeFC at fc
+                    toBuf c
+                    toBuf idx
+-  encodeTerm (Ref fc nt name)
+-      = do tag 1;
++  encodeTerm at (Ref fc nt name)
++      = do tag 1; encodeFC at fc
+            toBuf nt; toBuf name
+-  encodeTerm (Meta fc n i xs)
+-      = do tag 2;
+-           toBuf n; encodeTerms xs
+-  encodeTerm (Bind fc x bnd scope)
+-      = do tag 3;
++  encodeTerm at (Meta fc n i xs)
++      = do tag 2; encodeFC at fc
++           toBuf n; encodeTerms (within at fc) xs
++  encodeTerm at (Bind fc x bnd scope)
++      = do tag 3; encodeFC at fc
+            toBuf x;
+-           encodeBinder bnd; encodeTerm scope
+-  encodeTerm (App fc fn arg)
++           encodeBinder (within at fc) bnd; encodeTerm (within at fc) scope
++  encodeTerm at t@(App fc fn arg)
+       = case spineArgs fn of
+-             Z => do tag 4
+-                     encodeTerm fn
+-                     encodeTerm arg
++             Z => do tag 4; encodeFC at fc
++                     encodeTerm (within at fc) fn
++                     encodeTerm (within at fc) arg
+              k => do tag 12
+-                     encodeHead fn
++                     encodeHead at fn
+                      toBuf (the Int (cast (S k)))
+-                     encodeArgs fn
+-                     encodeTerm arg
+-  encodeTerm (As fc s as tm)
+-      = do tag 5;
+-           encodeTerm as; toBuf s; encodeTerm tm
+-  encodeTerm (TDelayed fc r tm)
+-      = do tag 6;
+-           toBuf r; encodeTerm tm
+-  encodeTerm (TDelay fc r ty tm)
+-      = do tag 7;
+-           toBuf r; encodeTerm ty; encodeTerm tm
+-  encodeTerm (TForce fc r tm)
+-      = do tag 8;
+-           toBuf r; encodeTerm tm
+-  encodeTerm (PrimVal fc c)
+-      = do tag 9;
++                     encodeArgs at t
++  encodeTerm at (As fc s as tm)
++      = do tag 5; encodeFC at fc
++           encodeTerm (within at fc) as; toBuf s; encodeTerm (within at fc) tm
++  encodeTerm at (TDelayed fc r tm)
++      = do tag 6; encodeFC at fc
++           toBuf r; encodeTerm (within at fc) tm
++  encodeTerm at (TDelay fc r ty tm)
++      = do tag 7; encodeFC at fc
++           toBuf r; encodeTerm (within at fc) ty; encodeTerm (within at fc) tm
++  encodeTerm at (TForce fc r tm)
++      = do tag 8; encodeFC at fc
++           toBuf r; encodeTerm (within at fc) tm
++  encodeTerm at (PrimVal fc c)
++      = do tag 9; encodeFC at fc
+            toBuf c
+-  encodeTerm (Erased fc _)
+-      = tag 10
+-  encodeTerm (TType fc u)
+-      = do tag 11; toBuf u
++  encodeTerm at (Erased fc _)
++      = do tag 10; encodeFC at fc
++  encodeTerm at (TType fc u)
++      = do tag 11; encodeFC at fc; toBuf u
+ 
+ mutual
+   export
+   {vars : _} -> TTC (Binder (Term vars)) where
+-    toBuf = encodeBinder
++    toBuf = encodeBinder EmptyFC
+ 
+-    fromBuf = do n <- remaining; decodeBinder n (wellFounded n)
++    fromBuf = do n <- remaining; decodeBinder EmptyFC n (wellFounded n)
+ 
+ 
+   export
+   {vars : _} -> TTC (Term vars) where
+-    toBuf = encodeTerm
++    toBuf = encodeTerm EmptyFC
+ 
+-    fromBuf = do n <- remaining; decodeTerm n (wellFounded n)
++    fromBuf = do n <- remaining; decodeTerm EmptyFC n (wellFounded n)
+ 
+ export
+ TTC Pat where
+@@ -674,7 +773,7 @@ mutual
+                         let True = name == name'
+                             | False => corrupt "CaseTree"
+                         pure (Case {name = name'} idx p (Erased emptyFC Placeholder) xs)
+-                1 => do x <- decodeTerm m (rec m lt)
++                1 => do x <- decodeTerm EmptyFC m (rec m lt)
+                         pure (STerm 0 x)
+                 2 => do msg <- fromBuf
+                         pure (Unmatched msg)
+@@ -731,7 +830,7 @@ mutual
+   encodeTree (Case {name} idx x scTy xs)
+       = do tag 0; toBuf name; toBuf idx; encodeAlts xs
+   encodeTree (STerm _ x)
+-      = do tag 1; encodeTerm x
++      = do tag 1; encodeTerm EmptyFC x
+   encodeTree (Unmatched msg)
+       = do tag 2; toBuf msg
+   encodeTree Impossible = tag 3

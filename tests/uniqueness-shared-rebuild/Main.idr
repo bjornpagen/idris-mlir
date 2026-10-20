@@ -1,4 +1,4 @@
--- expect: uniqueness, line 26
+-- expect: uniqueness, line 30
 -- message: Main.bump
 module Main
 

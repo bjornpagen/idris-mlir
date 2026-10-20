@@ -512,6 +512,12 @@ merge; each says what changed in its interface.
   its type reads the definitions past it (`readDefinitions`), as the
   termination check does for the modules a context's imports reach
   (upstream/51-totality-unimported-callee).
+- A term in a TTC keeps each node's location (`Core.TTC`), written after
+  the node's tag against the location of the node it is part of, a few
+  bytes each, where upstream's writes none and reads every node back at
+  `emptyFC`. A main file is read back from its TTC once built, so without
+  them no term of the program the frontend reads would say where it came
+  from (upstream/fork-ttc-term-locations).
 - `buildMain` (`Idris.ModTree`) builds a main file in a session of its
   own: it makes the unification state, the delayed elaborators and the
   metadata, resets the context to the main module's origin and runs

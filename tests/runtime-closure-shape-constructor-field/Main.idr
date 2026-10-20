@@ -1,4 +1,4 @@
--- expect: runtime closure, line 27
+-- expect: runtime closure, line 28
 -- message: Main.MkSize
 module Main
 

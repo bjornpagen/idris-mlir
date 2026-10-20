@@ -42,7 +42,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   bootstrap therefore never applies; apply it with `git apply`, and take the commit
   message from `submission.md`, never from the file's header. For simdutf
   and snmalloc (48, 49), the pull request to that project, which no patch
-  project applies. For Idris (18, 20, 21, 50, 51, 52, 53, 59 and the six fork-* directories),
+  project applies. For Idris (18, 20, 21, 50, 51, 52, 53, 59 and the seven fork-* directories),
   the change the fork carries as its own code, laid out
   against third_party/Idris2's pin with the test upstream's suite would
   hold: the record a re-sync of the fork reads, never sent.
@@ -118,6 +118,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | fork | fork-with-application-scope | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-build-main | nothing: no bug of Idris's; the frontend's entry point (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-total-frontend-paths | nothing: no bug of Idris's; total code on the frontend's paths (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| fork | fork-ttc-term-locations | nothing: no bug of Idris's; term locations kept in the TTC (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

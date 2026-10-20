@@ -1097,6 +1097,21 @@ which the top-level CMake configure gate reads.
 - retire: when the frontend no longer builds through it
 - upstream: nothing; upstream's drivers hold the session
 
+## ttc-term-locations
+
+- symptom: none of Idris's. At the pin a term read back from a TTC has no
+  location at any node (`emptyFC`), and a main file is read back from its
+  TTC once built, so every op the frontend emitted took its definition's
+  location
+- sites: compiler/idris/src/Core/TTC.idr (`within`, `encodeFC`,
+  `decodeFC`, the term, binder and case-tree leaf encoders and decoders),
+  compiler/idris/src/Core/Binary.idr (`ttcVersion`)
+- workaround: none; the fork writes each node's location, relative to the
+  location it is part of, as `upstream/fork-ttc-term-locations/pull-request.diff`
+  records
+- retire: when a re-sync brings a TTC that keeps term locations
+- upstream: upstream/fork-ttc-term-locations; nothing is sent (**Idris**)
+
 ## total-frontend-paths
 
 - symptom: none of Idris's. Upstream code the total frontend calls is
@@ -1131,7 +1146,8 @@ which the top-level CMake configure gate reads.
   gone), compiler/idris/src/TTImp/{ProcessDecls,Elab/Local}.idr
 - workaround: none; the fork's code there is total by structural or
   well-founded recursion Idris's checker accepts, with upstream's output
-  (the same TTC bytes, shown text and hashes). A TTC's decoders recurse on
+  (the same shown text and hashes, and the same TTC bytes but for the
+  locations of ttc-term-locations). A TTC's decoders recurse on
   the bytes left to read (`Control.WellFounded`).
   `upstream/fork-total-frontend-paths/pull-request.diff` records the change
   against the pin

@@ -1,4 +1,4 @@
--- expect: type, line 18
+-- expect: type, line 19
 -- message: Main.Box
 module Main
 

@@ -36,7 +36,7 @@ import public Libraries.Utils.Binary
 ||| blob (`writeTTCFile`), which upstream's do not.
 export
 ttcVersion : Int
-ttcVersion = 1_2026_10_16_00
+ttcVersion = 1_2026_10_19_00
 
 export
 checkTTCVersion : String -> Int -> Int -> Core ()

@@ -1,4 +1,4 @@
--- expect: runtime closure, line 29
+-- expect: runtime closure, line 30
 module Main
 
 import Prelude
