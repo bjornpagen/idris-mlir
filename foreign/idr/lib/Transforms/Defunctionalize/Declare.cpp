@@ -75,9 +75,14 @@ FailureOr<std::unique_ptr<Slots>> Slots::decide(ProgramOp program, Labels &label
   std::unique_ptr<Slots> slots(new Slots(program, labels, symbols));
   if (failed(slots->name()))
     return failure();
-  for (const Key &key : slots->keys)
-    if (failed(slots->define(key, byName)))
-      return failure();
+  {
+    // The sums, declared once every one is made, before the remake retypes
+    // the program: a remap replaces a sum in the table where a sum is one.
+    Declarations declarations(program);
+    for (const Key &key : slots->keys)
+      if (failed(slots->define(key, byName, declarations)))
+        return failure();
+  }
   slots->convertSignatures();
   if (failed(slots->nameForces()))
     return failure();
@@ -139,24 +144,26 @@ LogicalResult Slots::nameForces() {
 // body is, so that a sum asked for again while its body is made is that
 // type. A body that fails, here or in a sum it holds, is this sum's failure,
 // returned to whatever asked for it.
-FailureOr<DataType> Slots::define(const Key &key, function_ref<bool(FuncOp)> byName) {
+FailureOr<DataType> Slots::define(const Key &key, function_ref<bool(FuncOp)> byName,
+                                  Declarations &declarations) {
   if (auto made = sums.find(key); made != sums.end())
     return made->second;
   // The fields of the body, which outlive the callback that hands it over.
   SmallVector<SmallVector<Type>> fields;
-  return DataType::define(program, names.at(key).getValue(),
-                          [&](DataType self) -> FailureOr<DataType::Body> {
-                            sums[key] = self;
-                            return body(key, byName, fields);
-                          });
+  return declarations.define(names.at(key).getValue(),
+                             [&](DataType self) -> FailureOr<DataType::Body> {
+                               sums[key] = self;
+                               return body(key, byName, declarations, fields);
+                             });
 }
 
 // The type of a capture or forced value of type `type` held in `slot`: its
 // key's sum, or, in a slot of no key, the type itself.
-FailureOr<Type> Slots::slotType(Type type, const Slot &slot, function_ref<bool(FuncOp)> byName) {
+FailureOr<Type> Slots::slotType(Type type, const Slot &slot, function_ref<bool(FuncOp)> byName,
+                                Declarations &declarations) {
   if (!slot)
     return type;
-  FailureOr<DataType> sum = define(*slot, byName);
+  FailureOr<DataType> sum = define(*slot, byName, declarations);
   if (failed(sum))
     return failure();
   return held(type, slot->isLazy(), *sum);
@@ -165,6 +172,7 @@ FailureOr<Type> Slots::slotType(Type type, const Slot &slot, function_ref<bool(F
 // The body of `key`'s sum: its labels in name order, each naming its
 // function, then a memo sum's states; `fields` holds their field types.
 FailureOr<DataType::Body> Slots::body(const Key &key, function_ref<bool(FuncOp)> byName,
+                                      Declarations &declarations,
                                       SmallVectorImpl<SmallVector<Type>> &fields) {
   bool lazy = key.isLazy();
   ArrayRef<Attribute> labels = key.labels.getValue();
@@ -173,7 +181,8 @@ FailureOr<DataType::Body> Slots::body(const Key &key, function_ref<bool(FuncOp)>
     StringAttr label = cast<FlatSymbolRefAttr>(attr).getAttr();
     const Signature &sig = signature(label);
     for (unsigned i = 0, n = captures(label, key.carrier); i < n; ++i) {
-      FailureOr<Type> field = slotType(sig.type.getInput(i), sig.arguments[i], byName);
+      FailureOr<Type> field =
+          slotType(sig.type.getInput(i), sig.arguments[i], byName, declarations);
       if (failed(field))
         return failure();
       fields[at].push_back(*field);
@@ -181,7 +190,7 @@ FailureOr<DataType::Body> Slots::body(const Key &key, function_ref<bool(FuncOp)>
   }
   if (lazy) {
     Type value = cast<LazyType>(key.carrier).getValue();
-    FailureOr<Type> field = slotType(value, forcedKey(key.carrier), byName);
+    FailureOr<Type> field = slotType(value, forcedKey(key.carrier), byName, declarations);
     if (failed(field))
       return failure();
     fields[labels.size() + 1].push_back(*field);

@@ -284,7 +284,7 @@ the toolchain rebuild with upstream 62 and 63 (audits/bugs.md, upstream).
   `TypeGraph::declarations()`.
 - **Deduplicate** fuses only the function's location; fuse op by op along
   the lockstep equivalence.
-- **Data types carry no location.** `DataType::define` errors at
+- **Data types carry no location.** `Declarations::define` errors at
   `UnknownLoc`, and the knot refusal guesses one (first array, first
   located con, else the program). The body holds the declaration's
   location, written by the frontend and carried by DataRemap; `define`

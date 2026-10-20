@@ -139,7 +139,7 @@ FailureOr<std::unique_ptr<DataRemap>> DataRemap::create(ProgramOp root, StringRe
 // replaced whole, by its shape there remade.
 DataRemap::DataRemap(ProgramOp root, Leaf leafFn, ArrayRef<DataType> boxedTypes,
                      Renames renamed)
-    : context(root.getContext()), program(root), leaf(std::move(leafFn)),
+    : context(root.getContext()), declarations(root), leaf(std::move(leafFn)),
       renames(std::move(renamed)),
       boxed(boxedTypes.begin(), boxedTypes.end()), at(root->getLoc()) {
   replacer.addReplacement(
@@ -298,8 +298,8 @@ DataType DataRemap::remake(DataType old) {
   // sets it: each field's shape with its data types remade.
   std::vector<SmallVector<Type>> fields(old.getCtors().size());
   const std::vector<SmallVector<Type>> &bodyShapes = shapes.at(old);
-  FailureOr<DataType> remade = DataType::define(
-      program, names.lookup(old), [&](DataType self) -> FailureOr<DataType::Body> {
+  FailureOr<DataType> remade = declarations.define(
+      names.lookup(old), [&](DataType self) -> FailureOr<DataType::Body> {
         next[old] = self;
         DataType::Body body{old.getKind(), {}, old.getInstance()};
         for (Tag tag : old.getTags()) {

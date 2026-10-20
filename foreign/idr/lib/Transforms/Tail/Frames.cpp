@@ -86,11 +86,11 @@ struct FramesAction : support::TaggedAction<FramesAction> {
 
 // The stack's data type: `empty`, then each frame, holding what its rest
 // reads and the stack under it.
-FailureOr<DataType> stackType(ProgramOp program, FramesPlan &plan) {
-  MLIRContext *ctx = program.getContext();
+FailureOr<DataType> stackType(Declarations &declarations, FramesPlan &plan) {
+  MLIRContext *ctx = declarations.getProgram().getContext();
   SmallVector<SmallVector<Type>> fields;
   fields.reserve(plan.frames.size());
-  return DataType::define(program, plan.stack.getValue(), [&](DataType self) {
+  return declarations.define(plan.stack.getValue(), [&](DataType self) {
     Type below = BoxType::get(ctx, self);
     DataType::Body body;
     body.ctors.push_back({StringAttr::get(ctx, "empty"), {}, role::Plain{}});
@@ -292,9 +292,10 @@ void fillResume(RewriterBase &rewriter, const FramesPlan &plan, const Made &made
   ReturnOp::create(rewriter, loc, match->getResults());
 }
 
-LogicalResult perform(RewriterBase &rewriter, SymbolTable &symbols, FramesPlan &plan) {
+LogicalResult perform(RewriterBase &rewriter, SymbolTable &symbols, Declarations &declarations,
+                      FramesPlan &plan) {
   MLIRContext *ctx = plan.members.front().getContext();
-  FailureOr<DataType> stack = stackType(plan.members.front().getProgram(), plan);
+  FailureOr<DataType> stack = stackType(declarations, plan);
   if (failed(stack))
     return failure();
   Type stackBox = BoxType::get(ctx, *stack);
@@ -366,13 +367,14 @@ struct Frames : impl::IdrFramesBase<Frames> {
         plans.push_back(std::move(**plan));
     }
     IRRewriter rewriter(program.getContext());
+    Declarations declarations(program);
     unsigned performed = 0;
     bool failedOne = false;
     for (FramesPlan &plan : plans)
       performed += support::perform<FramesAction>(plan.members.front(), [&] {
         numFunctions += plan.members.size();
         numFrames += plan.frames.size();
-        failedOne |= failed(perform(rewriter, symbols, plan));
+        failedOne |= failed(perform(rewriter, symbols, declarations, plan));
       });
     if (failedOne)
       return signalPassFailure();

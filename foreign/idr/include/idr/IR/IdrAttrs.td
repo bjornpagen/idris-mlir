@@ -310,8 +310,8 @@ def Idr_InstanceAttr : AttrDef<Idr_Dialect, "Instance"> {
 // data type it reaches with its body, in name order: a type's text is a
 // bounded size whatever it holds, and the table is read once, which sets
 // every body before an op is read. A data type is declared through
-// DataType::define, which writes it here, so none is made that the table
-// does not hold.
+// Declarations::define, whose end writes it here, so none is made that the
+// table does not hold.
 def Idr_DataTableAttr : AttrDef<Idr_Dialect, "DataTable"> {
   let mnemonic = "types";
   let summary = "a program's data types, each with its body, in name order";
@@ -325,9 +325,9 @@ def Idr_DataTableAttr : AttrDef<Idr_Dialect, "DataTable"> {
   let extraClassDeclaration = [{
     // Whether `data` is a member.
     bool holds(::idr::DataType data) const;
-    // The table with `data` among its members, in its place by name: this
-    // table when it holds it already.
-    DataTableAttr with(::idr::DataType data) const;
+    // The table with `types` among its members, each in its place by name:
+    // this table when it holds them all already.
+    DataTableAttr with(::llvm::ArrayRef<::idr::DataType> types) const;
     // The table as bytecode's rows (IdrBytecode.td's TableMember), one
     // per member in order; and the table read from such rows, each
     // member's body set as its row says, or nothing after the reader's

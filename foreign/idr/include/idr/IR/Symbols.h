@@ -85,6 +85,41 @@ struct Elimination {
 };
 std::optional<Elimination> eliminationAt(mlir::OpOperand &use);
 
+// The data types a pass makes in a program: each is made through define,
+// with its body, and the program's table takes them all at once when the
+// declarations end. The table is one attribute of every member, remade
+// whole for each member added, so a pass declares its types once, not one
+// at a time. Nothing reads the table while declarations are open: a pass
+// reads a type's body from the type, and the program's verifier runs after
+// the pass. A remap of the program (DataRemap) replaces the table's members
+// as it does every occurrence of a type, so a type made as a new one, not
+// in place of a member, is declared before any remap runs: its
+// declarations end first.
+class Declarations {
+public:
+  explicit Declarations(ProgramOp program) : program(program) {}
+  ~Declarations();
+  Declarations(const Declarations &) = delete;
+  Declarations &operator=(const Declarations &) = delete;
+
+  ProgramOp getProgram() const { return program; }
+
+  // The data type named `identifier`, declared with the body `body` gives
+  // for it: the type it is handed is the one being made, which the body
+  // may hold, as may the body of a type `body` defines in turn. A type of
+  // that name with this body already is that type. Failure when `body`
+  // fails, after its own error, before any body is set; or, after an
+  // internal error at the program, when the body is no well-formed sum or
+  // the name has another body.
+  mlir::FailureOr<DataType>
+  define(llvm::StringRef identifier,
+         llvm::function_ref<mlir::FailureOr<DataType::Body>(DataType self)> body);
+
+private:
+  ProgramOp program;
+  llvm::SmallVector<DataType> made;
+};
+
 // The data types of a module remade where a body would change. A body is
 // set once, so a pass that changes what a body holds (the type of a field,
 // a type it holds in place that becomes a box, a label's function renamed)
@@ -158,8 +193,10 @@ private:
   DataType remake(DataType old);
 
   mlir::MLIRContext *context;
-  // The program the remade types are declared in.
-  ProgramOp program;
+  // The remade types, declared in the program when the remap goes: each
+  // replaces a member of the table as the remap retypes the program, and
+  // the declaration is for a remap that retypes functions alone.
+  Declarations declarations;
   Leaf leaf;
   Renames renames;
   // What `leaf` gave for each type at each field of a body, and anywhere

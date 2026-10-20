@@ -86,9 +86,10 @@ def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlo
     OpBuilder<(ins "::llvm::StringRef":$name, "::llvm::StringRef":$root, "::idr::Stage":$stage)>
   ];
   let extraClassDeclaration = [{
-    // Declares `data`, a data type with its body set, among the program's
-    // data types (DataType::define, the one caller).
-    void declare(::idr::DataType data);
+    // Declares `types`, data types with their bodies set, among the
+    // program's data types: what a pass's Declarations made, at their end,
+    // the one caller.
+    void declare(::llvm::ArrayRef<::idr::DataType> types);
     // The root, found in the program's own table, while it is an idr.func:
     // null once the program is lowered, when the root is upstream's
     // function that getRoot names.

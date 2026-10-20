@@ -64,16 +64,8 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
       ::idr::InstanceAttr instance;
     };
 
-    // The data type named `identifier`, declared in `program`'s table of
-    // data types with the body `body` gives for it: the type it is handed is
-    // the one being made, which the body may hold, as may the body of a type
-    // `body` defines in turn. A type of that name with this body already is
-    // that type. Failure when `body` fails, after its own error, before any
-    // body is set; or, after an internal error at the program, when the body
-    // is no well-formed sum or the name has another body.
-    static ::mlir::FailureOr<DataType> define(
-        ::idr::ProgramOp program, ::llvm::StringRef identifier,
-        ::llvm::function_ref<::mlir::FailureOr<Body>(DataType self)> body);
+    // A data type is made, with its body, through Declarations::define
+    // (idr/IR/Symbols.h), which declares it in a program's table.
 
     ::idr::SumKind getKind() const;
     // In tag order.
@@ -125,8 +117,9 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
 
   private:
     // The program's table of data types reads names into types and sets
-    // their bodies, as define does.
+    // their bodies, as Declarations::define does.
     friend class ::idr::DataTableAttr;
+    friend class ::idr::Declarations;
     // The type of the name, made without a body if the context has none of
     // that name: what the parser reads a name into and define makes.
     static DataType get(::mlir::MLIRContext *context, ::llvm::StringRef identifier);

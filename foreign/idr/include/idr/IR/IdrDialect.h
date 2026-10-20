@@ -183,6 +183,7 @@ struct Ctor {
 };
 
 class DataType;
+class Declarations;
 class ProgramOp;
 
 // A program's table of data types as bytecode carries it (IdrBytecode.td's

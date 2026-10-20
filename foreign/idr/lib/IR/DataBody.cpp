@@ -293,14 +293,12 @@ DataTableAttr DataTableAttr::replaced(DataTableAttr table, ArrayRef<Type> member
   return get(table.getContext(), ArrayRef<DataType>(kept));
 }
 
-DataTableAttr DataTableAttr::with(DataType data) const {
-  if (holds(data))
-    return *this;
+DataTableAttr DataTableAttr::with(ArrayRef<DataType> types) const {
   SmallVector<DataType> members(getMembers());
-  members.insert(llvm::lower_bound(members, data,
-                                   [](DataType a, DataType b) {
-                                     return a.getName() < b.getName();
-                                   }),
-                 data);
+  llvm::append_range(members, types);
+  llvm::sort(members, [](DataType a, DataType b) { return a.getName() < b.getName(); });
+  members.erase(llvm::unique(members), members.end());
+  if (members.size() == getMembers().size())
+    return *this;
   return get(getContext(), ArrayRef<DataType>(members));
 }

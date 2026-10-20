@@ -10,6 +10,7 @@
 // lib/IR/DataBody.cpp's, and what a value holds lib/IR/ValueFacts.cpp's.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
@@ -207,18 +208,21 @@ LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, co
   return success();
 }
 
-FailureOr<DataType> DataType::define(ProgramOp program, StringRef identifier,
-                                     function_ref<FailureOr<Body>(DataType self)> body) {
+FailureOr<DataType>
+Declarations::define(StringRef identifier,
+                     function_ref<FailureOr<DataType::Body>(DataType self)> body) {
   auto emitError = [&] { return program.emitError() << "internal error: "; };
   if (identifier.empty())
     return emitError() << "a data type has no name";
-  DataType type = get(program.getContext(), identifier);
-  FailureOr<Body> made = body(type);
-  if (failed(made) || failed(type.setBody(emitError, *made)))
+  DataType type = DataType::get(program.getContext(), identifier);
+  FailureOr<DataType::Body> built = body(type);
+  if (failed(built) || failed(type.setBody(emitError, *built)))
     return failure();
-  program.declare(type);
+  made.push_back(type);
   return type;
 }
+
+Declarations::~Declarations() { program.declare(made); }
 
 //===----------------------------------------------------------------------===//
 // The dialect's spellings of its types

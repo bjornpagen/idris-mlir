@@ -185,11 +185,13 @@ private:
 
   // The bodies, the signatures, the dispatch functions' names and the
   // constants (Declare.cpp).
-  mlir::FailureOr<DataType> define(const Key &key, llvm::function_ref<bool(FuncOp)> byName);
+  mlir::FailureOr<DataType> define(const Key &key, llvm::function_ref<bool(FuncOp)> byName,
+                                   Declarations &declarations);
   mlir::FailureOr<mlir::Type> slotType(mlir::Type type, const Slot &slot,
-                                       llvm::function_ref<bool(FuncOp)> byName);
+                                       llvm::function_ref<bool(FuncOp)> byName,
+                                       Declarations &declarations);
   mlir::FailureOr<DataType::Body>
-  body(const Key &key, llvm::function_ref<bool(FuncOp)> byName,
+  body(const Key &key, llvm::function_ref<bool(FuncOp)> byName, Declarations &declarations,
        llvm::SmallVectorImpl<llvm::SmallVector<mlir::Type>> &fields);
   void convertSignatures();
   mlir::LogicalResult nameForces();
