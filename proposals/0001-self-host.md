@@ -2,7 +2,7 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # Self-hosting: `make self` finishes
 
-**Status (2026-10-19):** open; S3 is next, after one toolchain rebuild.
+**Status (2026-10-20):** open; S3's pipeline half is next.
 
 **Goal.** idris-mlir compiles the frontend (`compiler/src`) and the fork
 (`compiler/idris`), stages 1 to 3, and stage 2 is the same as stage 3, on
@@ -15,12 +15,14 @@ record), *recalled*, *conjecture* or *decision*.
 **Done.** S1 and S2: the frontend, running on Chez, compiles its own
 sources and the fork with no refusal and no patch
 (`bench/records/2026-10-15-self-s1.md`, `2026-10-16-self-emit.md`,
-`2026-10-17-self-growth.md`; the stages' texts at 77eaa5b1). It last ran
-on 2026-10-17, before the representation wave (2c042728): 345 s, 5.64 GB
-peak, an 82 MB module (*measured*). Since then:
-- the representation wave's frontend has not compiled itself;
-- the pipeline has never run on the self module;
-- `make self` has never finished.
+`2026-10-17-self-growth.md`; the stages' texts at 77eaa5b1). S3's
+frontend half: the representation wave's frontend compiled itself on
+2026-10-20 in 450 to 528 s at 6.5 GB peak, writing a 71 MB module
+(*measured*, `build/self/stage1`), after two fixes: nested `where` blocks
+numbered by kind under their parent (196d3c6f), and a data type written
+as its name with its body once in the program's table (b9d4d592). The
+shared toolchain carries upstream 62 and 63. The pipeline half has never
+finished, and `make self` never has.
 
 ## 1. What `make self` does (*read*)
 
@@ -48,36 +50,55 @@ stage 1 alone. A stage keeps everything in `build/self/stageN/`.
 
 ## 2. The plan
 
-1. **The shared toolchain with upstream 62 and 63** (the coordinator).
-   The pin check refuses `make self` until the patches 4dde6b7f carries
-   are built in. They are the greedy driver's and liveness's quadratics in
-   a match's cases (234 s to 3.4 s at 4k cases, *measured*), and the self
-   module's largest matches are of that shape (*conjecture*). Acceptance:
-   `tools/verify-pins.sh built llvm sysroot` passes.
-2. **S3: stage 1 on arm64 macOS.** `make self-fork`, then
-   `tools/self.sh 1`, with the pipeline half unlimited (D10).
-   - **The frontend half**, the first time on the representation wave's
-     frontend. Watch its memory: a private run of the self compile once
-     ran out of memory on a type-level 2^63 written in unary, and its fix
-     (`Walk.capacity`, `compiler/src/IdrisMLIR/Frontend/Walk.idr`) has run
-     only on small programs (*recalled*).
-   - **The pipeline half**, the first time ever. Known at test scale: the
-     label solve is near linear (65,536 labels in 10.4 s), and a function
-     past 4096 LLVM instructions keeps its runtime calls out of line
-     (`idr::target::inlineCallerInstructions`). Everything else at this
-     scale is unknown. The first verification after `idr-defunctionalize`
-     is where the knot check (rule `cycle`) first sees the fork's types.
+1. **S3: stage 1 on arm64 macOS,** the pipeline half next. `make self`
+   builds the release preset and runs the stages; after
+   `make build PRESET=release`, `tools/self.sh 1` runs stage 1 alone, and
+   the pipeline half can be rerun by hand on
+   `build/self/stage1/idris-mlir-front.mlirbc` with
+   `build/release/foreign/idr/idris-mlir`, unlimited (D10).
+   - **What its runs found, fixed** (*measured* on this module): a probe
+     fold that relinked the use list the sink pattern walked, a hang
+     (1b2e31da); one table of data types remade per type declared, 843 s
+     of idr-defunctionalize (73bba53f); a rewrite cycle between
+     case-of-case and yield-fields in one lambda of
+     `Prelude.Interfaces.traverse`, a hang (c179ab2d); and every worker
+     of idr-optimize queued on the context's write lock to read a data
+     type's facts, about half the samples of a ten-minute window (the
+     sealed data type, 98c6315c). The run after the last of these has not
+     been made: whether the pipeline half now finishes, and in what
+     time, is unknown.
+   - **Method: trace it, don't guess.** Each run is the release
+     `idris-mlir` with `--profile-actions-to=<file>` (MLIR's action
+     profiler: a Chrome trace of every pass, every idr-optimize node,
+     named by its function, every pattern application and every tagged
+     transform), and `sample <pid>` taken against it whenever its trace
+     stops growing or a pass runs long, for what the actions do not name
+     (a lock, an analysis, a verifier). The trace grows at about 1 GB a
+     minute in idr-optimize; it is aggregated per action, per pattern and
+     per node (count, total and slowest), and its tail names the node a
+     stuck run is in. A stuck node is reduced to a standalone module (the
+     function, its program's table, its callees as stubs) and stepped
+     with `--canonicalize=max-num-rewrites=N` until the cycle shows.
+   - **The pipeline half's known risks,** from the same module: the sink
+     and case-of-case patterns are tried at every op and revisit a match
+     after every change inside it (`Canon/Sink.cpp`, `nearestSinkable`;
+     `Canon/Feeds.cpp`, `meetsInSomeRegion`), most of idr-optimize's
+     time on the runs before the lock was fixed; the verifier after each
+     inner pass walks the flow edges, carriers and lifetimes of every
+     value (`verifyFlowEdges`, `Carriers::of`, `atLifetime`). Whatever
+     the next trace shows hot is computed once and kept (memoized in an
+     analysis or in the type), never re-asked per visit.
    - **A failure** is fixed by D2: a refusal that names the frontend's or
      the fork's code is fixed in that code; any other failure is a bug of
-     the pass that raised it, recorded in `audits/bugs.md` under the lane
-     that owns the pass. The run goes on once it is fixed.
+     the pass that raised it, fixed at its cause and recorded in
+     `audits/bugs.md` under the lane that owns the pass if it is not
+     fixed at once. The run goes on once it is fixed.
    - Acceptance: both halves exit 0. A record goes under `bench/records/`:
      the frontend's time, peak memory and module size; the pipeline's
      `-mlir-timing` per pass and peak memory. It is a record, not a gate
      (D4).
-   - Waits on: step 1 and `make build` passing on main; not on green
-     suites (D9).
-3. **S4: `make self` on arm64 macOS,** stages 1 to 3.
+   - Waits on: nothing; not on green suites (D9).
+2. **S4: `make self` on arm64 macOS,** stages 1 to 3.
    - Stage 2's frontend is the first run of a frontend idris-mlir
      compiled. Its heap is snmalloc's with no limit of ours (the first
      4 GiB in one aligned region, `runtime/Alloc/Cells.cpp`); its stack
@@ -90,7 +111,7 @@ stage 1 alone. A stage keeps everything in `build/self/stageN/`.
      suites pass on arm64 macOS; each stage's time and peak go under
      `bench/records/`.
    - Waits on: S3, and the suites green.
-4. **S5: `make self` on the three Linux targets** (x86_64, arm64 at 4 KiB
+3. **S5: `make self` on the three Linux targets** (x86_64, arm64 at 4 KiB
    and at 16 KiB pages). Acceptance: as S4, there. Waits on S4 and on
    0002's builds and suites passing on each target.
 

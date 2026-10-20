@@ -9,15 +9,12 @@ fix lands, the commit naming it. A bug in a pinned upstream is recorded
 here only until its patch is carried: then its report is
 `upstream/<bug>/README.md` and its status `PINS.md`'s.
 
-**Status, main at c4d38e9b (2026-10-19).** `make check` 34/34. No full
-suite has run on it: `make test`, `make test-idr` and
-`make test-mlir-tools` are refused by the pin check until the shared
-toolchain carries upstream 62 and 63 (4dde6b7f). The last full counts
-(arm64 macOS, before the ownership lane's static-lifetime cutover, which
-c4d38e9b took out) were `make test` 446-449 of 478, `make test-idr`
-331-332 of 333, `make test-mlir-tools` 30 of 30. An entry marked *not
-rerun since* X was last seen at X; the first full suite after the
-toolchain rebuild confirms or strikes it.
+**Status, main at 98c6315c (2026-10-20).** `make check` 34/34,
+`make test-idr` 340/340, `make test-mlir-tools` 34/34, `make test-unit`
+passes, on the shared toolchain with every carried patch. `make test` has
+not run since the data-table cutover (b9d4d592); its last count, before
+it, was 446-449 of 478. An entry marked *not rerun since* X was last seen
+at X; the first full `make test` confirms or strikes it.
 
 ## ownership
 
@@ -186,8 +183,8 @@ toolchain rebuild confirms or strikes it.
 - **The crash after main is not yet confirmed fixed.** LLVM AArch64 made a
   sibling call out of a `tailcc` function with stack arguments, leaving
   its argument area on the stack (upstream/30-aarch64-sibcall-callee-pop,
-  carried in the toolchain rebuilt 2026-10-19). Owed: the first full
-  suite on it shows directory-listing, files-roundtrip, array-of-arrays
+  carried in the toolchain since 2026-10-19). Owed: the first full
+  `make test` shows directory-listing, files-roundtrip, array-of-arrays
   (stdin 0), bounded-method-own, buffer-ops and io-loop-through-helper
   (its 100-character buffer-edges case included) exiting as their cases
   say; that all six shared the cause was never verified, so one still

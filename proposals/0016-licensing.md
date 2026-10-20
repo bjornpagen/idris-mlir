@@ -6,7 +6,7 @@
 with `THIRD-PARTY.md`, the SPDX line on every file in scope, the line
 `idris-mlir-tblgen` writes into every generated dialect module
 (`writeLicense`), and the gate, `tools/licenses.sh`, run by
-`tests/licenses` in `make check` (34/34 on arm64 macOS at c4d38e9b). The
+`tests/licenses` in `make check` (34/34 on arm64 macOS at 98c6315c). The
 code is the specification of all of it. What remains is three small
 edits and one measurement, none on `make self`'s path and none owed
 until a binary ships. Deleted when §1 is done; the rules of §2 move with

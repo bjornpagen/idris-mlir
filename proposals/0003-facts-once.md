@@ -249,8 +249,8 @@ check, make test, make test-idr and make test-unit match the counts before
 the change test for test; IdrRcGrades on every-interfaces-export stays
 near 3.5 s (Debug); nat-parity, escape-hatch-hole-at-runtime,
 lower-static-thunk, lower-value-buffers, verify-sources and
-effects-memo-state pass. **Waits on** a full suite on main, which waits on
-the toolchain rebuild with upstream 62 and 63 (audits/bugs.md, upstream).
+effects-memo-state pass. **Waits on** a full `make test` on main
+(proposals/README.md, step 1).
 
 ## The dialect: matches and locations (control lane)
 

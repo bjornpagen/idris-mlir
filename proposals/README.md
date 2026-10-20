@@ -27,56 +27,52 @@ never by its old number, which the queue reuses. A proposal can start
 before a later one it partly needs; the stages that wait are named
 here.
 
-## Where the work stands (2026-10-19)
+## Where the work stands (2026-10-20)
 
 The goal is self-hosting: `make self`, stage 2 = stage 3, on the four
 targets (0001). Everything else waits for it unless it says otherwise.
 
 - **Built and running on arm64 macOS:** the total wave, the sound wave and
   the representation wave (their last texts at 77eaa5b1; the code is
-  their specification), and the four-targets cutover (0002). Main at
-  c4d38e9b: `make check` 34/34; the last full counts, before the ownership
-  lane's static-lifetime cutover was taken out, were `make test` 446-449
-  of 478, `make test-idr` 331-332 of 333 and `make test-mlir-tools` 30 of
-  30. The known failures are `audits/bugs.md`'s, by lane.
-- **Blocked on one toolchain rebuild:** upstream 62 and 63 (4dde6b7f) are
-  written and tested on a private build, not yet in the shared toolchain,
-  so the pin check refuses the full suites and `make self` until it is
-  rebuilt.
-- **Self-hosting:** the frontend, on Chez, compiled itself and the fork
-  with no refusal on 2026-10-17 (345 s, 5.64 GB, an 82 MB module), before
-  the representation wave. Since then nothing of it has run: the wave's
-  frontend has not compiled itself, the pipeline has never run on the
-  self module, and `make self` has never finished.
+  their specification), the four-targets cutover (0002), and the shared
+  toolchain with every carried patch, upstream 62 and 63 included. Main
+  at 98c6315c: `make check` 34/34, `make test-idr` 340/340,
+  `make test-mlir-tools` 34/34, `make test-unit` passes. `make test` has
+  not run since the data-table cutover (b9d4d592); its last count, before
+  that, was 446-449 of 478. The known failures are `audits/bugs.md`'s, by
+  lane.
+- **Self-hosting, S3 (0001):** the frontend half of stage 1 passes (450 to
+  528 s, 6.5 GB peak, a 71 MB module). The pipeline half has never
+  finished. Each run so far found the next thing that stopped it, fixed in
+  the commits from b9d4d592 to 98c6315c: a type printed with its body at
+  every occurrence, a probe that changed the IR it walked, a quadratic
+  table of data types, a rewrite cycle between case-of-case and
+  yield-fields, and every thread waiting on the context's lock for a data
+  type's facts. The run after the last of these has not been made.
 - **Linux:** no Linux target has built anything.
 
 ## What comes next, in order
 
-1. **Rebuild the shared toolchain with upstream 62 and 63** (the
-   coordinator). Acceptance: `tools/verify-pins.sh built llvm sysroot`
-   passes, and so do `tests/upstream-greedy-multi-region-ancestors` and
-   `tests/upstream-liveness-trivially-dead`.
-2. **One full suite run on main** (`make test`, `test-idr`,
-   `test-mlir-tools`, under the lanes' lock). It confirms or strikes every
+1. **One full `make test` on main.** It confirms or strikes every
    `audits/bugs.md` entry marked *not rerun*, and gives 2a02891f
    (control: a member call granted a node) its first run.
-3. **0001 S3: stage 1 on arm64 macOS** (`make self-fork`, then
-   `tools/self.sh 1`). The census: every refusal, internal error and
-   superlinear pass it finds goes to `audits/bugs.md` under the lane that
-   owns it, and the lanes fix them. S3 does not wait for green suites
-   (0001 D9), and its pipeline half runs without a time limit (0001 D10).
-4. **The lanes make the suites green** on arm64 macOS: `audits/bugs.md`,
+2. **0001 S3, the pipeline half,** on the release build, traced: the
+   action profile and a sampler on the same run (0001, S3's method). Every
+   hang, quadratic and lock it shows is fixed at its cause, as a
+   representation, and the run goes again, until both halves exit 0 and
+   the record is written. S3 does not wait for green suites (0001 D9).
+3. **The lanes make the suites green** on arm64 macOS: `audits/bugs.md`,
    and what S3 adds to it.
-5. **0001 S4: `make self` on arm64 macOS,** stage 2 = stage 3, on a green
+4. **0001 S4: `make self` on arm64 macOS,** stage 2 = stage 3, on a green
    tree.
-6. **0002: the three Linux builds** (x86_64, arm64 at 4 KiB, arm64 at
+5. **0002: the three Linux builds** (x86_64, arm64 at 4 KiB, arm64 at
    16 KiB pages), then **0001 S5** on each. The Linux builds wait only on
    the machines and may start any time.
-7. **After `make self` on arm64 macOS,** in parallel with the Linux work:
+6. **After `make self` on arm64 macOS,** in parallel with the Linux work:
    0003 (each fact once: every location kept first, then the TTC's facts,
    then the rest) and 0004 (the
    test suite the audit planned, the runner under both hosts first).
-8. **After `make self` on the four targets:** 0005 (the toolchain bump),
+7. **After `make self` on the four targets:** 0005 (the toolchain bump),
    0006 (G1, the qualification), then the queue from 0007 on.
 
 Off that path, and not started while self-hosting is the focus, though
@@ -86,8 +82,8 @@ P0 (the native DMP measurement on this machine) and P1, 0019's N1.
 ## The queue
 
 - [0001](0001-self-host.md): **self-hosting, `make self` finishes,** and
-  nothing else. S1 and S2 are done; S3 is next (above, steps 1 to 3),
-  then S4 and S5.
+  nothing else. S1 and S2 are done, and S3's frontend half; S3's
+  pipeline half is next (above, step 2), then S4 and S5.
 - [0002](0002-targets.md): four first-class targets on the system's C
   library. Landed (102183f4) and running on arm64 macOS; what remains is
   the three Linux builds and the facts written from memory each confirms.

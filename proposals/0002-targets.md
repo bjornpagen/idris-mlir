@@ -3,7 +3,7 @@
 # 0002: four targets on the system's C library
 
 **Status:** the cutover landed in 102183f4 (2026-10-18) and has been
-built and run on arm64 macOS since (`make check` 34/34 at c4d38e9b). No
+built and run on arm64 macOS since (`make check` 34/34 at 98c6315c). No
 Linux target has built anything. What remains is the three Linux
 builds and the facts written from memory that each must confirm. The
 code is the specification of what landed: the target entries in

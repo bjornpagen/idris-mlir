@@ -11,10 +11,8 @@ It must be redone when the bump runs, because our side has moved since:
   - Idris 2 1c630e67;
   - CMake v4.2.8;
   - Chez Scheme v10.4.1.
-- **The toolchain was rebuilt on 2026-10-19 at the same pins.** It carries
-  the LLVM patches through 61. Patches 62 and 63 (4dde6b7f) are written and
-  wait for the next rebuild, which is the coordinator's and is not this
-  bump (`proposals/0001-self-host.md`, step 1).
+- **The toolchain was rebuilt on 2026-10-19 and 2026-10-20 at the same
+  pins.** It carries every LLVM patch through 63.
 - **The patch set has more than doubled.** The survey checked nine carried
   LLVM patches. Eighteen are carried now (`tools/patches.sh` lists them in
   order):
