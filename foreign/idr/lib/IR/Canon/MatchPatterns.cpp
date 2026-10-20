@@ -9,7 +9,6 @@
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
-#include "idr/Support/Worklist.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Matchers.h"
@@ -22,45 +21,21 @@ using namespace idr;
 
 namespace {
 
-// The literal match on `scrutinee`, or on a string appended of it, that
-// has the case `""`: what a string known not to be empty reaches through
-// the appends it is part of, which are then not empty either. Each value is
-// looked at once.
-MatchLitOp emptyCaseAbove(Value scrutinee) {
-  OnceWorklist<Value> work;
-  work.push(scrutinee);
-  while (std::optional<Value> next = work.pop())
-    for (Operation *user : next->getUsers()) {
-      if (auto match = dyn_cast<MatchLitOp>(user);
-          match && match.getScrutinee() == *next &&
-          llvm::is_contained(match.getCases(), StringAttr::get(user->getContext(), "")))
-        return match;
-      if (auto append = dyn_cast<StrAppendOp>(user))
-        work.push(append.getResult());
-    }
-  return {};
-}
-
 // A string that cannot be empty never takes the case `""`. Whether it can
-// is read down the appends it is built of; a change there reaches the op
-// above it alone. So the pattern is tried at every op: at a literal match,
-// for its own scrutinee, and at a string known not to be empty, for the
-// matches it reaches up through the appends it is part of.
-struct DropEmptyStringCase : RewritePattern {
+// is read down the appends the scrutinee is built of (knownNonEmpty), so
+// the question is the match's own, and the pattern is rooted at it, as a
+// canonicalization of idr.match_lit is: the driver tries it when the
+// match is made or its scrutinee rewired, and at its seeding of every op.
+struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
   explicit DropEmptyStringCase(MLIRContext *context)
-      : RewritePattern(MatchAnyOpTypeTag(), PatternBenefit(1), context) {
+      : OpRewritePattern(context, PatternBenefit(1)) {
     setDebugName("idr-drop-empty-string-case");
   }
 
-  LogicalResult matchAndRewrite(Operation *root, PatternRewriter &rewriter) const final {
-    auto match = dyn_cast<MatchLitOp>(root);
-    if (match && knownNonEmpty(match.getScrutinee()) && drop(match, rewriter))
+  LogicalResult matchAndRewrite(MatchLitOp match, PatternRewriter &rewriter) const final {
+    if (knownNonEmpty(match.getScrutinee()) && drop(match, rewriter))
       return success();
-    if (root->getNumResults() != 1 || !isa<StrType>(unrestricted(root->getResult(0).getType())) ||
-        !knownNonEmpty(root->getResult(0)))
-      return failure();
-    MatchLitOp above = emptyCaseAbove(root->getResult(0));
-    return success(above && drop(above, rewriter));
+    return failure();
   }
 
 private:
@@ -273,8 +248,8 @@ LogicalResult readsPlainValue(Operation *op) {
   return success(fieldsReadFrom(cast<MatchOpInterface>(op).getScrutinee()).has_value());
 }
 
-// Case-of-case and sinking are tried at every op, so the one hook adds
-// them for both matches.
+// Case-of-case and sinking are rooted at the matches through their
+// interface, so the one hook adds them for both.
 void addMatchPatterns(RewritePatternSet &results, MLIRContext *context) {
   populate(results, context, MatchOp::getOperationName());
   canon::addStaticForcePatterns(results, context);

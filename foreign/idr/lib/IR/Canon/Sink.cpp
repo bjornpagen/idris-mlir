@@ -195,43 +195,24 @@ Operation *nearestSinkable(Operation *match) {
   return nullptr;
 }
 
-// The match `value` would move into: the op of its block whose regions
-// hold every user of it, when that is a match after it; null otherwise.
-Operation *holdingMatch(Operation *value) {
-  Block *block = value->getBlock();
-  Operation *match = nullptr;
-  for (Operation *user : value->getUsers()) {
-    Operation *at = block ? block->findAncestorOpInBlock(*user) : nullptr;
-    if (!at || (match && at != match))
-      return nullptr;
-    match = at;
-  }
-  if (!isa_and_nonnull<MatchOpInterface>(match) || !value->isBeforeInBlock(match))
-    return nullptr;
-  return match;
-}
-
-// Tried at every op, so that each change the driver reports reaches it:
-// at a match, whose regions changed or were filled, the nearest value
-// before it that moves in; at any other op, which was made or changed, the
-// match its users are in. A value that does more than compute leaves the
-// ops between its place and the match, and those ops whose own question
-// spans it are tried again.
-struct SinkIntoRegions : RewritePattern {
+// Rooted at a match, as a canonicalization of the match ops is: the
+// driver tries it when the match is made or changed, at its seeding of
+// every op, and again whenever anything under the match changes, since
+// a change requeues its ancestors. From the match, nearestSinkable scans
+// every value before it, so each attempt asks the whole question. A
+// value that does more than compute leaves the ops between its place and
+// the match, and those ops whose own question spans it are tried again.
+struct SinkIntoRegions : OpInterfaceRewritePattern<MatchOpInterface> {
   explicit SinkIntoRegions(MLIRContext *context)
-      : RewritePattern(MatchAnyOpTypeTag(), PatternBenefit(1), context) {
+      : OpInterfaceRewritePattern(context, PatternBenefit(1)) {
     setDebugName("idr-sink-into-regions");
   }
 
-  LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const final {
-    if (isa<MatchOpInterface>(op)) {
-      if (Operation *value = nearestSinkable(op))
-        return sink(value, op, rewriter);
-    }
-    Operation *match = holdingMatch(op);
-    if (!match || !sinkable(op, match))
+  LogicalResult matchAndRewrite(MatchOpInterface match, PatternRewriter &rewriter) const final {
+    Operation *value = nearestSinkable(match.getOperation());
+    if (!value)
       return failure();
-    return sink(op, match, rewriter);
+    return sink(value, match.getOperation(), rewriter);
   }
 
 private:

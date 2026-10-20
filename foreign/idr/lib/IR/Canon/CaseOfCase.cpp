@@ -33,29 +33,23 @@ using namespace idr;
 
 namespace {
 
-// Tried at every op, so that each change the driver reports reaches it: at
-// a match, whose regions changed, each result's consumer; at any other op,
-// a consumer made or changed, each match whose result it consumes. A
-// consumer that does more than compute leaves the ops between the match
-// and its place, and those ops whose own question spans it are tried
-// again.
-struct SinkConsumer : RewritePattern {
+// Rooted at a match, as a canonicalization of the match ops is: the
+// driver tries it when the match is made or changed, at its seeding of
+// every op, and again whenever anything under the match changes, since
+// a change requeues its ancestors. From the match it reads each result's
+// consumer as it then is. A consumer that does more than compute leaves
+// the ops between the match and its place, and those ops whose own
+// question spans it are tried again.
+struct SinkConsumer : OpInterfaceRewritePattern<MatchOpInterface> {
   explicit SinkConsumer(MLIRContext *context)
-      : RewritePattern(MatchAnyOpTypeTag(), PatternBenefit(1), context) {
+      : OpInterfaceRewritePattern(context, PatternBenefit(1)) {
     setDebugName("idr-sink-consumer");
   }
 
-  LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const final {
-    if (auto match = dyn_cast<MatchOpInterface>(op))
-      for (OpResult result : op->getResults())
-        if (Operation *consumer = candidate(result); consumer && moves(match, consumer, rewriter))
-          return success();
-    for (Value operand : op->getOperands()) {
-      auto result = dyn_cast<OpResult>(operand);
-      auto match = result ? dyn_cast<MatchOpInterface>(result.getOwner()) : MatchOpInterface();
-      if (match && candidate(result) == op && moves(match, op, rewriter))
+  LogicalResult matchAndRewrite(MatchOpInterface match, PatternRewriter &rewriter) const final {
+    for (OpResult result : match->getResults())
+      if (Operation *consumer = candidate(result); consumer && moves(match, consumer, rewriter))
         return success();
-    }
     return failure();
   }
 
