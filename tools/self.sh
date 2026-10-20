@@ -53,9 +53,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 # measured on the typecheck machine), and debt for stages 2 and 3: the
 # frontend idris-mlir compiles has never run.
 frontend_limit=1800
-# The pipeline's is debt: it has never run on the self module. Its design's
-# margins, the label solve in 10 s and the optimizer in 600 s, leave LLVM's
-# code generation and the link unmeasured.
+# The pipeline has never run on the self module, so stage 1's pipeline
+# half, the census, runs with no limit (timeout's 0): a run cut short
+# records nothing, and a limit is set from what the census measures. The
+# later stages' limit is debt until that record exists.
+stage1_pipeline_limit=0
 pipeline_limit=7200
 
 last=${1:-3}
@@ -96,7 +98,13 @@ stage() {
   out=$self/stage$n
   # Stage 1's frontend is the one input of the chain the run does not
   # make: `make build`'s.
-  if [ "$n" -eq 1 ]; then front=$idris_mlir_front; else front=$self/stage$((n - 1))/idris-mlir-front; fi
+  if [ "$n" -eq 1 ]; then
+    front=$idris_mlir_front
+    limit=$stage1_pipeline_limit
+  else
+    front=$self/stage$((n - 1))/idris-mlir-front
+    limit=$pipeline_limit
+  fi
   echo "==> stage $n: ${front#"$root"/}, then ${idris_mlir#"$root"/}"
   # The fresh copy, or the run stops: cp -R into a directory that is still
   # there would copy into it, beside what an earlier stage left.
@@ -109,7 +117,7 @@ stage() {
     --timing "$out/frontend-timing" --core "$out/idris-mlir-front.core" \
     -o "$out/idris-mlir-front.mlirbc" IdrisMLIR/Frontend/Driver.idr
   cp -R "$self/src/build" "$out/ttc" || exit 1
-  half pipeline "$pipeline_limit" "$idris_mlir" --num-threads="$ncpu" -mlir-timing \
+  half pipeline "$limit" "$idris_mlir" --num-threads="$ncpu" -mlir-timing \
     "$out/idris-mlir-front.mlirbc" -o "$out/idris-mlir-front"
 }
 
