@@ -178,6 +178,22 @@ which the top-level CMake configure gate reads.
 - status (2026-10-19): written and tested on a patched AsmPrinter linked
   into idris-mlir; not yet built into the toolchain; not filed
 
+## sqrt-negative-fold
+
+- symptom: on main at 7208ba24 (and on main on 2026-10-19),
+  `math::SqrtOp::fold` declines a negative constant, so the square root of
+  a negative constant stays a `math.sqrt` that a run computes: the
+  fuzzer's static form of a program, whose every line must fold, fails on
+  it (tests/fuzz-seeds)
+- sites: the folders of idr-optimize, which fold math ops by their own
+  folder
+- workaround: `upstream/61-sqrt-negative-fold/llvm.patch`: a quiet NaN for
+  a negative non-zero operand, -0 for -0; checked by
+  tests/upstream-sqrt-negative-fold
+- retire: drop the patch when the pin folds it
+- upstream: upstream/61-sqrt-negative-fold; plan in its README: one PR
+- status (2026-10-19): carried; not filed
+
 ## cse-nested-linalg-index
 
 - symptom: on main at 7208ba24 (and on main on 2026-10-19), cse replaces

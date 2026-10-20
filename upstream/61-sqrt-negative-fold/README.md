@@ -31,27 +31,21 @@ as `nan` whatever its sign (runtime/Doubles/Printing.cpp).
 The square root of a negative non-zero constant folds to a quiet NaN, of
 -0 to -0; a NaN operand stays as it is (its payload is the target's).
 
-## The fix
+## Patch
 
-`pull-request.diff`: the folder returns `APFloat::getQNaN` for a negative
+`llvm.patch`: the folder returns `APFloat::getQNaN` for a negative
 non-zero operand, declines a NaN, and lets -0 reach the host `sqrt`,
 which gives -0. Tests `sqrt_fold_negative` and `sqrt_fold_negative_zero`
 in `mlir/test/Dialect/Math/canonicalize.mlir`.
 
-## Why there is no patch
+## Carried
 
-Not carried yet, though tests/fuzz-seeds reaches the bug: carrying it
-rebuilds the shared toolchain, which no lane does on its own
-(tools/lanes). The diff applies to the pin (`git apply --check` against
-.toolchain/llvm-project); it has not been built. To carry it: rename
-`pull-request.diff` to `llvm.patch`, let `make bootstrap` rebuild, add its
-PINS.md entry, and turn tests/upstream-sqrt-negative-fold into the check
-that the patched mlir-opt folds the reproducer. Until then that check says
-the pinned mlir-opt still leaves it.
+`llvm.patch`, which tools/bootstrap.sh applies to the pin it builds, since
+tests/fuzz-seeds reaches the bug. tests/upstream-sqrt-negative-fold checks
+that the toolchain's mlir-opt folds the reproducer.
 
 ## Upstreaming plan
 
 A pull request to llvm/llvm-project, `[mlir][math] Fold sqrt of negative
-constants to NaN`, with the two canonicalize.mlir tests. Status: not
-filed; to carry with the next toolchain build, and to build and run
-check-mlir on before either.
+constants to NaN`, with the two canonicalize.mlir tests. Status:
+carried from the toolchain build of 2026-10-19; not filed.
