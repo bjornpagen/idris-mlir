@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // An array tabulated in a private function and read by its caller's callee:
 // remove-dead-values must keep each element the region yields.
-idr.program @t root(@root) stage(first) {
+idr.program @t root(@root) stage(first) types #idr.types<> {
   idr.func @squares(%n: index) -> tensor<?xi64> {
     %t = idr.tabulate [%n] {
     ^bb0(%i: index):

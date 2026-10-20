@@ -1,8 +1,8 @@
 // A recursive idr.func whose every level writes, in place, the array the
 // level below returns: the analysis of the cycle of calls finds that @build
 // returns a writable buffer of its own allocation, so no level copies it.
-idr.program @"idr-cycle" root(@root) stage(first) {
-  idr.func private @build(%n: index) -> tensor<8xi64> {
+idr.program @"idr-cycle" root(@root) stage(first) types #idr.types<> {
+  idr.func @build(%n: index) -> tensor<8xi64> {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %v = arith.constant 7 : i64
@@ -19,12 +19,12 @@ idr.program @"idr-cycle" root(@root) stage(first) {
     }
     return %r : tensor<8xi64>
   }
-  idr.func private @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %c3 = arith.constant 3 : index
     %c8 = arith.constant 8 : index
     %t = idr.call @build(%c8) : (index) -> tensor<8xi64>
     %x = tensor.extract %t[%c3] : tensor<8xi64>
-    %w2 = idr.io.put_int signed %x, %w : i64
+    %w2 = idr.io.put_sint %x, %w : i64
     return %w2 : !idr.world
   }
 }

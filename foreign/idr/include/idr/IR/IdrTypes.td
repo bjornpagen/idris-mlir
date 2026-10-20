@@ -31,13 +31,15 @@ class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
 // fields' types, its role, the function of a label, and for a memo sum's
 // label whether every force runs it), and the Idris instance it is of. The
 // body comes with the type, as an LLVM identified struct's does: the type
-// is made with it (define), every fact in it is decided before then, and a
-// pass that would change one makes a new type (DataRemap). Only define and
-// the program's table ever see the type without its body, and a name read
-// that no table declares is refused by the program's verifier, so no
-// reader asks whether it has one. A pattern or a verifier reads the type,
-// never the module. What a value of the type holds is computed once from
-// the body and kept with it. To upstream's walkers the type's sub-elements
+// is made with it (Declarations::define), every fact in it is decided
+// before then, and a pass that would change one makes a new type
+// (DataRemap). A type is a name until the group it is defined in is
+// sealed, and then whole: its body and what a value of it holds, written
+// once, together, and only read after that, by any thread, with no lock.
+// Only the parser, the bytecode reader and define see a type as a name,
+// and a name read that no table declares is refused by the program's
+// verifier, so no reader asks whether it is whole. A pattern or a verifier
+// reads the type, never the module. To upstream's walkers the type's sub-elements
 // are its labels' functions alone, so a symbol use of a label is a use of
 // the type: its fields are types of their own, which the walkers do not
 // enter. Written `!idr.data<"T">` wherever it occurs, its body once in its
@@ -116,34 +118,45 @@ def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInter
     }
 
   private:
-    // The program's table of data types reads names into types and sets
-    // their bodies, as Declarations::define does.
+    // The program's table of data types reads names into types and seals
+    // them, as Declarations::define does.
     friend class ::idr::DataTableAttr;
     friend class ::idr::Declarations;
-    // The type of the name, made without a body if the context has none of
+    // The type of the name, a name alone if the context has no type of
     // that name: what the parser reads a name into and define makes.
     static DataType get(::mlir::MLIRContext *context, ::llvm::StringRef identifier);
-    // Sets the body, once: the same body again succeeds; another one, or
-    // one that is no well-formed sum, fails with `emitError`'s error.
-    ::mlir::LogicalResult setBody(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                                  const Body &body);
+    // Seals `group`, every type of it at once: each body checked, what a
+    // value of each holds solved over the group, whose types may hold one
+    // another in any cycle, and over the sealed types it holds besides; then
+    // each type written whole, once. A type sealed already with the same
+    // body stays as it is. Failure, with `emitError`'s error for the member
+    // it is about, when a body is no well-formed sum, a type is in the
+    // group twice or has another body already, or a body holds a type that
+    // is a name alone, outside the group; nothing is written then.
+    static ::mlir::LogicalResult
+    seal(::llvm::ArrayRef<::idr::DataDefinition> group,
+         ::llvm::function_ref<::mlir::InFlightDiagnostic(size_t member)> emitError);
+    // What a value of each member of `group` holds, in the group's order:
+    // the least fixpoint over the containment among the group's types,
+    // one pass over its components, callees first, a cycle holding what
+    // its members hold (lib/IR/ValueFacts.cpp).
+    static ::mlir::FailureOr<::llvm::SmallVector<::idr::Held>>
+    solveHeld(::llvm::ArrayRef<::idr::DataDefinition> group,
+              ::llvm::function_ref<::mlir::InFlightDiagnostic(size_t member)> emitError);
     ::idr::Tag roleTag(::idr::CtorRole role) const;
     // The rules of a well-formed sum, which a body is checked by once, when
     // it is set (lib/IR/DataBody.cpp).
     static ::mlir::LogicalResult verifyBody(DataType type,
                                             ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                                             const Body &body);
-    // The facts of ValueFactsTypeInterface, computed at the first question
-    // for every data type the answer depends on, and kept beside the body
-    // (lib/IR/ValueFacts.cpp). They are read and kept under the context's
-    // lock for the type, as the body is set; none until they are known.
-    ::idr::Held facts() const;
-    std::optional<::idr::Held> knownFacts() const;
-    void keepFacts(::idr::Held held) const;
-    // Whether the body is set yet: false while define or the program's
-    // table makes the type, when no fact of it is final, and for a name read
-    // that no table declares, which the program's verifier refuses.
-    bool bodySet() const;
+    // What a value holds, ValueFactsTypeInterface's answers: solved when
+    // the type was sealed, read as it was written.
+    ::idr::Held getHeld() const;
+    // Whether the type is whole: false while it is a name alone, in a group
+    // the parser, the bytecode reader or define has not sealed yet, and for
+    // a name read that no table declares, which the program's verifier
+    // refuses.
+    bool isDefined() const;
     static void walkLabels(DataType type, ::llvm::function_ref<void(::mlir::Attribute)> walk);
     static ::mlir::Type replaceLabels(DataType type, ::llvm::ArrayRef<::mlir::Attribute> labels);
 

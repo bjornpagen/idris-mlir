@@ -262,14 +262,9 @@ LogicalResult idr::verify::program(ProgramOp program) {
     return failure();
 
   // The data types the program's values and bodies hold, each once, every
-  // one declared in the program's table: a name read that no table
-  // declares has no body, and no op's rule is asked of it.
+  // one a member of the program's table (ProgramOp::verify).
   TypeGraph graph(program.getOperation());
-  DataTableAttr table = program.getTypes();
   for (DataType data : graph.declarations()) {
-    if (!table.holds(data))
-      return program.emitOpError("reaches the data type \"")
-             << data.getName() << "\", which its table does not declare";
     // A cell has one memo, which every reference to it sees.
     if (data.isMemo() && graph.inlined(data))
       return program.emitOpError("holds the memo sum \"")

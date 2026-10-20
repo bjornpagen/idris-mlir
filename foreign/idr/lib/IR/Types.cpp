@@ -2,12 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The dialect's types: their generated definitions and their spellings,
 // with the storage of a data type, which they need complete, and what
-// touches it: the body, made with the type, and the facts of what its
-// values hold, kept beside it under the context's lock; the canonical forms
-// of !idr.q, the literals of the scalar types of ours, and the names the
-// printer gives a value of each type. A graded value takes its carrier's
-// name, so a linear string is %s. How a body is checked and written is
-// lib/IR/DataBody.cpp's, and what a value holds lib/IR/ValueFacts.cpp's.
+// touches it: the sealing of a group of types, which writes each body with
+// what its values hold once, and define, which seals the types a pass
+// makes; and the canonical forms of !idr.q. How a body is checked and
+// written is lib/IR/DataBody.cpp's, what a value holds
+// lib/IR/ValueFacts.cpp's, and the literals and the printer's names of the
+// types lib/IR/TypeLiterals.cpp's.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -28,24 +28,20 @@ using namespace idr;
 
 namespace idr::detail {
 
-// What a value of a data type holds, kept, and asked for: the two other
-// changes of a data type's storage, each made under the context's lock.
-struct KeptFacts {
+// A sealing: the body and what a value of the type holds, written together.
+struct Sealing {
+  const DataType::Body &body;
   Held held;
-};
-struct ReadFacts {
-  std::optional<Held> &into;
 };
 
 // A data type is identified by its name, the key, which holds no type. The
-// body is the mutable part, set once as an LLVM identified struct's is
-// (TypeDetail.h's mutate): a second setting succeeds only with the same
-// body. The constructors and their fields live in the context's allocator,
-// as the type does, and so do an index of the tags by name and the tag of
-// each role a sum has one of. What a value of the type holds is kept beside
-// the body once it is known; it is written and read as the body is set,
-// through the uniquer's mutate, under the lock the context takes for it, so
-// threads that ask at once each see the facts whole.
+// rest is written once, whole, when the type's group is sealed, as an LLVM
+// identified struct's body is set (TypeDetail.h's mutate): the body and what
+// a value holds, under the uniquer's lock for that one write, and read after
+// it by every thread with no lock at all. A second sealing succeeds only
+// with the same body. The constructors and their fields live in the
+// context's allocator, as the type does, and so do an index of the tags by
+// name and the tag of each role a sum has one of.
 struct DataTypeStorage : TypeStorage {
   using KeyTy = StringRef;
 
@@ -58,8 +54,9 @@ struct DataTypeStorage : TypeStorage {
   }
   KeyTy getAsKey() const { return identifier; }
 
-  LogicalResult mutate(TypeStorageAllocator &allocator, const DataType::Body &body) {
-    if (initialized)
+  LogicalResult mutate(TypeStorageAllocator &allocator, Sealing sealing) {
+    const DataType::Body &body = sealing.body;
+    if (defined)
       return success(kind == body.kind && instance == body.instance &&
                      ctors == ArrayRef<Ctor>(body.ctors));
     SmallVector<Ctor> copied;
@@ -76,17 +73,8 @@ struct DataTypeStorage : TypeStorage {
       roleTags[static_cast<size_t>(kindOf(ctor.role))] = Tag{static_cast<uint32_t>(tag)};
     kind = body.kind;
     instance = body.instance;
-    initialized = true;
-    return success();
-  }
-
-  LogicalResult mutate(TypeStorageAllocator &, KeptFacts kept) {
-    facts = kept.held;
-    return success();
-  }
-
-  LogicalResult mutate(TypeStorageAllocator &, ReadFacts read) {
-    read.into = facts;
+    held = sealing.held;
+    defined = true;
     return success();
   }
 
@@ -94,7 +82,7 @@ struct DataTypeStorage : TypeStorage {
   StringRef name(Tag tag) const { return ctors[static_cast<uint32_t>(tag)].name.getValue(); }
 
   StringRef identifier;
-  bool initialized = false;
+  bool defined = false;
   SumKind kind = SumKind::Plain;
   ArrayRef<Ctor> ctors;
   InstanceAttr instance;
@@ -104,8 +92,8 @@ struct DataTypeStorage : TypeStorage {
   // one for a role the body's rules say a sum has one of; none for a role
   // no constructor plays.
   std::array<std::optional<Tag>, getMaxEnumValForCtorRole() + 1> roleTags{};
-  // What a value holds, none until it is known.
-  std::optional<Held> facts;
+  // What a value holds.
+  Held held = Held::Nothing;
 };
 
 } // namespace idr::detail
@@ -132,18 +120,36 @@ DataType DataType::get(MLIRContext *context, StringRef identifier) {
 }
 
 StringRef DataType::getName() const { return getImpl()->identifier; }
-SumKind DataType::getKind() const { return getImpl()->kind; }
-ArrayRef<Ctor> DataType::getCtors() const { return getImpl()->ctors; }
+// A type is read only once it is whole: a name alone has nothing to read.
+SumKind DataType::getKind() const {
+  assert(isDefined() && "a sealed data type");
+  return getImpl()->kind;
+}
+
+ArrayRef<Ctor> DataType::getCtors() const {
+  assert(isDefined() && "a sealed data type");
+  return getImpl()->ctors;
+}
+
+Held DataType::getHeld() const {
+  assert(isDefined() && "a sealed data type");
+  return getImpl()->held;
+}
 
 const Ctor &DataType::getCtor(Tag tag) const {
+  assert(isDefined() && "a sealed data type");
   auto position = static_cast<uint32_t>(tag);
   assert(position < getImpl()->ctors.size() && "a constructor of the data type");
   return getImpl()->ctors[position];
 }
 
-InstanceAttr DataType::getInstance() const { return getImpl()->instance; }
+InstanceAttr DataType::getInstance() const {
+  assert(isDefined() && "a sealed data type");
+  return getImpl()->instance;
+}
 
 std::optional<Tag> DataType::getTag(StringRef ctor) const {
+  assert(isDefined() && "a sealed data type");
   const detail::DataTypeStorage &storage = *getImpl();
   const Tag *it = llvm::partition_point(storage.byName,
                                         [&](Tag tag) { return storage.name(tag) < ctor; });
@@ -188,23 +194,33 @@ Type DataType::replaceLabels(DataType type, ArrayRef<Attribute> labels) {
   return type;
 }
 
-bool DataType::bodySet() const { return getImpl()->initialized; }
+bool DataType::isDefined() const { return getImpl()->defined; }
 
-std::optional<Held> DataType::knownFacts() const {
-  std::optional<Held> held;
-  (void)DataType(*this).mutate(detail::ReadFacts{held});
-  return held;
-}
-
-void DataType::keepFacts(Held held) const {
-  (void)DataType(*this).mutate(detail::KeptFacts{held});
-}
-
-LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, const Body &body) {
-  if (failed(verifyBody(*this, emitError, body)))
+LogicalResult DataType::seal(ArrayRef<DataDefinition> group,
+                             function_ref<InFlightDiagnostic(size_t member)> emitError) {
+  llvm::SmallDenseSet<DataType, 8> members;
+  for (auto [index, member] : llvm::enumerate(group)) {
+    if (!members.insert(member.type).second)
+      return emitError(index) << "the data type \"" << member.type.getName()
+                              << "\" has another body already";
+    if (failed(verifyBody(member.type, [&] { return emitError(index); }, member.body)))
+      return failure();
+  }
+  FailureOr<SmallVector<Held>> held = solveHeld(group, emitError);
+  if (failed(held))
     return failure();
-  if (failed(Base::mutate(body)))
-    return emitError() << "the data type \"" << getName() << "\" has another body already";
+  // A member sealed already is checked first, so that a refused group
+  // writes nothing.
+  for (auto [index, member] : llvm::enumerate(group)) {
+    const detail::DataTypeStorage &storage = *member.type.getImpl();
+    if (storage.defined &&
+        (storage.kind != member.body.kind || storage.instance != member.body.instance ||
+         storage.ctors != ArrayRef<Ctor>(member.body.ctors)))
+      return emitError(index) << "the data type \"" << member.type.getName()
+                              << "\" has another body already";
+  }
+  for (auto [member, answer] : llvm::zip_equal(group, *held))
+    (void)DataType(member.type).mutate(detail::Sealing{member.body, answer});
   return success();
 }
 
@@ -215,10 +231,37 @@ Declarations::define(StringRef identifier,
   if (identifier.empty())
     return emitError() << "a data type has no name";
   DataType type = DataType::get(program.getContext(), identifier);
+  ++open;
   FailureOr<DataType::Body> built = body(type);
-  if (failed(built) || failed(type.setBody(emitError, *built)))
+  --open;
+  if (failed(built)) {
+    if (open == 0)
+      pending.clear();
     return failure();
-  made.push_back(type);
+  }
+  Pending &kept = pending.emplace_back();
+  kept.definition = {type, {built->kind, {}, built->instance}};
+  for (const Ctor &ctor : built->ctors) {
+    kept.fields.emplace_back(ctor.fields.begin(), ctor.fields.end());
+    kept.definition.body.ctors.push_back({ctor.name, {}, ctor.role});
+  }
+  if (open > 0)
+    return type;
+  // The outermost define: every type it and the defines inside it made is
+  // whole now, each body held here, and the group is sealed at once.
+  SmallVector<DataDefinition> group;
+  for (Pending &each : pending) {
+    for (auto [ctor, fields] : llvm::zip_equal(each.definition.body.ctors, each.fields))
+      ctor.fields = fields;
+    group.push_back(each.definition);
+  }
+  LogicalResult sealed = DataType::seal(group, [&](size_t) { return emitError(); });
+  if (succeeded(sealed))
+    for (const DataDefinition &each : group)
+      made.push_back(each.type);
+  pending.clear();
+  if (failed(sealed))
+    return failure();
   return type;
 }
 
@@ -307,58 +350,3 @@ LogicalResult QType::verify(function_ref<InFlightDiagnostic()> emitError, Quanti
     return emitError() << "expects a grade of a runtime type, got " << value;
   return success();
 }
-
-//===----------------------------------------------------------------------===//
-// Literals
-//===----------------------------------------------------------------------===//
-
-// A string's literal is a string attribute with no type: a typed one
-// (`"x" : !idr.str`) is another attribute of the same text, which no
-// literal of ours is, so one string has one literal.
-bool StrType::isLiteral(Attribute literal) const {
-  auto text = dyn_cast<StringAttr>(literal);
-  return text && isa<NoneType>(text.getType());
-}
-
-ParseResult StrType::parseLiteral(AsmParser &parser, Attribute &literal) const {
-  std::string bytes;
-  if (parser.parseString(&bytes))
-    return failure();
-  literal = parser.getBuilder().getStringAttr(bytes);
-  return success();
-}
-
-bool BigType::isLiteral(Attribute literal) const { return isa<BigAttr>(literal); }
-
-ParseResult BigType::parseLiteral(AsmParser &parser, Attribute &literal) const {
-  BigAttr big;
-  if (parser.parseAttribute(big))
-    return failure();
-  literal = big;
-  return success();
-}
-
-// A natural is never negative, which its type proves: the one place a
-// natural's literal is said. It is written as a big's, and a negative one
-// is no literal of it, which the op that holds it is refused for.
-bool NatType::isLiteral(Attribute literal) const {
-  auto big = dyn_cast<BigAttr>(literal);
-  return big && !big.getValue().isNegative();
-}
-
-ParseResult NatType::parseLiteral(AsmParser &parser, Attribute &literal) const {
-  return BigType::get(getContext()).parseLiteral(parser, literal);
-}
-
-void QType::getAsmName(OpAsmSetNameFn setNameFn) const {
-  if (auto carrier = dyn_cast<OpAsmTypeInterface>(getValue()))
-    carrier.getAsmName(setNameFn);
-}
-
-void WorldType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("w"); }
-void StrType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("s"); }
-void BigType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("n"); }
-void NatType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("n"); }
-void FnType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("f"); }
-void LazyType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("lazy"); }
-void idr::TokenType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("tok"); }

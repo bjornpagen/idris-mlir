@@ -8,10 +8,12 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstddef>
+#include <deque>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -227,10 +229,15 @@ void DataTableAttr::print(AsmPrinter &printer) const {
   printer << '>';
 }
 
+// The members are read as names and bodies, then sealed at once: a body
+// may hold any member, before or after it.
 Attribute DataTableAttr::parse(AsmParser &parser, Type) {
   MLIRContext *context = parser.getContext();
   SMLoc loc = parser.getCurrentLocation();
-  SmallVector<DataType> members;
+  SmallVector<DataDefinition> group;
+  SmallVector<SMLoc> bodyLocs;
+  // Each member's fields, which its body views: a deque keeps them in place.
+  std::deque<std::vector<SmallVector<Type>>> fields;
   auto parseMember = [&]() -> ParseResult {
     SMLoc nameLoc = parser.getCurrentLocation();
     std::string name;
@@ -239,30 +246,54 @@ Attribute DataTableAttr::parse(AsmParser &parser, Type) {
     if (name.empty())
       return parser.emitError(nameLoc, "expects a data type to have a name");
     DataType member = DataType::get(context, name);
-    SMLoc bodyLoc = parser.getCurrentLocation();
-    std::vector<SmallVector<Type>> fields;
-    FailureOr<DataType::Body> body = parseBody(parser, fields);
-    if (failed(body) ||
-        failed(member.setBody([&] { return parser.emitError(bodyLoc); }, *body)))
+    bodyLocs.push_back(parser.getCurrentLocation());
+    FailureOr<DataType::Body> body = parseBody(parser, fields.emplace_back());
+    if (failed(body))
       return failure();
-    members.push_back(member);
+    group.push_back({member, std::move(*body)});
     return success();
   };
-  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::LessGreater, parseMember))
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::LessGreater, parseMember) ||
+      failed(DataType::seal(group, [&](size_t member) { return parser.emitError(bodyLocs[member]); })))
     return {};
+  SmallVector<DataType> members =
+      llvm::to_vector(llvm::map_range(group, [](const DataDefinition &each) { return each.type; }));
   return getChecked([&] { return parser.emitError(loc); }, context, ArrayRef<DataType>(members));
 }
 
+// The table is closed: every data type a member's fields name is a member,
+// so a reader that meets a member meets nothing but members, each whole.
 LogicalResult DataTableAttr::verify(function_ref<InFlightDiagnostic()> emitError,
                                     ArrayRef<DataType> members) {
   for (auto [index, member] : llvm::enumerate(members)) {
-    if (!member.bodySet())
+    if (!member.isDefined())
       return emitError() << "the data type \"" << member.getName() << "\" has no body";
     if (index > 0 && members[index - 1].getName() >= member.getName())
       return emitError() << "the data types are in name order, each once, and \""
                          << members[index - 1].getName() << "\" comes before \""
                          << member.getName() << "\"";
   }
+  auto declares = [&](DataType data) {
+    const DataType *at = llvm::lower_bound(
+        members, data, [](DataType a, DataType b) { return a.getName() < b.getName(); });
+    return at != members.end() && *at == data;
+  };
+  DataType holder, held;
+  AttrTypeWalker named;
+  named.addWalk([&](DataType data) {
+    if (declares(data))
+      return WalkResult::skip();
+    held = data;
+    return WalkResult::interrupt();
+  });
+  for (DataType member : members)
+    for (const Ctor &ctor : member.getCtors())
+      for (Type field : ctor.fields)
+        if (named.walk<WalkOrder::PreOrder>(field).wasInterrupted()) {
+          holder = member;
+          return emitError() << "the data type \"" << holder.getName() << "\" holds \""
+                             << held.getName() << "\", which the table does not declare";
+        }
   return success();
 }
 

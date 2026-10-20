@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What a value of each type holds, ValueFactsTypeInterface's answers: every
-// type of the dialect gives its own, a data type from its body, computed
-// once and kept beside it; the builtin types a value may have answer as
+// type of the dialect gives its own, a data type the one its group's sealing
+// solved and wrote with its body; the builtin types a value may have answer as
 // external models, attached when the dialect registers its types, with the
 // builtin integers' literals.
 
@@ -203,45 +203,37 @@ bool idr::TokenType::isCellPointer() const { return false; }
 // reference is held in place, through the data types held in place; a
 // world anywhere a value reaches, in place, in a box or in an array's
 // elements. Each is a least fixpoint over the containment among data
-// types, which one pass over its components, callees first, reaches: a
-// cycle holds what its members hold.
-// The first question computes the answer for every data type it depends on
-// that has none yet, and keeps it, unless a type it met is still being made
-// (only the parser and define see one), whose body is still to come. A body
-// may name types whose bodies come after it, so no setting of one body sees
-// the answer whole. Two threads that ask at once may each compute it, and
-// keep the same.
-Held DataType::facts() const {
-  if (std::optional<Held> known = knownFacts())
-    return *known;
-  // The data types without an answer, from this one, each numbered once as
-  // it is met, so the table ends with the types this one reaches; each with
-  // what its fields are themselves and the data types they name.
-  SmallVector<DataType> nodes{*this};
-  llvm::DenseMap<DataType, unsigned> indexOf{{*this, 0u}};
+// types, solved once, when a group of types is sealed: the group's types
+// are the graph's nodes, and a type outside it is sealed already and
+// answers with what it holds. One pass over the components, callees first,
+// reaches the fixpoint: a cycle holds what its members hold.
+FailureOr<SmallVector<Held>>
+DataType::solveHeld(ArrayRef<DataDefinition> group,
+                    function_ref<InFlightDiagnostic(size_t member)> emitError) {
+  llvm::DenseMap<DataType, unsigned> indexOf;
+  for (auto [index, member] : llvm::enumerate(group))
+    indexOf.try_emplace(member.type, static_cast<unsigned>(index));
   SmallVector<Held> local;
-  SmallVector<SmallVector<unsigned>> named, inPlace;
-  bool complete = true;
-  for (size_t at = 0; at < nodes.size(); ++at) {
-    DataType node = nodes[at];
-    complete &= node.bodySet();
+  SmallVector<SmallVector<unsigned>> named(group.size()), inPlace(group.size());
+  for (auto [index, member] : llvm::enumerate(group)) {
     Held own = Held::Nothing;
     Held reached = Held::Nothing;
-    SmallVector<unsigned> successors, inPlaceSuccessors;
+    DataType undefined;
     auto onData = [&](DataType data, bool heldInPlace) {
-      if (std::optional<Held> answer = data.knownFacts()) {
-        reached |= *answer & Held::World;
+      if (auto at = indexOf.find(data); at != indexOf.end()) {
+        named[index].push_back(at->second);
         if (heldInPlace)
-          own |= *answer & Held::References;
+          inPlace[index].push_back(at->second);
         return;
       }
-      auto [it, fresh] = indexOf.try_emplace(data, static_cast<unsigned>(nodes.size()));
-      if (fresh)
-        nodes.push_back(data);
-      unsigned index = it->second;
-      successors.push_back(index);
+      if (!data.isDefined()) {
+        undefined = data;
+        return;
+      }
+      Held answer = data.getHeld();
+      reached |= answer & Held::World;
       if (heldInPlace)
-        inPlaceSuccessors.push_back(index);
+        own |= answer & Held::References;
     };
     // What a field names, through the arrays a world orders, whose
     // elements a value holds through their cell: each array's element is a
@@ -254,7 +246,7 @@ Held DataType::facts() const {
               reached |= Held::World;
           });
     };
-    for (const Ctor &ctor : node.getCtors())
+    for (const Ctor &ctor : member.body.ctors)
       for (Type field : ctor.fields) {
         reach(field);
         // A reference held by anything but a data type in place is the
@@ -263,9 +255,10 @@ Held DataType::facts() const {
         if (!isa<DataType>(value) && idr::holdsReferences(value))
           own |= Held::References;
       }
+    if (undefined)
+      return emitError(index) << "the data type \"" << member.type.getName() << "\" holds \""
+                              << undefined.getName() << "\", which nothing defines";
     local.push_back(own | reached);
-    named.push_back(std::move(successors));
-    inPlace.push_back(std::move(inPlaceSuccessors));
   }
   // A world along every edge; a reference along the edges in place.
   SmallVector<Held> held(local);
@@ -283,14 +276,11 @@ Held DataType::facts() const {
   };
   solve(named, Held::World);
   solve(inPlace, Held::References);
-  if (complete)
-    for (auto [node, answer] : llvm::zip_equal(nodes, held))
-      node.keepFacts(answer);
-  return held.front();
+  return held;
 }
 
-bool DataType::holdsReferences() const { return any(facts() & Held::References); }
-bool DataType::holdsWorld() const { return any(facts() & Held::World); }
+bool DataType::holdsReferences() const { return any(getHeld() & Held::References); }
+bool DataType::holdsWorld() const { return any(getHeld() & Held::World); }
 // A constructor value is used as often as its grade says.
 bool DataType::isLinearByType() const { return false; }
 bool DataType::isCounted() const { return holdsReferences(); }

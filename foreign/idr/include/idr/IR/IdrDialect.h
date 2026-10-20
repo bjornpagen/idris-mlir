@@ -183,6 +183,7 @@ struct Ctor {
 };
 
 class DataType;
+struct DataDefinition;
 class Declarations;
 class ProgramOp;
 
@@ -231,6 +232,15 @@ struct TableMember {
 
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.h.inc"
+
+namespace idr {
+// A data type with its body: a member of a group sealed at once
+// (DataType::seal).
+struct DataDefinition {
+  DataType type;
+  DataType::Body body;
+};
+} // namespace idr
 
 // How a value moves, and the flow interface every op that moves one holds,
 // which the ops name: after the types, which its anchors hold.

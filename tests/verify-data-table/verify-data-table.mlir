@@ -7,7 +7,9 @@
 // holds every body once, in name order: a label's function and by_name
 // and an instance round-trip through the table's text and bytecode alike,
 // and a type the program reaches that its table does not declare, a table
-// out of name order, and a name with two bodies are refused.
+// out of name order, a name with two bodies, and a member that holds a
+// type nothing defines (a table is closed: what a member holds is a
+// member) are refused.
 
 // CHECK: #data_types = #idr.types<
 // CHECK-NEXT: "Memo" = memo [@run() label @force by_name, @running() running, @forced(i64) forced]
@@ -68,6 +70,21 @@ idr.program @order root(@root) stage(first) types #types {
 // expected-error @below {{the data type "T" has another body already}}
 #types = #idr.types<"T" = plain [@A(i64)], "T" = plain [@B()]>
 idr.program @twice root(@root) stage(first) types #types {
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+!Pair = !idr.data<"Pair">
+!Missing = !idr.data<"Missing">
+// expected-error @+2 {{the data type "Pair" holds "Missing", which nothing defines}}
+#types = #idr.types<
+  "Pair" = plain [@P(i64, !idr.box<!Missing>)]
+>
+idr.program @open root(@root) stage(first) types #types {
   idr.func @root() -> i64 {
     %zero = arith.constant 0 : i64
     return %zero : i64

@@ -87,13 +87,16 @@ std::optional<Elimination> eliminationAt(mlir::OpOperand &use);
 
 // The data types a pass makes in a program: each is made through define,
 // with its body, and the program's table takes them all at once when the
-// declarations end. The table is one attribute of every member, remade
-// whole for each member added, so a pass declares its types once, not one
-// at a time. Nothing reads the table while declarations are open: a pass
-// reads a type's body from the type, and the program's verifier runs after
-// the pass. A remap of the program (DataRemap) replaces the table's members
-// as it does every occurrence of a type, so a type made as a new one, not
-// in place of a member, is declared before any remap runs: its
+// declarations end. A define's body may define more types, which may hold
+// the one being made; every type made inside the outermost define is a
+// name until that define returns, and then the group is sealed at once
+// (DataType::seal), whole. The table is one attribute of every member,
+// remade whole for each member added, so a pass declares its types once,
+// not one at a time. Nothing reads the table while declarations are open:
+// a pass reads a type's body from the type, and the program's verifier runs
+// after the pass. A remap of the program (DataRemap) replaces the table's
+// members as it does every occurrence of a type, so a type made as a new
+// one, not in place of a member, is declared before any remap runs: its
 // declarations end first.
 class Declarations {
 public:
@@ -106,17 +109,30 @@ public:
 
   // The data type named `identifier`, declared with the body `body` gives
   // for it: the type it is handed is the one being made, which the body
-  // may hold, as may the body of a type `body` defines in turn. A type of
-  // that name with this body already is that type. Failure when `body`
-  // fails, after its own error, before any body is set; or, after an
-  // internal error at the program, when the body is no well-formed sum or
-  // the name has another body.
+  // may hold, as may the body of a type `body` defines in turn, and which
+  // is a name alone until the outermost define returns. A type of that
+  // name with this body already is that type. Failure when `body` fails,
+  // after its own error; or, after an internal error at the program, when
+  // a body of the outermost define's group is no well-formed sum, a name
+  // has another body, or a body holds a name that nothing defines; no type
+  // of the group is sealed then.
   mlir::FailureOr<DataType>
   define(llvm::StringRef identifier,
          llvm::function_ref<mlir::FailureOr<DataType::Body>(DataType self)> body);
 
 private:
+  // A type the outermost define has not sealed yet, its constructors'
+  // fields held here: a body's fields are a view of its caller's storage,
+  // which ends with the define that handed it over.
+  struct Pending {
+    DataDefinition definition;
+    std::vector<std::vector<mlir::Type>> fields;
+  };
+
   ProgramOp program;
+  // How many defines are running, one inside the other.
+  unsigned open = 0;
+  std::vector<Pending> pending;
   llvm::SmallVector<DataType> made;
 };
 

@@ -16,6 +16,7 @@
 #include "idr/IR/Verify.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -47,12 +48,44 @@ void idr::ProgramOp::declare(ArrayRef<DataType> types) { setTypesAttr(getTypes()
 
 // A module holds one program, the closed world every pass reads: the first
 // in its module's block, and none after it. Only that block's ops are read,
-// which no pass on a program changes.
+// which no pass on a program changes. Every data type an op of the program
+// names is a member of its table, checked here, before any op of the
+// program is: a name read that no table declares is a name alone, with no
+// body and nothing it holds, and no op's rule is asked of it. The table is
+// closed (DataTableAttr::verify), so what a member holds is a member too.
 LogicalResult idr::ProgramOp::verify() {
   ProgramOp first = *(*this)->getBlock()->getOps<ProgramOp>().begin();
   if (first != *this)
     return emitOpError("@") << getSymName() << " is a second program beside @"
                             << first.getSymName() << ", and a module holds one program";
+  DataTableAttr table = getTypes();
+  DataType undeclared;
+  // Pre-order, so that a skip keeps the walk out of what it skips: the
+  // table, and a data type's labels, which a name alone has none of.
+  AttrTypeWalker named;
+  named.addWalk([](DataTableAttr) { return WalkResult::skip(); });
+  named.addWalk([&](DataType data) {
+    if (table.holds(data))
+      return WalkResult::skip();
+    undeclared = data;
+    return WalkResult::interrupt();
+  });
+  WalkResult walked = getBody()->walk([&](Operation *op) {
+    if (named.walk<WalkOrder::PreOrder>(op->getAttrDictionary()).wasInterrupted())
+      return WalkResult::interrupt();
+    for (Type type : op->getResultTypes())
+      if (named.walk<WalkOrder::PreOrder>(type).wasInterrupted())
+        return WalkResult::interrupt();
+    for (Region &region : op->getRegions())
+      for (Block &block : region)
+        for (Type type : block.getArgumentTypes())
+          if (named.walk<WalkOrder::PreOrder>(type).wasInterrupted())
+            return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+  if (walked.wasInterrupted())
+    return emitOpError("reaches the data type \"")
+           << undeclared.getName() << "\", which its table does not declare";
   return success();
 }
 

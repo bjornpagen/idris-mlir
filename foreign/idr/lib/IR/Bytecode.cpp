@@ -88,7 +88,9 @@ SmallVector<TableMember> DataTableAttr::getRows() const {
 DataTableAttr DataTableAttr::fromRows(DialectBytecodeReader &reader, MLIRContext *context,
                                       ArrayRef<TableMember> rows) {
   auto emitError = [&] { return reader.emitError(); };
-  SmallVector<DataType> members;
+  // The members are read as names and bodies, the fields viewed in the
+  // rows, then sealed at once: a body may hold any member.
+  SmallVector<DataDefinition> group;
   for (const TableMember &row : rows) {
     if (row.name.empty()) {
       emitError() << "expects a data type to have a name";
@@ -118,10 +120,12 @@ DataTableAttr DataTableAttr::fromRows(DialectBytecodeReader &reader, MLIRContext
       }
       body.ctors.push_back({StringAttr::get(context, ctor.name), ctor.fields, role});
     }
-    if (failed(member.setBody(emitError, body)))
-      return {};
-    members.push_back(member);
+    group.push_back({member, std::move(body)});
   }
+  if (failed(DataType::seal(group, [&](size_t) { return emitError(); })))
+    return {};
+  SmallVector<DataType> members =
+      llvm::to_vector(llvm::map_range(group, [](const DataDefinition &each) { return each.type; }));
   return getChecked(emitError, context, ArrayRef<DataType>(members));
 }
 

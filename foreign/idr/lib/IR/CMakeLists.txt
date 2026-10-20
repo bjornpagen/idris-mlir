@@ -26,6 +26,7 @@ add_mlir_dialect_library(IdrIR
 	OpsOwnership.cpp
 	OpsPlatform.cpp
 	Types.cpp
+	TypeLiterals.cpp
 	DataBody.cpp
 	ValueFacts.cpp
 	Attrs.cpp
