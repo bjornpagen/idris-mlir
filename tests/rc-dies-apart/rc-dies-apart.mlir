@@ -21,10 +21,15 @@
 // cell of numbers is the empty one, and `tail` also gets the empty list of
 // lists: every case of every match is run, and each run prints what it
 // printed before counting and leaves no cell live.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-!LL = !idr.data<"LL", list [@NN() nil, @CC(!idr.box<!L>, !idr.box<!idr.data<"LL">>) cons]>
-!V = !idr.data<"V", plain [@V0(), @V1(i64, i64)]>
-idr.program @"dies-apart" root(@root) stage(first) {
+!L = !idr.data<"L">
+!LL = !idr.data<"LL">
+!V = !idr.data<"V">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons],
+  "LL" = list [@NN() nil, @CC(!idr.box<!L>, !idr.box<!idr.data<"LL">>) cons],
+  "V" = plain [@V0(), @V1(i64, i64)]
+>
+idr.program @"dies-apart" root(@root) stage(first) types #types {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {

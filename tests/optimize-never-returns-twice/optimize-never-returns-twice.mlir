@@ -12,7 +12,7 @@
 // The inlined crashes still end the program before its output: on every
 // one-byte input the optimized program exits as the program as written
 // does, with nothing printed (%differential).
-idr.program @"never-returns-twice" root(@root) stage(first) {
+idr.program @"never-returns-twice" root(@root) stage(first) types #idr.types<> {
   idr.func @fail_a(%n: i64) -> i64 attributes {total} {
     idr.crash "a"
     ub.unreachable

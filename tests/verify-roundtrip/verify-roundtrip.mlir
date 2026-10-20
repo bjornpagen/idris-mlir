@@ -4,16 +4,25 @@
 // Every op, type and attribute of the contract
 // parses in its custom syntax and prints back the same, directly and from the
 // generic form. A symbol that does not start with a letter is quoted: the
-// contract's `@$58$$58$` is written `@"$58$$58$"`.
+// contract's `@$58$$58$` is written `@"$58$$58$"`. A data type is its name
+// wherever it occurs, and its body is in the program's table, once.
 
-// CHECK-DAG: !Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]>
-// CHECK-DAG: !List = !idr.data<"List", list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!idr.data<"List">>) cons]>
-// CHECK-DAG: !Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !Shape, !idr.box<!List>)]>
+// CHECK-DAG: !Shape = !idr.data<"Main.Shape">
+// CHECK-DAG: !List = !idr.data<"List">
+// CHECK-DAG: !Fields = !idr.data<"Fields">
+// CHECK-DAG: "Fields" = plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !Shape, !idr.box<!List>)]
+// CHECK-DAG: "List" = list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!List>) cons]
+// CHECK-DAG: "Main.Shape" = plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]
 // CHECK-LABEL: module {
-!Main_Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]>
-!List = !idr.data<"List", list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!idr.data<"List">>) cons]>
-!Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !Main_Shape, !idr.box<!List>)]>
-idr.program @roundtrip root(@Main.main) stage(higher) {
+!Main_Shape = !idr.data<"Main.Shape">
+!List = !idr.data<"List">
+!Fields = !idr.data<"Fields">
+#types = #idr.types<
+  "Fields" = plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !Main_Shape, !idr.box<!List>)],
+  "List" = list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!List>) cons],
+  "Main.Shape" = plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]
+>
+idr.program @roundtrip root(@Main.main) stage(higher) types #types {
   idr.func @inc(%k: i64, %x: i64) -> i64 {
     %r = arith.addi %k, %x : i64
     return %r : i64

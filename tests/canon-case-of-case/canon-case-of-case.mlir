@@ -41,9 +41,13 @@
 
 // putStr (maybe "none" show m): each region writes its own string, and
 // `show` becomes put_int.
-!Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-idr.program @"case-of-case" root(@root) stage(higher) {
+!Maybe = !idr.data<"Maybe">
+!P = !idr.data<"P">
+#types = #idr.types<
+  "Maybe" = plain [@Nothing(), @Just(i64)],
+  "P" = plain [@MkP(i64, i64)]
+>
+idr.program @"case-of-case" root(@root) stage(higher) types #types {
   idr.func @put_maybe(%m: !Maybe, %w: !idr.world) -> !idr.world {
     %s = idr.match %m : !Maybe -> (!idr.str) {
     case @Nothing() {

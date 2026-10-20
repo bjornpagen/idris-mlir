@@ -30,7 +30,7 @@
 // TWICE: error: internal error: idr-rc-cells runs on a program at first, not owned
 // EARLY: error: internal error: idr-lower runs on a program at owned, not higher
 // BACK: error: internal error: idr-defunctionalize runs on a program at higher, not lowered
-idr.program @stages root(@Prog.main) stage(higher) {
+idr.program @stages root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
@@ -43,7 +43,7 @@ idr.program @stages root(@Prog.main) stage(higher) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main() -> i64 {
 // REF:     %c = arith.constant 42 : i64
 // REF:     return %c : i64

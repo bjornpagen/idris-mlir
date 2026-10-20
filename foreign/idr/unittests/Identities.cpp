@@ -31,8 +31,11 @@ llvm::SmallVector<std::optional<unsigned>> givenBackWith(llvm::StringRef effects
   MLIRContext ctx;
   ctx.loadDialect<idr::IdrDialect, arith::ArithDialect>();
   std::string text = (R"mlir(
-!L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
-idr.program @identities root(@root) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = plain [@N(), @C(i64, !idr.box<!idr.data<"L">>)]
+>
+idr.program @identities root(@root) stage(first) types #types {
   idr.func effects<none> @g(%x: !idr.box<!L>) -> !idr.box<!L> attributes {total} {
     return %x : !idr.box<!L>
   }

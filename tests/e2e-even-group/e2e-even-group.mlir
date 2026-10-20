@@ -1,4 +1,4 @@
-// RUN: awk '/^!Many = / { printf "!Many = !idr.data<\"Many\", plain ["; for (i = 0; i <= 131072; i++) { if (i > 0) printf ", "; printf "@C%d", i; if (i == 0 || i == 65536 || i == 131072) printf "(i64)"; else printf "()" } print "]>"; next } { print }' %s > %t.many.mlir
+// RUN: awk '/^  "Many" = / { printf "  \"Many\" = plain ["; for (i = 0; i <= 131072; i++) { if (i > 0) printf ", "; printf "@C%d", i; if (i == 0 || i == 65536 || i == 131072) printf "(i64)"; else printf "()" } print "],"; next } { print }' %s > %t.many.mlir
 // RUN: idris-mlir -c %t.many.mlir -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "abc" | %t > %t.out
@@ -16,9 +16,13 @@
 // CHECK: C0 97
 // CHECK-NEXT: C65536 98
 // CHECK-NEXT: C131072 99
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!Many = !idr.data<"Many", plain [@C0(i64), @C65536(i64), @C131072(i64)]>
-idr.program @"even-group" root(@Prog.main) stage(higher) {
+!Unit = !idr.data<"Unit">
+!Many = !idr.data<"Many">
+#types = #idr.types<
+  "Many" = plain [@C0(i64), @C65536(i64), @C131072(i64)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @"even-group" root(@Prog.main) stage(higher) types #types {
   idr.func @make(%c: i32) -> !idr.box<!Many> attributes {total, no_inline} {
     %x = arith.extui %c : i32 to i64
     %r = idr.match_lit %c : i32 -> (!idr.box<!Many>) {

@@ -14,9 +14,13 @@
 // so a linear thread passed back beside a value stays the one thread. A
 // result also used whole keeps its constructor.
 
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-!R = !idr.data<"R", plain [@MkR(i64, !idr.lin<!idr.str>)]>
-idr.program @"yield-fields" root(@root) stage(higher) {
+!P = !idr.data<"P">
+!R = !idr.data<"R">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, i64)],
+  "R" = plain [@MkR(i64, !idr.lin<!idr.str>)]
+>
+idr.program @"yield-fields" root(@root) stage(higher) types #types {
   // let (a, b) = if n == 0 then (1, 2) else (n, n) in a + b
   idr.func @pair_parts(%n: i64) -> i64 {
     %p = idr.match_lit %n : i64 -> (!P) {

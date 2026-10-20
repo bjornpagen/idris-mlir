@@ -10,8 +10,11 @@
 // data (a space of its phrase written `-`). No object is written, and the
 // report is the same however many threads compile.
 // CHECK: verdict: refused
-!Node = !idr.data<"Node", plain [@MkNode(memref<?x!idr.box<!idr.data<"Node">>, #idr.world>)]>
-idr.program @"report-refused" root(@Prog.main) stage(higher) {
+!Node = !idr.data<"Node">
+#types = #idr.types<
+  "Node" = plain [@MkNode(memref<?x!idr.box<!idr.data<"Node">>, #idr.world>)]
+>
+idr.program @"report-refused" root(@Prog.main) stage(higher) types #types {
   idr.func @grow(%node: !idr.box<!Node>, %w: !idr.world) -> !idr.world {
     %one = arith.constant 1 : i64
     // CHECK-NEXT: diagnostic: error cycle {{.*}}report-refused.mlir:[[#@LINE+1]]{{$}}

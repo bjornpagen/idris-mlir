@@ -33,7 +33,7 @@
 // STDIN: \0011
 // STDIN: \0012
 // STDIN:
-idr.program @nat root(@Prog.main) stage(first) {
+idr.program @nat root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @naturals() -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.nat, !idr.nat, !idr.big) {
     %five = idr.constant !idr.nat #idr.big<5>
     %zero = idr.constant !idr.nat #idr.big<0>

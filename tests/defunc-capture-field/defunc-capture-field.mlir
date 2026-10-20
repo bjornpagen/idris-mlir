@@ -7,7 +7,7 @@
 // @inner's sum is met inside @outer's. The second split is the same
 // program capturing the word the i1 was made from, which a field holds:
 // it verifies.
-idr.program @"capture-field" root(@Main.main) stage(higher) {
+idr.program @"capture-field" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @run(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
@@ -35,7 +35,7 @@ idr.program @"capture-field" root(@Main.main) stage(higher) {
 
 // -----
 
-idr.program @"capture-field" root(@Main.main) stage(higher) {
+idr.program @"capture-field" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @run(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64

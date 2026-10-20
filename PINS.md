@@ -1194,22 +1194,3 @@ which the top-level CMake configure gate reads.
   own total version
 - upstream: nothing is sent (**Idris**)
 
-## bytecode-data-table
-- symptom: the pinned writer asks no dialect to encode a mutable type and
-  writes its text (`mlir/lib/Bytecode/Writer/BytecodeWriter.cpp:894-899`,
-  `IRNumbering.cpp:524-525`); a data type's text holds the body of every
-  data type it reaches, once per path: over 300 M bodies for one instance
-  of the self module
-- sites: foreign/idr/lib/IR/Bytecode.cpp, the readers of the module's
-  table (`DataType::readTable`) and of a data type's entry
-  (`DataType::member`); foreign/idr/include/idr/IR/IdrBytecode.td, whose
-  `DataType` and `DataTable` never print (`DialectTypeNoPrint`, a false
-  predicate, constant getters)
-- workaround: the frontend writes each data type once, its body in the
-  module's one table entry (an idr attribute), and every other occurrence
-  as a custom entry naming its member; `idris-mlir-opt --emit-bytecode`
-  still writes data types as text, which the parser reads as before
-- retire: when the pin's writer encodes mutable types through a dialect
-  (pull request #229910, open): give both records printers, so the C++
-  writer writes the table too
-- upstream: none to send; the deviation is ours

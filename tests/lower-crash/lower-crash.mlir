@@ -32,7 +32,7 @@
 // ONE-ERR: idris-mlir: unhandled input for Main.never at Main.idr:6:1
 // TWO: 127
 // TWO-ERR: idris-mlir: unhandled input for Main.name at Main.idr:3:1
-idr.program @crash root(@Main.main) stage(first) {
+idr.program @crash root(@Main.main) stage(first) types #idr.types<> {
   idr.func @Main.name(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 1 {

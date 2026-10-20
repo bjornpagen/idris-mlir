@@ -31,8 +31,11 @@
 // and column alone, so the emitted module's binders are found the same.
 // An error is matched by its property, at its location, except where two
 // binders share one location: there it names its binder.
-!Handle = !idr.data<"Handle", plain [@MkHandle(!idr.lin<i64>, i64)]>
-idr.program @quantities root(@root) stage(higher) {
+!Handle = !idr.data<"Handle">
+#types = #idr.types<
+  "Handle" = plain [@MkHandle(!idr.lin<i64>, i64)]
+>
+idr.program @quantities root(@root) stage(higher) types #types {
   // WIDENED: @below {{expected quantities-kept: }}
   idr.func @consume(%h: !idr.lin<i64>) -> i64 {
     %z = arith.constant 0 : i64

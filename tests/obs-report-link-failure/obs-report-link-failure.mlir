@@ -10,7 +10,7 @@
 // REPORT: verdict: internal
 // REPORT-NEXT: diagnostic: error - -
 // REPORT-NOT: diagnostic:
-idr.program @"report-link-failure" root(@Prog.main) stage(higher) {
+idr.program @"report-link-failure" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

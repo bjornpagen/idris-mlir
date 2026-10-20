@@ -5,7 +5,7 @@
 // array (@made) is a read the fold of the question would have removed. A
 // function that makes an array and asks the extent of another it was given
 // asks nothing it knows (@beside).
-idr.program @"dims-known" root(@root) stage(first) {
+idr.program @"dims-known" root(@root) stage(first) types #idr.types<> {
   idr.func @given(%a: memref<?xi64, #idr.world>) -> i64 {
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?xi64, #idr.world>

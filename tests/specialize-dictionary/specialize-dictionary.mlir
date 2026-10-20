@@ -12,8 +12,11 @@
 // name, by which a copy names what it was made from.
 // The differential holds the optimized program to the one as written on
 // every input byte, the sum of 0 to 255 included.
-!Num = !idr.data<"Num", plain [@MkNum(!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]>
-idr.program @dictionary root(@Main.main) stage(higher) {
+!Num = !idr.data<"Num">
+#types = #idr.types<
+  "Num" = plain [@MkNum(!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]
+>
+idr.program @dictionary root(@Main.main) stage(higher) types #types {
   idr.func @plus(%a: i64, %b: i64) -> i64 attributes {total} {
     %c = arith.addi %a, %b : i64
     return %c : i64

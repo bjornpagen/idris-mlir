@@ -14,7 +14,7 @@
 // left is no closure, and the program prints what it printed on every
 // byte. None of it held before the pass, and the sum holds both labels,
 // not one of them.
-idr.program @choice root(@Main.main) stage(higher) {
+idr.program @choice root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

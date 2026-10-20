@@ -8,7 +8,7 @@
 // still apart from a third (@inc, whose location names neither). A
 // function is never apart from itself, and two of which one has no
 // function at all are not two (@absent).
-idr.program @apart root(@root) stage(first) {
+idr.program @apart root(@root) stage(first) types #idr.types<> {
   // expected-error @below {{expected apart: }}
   idr.func @inc(%x: i64) -> i64 {
     %one = arith.constant 1 : i64

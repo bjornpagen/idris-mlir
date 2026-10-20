@@ -120,7 +120,7 @@ Type DataRemap::remadeOf(Type shape) {
   return remade.replace(shape);
 }
 
-FailureOr<std::unique_ptr<DataRemap>> DataRemap::create(Operation *root, StringRef kind,
+FailureOr<std::unique_ptr<DataRemap>> DataRemap::create(ProgramOp root, StringRef kind,
                                                         Leaf leaf, ArrayRef<DataType> boxed,
                                                         Renames renames) {
   std::unique_ptr<DataRemap> remap(
@@ -137,9 +137,10 @@ FailureOr<std::unique_ptr<DataRemap>> DataRemap::create(Operation *root, StringR
 // constant constructor names its data type as its identity, never boxed,
 // and its cells are values met anywhere but in a body. Every type is
 // replaced whole, by its shape there remade.
-DataRemap::DataRemap(Operation *root, Leaf leafFn, ArrayRef<DataType> boxedTypes,
+DataRemap::DataRemap(ProgramOp root, Leaf leafFn, ArrayRef<DataType> boxedTypes,
                      Renames renamed)
-    : context(root->getContext()), leaf(std::move(leafFn)), renames(std::move(renamed)),
+    : context(root.getContext()), program(root), leaf(std::move(leafFn)),
+      renames(std::move(renamed)),
       boxed(boxedTypes.begin(), boxedTypes.end()), at(root->getLoc()) {
   replacer.addReplacement(
       [this](SymbolRefAttr ref) -> std::optional<std::pair<Attribute, WalkResult>> {
@@ -162,7 +163,7 @@ DataRemap::DataRemap(Operation *root, Leaf leafFn, ArrayRef<DataType> boxedTypes
   });
 }
 
-void DataRemap::remakeAll(Operation *root, StringRef kind) {
+void DataRemap::remakeAll(ProgramOp root, StringRef kind) {
   // Every data type the root's values can be of, and each one's bodies':
   // each type enters once, so the walk ends with the types they reach.
   llvm::SetVector<DataType> types;
@@ -298,7 +299,7 @@ DataType DataRemap::remake(DataType old) {
   std::vector<SmallVector<Type>> fields(old.getCtors().size());
   const std::vector<SmallVector<Type>> &bodyShapes = shapes.at(old);
   FailureOr<DataType> remade = DataType::define(
-      context, names.lookup(old), [&](DataType self) -> FailureOr<DataType::Body> {
+      program, names.lookup(old), [&](DataType self) -> FailureOr<DataType::Body> {
         next[old] = self;
         DataType::Body body{old.getKind(), {}, old.getInstance()};
         for (Tag tag : old.getTags()) {

@@ -115,7 +115,7 @@ planted_module() {
     made-up) sed 's/@Main\.area\([^A-Za-z0-9_.]\)/@"Main.case block in area"\1/g' "$emitted" ;;
     block) sed 's/Main\.classify\.case\([0-9]\)/Main.classify.alt\1/g' "$emitted" ;;
     stage) sed 's/stage(higher)/stage(first)/' "$emitted" ;;
-    two-programs) awk '{ print } /^ *idr\.program / && !done { print "  idr.program @other root(@other) stage(higher) {"; done = 1 }' "$emitted" ;;
+    two-programs) awk '{ print } /^ *idr\.program / && !done { print "  idr.program @other root(@other) stage(higher) types #idr.types<> {"; done = 1 }' "$emitted" ;;
     func) awk '{ print } /^ *idr\.func / && !done { print "    func.call @planted() : () -> ()"; done = 1 }' "$emitted" ;;
   esac
 }

@@ -14,7 +14,7 @@
 // STDIN: \0001
 // STDIN: \0377
 // STDIN:
-idr.program @"force-strict" root(@Prog.main) stage(higher) {
+idr.program @"force-strict" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @boom() -> i64 attributes {total} {
     idr.crash "boom"
     ub.unreachable
@@ -48,7 +48,7 @@ idr.program @"force-strict" root(@Prog.main) stage(higher) {
     return %w2 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Prog.main) stage(higher) {
+// REFERENCE: idr.program @reference root(@Prog.main) stage(higher) types #idr.types<> {
 // REFERENCE:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %c, %w1 = idr.io.get_byte %w
 // REFERENCE:     %w2 = idr.match_lit %c : i32 -> (!idr.world) {

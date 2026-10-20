@@ -9,8 +9,11 @@
 // and prints the first field of each of three of them and the sum of the
 // second, and the program prints after the pass what it printed before,
 // on every byte.
-!P = !idr.data<"P", plain [@MkP(i64, f64)]>
-idr.program @columns root(@root) stage(first) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, f64)]
+>
+idr.program @columns root(@root) stage(first) types #types {
   idr.func @pairs(%n: index) -> tensor<?x!P> {
     %t = idr.tabulate [%n] {
     ^bb0(%i: index):

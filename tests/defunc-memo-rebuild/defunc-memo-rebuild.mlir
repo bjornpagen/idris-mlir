@@ -18,7 +18,7 @@
 // (the differential); no property here held before the pass, and each list
 // of labels with one changed fails after it, so each sum is exactly its
 // labels.
-idr.program @"memo-rebuild" root(@Main.main) stage(higher) {
+idr.program @"memo-rebuild" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64

@@ -16,7 +16,7 @@
 // and the code of @b is still called, as @A.inst. The root runs both on
 // what it reads, and the program prints after the pass what it printed
 // before, on every byte.
-idr.program @"merge-named" root(@root) stage(higher) {
+idr.program @"merge-named" root(@root) stage(higher) types #idr.types<> {
   idr.func @A.inst(%x: i64) -> i64 attributes {instance = #idr.instance<"Prog.fA", ["Int"]>, total} {
     %c = arith.constant 3 : i64
     %y = arith.muli %x, %c : i64

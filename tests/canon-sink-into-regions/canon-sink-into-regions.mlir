@@ -18,8 +18,11 @@
 
 // putStr (show x) in both regions of a match on b: the string moves into
 // each region, where output fusion writes the number without building it.
-!Bool = !idr.data<"Bool", plain [@False(), @True()]>
-idr.program @"sink-into-regions" root(@root) stage(first) {
+!Bool = !idr.data<"Bool">
+#types = #idr.types<
+  "Bool" = plain [@False(), @True()]
+>
+idr.program @"sink-into-regions" root(@root) stage(first) types #types {
   idr.func @write_in_both(%b: !Bool, %x: i64, %w: !idr.world) -> !idr.world {
     %s = idr.str.show_sint %x : i64
     %r = idr.match %b : !Bool -> (!idr.world) {

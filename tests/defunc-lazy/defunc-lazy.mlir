@@ -11,8 +11,11 @@
 // the apply is a match that calls the suspended function.
 // The program means after the pass what it meant before it, on every input
 // (the differential), and no property here held before the pass.
-!Box = !idr.data<"Box", plain [@MkBox(!idr.fn<() -> (i64)>)]>
-idr.program @lazy root(@Main.main) stage(higher) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@MkBox(!idr.fn<() -> (i64)>)]
+>
+idr.program @lazy root(@Main.main) stage(higher) types #types {
   idr.func @now() -> i64 attributes {total} {
     %c = arith.constant 7 : i64
     return %c : i64

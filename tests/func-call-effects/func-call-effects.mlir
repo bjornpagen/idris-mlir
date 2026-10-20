@@ -9,7 +9,7 @@
 // since a stale value says too much, never too little. Each set answers as
 // the worst effect in it: io, with or without others, nothing; diverge,
 // alone or with crash, as crash alone, delay.
-idr.program @"call-effects" root(@main) stage(first) {
+idr.program @"call-effects" root(@main) stage(first) types #idr.types<> {
   idr.func effects<none> @pure(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }

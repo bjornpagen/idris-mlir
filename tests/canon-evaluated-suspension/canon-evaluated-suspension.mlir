@@ -20,8 +20,11 @@
 // after canonicalize what it printed before, on every byte. What the pass
 // makes hold did not hold before it, and @forced builds nothing after it.
 
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-idr.program @"evaluated-suspension" root(@root) stage(higher) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, i64)]
+>
+idr.program @"evaluated-suspension" root(@root) stage(higher) types #types {
   idr.func @forced(%x: i64) -> i64 {
     %t = idr.delay %x : i64 -> !idr.lazy<i64>
     %v = idr.force %t : !idr.lazy<i64> -> i64

@@ -8,7 +8,7 @@
 // A function with no structured op at all fails, so the property cannot
 // hold of a module that never had an array.
 #map = affine_map<(d0) -> (d0)>
-idr.program @"structured-loops" root(@root) stage(first) {
+idr.program @"structured-loops" root(@root) stage(first) types #idr.types<> {
   idr.func @done(%x: tensor<?xi64>) -> tensor<?xi64> {
     %c0 = arith.constant 0 : index
     %n = tensor.dim %x, %c0 : tensor<?xi64>

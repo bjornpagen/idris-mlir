@@ -300,6 +300,64 @@ def Idr_InstanceAttr : AttrDef<Idr_Dialect, "Instance"> {
 }
 
 //===----------------------------------------------------------------------===//
+// The program's data types
+//===----------------------------------------------------------------------===//
+
+// A data type is nominal: its name is its identity, and its body (its
+// kind of sum, its constructors, the Idris instance it is of) is the
+// program's to say, once. So a data type is written as its name wherever
+// it occurs, `!idr.data<"T">`, and the program holds this table, every
+// data type it reaches with its body, in name order: a type's text is a
+// bounded size whatever it holds, and the table is read once, which sets
+// every body before an op is read. A data type is declared through
+// DataType::define, which writes it here, so none is made that the table
+// does not hold.
+def Idr_DataTableAttr : AttrDef<Idr_Dialect, "DataTable"> {
+  let mnemonic = "types";
+  let summary = "a program's data types, each with its body, in name order";
+  let parameters = (ins ArrayRefParameter<"::idr::DataType">:$members);
+  let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
+  // The Idris side writes it, each member's body as the identified type's
+  // records hold one, in the syntax lib/IR/DataBody.cpp reads
+  // (idris-mlir-tblgen, tableOf).
+  bit holdsBodies = 1;
+  let extraClassDeclaration = [{
+    // Whether `data` is a member.
+    bool holds(::idr::DataType data) const;
+    // The table with `data` among its members, in its place by name: this
+    // table when it holds it already.
+    DataTableAttr with(::idr::DataType data) const;
+    // The table as bytecode's rows (IdrBytecode.td's TableMember), one
+    // per member in order; and the table read from such rows, each
+    // member's body set as its row says, or nothing after the reader's
+    // error (lib/IR/Bytecode.cpp).
+    ::llvm::SmallVector<::idr::TableMember> getRows() const;
+    static DataTableAttr fromRows(::mlir::DialectBytecodeReader &reader,
+                                  ::mlir::MLIRContext *context,
+                                  ::llvm::ArrayRef<::idr::TableMember> rows);
+    // To upstream's walkers and replacers the members are the table's
+    // sub-elements, so a remap that remakes a data type remakes the table
+    // with it: the replaced members, each once, in name order (a type a
+    // remap made is declared already, and its old one replaced by it).
+    static auto getWalkImmediateSubElementsFn() {
+      return [](auto instance, ::llvm::function_ref<void(::mlir::Attribute)>,
+                ::llvm::function_ref<void(::mlir::Type)> walkTypes) {
+        walkMembers(::llvm::cast<DataTableAttr>(instance), walkTypes);
+      };
+    }
+    static auto getReplaceImmediateSubElementsFn() {
+      return [](auto instance, ::llvm::ArrayRef<::mlir::Attribute>,
+                ::llvm::ArrayRef<::mlir::Type> members) -> ::mlir::Attribute {
+        return replaced(::llvm::cast<DataTableAttr>(instance), members);
+      };
+    }
+    static void walkMembers(DataTableAttr table, ::llvm::function_ref<void(::mlir::Type)> walk);
+    static DataTableAttr replaced(DataTableAttr table, ::llvm::ArrayRef<::mlir::Type> members);
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Refusals
 //===----------------------------------------------------------------------===//
 

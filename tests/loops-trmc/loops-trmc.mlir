@@ -38,9 +38,13 @@
 // whose stage the differential reads from the first idr.program line of
 // the file.)
 // STDIN:
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-!LList = !idr.data<"LList", list [@LNil() nil, @LCons(i64, !idr.lin<!idr.box<!idr.data<"LList">>>) cons]>
-idr.program @trmc root(@Main.main) stage(owned) {
+!List = !idr.data<"List">
+!LList = !idr.data<"LList">
+#types = #idr.types<
+  "LList" = list [@LNil() nil, @LCons(i64, !idr.lin<!idr.box<!idr.data<"LList">>>) cons],
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @trmc root(@Main.main) stage(owned) types #types {
   idr.func @copy(%xs: !idr.q<many, borrow, !idr.box<!List>> loc("copy"("Main.idr":3:1 to :30))) -> !idr.own<!idr.box<!List>> attributes {total} {
     %r = idr.match %xs : !idr.q<many, borrow, !idr.box<!List>> -> (!idr.own<!idr.box<!List>>) {
     case @Nil() {
@@ -259,7 +263,7 @@ idr.program @trmc root(@Main.main) stage(owned) {
     return %w17 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Main.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Main.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @Main.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %s = idr.constant !idr.str "15 5 0 0 30 10 29 14 30"
 // REFERENCE:     %w1 = idr.io.put_str %s, %w

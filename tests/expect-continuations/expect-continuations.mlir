@@ -5,7 +5,7 @@
 // block of @step's `if`); a recursion that is one function has none
 // (@count). Once contification has taken @step.case into @step, none is
 // left, and the property holds of the module.
-idr.program @continuations root(@root) stage(first) {
+idr.program @continuations root(@root) stage(first) types #idr.types<> {
   idr.func @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64

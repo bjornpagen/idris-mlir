@@ -3,7 +3,7 @@
 // passes only as an argument or a result. A value other than the world,
 // here a word, is held as it is (the second split).
 
-idr.program @"delay-world" root(@f) stage(higher) {
+idr.program @"delay-world" root(@f) stage(higher) types #idr.types<> {
   idr.func @f(%w: !idr.world) {
     // expected-error @+1 {{operand #0 must be a value a field holds, other than the world, but got '!idr.world'}}
     %t = idr.delay %w : !idr.world -> !idr.lazy<!idr.world>
@@ -13,7 +13,7 @@ idr.program @"delay-world" root(@f) stage(higher) {
 
 // -----
 
-idr.program @"delay-world" root(@f) stage(higher) {
+idr.program @"delay-world" root(@f) stage(higher) types #idr.types<> {
   idr.func @f(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %x = arith.extui %c : i32 to i64

@@ -15,7 +15,7 @@
 // RECYCLE: idr.take %{{.*}} : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
 // RECYCLE: [[CELL:%[^ ]+]] = idr.cell.recycle %{{.*}} : !idr.own<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
 // RECYCLE: idr.cell.init [[CELL]] : !idr.cell<!idr.box<!L>, @C> (%{{.*}} : i64, %{{.*}} : !idr.own<!idr.box<!L>>)
-idr.program @"owned-stage" root(@Prog.main) stage(first) {
+idr.program @"owned-stage" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @size(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
@@ -30,7 +30,7 @@ idr.program @"owned-stage" root(@Prog.main) stage(first) {
 
 // -----
 
-idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+idr.program @"owned-stage" root(@Prog.main) stage(owned) types #idr.types<> {
   // expected-note @+1 {{the value is defined here}}
   idr.func @leak(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
@@ -46,8 +46,11 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) types #types {
   idr.func @bump(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {
@@ -75,8 +78,11 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
 
 // Past idr-rc a box whose constructor has fields is built in its cell, never
 // as a value: an idr.con of it is refused.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) types #types {
   idr.func @cons(%x: i64, %t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     // expected-error @+1 {{builds a box with fields as a value in the owned stage}}
     %l = idr.con !idr.own<!idr.box<!L>> @C(%x : i64, %t : !idr.own<!idr.box<!L>>)
@@ -92,8 +98,11 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
 
 // A cell is filled exactly once: its type lets it be used once, and the
 // owned stage counts it as the reference it is, which its init consumes.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) types #types {
   idr.func @unfilled() -> i64 {
     // expected-note @+1 {{the value is defined here}}
     %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
@@ -111,8 +120,11 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
 
 // A cell of the frame is lent to the box filled in it, which is therefore
 // never exclusive: no grade says so.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) types #types {
   idr.func @frame(%x: i64, %t: !idr.excl<!idr.box<!L>>) -> i64 {
     %c = idr.cell.stack : !idr.cell<!idr.box<!L>, @C, frame>
     // expected-error @+1 {{expects no exclusive value of the frame, whose cells the frame lends}}
@@ -132,8 +144,11 @@ idr.program @"owned-stage" root(@Prog.main) stage(owned) {
 // dropped once read; the box built in a new cell; the cell filled, the
 // box it gives dropped; and a box built in a cell of the frame owned, not
 // exclusive, read and dropped.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"owned-stage" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"owned-stage" root(@Prog.main) stage(owned) types #types {
   idr.func @noleak(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
     %n = idr.str.length borrow %v

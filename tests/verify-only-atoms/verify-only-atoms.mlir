@@ -5,8 +5,11 @@
 // fields: a take of it would hand that cell out to build in, while every
 // other copy of the constant still holds it. The nearest that verifies
 // takes it of the empty list, an atom.
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @"only-atoms" root(@root) stage(owned) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @"only-atoms" root(@root) stage(owned) types #types {
   idr.func @run() -> !idr.excl<!List> {
     // expected-note @+1 {{the value is defined here}}
     %l = idr.constant !idr.q<many, borrow, !List> #idr.con<!List, @Cons, [1], [2, #idr.con<!List, @Nil, []>] along 1>
@@ -22,8 +25,11 @@ idr.program @"only-atoms" root(@root) stage(owned) {
 
 // -----
 
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @"only-atoms" root(@root) stage(owned) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @"only-atoms" root(@root) stage(owned) types #types {
   idr.func @run() -> !idr.excl<!List> {
     %l = idr.constant !idr.q<many, borrow, !List> #idr.con<!List, @Nil, []>
     %e = idr.dup %l : !idr.q<many, borrow, !List> -> !idr.excl<!List>

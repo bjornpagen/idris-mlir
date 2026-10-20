@@ -44,7 +44,9 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   (`kinds/fixture`, `lit_fixture` in `lib/lit.sh`). Its `// RUN:` lines
   run in order and every one must hold; a command that is to fail names
   the failure it expects. A module of it is one `idr.program`, which
-  names its root and its stage. `%differential` (below,
+  names its root, its stage and its data types, each with its body once
+  (`types #idr.types<...>`; a data type is its name wherever else it
+  occurs). `%differential` (below,
   `lib/differential.sh`) is the oracle for what a pass's output means.
 
 ## The vocabulary: one way of saying each thing

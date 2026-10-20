@@ -15,7 +15,7 @@
 // CHECK-NEXT: 55
 // CHECK-NEXT: wrong.mlir: exit 0, stdout:
 // CHECK-NEXT: 56
-idr.program @"differential-declared-stdin" root(@Main.main) stage(higher) {
+idr.program @"differential-declared-stdin" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %d, %w2 = idr.io.get_byte %w1

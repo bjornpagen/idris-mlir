@@ -36,7 +36,7 @@
 // STDIN: \0015
 // STDIN: \0016
 // STDIN:
-idr.program @"to-char" root(@Prog.main) stage(first) {
+idr.program @"to-char" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @chars() -> (i32, i32, i32, i32) {
     %a = arith.constant 955 : i64
     %b = arith.constant 55296 : i64

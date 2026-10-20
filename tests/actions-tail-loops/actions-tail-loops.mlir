@@ -19,8 +19,11 @@
 // and the counted program prints with its loops what it printed before,
 // on each of the inputs the STDIN lines name: 0, 1, 2, 15, 16, 127, 128
 // and 255, and the end of input.
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @"tail-loop" root(@Main.main) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @"tail-loop" root(@Main.main) stage(first) types #types {
   idr.func @count(%acc: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

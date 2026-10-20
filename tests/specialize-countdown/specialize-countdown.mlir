@@ -34,7 +34,7 @@
 // BELOW: {{^}}6354611686018427387903{{$}}
 // AT: {{^}}6404611686018427387904{{$}}
 // ABOVE: {{^}}12754611686018427388031{{$}}
-idr.program @countdown root(@Main.main) stage(higher) {
+idr.program @countdown root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %k : i64
     return %y : i64

@@ -12,8 +12,11 @@
 // counting and leaves no cell live: the cells @bump copies and the ones
 // @sum reads after it.
 // CHECK: error: expected tests-nothing: idr.take in @bump tests
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @sharetrap root(@root) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @sharetrap root(@root) stage(first) types #types {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {

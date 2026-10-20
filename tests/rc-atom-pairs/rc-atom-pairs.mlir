@@ -20,9 +20,13 @@
 // of each is run, and each run means what it meant before counting and
 // leaves no cell live.
 // SHARED: error: expected tests-nothing: idr.take in @withCell tests
-!L = !idr.data<"L", list [@N() nil, @C(i32, !idr.box<!idr.data<"L">>) cons]>
-!P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>
-idr.program @"atom-pairs" root(@root) stage(first) {
+!L = !idr.data<"L">
+!P = !idr.data<"P">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i32, !idr.box<!idr.data<"L">>) cons],
+  "P" = plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]
+>
+idr.program @"atom-pairs" root(@root) stage(first) types #types {
   // The list i, i + 1, ..., n.
   idr.func @upto(%i: i32, %n: i32) -> !idr.box<!L> {
     %past = arith.cmpi sgt, %i, %n : i32

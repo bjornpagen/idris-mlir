@@ -14,8 +14,11 @@
 // ends. (Each function's empty case is of a cell it just built, a case no
 // input reaches.)
 // FRESH: error: expected reuses-in-place: {{.*}} in @rebuilt
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @stackcell root(@root) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @stackcell root(@root) stage(first) types #types {
   idr.func @local(%x: i64, %t: !idr.box<!L>) -> i64 {
     %p = idr.con !idr.box<!L> @C(%x : i64, %t : !idr.box<!L>)
     %r = idr.match %p : !idr.box<!L> -> (i64) {

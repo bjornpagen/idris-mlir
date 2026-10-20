@@ -5,8 +5,11 @@
 // type); each closure left is one error, in the function that holds it. A
 // sum of labels runs the functions its labels name: @pick's runs @add and
 // @twice, and a list of one fails.
-!Pick = !idr.data<"Pick", closures [@add(i64) label @add, @twice() label @twice]>
-idr.program @closures root(@root) stage(higher) {
+!Pick = !idr.data<"Pick">
+#types = #idr.types<
+  "Pick" = closures [@add(i64) label @add, @twice() label @twice]
+>
+idr.program @closures root(@root) stage(higher) types #types {
   idr.func @add(%x: i64, %y: i64) -> i64 {
     %r = arith.addi %x, %y : i64
     return %r : i64

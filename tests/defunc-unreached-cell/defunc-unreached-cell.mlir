@@ -20,9 +20,13 @@
 // (the differential); no property here held before the pass, and each list
 // of labels with one changed fails after it, so each sum is exactly its
 // labels.
-!Act = !idr.data<"Act", plain [@MkAct(!idr.fn<(i64) -> (i64)>)]>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(!idr.lazy<!Act>, !idr.box<!idr.data<"List">>) cons]>
-idr.program @"unreached-cell" root(@Prog.main) stage(higher) {
+!Act = !idr.data<"Act">
+!List = !idr.data<"List">
+#types = #idr.types<
+  "Act" = plain [@MkAct(!idr.fn<(i64) -> (i64)>)],
+  "List" = list [@Nil() nil, @Cons(!idr.lazy<!Act>, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @"unreached-cell" root(@Prog.main) stage(higher) types #types {
   idr.func @run(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64

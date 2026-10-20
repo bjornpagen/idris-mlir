@@ -11,7 +11,7 @@
 // the input byte sets: an empty domain makes none and so does not crash,
 // and prints its size, 0; any other crashes before it prints. The lowered
 // program does the same on every byte.
-idr.program @"never-returns" root(@root) stage(first) {
+idr.program @"never-returns" root(@root) stage(first) types #idr.types<> {
   idr.func @gen(%n: index) -> tensor<?xi64> {
     %t = idr.tabulate [%n] {
     ^bb0(%i: index):

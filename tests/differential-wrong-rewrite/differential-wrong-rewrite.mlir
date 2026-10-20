@@ -18,7 +18,7 @@
 // CHECK-NEXT: 1
 // CHECK-NEXT: wrong.mlir: exit 0, stdout:
 // CHECK-NEXT: 2
-idr.program @"differential-wrong-rewrite" root(@Main.main) stage(higher) {
+idr.program @"differential-wrong-rewrite" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

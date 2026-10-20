@@ -10,7 +10,7 @@
 // and means the same: the root counts as far as the input byte says, 0 to
 // 31 steps, each doubling from 1, and the program contify made prints what
 // the one as written prints, on every byte.
-idr.program @contify root(@root) stage(higher) {
+idr.program @contify root(@root) stage(higher) types #idr.types<> {
   idr.func @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64

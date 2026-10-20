@@ -26,7 +26,7 @@
 // STDIN: x
 // STDIN: \0377
 // STDIN:
-idr.program @"crash-call" root(@Prog.main) stage(first) {
+idr.program @"crash-call" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func effects<crash> @crashes(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64
@@ -59,7 +59,7 @@ idr.program @"crash-call" root(@Prog.main) stage(first) {
     return %w6 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Prog.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Prog.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %c, %w1 = idr.io.get_byte %w
 // REFERENCE:     %b = arith.constant 66 : i32

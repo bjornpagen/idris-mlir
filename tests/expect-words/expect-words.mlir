@@ -4,7 +4,7 @@
 // or a natural (@words); one that carries a natural round computes on
 // bigs (@naturals). A natural the function uses outside its loop is no
 // value of the loop (@outside).
-idr.program @words root(@root) stage(first) {
+idr.program @words root(@root) stage(first) types #idr.types<> {
   idr.func @words(%n: index) -> i64 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

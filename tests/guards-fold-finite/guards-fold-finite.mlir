@@ -35,7 +35,7 @@
 // STDIN: \0012
 // STDIN: \0013
 // STDIN:
-idr.program @"fold-finite" root(@Prog.main) stage(first) {
+idr.program @"fold-finite" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @proving() -> i64 {
     %d = arith.constant -2.75 : f64
     %g = idr.check.finite %d, "cast of a non-finite Double"

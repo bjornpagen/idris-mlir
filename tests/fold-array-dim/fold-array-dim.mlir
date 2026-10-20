@@ -30,7 +30,7 @@
 // STDIN: \0007
 // STDIN: \0010
 // STDIN:
-idr.program @"array-dim" root(@Prog.main) stage(first) {
+idr.program @"array-dim" root(@Prog.main) stage(first) types #idr.types<> {
   // A size the program computes: the dimension is that size at least 0, and
   // no memref.dim is left.
   idr.func @of_size(%n: i64, %w: !idr.world) -> i64 {

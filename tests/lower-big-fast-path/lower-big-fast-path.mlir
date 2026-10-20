@@ -37,7 +37,7 @@
 // DOWN: -4611686018427387905
 // BACK: 1
 // WIDE: 170141183460469231731687303715884105728
-idr.program @"big-fast-path" root(@small) stage(higher) {
+idr.program @"big-fast-path" root(@small) stage(higher) types #idr.types<> {
   idr.func @sum(%x: i32, %y: i32) -> i64 {
     %a = idr.big.from_sint %x : i32
     %b = idr.big.from_sint %y : i32
@@ -114,7 +114,7 @@ idr.program @"big-fast-path" root(@small) stage(higher) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@small) stage(higher) {
+// REF: idr.program @ref root(@small) stage(higher) types #idr.types<> {
 // REF:   idr.func @small(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %x = arith.extui %c : i32 to i64

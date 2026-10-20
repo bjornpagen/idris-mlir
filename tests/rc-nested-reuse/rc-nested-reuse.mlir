@@ -9,9 +9,13 @@
 // died, and neither cell is freed (reuses-every-cell). The numbers are
 // the input byte and its half, and every run prints what it printed
 // before counting and leaves no cell live.
-!Q = !idr.data<"Q", plain [@MkQ(i64, i64)]>
-!P = !idr.data<"P", plain [@MkP(i64, !idr.box<!Q>)]>
-idr.program @"nested-reuse" root(@root) stage(first) {
+!Q = !idr.data<"Q">
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, !idr.box<!Q>)],
+  "Q" = plain [@MkQ(i64, i64)]
+>
+idr.program @"nested-reuse" root(@root) stage(first) types #types {
   idr.func @f(%p: !idr.box<!P>) -> !idr.box<!P> {
     %r = idr.match %p : !idr.box<!P> -> (!idr.box<!P>) {
     case @MkP(%x: i64, %q: !idr.box<!Q>) {

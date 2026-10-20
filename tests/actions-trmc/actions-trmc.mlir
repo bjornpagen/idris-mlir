@@ -8,9 +8,13 @@
 // changes the module. The root copies lists made from the byte it reads
 // and prints their digits, and the program prints after the pass what it
 // printed before, on every byte.
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-!LList = !idr.data<"LList", list [@LNil() nil, @LCons(i64, !idr.lin<!idr.box<!idr.data<"LList">>>) cons]>
-idr.program @trmc root(@Main.main) stage(owned) {
+!List = !idr.data<"List">
+!LList = !idr.data<"LList">
+#types = #idr.types<
+  "LList" = list [@LNil() nil, @LCons(i64, !idr.lin<!idr.box<!idr.data<"LList">>>) cons],
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @trmc root(@Main.main) stage(owned) types #types {
   idr.func @copy(%xs: !idr.q<many, borrow, !idr.box<!List>>) -> !idr.own<!idr.box<!List>> attributes {total} {
     %r = idr.match %xs : !idr.q<many, borrow, !idr.box<!List>> -> (!idr.own<!idr.box<!List>>) {
     case @Nil() {

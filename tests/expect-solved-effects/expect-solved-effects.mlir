@@ -5,7 +5,7 @@
 // and everything for one no pass solved, which holds the default
 // (@unsolved). A set is a set: written in any order it is the same, and
 // one of its two effects is not it (@writes, io and crash).
-idr.program @"solved-effects" root(@root) stage(first) {
+idr.program @"solved-effects" root(@root) stage(first) types #idr.types<> {
   // expected-error @below {{expected effects: }}
   idr.func effects<none> @pure(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64

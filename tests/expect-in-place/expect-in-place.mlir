@@ -6,7 +6,7 @@
 // what the program asked, an array appended into its place (@appended),
 // and no lost write. A function without a buffer fails, so the property
 // cannot hold of a module before bufferization.
-idr.program @"in-place" root(@root) stage(first) {
+idr.program @"in-place" root(@root) stage(first) types #idr.types<> {
   idr.func @written(%m: memref<?xi64>, %i: index, %v: i64) -> memref<?xi64> {
     memref.store %v, %m[%i] : memref<?xi64>
     return %m : memref<?xi64>

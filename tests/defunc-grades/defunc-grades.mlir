@@ -16,8 +16,11 @@
 
 // A plain closure, entered into a linear value and used back as plain,
 // then kept in a constructor's field.
-!Box = !idr.data<"Box", plain [@MkBox(!idr.fn<(i64) -> (i64)>)]>
-idr.program @"grade-plain" root(@main) stage(higher) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@MkBox(!idr.fn<(i64) -> (i64)>)]
+>
+idr.program @"grade-plain" root(@main) stage(higher) types #types {
   idr.func @label(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
@@ -43,8 +46,11 @@ idr.program @"grade-plain" root(@main) stage(higher) {
 
 // A closure that takes a linear argument: the argument stays linear
 // through the dispatch to the label's call.
-!Box = !idr.data<"Box", plain [@MkBox(!idr.fn<(!idr.lin<i64>) -> (i64)>)]>
-idr.program @"grade-linear-argument" root(@main) stage(higher) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@MkBox(!idr.fn<(!idr.lin<i64>) -> (i64)>)]
+>
+idr.program @"grade-linear-argument" root(@main) stage(higher) types #types {
   idr.func @label(%k: i64, %x: !idr.lin<i64>) -> i64 attributes {total} {
     %v = idr.lin.use %x : !idr.lin<i64>
     %r = arith.addi %k, %v : i64
@@ -71,8 +77,11 @@ idr.program @"grade-linear-argument" root(@main) stage(higher) {
 // A closure that returns a linear result, itself linear because it is
 // entered at once, kept in a linear constructor's field and used once: the
 // result of the dispatch keeps its grade.
-!Box = !idr.data<"Box", plain [@MkBox(!idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>)]>
-idr.program @"grade-linear-result" root(@main) stage(higher) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@MkBox(!idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>)]
+>
+idr.program @"grade-linear-result" root(@main) stage(higher) types #types {
   idr.func @label(%k: i64, %x: i64) -> !idr.lin<i64> attributes {total} {
     %s = arith.addi %k, %x : i64
     %r = idr.lin.enter %s : !idr.lin<i64>

@@ -18,7 +18,7 @@
 // UNTARGETED:   %c = llvm.mlir.constant(42 : i64) : i64
 // UNTARGETED:   llvm.return %c : i64
 // UNTARGETED: }
-idr.program @"lowered-untargeted" root(@Prog.main) stage(higher) {
+idr.program @"lowered-untargeted" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

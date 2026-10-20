@@ -53,8 +53,11 @@ TEST(SourceOf, LinearPositionsFieldsAndMatches) {
   MLIRContext ctx;
   ctx.loadDialect<IdrDialect, arith::ArithDialect>();
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-!T = !idr.data<"T", plain [@A(i64), @B()]>
-idr.program @sources root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A(i64), @B()]
+>
+idr.program @sources root(@root) stage(first) types #types {
   idr.func @f(%t: !T, %x: i64) -> i64 {
     %l = idr.lin.enter %x : !idr.lin<i64>
     %u = idr.lin.use %l : !idr.lin<i64>
@@ -103,8 +106,11 @@ TEST(SourceOf, BorrowIsItsOwnerAndShareIsMade) {
   MLIRContext ctx;
   ctx.loadDialect<IdrDialect, arith::ArithDialect>();
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-!B = !idr.data<"B", plain [@K(i64)]>
-idr.program @owned root(@root) stage(owned) {
+!B = !idr.data<"B">
+#types = #idr.types<
+  "B" = plain [@K(i64)]
+>
+idr.program @owned root(@root) stage(owned) types #types {
   idr.func @views(%o: !idr.own<!idr.box<!B>>) -> !idr.own<!idr.box<!B>> {
     %v = idr.borrow %o : !idr.own<!idr.box<!B>>
     %s = idr.share %o : !idr.own<!idr.box<!B>>

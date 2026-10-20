@@ -20,8 +20,11 @@
 // STDIN: \0000
 // STDIN: \0377
 // STDIN:
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @exclusive root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @exclusive root(@Prog.main) stage(owned) types #types {
   idr.func @exclusive(%l: !idr.excl<!idr.box<!L>>, %x: i64) -> !idr.excl<!idr.box<!L>> {
     %w:3 = idr.take %l : !idr.excl<!idr.box<!L>> @C -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
     %k = idr.cell.recycle %w#0 : !idr.excl<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
@@ -88,7 +91,7 @@ idr.program @exclusive root(@Prog.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %x = arith.extui %c : i32 to i64

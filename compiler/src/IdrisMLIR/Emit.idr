@@ -68,7 +68,7 @@ export
 emit : File -> Source -> IO (Either String ())
 emit h src = do
   let ix = index src
-  Right w <- newWriter ix.table
+  Right w <- newWriter
     | Left e => pure (Left e)
   written <- newIORef SortedSet.empty
   Right () <- each (src.others ++ [src.root]) (\f => case evalStateT (initial f.id (shown f.key.origin)) (function ix f) of
@@ -80,7 +80,8 @@ emit h src = do
                     writeTopLevel w s))
     | Left e => pure (Left e)
   finish w h [ (At src.root.loc, \body => Builtin.moduleOp body)
-             , (At src.root.loc, Idr.programOp src.root.id.name src.root.id.name Stage.Higher) ]
+             , (At src.root.loc, Idr.programOp src.root.id.name src.root.id.name Stage.Higher
+                                    (idr (DataTableAttr ix.table))) ]
 
 ||| A refusal of a program, as its module carries it: the rule refused
 ||| under, where, and what it says.
@@ -98,7 +99,7 @@ record ModuleRefusal where
 export
 refused : File -> List1 ModuleRefusal -> IO (Either String ())
 refused h rs = do
-  Right w <- newWriter []
+  Right w <- newWriter
     | Left e => pure (Left e)
   finish w h [ (At noLoc, \body => { attributes := [Idr.refusalsDiscardable (ArrayAttr (map refusal (forget rs)))] }
                                    (Builtin.moduleOp body)) ]

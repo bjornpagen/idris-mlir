@@ -21,7 +21,7 @@
 // expected-error @-21 {{idr-expect: largest-function=-1 does not read as largest-function=<n>}}
 // expected-error @-22 {{idr-expect: crash-sites=@f:-1 does not read as crash-sites=@f:<n>}}
 // expected-error @-23 {{idr-expect: effects=@f:io+sometimes does not read as effects=@f:<e>+<e>...}}
-idr.program @malformed root(@root) stage(first) {
+idr.program @malformed root(@root) stage(first) types #idr.types<> {
   idr.func @f(%x: i64) -> i64 {
     return %x : i64
   }

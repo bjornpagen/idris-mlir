@@ -7,7 +7,7 @@
 // itself. A grade is a type, printed as one wherever it stands; these are
 // declarations, so no stage's rule on which grades a program holds is
 // read.
-!T = !idr.data<"T", plain [@A()]>
+!T = !idr.data<"T">
 
 // The long forms of the spelled grades print as their spellings.
 // CHECK: func.func private @spelled(!idr.lin<!idr.str>, !idr.own<!idr.big>, !idr.excl<!idr.box<!T>>)

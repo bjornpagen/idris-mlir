@@ -5,8 +5,11 @@
 // nothing (@exclusive, which takes its one reference parameter exclusive);
 // an owned one tests the count and the null (@owned), and a function that
 // takes nothing apart has nothing to test.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"tests-nothing" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"tests-nothing" root(@Prog.main) stage(owned) types #types {
   idr.func @exclusive(%l: !idr.excl<!idr.box<!L>>, %x: i64) -> !idr.excl<!idr.box<!L>> {
     %w:3 = idr.take %l : !idr.excl<!idr.box<!L>> @C -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
     %c = idr.cell.recycle %w#0 : !idr.excl<!idr.token> -> !idr.cell<!idr.box<!L>, @C>

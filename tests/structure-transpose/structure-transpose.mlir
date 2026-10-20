@@ -12,7 +12,7 @@
 // byte sets, and prints elements read at their transposed places, the
 // corners and an inner one: the lowered and the folded programs print what
 // the module as written prints, on every byte.
-idr.program @transpose root(@root) stage(first) {
+idr.program @transpose root(@root) stage(first) types #idr.types<> {
   idr.func @swap(%x: tensor<?x?xi64>) -> tensor<?x?xi64> {
     %t = idr.transpose %x permutation = [1, 0] : tensor<?x?xi64> -> tensor<?x?xi64>
     return %t : tensor<?x?xi64>

@@ -62,9 +62,13 @@
 // LL: call range(i32 45, 58) i32 @idris_rt_int_head
 // LL: call range(i32 0, 1114112) i32 @idris_rt_str_scalar_at
 // LL: attributes #[[COLD]] = { cold noreturn }
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-!Colour = !idr.data<"Colour", plain [@Red(), @Green(), @Blue(f64)]>
-idr.program @"llvm-facts" root(@Prog.main) stage(first) {
+!List = !idr.data<"List">
+!Colour = !idr.data<"Colour">
+#types = #idr.types<
+  "Colour" = plain [@Red(), @Green(), @Blue(f64)],
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @"llvm-facts" root(@Prog.main) stage(first) types #types {
   // The tail of a list that is not empty; a crash otherwise.
   idr.func @head(%l: !idr.box<!List>) -> !idr.box<!List> {
     %r = idr.match %l : !idr.box<!List> -> (!idr.box<!List>) {
@@ -161,7 +165,7 @@ idr.program @"llvm-facts" root(@Prog.main) stage(first) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %x = arith.extui %c : i32 to i64

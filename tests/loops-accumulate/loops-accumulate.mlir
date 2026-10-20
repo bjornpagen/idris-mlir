@@ -41,8 +41,11 @@
 // STDIN: 16
 // BOTH: expected constant-stack: {{.*}}@both
 // DEPTH: expected constant-stack: {{.*}}@depth
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @accumulate root(@root) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @accumulate root(@root) stage(first) types #types {
 
   idr.func @length(%xs: !idr.box<!List>) -> !idr.nat attributes {total} {
     %one = idr.constant !idr.nat #idr.big<1>
@@ -299,7 +302,7 @@ idr.program @accumulate root(@root) stage(first) {
     return %v17 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@root) stage(first) {
+// REFERENCE: idr.program @reference root(@root) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @pow10(%e: i64, %acc: i64) -> i64 attributes {total} {
 // REFERENCE:     %r = idr.match_lit %e : i64 -> (i64) {
 // REFERENCE:     case 0 {

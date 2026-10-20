@@ -7,7 +7,7 @@
 // is no number is refused at the request, before the property runs. The
 // bound is inclusive: @big, of seven operations (six that compute and its
 // return), is within 7 and past 6, and @main and @small are within both.
-idr.program @"largest-function" root(@main) stage(first) {
+idr.program @"largest-function" root(@main) stage(first) types #idr.types<> {
   idr.func @small(%x: i64) -> i64 {
     return %x : i64
   }

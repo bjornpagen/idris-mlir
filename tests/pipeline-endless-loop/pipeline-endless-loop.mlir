@@ -5,7 +5,7 @@
 // in the loop of a function that is not total, and nothing asserts forward
 // progress, so neither MLIR nor LLVM deletes it. The program is still
 // running when its time is up.
-idr.program @"endless-loop" root(@Prog.main) stage(higher) {
+idr.program @"endless-loop" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.spin(%n: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %m = arith.addi %n, %c1 : i64

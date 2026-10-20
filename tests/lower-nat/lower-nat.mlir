@@ -22,7 +22,7 @@
 // STDIN: 5\n18446744073709551616\n-18446744073709551616\n
 // STDIN: -3\n4611686018427387904\n7\n
 // STDIN:
-idr.program @nat root(@Prog.main) stage(first) {
+idr.program @nat root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @naturals(%a: !idr.nat, %b: !idr.nat, %i: !idr.big)
       -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big) {
     %s = idr.big.add %a, %b : !idr.nat
@@ -69,7 +69,7 @@ idr.program @nat root(@Prog.main) stage(first) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @clamp(%x: !idr.big) -> !idr.big {
 // REF:     %zero = idr.constant !idr.big #idr.big<0>
 // REF:     %neg = idr.big.cmp lt %x, %zero

@@ -2,13 +2,13 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| A module as MLIR bytecode, the file the driver reads. One encoding, the
 ||| same for every module:
-||| version 6, the pinned reader's current one; each data type written once,
-||| its body in the module's table of data types, attribute entry 0, and
-||| every other occurrence of it naming its member there; each type and
-||| attribute that can hold a data type, each location and each string an
-||| entry of its dialect's bytecode encoding (IdrisMLIR.Encoding.*), which
-||| refers to what it holds by entry, and every other entry its text, the
-||| bytecode's own fallback;
+||| version 6, the pinned reader's current one; each type and attribute
+||| that holds another, each location and each string an entry of its
+||| dialect's bytecode encoding (IdrisMLIR.Encoding.*), which refers to what
+||| it holds by entry, and every other entry its text, the bytecode's own
+||| fallback, a data type among them, whose text is its name: its body is
+||| written once, in the program's table of data types (`#idr.types`, the
+||| program's attribute, the dialect's record `encodeDataTable`);
 ||| every op name recorded as registered, as it is where the file is read;
 ||| every op's inherent attributes in its one attribute dictionary, with its
 ||| discardable ones. Creating an op moves each inherent attribute into its
@@ -268,7 +268,6 @@ record Writer where
   opNameTable : Numbered String (Nat, Nat)
   attrTable : Numbered AttrKey Entry
   typeTable : Numbered Entry Entry
-  members : SortedMap String Nat
   ||| Those ops, encoded, how many, and how many values they define.
   body : Bytes
   count : IORef Nat
@@ -307,12 +306,6 @@ encoded : Writer -> List Part -> W (List Bits8)
 encoded w [] = pure []
 encoded w (p :: ps) = (++) <$> partBytes w p <*> encoded w ps
 
-||| Lists joined in order, each before the join of those after it, so that
-||| each element is copied once (base's `concat` appends each list to all
-||| before it).
-joined : List (List a) -> List a
-joined = foldr (++) []
-
 ||| A dialect whose types and attributes the handoff encodes natively.
 data Dialect = IdrDialect | BuiltinDialect
 
@@ -320,12 +313,6 @@ data Dialect = IdrDialect | BuiltinDialect
 dialectName : Dialect -> String
 dialectName IdrDialect = "idr"
 dialectName BuiltinDialect = "builtin"
-
-||| The code a field of the table starts with that is one of a dialect's
-||| type records written in place.
-inPlaceCode : Dialect -> Nat
-inPlaceCode IdrDialect = fieldIdrCode
-inPlaceCode BuiltinDialect = fieldBuiltinCode
 
 ||| The type entry of `d` that `parts` encode.
 typeEntry : Writer -> Dialect -> List Part -> W TypeRef
@@ -411,33 +398,14 @@ locationNumber w (Named n l) = do
 -- Types and attributes
 ------------------------------------------------------------------------------
 
-||| The table of data types is attribute entry 0: numbered before any entry
-||| its bodies make (`newWriter`), so that every data type's entry names it.
-tableRef : AttrRef
-tableRef = MkAttrRef 0
+||| How a type is written: a type of a record of the two dialects'
+||| encodings, as that record, each type it holds by its entry; any other
+||| type, as its text, a data type's its name.
+data Native = Record Dialect (List Part) | AsText
 
-||| The member of the table a data type is, by its name. A name the table
-||| does not hold is data the program does not declare, which only a bug of
-||| the frontend writes: this lookup is where it is found.
-member : Writer -> String -> W Nat
-member w name = case lookup name w.members of
-  Just k => pure k
-  Nothing => throwE ("a data type " ++ name ++ ", which the program does not declare")
-
-||| Where a type is written: an entry of its own, whose records refer to
-||| the types they hold by entry; or a field of the table, where a data type
-||| is its member and a type that holds one is its record in place.
-data Place = InEntry | InTable
-
-||| How a type is written: a data type, as its member of the table; a type
-||| of a record of the two dialects' encodings, as that record, each type
-||| it holds written as the place says, and whether a data type is below it;
-||| any other type, as its text, which holds no data type.
-data Native = Member Nat | Record Dialect (List Part) Bool | AsText
-
-||| A record of `d`, from what the one type it holds is written as.
-recordOf : Dialect -> (List Part -> List Part) -> (List Part, Bool) -> Native
-recordOf d encode (parts, below) = Record d (encode parts) below
+||| A record of `d`, from the parts of the one type it holds.
+recordOf : Dialect -> (List Part -> List Part) -> List Part -> Native
+recordOf d encode parts = Record d (encode parts)
 
 ||| A dimension of a shaped type as its record gives it: a dynamic one is
 ||| `ShapedType::kDynamic`.
@@ -448,79 +416,62 @@ extent Dynamic = dynamicExtent
 -- Every recursion is on a part of the type or attribute written, through
 -- mutual helpers for lists, as `typesText` is, so that totality holds.
 mutual
-  ||| The one switch over the kinds of type: how `t` is written in `place`.
-  native : Writer -> Place -> MlirType -> W Native
-  native w pl (Idr (DataType name) _) = Member <$> member w name
-  native w pl (Idr (QType q p v l) _) =
-    recordOf IdrDialect (\value => encodeQType q p value (maybe Lifetime.Heap id l)) <$> held w pl v
-  native w pl (Idr (FnType sig) _) = recordOf IdrDialect encodeFnType <$> heldSignature w pl sig
-  native w pl (Idr (LazyType v) _) = recordOf IdrDialect encodeLazyType <$> held w pl v
-  native w pl (Idr (BoxType v) _) = recordOf IdrDialect encodeBoxType <$> held w pl v
-  native w pl (Idr (DestType v) _) = recordOf IdrDialect encodeDestType <$> held w pl v
-  native w pl (FunctionType sig) = recordOf BuiltinDialect id <$> functionType w pl sig
-  native w pl (RankedTensorType ds e) =
-    recordOf BuiltinDialect (encodeRankedTensorType (map extent ds)) <$> held w pl e
+  ||| The one switch over the kinds of type: how `t` is written.
+  native : Writer -> MlirType -> W Native
+  native w (Idr (QType q p v l) _) =
+    recordOf IdrDialect (\value => encodeQType q p value (maybe Lifetime.Heap id l)) <$> held w v
+  native w (Idr (FnType sig) _) = recordOf IdrDialect encodeFnType <$> heldSignature w sig
+  native w (Idr (LazyType v) _) = recordOf IdrDialect encodeLazyType <$> held w v
+  native w (Idr (BoxType v) _) = recordOf IdrDialect encodeBoxType <$> held w v
+  native w (Idr (DestType v) _) = recordOf IdrDialect encodeDestType <$> held w v
+  native w (FunctionType sig) = recordOf BuiltinDialect id <$> functionType w sig
+  native w (RankedTensorType ds e) =
+    recordOf BuiltinDialect (encodeRankedTensorType (map extent ds)) <$> held w e
   -- Upstream has a record for a memref in the default memory space and one
   -- for a memref in another; each names its identity layout.
-  native w pl (MemRefType ds e Nothing) = do
+  native w (MemRefType ds e Nothing) = do
     layout <- attrTextEntry w (IdentityMap (length ds))
-    recordOf BuiltinDialect (\x => encodeMemRefType (map extent ds) x layout) <$> held w pl e
-  native w pl (MemRefType ds e (Just space)) = do
+    recordOf BuiltinDialect (\x => encodeMemRefType (map extent ds) x layout) <$> held w e
+  native w (MemRefType ds e (Just space)) = do
     s <- attrNumber w space
     layout <- attrTextEntry w (IdentityMap (length ds))
-    recordOf BuiltinDialect (\x => encodeMemRefTypeWithMemSpace s (map extent ds) x layout) <$> held w pl e
-  native w pl _ = pure AsText
+    recordOf BuiltinDialect (\x => encodeMemRefTypeWithMemSpace s (map extent ds) x layout) <$> held w e
+  native w _ = pure AsText
 
-  ||| A type's entry. A data type's names the table and its member.
+  ||| A type's entry.
   export
   typeNumber : Writer -> MlirType -> W TypeRef
-  typeNumber w t = case !(native w InEntry t) of
-    Member k => typeEntry w IdrDialect (encodeDataType tableRef k)
-    Record d parts _ => typeEntry w d parts
+  typeNumber w t = case !(native w t) of
+    Record d parts => typeEntry w d parts
     AsText => typeTextEntry w t
 
-  ||| A type as a field of the table, and whether a data type is at or
-  ||| below it: a data type is its member; a type that holds one is its
-  ||| record in place, of its dialect's code; any other is its entry.
-  field : Writer -> MlirType -> W (List Part, Bool)
-  field w t = case !(native w InTable t) of
-    Member k => pure ([VarInt fieldMemberCode, VarInt k], True)
-    Record d parts True => pure (VarInt (inPlaceCode d) :: parts, True)
-    _ => (\r => ([VarInt fieldEntryCode, TypeAt r], False)) <$> typeNumber w t
+  ||| A type a record holds: its entry.
+  held : Writer -> MlirType -> W (List Part)
+  held w t = (\r => [TypeAt r]) <$> typeNumber w t
 
-  ||| A type a record holds, written as `place` says.
-  held : Writer -> Place -> MlirType -> W (List Part, Bool)
-  held w InEntry t = (\r => ([TypeAt r], False)) <$> typeNumber w t
-  held w InTable t = field w t
-
-  heldAll : Writer -> Place -> List MlirType -> W (List (List Part, Bool))
-  heldAll w pl [] = pure []
-  heldAll w pl (t :: ts) = (::) <$> held w pl t <*> heldAll w pl ts
+  heldAll : Writer -> List MlirType -> W (List (List Part))
+  heldAll w [] = pure []
+  heldAll w (t :: ts) = (::) <$> held w t <*> heldAll w ts
 
   ||| A builtin function type's record, from its signature.
-  functionType : Writer -> Place -> Signature MlirType -> W (List Part, Bool)
-  functionType w pl (MkSignature ins outs) = do
-    is <- heldAll w pl ins
-    os <- heldAll w pl outs
-    pure (encodeFunctionType (map fst is) (map fst os), any snd is || any snd os)
+  functionType : Writer -> Signature MlirType -> W (List Part)
+  functionType w (MkSignature ins outs) = encodeFunctionType <$> heldAll w ins <*> heldAll w outs
 
   ||| A builtin function type's entry, from its signature.
   functionEntry : Writer -> Signature MlirType -> W TypeRef
-  functionEntry w sig = typeEntry w BuiltinDialect (fst !(functionType w InEntry sig))
+  functionEntry w sig = typeEntry w BuiltinDialect !(functionType w sig)
 
-  ||| The builtin function type a closure's record holds, written as `held`
-  ||| writes a type. The generated `FnType` holds its signature, not that
-  ||| type, so this is `held` of the function type, on the signature, which
-  ||| is the part the recursion is on.
-  heldSignature : Writer -> Place -> Signature MlirType -> W (List Part, Bool)
-  heldSignature w InEntry sig = (\r => ([TypeAt r], False)) <$> functionEntry w sig
-  heldSignature w InTable sig = do
-    (parts, below) <- functionType w InTable sig
-    if below then pure (VarInt (inPlaceCode BuiltinDialect) :: parts, True)
-      else (\r => ([VarInt fieldEntryCode, TypeAt r], False)) <$> functionEntry w sig
+  ||| The builtin function type a closure's record holds, by its entry. The
+  ||| generated `FnType` holds its signature, not that type, so this is
+  ||| `held` of the function type, on the signature, which is the part the
+  ||| recursion is on.
+  heldSignature : Writer -> Signature MlirType -> W (List Part)
+  heldSignature w sig = (\r => [TypeAt r]) <$> functionEntry w sig
 
   ||| An attribute's entry: an array, a dictionary and a type, which can
-  ||| hold a data type, are builtin's records; every other is its text.
+  ||| hold a data type, are builtin's records; the table of data types is
+  ||| the dialect's record, each body's fields by their entries; every other
+  ||| is its text.
   attrNumber : Writer -> MlirAttr -> W AttrRef
   attrNumber w (ArrayAttr as) = do
     rs <- attrNumbers w as
@@ -532,6 +483,7 @@ mutual
     r <- typeNumber w t
     attrEntry w BuiltinDialect (encodeTypeAttr [TypeAt r])
   attrNumber w (StringAttr s) = stringAttrNumber w s
+  attrNumber w (Idr (DataTableAttr ds) _) = attrEntry w IdrDialect (encodeDataTable !(rows w ds))
   attrNumber w a = attrTextEntry w a
 
   attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)
@@ -545,52 +497,40 @@ mutual
   namedNumbers w ((name, a) :: es) =
     (\n, v, rest => (n, v) :: rest) <$> stringAttrNumber w name <*> attrNumber w a <*> namedNumbers w es
 
+  ||| The table's rows, one per data type in order, as `encodeDataTable`
+  ||| takes them: its name, its kind of sum, its constructors and its
+  ||| instance's entry, an `#idr.instance` attribute. A constructor is its name, its role, the function a
+  ||| label names and whether it is by name (none and 0: the frontend writes
+  ||| no label) and its fields' entries.
+  rows : Writer -> List (String, IdrSum MlirType MlirAttr) ->
+         W (List (String, SumKind, List (String, CtorRole, Maybe AttrRef, Nat, List (List Part)), Maybe AttrRef))
+  rows w [] = pure []
+  rows w ((name, MkIdrSum kind ctors instanceOf) :: ds) = do
+    cs <- ctorRows w ctors
+    inst <- instanceRef w instanceOf
+    ((name, kind, cs, inst) ::) <$> rows w ds
+
+  ctorRows : Writer -> List (IdrCtor MlirType) ->
+             W (List (String, CtorRole, Maybe AttrRef, Nat, List (List Part)))
+  ctorRows w [] = pure []
+  ctorRows w (MkIdrCtor name fields role :: cs) = do
+    fs <- heldAll w fields
+    ((name, role, Nothing, 0, fs) ::) <$> ctorRows w cs
+
+  instanceRef : Writer -> Maybe MlirAttr -> W (Maybe AttrRef)
+  instanceRef w Nothing = pure Nothing
+  instanceRef w (Just a) = Just <$> attrNumber w a
+
 ------------------------------------------------------------------------------
--- The table of data types
+-- The writer
 ------------------------------------------------------------------------------
 
-||| Each data type's member of the table, by name: its place in it. Two of
-||| one name are a bug of the frontend, which names each instance once.
-membersOf : List (String, a) -> W (SortedMap String Nat)
-membersOf = go 0 SortedMap.empty
-  where
-    go : Nat -> SortedMap String Nat -> List (String, a) -> W (SortedMap String Nat)
-    go k m [] = pure m
-    go k m ((name, _) :: rest) = case lookup name m of
-      Just _ => throwE ("two data types are named " ++ name)
-      Nothing => go (S k) (insert name k m) rest
-
-||| A constructor of a body, its table record: its name, its role, and its
-||| fields.
-ctorParts : Writer -> IdrCtor MlirType -> W (List Part)
-ctorParts w c = encodeTableCtor c.name c.role <$> traverse (\t => fst <$> field w t) c.fields
-
-||| A body, its table record: its kind of sum, its constructors in tag
-||| order, and the Idris instance it is of.
-bodyParts : Writer -> IdrSum MlirType -> W (List Part)
-bodyParts w s = do
-  ctors <- traverse (ctorParts w) s.ctors
-  inst <- traverse (\(origin, args) => attrNumber w (idr (InstanceAttr origin args))) s.instanceOf
-  pure (encodeTableBody s.kind ctors inst)
-
-||| A writer of a module whose data types are `datas`, in order, each its
-||| name and body: the table, attribute entry 0, written first, its fields
-||| numbered as they are met, each data type its member by its place in
-||| `datas`.
+||| A writer of a module, nothing numbered yet.
 export
-newWriter : List (String, IdrSum MlirType) -> IO (Either String Writer)
-newWriter datas = runEitherT $ do
-  members <- membersOf datas
-  w <- MkWriter <$> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered
-                <*> pure members <*> newBytes <*> newIORef 0 <*> newIORef 0
-  -- Entry 0 is the table's (`tableRef`): numbered before its bodies number
-  -- what they hold, and put first once they are written.
-  writeIORef w.attrTable.count 1
-  bodies <- traverse (bodyParts w . snd) datas
-  idr <- dialectNumber w (dialectName IdrDialect)
-  table <- encoded w ([VarInt dataTableCode, VarInt (length datas)] ++ map (Str . fst) datas ++ joined bodies)
-  modifyIORef w.attrTable.entries ([< (idr, Encoded table)] ++)
-  pure w
+newWriter : IO (Either String Writer)
+newWriter = runEitherT $
+  MkWriter <$> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered
+           <*> newBytes <*> newIORef 0 <*> newIORef 0
 
 ------------------------------------------------------------------------------
 -- Ops and regions

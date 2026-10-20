@@ -7,7 +7,7 @@
 // returns that is not written fails where it is returned (3, where 1 and
 // 2 are written), and one written that no path returns fails at the
 // function (2, and 5 beside 1 and 3).
-idr.program @returns root(@root) stage(first) {
+idr.program @returns root(@root) stage(first) types #idr.types<> {
   idr.func @seven() -> i64 {
     %c = arith.constant 7 : i64
     // expected-error @below {{expected returns: }}

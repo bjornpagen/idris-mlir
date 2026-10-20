@@ -4,7 +4,7 @@
 // need is proven where it runs: a division by a nonzero constant needs
 // none (@proved). Each guard left is one error (@kept), two guards two
 // (@both, a divisor's and a cast's).
-idr.program @guards root(@root) stage(first) {
+idr.program @guards root(@root) stage(first) types #idr.types<> {
   idr.func @proved(%x: i64) -> i64 {
     %two = arith.constant 2 : i64
     %r = idr.divs %x, %two : i64

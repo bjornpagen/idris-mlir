@@ -14,8 +14,11 @@
 // as the module as written compiled by idris-mlir does and as the
 // reference at the end (REF), with no shape, does (%differential).
 // CHECK: 56
-!Shape = !idr.data<"Shape", plain [@Circle(i64), @Rect(i64, i64)]>
-idr.program @"lowered-input" root(@Prog.main) stage(higher) {
+!Shape = !idr.data<"Shape">
+#types = #idr.types<
+  "Shape" = plain [@Circle(i64), @Rect(i64, i64)]
+>
+idr.program @"lowered-input" root(@Prog.main) stage(higher) types #types {
   idr.func @area(%s: !Shape) -> i64 {
     %r = idr.match %s : !Shape -> (i64) {
     case @Circle(%x: i64) {
@@ -54,7 +57,7 @@ idr.program @"lowered-input" root(@Prog.main) stage(higher) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %b = arith.extui %c : i32 to i64

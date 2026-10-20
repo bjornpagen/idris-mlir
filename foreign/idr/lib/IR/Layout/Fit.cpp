@@ -21,8 +21,8 @@ using namespace mlir;
 
 namespace idr::layout {
 
-FailureOr<unsigned> fit(Operation *root) {
-  SmallVector<DataType> boxes = TypeGraph(root).containsItself();
+FailureOr<unsigned> fit(ProgramOp root) {
+  SmallVector<DataType> boxes = TypeGraph(root.getOperation()).containsItself();
   if (boxes.empty())
     return 0u;
   FailureOr<std::unique_ptr<DataRemap>> remap = DataRemap::create(

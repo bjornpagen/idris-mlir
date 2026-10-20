@@ -22,7 +22,7 @@
 // STDIN: xy
 // STDIN: xyz
 
-idr.program @io root(@Prog.main) stage(first) {
+idr.program @io root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @io(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     // expected-remark @below {{facts: []}}
@@ -60,7 +60,7 @@ idr.program @io root(@Prog.main) stage(first) {
     return %w1 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Prog.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Prog.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %s = idr.constant !idr.str "BBAA"
 // REFERENCE:     %w1 = idr.io.put_str %s, %w

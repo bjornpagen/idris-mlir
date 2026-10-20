@@ -17,8 +17,11 @@
 // 3 strings, each filled before it is read, 0 to 3 doublings, both arms of
 // the if, the three cases of the switch, and an element updated; every run
 // prints what it printed before counting and leaves no cell live.
-!B = !idr.data<"B", plain [@MkB(!idr.str)]>
-idr.program @"regions-counted" root(@root) stage(first) {
+!B = !idr.data<"B">
+#types = #idr.types<
+  "B" = plain [@MkB(!idr.str)]
+>
+idr.program @"regions-counted" root(@root) stage(first) types #types {
   idr.func @make(%n: index) -> memref<?x!idr.str> {
     %b = memref.alloc(%n) : memref<?x!idr.str>
     %c0 = arith.constant 0 : index

@@ -9,7 +9,7 @@
 // nothing but compute. What a ring may do flows to its callers, never to
 // its callees: @entry, which calls into the ring's middle, may crash, and
 // @leaf, which @f0 calls, still only computes.
-idr.program @"long-cycle" root(@root) stage(first) {
+idr.program @"long-cycle" root(@root) stage(first) types #idr.types<> {
   idr.func @f0(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
     %q = idr.divs %x, %y : i64

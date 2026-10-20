@@ -6,6 +6,7 @@
 // which ends a cycle of types at its name.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
@@ -104,21 +105,38 @@ LogicalResult DataType::verifyBody(DataType type, function_ref<InFlightDiagnosti
   return success();
 }
 
-// `<"T">` inside the type's own body, `<"T", kind [@C(fields) role, ...]
-// instance #idr.instance<...>>` everywhere else: the way LLVM writes an
-// identified struct, which ends a cycle of types at its name. A plain
-// constructor writes no role, and a label writes its function after it,
-// then `by_name` when it is.
+//===----------------------------------------------------------------------===//
+// How a body is written and read
+//===----------------------------------------------------------------------===//
+
+// A data type is nominal, so it is written as its name alone wherever it
+// occurs, `!idr.data<"T">`, and its body once, as a member of its
+// program's table (Idr_DataTableAttr): `"T" = kind [@C(fields) role, ...]
+// instance #idr.instance<...>`. A plain constructor writes no role, and a
+// label writes its function after its role, then `by_name` when it is.
 void DataType::print(AsmPrinter &printer) const {
-  FailureOr<AsmPrinter::CyclicPrintReset> cyclic = printer.tryStartCyclicPrint(*this);
   printer << '<';
   printer.printString(getName());
-  if (failed(cyclic)) {
-    printer << '>';
-    return;
+  printer << '>';
+}
+
+Type DataType::parse(AsmParser &parser) {
+  SMLoc nameLoc = parser.getCurrentLocation();
+  std::string identifier;
+  if (parser.parseLess() || parser.parseString(&identifier) || parser.parseGreater())
+    return {};
+  if (identifier.empty()) {
+    parser.emitError(nameLoc, "expects a data type to have a name");
+    return {};
   }
-  printer << ", " << stringifySumKind(getKind()) << " [";
-  llvm::interleaveComma(getCtors(), printer, [&](const Ctor &ctor) {
+  return get(parser.getContext(), identifier);
+}
+
+namespace {
+
+void printBody(AsmPrinter &printer, DataType type) {
+  printer << stringifySumKind(type.getKind()) << " [";
+  llvm::interleaveComma(type.getCtors(), printer, [&](const Ctor &ctor) {
     printer.printSymbolName(ctor.name.getValue());
     printer << '(';
     llvm::interleaveComma(ctor.fields, printer);
@@ -132,51 +150,21 @@ void DataType::print(AsmPrinter &printer) const {
     }
   });
   printer << ']';
-  if (InstanceAttr instance = getInstance())
+  if (InstanceAttr instance = type.getInstance())
     printer << " instance " << instance;
-  printer << '>';
 }
 
-Type DataType::parse(AsmParser &parser) {
-  MLIRContext *context = parser.getContext();
-  SMLoc nameLoc = parser.getCurrentLocation();
-  std::string identifier;
-  if (parser.parseLess() || parser.parseString(&identifier))
-    return {};
-  if (identifier.empty()) {
-    parser.emitError(nameLoc, "expects a data type to have a name");
-    return {};
-  }
-  DataType type = get(context, identifier);
-  // The name alone: only where the type's own body is being read, which
-  // has the body to come.
-  if (succeeded(parser.parseOptionalGreater())) {
-    if (succeeded(parser.tryStartCyclicParse(type))) {
-      parser.emitError(nameLoc, "a data type is written without its body only inside its own body");
-      return {};
-    }
-    return type;
-  }
-  FailureOr<AsmParser::CyclicParseReset> cyclic = parser.tryStartCyclicParse(type);
-  if (failed(cyclic)) {
-    parser.emitError(nameLoc) << "the data type \"" << identifier
-                              << "\" is written with its body inside its own body";
-    return {};
-  }
-  if (parser.parseComma())
-    return {};
+// A body read: its constructors' fields in `fields`, which the body views
+// until it is set. Failure after the parser's error.
+FailureOr<DataType::Body> parseBody(AsmParser &parser, std::vector<SmallVector<Type>> &fields) {
   SMLoc kindLoc = parser.getCurrentLocation();
   StringRef keyword;
   if (parser.parseKeyword(&keyword))
-    return {};
+    return failure();
   std::optional<SumKind> kind = symbolizeSumKind(keyword);
-  if (!kind) {
-    parser.emitError(kindLoc, "expects the kind of sum: plain, list, in_place, closures or memo");
-    return {};
-  }
-  SMLoc bodyLoc = parser.getCurrentLocation();
-  // The constructors' fields, which the body views until it is set.
-  std::vector<SmallVector<Type>> fields;
+  if (!kind)
+    return parser.emitError(kindLoc,
+                            "expects the kind of sum: plain, list, in_place, closures or memo");
   SmallVector<Ctor> ctors;
   // The roles a constructor writes, every one but plain, which it leaves
   // out: their spellings are the enum's.
@@ -208,15 +196,111 @@ Type DataType::parse(AsmParser &parser) {
     return success();
   };
   if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, parseCtor))
-    return {};
+    return failure();
   InstanceAttr instance;
   if (succeeded(parser.parseOptionalKeyword("instance")) && parser.parseAttribute(instance))
-    return {};
-  if (parser.parseGreater())
-    return {};
+    return failure();
   for (auto [ctor, ctorFields] : llvm::zip_equal(ctors, fields))
     ctor.fields = ctorFields;
-  if (failed(type.setBody([&] { return parser.emitError(bodyLoc); }, {*kind, ctors, instance})))
+  return DataType::Body{*kind, ctors, instance};
+}
+
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// The program's table of data types
+//===----------------------------------------------------------------------===//
+
+void DataTableAttr::print(AsmPrinter &printer) const {
+  printer << '<';
+  llvm::interleave(
+      getMembers(), printer,
+      [&](DataType member) {
+        printer << "\n  ";
+        printer.printString(member.getName());
+        printer << " = ";
+        printBody(printer, member);
+      },
+      ",");
+  if (!getMembers().empty())
+    printer << '\n';
+  printer << '>';
+}
+
+Attribute DataTableAttr::parse(AsmParser &parser, Type) {
+  MLIRContext *context = parser.getContext();
+  SMLoc loc = parser.getCurrentLocation();
+  SmallVector<DataType> members;
+  auto parseMember = [&]() -> ParseResult {
+    SMLoc nameLoc = parser.getCurrentLocation();
+    std::string name;
+    if (parser.parseString(&name) || parser.parseEqual())
+      return failure();
+    if (name.empty())
+      return parser.emitError(nameLoc, "expects a data type to have a name");
+    DataType member = DataType::get(context, name);
+    SMLoc bodyLoc = parser.getCurrentLocation();
+    std::vector<SmallVector<Type>> fields;
+    FailureOr<DataType::Body> body = parseBody(parser, fields);
+    if (failed(body) ||
+        failed(member.setBody([&] { return parser.emitError(bodyLoc); }, *body)))
+      return failure();
+    members.push_back(member);
+    return success();
+  };
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::LessGreater, parseMember))
     return {};
-  return type;
+  return getChecked([&] { return parser.emitError(loc); }, context, ArrayRef<DataType>(members));
+}
+
+LogicalResult DataTableAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                                    ArrayRef<DataType> members) {
+  for (auto [index, member] : llvm::enumerate(members)) {
+    if (!member.bodySet())
+      return emitError() << "the data type \"" << member.getName() << "\" has no body";
+    if (index > 0 && members[index - 1].getName() >= member.getName())
+      return emitError() << "the data types are in name order, each once, and \""
+                         << members[index - 1].getName() << "\" comes before \""
+                         << member.getName() << "\"";
+  }
+  return success();
+}
+
+bool DataTableAttr::holds(DataType data) const {
+  ArrayRef<DataType> members = getMembers();
+  const DataType *at = llvm::lower_bound(
+      members, data, [](DataType a, DataType b) { return a.getName() < b.getName(); });
+  return at != members.end() && *at == data;
+}
+
+void DataTableAttr::walkMembers(DataTableAttr table, function_ref<void(Type)> walk) {
+  for (DataType member : table.getMembers())
+    walk(member);
+}
+
+// A replacer replaces a member as it replaces any occurrence of the type:
+// one that boxes a data type wherever it occurs hands back a box of it,
+// and the member is the data type, whichever it became.
+DataTableAttr DataTableAttr::replaced(DataTableAttr table, ArrayRef<Type> members) {
+  SmallVector<DataType> kept;
+  for (Type member : members) {
+    DataType data = dataTypeOf(member);
+    assert(data && "a member of the table is replaced by a type that is no data type");
+    kept.push_back(data);
+  }
+  llvm::sort(kept, [](DataType a, DataType b) { return a.getName() < b.getName(); });
+  kept.erase(llvm::unique(kept), kept.end());
+  return get(table.getContext(), ArrayRef<DataType>(kept));
+}
+
+DataTableAttr DataTableAttr::with(DataType data) const {
+  if (holds(data))
+    return *this;
+  SmallVector<DataType> members(getMembers());
+  members.insert(llvm::lower_bound(members, data,
+                                   [](DataType a, DataType b) {
+                                     return a.getName() < b.getName();
+                                   }),
+                 data);
+  return get(getContext(), ArrayRef<DataType>(members));
 }

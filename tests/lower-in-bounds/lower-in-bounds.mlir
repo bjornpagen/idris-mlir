@@ -18,7 +18,7 @@
 // STDIN: \0003
 // STDIN: \0377
 // STDIN:
-idr.program @"in-bounds" root(@root) stage(owned) {
+idr.program @"in-bounds" root(@root) stage(owned) types #idr.types<> {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c, %wc = idr.io.get_byte %w
     %x = arith.extui %c : i32 to i64
@@ -49,7 +49,7 @@ idr.program @"in-bounds" root(@root) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@root) stage(higher) {
+// REF: idr.program @ref root(@root) stage(higher) types #idr.types<> {
 // REF:   idr.func @root(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %x = arith.extui %c : i32 to i64

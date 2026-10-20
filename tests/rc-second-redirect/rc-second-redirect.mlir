@@ -14,8 +14,11 @@
 // length, 0 to 4, so every function runs on the empty list and on cells,
 // and every run prints what it printed before counting and leaves no cell
 // live.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"second-redirect" root(@root) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"second-redirect" root(@root) stage(first) types #types {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {

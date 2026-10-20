@@ -23,8 +23,11 @@
 // the near neighbours that verify: the static value's reference taken by
 // an idr.dup, and the captures moved out by the force, dropped once.
 
-!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
-idr.program @"sources" root(@Main.main) stage(owned) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]
+>
+idr.program @"sources" root(@Main.main) stage(owned) types #types {
   idr.func @twice(%t: !idr.q<many, borrow, !idr.box<!T>>) -> i64 {
     // expected-error @+1 {{has result '!idr.own<!idr.str>', but the field of a '!idr.q<many, borrow, !idr.box}}
     %s = idr.field %t : !idr.q<many, borrow, !idr.box<!T>> @lbl[0] -> !idr.own<!idr.str>
@@ -39,8 +42,11 @@ idr.program @"sources" root(@Main.main) stage(owned) {
 
 // -----
 
-!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
-idr.program @"sources" root(@Main.main) stage(owned) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]
+>
+idr.program @"sources" root(@Main.main) stage(owned) types #types {
   idr.func @peek(%t: !idr.q<many, borrow, !idr.box<!T>>) -> i64 {
     // expected-error @+1 {{case @lbl must take the constructor's fields at the scrutinee's grade}}
     %r = idr.match %t : !idr.q<many, borrow, !idr.box<!T>> -> (i64) {
@@ -67,8 +73,11 @@ idr.program @"sources" root(@Main.main) stage(owned) {
 
 // -----
 
-!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
-idr.program @"sources" root(@Main.main) stage(owned) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]
+>
+idr.program @"sources" root(@Main.main) stage(owned) types #types {
   idr.func @stat(%o: !idr.q<many, borrow, !idr.box<!T>>) -> i64 {
     %t = idr.constant !idr.q<many, borrow, !idr.box<!T>> #idr.con<!T, @forced, ["abc"]>
     %r = idr.match %t : !idr.q<many, borrow, !idr.box<!T>> -> (i64) {
@@ -101,8 +110,11 @@ idr.program @"sources" root(@Main.main) stage(owned) {
 
 // -----
 
-!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
-idr.program @"sources" root(@Main.main) stage(owned) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]
+>
+idr.program @"sources" root(@Main.main) stage(owned) types #types {
   idr.func @stat(%o: !idr.q<many, borrow, !idr.box<!T>>) -> i64 {
     %t = idr.constant !idr.q<many, borrow, !idr.box<!T>> #idr.con<!T, @forced, ["abc"]>
     %r = idr.match %t : !idr.q<many, borrow, !idr.box<!T>> -> (i64) {
@@ -134,8 +146,11 @@ idr.program @"sources" root(@Main.main) stage(owned) {
 
 // -----
 
-!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
-idr.program @"sources" root(@Main.main) stage(owned) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]
+>
+idr.program @"sources" root(@Main.main) stage(owned) types #types {
   idr.func @lbl(%s: !idr.q<many, borrow, !idr.str>) -> !idr.own<!idr.str> attributes {total} {
     %r = idr.dup %s : !idr.q<many, borrow, !idr.str>
     return %r : !idr.own<!idr.str>
@@ -163,7 +178,7 @@ idr.program @"sources" root(@Main.main) stage(owned) {
 
 // -----
 
-idr.program @"sources" root(@Main.main) stage(owned) {
+idr.program @"sources" root(@Main.main) stage(owned) types #idr.types<> {
   idr.func @after(%b: !idr.own<memref<2x!idr.str>>, %n: !idr.own<!idr.str>) -> !idr.own<!idr.str> {
     %c0 = arith.constant 0 : index
     %v = idr.borrow %b : !idr.own<memref<2x!idr.str>>
@@ -185,8 +200,11 @@ idr.program @"sources" root(@Main.main) stage(owned) {
 
 // The near neighbours of the two above: the capture read and used before
 // the force, the element read and used before the store.
-!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
-idr.program @"sources" root(@Main.main) stage(owned) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]
+>
+idr.program @"sources" root(@Main.main) stage(owned) types #types {
   idr.func @lbl(%s: !idr.q<many, borrow, !idr.str>) -> !idr.own<!idr.str> attributes {total} {
     %r = idr.dup %s : !idr.q<many, borrow, !idr.str>
     return %r : !idr.own<!idr.str>
@@ -222,8 +240,11 @@ idr.program @"sources" root(@Main.main) stage(owned) {
 
 // -----
 
-!T = !idr.data<"T", memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]>
-idr.program @"sources" root(@Main.main) stage(owned) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = memo [@lbl(!idr.str) label @lbl, @running() running, @forced(!idr.str) forced]
+>
+idr.program @"sources" root(@Main.main) stage(owned) types #types {
   idr.func @lbl(%s: !idr.q<many, borrow, !idr.str>) -> !idr.own<!idr.str> attributes {total} {
     %r = idr.dup %s : !idr.q<many, borrow, !idr.str>
     return %r : !idr.own<!idr.str>

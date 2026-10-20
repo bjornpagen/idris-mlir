@@ -423,9 +423,9 @@ ruleCategory Rule.Elaboration = RuleCategory.UserError
 -- Types
 ------------------------------------------------------------------------------
 
-||| One constructor of a data type's body, as the module's table of data
+||| One constructor of a data type's body, as the program's table of data
 ||| types holds it: its name, its fields' types, and the part it plays in
-||| its sum, never a label's, which the frontend's table does not hold.
+||| its sum, never a label's, which the frontend writes none of.
 public export
 record IdrCtor ty where
   constructor MkIdrCtor
@@ -433,15 +433,42 @@ record IdrCtor ty where
   fields : List ty
   role : CtorRole
 
-||| A data type's body, as the module's table of data types holds it: what
-||| sum it is, its constructors in tag order, and the Idris instance it is
-||| of, its origin and arguments.
+||| A data type's body, as the program's table of data types holds it:
+||| what sum it is, its constructors in tag order, and the Idris instance
+||| it is of, an `#idr.instance` attribute, when it is of one.
 public export
-record IdrSum ty where
+record IdrSum ty at where
   constructor MkIdrSum
   kind : SumKind
   ctors : List (IdrCtor ty)
-  instanceOf : Maybe (String, List String)
+  instanceOf : Maybe at
+
+||| A constructor of a body as the program's table writes it: its name, its
+||| fields' types and, but for a plain one, its role.
+export
+idrCtorText : (t : ty -> String) -> IdrCtor ty -> String
+idrCtorText t (MkIdrCtor name fields role) =
+  fastConcat [symbol name, "(", commaSeparated (map t fields), ")", roleText role]
+  where
+    roleText : CtorRole -> String
+    roleText CtorRole.Plain = ""
+    roleText r = " " ++ show r
+
+||| A body as the program's table writes it: its kind of sum, its
+||| constructors and its instance.
+export
+idrSumText : (t : ty -> String) -> (a : at -> String) -> IdrSum ty at -> String
+idrSumText t a (MkIdrSum kind ctors instanceOf) =
+  fastConcat [show kind, " [", commaSeparated (map (idrCtorText t) ctors), "]",
+              maybe "" (\i => " instance " ++ a i) instanceOf]
+
+||| The program's table of data types, `#idr.types`: each member its
+||| name and its body, one to a line.
+export
+idrTableText : (t : ty -> String) -> (a : at -> String) -> List (String, IdrSum ty at) -> String
+idrTableText t a [] = "#idr.types<>"
+idrTableText t a members =
+  fastConcat ["#idr.types<\n  ", separated ",\n  " (map (\(name, s) => fastConcat [utf8 name, " = ", idrSumText t a s]) members), "\n>"]
 
 ||| The idr dialect's types, one constructor each, named
 ||| after its C++ class; `ty` is the type of the types they hold.
@@ -519,6 +546,8 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   BigAttr : (value : Integer) -> IdrAttr ty at
   ||| `#idr.closure`: a closure of a function with its captures as attributes
   ClosureAttr : (callee : String) -> (captures : List at) -> IdrAttr ty at
+  ||| `#idr.types`: a program's data types, each with its body, in name order
+  DataTableAttr : (members : List (String, IdrSum ty at)) -> IdrAttr ty at
   ||| `#idr.instance`: the Idris definition and arguments a function or data type is an instance of
   InstanceAttr : (origin : String) -> (arguments : List String) -> IdrAttr ty at
   ||| `#idr.refusal`: a refusal of the program the frontend found, which the driver reports
@@ -531,13 +560,14 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
 ||| The mnemonics of the idr dialect's attributes.
 export
 idrAttrMnemonics : List String
-idrAttrMnemonics = ["big", "closure", "instance", "refusal", "rule", "world"]
+idrAttrMnemonics = ["big", "closure", "types", "instance", "refusal", "rule", "world"]
 
 ||| The mnemonic of each of the idr dialect's attributes.
 export
 idrAttrMnemonic : IdrAttr ty at -> String
 idrAttrMnemonic (BigAttr _) = "big"
 idrAttrMnemonic (ClosureAttr _ _) = "closure"
+idrAttrMnemonic (DataTableAttr _) = "types"
 idrAttrMnemonic (InstanceAttr _ _) = "instance"
 idrAttrMnemonic (RefusalAttr _ _ _) = "refusal"
 idrAttrMnemonic (RuleAttr _) = "rule"
@@ -549,6 +579,7 @@ export
 idrAttrText : (t : ty -> String) -> (a : at -> String) -> IdrAttr ty at -> String
 idrAttrText t a (BigAttr value) = fastConcat ["#idr.big<", (show value), ">"]
 idrAttrText t a (ClosureAttr callee captures) = fastConcat ["#idr.closure<", (symbol callee), ", ", (array a captures), ">"]
+idrAttrText t a (DataTableAttr members) = idrTableText t a members
 idrAttrText t a (InstanceAttr origin arguments) = fastConcat ["#idr.instance<", (utf8 origin), ", ", (fastConcat ["[", commaSeparated (map utf8 arguments), "]"]), ">"]
 idrAttrText t a (RefusalAttr rule loc message) = fastConcat ["#idr.refusal<", (ruleSpelling rule), ", ", (location loc), ", ", (utf8 message), ">"]
 idrAttrText t a (RuleAttr value) = fastConcat ["#idr.rule<", (ruleSpelling value), ">"]
@@ -561,4 +592,4 @@ idrAttrText t a WorldSpaceAttr = "#idr.world"
 -- attribute KeyHoleAttr: the passes' alone (idris = 0)
 -- attribute KeyRaiseAttr: the passes' alone (idris = 0)
 -- attribute SpecKeyAttr: the passes' alone (idris = 0)
--- fingerprint: 1021194486-1532636 485632571-20832
+-- fingerprint: 2139816913-1536290 2298326067-22331

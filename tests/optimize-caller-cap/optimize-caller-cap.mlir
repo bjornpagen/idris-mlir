@@ -16,7 +16,7 @@
 // optimizer, each function of the chain is over a bound of 1,000.
 // What the cap leaves is the chain it was: on every one-byte input the
 // optimized program prints what the chain as written does (%differential).
-idr.program @"caller-cap" root(@Main.main) stage(first) {
+idr.program @"caller-cap" root(@Main.main) stage(first) types #idr.types<> {
   // CHAIN
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w

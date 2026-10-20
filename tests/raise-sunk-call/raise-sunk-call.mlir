@@ -14,7 +14,7 @@
 // Moving the call changes no outcome: on every one-byte input, 0 taking
 // the region that applies and the rest the other, the optimized program
 // prints what the program as written does (%differential).
-idr.program @"sunk-call" root(@Main.main) stage(higher) {
+idr.program @"sunk-call" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

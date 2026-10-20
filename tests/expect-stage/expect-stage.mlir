@@ -7,7 +7,7 @@
 // expected-error @below {{expected stage: the program is at stage first, not graded}}
 // expected-error @below {{expected stage: the program is at stage first, not owned}}
 // expected-error @below {{expected stage: the program is at stage first, not lowered}}
-idr.program @stage root(@root) stage(first) {
+idr.program @stage root(@root) stage(first) types #idr.types<> {
   idr.func @root() -> i64 {
     %zero = arith.constant 0 : i64
     return %zero : i64

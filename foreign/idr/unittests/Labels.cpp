@@ -26,7 +26,7 @@ TEST(Labels, AParameterIsOneNodeWithItsArgument) {
   MLIRContext ctx;
   ctx.loadDialect<idr::IdrDialect, arith::ArithDialect>();
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-idr.program @labels root(@Prog.main) stage(higher) {
+idr.program @labels root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

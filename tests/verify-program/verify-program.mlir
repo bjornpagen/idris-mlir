@@ -7,7 +7,7 @@
 // function private.
 
 // expected-error @+1 {{has root @missing, which is no idr.func of the program}}
-idr.program @program root(@missing) stage(first) {
+idr.program @program root(@missing) stage(first) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -16,7 +16,7 @@ idr.program @program root(@missing) stage(first) {
 
 // -----
 
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   // expected-error @+1 {{is the root, so its type must be}}
   idr.func @a(%x: i64) -> i64 {
     return %x : i64
@@ -28,7 +28,7 @@ idr.program @program root(@a) stage(first) {
 // Both kinds of root: one whose result is the program's exit status, and
 // one whose run is the program, which gives back the world and what holds
 // no runtime value, as the frontend's IO result of a unit does.
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -37,9 +37,13 @@ idr.program @program root(@a) stage(first) {
 
 // -----
 
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-idr.program @program root(@a) stage(first) {
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+#types = #idr.types<
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @program root(@a) stage(first) types #types {
   idr.func @a(%w: !idr.world) -> !IORes {
     %u = idr.con !Unit @MkUnit()
     %r = idr.con !IORes @MkIORes(%u : !Unit, %w : !idr.world)
@@ -49,8 +53,11 @@ idr.program @program root(@a) stage(first) {
 
 // -----
 
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-idr.program @program root(@a) stage(first) {
+!Unit = !idr.data<"Unit">
+#types = #idr.types<
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @program root(@a) stage(first) types #types {
   idr.func @a(%w: !idr.world) -> (!Unit, !idr.world) {
     %u = idr.con !Unit @MkUnit()
     return %u, %w : !Unit, !idr.world
@@ -61,7 +68,7 @@ idr.program @program root(@a) stage(first) {
 
 // An IO root's results hold nothing the program reports: a status beside
 // the world is no exit status, and the root is refused, not read as one.
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   // expected-error @+1 {{is the root, so its type must be}}
   idr.func @a(%w: !idr.world) -> (!idr.world, i64) {
     %c = arith.constant 0 : i64
@@ -71,7 +78,7 @@ idr.program @program root(@a) stage(first) {
 
 // -----
 
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   // expected-error @+1 {{is the root, so its type must be}}
   idr.func @a(%w: !idr.world) -> (!idr.world, !idr.str) {
     %s = idr.constant !idr.str "a"
@@ -82,10 +89,14 @@ idr.program @program root(@a) stage(first) {
 // -----
 
 // Containment in place is acyclic: a recursive type is held through a box.
-!T = !idr.data<"T", plain [@A(!idr.data<"U", plain [@B(!idr.data<"T">)]>)]>
-!U = !idr.data<"U", plain [@B(!idr.data<"T", plain [@A(!idr.data<"U">)]>)]>
+!T = !idr.data<"T">
+!U = !idr.data<"U">
+#types = #idr.types<
+  "T" = plain [@A(!idr.data<"U">)],
+  "U" = plain [@B(!idr.data<"T">)]
+>
 // expected-error @+1 {{holds the data type "T", which contains itself in place}}
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #types {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -98,8 +109,13 @@ idr.program @program root(@a) stage(first) {
 // -----
 
 // Every cycle passes through a box.
-!T = !idr.data<"T", plain [@A(!idr.data<"U", plain [@B(!idr.box<!idr.data<"L", list [@Nil() nil, @Cons(!idr.data<"T">, !idr.box<!idr.data<"L">>) cons]>>)]>)]>
-idr.program @program root(@a) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(!idr.data<"T">, !idr.box<!idr.data<"L">>) cons],
+  "T" = plain [@A(!idr.data<"U">)],
+  "U" = plain [@B(!idr.box<!idr.data<"L">>)]
+>
+idr.program @program root(@a) stage(first) types #types {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -112,9 +128,12 @@ idr.program @program root(@a) stage(first) {
 // -----
 
 // A memo sum is a cell two references share, so it is held only in a box.
-!M = !idr.data<"M", memo [@k() label @k, @running() running, @forced(i64) forced]>
+!M = !idr.data<"M">
+#types = #idr.types<
+  "M" = memo [@k() label @k, @running() running, @forced(i64) forced]
+>
 // expected-error @+1 {{holds the memo sum "M" in place; a memo sum is held only in a box}}
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #types {
   idr.func @k() -> i64 {
     %c = arith.constant 1 : i64
     return %c : i64
@@ -130,10 +149,15 @@ idr.program @program root(@a) stage(first) {
 
 // -----
 
-// A data type carries its body wherever it is written, but inside its own
-// body: one written by its name alone elsewhere is no type.
-idr.program @program root(@a) stage(higher) {
-  // expected-error @+1 {{a data type is written without its body only inside its own body}}
+// A data type is its name wherever it is written, and its body is its
+// program's table's: one the program reaches that the table does not
+// declare has no body, and the program is refused.
+// expected-error @+1 {{'idr.program' op reaches the data type "Nowhere", which its table does not declare}}
+idr.program @program root(@a) stage(higher) types #idr.types<> {
+  idr.func @a() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
   idr.func @b(%x: !idr.data<"Nowhere">) {
     return
   }
@@ -144,7 +168,7 @@ idr.program @program root(@a) stage(higher) {
 // A body that never returns ends in ub.unreachable, as a match region that
 // crashes does: after a match none of whose regions returns, or after a
 // crash.
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   idr.func @never(%x: i64) -> i64 {
     idr.match_lit %x : i64 -> () {
     case 0 {
@@ -174,7 +198,7 @@ idr.program @program root(@a) stage(first) {
 // The stage says what a value may hold, and the program says it, never
 // what a function happens to hold. A closure or a suspension exists only
 // in the higher stage: idr-defunctionalize makes each a sum.
-idr.program @program root(@a) stage(higher) {
+idr.program @program root(@a) stage(higher) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -191,7 +215,7 @@ idr.program @program root(@a) stage(higher) {
 
 // -----
 
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -205,7 +229,7 @@ idr.program @program root(@a) stage(first) {
 
 // -----
 
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -220,7 +244,7 @@ idr.program @program root(@a) stage(owned) {
 // -----
 
 // A grade own or excl exists only once idr-rc counts references.
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -235,7 +259,7 @@ idr.program @program root(@a) stage(first) {
 
 // In the owned stage every reference of ours is graded: owned, exclusive,
 // or a view, borrowed. A plain one says nothing of who frees it.
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -253,7 +277,7 @@ idr.program @program root(@a) stage(owned) {
 // reference, and its placement has not yet made the counts exact, so an
 // owned parameter nothing consumes verifies there, and only the owned
 // stage's count walk refuses it.
-idr.program @program root(@a) stage(graded) {
+idr.program @program root(@a) stage(graded) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -266,7 +290,7 @@ idr.program @program root(@a) stage(graded) {
 
 // -----
 
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -283,7 +307,7 @@ idr.program @program root(@a) stage(owned) {
 
 // A view is borrowed, a reference held is owned, and static data, which no
 // count reaches, stays plain; a word holds no reference at all.
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %s = idr.constant !idr.q<many, borrow, !idr.str> "abc"
     %n = idr.str.length borrow %s
@@ -302,7 +326,7 @@ idr.program @program root(@a) stage(owned) {
 
 // A lowered program holds upstream's functions: its root names one of
 // them, and no idr.func is left.
-idr.program @program root(@main) stage(lowered) {
+idr.program @program root(@main) stage(lowered) types #idr.types<> {
   // expected-error @+1 {{is an idr.func in a lowered program, which holds upstream's functions}}
   idr.func @main() -> i64 {
     %c = arith.constant 0 : i64
@@ -312,7 +336,7 @@ idr.program @program root(@main) stage(lowered) {
 
 // -----
 
-idr.program @program root(@main) stage(lowered) {
+idr.program @program root(@main) stage(lowered) types #idr.types<> {
   func.func @main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -323,7 +347,7 @@ idr.program @program root(@main) stage(lowered) {
 
 // Lowered, an IO root takes and gives nothing: the world and what holds no
 // runtime value have no form.
-idr.program @program root(@main) stage(lowered) {
+idr.program @program root(@main) stage(lowered) types #idr.types<> {
   func.func @main() {
     return
   }
@@ -332,12 +356,12 @@ idr.program @program root(@main) stage(lowered) {
 // -----
 
 // expected-error @+1 {{has root @main, which is no func.func of the program}}
-idr.program @program root(@main) stage(lowered) {
+idr.program @program root(@main) stage(lowered) types #idr.types<> {
 }
 
 // -----
 
-idr.program @program root(@a) stage(lowered) {
+idr.program @program root(@a) stage(lowered) types #idr.types<> {
   // expected-error @+1 {{is the root, so its type must be}}
   func.func @a() -> (i64, i64) {
     %c = arith.constant 0 : i64
@@ -350,7 +374,7 @@ idr.program @program root(@a) stage(lowered) {
 
 // In the owned stage a buffer is a cell of the runtime: its elements start
 // a word aligned and no more, and its layout is a cell's.
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -364,7 +388,7 @@ idr.program @program root(@a) stage(owned) {
 
 // -----
 
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -378,7 +402,7 @@ idr.program @program root(@a) stage(owned) {
 
 // -----
 
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -391,7 +415,7 @@ idr.program @program root(@a) stage(owned) {
 
 // -----
 
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -404,7 +428,7 @@ idr.program @program root(@a) stage(owned) {
 
 // Past the higher stage no linalg op reads or writes an element that holds
 // references: idr-structure-loops makes them only of arrays of words.
-idr.program @program root(@a) stage(first) {
+idr.program @program root(@a) stage(first) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -425,7 +449,7 @@ idr.program @program root(@a) stage(first) {
 
 // The alignment a buffer may have is at most a cell element's, 8 bytes:
 // the next, 16, is refused as 64 is.
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
@@ -445,8 +469,12 @@ idr.program @program root(@a) stage(owned) {
 // aligned to 8 bytes, the most a cell's element has, in an allocation and
 // a global; a buffer of the identity layout, and one of a strided layout,
 // the one a cell's is; and a linalg op of words.
-!M = !idr.data<"M", memo [@k() label @k, @running() running, @forced(i64) forced]>
-idr.program @program root(@a) stage(first) {
+!M = !idr.data<"M">
+#types = #idr.types<
+  "M" = memo [@k() label @k, @running() running, @forced(i64) forced],
+  "Somewhere" = plain [@S()]
+>
+idr.program @program root(@a) stage(first) types #types {
   idr.func @k() -> i64 {
     %c = arith.constant 1 : i64
     return %c : i64
@@ -458,7 +486,7 @@ idr.program @program root(@a) stage(first) {
   idr.func @b(%m: !idr.box<!M>) -> !idr.box<!M> {
     return %m : !idr.box<!M>
   }
-  idr.func @c(%x: !idr.data<"Somewhere", plain [@S()]>) {
+  idr.func @c(%x: !idr.data<"Somewhere">) {
     return
   }
   idr.func @copies(%in: tensor<4xi64>, %out: tensor<4xi64>) -> tensor<4xi64> {
@@ -474,7 +502,7 @@ idr.program @program root(@a) stage(first) {
 
 // -----
 
-idr.program @program root(@a) stage(owned) {
+idr.program @program root(@a) stage(owned) types #idr.types<> {
   idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

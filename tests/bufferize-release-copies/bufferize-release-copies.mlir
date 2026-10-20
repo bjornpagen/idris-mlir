@@ -11,7 +11,7 @@
 // The root runs @reads on an array as long as the byte it reads says, and
 // the program prints after the pass what it printed before, on every byte:
 // the read before the release sees the array as it was.
-idr.program @"release-copies" root(@root) stage(first) {
+idr.program @"release-copies" root(@root) stage(first) types #idr.types<> {
   idr.func @reads(%n: index) -> i64 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

@@ -27,7 +27,7 @@
 // STDIN: \0005
 // STDIN: \0006
 // STDIN:
-idr.program @closure root(@Prog.main) stage(higher) {
+idr.program @closure root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @add(%a: i64, %b: i64) -> i64 {
     %r = arith.addi %a, %b : i64
     return %r : i64

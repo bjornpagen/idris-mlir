@@ -9,8 +9,11 @@
 // with the status 0, as the reference at the end (REF) does
 // (%differential, on the one input, none, since it reads none).
 // STDIN:
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @atom root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @atom root(@Prog.main) stage(owned) types #types {
   idr.func @atom() -> i64 {
     %n = idr.con !idr.own<!idr.box<!L>> @N()
     idr.unpack %n : !idr.own<!idr.box<!L>> @N -> ()
@@ -23,7 +26,7 @@ idr.program @atom root(@Prog.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main() -> i64 {
 // REF:     %r = arith.constant 0 : i64
 // REF:     return %r : i64

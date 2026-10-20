@@ -7,7 +7,7 @@
 // nothing calls; @kept is called, and so is a copy of Prog.twice; @self,
 // which nothing else calls, calls itself. A function the module never had
 // is not called either (@absent).
-idr.program @"not-called" root(@main) stage(first) {
+idr.program @"not-called" root(@main) stage(first) types #idr.types<> {
   idr.func @gone(%x: i64) -> i64 {
     return %x : i64
   }

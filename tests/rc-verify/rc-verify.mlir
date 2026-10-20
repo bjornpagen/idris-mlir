@@ -10,7 +10,7 @@
 
 // A value that holds references and is consumed once on every path, read
 // through views where it is only read: accepted.
-idr.program @verify root(@Prog.main) stage(owned) {
+idr.program @verify root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @use(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
     %n = idr.str.length borrow %v
@@ -34,7 +34,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // -----
 
-idr.program @verify root(@Prog.main) stage(owned) {
+idr.program @verify root(@Prog.main) stage(owned) types #idr.types<> {
   // expected-note @+1 {{the value is defined here}}
   idr.func @twice(%s: !idr.own<!idr.str>) -> (!idr.own<!idr.str>, !idr.own<!idr.str>) {
     // expected-error @+1 {{consumes a reference that the value does not hold here}}
@@ -48,7 +48,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // -----
 
-idr.program @verify root(@Prog.main) stage(owned) {
+idr.program @verify root(@Prog.main) stage(owned) types #idr.types<> {
   // expected-note @+1 {{the value is defined here}}
   idr.func @leak(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
@@ -64,7 +64,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // -----
 
-idr.program @verify root(@Prog.main) stage(owned) {
+idr.program @verify root(@Prog.main) stage(owned) types #idr.types<> {
   // expected-note @+1 {{the value is defined here}}
   idr.func @late(%s: !idr.own<!idr.str>) -> i64 {
     idr.drop %s : !idr.own<!idr.str>
@@ -82,7 +82,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
 // -----
 
 // The regions of a match are alternatives, and must agree where they meet.
-idr.program @verify root(@Prog.main) stage(owned) {
+idr.program @verify root(@Prog.main) stage(owned) types #idr.types<> {
   // expected-note @+1 {{the value is defined here}}
   idr.func @branch(%b: i1, %s: !idr.own<!idr.str>) -> i64 {
     %z = arith.constant 0 : i64
@@ -108,7 +108,7 @@ idr.program @verify root(@Prog.main) stage(owned) {
 // -----
 
 // The nearest that agrees: the other region drops it too.
-idr.program @verify root(@Prog.main) stage(owned) {
+idr.program @verify root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @branch(%b: i1, %s: !idr.own<!idr.str>) -> i64 {
     %z = arith.constant 0 : i64
     %r = idr.match_lit %b : i1 -> (i64) {
@@ -133,8 +133,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // A field is a view that lives as long as the value it was read from,
 // unless it takes a reference of its own.
-!P = !idr.data<"P", plain [@P(!idr.str)]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@P(!idr.str)]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @field(%p: !idr.own<!P>) -> !idr.own<!idr.str> {
     %v = idr.borrow %p : !idr.own<!P>
     %s = idr.field %v : !idr.q<many, borrow, !P> @P[0] -> !idr.q<many, borrow, !idr.str>
@@ -150,8 +153,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // -----
 
-!P = !idr.data<"P", plain [@P(!idr.str)]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@P(!idr.str)]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @field(%p: !idr.own<!P>) -> i64 {
     %v = idr.borrow %p : !idr.own<!P>
     // expected-note @+1 {{the value is defined here}}
@@ -170,8 +176,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 // -----
 
 // A recycled cell is one of its own size.
-!L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>), @One(i64)]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = plain [@N(), @C(i64, !idr.box<!idr.data<"L">>), @One(i64)]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @swap(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {
@@ -198,8 +207,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 // -----
 
 // The nearest that fits: the cell recycled as one of @C, its own size.
-!L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>), @One(i64)]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = plain [@N(), @C(i64, !idr.box<!idr.data<"L">>), @One(i64)]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @swap(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {
@@ -225,8 +237,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // A take consumes its value and gives each field a reference of its own,
 // which is then consumed once like any other.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @head(%l: !idr.own<!idr.box<!L>>) -> i64 {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (i64) {
@@ -252,8 +267,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @head(%l: !idr.own<!idr.box<!L>>) -> i64 {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (i64) {
@@ -282,8 +300,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 
 // A string builder walks the cells of its list, a view, so it is refused
 // once the reference the view borrows is gone, as a field read is.
-!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!Chars = !idr.data<"Chars">
+#types = #idr.types<
+  "Chars" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @pack(%l: !idr.own<!idr.box<!Chars>>) -> !idr.own<!idr.str> {
     // expected-note @+1 {{the value is defined here}}
     %v = idr.borrow %l : !idr.own<!idr.box<!Chars>>
@@ -301,8 +322,11 @@ idr.program @verify root(@Prog.main) stage(owned) {
 // -----
 
 // The nearest that holds: the list packed while its reference lives.
-!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!Chars = !idr.data<"Chars">
+#types = #idr.types<
+  "Chars" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @pack(%l: !idr.own<!idr.box<!Chars>>) -> !idr.own<!idr.str> {
     %v = idr.borrow %l : !idr.own<!idr.box<!Chars>>
     %s = idr.str.pack %v : !idr.q<many, borrow, !idr.box<!Chars>> -> !idr.own<!idr.str>
@@ -321,9 +345,13 @@ idr.program @verify root(@Prog.main) stage(owned) {
 // a pair of empty lists has no cell a take would hand out. One to static
 // data holding a cell with fields is not: it shares that cell with every
 // other copy, and a take of it would hand the cell out to build in.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-!P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>
-idr.program @verify root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+!P = !idr.data<"P">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons],
+  "P" = plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]
+>
+idr.program @verify root(@Prog.main) stage(owned) types #types {
   idr.func @empty() -> !idr.excl<!P> {
     %c = idr.constant !idr.q<many, borrow, !P> #idr.con<!P, @MkPair, [#idr.con<!L, @N, []>, #idr.con<!L, @N, []>]>
     %p = idr.dup %c : !idr.q<many, borrow, !P> -> !idr.excl<!P>

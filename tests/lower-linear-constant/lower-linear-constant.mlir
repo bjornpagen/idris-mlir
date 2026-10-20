@@ -11,9 +11,13 @@
 // at the end (REF) does (%differential, on the one input, none, since it
 // reads none).
 // STDIN:
-!Step = !idr.data<"Step", plain [@Done(i64), @Bind(i64, i64)]>
-!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!Step>)]>
-idr.program @"linear-constant" root(@Prog.main) stage(owned) {
+!Step = !idr.data<"Step">
+!IO = !idr.data<"IO">
+#types = #idr.types<
+  "IO" = plain [@MkIO(!idr.lin<!Step>)],
+  "Step" = plain [@Done(i64), @Bind(i64, i64)]
+>
+idr.program @"linear-constant" root(@Prog.main) stage(owned) types #types {
   idr.func @action() -> !IO {
     %c = idr.constant !IO #idr.con<!IO, @MkIO, [#idr.con<!Step, @Bind, [2, 3]>]>
     return %c : !IO
@@ -36,7 +40,7 @@ idr.program @"linear-constant" root(@Prog.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main() -> i64 {
 // REF:     %c = arith.constant 23 : i64
 // REF:     return %c : i64

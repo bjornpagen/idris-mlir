@@ -4,7 +4,7 @@
 // op the verifier refuses it. Under an idr.tabulate, which holds the array
 // it builds, it verifies (the second split).
 
-idr.program @"yield-parent" root(@root) stage(first) {
+idr.program @"yield-parent" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%x: i64) -> i64 {
     %r = scf.execute_region -> i64 {
       // expected-error @+1 {{failed to verify that its parent holds the arrays it yields into}}
@@ -21,7 +21,7 @@ idr.program @"yield-parent" root(@root) stage(first) {
 
 // -----
 
-idr.program @"yield-parent" root(@root) stage(first) {
+idr.program @"yield-parent" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%n: index) -> tensor<?xi64> {
     %t = idr.tabulate [%n] {
     ^bb0(%i: index):

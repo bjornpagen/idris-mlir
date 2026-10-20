@@ -15,10 +15,15 @@
 // The loop is the countdown it was: the program as written and the loop
 // both print 321 (%differential, on the one input the program reads, none).
 // STDIN:
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
-idr.program @"closed-world" root(@Main.main) stage(higher) {
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+!IO = !idr.data<"IO">
+#types = #idr.types<
+  "IO" = plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)],
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @"closed-world" root(@Main.main) stage(higher) types #types {
   idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_sint %n, %w : i64
     %u = idr.con !Unit @MkUnit()

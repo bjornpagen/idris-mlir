@@ -9,8 +9,13 @@ holds on arm64 macOS (0001's S4), in parallel with the Linux work, by the
 lanes of `tools/lanes/README.md`, each taking its section. Nothing here is
 needed for self-hosting; a self-hosting stage that trips over one of
 these items fixes that item then, as a bug of `audits/bugs.md`. Built so
-far: the term locations a TTC keeps (374e0e77), and the force dispatch's
-and an apply's cases placed at their labels (8e2fbec7).
+far: the term locations a TTC keeps (374e0e77); the force dispatch's
+and an apply's cases placed at their labels (8e2fbec7); and the dialect's
+binary format no longer read by hand: a data type's text is its name and
+the program's table holds every body once, one ODS record read and
+written by both sides' generated code, which self-hosting's S3 forced
+(the owner, 2026-10-19: "we cannot have the binary format be read by
+hand").
 
 The compiler knew a fact at some point, threw it away, and derives it
 again later, or guesses it. Where it comes from: five read-only sweeps
@@ -44,35 +49,17 @@ written beside it:
 
 ## 2. The order
 
-1. **The dialect's binary format read by hand** (target lane; the owner:
-   "we cannot have the binary format be read by hand"). The Idris side's
-   encoder of the data table's records is generated from ODS
-   (`Idr_TableRecord`, `TableCtor` and `TableBody` in
-   `foreign/idr/include/idr/IR/IdrBytecode.td`; `encodeTableCtor` and
-   `encodeTableBody` in `compiler/src/IdrisMLIR/Encoding/Idr.idr`), but
-   the C++ reader reads the same records in an order written by hand
-   (`readCtor` and `readBody`, `foreign/idr/lib/IR/Bytecode.cpp`), with a
-   layout comment in the `.td` beside it. Reordering a record's member
-   changes the encoder and not the reader; only the round trip notices.
-   **Owed:** the C++ reads generated from the same records by
-   `idris-mlir-tblgen` (a ctor's fields go through `FieldReader`, not
-   upstream's `readType`, so upstream's `-gen-bytecode` needs a hook or
-   our backend writes them), or the hand table retired with
-   `PINS.md`'s `bytecode-data-table` when upstream's fix lands, which
-   removes the records altogether. **Acceptance:** `readCtor` and
-   `readBody` and the layout comment are gone; every program's `.mlirbc`
-   is byte-identical before and after and round-trips.
-2. **Locations, every lane's** (low risk, §1): the frontend's rebuilt
+1. **Locations, every lane's** (low risk, §1): the frontend's rebuilt
    terms, the program root, library modules, data type declarations,
    folded matches' arguments, output rewrites, raise consumers, tail
    loops, frames, deduplicated bodies, driver errors, `idr.crash_str`,
    the report's column, and line tables. Each is below in its lane's
    section.
-3. **The fork's TTC**, by the rules of `compiler/idris/README.md`, "What
+2. **The fork's TTC**, by the rules of `compiler/idris/README.md`, "What
    a TTC keeps": a let's type (C1, which refuses valid programs today), a
    match's scrutinee type (C2), a leaf's clause number, a block's parent
    (B1), imports' locations (B3).
-4. **The rest**, by lane, in the order of each section.
+3. **The rest**, by lane, in the order of each section.
 
 ## The fork's TTC and the frontend (arrays lane)
 

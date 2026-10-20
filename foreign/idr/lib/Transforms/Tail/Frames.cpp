@@ -86,10 +86,11 @@ struct FramesAction : support::TaggedAction<FramesAction> {
 
 // The stack's data type: `empty`, then each frame, holding what its rest
 // reads and the stack under it.
-FailureOr<DataType> stackType(MLIRContext *ctx, FramesPlan &plan) {
+FailureOr<DataType> stackType(ProgramOp program, FramesPlan &plan) {
+  MLIRContext *ctx = program.getContext();
   SmallVector<SmallVector<Type>> fields;
   fields.reserve(plan.frames.size());
-  return DataType::define(ctx, plan.stack.getValue(), [&](DataType self) {
+  return DataType::define(program, plan.stack.getValue(), [&](DataType self) {
     Type below = BoxType::get(ctx, self);
     DataType::Body body;
     body.ctors.push_back({StringAttr::get(ctx, "empty"), {}, role::Plain{}});
@@ -293,7 +294,7 @@ void fillResume(RewriterBase &rewriter, const FramesPlan &plan, const Made &made
 
 LogicalResult perform(RewriterBase &rewriter, SymbolTable &symbols, FramesPlan &plan) {
   MLIRContext *ctx = plan.members.front().getContext();
-  FailureOr<DataType> stack = stackType(ctx, plan);
+  FailureOr<DataType> stack = stackType(plan.members.front().getProgram(), plan);
   if (failed(stack))
     return failure();
   Type stackBox = BoxType::get(ctx, *stack);

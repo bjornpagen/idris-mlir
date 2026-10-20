@@ -14,10 +14,15 @@
 // stack. The loop prints the countdown the actions did: on every one-byte
 // input n, n down to 1, none for 0, as the program as written does
 // (%differential).
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
-idr.program @"io-loop" root(@Main.main) stage(higher) {
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+!IO = !idr.data<"IO">
+#types = #idr.types<
+  "IO" = plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)],
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @"io-loop" root(@Main.main) stage(higher) types #types {
   idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_sint %n, %w : i64
     %u = idr.con !Unit @MkUnit()

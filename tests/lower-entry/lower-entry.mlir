@@ -26,7 +26,7 @@
 // the references at the end (STATUS, HI), with no constructor and no
 // string, do (%differential, on the one input, none, since none reads).
 // STDIN:
-idr.program @entry root(@Prog.main) stage(owned) {
+idr.program @entry root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 3 : i64
     return %c : i64
@@ -35,7 +35,7 @@ idr.program @entry root(@Prog.main) stage(owned) {
 
 // -----
 
-idr.program @entry root(@Prog.main) stage(owned) {
+idr.program @entry root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %s = idr.constant !idr.str "hi\0A"
     %w1 = idr.io.put_str %s, %w
@@ -45,24 +45,28 @@ idr.program @entry root(@Prog.main) stage(owned) {
 
 // -----
 
-!IORes = !idr.data<"IORes", plain [@MkIORes(!idr.data<"Unit", plain [@MkUnit()]>, !idr.world)]>
-idr.program @entry root(@Prog.main) stage(owned) {
+!IORes = !idr.data<"IORes">
+#types = #idr.types<
+  "IORes" = plain [@MkIORes(!idr.data<"Unit">, !idr.world)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @entry root(@Prog.main) stage(owned) types #types {
   idr.func @Prog.main(%w: !idr.world) -> !IORes {
     %s = idr.constant !idr.str "hi\0A"
     %w1 = idr.io.put_str %s, %w
-    %u = idr.con !idr.data<"Unit", plain [@MkUnit()]> @MkUnit()
-    %r = idr.con !IORes @MkIORes(%u : !idr.data<"Unit", plain [@MkUnit()]>, %w1 : !idr.world)
+    %u = idr.con !idr.data<"Unit"> @MkUnit()
+    %r = idr.con !IORes @MkIORes(%u : !idr.data<"Unit">, %w1 : !idr.world)
     return %r : !IORes
   }
 }
 // The references:
-// STATUS: idr.program @ref root(@Prog.main) stage(higher) {
+// STATUS: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // STATUS:   idr.func @Prog.main() -> i64 {
 // STATUS:     %c = arith.constant 3 : i64
 // STATUS:     return %c : i64
 // STATUS:   }
 // STATUS: }
-// HI: idr.program @ref root(@Prog.main) stage(higher) {
+// HI: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // HI:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // HI:     %h = arith.constant 104 : i32
 // HI:     %i = arith.constant 105 : i32

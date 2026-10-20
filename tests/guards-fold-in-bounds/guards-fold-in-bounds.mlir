@@ -38,7 +38,7 @@
 // STDIN: \0013
 // STDIN: \0014
 // STDIN:
-idr.program @"fold-in-bounds" root(@Prog.main) stage(first) {
+idr.program @"fold-in-bounds" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @proving() -> i32 {
     %abc = idr.constant !idr.str "abc"
     %two = arith.constant 2 : i64

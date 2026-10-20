@@ -8,7 +8,7 @@
 // call's own result: two such calls stay two, while one nothing reads
 // would still be dead. A call of a function that may crash is neither: it
 // stays though nothing reads it, and two equal ones stay two.
-idr.program @"call-effects-cse" root(@root) stage(first) {
+idr.program @"call-effects-cse" root(@root) stage(first) types #idr.types<> {
   idr.func effects<none> @square(%x: i64) -> i64 attributes {total} {
     %r = arith.muli %x, %x : i64
     return %r : i64

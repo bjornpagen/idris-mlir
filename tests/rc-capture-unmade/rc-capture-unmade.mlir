@@ -12,9 +12,13 @@
 // STDIN: \0001
 // STDIN: \0377
 // STDIN:
-!List = !idr.data<"List", plain [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-!Lazy = !idr.data<"Lazy", memo [@keep(!idr.box<!List>) label @keep, @one(i64) label @one, @running() running, @forced(!idr.box<!List>) forced]>
-idr.program @"capture-unmade" root(@Prog.main) stage(first) {
+!List = !idr.data<"List">
+!Lazy = !idr.data<"Lazy">
+#types = #idr.types<
+  "Lazy" = memo [@keep(!idr.box<!List>) label @keep, @one(i64) label @one, @running() running, @forced(!idr.box<!List>) forced],
+  "List" = plain [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]
+>
+idr.program @"capture-unmade" root(@Prog.main) stage(first) types #types {
   idr.func @keep(%l: !idr.box<!List>) -> !idr.box<!List> attributes {total} {
     %c = arith.constant 7 : i64
     %r = idr.con !idr.box<!List> @Cons(%c : i64, %l : !idr.box<!List>)

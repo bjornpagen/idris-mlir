@@ -13,7 +13,7 @@
 // STDIN: \0000
 // STDIN: \0003
 // STDIN: \0144
-idr.program @"beta-sibling" root(@Main.main) stage(higher) {
+idr.program @"beta-sibling" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %one = arith.constant 1 : i64
     %r = arith.addi %x, %one : i64

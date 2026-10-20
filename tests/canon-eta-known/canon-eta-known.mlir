@@ -22,9 +22,13 @@
 
 // In the case that matched it, a value rebuilt from the case's reads of it
 // is the value; with the fields swapped it is a new one.
-!Pair = !idr.data<"Pair", plain [@Left(i64, i64), @Right(i64, i64)]>
-!One = !idr.data<"One", plain [@Only(i64)]>
-idr.program @"eta-known" root(@root) stage(first) {
+!Pair = !idr.data<"Pair">
+!One = !idr.data<"One">
+#types = #idr.types<
+  "One" = plain [@Only(i64)],
+  "Pair" = plain [@Left(i64, i64), @Right(i64, i64)]
+>
+idr.program @"eta-known" root(@root) stage(first) types #types {
   idr.func @in_case(%p: !Pair) -> !Pair {
     %r = idr.match %p : !Pair -> (!Pair) {
     case @Left(%a: i64, %b: i64) {

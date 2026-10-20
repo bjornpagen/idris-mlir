@@ -26,12 +26,19 @@
 // UNKNOWN: expected constant-stack: {{.*}}@unknown
 // A node rebuilt in the case that matched it, from the case's own fields,
 // is the node, so it allocates nothing.
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-!RB = !idr.data<"RB", plain [@E(), @TB(!idr.box<!idr.data<"RB">>, i64, !idr.box<!idr.data<"RB">>)]>
-!Pair = !idr.data<"Pair", plain [@Left(i64, i64), @Right(i64, i64)]>
-idr.program @"record-eta" root(@root) stage(first) {
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+!List = !idr.data<"List">
+!RB = !idr.data<"RB">
+!Pair = !idr.data<"Pair">
+#types = #idr.types<
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons],
+  "Pair" = plain [@Left(i64, i64), @Right(i64, i64)],
+  "RB" = plain [@E(), @TB(!idr.box<!idr.data<"RB">>, i64, !idr.box<!idr.data<"RB">>)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @"record-eta" root(@root) stage(first) types #types {
 
   // traverse_ printLn xs, as the Prelude's foldr over IO raises it.
   idr.func @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes {

@@ -7,8 +7,11 @@
 // run the outside sees is (@loud), and keeps its value otherwise (@quiet);
 // a function no label names (@hold) is neither. Each error is the
 // module's, which has no line: the file's line 0.
-!M = !idr.data<"M", memo [@loud() label @loud by_name, @quiet() label @quiet, @running() running, @forced(i64) forced]>
-idr.program @"by-name" root(@root) stage(first) {
+!M = !idr.data<"M">
+#types = #idr.types<
+  "M" = memo [@loud() label @loud by_name, @quiet() label @quiet, @running() running, @forced(i64) forced]
+>
+idr.program @"by-name" root(@root) stage(first) types #types {
   idr.func @loud() -> i64 attributes {total} {
     %w = idr.world.new
     %c = arith.constant 1 : i64

@@ -18,8 +18,11 @@
 // CHECK: verdict: accepted
 // CHECK-NOT: diagnostic:
 // CHECK: statistic: idr-optimize.
-!Shape = !idr.data<"Shape", plain [@Circle(i64), @Rect(i64, i64)]>
-idr.program @"report-accepted" root(@Prog.main) stage(higher) {
+!Shape = !idr.data<"Shape">
+#types = #idr.types<
+  "Shape" = plain [@Circle(i64), @Rect(i64, i64)]
+>
+idr.program @"report-accepted" root(@Prog.main) stage(higher) types #types {
   idr.func @area(%s: !Shape) -> i64 {
     %r = idr.match %s : !Shape -> (i64) {
     case @Circle(%x: i64) {

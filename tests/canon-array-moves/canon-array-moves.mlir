@@ -34,8 +34,11 @@
 // between the read and the write, and each function stays to be checked.
 // Nothing moved out before the passes, and the program prints after each
 // what it printed before, on every byte.
-!R = !idr.data<"R", plain [@MkR(i64, i64)]>
-idr.program @"array-moves" root(@root) stage(first) {
+!R = !idr.data<"R">
+#types = #idr.types<
+  "R" = plain [@MkR(i64, i64)]
+>
+idr.program @"array-moves" root(@root) stage(first) types #types {
   idr.func @bump(%r: !idr.box<!R>) -> !idr.box<!R> attributes {total, no_inline} {
     %a = idr.field %r : !idr.box<!R> @MkR[0] -> i64
     %b = idr.field %r : !idr.box<!R> @MkR[1] -> i64

@@ -3,7 +3,7 @@
 // results are unused; an effect-free loop without it is dead code, and
 // only when unused: the same loop whose result is returned stays.
 
-idr.program @loop root(@root) stage(first) {
+idr.program @loop root(@root) stage(first) types #idr.types<> {
   idr.func @kept(%n: i64) {
     %r = scf.while (%i = %n) : (i64) -> i64 {
       idr.may_loop

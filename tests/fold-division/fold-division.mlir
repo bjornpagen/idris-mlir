@@ -39,7 +39,7 @@
 // STDIN: \0016
 // STDIN: \0017
 // STDIN:
-idr.program @division root(@Prog.main) stage(first) {
+idr.program @division root(@Prog.main) stage(first) types #idr.types<> {
   // A division by zero is not folded: its guard crashes before it runs, and
   // the folder computes nothing a program never reaches.
   idr.func @divfold() -> (i64, i64, i64, i64, i8, i64) {

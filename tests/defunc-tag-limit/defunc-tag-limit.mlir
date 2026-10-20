@@ -9,7 +9,7 @@
 // is on a cycle of captures and its sum must be a box: one tag past what a
 // header holds, which the representation lifts, so the program is
 // defunctionalized like any other, and no count refuses it.
-idr.program @"tag-limit" root(@Main.main) stage(higher) {
+idr.program @"tag-limit" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @base(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }

@@ -11,7 +11,7 @@
 // CHECK: 3628800 x-x-x
 // CHECK-NEXT: 1 1 2432902008176640000 -4249290049419214848
 // CHECK-NEXT: x ---
-idr.program @eval root(@Prog.main) stage(higher) {
+idr.program @eval root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @fact(%n: i64) -> i64 attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

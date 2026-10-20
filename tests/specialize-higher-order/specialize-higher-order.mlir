@@ -15,8 +15,11 @@
 // definition's name, by which a copy names what it was made from.
 // The differential holds the optimized program to the one as written on
 // every input byte: lists of 0 to 255 elements, the empty one included.
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"higher-order" root(@Main.main) stage(higher) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"higher-order" root(@Main.main) stage(higher) types #types {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

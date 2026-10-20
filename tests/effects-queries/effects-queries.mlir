@@ -17,7 +17,7 @@
 // of @square go, and every call that may crash, not return or perform IO
 // is kept, each one, two equal ones included.
 
-idr.program @queries root(@root) stage(first) {
+idr.program @queries root(@root) stage(first) types #idr.types<> {
   idr.func @square(%x: i64) -> i64 attributes {total} {
     %r = arith.muli %x, %x : i64
     return %r : i64

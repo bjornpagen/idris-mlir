@@ -166,6 +166,9 @@ mutual
   attrText (Arith _ (MkSpelling s)) = s
   attrText (UB _ (MkSpelling s)) = s
 
+  ||| A member of the table of data types: its name, then its body, the
+  ||| kind of sum, the constructors with their fields and, but for a plain
+  ||| one, their roles, and the instance when it is of one.
   attrsText : List MlirAttr -> List String
   attrsText [] = []
   attrsText (a :: as) = attrText a :: attrsText as

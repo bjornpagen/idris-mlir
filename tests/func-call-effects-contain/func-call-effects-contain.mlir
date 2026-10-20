@@ -6,7 +6,7 @@
 // what the call's set lacks: one of two (diverge, of crash and diverge),
 // or another than the one held (crash, where io is).
 
-idr.program @"call-effects-contain" root(@root) stage(first) {
+idr.program @"call-effects-contain" root(@root) stage(first) types #idr.types<> {
   idr.func effects<crash> @crashes(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64
@@ -21,7 +21,7 @@ idr.program @"call-effects-contain" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-effects-contain" root(@root) stage(first) {
+idr.program @"call-effects-contain" root(@root) stage(first) types #idr.types<> {
   idr.func effects<crash, diverge> @crashes(%x: i64) -> i64 {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64
@@ -36,7 +36,7 @@ idr.program @"call-effects-contain" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-effects-contain" root(@root) stage(first) {
+idr.program @"call-effects-contain" root(@root) stage(first) types #idr.types<> {
   idr.func effects<crash> @crashes(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64
@@ -53,7 +53,7 @@ idr.program @"call-effects-contain" root(@root) stage(first) {
 
 // Two effects or more are written bare, comma-separated, and read back so.
 // Any set that contains the callee's holds: its own, more, everything.
-idr.program @"call-effects-contain" root(@root) stage(first) {
+idr.program @"call-effects-contain" root(@root) stage(first) types #idr.types<> {
   idr.func effects<crash, diverge> @crashes(%x: i64) -> i64 {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64

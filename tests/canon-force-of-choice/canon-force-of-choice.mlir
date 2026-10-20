@@ -24,7 +24,7 @@
 // after canonicalize what it printed before, on every byte. What the pass
 // makes hold did not hold before it, and @choose neither forces nor builds
 // after it.
-idr.program @"force-of-choice" root(@root) stage(higher) {
+idr.program @"force-of-choice" root(@root) stage(higher) types #idr.types<> {
   idr.func @then(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

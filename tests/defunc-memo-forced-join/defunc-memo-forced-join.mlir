@@ -13,7 +13,7 @@
 // labels, and the force gives that slot's sum.
 // The program means after the pass what it meant before it, on every input
 // (the differential), and no property here held before the pass.
-idr.program @"memo-forced-join" root(@Main.main) stage(higher) {
+idr.program @"memo-forced-join" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64

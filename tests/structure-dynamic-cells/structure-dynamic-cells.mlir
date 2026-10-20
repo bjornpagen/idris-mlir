@@ -12,7 +12,7 @@
 // prints the sizes and the elements at the corners, the last made last:
 // the lowered program prints what the module as written prints, on every
 // byte.
-idr.program @dynamic root(@root) stage(first) {
+idr.program @dynamic root(@root) stage(first) types #idr.types<> {
   idr.func @rank0(%k: index) -> tensor<?xi64> {
     %t = idr.tabulate [] {
       %row = idr.tabulate [%k] {

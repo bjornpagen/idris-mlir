@@ -32,7 +32,7 @@
 // STDIN: \0006
 // STDIN:
 
-idr.program @crash root(@root) stage(first) {
+idr.program @crash root(@root) stage(first) types #idr.types<> {
   idr.func @may_crash(%s: !idr.str, %i: i64, %b: !idr.big, %d: f64) {
     %n = idr.str.length %s
     %i0 = idr.check.in_bounds %i, %s, "string index out of range" : !idr.str
@@ -163,7 +163,7 @@ idr.program @crash root(@root) stage(first) {
     return %w2 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@root) stage(first) {
+// REFERENCE: idr.program @reference root(@root) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @root(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %c, %w1 = idr.io.get_byte %w
 // REFERENCE:     %w2 = idr.match_lit %c : i32 -> (!idr.world) {

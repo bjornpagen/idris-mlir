@@ -4,7 +4,7 @@
 // buffers only at their loads, stores and allocations, never inside a
 // payload, whose arguments take no grade. A loop of linalg's over strings is
 // no program; the same loop over words, the nearest one that is, verifies.
-idr.program @counted root(@root) stage(first) {
+idr.program @counted root(@root) stage(first) types #idr.types<> {
   idr.func @copy(%a: memref<4x!idr.str>, %b: memref<4x!idr.str>) -> i64 {
     // expected-error @below {{an element no linalg op reads or writes}}
     linalg.generic {indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>],
@@ -24,7 +24,7 @@ idr.program @counted root(@root) stage(first) {
 
 // -----
 
-idr.program @counted root(@root) stage(first) {
+idr.program @counted root(@root) stage(first) types #idr.types<> {
   idr.func @copy(%a: memref<4xi64>, %b: memref<4xi64>) -> i64 {
     linalg.generic {indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>],
                     iterator_types = ["parallel"]}

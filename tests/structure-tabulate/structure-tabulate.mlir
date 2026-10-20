@@ -14,7 +14,7 @@
 // the differential holds it to the module as written on every byte. The
 // divisor is 0 to 2 too, and dividing by 0 crashes, at the first element,
 // only where there is one: an empty domain divides nothing.
-idr.program @tabulate root(@root) stage(first) {
+idr.program @tabulate root(@root) stage(first) types #idr.types<> {
   idr.func @squares(%n: index) -> tensor<?xi64> {
     %t = idr.tabulate [%n] {
     ^bb0(%i: index):

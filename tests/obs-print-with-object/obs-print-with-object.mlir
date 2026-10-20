@@ -18,7 +18,7 @@
 // CHECK: idris-mlir: a --print option takes no -c
 // PREPARE: idris-mlir: --prepare-runtime takes no -c
 // OUTPUT: idris-mlir: a --print option takes no -o
-idr.program @"print-with-object" root(@Prog.main) stage(higher) {
+idr.program @"print-with-object" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

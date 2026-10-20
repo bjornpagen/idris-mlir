@@ -182,6 +182,40 @@ struct Ctor {
   bool operator==(const Ctor &) const = default;
 };
 
+class DataType;
+class ProgramOp;
+
+// A program's table of data types as bytecode carries it (IdrBytecode.td's
+// TableCtor and TableMember), one row per data type: its body spelled out
+// as records the generated reader and writer go through member by
+// member, each named by the getter that gives it. A constructor's fields
+// are owned here, where a Ctor's view storage that outlives it; a label's
+// function and whether it is by name stand beside the role's case, empty
+// for every other role, as the format has no case with members of its
+// own.
+struct TableCtor {
+  llvm::StringRef name;
+  CtorRole role;
+  mlir::Attribute label;
+  uint64_t byName;
+  llvm::SmallVector<mlir::Type> fields;
+  llvm::StringRef getName() const { return name; }
+  CtorRole getRole() const { return role; }
+  mlir::Attribute getLabel() const { return label; }
+  uint64_t getByName() const { return byName; }
+  llvm::ArrayRef<mlir::Type> getFields() const { return fields; }
+};
+struct TableMember {
+  llvm::StringRef name;
+  SumKind kind;
+  llvm::SmallVector<TableCtor> ctors;
+  mlir::Attribute instance;
+  llvm::StringRef getName() const { return name; }
+  SumKind getKind() const { return kind; }
+  llvm::ArrayRef<TableCtor> getCtors() const { return ctors; }
+  mlir::Attribute getInstance() const { return instance; }
+};
+
 } // namespace idr
 
 // The attributes come first: the dialect's helpers for its discardable

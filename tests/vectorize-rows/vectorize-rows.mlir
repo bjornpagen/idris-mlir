@@ -28,7 +28,7 @@
 // ONE: {{^}}001.01.01.0{{$}}
 // SEVEN: {{^}}0362.59285714285714250.73013375513375527.0{{$}}
 // ALL: {{^}}0650256.1243449628172810.694124696732443256.0{{$}}
-idr.program @rows root(@root) stage(higher) {
+idr.program @rows root(@root) stage(higher) types #idr.types<> {
   idr.func @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
     %t = idr.tabulate [%n] {
     ^bb0(%i: index):

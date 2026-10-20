@@ -4,7 +4,7 @@
 // its blocks: a guard (@guards), a crash (@never), or nothing but the
 // return of what it was given (@given). An op that computes a value is
 // something else left (@computes).
-idr.program @"computes-nothing" root(@root) stage(first) {
+idr.program @"computes-nothing" root(@root) stage(first) types #idr.types<> {
   idr.func @guards(%x: i64, %y: i64) -> i64 {
     %g = idr.check.nonzero %y, "division by zero" : i64
     return %x : i64

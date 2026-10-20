@@ -255,9 +255,8 @@ data Probe = ProbeBinder Nat
 ||| normaliser meets it under a binder, a name nested around a user name no
 ||| Idris identifier spells where one does, since Idris's quotation takes
 ||| a bound machine name for the binder of that number
-||| (`Core.Normalise.Quote.quoteHead`); a stand-in a substitution reads by
-||| name is a user name with its number in it. An axis is two references,
-||| whose head this is (`probeTerm`).
+||| (`Core.Normalise.Quote.quoteHead`). An axis is two references, whose
+||| head this is (`probeTerm`).
 export
 probeName : Probe -> Name
 probeName (ProbeBinder i) = MN "idris-mlir-binder" (cast i)
@@ -267,7 +266,7 @@ probeName ProbeUnknown = MN "idris-mlir-unknown" 0
 probeName ProbeRuntime = MN "idris-mlir-runtime" 0
 probeName (ProbeRuntimeAt p) = MN "idris-mlir-runtime-at" (cast p)
 probeName (ProbeStandIn k) = MN "idris-mlir-field" (cast k)
-probeName (ProbePattern k) = UN (Basic ("idris-mlir-pattern-" ++ show k))
+probeName (ProbePattern k) = Nested (cast k, 0) (UN (Basic "idris-mlir-pattern"))
 probeName ProbeForm = MN "idris-mlir-form" 0
 probeName (ProbeAxis i _) = MN "idris-mlir-axis" (cast i)
 probeName (ProbeAxisAt j) = MN "idris-mlir-axis-at" (cast j)
@@ -292,12 +291,6 @@ nesting : Name -> (List (Int, Int), Name)
 nesting (Nested p inner) = let (ps, n) = nesting inner in (p :: ps, n)
 nesting n = ([], n)
 
--- The number a user name ends in, if its last characters are digits.
-trailingNumber : String -> Maybe Nat
-trailingNumber s = case takeWhile isDigit (reverse (unpack s)) of
-  [] => Nothing
-  ds => parsePositive (pack (reverse ds))
-
 ||| The probe a name is (`probeName`'s inverse); nothing for a name that is
 ||| none. The name's shape gives the numbers of the probes it can be, and
 ||| `probeName` decides which, so that no spelling is written twice. An
@@ -310,15 +303,12 @@ probeOf n@(MN _ k) =
   where
     named : Probe -> Bool
     named p = probeName p == n
-probeOf n@(UN (Basic s)) = do
-  k <- trailingNumber s
-  let p = ProbePattern k
-  if probeName p == n then Just p else Nothing
 probeOf n@(Nested _ _) = List.find (\p => probeName p == n) (candidates (nesting n))
   where
     candidates : (List (Int, Int), Name) -> List Probe
     candidates ([(i, d)], _) =
-      [ProbeHole (cast i), ProbeHoleFound (cast i), ProbeVar (cast i) (cast d), ProbeFormal (cast i) (cast d)]
+      [ProbeHole (cast i), ProbeHoleFound (cast i), ProbePattern (cast i),
+       ProbeVar (cast i) (cast d), ProbeFormal (cast i) (cast d)]
     candidates ((i, d) :: f :: fs, _) =
       ProbeFieldPath (cast i) (cast d) (map (cast . fst) (f ::: fs))
         :: case (i, d) :: f :: fs of

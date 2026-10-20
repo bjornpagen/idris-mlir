@@ -13,8 +13,11 @@
 // a dispatch.
 // The program means after the pass what it meant before it, on every input
 // (the differential), and no property here held before the pass.
-!Op = !idr.data<"Op", plain [@Unary(!idr.fn<(i64) -> (i64)>), @None()]>
-idr.program @"match-field" root(@Main.main) stage(higher) {
+!Op = !idr.data<"Op">
+#types = #idr.types<
+  "Op" = plain [@Unary(!idr.fn<(i64) -> (i64)>), @None()]
+>
+idr.program @"match-field" root(@Main.main) stage(higher) types #types {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

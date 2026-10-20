@@ -8,8 +8,11 @@
 // read). The program means the same before SCCP and after, which
 // idris-mlir's own pipeline does not run, on the empty input and every
 // byte.
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-idr.program @sccp root(@Prog.main) stage(first) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, i64)]
+>
+idr.program @sccp root(@Prog.main) stage(first) types #types {
   idr.func @second(%p: !P) -> i64 {
     %y = idr.field %p : !P @MkP[1] -> i64
     return %y : i64

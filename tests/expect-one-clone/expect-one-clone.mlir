@@ -7,7 +7,7 @@
 // function it was made from. Calls that reach two copies fail (@step), and
 // so does the property of a function that nothing calls (@loop). A copy that calls another copy of its function was
 // specialized for a call in that copy (@walk$a).
-idr.program @"one-clone" root(@main) stage(first) {
+idr.program @"one-clone" root(@main) stage(first) types #idr.types<> {
   idr.func @iter$a(%n: i64) -> i64 {
     %r = idr.call @iter$a(%n) : (i64) -> i64
     return %r : i64

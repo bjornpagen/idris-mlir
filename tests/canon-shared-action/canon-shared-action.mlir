@@ -11,8 +11,11 @@
 // use. Without the pair the closure would have the two applies, each a
 // call that passes the linear halves: two uses of each.
 
-!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!idr.world)>>)]>
-idr.program @"shared-action" root(@root) stage(higher) {
+!IO = !idr.data<"IO">
+#types = #idr.types<
+  "IO" = plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!idr.world)>>)]
+>
+idr.program @"shared-action" root(@root) stage(higher) types #types {
   idr.func @bind(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.world)>>,
                           %w: !idr.world) -> !idr.world {
     idr.crash "no body"

@@ -63,7 +63,7 @@
 // STDIN: hi\n\0005
 // STDIN: -12.5e3\n\0003
 // STDIN:
-idr.program @"strings-bigs" root(@Prog.main) stage(first) {
+idr.program @"strings-bigs" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @strings(%s: !idr.str, %i: i64, %c: i32, %n: i32, %d: f64) -> (!idr.str, !idr.str,
       !idr.str, !idr.str, !idr.str, !idr.str, i32, i32, !idr.str, !idr.str, !idr.str, i1, i16, f64) {
     %a = idr.str.append %s, %s

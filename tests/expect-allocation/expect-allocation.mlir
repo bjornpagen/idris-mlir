@@ -5,9 +5,13 @@
 // no cell is allocated for. @boxes allocates through the function it
 // calls, which is in its scope; without a function, the whole module is.
 // A string built (@appends) is a cell too.
-!Pair = !idr.data<"Pair", plain [@MkPair(i64, i64)]>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @allocation root(@root) stage(first) {
+!Pair = !idr.data<"Pair">
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons],
+  "Pair" = plain [@MkPair(i64, i64)]
+>
+idr.program @allocation root(@root) stage(first) types #types {
   idr.func @scalar(%x: i64) -> !Pair {
     %p = idr.con !Pair @MkPair(%x : i64, %x : i64)
     return %p : !Pair

@@ -8,8 +8,11 @@
 // parameter twice, a reference idr-rc counts once more. The root builds
 // the node of the byte it reads, and the counted program prints what the
 // program before counting printed, on every byte.
-!T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
-idr.program @"nested-run" root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]
+>
+idr.program @"nested-run" root(@root) stage(first) types #types {
   idr.func @both(%t: !idr.box<!T>, %k: i64) -> !idr.box<!T> {
     %n = idr.con !idr.box<!T> @N(%t : !idr.box<!T>, %k : i64, %t : !idr.box<!T>)
     return %n : !idr.box<!T>

@@ -16,7 +16,7 @@
 // call names its callee, and that @Main.main reaches @label, held before the
 // pass as well (@Main.main names @label in its suspension), so neither is
 // checked here.
-idr.program @"force-call" root(@Main.main) stage(higher) {
+idr.program @"force-call" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @label(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64

@@ -10,7 +10,7 @@
 // byte with --stats and without.
 // CHECK: Pass statistics report
 // QUIET-NOT: statistics
-idr.program @stats root(@Prog.main) stage(higher) {
+idr.program @stats root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @fact(%n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

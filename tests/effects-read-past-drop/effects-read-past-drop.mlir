@@ -14,8 +14,11 @@
 // two errors are the first two splits'.
 // CHECK-COUNT-2: error: '{{idr\.[a-z_]+}}' op uses a value whose last reference is gone on this path
 
-!P = !idr.data<"P", plain [@P(i64, i64)]>
-idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@P(i64, i64)]
+>
+idr.program @"read-past-drop" root(@Prog.main) stage(owned) types #types {
   idr.func @field(%b: i1, %p: !idr.own<!idr.box<!P>>) -> i64 {
     %v = idr.borrow %p : !idr.own<!idr.box<!P>>
     %x = idr.field %v : !idr.q<many, borrow, !idr.box<!P>> @P[0] -> i64
@@ -39,8 +42,11 @@ idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
 
 // -----
 
-!P = !idr.data<"P", plain [@P(i64, i64)]>
-idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@P(i64, i64)]
+>
+idr.program @"read-past-drop" root(@Prog.main) stage(owned) types #types {
   idr.func @tag(%b: i1, %p: !idr.own<!idr.box<!P>>) -> i64 {
     %v = idr.borrow %p : !idr.own<!idr.box<!P>>
     %t = idr.tag %v : !idr.q<many, borrow, !idr.box<!P>>
@@ -64,8 +70,11 @@ idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
 
 // -----
 
-!P = !idr.data<"P", plain [@P(i64, i64)]>
-idr.program @"read-past-drop" root(@Prog.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@P(i64, i64)]
+>
+idr.program @"read-past-drop" root(@Prog.main) stage(owned) types #types {
   idr.func @both(%b: i1, %p: !idr.own<!idr.box<!P>>) -> i64 {
     %v = idr.borrow %p : !idr.own<!idr.box<!P>>
     %x = idr.field %v : !idr.q<many, borrow, !idr.box<!P>> @P[0] -> i64

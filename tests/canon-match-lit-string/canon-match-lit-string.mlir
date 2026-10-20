@@ -17,7 +17,7 @@
 // makes hold did not hold before it; @nonempty matches nothing after it,
 // and @maybe_empty may still return 0, @other_keys 0 too.
 
-idr.program @"match-lit-string" root(@root) stage(first) {
+idr.program @"match-lit-string" root(@root) stage(first) types #idr.types<> {
   idr.func @nonempty(%x: i64, %c: i32, %s: !idr.str) -> (i64, i64, i64) {
     %zero = arith.constant 0 : i64
     %one = arith.constant 1 : i64

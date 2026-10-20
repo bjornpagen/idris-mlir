@@ -10,7 +10,7 @@
 // The root runs @leak on an array made from the byte it reads, and the
 // program prints after the pass what it printed before, on every byte: the
 // read sees the write.
-idr.program @"link-read-after-release" root(@root) stage(first) {
+idr.program @"link-read-after-release" root(@root) stage(first) types #idr.types<> {
   idr.func @leak(%a: !idr.lin<tensor<?xi64>>) -> (!idr.lin<tensor<?xi64>>, i64) {
     %c0 = arith.constant 0 : index
     %seven = arith.constant 7 : i64

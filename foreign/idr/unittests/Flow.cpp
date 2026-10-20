@@ -129,8 +129,11 @@ TEST(FlowRule, AModelIsVerifiedAtEveryStage) {
   ctx.loadDialect<IdrDialect, arith::ArithDialect, FlowTestDialect>();
   ParserConfig config(&ctx, /*verifyAfterParse=*/false);
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-!B = !idr.data<"B", plain [@K(i64)]>
-idr.program @p root(@root) stage(owned) {
+!B = !idr.data<"B">
+#types = #idr.types<
+  "B" = plain [@K(i64)]
+>
+idr.program @p root(@root) stage(owned) types #types {
   idr.func @f(%b: !idr.own<!idr.box<!B>>) {
     "flowtest.names_another"(%b) : (!idr.own<!idr.box<!B>>) -> ()
     return
@@ -161,7 +164,7 @@ TEST(FlowRule, ARegionReadsBackAPartOfItsResult) {
   ctx.loadDialect<IdrDialect, func::FuncDialect, FlowTestDialect>();
   ParserConfig config(&ctx, /*verifyAfterParse=*/false);
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-!B = !idr.data<"B", plain [@K(i64)]>
+!B = !idr.data<"B">
 func.func @f() {
   %part = "flowtest.reads_back_part"() ({
   ^bb0(%x: !idr.box<!B>):
@@ -187,7 +190,7 @@ TEST(FlowRule, AWriteIntoMemorySaysWhatThePlaceHeld) {
   ctx.loadDialect<IdrDialect, func::FuncDialect, FlowTestDialect>();
   ParserConfig config(&ctx, /*verifyAfterParse=*/false);
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-!B = !idr.data<"B", plain [@K(i64)]>
+!B = !idr.data<"B">
 func.func @f(%e: !idr.box<!B>, %m: memref<2x!idr.box<!B>>) {
   "flowtest.writes_over"(%e, %m) : (!idr.box<!B>, memref<2x!idr.box<!B>>) -> ()
   "flowtest.writes_unsaid"(%e, %m) : (!idr.box<!B>, memref<2x!idr.box<!B>>) -> ()
@@ -218,7 +221,7 @@ TEST(FlowRule, ExternalModelsKeepTheRule) {
       models.insert(name.getStringRef().str());
   EXPECT_FALSE(models.empty());
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-!B = !idr.data<"B", plain [@K(i64)]>
+!B = !idr.data<"B">
 func.func @f(%t: tensor<2x!idr.box<!B>>, %m: memref<2x!idr.box<!B>>, %e: !idr.box<!B>,
              %i: index) {
   %inserted = tensor.insert %e into %t[%i] : tensor<2x!idr.box<!B>>

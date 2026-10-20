@@ -12,7 +12,7 @@
 // The optimized program means what the program as written does: on every
 // one-byte input n,  and  each end on n of each parity, and both
 // print alike (%differential).
-idr.program @once root(@Main.main) stage(first) {
+idr.program @once root(@Main.main) stage(first) types #idr.types<> {
   idr.func @leaf(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

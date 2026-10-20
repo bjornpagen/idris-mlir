@@ -230,7 +230,7 @@ bool holdsNoComponent(mlir::Type type);
 // reads how a value is held; after it the in-place containment is acyclic.
 // Returns how many types became boxes, or fails when a body could not be
 // made, which DataRemap has reported.
-mlir::FailureOr<unsigned> fit(mlir::Operation *root);
+mlir::FailureOr<unsigned> fit(ProgramOp root);
 
 // idr's comparison of two values held as words, as a signed comparison of
 // the words: a big's small words and the runtime's three-way result both

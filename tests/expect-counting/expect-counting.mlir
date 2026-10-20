@@ -7,9 +7,13 @@
 // twice counts, and reuses nothing. The program is written at the owned
 // stage, as counting leaves one, so that what the oracle judges is this
 // module and not what idr-rc happens to make of one.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-!Two = !idr.data<"Two", plain [@Two(!idr.str, !idr.str)]>
-idr.program @counting root(@root) stage(owned) {
+!L = !idr.data<"L">
+!Two = !idr.data<"Two">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons],
+  "Two" = plain [@Two(!idr.str, !idr.str)]
+>
+idr.program @counting root(@root) stage(owned) types #types {
   idr.func @map(%l: !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>> {
     %n = idr.constant !idr.q<many, borrow, !idr.box<!L>> #idr.con<!L, @N, []>
     %v = idr.borrow %l : !idr.excl<!idr.box<!L>>

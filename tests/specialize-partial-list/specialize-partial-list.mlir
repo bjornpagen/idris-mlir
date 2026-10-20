@@ -12,8 +12,11 @@
 // it, its definition's name, by which a copy names what it was made from.
 // The differential holds the optimized program to the one as written on
 // every input byte.
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"partial-list" root(@Main.main) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"partial-list" root(@Main.main) stage(first) types #types {
   idr.func @sum(%xs: !idr.box<!L>) -> i64 attributes {total} {
     %r = idr.match %xs : !idr.box<!L> -> (i64) {
     case @Nil() {

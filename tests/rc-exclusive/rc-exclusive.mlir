@@ -16,8 +16,11 @@
 // 4, so every function runs on the empty list and on cells, and every run
 // prints what it printed before counting and leaves no cell live.
 // SHARED: error: expected tests-nothing: idr.take in @bump2 tests
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @exclusive root(@root) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @exclusive root(@root) stage(first) types #types {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {

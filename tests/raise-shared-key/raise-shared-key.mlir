@@ -10,8 +10,11 @@
 // Whatever the copies are keyed by, each call keeps its own arguments: on
 // every one-byte input the optimized program prints what the program as
 // written does (%differential).
-!Pair = !idr.data<"Pair", plain [@MkPair(!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]>
-idr.program @"shared-key" root(@Main.main) stage(higher) {
+!Pair = !idr.data<"Pair">
+#types = #idr.types<
+  "Pair" = plain [@MkPair(!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]
+>
+idr.program @"shared-key" root(@Main.main) stage(higher) types #types {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

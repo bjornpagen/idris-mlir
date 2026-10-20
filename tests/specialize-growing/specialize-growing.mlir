@@ -11,7 +11,7 @@
 // The count is the input byte's low four bits, so the closure grows to
 // 2^15 applications, and the differential holds the optimized program to
 // the one as written on every byte.
-idr.program @growing root(@Main.main) stage(higher) {
+idr.program @growing root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

@@ -7,7 +7,7 @@
 // leaves is one block that ends where the callee never returns, in the
 // body or in a region of a match in it (the last split, which holds).
 
-idr.program @"two-blocks" root(@root) stage(first) {
+idr.program @"two-blocks" root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{region #0 ('body') failed to verify constraint: region with 1 blocks}}
   idr.func @never(%x: i64) -> i64 {
     idr.crash "no"
@@ -25,7 +25,7 @@ idr.program @"two-blocks" root(@root) stage(first) {
 
 // -----
 
-idr.program @"two-blocks" root(@root) stage(first) {
+idr.program @"two-blocks" root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{region #0 ('body') failed to verify constraint: region with 1 blocks}}
   idr.func @declared(%x: i64) -> i64
   // The program's root, which the functions above are no part of.
@@ -37,7 +37,7 @@ idr.program @"two-blocks" root(@root) stage(first) {
 
 // -----
 
-idr.program @"two-blocks" root(@root) stage(first) {
+idr.program @"two-blocks" root(@root) stage(first) types #idr.types<> {
   idr.func @never(%x: i64) -> i64 {
     idr.crash "no"
     ub.unreachable

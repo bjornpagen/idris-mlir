@@ -24,7 +24,7 @@
 // its functions: idris_rt_live_cells, idris_rt_cell) or only calls it (the C
 // library's write and read); under a name of its own the same program
 // compiles and runs.
-idr.program @"runtime-names" root(@Prog.main) stage(higher) {
+idr.program @"runtime-names" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.count(%n: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

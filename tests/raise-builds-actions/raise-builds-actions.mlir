@@ -12,11 +12,17 @@
 // The raised call runs its actions in their order: on every one-byte
 // input n, a list of n elements, the empty one among them, both programs
 // print alike (%differential).
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"builds-actions" root(@Main.main) stage(higher) {
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+!IO = !idr.data<"IO">
+!L = !idr.data<"L">
+#types = #idr.types<
+  "IO" = plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)],
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @"builds-actions" root(@Main.main) stage(higher) types #types {
   idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_sint %n, %w : i64
     %u = idr.con !Unit @MkUnit()

@@ -62,6 +62,9 @@ idr::TypeGraph::TypeGraph(Operation *module) {
   llvm::SetVector<DataType> found;
   AttrTypeWalker walker;
   walker.addWalk([](ConAttr) { return WalkResult::skip(); });
+  // The program's table declares its data types; what holds them is its
+  // ops' values and the bodies.
+  walker.addWalk([](DataTableAttr) { return WalkResult::skip(); });
   walker.addWalk([&](BoxType box) {
     found.insert(box.getData());
     heldBoxed.insert(box.getData());

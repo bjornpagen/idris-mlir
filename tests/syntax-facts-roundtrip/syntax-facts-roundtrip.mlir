@@ -19,7 +19,7 @@
 // CHECK-NEXT: {{^ *}}%[[R:.*]] = call @f(%{{.*}}) : (i64) -> i64
 // CHECK-NEXT: {{^ *}}return %[[R]] : i64
 
-idr.program @"facts-roundtrip" root(@root) stage(first) {
+idr.program @"facts-roundtrip" root(@root) stage(first) types #idr.types<> {
   idr.func effects<io, crash> @f(%x: i64) -> i64
       attributes {total, no_inline,
                   instance = #idr.instance<"Prelude.f", ["Prelude.Types.Nat"]>} {
@@ -38,7 +38,7 @@ idr.program @"facts-roundtrip" root(@root) stage(first) {
 
 // -----
 
-idr.program @"facts-roundtrip" root(@root) stage(first) {
+idr.program @"facts-roundtrip" root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{attribute 'total' failed to satisfy constraint: unit attribute}}
   idr.func @f() attributes {total = 1 : i64} {
     return
@@ -52,7 +52,7 @@ idr.program @"facts-roundtrip" root(@root) stage(first) {
 
 // -----
 
-idr.program @"facts-roundtrip" root(@root) stage(first) {
+idr.program @"facts-roundtrip" root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{attribute 'no_inline' failed to satisfy constraint: unit attribute}}
   idr.func @f() attributes {no_inline = 1 : i64} {
     return
@@ -68,7 +68,7 @@ idr.program @"facts-roundtrip" root(@root) stage(first) {
 
 // An instance names the definition and its arguments; the name alone is
 // of the wrong kind.
-idr.program @"facts-roundtrip" root(@root) stage(first) {
+idr.program @"facts-roundtrip" root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{attribute 'instance' failed to satisfy constraint}}
   idr.func @f() attributes {instance = "Prelude.f"} {
     return

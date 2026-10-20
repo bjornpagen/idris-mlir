@@ -9,7 +9,7 @@
 // option's last occurrence is the one that counts) the run passes.
 // idr-effects keeps it. linear-kept is broken in break-linear.mlir and
 // crash-sites-not-added in crash-sites.mlir.
-idr.program @contracts root(@main) stage(first) {
+idr.program @contracts root(@main) stage(first) types #idr.types<> {
   // expected-error-re @below {{contract effects-not-widened broken by test-idr-break-contract{{.*}}@main}}
   idr.func effects<none> @main() -> i64 attributes {total} {
     %c = arith.constant 0 : i64

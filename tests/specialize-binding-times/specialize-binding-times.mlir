@@ -7,8 +7,11 @@
 // Defunctionalization runs first: binding times are read over the calls
 // between the members of a cycle, and a closure is then a constructor of
 // its sum like any other value.
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"binding-times" root(@Main.main) stage(higher) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"binding-times" root(@Main.main) stage(higher) types #types {
   // map f (x :: xs) = f x :: map f xs: f is passed back, xs is not.
   // expected-remark @below {{@map: fixed, varies}}
   idr.func @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<!L>) -> !idr.box<!L> {

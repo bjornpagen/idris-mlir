@@ -11,8 +11,11 @@
 // exits with 2, the status the reference at the end (REF) computes with no
 // list (%differential, on the one input, none, since it reads none).
 // STDIN:
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @atom root(@Prog.main) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @atom root(@Prog.main) stage(first) types #types {
   idr.func @nil() -> !idr.box<!List> {
     %n = idr.con !idr.box<!List> @Nil()
     return %n : !idr.box<!List>
@@ -42,7 +45,7 @@ idr.program @atom root(@Prog.main) stage(first) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main() -> i64 {
 // REF:     %r = arith.constant 2 : i64
 // REF:     return %r : i64

@@ -35,8 +35,11 @@
 
 // The inner match on the same literal takes the enclosing case: one test
 // of %n is left, and nothing else is tested.
-!Shape = !idr.data<"Shape", plain [@Circle(f64), @Rect(f64, f64), @Point()]>
-idr.program @"match-enclosing" root(@root) stage(first) {
+!Shape = !idr.data<"Shape">
+#types = #idr.types<
+  "Shape" = plain [@Circle(f64), @Rect(f64, f64), @Point()]
+>
+idr.program @"match-enclosing" root(@root) stage(first) types #types {
   idr.func @lit_in_case(%n: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

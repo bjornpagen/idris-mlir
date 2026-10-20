@@ -23,7 +23,7 @@
 // F: idris-mlir: unhandled input for Main.pick at Main.idr:50:4
 // G: idris-mlir: unhandled input for Main.pick
 // NONE: none
-idr.program @"crash-callsite" root(@Prog.main) stage(higher) {
+idr.program @"crash-callsite" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %r = idr.match_lit %c : i32 -> (!idr.world) {

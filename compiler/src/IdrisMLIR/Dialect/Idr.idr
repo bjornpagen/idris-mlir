@@ -958,11 +958,11 @@ ownGiveOp : (value : Value) -> (result : MlirType) -> Op
 ownGiveOp value result =
   MkOp "idr.own.give" [value] [] [] [] [result]
 
-||| `idr.program`: a closed program: its functions, its root and its stage
+||| `idr.program`: a closed program: its functions, its root, its stage and its data types
 export
-programOp : (symName : String) -> (root : String) -> (stage : Stage) -> (bodyRegion : Region) -> Op
-programOp symName root stage bodyRegion =
-  MkOp "idr.program" [] [("sym_name", StringAttr symName), ("root", SymbolRefAttr (MkSymbolRef root [])), ("stage", IntegerAttr (natToInteger (stageValue stage)) (IntegerType 32))] [bodyRegion] [] []
+programOp : (symName : String) -> (root : String) -> (stage : Stage) -> (types : MlirAttr) -> (bodyRegion : Region) -> Op
+programOp symName root stage types bodyRegion =
+  MkOp "idr.program" [] [("sym_name", StringAttr symName), ("root", SymbolRefAttr (MkSymbolRef root [])), ("stage", IntegerAttr (natToInteger (stageValue stage)) (IntegerType 32)), ("types", types)] [bodyRegion] [] []
 
 ||| `idr.return`: returns from a function
 export
@@ -1762,4 +1762,4 @@ ioOp ClockSecond os rs = MkGuarded (MkOp "idr.io.clock_second" os [] [] [] rs) [
 ioOp ClockNanosecond os rs = MkGuarded (MkOp "idr.io.clock_nanosecond" os [] [] [] rs) []
 ioOp HandleFree os rs = MkGuarded (MkOp "idr.io.handle_free" os [] [] [] rs) []
 
--- fingerprint: 1021194486-1532636 3311063398-75393
+-- fingerprint: 2139816913-1536290 603265676-75455

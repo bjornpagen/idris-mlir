@@ -30,7 +30,7 @@
 // (the differential); no property here held before the pass, and each list
 // of labels with one changed fails after it, so each sum is exactly its
 // labels.
-idr.program @growing root(@Main.main) stage(higher) {
+idr.program @growing root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

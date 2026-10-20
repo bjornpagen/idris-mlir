@@ -48,7 +48,7 @@ TEST(ProgramRules, ThePassManagerChecksThemAfterAProgramPass) {
   MLIRContext ctx;
   ctx.loadDialect<idr::IdrDialect, arith::ArithDialect>();
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-idr.program @verified root(@Prog.main) stage(first) {
+idr.program @verified root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %nl = arith.constant 10 : i32
     %w1 = idr.io.put_char %nl, %w

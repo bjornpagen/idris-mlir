@@ -2,7 +2,7 @@
 // A natural is never negative, and the type is what proves it: no op makes
 // a !idr.nat that could be negative, and a constant cannot be one.
 
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @negative_constant() -> !idr.nat {
     // expected-error @+1 {{cannot hold}}
     %n = idr.constant !idr.nat #idr.big<-1>
@@ -18,7 +18,7 @@ idr.program @nat root(@root) stage(first) {
 // -----
 
 // The difference of two naturals may be negative: it is Integer's.
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @difference(%a: !idr.nat) -> !idr.nat {
     // expected-error @+1 {{must be}}
     %d = "idr.big.sub"(%a, %a) : (!idr.nat, !idr.nat) -> !idr.nat
@@ -33,7 +33,7 @@ idr.program @nat root(@root) stage(first) {
 
 // -----
 
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @mixed(%a: !idr.nat, %b: !idr.big) -> !idr.nat {
     // expected-error @+1 {{all of {lhs, rhs} have same type}}
     %s = "idr.big.add"(%a, %b) : (!idr.nat, !idr.big) -> !idr.nat
@@ -49,7 +49,7 @@ idr.program @nat root(@root) stage(first) {
 // -----
 
 // Only a natural that is not zero has a predecessor that is natural.
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @integer_predecessor(%a: !idr.big) -> !idr.big {
     // expected-error @+1 {{operand #0 must be}}
     %p = "idr.big.pred"(%a) : (!idr.big) -> !idr.big
@@ -65,7 +65,7 @@ idr.program @nat root(@root) stage(first) {
 // -----
 
 // An Integer becomes a natural only through idr.nat.from_big, which clamps.
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @unclamped(%a: !idr.big) -> !idr.nat {
     // expected-error @+1 {{must be a natural at any grade}}
     %n = "idr.nat.to_big"(%a) : (!idr.big) -> !idr.nat
@@ -82,7 +82,7 @@ idr.program @nat root(@root) stage(first) {
 
 // An integer becomes a natural only read as unsigned, which it then is:
 // only idr.big.from_uint makes one.
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @signed_word(%x: i64) -> !idr.nat {
     // expected-error @+1 {{but got '!idr.nat'}}
     %n = idr.big.from_sint %x : i64 : !idr.nat
@@ -97,7 +97,7 @@ idr.program @nat root(@root) stage(first) {
 
 // -----
 
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @negative_key(%n: !idr.nat) -> i64 {
     // expected-error @+1 {{that is not a literal of '!idr.nat'}}
     %r = idr.match_lit %n : !idr.nat -> (i64) {
@@ -125,7 +125,7 @@ idr.program @nat root(@root) stage(first) {
 // the difference as an Integer, of the naturals made Integers; the sum of
 // two naturals; the predecessor of a natural; the clamping conversion; the
 // word read as unsigned; and a key that is a natural.
-idr.program @nat root(@root) stage(first) {
+idr.program @nat root(@root) stage(first) types #idr.types<> {
   idr.func @zero_constant() -> !idr.nat {
     %n = idr.constant !idr.nat #idr.big<0>
     return %n : !idr.nat

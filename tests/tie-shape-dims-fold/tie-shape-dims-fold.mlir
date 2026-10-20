@@ -15,7 +15,7 @@
 // sizes and prints each dimension the functions read: folded, the program
 // prints what the one as written printed, on every byte.
 // UNTIED: expected returns-argument: {{.*}}@untied
-idr.program @"dims-fold" root(@root) stage(first) {
+idr.program @"dims-fold" root(@root) stage(first) types #idr.types<> {
   idr.func @dynamic(%x: tensor<?xi64>, %n: index) -> index {
     %y = idr.tie_shape %x dims(%n) : tensor<?xi64>
     %c0 = arith.constant 0 : index

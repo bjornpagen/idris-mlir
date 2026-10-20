@@ -15,9 +15,13 @@
 // The input byte is the key and says whether the tree is a leaf and the
 // list empty, so both functions run on both of their cases, and every run
 // prints what it printed before counting and leaves no cell live.
-!T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @"take-at-death" root(@root) stage(first) {
+!T = !idr.data<"T">
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons],
+  "T" = plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]
+>
+idr.program @"take-at-death" root(@root) stage(first) types #types {
   idr.func @flip(%t: !idr.box<!T>) -> !idr.box<!T> {
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!T>) {
     case @L() {

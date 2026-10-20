@@ -16,8 +16,11 @@
 // records as long as the byte it reads says, and the program prints after
 // the pass what it printed before, on every byte: the popped record, and
 // the fill in its place.
-!R = !idr.data<"R", plain [@MkR(i64)]>
-idr.program @"pop-box" root(@root) stage(first) {
+!R = !idr.data<"R">
+#types = #idr.types<
+  "R" = plain [@MkR(i64)]
+>
+idr.program @"pop-box" root(@root) stage(first) types #types {
   idr.func @pop(%a: !idr.lin<tensor<?x!idr.box<!R>>>, %size: index, %fill: !idr.box<!R>)
       -> (!idr.box<!R>, !idr.lin<tensor<?x!idr.box<!R>>>) {
     %c1 = arith.constant 1 : index

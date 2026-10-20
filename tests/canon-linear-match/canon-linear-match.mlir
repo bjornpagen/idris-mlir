@@ -23,10 +23,15 @@
 // makes hold did not hold before it, and @of_con neither matches nor calls
 // @keep after it.
 
-!P = !idr.data<"P", plain [@MkP(i64, !idr.lin<i64>)]>
-!P2 = !idr.data<"P2", plain [@MkP2(!idr.lin<i64>, !idr.lin<i64>)]>
-!Q = !idr.data<"Q", plain [@A(i64), @B()]>
-idr.program @"linear-match" root(@root) stage(first) {
+!P = !idr.data<"P">
+!P2 = !idr.data<"P2">
+!Q = !idr.data<"Q">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, !idr.lin<i64>)],
+  "P2" = plain [@MkP2(!idr.lin<i64>, !idr.lin<i64>)],
+  "Q" = plain [@A(i64), @B()]
+>
+idr.program @"linear-match" root(@root) stage(first) types #types {
   idr.func @keep(%q: !idr.lin<!Q>) -> i64 {
     idr.crash "no body"
     ub.unreachable

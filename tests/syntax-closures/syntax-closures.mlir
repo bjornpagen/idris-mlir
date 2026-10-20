@@ -6,7 +6,7 @@
 // the frontend writes every result list.
 
 // CHECK: idr.func @closures(%{{[^:]*}}: !idr.fn<(i64) -> i64>, %{{[^:]*}}: !idr.fn<() -> ()>, %{{[^:]*}}: !idr.fn<(i64) -> (i64, i64)>, %{{[^:]*}}: !idr.fn<(i64) -> ((i64) -> i64)>, %{{[^:]*}}: !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>)
-idr.program @closures root(@root) stage(higher) {
+idr.program @closures root(@root) stage(higher) types #idr.types<> {
   idr.func @closures(%a0: !idr.fn<(i64) -> (i64)>, %a1: !idr.fn<() -> ()>,
                      %a2: !idr.fn<(i64) -> (i64, i64)>, %a3: !idr.fn<(i64) -> ((i64) -> (i64))>,
                      %a4: !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>) {

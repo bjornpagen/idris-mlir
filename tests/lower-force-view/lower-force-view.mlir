@@ -28,8 +28,11 @@
 // STDIN: \0001
 // STDIN: \0377
 // STDIN:
-!Thunk = !idr.data<"Thunk", memo [@one() label @one, @plus(i64) label @plus, @running() running, @forced(i64) forced]>
-idr.program @"force-view" root(@Main.main) stage(owned) {
+!Thunk = !idr.data<"Thunk">
+#types = #idr.types<
+  "Thunk" = memo [@one() label @one, @plus(i64) label @plus, @running() running, @forced(i64) forced]
+>
+idr.program @"force-view" root(@Main.main) stage(owned) types #types {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
@@ -106,7 +109,7 @@ idr.program @"force-view" root(@Main.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Main.main) stage(higher) {
+// REF: idr.program @ref root(@Main.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Main.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %x = arith.extui %c : i32 to i64

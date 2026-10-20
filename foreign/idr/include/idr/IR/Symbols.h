@@ -121,7 +121,7 @@ public:
   // Functions renamed, each old symbol to its new one.
   using Renames = llvm::DenseMap<mlir::StringAttr, mlir::StringAttr>;
 
-  // The remap of what `root` (a module or a program) holds, with every new
+  // The remap of what the program `root` holds, with every new
   // body made; failure, after an internal error at the root, when a name is
   // made from two keys or a body is no well-formed sum. It keeps `leaf`,
   // and asks it once per type and place. Every occurrence of a type of
@@ -130,7 +130,7 @@ public:
   // reference to one, so a renamed function needs no other rename. The
   // remap's replacements refer to it, so it stays where it is made.
   static mlir::FailureOr<std::unique_ptr<DataRemap>>
-  create(mlir::Operation *root, llvm::StringRef kind, Leaf leaf,
+  create(ProgramOp root, llvm::StringRef kind, Leaf leaf,
          llvm::ArrayRef<DataType> boxed = {}, Renames renames = {});
 
   DataRemap(const DataRemap &) = delete;
@@ -141,10 +141,10 @@ public:
   void retype(mlir::Operation *root);
 
 private:
-  DataRemap(mlir::Operation *root, Leaf leaf, llvm::ArrayRef<DataType> boxed, Renames renames);
+  DataRemap(ProgramOp root, Leaf leaf, llvm::ArrayRef<DataType> boxed, Renames renames);
 
   // Decides the types to remake and their names, and makes each.
-  void remakeAll(mlir::Operation *root, llvm::StringRef kind);
+  void remakeAll(ProgramOp root, llvm::StringRef kind);
   DataType mapData(DataType type);
   std::optional<mlir::Type> leafAt(mlir::Type type, std::optional<FieldPlace> place);
   // The shape of `type` held at `place` (a field of a body, or nothing for
@@ -158,6 +158,8 @@ private:
   DataType remake(DataType old);
 
   mlir::MLIRContext *context;
+  // The program the remade types are declared in.
+  ProgramOp program;
   Leaf leaf;
   Renames renames;
   // What `leaf` gave for each type at each field of a body, and anywhere

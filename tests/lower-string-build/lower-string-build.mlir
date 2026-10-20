@@ -18,9 +18,13 @@
 // three characters twice and abcdé twice, a line each, and four empty
 // lines (%differential, on the one input, none, since it reads none).
 // STDIN:
-!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
-!Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
-idr.program @"string-build" root(@root) stage(owned) {
+!Chars = !idr.data<"Chars">
+!Strs = !idr.data<"Strs">
+#types = #idr.types<
+  "Chars" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons],
+  "Strs" = list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]
+>
+idr.program @"string-build" root(@root) stage(owned) types #types {
   idr.func @all(%cs: !idr.q<many, borrow, !idr.box<!Chars>>, %ss: !idr.q<many, borrow, !idr.box<!Strs>>, %w: !idr.world) -> !idr.world {
     %nl = arith.constant 10 : i32
     %a = idr.call @pack(%cs) : (!idr.q<many, borrow, !idr.box<!Chars>>) -> !idr.own<!idr.str>
@@ -66,7 +70,7 @@ idr.program @"string-build" root(@root) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@root) stage(higher) {
+// REF: idr.program @ref root(@root) stage(higher) types #idr.types<> {
 // REF:   idr.func @chars(%w: !idr.world) -> !idr.world {
 // REF:     %h = arith.constant 104 : i32
 // REF:     %e = arith.constant 233 : i32

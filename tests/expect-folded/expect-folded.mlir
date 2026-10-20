@@ -7,7 +7,7 @@
 // may not fold is not asked to: a guard that refuses its constant, which
 // must crash where it runs (@refused), and a call, even of constants
 // (@calls).
-idr.program @folded root(@root) stage(first) {
+idr.program @folded root(@root) stage(first) types #idr.types<> {
   idr.func @sum() -> i64 {
     %two = arith.constant 2 : i64
     %three = arith.constant 3 : i64

@@ -107,6 +107,14 @@ struct IdrAsmInterface : OpAsmDialectInterface {
   }
 
   AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
+    // The program's table of data types, written once, before every other
+    // attribute alias: the printer writes the aliases of one depth in name
+    // order, and a constant's constructors are read by name against the
+    // table, so the table's name sorts before a constant's (idr_value).
+    if (isa<DataTableAttr>(attr)) {
+      os << "data_types";
+      return AliasResult::FinalAlias;
+    }
     if (treeSize(attr, aliasFrom + 1) <= aliasFrom)
       return AliasResult::NoAlias;
     os << "idr_value";

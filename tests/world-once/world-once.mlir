@@ -3,7 +3,7 @@
 // is rejected, wherever the second use is, and used once on each path it
 // is accepted (the last split). Each idr.func verifies its own body.
 
-idr.program @once root(@root) stage(first) {
+idr.program @once root(@root) stage(first) types #idr.types<> {
 idr.func @f(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %w1 = idr.io.put_char %c, %w
@@ -19,7 +19,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @once root(@root) stage(first) {
+idr.program @once root(@root) stage(first) types #idr.types<> {
 // A world produced inside the function counts too.
 idr.func @f(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
@@ -37,7 +37,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @once root(@root) stage(first) {
+idr.program @once root(@root) stage(first) types #idr.types<> {
 // Returned and used: two uses.
 idr.func @f(%w: !idr.world) -> (!idr.world, !idr.world) {
   // expected-error @+1 {{uses a world that is already used on the same path}}
@@ -51,8 +51,11 @@ idr.func @root() -> i64 {
 
 // -----
 
-!B = !idr.data<"B", plain [@F(), @T()]>
-idr.program @once root(@root) stage(first) {
+!B = !idr.data<"B">
+#types = #idr.types<
+  "B" = plain [@F(), @T()]
+>
+idr.program @once root(@root) stage(first) types #types {
 // A use in a region of a match, then one after the match, is one path.
 idr.func @f(%b: !B,
                      %w: !idr.world) -> !idr.world {
@@ -78,7 +81,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @once root(@root) stage(first) {
+idr.program @once root(@root) stage(first) types #idr.types<> {
 // Two uses within one region.
 idr.func @f(%n: i64, %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
@@ -103,7 +106,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @once root(@root) stage(first) {
+idr.program @once root(@root) stage(first) types #idr.types<> {
 // A world from before a loop, used in its body, is used once per iteration.
 idr.func @f(%w: !idr.world, %n: i64) -> i64 {
   %c = arith.constant 65 : i32
@@ -129,9 +132,13 @@ idr.func @root() -> i64 {
 
 
 // A chain of IO ops.
-!B = !idr.data<"B", plain [@F(), @T()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(i64, !idr.world)]>
-idr.program @once root(@chain) stage(first) {
+!B = !idr.data<"B">
+!IORes = !idr.data<"IORes">
+#types = #idr.types<
+  "B" = plain [@F(), @T()],
+  "IORes" = plain [@MkIORes(i64, !idr.world)]
+>
+idr.program @once root(@chain) stage(first) types #types {
   idr.func @chain(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     %w1 = idr.io.put_char %c, %w

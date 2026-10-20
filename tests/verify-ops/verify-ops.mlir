@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 
-idr.program @ops root(@root) stage(first) {
+idr.program @ops root(@root) stage(first) types #idr.types<> {
   idr.func @f(%x: i1) {
     // expected-error @+1 {{operand #0 must be}}
     %s = idr.str.show_uint %x : i1
@@ -16,7 +16,7 @@ idr.program @ops root(@root) stage(first) {
 // -----
 
 // idr.big.cmp has no `ne`, as Idris's Integer primitives have none.
-idr.program @ops root(@root) stage(first) {
+idr.program @ops root(@root) stage(first) types #idr.types<> {
   idr.func @f(%x: !idr.big) {
     // expected-error @+1 {{'predicate'}}
     %b = idr.big.cmp ne %x, %x
@@ -32,8 +32,11 @@ idr.program @ops root(@root) stage(first) {
 // -----
 
 // put_list writes characters or strings, as pack and concat build them.
-!Ints = !idr.data<"Ints", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"Ints">>) cons]>
-idr.program @ops root(@root) stage(first) {
+!Ints = !idr.data<"Ints">
+#types = #idr.types<
+  "Ints" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"Ints">>) cons]
+>
+idr.program @ops root(@root) stage(first) types #types {
   idr.func @f(%xs: !idr.box<!Ints>, %w: !idr.world) -> !idr.world {
     // expected-error @+1 {{operand #0 must be}}
     %w1 = idr.io.put_list %xs, %w : !idr.box<!Ints>
@@ -49,7 +52,7 @@ idr.program @ops root(@root) stage(first) {
 // -----
 
 // A new array takes one size per dimension: an IORef's, of rank 0, none.
-idr.program @ops root(@root) stage(first) {
+idr.program @ops root(@root) stage(first) types #idr.types<> {
   idr.func @f(%n: i64, %z: i64, %w: !idr.world) -> !idr.world {
     // expected-error @+1 {{takes 1 sizes for an array of rank 0}}
     %r, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<i64, #idr.world>
@@ -65,7 +68,7 @@ idr.program @ops root(@root) stage(first) {
 // -----
 
 // An access takes one index per dimension.
-idr.program @ops root(@root) stage(first) {
+idr.program @ops root(@root) stage(first) types #idr.types<> {
   idr.func @f(%a: memref<?xi64, #idr.world>, %w: !idr.world) -> !idr.world {
     // expected-error @+1 {{takes 0 indices for an array of rank 1}}
     %x, %w1 = idr.array.get %a[], %w : memref<?xi64, #idr.world> -> i64
@@ -85,8 +88,11 @@ idr.program @ops root(@root) stage(first) {
 // world, and the first value it yields moves back in; the values after it
 // leave the op, as an exchange gives the old element out. A word holds no
 // reference and is rebuilt as well.
-!R = !idr.data<"R", plain [@MkR(!idr.str)]>
-idr.program @ops root(@root) stage(first) {
+!R = !idr.data<"R">
+#types = #idr.types<
+  "R" = plain [@MkR(!idr.str)]
+>
+idr.program @ops root(@root) stage(first) types #types {
   idr.func @bump(%a: memref<?x!idr.box<!R>, #idr.world>, %i: i64, %w: !idr.world) -> !idr.world {
     %w1 = idr.array.update %a[%i], %w {
     ^bb0(%old: !idr.box<!R>):
@@ -116,8 +122,11 @@ idr.program @ops root(@root) stage(first) {
 // byte, the comparisons Idris has (equality among them), a list of
 // characters written, an IORef made with no size and an array with one,
 // and an element read at one index.
-!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
-idr.program @ops root(@root) stage(first) {
+!Chars = !idr.data<"Chars">
+#types = #idr.types<
+  "Chars" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]
+>
+idr.program @ops root(@root) stage(first) types #types {
   idr.func @show(%x: i8) -> !idr.str {
     %s = idr.str.show_uint %x : i8
     return %s : !idr.str

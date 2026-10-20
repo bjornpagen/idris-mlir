@@ -14,7 +14,7 @@
 // Before the pass there is no buffer. The root has @go write as much of an
 // array as the byte it reads says, and the program prints after the pass
 // what it printed before, on every byte.
-idr.program @"recursive-value" root(@root) stage(first) {
+idr.program @"recursive-value" root(@root) stage(first) types #idr.types<> {
   idr.func @go(%a: tensor<?xi64>, %k: i64) -> tensor<?xi64> attributes {total} {
     %r = idr.match_lit %k : i64 -> (tensor<?xi64>) {
     case 0 {

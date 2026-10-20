@@ -10,9 +10,13 @@
 // region of which uses it; a value tested once on a path; a write after
 // what may crash; every parameter and result read; regions that differ;
 // and a check on every path.
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"List">>) cons]>
-!B = !idr.data<"B", plain [@F(), @T()]>
-idr.program @placement root(@root) stage(first) {
+!List = !idr.data<"List">
+!B = !idr.data<"B">
+#types = #idr.types<
+  "B" = plain [@F(), @T()],
+  "List" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @placement root(@root) stage(first) types #types {
   idr.func @g(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64

@@ -31,9 +31,13 @@
 // in @across_computing after @lowered_past_crash printed), the optimized
 // program prints and exits as the program as written does
 // (%differential, which compares stdout and the exit status).
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-!Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
-idr.program @"case-of-case-calls" root(@root) stage(first) {
+!P = !idr.data<"P">
+!Maybe = !idr.data<"Maybe">
+#types = #idr.types<
+  "Maybe" = plain [@Nothing(), @Just(i64)],
+  "P" = plain [@MkP(i64, i64)]
+>
+idr.program @"case-of-case-calls" root(@root) stage(first) types #types {
   idr.func @square(%x: i64) -> i64 attributes {total, no_inline} {
     %r = arith.muli %x, %x : i64
     return %r : i64

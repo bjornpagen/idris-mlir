@@ -43,8 +43,11 @@
 // STDIN: \0144
 // STDIN: \0376
 // STDIN:
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @"tail-loop" root(@Main.main) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @"tail-loop" root(@Main.main) stage(first) types #types {
   idr.func @count(%acc: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
@@ -193,7 +196,7 @@ idr.program @"tail-loop" root(@Main.main) stage(first) {
     return %w11 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Main.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Main.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @countup(%i: i64, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
 // REFERENCE:     %gt = arith.cmpi sgt, %i, %n : i64
 // REFERENCE:     %r = idr.match_lit %gt : i1 -> (!idr.world) {

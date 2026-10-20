@@ -18,8 +18,11 @@
 // that array, and idr-knots refuses it.
 // CHECK: error: unsupported (cycle): an array of {{.*}} can hold a reference to itself through
 
-!Node = !idr.data<"Node", plain [@MkNode(memref<?x!idr.box<!idr.data<"Node">>, #idr.world>)]>
-idr.program @cycle root(@Prog.main) stage(first) {
+!Node = !idr.data<"Node">
+#types = #idr.types<
+  "Node" = plain [@MkNode(memref<?x!idr.box<!idr.data<"Node">>, #idr.world>)]
+>
+idr.program @cycle root(@Prog.main) stage(first) types #types {
   idr.func @grow(%node: !idr.box<!Node>, %w: !idr.world) -> !idr.world {
     %one = arith.constant 1 : i64
     // expected-error @+1 {{unsupported (cycle): an array of Node can hold a reference to itself through Node -> array of Node -> Node}}
@@ -36,8 +39,11 @@ idr.program @cycle root(@Prog.main) stage(first) {
 
 // An IORef is an array of rank 0: a node that holds one can be written
 // into it.
-!Node = !idr.data<"Node", plain [@MkNode(memref<!idr.box<!idr.data<"Node">>, #idr.world>)]>
-idr.program @cycle root(@Prog.main) stage(first) {
+!Node = !idr.data<"Node">
+#types = #idr.types<
+  "Node" = plain [@MkNode(memref<!idr.box<!idr.data<"Node">>, #idr.world>)]
+>
+idr.program @cycle root(@Prog.main) stage(first) types #types {
   idr.func @knot(%node: !idr.box<!Node>, %w: !idr.world) -> !idr.world {
     // expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
     %r, %w1 = idr.array.new [], %node, %w : !idr.box<!Node> -> memref<!idr.box<!Node>, #idr.world>
@@ -56,9 +62,12 @@ idr.program @cycle root(@Prog.main) stage(first) {
 // makes, as base's newIORef makes an IORef, is reported at the program's
 // own type on the cycle, which closes the knot; and where the program's own
 // code builds none either, as here, at the program.
-!Node = !idr.data<"Node", plain [@MkNode(memref<!idr.box<!idr.data<"Node">>, #idr.world>)]>
+!Node = !idr.data<"Node">
+#types = #idr.types<
+  "Node" = plain [@MkNode(memref<!idr.box<!idr.data<"Node">>, #idr.world>)]
+>
 // expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
-idr.program @cycle root(@Prog.main) stage(first) {
+idr.program @cycle root(@Prog.main) stage(first) types #types {
   idr.func @newIORef(%node: !idr.box<!Node>, %w: !idr.world) -> (memref<!idr.box<!Node>, #idr.world>, !idr.world) {
     %r, %w1 = idr.array.new [], %node, %w : !idr.box<!Node> -> memref<!idr.box<!Node>, #idr.world> loc(unknown)
     return %r, %w1 : memref<!idr.box<!Node>, #idr.world>, !idr.world
@@ -71,9 +80,13 @@ idr.program @cycle root(@Prog.main) stage(first) {
 
 // -----
 
-!A = !idr.data<"A", plain [@MkA(memref<?x!idr.box<!idr.data<"B", plain [@Leaf(), @MkB(!idr.box<!idr.data<"A">>)]>>, #idr.world>)]>
-!B = !idr.data<"B", plain [@Leaf(), @MkB(!idr.box<!idr.data<"A", plain [@MkA(memref<?x!idr.box<!idr.data<"B">>, #idr.world>)]>>)]>
-idr.program @cycle root(@Prog.main) stage(first) {
+!A = !idr.data<"A">
+!B = !idr.data<"B">
+#types = #idr.types<
+  "A" = plain [@MkA(memref<?x!idr.box<!idr.data<"B">>, #idr.world>)],
+  "B" = plain [@Leaf(), @MkB(!idr.box<!idr.data<"A">>)]
+>
+idr.program @cycle root(@Prog.main) stage(first) types #types {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %zero = arith.constant 0 : i64
     %leaf = idr.con !idr.box<!B> @Leaf()
@@ -85,9 +98,13 @@ idr.program @cycle root(@Prog.main) stage(first) {
 
 // -----
 
-!Grid = !idr.data<"Grid", plain [@MkGrid(memref<?xmemref<?xi64, #idr.world>, #idr.world>)]>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @cycle root(@Prog.main) stage(first) {
+!Grid = !idr.data<"Grid">
+!List = !idr.data<"List">
+#types = #idr.types<
+  "Grid" = plain [@MkGrid(memref<?xmemref<?xi64, #idr.world>, #idr.world>)],
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @cycle root(@Prog.main) stage(first) types #types {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %two = arith.constant 2 : i64
     %zero = arith.constant 0 : i64
@@ -101,9 +118,13 @@ idr.program @cycle root(@Prog.main) stage(first) {
 
 // -----
 
-!lazy$0 = !idr.data<"lazy$0", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0">>)]>>) forced]>
-!Stream = !idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream">>) forced]>>)]>
-idr.program @cycle root(@Prog.main) stage(first) {
+!lazy$0 = !idr.data<"lazy$0">
+!Stream = !idr.data<"Stream">
+#types = #idr.types<
+  "Stream" = plain [@Cons(i64, !idr.box<!idr.data<"lazy$0">>)],
+  "lazy$0" = memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream">>) forced]
+>
+idr.program @cycle root(@Prog.main) stage(first) types #types {
   idr.func @ones() -> !idr.box<!Stream> attributes {total} {
     %s = idr.constant !idr.box<!Stream> #idr.con<!Stream, @Cons, [1, #idr.con<!lazy$0, @ones, []>]>
     return %s : !idr.box<!Stream>
@@ -121,8 +142,11 @@ idr.program @cycle root(@Prog.main) stage(first) {
 // an IORef of words, written into an IORef of nodes, and the same node as
 // an array's element; the type on the cycle's way back changed, from Node
 // to a word.
-!Node = !idr.data<"Node", plain [@MkNode(memref<i64, #idr.world>)]>
-idr.program @cycle root(@Prog.main) stage(first) {
+!Node = !idr.data<"Node">
+#types = #idr.types<
+  "Node" = plain [@MkNode(memref<i64, #idr.world>)]
+>
+idr.program @cycle root(@Prog.main) stage(first) types #types {
   idr.func @knot(%node: !idr.box<!Node>, %w: !idr.world) -> !idr.world {
     %one = arith.constant 1 : i64
     %r, %w1 = idr.array.new [], %node, %w : !idr.box<!Node> -> memref<!idr.box<!Node>, #idr.world>
@@ -137,7 +161,7 @@ idr.program @cycle root(@Prog.main) stage(first) {
 
 // -----
 
-idr.program @cycle root(@Prog.main) stage(higher) {
+idr.program @cycle root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @zero() -> i64 attributes {total} {
     %c = arith.constant 0 : i64
     return %c : i64

@@ -27,8 +27,11 @@
 // variant is the program with the rectangle's sides changed by the sed.
 // PAST: idris-mlir: main returned 256, which is not an exit status (0 to 255)
 // NEGATIVE: idris-mlir: main returned -1, which is not an exit status (0 to 255)
-!Shape = !idr.data<"Shape", plain [@Circle(i64), @Rect(i64, i64)]>
-idr.program @"exit-42" root(@Prog.main) stage(higher) {
+!Shape = !idr.data<"Shape">
+#types = #idr.types<
+  "Shape" = plain [@Circle(i64), @Rect(i64, i64)]
+>
+idr.program @"exit-42" root(@Prog.main) stage(higher) types #types {
   idr.func @area(%s: !Shape) -> i64 {
     %r = idr.match %s : !Shape -> (i64) {
     case @Circle(%x: i64) {

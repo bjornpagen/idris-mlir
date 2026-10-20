@@ -8,7 +8,7 @@
 // their guards accept (@satisfying: a divisor of 2 where it was 0, a
 // finite Double, a string with a character, an index below the length)
 // fold, every one: what stops a fold is the guard's refusal alone.
-idr.program @"fold-unguarded" root(@root) stage(first) {
+idr.program @"fold-unguarded" root(@root) stage(first) types #idr.types<> {
   idr.func @unguarded() -> (i64, i64, i64, i64, i64, !idr.big, !idr.big, !idr.big, !idr.str, i32,
                             i32) {
     %seven = arith.constant 7 : i64

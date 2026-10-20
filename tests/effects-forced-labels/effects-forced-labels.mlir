@@ -22,7 +22,7 @@
 // apart.
 // CHECK: differential: effects-forced-labels.mlir and {{.*}}wrong.mlir differ on ''
 // STDIN:
-idr.program @"forced-labels" root(@Prog.main) stage(higher) {
+idr.program @"forced-labels" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @boom() -> i64 attributes {total} {
     idr.crash "boom"
     ub.unreachable
@@ -54,7 +54,7 @@ idr.program @"forced-labels" root(@Prog.main) stage(higher) {
     return %w1 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Prog.main) stage(higher) {
+// REFERENCE: idr.program @reference root(@Prog.main) stage(higher) types #idr.types<> {
 // REFERENCE:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %s = idr.constant !idr.str "11"
 // REFERENCE:     %w1 = idr.io.put_str %s, %w

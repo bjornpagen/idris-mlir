@@ -10,7 +10,7 @@
 // instance of is no reason: that is merge-named.mlir. The root runs each
 // on what it reads, and the program prints after the pass what it printed
 // before, on every byte.
-idr.program @"keep-apart" root(@root) stage(higher) {
+idr.program @"keep-apart" root(@root) stage(higher) types #idr.types<> {
   idr.func @A.tot(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64

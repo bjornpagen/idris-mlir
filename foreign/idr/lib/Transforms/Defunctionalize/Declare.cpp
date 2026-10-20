@@ -144,7 +144,7 @@ FailureOr<DataType> Slots::define(const Key &key, function_ref<bool(FuncOp)> byN
     return made->second;
   // The fields of the body, which outlive the callback that hands it over.
   SmallVector<SmallVector<Type>> fields;
-  return DataType::define(ctx, names.at(key).getValue(),
+  return DataType::define(program, names.at(key).getValue(),
                           [&](DataType self) -> FailureOr<DataType::Body> {
                             sums[key] = self;
                             return body(key, byName, fields);

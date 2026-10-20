@@ -26,7 +26,7 @@
 // compilation that succeeds replaces it with its own, which links and runs.
 // USAGE: no-such-option
 // FOREIGN: error: 'cf.assert' op
-// INPUT: idr.program @foreign root(@Prog.main) stage(higher) {
+// INPUT: idr.program @foreign root(@Prog.main) stage(higher) types #idr.types<> {
 // INPUT:   idr.func @Prog.main() -> i64 {
 // INPUT:     %z = arith.constant 0 : i64
 // INPUT:     %t = arith.constant true
@@ -34,7 +34,7 @@
 // INPUT:     return %z : i64
 // INPUT:   }
 // INPUT: }
-idr.program @statuses root(@Prog.main) stage(higher) {
+idr.program @statuses root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64

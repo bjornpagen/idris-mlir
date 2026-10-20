@@ -12,8 +12,11 @@
 // CHECK: take %{{.*}} : !idr.excl<!idr.box<!L>> @C -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
 // CHECK: [[CELL:%[^ ]+]] = idr.cell.recycle %{{.*}} : !idr.excl<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
 // CHECK: idr.cell.init [[CELL]] : !idr.cell<!idr.box<!L>, @C> (%{{.*}} : i64, %{{.*}} : !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @cells root(@root) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @exclusive(%l: !idr.excl<!idr.box<!L>>, %x: i64) -> !idr.excl<!idr.box<!L>> {
     %w:3 = idr.take %l : !idr.excl<!idr.box<!L>> @C -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
     %c = idr.cell.recycle %w#0 : !idr.excl<!idr.token> -> !idr.cell<!idr.box<!L>, @C>
@@ -28,8 +31,11 @@ idr.program @cells root(@root) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @cells root(@root) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @root() -> i64 {
     // expected-error @+1 {{is a cell of @N, an atom of "L", which has no cell}}
     %c = idr.cell.new : !idr.cell<!idr.box<!L>, @N>
@@ -40,8 +46,11 @@ idr.program @cells root(@root) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @cells root(@root) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @wrong(%t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %x = arith.constant 1 : i32
     %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
@@ -57,8 +66,11 @@ idr.program @cells root(@root) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @cells root(@root) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @hole(%t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>
     // expected-error @+2 {{has a hole at field 0 of type 'i64'}}
@@ -74,8 +86,11 @@ idr.program @cells root(@root) stage(owned) {
 
 // -----
 
-!S = !idr.data<"S", plain [@A(i64, !idr.str), @B()]>
-idr.program @cells root(@root) stage(owned) {
+!S = !idr.data<"S">
+#types = #idr.types<
+  "S" = plain [@A(i64, !idr.str), @B()]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @take(%s: !idr.own<!S>) -> i64 {
     // expected-error @+2 {{which has none: idr.unpack takes it apart}}
     // expected-error @+1 {{failed to infer returned types}}
@@ -92,8 +107,11 @@ idr.program @cells root(@root) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @cells root(@root) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @unpack(%l: !idr.own<!idr.box<!L>>) -> i64 {
     // expected-error @+2 {{which has a cell: idr.take takes it apart}}
     // expected-error @+1 {{failed to infer returned types}}
@@ -109,8 +127,11 @@ idr.program @cells root(@root) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @cells root(@root) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @mistyped(%l: !idr.own<!idr.box<!L>>) -> i64 {
     // expected-error @+2 {{are incompatible with return type(s) of operation}}
     // expected-error @+1 {{failed to infer returned types}}
@@ -131,9 +152,13 @@ idr.program @cells root(@root) stage(owned) {
 // the box's field, written once through its destination; and a value of
 // a constructor without a cell taken apart by idr.unpack. (The first
 // module above is the nearest for idr.take, at its results' types.)
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-!S = !idr.data<"S", plain [@A(i64, !idr.str), @B()]>
-idr.program @cells root(@root) stage(owned) {
+!L = !idr.data<"L">
+!S = !idr.data<"S">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons],
+  "S" = plain [@A(i64, !idr.str), @B()]
+>
+idr.program @cells root(@root) stage(owned) types #types {
   idr.func @right(%t: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %x = arith.constant 1 : i64
     %c = idr.cell.new : !idr.cell<!idr.box<!L>, @C>

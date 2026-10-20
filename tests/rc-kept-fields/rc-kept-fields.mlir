@@ -10,9 +10,13 @@
 // the three trees are leaves, so each function runs on a leaf and on a
 // node, and every run prints what it printed before counting and leaves no
 // cell live.
-!T = !idr.data<"T", plain [@Leaf(), @Node(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
-!P = !idr.data<"P", plain [@None(), @Pair(!idr.box<!T>, !idr.box<!T>, i64)]>
-idr.program @"kept-fields" root(@root) stage(first) {
+!T = !idr.data<"T">
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@None(), @Pair(!idr.box<!T>, !idr.box<!T>, i64)],
+  "T" = plain [@Leaf(), @Node(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]
+>
+idr.program @"kept-fields" root(@root) stage(first) types #types {
   // A cell of @Pair is as large as one of @Node.
   idr.func @wrap(%x: !idr.box<!T>) -> !idr.box<!T> {
     %leaf = idr.constant !idr.box<!T> #idr.con<!T, @Leaf, []>

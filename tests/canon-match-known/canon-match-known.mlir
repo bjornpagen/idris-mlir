@@ -28,8 +28,11 @@
 // the pass did its work or kept the match (@crashes); a constant other than
 // the one returned fails too.
 
-!Shape = !idr.data<"Shape", plain [@Circle(f64), @Rect(f64, f64)]>
-idr.program @"match-known" root(@root) stage(first) {
+!Shape = !idr.data<"Shape">
+#types = #idr.types<
+  "Shape" = plain [@Circle(f64), @Rect(f64, f64)]
+>
+idr.program @"match-known" root(@root) stage(first) types #types {
   idr.func @of_con(%w: f64, %h: f64) -> f64 {
     %s = idr.con !Shape @Rect(%w : f64, %h : f64)
     %r = idr.match %s : !Shape -> (f64) {

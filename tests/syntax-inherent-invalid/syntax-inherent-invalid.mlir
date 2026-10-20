@@ -8,8 +8,11 @@
 // The nearest each has that is read, the last split: the same ops with an
 // attribute in the attr-dict that no op's syntax spells, of no dialect.
 
-!T = !idr.data<"T", plain [@A(), @B()]>
-idr.program @"inherent-invalid" root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A(), @B()]
+>
+idr.program @"inherent-invalid" root(@root) stage(first) types #types {
   idr.func @f(%v: !T) -> i64 {
     // expected-error @+1 {{inherent attribute 'cases'}}
     %r = idr.match %v : !T -> (i64) attributes {cases = [@B]} {
@@ -33,7 +36,7 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
 
 // -----
 
-idr.program @"inherent-invalid" root(@root) stage(first) {
+idr.program @"inherent-invalid" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%n: i64) -> i64 {
     // expected-error @+1 {{inherent attribute 'cases'}}
     %r = idr.match_lit %n : i64 -> (i64) attributes {cases = [7 : i64]} {
@@ -55,7 +58,7 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
 
 // -----
 
-idr.program @"inherent-invalid" root(@root) stage(first) {
+idr.program @"inherent-invalid" root(@root) stage(first) types #idr.types<> {
   idr.func @f() -> !idr.str {
     // expected-error @+1 {{inherent attribute 'value'}}
     %s = idr.constant !idr.str "hi" {value = 1 : i64}
@@ -70,8 +73,11 @@ idr.program @"inherent-invalid" root(@root) stage(first) {
 
 // -----
 
-!T = !idr.data<"T", plain [@A(), @B()]>
-idr.program @"inherent-invalid" root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A(), @B()]
+>
+idr.program @"inherent-invalid" root(@root) stage(first) types #types {
   idr.func @f(%v: !T, %n: i64) -> (i64, i64, !idr.str) {
     %r = idr.match %v : !T -> (i64) attributes {sample.cases = [@B]} {
     case @A() {

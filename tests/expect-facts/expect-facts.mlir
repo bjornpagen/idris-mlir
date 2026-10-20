@@ -5,7 +5,7 @@
 // call of a function that only computes, which idr-effects writes on the
 // call, may be all four; a guard, which may crash, may only be delayed, and
 // so may a call of a function whose guard may.
-idr.program @facts root(@root) stage(first) {
+idr.program @facts root(@root) stage(first) types #idr.types<> {
   idr.func @square(%x: i64) -> i64 attributes {total} {
     %r = arith.muli %x, %x : i64
     return %r : i64

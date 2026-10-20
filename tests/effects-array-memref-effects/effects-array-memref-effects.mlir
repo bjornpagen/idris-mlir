@@ -6,8 +6,11 @@
 // moves its element out (@other). A write to an array of the same type may
 // be to the same array, so the read stays as it is (@same).
 
-!R = !idr.data<"R", plain [@MkR(i64, i64)]>
-idr.program @"array-memref-effects" root(@root) stage(first) {
+!R = !idr.data<"R">
+#types = #idr.types<
+  "R" = plain [@MkR(i64, i64)]
+>
+idr.program @"array-memref-effects" root(@root) stage(first) types #types {
   idr.func @bump(%r: !idr.box<!R>) -> !idr.box<!R> attributes {total} {
     %a = idr.field %r : !idr.box<!R> @MkR[0] -> i64
     %b = idr.field %r : !idr.box<!R> @MkR[1] -> i64

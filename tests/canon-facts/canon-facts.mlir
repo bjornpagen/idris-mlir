@@ -32,8 +32,11 @@
 // makes hold did not hold before it; the root writes before what may crash,
 // and @delayed_crash's count of crash sites is exactly 2.
 
-!Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
-idr.program @facts root(@root) stage(higher) {
+!Maybe = !idr.data<"Maybe">
+#types = #idr.types<
+  "Maybe" = plain [@Nothing(), @Just(i64)]
+>
+idr.program @facts root(@root) stage(higher) types #types {
   idr.func effects<none> @square(%x: i64) -> i64 attributes {total} {
     %r = arith.muli %x, %x : i64
     return %r : i64

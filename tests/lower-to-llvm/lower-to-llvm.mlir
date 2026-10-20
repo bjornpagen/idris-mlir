@@ -13,8 +13,11 @@
 // as the program as written and the reference at the end (REF) do
 // (%differential, on the one input, none, since it reads none).
 // STDIN:
-!Thunk = !idr.data<"Thunk", memo [@add(i64, i64) label @add, @running() running, @forced(i64) forced]>
-idr.program @"to-llvm" root(@Prog.main) stage(owned) {
+!Thunk = !idr.data<"Thunk">
+#types = #idr.types<
+  "Thunk" = memo [@add(i64, i64) label @add, @running() running, @forced(i64) forced]
+>
+idr.program @"to-llvm" root(@Prog.main) stage(owned) types #types {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
@@ -55,7 +58,7 @@ idr.program @"to-llvm" root(@Prog.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main() -> i64 {
 // REF:     %c = arith.constant 88 : i64
 // REF:     return %c : i64

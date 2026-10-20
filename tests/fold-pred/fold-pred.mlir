@@ -34,7 +34,7 @@
 // STDIN: \0013
 // STDIN: \0014
 // STDIN:
-idr.program @pred root(@Prog.main) stage(first) {
+idr.program @pred root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @preds() -> (!idr.nat, !idr.nat, !idr.nat) {
     %five = idr.constant !idr.nat #idr.big<5>
     %zero = idr.constant !idr.nat #idr.big<0>

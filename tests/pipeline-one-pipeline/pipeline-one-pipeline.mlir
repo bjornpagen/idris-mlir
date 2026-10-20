@@ -9,7 +9,7 @@
 // by idris-mlir, is the same object, byte for byte, as the module
 // compiled by idris-mlir directly. Which steps there are, and their order,
 // are the pipeline's own business, and no part of this check.
-idr.program @"one-pipeline" root(@Main.main) stage(higher) {
+idr.program @"one-pipeline" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %k : i64
     return %y : i64

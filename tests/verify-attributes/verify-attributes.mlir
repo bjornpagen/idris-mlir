@@ -7,7 +7,7 @@
 // ours. The one name the dialect declares is the frontend's report to the
 // driver, idr.refusals, which no pass reads.
 
-idr.program @attributes root(@root) stage(first) {
+idr.program @attributes root(@root) stage(first) types #idr.types<> {
   idr.func @f(%a: i64, %b: i64) -> i64 {
     // expected-error @+1 {{has an unknown idr attribute "idr.nonsense"}}
     %q = idr.divs %a, %b {idr.nonsense} : i64
@@ -23,7 +23,7 @@ idr.program @attributes root(@root) stage(first) {
 
 // -----
 
-idr.program @attributes root(@root) stage(first) {
+idr.program @attributes root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{has an unknown idr argument attribute "idr.nonsense"}}
   idr.func @f(%x: i64 {idr.nonsense = 0 : i64}) -> i64 {
     return %x : i64
@@ -40,7 +40,7 @@ idr.program @attributes root(@root) stage(first) {
 // What the verifier accepts, the nearest the two refusals above have: the
 // facts as the function's own, and attributes, of an op, a function or an
 // argument, of no dialect.
-idr.program @attributes root(@main) stage(first) {
+idr.program @attributes root(@main) stage(first) types #idr.types<> {
   idr.func effects<none> @f(%x: i64 {sample.x}) -> i64
       attributes {total, junk} {
     %d = idr.divs %x, %x {sample.y} : i64
@@ -84,7 +84,7 @@ module attributes {idr.refusals = []} {
 // frontend's while it verifies it.
 module {
   // expected-error @+1 {{has "idr.refusals", which is a non-empty array of #idr.refusal on a module alone}}
-  idr.program @p root(@root) stage(higher) attributes {idr.refusals = [#idr.refusal<cycle, loc("Main.idr":3:5), "x">]} {
+  idr.program @p root(@root) stage(higher) types #idr.types<> attributes {idr.refusals = [#idr.refusal<cycle, loc("Main.idr":3:5), "x">]} {
     idr.func @root() -> i64 {
       %z = arith.constant 0 : i64
       return %z : i64

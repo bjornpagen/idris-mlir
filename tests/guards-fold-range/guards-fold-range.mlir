@@ -38,7 +38,7 @@
 // STDIN: \0013
 // STDIN: \0014
 // STDIN:
-idr.program @"fold-range" root(@Prog.main) stage(first) {
+idr.program @"fold-range" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @proving() -> (i64, i64) {
     %four = arith.constant 4 : i64
     %eight = arith.constant 8 : i64

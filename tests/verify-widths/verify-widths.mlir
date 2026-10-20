@@ -3,7 +3,7 @@
 // integer an idr op computes on (idr.match_lit also branches on a
 // condition); only what counts references is counted.
 
-idr.program @widths root(@root) stage(first) {
+idr.program @widths root(@root) stage(first) types #idr.types<> {
   idr.func @f(%a: i7, %b: i7) -> i7 {
     // expected-error @+1 {{but got 'i7'}}
     %q = idr.divs %a, %b : i7
@@ -18,7 +18,7 @@ idr.program @widths root(@root) stage(first) {
 
 // -----
 
-idr.program @widths root(@root) stage(first) {
+idr.program @widths root(@root) stage(first) types #idr.types<> {
   idr.func @f(%a: i1) -> i32 {
     // expected-error @+1 {{but got 'i1'}}
     %c = idr.to_char_u %a : i1
@@ -33,7 +33,7 @@ idr.program @widths root(@root) stage(first) {
 
 // -----
 
-idr.program @widths root(@root) stage(first) {
+idr.program @widths root(@root) stage(first) types #idr.types<> {
   idr.func @f(%d: f64) -> i128 {
     // expected-error @+1 {{but got 'i128'}}
     %i = idr.to_int %d : i128
@@ -48,7 +48,7 @@ idr.program @widths root(@root) stage(first) {
 
 // -----
 
-idr.program @widths root(@root) stage(first) {
+idr.program @widths root(@root) stage(first) types #idr.types<> {
   idr.func @f(%a: i1, %w: !idr.world) -> !idr.world {
     // expected-error @+1 {{but got 'i1'}}
     %w1 = idr.io.put_uint %a, %w : i1
@@ -64,7 +64,7 @@ idr.program @widths root(@root) stage(first) {
 // -----
 
 // A linear integer holds no reference, so nothing counts it.
-idr.program @widths root(@root) stage(owned) {
+idr.program @widths root(@root) stage(owned) types #idr.types<> {
   idr.func @f(%x: !idr.lin<i64>) {
     // expected-error @+1 {{but got '!idr.lin<i64>'}}
     %o = idr.dup %x : !idr.lin<i64>
@@ -82,7 +82,7 @@ idr.program @widths root(@root) stage(owned) {
 // The nearest each refusal above has that verifies: the same ops at the
 // widths next to the refused ones, 8 bits for 7 and 1, 64 for 128, and
 // the count of a value that holds a reference.
-idr.program @widths root(@root) stage(first) {
+idr.program @widths root(@root) stage(first) types #idr.types<> {
   idr.func @f8(%a: i8, %b: i8) -> i8 {
     %q = idr.divs %a, %b : i8
     return %q : i8
@@ -112,7 +112,7 @@ idr.program @widths root(@root) stage(first) {
 
 // -----
 
-idr.program @widths root(@root) stage(owned) {
+idr.program @widths root(@root) stage(owned) types #idr.types<> {
   idr.func @f(%x: !idr.q<many, borrow, !idr.str>) -> !idr.own<!idr.str> {
     %o = idr.dup %x : !idr.q<many, borrow, !idr.str>
     return %o : !idr.own<!idr.str>

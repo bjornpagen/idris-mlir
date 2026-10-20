@@ -11,7 +11,7 @@
 // even one no op makes. And each is refused for its stage alone: the
 // first two programs, the stage they say made `higher` (the second and
 // third RUN lines), verify.
-idr.program @"closure-left" root(@Main.main) stage(first) {
+idr.program @"closure-left" root(@Main.main) stage(first) types #idr.types<> {
   idr.func @add(%a: i64, %b: i64) -> i64 {
     %r = arith.addi %a, %b : i64
     return %r : i64
@@ -28,7 +28,7 @@ idr.program @"closure-left" root(@Main.main) stage(first) {
 
 // -----
 
-idr.program @"closure-left" root(@Main.main) stage(owned) {
+idr.program @"closure-left" root(@Main.main) stage(owned) types #idr.types<> {
   idr.func @two() -> i64 {
     %r = arith.constant 2 : i64
     return %r : i64
@@ -43,7 +43,7 @@ idr.program @"closure-left" root(@Main.main) stage(owned) {
 
 // -----
 
-idr.program @"closure-left" root(@Main.main) stage(first) {
+idr.program @"closure-left" root(@Main.main) stage(first) types #idr.types<> {
   // expected-error @+1 {{higher}}
   idr.func @run(%f: !idr.fn<(i64) -> (i64)>) -> i64 {
     %x = arith.constant 2 : i64
@@ -58,7 +58,7 @@ idr.program @"closure-left" root(@Main.main) stage(first) {
 
 // -----
 
-idr.program @"closure-left" root(@Main.main) stage(owned) {
+idr.program @"closure-left" root(@Main.main) stage(owned) types #idr.types<> {
   // expected-error @+1 {{higher}}
   idr.func @get(%t: !idr.lazy<i64>) -> i64 {
     %r = idr.force %t : !idr.lazy<i64> -> i64

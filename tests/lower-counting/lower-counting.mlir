@@ -27,9 +27,13 @@
 // STDIN: \0001
 // STDIN: \0377
 // STDIN:
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-!S = !idr.data<"S", plain [@A(!idr.str), @B(i64)]>
-idr.program @counting root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+!S = !idr.data<"S">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons],
+  "S" = plain [@A(!idr.str), @B(i64)]
+>
+idr.program @counting root(@Prog.main) stage(owned) types #types {
   idr.func @counts(%s: !idr.q<many, borrow, !idr.str>, %d: !idr.own<!S>, %b: !idr.own<!idr.big>) -> !idr.own<!idr.str> {
     %o = idr.dup %s : !idr.q<many, borrow, !idr.str>
     idr.drop %d : !idr.own<!S>
@@ -153,7 +157,7 @@ idr.program @counting root(@Prog.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %x = arith.extui %c : i32 to i64

@@ -3,7 +3,7 @@
 // The shape of a function's control: @sum has one loop, @line runs one
 // path and has no loop, and @choose chooses between the regions of a
 // match. A count of loops is exact: @sum's one is neither 0 nor 2.
-idr.program @paths root(@root) stage(first) {
+idr.program @paths root(@root) stage(first) types #idr.types<> {
   // expected-error @below {{expected loops: @sum has 1 loops, not 2}}
   // expected-error @below {{expected loops: @sum has 1 loops, not 0}}
   idr.func @sum(%n: index) -> i64 {

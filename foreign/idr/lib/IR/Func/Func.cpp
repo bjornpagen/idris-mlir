@@ -39,8 +39,11 @@ void idr::ProgramOp::build(OpBuilder &builder, OperationState &state, StringRef 
   properties.sym_name = builder.getStringAttr(name);
   properties.root = FlatSymbolRefAttr::get(builder.getContext(), root);
   properties.stage = StageAttr::get(builder.getContext(), stage);
+  properties.types = DataTableAttr::get(builder.getContext(), ArrayRef<DataType>{});
   state.addRegion()->emplaceBlock();
 }
+
+void idr::ProgramOp::declare(DataType data) { setTypesAttr(getTypes().with(data)); }
 
 // A module holds one program, the closed world every pass reads: the first
 // in its module's block, and none after it. Only that block's ops are read,

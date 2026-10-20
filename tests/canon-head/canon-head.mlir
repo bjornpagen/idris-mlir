@@ -16,7 +16,7 @@
 // makes hold did not hold before it; @heads checks nothing, and the root
 // builds the string it gives @other.
 
-idr.program @head root(@root) stage(first) {
+idr.program @head root(@root) stage(first) types #idr.types<> {
   idr.func @heads(%c: i32, %s: !idr.str, %x: i64, %b: i16, %d: f64) -> (i32, i32, i32, i32) {
     %t = idr.str.cons %c, %s
     %h0 = idr.str.head %t

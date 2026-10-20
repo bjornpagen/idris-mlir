@@ -3,8 +3,11 @@
 // A take that may recycle its cell tests one its function never gives a
 // second reference (@rebuild); a function that dups a view of the box it
 // then takes tests a cell it shares itself (@shared).
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"resets-unshared" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"resets-unshared" root(@Prog.main) stage(owned) types #types {
   idr.func @rebuild(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {

@@ -33,7 +33,7 @@
 // STDIN: \0012
 // STDIN: \0013
 // STDIN:
-idr.program @"add-zero" root(@Prog.main) stage(first) {
+idr.program @"add-zero" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @plus_zero(%x: !idr.big) -> !idr.big {
     %c0 = arith.constant 0 : i64
     %zero = idr.big.small %c0 : !idr.big

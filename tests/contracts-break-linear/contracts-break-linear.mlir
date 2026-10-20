@@ -4,7 +4,7 @@
 // linear result back unrestricted on purpose, @lonely being named by no
 // call, so the module verifies and what fails is the contract checked
 // after it, which names the pass: with the contracts off the run passes.
-idr.program @contracts root(@main) stage(first) {
+idr.program @contracts root(@main) stage(first) types #idr.types<> {
   idr.func effects<none> @main() -> i64 attributes {total} {
     %c = arith.constant 0 : i64
     return %c : i64

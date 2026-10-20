@@ -14,7 +14,7 @@
 // root fills an array as long as the byte it reads says and @fill writes
 // part of it, and the program prints after the pass what it printed before,
 // on every byte.
-idr.program @"linear-thread" root(@root) stage(first) {
+idr.program @"linear-thread" root(@root) stage(first) types #idr.types<> {
   idr.func @fill(%a: !idr.lin<tensor<?xi64>>, %n: index) -> !idr.lin<tensor<?xi64>> {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

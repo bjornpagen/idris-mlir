@@ -23,10 +23,15 @@
 // weaken's nearest neighbour, FS (FS (bump k))). The functions that keep
 // their calls are checked before those that lose them, so that each side
 // holds whatever the other finds.
-!Term = !idr.data<"Term", plain [@Var(!idr.nat), @App(!idr.box<!idr.data<"Term">>, !idr.box<!idr.data<"Term">>), @Lam(!idr.box<!idr.data<"Term">>), @Lit(!idr.big)]>
-!Tree = !idr.data<"Tree", plain [@Leaf(!idr.nat), @Node(!idr.box<!idr.data<"Forest", plain [@Done(), @More(!idr.box<!idr.data<"Tree">>, !idr.box<!idr.data<"Forest">>)]>>)]>
-!Forest = !idr.data<"Forest", plain [@Done(), @More(!idr.box<!idr.data<"Tree", plain [@Leaf(!idr.nat), @Node(!idr.box<!idr.data<"Forest">>)]>>, !idr.box<!idr.data<"Forest">>)]>
-idr.program @identity root(@root) stage(first) {
+!Term = !idr.data<"Term">
+!Tree = !idr.data<"Tree">
+!Forest = !idr.data<"Forest">
+#types = #idr.types<
+  "Forest" = plain [@Done(), @More(!idr.box<!idr.data<"Tree">>, !idr.box<!idr.data<"Forest">>)],
+  "Term" = plain [@Var(!idr.nat), @App(!idr.box<!idr.data<"Term">>, !idr.box<!idr.data<"Term">>), @Lam(!idr.box<!idr.data<"Term">>), @Lit(!idr.big)],
+  "Tree" = plain [@Leaf(!idr.nat), @Node(!idr.box<!idr.data<"Forest">>)]
+>
+idr.program @identity root(@root) stage(first) types #types {
   // weaken FZ = FZ; weaken (FS k) = FS (weaken k)
   idr.func @weaken(%i: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %i : !idr.nat -> (!idr.nat) {

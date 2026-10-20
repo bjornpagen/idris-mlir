@@ -29,7 +29,7 @@
 // STDIN: \0177-4611686018427387904\n
 // STDIN: \0200\n
 // STDIN:
-idr.program @"match-lit" root(@Prog.main) stage(first) {
+idr.program @"match-lit" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @byte(%b: i8) -> i64 {
     %r = idr.match_lit %b : i8 -> (i64) {
     case 1 {
@@ -109,7 +109,7 @@ idr.program @"match-lit" root(@Prog.main) stage(first) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %k1 = arith.constant 1 : i32

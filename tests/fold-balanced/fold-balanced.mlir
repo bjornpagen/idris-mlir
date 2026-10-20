@@ -39,7 +39,7 @@
 // STDIN: \0010
 // STDIN: \0011
 // STDIN:
-idr.program @balanced root(@Prog.main) stage(first) {
+idr.program @balanced root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @folds() -> (!idr.str, !idr.str, !idr.str, !idr.big) {
     %e = idr.constant !idr.str ""
     %x = idr.constant !idr.str "abc"

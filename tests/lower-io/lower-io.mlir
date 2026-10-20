@@ -25,7 +25,7 @@
 // STDIN: \0200
 // STDIN: \0377
 // STDIN:
-idr.program @io root(@Prog.r) stage(owned) {
+idr.program @io root(@Prog.r) stage(owned) types #idr.types<> {
   idr.func @Prog.r(%w: !idr.world) -> !idr.world {
     %s = idr.constant !idr.str "h\C3\A9llo\0A"
     %w1 = idr.io.put_str %s, %w
@@ -41,7 +41,7 @@ idr.program @io root(@Prog.r) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.r) stage(higher) {
+// REF: idr.program @ref root(@Prog.r) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.r(%w: !idr.world) -> !idr.world {
 // REF:     %h = arith.constant 104 : i32
 // REF:     %e = arith.constant 233 : i32

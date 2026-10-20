@@ -207,17 +207,16 @@ LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, co
   return success();
 }
 
-FailureOr<DataType> DataType::define(MLIRContext *context, StringRef identifier,
+FailureOr<DataType> DataType::define(ProgramOp program, StringRef identifier,
                                      function_ref<FailureOr<Body>(DataType self)> body) {
-  auto emitError = [&] {
-    return mlir::emitError(UnknownLoc::get(context)) << "internal error: ";
-  };
+  auto emitError = [&] { return program.emitError() << "internal error: "; };
   if (identifier.empty())
     return emitError() << "a data type has no name";
-  DataType type = get(context, identifier);
+  DataType type = get(program.getContext(), identifier);
   FailureOr<Body> made = body(type);
   if (failed(made) || failed(type.setBody(emitError, *made)))
     return failure();
+  program.declare(type);
   return type;
 }
 

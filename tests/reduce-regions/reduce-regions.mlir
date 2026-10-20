@@ -22,8 +22,11 @@
 // verifies, is still what the test looks for, and is no longer than the
 // module as written, printed; how far the search goes is the reducer's
 // business.
-!T = !idr.data<"T", plain [@A(i64)]>
-idr.program @regions root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A(i64)]
+>
+idr.program @regions root(@root) stage(first) types #types {
   idr.func @regions(%v: !T, %n: i64) -> (i64, i64) {
     %m = idr.match %v : !T -> (i64) {
     case @A(%x: i64) {

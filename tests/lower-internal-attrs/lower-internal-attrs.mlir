@@ -13,7 +13,7 @@
 // at the end (REF) returns (%differential, on the one input, none, since
 // it reads none).
 // STDIN:
-idr.program @"internal-attrs" root(@Main.main) stage(owned) {
+idr.program @"internal-attrs" root(@Main.main) stage(owned) types #idr.types<> {
   idr.func @f(%a: i64) -> i64 attributes {total, no_inline, instance = #idr.instance<"Main.f", []>} {
     return %a : i64
   }
@@ -28,7 +28,7 @@ idr.program @"internal-attrs" root(@Main.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Main.main) stage(higher) {
+// REF: idr.program @ref root(@Main.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Main.main() -> i64 {
 // REF:     %c = arith.constant 3 : i64
 // REF:     return %c : i64

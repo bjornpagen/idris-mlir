@@ -353,4 +353,4 @@ xoriOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 xoriOp lhs rhs result =
   MkOp "arith.xori" [lhs, rhs] [] [] [] [result]
 
--- fingerprint: 3244062140-1021507 1818063040-16246
+-- fingerprint: 4113087857-1021516 1818063040-16246

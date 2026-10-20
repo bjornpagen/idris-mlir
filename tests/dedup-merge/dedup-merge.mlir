@@ -26,7 +26,7 @@
 // with every merge skipped the pass is the identity. The root runs every
 // function on what it reads, and the program prints after the pass what
 // it printed before, on every byte.
-idr.program @merge root(@root) stage(higher) {
+idr.program @merge root(@root) stage(higher) types #idr.types<> {
   idr.func @A.inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64

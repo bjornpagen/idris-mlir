@@ -12,7 +12,7 @@
 // runtime and run, and both exit alike (%differential, on the one input,
 // none, since the program reads none).
 // STDIN:
-idr.program @reserved root(@Prog.main) stage(owned) {
+idr.program @reserved root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @__idr_main() -> i64 {
     %c = arith.constant 1 : i64
     return %c : i64

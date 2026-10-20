@@ -8,8 +8,7 @@
 # each big op (IdrBigToWord.inc); the rules a refusal names, with their
 # categories, for the tests (IdrRules.txt) and for refusalHead
 # (IdrRuleCategories.inc); each guarded op's guards (IdrGuards.inc); the
-# codes of a field of the bytecode's table of data types (IdrTable.h.inc);
-# the role and the stage of each pass, for the tests (IdrPassRoles.txt,
+# role and the stage of each pass, for the tests (IdrPassRoles.txt,
 # IdrPassStages.txt). They come first, so that the ops' headers' target,
 # made after them, depends on them, and everything that waits on the ops'
 # headers waits on these too.
@@ -24,8 +23,6 @@ tablegen(IDR IdrBigToWord.inc -gen-big-to-word)
 tablegen(IDR IdrRules.txt -gen-rule-list)
 tablegen(IDR IdrRuleCategories.inc -gen-rule-categories)
 tablegen(IDR IdrGuards.inc -gen-guards)
-set(LLVM_TARGET_DEFINITIONS IdrBytecode.td)
-tablegen(IDR IdrTable.h.inc -gen-idr-table-codes)
 set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/../Transforms/Passes.td)
 tablegen(IDR IdrPassRoles.txt -gen-pass-roles)
 tablegen(IDR IdrPassStages.txt -gen-pass-stages)

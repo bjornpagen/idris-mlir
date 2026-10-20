@@ -10,7 +10,7 @@
 // same buffer with no map (the second RUN line's), whose row stride is its
 // second size, has no stride beside its sizes, and one whose offset is
 // open too (the fourth's) has both.
-idr.program @"strided-symbol" root(@root) stage(owned) {
+idr.program @"strided-symbol" root(@root) stage(owned) types #idr.types<> {
   idr.func @rows(%m: memref<?x?xi64, affine_map<(d0, d1)[s0] -> (d0 * s0 + d1)>>, %i: index, %j: index) -> i64 {
     %v = memref.load %m[%i, %j] : memref<?x?xi64, affine_map<(d0, d1)[s0] -> (d0 * s0 + d1)>>
     return %v : i64

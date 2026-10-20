@@ -7,7 +7,7 @@
 // with the bits it misses. A function or a call without `effects` declares
 // everything.
 
-idr.program @effects root(@root) stage(first) {
+idr.program @effects root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{declares the effects none, which do not cover what its body may do: io}}
   idr.func effects<none> @writes(%s: !idr.str, %w: !idr.world) -> !idr.world attributes {total} {
     %w1 = idr.io.put_str %s, %w
@@ -21,7 +21,7 @@ idr.program @effects root(@root) stage(first) {
 
 // -----
 
-idr.program @effects root(@root) stage(first) {
+idr.program @effects root(@root) stage(first) types #idr.types<> {
   idr.func effects<crash> @checks(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
     return %y : i64
@@ -39,7 +39,7 @@ idr.program @effects root(@root) stage(first) {
 
 // -----
 
-idr.program @effects root(@root) stage(first) {
+idr.program @effects root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{declares the effects none, which do not cover what its body may do: diverge}}
   idr.func effects<none> @partial(%x: i64) -> i64 {
     return %x : i64
@@ -56,7 +56,7 @@ idr.program @effects root(@root) stage(first) {
 // that writes says io, one that is not total says it may not return, its
 // call and its caller say what it may do, a set may say more than the body
 // does, and a function without `effects` calls anything.
-idr.program @effects root(@root) stage(first) {
+idr.program @effects root(@root) stage(first) types #idr.types<> {
   idr.func effects<io> @writes(%s: !idr.str, %w: !idr.world) -> !idr.world attributes {total} {
     %w1 = idr.io.put_str %s, %w
     return %w1 : !idr.world

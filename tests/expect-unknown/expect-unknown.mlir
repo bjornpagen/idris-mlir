@@ -12,7 +12,7 @@
 // expected-error @-12 {{idr-expect: no property named no-closure}}
 // expected-error @-13 {{idr-expect: no property named Stage}}
 // expected-error @-14 {{idr-expect: no property named calls-closed-}}
-idr.program @unknown root(@root) stage(first) {
+idr.program @unknown root(@root) stage(first) types #idr.types<> {
   idr.func @f(%x: i64) -> i64 {
     return %x : i64
   }

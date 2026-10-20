@@ -4,7 +4,7 @@
 // @proved does, @unproved does not. The proof is of the function's own
 // loops: one that calls an unproved function still holds it
 // (@calls_unproved), since whether its callee returns is the callee's.
-idr.program @proved root(@root) stage(first) {
+idr.program @proved root(@root) stage(first) types #idr.types<> {
   // expected-error @below {{expected not-total: }}
   idr.func @proved(%x: i64) -> i64 attributes {total} {
     %r = arith.addi %x, %x : i64

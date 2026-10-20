@@ -10,7 +10,7 @@
 // input alone: on any other the loop never ends, which
 // pipeline-endless-loop shows of a whole program).
 // STDIN: \0000
-idr.program @"may-loop" root(@Prog.main) stage(owned) {
+idr.program @"may-loop" root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @spin(%n: i64) {
     %r = scf.while (%x = %n) : (i64) -> i64 {
       %zero = arith.constant 0 : i64

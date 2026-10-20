@@ -16,8 +16,11 @@
 // makes hold did not hold before it, and @all_same, whose regions were one,
 // matches nothing after it.
 
-!C = !idr.data<"C", plain [@R(), @G(i64), @B()]>
-idr.program @"match-merge" root(@root) stage(first) {
+!C = !idr.data<"C">
+#types = #idr.types<
+  "C" = plain [@R(), @G(i64), @B()]
+>
+idr.program @"match-merge" root(@root) stage(first) types #types {
   idr.func @into_default(%n: i64, %x: i32) -> i32 {
     %r = idr.match_lit %n : i64 -> (i32) {
     case 0 {

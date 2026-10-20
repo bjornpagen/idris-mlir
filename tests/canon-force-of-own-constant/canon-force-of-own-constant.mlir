@@ -28,7 +28,7 @@
 // nothing and calls @mid, which the checks of it fail on.
 
 // The label forces its own constant.
-idr.program @"force-of-own-constant" root(@root) stage(higher) {
+idr.program @"force-of-own-constant" root(@root) stage(higher) types #idr.types<> {
   idr.func @knot() -> i64 {
     %c = idr.constant !idr.lazy<i64> #idr.closure<@knot, []>
     %v = idr.force %c : !idr.lazy<i64> -> i64

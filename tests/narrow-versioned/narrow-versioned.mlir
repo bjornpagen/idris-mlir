@@ -38,7 +38,7 @@
 // N142: 0142
 // N143: 1143
 // N255: 0255
-idr.program @versioned root(@Main.main) stage(first) {
+idr.program @versioned root(@Main.main) stage(first) types #idr.types<> {
   idr.func @deep(%n: !idr.nat, %odd: i1) -> i1 attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (i1) {
     case #idr.big<0> {

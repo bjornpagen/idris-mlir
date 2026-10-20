@@ -21,8 +21,11 @@
 // STDIN: 20
 // STDIN: 30
 // STDIN: 16
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @"trmc-counter" root(@Prog.main) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @"trmc-counter" root(@Prog.main) stage(first) types #types {
   idr.func @replicate(%n: !idr.nat, %x: i64) -> !idr.box<!List> {
     %nil = idr.constant !idr.box<!List> #idr.con<!List, @Nil, []>
     %r = idr.match_lit %n : !idr.nat -> (!idr.box<!List>) {
@@ -136,7 +139,7 @@ idr.program @"trmc-counter" root(@Prog.main) stage(first) {
     return %v11 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Prog.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Prog.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @pow10(%e: i64, %acc: i64) -> i64 attributes {total} {
 // REFERENCE:     %r = idr.match_lit %e : i64 -> (i64) {
 // REFERENCE:     case 0 {

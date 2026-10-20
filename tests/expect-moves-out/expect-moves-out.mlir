@@ -3,7 +3,7 @@
 // An element rebuilt in its place moves out of the array into the
 // rebuilding (@swap, an IORef's exchange); one read and then written back
 // is two accesses, and nothing moves (@readWrite).
-idr.program @"moves-out" root(@root) stage(first) {
+idr.program @"moves-out" root(@root) stage(first) types #idr.types<> {
   idr.func @swap(%r: memref<i64, #idr.world>, %y: i64, %w: !idr.world) -> (i64, !idr.world) {
     %x, %w1 = idr.array.update %r[], %w {
     ^bb0(%old: i64):

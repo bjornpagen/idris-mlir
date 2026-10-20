@@ -30,7 +30,7 @@
 // its output is the same on every run and the program before the pass and
 // after it print alike on every byte. Each property is flipped once after
 // the pass, and each flip fails.
-idr.program @"memo-by-name" root(@Main.main) stage(higher) {
+idr.program @"memo-by-name" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @traced(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %s = idr.constant !idr.str "forced\0A"

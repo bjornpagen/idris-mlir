@@ -6,7 +6,7 @@
 // of the module (the diff above). Which zones the trace holds, and how
 // they are named, is MLIR's business.
 // TRACE: "traceEvents"
-idr.program @"time-trace" root(@Main.main) stage(first) {
+idr.program @"time-trace" root(@Main.main) stage(first) types #idr.types<> {
   idr.func @count(%acc: !idr.big, %n: i64) -> !idr.big attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.big) {
     case 0 {

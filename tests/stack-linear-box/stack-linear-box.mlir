@@ -12,8 +12,11 @@
 // whether the tail is a cell, and @head runs on the empty list and on
 // cells, and leaves no cell live.
 // HEAP: error: expected no-heap-allocation: idr.con allocates in @linear
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @linearbox root(@Prog.main) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @linearbox root(@Prog.main) stage(first) types #types {
   idr.func @head(%l: !idr.box<!List>) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {

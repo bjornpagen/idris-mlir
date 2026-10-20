@@ -45,7 +45,7 @@
 // STDIN: \0022
 // STDIN: \0023
 // STDIN:
-idr.program @"big-shift" root(@Prog.main) stage(first) {
+idr.program @"big-shift" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @shifts() -> (!idr.big, !idr.big, !idr.big, !idr.big, !idr.big, !idr.big) {
     %m7 = idr.constant !idr.big #idr.big<-7>
     %one = idr.constant !idr.big #idr.big<1>

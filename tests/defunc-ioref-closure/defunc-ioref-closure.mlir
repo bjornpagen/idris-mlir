@@ -13,7 +13,7 @@
 // op's operands. The apply of what it read then calls both.
 // The program means after the pass what it meant before it, on every input
 // (the differential), and no property here held before the pass.
-idr.program @"ioref-closure" root(@Main.main) stage(higher) {
+idr.program @"ioref-closure" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

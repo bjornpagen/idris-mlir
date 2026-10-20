@@ -27,8 +27,11 @@
 // STDIN: \0003
 // STDIN: \0377
 // STDIN:
-!Opt = !idr.data<"Opt", plain [@None(), @Some(!idr.str)]>
-idr.program @arrays root(@root) stage(owned) {
+!Opt = !idr.data<"Opt">
+#types = #idr.types<
+  "Opt" = plain [@None(), @Some(!idr.str)]
+>
+idr.program @arrays root(@root) stage(owned) types #types {
   // The root indexes both arrays, of 3 elements, at the byte it reads: a
   // read of the element there, a write of it back, and of the double one
   // more than it, which it reads again and prints with the length.
@@ -128,7 +131,7 @@ idr.program @arrays root(@root) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@root) stage(higher) {
+// REF: idr.program @ref root(@root) stage(higher) types #idr.types<> {
 // REF:   idr.func @root(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %three = arith.constant 3 : i32

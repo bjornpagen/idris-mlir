@@ -19,13 +19,21 @@
 //     closure, a field of a constructor, and lifted the same way.
 // None of the functions ends, which the optimizer does not ask: none is
 // total.
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-!MaybeD = !idr.data<"MaybeD", plain [@Nothing(), @Just(f64)]>
-!MaybeS = !idr.data<"MaybeS", plain [@None(), @Some(!idr.str)]>
-!MaybeI = !idr.data<"MaybeI", plain [@NoInt(), @AnInt(i64)]>
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-idr.program @"specialize-ends" root(@Main.main) stage(higher) {
+!L = !idr.data<"L">
+!MaybeD = !idr.data<"MaybeD">
+!MaybeS = !idr.data<"MaybeS">
+!MaybeI = !idr.data<"MaybeI">
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+#types = #idr.types<
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons],
+  "MaybeD" = plain [@Nothing(), @Just(f64)],
+  "MaybeI" = plain [@NoInt(), @AnInt(i64)],
+  "MaybeS" = plain [@None(), @Some(!idr.str)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @"specialize-ends" root(@Main.main) stage(higher) types #types {
   idr.func @grow(%xs: !idr.box<!L>) -> i64 {
     %z = arith.constant 0 : i64
     %c = idr.con !idr.box<!L> @Cons(%z : i64, %xs : !idr.box<!L>)

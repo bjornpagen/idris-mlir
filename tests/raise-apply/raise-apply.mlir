@@ -12,7 +12,7 @@
 // The raised program means what the program as written does: on every
 // one-byte input, which picks @sub (0), @add (1) or the recursion (the
 // rest), both print and exit alike (%differential).
-idr.program @apply root(@Main.main) stage(higher) {
+idr.program @apply root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64

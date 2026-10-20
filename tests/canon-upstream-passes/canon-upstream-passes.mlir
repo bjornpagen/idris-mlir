@@ -27,8 +27,11 @@
 // the first's root crashes in @fail on an even byte, the second's on
 // every byte.
 
-!Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
-idr.program @"upstream-passes" root(@Main.main) stage(higher) {
+!Maybe = !idr.data<"Maybe">
+#types = #idr.types<
+  "Maybe" = plain [@Nothing(), @Just(i64)]
+>
+idr.program @"upstream-passes" root(@Main.main) stage(higher) types #types {
   idr.func @inc(%k: i64, %x: i64) -> i64
       attributes {total} {
     %r = arith.addi %k, %x : i64
@@ -78,7 +81,7 @@ idr.program @"upstream-passes" root(@Main.main) stage(higher) {
 
 // -----
 
-idr.program @"upstream-passes" root(@Main.main) stage(first) {
+idr.program @"upstream-passes" root(@Main.main) stage(first) types #idr.types<> {
   idr.func @fail(%x: i64) -> i64 {
     idr.crash "unhandled input for fail"
     ub.unreachable

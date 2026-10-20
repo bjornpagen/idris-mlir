@@ -10,7 +10,7 @@
 // and stay, called as before. The root counts down from the byte it
 // reads, doubling from 1 at each step, and the program prints after the
 // pass what it printed before, on every byte.
-idr.program @contify root(@root) stage(higher) {
+idr.program @contify root(@root) stage(higher) types #idr.types<> {
   idr.func @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64

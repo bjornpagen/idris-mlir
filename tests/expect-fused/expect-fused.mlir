@@ -9,7 +9,7 @@
 // them one. An array two loops read is no intermediate of one of them, so
 // it holds (@shared). A function with no structured op fails.
 #map = affine_map<(d0) -> (d0)>
-idr.program @fused root(@root) stage(first) {
+idr.program @fused root(@root) stage(first) types #idr.types<> {
   idr.func @one(%x: tensor<?xi64>) -> tensor<?xi64> {
     %c0 = arith.constant 0 : index
     %n = tensor.dim %x, %c0 : tensor<?xi64>

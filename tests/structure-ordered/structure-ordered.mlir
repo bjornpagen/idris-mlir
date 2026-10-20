@@ -16,7 +16,7 @@
 // by 0 to 2, so the crash comes only where there is an element to divide:
 // the lowered program does all of it as the module as written does, on
 // every byte.
-idr.program @ordered root(@root) stage(first) {
+idr.program @ordered root(@root) stage(first) types #idr.types<> {
   idr.func @pure(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64

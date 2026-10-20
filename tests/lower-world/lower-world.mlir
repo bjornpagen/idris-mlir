@@ -13,7 +13,7 @@
 // STDIN: \0200
 // STDIN: \0377
 // STDIN:
-idr.program @world root(@root) stage(owned) {
+idr.program @world root(@root) stage(owned) types #idr.types<> {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     idr.call @f(%c) : (i32) -> ()
@@ -26,7 +26,7 @@ idr.program @world root(@root) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@root) stage(higher) {
+// REF: idr.program @ref root(@root) stage(higher) types #idr.types<> {
 // REF:   idr.func @root(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %w2 = idr.io.put_char %c, %w1

@@ -21,9 +21,13 @@
 // STDIN: \0001
 // STDIN: \0377
 // STDIN:
-!Tail = !idr.data<"Tail", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"Tail">>)]>>) forced]>
-!Stream = !idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"Tail", memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream">>) forced]>>)]>
-idr.program @"static-thunk" root(@Prog.main) stage(first) {
+!Tail = !idr.data<"Tail">
+!Stream = !idr.data<"Stream">
+#types = #idr.types<
+  "Stream" = plain [@Cons(i64, !idr.box<!idr.data<"Tail">>)],
+  "Tail" = memo [@ones() label @ones, @running() running, @forced(!idr.box<!idr.data<"Stream">>) forced]
+>
+idr.program @"static-thunk" root(@Prog.main) stage(first) types #types {
   // ones = 1 :: ones: its tail is the thunk of the definition itself.
   idr.func @ones() -> !idr.box<!Stream> attributes {total} {
     %s = idr.constant !idr.box<!Stream> #idr.con<!Stream, @Cons, [1, #idr.con<!Tail, @ones, []>]>
@@ -80,7 +84,7 @@ idr.program @"static-thunk" root(@Prog.main) stage(first) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %n = arith.extui %c : i32 to i64

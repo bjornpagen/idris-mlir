@@ -293,4 +293,4 @@ truncOp : {default Nothing fastmath : Maybe MlirAttr} -> (operand : Value) -> (r
 truncOp operand result =
   MkOp "math.trunc" [operand] (attrIf "fastmath" id fastmath) [] [] [result]
 
--- fingerprint: 1030742761-876257 3009803814-12974
+-- fingerprint: 3677307684-876266 3009803814-12974

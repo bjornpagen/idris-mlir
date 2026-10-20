@@ -11,9 +11,13 @@
 // After the folds and dead code removal, nothing of a function whose every
 // result is unused is left.
 
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @alloc root(@root) stage(first) {
+!P = !idr.data<"P">
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons],
+  "P" = plain [@MkP(i64, i64)]
+>
+idr.program @alloc root(@root) stage(first) types #types {
   idr.func @merged(%x: i64) -> (!P, !P) {
     // expected-remark @below {{facts: [move delay merge]}}
     %a = idr.con !P @MkP(%x : i64, %x : i64)

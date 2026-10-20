@@ -12,9 +12,13 @@
 // same program with the cell on the heap or the value of the frame kept in
 // it, which verifies.
 
-!P = !idr.data<"P", plain [@MkP(!idr.str)]>
-!U = !idr.data<"U", memo [@mk(!idr.str) label @mk, @running() running, @forced(!idr.box<!P>) forced]>
-idr.program @"frame" root(@Main.main) stage(owned) {
+!P = !idr.data<"P">
+!U = !idr.data<"U">
+#types = #idr.types<
+  "P" = plain [@MkP(!idr.str)],
+  "U" = memo [@mk(!idr.str) label @mk, @running() running, @forced(!idr.box<!P>) forced]
+>
+idr.program @"frame" root(@Main.main) stage(owned) types #types {
   idr.func @U.force(%t: !idr.q<many, borrow, !idr.box<!U>>) -> !idr.own<!idr.box<!P>> {
     %r = idr.match %t : !idr.q<many, borrow, !idr.box<!U>> -> (!idr.own<!idr.box<!P>>) {
     case @mk(%s: !idr.q<many, borrow, !idr.str>) {
@@ -46,8 +50,11 @@ idr.program @"frame" root(@Main.main) stage(owned) {
 
 // -----
 
-!P = !idr.data<"P", plain [@MkP(!idr.str)]>
-idr.program @"frame" root(@Main.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(!idr.str)]
+>
+idr.program @"frame" root(@Main.main) stage(owned) types #types {
   // expected-error @+1 {{returns a value of the frame}}
   idr.func @ret(%s: !idr.own<!idr.str>) -> !idr.q<many, own, !idr.box<!P>, frame> {
     %k = idr.cell.stack : !idr.cell<!idr.box<!P>, @MkP, frame>
@@ -61,8 +68,11 @@ idr.program @"frame" root(@Main.main) stage(owned) {
 
 // -----
 
-!P = !idr.data<"P", plain [@MkP(!idr.str)]>
-idr.program @"frame" root(@Main.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(!idr.str)]
+>
+idr.program @"frame" root(@Main.main) stage(owned) types #types {
   idr.func @ret(%s: !idr.own<!idr.str>) -> !idr.own<!idr.box<!P>> {
     %k = idr.cell.stack : !idr.cell<!idr.box<!P>, @MkP, frame>
     %b = idr.cell.init %k : !idr.cell<!idr.box<!P>, @MkP, frame> (%s : !idr.own<!idr.str>)
@@ -76,9 +86,13 @@ idr.program @"frame" root(@Main.main) stage(owned) {
 
 // -----
 
-!P = !idr.data<"P", plain [@MkP(!idr.str)]>
-!Q = !idr.data<"Q", plain [@MkQ(!idr.box<!P>)]>
-idr.program @"frame" root(@Main.main) stage(owned) {
+!P = !idr.data<"P">
+!Q = !idr.data<"Q">
+#types = #idr.types<
+  "P" = plain [@MkP(!idr.str)],
+  "Q" = plain [@MkQ(!idr.box<!P>)]
+>
+idr.program @"frame" root(@Main.main) stage(owned) types #types {
   idr.func @fill(%s: !idr.own<!idr.str>) -> !idr.own<!idr.box<!Q>> {
     %k = idr.cell.stack : !idr.cell<!idr.box<!P>, @MkP, frame>
     %p = idr.cell.init %k : !idr.cell<!idr.box<!P>, @MkP, frame> (%s : !idr.own<!idr.str>)
@@ -94,8 +108,11 @@ idr.program @"frame" root(@Main.main) stage(owned) {
 
 // -----
 
-!P = !idr.data<"P", plain [@MkP(!idr.str)]>
-idr.program @"frame" root(@Main.main) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(!idr.str)]
+>
+idr.program @"frame" root(@Main.main) stage(owned) types #types {
   // expected-note @+1 {{the value of the frame is defined here}}
   idr.func @spin(%n: i64, %s: !idr.q<many, own, !idr.box<!P>, frame>) -> i64 {
     %z = arith.constant 0 : i64
@@ -125,10 +142,15 @@ idr.program @"frame" root(@Main.main) stage(owned) {
 // into the memo cell; the box of the frame read and dropped where it was
 // made; a field of the frame filled into a cell of the frame; and a value
 // of the frame passed to a call that is not in tail position.
-!P = !idr.data<"P", plain [@MkP(!idr.str)]>
-!Q = !idr.data<"Q", plain [@MkQ(!idr.box<!P>)]>
-!U = !idr.data<"U", memo [@mk(!idr.str) label @mk, @running() running, @forced(!idr.box<!P>) forced]>
-idr.program @"frame" root(@Main.main) stage(owned) {
+!P = !idr.data<"P">
+!Q = !idr.data<"Q">
+!U = !idr.data<"U">
+#types = #idr.types<
+  "P" = plain [@MkP(!idr.str)],
+  "Q" = plain [@MkQ(!idr.box<!P>)],
+  "U" = memo [@mk(!idr.str) label @mk, @running() running, @forced(!idr.box<!P>) forced]
+>
+idr.program @"frame" root(@Main.main) stage(owned) types #types {
   idr.func @U.force(%t: !idr.q<many, borrow, !idr.box<!U>>) -> !idr.own<!idr.box<!P>> {
     %r = idr.match %t : !idr.q<many, borrow, !idr.box<!U>> -> (!idr.own<!idr.box<!P>>) {
     case @mk(%s: !idr.q<many, borrow, !idr.str>) {

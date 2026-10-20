@@ -13,7 +13,7 @@
 // large`. A tie is no op at run time. Static data is named by its content
 // under a reserved name, and a descriptor of a cell holds the cell, never
 // upstream's marker of a pointer that was not allocated.
-idr.program @"value-buffers" root(@root) stage(first) {
+idr.program @"value-buffers" root(@root) stage(first) types #idr.types<> {
   idr.func @alloc2(%a: index, %b: index) -> memref<?x?xf64> {
     %m = memref.alloc(%a, %b) : memref<?x?xf64>
     return %m : memref<?x?xf64>

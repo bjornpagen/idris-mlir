@@ -22,8 +22,11 @@
 // STDIN: \0200
 // STDIN: \0377
 // STDIN:
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @box root(@Prog.main) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @box root(@Prog.main) stage(first) types #types {
   idr.func @push(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
     %c = idr.con !idr.box<!List> @Cons(%x : i64, %l : !idr.box<!List>)
     return %c : !idr.box<!List>
@@ -56,7 +59,7 @@ idr.program @box root(@Prog.main) stage(first) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REF:     %c, %w1 = idr.io.get_byte %w
 // REF:     %b = arith.extui %c : i32 to i64

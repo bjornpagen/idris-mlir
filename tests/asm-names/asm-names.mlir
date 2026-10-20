@@ -43,9 +43,13 @@
 // NAMED: match %{{.*}} : !Point -> (i64) {
 // NAMED-NEXT: case @MkPoint(%px: i64, %py: i64) {
 
-!Prelude_Types_Maybe_Prelude_Types_Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
-!Main_Point = !idr.data<"Main.Point", plain [@MkPoint(i64, i64)]>
-idr.program @names root(@root) stage(higher) {
+!Prelude_Types_Maybe_Prelude_Types_Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]">
+!Main_Point = !idr.data<"Main.Point">
+#types = #idr.types<
+  "Main.Point" = plain [@MkPoint(i64, i64)],
+  "Prelude.Types.Maybe[Prelude.Types.Nat]" = plain [@Nothing(), @Just(!idr.nat)]
+>
+idr.program @names root(@root) stage(higher) types #types {
   idr.func @"Prelude.Show.show[Prelude.Types.Nat]"(%a0: !idr.nat) -> !idr.str {
     idr.crash "no body"
     ub.unreachable

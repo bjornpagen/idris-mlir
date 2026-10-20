@@ -4,8 +4,11 @@
 // field stays an op. Here the apply's result is poison, since no label
 // reaches it, and the constructor of it is still built; the same
 // constructor of a constant word is static data, and nothing is built.
-!Box = !idr.data<"Box", plain [@MkBox(i64)]>
-idr.program @"poison-fields" root(@Prog.main) stage(higher) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@MkBox(i64)]
+>
+idr.program @"poison-fields" root(@Prog.main) stage(higher) types #types {
   idr.func @wrap(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> !idr.box<!Box> {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %b = idr.con !idr.box<!Box> @MkBox(%y : i64)

@@ -15,8 +15,11 @@
 // The root runs every function on an array made from the byte it reads, and
 // the program prints after the pass what it printed before, on every byte:
 // each copy keeps what the box beside it holds as it was.
-!Box = !idr.data<"Box", plain [@MkBox(tensor<4xi64>)]>
-idr.program @aliasing root(@root) stage(first) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@MkBox(tensor<4xi64>)]
+>
+idr.program @aliasing root(@root) stage(first) types #types {
   idr.func @fresh() -> tensor<4xi64> {
     %c0 = arith.constant 0 : index
     %seven = arith.constant 7 : i64

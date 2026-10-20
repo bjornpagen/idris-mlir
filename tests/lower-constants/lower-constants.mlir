@@ -12,9 +12,13 @@
 // character and a word at a time, with no static data: hé!hé!, -43, 7 and
 // 2.5 (%differential, on the one input, none, since it reads none).
 // STDIN:
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-!Num = !idr.data<"Num", plain [@I(i64), @D(f64)]>
-idr.program @constants root(@Prog.main) stage(owned) {
+!List = !idr.data<"List">
+!Num = !idr.data<"Num">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons],
+  "Num" = plain [@I(i64), @D(f64)]
+>
+idr.program @constants root(@Prog.main) stage(owned) types #types {
   idr.func @values() -> (!idr.own<!idr.str>, !idr.own<!idr.str>, !idr.own<!idr.big>,
                          !idr.own<!idr.box<!List>>, !Num) {
     %s1 = idr.constant !idr.q<many, borrow, !idr.str> "h\C3\A9!"
@@ -70,7 +74,7 @@ idr.program @constants root(@Prog.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @word(%w: !idr.world) -> !idr.world {
 // REF:     %h = arith.constant 104 : i32
 // REF:     %e = arith.constant 233 : i32

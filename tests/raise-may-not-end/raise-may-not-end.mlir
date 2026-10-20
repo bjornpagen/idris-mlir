@@ -18,7 +18,7 @@
 // STDIN: \0011
 // STDIN: \0144
 // STDIN: \0377
-idr.program @"may-not-end" root(@Main.main) stage(higher) {
+idr.program @"may-not-end" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @digits(%n: i64) -> !idr.str {
     %ten = arith.constant 10 : i64
     %s = idr.match_lit %n : i64 -> (!idr.str) {

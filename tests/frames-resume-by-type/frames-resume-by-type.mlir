@@ -18,8 +18,11 @@
 // STDIN: \0001
 // STDIN: \0007
 // STDIN: \0144
-!fn = !idr.data<"fn", closures [@g() label @g, @h() label @h]>
-idr.program @"frames-resume-by-type" root(@root) stage(first) {
+!fn = !idr.data<"fn">
+#types = #idr.types<
+  "fn" = closures [@g() label @g, @h() label @h]
+>
+idr.program @"frames-resume-by-type" root(@root) stage(first) types #types {
   idr.func @f(%n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

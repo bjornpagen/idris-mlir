@@ -39,7 +39,7 @@
 // STDIN: \0016
 // STDIN: \0017
 // STDIN:
-idr.program @shift root(@Prog.main) stage(first) {
+idr.program @shift root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @signed() -> (i64, i64, i64, i64, i64, i64) {
     %one = arith.constant 1 : i64
     %m8 = arith.constant -8 : i64

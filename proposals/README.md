@@ -73,8 +73,8 @@ targets (0001). Everything else waits for it unless it says otherwise.
    16 KiB pages), then **0001 S5** on each. The Linux builds wait only on
    the machines and may start any time.
 7. **After `make self` on arm64 macOS,** in parallel with the Linux work:
-   0003 (each fact once: the binary format's reader generated first, then
-   every location kept, then the TTC's facts, then the rest) and 0004 (the
+   0003 (each fact once: every location kept first, then the TTC's facts,
+   then the rest) and 0004 (the
    test suite the audit planned, the runner under both hosts first).
 8. **After `make self` on the four targets:** 0005 (the toolchain bump),
    0006 (G1, the qualification), then the queue from 0007 on.
@@ -95,7 +95,7 @@ P0 (the native DMP measurement on this machine) and P1, 0019's N1.
   knew, threw away and derives again or guesses, from the 2026-10-19
   sweeps, the representation wave's leftovers and the static lifetime;
   each kept or derived from a tighter representation by §1's rules. The
-  binary format's hand reader is first. After `make self` on arm64 macOS.
+  After `make self` on arm64 macOS.
 - [0004](0004-tests.md): the test suite the 2026-10-18 audit planned: the
   harness's lies first, then the typed runner, the vocabulary, the
   universal checks, the relations and the search. After `make self` on

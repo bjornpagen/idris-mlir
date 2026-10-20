@@ -12,8 +12,11 @@
 // the second in one of its regions, or both are in nested regions of one
 // path, the match is refused; and one region may leave it unused.
 
-!Box = !idr.data<"Box", plain [@MkBox(!idr.lin<i64>)]>
-idr.program @"linear-twice" root(@root) stage(first) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@MkBox(!idr.lin<i64>)]
+>
+idr.program @"linear-twice" root(@root) stage(first) types #types {
 idr.func @take(%x: !idr.lin<i64>) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   return %v : i64
@@ -59,7 +62,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @"linear-twice" root(@root) stage(first) {
+idr.program @"linear-twice" root(@root) stage(first) types #idr.types<> {
   idr.func @twice(%x: !idr.lin<i64>) -> i64 {
     %a = idr.lin.use %x : !idr.lin<i64>
     // expected-error @+1 {{already used on the same path}}
@@ -77,7 +80,7 @@ idr.program @"linear-twice" root(@root) stage(first) {
 // -----
 
 // Entered once, a value is linear from then on.
-idr.program @"linear-twice" root(@root) stage(first) {
+idr.program @"linear-twice" root(@root) stage(first) types #idr.types<> {
 idr.func @take(%x: !idr.lin<i64>) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   return %v : i64
@@ -98,7 +101,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @"linear-twice" root(@root) stage(first) {
+idr.program @"linear-twice" root(@root) stage(first) types #idr.types<> {
   // expected-error @+1 {{expects no grade of '!idr.world', which is used exactly once by its type}}
   idr.func @f(%w: !idr.lin<!idr.world>) {
     return
@@ -117,8 +120,11 @@ idr.program @"linear-twice" root(@root) stage(first) {
 // linear value, as the constructor holds the field; of a value used many
 // times, as used many times. A default region gets a linear value it did
 // not take apart back.
-!P = !idr.data<"P", plain [@MkP(i64, !idr.lin<i64>), @Empty()]>
-idr.program @"linear-twice" root(@root) stage(first) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, !idr.lin<i64>), @Empty()]
+>
+idr.program @"linear-twice" root(@root) stage(first) types #types {
 idr.func @snd(%p: !idr.lin<!P>) -> i64 {
   %r = idr.match %p : !idr.lin<!P> -> (i64) {
   case @MkP(%a: i64, %b: !idr.lin<i64>) {
@@ -153,8 +159,11 @@ idr.func @root() -> i64 {
 
 // -----
 
-!P = !idr.data<"P", plain [@MkP(!idr.lin<i64>)]>
-idr.program @"linear-twice" root(@root) stage(first) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(!idr.lin<i64>)]
+>
+idr.program @"linear-twice" root(@root) stage(first) types #types {
   idr.func @f(%p: !P) -> i64 {
     // expected-error @+1 {{case @MkP must take the constructor's fields at the scrutinee's grade, 'i64'}}
     %r = idr.match %p : !P -> (i64) {
@@ -174,8 +183,11 @@ idr.program @"linear-twice" root(@root) stage(first) {
 
 // -----
 
-!P = !idr.data<"P", plain [@MkP(i64)]>
-idr.program @"linear-twice" root(@root) stage(first) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(i64)]
+>
+idr.program @"linear-twice" root(@root) stage(first) types #types {
   idr.func @f(%p: !idr.lin<!P>) -> i64 {
     // expected-error @+1 {{expects a default region}}
     %r = idr.match %p : !idr.lin<!P> -> (i64) {
@@ -201,7 +213,7 @@ idr.program @"linear-twice" root(@root) stage(first) {
 // A closure holding a linear value is linear too, by its type: it is at
 // quantity one exactly when a capture is, and is used once, applied or
 // passed on, as any linear value.
-idr.program @"linear-twice" root(@root) stage(higher) {
+idr.program @"linear-twice" root(@root) stage(higher) types #idr.types<> {
 idr.func @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   %s = arith.addi %v, %y : i64
@@ -224,7 +236,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @"linear-twice" root(@root) stage(higher) {
+idr.program @"linear-twice" root(@root) stage(higher) types #idr.types<> {
 idr.func @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   %s = arith.addi %v, %y : i64
@@ -246,7 +258,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.program @"linear-twice" root(@root) stage(higher) {
+idr.program @"linear-twice" root(@root) stage(higher) types #idr.types<> {
 idr.func @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   %s = arith.addi %v, %y : i64
@@ -270,7 +282,7 @@ idr.func @root() -> i64 {
 // -----
 
 // Once in each region of a match is once on each path.
-idr.program @"linear-twice" root(@root) stage(first) {
+idr.program @"linear-twice" root(@root) stage(first) types #idr.types<> {
   idr.func @branch(%b: i64, %w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     %r = idr.match_lit %b : i64 -> (!idr.world) {
@@ -294,7 +306,7 @@ idr.program @"linear-twice" root(@root) stage(first) {
 // -----
 
 // A use before a match and one in a region of it are on one path.
-idr.program @"linear-twice" root(@root) stage(first) {
+idr.program @"linear-twice" root(@root) stage(first) types #idr.types<> {
   idr.func @before(%b: i64, %x: !idr.lin<i64>) -> i64 {
     %a = idr.lin.use %x : !idr.lin<i64>
     // expected-error @+1 {{already used on the same path}}
@@ -319,7 +331,7 @@ idr.program @"linear-twice" root(@root) stage(first) {
 // -----
 
 // So are uses in a region and in a region nested in it.
-idr.program @"linear-twice" root(@root) stage(first) {
+idr.program @"linear-twice" root(@root) stage(first) types #idr.types<> {
   idr.func @nested(%b: i64, %c: i64, %x: !idr.lin<i64>) -> i64 {
     // expected-error @+1 {{already used on the same path}}
     %r = idr.match_lit %b : i64 -> (i64) {

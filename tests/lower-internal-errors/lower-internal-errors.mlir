@@ -12,7 +12,7 @@
 // CHECK: error: the module's target is not the runtime's
 
 // expected-error @+1 {{the module's target is not the runtime's}}
-module attributes {dlti.dl_spec = #dlti.dl_spec<!llvm.ptr = dense<[32, 32, 32, 32]> : vector<4xi64>>} { idr.program @"internal-errors" root(@Prog.main) stage(owned) {
+module attributes {dlti.dl_spec = #dlti.dl_spec<!llvm.ptr = dense<[32, 32, 32, 32]> : vector<4xi64>>} { idr.program @"internal-errors" root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64

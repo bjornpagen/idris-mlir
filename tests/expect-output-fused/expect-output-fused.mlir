@@ -8,7 +8,7 @@
 // for its length (@measured) is still written in pieces, and the string is
 // kept for its length alone. After the folds, which write the pieces, it
 // holds of the whole module.
-idr.program @"output-fused" root(@root) stage(first) {
+idr.program @"output-fused" root(@root) stage(first) types #idr.types<> {
   idr.func @constant(%w: !idr.world) -> !idr.world {
     %s = idr.constant !idr.str "n = "
     %w1 = idr.io.put_str %s, %w

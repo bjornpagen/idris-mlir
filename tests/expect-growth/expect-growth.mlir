@@ -4,7 +4,7 @@
 // A function grows nothing against the module it started in when it holds
 // no more operations than it did there: as many as itself, and more than
 // the one-operation @f the SMALL lines write.
-// SMALL: idr.program @growth root(@root) stage(first) {
+// SMALL: idr.program @growth root(@root) stage(first) types #idr.types<> {
 // SMALL:   idr.func @f(%x: i64) -> i64 {
 // SMALL:     return %x : i64
 // SMALL:   }
@@ -13,7 +13,7 @@
 // SMALL:     return %zero : i64
 // SMALL:   }
 // SMALL: }
-idr.program @growth root(@root) stage(first) {
+idr.program @growth root(@root) stage(first) types #idr.types<> {
   // expected-error @below {{expected grows-nothing: }}
   idr.func @f(%x: i64) -> i64 {
     %a = arith.addi %x, %x : i64

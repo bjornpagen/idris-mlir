@@ -19,10 +19,8 @@
 //   from the records in upstream's DSL (mlir/IR/BytecodeBase.td) that
 //   mlir-tblgen -gen-bytecode reads for the C++ reader: each record's code,
 //   and the parts of each record whose members it knows, so that the writer
-//   and the reader lay an entry out by one record; and the field codes and
-//   the records of the module's table of data types
+//   and the reader lay an entry out by one record
 //   (compiler/src/IdrisMLIR/Encoding/).
-// - -gen-idr-table-codes, the same field codes as the C++ reader's enum.
 // - -gen-runtime-abi-decls and -gen-runtime-abi-defs, the runtime's C
 //   functions idr-lower calls, an op's (Idr_Runtime) and the lowering's own
 //   (Idr_RuntimeFunction): their C prototypes, which the runtime's header
@@ -2128,17 +2126,17 @@ void identifiedOf(Enums &enums, const AttrOrTypeDef &def, StringRef sum, Def &ou
   std::string mnemonic = def.getMnemonic() ? def.getMnemonic()->str() : std::string();
   std::string spelling = "!" + dialect + "." + mnemonic;
   llvm::raw_string_ostream pre(preamble);
-  pre << "||| One constructor of a data type's body, as the module's table of data\n"
+  pre << "||| One constructor of a data type's body, as the program's table of data\n"
       << "||| types holds it: its name, its fields' types, and the part it plays in\n"
-      << "||| its sum, never a label's, which the frontend's table does not hold.\n"
+      << "||| its sum, never a label's, which the frontend writes none of.\n"
       << "public export\nrecord " << ctor << " ty where\n  constructor Mk" << ctor << "\n"
       << "  name : String\n  fields : List ty\n  role : " << role << "\n\n"
-      << "||| A data type's body, as the module's table of data types holds it: what\n"
-      << "||| sum it is, its constructors in tag order, and the Idris instance it is\n"
-      << "||| of, its origin and arguments.\n"
-      << "public export\nrecord " << body << " ty where\n  constructor Mk" << body << "\n"
+      << "||| A data type's body, as the program's table of data types holds it:\n"
+      << "||| what sum it is, its constructors in tag order, and the Idris instance\n"
+      << "||| it is of, an `#idr.instance` attribute, when it is of one.\n"
+      << "public export\nrecord " << body << " ty at where\n  constructor Mk" << body << "\n"
       << "  kind : " << kind << "\n  ctors : List (" << ctor << " ty)\n"
-      << "  instanceOf : Maybe (String, List String)\n\n";
+      << "  instanceOf : Maybe at\n\n";
   std::string constructor =
       constructorName(def.getCppClassName().str(), "the type " + def.getCppClassName());
   llvm::raw_string_ostream decl(out.constructor);
@@ -2150,6 +2148,55 @@ void identifiedOf(Enums &enums, const AttrOrTypeDef &def, StringRef sum, Def &ou
   out.text = llvm::formatv("({0} name) = fastConcat [{1}, utf8 name, \">\"]", constructor,
                            literal(spelling + "<"))
                  .str();
+}
+
+// The program's table of data types, as the Idris side writes it (the
+// attribute marked `holdsBodies`): each member its name and its body, the
+// records identifiedOf declares, in the dialect's own syntax
+// (lib/IR/DataBody.cpp), which the samples' round trip reads back through
+// the C++ parser. `preamble` gets the printers of a constructor, a body and
+// the table, after the records; `ctorRole` is the roles' enum, whose plain
+// case writes nothing. The frontend writes no label, so a constructor's
+// role is its case alone.
+void tableOf(const AttrOrTypeDef &def, StringRef sum, StringRef ctorRole, Def &out,
+             std::string &preamble) {
+  std::string module = lastName(moduleName).str();
+  std::string ctor = module + "Ctor", body = module + "Sum";
+  std::string lower = camel(module, false);
+  std::string spelling = "#" + def.getDialect().getName().str() + "." + def.getMnemonic()->str();
+  llvm::raw_string_ostream pre(preamble);
+  pre << "||| A constructor of a body as the program's table writes it: its name, its\n"
+      << "||| fields' types and, but for a plain one, its role.\n"
+      << "export\n" << lower << "CtorText : (t : ty -> String) -> " << ctor << " ty -> String\n"
+      << lower << "CtorText t (Mk" << ctor << " name fields role) =\n"
+      << "  fastConcat [symbol name, \"(\", commaSeparated (map t fields), \")\", roleText role]\n"
+      << "  where\n    roleText : " << ctorRole << " -> String\n"
+      << "    roleText " << ctorRole << ".Plain = \"\"\n"
+      << "    roleText r = \" \" ++ show r\n\n"
+      << "||| A body as the program's table writes it: its kind of sum, its\n"
+      << "||| constructors and its instance.\n"
+      << "export\n" << lower << "SumText : (t : ty -> String) -> (a : at -> String) -> " << body
+      << " ty at -> String\n"
+      << lower << "SumText t a (Mk" << body << " kind ctors instanceOf) =\n"
+      << "  fastConcat [show kind, \" [\", commaSeparated (map (" << lower
+      << "CtorText t) ctors), \"]\",\n"
+      << "              maybe \"\" (\\i => \" instance \" ++ a i) instanceOf]\n\n"
+      << "||| The program's table of data types, `" << spelling << "`: each member its\n"
+      << "||| name and its body, one to a line.\n"
+      << "export\n" << lower << "TableText : (t : ty -> String) -> (a : at -> String) -> List (String, "
+      << body << " ty at) -> String\n"
+      << lower << "TableText t a [] = \"" << spelling << "<>\"\n"
+      << lower << "TableText t a members =\n"
+      << "  fastConcat [\"" << spelling << "<\\n  \", separated \",\\n  \" (map (\\(name, s) => "
+      << "fastConcat [utf8 name, \" = \", " << lower << "SumText t a s]) members), \"\\n>\"]\n\n";
+  std::string constructor =
+      constructorName(def.getCppClassName().str(), "the attribute " + def.getCppClassName());
+  llvm::raw_string_ostream decl(out.constructor);
+  decl << "  ||| `" << spelling << "`" << summary(def.getSummary()) << "\n  " << constructor
+       << " : (members : List (String, " << body << " ty at)) -> " << sum << " ty at\n";
+  out.mnemonicName = def.getMnemonic()->str();
+  out.mnemonic = llvm::formatv("({0} _) = {1}", constructor, literal(out.mnemonicName)).str();
+  out.text = llvm::formatv("({0} members) = {1}TableText t a members", constructor, lower).str();
 }
 
 //===----------------------------------------------------------------------===//
@@ -2204,6 +2251,9 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   if (!v.dialect)
     llvm::PrintFatalError("no dialect " + dialectName + " in the records");
   StringRef module = lastName(moduleName);
+  // The roles' enum of the identified type, which the table's printer names
+  // (the types come first).
+  std::string ctorRole;
   for (StringRef kind : {"TypeDef", "AttrDef"})
     for (const llvm::Record *record : records.getAllDerivedDefinitionsIfDefined(kind)) {
       AttrOrTypeDef def(record);
@@ -2221,6 +2271,13 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
         Def written;
         identifiedOf(v.enums, def, (module + "Type").str(), written, v.typesPreamble);
         v.types.push_back(std::move(written));
+        ctorRole = enumName(EnumInfo(record->getValueAsDef("ctorRoles")));
+        continue;
+      }
+      if (!isType && record->getValue("holdsBodies")) {
+        Def written;
+        tableOf(def, (module + "Attr").str(), ctorRole, written, v.typesPreamble);
+        v.attrs.push_back(std::move(written));
         continue;
       }
       std::visit(llvm::makeVisitor(
@@ -2418,8 +2475,7 @@ struct Member {
 
 // The member `def` declares, or why it cannot be read. An enum is a member
 // that names its enum (Idr_Enum's `enumName`): the syntax module's, whose
-// value of a case is what the reader reads. A record of the module's table
-// of data types (Idr_TableRecord) is the parts its own encoder gives.
+// value of a case is what the reader reads.
 Written<Member> memberOf(const llvm::Record *def, StringRef name) {
   if (def->getValue("enumName")) {
     std::string e = def->getValueAsString("enumName").str();
@@ -2434,8 +2490,6 @@ Written<Member> memberOf(const llvm::Record *def, StringRef name) {
       return *omitted;
     return Member{Member::Array, {}, {std::get<Member>(std::move(element))}};
   }
-  if (def->isSubClassOf("Idr_TableRecord"))
-    return Member{Member::Atomic, {"List Part", "{0}", false}};
   if (def->isSubClassOf("CompositeBytecode")) {
     const llvm::DagInit *dag = def->getValueAsDag("members");
     Member composite{Member::Composite};
@@ -2641,16 +2695,6 @@ void emitRecord(const llvm::Record *def, size_t code, StringRef what, llvm::raw_
              membersOf(def));
 }
 
-// The field codes of the module's table of data types (IdrFieldCodes,
-// IdrBytecode.td), by which a field of the table says how it is written,
-// each its place in the list; none in the records of a dialect without the
-// table.
-std::vector<const llvm::Record *> fieldCodes(const llvm::RecordKeeper &records) {
-  if (const llvm::Record *codes = records.getDef("IdrFieldCodes"))
-    return codes->getValueAsListOfDefs("codes");
-  return {};
-}
-
 // The records of the dialect's types or attributes, in `elems` order: the
 // list of the DialectTypes or DialectAttributes of -idris-dialect. The DSL
 // names a dialect as its C++ class does (`Idr`, `Builtin`), ODS by its
@@ -2682,31 +2726,11 @@ bool emitIdrisBytecode(const llvm::RecordKeeper &records, llvm::raw_ostream &os)
     emitRecord(def, code, "type", typesOs, omitted);
   for (auto [code, def] : llvm::enumerate(attrs))
     emitRecord(def, code, "attribute", attrsOs, omitted);
-  // The module's table of data types, which no entry of upstream's DSL
-  // lays out: the codes of its fields, and its records, each no entry and
-  // so of no code of its own.
-  std::string tableText;
-  llvm::raw_string_ostream tableOs(tableText);
-  for (auto [code, def] : llvm::enumerate(fieldCodes(records)))
-    emitCode(def, code, "the field codes of the table of data types", tableOs);
-  std::vector<const llvm::Record *> tableRecords =
-      records.getAllDerivedDefinitionsIfDefined("Idr_TableRecord");
-  llvm::sort(tableRecords, llvm::LessRecordByID());
-  for (const llvm::Record *def : tableRecords)
-    std::visit(llvm::makeVisitor(
-                   [&](const Members &read) { emitEncoder(def, read, {}, {}, tableOs); },
-                   [&](const Omitted &o) {
-                     omitted.push_back(
-                         llvm::formatv("table record {0}: {1}", def->getName(), o.why).str());
-                   }),
-               membersOf(def));
-
   writeLicense(os);
   os << "||| The " << dialectName << " dialect's bytecode entries, as the Idris side writes\n"
      << "||| them: the code of each of its records, and the parts of each record whose\n"
      << "||| members' kinds are known, from its members in order, a type as the parts\n"
-     << "||| the writer gives for it; and the field codes and the records of the\n"
-     << "||| module's table of data types, where the dialect has one. Generated by\n"
+     << "||| the writer gives for it. Generated by\n"
      << "||| idris-mlir-tblgen -gen-idris-bytecode from the dialect's bytecode records,\n"
      << "||| from which mlir-tblgen -gen-bytecode writes the C++ reader; `make build`\n"
      << "||| writes it (tools/dialects.sh). Do not edit.\n"
@@ -2714,7 +2738,6 @@ bool emitIdrisBytecode(const llvm::RecordKeeper &records, llvm::raw_ostream &os)
      << "\n\n%default total\n\n";
   section(os, "Types", typesText);
   section(os, "Attributes", attrsText);
-  section(os, "The table of data types", tableText);
   if (!omitted.empty()) {
     os << "-- Not generated:\n";
     for (const std::string &line : omitted)
@@ -3037,32 +3060,6 @@ bool emitGuards(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
 }
 
 //===----------------------------------------------------------------------===//
-// The field codes of the table of data types, for the C++ reader
-//===----------------------------------------------------------------------===//
-
-// The codes by which a field of the module's table of data types says how
-// it is written, each its place in IdrFieldCodes (IdrBytecode.td), as the
-// enum lib/IR/Bytecode.cpp reads them by: the frontend's writer writes the
-// same codes, from the same list.
-bool emitIdrTableCodes(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  std::vector<const llvm::Record *> codes = fieldCodes(records);
-  if (codes.empty())
-    llvm::PrintFatalError("-gen-idr-table-codes reads IdrFieldCodes, which IdrBytecode.td "
-                          "defines");
-  std::vector<std::string> cases;
-  for (auto [code, def] : llvm::enumerate(codes))
-    cases.push_back(llvm::formatv("{0} = {1}", def->getValueAsString("name"), code).str());
-  os << "// How a field of the module's table of data types is written, its code\n"
-     << "// first: each code its place in IdrFieldCodes (IdrBytecode.td), from which\n"
-     << "// the frontend's writer writes them too. Generated by idris-mlir-tblgen\n"
-     << "// -gen-idr-table-codes. Do not edit.\n\n"
-     << "#ifndef IDR_IR_IDRTABLE_H_INC\n#define IDR_IR_IDRTABLE_H_INC\n\n#include <cstdint>\n\n"
-     << "namespace idr {\n\nenum class FieldCode : uint64_t { " << llvm::join(cases, ", ")
-     << " };\n\n} // namespace idr\n\n#endif // IDR_IR_IDRTABLE_H_INC\n";
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
 // Big ops and their word ops
 //===----------------------------------------------------------------------===//
 
@@ -3230,10 +3227,6 @@ const mlir::GenRegistration genIdrisDialect("gen-idris-dialect",
 const mlir::GenRegistration genIdrisBytecode("gen-idris-bytecode",
                                              "The Idris side's bytecode entries of a dialect",
                                              emitIdrisBytecode);
-const mlir::GenRegistration
-    genIdrTableCodes("gen-idr-table-codes",
-                     "The field codes of the table of data types, for the C++ reader",
-                     emitIdrTableCodes);
 const mlir::GenRegistration
     genRuntimeAbiDecls("gen-runtime-abi-decls",
                        "The C declarations of the runtime functions idr-lower calls",

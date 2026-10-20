@@ -13,9 +13,13 @@
 // every function.
 
 
-!T = !idr.data<"T", plain [@A(), @B(), @C()]>
-!L = !idr.data<"L", list [@Nil() nil, @Cons(!idr.lin<i64>, !idr.lin<!idr.box<!idr.data<"L">>>) cons]>
-idr.program @range root(@root) stage(first) {
+!T = !idr.data<"T">
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(!idr.lin<i64>, !idr.lin<!idr.box<!idr.data<"L">>>) cons],
+  "T" = plain [@A(), @B(), @C()]
+>
+idr.program @range root(@root) stage(first) types #types {
   idr.func @ranges(%t: !T, %x: i64, %u: i8, %d: f64, %s: !idr.str)
       -> (i1, i1, i1, i1, i1, i1, i1, i1) {
     %three = arith.constant 3 : i64

@@ -15,7 +15,7 @@
 // moves @fail_b into that call, and erases the unreachable block of @loop
 // once every function was swept. None of this held before the pass. The
 // program never ends, so no run of it can say what it means.
-idr.program @"never-returns-twice" root(@root) stage(first) {
+idr.program @"never-returns-twice" root(@root) stage(first) types #idr.types<> {
   idr.func @loop(%n: i64) -> i64 {
     %a = idr.call @fail_a(%n) : (i64) -> i64
     %b = idr.call @fail_b(%a) : (i64) -> i64

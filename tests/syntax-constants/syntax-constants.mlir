@@ -3,7 +3,7 @@
 // RUN: idris-mlir-opt %s --emit-bytecode -o %t.short.mlirbc
 // RUN: idris-mlir-opt %t.short.mlirbc -o %t.short.again.mlir
 // RUN: cmp %t.short.mlir %t.short.again.mlir
-// RUN: awk 'BEGIN { print "!List = !idr.data<\"List\", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<\"List\">>) cons]>"; print "idr.program @long root(@root) stage(first) {"; print "  idr.func @long() -> !idr.box<!List> {"; printf "    %%l = idr.constant !idr.box<!List> #idr.con<!List, @Cons, "; for (i = 0; i < 9999; i++) printf "[%d], ", i; print "[9999, #idr.con<!List, @Nil, []>] along 1>"; print "    return %l : !idr.box<!List>"; print "  }"; print "  idr.func @root() -> i64 {"; print "    %zero = arith.constant 0 : i64"; print "    return %zero : i64"; print "  }"; print "}" }' > %t.long.mlir
+// RUN: awk 'BEGIN { print "!List = !idr.data<\"List\">"; print "#types = #idr.types<\"List\" = list [@Nil() nil, @Cons(i64, !idr.box<!List>) cons]>"; print "idr.program @long root(@root) stage(first) types #types {"; print "  idr.func @long() -> !idr.box<!List> {"; printf "    %%l = idr.constant !idr.box<!List> #idr.con<!List, @Cons, "; for (i = 0; i < 9999; i++) printf "[%d], ", i; print "[9999, #idr.con<!List, @Nil, []>] along 1>"; print "    return %l : !idr.box<!List>"; print "  }"; print "  idr.func @root() -> i64 {"; print "    %zero = arith.constant 0 : i64"; print "    return %zero : i64"; print "  }"; print "}" }' > %t.long.mlir
 // RUN: idris-mlir-opt %t.long.mlir -o %t.text.mlir
 // RUN: FileCheck %s --check-prefix=LONG < %t.text.mlir
 // RUN: idris-mlir-opt %t.text.mlir -o %t.again.mlir
@@ -33,8 +33,11 @@
 // PRINT-NEXT: constant !idr.box<!List> #idr.con<!List, @Nil, []>
 // ONERUN: error: expects @Cons of one cell to run along no field, got field 1
 // LONG: #idr.con<!List, @Cons, [0], [1], [2], {{.*}}, [9998], [9999, #idr.con<!List, @Nil, []>] along 1>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @run root(@root) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @run root(@root) stage(first) types #types {
   idr.func @same() -> (!idr.box<!List>, !idr.box<!List>) {
     %cells = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [1, #idr.con<!List, @Cons, [2, #idr.con<!List, @Cons, [3, #idr.con<!List, @Cons, [4, #idr.con<!List, @Nil, []>]>]>]>]>
     %run = idr.constant !idr.box<!List> #idr.con<!List, @Cons, [1], [2], [3], [4, #idr.con<!List, @Nil, []>] along 1>

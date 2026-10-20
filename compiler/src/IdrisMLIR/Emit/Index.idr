@@ -23,9 +23,10 @@ public export
 record Index where
   constructor MkIndex
   fns : SortedMap FnId TFn
-  ||| The body of each data instance, by its type's name, in the program's
-  ||| order: the module's table (MLIR.Bytecode.newWriter).
-  table : List (String, IdrSum MlirType)
+  ||| The body of each data instance, by its type's name, in name order:
+  ||| the program's table of data types (`#idr.types`), as the dialect
+  ||| holds it.
+  table : List (String, IdrSum MlirType MlirAttr)
 
 ------------------------------------------------------------------------------
 -- Types
@@ -65,14 +66,14 @@ mutual
 ||| order, each field held as it binds, each playing the part the shape
 ||| gives it, and the instance it is of. None is a label, which only
 ||| defunctionalization makes.
-body : Data -> IdrSum MlirType
+body : Data -> IdrSum MlirType MlirAttr
 body d = case d.shape of
   PlainSum cs => MkIdrSum Plain (map (ctor CtorRole.Plain) cs) inst
   InPlaceSum cs => MkIdrSum InPlace (map (ctor CtorRole.Plain) cs) inst
   BaseListSum nil cons => MkIdrSum BaseList [ctor ListNil (0 ** nil), ctor ListCons (2 ** cons)] inst
   where
-    inst : Maybe (String, List String)
-    inst = Just (d.key.origin, argumentsText d.key.arguments)
+    inst : Maybe MlirAttr
+    inst = Just (idr (InstanceAttr d.key.origin (argumentsText d.key.arguments)))
     ctor : CtorRole -> (k ** Con k) -> IdrCtor MlirType
     ctor r (_ ** c) = MkIdrCtor c.name (toList (map (\(MkBinder q t) => heldType q t) c.fields)) r
 
@@ -81,7 +82,7 @@ export
 index : Source -> Index
 index src =
   MkIndex (fromList (map (\f => (f.id, f)) (src.root :: src.others)))
-          (map (\d => (d.id.name, body d)) src.datas)
+          (sortBy (\a, b => compare (fst a) (fst b)) (map (\d => (d.id.name, body d)) src.datas))
 
 ||| The names a report gives the functions and data instances of a term:
 ||| their symbols.

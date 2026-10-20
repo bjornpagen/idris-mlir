@@ -45,7 +45,7 @@
 // STDIN: \0021
 // STDIN: \0022
 // STDIN:
-idr.program @"string-offsets" root(@Prog.main) stage(first) {
+idr.program @"string-offsets" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @offsets() -> (i32, i32, i32, i32, i32, i32, i32,
                            !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str) {
     %s = idr.constant !idr.str "h\C3\A9llo"

@@ -4,7 +4,7 @@
 // says, and the linearity verifier counts its one use as any linear
 // value's. It is applied as it is: the apply reads its carrier.
 
-idr.program @"closure-linear" root(@root) stage(higher) {
+idr.program @"closure-linear" root(@root) stage(higher) types #idr.types<> {
   idr.func @g(%s: !idr.lin<!idr.str>, %n: i64) -> i64 {
     idr.crash "no body"
     ub.unreachable
@@ -23,7 +23,7 @@ idr.program @"closure-linear" root(@root) stage(higher) {
 
 // -----
 
-idr.program @"closure-linear" root(@root) stage(higher) {
+idr.program @"closure-linear" root(@root) stage(higher) types #idr.types<> {
   idr.func @g(%s: !idr.lin<!idr.str>, %n: i64) -> i64 {
     idr.crash "no body"
     ub.unreachable

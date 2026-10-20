@@ -32,7 +32,7 @@
 // STDIN: \0007
 // STDIN: \0010
 // STDIN:
-idr.program @"fold-nonzero" root(@Prog.main) stage(first) {
+idr.program @"fold-nonzero" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @proving(%x: i64, %b: !idr.big) -> (i64, !idr.big) {
     %seven = arith.constant 7 : i64
     %g = idr.check.nonzero %seven, "division by zero" : i64

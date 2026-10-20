@@ -14,8 +14,11 @@
 // (the differential); no property here held before the pass, and each list
 // of labels with one changed fails after it, so each sum is exactly its
 // labels.
-!Box = !idr.data<"Box", plain [@Box(!idr.fn<(i64) -> (i64)>)]>
-idr.program @"many-labels" root(@Main.main) stage(higher) {
+!Box = !idr.data<"Box">
+#types = #idr.types<
+  "Box" = plain [@Box(!idr.fn<(i64) -> (i64)>)]
+>
+idr.program @"many-labels" root(@Main.main) stage(higher) types #types {
   idr.func @zz(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }

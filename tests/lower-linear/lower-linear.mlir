@@ -9,7 +9,7 @@
 // written, exits with the 7 it passes through, as the reference at the end
 // (REF) does (%differential, on the one input, none, since it reads none).
 // STDIN:
-idr.program @linear root(@Prog.main) stage(owned) {
+idr.program @linear root(@Prog.main) stage(owned) types #idr.types<> {
   idr.func @pass(%x: !idr.lin<i64>) -> i64 {
     %v = idr.lin.use %x : !idr.lin<i64>
     return %v : i64
@@ -22,7 +22,7 @@ idr.program @linear root(@Prog.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Prog.main) stage(higher) {
+// REF: idr.program @ref root(@Prog.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @Prog.main() -> i64 {
 // REF:     %c = arith.constant 7 : i64
 // REF:     return %c : i64

@@ -52,9 +52,13 @@
 
 // A sum of closures as idr-defunctionalize makes it: one constructor per
 // label, naming its function.
-!IORes = !idr.data<"IORes", plain [@MkIORes(i64, !idr.world)]>
-!fn$0 = !idr.data<"fn$0", closures [@divides() label @divides, @pure() label @pure]>
-idr.program @"idr-effects" root(@passes_world) stage(first) {
+!IORes = !idr.data<"IORes">
+!fn$0 = !idr.data<"fn$0">
+#types = #idr.types<
+  "IORes" = plain [@MkIORes(i64, !idr.world)],
+  "fn$0" = closures [@divides() label @divides, @pure() label @pure]
+>
+idr.program @"idr-effects" root(@passes_world) stage(first) types #types {
   idr.func @pure(%x: i64) -> i64 attributes {total} {
     %r = arith.addi %x, %x : i64
     return %r : i64

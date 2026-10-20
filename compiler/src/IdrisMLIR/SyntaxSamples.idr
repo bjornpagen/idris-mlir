@@ -72,18 +72,19 @@ dataT = idr (DataType "T")
 ||| Each kind of sum the frontend's table holds beyond a plain one and
 ||| base's list: a sum rebuilt in place. Only defunctionalization makes the
 ||| others, never in the table.
-kinds : List (String, IdrSum MlirType)
+kinds : List (String, IdrSum MlirType MlirAttr)
 kinds = [("Pairs", MkIdrSum InPlace [plainCtor "P" [idr (QType One Plain i64 Nothing)]] Nothing)]
 
-||| The bodies of the data types the samples name, the module's table.
-table : List (String, IdrSum MlirType)
+||| The bodies of the data types the samples name, the program's table, in
+||| name order.
+table : List (String, IdrSum MlirType MlirAttr)
 table =
   ( "List[Nat]"
   , MkIdrSum BaseList [ MkIdrCtor "Nil" [] CtorRole.ListNil
                       , MkIdrCtor "Cons" [idr NatType, natList] CtorRole.ListCons ]
-             (Just ("Prelude.Types.List", ["Prelude.Types.Nat"])) )
-  :: ("T", MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)
+             (Just (idr (InstanceAttr "Prelude.Types.List" ["Prelude.Types.Nat"]))) )
   :: kinds
+  ++ [("T", MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)]
 
 int : Integer -> MlirAttr
 int n = IntegerAttr n i64
@@ -125,7 +126,8 @@ types =
 
 attrs : List MlirAttr
 attrs =
-  [ idr (BigAttr (-12345678901234567890))
+  [ idr (DataTableAttr table)
+  , idr (BigAttr (-12345678901234567890))
   , idr (ClosureAttr "g" [int 1, StringAttr "two"])
   , maybeNat
   , idr (RuleAttr Rule.Cycle)
@@ -328,12 +330,12 @@ containers : List Container
 containers =
   [ (At noLoc, \body => { attributes := named "sample.t" (map TypeAttr types) ++ named "sample.a" attrs }
                           (Builtin.moduleOp body))
-  , (At noLoc, Idr.programOp "samples" "root" Stage.Higher) ]
+  , (At noLoc, Idr.programOp "samples" "root" Stage.Higher (idr (DataTableAttr table))) ]
 
 ||| Writes the samples to `path`.
 writeSamples : String -> IO ()
 writeSamples path = do
-  Right w <- newWriter table
+  Right w <- newWriter
     | Left e => die ("syntax-samples: " ++ e)
   for_ [sample, callee, thunk, nothing, root] $ \s => do
     Right () <- writeTopLevel w s

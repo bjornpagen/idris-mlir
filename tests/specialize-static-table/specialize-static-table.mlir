@@ -10,8 +10,11 @@
 // The differential holds the optimized program to the one as written on
 // every input byte: indices past the table's end read 0, and 0 sums
 // nothing.
-!Table = !idr.data<"Table", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"Table">>) cons]>
-idr.program @"static-table" root(@Main.main) stage(first) {
+!Table = !idr.data<"Table">
+#types = #idr.types<
+  "Table" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"Table">>) cons]
+>
+idr.program @"static-table" root(@Main.main) stage(first) types #types {
   idr.func @at(%t: !idr.box<!Table>, %i: i64) -> i64 attributes {total} {
     %r = idr.match %t : !idr.box<!Table> -> (i64) {
     case @Nil() {

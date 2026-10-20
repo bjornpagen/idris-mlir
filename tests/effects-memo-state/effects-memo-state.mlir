@@ -17,8 +17,11 @@
 // STDIN: \0377
 // STDIN:
 
-!Lazy = !idr.data<"Lazy", memo [@twice(i64) label @twice, @running() running, @forced(i64) forced]>
-idr.program @"memo-state" root(@Prog.main) stage(first) {
+!Lazy = !idr.data<"Lazy">
+#types = #idr.types<
+  "Lazy" = memo [@twice(i64) label @twice, @running() running, @forced(i64) forced]
+>
+idr.program @"memo-state" root(@Prog.main) stage(first) types #types {
   idr.func @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
@@ -43,7 +46,7 @@ idr.program @"memo-state" root(@Prog.main) stage(first) {
     return %w6 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Prog.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Prog.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %c, %w1 = idr.io.get_byte %w
 // REFERENCE:     %x = arith.extui %c : i32 to i64

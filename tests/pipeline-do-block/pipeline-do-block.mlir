@@ -16,10 +16,15 @@
 // and the reference at the end (REF), a loop, do (%differential, on the
 // one input, none, since it reads none).
 // STDIN:
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
-idr.program @"do-block" root(@Main.main) stage(higher) {
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+!IO = !idr.data<"IO">
+#types = #idr.types<
+  "IO" = plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)],
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @"do-block" root(@Main.main) stage(higher) types #types {
   idr.func @put(%s: !idr.str, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_str %s, %w
     %u = idr.con !Unit @MkUnit()
@@ -237,7 +242,7 @@ idr.program @"do-block" root(@Main.main) stage(higher) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Main.main) stage(higher) {
+// REF: idr.program @ref root(@Main.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @count(%k: i64, %w: !idr.world) -> !idr.world {
 // REF:     %w1 = idr.io.put_sint %k, %w : i64
 // REF:     %nl = arith.constant 10 : i32

@@ -21,8 +21,11 @@
 // STDIN: \0377
 // STDIN:
 
-!Lazy = !idr.data<"Lazy", memo [@divides(i64) label @divides, @running() running, @forced(i64) forced]>
-idr.program @"memo-label" root(@Prog.main) stage(first) {
+!Lazy = !idr.data<"Lazy">
+#types = #idr.types<
+  "Lazy" = memo [@divides(i64) label @divides, @running() running, @forced(i64) forced]
+>
+idr.program @"memo-label" root(@Prog.main) stage(first) types #types {
   idr.func @divides(%x: i64) -> i64 attributes {total} {
     %y = idr.check.nonzero %x, "division by zero" : i64
     %r = idr.divs %x, %y : i64
@@ -78,7 +81,7 @@ idr.program @"memo-label" root(@Prog.main) stage(first) {
     return %w4 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Prog.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Prog.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %c, %w1 = idr.io.get_byte %w
 // REFERENCE:     %w2 = idr.match_lit %c : i32 -> (!idr.world) {

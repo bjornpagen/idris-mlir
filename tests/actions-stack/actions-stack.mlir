@@ -8,10 +8,15 @@
 // changes the module. The root runs every function on the byte it reads,
 // and the program prints with the cells on the stack what it printed with
 // them on the heap, on every byte.
-!Big = !idr.data<"Big", plain [@Big(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
-!Huge = !idr.data<"Huge", plain [@Huge(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @budget root(@Prog.main) stage(first) {
+!Big = !idr.data<"Big">
+!Huge = !idr.data<"Huge">
+!List = !idr.data<"List">
+#types = #idr.types<
+  "Big" = plain [@Big(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)],
+  "Huge" = plain [@Huge(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)],
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @budget root(@Prog.main) stage(first) types #types {
   idr.func @firstBig(%b: !idr.box<!Big>) -> i64 {
     %x = idr.field %b : !idr.box<!Big> @Big[0] -> i64
     return %x : i64

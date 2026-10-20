@@ -31,9 +31,13 @@
 // END: [ÿé€😀] [ÿé€😀] 4
 // END-NEXT: [ab-ÿ] [ab-ÿ] 4
 // ERR: idris-mlir: done at {{.*}}e2e-put-list.mlir:{{[0-9]+:[0-9]+}}
-!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
-!Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
-idr.program @"put-list" root(@Prog.main) stage(higher) {
+!Chars = !idr.data<"Chars">
+!Strs = !idr.data<"Strs">
+#types = #idr.types<
+  "Chars" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons],
+  "Strs" = list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]
+>
+idr.program @"put-list" root(@Prog.main) stage(higher) types #types {
   idr.func @pick(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 121 {

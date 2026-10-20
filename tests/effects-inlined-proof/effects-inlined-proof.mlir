@@ -23,7 +23,7 @@
 // STDIN: \0002
 // STDIN: \0377
 // STDIN:
-idr.program @"inlined-proof" root(@Main.main) stage(first) {
+idr.program @"inlined-proof" root(@Main.main) stage(first) types #idr.types<> {
   idr.func @proved(%x: i64) -> i64 attributes {total} {
     %r = arith.addi %x, %x : i64
     return %r : i64
@@ -107,7 +107,7 @@ idr.program @"inlined-proof" root(@Main.main) stage(first) {
     return %w2 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@Main.main) stage(first) {
+// REFERENCE: idr.program @reference root(@Main.main) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @Main.main(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %c, %w1 = idr.io.get_byte %w
 // REFERENCE:     %z = arith.constant 0 : i64

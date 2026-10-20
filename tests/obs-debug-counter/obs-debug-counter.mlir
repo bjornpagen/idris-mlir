@@ -26,7 +26,7 @@
 // STDIN: \0002
 // STDIN: \0377
 // STDIN:
-idr.program @"debug-counter" root(@Main.main) stage(higher) {
+idr.program @"debug-counter" root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

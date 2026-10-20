@@ -33,9 +33,13 @@
 // use is still built (@shared, @packed_and_kept, @cell_kept).
 
 // "n = " ++ show n ++ "\n": three writes.
-!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
-!Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
-idr.program @"output-fusion" root(@root) stage(first) {
+!Chars = !idr.data<"Chars">
+!Strs = !idr.data<"Strs">
+#types = #idr.types<
+  "Chars" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons],
+  "Strs" = list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]
+>
+idr.program @"output-fusion" root(@root) stage(first) types #types {
   idr.func @append(%n: i64, %w: !idr.world) -> !idr.world {
     %a = idr.constant !idr.str "n = "
     %nl = idr.constant !idr.str "\n"

@@ -10,7 +10,7 @@
 // The root thaws the constant twice, and the program prints after the pass
 // what it printed before: 99 twice, the second thaw starting again from the
 // constant.
-idr.program @"release-constant" root(@root) stage(first) {
+idr.program @"release-constant" root(@root) stage(first) types #idr.types<> {
   idr.func @thawed() -> i64 {
     %c0 = arith.constant 0 : index
     %c = arith.constant dense<[1, 2, 3]> : tensor<3xi64>

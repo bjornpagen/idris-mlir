@@ -17,9 +17,13 @@
 // The input byte sets the list's length, 0 to 7, so map and sum run on
 // the empty list and on cells; every run prints what it printed before
 // counting and leaves no cell live.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-!Two = !idr.data<"Two", plain [@Two(!idr.str, !idr.str)]>
-idr.program @counts root(@root) stage(first) {
+!L = !idr.data<"L">
+!Two = !idr.data<"Two">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons],
+  "Two" = plain [@Two(!idr.str, !idr.str)]
+>
+idr.program @counts root(@root) stage(first) types #types {
   idr.func @map(%l: !idr.box<!L>) -> !idr.box<!L> {
     %n = idr.constant !idr.box<!L> #idr.con<!L, @N, []>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {

@@ -12,7 +12,7 @@
 // No label reaches @both, so nothing runs it and no input could tell; the
 // property did not hold before the pass, and a list naming a label fails
 // after it.
-idr.program @"curried-apply-poison" root(@Prog.main) stage(higher) {
+idr.program @"curried-apply-poison" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @both(%f: !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>, %x: i64, %y: i64) -> i64 {
     %g = idr.apply %f(%x) : !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>
     %r = idr.apply %g(%y) : !idr.fn<(i64) -> (i64)>

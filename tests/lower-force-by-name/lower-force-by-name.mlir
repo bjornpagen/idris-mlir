@@ -14,8 +14,11 @@
 // with no cell, does (%differential, on the one input, none, since it
 // reads none).
 // STDIN:
-!Loud = !idr.data<"Loud", memo [@shout(!idr.str) label @shout by_name, @running() running, @forced(i64) forced]>
-idr.program @"force-by-name" root(@Main.main) stage(owned) {
+!Loud = !idr.data<"Loud">
+#types = #idr.types<
+  "Loud" = memo [@shout(!idr.str) label @shout by_name, @running() running, @forced(i64) forced]
+>
+idr.program @"force-by-name" root(@Main.main) stage(owned) types #types {
   idr.func @shout(%s: !idr.own<!idr.str>) -> i64 attributes {total} {
     %w = idr.world.new
     %v = idr.borrow %s : !idr.own<!idr.str>
@@ -56,7 +59,7 @@ idr.program @"force-by-name" root(@Main.main) stage(owned) {
   }
 }
 // The reference:
-// REF: idr.program @ref root(@Main.main) stage(higher) {
+// REF: idr.program @ref root(@Main.main) stage(higher) types #idr.types<> {
 // REF:   idr.func @loud(%w: !idr.world) -> !idr.world {
 // REF:     %l = arith.constant 108 : i32
 // REF:     %o = arith.constant 111 : i32

@@ -8,7 +8,7 @@
 // With every action skipped the pass is the identity, and with none it
 // changes the module; the program, counted, prints after the pass what it
 // printed before, on every byte.
-idr.program @descending root(@Main.main) stage(first) {
+idr.program @descending root(@Main.main) stage(first) types #idr.types<> {
   idr.func @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (i1) {
     case #idr.big<0> {

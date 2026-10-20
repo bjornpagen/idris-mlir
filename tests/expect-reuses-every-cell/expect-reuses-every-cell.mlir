@@ -2,8 +2,11 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=reuses-every-cell=@drop -verify-diagnostics -o /dev/null
 // The cell a take yields is recycled (@rebuild), or freed: @drop drops its
 // token, and the cell goes.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"reuses-every-cell" root(@Prog.main) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"reuses-every-cell" root(@Prog.main) stage(owned) types #types {
   idr.func @rebuild(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {

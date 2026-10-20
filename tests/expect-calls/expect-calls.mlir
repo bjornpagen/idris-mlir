@@ -4,7 +4,7 @@
 // calls @g, then @h on what @g gave, each once and each read. @again calls
 // @g twice on one operand and reads nothing @h gives; @through calls only
 // through a closure it is given.
-idr.program @calls root(@root) stage(higher) {
+idr.program @calls root(@root) stage(higher) types #idr.types<> {
   idr.func @g(%x: i64) -> i64 {
     %y = arith.addi %x, %x : i64
     return %y : i64

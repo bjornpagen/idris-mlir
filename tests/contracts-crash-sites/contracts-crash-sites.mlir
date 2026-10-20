@@ -8,7 +8,7 @@
 // lets every function and call crash, so the module verifies; @f gains a
 // place that may crash, and may crash, so both contracts name the pass
 // there.
-idr.program @"crash-sites" root(@root) stage(first) {
+idr.program @"crash-sites" root(@root) stage(first) types #idr.types<> {
   // expected-error-re @below {{contract effects-not-widened broken by test-idr-break-contract{{.*}}@f}}
   // expected-error-re @below {{contract crash-sites-not-added broken by test-idr-break-contract{{.*}}: @f}}
   idr.func @f(%x: i64) -> i64 attributes {total} {

@@ -32,7 +32,7 @@
 // input, 0 crashing in @check and the rest printing, the program after
 // upstream canonicalize and cse, and after the optimizer, prints and exits
 // as the program as written does (%differential).
-idr.program @"pure-call" root(@Main.main) stage(first) {
+idr.program @"pure-call" root(@Main.main) stage(first) types #idr.types<> {
   idr.func @unread(%n: i64) -> i64 attributes {total, no_inline} {
     %r = arith.muli %n, %n : i64
     return %r : i64

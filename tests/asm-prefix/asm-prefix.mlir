@@ -21,8 +21,11 @@
 // CHECK: {{^ *}}%{{[^ ]+}} = call @inc(
 // CHECK: {{^ *}}return %
 
-!M = !idr.data<"M", plain [@Nothing(), @Just(i64)]>
-idr.program @prefix root(@root) stage(higher) {
+!M = !idr.data<"M">
+#types = #idr.types<
+  "M" = plain [@Nothing(), @Just(i64)]
+>
+idr.program @prefix root(@root) stage(higher) types #types {
   idr.func @inc(%x: i64) -> i64 {
     return %x : i64
   }

@@ -3,7 +3,7 @@
 // transfer op is an array a world orders of one dimension of i8, which ODS
 // checks.
 
-idr.program @"byte-buffer" root(@root) stage(first) {
+idr.program @"byte-buffer" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%buf: memref<?xi32, #idr.world>, %at: i64, %w: !idr.world) -> (i16, !idr.world) {
     // expected-error @+1 {{but got 'memref<?xi32, #idr.world>'}}
     %v, %w1 = idr.io.buffer_load %buf[%at], %w : memref<?xi32, #idr.world> -> i16
@@ -18,7 +18,7 @@ idr.program @"byte-buffer" root(@root) stage(first) {
 
 // -----
 
-idr.program @"byte-buffer" root(@root) stage(first) {
+idr.program @"byte-buffer" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%buf: memref<?xi8, #idr.world>, %at: i64, %w: !idr.world) -> (i16, !idr.world) {
     %v, %w1 = idr.io.buffer_load %buf[%at], %w : memref<?xi8, #idr.world> -> i16
     return %v, %w1 : i16, !idr.world

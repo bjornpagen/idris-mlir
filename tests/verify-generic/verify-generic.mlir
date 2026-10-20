@@ -2,8 +2,11 @@
 // The verifier errors that the custom syntax cannot produce, in the generic
 // form, where the default region is first and a case is a tag.
 
-!T = !idr.data<"T", plain [@A()]>
-idr.program @generic root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A()]
+>
+idr.program @generic root(@root) stage(first) types #types {
   idr.func @f(%v: !T) {
     // expected-error @+1 {{expects one key per case region}}
     "idr.match"(%v) <{cases = array<i32: 0>}> ({
@@ -25,8 +28,11 @@ idr.program @generic root(@root) stage(first) {
 
 // -----
 
-!T = !idr.data<"T", plain [@A()]>
-idr.program @generic root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A()]
+>
+idr.program @generic root(@root) stage(first) types #types {
   idr.func @f(%v: !T) {
     // expected-error @+1 {{names constructor 1 of "T", which has 1}}
     "idr.match"(%v) <{cases = array<i32: 1>}> ({
@@ -46,8 +52,11 @@ idr.program @generic root(@root) stage(first) {
 
 // -----
 
-!T = !idr.data<"T", plain [@A()]>
-idr.program @generic root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A()]
+>
+idr.program @generic root(@root) stage(first) types #types {
   idr.func @f(%v: !T) {
     // expected-error @+1 {{expects a default region that takes the scrutinee back at its type}}
     "idr.match"(%v) <{cases = array<i32: 0>}> ({
@@ -67,7 +76,7 @@ idr.program @generic root(@root) stage(first) {
 
 // -----
 
-idr.program @generic root(@root) stage(first) {
+idr.program @generic root(@root) stage(first) types #idr.types<> {
   idr.func @f(%v: i64) {
     // expected-error @+1 {{expects case regions without arguments}}
     "idr.match_lit"(%v) <{cases = [0]}> ({
@@ -88,7 +97,7 @@ idr.program @generic root(@root) stage(first) {
 
 // -----
 
-idr.program @generic root(@root) stage(first) {
+idr.program @generic root(@root) stage(first) types #idr.types<> {
   idr.func @f(%v: i64) {
     // expected-error @+1 {{has a key 0 : i32 that is not a literal of 'i64'}}
     "idr.match_lit"(%v) <{cases = [0 : i32]}> ({
@@ -108,7 +117,7 @@ idr.program @generic root(@root) stage(first) {
 
 // -----
 
-idr.program @generic root(@root) stage(first) {
+idr.program @generic root(@root) stage(first) types #idr.types<> {
   idr.func @f(%v: i64) {
     // expected-error @+1 {{expects a non-empty block}}
     "idr.match_lit"(%v) <{cases = [0]}> ({
@@ -129,8 +138,11 @@ idr.program @generic root(@root) stage(first) {
 // -----
 
 // A constant names a constructor of its own type's body.
-!T = !idr.data<"T", plain [@C()]>
-idr.program @generic root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@C()]
+>
+idr.program @generic root(@root) stage(first) types #types {
   idr.func @f() {
     // expected-error @+1 {{@D}}
     %c = idr.constant !T #idr.con<!T, @D, []>
@@ -151,8 +163,11 @@ idr.program @generic root(@root) stage(first) {
 // match whose case region takes no argument, holds its terminator, and is
 // keyed by a literal of the scrutinee's type; a constant of the
 // constructor its type has.
-!T = !idr.data<"T", plain [@C()]>
-idr.program @generic root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@C()]
+>
+idr.program @generic root(@root) stage(first) types #types {
   idr.func @f(%v: !T) {
     "idr.match"(%v) <{cases = array<i32: 0>}> ({
     ^bb0(%d: !T):

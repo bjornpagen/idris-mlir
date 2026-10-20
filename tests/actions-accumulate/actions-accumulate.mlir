@@ -8,8 +8,11 @@
 // changes the module. The root runs every function on the natural the
 // byte it reads is, and the program prints after the pass what it printed
 // before, on every byte.
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @accumulate root(@root) stage(first) {
+!List = !idr.data<"List">
+#types = #idr.types<
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]
+>
+idr.program @accumulate root(@root) stage(first) types #types {
 
   idr.func @length(%xs: !idr.box<!List>) -> !idr.nat attributes {total} {
     %one = idr.constant !idr.nat #idr.big<1>

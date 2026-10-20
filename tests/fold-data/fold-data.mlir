@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --canonicalize '--idr-expect=holds=returns=@constant_con:(#idr.con<!idr.data<"S",plain[@A(),@B(i64,!idr.str)]>,@B,[1,"x"]>)/(#idr.con<!idr.data<"L",list[@Nil()nil,@Cons(i64,!idr.box<!idr.data<"L">>)cons]>,@Cons,[2,#idr.con<!idr.data<"L",list[@Nil()nil,@Cons(i64,!idr.box<!idr.data<"L">>)cons]>,@Nil,[]>]>),returns=@known:1/_/"y",returns=@of_constant:7/1/(#idr.con<!idr.data<"L",list[@Nil()nil,@Cons(i64,!idr.box<!idr.data<"L">>)cons]>,@Nil,[]>),returns=@unknown:_/_/0,returns=@cse:#idr.big<12345678901234567890>/#idr.big<12345678901234567890>,folded=@folded' -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize '--idr-expect=holds=returns=@constant_con:(#idr.con<!idr.data<"S">,@B,[1,"x"]>)/(#idr.con<!idr.data<"L">,@Cons,[2,#idr.con<!idr.data<"L">,@Nil,[]>]>),returns=@known:1/_/"y",returns=@of_constant:7/1/(#idr.con<!idr.data<"L">,@Nil,[]>),returns=@unknown:_/_/0,returns=@cse:#idr.big<12345678901234567890>/#idr.big<12345678901234567890>,folded=@folded' -o /dev/null
 // RUN: sed 's/idr.call @folded(/idr.call @at_run_time(/' %s > %t.run.mlir
 // RUN: %differential %t.run.mlir %s
 // RUN: sed 's/\[-1 : i64, "y"\]/[-2 : i64, "y"]/' %s > %t.wrong.mlir
@@ -30,11 +30,17 @@
 // STDIN: \0003
 // STDIN: \0004
 // STDIN:
-!S = !idr.data<"S", plain [@A(), @B(i64, !idr.str)]>
-!One = !idr.data<"One", plain [@Only(i64)]>
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-!P = !idr.data<"P", plain [@MkP(i64, !idr.str)]>
-idr.program @data root(@Prog.main) stage(first) {
+!S = !idr.data<"S">
+!One = !idr.data<"One">
+!L = !idr.data<"L">
+!P = !idr.data<"P">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons],
+  "One" = plain [@Only(i64)],
+  "P" = plain [@MkP(i64, !idr.str)],
+  "S" = plain [@A(), @B(i64, !idr.str)]
+>
+idr.program @data root(@Prog.main) stage(first) types #types {
   idr.func @constant_con() -> (!S, !idr.box<!L>) {
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64

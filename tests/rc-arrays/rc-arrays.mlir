@@ -13,8 +13,11 @@
 // one the program means what it meant before counting and leaves no cell
 // live when it returns.
 
-!Opt = !idr.data<"Opt", plain [@None(), @Some(!idr.str)]>
-idr.program @arrays root(@root) stage(first) {
+!Opt = !idr.data<"Opt">
+#types = #idr.types<
+  "Opt" = plain [@None(), @Some(!idr.str)]
+>
+idr.program @arrays root(@root) stage(first) types #types {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c, %w0 = idr.io.get_byte %w
     %b = arith.extui %c : i32 to i64

@@ -10,9 +10,13 @@
 // it and failing on one that does not: @plain only computes; the others
 // each take a value apart, read a field, build a value, force, apply,
 // crash, or call @leaf on what they are given or on a constant.
-!Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
-!Pair = !idr.data<"Pair", plain [@MkPair(i64, i64)]>
-idr.program @does root(@root) stage(higher) {
+!Maybe = !idr.data<"Maybe">
+!Pair = !idr.data<"Pair">
+#types = #idr.types<
+  "Maybe" = plain [@Nothing(), @Just(i64)],
+  "Pair" = plain [@MkPair(i64, i64)]
+>
+idr.program @does root(@root) stage(higher) types #types {
   // expected-error @below {{expected matches: }}
   // expected-error @below {{expected forces: }}
   // expected-error @below {{expected builds: }}

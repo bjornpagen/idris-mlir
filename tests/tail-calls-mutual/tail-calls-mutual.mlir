@@ -14,9 +14,13 @@
 // CHECK: 19999999
 // CHECK-NEXT: 10000000
 // CHECK-NEXT: 10000008
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!Nine = !idr.data<"Nine", plain [@Nine(i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
-idr.program @mutual root(@Prog.main) stage(higher) {
+!Unit = !idr.data<"Unit">
+!Nine = !idr.data<"Nine">
+#types = #idr.types<
+  "Nine" = plain [@Nine(i64, i64, i64, i64, i64, i64, i64, i64, i64)],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @mutual root(@Prog.main) stage(higher) types #types {
   idr.func @a(%n: i64, %acc: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

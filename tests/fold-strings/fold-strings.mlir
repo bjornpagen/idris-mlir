@@ -31,9 +31,13 @@
 // STDIN: \0005
 // STDIN: \0006
 // STDIN:
-!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
-!Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
-idr.program @strings root(@Prog.main) stage(first) {
+!Chars = !idr.data<"Chars">
+!Strs = !idr.data<"Strs">
+#types = #idr.types<
+  "Chars" = list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons],
+  "Strs" = list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]
+>
+idr.program @strings root(@Prog.main) stage(first) types #types {
   idr.func @folds() -> (!idr.str, !idr.str) {
     %cs = idr.constant !idr.box<!Chars> #idr.con<!Chars, @Cons, [104 : i32, #idr.con<!Chars, @Cons, [105 : i32, #idr.con<!Chars, @Nil, []>]>]>
     %ss = idr.constant !idr.box<!Strs> #idr.con<!Strs, @Cons, ["a", #idr.con<!Strs, @Cons, ["b", #idr.con<!Strs, @Nil, []>]>]>

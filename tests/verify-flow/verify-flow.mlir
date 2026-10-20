@@ -4,7 +4,7 @@
 // region-branch and select-like interfaces, and the verifier refuses one
 // that does not, where it is written: no pass meets a closure whose labels
 // it cannot follow. builtin.unrealized_conversion_cast declares nothing.
-idr.program @flow root(@Main.main) stage(higher) {
+idr.program @flow root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
@@ -30,7 +30,7 @@ idr.program @flow root(@Main.main) stage(higher) {
 // -----
 
 // The same for a closure.
-idr.program @flow root(@root) stage(higher) {
+idr.program @flow root(@root) stage(higher) types #idr.types<> {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
@@ -56,7 +56,7 @@ idr.program @flow root(@root) stage(higher) {
 // without its outermost grade: a label that enters a key always fits it.
 // An evaluated suspension's value flows into the forced state of its lazy
 // type, so the two must be one carrier.
-idr.program @flow root(@root) stage(higher) {
+idr.program @flow root(@root) stage(higher) types #idr.types<> {
   idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
@@ -81,7 +81,7 @@ idr.program @flow root(@root) stage(higher) {
 // suspensions, and of two closures, written as a select, which declares
 // that its result is either operand, and as a match, whose regions declare
 // their flow; and a delay into the lazy type of the closure's own carrier.
-idr.program @flow root(@root) stage(higher) {
+idr.program @flow root(@root) stage(higher) types #idr.types<> {
   idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64

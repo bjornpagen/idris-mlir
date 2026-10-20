@@ -8,8 +8,11 @@
 // sets the list's length, 0 to 3, so bump and the root's match run on the
 // empty list and on cells, and every run prints what it printed before
 // counting and leaves no cell live.
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @returned root(@root) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @returned root(@root) stage(first) types #types {
   idr.func @pick(%a: !idr.box<!L>, %b: i64) -> !idr.box<!L> {
     return %a : !idr.box<!L>
   }

@@ -70,11 +70,13 @@ def Idr_Stage : I32EnumAttr<"Stage", "what the functions of a program may hold",
 // or printed beside each other.
 def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlock,
     NoTerminator, Symbol, SymbolName, HasParent<"::mlir::ModuleOp">]> {
-  let summary = "a closed program: its functions, its root and its stage";
-  let arguments = (ins SymbolNameAttr:$sym_name, FlatSymbolRefAttr:$root, Idr_Stage:$stage);
+  let summary = "a closed program: its functions, its root, its stage and its data types";
+  let arguments = (ins SymbolNameAttr:$sym_name, FlatSymbolRefAttr:$root, Idr_Stage:$stage,
+                       Idr_DataTableAttr:$types);
   let regions = (region SizedRegion<1>:$bodyRegion);
   let assemblyFormat = [{
-    $sym_name `root` `(` $root `)` `stage` `(` $stage `)` attr-dict-with-keyword $bodyRegion
+    $sym_name `root` `(` $root `)` `stage` `(` $stage `)` `types` $types
+    attr-dict-with-keyword $bodyRegion
   }];
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
@@ -84,6 +86,9 @@ def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlo
     OpBuilder<(ins "::llvm::StringRef":$name, "::llvm::StringRef":$root, "::idr::Stage":$stage)>
   ];
   let extraClassDeclaration = [{
+    // Declares `data`, a data type with its body set, among the program's
+    // data types (DataType::define, the one caller).
+    void declare(::idr::DataType data);
     // The root, found in the program's own table, while it is an idr.func:
     // null once the program is lowered, when the root is upstream's
     // function that getRoot names.

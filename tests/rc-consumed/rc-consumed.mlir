@@ -13,8 +13,11 @@
 // right subtree is a node, so each of ins's three paths is run, and each
 // run prints the tree's sum, as it did before counting, and leaves no cell
 // live.
-!T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
-idr.program @consumed root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]
+>
+idr.program @consumed root(@root) stage(first) types #types {
   idr.func @ins(%t: !idr.box<!T>, %k: i64) -> !idr.box<!T> {
     %leaf = idr.constant !idr.box<!T> #idr.con<!T, @L, []>
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!T>) {

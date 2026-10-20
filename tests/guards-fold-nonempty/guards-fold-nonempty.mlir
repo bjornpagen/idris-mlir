@@ -30,7 +30,7 @@
 // STDIN: \0005
 // STDIN: \0006
 // STDIN:
-idr.program @"fold-nonempty" root(@Prog.main) stage(first) {
+idr.program @"fold-nonempty" root(@Prog.main) stage(first) types #idr.types<> {
   idr.func @proving(%c: i32, %s: !idr.str, %x: i64) -> (i32, !idr.str, !idr.str, !idr.str) {
     %t = idr.str.cons %c, %s
     %g = idr.check.nonempty %t, "head of an empty string" : !idr.str

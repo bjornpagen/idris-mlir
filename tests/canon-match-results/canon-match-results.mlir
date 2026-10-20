@@ -18,8 +18,11 @@
 // makes hold did not hold before it; @unused still matches, and @dead may
 // still crash, once.
 
-!B = !idr.data<"B", plain [@F(), @T()]>
-idr.program @"match-results" root(@root) stage(first) {
+!B = !idr.data<"B">
+#types = #idr.types<
+  "B" = plain [@F(), @T()]
+>
+idr.program @"match-results" root(@root) stage(first) types #types {
   idr.func @unused(%b: !B, %x: i64, %y: i64) -> i64 {
     %r:2 = idr.match %b : !B -> (i64, i64) {
     case @F() {

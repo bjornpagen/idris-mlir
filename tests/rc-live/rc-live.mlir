@@ -15,8 +15,11 @@
 // cells live: the differential names it on the first input, the empty
 // one, which reads as 0xff, lists of 8 and 0 cells.
 // LEAKS: differential: {{.*}}leaks.mlir leaves {{[1-9][0-9]*}} cells live on the empty input
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @live root(@Prog.main) stage(higher) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @live root(@Prog.main) stage(higher) types #types {
   idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {

@@ -28,7 +28,7 @@
 // FUNCTIONS:   %c = arith.constant 42 : i64
 // FUNCTIONS:   return %c : i64
 // FUNCTIONS: }
-idr.program @"lowered-mixed" root(@Prog.main) stage(higher) {
+idr.program @"lowered-mixed" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

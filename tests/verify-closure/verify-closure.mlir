@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 
-idr.program @closure root(@root) stage(higher) {
+idr.program @closure root(@root) stage(higher) types #idr.types<> {
   idr.func @g(%a: i64, %b: f64) -> i64 {
     idr.crash "no body"
     ub.unreachable
@@ -19,7 +19,7 @@ idr.program @closure root(@root) stage(higher) {
 
 // -----
 
-idr.program @closure root(@root) stage(higher) {
+idr.program @closure root(@root) stage(higher) types #idr.types<> {
   idr.func @g(%a: i64, %b: f64) -> i64 {
     idr.crash "no body"
     ub.unreachable
@@ -38,7 +38,7 @@ idr.program @closure root(@root) stage(higher) {
 
 // -----
 
-idr.program @closure root(@root) stage(higher) {
+idr.program @closure root(@root) stage(higher) types #idr.types<> {
   idr.func @f(%x: i64) {
     // expected-error @+1 {{refers to an unknown function @nowhere}}
     %c = idr.closure @nowhere(%x) : (i64) -> !idr.fn<() -> ()>
@@ -54,7 +54,7 @@ idr.program @closure root(@root) stage(higher) {
 // -----
 
 // A closure never captures a world.
-idr.program @closure root(@f) stage(higher) {
+idr.program @closure root(@f) stage(higher) types #idr.types<> {
   idr.func @g(%w: !idr.world) -> !idr.world {
     idr.crash "no body"
     ub.unreachable
@@ -68,7 +68,7 @@ idr.program @closure root(@f) stage(higher) {
 
 // -----
 
-idr.program @closure root(@root) stage(higher) {
+idr.program @closure root(@root) stage(higher) types #idr.types<> {
   idr.func @f(%c: !idr.fn<(i64) -> (i64)>, %x: i32) -> i64 {
     // expected-error @+1 {{failed to verify that callee input types match argument types}}
     %r = "idr.apply"(%c, %x) : (!idr.fn<(i64) -> (i64)>, i32) -> i64
@@ -83,7 +83,7 @@ idr.program @closure root(@root) stage(higher) {
 
 // -----
 
-idr.program @closure root(@root) stage(higher) {
+idr.program @closure root(@root) stage(higher) types #idr.types<> {
   idr.func @f(%c: !idr.fn<(i64) -> (i64)>, %x: i64) -> i32 {
     // expected-error @+1 {{failed to verify that callee result types match result types}}
     %r = "idr.apply"(%c, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i32
@@ -100,7 +100,7 @@ idr.program @closure root(@root) stage(higher) {
 
 // A closure may take a world as an argument: worlds pass as arguments and
 // results, never as captures.
-idr.program @closure root(@f) stage(higher) {
+idr.program @closure root(@f) stage(higher) types #idr.types<> {
   idr.func @g(%w: !idr.world) -> !idr.world {
     return %w : !idr.world
   }
@@ -117,7 +117,7 @@ idr.program @closure root(@f) stage(higher) {
 // parameter captured, both, and none, each at the type it leaves; a
 // closure of a function the program has; and an apply whose argument and
 // result are the closure's types.
-idr.program @closure root(@root) stage(higher) {
+idr.program @closure root(@root) stage(higher) types #idr.types<> {
   idr.func @g(%a: i64, %b: f64) -> i64 {
     idr.crash "no body"
     ub.unreachable

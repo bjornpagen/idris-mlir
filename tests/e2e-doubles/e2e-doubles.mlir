@@ -40,7 +40,7 @@
 // CHECK-NEXT: inf
 // CHECK-NEXT: -inf
 // CHECK-NEXT: -2 0 7
-idr.program @doubles root(@Prog.main) stage(higher) {
+idr.program @doubles root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @line(%x: f64, %w: !idr.world) -> !idr.world {
     %w1 = idr.io.put_double %x, %w
     %nl = arith.constant 10 : i32

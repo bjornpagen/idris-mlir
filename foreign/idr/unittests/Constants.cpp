@@ -28,8 +28,9 @@ using namespace idr;
 
 namespace {
 
+// The one data type of a table written as `text`, its body set.
 DataType dataOf(MLIRContext &ctx, StringRef text) {
-  return cast<DataType>(parseType(text, &ctx));
+  return cast<DataTableAttr>(parseAttribute(text, &ctx)).getMembers().front();
 }
 
 Attribute i64(MLIRContext &ctx, int64_t value) {
@@ -61,8 +62,8 @@ TEST(ConAttr, ListsAlongEitherFieldHaveOneForm) {
   for (unsigned spine : {0u, 1u}) {
     DataType list = dataOf(
         ctx, spine == 1
-                 ? R"(!idr.data<"L1", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L1">>) cons]>)"
-                 : R"(!idr.data<"L0", plain [@Nil(), @Cons(!idr.box<!idr.data<"L0">>, i64)]>)");
+                 ? R"(#idr.types<"L1" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L1">>) cons]>)"
+                 : R"(#idr.types<"L0" = plain [@Nil(), @Cons(!idr.box<!idr.data<"L0">>, i64)]>)");
     Tag nil = *list.getTag("Nil"), cons = *list.getTag("Cons");
     ConAttr con = ConAttr::get(&ctx, list, nil, ArrayAttr::get(&ctx, {}));
     holdsOneForm(con);
@@ -80,7 +81,7 @@ TEST(ConAttr, ListsAlongEitherFieldHaveOneForm) {
 TEST(ConAttr, TreesHaveOneForm) {
   MLIRContext ctx;
   ctx.loadDialect<IdrDialect>();
-  DataType tree = dataOf(ctx, R"(!idr.data<"T", plain [@Leaf(), @Node(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>)");
+  DataType tree = dataOf(ctx, R"(#idr.types<"T" = plain [@Leaf(), @Node(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>)");
   Tag leafTag = *tree.getTag("Leaf"), node = *tree.getTag("Node");
   ConAttr leaf = ConAttr::get(&ctx, tree, leafTag, ArrayAttr::get(&ctx, {}));
   auto nodeOf = [&](Attribute left, int64_t key, Attribute right) {
@@ -106,7 +107,7 @@ TEST(ConAttr, RunsLinkedAnyWayAreOneAttribute) {
   MLIRContext ctx;
   ctx.loadDialect<IdrDialect>();
   DataType list = dataOf(
-      ctx, R"(!idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>)");
+      ctx, R"(#idr.types<"L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>)");
   Tag nil = *list.getTag("Nil"), cons = *list.getTag("Cons");
   ConAttr end = ConAttr::get(&ctx, list, nil, ArrayAttr::get(&ctx, {}));
   ConAttr byCells = end;
@@ -128,10 +129,15 @@ TEST(DataRemap, NamesFollowWhatAFieldBecomesAtAnyDepth) {
   MLIRContext ctx;
   ctx.loadDialect<IdrDialect, arith::ArithDialect>();
   OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(R"mlir(
-!T = !idr.data<"T", plain [@A(i64)]>
-!U = !idr.data<"U", plain [@B(i64)]>
-!H = !idr.data<"H", plain [@C(!idr.fn<(!T) -> i64>, !U)]>
-idr.program @p root(@root) stage(higher) {
+!T = !idr.data<"T">
+!U = !idr.data<"U">
+!H = !idr.data<"H">
+#types = #idr.types<
+  "H" = plain [@C(!idr.fn<(!T) -> i64>, !U)],
+  "T" = plain [@A(i64)],
+  "U" = plain [@B(i64)]
+>
+idr.program @p root(@root) stage(higher) types #types {
   idr.func @use(%h: !H) {
     return
   }
@@ -151,8 +157,9 @@ idr.program @p root(@root) stage(higher) {
   DataType u = dataTypeOf(fields[1]);
   auto nameAfter = [&](ArrayRef<DataType> boxed) -> std::string {
     OwningOpRef<ModuleOp> copy = cast<ModuleOp>((*module)->clone());
+    auto copied = cast<ProgramOp>(copy->getBody()->front());
     FailureOr<std::unique_ptr<DataRemap>> remap = DataRemap::create(
-        *copy, "box",
+        copied, "box",
         [](Type, std::optional<DataRemap::FieldPlace>) { return std::optional<Type>(); }, boxed);
     if (failed(remap))
       return "";

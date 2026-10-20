@@ -11,7 +11,7 @@
 // arms no output and writes no report. With threading off, the same
 // options print the module after each pass, and change nothing compiled:
 // the object is the same byte for byte as the one compiled without them.
-idr.program @"print-ir-threads" root(@Prog.main) stage(higher) {
+idr.program @"print-ir-threads" root(@Prog.main) stage(higher) types #idr.types<> {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

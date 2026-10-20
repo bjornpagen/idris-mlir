@@ -5,7 +5,7 @@
 // an scf.while); and a function with no loop has none to count. Every loop
 // must count: two counted ones, one in the other, hold (@nested), and a
 // counted one beside one that tests fails, at the one that tests (@mixed).
-idr.program @"counted-loop" root(@root) stage(first) {
+idr.program @"counted-loop" root(@root) stage(first) types #idr.types<> {
   idr.func @counted(%n: index, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

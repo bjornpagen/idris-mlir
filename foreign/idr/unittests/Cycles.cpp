@@ -51,7 +51,7 @@ std::string name(unsigned i) { return "f" + std::to_string(i); }
 // itself is in tail position, that call's result; the root calls every
 // function.
 std::string programOf(const Case &c) {
-  std::string text = "idr.program @cycles root(@Prog.main) stage(first) {\n";
+  std::string text = "idr.program @cycles root(@Prog.main) stage(first) types #idr.types<> {\n";
   for (unsigned i = 0; i < functions; ++i) {
     text += "  idr.func @" + name(i) + "(%n: i64) -> i64 {\n";
     std::string sum = "%n";

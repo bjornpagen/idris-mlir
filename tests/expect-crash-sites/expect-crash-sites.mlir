@@ -7,7 +7,7 @@
 // own, whether its callee may crash (@calls_divides) or never returns
 // (@calls_never): the places are the callee's, and only after lowering is
 // a call of a function that never returns one.
-idr.program @"crash-sites" root(@root) stage(first) {
+idr.program @"crash-sites" root(@root) stage(first) types #idr.types<> {
   // expected-error @below {{expected crash-sites: }}
   idr.func @divides(%x: i64, %y: i64) -> i64 {
     %g = idr.check.nonzero %y, "division by zero" : i64

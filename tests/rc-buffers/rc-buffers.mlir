@@ -12,8 +12,11 @@
 // the number stored and sets the buffer's length, 1 to 4: on each the
 // program prints what it printed before counting and leaves no cell live,
 // the buffer, its cell and the cells the buffer never had filled freed.
-!L = !idr.data<"L", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @buffers root(@root) stage(first) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @buffers root(@root) stage(first) types #types {
   idr.func @fill(%n: index, %x: i64) -> memref<?x!idr.box<!L>> {
     %a = memref.alloc(%n) : memref<?x!idr.box<!L>>
     %nil = idr.constant !idr.box<!L> #idr.con<!L, @Nil, []>

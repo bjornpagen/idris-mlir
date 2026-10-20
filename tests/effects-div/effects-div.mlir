@@ -35,7 +35,7 @@
 // STDIN: \0007
 // STDIN:
 
-idr.program @div root(@root) stage(first) {
+idr.program @div root(@root) stage(first) types #idr.types<> {
   idr.func @dead(%x: i64, %y: i64) -> i64 {
     %c3 = arith.constant 3 : i64
     %y1 = idr.check.nonzero %y, "division by zero" : i64
@@ -104,7 +104,7 @@ idr.program @div root(@root) stage(first) {
     return %w4 : !idr.world
   }
 }
-// REFERENCE: idr.program @reference root(@root) stage(first) {
+// REFERENCE: idr.program @reference root(@root) stage(first) types #idr.types<> {
 // REFERENCE:   idr.func @root(%w: !idr.world) -> !idr.world {
 // REFERENCE:     %c, %w1 = idr.io.get_byte %w
 // REFERENCE:     %one = arith.constant 1 : i32

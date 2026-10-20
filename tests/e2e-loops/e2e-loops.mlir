@@ -38,10 +38,15 @@
 // THREE: 5 3 3
 // FOUR: 14 4 6
 // MILLION: 333332833333500000 1000000 1000002
-!Unit = !idr.data<"Unit", plain [@MkUnit()]>
-!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
-idr.program @loops root(@Prog.main) stage(higher) {
+!Unit = !idr.data<"Unit">
+!IORes = !idr.data<"IORes">
+!List = !idr.data<"List">
+#types = #idr.types<
+  "IORes" = plain [@MkIORes(!Unit, !idr.world)],
+  "List" = list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons],
+  "Unit" = plain [@MkUnit()]
+>
+idr.program @loops root(@Prog.main) stage(higher) types #types {
   idr.func @upto(%i: i64, %n: i64, %acc: i64) -> i64 attributes {total} {
     %lt = arith.cmpi slt, %i, %n : i64
     %b = arith.extui %lt : i1 to i64

@@ -5,7 +5,7 @@
 // @apart is no part of that chain. A function reaches itself only through
 // a body that names it: @again, which calls itself, does; @leaf, which
 // calls nothing, does not.
-idr.program @reaches root(@root) stage(first) {
+idr.program @reaches root(@root) stage(first) types #idr.types<> {
   // expected-error @below {{expected reaches: }}
   idr.func @leaf(%x: i64) -> i64 {
     %y = arith.addi %x, %x : i64

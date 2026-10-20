@@ -8,7 +8,7 @@
 // and by grade at the owned stage: a borrow where the callee takes the
 // value owned.
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
@@ -26,7 +26,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
@@ -45,7 +45,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
@@ -64,7 +64,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> !idr.str {
     return %s : !idr.str
   }
@@ -82,7 +82,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
@@ -101,7 +101,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @h(%x: i64) -> i64 {
     // expected-error @+1 {{calls @g}}
     %r = idr.call @g(%x) : (i64) -> i64
@@ -116,7 +116,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     // expected-error @+1 {{returns 2 values, but @f returns 1}}
@@ -131,7 +131,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> !idr.str {
     %n = idr.str.length %s
     // expected-error @+1 {{returns 'i64' as result 0, but @f returns '!idr.str'}}
@@ -146,7 +146,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%x: i64, %s: !idr.str) -> i64 {
     return %x : i64
   }
@@ -164,7 +164,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(first) {
+idr.program @"call-type" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%s: !idr.str) -> i64 {
     %n = idr.str.length %s
     return %n : i64
@@ -183,7 +183,7 @@ idr.program @"call-type" root(@root) stage(first) {
 
 // -----
 
-idr.program @"call-type" root(@root) stage(owned) {
+idr.program @"call-type" root(@root) stage(owned) types #idr.types<> {
   idr.func @f(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
     %n = idr.str.length borrow %v

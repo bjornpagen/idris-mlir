@@ -9,8 +9,11 @@
 // twice is, at the second consumer; and so is once on one path of a match
 // and not on the other, at the match.
 
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-idr.program @"owned-not-consumed" root(@root) stage(owned) {
+!P = !idr.data<"P">
+#types = #idr.types<
+  "P" = plain [@MkP(i64, i64)]
+>
+idr.program @"owned-not-consumed" root(@root) stage(owned) types #types {
   // expected-note @+1 {{the value is defined here}}
   idr.func @leak(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
@@ -31,8 +34,11 @@ idr.program @"owned-not-consumed" root(@root) stage(owned) {
 
 // -----
 
-!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
-idr.program @"owned-not-consumed" root(@root) stage(owned) {
+!L = !idr.data<"L">
+#types = #idr.types<
+  "L" = list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]
+>
+idr.program @"owned-not-consumed" root(@root) stage(owned) types #types {
   idr.func @bump(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<!L>>
     %r = idr.match %v : !idr.q<many, borrow, !idr.box<!L>> -> (!idr.own<!idr.box<!L>>) {
@@ -59,7 +65,7 @@ idr.program @"owned-not-consumed" root(@root) stage(owned) {
 
 // -----
 
-idr.program @"owned-not-consumed" root(@root) stage(owned) {
+idr.program @"owned-not-consumed" root(@root) stage(owned) types #idr.types<> {
   idr.func @consumed(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
     %n = idr.str.length borrow %v
@@ -75,7 +81,7 @@ idr.program @"owned-not-consumed" root(@root) stage(owned) {
 
 // -----
 
-idr.program @"owned-not-consumed" root(@root) stage(owned) {
+idr.program @"owned-not-consumed" root(@root) stage(owned) types #idr.types<> {
   // expected-note @+1 {{the value is defined here}}
   idr.func @twice(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
@@ -94,7 +100,7 @@ idr.program @"owned-not-consumed" root(@root) stage(owned) {
 
 // -----
 
-idr.program @"owned-not-consumed" root(@root) stage(owned) {
+idr.program @"owned-not-consumed" root(@root) stage(owned) types #idr.types<> {
   // expected-note @+1 {{the value is defined here}}
   idr.func @one_path(%b: i1, %s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>

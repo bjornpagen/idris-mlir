@@ -40,7 +40,7 @@
 // STDIN: \0020
 // STDIN: \0021
 // STDIN:
-idr.program @"to-int" root(@Prog.main) stage(first) {
+idr.program @"to-int" root(@Prog.main) stage(first) types #idr.types<> {
   // Finite constants truncate toward zero and wrap to the result width.
   idr.func @finite() -> (i64, i8, i64) {
     %a = arith.constant -2.75 : f64

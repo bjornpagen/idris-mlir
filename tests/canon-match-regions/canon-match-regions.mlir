@@ -14,7 +14,7 @@
 // runs binds the scrutinee back at its type, and is written once, after
 // the cases.
 
-idr.program @"match-regions" root(@root) stage(first) {
+idr.program @"match-regions" root(@root) stage(first) types #idr.types<> {
   idr.func @f(%v: i64) {
     idr.match_lit %v : i64 -> () {
     case 0 {
@@ -39,8 +39,11 @@ idr.program @"match-regions" root(@root) stage(first) {
 
 // -----
 
-!T = !idr.data<"T", plain [@A(i64), @B()]>
-idr.program @"match-regions" root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A(i64), @B()]
+>
+idr.program @"match-regions" root(@root) stage(first) types #types {
   idr.func @f(%v: !T) {
     idr.match %v : !T -> () {
     case @A(%x: i64) {
@@ -62,8 +65,11 @@ idr.program @"match-regions" root(@root) stage(first) {
 
 // -----
 
-!T = !idr.data<"T", plain [@A(i64), @B()]>
-idr.program @"match-regions" root(@root) stage(first) {
+!T = !idr.data<"T">
+#types = #idr.types<
+  "T" = plain [@A(i64), @B()]
+>
+idr.program @"match-regions" root(@root) stage(first) types #types {
   idr.func @f(%v: !T) {
     // expected-error @+1 {{expects a default region that takes the scrutinee back at its type}}
     idr.match %v : !T -> () {
@@ -92,9 +98,13 @@ idr.program @"match-regions" root(@root) stage(first) {
 // and nothing is built; neither held before the pass. The root runs it
 // on a constructor of each kind, and the program prints after the pass
 // what it printed before, on every byte.
-!C = !idr.data<"C", plain [@R(), @G(i64), @B()]>
-!P = !idr.data<"P", plain [@MkP(i64, i64)]>
-idr.program @"match-regions" root(@root) stage(first) {
+!C = !idr.data<"C">
+!P = !idr.data<"P">
+#types = #idr.types<
+  "C" = plain [@R(), @G(i64), @B()],
+  "P" = plain [@MkP(i64, i64)]
+>
+idr.program @"match-regions" root(@root) stage(first) types #types {
   idr.func @exhaustive(%c: !C, %p: !P) -> i64 {
     %q = idr.match %c : !C -> (!P) {
     case @R() {

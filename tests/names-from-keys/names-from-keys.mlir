@@ -43,7 +43,7 @@
 //   so the comparison reads bodies.
 // The optimized program means what the program as written does, on every
 // one-byte input (%differential).
-idr.program @keys root(@Main.main) stage(higher) {
+idr.program @keys root(@Main.main) stage(higher) types #idr.types<> {
   idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %k : i64
     return %y : i64
