@@ -10,3 +10,4 @@ compiler/src/IdrisMLIR/Frontend/Walk.idr: UN (Basic "idris-mlir-var") -- a probe
 compiler/src/IdrisMLIR/Frontend/Walk.idr: UN (Basic "idris-mlir-formal") -- a probe the frontend plants in Idris's normaliser, a user name so that quotation keeps it, which no Idris library defines
 compiler/src/IdrisMLIR/Frontend/Walk.idr: UN (Basic "idris-mlir-field") -- a probe the frontend plants in Idris's normaliser, a user name so that quotation keeps it, which no Idris library defines
 compiler/src/IdrisMLIR/Frontend/Walk.idr: UN (Basic "idris-mlir-held") -- a probe the frontend plants in Idris's normaliser, a user name so that quotation keeps it, which no Idris library defines
+compiler/src/IdrisMLIR/Frontend/Walk.idr: UN (Basic "idris-mlir-pattern") -- a probe the frontend plants in Idris's normaliser, a user name so that quotation keeps it, which no Idris library defines

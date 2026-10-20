@@ -77,7 +77,7 @@ readable() {
     say "blocks: failed"
     grep -E 'classify|sign' "$work/symbols" | show
   fi
-  if [ "$(grep -cE '^ *idr\.program @("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+) root\(@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)\) stage\(higher\) \{$' "$1")" = 1 ] &&
+  if [ "$(grep -cE '^ *idr\.program @("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+) root\(@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)\) stage\(higher\)( types #[^ ]+)? \{$' "$1")" = 1 ] &&
      [ "$(grep -cE '^ *idr\.program ' "$1")" = 1 ]; then
     say "program: ok"
   else
