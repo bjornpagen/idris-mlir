@@ -1,13 +1,13 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The upstream bug upstream/60-sqrt-negative-fold still reproduces with the
+# The upstream bug upstream/61-sqrt-negative-fold still reproduces with the
 # pinned mlir-opt: canonicalize leaves the math.sqrt of a negative
 # constant, whose value is a NaN. The repository does not carry the patch
 # yet (the README says why and how). When this fails, the toolchain folds
 # it: the patch is carried or upstream fixed it.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-input=$root/upstream/60-sqrt-negative-fold/sqrt-negative.mlir
+input=$root/upstream/61-sqrt-negative-fold/sqrt-negative.mlir
 if ! bounded "$llvm_bin/mlir-opt" "$input" --canonicalize -o "$work/out.mlir" 2> "$work/err"; then
   say "mlir-opt failed, which is not this bug"
   show "$work/err"
