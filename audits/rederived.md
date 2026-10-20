@@ -230,7 +230,12 @@ through it. The fork is ours; each loss is fixed in its encoder, with
   idr-target writes every target fact once into the DLTI spec; `Run.cpp`
   stops resetting the triple and layout from constants; `OsOp::fold`'s
   fallback to the build machine's triple goes (the program verifier
-  requires the target).
+  requires the target). A first attempt (2026-10-19, reverted unpushed)
+  refused every module: the layout that goes machine, DLTI spec, MLIR's
+  translation compares unequal to the machine's own under LLVM's
+  structural `DataLayout::operator==`. idr-target checks that the
+  lowered module's DLTI spec is the one it writes from the machine,
+  rather than comparing LLVM layouts after translation.
 - **Function facts not lowered.** `effects` and `total` reach no LLVM
   attribute; LLVM re-infers weaker ones. Map them in `LowerFunc`
   (`willreturn`, `mustprogress`, `nounwind`, `memory`).
