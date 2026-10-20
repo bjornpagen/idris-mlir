@@ -158,6 +158,46 @@ which the top-level CMake configure gate reads.
   issue and a PR with an llc test
 - status (2026-10-19): carried; not filed
 
+## greedy-multi-region-ancestors
+
+- symptom: on main at 7208ba24, the greedy rewrite driver adds an op's
+  ancestors to its last-in-first-out worklist with the op, so an ancestor is
+  revisited after each change below it; the patterns of an op with several
+  regions (upstream's region branch patterns, ours on idr.match and
+  idr.match_lit) read all of them, so an op of n regions costs n visits of
+  size n: canonicalize in idr-optimize took 30, 120, 223 s at n = 1k, 2k, 4k
+  on defunc-tag-limit's program through the whole pipeline
+- sites: every greedy rewrite of ours (canonicalize in idr-optimize's and
+  the pipeline's cleans, foreign/idr/lib/Transforms/Optimize,
+  foreign/idr/lib/Transforms/Pipeline.cpp); IR/Canon's patterns on matches
+- workaround: `upstream/62-greedy-multi-region-ancestors/llvm.patch`: an
+  ancestor with several regions is revisited once the worklist is empty;
+  checked by tests/upstream-greedy-multi-region-ancestors
+- retire: drop the patch when the pin has the change
+- upstream: upstream/62-greedy-multi-region-ancestors; plan in its README:
+  one PR
+- status (2026-10-19): tested on a private build of the pinned source
+  (check-mlir 4101 passed, 0 failed); not yet built into the toolchain; not
+  filed
+
+## liveness-trivially-dead
+
+- symptom: on main at 7208ba24, liveness asks wouldOpBeTriviallyDead of a
+  region branch op once per region successor, each answer a walk of every
+  region: remove-dead-values took 10.9, 30.9, 87 s at n = 1k, 2k, 4k on
+  defunc-tag-limit's program through the whole pipeline
+- sites: remove-dead-values in the pipeline
+  (foreign/idr/lib/Transforms/Pipeline.cpp)
+- workaround: `upstream/63-liveness-trivially-dead/llvm.patch`: the answer
+  kept per op for the analysis; checked by
+  tests/upstream-liveness-trivially-dead
+- retire: drop the patch when the pin has the change
+- upstream: upstream/63-liveness-trivially-dead; plan in its README: one
+  NFC PR
+- status (2026-10-19): tested on a private build of the pinned source
+  (check-mlir 4101 passed, 0 failed); not yet built into the toolchain; not
+  filed
+
 ## print-local-aliases
 
 - symptom: on main at 7208ba24, an operation printed nested in another, or

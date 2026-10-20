@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/62-greedy-multi-region-ancestors is carried: the greedy rewrite
+# driver revisits an op of several regions once the worklist is empty, not
+# after each change in each of its regions. The witness is upstream's own
+# dialects, through mlir-opt (an assertions build, whose -debug-only log
+# names each op it processes): the reproducer's scf.index_switch of 8 cases,
+# each of which folds, is processed 4 times; the unpatched driver, 18.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/62-greedy-multi-region-ancestors/greedy-multi-region-ancestors.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" -canonicalize -debug-only=greedy-rewriter \
+       -o /dev/null > "$work/out" 2>&1; then
+  say "mlir-opt failed, which is not this bug"
+  show "$work/out"
+else
+  visits=$(grep -c "Processing operation : 'scf.index_switch'" "$work/out")
+  if [ "$visits" -le 4 ]; then
+    say "the switch is revisited once its cases are done"
+  else
+    say "the switch is revisited after each case's change ($visits visits)"
+  fi
+fi

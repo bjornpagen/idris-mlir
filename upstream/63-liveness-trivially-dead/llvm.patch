@@ -1,0 +1,62 @@
+Subject: [PATCH] [mlir] Ask once per op whether liveness would find it trivially dead
+
+LivenessAnalysis::visitOperation asks wouldOpBeTriviallyDead(op), which
+walks every region of op. The backward sparse analysis visits a region
+branch op once for each of its region successors, through
+visitNonControlFlowArguments, which calls visitOperation on the parent
+while none of its results is live yet. An op of n regions therefore walks
+its n regions n times: remove-dead-values on a private function returning
+an scf.index_switch of n cases takes 0.12, 0.44 and 1.62 s at n = 1000,
+2000 and 4000.
+
+The answer depends on the IR alone, which the analysis does not change, so
+keep it per op for the analysis: 0.02, 0.03 and 0.05 s. NFC.
+
+---
+diff --git a/mlir/include/mlir/Analysis/DataFlow/LivenessAnalysis.h b/mlir/include/mlir/Analysis/DataFlow/LivenessAnalysis.h
+index f27188e2c..7d4bffca3 100644
+--- a/mlir/include/mlir/Analysis/DataFlow/LivenessAnalysis.h
++++ b/mlir/include/mlir/Analysis/DataFlow/LivenessAnalysis.h
+@@ -92,6 +92,15 @@ public:
+ 
+   void visitNonControlFlowArguments(RegionSuccessor &successor,
+                                     ArrayRef<BlockArgument> arguments) override;
++
++private:
++  /// Whether `op` would be trivially dead, computed once per op. The answer
++  /// walks every region of `op`, and a region branch op is visited once for
++  /// each of its region successors: an op with many regions would otherwise
++  /// cost the product.
++  bool isTriviallyDead(Operation *op);
++
++  DenseMap<Operation *, bool> triviallyDead;
+ };
+ 
+ //===----------------------------------------------------------------------===//
+diff --git a/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp b/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp
+index 92def2d35..bd4090983 100644
+--- a/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp
+@@ -91,7 +91,7 @@ LivenessAnalysis::visitOperation(Operation *op, ArrayRef<Liveness *> operands,
+   LDBG() << "[visitOperation] Enter: "
+          << OpWithFlags(op, OpPrintingFlags().skipRegions());
+   // This marks values of type (1.a) and (4) liveness as "live".
+-  if (!wouldOpBeTriviallyDead(op)) {
++  if (!isTriviallyDead(op)) {
+     LDBG() << "[visitOperation] Operation has memory effects or is "
+               "return-like, marking operands live";
+     for (auto *operand : operands) {
+@@ -124,6 +124,13 @@ LivenessAnalysis::visitOperation(Operation *op, ArrayRef<Liveness *> operands,
+   return success();
+ }
+ 
++bool LivenessAnalysis::isTriviallyDead(Operation *op) {
++  auto [it, inserted] = triviallyDead.try_emplace(op, false);
++  if (inserted)
++    it->second = wouldOpBeTriviallyDead(op);
++  return it->second;
++}
++
+ void LivenessAnalysis::visitBranchOperand(OpOperand &operand) {
+   Operation *op = operand.getOwner();
+   LDBG() << "Visiting branch operand: " << operand.get()

@@ -1,0 +1,228 @@
+Subject: [PATCH] [mlir] Revisit a multi-region ancestor once the worklist is empty
+
+The greedy rewrite driver adds an op's ancestors to the worklist with the
+op, so that a change inside a region may enable a pattern on an enclosing
+op. The worklist is last in, first out, so an ancestor is revisited right
+after each change below it. The patterns of an op with several regions
+(the region branch op patterns: MakeRegionBranchOpSuccessorInputsDead,
+RemoveDeadRegionBranchOpSuccessorInputs, RemoveDuplicateSuccessorInputUses,
+and a dialect's own) read all of its regions, so an op of n regions in
+which each region changes costs n visits of size n: canonicalize on an
+scf.index_switch of n cases, each folding an addition of constants, takes
+0.13, 0.51 and 2.11 s at n = 500, 1000 and 2000.
+
+Keep an ancestor with more than one region on a second worklist, moved to
+the worklist when it is empty: the op is revisited once for all the
+changes inside it. An ancestor with one region is still revisited at once,
+so the order of visits, and the result of a pattern set that is not
+confluent, is unchanged wherever no op has several regions. With it the
+switch is processed 4 times instead of 18 for 8 cases, and canonicalize
+takes 0.01 and 0.03 s at n = 1000 and 2000. check-mlir passes.
+
+---
+diff --git a/mlir/lib/Transforms/Utils/GreedyPatternRewriteDriver.cpp b/mlir/lib/Transforms/Utils/GreedyPatternRewriteDriver.cpp
+index b71194e78..cf5ec2c5c 100644
+--- a/mlir/lib/Transforms/Utils/GreedyPatternRewriteDriver.cpp
++++ b/mlir/lib/Transforms/Utils/GreedyPatternRewriteDriver.cpp
+@@ -330,7 +330,11 @@ protected:
+   /// Add the given operation to the worklist.
+   void addSingleOpToWorklist(Operation *op);
+ 
+-  /// Add the given operation and its ancestors to the worklist.
++  /// Whether the given operation may enter a worklist under the strictness.
++  bool isAdmitted(Operation *op) const;
++
++  /// Add the given operation and its ancestors to the worklist, an ancestor
++  /// with more than one region to the ancestors' worklist.
+   void addToWorklist(Operation *op);
+ 
+   /// Notify the driver that the specified operation may have been modified
+@@ -368,6 +372,20 @@ protected:
+   Worklist worklist;
+ #endif // MLIR_GREEDY_REWRITE_RANDOMIZER_SEED
+ 
++  /// The ancestors with more than one region of the operations that were
++  /// added to the worklist, to be revisited once the worklist is empty. A
++  /// change inside a region may enable a pattern on an enclosing op, and the
++  /// patterns of an op with several regions (a region branch op's) read all
++  /// of them: revisited after each change in each region, an op of n regions
++  /// would cost n times its size. Revisited once the worklist is empty, it is
++  /// visited once for all the changes inside it. An ancestor with one region
++  /// is revisited at once, as before.
++#ifdef MLIR_GREEDY_REWRITE_RANDOMIZER_SEED
++  RandomizedWorklist ancestors;
++#else
++  Worklist ancestors;
++#endif // MLIR_GREEDY_REWRITE_RANDOMIZER_SEED
++
+   /// Configuration information for how to simplify.
+   const GreedyRewriteConfig config;
+ 
+@@ -461,9 +479,16 @@ bool GreedyPatternRewriteDriver::processWorklist() {
+ 
+   bool changed = false;
+   int64_t numRewrites = 0;
+-  while (!worklist.empty() &&
++  while ((!worklist.empty() || !ancestors.empty()) &&
+          (numRewrites < config.getMaxNumRewrites() ||
+           config.getMaxNumRewrites() == GreedyRewriteConfig::kNoLimit)) {
++    // The ancestors are revisited once the worklist is empty, in the order
++    // they would have been popped from it.
++    if (worklist.empty()) {
++      while (!ancestors.empty())
++        worklist.push(ancestors.pop());
++      worklist.reverse();
++    }
+     auto *op = worklist.pop();
+ 
+     LLVM_DEBUG({
+@@ -641,15 +666,23 @@ bool GreedyPatternRewriteDriver::processWorklist() {
+ void GreedyPatternRewriteDriver::addToWorklist(Operation *op) {
+   assert(op && "expected valid op");
+   // Gather potential ancestors while looking for a "scope" parent region.
+-  SmallVector<Operation *, 8> ancestors;
++  SmallVector<Operation *, 8> chain;
+   Region *region = nullptr;
+   do {
+-    ancestors.push_back(op);
++    chain.push_back(op);
+     region = op->getParentRegion();
+     if (config.getScope() == region) {
+-      // Scope (can be `nullptr`) was reached. Stop traveral and enqueue ops.
+-      for (Operation *op : ancestors)
+-        addSingleOpToWorklist(op);
++      // Scope (can be `nullptr`) was reached. Stop traveral and enqueue ops:
++      // an ancestor with more than one region once the worklist is empty.
++      addSingleOpToWorklist(chain.front());
++      for (Operation *ancestor : llvm::drop_begin(chain)) {
++        if (!isAdmitted(ancestor))
++          continue;
++        if (ancestor->getNumRegions() > 1)
++          ancestors.push(ancestor);
++        else
++          worklist.push(ancestor);
++      }
+       return;
+     }
+     if (region == nullptr)
+@@ -657,9 +690,13 @@ void GreedyPatternRewriteDriver::addToWorklist(Operation *op) {
+   } while ((op = region->getParentOp()));
+ }
+ 
++bool GreedyPatternRewriteDriver::isAdmitted(Operation *op) const {
++  return config.getStrictness() == GreedyRewriteStrictness::AnyOp ||
++         strictModeFilteredOps.contains(op);
++}
++
+ void GreedyPatternRewriteDriver::addSingleOpToWorklist(Operation *op) {
+-  if (config.getStrictness() == GreedyRewriteStrictness::AnyOp ||
+-      strictModeFilteredOps.contains(op))
++  if (isAdmitted(op))
+     worklist.push(op);
+ }
+ 
+@@ -752,6 +789,7 @@ void GreedyPatternRewriteDriver::notifyOperationErased(Operation *op) {
+ 
+   addOperandsToWorklist(op);
+   worklist.remove(op);
++  ancestors.remove(op);
+ 
+   if (config.getStrictness() != GreedyRewriteStrictness::AnyOp)
+     strictModeFilteredOps.erase(op);
+@@ -851,6 +889,7 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
+ 
+     // New iteration: start with an empty worklist.
+     worklist.clear();
++    ancestors.clear();
+ 
+     // `OperationFolder` CSE's constant ops (and may move them into parents
+     // regions to enable more aggressive CSE'ing).
+@@ -1016,7 +1055,7 @@ LogicalResult MultiOpPatternRewriteDriver::simplify(ArrayRef<Operation *> ops,
+   if (changed)
+     *changed = result;
+ 
+-  return success(worklist.empty());
++  return success(worklist.empty() && ancestors.empty());
+ }
+ 
+ /// Find the region that is the closest common ancestor of all given ops.
+diff --git a/mlir/test/Transforms/greedy-multi-region-ancestors.mlir b/mlir/test/Transforms/greedy-multi-region-ancestors.mlir
+new file mode 100644
+index 000000000..7b6446737
+--- /dev/null
++++ b/mlir/test/Transforms/greedy-multi-region-ancestors.mlir
+@@ -0,0 +1,74 @@
++// RUN: mlir-opt %s -canonicalize -debug-only=greedy-rewriter 2>&1 \
++// RUN:   -o /dev/null | FileCheck %s
++// REQUIRES: asserts
++
++// Each case folds an addition of two constants. An op with several regions
++// is revisited once the worklist is empty, not after each change in each of
++// its regions: the switch is processed a bounded number of times, however
++// many cases fold.
++
++// CHECK-COUNT-4: Processing operation : 'scf.index_switch'
++// CHECK-NOT: Processing operation : 'scf.index_switch'
++func.func @f(%i: index, %x: i64) -> i64 {
++  %r = scf.index_switch %i -> i64
++  case 0 {
++    %c = arith.constant 0 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  case 1 {
++    %c = arith.constant 1 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  case 2 {
++    %c = arith.constant 2 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  case 3 {
++    %c = arith.constant 3 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  case 4 {
++    %c = arith.constant 4 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  case 5 {
++    %c = arith.constant 5 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  case 6 {
++    %c = arith.constant 6 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  case 7 {
++    %c = arith.constant 7 : i64
++    %d = arith.constant 1 : i64
++    %s = arith.addi %c, %d : i64
++    %t = arith.addi %s, %x : i64
++    scf.yield %t : i64
++  }
++  default {
++    scf.yield %x : i64
++  }
++  return %r : i64
++}
