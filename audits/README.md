@@ -42,3 +42,10 @@ shape of the suite rebuilt on these principles.
 status and its root cause, why the owned stage's verifier let each
 through, and the ownership representation proposed to make them
 unrepresentable; the reproducers and fixtures it names are in `leaks/`.
+
+## The 2026-10-19 rederivation sweep
+
+`rederived.md`: every place a fact the compiler knew (a source location, a
+type, a parent, an analysis) is thrown away and derived again or guessed,
+from five read-only sweeps over the fork, the frontend, the dialect, the
+passes and the runtime and harness, each with its fix and its lane.

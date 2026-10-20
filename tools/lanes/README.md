@@ -40,8 +40,9 @@ in its own `build/`.
 
 - One full suite at a time across all lanes: a full `make test`,
   `make test-idr` or `make test-mlir-tools` runs under the lanes' lock,
-  `sh -c '. tools/host.sh; with_lock ../idris-mlir-lanes/.suite-lock make test'`
-  from the clone's root, and waits its turn; targeted runs (`only=...`) need
+  `sh -c '. tools/host.sh; with_lock ../.suite-lock make test'` from the
+  clone's root (the lanes' directory's `.suite-lock`, which the main
+  checkout names `../idris-mlir-lanes/.suite-lock`), and waits its turn; targeted runs (`only=...`) need
   no lock. Five full suites at once overload the machine until compiles
   cross the harness's step limit and the runs fail for nothing.
 - Limit parallelism, since several lanes build at once:
