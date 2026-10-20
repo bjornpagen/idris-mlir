@@ -165,15 +165,16 @@ bool upstreamHolds(Value value) {
 
 // Whether `value` holds references at the plain grade where a graded
 // program says what every reference is: a value of one of our types that
-// holds one is owned, exclusive or borrowed then. Static data holds none a
-// count reaches. A buffer's view stays plain, and so does an element an op
+// holds one is owned, exclusive or borrowed then. Static data an op makes
+// holds none a count reaches, whatever grade the pass that made it wrote
+// (madeStatic: the op alone says so). A buffer's view stays plain, and so does an element an op
 // of upstream's loads or stores: upstream's types hold no grade.
 bool plainReference(Value value) {
   Type carrier = unrestricted(value.getType());
   if (gradeOf(value.getType()).permission != Permission::Plain ||
       !isa<IdrDialect>(carrier.getDialect()) || !holdsReferences(carrier))
     return false;
-  return !ownership::isStatic(value) && !upstreamHolds(value);
+  return !ownership::madeStatic(value) && !upstreamHolds(value);
 }
 
 // What the program's stage lets an op of a function be, its values aside.

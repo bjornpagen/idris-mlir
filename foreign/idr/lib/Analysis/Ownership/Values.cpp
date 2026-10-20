@@ -27,7 +27,9 @@ bool followed(Value value) {
 
 // The type answers, a data type from its body, made once: asking again
 // costs nothing, so no pass keeps answers of its own.
-bool tracked(Value value) { return holdsReferences(value.getType()) && !isStatic(value); }
+bool tracked(Value value) {
+  return holdsReferences(value.getType()) && lifetimeOf(value.getType()) != Lifetime::Static;
+}
 
 bool isMemoCell(Type type) {
   auto box = dyn_cast<BoxType>(unrestricted(type));

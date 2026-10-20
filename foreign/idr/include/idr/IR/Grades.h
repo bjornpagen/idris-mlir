@@ -34,8 +34,8 @@ enum class Tag : std::uint32_t;
 // (Quantity); the permission is what the value owns, plain (nothing to
 // say), a borrow, one reference of its own, or an exclusive cell graph,
 // which the owned stage decides; the lifetime is how long what the value
-// reaches lives, the heap or the frame (Lifetime), which idr-rc's stack
-// step decides. A plain type T is the grade (many, plain, heap).
+// reaches lives, static, the heap or the frame (Lifetime), which idr-rc
+// decides. A plain type T is the grade (many, plain, heap).
 struct Grade {
   Quantity quantity = Quantity::Many;
   Permission permission = Permission::Plain;
@@ -102,18 +102,26 @@ bool forgets(mlir::Type from, mlir::Type to);
 // takes no grade. Whether a value of `type` may be frame: a box, or a sum
 // whose fields hold references, one of which may be a box; nothing else
 // reaches a cell of the frame, and no reference moves out of a sum of
-// words, so no edge (Flow.h) could carry the frame to it. The type at
-// `lifetime`, where it may be frame, and itself otherwise.
+// words, so no edge (Flow.h) could carry the frame to it. Whether a value
+// of `type` may be static: a view of ours that holds references (static is
+// a view's lifetime; upstream's buffers take no grade). The type at
+// `lifetime`, where it may have it, and at the heap otherwise.
 Lifetime lifetimeOf(mlir::Type type);
 bool mayBeFrame(mlir::Type type);
+bool mayBeStatic(mlir::Type type);
 mlir::Type atLifetime(mlir::Type type, Lifetime lifetime);
 
-// The order of lifetimes, heap below frame: a value of `lifetime` may stand
-// in a slot of lifetime `slot` when it lives at least as long as the slot
-// asks, heap anywhere and frame only in a frame slot; and the join of two,
-// the least lifetime both may stand in.
+// The order of lifetimes, static below heap below frame: a value of
+// `lifetime` may stand in a slot of lifetime `slot` when it lives at least
+// as long as the slot asks: static anywhere, heap anywhere but a static
+// slot, frame only in a frame slot; and the join of two, the least
+// lifetime both may stand in.
 bool fitsIn(Lifetime lifetime, Lifetime slot);
 Lifetime joined(Lifetime a, Lifetime b);
+
+// What a borrowed position of the heap takes of a view: the view at the
+// heap, when it is static, and itself otherwise (idr.borrow lends it so).
+mlir::Type lent(mlir::Type type);
 
 // Idris's product of quantities: one is the unit, and many times many is
 // many.
