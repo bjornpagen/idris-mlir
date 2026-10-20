@@ -116,6 +116,12 @@ class SameValue : public mlir::OpTrait::TraitBase<ConcreteType, SameValue> {};
 template <typename ConcreteType>
 class TakesReference : public mlir::OpTrait::TraitBase<ConcreteType, TakesReference> {};
 
+// An op that builds the value it gives at run time (Idr_BuildsValue): a
+// constructor, a closure, a suspension. The one list is the ops' own, in
+// their definitions.
+template <typename ConcreteType>
+class BuildsValue : public mlir::OpTrait::TraitBase<ConcreteType, BuildsValue> {};
+
 // The op has no runtime form: its result is its first operand at run time,
 // a change of grade, linearity or kind (Idr_NoRuntimeForm), which idr-lower
 // lowers to the operand's components, by one pattern for every op with the

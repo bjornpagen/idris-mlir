@@ -234,7 +234,7 @@ def Idr_CellRecycleOp : Idr_OwnedOp<"cell.recycle", [DeclareOpInterfaceMethods<I
 
 // Its results are verified before its flow is read (traits verify in this
 // order): a hole the inference refuses has no destination to flow through.
-def Idr_CellInitOp : Idr_OwnedOp<"cell.init", [InferTypeOpAdaptorWithIsCompatible,
+def Idr_CellInitOp : Idr_OwnedOp<"cell.init", [Idr_BuildsValue, InferTypeOpAdaptorWithIsCompatible,
     PredOpTrait<"its fields are its cell's constructor's, the holes aside, each at the field's type or owned",
                 CPred<"::idr::detail::fillsCell(::llvm::cast<::idr::CellInitOp>(&$_op))">>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {

@@ -34,7 +34,7 @@ def Idr_FnValue : Idr_AtAnyGrade<"::idr::FnType", "a closure at any grade">;
 
 // A closure takes its captures over. A world is never one: it passes only
 // as an argument or a result.
-def Idr_ClosureOp : Idr_Op<"closure", [Idr_ConsumesOnly, Idr_LinearWhenACaptureIs,
+def Idr_ClosureOp : Idr_Op<"closure", [Idr_BuildsValue, Idr_ConsumesOnly, Idr_LinearWhenACaptureIs,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
@@ -51,7 +51,7 @@ def Idr_ClosureOp : Idr_Op<"closure", [Idr_ConsumesOnly, Idr_LinearWhenACaptureI
 // Does not run the function: a force does, the first one, or every one for
 // a label that is `by_name`. Folding to #idr.closure keeps one constant for
 // every use, the same attribute a closure uses, at this type.
-def Idr_SuspendOp : Idr_Op<"suspend", [Idr_ConsumesOnly, Idr_LinearWhenACaptureIs,
+def Idr_SuspendOp : Idr_Op<"suspend", [Idr_BuildsValue, Idr_ConsumesOnly, Idr_LinearWhenACaptureIs,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
@@ -69,7 +69,7 @@ def Idr_SuspendOp : Idr_Op<"suspend", [Idr_ConsumesOnly, Idr_LinearWhenACaptureI
 // takes its operand over, as idr.suspend takes its captures, and a world is
 // never held; building it runs nothing. idr-defunctionalize makes it
 // idr.con of the memo sum's forced state.
-def Idr_DelayOp : Idr_Op<"delay", [Idr_ConsumesOnly,
+def Idr_DelayOp : Idr_Op<"delay", [Idr_BuildsValue, Idr_ConsumesOnly,
     TypesMatchWith<"its value is the suspension's carrier", "result", "value",
                    "::llvm::cast<::idr::LazyType>(::idr::unrestricted($_self)).getValue()",
                    Idr_SameCarrier>,

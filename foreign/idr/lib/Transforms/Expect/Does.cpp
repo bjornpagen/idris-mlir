@@ -30,13 +30,8 @@ struct Action {
 bool takesApart(Operation *op) { return isa<MatchOpInterface>(op); }
 // A force of a suspension.
 bool forces(Operation *op) { return isa<ForceOp>(op); }
-// A value built at run time: a constructor, as a value or written into its
-// cell (whichever op gave the cell, which only allocates it), a closure, a
-// suspension, an evaluated suspension. A constant is static data and is
-// built by no one.
-bool builds(Operation *op) {
-  return isa<ConOp, CellInitOp, ClosureOp, SuspendOp, DelayOp>(op);
-}
+// A value built at run time, which its op declares (Idr_BuildsValue).
+bool builds(Operation *op) { return op->hasTrait<BuildsValue>(); }
 // A read of one field of a constructor value.
 bool readsField(Operation *op) { return isa<FieldOp>(op); }
 // An application of a closure.

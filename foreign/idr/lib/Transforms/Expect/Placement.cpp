@@ -114,7 +114,7 @@ LogicalResult buildsWhereUsed(const Request<Functions> &request) {
   bool held = true;
   for (FunctionOpInterface fn : request.argument.functions)
     fn->walk([&](Operation *op) {
-      if (!isa<ConOp, CellInitOp, ClosureOp, SuspendOp, DelayOp>(op) || op->use_empty())
+      if (!op->hasTrait<BuildsValue>() || op->use_empty())
         return;
       if (llvm::any_of(op->getUsers(),
                        [&](Operation *user) { return user->getBlock() == op->getBlock(); }))

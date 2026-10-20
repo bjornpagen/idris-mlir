@@ -281,6 +281,7 @@ def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
 // fields, and only that init leaves a field to write later through a
 // destination (a hole).
 def Idr_ConOp : Idr_Op<"con", [
+    Idr_BuildsValue,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,

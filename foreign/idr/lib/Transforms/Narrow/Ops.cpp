@@ -187,11 +187,12 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
 
 // An op on bigs that all fit, reached after the joints made words of what
 // flows round loops and out of merges. A conversion the joints made is
-// left to the folds that pair it, not narrowed again. Only an op that takes
-// or gives a big is attempted: every case of narrowOp is one.
+// left to the folds that pair it, not narrowed again. Rooted at each op
+// narrowOp has a case for, from the same generated list its dispatch
+// reads, so the driver attempts it only where it can narrow.
 struct NarrowWord : RewritePattern {
-  NarrowWord(MLIRContext *ctx, Facts &facts, uint64_t &narrowed)
-      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), facts(facts), narrowed(narrowed) {}
+  NarrowWord(StringRef root, MLIRContext *ctx, Facts &facts, uint64_t &narrowed)
+      : RewritePattern(root, /*benefit=*/1, ctx), facts(facts), narrowed(narrowed) {}
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
     if (facts.made(op) || (llvm::none_of(op->getOperandTypes(), isBig) &&
@@ -211,8 +212,21 @@ struct NarrowWord : RewritePattern {
 
 } // namespace
 
+// One NarrowWord rooted at each op of `OpTs`.
+template <typename... OpTs>
+void addNarrowWords(RewritePatternSet &patterns, Facts &facts, uint64_t &narrowed) {
+  (patterns.add<NarrowWord>(OpTs::getOperationName(), patterns.getContext(), facts, narrowed),
+   ...);
+}
+
 void populateWordPatterns(RewritePatternSet &patterns, Facts &facts, uint64_t &narrowed) {
-  patterns.add<NarrowWord>(patterns.getContext(), facts, narrowed);
+  // narrowOp's cases: the big ops with a word form, which the ODS names,
+  // the literal match and the guard on a big, and counting a big made of
+  // a word.
+  addNarrowWords<MatchLitOp, CheckNonzeroOp, DupOp, DropOp,
+#define GET_BIG_TO_WORD_LIST
+#include "idr/IR/IdrBigToWord.inc"
+                 >(patterns, facts, narrowed);
 }
 
 } // namespace idr::narrow

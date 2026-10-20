@@ -240,16 +240,15 @@ struct FuncSignaturePattern : SlotPattern<FuncOp> {
 // Any other op is made again with its operands moved into their slots, its
 // results and region arguments of their plan's types, and its regions moved
 // into the new op: a yield, a con, a field, a match, a linear entry or use,
-// a poison, an array op, a branch.
+// a poison, an array op, a branch. Rooted at each such op by name: the
+// context's registered operations but the ones with a pattern of their own,
+// so the conversion attempts it only at an op it can remake.
 struct RetypePattern : ConversionPattern {
-  RetypePattern(const SlotTypeConverter &converter, MLIRContext *ctx)
-      : ConversionPattern(converter, MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+  RetypePattern(const SlotTypeConverter &converter, StringRef root, MLIRContext *ctx)
+      : ConversionPattern(converter, root, /*benefit=*/1, ctx) {}
 
   LogicalResult matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter &rewriter) const override {
-    if (isa<FuncOp, CallOp, ReturnOp, ClosureOp, SuspendOp, DelayOp, ApplyOp, ForceOp,
-            ConstantOp>(op))
-      return failure();
     const auto &converter = *getTypeConverter<SlotTypeConverter>();
     SmallVector<Value> moved;
     if (failed(converter.coerceOperands(rewriter, op, operands, moved)))
@@ -269,9 +268,20 @@ struct RetypePattern : ConversionPattern {
 
 void populateDefunctionalizePatterns(RewritePatternSet &patterns,
                                      const SlotTypeConverter &converter) {
+  MLIRContext *ctx = patterns.getContext();
   patterns.add<ClosurePattern, SuspendPattern, DelayPattern, ApplyPattern, ForcePattern,
-               ConstantPattern, FuncSignaturePattern, RetypePattern>(converter,
-                                                                    patterns.getContext());
+               ConstantPattern, FuncSignaturePattern>(converter, ctx);
+  // The ops with a pattern above, or one in PatternsCalls: every other
+  // registered op is remade by RetypePattern where the target finds it
+  // illegal. An op that can appear is registered, since it parsed.
+  const StringRef handled[] = {FuncOp::getOperationName(),    CallOp::getOperationName(),
+                               ReturnOp::getOperationName(),  ClosureOp::getOperationName(),
+                               SuspendOp::getOperationName(), DelayOp::getOperationName(),
+                               ApplyOp::getOperationName(),   ForceOp::getOperationName(),
+                               ConstantOp::getOperationName()};
+  for (RegisteredOperationName op : ctx->getRegisteredOperations())
+    if (!llvm::is_contained(handled, op.getStringRef()))
+      patterns.add<RetypePattern>(converter, op.getStringRef(), ctx);
 }
 
 } // namespace idr::defunctionalize

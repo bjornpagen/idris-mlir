@@ -286,6 +286,12 @@ def Idr_SameValue : NativeOpTrait<"SameValue"> { let cppNamespace = "::idr"; }
 // declares (OwnedWalk::make).
 def Idr_TakesReference : NativeOpTrait<"TakesReference"> { let cppNamespace = "::idr"; }
 
+// An op that builds the value it gives at run time: a constructor, as a
+// value or written into its cell, a closure, a suspension, an evaluated
+// suspension (idr-expect's "builds a value"). A constant is static data
+// and is built by no one, so idr.constant lacks this.
+def Idr_BuildsValue : NativeOpTrait<"BuildsValue"> { let cppNamespace = "::idr"; }
+
 // A partial op's guard: the guard op that checks `checkKind` (a case of
 // Idr_CheckKind) is given the op's values `guardedOperands`, named in the
 // guard op's operand order, the operand it guards first, and the program

@@ -31,15 +31,16 @@ namespace {
 // takes no operand: erasing the op would leave its uses without a value,
 // which no candidate verifies with, while this keeps every use and drops
 // the op's own. An op with regions stays, for the reducer to work inside,
-// and a poison is already the simplest value.
+// and a poison is already the simplest value. Rooted at each registered
+// op but poison itself, as the other rooted patterns are.
 struct PoisonResults : mlir::RewritePattern {
-  explicit PoisonResults(mlir::MLIRContext *ctx)
-      : RewritePattern(mlir::Pattern::MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+  PoisonResults(mlir::StringRef root, mlir::MLIRContext *ctx)
+      : RewritePattern(root, /*benefit=*/1, ctx) {}
 
   mlir::LogicalResult matchAndRewrite(mlir::Operation *op,
                                       mlir::PatternRewriter &rewriter) const override {
     if (op->getNumResults() == 0 || op->getNumRegions() != 0 ||
-        mlir::isa<mlir::ub::PoisonOp>(op) || !op->getParentOfType<idr::FuncOp>())
+        !op->getParentOfType<idr::FuncOp>())
       return mlir::failure();
     auto poison = [&](mlir::Type type) -> mlir::Value {
       return mlir::ub::PoisonOp::create(rewriter, op->getLoc(), type);
@@ -56,7 +57,10 @@ struct IdrReductionPatterns : mlir::DialectReductionPatternInterface {
       : DialectReductionPatternInterface(dialect) {}
 
   void populateReductionPatterns(mlir::RewritePatternSet &patterns) const override {
-    patterns.add<PoisonResults>(patterns.getContext());
+    mlir::MLIRContext *ctx = patterns.getContext();
+    for (mlir::RegisteredOperationName op : ctx->getRegisteredOperations())
+      if (op.getStringRef() != mlir::ub::PoisonOp::getOperationName())
+        patterns.add<PoisonResults>(op.getStringRef(), ctx);
   }
 };
 
