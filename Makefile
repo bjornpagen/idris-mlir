@@ -68,7 +68,6 @@ PRESET := $(DEV_PRESET)
 # idris-mlir, the one command, which the tests run; it runs the frontend
 # beside it, which `build` links there from where Idris builds it.
 COMPILER := $(call toolchain,idris_mlir)
-IDRIS_MLIR_FRONT := $(call toolchain,idris_mlir_front)
 FRONTEND := $(ROOT)/compiler/build/exec/idris-mlir-front
 RUNNER := $(ROOT)/harness/build/exec/runtests
 PINS := $(ROOT)/tools/verify-pins.sh
@@ -159,7 +158,7 @@ build:
 	@$(PINS) idris
 	$(ROOT)/tools/dialects.sh generate
 	@$(MAKE) --no-print-directory frontend
-	ln -sfn '$(FRONTEND)' '$(IDRIS_MLIR_FRONT)'
+	ln -sfn '$(FRONTEND)' '$(ROOT)/build/$(PRESET)/foreign/idr/idris-mlir-front'
 	@$(MAKE) --no-print-directory libs
 
 # The pinned Idris's directory of packages under a prefix, where it installs
