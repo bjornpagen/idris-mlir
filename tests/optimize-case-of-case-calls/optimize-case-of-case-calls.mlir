@@ -6,9 +6,12 @@
 // Case-of-case moves a consumer into a match, or a match down to its
 // consumer, across what only computes; a call only computes when its own
 // effects say so, which idr-optimize writes on it from its callee's once
-// the callee is final. A field read is raised into a match past a call
-// of a pure callee (@raised_past_call), where it folds against each
-// constructor; the match itself cannot move down, since a region crashes.
+// the callee is final. A match of the value is raised into a match past a
+// call of a pure callee (@raised_past_call), where it takes the case of
+// each constructor; the match itself cannot move down, since a region
+// crashes. (A field read of the value, or a match of it with one case of
+// one constructor, which is one, would need no raising: the match yields
+// the constructor's fields to it, whatever the call does.)
 // A match whose region calls a pure callee only computes, so it moves down
 // past output to the output of its string, and each region writes its own
 // (@lowered_with_call). Output moves into a match across a call that only
@@ -35,7 +38,7 @@
 !Maybe = !idr.data<"Maybe">
 #types = #idr.types<
   "Maybe" = plain [@Nothing(), @Just(i64)],
-  "P" = plain [@MkP(i64, i64)]
+  "P" = plain [@MkP(i64, i64), @Other()]
 >
 idr.program @"case-of-case-calls" root(@root) stage(first) types #types {
   idr.func @square(%x: i64) -> i64 attributes {total, no_inline} {
@@ -65,7 +68,15 @@ idr.program @"case-of-case-calls" root(@root) stage(first) types #types {
     }
     }
     %k = idr.call @square(%c) : (i64) -> i64
-    %f = idr.field %q : !P @MkP[0] -> i64
+    %f = idr.match %q : !P -> (i64) {
+    case @MkP(%p: i64, %r: i64) {
+      idr.yield %p : i64
+    }
+    default(%o: !P) {
+      %zero = arith.constant 0 : i64
+      idr.yield %zero : i64
+    }
+    }
     %s = arith.addi %f, %k : i64
     return %s : i64
   }

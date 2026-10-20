@@ -33,13 +33,19 @@ CallOp callOf(OpBuilder &builder, Location loc, FlatSymbolRefAttr callee, TypeRa
 
 // A suspension nothing else uses is this call. The body runs once, where
 // it is forced. A shared suspension stays a cell: the first force stores
-// the value and every later force reads it.
+// the value and every later force reads it. So does a suspension of
+// constants, which folds to one cell in static data that every run of the
+// force shares, its label run once for all of them: the fold is its
+// canonical form, whichever the driver reaches first.
 struct ForceOfOneUse : OpRewritePattern<ForceOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ForceOp force, PatternRewriter &rewriter) const override {
     auto suspend = force.getSuspension().getDefiningOp<SuspendOp>();
     if (!suspend || !suspend.getResult().hasOneUse())
+      return failure();
+    SmallVector<OpFoldResult> constant;
+    if (succeeded(suspend->fold(constant)))
       return failure();
     rewriter.setInsertionPoint(force);
     CallOp call = callOf(rewriter, force.getLoc(), suspend.getCalleeAttr(),

@@ -87,16 +87,6 @@ toolchain rebuild confirms or strikes it.
 
 ## arrays
 
-- **optimize-case-of-case-calls expects the constructors a match's regions
-  yield to stay** (cd40ab41, idr-yield-fields; found by the data-table
-  cutover's test-idr run, 2026-10-20): its negative run
-  (`--canonicalize ... builds-nothing=@raised_past_call` under
-  `-verify-diagnostics`) expects "idr.con builds a value in
-  @raised_past_call" twice, and the new canonicalization yields the fields
-  instead, so nothing is built. Owed: the fixture states what the
-  canonicalization leaves (the match yields fields, the consumer is raised
-  past the call) rather than the constructors it no longer builds.
-
 - **k-nucleotide's time at 25M is unmeasured.** Its output is the C
   version's, byte for byte, at 1k, 10k and 20k nucleotides, and
   cd40ab41 (idr-yield-fields) removed the copy of the counting table on
