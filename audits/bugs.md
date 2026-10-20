@@ -9,12 +9,16 @@ fix lands, the commit naming it. A bug in a pinned upstream is recorded
 here only until its patch is carried: then its report is
 `upstream/<bug>/README.md` and its status `PINS.md`'s.
 
-**Status, main at 98c6315c (2026-10-20).** `make check` 34/34,
-`make test-idr` 340/340, `make test-mlir-tools` 34/34, `make test-unit`
-passes, on the shared toolchain with every carried patch. `make test` has
-not run since the data-table cutover (b9d4d592); its last count, before
-it, was 446-449 of 478. An entry marked *not rerun since* X was last seen
-at X; the first full `make test` confirms or strikes it.
+**Status, main at 31daec54 (2026-10-20), two cores throughout.**
+`make check` 34/34, `make test-idr` 340/340, `make test-mlir-tools`
+34/34, `make test-unit` passes, on the shared toolchain with every
+carried patch. The first full `make test` since the data-table cutover
+ran at 017f5374: 451/480. Of its 29 failures, 16 were crash locations the
+TTC kept per term node since 374e0e77, where the expected files still
+named the definition (fixed c4a046e0), one the registry's allowlist and
+one the handoff check's program line (31daec54), and one the excl grade
+written at a frame lifetime (276e887). Eleven remain, below; no full
+`make test` has run since those fixes.
 
 ## ownership
 
@@ -45,33 +49,25 @@ at X; the first full `make test` confirms or strikes it.
   slots (or contiguous runs of them), as release already walks them.
   Acceptance: records-past-the-cell's functions no longer reach the
   budget.
-- **A static constant passed to an owned parameter is graded owned**
-  (found 0ea323fa, during the cutover c4d38e9b took out; *not rerun
-  since*). idr-rc-grades gave `idr.constant` an owned grade, which its
-  verifier refuses ("cannot hold ... as '!idr.own<...>'"). Reduced: a
-  stage(first) program with `!T = plain [@E(), @N(i64, !idr.box<T>)]`,
-  `@sum` matching its box argument and calling itself on the tail, and a
-  root calling `@sum(N(n, E))`: idr-optimize specializes `@sum` on the
-  static `E`, and the node's `idr.constant` of `E` reaches `@sum`'s owned
-  parameter. fuzz-two-hosts failed the same way on string literals at
-  d40d3c32. escape-hatch-hole-at-runtime's near program, which failed in
-  idr-rc-grades under the cutover, passes at c4d38e9b. Owed: rerun the
-  reduction and fuzz-two-hosts; strike the entry if both pass.
-- **every-interfaces-export fails idr-rc's exclusivity check** (*not
-  rerun since* ed9b2a0b); at 6f774119 it, and the benchmarks regex-dna and
-  regex-redux, were refused by the owned verifier's "'idr.cell.init' op
-  builds an exclusive value of a field that may be shared", the verifier
-  refusing counting's output. Cause not found.
-- **show-dependent-pair** (*not rerun since* ef45c0a7):
-  `printLn (2 ** [1,2])` then `printLn (0 ** [])` at `Vect n Int` gives
-  "internal error: idr.match op leaves a value with 0 references on one
-  path and 1 on another"; each alone compiles and prints right, as does
-  `(2 ** ..)` with `(1 ** [3])`. Cause not found.
-- **stream-take-before hangs** (*not rerun since* ef45c0a7): bounds 40, 64
-  and 2^61 time out (expected 63, 127 and 2^62-1); 0 and 1 are right.
-  stream-take's wrong sums of the same date were a frame cell built in a
-  slot the previous iteration's list still read (fixed c2ad4aa7); whether
-  this is the same cause is *conjecture*.
+- **fuzz-two-hosts compiles, and its counts are back.** Its cases pass,
+  and what fails is mlir.expect at idr-rc-exclusive: `@Gen.drawLoop`
+  drops and dups owned `Nat` and `big` values (its own parameters among
+  them, where its `.spec` copy's are borrowed), so counts-nothing fails,
+  and a box of `@Slot` gets a fresh cell in
+  `@Gen.reverseOnto.spec.*.excl.*`, so reuses-in-place fails. The tape it
+  draws from is linear, so a draw should count nothing and build each
+  cell in the one it took. Which step grades those parameters owned, and
+  what the reverseOnto copy lost, is not found. (The static-constant
+  grading this entry replaced is struck: escape-hatch-hole-at-runtime
+  passes, and fuzz-two-hosts' failure at 017f5374 was the excl grade at
+  a frame lifetime, fixed 276e887; the entry's reduced program was not
+  rerun.)
+- **every-interfaces-export does not finish compiling in its step
+  limit.** At 017f5374 it times out at 60 s of compile.sh on two cores;
+  at 6f774119 it, and the benchmarks regex-dna and regex-redux, were
+  refused by the owned verifier's "'idr.cell.init' op builds an exclusive
+  value of a field that may be shared". Which pass its time is in, and
+  whether the refusal is behind it, is not found.
 - **R3 holds within one iteration only.** The owned walk runs a loop's
   body once, so a view read out of memory before the loop and used after a
   write of that memory in an earlier iteration is not refused. **Owed:**
@@ -87,32 +83,29 @@ at X; the first full `make test` confirms or strikes it.
 - **k-nucleotide's time at 25M is unmeasured.** Its output is the C
   version's, byte for byte, at 1k, 10k and 20k nucleotides, and
   cd40ab41 (idr-yield-fields) removed the copy of the counting table on
-  every write that made it quadratic (50 s at 10k, 196 s at 20k). Owed:
-  bench k-nucleotide at 25M against the 2026-10-13 record (3 s). Waits on
-  k-nucleotide compiling on main: under the cutover idr-rc-grades refused
-  a constructor of closures it graded static (Main.idr:48); *not rerun
-  since* c4d38e9b.
+  every write that made it quadratic (50 s at 10k, 196 s at 20k). It
+  compiles again (bench-smoke at 017f5374). Owed: bench k-nucleotide at
+  25M against the 2026-10-13 record (3 s).
+- **buffer-ops does not finish compiling in its step limit.** At
+  017f5374 it times out at 60 s of compile.sh on two cores (exit 124);
+  it compiled before the waves. Which pass its time is in is not found.
 
 ## defunc
 
-- **idr-contify adds a crash site** (harness-cases, found once every e2e
-  compilation checks the passes' contracts, 28274bd3): "contract
+- **idr-contify adds a crash site** (harness-cases and exit-with, found
+  once every e2e compilation checks the passes' contracts, 28274bd3;
+  confirmed at 017f5374, where both fail to compile on it): "contract
   crash-sites-not-added broken by idr-contify:
   @System.exitWith[Builtin.Unit, PrimIO.IO, ...].lam.*". Owed: idr-contify
   adds no crash site a function did not have, or the contract states what
-  contification may add. Acceptance: harness-cases passes with its
-  contracts checked.
+  contification may add. Acceptance: harness-cases and exit-with pass
+  with their contracts checked.
 
 ## control
 
 - **A call between members of one component is neither inlined nor
-  redirected, so a do block's binds stay data.** Two tests:
-  - lazy-branch-loop: `no-heap-allocation=@Main.next` fails at
-    idr-optimize on the closures `PrimIO.io_bind[Maybe Int, Int].lam.*`
-    builds for its call of `io_bind[Maybe Int, Unit].lam.*`: the
-    `set ...; if ...` statement's bind (a bind closure of the set, and
-    `(>>)`'s closure capturing the `if` as a suspension), built per round
-    and run by the callee, a member of the same component.
+  redirected, so a do block's binds stay data.** lazy-branch-loop passes
+  since 2a02891f got its first suite run (017f5374). What remains:
   - ioref-keeps-old-value and ioref-record-in-place fail moves-out: the
     IORef's read and its write are no longer in one function after
     idr-optimize, so MoveOut, which rewrites a read and a write in one
@@ -130,11 +123,12 @@ at X; the first full `make test` confirms or strikes it.
   node requested from outside its component is beta reduction, one
   requested by a member a step, and a member inlined once at a call whose
   every closure argument is built at the call, the calls it brings in not
-  inlined again in that member's turn. 2a02891f (WIP: a member call that
+  inlined again in that member's turn. 2a02891f (a member call that
   applies closures built for it alone is granted a node) is that step for
-  lazy-branch-loop and has had no suite run. Acceptance: lazy-branch-loop,
-  ioref-keeps-old-value and ioref-record-in-place pass, and no program
-  ed9b2a0b brought back within its time leaves it.
+  lazy-branch-loop, confirmed at 017f5374. Acceptance:
+  ioref-keeps-old-value and ioref-record-in-place pass, lazy-branch-loop
+  still does, and no program ed9b2a0b brought back within its time
+  leaves it.
 - **A static suspension forced once outside the root keeps its memo
   cell.** A constant suspension is forced by name in the root alone, the
   one function known to run once (6b997883). A do block in a function the
@@ -142,9 +136,13 @@ at X; the first full `make test` confirms or strikes it.
   action each settles: a main that reads a byte and then runs two or more
   IO actions allocates `idr.cell.new` in `main.delay` and in the `(>>)`
   lambda, and a recursive `getChar` loop allocates in `io_bind`'s lambda.
-  No test pins it (literal-match was made to avoid it). Owed: a fact that
-  a function runs at most once (called once from code that runs once, on
-  no cycle), read where the force is; then a heap-free test of that shape.
+  double-basics and interface-ring-power pin it (017f5374): each is marked
+  heap-free and fails on `idr.cell.new` in `@Main.main.delay.*`, with the
+  `idr.str.show_sint` and `idr.str.append` of a `putStrLn (cast n)` the
+  delay keeps from meeting the output that writes a number in pieces.
+  Owed: a fact that a function runs at most once (called once from code
+  that runs once, on no cycle), read where the force is. Acceptance:
+  double-basics and interface-ring-power pass.
 - **e2e-eval RUN 4**: `@Prog.main` no longer calls `@dashes` after
   idr-optimize (fails at 651164af and 15cc58aa). Cause not found.
 - **A skipped inline leaves IR idr-tail-loops cannot take.**
@@ -166,13 +164,6 @@ at X; the first full `make test` confirms or strikes it.
   input, so every error that names no rule is internal. Owed: such an
   error is the user's, with its verdict, and runtime-triple holds a
   missing file and a non-archive to it.
-- **`llvm.call` operand type mismatch, i64 against !llvm.ptr** (*not
-  rerun since* ef45c0a7): bounded-field, bounded-synonym and
-  implementation-index-function failed to compile on it, and so did
-  leet-insertion-sort with `same : (Int,Int,Int) -> (Int,Int,Int) -> Bool`
-  (an `&&` of Int `==`) added. 4108916a fixed the one cause then found
-  (`idr.match_lit` on a graded string); whether these share it is
-  unknown.
 - **dialect-text's orphan check reads only `--check-prefix=`**, so the
   lines of `--check-prefixes=A,B` count as orphans (e2e-loops uses one
   prefix per FileCheck to avoid it). Owed: the check reads both spellings,
@@ -180,12 +171,13 @@ at X; the first full `make test` confirms or strikes it.
 
 ## upstream
 
-- **The crash after main is not yet confirmed fixed.** LLVM AArch64 made a
-  sibling call out of a `tailcc` function with stack arguments, leaving
-  its argument area on the stack (upstream/30-aarch64-sibcall-callee-pop,
-  carried in the toolchain since 2026-10-19). Owed: the first full
-  `make test` shows directory-listing, files-roundtrip, array-of-arrays
-  (stdin 0), bounded-method-own, buffer-ops and io-loop-through-helper
-  (its 100-character buffer-edges case included) exiting as their cases
-  say; that all six shared the cause was never verified, so one still
-  crashing is a new entry.
+- **The crash after main is confirmed fixed for five of its six.**
+  LLVM AArch64 made a sibling call out of a `tailcc` function with stack
+  arguments, leaving its argument area on the stack
+  (upstream/30-aarch64-sibcall-callee-pop, carried in the toolchain since
+  2026-10-19). The full `make test` at 017f5374 shows directory-listing,
+  files-roundtrip, array-of-arrays, bounded-method-own and
+  io-loop-through-helper exiting as their cases say. buffer-ops does not
+  crash; it does not finish compiling, which is its own entry under
+  arrays. Nothing is owed here but the record: the entry goes with the
+  next full run that keeps the five green.

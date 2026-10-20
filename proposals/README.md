@@ -36,11 +36,12 @@ targets (0001). Everything else waits for it unless it says otherwise.
   the representation wave (their last texts at 77eaa5b1; the code is
   their specification), the four-targets cutover (0002), and the shared
   toolchain with every carried patch, upstream 62 and 63 included. Main
-  at 98c6315c: `make check` 34/34, `make test-idr` 340/340,
-  `make test-mlir-tools` 34/34, `make test-unit` passes. `make test` has
-  not run since the data-table cutover (b9d4d592); its last count, before
-  that, was 446-449 of 478. The known failures are `audits/bugs.md`'s, by
-  lane.
+  at 276e887: `make check` 34/34, `make test-idr` 340/340,
+  `make test-mlir-tools` 34/34, `make test-unit` passes, on two cores.
+  The first full `make test` since the data-table cutover ran at
+  017f5374: 451/480; 18 of its failures and the excl-at-a-frame crash are
+  fixed (c4a046e0, 31daec54, 276e887), and the eleven left are
+  `audits/bugs.md`'s, by lane. No full `make test` has run since.
 - **Self-hosting, S3 (0001):** the frontend half of stage 1 passes (450 to
   528 s, 6.5 GB peak, a 71 MB module). The pipeline half has never
   finished. Each run so far found the next thing that stopped it, fixed in
@@ -53,9 +54,9 @@ targets (0001). Everything else waits for it unless it says otherwise.
 
 ## What comes next, in order
 
-1. **One full `make test` on main.** It confirms or strikes every
-   `audits/bugs.md` entry marked *not rerun*, and gives 2a02891f
-   (control: a member call granted a node) its first run.
+1. **One full `make test` on main.** Done (above): every *not rerun*
+   entry is confirmed or struck, 2a02891f holds for lazy-branch-loop,
+   and the failures it left are recorded by lane.
 2. **0001 S3, the pipeline half,** on the release build, traced: the
    action profile and a sampler on the same run (0001, S3's method). Every
    hang, quadratic and lock it shows is fixed at its cause, as a
