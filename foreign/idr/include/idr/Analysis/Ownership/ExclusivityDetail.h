@@ -113,10 +113,6 @@ llvm::DenseMap<mlir::Value, Sharing> solveOnce(ProgramOp program, const Calls &c
 // canonicalizer's to fold, not the solve's to leave ungraded.
 void liveBlocksOf(FuncOp fn, llvm::DenseSet<mlir::Block *> &live);
 
-// Whether control may go from `point` of `branch` to `want`.
-bool goesTo(mlir::RegionBranchOpInterface branch, mlir::RegionBranchPoint point,
-            mlir::RegionSuccessor want);
-
 // One writer of values in the solve's graph: an op's results from its
 // reference edges, a call's results and its callee's parameters, a region
 // successor's inputs (an op's results, or a region's arguments) from its
@@ -132,19 +128,32 @@ struct Item {
   mlir::Block *block;  // the block that must run for the item to write
   FuncOp fn;           // the function the item is in
   mlir::Region *region; // Successor: the successor region, null for the op successor
+  unsigned source;     // Successor: its entry in Graph::successorSources
 };
 
-// The solve's graph of a program, built once: every item, the items each
-// value is read by, each function's items, and the terminators of each
-// branch op's regions. Nothing in it changes as the marking runs.
+// Where one region successor's inputs come from, read off the branch op
+// once: its inputs and the values no predecessor forwards to, each
+// predecessor that may go to it as the block control leaves from and the
+// operands it forwards, and the blocks control leaves a region from by a
+// terminator no interface says the operands of, which prove nothing.
+struct SuccessorSources {
+  mlir::ValueRange inputs;
+  llvm::SmallVector<mlir::Value> unforwarded;
+  llvm::SmallVector<std::pair<mlir::Block *, mlir::OperandRange>, 2> from;
+  llvm::SmallVector<mlir::Block *, 1> unknownFrom;
+};
+
+// The solve's graph of a program, built once: every item, where each
+// region successor's inputs come from, the items each value is read by,
+// and each function's items. Nothing in it changes as the marking runs.
 class Graph {
 public:
   Graph(ProgramOp program, const Calls &calls);
 
   std::vector<Item> items;
+  std::vector<SuccessorSources> successorSources;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned, 2>> dependents;
   llvm::DenseMap<FuncOp, llvm::SmallVector<unsigned>> itemsOf;
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *, 2>> terminators;
 
 private:
   unsigned addItem(Item item);
@@ -153,8 +162,7 @@ private:
   void readsReturns(unsigned id, FuncOp callee, const Calls &calls);
   void scan(mlir::Region &region, FuncOp fn, const Calls &calls);
   void scanOp(mlir::Operation *op, FuncOp fn, const Calls &calls);
-  void addSuccessor(mlir::RegionBranchOpInterface branch, mlir::RegionSuccessor successor,
-                    mlir::Region *region, mlir::Block *block, FuncOp fn);
+  void scanBranch(mlir::RegionBranchOpInterface branch, mlir::Block *block, FuncOp fn);
 };
 
 } // namespace idr::detail::exclusivity

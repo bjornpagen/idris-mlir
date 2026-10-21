@@ -230,34 +230,24 @@ private:
     if (found == liveOf.end())
       return;
     const DenseSet<Block *> &liveBlocks = found->second;
-    auto branch = cast<RegionBranchOpInterface>(item.op);
-    RegionSuccessor successor =
-        item.region ? RegionSuccessor(item.region) : RegionSuccessor(item.op);
-    ValueRange inputs = branch.getSuccessorInputs(successor);
-    bool reached = false;
-    auto joinFrom = [&](OperandRange operands) {
-      reached = true;
-      for (auto [input, operand] : llvm::zip_equal(inputs, operands))
-        joinValue(input, get(operand));
-    };
-    if (liveBlocks.contains(item.block) &&
-        goesTo(branch, RegionBranchPoint::parent(), successor))
-      joinFrom(branch.getSuccessorOperands(RegionBranchPoint::parent(), successor));
-    for (Operation *terminator : graph.terminators[item.op]) {
-      if (!liveBlocks.contains(terminator->getBlock()))
-        continue;
-      auto end = dyn_cast<RegionBranchTerminatorOpInterface>(terminator);
-      if (!end) {
-        // A way out of a region whose operands no interface says: nothing
-        // is proved of what it gives.
+    const SuccessorSources &sources = graph.successorSources[item.source];
+    // A way out of a region whose operands no interface says: nothing is
+    // proved of what it gives.
+    for (Block *block : sources.unknownFrom)
+      if (liveBlocks.contains(block)) {
         ValueRange values =
             item.region ? ValueRange(item.region->getArguments()) : item.op->getResults();
         for (Value value : values)
           joinValue(value, Sharing::Shared);
         return;
       }
-      if (goesTo(branch, RegionBranchPoint(end), successor))
-        joinFrom(branch.getSuccessorOperands(RegionBranchPoint(end), successor));
+    bool reached = false;
+    for (auto [block, operands] : sources.from) {
+      if (!liveBlocks.contains(block))
+        continue;
+      reached = true;
+      for (auto [input, operand] : llvm::zip_equal(sources.inputs, operands))
+        joinValue(input, get(operand));
     }
     if (!reached)
       return;
@@ -267,7 +257,7 @@ private:
     // says no init decides one, or where no cell of the label is ever
     // made, so the force never runs and nothing is proved of it.
     auto force = dyn_cast<MemoRunOp>(item.op);
-    for (Value value : branch.getNonSuccessorInputs(successor)) {
+    for (Value value : sources.unforwarded) {
       if (force && item.region) {
         auto capture = cast<BlockArgument>(value);
         if (!ownership::followed(capture) ||

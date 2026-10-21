@@ -95,15 +95,6 @@ void liveBlocksOf(FuncOp fn, DenseSet<Block *> &live) {
   }
 }
 
-bool goesTo(RegionBranchOpInterface branch, RegionBranchPoint point, RegionSuccessor want) {
-  SmallVector<RegionSuccessor> successors;
-  branch.getSuccessorRegions(point, successors);
-  return llvm::any_of(successors, [&](RegionSuccessor s) {
-    return (s.isOperation() && want.isOperation()) ||
-           (!s.isOperation() && !want.isOperation() && s.getSuccessor() == want.getSuccessor());
-  });
-}
-
 Graph::Graph(ProgramOp program, const Calls &calls) {
   for (FuncOp fn : program.getOps<FuncOp>())
     scan(fn.getBody(), fn, calls);
@@ -131,7 +122,7 @@ void Graph::readsReturns(unsigned id, FuncOp callee, const Calls &calls) {
 void Graph::scan(Region &region, FuncOp fn, const Calls &calls) {
   for (Block &block : region) {
     if (&block != &region.front() && block.getNumArguments()) {
-      unsigned id = addItem({Item::Kind::BlockArgs, nullptr, &block, fn, nullptr});
+      unsigned id = addItem({Item::Kind::BlockArgs, nullptr, &block, fn, nullptr, 0});
       for (Block *pred : block.getPredecessors())
         if (auto branch = dyn_cast<BranchOpInterface>(pred->getTerminator()))
           for (unsigned i = 0, e = pred->getNumSuccessors(); i != e; ++i)
@@ -150,15 +141,9 @@ void Graph::scan(Region &region, FuncOp fn, const Calls &calls) {
 void Graph::scanOp(Operation *op, FuncOp fn, const Calls &calls) {
   Block *block = op->getBlock();
   if (auto branch = dyn_cast<RegionBranchOpInterface>(op)) {
-    for (Region &inner : op->getRegions())
-      for (Block &innerBlock : inner)
-        terminators[op].push_back(innerBlock.getTerminator());
-    addSuccessor(branch, RegionSuccessor(op), nullptr, block, fn);
-    for (Region &region : op->getRegions())
-      if (!region.empty())
-        addSuccessor(branch, RegionSuccessor(&region), &region, block, fn);
+    scanBranch(branch, block, fn);
   } else if (auto call = dyn_cast<CallOp>(op)) {
-    unsigned id = addItem({Item::Kind::Call, op, block, fn, nullptr});
+    unsigned id = addItem({Item::Kind::Call, op, block, fn, nullptr, 0});
     readsAll(id, op->getOperands());
     std::visit(llvm::makeVisitor(
                    [&](FuncOp alone) { readsReturns(id, alone, calls); },
@@ -168,25 +153,74 @@ void Graph::scanOp(Operation *op, FuncOp fn, const Calls &calls) {
                    }),
                calls.calleeOf(call));
   } else if (op->getNumResults()) {
-    unsigned id = addItem({Item::Kind::Op, op, block, fn, nullptr});
+    unsigned id = addItem({Item::Kind::Op, op, block, fn, nullptr, 0});
     readsAll(id, op->getOperands());
   }
   if (op->getNumRegions() && !isa<RegionBranchOpInterface, CallableOpInterface>(op) &&
       llvm::any_of(op->getRegions(), [](Region &region) {
         return !region.empty() && region.front().getNumArguments();
       }))
-    addItem({Item::Kind::EntryArgs, op, block, fn, nullptr});
+    addItem({Item::Kind::EntryArgs, op, block, fn, nullptr, 0});
 }
 
-void Graph::addSuccessor(RegionBranchOpInterface branch, RegionSuccessor successor,
-                         Region *region, Block *block, FuncOp fn) {
-  unsigned id = addItem({Item::Kind::Successor, branch.getOperation(), block, fn, region});
-  if (goesTo(branch, RegionBranchPoint::parent(), successor))
-    readsAll(id, branch.getSuccessorOperands(RegionBranchPoint::parent(), successor));
-  for (Operation *terminator : terminators[branch.getOperation()])
-    if (auto end = dyn_cast<RegionBranchTerminatorOpInterface>(terminator))
-      if (goesTo(branch, RegionBranchPoint(end), successor))
-        readsAll(id, branch.getSuccessorOperands(RegionBranchPoint(end), successor));
+// One item per successor of `branch` (its results first, then each
+// region's arguments), and where each successor's inputs come from:
+// every point control may leave from is read once, for the successors it
+// goes to, however many regions the branch has.
+void Graph::scanBranch(RegionBranchOpInterface branch, Block *block, FuncOp fn) {
+  Operation *op = branch.getOperation();
+  struct Succ {
+    Region *region;
+    unsigned item;
+    unsigned source;
+  };
+  SmallVector<Succ> succs;
+  DenseMap<Region *, unsigned> byRegion;
+  auto addSucc = [&](Region *region) {
+    unsigned source = static_cast<unsigned>(successorSources.size());
+    successorSources.emplace_back();
+    unsigned item = addItem({Item::Kind::Successor, op, block, fn, region, source});
+    if (region)
+      byRegion[region] = static_cast<unsigned>(succs.size());
+    succs.push_back({region, item, source});
+  };
+  addSucc(nullptr);
+  for (Region &region : op->getRegions())
+    if (!region.empty())
+      addSucc(&region);
+  auto addFrom = [&](RegionBranchPoint point, Block *pointBlock) {
+    SmallVector<RegionSuccessor> targets;
+    branch.getSuccessorRegions(point, targets);
+    for (RegionSuccessor target : targets) {
+      unsigned at = 0;
+      if (!target.isOperation()) {
+        auto it = byRegion.find(target.getSuccessor());
+        if (it == byRegion.end())
+          continue;
+        at = it->second;
+      }
+      OperandRange operands = branch.getSuccessorOperands(point, target);
+      successorSources[succs[at].source].from.push_back({pointBlock, operands});
+      readsAll(succs[at].item, operands);
+    }
+  };
+  addFrom(RegionBranchPoint::parent(), block);
+  SmallVector<Block *> unknownFrom;
+  for (Region &inner : op->getRegions())
+    for (Block &innerBlock : inner) {
+      Operation *terminator = innerBlock.getTerminator();
+      if (auto end = dyn_cast<RegionBranchTerminatorOpInterface>(terminator))
+        addFrom(RegionBranchPoint(end), &innerBlock);
+      else if (terminator)
+        unknownFrom.push_back(&innerBlock);
+    }
+  for (Succ succ : succs) {
+    SuccessorSources &sources = successorSources[succ.source];
+    RegionSuccessor successor = succ.region ? RegionSuccessor(succ.region) : RegionSuccessor(op);
+    sources.inputs = branch.getSuccessorInputs(successor);
+    sources.unforwarded = branch.getNonSuccessorInputs(successor);
+    llvm::append_range(sources.unknownFrom, unknownFrom);
+  }
 }
 
 } // namespace idr::detail::exclusivity
