@@ -26,6 +26,30 @@ program-suite change from the remove-dead-values removal.
 
 ## ownership
 
+- **Counting's op numbering corrupts under counting's own rewrites**
+  (`101edbc5`). `make test` on that commit (its first program-suite
+  run, taken sampled for `audits/flamegraph-2026-10-21.md`) is
+  403/480 against the standing 470/480. `tests/chars` is the
+  reproducer: compile it (`tools/compile.sh` on a copy) and the dev
+  build asserts in `placeOwned` ("the last use of an owned value is
+  a terminator that does not take it over"), because `usersIn`
+  returns every op of a match case block for a value only its first
+  op uses: at that point the kept `Positions` spans of one match's
+  case blocks overlap, so containment answers name the wrong case's
+  ops. A fresh `Positions` built at `place()` compiles the repro; one
+  built before `reshape` does not, so the incremental maintenance
+  (`Positions::assign` numbering inserted ops in a gap, `forget` for
+  erasures and moves) breaks somewhere in reshape's own rewrites
+  (selects, take-apart, consumer sinking, field owning); the first
+  overlapping `assign` is not yet caught. The same corruption at
+  `-O2` is taken to be the sampled run's 65 outputs asserting
+  "Malformed attribute storage object" through `place()` and its 5
+  `mlir.expect` failures at `idr-rc-exclusive` (not proven
+  identical). Owed: the fixture (the `tests/chars` pre-grades module
+  reduced to the one function, an `--idr-rc-grades` lit test), the
+  first overlapping assign caught by logging, and the fix at the
+  representation — candidates in the flamegraph audit. Acceptance:
+  `make test` back to its standing count, suites as at `e96bb99`.
 - **split-prefixes shares the lists its test says are new** (with the
   control lane). The test expects `span[Char]` and `splitAt[Char]` to take
   only exclusive cells. The lists reach them through `entry`'s do block,
