@@ -9,25 +9,20 @@ fix lands, the commit naming it. A bug in a pinned upstream is recorded
 here only until its patch is carried: then its report is
 `upstream/<bug>/README.md` and its status `PINS.md`'s.
 
-**Status, main at 7987388b plus the frames and pipeline change below
-(2026-10-20), two cores throughout.** `make check` 34/34,
-`make test-idr` 341/341 (the new frames fixture among them),
-`make test-mlir-tools` 34/34, `make test-unit` passes, on the shared
-toolchain with every carried patch. Stage 1's pipeline half OOMed
-twice (proposal 0001 §2): in idr-frames' member-by-answer cloning of
-`Libraries.Text.Parser.Core.bindGrammar`'s component, and in
-upstream's remove-dead-values whole-program liveness solve. The
-answer is now a sum per component — one run per member, one resume
-per result type, each rest once — and the pipeline no longer
-re-solves liveness over the whole program. The first full
-`make test` since the data-table cutover ran at 017f5374: 451/480. Of
-its 29 failures, 16 were crash locations the TTC kept per term node
-since 374e0e77, where the expected files still named the definition
-(fixed c4a046e0), one the registry's allowlist and one the handoff
-check's program line (31daec54), and one the excl grade written at a
-frame lifetime (276e887). Eleven remain, below; no full `make test`
-has run since those fixes, so what the removal of remove-dead-values
-leaves for counting to drop is unmeasured there.
+**Status, main at b8301ebe plus the Reuses change below (2026-10-21),
+two cores throughout.** `make check` 34/34, `make test-mlir-tools`
+34/34, `make test-unit` passes; `make test-idr` rerunning. Stage 1's
+pipeline half OOMed three times (proposal 0001 §2): idr-frames'
+member-by-answer cloning, upstream's remove-dead-values liveness
+solve, and idr-rc-stack's per-value sets; the answer is a sum per
+component, the pipeline solves no whole-program liveness, and the
+stack inference is markings on the flow graph. Past those, counting
+failed verification at 1088 sites of one shape (a matched box's field
+met twice by Reuses, the second take at the block's start); a box an
+earlier site already gives gets no site of its own, held by
+tests/rc-reuse-read-field. `make test` at b8301ebe: 470/480, the ten
+failures below (buffer-ops passes since 017f5374's 451/480). No
+program-suite change from the remove-dead-values removal.
 
 ## ownership
 
@@ -95,10 +90,6 @@ leaves for counting to drop is unmeasured there.
   every write that made it quadratic (50 s at 10k, 196 s at 20k). It
   compiles again (bench-smoke at 017f5374). Owed: bench k-nucleotide at
   25M against the 2026-10-13 record (3 s).
-- **buffer-ops does not finish compiling in its step limit.** At
-  017f5374 it times out at 60 s of compile.sh on two cores (exit 124);
-  it compiled before the waves. Which pass its time is in is not found.
-
 ## defunc
 
 - **idr-contify adds a crash site** (harness-cases and exit-with, found
@@ -180,13 +171,6 @@ leaves for counting to drop is unmeasured there.
 
 ## upstream
 
-- **The crash after main is confirmed fixed for five of its six.**
-  LLVM AArch64 made a sibling call out of a `tailcc` function with stack
-  arguments, leaving its argument area on the stack
-  (upstream/30-aarch64-sibcall-callee-pop, carried in the toolchain since
-  2026-10-19). The full `make test` at 017f5374 shows directory-listing,
-  files-roundtrip, array-of-arrays, bounded-method-own and
-  io-loop-through-helper exiting as their cases say. buffer-ops does not
-  crash; it does not finish compiling, which is its own entry under
-  arrays. Nothing is owed here but the record: the entry goes with the
-  next full run that keeps the five green.
+Nothing open. The crash after main (upstream/30-aarch64-sibcall-callee-pop)
+is confirmed fixed for all six of its programs by the full `make test`
+at b8301ebe, buffer-ops among them.

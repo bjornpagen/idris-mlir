@@ -175,6 +175,20 @@ private:
     if (data.isAtom(tag))
       return;
     SmallVector<OpOperand *> uses = usesOf(box);
+    // A use an earlier site moves to its take's field is that field's,
+    // not this box's. Nothing left (and no bound fields to give) means
+    // an earlier take already gives this box: it is that take's field,
+    // decided there, and a site of its own would take it apart again
+    // where no use says it dies.
+    llvm::erase_if(uses, [&](OpOperand *use) {
+      auto it = moved.find(use);
+      if (it == moved.end())
+        return false;
+      const TakenField *held = std::get_if<TakenField>(&box);
+      return !held || it->second != *held;
+    });
+    if (uses.empty() && bound.empty())
+      return;
     unsigned size = layouts.box(data).cell(tag).size;
     // Reuses are decided before borrow inference grades the signatures,
     // so any call may take its arguments over.

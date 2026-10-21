@@ -89,9 +89,15 @@ stage 1 alone. A stage keeps everything in `build/self/stageN/`.
      bit vector per value and copied it along every edge: the
      inference is now the rules' flow graph itself, and its three
      questions (escapes, fills of heap cells, values of the frame) are
-     markings on it, a bit per node. The run after that has not been
-     made: whether the pipeline half now finishes, and in what time,
-     is unknown.
+     markings on it, a bit per node. The next run reached counting and
+     failed verification 1088 times over one bug: Reuses met a matched
+     box's field twice, once as the match site's take field and once
+     as a read box in its own right; by the second meeting every use
+     already moved to the first take's field, so its death had no use
+     to die at and its take went to the block's start, before the read
+     that defines it (and on a borrow grade, which is what the
+     verifier named first). A box an earlier site already gives now
+     gets no site of its own. The run after that has not been made.
    - **Method: trace it, don't guess.** Each run is the release
      `idris-mlir` with `--profile-actions-to=<file>` (MLIR's action
      profiler: a Chrome trace of every pass, every idr-optimize node,
