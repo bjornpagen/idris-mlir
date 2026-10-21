@@ -32,6 +32,7 @@ Positions::Positions(FuncOp fn) : fn(fn) { renumber(); }
 
 void Positions::renumber() {
   spans.clear();
+  blockSpans.clear();
   opsInBlock.clear();
   spans[fn.getOperation()] = {0, UINT64_MAX};
   uint64_t next = kGap;
@@ -44,6 +45,8 @@ void Positions::number(Region &region, uint64_t &next) {
     // numbering what an op holds inserts the blocks in there into the
     // same map, which a reference into it would not survive.
     SmallVector<Operation *> held;
+    uint64_t blockPos = next;
+    next += kGap;
     for (Operation &op : block) {
       held.push_back(&op);
       uint64_t pos = next;
@@ -53,6 +56,7 @@ void Positions::number(Region &region, uint64_t &next) {
       spans[&op] = {pos, next};
       next += kGap;
     }
+    blockSpans[&block] = {blockPos, next};
     opsInBlock[&block] = std::move(held);
   }
 }
@@ -76,8 +80,18 @@ Positions::Span Positions::span(Operation *op) {
 // cannot hold them, the function is numbered again.
 void Positions::assign(Operation *top) {
   Block *block = top->getBlock();
+  // The gap is the block's own extent, narrowed by the numbered ops
+  // around `top`: not the holding op's span, which every block it
+  // holds would then number its first written op from, into each
+  // other. A block the numbering does not know (one a rewrite made
+  // in a region already numbered) is beyond a gap: number again.
+  if (block && !blockSpans.contains(block)) {
+    renumber();
+    return;
+  }
   Operation *parent = block ? block->getParentOp() : nullptr;
-  Span outer = parent ? spans.at(parent) : Span{0, UINT64_MAX};
+  Span outer = block ? blockSpans.at(block)
+                     : (parent ? spans.at(parent) : Span{0, UINT64_MAX});
   uint64_t lo = outer.pos, hi = outer.end;
   if (block) {
     for (auto it = top->getIterator(); it != block->begin();) {
@@ -107,6 +121,10 @@ void Positions::assign(Operation *top) {
     for (Block &inner : region) {
       // Beside the map until the block is done, as number() collects.
       SmallVector<Operation *> held;
+      bool known = blockSpans.contains(&inner);
+      uint64_t blockPos = next;
+      if (!known)
+        next += step;
       for (Operation &op : inner) {
         if (spans.contains(&op))
           continue;
@@ -118,6 +136,8 @@ void Positions::assign(Operation *top) {
         next += step;
         spans[&op] = {pos, next};
       }
+      if (!known)
+        blockSpans[&inner] = {blockPos, next};
       SmallVector<Operation *> &kept = opsInBlock[&inner];
       kept.append(held.begin(), held.end());
     }
@@ -129,6 +149,7 @@ void Positions::assign(Operation *top) {
     fill(inner);
   next += step;
   spans[top] = {pos, next};
+
   if (block) {
     SmallVector<Operation *> &held = opsInBlock[block];
     auto at = llvm::lower_bound(
@@ -147,8 +168,10 @@ void Positions::forget(Operation *op) {
   op->walk([&](Operation *inner) {
     spans.erase(inner);
     for (Region &region : inner->getRegions())
-      for (Block &block : region)
+      for (Block &block : region) {
         opsInBlock.erase(&block);
+        blockSpans.erase(&block);
+      }
   });
 }
 
@@ -159,8 +182,17 @@ Operation *Positions::topIn(Block &block, Operation *op) {
     if (Operation *parent = block.getParentOp())
       (void)span(parent);
     found = opsInBlock.find(&block);
-    if (found == opsInBlock.end())
-      return nullptr;
+    if (found == opsInBlock.end()) {
+      // A block a rewrite made where the numbering already stood:
+      // number the function again rather than answer for a block the
+      // numbering does not hold. A block of another function stays
+      // unknown after it, and is no holder here.
+      renumber();
+      at = span(op).pos;
+      found = opsInBlock.find(&block);
+      if (found == opsInBlock.end())
+        return nullptr;
+    }
   }
   ArrayRef<Operation *> held = found->second;
   // The last op of the block at or before `op`: the one that holds it,
@@ -211,14 +243,19 @@ SmallVector<Operation *> Positions::usersIn(ArrayRef<OpOperand *> uses, Block &b
 bool Positions::decides(Operation *op) { return op->hasTrait<Decides>(); }
 
 SmallVector<uint64_t> Positions::usePositions(Value value) {
+  // Number every user first: numbering one may number the function
+  // again, which would stale a position already read.
+  for (Operation *user : value.getUsers())
+    (void)span(user);
   SmallVector<uint64_t> at;
   for (Operation *user : value.getUsers())
-    at.push_back(span(user).pos);
+    at.push_back(spans.at(user).pos);
   llvm::sort(at);
   return at;
 }
 
 bool Positions::usedAfter(Value value, Operation *op) {
+  (void)span(op);
   SmallVector<uint64_t> at = usePositions(value);
   Block *home = value.getParentBlock();
   // Whether a use is inside `op`, in one of its regions.
@@ -232,11 +269,13 @@ bool Positions::usedAfter(Value value, Operation *op) {
     if (!block)
       return false;
     // A use in this block at or after where `level` ends: its holder in
-    // the block is a later op. The block's span ends where its last
-    // op's does.
+    // the block is a later op. The block's own extent bounds it.
     uint64_t levelEnd = span(level).end;
-    ArrayRef<Operation *> held = opsInBlock.at(block);
-    uint64_t blockEnd = span(held.back()).end;
+    if (!blockSpans.contains(block)) {
+      renumber();
+      return usedAfter(value, op);
+    }
+    uint64_t blockEnd = blockSpans.at(block).end;
     auto first = std::lower_bound(at.begin(), at.end(), levelEnd);
     if (first != at.end() && *first < blockEnd)
       return true;
@@ -256,11 +295,13 @@ bool Positions::usedIn(Value value, Region &region) {
     (void)span(parent);
   uint64_t lo = UINT64_MAX, hi = 0;
   for (Block &block : region) {
-    auto found = opsInBlock.find(&block);
-    if (found == opsInBlock.end() || found->second.empty())
-      continue;
-    lo = std::min(lo, span(found->second.front()).pos);
-    hi = std::max(hi, span(found->second.back()).end);
+    auto found = blockSpans.find(&block);
+    if (found == blockSpans.end()) {
+      renumber();
+      return usedIn(value, region);
+    }
+    lo = std::min(lo, found->second.pos);
+    hi = std::max(hi, found->second.end);
   }
   if (lo == UINT64_MAX)
     return false;

@@ -162,6 +162,11 @@ private:
 
   FuncOp fn;
   llvm::DenseMap<mlir::Operation *, Span> spans;
+  // Each block's own extent in the numbering, a gap of room included
+  // before its first op and after its last: an op a rewrite writes at
+  // a block's start is numbered in that room, never from the span of
+  // the op that holds the block, which the block's siblings share.
+  llvm::DenseMap<mlir::Block *, Span> blockSpans;
   llvm::DenseMap<mlir::Block *, llvm::SmallVector<mlir::Operation *>> opsInBlock;
 };
 
