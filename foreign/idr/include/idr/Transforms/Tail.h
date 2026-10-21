@@ -163,18 +163,25 @@ bool isConstant(mlir::Value value);
 FuncOp caseCallee(mlir::Region &region, const Members &members);
 
 // What becomes of one component: its members, its frames, the stack's data
-// type, and for each answer (what the call that started on the empty stack
-// returns, one member's result type) each member's run and resume.
+// type, and each member's run and each result type's resume. What a run
+// gives is the answer, the one type that holds any member's result: that
+// type itself when the members agree on it, and otherwise a sum of one
+// constructor per result type, so the answer is data and no body or rest
+// is ever copied per answer.
 struct FramesPlan {
-  using Copy = std::pair<mlir::Operation *, mlir::Type>;
   llvm::SmallVector<FuncOp> members;
   Members byName;
   llvm::SmallVector<Frame> frames;
   // Whether every member ends, and so each run and resume.
   bool total = false;
-  llvm::SmallVector<mlir::Type> answers;
+  // The members' distinct result types, in the order first met: the
+  // answer sum's constructors, in their tag order.
+  llvm::SmallVector<mlir::Type> results;
   mlir::StringAttr stack;
-  llvm::DenseMap<Copy, std::pair<mlir::StringAttr, mlir::StringAttr>> names;
+  // The answer sum's name, when the members give more than one result type.
+  mlir::StringAttr answer;
+  llvm::DenseMap<mlir::Operation *, mlir::StringAttr> runs;
+  llvm::DenseMap<mlir::Type, mlir::StringAttr> resumes;
 };
 
 // The plan of a component; none when no member has a frame, or when the
@@ -183,6 +190,34 @@ struct FramesPlan {
 mlir::FailureOr<std::optional<FramesPlan>> framesPlanOf(llvm::ArrayRef<mlir::Operation *> component,
                                                         const Labels &labels,
                                                         mlir::SymbolTable &symbols);
+
+// What a component's rewrite made: each member's run, each result type's
+// resume, and the answer every one of them gives: the answer sum's box,
+// or the one result type itself when there is no sum.
+struct FramesMade {
+  llvm::DenseMap<mlir::Operation *, FuncOp> run;
+  llvm::DenseMap<mlir::Type, FuncOp> resume;
+  mlir::Type answer;
+  std::optional<DataType> sum;
+
+  // `value`, of one member's result type, as the answer.
+  mlir::Value asAnswer(mlir::RewriterBase &rewriter, mlir::Location loc, const FramesPlan &plan,
+                       mlir::Value value) const;
+};
+
+// The component's stack data type: `empty`, then each frame, holding what
+// its rest reads and the stack under it.
+mlir::FailureOr<DataType> stackTypeOf(Declarations &declarations, FramesPlan &plan);
+// The component's answer data type, when the members give more than one
+// result type: one constructor per result type, holding a value of it, in
+// the plan's tag order.
+mlir::FailureOr<DataType> answerTypeOf(Declarations &declarations, FramesPlan &plan);
+// A member's own result out of the answer its run gave: the answer itself
+// when there is no sum, and otherwise the one case of the sum that holds
+// this member's result type, the only one a run that started in this
+// member on the empty stack can give.
+mlir::Value fromAnswer(mlir::RewriterBase &rewriter, const FramesPlan &plan,
+                       const FramesMade &made, FuncOp fn, mlir::Value given);
 
 //===----------------------------------------------------------------------===//
 // Returned arguments

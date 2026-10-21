@@ -23,8 +23,8 @@
 namespace {
 
 // Upstream's canonicalizer, top-down, with region simplification off: the
-// passes around it (CSE, remove-dead-values) remove what it would. A call
-// declares its own effects, so the patterns read a call as any op.
+// CSE beside it removes what it would. A call declares its own effects,
+// so the patterns read a call as any op.
 std::unique_ptr<mlir::Pass> canonicalize() {
   mlir::CanonicalizerPassOptions options;
   options.regionSimplifyLevel = mlir::GreedySimplifyRegionLevel::Disabled;
@@ -82,9 +82,9 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
   program.addPass(idr::createIdrOptimize());
   // The functions the optimizer left no symbol use of from the root.
   program.addPass(mlir::createSymbolDCEPass());
-  // A tensor of records becomes its columns on the optimized bodies, before
-  // the liveness analysis below, so that a column nothing reads goes with
-  // the rest of what no caller reads.
+  // A tensor of records becomes its columns on the optimized bodies, so
+  // that a column nothing reads folds with the rest of what no caller
+  // reads in the canonicalization below.
   program.addPass(idr::createIdrColumns());
   // What the conversion leaves for folding: a record built from its columns'
   // elements only to be taken apart again, and a field read of it.
@@ -93,23 +93,16 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
     functions.addPass(canonicalize());
     functions.addPass(mlir::createCSEPass());
   }
-  // What only a liveness analysis of the whole program removes (a
-  // parameter or result no caller reads, and what feeds it), once, on the
-  // optimized program. The root keeps its signature and its body: it is
-  // the program's entry, the one function whose symbol is public, so both
-  // passes take it to be called from outside. The removal's own
-  // canonicalization is off: it folds region-branch patterns on the
-  // matches alone, and a field one of them folds leaves the constructor it
-  // read dead but in place, still holding a world or a linear value that
-  // the fold's user now holds too. symbol-dce then takes the functions
-  // nothing names any more. With its canonicalization off the pass runs no
-  // greedy driver: its liveness is a solve to the fixed point of a
-  // two-valued lattice and its cleanup one walk. On, a rewrite not
-  // converged after ten rounds would fail the pass, and a count would
-  // refuse the program.
-  mlir::RemoveDeadValuesPassOptions dead;
-  dead.canonicalize = false;
-  program.addPass(mlir::createRemoveDeadValuesPass(dead));
+  // The functions nothing names any more. What a body computes and
+  // nothing reads, the canonicalization above folds; what no caller
+  // reads of a signature is decided where demand is decided, in the
+  // optimizer's specialization, whose clones keep only the holes of
+  // what their callers' known values leave open. No pass re-solves liveness
+  // over the whole program here: upstream's remove-dead-values keeps a
+  // dataflow state per value of the program, which is the program again
+  // at the size of a whole frontend, and what it alone removed (a
+  // parameter or result specialization left in place) counting drops
+  // like any other dead owned value.
   program.addPass(mlir::createSymbolDCEPass());
   // The arrays stage, on final bodies: inlining has already put together
   // what it will and every callee's effects are final. Each array op becomes

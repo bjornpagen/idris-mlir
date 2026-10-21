@@ -64,9 +64,27 @@ stage 1 alone. A stage keeps everything in `build/self/stageN/`.
      `Prelude.Interfaces.traverse`, a hang (c179ab2d); and every worker
      of idr-optimize queued on the context's write lock to read a data
      type's facts, about half the samples of a ten-minute window (the
-     sealed data type, 98c6315c). The run after the last of these has not
-     been made: whether the pipeline half now finishes, and in what
-     time, is unknown.
+     sealed data type, 98c6315c); MatchAnyOpTypeTag patterns tried at
+     every op of the module, about 75 million attempts each in 31
+     traced minutes, hard-deleted for patterns rooted on the op or the
+     trait that decides (the MatchAnyOp cutover); and then memory, not
+     time: the runs after that OOM. A traced run was jetsam-killed at
+     43 GB RSS (low-swap, on 96 GB) in idr-frames, whose action on
+     `Libraries.Text.Parser.Core.bindGrammar`'s component alone took
+     336 s: frames cloned every member's body once per member-and-answer
+     pair and restamped every frame's rest into every resume, so a
+     component of many members giving many result types (a grammar
+     interpreter's) grows as their product. An untraced run, stopped at
+     52 GB, sampled in upstream's remove-dead-values: its whole-program
+     liveness solve keeps a dataflow state per value of the program.
+     Both are fixed at the representation: a component's answer is now
+     data, one sum over its members' result types, with one run per
+     member, one resume per result type and each rest once; and the
+     pipeline no longer re-solves liveness over the whole program —
+     what no caller reads of a signature is decided where demand is,
+     in the optimizer's specialization, and what it leaves counting
+     drops. The run after these has not been made: whether the
+     pipeline half now finishes, and in what time, is unknown.
    - **Method: trace it, don't guess.** Each run is the release
      `idris-mlir` with `--profile-actions-to=<file>` (MLIR's action
      profiler: a Chrome trace of every pass, every idr-optimize node,

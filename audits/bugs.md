@@ -9,16 +9,25 @@ fix lands, the commit naming it. A bug in a pinned upstream is recorded
 here only until its patch is carried: then its report is
 `upstream/<bug>/README.md` and its status `PINS.md`'s.
 
-**Status, main at 31daec54 (2026-10-20), two cores throughout.**
-`make check` 34/34, `make test-idr` 340/340, `make test-mlir-tools`
-34/34, `make test-unit` passes, on the shared toolchain with every
-carried patch. The first full `make test` since the data-table cutover
-ran at 017f5374: 451/480. Of its 29 failures, 16 were crash locations the
-TTC kept per term node since 374e0e77, where the expected files still
-named the definition (fixed c4a046e0), one the registry's allowlist and
-one the handoff check's program line (31daec54), and one the excl grade
-written at a frame lifetime (276e887). Eleven remain, below; no full
-`make test` has run since those fixes.
+**Status, main at 7987388b plus the frames and pipeline change below
+(2026-10-20), two cores throughout.** `make check` 34/34,
+`make test-idr` 341/341 (the new frames fixture among them),
+`make test-mlir-tools` 34/34, `make test-unit` passes, on the shared
+toolchain with every carried patch. Stage 1's pipeline half OOMed
+twice (proposal 0001 §2): in idr-frames' member-by-answer cloning of
+`Libraries.Text.Parser.Core.bindGrammar`'s component, and in
+upstream's remove-dead-values whole-program liveness solve. The
+answer is now a sum per component — one run per member, one resume
+per result type, each rest once — and the pipeline no longer
+re-solves liveness over the whole program. The first full
+`make test` since the data-table cutover ran at 017f5374: 451/480. Of
+its 29 failures, 16 were crash locations the TTC kept per term node
+since 374e0e77, where the expected files still named the definition
+(fixed c4a046e0), one the registry's allowlist and one the handoff
+check's program line (31daec54), and one the excl grade written at a
+frame lifetime (276e887). Eleven remain, below; no full `make test`
+has run since those fixes, so what the removal of remove-dead-values
+leaves for counting to drop is unmeasured there.
 
 ## ownership
 

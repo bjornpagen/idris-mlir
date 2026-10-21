@@ -6,6 +6,7 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/IR/Tail.h"
@@ -162,22 +163,34 @@ FailureOr<std::optional<FramesPlan>> framesPlanOf(ArrayRef<Operation *> componen
     framesFrom(fn.getBody().front(), fn, plan.byName, labels, plan.frames);
   if (plan.frames.empty())
     return std::optional<FramesPlan>();
-  for (FuncOp fn : plan.members)
-    if (!llvm::is_contained(plan.answers, fn.getResultTypes()[0]))
-      plan.answers.push_back(fn.getResultTypes()[0]);
-  for (Type answer : plan.answers)
-    for (FuncOp fn : plan.members) {
-      auto name = [&](StringRef kind) {
-        return StringAttr::get(fn.getContext(),
-                               contentName(fn.getSymName(), kind, canonicalHash(answer)));
-      };
-      StringAttr run = name("run"), resume = name("resume");
-      if (symbols.lookup(run) || symbols.lookup(resume))
-        return fn.emitError() << "internal error: the name " << run.getValue() << " or "
-                              << resume.getValue() << " of a run of @" << fn.getSymName()
-                              << " is taken";
-      plan.names[{fn, answer}] = {run, resume};
-    }
+  for (FuncOp fn : plan.members) {
+    Type result = fn.getResultTypes()[0];
+    // The answer holds a member's result as one of its fields, so a
+    // result no constructor may hold keeps the component's plain calls.
+    if (!isFieldType(result))
+      return std::optional<FramesPlan>();
+    if (!llvm::is_contained(plan.results, result))
+      plan.results.push_back(result);
+  }
+  for (FuncOp fn : plan.members) {
+    StringAttr run =
+        StringAttr::get(fn.getContext(), contentName(fn.getSymName(), "run", ""));
+    if (symbols.lookup(run))
+      return fn.emitError() << "internal error: the name " << run.getValue() << " of a run of @"
+                            << fn.getSymName() << " is taken";
+    plan.runs[fn] = run;
+  }
+  for (Type result : plan.results) {
+    StringAttr resume = StringAttr::get(
+        first.getContext(), contentName(first.getSymName(), "resume", canonicalHash(result)));
+    if (symbols.lookup(resume))
+      return first.emitError() << "internal error: the name " << resume.getValue()
+                               << " of a resume of @" << first.getSymName() << " is taken";
+    plan.resumes[result] = resume;
+  }
+  if (plan.results.size() > 1)
+    plan.answer =
+        StringAttr::get(first.getContext(), contentName(first.getSymName(), "answer", ""));
   plan.stack = StringAttr::get(first.getContext(), contentName(first.getSymName(), "frames", ""));
   return std::optional<FramesPlan>(std::move(plan));
 }

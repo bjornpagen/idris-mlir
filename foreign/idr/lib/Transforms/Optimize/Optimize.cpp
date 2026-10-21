@@ -59,7 +59,7 @@ void idr::optimize::buildInnerPipeline(OpPassManager &pm, const InnerRun &run) {
   // that dominates it. Region simplification would re-simplify the region
   // tree after every pattern iteration, on every run of this pipeline on a
   // body, at a cost that grows with the bodies inlining builds, for what
-  // cse and remove-dead-values already remove. The worklist is seeded top
+  // cse already removes. The worklist is seeded top
   // down, as upstream's canonicalizer seeds it.
   pm.addPass(createCanonicalizerPass(
       GreedyRewriteConfig().setUseTopDownTraversal().setRegionSimplificationLevel(
