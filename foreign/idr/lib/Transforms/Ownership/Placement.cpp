@@ -64,8 +64,8 @@ struct Changes {
 
 class Placement {
 public:
-  Placement(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols)
-      : rewriter(rewriter), fn(fn), symbols(symbols) {}
+  Placement(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols, Positions &positions)
+      : rewriter(rewriter), fn(fn), symbols(symbols), positions(positions) {}
 
   // Places every value of the function, grades the values it placed,
   // materializes the counts, and grades the views that are left; gives the
@@ -77,7 +77,7 @@ public:
   Counted run() {
     // The classes of the function as reshaping left it, the last change
     // they read.
-    Classes classes(fn);
+    Classes classes(fn, positions);
     SmallVector<std::pair<Value, Class>> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
       for (BlockArgument arg : block->getArguments())
@@ -182,7 +182,7 @@ private:
   // use in `block` consumes, or which it still holds at the block's end
   // when `keep`.
   void placeOwned(Value value, Block &block, Block::iterator from, bool keep) {
-    SmallVector<Operation *> users = usersIn(value, block, from);
+    SmallVector<Operation *> users = positions.usersIn(value, block, from);
     if (users.empty()) {
       if (!keep)
         at(block, from).decs.push_back(value);
@@ -190,13 +190,13 @@ private:
     }
     for (auto [i, user] : llvm::enumerate(users)) {
       bool last = i + 1 == users.size() && !keep;
-      if (decides(user) && !writes(user, value)) {
+      if (positions.decides(user) && !writes(user, value)) {
         // Each region takes the reference, or drops it on entry.
         for (Region &region : user->getRegions()) {
           if (region.empty())
             continue;
           Block &inner = region.front();
-          if (usedIn(value, region))
+          if (positions.usedIn(value, region))
             placeOwned(value, inner, inner.begin(), /*keep=*/!last);
           else if (last && !endsInCrash(inner))
             at(inner, inner.begin()).decs.push_back(value);
@@ -211,7 +211,7 @@ private:
       // each use inside taking a view (or a dup, to consume), and the op
       // reads the value for as long as it runs.
       for (Region &region : user->getRegions())
-        if (!region.empty() && usedIn(value, region)) {
+        if (!region.empty() && positions.usedIn(value, region)) {
           placeBorrowed(value, region.front(), region.front().begin());
           ++borrows;
         }
@@ -240,11 +240,11 @@ private:
   // are placed as any op's, and the uses inside its regions as the uses in
   // the regions of one that decides.
   void placeBorrowed(Value value, Block &block, Block::iterator from) {
-    for (Operation *user : usersIn(value, block, from)) {
+    for (Operation *user : positions.usersIn(value, block, from)) {
       for (Region &region : user->getRegions())
-        if (!region.empty() && usedIn(value, region))
+        if (!region.empty() && positions.usedIn(value, region))
           placeBorrowed(value, region.front(), region.front().begin());
-      if (!decides(user))
+      if (!positions.decides(user))
         incBeforeOp(user, value, usesBy(value, user).first);
     }
   }
@@ -352,6 +352,7 @@ private:
   RewriterBase &rewriter;
   FuncOp fn;
   const SymbolTable &symbols;
+  Positions &positions;
   // The grade each placed value takes once every value is placed.
   SmallVector<std::pair<Value, Type>> grades;
   // What goes right before each op.
@@ -374,8 +375,9 @@ void rebindDefaults(FuncOp fn) {
   });
 }
 
-Counted place(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols) {
-  return Placement(rewriter, fn, symbols).run();
+Counted place(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols,
+              Positions &positions) {
+  return Placement(rewriter, fn, symbols, positions).run();
 }
 
 } // namespace idr::ownership

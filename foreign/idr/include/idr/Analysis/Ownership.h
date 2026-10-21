@@ -76,49 +76,94 @@ Point pointBefore(mlir::Block &block, mlir::Block::iterator at);
 // argument, right after its op for a result.
 Point definedAt(mlir::Value value);
 
-// The op of `block` that holds `use`, when that op is at `from` or after
-// it; null when the use is not in the block or is before `from`. The one
-// walk of a use up to the block that holds it.
-mlir::Operation *heldIn(mlir::Block &block, mlir::OpOperand &use, mlir::Block::iterator from);
+// Where the ops of one function sit, and where its values are used and
+// die: every op's span in one numbering of the function, computed once.
+// Order and ancestry are comparisons of spans, so a query walks no op's
+// parents and re-orders no block. The ops a rewrite of the function
+// inserts take spans in the gaps the numbering left, numbered where
+// they land when first asked; one it is about to erase or move it
+// forgets first (forget).
+// A query is not const: asking may number what a rewrite inserted.
+class Positions {
+public:
+  explicit Positions(FuncOp fn);
 
-// The ops of `block` from `from` on that use `value`, themselves or in
-// their regions, in order. The second form takes the uses as a caller sees
-// them, which may be fewer than the value's own.
-llvm::SmallVector<mlir::Operation *> usersIn(mlir::Value value, mlir::Block &block,
-                                             mlir::Block::iterator from);
-llvm::SmallVector<mlir::Operation *> usersIn(llvm::ArrayRef<mlir::OpOperand *> uses,
-                                             mlir::Block &block, mlir::Block::iterator from);
+  // The op of `block` that holds `op` (itself, when it is one); null
+  // when `op` is not in what the block holds.
+  mlir::Operation *topIn(mlir::Block &block, mlir::Operation *op);
+  // Whether `a` is before `b`, two ops of one block.
+  bool before(mlir::Operation *a, mlir::Operation *b);
+  // The op of `block` that holds `use`, when that op is at `from` or
+  // after it; null when the use is not in the block or is before `from`.
+  mlir::Operation *heldIn(mlir::Block &block, mlir::OpOperand &use, mlir::Block::iterator from);
+  // The ops of `block` from `from` on that use `value`, themselves or in
+  // their regions, in order. The second form takes the uses as a caller
+  // sees them, which may be fewer than the value's own.
+  llvm::SmallVector<mlir::Operation *> usersIn(mlir::Value value, mlir::Block &block,
+                                               mlir::Block::iterator from);
+  llvm::SmallVector<mlir::Operation *> usersIn(llvm::ArrayRef<mlir::OpOperand *> uses,
+                                               mlir::Block &block, mlir::Block::iterator from);
+  // Whether `op` decides (the Idr_Decides trait): each run of it
+  // enters exactly one of its regions, once, and leaves it straight
+  // back to the op. Counting moves a value from outside into each such
+  // region, which consumes or drops it there; any other op with
+  // regions may run one many times or none, so it holds a value from
+  // outside for as long as it runs and its regions only read it.
+  bool decides(mlir::Operation *op);
+  // Whether `value` is used after `op`, where the reference it holds
+  // must still be there: later in the block of `op`, or after an op
+  // that holds that block, up to the block that defines it; and anywhere
+  // inside an op that does not decide (a loop) and uses the value
+  // inside, which holds it for as long as it runs. A use of a view of
+  // the value is not a use of it: whether the value outlives the view
+  // is what the caller asks.
+  bool usedAfter(mlir::Value value, mlir::Operation *op);
+  // Whether a use of `value` is inside `region`.
+  bool usedIn(mlir::Value value, mlir::Region &region);
+  // Where a value whose uses are `uses`, which `block` holds a
+  // reference to, dies on each path of the block: at its start when
+  // nothing there uses it, after its last use, or inside each region of
+  // that use when it decides. Nowhere on a path whose last use takes it
+  // over (`takesOver`, the caller's rule, which is what the program's
+  // grades let it know: before borrow inference grades the signatures,
+  // any call may take its arguments over). Calls `at` with each point.
+  void whereDies(llvm::ArrayRef<mlir::OpOperand *> uses, mlir::Block &block,
+                 llvm::function_ref<bool(mlir::OpOperand &)> takesOver,
+                 llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
+  void whereDies(mlir::Value value, mlir::Block &block,
+                 llvm::function_ref<bool(mlir::OpOperand &)> takesOver,
+                 llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
+  // The first read of a box that no match takes apart and whose every
+  // use reads a field of one constructor, the point from which the
+  // box's constructor is known in that read's block; null for any other
+  // value. The second form asks of a value of `type` whose uses are
+  // `uses`.
+  FieldOp onlyReads(mlir::Value box);
+  FieldOp onlyReads(mlir::Type type, llvm::ArrayRef<mlir::OpOperand *> uses);
+  // Forgets `op` and what it holds, before a rewrite erases or moves
+  // it: what stands there afterwards is numbered where it lands.
+  void forget(mlir::Operation *op);
 
-// Whether each run of `op` enters exactly one of its regions, once, and
-// leaves it back to `op`, as RegionBranchOpInterface says: a match, an
-// scf.if with both branches, an scf.index_switch. Counting moves a value
-// from outside into each such region, which consumes or drops it there.
-// Any other op with regions may run one many times or none (a loop, a
-// branch with no else, a structured op on buffers): it holds a value from
-// outside for as long as it runs, and its regions only read it.
-bool decides(mlir::Operation *op);
+private:
+  struct Span {
+    uint64_t pos;
+    uint64_t end;
+  };
+  // By value: asking for one span may number an inserted subtree, which
+  // grows the map a reference would point into.
+  Span span(mlir::Operation *op);
+  void assign(mlir::Operation *top);
+  void renumber();
+  void number(mlir::Region &region, uint64_t &next);
+  llvm::SmallVector<uint64_t> usePositions(mlir::Value value);
+  template <typename Uses>
+  llvm::SmallVector<mlir::Operation *> holders(Uses &&uses, mlir::Block &block,
+                                               mlir::Block::iterator from);
 
-// Whether `value` is used after `op`, where the reference it holds must
-// still be there: later in the block of `op`, or after an op that holds
-// that block, up to the block that defines it; and anywhere inside an op
-// that does not decide (a loop) and uses the value inside, which holds it
-// for as long as it runs. A use of a view of the value is not a use of it:
-// whether the value outlives the view is what the caller asks.
-bool usedAfter(mlir::Value value, mlir::Operation *op);
-
-// Where a value whose uses are `uses`, which `block` holds a reference to,
-// dies on each path of the block: at its start when nothing there uses it,
-// after its last use, or inside each region of that use when it decides.
-// Nowhere on a path whose last use takes it over (`takesOver`, the
-// caller's rule, which is what the program's grades let it know: before
-// borrow inference grades the signatures, any call may take its arguments
-// over). Calls `at` with each point.
-void whereDies(llvm::ArrayRef<mlir::OpOperand *> uses, mlir::Block &block,
-               llvm::function_ref<bool(mlir::OpOperand &)> takesOver,
-               llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
-void whereDies(mlir::Value value, mlir::Block &block,
-               llvm::function_ref<bool(mlir::OpOperand &)> takesOver,
-               llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
+  FuncOp fn;
+  llvm::DenseMap<mlir::Operation *, Span> spans;
+  llvm::DenseMap<mlir::Block *, llvm::SmallVector<mlir::Operation *>> opsInBlock;
+};
 
 // A field of a box as its uses read it, at its index in the constructor.
 struct Field {
@@ -132,13 +177,6 @@ struct Field {
 // idr.field reads of the box.
 llvm::SmallVector<Field> fieldsOf(llvm::ArrayRef<mlir::OpOperand *> uses, Tag tag,
                                   llvm::ArrayRef<mlir::BlockArgument> bound);
-
-// The first read of a box that no match takes apart and whose every use
-// reads a field of one constructor, the point from which the box's
-// constructor is known in that read's block; null for any other value. The
-// second form asks of a value of `type` whose uses are `uses`.
-FieldOp onlyReads(mlir::Value box);
-FieldOp onlyReads(mlir::Type type, llvm::ArrayRef<mlir::OpOperand *> uses);
 
 // The values whose cell graph exclusivity follows: owned boxes and unboxed
 // sums (whose slots may hold boxes), the tokens of their cells, and the

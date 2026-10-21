@@ -66,14 +66,15 @@ struct Virtual {
 
 class Decider {
 public:
-  Decider(FuncOp fn, const Layouts &layouts) : fn(fn), layouts(layouts) {}
+  Decider(FuncOp fn, const Layouts &layouts) : fn(fn), layouts(layouts), positions(fn) {}
 
   SmallVector<Site> run() {
     SmallVector<MatchOp> matches;
     fn.walk([&](MatchOp match) { matches.push_back(match); });
     for (MatchOp match : matches) {
       Value box = match.getScrutinee();
-      if (!isa<BoxType>(unrestricted(box.getType())) || !reusable(box) || usedAfter(box, match))
+      if (!isa<BoxType>(unrestricted(box.getType())) || !reusable(box) ||
+          positions.usedAfter(box, match))
         continue;
       DataType data = dataTypeOf(box.getType());
       for (unsigned index : llvm::seq(match.getNumCases())) {
@@ -127,7 +128,7 @@ private:
   }
 
   void consider(Held box) {
-    if (FieldOp first = onlyReads(typeOf(box), usesOf(box)); first && reusable(box))
+    if (FieldOp first = positions.onlyReads(typeOf(box), usesOf(box)); first && reusable(box))
       boxes.emplace_back(box, first);
   }
 
@@ -193,7 +194,7 @@ private:
     // Reuses are decided before borrow inference grades the signatures,
     // so any call may take its arguments over.
     auto takesOver = [](OpOperand &use) { return isa<CallOp>(use.getOwner()) || consumes(use); };
-    whereDies(uses, block, takesOver, [&](Block &where, Block::iterator at) {
+    positions.whereDies(uses, block, takesOver, [&](Block &where, Block::iterator at) {
       SmallVector<CellNewOp> found;
       if (fits(size, where, at, found))
         record(box, data, tag, where, at, bound, std::move(found), uses);
@@ -216,7 +217,7 @@ private:
         }
         continue;
       }
-      if (!decides(&op))
+      if (!positions.decides(&op))
         continue;
       // Every region is searched, each path finding its own constructor.
       if (llvm::count_if(op.getRegions(), [&](Region &region) {
@@ -244,7 +245,7 @@ private:
           virtuals.try_emplace(given, Virtual{fieldType(boxType, fieldTypes[field.index]), {}})
               .first->second.uses;
       for (OpOperand &use : field.value.getUses())
-        if (!moved.contains(&use) && heldIn(where, use, at)) {
+        if (!moved.contains(&use) && positions.heldIn(where, use, at)) {
           moved.try_emplace(&use, given);
           moves.push_back(&use);
         }
@@ -253,6 +254,7 @@ private:
 
   FuncOp fn;
   const Layouts &layouts;
+  Positions positions;
   SmallVector<Site> sites;
   // The cells a site recycles its cell for.
   DenseSet<Operation *> claimed;

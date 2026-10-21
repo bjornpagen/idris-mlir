@@ -32,8 +32,9 @@ namespace {
 // never runs, so it ends there (`dead`), and no reference stands on it;
 // anywhere else it is the solver and the commit disagreeing, which is a
 // bug here, never a program to compile.
-LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand &operand,
-                   Type expected, llvm::MapVector<Block *, Operation *> &dead) {
+LogicalResult meet(RewriterBase &rewriter, Positions &positions, const Exclusivity &solved,
+                   OpOperand &operand, Type expected,
+                   llvm::MapVector<Block *, Operation *> &dead) {
   Type type = operand.get().getType();
   if (type == expected || !isOwned(expected))
     return success();
@@ -49,7 +50,7 @@ LogicalResult meet(RewriterBase &rewriter, const Exclusivity &solved, OpOperand 
       return op->emitOpError("idr-rc-exclusive: gives a value of ")
              << type << " where the solver proved " << expected;
     auto [at, fresh] = dead.try_emplace(op->getBlock(), op);
-    if (!fresh && op->isBeforeInBlock(at->second))
+    if (!fresh && positions.before(op, at->second))
       at->second = op;
   }
   return success();
@@ -120,8 +121,9 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, const SymbolTable &sy
   // deepest first: a path ends by erasing what follows it in its block,
   // which may hold a deeper path that is then gone with it.
   llvm::MapVector<Block *, Operation *> dead;
+  Positions order(fn);
   for (auto [operand, expected] : positions)
-    if (failed(meet(rewriter, solved, *operand, expected, dead)))
+    if (failed(meet(rewriter, order, solved, *operand, expected, dead)))
       return failure();
   auto depth = [](Block *block) {
     unsigned n = 0;

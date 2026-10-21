@@ -25,8 +25,8 @@ namespace {
 
 class Reshape {
 public:
-  Reshape(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols)
-      : rewriter(rewriter), fn(fn), symbols(symbols) {}
+  Reshape(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols, Positions &positions)
+      : rewriter(rewriter), fn(fn), symbols(symbols), positions(positions) {}
 
   // A select of values that hold references becomes a match, whose regions
   // consume what they yield: the true value in the case of 1, the false
@@ -51,6 +51,7 @@ public:
         rewriter.createBlock(&match.getDefaultRegion(), {}, {condition.getType()}, {loc});
         YieldOp::create(rewriter, loc, select.getFalseValue());
       }
+      positions.forget(select);
       rewriter.replaceOp(select, match);
     }
   }
@@ -75,14 +76,14 @@ public:
       // Each match is decided on the function as the takes before it left
       // it, so its classes are built for it.
       Value value = match.getScrutinee();
-      if (!ownsReference(Classes(fn).classOf(value)) || isMemoCell(value.getType()) ||
-          usedAfter(value, match))
+      if (!ownsReference(Classes(fn, positions).classOf(value)) || isMemoCell(value.getType()) ||
+          positions.usedAfter(value, match))
         continue;
       for (unsigned caseIndex : llvm::seq(match.getNumCases())) {
         Region &region = match.getCaseRegion(caseIndex);
         if (endsInCrash(region.front()))
           continue;
-        if (!usedIn(value, region)) {
+        if (!positions.usedIn(value, region)) {
           takeAtEntry(rewriter, match, caseIndex);
           continue;
         }
@@ -92,16 +93,17 @@ public:
         if (!buildsCell(value.getType(), tag))
           continue;
         ArrayRef<BlockArgument> bound = region.front().getArguments();
-        whereDies(value, region.front(), [&](OpOperand &use) { return takesOver(use); },
-                  [&](Block &block, Block::iterator at) {
-          if (!endsInCrash(block) && keepsCountedField(value, tag, block, at, bound))
-            takeAt(rewriter, value, tag, block, at, bound);
-        });
+        positions.whereDies(value, region.front(), [&](OpOperand &use) { return takesOver(use); },
+                            [&](Block &block, Block::iterator at) {
+                              if (!endsInCrash(block) &&
+                                  keepsCountedField(positions, value, tag, block, at, bound))
+                                takeAt(rewriter, positions, value, tag, block, at, bound);
+                            });
       }
       // The default region, when it runs, has the value itself back, not a
       // view of it to take a reference from while the value drops its own.
       Region &fallback = match.getDefaultRegion();
-      if (!fallback.empty() && !usedIn(value, fallback) && !endsInCrash(fallback.front()))
+      if (!fallback.empty() && !positions.usedIn(value, fallback) && !endsInCrash(fallback.front()))
         rewriter.replaceAllUsesWith(fallback.getArgument(0), value);
     }
   }
@@ -114,7 +116,7 @@ public:
     // On the function as the sinking left it: the classes the counts are
     // placed by agree with these, since a dup only gives its field a use
     // that reads it.
-    Classes classes(fn);
+    Classes classes(fn, positions);
     SmallVector<Value> fields;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
       for (BlockArgument arg : block->getArguments())
@@ -157,7 +159,7 @@ public:
       // built before its moves and only choose what moves: a move of an op
       // without effects is always one the counts can be placed on, and the
       // classes the counts are placed by are built after every move.
-      Classes classes(fn);
+      Classes classes(fn, positions);
       SmallVector<Operation *> consumers;
       for (Operation &op : *block)
         if (op.getNumRegions() == 0 && op.getNumResults() != 0 &&
@@ -179,9 +181,9 @@ public:
         // the chain, reads `value`.
         auto readBetween = [&](Value value) {
           return llvm::any_of(value.getUses(), [&](OpOperand &other) {
-            Operation *top = block->findAncestorOpInBlock(*other.getOwner());
-            return top && !llvm::is_contained(chain, top) && op->isBeforeInBlock(top) &&
-                   top->isBeforeInBlock(target);
+            Operation *top = positions.topIn(*block, other.getOwner());
+            return top && !llvm::is_contained(chain, top) && positions.before(op, top) &&
+                   positions.before(top, target);
           });
         };
         // What the chain consumes owned, and the fields read from it: the
@@ -202,9 +204,12 @@ public:
             }))
           continue;
         // The op first, then each feeder right before what it feeds.
+        positions.forget(op);
         rewriter.moveOpBefore(op, target);
-        for (Operation *link : llvm::drop_begin(chain))
+        for (Operation *link : llvm::drop_begin(chain)) {
+          positions.forget(link);
           rewriter.moveOpBefore(link, link->getResults().front().getUses().begin()->getOwner());
+        }
       }
     }
   }
@@ -216,11 +221,11 @@ private:
 
   // The ops of `block` that use any of `values`, themselves or in their
   // regions, in order, once each.
-  static SmallVector<Operation *> usersIn(ValueRange values, Block &block) {
+  SmallVector<Operation *> usersIn(ValueRange values, Block &block) {
     SmallVector<OpOperand *> uses;
     for (Value value : values)
       llvm::append_range(uses, llvm::make_pointer_range(value.getUses()));
-    return ownership::usersIn(uses, block, block.begin());
+    return positions.usersIn(uses, block, block.begin());
   }
 
   // An owned unboxed sum whose every use reads a field of one constructor
@@ -229,7 +234,7 @@ private:
   // are dropped there, instead of each field read taking a reference while
   // the sum drops all of its own.
   void takeReadSums() {
-    Classes classes(fn);
+    Classes classes(fn, positions);
     SmallVector<Value> sums;
     auto consider = [&](Value value) {
       if (!isa<DataType>(unrestricted(value.getType())) || value.use_empty())
@@ -250,7 +255,7 @@ private:
     // A sum read from another sum's field is taken apart first: taking
     // the outer one apart replaces, and erases, the read that defines it.
     for (Value value : llvm::reverse(sums))
-      takeFields(rewriter, value, cast<FieldOp>(*value.getUsers().begin()).getTag());
+      takeFields(rewriter, positions, value, cast<FieldOp>(*value.getUsers().begin()).getTag());
   }
 
   // An owned box that no match takes apart, whose every use reads a field
@@ -259,10 +264,10 @@ private:
   // dies after its last, where it is taken apart as a matched box is when a
   // field that holds references lives on past it.
   void takeReadBoxes() {
-    Classes classes(fn);
+    Classes classes(fn, positions);
     SmallVector<std::pair<Value, FieldOp>> boxes;
     auto consider = [&](Value box) {
-      if (FieldOp first = onlyReads(box);
+      if (FieldOp first = positions.onlyReads(box);
           first && !isMemoCell(box.getType()) && ownsReference(classes.classOf(box)))
         boxes.emplace_back(box, first);
     };
@@ -275,11 +280,12 @@ private:
     });
     for (auto [box, first] : boxes) {
       Tag tag = first.getTag();
-      whereDies(box, *first->getBlock(), [&](OpOperand &use) { return takesOver(use); },
-                [&](Block &block, Block::iterator at) {
-        if (!endsInCrash(block) && keepsCountedField(box, tag, block, at, {}))
-          takeAt(rewriter, box, tag, block, at, {});
-      });
+      positions.whereDies(box, *first->getBlock(), [&](OpOperand &use) { return takesOver(use); },
+                          [&](Block &block, Block::iterator at) {
+                            if (!endsInCrash(block) &&
+                                keepsCountedField(positions, box, tag, block, at, {}))
+                              takeAt(rewriter, positions, box, tag, block, at, {});
+                          });
     }
   }
 
@@ -323,12 +329,14 @@ private:
   RewriterBase &rewriter;
   FuncOp fn;
   const SymbolTable &symbols;
+  Positions &positions;
 };
 
 } // namespace
 
-Counted reshape(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols) {
-  Reshape reshaping(rewriter, fn, symbols);
+Counted reshape(RewriterBase &rewriter, FuncOp fn, const SymbolTable &symbols,
+                Positions &positions) {
+  Reshape reshaping(rewriter, fn, symbols, positions);
   reshaping.rewriteSelects();
   reshaping.takeApart();
   // Consumers move past the reads that follow them before a field takes

@@ -53,13 +53,14 @@ struct Grades : idr::impl::IdrRcGradesBase<Grades> {
     // parallel.
     parallelForEach(&getContext(), fns, [&](idr::FuncOp fn) {
       IRRewriter rewriter(fn.getContext());
+      own::Positions positions(fn);
       ArrayRef<idr::Reuses::Site> sites = reuses.sites(fn);
-      own::reuseAt(rewriter, sites);
+      own::reuseAt(rewriter, positions, sites);
       numTakes += sites.size();
       for (const idr::Reuses::Site &site : sites)
         numReuses += site.cells.size();
-      own::Counted reshaped = own::reshape(rewriter, fn, symbols);
-      own::Counted placed = own::place(rewriter, fn, symbols);
+      own::Counted reshaped = own::reshape(rewriter, fn, symbols, positions);
+      own::Counted placed = own::place(rewriter, fn, symbols, positions);
       numDups += reshaped.dups + placed.dups;
       numDrops += reshaped.drops + placed.drops;
     });

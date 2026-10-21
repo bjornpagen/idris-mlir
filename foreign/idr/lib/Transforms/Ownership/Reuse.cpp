@@ -34,7 +34,7 @@ struct ReuseAction : support::TaggedAction<ReuseAction> {
 // gave, and is skipped with it. A recycle replaces one source of a cell by
 // another, so the idr.cell.init that names the cell, the point a later
 // site names and the box it takes apart are never replaced.
-void reuseAt(RewriterBase &rewriter, ArrayRef<Reuses::Site> sites) {
+void reuseAt(RewriterBase &rewriter, Positions &positions, ArrayRef<Reuses::Site> sites) {
   SmallVector<TakeOp> takes;
   for (const Reuses::Site &site : sites) {
     // The box: a value of the function, or a field an earlier site's take
@@ -48,12 +48,13 @@ void reuseAt(RewriterBase &rewriter, ArrayRef<Reuses::Site> sites) {
                            site.box);
     TakeOp take;
     auto rewrite = [&] {
-      take = takeAt(rewriter, box, site.tag, blockOf(site.point), firstAt(site.point),
+      take = takeAt(rewriter, positions, box, site.tag, blockOf(site.point), firstAt(site.point),
                     site.bound);
       // Each recycle where its cell was made, not where the take left the
       // rewriter.
       for (CellNewOp cell : site.cells) {
         rewriter.setInsertionPoint(cell);
+        positions.forget(cell);
         rewriter.replaceOpWithNewOp<CellRecycleOp>(cell, cell.getCell().getType(),
                                                    take.getToken());
       }

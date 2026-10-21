@@ -360,7 +360,7 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set", [Idr_Primitive,
 // the op's own effects, on the array; the region's are its own
 // (RecursiveMemoryEffects).
 def Idr_ArrayUpdateOp : Idr_ArrayOp<"update", [RecursiveMemoryEffects, SingleBlock,
-    Idr_UpdateOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    Idr_Decides, Idr_UpdateOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<RegionBranchOpInterface,
                               ["getSuccessorInputs", "getRegionInvocationBounds"]>]> {
   let summary = "an element of an array rebuilt in its place";
@@ -399,7 +399,7 @@ def Idr_ArrayUpdateOp : Idr_ArrayOp<"update", [RecursiveMemoryEffects, SingleBlo
 // reference, where a read would take one of its own and the write would
 // release the buffer's.
 def Idr_ElementUpdateOp : Idr_Op<"element.update", [RecursiveMemoryEffects, SingleBlock,
-    Idr_UpdateOpInterface,
+    Idr_Decides, Idr_UpdateOpInterface,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<RegionBranchOpInterface,

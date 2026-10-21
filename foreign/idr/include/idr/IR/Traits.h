@@ -12,6 +12,7 @@
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -121,6 +122,31 @@ class TakesReference : public mlir::OpTrait::TraitBase<ConcreteType, TakesRefere
 // their definitions.
 template <typename ConcreteType>
 class BuildsValue : public mlir::OpTrait::TraitBase<ConcreteType, BuildsValue> {};
+
+// An op each run of which enters exactly one of its regions, once, and
+// leaves it straight back to the op (Idr_Decides). The trait is the
+// declaration counting reads; its verifier holds the op's successor
+// regions to it, so the two cannot drift.
+template <typename ConcreteType>
+class Decides : public mlir::OpTrait::TraitBase<ConcreteType, Decides> {
+public:
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    auto branch = mlir::dyn_cast<mlir::RegionBranchOpInterface>(op);
+    if (!branch)
+      return op->emitOpError("decides but is no region branch");
+    llvm::SmallVector<mlir::RegionSuccessor> entries;
+    branch.getSuccessorRegions(mlir::RegionBranchPoint::parent(), entries);
+    if (llvm::any_of(entries, [](mlir::RegionSuccessor s) { return s.isOperation(); }))
+      return op->emitOpError("decides but its entry may leave it without a region");
+    for (mlir::Region &region : op->getRegions()) {
+      llvm::SmallVector<mlir::RegionSuccessor> next;
+      branch.getSuccessorRegions(region, next);
+      if (!llvm::all_of(next, [](mlir::RegionSuccessor s) { return s.isOperation(); }))
+        return op->emitOpError("decides but a region does not return straight to it");
+    }
+    return mlir::success();
+  }
+};
 
 // The op has no runtime form: its result is its first operand at run time,
 // a change of grade, linearity or kind (Idr_NoRuntimeForm), which idr-lower

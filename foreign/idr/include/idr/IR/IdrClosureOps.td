@@ -187,7 +187,7 @@ def Idr_MemoCell : Type<And<[
 // calls it with views of its captures, and its cell is never written. An
 // exchange nothing can tell from such a call is one (Canon/Force.cpp).
 def Idr_MemoRunOp : Idr_Op<"memo.run", [RecursiveMemoryEffects, SingleBlock,
-    Idr_YieldTargetsOpInterface,
+    Idr_Decides, Idr_YieldTargetsOpInterface,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<RegionBranchOpInterface,

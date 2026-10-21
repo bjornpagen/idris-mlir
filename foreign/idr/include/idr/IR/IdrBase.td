@@ -292,6 +292,16 @@ def Idr_TakesReference : NativeOpTrait<"TakesReference"> { let cppNamespace = ":
 // and is built by no one, so idr.constant lacks this.
 def Idr_BuildsValue : NativeOpTrait<"BuildsValue"> { let cppNamespace = "::idr"; }
 
+// An op each run of which enters exactly one of its regions, once, and
+// leaves it straight back to the op: a match, a memo force, an element
+// rebuilt in its place. Counting moves a value from outside into each
+// such region, which consumes or drops it there; any other op with
+// regions may run one many times or none, so it holds a value from
+// outside for as long as it runs and its regions only read it. The
+// op's successor regions say the same; the trait is the declaration
+// counting reads, checked against them where the op is verified.
+def Idr_Decides : NativeOpTrait<"Decides"> { let cppNamespace = "::idr"; }
+
 // A partial op's guard: the guard op that checks `checkKind` (a case of
 // Idr_CheckKind) is given the op's values `guardedOperands`, named in the
 // guard op's operand order, the operand it guards first, and the program

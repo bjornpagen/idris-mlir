@@ -110,8 +110,9 @@ bool Classes::aliveAt(Value value, Operation *op) {
       // reads what it reads as it starts, so a use in one of its regions
       // keeps the value alive there too. usedIn is what counting asks of a
       // region.
-      return usedAfter(at, op) ||
-             llvm::any_of(op->getRegions(), [&](Region &region) { return usedIn(at, region); });
+      return positions.usedAfter(at, op) || llvm::any_of(op->getRegions(), [&](Region &region) {
+               return positions.usedIn(at, region);
+             });
     case Class::Borrowed:
       break;
     }
@@ -119,12 +120,6 @@ bool Classes::aliveAt(Value value, Operation *op) {
       return true;
   }
   return false;
-}
-
-bool usedIn(Value value, Region &region) {
-  return llvm::any_of(value.getUses(), [&](OpOperand &use) {
-    return region.isAncestor(use.getOwner()->getParentRegion());
-  });
 }
 
 bool endsInCrash(Block &block) { return !block.empty() && isa<ub::UnreachableOp>(block.back()); }

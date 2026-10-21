@@ -24,7 +24,7 @@ include "idr/IR/IdrInterfaces.td"
 // the match.
 class Idr_MatchOpBase<string mnemonic, Region defaultConstraint, list<Trait> traits = []>
     : Idr_Op<mnemonic, !listconcat(traits, [RecursiveMemoryEffects,
-        RecursivelySpeculatable, SingleBlock, Idr_MatchOpInterface,
+        RecursivelySpeculatable, SingleBlock, Idr_MatchOpInterface, Idr_Decides,
         DeclareOpInterfaceMethods<RegionBranchOpInterface,
             ["getEntrySuccessorRegions", "getRegionInvocationBounds",
              "getSuccessorInputs"]>])> {

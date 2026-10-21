@@ -141,7 +141,7 @@ bool ownsReference(Class kind);
 // their reference.
 class Classes {
 public:
-  explicit Classes(FuncOp fn) : fn(fn) {}
+  Classes(FuncOp fn, Positions &positions) : fn(fn), positions(positions) {}
 
   Class classOf(mlir::Value value);
 
@@ -149,11 +149,9 @@ private:
   bool aliveAt(mlir::Value value, mlir::Operation *op);
 
   FuncOp fn;
+  Positions &positions;
   llvm::DenseMap<mlir::Value, Class> classes;
 };
-
-// Whether a use of `value` is inside `region`.
-bool usedIn(mlir::Value value, mlir::Region &region);
 
 // Whether `block` ends in a crash, which counting leaves alone.
 bool endsInCrash(mlir::Block &block);
@@ -163,8 +161,9 @@ bool endsInCrash(mlir::Block &block);
 // reads of the box's fields from that point on (`bound`, the arguments of
 // the case region that bound them, none when no case region did, and
 // idr.field).
-TakeOp takeAt(mlir::RewriterBase &rewriter, mlir::Value box, Tag tag, mlir::Block &block,
-              mlir::Block::iterator at, llvm::ArrayRef<mlir::BlockArgument> bound);
+TakeOp takeAt(mlir::RewriterBase &rewriter, Positions &positions, mlir::Value box, Tag tag,
+              mlir::Block &block, mlir::Block::iterator at,
+              llvm::ArrayRef<mlir::BlockArgument> bound);
 
 // Takes the scrutinee of `match` apart where its case region `index`
 // begins, its fields replacing the region's arguments: out of its cell when
@@ -174,17 +173,18 @@ void takeAtEntry(mlir::RewriterBase &rewriter, MatchOp match, unsigned index);
 // Takes the unboxed sum `value`, built by the constructor `tag`, apart
 // where it is defined (idr.unpack), and gives each of its field reads the
 // field taken.
-void takeFields(mlir::RewriterBase &rewriter, mlir::Value value, Tag tag);
+void takeFields(mlir::RewriterBase &rewriter, Positions &positions, mlir::Value value, Tag tag);
 
 // Whether `box`, built by the constructor `tag`, keeps a field that holds
 // references past `at` in `block`, where it dies.
-bool keepsCountedField(mlir::Value box, Tag tag, mlir::Block &block, mlir::Block::iterator at,
-                       llvm::ArrayRef<mlir::BlockArgument> bound);
+bool keepsCountedField(Positions &positions, mlir::Value box, Tag tag, mlir::Block &block,
+                       mlir::Block::iterator at, llvm::ArrayRef<mlir::BlockArgument> bound);
 
 // The reuse rewrite of one function: at each site, in order, the take of
 // the box, and each idr.cell.new that gets its cell an idr.cell.recycle of
 // the take's token.
-void reuseAt(mlir::RewriterBase &rewriter, llvm::ArrayRef<Reuses::Site> sites);
+void reuseAt(mlir::RewriterBase &rewriter, Positions &positions,
+             llvm::ArrayRef<Reuses::Site> sites);
 
 // The boundaries of one function where counting meets upstream's buffer
 // ops, before any analysis of idr-rc reads them: each memref.alloc's
@@ -211,12 +211,14 @@ struct Counted {
 // dups of which it gives. A call's operands take their parameters' grades
 // only once placed, so what a call takes over is read from its callee's
 // signature, through `symbols`.
-Counted reshape(mlir::RewriterBase &rewriter, FuncOp fn, const mlir::SymbolTable &symbols);
+Counted reshape(mlir::RewriterBase &rewriter, FuncOp fn, const mlir::SymbolTable &symbols,
+                Positions &positions);
 
 // The counts of a function: the idr.dup, idr.drop and idr.borrow that make
 // every reference consumed exactly once on every path, what a call takes
 // over read through `symbols` as `reshape` reads it.
-Counted place(mlir::RewriterBase &rewriter, FuncOp fn, const mlir::SymbolTable &symbols);
+Counted place(mlir::RewriterBase &rewriter, FuncOp fn, const mlir::SymbolTable &symbols,
+              Positions &positions);
 
 } // namespace idr::ownership
 
