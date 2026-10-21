@@ -17,6 +17,7 @@ add_mlir_library(IdrAnalysis
 	Ownership/Exclusivity.cpp
 	Ownership/Captures.cpp
 	Ownership/ExclusivityAnalyses.cpp
+	Ownership/ExclusivityGraph.cpp
 	Ranges.cpp
 	Recursion.cpp
 	Identities.cpp

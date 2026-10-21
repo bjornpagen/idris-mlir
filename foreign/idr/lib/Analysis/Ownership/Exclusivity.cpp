@@ -27,8 +27,8 @@
 // and so neither is the box built in it), a value no flow explains (a
 // share's, which forgets what its operand alone reached) and a value from
 // a caller the program does not show are shared, and so is every result of
-// an op that declares no flow. The analysis is a sparse forward dataflow on
-// MLIR's solver, optimistic as SCCP is: a value is exclusive until a path
+// an op that declares no flow. The solve is a marking of the program's
+// graph, optimistic as SCCP is: a value is exclusive until a path
 // shares it, which is sound by induction on the run. It reads the dups
 // placement made, so it runs after placement; what it proves idr-rc writes
 // into the types (`!idr.excl<T>`), which every later pass keeps and the
@@ -42,9 +42,8 @@
 // call went where the solve found it goes, and may be less precise than
 // one solved afresh, never unsound.
 //
-// The solver answers by program point and value, which the passes after
-// it ask of the function they rewrite; so this unit runs it and copies its
-// answers into tables, and the solver is gone when the solve returns.
+// The solve's graph and marking are gone when it returns; this unit
+// copies its answers into tables the passes after it read.
 #include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
 #include "idr/Analysis/Ownership.h"
@@ -53,23 +52,18 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Worklist.h"
 
-#include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
-#include "mlir/Analysis/DataFlowFramework.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <variant>
 
 using namespace mlir;
-using namespace mlir::dataflow;
 
 namespace idr {
 
 namespace exclusivity = detail::exclusivity;
-using exclusivity::CellsLattice;
-using exclusivity::exclusive;
 using Sharing = Exclusivity::Sharing;
 
-FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Copies &copies) {
+Exclusivity Exclusivity::solve(ProgramOp program, const ownership::Copies &copies) {
   exclusivity::Calls calls(program, copies);
   exclusivity::Captures captures(program);
   // A label is made only where an op that makes it runs, which the solve
@@ -78,25 +72,18 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
   // it read as made. Labels only ever go, so it ends.
   bool settled = false;
   while (!settled) {
-    DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
-    exclusivity::loadAnalyses(solver, calls, captures);
-    if (mlir::failed(solver.initializeAndRun(program)))
-      return failure();
+    DenseMap<Value, Sharing> solved = exclusivity::solveOnce(program, calls, captures);
 
     Exclusivity out;
     auto record = [&](Value value) {
-      if (auto *lattice = solver.lookupState<CellsLattice>(value);
-          lattice && lattice->getValue().sharing != Sharing::Unknown)
-        out.sharing[value] = lattice->getValue().sharing;
+      auto it = solved.find(value);
+      if (it != solved.end())
+        out.sharing[value] = it->second;
     };
     // A value the solve never reached is unknown, which counts as exclusive.
     auto passesExclusive = [&](Value arg) {
-      const CellsLattice *lattice = solver.lookupState<CellsLattice>(arg);
-      return !lattice || exclusive(*lattice);
-    };
-    auto executable = [&](Block *block) {
-      const Executable *state = solver.lookupState<Executable>(solver.getProgramPointBefore(block));
-      return state && state->isLive();
+      auto it = solved.find(arg);
+      return it == solved.end() || it->second != Sharing::Shared;
     };
     // The functions that run once each call goes where the solve finally sent
     // it: those whose callers the program does not all show, and each a live
@@ -112,9 +99,11 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
     }
     // The calls that run, by the function each runs.
     DenseMap<FuncOp, SmallVector<CallOp>> runsFrom;
-    while (std::optional<FuncOp> fn = reached.pop())
+    while (std::optional<FuncOp> fn = reached.pop()) {
+      DenseSet<Block *> liveBlocks;
+      exclusivity::liveBlocksOf(*fn, liveBlocks);
       fn->walk([&](Block *block) {
-        if (!executable(block))
+        if (!liveBlocks.contains(block))
           return;
         out.liveBlocks.insert(block);
         for (CallOp call : block->getOps<CallOp>()) {
@@ -125,14 +114,14 @@ FailureOr<Exclusivity> Exclusivity::solve(ProgramOp program, const ownership::Co
           (void)reached.push(target);
         }
       });
+    }
     // A label made only where the program never runs is made by nothing:
     // the solve read it as made, so it runs again without it.
     settled = !captures.keepMadeIn(out.liveBlocks);
     if (!settled)
       continue;
     // What the solve proved of the values the program runs: a function no
-    // call that runs goes to proves nothing, though upstream's dead-code
-    // analysis, which reads a label's name as an unknown caller, walked it.
+    // call that runs goes to proves nothing, and the solve never reached it.
     program.walk([&](Block *block) {
       if (!out.liveBlocks.contains(block))
         return;

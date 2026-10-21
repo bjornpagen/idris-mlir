@@ -36,37 +36,24 @@ struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
     namespace own = idr::ownership;
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     own::shareTainted(program, symbols);
-    FailureOr<idr::Exclusivity> solved = solve(program, own::Copies());
-    if (failed(solved))
-      return signalPassFailure();
-    FailureOr<own::Copies> copies = own::specializeOnGrade(program, *solved, symbols);
+    idr::Exclusivity solved = idr::Exclusivity::solve(program, own::Copies());
+    FailureOr<own::Copies> copies = own::specializeOnGrade(program, solved, symbols);
     if (failed(copies))
       return signalPassFailure();
     if (!copies->of.empty()) {
-      if (failed(solved = solve(program, *copies)))
-        return signalPassFailure();
-      own::redirectCalls(program, *solved);
+      solved = idr::Exclusivity::solve(program, *copies);
+      own::redirectCalls(program, solved);
     }
-    own::writeExclusiveGrades(program, *solved, symbols);
+    own::writeExclusiveGrades(program, solved, symbols);
 
     // Every function in parallel, while the solve and the table, which
     // the commit only reads, live here.
     OpPassManager nested(idr::ProgramOp::getOperationName());
-    nested.addNestedPass<idr::FuncOp>(own::createRcCommit(*solved, symbols, numExclusive));
+    nested.addNestedPass<idr::FuncOp>(own::createRcCommit(solved, symbols, numExclusive));
     if (failed(runPipeline(nested, program)))
       return signalPassFailure();
     // No data type changed, and every symbol came through the table.
     markAnalysesPreserved<idr::TypeGraph, idr::Layouts, SymbolTable>();
-  }
-
-  // The solve of `program` as it stands, with `copies`; failure, which is
-  // reported here, when MLIR's solver fails.
-  static FailureOr<idr::Exclusivity> solve(idr::ProgramOp program,
-                                           const idr::ownership::Copies &copies) {
-    FailureOr<idr::Exclusivity> solved = idr::Exclusivity::solve(program, copies);
-    if (failed(solved))
-      program.emitError("internal error: idr-rc-exclusive: the exclusivity solve failed");
-    return solved;
   }
 };
 

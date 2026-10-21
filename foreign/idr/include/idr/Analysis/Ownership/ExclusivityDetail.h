@@ -2,71 +2,27 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What the two units of exclusivity's solve share, and no other unit reads:
 // lib/Analysis/Ownership/Exclusivity.cpp, which runs the solve and keeps
-// its answers, and ExclusivityAnalyses.cpp beside it, the analyses it runs.
-// The lattice a value holds, whether a function runs, and how each call
-// goes, which are what the analyses write and the answers are read off.
+// its answers, and ExclusivityAnalyses.cpp beside it, the solve itself.
+// How each call goes, and the captures of each memoizing label, are fixed
+// before the solve, which reads them as it marks the program's values.
 #ifndef IDR_ANALYSIS_OWNERSHIP_EXCLUSIVITYDETAIL_H
 #define IDR_ANALYSIS_OWNERSHIP_EXCLUSIVITYDETAIL_H
 
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
-#include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <variant>
+#include <vector>
 
 namespace idr::detail::exclusivity {
 
 using Sharing = Exclusivity::Sharing;
-
-// What is known of a value's cell graph, as the lattice holds it.
-struct Cells {
-  Sharing sharing = Sharing::Unknown;
-
-  static Cells of(Sharing sharing) { return {sharing}; }
-  static Cells join(const Cells &a, const Cells &b) { return of(std::max(a.sharing, b.sharing)); }
-  bool operator==(const Cells &) const = default;
-  void print(llvm::raw_ostream &os) const;
-};
-
-struct CellsLattice : mlir::dataflow::Lattice<Cells> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(CellsLattice)
-  using Lattice::Lattice;
-};
-
-// What a value holds, optimistically: unknown counts as exclusive until a
-// path shares it.
-inline bool exclusive(const CellsLattice &lattice) {
-  return lattice.getValue().sharing != Sharing::Shared;
-}
-
-// Whether a function runs, held at the start of its body. It only ever
-// becomes true.
-class Runs : public mlir::AnalysisState {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Runs)
-  using AnalysisState::AnalysisState;
-
-  bool running() const { return runs; }
-  mlir::ChangeResult setRunning() {
-    if (runs)
-      return mlir::ChangeResult::NoChange;
-    runs = true;
-    return mlir::ChangeResult::Change;
-  }
-  void print(llvm::raw_ostream &os) const override { os << (runs ? "runs" : "runs nowhere"); }
-
-private:
-  bool runs = false;
-};
-
-// The entry block of `fn`'s body, before which its Runs is held.
-inline mlir::Block *entryOf(FuncOp fn) { return &fn.getBody().front(); }
 
 // How calls go, fixed before the solve. Each function of the program is
 // called by its name alone, or, a key of grade specialization and its copy,
@@ -98,9 +54,7 @@ public:
   // its root, which is called from outside. A program is whole and closed:
   // once closures and suspensions are sums, each function runs only where
   // an idr.call names it, and a label's name in a sum's body is a name, no
-  // address any op could call through. Upstream's dead-code analysis
-  // counts that name as a use it does not know, so its predecessors are
-  // read for the calls alone.
+  // address any op could call through.
   static bool showsEveryCall(FuncOp fn) { return !fn.isRoot(); }
 
 private:
@@ -145,12 +99,63 @@ private:
   llvm::DenseMap<Label, llvm::SmallVector<mlir::Operation *>> makers;
 };
 
-// Loads into `solver` the analyses of one solve, whose calls go as `calls`
-// says and whose memo captures are as `captures` says, both of which must
-// outlive the solver's run: the run fills a CellsLattice for each value
-// and a Runs for each function, beside upstream's Executable for each
-// block and PredecessorState for each function.
-void loadAnalyses(mlir::DataFlowSolver &solver, const Calls &calls, const Captures &captures);
+// One solve of `program`, whose calls go as `calls` says and whose memo
+// captures are as `captures` says: what it found of each value it reached,
+// a value absent here being one it never reached (unknown). The solve is
+// optimistic: a value is exclusive until a path shares it, and only ever
+// shares more, so the marking ends.
+llvm::DenseMap<mlir::Value, Sharing> solveOnce(ProgramOp program, const Calls &calls,
+                                               const Captures &captures);
+
+// The blocks of `fn` that may run when `fn` runs: those control reaches
+// from its entry, every region of a reached op being one it may enter.
+// Reachability alone: which region a branch takes on a constant is the
+// canonicalizer's to fold, not the solve's to leave ungraded.
+void liveBlocksOf(FuncOp fn, llvm::DenseSet<mlir::Block *> &live);
+
+// Whether control may go from `point` of `branch` to `want`.
+bool goesTo(mlir::RegionBranchOpInterface branch, mlir::RegionBranchPoint point,
+            mlir::RegionSuccessor want);
+
+// One writer of values in the solve's graph: an op's results from its
+// reference edges, a call's results and its callee's parameters, a region
+// successor's inputs (an op's results, or a region's arguments) from its
+// predecessors' operands, a block's arguments from its predecessors, or
+// the arguments of a region no branch forwards to, which are shared. An
+// item reads the values it is a dependent of and runs again when one
+// rises or when its function starts to run; it writes nothing from a
+// block that may not run.
+struct Item {
+  enum class Kind : uint8_t { Op, Call, Successor, BlockArgs, EntryArgs };
+  Kind kind;
+  mlir::Operation *op; // Successor: the branch; BlockArgs: null, block is the item's own
+  mlir::Block *block;  // the block that must run for the item to write
+  FuncOp fn;           // the function the item is in
+  mlir::Region *region; // Successor: the successor region, null for the op successor
+};
+
+// The solve's graph of a program, built once: every item, the items each
+// value is read by, each function's items, and the terminators of each
+// branch op's regions. Nothing in it changes as the marking runs.
+class Graph {
+public:
+  Graph(ProgramOp program, const Calls &calls);
+
+  std::vector<Item> items;
+  llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned, 2>> dependents;
+  llvm::DenseMap<FuncOp, llvm::SmallVector<unsigned>> itemsOf;
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *, 2>> terminators;
+
+private:
+  unsigned addItem(Item item);
+  void reads(unsigned id, mlir::Value value);
+  void readsAll(unsigned id, mlir::ValueRange values);
+  void readsReturns(unsigned id, FuncOp callee, const Calls &calls);
+  void scan(mlir::Region &region, FuncOp fn, const Calls &calls);
+  void scanOp(mlir::Operation *op, FuncOp fn, const Calls &calls);
+  void addSuccessor(mlir::RegionBranchOpInterface branch, mlir::RegionSuccessor successor,
+                    mlir::Region *region, mlir::Block *block, FuncOp fn);
+};
 
 } // namespace idr::detail::exclusivity
 

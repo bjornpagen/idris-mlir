@@ -257,11 +257,11 @@ private:
   unsigned numBorrowed = 0;
 };
 
-// Exclusivity, solved on MLIR's solver and kept as tables: which owned
-// values hold the only reference to every cell their cell graph reaches
-// that a take could hand out, which blocks run, where each call of a key
-// of grade specialization goes, who calls each function and what each
-// returns from. No solver outlives the solve.
+// Exclusivity, solved by marking the program's graph and kept as tables:
+// which owned values hold the only reference to every cell their cell
+// graph reaches that a take could hand out, which blocks run, where each
+// call of a key of grade specialization goes, who calls each function and
+// what each returns from. No graph outlives the solve.
 class Exclusivity {
 public:
   // What is known of a value's cell graph: nothing yet (the optimistic
@@ -276,9 +276,8 @@ public:
   // values only once other calls went to the copies is followed in the
   // same solve, and the solve is the one of the program after each such
   // call went where it found it goes. With no copies every call goes to
-  // its callee. Failure when MLIR's solver fails, an internal error the
-  // caller reports.
-  static mlir::FailureOr<Exclusivity> solve(ProgramOp program, const ownership::Copies &copies);
+  // its callee.
+  static Exclusivity solve(ProgramOp program, const ownership::Copies &copies);
 
   // What the solve found of `value`; Unknown for a value it never reached.
   Sharing of(mlir::Value value) const;
