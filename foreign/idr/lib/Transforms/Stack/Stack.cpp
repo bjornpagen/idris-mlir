@@ -10,11 +10,12 @@
 // frame's: the box its init makes is then of the frame, and so is
 // everything that holds or reads it. The step reads those rules, the one
 // place they are said, which the function verifier holds its result to:
-// each cell starts in the frame, and the values each may reach are found
-// forward along the rules' edges, over the whole program at once (a
-// parameter reaches what any of its arguments does). A cell that reaches an
-// escape stays on the heap, and so does one that reaches the init of a cell
-// of the heap, until nothing changes; the set only shrinks, so that ends.
+// the rules' edges form one graph over the whole program at once (a
+// parameter is reached by every one of its arguments), and each cell
+// starts in the frame. A cell that reaches an escape stays on the heap,
+// and so does one that reaches a fill of a cell of the heap: both are
+// found backward along the graph from the escapes and the cells already
+// of the heap, one marking per question, never a set per value.
 // Then the lifetimes are written: each value a cell of the frame reaches is
 // of the frame, signatures included, and where such a value meets one of
 // the heap (a join of a region branch, a call's parameter, a select), the
@@ -57,12 +58,8 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
-
-#include <deque>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRRCSTACK
@@ -105,8 +102,17 @@ bool placeable(Operation *op) {
   return false;
 }
 
-// The inference over one program: which candidate cells each value may
-// reach once its cell is the frame's, found forward along the rules' edges.
+// The inference over one program: the rules' edges as one graph, whose
+// nodes are the candidate cells and every value an edge names. A cell
+// points at the box its init makes; a value points at what carries it,
+// at the parameter it passes to, and at the cell it fills; the values an
+// escape takes are kept beside it. Every question the step asks is
+// reachability in this graph, answered by one marking (a bit per node):
+// a cell escapes when it reaches an escape, and leaves the frame when it
+// reaches a fill of a cell of the heap, both found backward; the values
+// of the frame are those a framed cell reaches, found forward. What the
+// graph costs is its edges, however many cells or values the program
+// has; no fact is kept per pair of them.
 class Inference {
 public:
   Inference(idr::ProgramOp program, const SymbolTable &symbols, const idr::CallCycles &cycles)
@@ -117,102 +123,104 @@ public:
       index.try_emplace(cell.getOperation(), cells.size());
       cells.push_back(cell);
     });
+    out.resize(cells.size());
+    in.resize(cells.size());
+    for (auto [i, cell] : llvm::enumerate(cells))
+      for (Operation *user : cell.getCell().getUsers())
+        if (auto init = dyn_cast<idr::CellInitOp>(user))
+          edge(static_cast<unsigned>(i), node(init.getResult()));
+    program.walk([&](Operation *op) {
+      idr::lifetimes::edgesOf(op, [&](Value from, const idr::lifetimes::Edge &e) { add(from, e); });
+    });
   }
 
   ArrayRef<idr::CellNewOp> candidates() const { return cells; }
 
-  // The values each candidate reaches, to the least solution: a value
-  // enters the queue again whenever what it reaches grows, and what it
-  // reaches is a subset of the finitely many candidates.
-  void solve() {
-    for (auto [i, cell] : llvm::enumerate(cells))
-      for (Operation *user : cell.getCell().getUsers())
-        if (auto init = dyn_cast<idr::CellInitOp>(user))
-          add(init.getResult(), single(static_cast<unsigned>(i)));
-    while (!queue.empty()) {
-      Value value = queue.front();
-      queue.pop_front();
-      queued.erase(value);
-      llvm::SetVector<Operation *> users(value.user_begin(), value.user_end());
-      for (Operation *user : users)
-        idr::lifetimes::edgesOf(user, [&](Value from, const idr::lifetimes::Edge &edge) {
-          if (from == value)
-            follow(from, edge);
-        });
-    }
-  }
-
   // The candidates that stay on the heap: those that reach an escape.
   llvm::BitVector escaping() const {
-    llvm::BitVector out(static_cast<unsigned>(cells.size()));
-    for (Value value : escapes)
-      out |= reached(value);
-    return out;
+    llvm::BitVector seen = mark(escapes, /*backward=*/true);
+    llvm::BitVector escaped(static_cast<unsigned>(cells.size()));
+    for (unsigned i = 0, n = static_cast<unsigned>(cells.size()); i < n; ++i)
+      if (seen.test(i))
+        escaped.set(i);
+    return escaped;
   }
 
-  // Leaves on the heap, in `framed`, each candidate that reaches the init
-  // of a cell that is not the frame's, until none does.
+  // Leaves on the heap, in `framed`, each candidate that reaches a fill
+  // of a cell that is not the frame's: backward from those cells (whose
+  // only incoming edges are their fills), which takes with them every
+  // cell that reaches a fill of a cell it takes, in one marking.
   void keepFills(llvm::BitVector &framed) const {
-    for (bool changed = true; changed;) {
-      changed = false;
-      for (auto [init, value] : fills) {
-        auto it = index.find(init.getCell().getDefiningOp());
-        if (it != index.end() && framed.test(it->second))
-          continue;
-        llvm::BitVector reaches = reached(value);
-        reaches &= framed;
-        if (reaches.none())
-          continue;
-        framed.reset(reaches);
-        changed = true;
-      }
-    }
+    SmallVector<unsigned> seeds;
+    for (unsigned i = 0, n = static_cast<unsigned>(cells.size()); i < n; ++i)
+      if (!framed.test(i))
+        seeds.push_back(i);
+    llvm::BitVector seen = mark(seeds, /*backward=*/true);
+    for (unsigned i = 0, n = static_cast<unsigned>(cells.size()); i < n; ++i)
+      if (seen.test(i))
+        framed.reset(i);
   }
 
-  // Whether `value` may reach a cell of `framed`.
-  bool inFrame(Value value, const llvm::BitVector &framed) const {
-    return reached(value).anyCommon(framed);
-  }
-
-  // Every value that may reach a candidate.
-  SmallVector<Value> values() const {
-    SmallVector<Value> out;
-    for (const auto &entry : reach)
-      out.push_back(entry.first);
-    return out;
+  // Every value a cell of `framed` may reach.
+  SmallVector<Value> inFrameValues(const llvm::BitVector &framed) const {
+    SmallVector<unsigned> seeds;
+    for (unsigned i = 0, n = static_cast<unsigned>(cells.size()); i < n; ++i)
+      if (framed.test(i))
+        seeds.push_back(i);
+    llvm::BitVector seen = mark(seeds, /*backward=*/false);
+    SmallVector<Value> values;
+    for (auto [j, value] : llvm::enumerate(byNode))
+      if (seen.test(static_cast<unsigned>(cells.size() + j)))
+        values.push_back(value);
+    return values;
   }
 
 private:
-  llvm::BitVector single(unsigned i) const {
-    llvm::BitVector one(static_cast<unsigned>(cells.size()));
-    one.set(i);
-    return one;
+  // The node of `value`: the cells are the first nodes, and each value
+  // takes the next as an edge first names it.
+  unsigned node(Value value) {
+    auto [it, fresh] = ids.try_emplace(value, static_cast<unsigned>(cells.size() + byNode.size()));
+    if (fresh) {
+      byNode.push_back(value);
+      out.emplace_back();
+      in.emplace_back();
+    }
+    return it->second;
   }
 
-  llvm::BitVector reached(Value value) const {
-    auto it = reach.find(value);
-    return it == reach.end() ? llvm::BitVector(static_cast<unsigned>(cells.size())) : it->second;
+  void edge(unsigned from, unsigned to) {
+    out[from].push_back(to);
+    in[to].push_back(from);
   }
 
-  void add(Value value, const llvm::BitVector &more) {
-    auto [it, fresh] =
-        reach.try_emplace(value, llvm::BitVector(static_cast<unsigned>(cells.size())));
-    llvm::BitVector grown = it->second;
-    grown |= more;
-    if (!fresh && grown == it->second)
-      return;
-    it->second = std::move(grown);
-    if (queued.insert(value).second)
-      queue.push_back(value);
+  // The nodes that reach a seed (backward) or a seed reaches (forward).
+  llvm::BitVector mark(ArrayRef<unsigned> seeds, bool backward) const {
+    llvm::BitVector seen(static_cast<unsigned>(out.size()));
+    SmallVector<unsigned> work(seeds.begin(), seeds.end());
+    while (!work.empty()) {
+      unsigned at = work.pop_back_val();
+      if (seen.test(at))
+        continue;
+      seen.set(at);
+      for (unsigned next : (backward ? in : out)[at])
+        work.push_back(next);
+    }
+    return seen;
   }
 
-  void follow(Value from, const idr::lifetimes::Edge &edge) {
-    llvm::BitVector here = reached(from);
+  void add(Value from, const idr::lifetimes::Edge &e) {
     std::visit(llvm::makeVisitor(
-                   [&](const idr::lifetimes::Carries &carries) { add(carries.to, here); },
+                   [&](const idr::lifetimes::Carries &carries) {
+                     edge(node(from), node(carries.to));
+                   },
                    [&](idr::lifetimes::Fills fill) {
-                     if (filled.insert({fill.init.getOperation(), from}).second)
-                       fills.emplace_back(fill.init, from);
+                     // A fill of a cell that is no candidate is a fill
+                     // of a cell of the heap: what reaches it escapes.
+                     auto it = index.find(fill.init.getCell().getDefiningOp());
+                     if (it != index.end())
+                       edge(node(from), it->second);
+                     else
+                       escapes.push_back(node(from));
                    },
                    [&](idr::lifetimes::Passes passes) {
                      auto callee =
@@ -224,17 +232,17 @@ private:
                      auto caller = passes.call->getParentOfType<idr::FuncOp>();
                      if (idr::tail::inTailPosition(passes.call) &&
                          cycles.together(caller, callee))
-                       escapes.insert(from);
+                       escapes.push_back(node(from));
                      // A parameter of a function that loops in its frame
                      // is passed on to the next iteration, which a value
                      // of the frame may never be: whatever its own self
                      // call passes there, its type is the parameter's.
                      if (loopsInFrame(callee))
-                       escapes.insert(from);
-                     add(callee.getArgument(passes.index), here);
+                       escapes.push_back(node(from));
+                     edge(node(from), node(callee.getArgument(passes.index)));
                    },
-                   [&](idr::lifetimes::Escape) { escapes.insert(from); }),
-               edge);
+                   [&](idr::lifetimes::Escape) { escapes.push_back(node(from)); }),
+               e);
   }
 
   // Whether `fn` holds a self call that is the next iteration of a loop in
@@ -254,12 +262,10 @@ private:
   DenseMap<Operation *, bool> loops;
   SmallVector<idr::CellNewOp> cells;
   DenseMap<Operation *, unsigned> index;
-  llvm::MapVector<Value, llvm::BitVector> reach;
-  std::deque<Value> queue;
-  DenseSet<Value> queued;
-  llvm::SetVector<Value> escapes;
-  SmallVector<std::pair<idr::CellInitOp, Value>> fills;
-  DenseSet<std::pair<Operation *, Value>> filled;
+  DenseMap<Value, unsigned> ids;
+  SmallVector<Value> byNode;
+  SmallVector<SmallVector<unsigned, 2>> out, in;
+  SmallVector<unsigned> escapes;
 };
 
 // `use` takes a value of the frame: one of the heap there is shared into
@@ -285,7 +291,6 @@ struct Stack : idr::impl::IdrRcStackBase<Stack> {
     program.walk([&](idr::CellNewOp) { ++numBoxes; });
 
     Inference inference(program, symbols, cycles);
-    inference.solve();
     ArrayRef<idr::CellNewOp> cells = inference.candidates();
     llvm::BitVector framed(static_cast<unsigned>(cells.size()), true);
     framed.reset(inference.escaping());
@@ -325,7 +330,7 @@ struct Stack : idr::impl::IdrRcStackBase<Stack> {
     // value one reaches of the frame, the parameters of the signatures
     // with them.
     IRRewriter rewriter(&getContext());
-    SmallVector<Value> values = inference.values();
+    SmallVector<Value> values = inference.inFrameValues(framed);
     for (auto [i, made] : llvm::enumerate(cells)) {
       if (!framed.test(static_cast<unsigned>(i)))
         continue;
@@ -338,8 +343,6 @@ struct Stack : idr::impl::IdrRcStackBase<Stack> {
     numStackCells += framed.count();
     llvm::SetVector<idr::FuncOp> signatures;
     for (Value value : values) {
-      if (!inference.inFrame(value, framed))
-        continue;
       value.setType(idr::atLifetime(value.getType(), idr::Lifetime::Frame));
       if (auto arg = dyn_cast<BlockArgument>(value))
         if (auto fn = dyn_cast<idr::FuncOp>(arg.getOwner()->getParentOp()))

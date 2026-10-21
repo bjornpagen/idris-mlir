@@ -83,8 +83,15 @@ stage 1 alone. A stage keeps everything in `build/self/stageN/`.
      pipeline no longer re-solves liveness over the whole program —
      what no caller reads of a signature is decided where demand is,
      in the optimizer's specialization, and what it leaves counting
-     drops. The run after these has not been made: whether the
-     pipeline half now finishes, and in what time, is unknown.
+     drops. The next run passed both and died in idr-rc-stack at
+     47 GB (sampled live at 41 GB: memmove inside the lifetime
+     inference's `BitVector` unions), which kept one candidate-width
+     bit vector per value and copied it along every edge: the
+     inference is now the rules' flow graph itself, and its three
+     questions (escapes, fills of heap cells, values of the frame) are
+     markings on it, a bit per node. The run after that has not been
+     made: whether the pipeline half now finishes, and in what time,
+     is unknown.
    - **Method: trace it, don't guess.** Each run is the release
      `idris-mlir` with `--profile-actions-to=<file>` (MLIR's action
      profiler: a Chrome trace of every pass, every idr-optimize node,
