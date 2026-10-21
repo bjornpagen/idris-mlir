@@ -233,6 +233,46 @@ its top ranks.
    compile-time work aimed at suite wall time that ignores process
    count and frontend time is optimizing the smaller term.
 
+## Addendum (same day): the fix, the bench corpus, and a sampler correction
+
+The bug above is fixed at `0be4e660` and accepted: `make test` is
+back at 470/480, the standing ten unchanged (`1e1907ab` strikes the
+register entry). The first overlapping `assign` was caught by
+logging: an op inserted at a block's start has no numbered neighbour
+before it, so its gap defaulted to the holding op's whole span —
+every match case's first written op (the unpack `takeAtEntry` puts
+there) numbered from the match's own position, across its sibling
+cases. Each block now keeps its own extent in the numbering, room
+included before its first op; `tests/rc-take-at-case-entry` is the
+shape.
+
+Corpus B (the benchmark suite, `bench/run.sh --runs 1`, 5 720 s
+wall) ran sampled poll-only, for a reason worth recording: `sample
+-wait` busy-spins at ≈68 % of a core per waiter while its target
+does not exist. The first bench attempt carried four waiters through
+long program-run phases and was killed for it; the two suite corpora
+above also ran with four waiters, but compiler processes there are
+near-continuous, so the spin mostly coincided with attached
+sampling — except that corpus A's one 60 s timeout is now better
+explained by waiter contention than by symbolication. Treat the
+suite corpora's walls, not their sample shares, as inflated by up
+to that contention.
+
+The bench corpus itself is sparse (13 grabs, 12 269 on-CPU samples):
+bench wall is program run time, not compiles. What it has agrees
+with corpus C's top: `toObjects` 49.8 % self, LLVM function-pass
+managers next, everything idr below 2 % apiece. It also found a
+second bug, registered in `bugs.md`: `bench/unionfind` compiled by
+this compiler does not finish (the harness's 1 800 s run limit; the
+2026-10-13 record has it at 190 ms). Sampling the hanging binary
+puts essentially all of it in `Main.mergePackAux` allocating arrays
+(`idris_rt_array_new` into snmalloc large allocations): the linear
+vector is copied where it should update in place, which is
+quadratic at 3 000 000 elements. It reproduces on the dev build
+with a 60 s bound. Which change lost the in-place update is not yet
+bisected; the exclusivity rewrite and the counting changes are the
+candidates standing between the record and here.
+
 ## Not measured yet
 
 - The benchmark suite's compiles (`bench/run.sh`, 30 programs) —

@@ -26,6 +26,23 @@ program-suite change from the remove-dead-values removal.
 
 ## ownership
 
+- **bench/unionfind no longer finishes: its linear vector is copied,
+  not updated in place.** The benchmark record of 2026-10-13 has this
+  compiler's unionfind at 190 ms; on main at `1e1907ab` the compiled
+  program passes the harness's 1 800 s run limit without output (the
+  sampled bench run of `audits/flamegraph-2026-10-21.md`), and a dev
+  build reproduces with a 60 s bound (`tools/compile.sh -p
+  mlir-linear -p mlir-array` on `bench/unionfind/Main.idr`, input
+  `3000000`). Sampling the hanging program puts it in
+  `Main.mergePackAux` under `idris_rt_array_new` — a fresh array per
+  step where the growable linear vector (quantity 1 through every
+  find and union) should store in place, which is quadratic. Which
+  change lost the in-place update is not bisected; standing between
+  the record and here are the exclusivity graph-marking rewrite and
+  counting's numbering changes. Owed: the bisect, then the cause in
+  whichever lane lost exclusivity for the threaded vector (or the
+  copy in `Linear.Vec`'s grow path); a bounded unionfind-shaped
+  fixture at program-suite scale would have caught it.
 - **split-prefixes shares the lists its test says are new** (with the
   control lane). The test expects `span[Char]` and `splitAt[Char]` to take
   only exclusive cells. The lists reach them through `entry`'s do block,
