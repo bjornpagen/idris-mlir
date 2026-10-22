@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Exclusivity's solve by context, over the bodies ExclusivityGraph.cpp read.
+// Exclusivity's solve by context, over the bodies ExclusivityGraph.cpp read,
+// and the marking of the parameters a reference is taken of through a view
+// before it.
 //
 // A context is a function with the followed parameters it takes exclusive.
 // Every function's general context, which takes none, runs: it is what the
@@ -18,7 +20,9 @@
 //
 // The state is a bit per followed value per running context, a bit per
 // memo field, and a key per call per running context: sized by the
-// program and the contexts its calls reach, which are finite.
+// program and the contexts its calls reach, which are finite, and held in
+// the containers a pass's footprint counts. Its work is the nodes and
+// edges each round's marking reads.
 #include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
 #include "idr/Analysis/Solver/Graph.h"
@@ -26,7 +30,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 
-#include <vector>
+#include <optional>
 
 namespace idr::detail::exclusivity {
 
@@ -34,6 +38,11 @@ namespace {
 
 using Key = llvm::SmallBitVector;
 using ContextId = std::uint32_t;
+using idr::exclusivity::Followed;
+using idr::exclusivity::FollowedNumbers;
+
+// Whether a context was reached in a round's search.
+enum class Reached : std::uint8_t { No, Yes };
 
 // A followed value of a running context, or a memo field: the nodes of one
 // round's marking, numbered by that round.
@@ -47,7 +56,7 @@ struct Context {
   FunctionId fn;
   Key key;
   // The key each call of the body passes, in the walk's order of calls.
-  std::vector<Key> calls;
+  footprint::Vector<Key> calls;
 };
 
 class Solve {
@@ -56,7 +65,7 @@ public:
         const IndexVector<FunctionId, llvm::SmallBitVector> &copied,
         const Anchors &anchors, const solver::ProgramGraph &graph)
       : bodies(bodies), copied(copied), anchors(anchors), graph(graph),
-        contextsOf(graph.table<llvm::SmallVector<ContextId, 1>>()) {}
+        contextsOf(graph.table<footprint::Vector<ContextId>>()) {}
 
   Solution run() {
     for (FunctionId fn : graph.functions())
@@ -109,14 +118,14 @@ private:
   void reachRunning() {
     running.clear();
     base.clear();
-    llvm::BitVector seen;
-    std::vector<ContextId> work;
+    footprint::Vector<Reached> seen;
+    footprint::Vector<ContextId> work;
     auto reach = [&](ContextId id) {
       if (seen.size() <= id)
-        seen.resize(id + 1);
-      if (seen.test(id))
+        seen.resize(id + 1, Reached::No);
+      if (seen[id] == Reached::Yes)
         return;
-      seen.set(id);
+      seen[id] = Reached::Yes;
       work.push_back(id);
     };
     for (FunctionId fn : graph.functions())
@@ -143,8 +152,12 @@ private:
   // fixed, and the memo fields after them.
   BitSet<Node> mark() {
     CsrBuilder<NodeTag> edges(Count<Node>(nodes));
-    std::vector<Node> seeds;
-    auto edge = [&](std::uint32_t from, std::uint32_t to) { edges.edge(Node(from), Node(to)); };
+    footprint::Vector<Node> seeds;
+    std::uint64_t edgeCount = 0;
+    auto edge = [&](std::uint32_t from, std::uint32_t to) {
+      edges.edge(Node(from), Node(to));
+      ++edgeCount;
+    };
     auto seed = [&](std::uint32_t at) { seeds.push_back(Node(at)); };
     for (Anchor anchor : anchors.shared())
       seed(anchorBase + anchor);
@@ -163,13 +176,18 @@ private:
       for (auto [index, call] : llvm::enumerate(body.calls)) {
         ContextId target = targetOf(id, index);
         const Body &callee = bodies[call.callee];
+        // A callee that never returns gives nothing back, so its call's
+        // results are never shared: a path that ends the run contributes
+        // nothing.
+        if (!callee.returns)
+          continue;
         for (auto [result, local] : llvm::enumerate(call.results)) {
           if (local == noLocal)
             continue;
-          Local returned = callee.returns ? callee.results[result] : noLocal;
+          Local returned = callee.results[result];
           if (returned != noLocal)
             edge(base[target] + returned, at + local);
-          else if (!callee.returns || !callee.exclusiveResults.test(result))
+          else if (!callee.exclusiveResults.test(result))
             seed(at + local);
         }
         // A view passed to a parameter the callee takes a reference of
@@ -183,8 +201,9 @@ private:
       for (const auto &[anchor, local] : body.outOfAnchors)
         edge(anchorBase + anchor, at + local);
     }
+    work += nodes + edgeCount;
     Csr<NodeTag> graphOfValues = std::move(edges).finish();
-    return idr::mark(graphOfValues, std::span<const Node>(seeds), Forward{});
+    return idr::mark<Forward>(graphOfValues, std::span<const Node>(seeds));
   }
 
   // Narrows each running call's key to the arguments the marking left
@@ -212,23 +231,23 @@ private:
   // What one running context proved: its exclusive values, its exclusive
   // results, and the context each call goes to.
   struct Proof {
-    llvm::BitVector exclusive;
+    BitSet<Followed> exclusive;
     llvm::SmallBitVector results;
-    llvm::SmallVector<ContextId> targets;
+    footprint::Vector<ContextId> targets;
     bool operator==(const Proof &) const = default;
   };
 
   Proof proofOf(ContextId id, const BitSet<Node> &shared) {
     const Body &body = bodies[contexts[id].fn];
-    Proof proof;
-    proof.exclusive.resize(body.values);
+    Proof proof{BitSet<Followed>(FollowedNumbers::count(body.values)), {}, {}};
     for (std::uint32_t local = 0; local != body.values; ++local)
       if (!shared.test(Node(base[id] + local)))
-        proof.exclusive.set(local);
+        (void)proof.exclusive.raise(FollowedNumbers::at(local));
     proof.results.resize(static_cast<unsigned>(body.exclusiveResults.size()));
     if (body.returns)
       for (auto [index, local] : llvm::enumerate(body.results))
-        if (local == noLocal ? body.exclusiveResults.test(index) : proof.exclusive.test(local))
+        if (local == noLocal ? body.exclusiveResults.test(index)
+                             : proof.exclusive.test(FollowedNumbers::at(local)))
           proof.results.set(static_cast<unsigned>(index));
     for (std::size_t call = 0, e = body.calls.size(); call != e; ++call)
       proof.targets.push_back(targetOf(id, call));
@@ -239,12 +258,15 @@ private:
   // compared with the general one: a copy buys something only where a value
   // of its body is exclusive that the general context's is not.
   static bool sameBeyondParameters(const Proof &a, const Proof &b, const Body &body) {
-    llvm::BitVector difference = a.exclusive;
-    difference ^= b.exclusive;
-    for (Local param : body.params)
-      if (param != noLocal)
-        difference.reset(param);
-    return difference.none() && a.results == b.results && a.targets == b.targets;
+    if (a.results != b.results || a.targets != b.targets)
+      return false;
+    for (std::uint32_t local = 0; local != body.values; ++local) {
+      Followed value = FollowedNumbers::at(local);
+      if (a.exclusive.test(value) != b.exclusive.test(value) &&
+          !llvm::is_contained(body.params, local))
+        return false;
+    }
+    return true;
   }
 
   // The versions of each function: its general context first; a running
@@ -254,29 +276,28 @@ private:
   // are one copy. Then each version's calls go to the versions of their
   // target contexts.
   Solution answer(const BitSet<Node> &shared) {
-    Solution out{graph.table<llvm::SmallVector<Exclusivity::Version, 1>>()};
+    Solution out{graph.table<footprint::Vector<Exclusivity::Version>>()};
     out.rounds = rounds;
+    out.work = work;
     out.contexts = static_cast<unsigned>(running.size());
-    std::vector<std::uint32_t> versionOf(contexts.size(), 0);
-    std::vector<Proof> proofs(contexts.size());
-    llvm::BitVector isRunning(static_cast<unsigned>(contexts.size()));
-    for (ContextId id : running) {
-      isRunning.set(id);
+    footprint::Vector<std::uint32_t> versionOf(contexts.size(), 0);
+    // Each running context's proof; a context no round reached has none.
+    footprint::Vector<std::optional<Proof>> proofs(contexts.size());
+    for (ContextId id : running)
       proofs[id] = proofOf(id, shared);
-    }
     // The context each version is made from, by function.
-    IndexVector<FunctionId, llvm::SmallVector<ContextId, 1>> madeFrom =
-        graph.table<llvm::SmallVector<ContextId, 1>>();
+    IndexVector<FunctionId, footprint::Vector<ContextId>> madeFrom =
+        graph.table<footprint::Vector<ContextId>>();
     for (FunctionId fn : graph.functions()) {
       ContextId general = contextsOf[fn].front();
       madeFrom[fn].push_back(general);
       for (ContextId id : llvm::drop_begin(contextsOf[fn])) {
-        if (!isRunning.test(id))
+        if (!proofs[id])
           continue;
-        if (sameBeyondParameters(proofs[id], proofs[general], bodies[fn]))
+        if (sameBeyondParameters(*proofs[id], *proofs[general], bodies[fn]))
           continue;
         auto same = llvm::find_if(llvm::drop_begin(madeFrom[fn]),
-                                  [&](ContextId other) { return proofs[other] == proofs[id]; });
+                                  [&](ContextId other) { return *proofs[other] == *proofs[id]; });
         if (same != madeFrom[fn].end()) {
           versionOf[id] = versionOf[*same];
           continue;
@@ -288,9 +309,9 @@ private:
     }
     for (FunctionId fn : graph.functions())
       for (ContextId id : madeFrom[fn]) {
-        Exclusivity::Version version{contexts[id].key, proofs[id].exclusive, proofs[id].results,
-                                     {}};
-        for (ContextId target : proofs[id].targets)
+        Exclusivity::Version version{contexts[id].key, proofs[id]->exclusive,
+                                     proofs[id]->results, {}};
+        for (ContextId target : proofs[id]->targets)
           version.callTargets.push_back(versionOf[target]);
         out.versions[fn].push_back(std::move(version));
       }
@@ -301,16 +322,71 @@ private:
   const IndexVector<FunctionId, llvm::SmallBitVector> &copied;
   const Anchors &anchors;
   const solver::ProgramGraph &graph;
-  std::vector<Context> contexts;
-  IndexVector<FunctionId, llvm::SmallVector<ContextId, 1>> contextsOf;
-  std::vector<ContextId> running;
-  std::vector<std::uint32_t> base;
+  footprint::Vector<Context> contexts;
+  IndexVector<FunctionId, footprint::Vector<ContextId>> contextsOf;
+  footprint::Vector<ContextId> running;
+  footprint::Vector<std::uint32_t> base;
   std::uint32_t nodes = 0;
   std::uint32_t anchorBase = 0;
   unsigned rounds = 0;
+  std::uint64_t work = 0;
 };
 
 } // namespace
+
+namespace {
+
+// The parameters of the program, one node each, numbered by copiedViews.
+struct ParameterNodes;
+struct ParameterTag {
+  using Minter = ParameterNodes;
+};
+using ParameterNode = Id<ParameterTag>;
+struct ParameterNodes {
+  static ParameterNode at(std::uint32_t n) { return ParameterNode(n); }
+  static Count<ParameterNode> count(std::uint32_t n) { return Count<ParameterNode>(n); }
+};
+
+} // namespace
+
+// A parameter is copied through a view when a reference is taken of a view
+// rooted at it in its own body, or when it is passed on as a view to a
+// callee's parameter that is: the marking of the program's parameters,
+// from the bodies that copy one, back along each call.
+IndexVector<FunctionId, llvm::SmallBitVector>
+copiedViews(const IndexVector<FunctionId, Body> &bodies, const solver::ProgramGraph &graph) {
+  // One node per parameter, each function's after the one before.
+  IndexVector<FunctionId, std::uint32_t> base = graph.table<std::uint32_t>();
+  std::uint32_t nodes = 0;
+  for (FunctionId fn : graph.functions()) {
+    base[fn] = nodes;
+    nodes += static_cast<std::uint32_t>(bodies[fn].params.size());
+  }
+  CsrBuilder<ParameterTag> edges(ParameterNodes::count(nodes));
+  footprint::Vector<ParameterNode> seeds;
+  for (FunctionId fn : graph.functions()) {
+    const Body &body = bodies[fn];
+    for (const ViewRoot &root : body.viewsCopied)
+      seeds.push_back(ParameterNodes::at(base[fn] + root.index));
+    for (const Call &call : body.calls)
+      for (const auto &[param, root] : call.views)
+        if (root.kind == ViewRoot::Kind::Parameter)
+          edges.edge(ParameterNodes::at(base[call.callee] + param),
+                     ParameterNodes::at(base[fn] + root.index));
+  }
+  Csr<ParameterTag> graphOfParameters = std::move(edges).finish();
+  BitSet<ParameterNode> marked =
+      mark<Forward>(graphOfParameters, std::span<const ParameterNode>(seeds));
+  IndexVector<FunctionId, llvm::SmallBitVector> copied = graph.table<llvm::SmallBitVector>();
+  for (FunctionId fn : graph.functions()) {
+    std::uint32_t count = static_cast<std::uint32_t>(bodies[fn].params.size());
+    copied[fn].resize(count);
+    for (std::uint32_t index = 0; index != count; ++index)
+      if (marked.test(ParameterNodes::at(base[fn] + index)))
+        copied[fn].set(index);
+  }
+  return copied;
+}
 
 Solution solve(const IndexVector<FunctionId, Body> &bodies,
                const IndexVector<FunctionId, llvm::SmallBitVector> &copied,

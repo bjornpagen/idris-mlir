@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The facts of a value's type and of the IR that the ownership markings
-// read (exclusivity, borrows, the in-place check), each answered by the
-// declaration that holds it: the grade's axes by the grade (Grades.h), a
-// family's promise, constructors and what `unique self` covers by the data
-// type (Families/), how a value moves by the flow interface and upstream's
+// read (exclusivity, borrows, the in-place check, the local rule), each
+// answered by the declaration that holds it: the grade's axes, and how far
+// a claim on a value's own cells reaches into each of its fields, by the
+// grade (Grades.h); a family's promise and constructors by the data type
+// (Families/); how a value moves by the flow interface and upstream's
 // region interfaces. Nothing here decides: each line reads one fact its
 // owner keeps, so no marking holds a second copy of a type's facts.
 #ifndef IDR_ANALYSIS_OWNERSHIP_FACTS_H
@@ -30,13 +31,52 @@
 namespace idr::ownership {
 
 // What a requirement on a value asks of its cells, on the grade's sharing
-// axis: its own family's cells unshared and, recursively, the own cells of
-// every in_place field it holds (`unique self`, selfCovers), or nothing it
-// reaches shared (`unique deep`). Deep asks all that Self does, so the two
-// are ordered as their claims.
+// axis: its own cells unshared (`unique self`, which reaches into a field
+// as far as fieldReach says), or nothing it reaches shared (`unique deep`).
+// Deep asks all that Self does, so the two are ordered as their claims.
 enum class Asks : std::uint8_t { Self, Deep };
 
 constexpr Unique claimFor(Asks asks) { return asks == Asks::Self ? Unique::Self : Unique::Deep; }
+
+// What a field reached as `reach`, read at `uses`, gives of a value
+// claiming `claim`: the grade's own table (Hold::read), never a
+// restatement of it. A read at one use gives what the claim reaches; a read
+// at many gives nothing, since what is used many times may be copied.
+constexpr Unique readClaim(FieldReach reach, Uses uses, Unique claim) {
+  return Hold::counted(claim).read(reach, uses).claim();
+}
+
+// How far a claim on a value's own cells reaches into the part `anchor`
+// names: a field's declaration says (fieldReach); the elements, the forced
+// state, a capture and a hole are no own cells of the value.
+inline FieldReach reachAt(const FlowAnchor &anchor) {
+  return match(
+      anchor.place,
+      [](const FlowAnchor::Field &field) {
+        return fieldReach(field.data.ctor(field.ctor).fields[field.index]);
+      },
+      [](const auto &) { return FieldReach::Other; });
+}
+
+// What a requirement `asks` on a value asks of the holder it is moved out
+// of, through a part reached as `reach`: the least claim on the holder
+// whose read of that part gives what is asked, the part moved at one use
+// (the rule counts a value's uses itself). A self requirement stays self
+// where the holder's claim on its own cells covers the part, so a record
+// that holds a rebuilt list owes `unique self`; through any other part only
+// a deep claim covers it.
+constexpr Asks holderAsks(Asks asks, FieldReach reach) {
+  return asks == Asks::Self && readClaim(reach, Uses::Once, Unique::Self) == Unique::Self
+             ? Asks::Self
+             : Asks::Deep;
+}
+
+// Whether a requirement `asks` on a value built of a part reached as
+// `reach` reaches the part: a read of the part, at one use, from a value
+// meeting it still claims something.
+constexpr bool asksOfPart(Asks asks, FieldReach reach) {
+  return readClaim(reach, Uses::Once, claimFor(asks)) != Unique::None;
+}
 
 // What a value of `type` claims of its sharing: its hold's, none for a type
 // that holds no reference or for static data.
@@ -93,18 +133,6 @@ inline bool sameFamily(DataType a, DataType b) {
 inline bool isMemo(DataType data) {
   using namespace idr::families;
   return data && data.kind() == MemberKind::Memo;
-}
-
-// Whether `unique self` on a value of `data` refined to `tag` covers field
-// `index`: a field of the family's own group (a `self[...]` field), or one
-// of the family's in-place fields, of an in_place family whose own cells
-// the claim reaches in turn, which the family computed once when the type
-// was made. The grade's rule for a field read from a `unique self` value
-// keeps the claim on exactly these fields, so a requirement that reaches
-// them reaches what the types say, no more and no less.
-inline bool selfCovers(DataType data, Tag tag, unsigned index) {
-  return llvm::isa<SelfType>(unrestricted(data.ctor(tag).fields[index])) ||
-         llvm::is_contained(data.inPlaceFields(), families::FieldRef{tag, index});
 }
 
 // The constructor a value of `type` is refined to, when one: what a case
@@ -203,6 +231,34 @@ inline bool readsPart(mlir::OpOperand &use) {
               flow.from.at,
               [&](const FlowPoint::Part &part) {
                 return reachOf(part) == Reach::Read && flow.from.value() == use.get();
+              },
+              [](const auto &) { return false; });
+        },
+        [](const auto &) { return false; });
+  });
+}
+
+// Whether `value` is an element read out of the elements of an array, as
+// the op that reads it declares: it takes its own reference where it is
+// read, so consuming it consumes nothing of the array.
+inline bool readOutOfElements(mlir::Value value) {
+  auto declared = llvm::dyn_cast_or_null<FlowOpInterface>(value.getDefiningOp());
+  if (!declared)
+    return false;
+  FlowEdges edges;
+  declared.getFlowEdges(edges);
+  return llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    return match(
+        edge.move,
+        [&](const FlowEdges::Flow &flow) {
+          if (flow.to.value() != value)
+            return false;
+          return match(
+              flow.from.at,
+              [](const FlowPoint::Part &part) {
+                return match(
+                    part.anchor.place, [](const FlowAnchor::Elements &) { return true; },
+                    [](const auto &) { return false; });
               },
               [](const auto &) { return false; });
         },

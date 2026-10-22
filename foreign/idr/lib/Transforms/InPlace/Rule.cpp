@@ -4,7 +4,7 @@
 // keeps of its parameters, each function's summaries, and the obligation
 // closure with its refusals. Each is total and carries no budget: the
 // markings rise once per node, and the summaries rise in a finite lattice.
-#include "Rule.h"
+#include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/Analysis/Ownership/Walks.h"
@@ -47,11 +47,11 @@ BitSet<Node> markAll(std::uint32_t count,
   CsrBuilder<NodeTag> builder(Nodes::count(count));
   for (auto [from, to] : edges)
     builder.edge(Nodes::at(from), Nodes::at(to));
-  std::vector<Node> starts;
+  footprint::Vector<Node> starts;
   for (std::uint32_t seed : seeds)
     starts.push_back(Nodes::at(seed));
   Csr<NodeTag> graph = std::move(builder).finish();
-  return mark(graph, std::span<const Node>(starts), Forward{});
+  return mark<Forward>(graph, std::span<const Node>(starts));
 }
 
 // The parameter each value of `fn` is or reads a part of: through the
@@ -141,8 +141,8 @@ Keeps keepsOf(const solver::ProgramGraph &graph) {
     keeps.kept[fn].resize(params);
     nodes += params;
   }
-  std::vector<std::pair<std::uint32_t, std::uint32_t>> edges;
-  std::vector<std::uint32_t> seeds;
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> edges;
+  footprint::Vector<std::uint32_t> seeds;
   for (FunctionId fn : graph.functions()) {
     FuncOp op = graph.op(fn);
     llvm::DenseMap<Value, unsigned> of = parametersOf(op);
@@ -175,10 +175,11 @@ Keeps keepsOf(const solver::ProgramGraph &graph) {
   return keeps;
 }
 
-Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps) {
+Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps, solver::Work &work) {
   Summaries summaries(graph);
   for (FunctionId fn : graph.functions())
     summaries.reserve(fn, graph.op(fn).getNumResults());
+  std::uint64_t transfers = 0;
   for (solver::SccId component : graph.sccCount().ids())
     for (bool grew = true; grew;) {
       grew = false;
@@ -188,6 +189,7 @@ Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps) {
         // A function that never returns gives back nothing to ask of.
         if (!ret)
           continue;
+        ++transfers;
         Chains chains(op, graph, summaries, keeps);
         for (auto [result, operand] : llvm::enumerate(ret->getOpOperands())) {
           if (!holdsReferences(operand.get().getType()))
@@ -204,6 +206,7 @@ Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps) {
         }
       }
     }
+  work.add(transfers);
   return summaries;
 }
 
@@ -221,13 +224,13 @@ Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
   auto node = [&](FunctionId fn, std::uint32_t param, Asks asks) {
     return base[fn] + param * 2 + static_cast<std::uint32_t>(asks);
   };
-  std::vector<Refusal> found;
+  footprint::Vector<Refusal> found;
   auto refusal = [&](Refusal each) {
     found.push_back(each);
     return parameters + static_cast<std::uint32_t>(found.size() - 1);
   };
-  std::vector<std::pair<std::uint32_t, std::uint32_t>> edges;
-  std::vector<std::uint32_t> seeds;
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> edges;
+  footprint::Vector<std::uint32_t> seeds;
   for (FunctionId fn : graph.functions()) {
     FuncOp op = graph.op(fn);
     Chains chains(op, graph, summaries, keeps);

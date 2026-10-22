@@ -43,7 +43,6 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <utility>
-#include <vector>
 
 using namespace mlir;
 
@@ -108,8 +107,8 @@ bool usedAfter(Value value, Operation *call) {
 class Inference {
 public:
   explicit Inference(const solver::ProgramGraph &graph)
-      : graph(graph), params(graph.table<llvm::SmallVector<Convention, 4>>()),
-        joins(graph.table<llvm::SmallVector<Convention, 4>>()) {}
+      : graph(graph), params(graph.table<footprint::Vector<Convention>>()),
+        joins(graph.table<footprint::Vector<Convention>>()) {}
 
   // Numbers every open parameter, reads every body, marks.
   void run() {
@@ -119,7 +118,7 @@ public:
     for (FunctionId fn : graph.functions())
       readBody(fn);
     Csr<ParameterTag> marking = std::move(*edges).finish();
-    counted.emplace(mark(marking, std::span<const ParameterNode>(seeds), Forward{}));
+    counted.emplace(mark<Forward>(marking, std::span<const ParameterNode>(seeds)));
   }
 
   bool viewed(const Convention &convention) const {
@@ -129,8 +128,8 @@ public:
   }
 
   const solver::ProgramGraph &graph;
-  IndexVector<FunctionId, llvm::SmallVector<Convention, 4>> params;
-  IndexVector<FunctionId, llvm::SmallVector<Convention, 4>> joins;
+  IndexVector<FunctionId, footprint::Vector<Convention>> params;
+  IndexVector<FunctionId, footprint::Vector<Convention>> joins;
 
 private:
   Convention conventionOf(FuncOp fn, Type type) {
@@ -160,7 +159,8 @@ private:
   // value on as itself, the region entries that bind it again (a case's
   // refined scrutinee) and what each part was read from. None for a value
   // that holds no counted reference, which no part of a view is consumed
-  // as, and for a value the body makes.
+  // as, for an element loaded from an array, which holds its own reference
+  // from its read, and for a value the body makes.
   std::optional<Owner> ownerOf(Value value) const {
     if (!ownership::counted(value.getType()))
       return std::nullopt;
@@ -181,6 +181,8 @@ private:
         at = *same;
         continue;
       }
+      if (ownership::readOutOfElements(at))
+        return std::nullopt;
       if (Value whole = ownership::readFrom(at)) {
         at = whole;
         holding = Holding::Part;
@@ -337,7 +339,7 @@ private:
 
   std::uint32_t nodes = 0;
   std::optional<CsrBuilder<ParameterTag>> edges;
-  std::vector<ParameterNode> seeds;
+  footprint::Vector<ParameterNode> seeds;
   std::optional<BitSet<ParameterNode>> counted;
   // The body being read, and its one-body maps, the numbering's, which go
   // with it.
@@ -350,24 +352,24 @@ private:
 } // namespace
 
 Borrows::Borrows(Operation *, AnalysisManager &am)
-    : viewed(am.getAnalysis<solver::ProgramGraph>().table<llvm::SmallBitVector>()),
-      joinViewed(am.getAnalysis<solver::ProgramGraph>().table<llvm::BitVector>()) {
+    : released(am.getAnalysis<solver::ProgramGraph>().table<footprint::Vector<Release>>()),
+      joinReleased(am.getAnalysis<solver::ProgramGraph>().table<footprint::Vector<Release>>()) {
   const solver::ProgramGraph &graph = am.getAnalysis<solver::ProgramGraph>();
   Inference inference(graph);
   inference.run();
+  auto record = [&](footprint::Vector<Release> &into, Release release) {
+    into.push_back(release);
+    if (release == Release::Scoped)
+      ++numViews;
+  };
   for (FunctionId fn : graph.functions()) {
-    viewed[fn].resize(static_cast<unsigned>(inference.params[fn].size()));
     for (auto [index, convention] : llvm::enumerate(inference.params[fn]))
-      if (inference.viewed(convention) && holdsReferences(graph.op(fn).getArgumentTypes()[index])) {
-        viewed[fn].set(static_cast<unsigned>(index));
-        ++numViews;
-      }
-    joinViewed[fn].resize(static_cast<unsigned>(inference.joins[fn].size()));
-    for (auto [index, convention] : llvm::enumerate(inference.joins[fn]))
-      if (inference.viewed(convention)) {
-        joinViewed[fn].set(static_cast<unsigned>(index));
-        ++numViews;
-      }
+      record(released[fn],
+             inference.viewed(convention) && holdsReferences(graph.op(fn).getArgumentTypes()[index])
+                 ? Release::Scoped
+                 : Release::Counted);
+    for (const Convention &convention : inference.joins[fn])
+      record(joinReleased[fn], inference.viewed(convention) ? Release::Scoped : Release::Counted);
   }
 }
 

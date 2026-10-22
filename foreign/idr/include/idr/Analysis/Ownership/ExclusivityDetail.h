@@ -30,7 +30,6 @@
 
 #include <cstdint>
 #include <tuple>
-#include <vector>
 
 namespace idr::detail::exclusivity {
 
@@ -70,7 +69,8 @@ struct Call {
   llvm::SmallVector<std::pair<unsigned, ViewRoot>, 2> views;
 };
 
-// One function's body, read once.
+// One function's body, read once. Its lists are sized by the body, in the
+// containers a pass's footprint counts.
 struct Body {
   FuncOp fn;
   std::uint32_t values = 0;
@@ -84,17 +84,17 @@ struct Body {
   llvm::SmallVector<Local, 2> results;
   llvm::SmallBitVector exclusiveResults;
   bool returns = false;
-  std::vector<Edge> edges;
+  footprint::Vector<Edge> edges;
   // Values shared in every context: copies, constants, values no flow
   // explains, inputs no predecessor forwards, region arguments no
   // interface says.
-  std::vector<Local> seeds;
+  footprint::Vector<Local> seeds;
   // Views a reference is taken of here, by root.
-  std::vector<ViewRoot> viewsCopied;
-  std::vector<Call> calls;
+  footprint::Vector<ViewRoot> viewsCopied;
+  footprint::Vector<Call> calls;
   // Moves into and out of memo labels' fields.
-  std::vector<std::pair<Local, Anchor>> intoAnchors;
-  std::vector<std::pair<Anchor, Local>> outOfAnchors;
+  footprint::Vector<std::pair<Local, Anchor>> intoAnchors;
+  footprint::Vector<std::pair<Anchor, Local>> outOfAnchors;
 };
 
 // The memo labels' fields of a program and the ones static data or a read
@@ -111,7 +111,7 @@ private:
   // content, and positions; no IR node is a key.
   using Key = std::tuple<mlir::Type, std::uint32_t, std::uint32_t>;
   llvm::DenseMap<Key, Anchor> keys;
-  std::vector<Anchor> sharedAnchors;
+  footprint::Vector<Anchor> sharedAnchors;
 };
 
 // Reads `fn`'s body, the functions it calls resolved through `graph`, its
@@ -130,12 +130,14 @@ IndexVector<FunctionId, llvm::SmallBitVector>
 copiedViews(const IndexVector<FunctionId, Body> &bodies,
             const solver::ProgramGraph &graph);
 
-// The answer of the solve: the versions of each function.
+// The answer of the solve: the versions of each function, and what it
+// measured, its work the nodes and edges of every round's marking.
 struct Solution {
-  IndexVector<FunctionId, llvm::SmallVector<Exclusivity::Version, 1>> versions;
+  IndexVector<FunctionId, footprint::Vector<Exclusivity::Version>> versions;
   unsigned contexts = 0;
   unsigned copies = 0;
   unsigned rounds = 0;
+  std::uint64_t work = 0;
 };
 
 // The solve by context over the program's bodies, its copied views and its

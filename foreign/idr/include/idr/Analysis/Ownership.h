@@ -16,7 +16,12 @@
 //
 // Each analysis reads the program graph for calls and keeps nothing keyed
 // by an IR pointer; its state is bits over dense numbers, sized by the
-// problem.
+// problem, in the shared containers whose bytes a pass's footprint counts.
+//
+// Exclusivity's domain is what QTT and freshness do not settle: a value the
+// local rule proves `unique deep` (idr-unique-results, before
+// bufferization) is typed so when the solve runs, and a value whose type
+// answers is followed by no marking.
 #ifndef IDR_ANALYSIS_OWNERSHIP_H
 #define IDR_ANALYSIS_OWNERSHIP_H
 
@@ -28,13 +33,26 @@
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/SmallBitVector.h"
-#include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
 
 namespace idr {
+
+namespace exclusivity {
+// A followed value of one body, by its position in the one walk
+// (forEachFollowed): numbered by the walk, so the solve and the step that
+// writes its answer mint the same ids.
+struct FollowedNumbers;
+struct FollowedTag {
+  using Minter = FollowedNumbers;
+};
+using Followed = Id<FollowedTag>;
+struct FollowedNumbers {
+  static Followed at(std::uint32_t n) { return Followed(n); }
+  static Count<Followed> count(std::uint32_t n) { return Count<Followed>(n); }
+};
+} // namespace exclusivity
 
 // Exclusivity of the counted values of a program, solved by context and
 // frozen. A context is a function with the followed parameters it takes
@@ -56,9 +74,9 @@ public:
   // the walk's order of calls.
   struct Version {
     llvm::SmallBitVector key;
-    llvm::BitVector exclusive;
+    BitSet<exclusivity::Followed> exclusive;
     llvm::SmallBitVector results;
-    llvm::SmallVector<std::uint32_t> callTargets;
+    footprint::Vector<std::uint32_t> callTargets;
   };
 
   // The solve of `program`, reading its program graph from `am`.
@@ -73,10 +91,11 @@ public:
   llvm::ArrayRef<Version> versions(FunctionId fn) const { return versionsOf[fn]; }
 
   // What the solve measured: contexts reached, copies kept, rounds of
-  // marking with targets fixed.
+  // marking with targets fixed, and the nodes and edges its markings read.
   unsigned contexts() const { return numContexts; }
   unsigned copies() const { return numCopies; }
   unsigned rounds() const { return numRounds; }
+  std::uint64_t work() const { return numWork; }
 
   // Whether a body broke the representation's invariant (a terminator with
   // block successors before the lowering), reported at the op: the
@@ -84,10 +103,11 @@ public:
   bool brokeInvariant() const { return mlir::failed(read); }
 
 private:
-  IndexVector<FunctionId, llvm::SmallVector<Version, 1>> versionsOf;
+  IndexVector<FunctionId, footprint::Vector<Version>> versionsOf;
   unsigned numContexts = 0;
   unsigned numCopies = 0;
   unsigned numRounds = 0;
+  std::uint64_t numWork = 0;
   mlir::LogicalResult read = mlir::success();
 };
 
@@ -97,7 +117,9 @@ private:
 // where the callee consumes any part of the parameter: returns, stores,
 // releases or takes apart (a rebuild site among those) the parameter or a
 // value read from it, or passes one to a counted parameter, since what is
-// read from a view is a view and no view is consumed; and wherever a
+// read from a view is a view and no view is consumed (an element loaded
+// from an array takes its own reference where it is read, and consuming it
+// consumes nothing of the array); and wherever a
 // caller's argument is bound at quantity 1, or is dead after the call while
 // its type does not bound what it reaches, or is passed by a tail call or a
 // call modulo context (a jump is a tail transfer). The root's parameters
@@ -115,20 +137,16 @@ public:
 
   // The release of parameter `index` of `fn`, one that holds references:
   // Counted or Scoped.
-  Release parameter(FunctionId fn, unsigned index) const {
-    return viewed[fn].test(index) ? Release::Scoped : Release::Counted;
-  }
+  Release parameter(FunctionId fn, unsigned index) const { return released[fn][index]; }
   // The release of join parameter `index` of `fn`, numbered in the order
   // borrows::forEachJoinParameter gives them.
-  Release joinParameter(FunctionId fn, unsigned index) const {
-    return joinViewed[fn].test(index) ? Release::Scoped : Release::Counted;
-  }
+  Release joinParameter(FunctionId fn, unsigned index) const { return joinReleased[fn][index]; }
   // How many parameters are views.
   unsigned views() const { return numViews; }
 
 private:
-  IndexVector<FunctionId, llvm::SmallBitVector> viewed;
-  IndexVector<FunctionId, llvm::BitVector> joinViewed;
+  IndexVector<FunctionId, footprint::Vector<Release>> released;
+  IndexVector<FunctionId, footprint::Vector<Release>> joinReleased;
   unsigned numViews = 0;
 };
 

@@ -11,7 +11,9 @@
 // in a callee that takes one of the view it is passed. Static data is shared
 // by definition and a scoped value is a view or a lifetime's cell, which no
 // count tests: only a counted value whose grade leaves its sharing open
-// is followed, and what QTT and freshness settle is already in the grade.
+// is followed, and what QTT and freshness settle is already in the grade,
+// written there before bufferization by the local rule (idr-unique-results),
+// so the marking has no node for a value it proves.
 //
 // The answer is solved by context (ExclusivityAnalyses.cpp), over each body
 // read once (ExclusivityGraph.cpp), and kept here as versions of each
@@ -32,7 +34,7 @@ namespace idr {
 namespace exclusivity = detail::exclusivity;
 
 Exclusivity::Exclusivity(Operation *program, AnalysisManager &am)
-    : versionsOf(am.getAnalysis<solver::ProgramGraph>().table<llvm::SmallVector<Version, 1>>()) {
+    : versionsOf(am.getAnalysis<solver::ProgramGraph>().table<footprint::Vector<Version>>()) {
   const solver::ProgramGraph &graph = am.getAnalysis<solver::ProgramGraph>();
   exclusivity::Anchors anchors;
   exclusivity::shareStaticAnchors(cast<ProgramOp>(program), anchors);
@@ -53,6 +55,7 @@ Exclusivity::Exclusivity(Operation *program, AnalysisManager &am)
   numContexts = solution.contexts;
   numCopies = solution.copies;
   numRounds = solution.rounds;
+  numWork = solution.work;
 }
 
 } // namespace idr

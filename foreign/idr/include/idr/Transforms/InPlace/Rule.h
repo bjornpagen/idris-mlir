@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the units of idr-in-place share: the rule's terms read off one body
-// (Chains.cpp), the program-wide solves over them (Rule.cpp), and the pass
-// that refuses or writes the verdict (InPlace.cpp).
+// What the units of idr-in-place share (lib/Transforms/InPlace/): the rule's
+// terms read off one body (Chains.cpp), the program-wide solves over them
+// (Rule.cpp), the pass that refuses (InPlace.cpp) and the writer of the
+// verdict (Writer.cpp).
 //
-// A requirement asks a value's cells to be unshared, its own family's and
-// the own cells of every in-place field it holds (Asks::Self), or
-// everything it reaches (Asks::Deep). It is met where the
+// A requirement asks a value's own cells to be unshared (Asks::Self, as
+// far into its fields as the grade's fieldReach says), or everything it
+// reaches (Asks::Deep). It is met where the
 // value is made anew each time it is evaluated (a construction of values
 // that meet it in turn), moved out of a value that meets it, given back by a
 // callee whose every return meets it (given what the callee's parameters
@@ -20,10 +21,12 @@
 
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
@@ -123,6 +126,12 @@ struct RebuildSite {
 // cells first, none inside a region that may run again.
 llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn);
 
+// The rebuild of the cell case `caseIndex` of `match` binds as its argument
+// `taken`, by `construction`: a take of the cell at the case's entry, whose
+// fields the case's reads of the cell become, and an idr.token.rebuild that
+// consumes the take's token in place of the construction.
+void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp construction);
+
 // The reading of one body by the rule: which value meets a requirement
 // given what, each walk iterative. Its maps are the body's numbering and go
 // with it.
@@ -146,8 +155,8 @@ public:
   // Every value a requirement reaches, with its strength, and every call
   // result among them: what the verdict grades.
   struct Reached {
-    std::vector<std::pair<mlir::Value, Asks>> values;
-    std::vector<Demand> demands;
+    footprint::Vector<std::pair<mlir::Value, Asks>> values;
+    footprint::Vector<Demand> demands;
   };
   void trace(mlir::Value value, Asks asks, Reached &reached);
 
@@ -180,19 +189,19 @@ private:
   const solver::ProgramGraph &graph;
   const Summaries &summaries;
   const Keeps &keeps;
-  std::vector<Cause> causeList;
+  footprint::Vector<Cause> causeList;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<mlir::OpOperand *, 2>> forwardedInto;
   // The ends of each (value, strength) read whole, no cycle cut short.
   llvm::DenseMap<std::pair<mlir::Value, unsigned>, llvm::SmallVector<Target>> known;
 };
 
-// Whether a requirement of `asks` on a field `index` of constructor `tag`
-// of `data` reaches the field: a deep one every field that holds
-// references, a self one each field `unique self` covers.
-inline bool reachesField(Asks asks, DataType data, Tag tag, unsigned index,
-                         mlir::Type fieldValue) {
-  return holdsReferences(fieldValue) &&
-         (asks == Asks::Deep || ownership::selfCovers(data, tag, index));
+// Whether a requirement of `asks` on a value reaches the field `anchor`
+// names, which holds a value of `fieldValue`: a field that holds
+// references, which a read from a value meeting the requirement still
+// claims something of (a deep claim every field, a self claim each field
+// its own cells reach).
+inline bool reachesField(Asks asks, const FlowAnchor &anchor, mlir::Type fieldValue) {
+  return holdsReferences(fieldValue) && ownership::asksOfPart(asks, ownership::reachAt(anchor));
 }
 
 // What every callee keeps of each of its parameters: a backward marking of
@@ -202,7 +211,8 @@ Keeps keepsOf(const solver::ProgramGraph &graph);
 // Every function's summaries, its components callees first, each solved to
 // its least fixpoint: a requirement on a result asks only more of the
 // parameters, or becomes impossible, as the component's summaries grow.
-Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps);
+// Each body read in a round is a transfer, added to `work`.
+Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps, solver::Work &work);
 
 // A call, or the value a rebuild takes apart, whose requirement reached a
 // cause: the refusal, named at `at` in the user's terms.
@@ -234,6 +244,15 @@ struct Verdict {
 // a refusal.
 Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
                const Keeps &keeps);
+
+// A verdict with no refusal written into the program (Writer.cpp): its
+// grades, its versions, its rebuilds, and every row again, whose transfers
+// are added to `work`. Fails where a grade copy's name is another
+// function's, reported at the function.
+mlir::LogicalResult writeVerdict(ProgramOp program, solver::ProgramGraph &graph,
+                                 const Summaries &summaries, const Keeps &keeps,
+                                 const Verdict &verdict, mlir::SymbolTable &symbols,
+                                 solver::Work &work);
 
 } // namespace idr::inplace
 

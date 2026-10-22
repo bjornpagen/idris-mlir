@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The in-place rule's terms read off one body (Rule.h): its rebuild sites,
-// and where a requirement on one of its values ends, by the rule of each
-// value's definition. Every walk is iterative, over an explicit stack, so a
-// long chain of definitions costs no native stack.
-#include "Rule.h"
+// The in-place rule's terms read off one body (Rule.h): its rebuild sites
+// and the rewrite of each, and where a requirement on one of its values
+// ends, by the rule of each value's definition. Every walk is iterative,
+// over an explicit stack, so a long chain of definitions costs no native
+// stack.
+#include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/IR/Flow.h"
 #include "idr/Support/Match.h"
 
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/Visitors.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -84,6 +86,25 @@ llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn) {
     }
   });
   return sites;
+}
+
+void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp construction) {
+  Block &entry = match->getRegion(caseIndex).front();
+  BlockArgument cell = entry.getArgument(taken);
+  OpBuilder builder = OpBuilder::atBlockBegin(&entry);
+  auto take = CountTakeOp::create(builder, match.getLoc(), cell);
+  for (OpOperand &use : llvm::make_early_inc_range(cell.getUses()))
+    if (auto field = dyn_cast<DataFieldOp>(use.getOwner())) {
+      field.getResult().replaceAllUsesWith(
+          take.getFields()[static_cast<unsigned>(field.getIndex())]);
+      field.erase();
+    }
+  builder.setInsertionPoint(construction);
+  auto rebuilt = TokenRebuildOp::create(builder, construction.getLoc(),
+                                        construction.getResult().getType(), take.getToken(),
+                                        construction.getFields());
+  construction.getResult().replaceAllUsesWith(rebuilt.getResult());
+  construction.erase();
 }
 
 Chains::Chains(FuncOp fn, const solver::ProgramGraph &graph, const Summaries &summaries,
@@ -215,8 +236,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
               [&](const FlowPoint::Part &into) {
                 std::optional<FlowAnchor::Field> field = ownership::fieldOf(into.anchor);
                 Value moved = *flow.from.value();
-                if (!field ||
-                    !reachesField(asks, field->data, field->ctor, field->index, moved.getType()))
+                if (!field || !reachesField(asks, into.anchor, moved.getType()))
                   return;
                 match(
                     flow.from.at,
@@ -235,20 +255,11 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                     [&](const FlowPoint::Taken &taken) {
                       next.push_back({taken.use->get(), asks, taken.use});
                     },
-                    // Out of a field: a self requirement on the value is
-                    // met by one on its holder where the holder's claim
-                    // covers the field (a field of its own group, or one
-                    // of an in_place family), so a record that holds a
-                    // rebuilt list owes `unique self`; out of any other
-                    // field only a deep claim covers it.
+                    // Out of a part: what the holder must claim for its
+                    // read of the part to meet the requirement.
                     [&](const FlowPoint::Part &part) {
                       Value whole = *flow.from.value();
-                      std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
-                      Asks of = asks == Asks::Self && field &&
-                                        ownership::selfCovers(field->data, field->ctor,
-                                                              field->index)
-                                    ? Asks::Self
-                                    : Asks::Deep;
+                      Asks of = ownership::holderAsks(asks, ownership::reachAt(part.anchor));
                       OpOperand *use = ownership::reachOf(part) == ownership::Reach::Taken
                                            ? *flow.from.taken()
                                            : operandOf(op, whole);

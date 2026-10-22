@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc-exclusive: exclusivity, solved once by context (the Exclusivity
-// analysis), written into the types by this step and by no other. Each
-// version of a function the solve kept beyond the general one becomes a
-// grade copy, made by the specializer's one clone-and-key template right
-// after its original; then every version's values the solve proved
-// exclusive are graded `unique deep`, its signature with them, what each
-// take gives is inferred again from the value it takes, each call goes to
+// analysis), written into the types by this step and by no other. What QTT
+// and freshness prove is in the types already (idr-unique-results), so the
+// solve follows only the rest and this step adds claims only where it
+// proves more. Each version of a function the solve kept beyond the
+// general one becomes a grade copy, made by the specializer's one
+// clone-and-key template right after its original; then every version's
+// values the solve proved exclusive are graded `unique deep`, its
+// signature with them, what each op that infers its results (a take, a
+// read) gives is inferred again from what it reads, each call goes to
 // the version of its callee the solve sent it to, and wherever an
 // exclusive value meets a position that takes less (a call of the general
 // version, a result some return leaves shared, a region input another
@@ -21,6 +24,7 @@
 #include "idr/Analysis/Ownership/Meets.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
@@ -71,7 +75,8 @@ SmallVector<Value> writeVersion(idr::FuncOp fn, const Exclusivity::Version &vers
   idr::exclusivity::forEachFollowed(fn, [&](Value value, std::uint32_t) { values.push_back(value); });
   SmallVector<Value> graded;
   for (auto [local, value] : llvm::enumerate(values))
-    if (version.exclusive.test(static_cast<unsigned>(local))) {
+    if (version.exclusive.test(
+            idr::exclusivity::FollowedNumbers::at(static_cast<std::uint32_t>(local)))) {
       value.setType(idr::ownership::claiming(value.getType(), idr::Unique::Deep));
       graded.push_back(value);
     }
@@ -169,8 +174,7 @@ struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
           FunctionId callee = graph.id(call.getCalleeAttr());
           idr::FuncOp target = versionOps[callee][version.callTargets[site++]];
           call.setCalleeAttr(FlatSymbolRefAttr::get(target.getSymNameAttr()));
-          for (auto [result, type] : llvm::zip_equal(call->getResults(), target.getResultTypes()))
-            result.setType(type);
+          call.copyCallee(target);
         });
         idr::ownership::shareIntoPositions(op, [&](idr::CallOp call) {
           return symbols.lookup<idr::FuncOp>(call.getCalleeAttr().getAttr());
@@ -192,11 +196,13 @@ struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
     // A parameter now exclusive may carry a write of its own, and a copy's
     // calls are its version's: the one writer of rows makes every row its
     // derivation again.
-    idr::rows::write(program, graph);
+    idr::solver::Work writing;
+    idr::rows::write(program, graph, writing);
 
     numContexts += solved.contexts();
     numCopies += solved.copies();
     numRounds += solved.rounds();
+    numWork += solved.work() + writing.steps();
     // No data type changed, every symbol came through the table, and the
     // program graph was edited where the calls moved.
     markAnalysesPreserved<idr::TypeGraph, idr::Layouts, SymbolTable, idr::solver::ProgramGraph>();

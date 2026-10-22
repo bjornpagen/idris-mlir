@@ -19,8 +19,6 @@
 
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/Analysis/Ownership/Walks.h"
-#include "idr/Analysis/Solver/Graph.h"
-#include "idr/Analysis/Solver/Mark.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/Support/Match.h"
@@ -37,17 +35,6 @@ namespace {
 // them live, so what a field holds is the label's, not the cell value's.
 bool memoFamily(Type type) { return ownership::isMemo(ownership::familyOf(type)); }
 
-// The parameters of the program, one node each, numbered by copiedViews.
-struct ParameterNodes;
-struct ParameterTag {
-  using Minter = ParameterNodes;
-};
-using ParameterNode = Id<ParameterTag>;
-struct ParameterNodes {
-  static ParameterNode at(std::uint32_t n) { return ParameterNode(n); }
-  static Count<ParameterNode> count(std::uint32_t n) { return Count<ParameterNode>(n); }
-};
-
 // The reading of one body. Its one map, from a followed value to its
 // number, is the numbering's: it lives while the body is read and goes with
 // it, and no answer is kept against a pointer.
@@ -62,7 +49,7 @@ public:
       local.try_emplace(value, at);
     });
     body.values = static_cast<std::uint32_t>(local.size());
-    explained.resize(body.values);
+    explained.emplace(idr::exclusivity::FollowedNumbers::count(body.values));
     for (BlockArgument param : fn.getBody().front().getArguments()) {
       body.params.push_back(localOf(param));
       explain(param);
@@ -100,7 +87,7 @@ public:
     // declares none, an input no predecessor forwards, an argument of a
     // region no interface says.
     for (std::uint32_t at = 0; at != body.values; ++at)
-      if (!explained.test(at))
+      if (!explained->test(idr::exclusivity::FollowedNumbers::at(at)))
         body.seeds.push_back(at);
     return std::move(body);
   }
@@ -113,7 +100,7 @@ private:
 
   void explain(Value value) {
     if (Local at = localOf(value); at != noLocal)
-      explained.set(at);
+      (void)explained->raise(idr::exclusivity::FollowedNumbers::at(at));
   }
 
   void edge(Local from, Local to) {
@@ -328,7 +315,9 @@ private:
   // Each view read out of a part, with the value it is a part of.
   llvm::DenseMap<Value, Value> partOf;
   SmallVector<Value> copiedValues;
-  llvm::BitVector explained;
+  // The followed values some declared flow explains, sized once the walk
+  // has numbered them.
+  std::optional<BitSet<idr::exclusivity::Followed>> explained;
 };
 
 } // namespace
@@ -357,45 +346,6 @@ void shareStaticAnchors(ProgramOp program, Anchors &anchors) {
         anchors.share(anchors.of(data, con.getTag(), index));
     });
   });
-}
-
-// A parameter is copied through a view when a reference is taken of a view
-// rooted at it in its own body, or when it is passed on as a view to a
-// callee's parameter that is: the marking of the program's parameters,
-// from the bodies that copy one, back along each call.
-IndexVector<FunctionId, llvm::SmallBitVector>
-copiedViews(const IndexVector<FunctionId, Body> &bodies, const solver::ProgramGraph &graph) {
-  // One node per parameter, each function's after the one before.
-  IndexVector<FunctionId, std::uint32_t> base = graph.table<std::uint32_t>();
-  std::uint32_t nodes = 0;
-  for (FunctionId fn : graph.functions()) {
-    base[fn] = nodes;
-    nodes += static_cast<std::uint32_t>(bodies[fn].params.size());
-  }
-  CsrBuilder<ParameterTag> edges(ParameterNodes::count(nodes));
-  std::vector<ParameterNode> seeds;
-  for (FunctionId fn : graph.functions()) {
-    const Body &body = bodies[fn];
-    for (const ViewRoot &root : body.viewsCopied)
-      seeds.push_back(ParameterNodes::at(base[fn] + root.index));
-    for (const Call &call : body.calls)
-      for (const auto &[param, root] : call.views)
-        if (root.kind == ViewRoot::Kind::Parameter)
-          edges.edge(ParameterNodes::at(base[call.callee] + param),
-                     ParameterNodes::at(base[fn] + root.index));
-  }
-  Csr<ParameterTag> graphOfParameters = std::move(edges).finish();
-  BitSet<ParameterNode> marked =
-      mark(graphOfParameters, std::span<const ParameterNode>(seeds), Forward{});
-  IndexVector<FunctionId, llvm::SmallBitVector> copied = graph.table<llvm::SmallBitVector>();
-  for (FunctionId fn : graph.functions()) {
-    std::uint32_t count = static_cast<std::uint32_t>(bodies[fn].params.size());
-    copied[fn].resize(count);
-    for (std::uint32_t index = 0; index != count; ++index)
-      if (marked.test(ParameterNodes::at(base[fn] + index)))
-        copied[fn].set(index);
-  }
-  return copied;
 }
 
 } // namespace idr::detail::exclusivity
