@@ -4054,7 +4054,13 @@ C137.
   the fork's tree, written in the subset both hosts compile, prints the
   module from it. The output is committed with its fingerprint in
   `generated.manifest`, and `make check` regenerates it, as for the
-  dialect's TableGen.
+  dialect's TableGen. *Amended* (INT-4's question): the output is
+  committed and `make check` regenerates it and fails on any byte of
+  difference (`knowngen check`), but it takes no entry in
+  `generated.manifest`. The manifest is the dialect specification's,
+  written by one generator from one list of outputs; an entry for
+  knowngen's files would give it a second writer or make the spec's
+  generator hold a copy of the fork's output list.
 - **C200** (2026-10-22; L09's C52 sweep; sharpens C52). No case of a
   `match` takes every type. A generic case beside named ones is a
   default, and a sum that gains an alternative then goes to it silently,
