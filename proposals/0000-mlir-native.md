@@ -1803,6 +1803,24 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `CommandLine`'s `ActType`, the tokenizer's hidden tag), ours states the
   types it means. Upstream's form is never the target (D118); L17r's and
   L17s's restorations of it are replaced by this.
+- **D122** (2026-10-22; the owner; §4's question on L08's finding E2
+  against C185; amends D90 and D110, reverses C185's claim level). "i
+  take your rec": A. `unique self` also covers the storage of a buffer
+  an own cell holds, never its elements, as D110 extended it to
+  `in_place` fields; a buffer-holding `in_place` type (`LArray`,
+  `Linear.Vec`) obliges `unique self` as every other `in_place` type
+  does. A linear array or vector whose elements are shared values, or
+  whose size may be a big, claims it, and the eight programs C185 refused
+  (linarray-fill-sum, -bubble, -push-pop, -reserve, -read-past-size,
+  -write-past-size, -records, vec-pop-then-push) compile. The field read
+  gains a reach, a buffer an own cell holds, through which a claim on
+  own cells reaches the buffer's storage alone; a constructor's cell
+  claims `unique self` only where each buffer it holds does; the
+  family's promised claim is `unique self` for every `in_place` type, so
+  whether an own cell holds a buffer has no reader left and goes; and
+  bufferization writes a held buffer in place where the cell claims
+  `unique self`. The exclusivity check reads the promise and does not
+  change.
 - **C237** (2026-10-22; L17y's finding, under D119 and D112). A grammar's
   type carries an erased bound on the tokens it may read, and recursion
   between grammars goes through a box: a grammar indexed by n may call a
@@ -4244,6 +4262,8 @@ C137.
   exclusive meets `unsupported (uniqueness)`, as D71 says. A buffer an
   upstream op makes enters our grades through `own.adopt`, so a cell
   holding it can claim `unique deep`.
+  *Reversed* in its claim level by D122: such a type obliges `unique
+  self`, which covers the buffer's storage and never its elements.
 - **C186** (2026-10-21; L21's question on C177). The lowering emits the
   frame-bound account's calls in every build, and which runtime the
   program links decides what they do: the runtime's bitcode is linked
@@ -4695,31 +4715,9 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, raised with the owner on 2026-10-21 (L08's finding E2
-against C185). Writing a linear array or vector in place needs its
-buffer's storage unshared, not its elements; but C185 obliges `unique
-deep`, which reaches the elements, so every `LArray` or `Linear.Vec`
-whose elements are shared values (`withVec n v` puts one `v` in every
-slot; `tests/vec-pop-then-push` holds static data) can never claim it
-and is refused. Worse, L08 found every `Linear.Vec` is refused under it:
-the vector's cell holds its size, a natural, which may be a big at run
-time and so holds a reference (`!idr.nat`'s `MayBeOtherWord`), and a
-deep claim reaches it; a literal size or the caller's many-use `n` is
-never unshared. Eight tests fall: linarray-fill-sum, -bubble,
--push-pop, -reserve, -read-past-size, -write-past-size, -records, and
-vec-pop-then-push. Under (A), `unique self` never reaches such a field. The choice: (A) `unique self` also covers the storage of
-a buffer an own cell holds, never its elements, as D110 extended it to
-`in_place` fields, and buffer-holding `in_place` types oblige `unique
-self` as every other does (amends D90 and D110; recommended); (B) keep
-C185's `unique deep` and refuse those programs; (C) a new sharing level
-between the two (a third point in the grade). Until it is ruled, lanes
-write C185 as recorded, and either answer changes about ten lines of
-L04's `promisedClaim` and L05's read table (L08's
-code reads the promise and does not change).
-
-**Next, after the one above** (L14's evidence, 2026-10-21; to be raised
-alone once the first is ruled). The C++ e-graph is not one: when a rule
-fires the engine replaces the node and never unions (`EGraph/Nodes.cpp`
+**Open**: one, to be raised alone next (L14's evidence, 2026-10-21).
+The C++ e-graph is not one: when a rule fires the engine replaces the
+node and never unions (`EGraph/Nodes.cpp`
 193-208; no union-find, no merge), so every class holds one node,
 extraction's tie-break and `OperandFacts::cost` choose nothing, and every
 real choice is made before insertion, by order. One loss follows: a
@@ -4736,7 +4734,7 @@ CSE and a rule walk, losing copies into arms, the per-walk facts and the
 per-resource read merge. Meanwhile the replaced node's facts are carried
 to its replacement, which holds under (A) and (B).
 
-**Third, after those two** (L08's and L05's evidence, 2026-10-22; to be
+**Next, after the one above** (L08's and L05's evidence, 2026-10-22; to be
 raised alone in turn). Nothing can lend an array to upstream's ops
 without consuming it. An upstream op takes only a bare carrier
 (`tensor<...>`, `memref<...>`), and a bare carrier means "counted,
@@ -4769,7 +4767,7 @@ borrows' rule counting any parameter an upstream op reads. L05 leans to
 B, with C's type if the hold may move (conjecture). Meanwhile such
 parameters stay counted, which costs time, never correctness.
 
-**Fourth, after those three** (L17's evidence, 2026-10-22; to be raised
+**Third, after those two** (L17's evidence, 2026-10-22; to be raised
 alone in turn). 0011's O5 asks for name resolution as R1's interval join
 over the flat parse tree, but Idris resolves names during elaboration,
 against the typed environment (`TTImp/Elab/App.idr:54`); the only scope
@@ -4786,7 +4784,7 @@ syntax shows, carried into Desugar on new fields, which holds the set in
 two places. Meanwhile the parse tree and decoder land (C216), common to
 all three.
 
-**Fifth, after those four** (recheck 3's finding, 2026-10-22; to be
+**Fourth, after those three** (recheck 3's finding, 2026-10-22; to be
 raised alone in turn). D98 and AGENTS.md say an op's fold is its
 meaning, which the e-graph reads. C205 and C218 narrowed that without
 the owner: the e-graph asks no fold (`lib/Transforms/EGraph/Nodes.cpp`,
