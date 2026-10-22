@@ -2033,12 +2033,14 @@ which the top-level CMake configure gate reads.
   `normalisesThrough`); the accessors' evidence (`TypeOf`,
   `TreeOf`, `typeOnce`, `treeOnce`); `fullNamesIn`; the trust (`trusted`,
   `reduct`)
-- workaround: none; the fork's own code (e5b39cb2, 31013e5a, e129d745): the
-  frontend's one stated trust in the evaluator (D68), stated of one
-  context, frozen once the program and its imports are loaded
-  (`host.freezeContext`: every entry, as Idris's lookup reads it, decoded
-  once into an immutable map by entry, beside the definitions record the
-  normalisers run on). A name resolves to one entry and a definition is
+- workaround: none; the fork's own code (e5b39cb2, 31013e5a, e129d745,
+  a481fe36): the frontend's one stated trust in the evaluator (D68),
+  stated of one context, frozen once the program and its imports are
+  loaded (`host.freezeContext`: every entry, as Idris's lookup reads it,
+  decoded once into an immutable map by entry, beside the definitions
+  record the normalisers run on). Host's normalisers run on the frozen
+  context alone: `Frozen` keeps the evaluator's own context reference,
+  made once at the freeze. A name resolves to one entry and a definition is
   the one at its name's entry, read purely, so `definedOnce` is proved,
   not trusted; the lookup gives the entry with the definition
   (`DefinedAs`), so a frozen lookup resolves each name once. `Reduces`
