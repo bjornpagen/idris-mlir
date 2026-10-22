@@ -143,3 +143,23 @@ the idr-rc pipeline. Every stage change is a program or module pass
   `Core.Dialect` records `cppHeader` and `bytecodeRecords`.
 - Generated outputs added: `AdmittedClasses.h.inc`, `WrittenDialects.txt`
   (the dialects the frontend writes, read by `tools/dialects.sh`).
+
+## Changes from L03's seventh pass (6ff5bd7a)
+
+- `Guard` lives in `Core/Op.idr`, declared with `Op`, `Admitted`,
+  `Constant` and `Specialized` (their types refer to each other):
+  `check : Op (S others) 1 2 0`, `given : Vect (S others) position`,
+  `cause : Cause`. `Core/Guard.idr` is gone; no reader resolves a guard or
+  a cause by name. A guard site is `MkGuard <op> [..] <Cause>`.
+- `dialectClosed : Closed Dialect` replaces the `dialects` list;
+  `upstreamDialects` derives from it, and dialects compare by position.
+- `Wired` gains `WiredOf`, one composite (struct, flat, or a variant whose
+  cases carry fields or none) holding no array, with an erased proof of
+  that; `HandArray` is gone, and `HandValue` goes once L02 and L05 move
+  `#idr.terminates` and the lifetime kind onto `WiredOf`.
+- A typed rule reads `RuleReads`: `ReadsOne` a group, or `ReadsPair` an
+  operand group with a result group (printed `<OnOperand<g>,
+  OnResult<h>>`); specgen refuses a pair over a group that is not one
+  value.
+- Builders print `MkOp (MkOpName Dialect.X "name")` and a partial op's
+  builder returns Emit's `Guarded`.
