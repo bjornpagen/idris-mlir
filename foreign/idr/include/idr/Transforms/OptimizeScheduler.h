@@ -8,6 +8,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Identities.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/Specialize.h"
@@ -78,11 +79,12 @@ enum class Outcome : bool { Continues, Parks };
 // become final and publish their summaries, waits are counted, components
 // a wait would close a cycle through are merged, and the steps that can go
 // on are queued. Every turn reads a fixed set of final functions, so the
-// output is the same at any thread count.
+// output is the same at any thread count, and so is the work of the solve
+// of what each finished component gives back, added to `spent`.
 class Scheduler {
 public:
   Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes, const InnerCounts &counts,
-            mlir::AnalysisManager am, Admission &admission);
+            mlir::AnalysisManager am, Admission &admission, solver::Work &spent);
 
   // Failure when a turn failed, having emitted its diagnostic, or when a
   // function was left not final, an internal error.
@@ -113,6 +115,7 @@ private:
   const InnerCounts &counts;
   mlir::AnalysisManager am;
   Admission &admission;
+  solver::Work &spent;
 
   // Copies of the inner pipeline, one per worker that runs one.
   mlir::OpPassManager inner;

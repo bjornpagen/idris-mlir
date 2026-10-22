@@ -13,6 +13,7 @@
 // nothing.
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Memory.h"
 #include "idr/Transforms/EGraph.h"
@@ -58,10 +59,12 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
     numInlined += profitability.inlined();
     numCapped += profitability.capped();
     // The calls changed: the graph is built anew on them, and every row
-    // derived over it.
+    // derived over it, the join the pass's work.
     getAnalysisManager().invalidate(AnalysisManager::PreservedAnalyses());
     const auto &fresh = getAnalysis<idr::solver::ProgramGraph>();
-    idr::rows::write(program, fresh);
+    idr::solver::Work joining;
+    idr::rows::write(program, fresh, joining);
+    numWork += joining.steps();
     markAnalysesPreserved<idr::solver::ProgramGraph>();
   }
 };

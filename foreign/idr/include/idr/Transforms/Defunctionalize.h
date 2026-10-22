@@ -140,8 +140,8 @@ private:
   // The keys (Decide.cpp).
   Slot keyWith(mlir::Type carrier, const FlowPoint &point) const;
   Slot anchorKey(const FlowAnchor &anchor) const;
-  void note(const Slot &slot);
-  void noteType(mlir::Type type);
+  void note(llvm::ArrayRef<Slot> slots, llvm::ArrayRef<mlir::Type> types);
+  void slotsIn(mlir::Type type, llvm::SmallVectorImpl<Slot> &out) const;
   void widen();
 
   // The families, signatures and constants (Declare.cpp).

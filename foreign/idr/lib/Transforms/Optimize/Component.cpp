@@ -39,9 +39,10 @@ using namespace mlir;
 namespace idr::optimize {
 
 Scheduler::Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes,
-                     const InnerCounts &counts, AnalysisManager am, Admission &admission)
+                     const InnerCounts &counts, AnalysisManager am, Admission &admission,
+                     solver::Work &spent)
     : pass(pass), schedule(schedule), nodes(nodes), counts(counts), am(am), admission(admission),
-      inner(FuncOp::getOperationName()) {
+      spent(spent), inner(FuncOp::getOperationName()) {
   buildInnerPipeline(inner, schedule, nodes, counts);
 }
 

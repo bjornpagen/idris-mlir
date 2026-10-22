@@ -23,6 +23,7 @@
 #include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Labels.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Defunctionalize.h"
 #include "idr/Transforms/Effects.h"
@@ -49,7 +50,6 @@ struct OwnOps {
     return isa<idr::RunsLabelsOpInterface>(op) ? idr::rows::Read::ByReader
                                                 : idr::rows::Read::ByDeclaration;
   }
-  void after(Operation *, idr::rows::Fold &) {}
 };
 
 // The functions whose runs reach the outside: each function whose own ops
@@ -119,7 +119,10 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
     // The program is first-order: its graph sees every call, and every
     // function's row and every call's are derived over it.
     const auto &graph = getAnalysis<idr::solver::ProgramGraph>();
-    idr::rows::write(program, graph);
+    idr::solver::Work joining;
+    idr::rows::write(program, graph, joining);
+    // The pass's work: the label solve's and the rows' join.
+    numWork += labels.work() + joining.steps();
     markAnalysesPreserved<idr::solver::ProgramGraph>();
   }
 };

@@ -224,15 +224,18 @@ void Scheduler::finalize(unsigned component) {
   // The rows: one join over the component, every call of a member taking
   // it; and what each member gives back over the parameters it kept, its
   // callees' read as their components published them, which later turns
-  // read.
+  // read, the solve's work the pass's.
   SmallVector<solver::Member> members;
   for (FunctionId id : ids)
     members.push_back(solver::Member{id, schedule.function(id)});
   rows::writeComponent(members, schedule.graph);
   std::vector<identities::Facts> given =
-      identities::givesBackOf(schedule.graph, members, [&](FunctionId callee) {
-        return schedule.callees.of(FlatSymbolRefAttr::get(schedule.symbolOf(callee)));
-      });
+      identities::givesBackOf(
+          schedule.graph, members,
+          [&](FunctionId callee) {
+            return schedule.callees.of(FlatSymbolRefAttr::get(schedule.symbolOf(callee)));
+          },
+          spent);
   for (auto [id, facts] : llvm::zip_equal(ids, given)) {
     writeGivenBack(schedule.function(id), facts);
     schedule.callees.publish(id, std::move(facts));

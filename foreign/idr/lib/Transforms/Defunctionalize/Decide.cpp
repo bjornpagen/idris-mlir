@@ -62,35 +62,49 @@ Slot Decision::sinkOf(OpOperand &use) const {
       });
 }
 
-// A key, and a lazy key's forced state, which its family's `forced` field
-// holds.
-void Decision::note(const Slot &slot) {
-  if (!slot || ids.contains(*slot))
-    return;
-  ids.try_emplace(*slot, static_cast<KeyId>(families.size()));
-  families.push_back(Family{*slot, DataType(), FlatSymbolRefAttr()});
-  if (carrierOf(*slot) == Carrier::Lazy) {
-    auto lazy = cast<LazyType>(slot->carrier);
-    note(anchorKey(FlowAnchor::forcedOf(lazy)));
-    noteType(lazy.getValue());
+// Each key of `slots`, then each key `types` hold, and every key each
+// leads to, given its id once, in the order met: after a lazy key, its
+// forced state, which its family's `forced` field holds, then the keys its
+// value's type holds. A stack, never a recursion: a suspension's forced
+// state may hold a suspension in turn, as deeply as the program's types
+// nest. The next key to meet is on top, so the keys are met in the order a
+// depth-first walk meets them.
+void Decision::note(ArrayRef<Slot> slots, ArrayRef<Type> types) {
+  SmallVector<Slot> pending;
+  auto push = [&](ArrayRef<Slot> keys, ArrayRef<Type> holders) {
+    SmallVector<Slot> next(keys);
+    for (Type type : holders)
+      slotsIn(type, next);
+    pending.append(next.rbegin(), next.rend());
+  };
+  push(slots, types);
+  while (!pending.empty()) {
+    Slot slot = pending.pop_back_val();
+    if (!slot || !ids.try_emplace(*slot, static_cast<KeyId>(families.size())).second)
+      continue;
+    families.push_back(Family{*slot, DataType(), FlatSymbolRefAttr()});
+    if (carrierOf(*slot) == Carrier::Lazy) {
+      auto lazy = cast<LazyType>(slot->carrier);
+      push({anchorKey(FlowAnchor::forcedOf(lazy))}, {lazy.getValue()});
+    }
   }
 }
 
-// The slots a type holds that are no value's: the fields of each data
-// family met in it, a closure's signature included, and the elements of
-// each shaped type. Each type is walked once over the whole decision.
-void Decision::noteType(Type type) {
+// The slots a type holds that are no value's, in the walk's order: the
+// fields of each data family met in it, a closure's signature included,
+// and the elements of each shaped type.
+void Decision::slotsIn(Type type, SmallVectorImpl<Slot> &out) const {
   AttrTypeWalker walker;
   walker.addWalk([&](DataType data) {
     for (Tag tag : data.possibleTags())
       if (std::optional<SmallVector<Type>> fields = data.determinedFields(tag))
         for (auto [i, field] : llvm::enumerate(*fields))
           if (carriesLabels(field))
-            note(anchorKey(FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(i))));
+            out.push_back(anchorKey(FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(i))));
   });
   walker.addWalk([&](ShapedType shaped) {
     if (carriesLabels(shaped.getElementType()))
-      note(anchorKey(FlowAnchor::elementsOf(shaped.getElementType())));
+      out.push_back(anchorKey(FlowAnchor::elementsOf(shaped.getElementType())));
   });
   walker.walk(type);
 }

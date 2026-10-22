@@ -529,23 +529,16 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   d.widen();
   for (FuncOp fn : program.getOps<FuncOp>()) {
     const Signature &sig = d.signature(fn.getSymNameAttr());
-    for (const Slot &slot : llvm::concat<const Slot>(sig.arguments, sig.results))
-      d.note(slot);
-    for (Type type : fn.getFunctionType().getInputs())
-      d.noteType(type);
-    for (Type type : fn.getFunctionType().getResults())
-      d.noteType(type);
+    FunctionType type = fn.getFunctionType();
+    d.note(llvm::to_vector(llvm::concat<const Slot>(sig.arguments, sig.results)),
+           llvm::to_vector(llvm::concat<const Type>(type.getInputs(), type.getResults())));
     fn.walk([&](Operation *op) {
-      for (Value result : op->getResults()) {
-        d.note(d.keyOf(result));
-        d.noteType(result.getType());
-      }
+      for (Value result : op->getResults())
+        d.note({d.keyOf(result)}, {result.getType()});
       for (Region &region : op->getRegions())
         for (Block &block : region)
-          for (Value arg : block.getArguments()) {
-            d.note(d.keyOf(arg));
-            d.noteType(arg.getType());
-          }
+          for (Value arg : block.getArguments())
+            d.note({d.keyOf(arg)}, {arg.getType()});
     });
   }
   if (failed(d.declare(byName)))

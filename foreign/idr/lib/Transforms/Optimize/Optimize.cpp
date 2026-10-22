@@ -70,7 +70,10 @@ struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
     for (FuncOp fn : program.getOps<FuncOp>())
       (void)getAnalysisManager().nest(fn);
     Admission admission(support::hostMemoryBytes());
-    Scheduler scheduler(*this, schedule, nodes, counts, getAnalysisManager(), admission);
+    // The pass's work: the solves of what each component gives back, then
+    // the rows' join over the final graph.
+    solver::Work work;
+    Scheduler scheduler(*this, schedule, nodes, counts, getAnalysisManager(), admission, work);
     LogicalResult ran = scheduler.run();
     numNodes += scheduler.made();
     if (failed(ran))
@@ -83,7 +86,8 @@ struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
     dropDeadResults(schedule);
     narrowCaptures(schedule);
     std::move(schedule.graph).freeze();
-    rows::write(program, graph);
+    rows::write(program, graph, work);
+    numWork += work.steps();
     if (remark::detail::InFlightRemark finished = remark::analysis(
             program.getLoc(), remark::RemarkOpts::name("finished").category("idr-optimize")))
       finished << remark::metric("functions", graph.size().value())
