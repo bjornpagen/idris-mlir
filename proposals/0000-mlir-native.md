@@ -4145,6 +4145,15 @@ C137.
   else a carried patch narrowed to those functions; `nobuiltin` only if
   neither exists, since it also blocks the vector library's mapping of
   the call.
+- **C211** (2026-10-22; L09's finding; the mechanism under C166 and
+  C204). `idr.lit.match` forwards its scrutinee into its default, as C166
+  reads it (`sourceOf` maps the binding to its scrutinee), so upstream's
+  range analysis gives the binding the scrutinee's range and never asks
+  the op. The range analysis applies `ranges::excluding` to that
+  forwarded value itself, in an override of upstream's
+  `visitRegionSuccessors`; `lit.match` declares no `InferIntRange`. The
+  binding stays the scrutinee for every reader of forwarding, so no
+  ownership, sharing or counting reader changes.
 
 ## 4. Open: the owner's decisions, in order
 
