@@ -329,7 +329,7 @@ signalClosed = MkClosed
 public export
 endingsHeader : Header
 endingsHeader = MkHeader (ident "Endings")
-  [ (ident "idr" ::: [ident "endings"],
+  [ (Nested (ident "endings" ::: []),
       [ EnumOf (enumDef namingClosed)
       , TableOf causeTable
       , TableOf internalTable

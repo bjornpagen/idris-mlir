@@ -714,7 +714,7 @@ unpack = op "lifetime.unpack"
 ||| package's parameter is one.
 lifetimesHeader : Header
 lifetimesHeader = MkHeader "Lifetimes"
-  [ ("idr" ::: [], [ EnumOf (enumDef loweredClosed), EnumOf (enumDef kindCaseClosed)
+  [ (DialectNamespace, [ EnumOf (enumDef loweredClosed), EnumOf (enumDef kindCaseClosed)
                    , EnumOf (enumDef openerClosed), TableOf kindTable, TableOf openerTable ]) ]
   (brief "a lifetime's kinds and openers and their facts")
 

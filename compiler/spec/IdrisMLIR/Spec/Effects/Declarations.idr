@@ -35,7 +35,7 @@ declaredEffectsInterface = MkInterfaceDef
 export
 effectTree : Header
 effectTree = MkHeader (ident "EffectTree")
-  [ ( ident "idr" ::: []
+  [ ( DialectNamespace
     , map EnumOf
         [ enumDef reachClosed, enumDef kindClosed, enumDef resourceClosed, enumDef atomClosed
         , enumDef conditionClosed, enumDef landingClosed, enumDef effectRuleClosed

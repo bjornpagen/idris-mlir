@@ -206,7 +206,7 @@ numericHeader : Header
 numericHeader = MkHeader
   { name = "NumericEnums"
   , blocks =
-      [ ("idr" ::: ["numeric"],
+      [ (Nested ("numeric" ::: []),
           [ EnumOf (enumDef signednessClosed)
           , EnumOf (enumDef directionClosed)
           , EnumOf (enumDef partClosed)

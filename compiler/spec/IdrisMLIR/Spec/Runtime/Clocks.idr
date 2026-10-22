@@ -66,7 +66,7 @@ unreadable = -1
 public export
 clocksHeader : Header
 clocksHeader = MkHeader (ident "Clocks")
-  [ (ident "idr" ::: [ident "clocks"],
+  [ (Nested (ident "clocks" ::: []),
       [ EnumOf (enumDef clockKindClosed)
       , Scalar (ident "nanosecondBits") Unsigned8 (IntCell (natToInteger nanosecondBits))
           (line "the bits of a reading below its seconds")

@@ -23,7 +23,7 @@ arrayHeaderBytes = 4 + 4 + 8
 public export
 layoutHeader : Header
 layoutHeader = MkHeader (ident "RuntimeLayout")
-  [ (ident "idr" ::: [ident "runtime"],
+  [ (Nested (ident "runtime" ::: []),
       [ Scalar (ident "arrayHeaderBytes") Unsigned32 (IntCell (natToInteger arrayHeaderBytes))
           (line "an array cell's bytes before its first element")
       ])

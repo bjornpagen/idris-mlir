@@ -303,7 +303,7 @@ linCast = MkOp
 ||| from there.
 gradesHeader : Header
 gradesHeader = MkHeader "Grades"
-  [ ("idr" ::: [],
+  [ (DialectNamespace,
       [ EnumOf (enumDef releaseClosed), EnumOf (enumDef uniqueClosed)
       , EnumOf (enumDef refsClosed)
       , EnumOf (enumDef fieldReachClosed), EnumOf (enumDef quantityChangeClosed)

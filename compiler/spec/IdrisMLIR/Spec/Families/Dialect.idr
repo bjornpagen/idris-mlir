@@ -128,7 +128,7 @@ memberKindClosed = MkClosed
 export
 familiesHeader : Header
 familiesHeader = MkHeader "Families"
-  [ ( "idr" ::: []
+  [ ( DialectNamespace
     , [ EnumOf (enumDef termKindClosed), EnumOf (enumDef sortKindClosed)
       , EnumOf (enumDef promiseClosed), EnumOf (enumDef modeClosed)
       , EnumOf (enumDef memberKindClosed), EnumOf (enumDef layoutClosed)

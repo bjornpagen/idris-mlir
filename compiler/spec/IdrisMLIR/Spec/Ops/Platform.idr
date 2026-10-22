@@ -209,7 +209,7 @@ fileTimeFieldClosed = MkClosed
 public export
 fileTimesHeader : Header
 fileTimesHeader = MkHeader (ident "FileTimes")
-  [ (ident "idr" ::: [ident "files"], [EnumOf (enumDef fileTimeFieldClosed)]) ]
+  [ (Nested (ident "files" ::: []), [EnumOf (enumDef fileTimeFieldClosed)]) ]
   (brief (line "the fields of a file's times, in the order a file-time handle holds them"))
 
 ||| Base's prim__fileTime: a file's times, read at once as the one OS call
