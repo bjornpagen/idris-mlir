@@ -17,6 +17,7 @@ import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Runtime.Clocks
+import IdrisMLIR.Spec.Ops.Platform
 
 import Data.String
 import Data.Vect
@@ -127,7 +128,9 @@ mutual
   data Sort = SNat | SType | SOpaque | SScalar Ty | SFamily FamilyId
 
   ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat`, an integer
-  ||| that is never negative, a number at runtime; `FunT` is a closure,
+  ||| that is never negative, a number at runtime, linked to the index term
+  ||| it is: a literal's number, the level of a binder that is both a value
+  ||| and an index, or `IOpaque` where no term is known; `FunT` is a closure,
   ||| binding its argument as a lambda does; `LazyT` is a suspension, one
   ||| cell whose value is shared by every force; `DataT` is a family
   ||| applied to one term per index, whatever its values hold: how they are
@@ -142,7 +145,7 @@ mutual
   ||| keeps so that the translation reads IO as Idris wrote it; Emit writes
   ||| no value of it, since after the frontend IO is ordered by effects.
   public export
-  data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT
+  data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT ITerm | WorldT
           | DataT FamilyId (List ITerm)
           | FunT Binder Ty
           | LazyT Ty
@@ -218,7 +221,7 @@ mutual
   sameTy DoubleT DoubleT = True
   sameTy StrT StrT = True
   sameTy BigT BigT = True
-  sameTy NatT NatT = True
+  sameTy (NatT a) (NatT b) = sameTerm a b
   sameTy WorldT WorldT = True
   sameTy (DataT f ts) (DataT g us) = f == g && sameTerms ts us
   sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
@@ -255,7 +258,7 @@ mutual
   tyText DoubleT = "Double"
   tyText StrT = "String"
   tyText BigT = "Integer"
-  tyText NatT = "Nat"
+  tyText (NatT t) = "Nat[" ++ termText t ++ "]"
   tyText WorldT = "%World"
   tyText (DataT f ts) = "data " ++ show f ++ "[" ++ joinBy ", " (termsText ts) ++ "]"
   tyText (FunT a r) = "((" ++ binderText a ++ ") -> " ++ tyText r ++ ")"
@@ -600,7 +603,7 @@ slots (FromStr _) = [Just StrT]
 slots (BigCompare _) = [Just BigT, Just BigT]
 slots (ToBig s) = [Just (scalarTy s)]
 slots (FromBig _) = [Just BigT]
-slots (NatCompare _) = [Just NatT, Just NatT]
+slots (NatCompare _) = [Just (NatT IOpaque), Just (NatT IOpaque)]
 slots (ArrayLength e) = [Just (MemRefT Elements e)]
 slots (Op {i} _ _) = replicate i Nothing
 
@@ -658,7 +661,8 @@ data Gives : Nat -> Type where
 ||| the dialect with no attribute, whose every operand group is one operand,
 ||| on the call's operands, giving what an `IORes` holds; a reading of a
 ||| clock of a kind; a reading of a clock no program has (the collector's),
-||| which is the mark of an unread clock; a query of a reading; an access
+||| which is the mark of an unread clock; a query of a reading; a reading
+||| of one field of a file-time handle (`io.file_time`'s); an access
 ||| to an array a world orders; a move of a buffer's bytes; the end of the
 ||| process; or nothing, where the platform has nothing to do (setting up a
 ||| terminal, which only another system needs).
@@ -668,6 +672,7 @@ data IOAction : Nat -> Type where
   ReadsClock : ClockKind -> IOAction 1
   NeverRead : IOAction 1
   Queries : ClockQuery -> IOAction 1
+  ReadsFileTime : FileTimeField -> IOAction 1
   Accesses : (a : ArrayAccess) -> IOAction (accessResults a)
   Moves : (m : BufferMove) -> IOAction (moveResults m)
   Exits : IOAction 0
@@ -680,6 +685,7 @@ actionGives (Runs {gives} _) = gives
 actionGives (ReadsClock _) = GivesOne
 actionGives NeverRead = GivesOne
 actionGives (Queries _) = GivesOne
+actionGives (ReadsFileTime _) = GivesOne
 actionGives (Accesses NewArray) = GivesOne
 actionGives (Accesses GetElement) = GivesOne
 actionGives (Accesses SetElement) = GivesNone

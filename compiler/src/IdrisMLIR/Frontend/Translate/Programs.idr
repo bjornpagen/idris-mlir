@@ -11,6 +11,7 @@ import Core.TT
 import IdrisMLIR.Frontend.Finite
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Cases
+import IdrisMLIR.Frontend.Translate.Choices
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
@@ -123,6 +124,10 @@ translateInstance p = do
       let (x, xs') = named xs
           (ps, env) = runtimeParams level xs' ks in
       ((x, h.binder) :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
+    runtimeParams level xs (ChoiceParam b known :: ks) =
+      let (x, xs') = named xs
+          (ps, env) = runtimeParams level xs' ks in
+      ((x, b) :: ps, Runtime FZ (Just (typeOf b)) (Just known) :: map (map FS) env)
     runtimeParams level xs (ValueParam b shape known :: ks) =
       let (x, xs') = named xs
           (ps, env) = runtimeParams level xs' ks in
@@ -198,9 +203,12 @@ translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 translateIOProgram fc main = do
   Just inst <- core (translateFrom (noting (request fc (show main) main [])) translateInstance)
     | Nothing => pure Nothing
-  st <- getState
-  let [<] = st.rejected
+  let [<] = (!(getState)).rejected
     | _ => pure Nothing
+  -- Every member of every choice is known once the translation has ended:
+  -- each dispatch on one is written now.
+  dispatchers
+  st <- getState
   let owner = show main
   let notIO = reject fc owner ProgramShape "main must have type IO ()"
   let Just mainFn = lookup inst st.fns

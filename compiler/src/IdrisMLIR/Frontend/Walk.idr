@@ -250,37 +250,41 @@ data Probe = ProbeBinder Nat
            | ProbeFieldPath Nat Nat (List1 Nat)
            | ProbeHeld Address Nat
 
-||| A probe's name: the one place a probe is spelled. Each family keeps the
-||| constructor of `Name` it has always had: a machine name (`MN`) where no
-||| normaliser meets it under a binder, a name nested around a user name no
-||| Idris identifier spells where one does, since Idris's quotation takes
-||| a bound machine name for the binder of that number
+||| A probe's name: the one place a probe is spelled, each family by its
+||| own identifier, a constant of the compiler's known vocabulary that the
+||| session's table holds at a fixed id from its start, so no probe is ever
+||| interned or looked up. Its spelling (`idris-mlir-hole` and kin) is no
+||| text an Idris identifier can be, so no name of a program meets it. Each
+||| family keeps the constructor of `Name` it has always had: a machine name
+||| (`MN`) where no normaliser meets it under a binder, a name nested around
+||| a user name where one does, since Idris's quotation takes a bound
+||| machine name for the binder of that number
 ||| (`Core.Normalise.Quote.quoteHead`). An axis is two references, whose
 ||| head this is (`probeTerm`).
 export
 probeName : Probe -> Name
-probeName (ProbeBinder i) = MN "idris-mlir-binder" (cast i)
-probeName (ProbeHole i) = Nested (cast i, 0) (UN (Basic "idris-mlir-hole"))
-probeName (ProbeHoleFound i) = Nested (cast i, 0) (UN (Basic "idris-mlir-hole-found"))
-probeName ProbeUnknown = MN "idris-mlir-unknown" 0
-probeName ProbeRuntime = MN "idris-mlir-runtime" 0
-probeName (ProbeRuntimeAt p) = MN "idris-mlir-runtime-at" (cast p)
-probeName (ProbeStandIn k) = MN "idris-mlir-field" (cast k)
-probeName (ProbePattern k) = Nested (cast k, 0) (UN (Basic "idris-mlir-pattern"))
-probeName ProbeForm = MN "idris-mlir-form" 0
-probeName (ProbeAxis i _) = MN "idris-mlir-axis" (cast i)
-probeName (ProbeAxisAt j) = MN "idris-mlir-axis-at" (cast j)
-probeName (ProbeSize i) = MN "idris-mlir-size" (cast i)
-probeName (ProbeVar i d) = Nested (cast i, cast d) (UN (Basic "idris-mlir-var"))
-probeName (ProbeFormal j a) = Nested (cast j, cast a) (UN (Basic "idris-mlir-formal"))
+probeName (ProbeBinder i) = MN (known KProbeBinder) (cast i)
+probeName (ProbeHole i) = Nested (cast i, 0) (knownUN KProbeHole)
+probeName (ProbeHoleFound i) = Nested (cast i, 0) (knownUN KProbeHoleFound)
+probeName ProbeUnknown = MN (known KProbeUnknown) 0
+probeName ProbeRuntime = MN (known KProbeRuntime) 0
+probeName (ProbeRuntimeAt p) = MN (known KProbeRuntimeAt) (cast p)
+probeName (ProbeStandIn k) = MN (known KProbeField) (cast k)
+probeName (ProbePattern k) = Nested (cast k, 0) (knownUN KProbePattern)
+probeName ProbeForm = MN (known KProbeForm) 0
+probeName (ProbeAxis i _) = MN (known KProbeAxis) (cast i)
+probeName (ProbeAxisAt j) = MN (known KProbeAxisAt) (cast j)
+probeName (ProbeSize i) = MN (known KProbeSize) (cast i)
+probeName (ProbeVar i d) = Nested (cast i, cast d) (knownUN KProbeVar)
+probeName (ProbeFormal j a) = Nested (cast j, cast a) (knownUN KProbeFormal)
 probeName (ProbeFieldPath i d (k ::: ks)) = Nested (cast i, cast d) (steps (k :: ks))
   where
     steps : List Nat -> Name
-    steps [] = UN (Basic "idris-mlir-field")
+    steps [] = knownUN KProbeField
     steps (f :: fs) = Nested (cast f, 0) (steps fs)
 probeName (ProbeHeld [b0, b1, b2, b3, b4, b5, b6, b7] p) =
   Nested (byte b0, byte b1) (Nested (byte b2, byte b3) (Nested (byte b4, byte b5)
-    (Nested (byte b6, byte b7) (Nested (cast p, 0) (UN (Basic "idris-mlir-held"))))))
+    (Nested (byte b6, byte b7) (Nested (cast p, 0) (knownUN KProbeHeld)))))
   where
     byte : Fin 256 -> Int
     byte b = cast (finToNat b)

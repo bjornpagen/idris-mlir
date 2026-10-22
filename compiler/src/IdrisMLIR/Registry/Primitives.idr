@@ -227,7 +227,8 @@ wordLoad spec name shape = bufferPrimitive spec name shape (Moves LoadWord)
 
 ||| base's System.File. A FilePtr is an AnyPtr, a handle: 0, 1 and 2 are the
 ||| standard streams, the runtime's own meaning of them, and a file opened is
-||| a slot of the runtime's. A line or characters read are a string handle,
+||| a slot of the runtime's. A file's times are read at once into a
+||| file-time handle, and each field read from it. A line or characters read are a string handle,
 ||| which base frees. `fPoll` declares the C spec of `fileSize`: the declared
 ||| name picks the entry.
 files : List AnyEntry
@@ -254,6 +255,13 @@ files =
   , cCall "idris2_fileSize" fileMeta "prim__fileSize" (ioType [anyPtr] int) (Runs fileSize)
   , cCall "idris2_fileSize" fileMeta "prim__fPoll" (ioType [anyPtr] int) (Runs filePoll)
   , cCall "idris2_fileIsTTY" fileMeta "prim__fileIsTTY" (ioType [anyPtr] int) (Runs fileIsTty)
+  , cCall "idris2_fileTime" fileMeta "prim__fileTime" (ioType [anyPtr] anyPtr) (Runs fileTime)
+  , cCall "idris2_filetimeAccessTimeSec" fileMeta "prim__filetimeAccessTimeSec" (ioType [anyPtr] int) (ReadsFileTime AccessSeconds)
+  , cCall "idris2_filetimeAccessTimeNsec" fileMeta "prim__filetimeAccessTimeNsec" (ioType [anyPtr] int) (ReadsFileTime AccessNanoseconds)
+  , cCall "idris2_filetimeModifiedTimeSec" fileMeta "prim__filetimeModifiedTimeSec" (ioType [anyPtr] int) (ReadsFileTime ModifiedSeconds)
+  , cCall "idris2_filetimeModifiedTimeNsec" fileMeta "prim__filetimeModifiedTimeNsec" (ioType [anyPtr] int) (ReadsFileTime ModifiedNanoseconds)
+  , cCall "idris2_filetimeStatusTimeSec" fileMeta "prim__filetimeStatusTimeSec" (ioType [anyPtr] int) (ReadsFileTime StatusSeconds)
+  , cCall "idris2_filetimeStatusTimeNsec" fileMeta "prim__filetimeStatusTimeNsec" (ioType [anyPtr] int) (ReadsFileTime StatusNanoseconds)
   , cCall "idris2_chmod" filePermissions "prim__chmod" (ioType [str, int] int) (Runs fileChmod) ]
 
 directory : List String

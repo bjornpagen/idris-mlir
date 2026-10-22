@@ -2,7 +2,7 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The pieces of MLIR's text that every printer shares: names, string and
 ||| number literals, symbol references, function signatures, lists and
-||| locations. A leaf but for the one UTF-8 encoder (`Ids.utf8`) and the
+||| locations. A leaf but for the one UTF-8 encoder (the specification's) and the
 ||| source locations (`Loc`), so that the generated syntax of each dialect
 ||| (IdrisMLIR.Syntax.*) and the builtin types and attributes
 ||| (IdrisMLIR.MLIR) write them alike.
@@ -10,6 +10,7 @@ module IdrisMLIR.MLIR.Text
 
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Spec.Core.Text
 
 import Data.List
 import Data.Maybe
@@ -44,8 +45,8 @@ quoted s = pack ('"' :: foldr esc ['"'] (unpack s))
 ||| encoding printable as itself but a quote and a backslash, every other
 ||| escaped. Its characters are made in one pass and packed once.
 export
-utf8 : String -> String
-utf8 s = pack ('"' :: foldr byte ['"'] (IdrisMLIR.Ids.utf8 s))
+utf8Literal : String -> String
+utf8Literal s = pack ('"' :: foldr byte ['"'] (IdrisMLIR.Spec.Core.Text.utf8 s))
   where
     byte : Bits8 -> List Char -> List Char
     byte b rest = let n = cast {to = Int} b in
@@ -58,7 +59,7 @@ utf8 s = pack ('"' :: foldr byte ['"'] (IdrisMLIR.Ids.utf8 s))
 ||| declaration name the same symbol.
 export
 symbol : String -> String
-symbol name = if bare (unpack name) then "@" ++ name else "@" ++ utf8 name
+symbol name = if bare (unpack name) then "@" ++ name else "@" ++ utf8Literal name
   where
     rest : Char -> Bool
     rest c = isAlphaNum c || c == '_' || c == '$' || c == '.'

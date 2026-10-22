@@ -297,10 +297,6 @@ fieldBinders : Nat -> Uses -> Con k -> Vect k Binder
 fieldBinders d u c =
   let bs = map IVar (take (length c.binders) [d .. d + length c.binders])
   in map (\b => MkBinder (times u b.quantity) (substTy bs b.type)) c.fields
-  where
-    times : Uses -> Uses -> Uses
-    times Once q = q
-    times Many _ = Many
 
 ||| A case's fields as the region holds them, from its refined value `r`:
 ||| for a scrutinee used many times, each a read of `r` (`idr.field`); for
@@ -381,7 +377,7 @@ holding ix l binder t captures build =
   where
     linearType : Value -> Bool
     linearType v = case v.type of
-      Idr (GradedType Once _ _) => True
+      IdrHand (GradedOf Once _ _) => True
       _ => False
 
 ||| The tail fact of a call at a position: in tail position a tail call; as
@@ -431,9 +427,9 @@ alg ix (CallF l fn stands is as) sc w = do
       args = map (operand ix) (present vs)
   case resultTypes ix rt of
     [] => do
-      statement l (Idr.callOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix is)))} f.symbol kind args [])
+      statement l (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol kind args [])
       pure (Just worldVal)
-    [r] => Just <$> fitted {binder = w.binder} ix l w.type rt (\t => Idr.callOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix is)))} f.symbol kind args [t])
+    [r] => Just <$> fitted {binder = w.binder} ix l w.type rt (\t => Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol kind args [t])
     _ => internal ("a call of " ++ f.symbol ++ " giving more than one value")
 -- A constructor's fields are checked at their types with its binders
 -- given; the last computed is a context cell's field when the value is the
@@ -500,11 +496,11 @@ alg ix (CaseF l x arms) sc w = do
       let d = length sc.telescope
       (r, arg) <- refinedArg scrut (c.tag ::: [])
       let bs = fieldBinders d scrut.uses c
-          inner = refining x r (binding c.binders sc)
+          inner = refining x r (binding (map (.sort) c.binders) sc)
       (res, ops) <- collect $ do
         vals <- caseFields ix l r (names 0 k body.term) bs
         plain ix l (body.result (bind vals inner) ({ binder := Nothing } w))
-      pure (MkCase c.tag (map (sortOf ix) c.binders) (MkArm [arg] res ops))
+      pure (MkCase c.tag (map (sortOf ix . (.sort)) c.binders) (MkArm [arg] res ops))
     -- The default binds the scrutinee refined to the constructors no case
     -- takes; none is left only when Idris proved the cases cover it, which
     -- is `Exhaustive`, so a default here has at least one.
@@ -549,7 +545,7 @@ alg ix (CaseNatF l x arms) sc w = case arms of
   Both z p s => do
     n <- coerce ix l Many (standing (sc.vars x))
     (zr, zops) <- collect (plain ix l (z.result sc ({ binder := Nothing } w)))
-    (back, arg) <- freshVal ix NatT Many
+    (back, arg) <- freshVal ix (NatT IOpaque) Many
     (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
     match ix l w (\cs, dr, ts => Idr.litMatchOp (operand ix n) [key (LNat 0)] dr (map (\c => MkRegion [] c.arm.statements) cs) ts)
           [MkCase 0 [] (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
@@ -557,7 +553,7 @@ alg ix (CaseNatF l x arms) sc w = case arms of
     successor : Shown -> Sub Em (Under 1 nv) -> Scope nv -> Wanted -> Val -> E (Maybe Val)
     successor p s scope w' n = do
       b <- binding p Many
-      pv <- value {binder = Just b} ix l NatT (Idr.natPredOp (operand ix n))
+      pv <- value {binder = Just b} ix l (NatT IOpaque) (Idr.natPredOp (operand ix n))
       s.result (bind [Whole pv] scope) w'
 -- A lambda is a closure of a function of its own, and a `Delay` a
 -- suspension of one, each over the values its body uses from where it is
@@ -591,7 +587,7 @@ alg ix (LamF l name b body) sc w = do
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedLambda (map (sortOf ix) sc.telescope) args ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures
-                   (Idr.fnClosureOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix (levels sc.telescope))))} sym captures)
+                   (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix (levels sc.telescope))))} sym captures)
 alg ix (AppF l f x) sc w = do
   Just fv <- plain ix l (f.result sc (expecting Nothing))
     | Nothing => pure Nothing
@@ -619,7 +615,7 @@ alg ix (SuspendF l body) sc w = do
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (LazyT t) captures
-                   (Idr.lazySuspendOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix (levels sc.telescope))))} sym captures)
+                   (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix (levels sc.telescope))))} sym captures)
 alg ix (ResumeF l e) sc w = do
   Just ev <- plain ix l (e.result sc (expecting Nothing))
     | Nothing => pure Nothing
@@ -653,7 +649,7 @@ alg ix (TieF l x ds) sc w = do
   where
     -- Each statement a natural.
     natural : Sub Em nv -> E (Maybe Val)
-    natural d = plain ix l (d.result sc (expecting (Just NatT)))
+    natural d = plain ix l (d.result sc (expecting (Just (NatT IOpaque))))
     statedAll : List (Nat, Stated (Sub Em nv)) -> E (Maybe (List (Nat, Stated Val)))
     statedAll [] = pure (Just [])
     statedAll ((a, SameAs d) :: rest) = do
@@ -726,7 +722,7 @@ alg ix (ExtentsBackF {k} l x body res) sc w = do
     readExtents : (j : Nat) -> Nat -> Val -> E (Vect j InScope, Val)
     readExtents Z a arr = pure ([], arr)
     readExtents (S j) a arr = do
-      Just n <- placed (At l) (Idr.arrayExtentOp (operand ix arr) a [gradedType ix Many Held.Counted NatT, (operand ix arr).type])
+      Just n <- placed (At l) (Idr.arrayExtentOp (operand ix arr) a [gradedType ix Many Held.Counted (NatT IOpaque), (operand ix arr).type])
         | Nothing => internal "a linear array's extent gives nothing"
       (rest, final) <- readExtents j (S a) ({ name := resultAt n 2 1 } arr)
-      pure (Whole (val (resultAt n 2 0) NatT Many Held.Counted) :: rest, final)
+      pure (Whole (val (resultAt n 2 0) (NatT IOpaque) Many Held.Counted) :: rest, final)

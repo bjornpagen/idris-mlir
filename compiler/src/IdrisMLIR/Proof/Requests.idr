@@ -792,41 +792,6 @@ within forms names b l = case choose (length l.arguments <= b.breadth) of
     allFit (a :: as) [] = next a 0 (allFit as [])
     allFit (a :: as) (h :: hs) = next a h (allFit as hs)
 
-||| The fields `translateFrom` learns: a data link in the universe, a
-||| constructor index and an argument index, both below the breadth.
-public export
-0 FieldUniverse : Listed form -> Listed Address -> Bounds -> List (Link form, Nat, Nat)
-FieldUniverse forms names b = pairs (Universe forms names b) (pairs (below b.breadth) (below b.breadth))
-
-||| A field in the field universe: the comparisons `inFields` made, so that
-||| its `Fails` needs no soundness proof of the listing, and the membership
-||| they give, erased as `InUniverse`'s is.
-public export
-record InFields (0 forms : Listed form) (0 names : Listed Address) (b : Bounds) (f : (Link form, Nat, Nat)) where
-  constructor MkInFields
-  0 link : InUniverse forms names b (fst f)
-  0 index : LT (fst (snd f)) b.breadth
-  0 argument : LT (snd (snd f)) b.breadth
-  0 member : Elem f (FieldUniverse forms names b)
-
-||| Whether a field is in the field universe: its link within the bounds,
-||| its two indices below the breadth, by the machine's comparisons.
-export
-inFields : (0 forms : Listed form) -> (0 names : Listed Address) -> (b : Bounds) -> (f : (Link form, Nat, Nat)) ->
-           Decision (InFields forms names b f)
-inFields forms names b (l, c, i) = case within forms names b l of
-  Fails out => Fails (\inside => out inside.link)
-  Holds inside => case (choose (c < b.breadth), choose (i < b.breadth)) of
-    (Left lc, Left li) =>
-      let 0 c' = ltOpReflectsLT c b.breadth lc
-          0 i' = ltOpReflectsLT i b.breadth li in
-      Holds (MkInFields inside c' i'
-               (pairsComplete (Universe forms names b) (pairs (below b.breadth) (below b.breadth)) inside.member
-                  (pairsComplete (below b.breadth) (below b.breadth) (belowComplete b.breadth c c')
-                     (belowComplete b.breadth i i'))))
-    (Right nc, _) => Fails (\inside => notLtSo nc inside.index)
-    (_, Right ni) => Fails (\inside => notLtSo ni inside.argument)
-
 ||| Whether a link is one of a list's, by the machine's comparisons
 ||| (`sameLink`). A chain of requests decides it of each request that
 ||| extends it: the erased evidence that the link is not one of the chain's

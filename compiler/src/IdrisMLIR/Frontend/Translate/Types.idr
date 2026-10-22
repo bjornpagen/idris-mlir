@@ -830,6 +830,37 @@ dictionaryBinder rig ty = case use rig of
   Erased => pure False
   Used _ => implementationType ty
 
+||| The choice of an implementation type: the closed sum of the
+||| implementations of it that the program fixes as runtime values
+||| (`Choice`), one constructor each, which the translation adds as it finds
+||| them (`Choices.memberOf`). It is keyed as a family of the type
+||| constructor at its arguments would be, each argument whole, and
+||| registered once, with no constructor yet: a choice no value is ever
+||| made of is uninhabited. It is not the interface's record: which
+||| implementation a value is, not its methods, is what a dispatch on it
+||| reads.
+export
+choiceFamily : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               FC -> String -> ClosedTerm -> Front Choice
+choiceFamily fc owner ty = do
+  let (Ref _ _ n, args) = getFnArgs ty
+    | _ => internal fc ("a choice of no implementation type: " ++ !(showTT ty))
+  def <- lookupDef fc owner n
+  keyed <- traverse (\a => Just <$> argumentKey fc owner Keyed !(canonicalTypeArg a)) args
+  found <- instanceKey fc owner (fullname def) id keyed
+  st <- getState
+  case lookup found.link st.choiceIds >>= \fam => lookup fam st.choices of
+    Just choice => pure choice
+    Nothing => do
+      let fam = MkFamilyId st.nextFamily
+      let choice = MkChoice fam ty [<]
+      loc <- toLoc (location def)
+      updateState { choiceIds $= insert found.link fam, nextFamily $= S
+                  , choices $= insert fam choice
+                  , families $= insert fam (MkFamily fam found.key None [] [] loc)
+                  , familyOrder $= (:< fam) }
+      pure choice
+
 ||| A value array of these dimensions of this element: an array of value
 ||| arrays is one, the element's dimensions after these. An array of
 ||| records is a tensor of the record, whatever the record holds: the
@@ -962,6 +993,7 @@ mutual
 
   levelsOfTy : Ty -> List Nat
   levelsOfTy (DataT _ ts) = levelsOfTerms ts
+  levelsOfTy (NatT t) = levelsOfTerm t
   levelsOfTy (FunT (MkBinder _ a) r) = levelsOfTy a ++ levelsOfTy r
   levelsOfTy (LazyT a) = levelsOfTy a
   levelsOfTy (TensorT _ a) = levelsOfTy a
@@ -985,6 +1017,7 @@ mutual
   export
   relevelTy : (Nat -> Maybe Nat) -> Ty -> Ty
   relevelTy f (DataT g ts) = DataT g (relevelTerms f ts)
+  relevelTy f (NatT t) = NatT (relevelTerm f t)
   relevelTy f (FunT (MkBinder q a) r) = FunT (MkBinder q (relevelTy f a)) (relevelTy f r)
   relevelTy f (LazyT a) = LazyT (relevelTy f a)
   relevelTy f (TensorT ds a) = TensorT ds (relevelTy f a)
@@ -992,13 +1025,13 @@ mutual
   relevelTy f t = t
 
 ||| What the walk of a constructor's type finds: its arguments' kinds, the
-||| type of each of its quantity-0 arguments in order (its candidate
-||| binders, each given its stand-in where it is bound), and the type it
-||| returns, under those stand-ins.
+||| position and type of each of its quantity-0 arguments in order (its
+||| candidate binders, each given its stand-in where it is bound), and the
+||| type it returns, under those stand-ins.
 record Walked where
   constructor MkWalked
   kinds : List ArgKind
-  erasedTypes : List ClosedTerm
+  erasedTypes : List (Nat, ClosedTerm)
   returns : ClosedTerm
 
 mutual
@@ -1035,7 +1068,19 @@ mutual
   -- `Inf` is a suspension like `Lazy`.
   coreTypeIn chain acc g fc owner rule (TDelayed _ _ t) =
     LazyT . dynamicDims <$> coreTypeIn chain acc g fc owner rule t
-  coreTypeIn chain acc g fc owner rule tm = case getFnArgs tm of
+  -- An implementation in a runtime position is a value of its type's
+  -- choice: which of the implementations the program fixes it is.
+  coreTypeIn chain acc g fc owner rule tm = do
+    True <- implementationType tm
+      | False => dataTypeIn chain acc g fc owner rule tm
+    choice <- choiceFamily fc owner !(normaliseClosed (close g tm))
+    pure (DataT choice.family [])
+
+  ||| A type that is no implementation's, by its head.
+  dataTypeIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               (chain : Registering) -> (0 _ : Descending chain) ->
+               {cat : Category} -> Given vars -> FC -> String -> Rule cat -> TT vars -> Front Ty
+  dataTypeIn chain acc g fc owner rule tm = case getFnArgs tm of
     (Ref rfc (TyCon _) n, args) => do
       def <- lookupDef fc owner n
       -- A word type is a machine word whatever its arguments: what a
@@ -1046,7 +1091,7 @@ mutual
       -- the same shape whose constructors take an erased index (`Fin`,
       -- `Elem`) is a family: the dialect lays it out as a number.
       case (!(tyConFacts def)).natness of
-       Chain => pure NatT
+       Chain => pure (NatT IOpaque)
        _ => if hs.wordType
          then pure (IntT UInt64)
          else case hs.orderedArray of
@@ -1176,7 +1221,7 @@ mutual
     when (length layout /= arity) $
       internal (location def) (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
                                show (length layout))
-    walked <- walk chain acc def cname (location def) (\at => (link, finToNat cid.index, at)) targs 0 0 0 layout none ty
+    walked <- walk chain acc def cname (location def) targs 0 0 0 layout none ty
     -- The result's index terms, at the family's index positions.
     let resultArgs = snd (getFnArgs walked.returns)
     equation0 <- traverse indexTerm
@@ -1187,7 +1232,8 @@ mutual
     let used = nub (levelsOfTerms equation0 ++ concatMap (levelsOfTy . (.type)) fields0)
         kept = filter (\k => elem k used) (take (length walked.erasedTypes) [0 .. length walked.erasedTypes])
         renumber = \k => findIndex' k kept
-    binders <- traverse (\k => maybe (pure SOpaque) (\t => sortOfType !(normaliseClosed t)) (getAt k walked.erasedTypes)) kept
+    binders <- traverse (\(at, t) => (\sort => MkConBinder sort at) <$> sortOfType !(normaliseClosed t))
+                        (map snd (filter (\(k, _) => elem k kept) (zip [0 .. length walked.erasedTypes] walked.erasedTypes)))
     let fields = map (\b => { type $= relevelTy renumber } b) fields0
         equation = relevelTerms renumber equation0
         con = (length fields ** MkCon cid (shortName (fullname def)) binders equation (fromList fields) loc)
@@ -1203,35 +1249,30 @@ mutual
   ||| The constructor's arguments, read under the binders passed, each
   ||| given its value: a parameter is the instance's, one of quantity 0 is
   ||| no field and is given its stand-in, the next level of the
-  ||| constructor's own scope, an implementation is a compile-time value
-  ||| of the instance (`Dictionaries`), anything else is the next field.
+  ||| constructor's own scope, anything else is the next field, an
+  ||| implementation among them a choice (`choiceFamily`).
   walk : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          (chain : Registering) -> (0 _ : Descending chain) -> (con : GlobalDef) ->
-         String -> FC -> (dict : Nat -> DictField) -> List ClosedTerm -> (at, i, e : Nat) -> List (Maybe Nat) ->
+         String -> FC -> List ClosedTerm -> (at, i, e : Nat) -> List (Maybe Nat) ->
          Given vs -> TT vs -> Front Walked
-  walk chain acc con cname dfc dict targs at i e (Just p :: ls) g (Bind bfc _ (Pi {}) sc) = do
+  walk chain acc con cname dfc targs at i e (Just p :: ls) g (Bind bfc _ (Pi {}) sc) = do
     let v = fromMaybe (Erased bfc Placeholder) (getAt p targs)
-    w <- walk chain acc con cname dfc dict targs (S at) i e ls (give v g) sc
+    w <- walk chain acc con cname dfc targs (S at) i e ls (give v g) sc
     pure ({ kinds $= (Param v ::) } w)
-  walk chain acc con cname dfc dict targs at i e (Nothing :: ls) g (Bind bfc _ (Pi _ rig _ a) sc) =
+  walk chain acc con cname dfc targs at i e (Nothing :: ls) g (Bind bfc _ (Pi _ rig _ a) sc) =
     case argumentAt con at rig of
       RuntimeValue q => do
         let g' = give (Erased bfc Placeholder) g
         a' <- normaliseClosed (close g a)
-        if !(implementationType a')
-          then do
-            w <- walk chain acc con cname dfc dict targs (S at) i e ls g' sc
-            pure ({ kinds $= (DictArg (dict at) a' ::) } w)
-          else do
-            when !(erasedOutsideIndices cname a') $ do
-              reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
-            b <- coreBinderIn chain acc none dfc cname DependentField q a'
-            w <- walk chain acc con cname dfc dict targs (S at) (S i) e ls g' sc
-            pure ({ kinds $= (Field i b a' ::) } w)
+        when !(erasedOutsideIndices cname a') $ do
+          reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
+        b <- coreBinderIn chain acc none dfc cname DependentField q a'
+        w <- walk chain acc con cname dfc targs (S at) (S i) e ls g' sc
+        pure ({ kinds $= (Field i b a' ::) } w)
       _ => do
-        w <- walk chain acc con cname dfc dict targs (S at) i (S e) ls (give (marker e) g) sc
-        pure ({ kinds $= (ErasedArg ::), erasedTypes $= (close g a ::) } w)
-  walk _ _ _ _ _ _ _ _ _ _ _ g t = pure (MkWalked [] [] (close g t))
+        w <- walk chain acc con cname dfc targs (S at) i (S e) ls (give (marker e) g) sc
+        pure ({ kinds $= (ErasedArg ::), erasedTypes $= ((at, close g a) ::) } w)
+  walk _ _ _ _ _ _ _ _ _ _ g t = pure (MkWalked [] [] (close g t))
 
   ||| The family a type names, when it is a data type and not a natural, a
   ||| machine word or an array of either kind: the family, and the type of

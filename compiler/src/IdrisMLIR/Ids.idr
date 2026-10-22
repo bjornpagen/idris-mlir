@@ -9,6 +9,7 @@
 module IdrisMLIR.Ids
 
 import Hash.XXH3
+import IdrisMLIR.Spec.Core.Text
 
 import Data.Bits
 import Data.Fin
@@ -161,25 +162,6 @@ export Ord ComponentId where compare a b = compare a.index b.index
 ------------------------------------------------------------------------------
 -- Names from content
 ------------------------------------------------------------------------------
-
-||| The UTF-8 bytes of a string, each character encoded by its scalar value
-||| in one to four bytes, put before the bytes of the characters after it:
-||| one pass, each byte made once.
-export
-utf8 : String -> List Bits8
-utf8 s = foldr encode [] (unpack s)
-  where
-    byte : Int -> Bits8
-    byte = cast
-    encode : Char -> List Bits8 -> List Bits8
-    encode c rest =
-      let v = ord c in
-      if v < 0x80 then byte v :: rest
-      else if v < 0x800 then byte (0xC0 + v `div` 0x40) :: byte (0x80 + v `mod` 0x40) :: rest
-      else if v < 0x10000 then byte (0xE0 + v `div` 0x1000) :: byte (0x80 + (v `div` 0x40) `mod` 0x40)
-                                 :: byte (0x80 + v `mod` 0x40) :: rest
-      else byte (0xF0 + v `div` 0x40000) :: byte (0x80 + (v `div` 0x1000) `mod` 0x40)
-             :: byte (0x80 + (v `div` 0x40) `mod` 0x40) :: byte (0x80 + v `mod` 0x40) :: rest
 
 ||| A word as exactly 16 lowercase hexadecimal digits, most significant
 ||| first.

@@ -68,11 +68,11 @@ captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 export
 functionOp : String -> List (SortOf MlirType MlirAttr) -> MlirType -> Region -> Term.Termination -> Op
 functionOp sym telescope type body termination =
-  Idr.funcOp {binders = Just (Idr (IndexBindersAttr telescope)), terminates = proof termination} sym type body
+  Idr.funcOp {binders = Just (IdrHand (BindersOf telescope)), terminates = proof termination} sym type body
   where
     proof : Term.Termination -> Maybe MlirAttr
-    proof (Terminates c) = Just (Idr (TerminatesAttr (ProvedIn c.index)))
-    proof Acyclic = Just (Idr (TerminatesAttr MadeAcyclic))
+    proof (Terminates c) = Just (IdrHand (TerminatesOf (ProvedIn c.index)))
+    proof Acyclic = Just (IdrHand (TerminatesOf MadeAcyclic))
     proof (MayDiverge _) = Nothing
 
 ||| What a lifted function's body was in its owner, which its symbol says.

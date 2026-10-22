@@ -19,6 +19,7 @@ module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Encoding.Idr
+import public IdrisMLIR.Encoding.Hand
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.UB
 
@@ -75,6 +76,9 @@ namespace MlirType
     | FunctionType (Signature MlirType)
     | ||| A type of the `idr` dialect.
       Idr (IdrType MlirType MlirAttr)
+    | ||| A type of the `idr` dialect whose parameters its C++ codes by
+      ||| hand, held typed until the writer lays them out.
+      IdrHand (HandType MlirType MlirAttr)
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -108,6 +112,9 @@ namespace MlirAttr
       LocAttr Location
     | ||| An attribute of the `idr` dialect.
       Idr (IdrAttr MlirType MlirAttr)
+    | ||| An attribute of the `idr` dialect whose parameters its C++ codes
+      ||| by hand, held typed until the writer lays them out.
+      IdrHand (HandAttr MlirType MlirAttr)
     | ||| An attribute of the `arith` dialect, made by `arith`.
       Arith (ArithAttr MlirType MlirAttr) Spelling
     | ||| An attribute of the `ub` dialect, made by `ub`.
@@ -140,6 +147,7 @@ mutual
   typeText (FunctionType (MkSignature ins outs)) = signature id (MkSignature (typesText ins) (typesText outs))
   -- No text attribute holds one, so this is never read.
   typeText (Idr _) = "none"
+  typeText (IdrHand _) = "none"
 
   typesText : List MlirType -> List String
   typesText [] = []
@@ -156,7 +164,7 @@ mutual
   attrText (IntegerAttr n t) = show n ++ " : " ++ typeText t
   -- A float never crosses as text: its entry holds its bits.
   attrText (FloatAttr _ t) = "0 : " ++ typeText t
-  attrText (StringAttr s) = Text.utf8 s
+  attrText (StringAttr s) = utf8Literal s
   attrText (SymbolRefAttr r) = symbolRef r
   attrText (TypeAttr t) = typeText t
   attrText (ArrayAttr as) = array id (attrsText as)
@@ -171,6 +179,7 @@ mutual
   -- No text attribute holds one of these, so this is never read.
   attrText (LocAttr _) = "unit"
   attrText (Idr _) = "unit"
+  attrText (IdrHand _) = "unit"
   attrText (Arith _ (MkSpelling s)) = s
   attrText (UB _ (MkSpelling s)) = s
 
@@ -199,12 +208,14 @@ namespace MlirAttr
 export
 typeDialect : MlirType -> String
 typeDialect (Idr _) = "idr"
+typeDialect (IdrHand _) = "idr"
 typeDialect _ = "builtin"
 
 ||| The dialect an attribute is of, by its constructor.
 export
 attrDialect : MlirAttr -> String
 attrDialect (Idr _) = "idr"
+attrDialect (IdrHand _) = "idr"
 attrDialect (Arith _ _) = "arith"
 attrDialect (UB _ _) = "ub"
 attrDialect _ = "builtin"

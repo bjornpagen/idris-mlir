@@ -13,7 +13,6 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
-import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
@@ -198,15 +197,15 @@ heldAt clause cls env = case getAt clause cls.patterns of
 ||| What each argument of a constructor alternative binds, in argument
 ||| order, read with the shape of the matched value's argument there when
 ||| its shape is known: a parameter is the instance's value, an argument of
-||| quantity 0 a compile-time one, a dictionary field the implementation
-||| the program builds it with, and a runtime field what `field` makes of
-||| it and its shape. Nothing when a dictionary field has no construction
-||| site yet, so that the constructor has no value (`Dictionaries`); every
-||| dictionary field is asked, each in turn.
-argsBound : {auto s : Ref TState TS} ->
-            (field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo a) ->
-            List ArgKind -> List ClosedTerm -> Front (Maybe (List (VarInfo a)))
-argsBound field args shapes = sequence <$> go args shapes
+||| quantity 0 a compile-time one, and a runtime field (an implementation
+||| the constructor holds among them, a choice) what `field` makes of it
+||| and its shape.
+argsBound : (field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo a) ->
+            List ArgKind -> List ClosedTerm -> List (VarInfo a)
+argsBound field [] _ = []
+argsBound field (a :: as) ss =
+  let (s, ss') = next ss in
+  bound a s :: argsBound field as ss'
   where
     -- The shape of an argument and those of the arguments after it; none
     -- once the shape gives no more.
@@ -214,16 +213,10 @@ argsBound field args shapes = sequence <$> go args shapes
     next [] = (Nothing, [])
     next (s :: ss) = (Just s, ss)
 
-    go : List ArgKind -> List ClosedTerm -> Front (List (Maybe (VarInfo a)))
-    go [] _ = pure []
-    go (a :: as) ss = do
-      let (s, ss') = next ss
-      v <- case a of
-             Param v => pure (Just (TypeValue v))
-             ErasedArg => pure (Just (TypeValue (Erased EmptyFC Placeholder)))
-             DictArg key _ => map (\impl => Static impl Nothing) <$> dictionaryOf key
-             Field i b ity => pure (Just (field i b ity s))
-      (v ::) <$> go as ss'
+    bound : ArgKind -> Maybe ClosedTerm -> VarInfo a
+    bound (Param v) _ = TypeValue v
+    bound ErasedArg _ = TypeValue (Erased EmptyFC Placeholder)
+    bound (Field i b ity) s = field i b ity s
 
 ||| What a runtime variable's binder says of it: its Core type, its Idris
 ||| type, the shape of its value, and the variable.
@@ -442,7 +435,7 @@ mutual
               -- constructors is a match on zero. A family of the same shape
               -- (`Fin`, `Elem`) is a family like any other, laid out as a
               -- number by the dialect.
-              (Just _, Just NatT) => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) alts
+              (Just _, Just (NatT _)) => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) alts
               _ => do
                 inst <- instanceOf v def
                 every <- coversAll alts
@@ -550,7 +543,7 @@ mutual
         let predInfo : VarInfo (Fin (Under 1 nv))
             predInfo = case (predecessor (shapeArgs shape) taken, ity) of
                          (Just p, Just t) => shaped FZ NatT t p
-                         _ => Runtime FZ (Just NatT) ity
+                         _ => Runtime FZ (Just (NatT IOpaque)) ity
         let infos = map (\a => case a of
                                   RuntimeValue _ => predInfo
                                   _ => TypeValue (Erased ctx.fc Placeholder)) taken
@@ -645,16 +638,10 @@ mutual
       | No _ => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " of " ++ show k ++
                                  " fields, which its alternative binds " ++ show (length named) ++ " of")
     dead <- excludedBy shape (fullname def)
-    -- A dictionary field stands for the one implementation the program
-    -- builds it with; before any construction site is known, no value of
-    -- the constructor exists and the alternative is impossible
-    -- (`Dictionaries`).
-    found <- argsBound (fieldAt k) info.args (shapeArgs shape)
-    alt <- case found of
-      Just infos => if dead then pure Nothing else do
-        body <- tree ctx (under {k} infos env) (afterCon args scrutinee cls) rhs
-        pure (Just (MkAlt con (replace {p = \c => Vect c Shown} counted (fromList named)) body))
-      Nothing => pure Nothing
+    let infos = argsBound (fieldAt k) info.args (shapeArgs shape)
+    alt <- if dead then pure Nothing else do
+      body <- tree ctx (under {k} infos env) (afterCon args scrutinee cls) rhs
+      pure (Just (MkAlt con (replace {p = \c => Vect c Shown} counted (fromList named)) body))
     (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst rest
     pure (insert cid others, maybe alts (:: alts) alt, fallback)
     where

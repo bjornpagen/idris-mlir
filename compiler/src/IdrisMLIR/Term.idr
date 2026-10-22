@@ -26,6 +26,7 @@ module IdrisMLIR.Term
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
@@ -77,6 +78,15 @@ liftRen f v = case splitUnder {k} v of
 -- Families
 ------------------------------------------------------------------------------
 
+||| An erased binder of a constructor: its sort, and the argument of the
+||| constructor's application that gives it, counting every argument, so
+||| that a construction site links the binder to the term that argument is.
+public export
+record ConBinder where
+  constructor MkConBinder
+  sort : Sort
+  argument : Nat
+
 ||| A constructor of a family instance, of `k` fields: its identity (the
 ||| family and its position, Idris's tag), its name within its type, as the
 ||| module labels it (`Types.shortName`); its erased binders, the levels
@@ -91,7 +101,7 @@ record Con (k : Nat) where
   constructor MkCon
   id : ConId
   name : String
-  binders : List Sort
+  binders : List ConBinder
   equation : List ITerm
   fields : Vect k Binder
   loc : Loc
@@ -100,13 +110,6 @@ record Con (k : Nat) where
 public export
 (.tag) : Con k -> Nat
 (.tag) c = finToNat c.id.index
-
-||| The terms a constructor's binders are given where the scope links none
-||| of them to a level or a constant: an index outside the language, which
-||| refines nothing.
-export
-unlinked : Con k -> List ITerm
-unlinked c = map (const IOpaque) c.binders
 
 ||| A family instance: the inductive family Idris checked, at the
 ||| parameters its key holds (keyed parameters substituted, dictionary
@@ -180,9 +183,12 @@ mutual
     ||| telescope (`TFn.telescope`).
     Call : Loc -> FnId -> (standsFor : Maybe Shown) -> (indices : List ITerm) -> List (Term n) -> Term n
     ||| A saturated constructor application; parameters are not fields.
-    ||| `binders` are the terms the constructor's erased binders are given,
-    ||| in the scope it is written in, one per binder: the indices of its
-    ||| value are its equation with them substituted.
+    ||| `binders` are the terms the constructor's first erased binders are
+    ||| given, in the scope it is written in, each the term of the argument
+    ||| that gives it (`ConBinder.argument`); a binder past them, as in a
+    ||| value the translation builds with no argument written, is outside
+    ||| the language. The indices of its value are its equation with them
+    ||| substituted.
     ConApp : {k : Nat} -> Loc -> Con k -> (binders : List ITerm) -> Vect k (Term n) -> Term n
     ||| `let`, with its variable's name and what it binds.
     Let : Loc -> (name : Shown) -> LetBinder -> Term n -> Term (Under 1 n) -> Term n

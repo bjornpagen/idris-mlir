@@ -45,24 +45,29 @@ record Holes where
 ||| instance and are not parameters at runtime. An implementation may close
 ||| over runtime values (`{vars : _} -> Show (Term vars)` at the scope a term
 ||| has): which implementation it is stays a compile-time value, the values
-||| replaced by markers, and the parameter holds the values (`Holes`). A
-||| parameter of quantity 0 is no parameter at runtime and keys nothing:
-||| absent, or, when it occurs as an index of an inductive family in a
-||| runtime parameter's type or the result and nowhere a representation
-||| depends on it, an index parameter of the instance, of its sort, whose
-||| level is the number of index parameters before it, so that the
-||| instance's types name it (`!idr.data<#Vect[v0]>`). Any
-||| other binds as its binder says, with its closed Idris type, which tells
-||| a function-typed value's erased arguments from its runtime ones; when
-||| the rest of the type depends on its value, the shape of its argument
-||| keys the instance too. An erased shape of the array language that a
-||| value array's type needs is its form, the spine with every extent
-||| erased: it keys the instance, since a tensor's rank is its type. The
-||| kinds stay positional, one per parameter of the definition's type, as
-||| the case tree's scope has one variable per parameter.
+||| replaced by markers, and the parameter holds the values (`Holes`). An
+||| implementation the call chooses at run time among those the program
+||| fixes is a choice (`ChoiceParam`): a runtime value of the closed sum of
+||| the implementations of its interface type (`Choices`), with its binder
+||| and that type; a call given one is a dispatch on it, never an instance
+||| at it. A parameter of quantity 0 is no parameter at runtime and keys
+||| nothing: absent, or, when it occurs as an index of an inductive family
+||| in a runtime parameter's type or the result and nowhere a
+||| representation depends on it, an index parameter of the instance, of
+||| its sort, whose level is the number of index parameters before it, so
+||| that the instance's types name it (`!idr.data<#Vect[v0]>`). Any other
+||| binds as its binder says, with its closed Idris type, which tells a
+||| function-typed value's erased arguments from its runtime ones; when the
+||| rest of the type depends on its value, the shape of its argument keys
+||| the instance too. An erased shape of the array language that a value
+||| array's type needs is its form, the spine with every extent erased: it
+||| keys the instance, since a tensor's rank is its type. The kinds stay
+||| positional, one per parameter of the definition's type, as the case
+||| tree's scope has one variable per parameter.
 public export
 data PKind = TypeParam ClosedTerm
            | DictParam ClosedTerm (Maybe Holes)
+           | ChoiceParam Binder ClosedTerm
            | ErasedParam
            | IndexParam Sort
            | FormParam ClosedTerm
@@ -113,6 +118,10 @@ export
 staticKindOf : PKind -> Maybe (Subset Static Requested, ClosedTerm)
 staticKindOf (TypeParam t) = Just (Element AType ReadAsType, t)
 staticKindOf (DictParam t _) = Just (Element ADictionary ReadAsDictionary, t)
+-- A choice keys nothing: which implementation runs is the value's, and the
+-- interface type it is a choice of follows from the static arguments
+-- before it, which key the dispatch.
+staticKindOf (ChoiceParam _ _) = Nothing
 staticKindOf ErasedParam = Nothing
 staticKindOf (IndexParam _) = Nothing
 staticKindOf (FormParam f) = Just (Element AForm ReadAsForm, f)
@@ -134,8 +143,8 @@ telescopeOf (_ :: ks) = telescopeOf ks
 ||| which `Keys` prints.
 export
 nameKey : Name -> String
-nameKey (NS ns n) = show (NS ns (UN (Basic (nameKey n))))
-nameKey (DN str n) = str ++ "{" ++ nameKey n ++ "}"
+nameKey (NS ns n) = let k = nameKey n in if any isOpChar (unpack k) then show ns ++ ".(" ++ k ++ ")" else show ns ++ "." ++ k
+nameKey (DN str n) = str.text ++ "{" ++ nameKey n ++ "}"
 nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ nameKey outer
 nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ nameKey outer
 nameKey n = show n
@@ -239,26 +248,17 @@ record Request where
   node : Node
   heights : List (Nat, Nat)
 
-||| A dictionary field: the link of its data instance (`Keys.instanceKey`),
-||| its constructor's index among the type's constructors, and its
-||| argument's among the constructor's. Built where the constructor's
-||| layout is (`Types`), so every reader holds the one key.
-public export
-DictField : Type
-DictField = (Link Form, Nat, Nat)
-
 ||| One argument of a constructor, as a data instance has it. Idris does not
 ||| put the data type's parameters first (`(::) : {0 len} -> {0 elem} ->
 ||| ...`), so every argument says what it is: a parameter, whose value the
-||| instance gives; an argument of quantity 0, which is no field; an
-||| implementation (`Empty : Ord k => ...`), a compile-time value of the
-||| instance (`Dictionaries`), with its field's key and its type; or
+||| instance gives; an argument of quantity 0, which is no field; or
 ||| runtime field `i`, counting the runtime fields from 0, with its binder
-||| and its Idris type at the instance.
+||| and its Idris type at the instance. An implementation the constructor
+||| holds (`Empty : Ord k => ...`) is a field like any other, its value a
+||| choice (`Choices`): each construction site gives the one it fixes.
 public export
 data ArgKind = Param ClosedTerm
              | ErasedArg
-             | DictArg DictField ClosedTerm
              | Field Nat Binder ClosedTerm
 
 ||| The binder of a runtime field.
@@ -277,16 +277,57 @@ record ConLayout where
   name : Name
   con : (k ** Con k)
 
-||| The one implementation a dictionary field holds in the whole program,
-||| and the user definition that chose it, as a refusal prints it: the one
-||| the first construction site's instance was requested for, through the
-||| library's instances.
+||| The constructor of a member of a choice: one with no field, for an
+||| implementation that closes over no runtime value, or one whose one
+||| field holds the values it closes over (`Holes`).
 public export
-record Dictionary where
-  constructor MkDictionary
-  impl : ClosedTerm
-  chooser : Shown
+data MemberCon = Bare (Con 0) | Holding Holes (Con 1)
+
+||| An implementation the program fixes as a value of its interface type,
+||| one constructor of that type's choice (`Choices`): its form, the
+||| runtime values it closes over replaced by markers (`Closed.holeMarker`),
+||| which keys the instance of every callee a dispatch calls at it, and its
+||| constructor.
+public export
+record ChoiceMember where
+  constructor MkChoiceMember
+  form : ClosedTerm
+  con : MemberCon
+
+||| The closed sum of the implementations of one interface type that the
+||| program fixes as runtime values: its family, the interface type, and
+||| its members in the order the translation found them, each the next
+||| constructor. It only grows, and a dispatch on it is built once the
+||| translation has found every member (`Choices.dispatchers`).
+public export
+record Choice where
+  constructor MkChoice
+  family : FamilyId
+  type : ClosedTerm
+  members : SnocList ChoiceMember
+
+||| A call given a choice (`ChoiceParam`), as one function: its identity,
+||| symbol and key, the callee and its kinds as the call classified them,
+||| the choice's family and the position of the parameter that takes it,
+||| where and in whose definition it was made, and for each member the
+||| instance of the callee at that member that its arm calls, by the
+||| member's position.
+public export
+record Dispatch where
+  constructor MkDispatch
+  inst : FnId
+  symbol : String
+  key : InstanceKey
+  callee : Name
+  kinds : List PKind
+  family : FamilyId
+  at : Nat
+  ||| How many choices the kinds hold after this one: each arm is a call
+  ||| of the callee with one fewer (`Choices.calleeAt`).
+  rest : Nat
   site : FC
+  owner : String
+  arms : SortedMap Nat FnId
 
 export
 data TState : Type where
@@ -431,17 +472,18 @@ record TS where
   ||| own origin (`Keys`). A block's name depends only on the definitions,
   ||| so each is found once.
   blockNames : SortedMap Address String
-  ||| The implementation each dictionary field holds, by its key.
-  dicts : SortedMap DictField Dictionary
-  ||| The dictionary fields the instance being translated matched before
-  ||| any construction site gave their implementation: it translated their
-  ||| alternatives as unreachable, and is translated again once a
-  ||| construction site gives one (`Finite`), which keeps them per instance.
-  assumed : SortedSet DictField
+  ||| The choices registered, each by the link of its interface type (the
+  ||| interface at the arguments a family of it would be keyed by), its
+  ||| family minted once from `nextFamily`; and each by its family.
+  choiceIds : SortedMap (Link Form) FamilyId
+  choices : SortedMap FamilyId Choice
+  ||| The dispatches made, each by its identity, and the dispatches on each
+  ||| choice, by its family, which a new member is joined with.
+  dispatches : SortedMap FnId Dispatch
+  dispatchesOn : SortedMap FamilyId (List FnId)
   ||| The request chain of the instance being translated: its own request,
-  ||| the one that requested it, back to the root. It leads back to the user
-  ||| definition a library instance serves (`Dictionaries.chooser`); the
-  ||| worklist sets it (`Finite.worklist`).
+  ||| the one that requested it, back to the root, which its block names
+  ||| and its exits read; the worklist sets it (`Finite.worklist`).
   chain : List Request
   ||| The type constructors of the interfaces the program loaded, by full
   ||| name: Idris's own table of them, read once, since nothing the
@@ -496,8 +538,9 @@ initState loaded ifaces fc = MkTS
   { familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
   , cons = empty, fns = empty, fnOrder = [<], fnIds = empty, nextInstance = 0, requested = [<], moduleFC = fc
   , nextComponent = 0
-  , loops = empty, named = empty, keyLinks = empty, blockNames = empty, dicts = empty
-  , assumed = empty, chain = [], interfaces = ifaces, rejected = [<], refused = empty
+  , loops = empty, named = empty, keyLinks = empty, blockNames = empty
+  , choiceIds = empty, choices = empty, dispatches = empty, dispatchesOn = empty
+  , chain = [], interfaces = ifaces, rejected = [<], refused = empty
   , spelled = empty, modules = loaded, tyCons = empty, argumentsTaken = empty, readings = empty, bounds = empty
   , sizes = MkBounds (const []) 0 0 0 }
 
@@ -524,9 +567,9 @@ keepFound from = { rejected := from.rejected, refused := from.refused
                  , blockNames := from.blockNames }
 
 ||| The state the translation starts from: nothing of the phases before it
-||| but the modules, the dictionaries, the interfaces, what they found that
-||| outlives them (`keepFound`), and the growth check's bounds.
+||| but the modules, the interfaces, what they found that outlives them
+||| (`keepFound`), and the growth check's bounds.
 export
 translating : TS -> TS
-translating st = keepFound st ({ dicts := st.dicts, bounds := st.bounds, sizes := st.sizes }
+translating st = keepFound st ({ bounds := st.bounds, sizes := st.sizes }
                                  (initState st.modules st.interfaces st.moduleFC))

@@ -129,7 +129,8 @@ isUser _ = False
 entryPoint : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Front GlobalDef
 entryPoint = do
   defs <- getDefs
-  found <- core (lookupCtxtName (UN (Basic programEntry)) (gamma defs))
+  entry <- core (internUserName programEntry)
+  found <- core (lookupCtxtName (UN entry) (gamma defs))
   here <- core ((::) <$> getNS <*> getNestedNS)
   visible <- keepIf (visibleFrom here) (map (\(_, _, def) => def) found)
   case visible of

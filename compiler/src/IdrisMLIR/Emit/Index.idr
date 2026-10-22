@@ -2,7 +2,7 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The program's declarations as the emitters look them up: each function
 ||| by its identity, and each family as the member of its group, the
-||| `#idr.families` attribute that declares the group whole; and Core's
+||| `#idr.family` attribute that declares the group whole; and Core's
 ||| types as the module's. A data type is its family's group and member
 ||| applied to index terms: its identity is that content, so the module has
 ||| no table of data types and nothing is looked up by name.
@@ -109,24 +109,24 @@ mutual
   typeIn a DoubleT = F64Type
   typeIn a StrT = Idr StrType
   typeIn a BigT = Idr BigType
-  typeIn a NatT = Idr NatType
+  typeIn a (NatT t) = IdrHand (NatOf (nodeIn a t))
   typeIn a WorldT = NoneType
   typeIn a (DataT f ts) = case lookup f a.members of
-    Just m => Idr (SelfType m (nodesIn a ts))
+    Just m => IdrHand (SelfOf m (nodesIn a ts))
     Nothing => case lookup f a.declared of
-      Just e => Idr (DataType e.group e.member (nodesIn a ts) Nothing)
+      Just e => IdrHand (DataOf e.group e.member (nodesIn a ts) Nothing)
       -- A family no group declares is the translation's broken contract;
       -- `Emit.index` declares every family before any type names one.
       Nothing => NoneType
   -- A closure that takes the world takes nothing: IO is ordered by
   -- effects, so an action is a closure of no argument.
-  typeIn a (FunT (MkBinder q WorldT) r) = Idr (FnType (MkSignature [] (resultsIn a r)))
-  typeIn a (FunT (MkBinder q x) r) = Idr (FnType (MkSignature [gradedIn a q Held.Counted x] (resultsIn a r)))
+  typeIn a (FunT (MkBinder q WorldT) r) = Idr (FnType [] (resultsIn a r))
+  typeIn a (FunT (MkBinder q x) r) = Idr (FnType [gradedIn a q Held.Counted x] (resultsIn a r))
   typeIn a (LazyT r) = Idr (LazyType (gradedIn a Many Held.Counted r))
   typeIn a (TensorT ds e) = RankedTensorType ds (typeIn a e)
   -- Every memref the frontend writes is an array written while shared, in
   -- the dialect's memory space for it.
-  typeIn a (MemRefT o e) = MemRefType (orderedDims o) (typeIn a e) (Just (Idr MutableSpaceAttr))
+  typeIn a (MemRefT o e) = MemRefType (orderedDims o) (typeIn a e) (Just (Idr MutableAttr))
 
   ||| The types a result of a type is: none for the world.
   resultsIn : Among -> Ty -> List MlirType
@@ -141,30 +141,34 @@ mutual
   gradedIn : Among -> Uses -> Held -> Ty -> MlirType
   gradedIn a u h t = case (u, reachesIn a t, h) of
     (Many, WordsOnly, _) => typeIn a t
-    (Once, WordsOnly, _) => Idr (GradedType Once Nothing (typeIn a t))
+    (Once, WordsOnly, _) => IdrHand (GradedOf Once Nothing (typeIn a t))
     -- A value that holds references, used freely and freed by its count
     -- with no claim of its sharing, is the bare type: every such value
     -- before counting.
     (Many, HoldsReferences, Held.Counted) => typeIn a t
-    (_, HoldsReferences, _) => Idr (GradedType u (Just (holdOf h)) (typeIn a t))
+    (_, HoldsReferences, _) => IdrHand (GradedOf u (Just (holdOf h)) (typeIn a t))
 
-  ||| An index term's nodes, in preorder, among the families given. A
-  ||| constructor of a member of the group being declared has no attribute
-  ||| yet to name, so it is an index outside the language there, which
-  ||| refines nothing.
+  ||| An index term's nodes, in preorder, among the families given: a
+  ||| type standing as an index is a literal of its type attribute; a
+  ||| constructor of a member of the group being declared names no group,
+  ||| one of an earlier group its group's attribute; a constructor of a
+  ||| family no group declares is the translation's broken contract, an
+  ||| index outside the language here.
   nodesIn : Among -> List ITerm -> List (TermNode MlirType MlirAttr)
   nodesIn a [] = []
   nodesIn a (t :: ts) = nodeIn a t ++ nodesIn a ts
 
   nodeIn : Among -> ITerm -> List (TermNode MlirType MlirAttr)
   nodeIn a (INat n) = [NatNode (cast n)]
-  nodeIn a (IVar k) = [VarNode k]
+  nodeIn a (IVar k) = [LevelNode k]
   nodeIn a (ISucc t k) = SuccNode k :: nodeIn a t
   nodeIn a (ILit l) = [LitNode (litAttr l)]
-  nodeIn a (IType t) = [TypeNode (typeIn a t)]
-  nodeIn a (ICon f c args) = case lookup f a.declared of
-    Just e => ConNode e.group e.member c (length args) :: nodesIn a args
-    Nothing => [OpaqueNode]
+  nodeIn a (IType t) = [LitNode (TypeAttr (typeIn a t))]
+  nodeIn a (ICon f c args) = case lookup f a.members of
+    Just m => ConNode Nothing m c (length args) :: nodesIn a args
+    Nothing => case lookup f a.declared of
+      Just e => ConNode (Just e.group) e.member c (length args) :: nodesIn a args
+      Nothing => [OpaqueNode]
   nodeIn a IOpaque = [OpaqueNode]
 
 ||| What the specification's grade says of a hold the frontend writes:
@@ -189,8 +193,8 @@ gradedType ix = gradedIn (MkAmong ix.families empty)
 ||| to be one of them, under its grade; the tags are part of the data type,
 ||| as `DataType::refined` makes it.
 refine : MlirType -> List1 Nat -> MlirType
-refine (Idr (GradedType u h t)) tags = Idr (GradedType u h (refine t tags))
-refine (Idr (DataType g m ts _)) tags = Idr (DataType g m ts (Just (forget tags)))
+refine (IdrHand (GradedOf u h t)) tags = IdrHand (GradedOf u h (refine t tags))
+refine (IdrHand (DataOf g m ts _)) tags = IdrHand (DataOf g m ts (Just (DenseI32ArrayAttr (forget tags))))
 refine t tags = t
 
 ||| The module's type of a value: its grade around its type, refined to
@@ -213,15 +217,19 @@ export
 termNodes : Index -> List ITerm -> List (TermNode MlirType MlirAttr)
 termNodes ix = nodesIn (MkAmong ix.families empty)
 
-||| The module's sort of a Core sort, among the families given.
+||| The module's sort of a Core sort, among the families given: a member of
+||| the group being declared names no group, one of an earlier group its
+||| group's attribute.
 sortIn : Among -> Sort -> SortOf MlirType MlirAttr
-sortIn a SNat = NatSort
-sortIn a SType = TypeSort
-sortIn a SOpaque = OpaqueSort
-sortIn a (SScalar t) = ScalarSort (typeIn a t)
-sortIn a (SFamily f) = case lookup f a.declared of
-  Just e => FamilySort e.group e.member
-  Nothing => OpaqueSort
+sortIn a SNat = SortNat
+sortIn a SType = SortType
+sortIn a SOpaque = SortOpaque
+sortIn a (SScalar t) = SortScalar (typeIn a t)
+sortIn a (SFamily f) = case lookup f a.members of
+  Just m => SortFamily Nothing m
+  Nothing => case lookup f a.declared of
+    Just e => SortFamily (Just e.group) e.member
+    Nothing => SortOpaque
 
 ||| The module's sort of a Core sort, among the program's families.
 export
@@ -251,7 +259,7 @@ fieldType ix = fieldTypeIn (MkAmong ix.families empty)
 fieldsIn : Among -> List Binder -> List MlirType
 fieldsIn a [] = []
 fieldsIn a (MkBinder _ WorldT :: bs) = fieldsIn a bs
-fieldsIn a (MkBinder Once t :: bs) = Idr (GradedType Once Nothing (fieldTypeIn a t)) :: fieldsIn a bs
+fieldsIn a (MkBinder Once t :: bs) = IdrHand (GradedOf Once Nothing (fieldTypeIn a t)) :: fieldsIn a bs
 fieldsIn a (MkBinder Many t :: bs) = fieldTypeIn a t :: fieldsIn a bs
 
 ||| A constructor as its family's declaration holds it: its label, its
@@ -259,14 +267,14 @@ fieldsIn a (MkBinder Many t :: bs) = fieldTypeIn a t :: fieldsIn a bs
 ||| own scope) and its fields.
 ctorDecl : Among -> (k ** Con k) -> CtorDecl MlirType MlirAttr
 ctorDecl a (_ ** c) =
-  MkCtorDecl c.name (map (sortIn a) c.binders) (nodesIn a c.equation) (fieldsIn a (toList c.fields))
+  MkCtorDecl c.name (map (sortIn a . (.sort)) c.binders) (nodesIn a c.equation) (fieldsIn a (toList c.fields))
 
 ||| A family as a member of its group: its label (its key printed, which is
 ||| part of its identity and never looked up), what its library promises,
 ||| its declaration's location, its index sorts and its constructors.
-memberDecl : Among -> Family -> FamilyMember MlirType MlirAttr
+memberDecl : Among -> Family -> DataMember MlirType MlirAttr
 memberDecl a f =
-  MkFamilyMember (keyText f.key) f.promise (LocAttr (At f.loc)) (map (sortIn a) f.indices) (map (ctorDecl a) f.cons)
+  MkDataMember (keyText f.key) f.promise (LocAttr (At f.loc)) (map (sortIn a) f.indices) (map (ctorDecl a) f.cons)
 
 ||| Whether a group's values hold references: a group whose fields refer
 ||| to its own members is recursive, so its values are cells; any other
@@ -288,7 +296,7 @@ groupReaches a fs =
       WordsOnly => False
 
 ||| The families of a program declared, group by group in order, each
-||| group one `#idr.families` attribute naming the earlier groups' members
+||| group one `#idr.family` attribute naming the earlier groups' members
 ||| by their attributes and its own by `self`.
 declare : List FamilyGroup -> SortedMap FamilyId FamilyEntry
 declare = foldl group empty
@@ -298,7 +306,7 @@ declare = foldl group empty
       let fs = forget g
           numbered = zip fs [0 .. length fs]
           a = MkAmong done (fromList (map (\(f, m) => (f.id, m)) numbered))
-          attr = Idr (FamiliesAttr (map (memberDecl a) fs))
+          attr = IdrHand (FamilyOf (map (memberDecl a) fs))
           r = groupReaches a fs
       in foldl (\m, (f, i) => insert f.id (MkFamilyEntry f attr i r) m) done numbered
 

@@ -25,6 +25,7 @@ import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Ops.IO
+import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Runtime.Clocks
 import IdrisMLIR.Spec.Runtime.Endings
@@ -238,7 +239,7 @@ literal ix l (LChar c) = value {binder} ix l CharT (Arith.constantOp (IntegerAtt
 literal ix l (LDouble d) = value {binder} ix l DoubleT (Arith.constantOp (FloatAttr d F64Type))
 literal ix l (LStr s) = heldValue {binder} ix l Held.Static StrT (Idr.constantOp (StringAttr s))
 literal ix l (LBig n) = heldValue {binder} ix l Held.Static BigT (Idr.constantOp (Idr (BigAttr n)))
-literal ix l (LNat n) = heldValue {binder} ix l Held.Static NatT (Idr.constantOp (Idr (BigAttr n)))
+literal ix l (LNat n) = heldValue {binder} ix l Held.Static (NatT (INat (integerToNat n))) (Idr.constantOp (Idr (BigAttr n)))
 
 ------------------------------------------------------------------------------
 -- Primitives
@@ -415,6 +416,7 @@ mutual
   export
   substTy : List ITerm -> Ty -> Ty
   substTy bs (DataT f ts) = DataT f (substituteAll bs ts)
+  substTy bs (NatT t) = NatT (substitute bs t)
   substTy bs (FunT (MkBinder q a) r) = FunT (MkBinder q (substTy bs a)) (substTy bs r)
   substTy bs (LazyT a) = LazyT (substTy bs a)
   substTy bs (TensorT ds a) = TensorT ds (substTy bs a)
@@ -441,7 +443,7 @@ fieldOperands ix l (f :: fs) (v :: vs) = (::) <$> held f <*> fieldOperands ix l 
       b <- mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
       case q of
         Many => pure b
-        Once => mlirValue l (Idr (GradedType Once Nothing b.type)) (Idr.linCastOp b)
+        Once => mlirValue l (IdrHand (GradedOf Once Nothing b.type)) (Idr.linCastOp b)
     held b = operand ix <$> coerce ix l b.quantity v
 
 ||| A constructor application (`idr.con`), built with every field: its value
@@ -558,6 +560,10 @@ effect binder ix l a gives vs res = Just <$> answer gives !(acted a vs)
       ActedOne . (.name) <$> mlirValue l givenType
         (Idr.ioClockOp (IntegerAttr (natToInteger (position clockKindClosed k)) (IntegerType 32)))
     acted NeverRead _ = ActedOne . (.name) <$> int64 unreadable
+    acted (ReadsFileTime f) _ = case args of
+      [times] => ActedOne . (.name) <$> mlirValue l givenType
+                   (Idr.handleFileTimeOp (IntegerAttr (natToInteger (position fileTimeFieldClosed f)) (IntegerType 32)) times)
+      _ => internal "a file time's field read given other than its file-time handle"
     acted (Queries q) _ = case args of
       [reading] => ActedOne . (.name) <$> query q reading
       _ => internal "a clock's query given other than its reading"

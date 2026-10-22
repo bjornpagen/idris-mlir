@@ -35,6 +35,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 import IdrisMLIR.Term
@@ -944,11 +945,11 @@ mutual
       structural : Name -> Front String
       structural (NS ns m) =
         let parts = unsafeUnfoldNamespace ns in
-        (("N" ++ show (length parts) ++ ";" ++ concatMap counted parts) ++) <$> nameIdentity m
-      structural (UN (Basic x)) = pure ("U" ++ counted x)
-      structural (UN (Field x)) = pure ("V" ++ counted x)
+        (("N" ++ show (length parts) ++ ";" ++ concatMap (counted . (.text)) parts) ++) <$> nameIdentity m
+      structural (UN (Basic x)) = pure ("U" ++ counted x.text)
+      structural (UN (Field x)) = pure ("V" ++ counted x.text)
       structural (UN Underscore) = pure "_"
-      structural (MN x i) = pure ("M" ++ counted x ++ show i ++ ";")
+      structural (MN x i) = pure ("M" ++ counted x.text ++ show i ++ ";")
       structural (PV m i) = (\t => "P" ++ t ++ show i ++ ";") <$> nameIdentity m
       structural (DN _ m) = nameIdentity m
       structural (Resolved i) = pure ("R" ++ show i ++ ";")

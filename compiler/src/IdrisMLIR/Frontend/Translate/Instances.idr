@@ -15,7 +15,6 @@ import Libraries.Data.List.Thin
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
-import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.Recursion
@@ -102,10 +101,11 @@ request fc owner n kinds = do
 
 ||| What a call knows of an argument it gives: an implementation known at
 ||| compile time, whatever binds it (Idris passes an enclosing function's
-||| constraints to its case and with blocks as explicit arguments), or a
-||| value, whose parameter's type decides what it is.
+||| constraints to its case and with blocks as explicit arguments); a
+||| choice of one, which a dispatch passes on (`Choices`); or a value,
+||| whose parameter's type decides what it is.
 public export
-data Offer = AnImplementation | AValue
+data Offer = AnImplementation | AChoice | AValue
 
 ||| A compile-time value of an argument, computed on demand: normalised for a
 ||| type, as written for an implementation, with what the call knows of it
@@ -146,6 +146,7 @@ givenArgs = map given
     given (TypeParam t) = Just (known t AValue)
     given (DictParam t Nothing) = Just (known t AnImplementation)
     given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t AnImplementation))
+    given (ChoiceParam _ t) = Just (known t AChoice)
     given ErasedParam = Nothing
     given (IndexParam _) = Nothing
     given (FormParam f) = Just (known f AValue)
@@ -213,11 +214,11 @@ data Dependence = Runs | Reduces
 ||| How a parameter keys an instance, decided from its binder (its quantity,
 ||| its normalised type and the rest of the type) and what the call knows
 ||| of its argument (`Offer`): a type, a type family (a type parameter whose
-||| kind is a function into a universe), a form, an implementation, an
-||| erased value that keys nothing, or a runtime value, by how the rest of
-||| the type depends on it. The one place `classify` and `staticsOver`
-||| decide it.
-data Keying = Typed | Family | Formed | Implemented | Unkeyed | Runtime Dependence
+||| kind is a function into a universe), a form, an implementation, at the
+||| quantity its binder has, an erased value that keys nothing, or a
+||| runtime value, by how the rest of the type depends on it. The one place
+||| `classify` and `staticsOver` decide it.
+data Keying = Typed | Family | Formed | Implemented Uses | Unkeyed | Runtime Dependence
 
 keyingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            RigCount -> ClosedTerm -> TT [x] -> Offer -> Front Keying
@@ -231,11 +232,12 @@ keyingOf rig a' sc offer = case use rig of
       -- keys the instance, by the rule a data type's parameter is formed
       -- by. Any other erased argument keys nothing.
       pure (if !(formNeeded a' (\x => subst x sc)) then Formed else Unkeyed)
-  Used _ => case offer of
-    AnImplementation => pure Implemented
+  Used q => case offer of
+    AnImplementation => pure (Implemented q)
+    AChoice => pure (Implemented q)
     AValue =>
       if !(implementationType a')
-         then pure Implemented
+         then pure (Implemented q)
          else pure (Runtime (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
 
 ||| `classify`'s decisions over arguments given as closed terms (over the
@@ -258,7 +260,7 @@ staticsOver owner (S k) ty vals = do
     Typed => pure (Just AType)
     Family => pure (Just AFamily)
     Formed => pure (Just AForm)
-    Implemented => pure (Just ADictionary)
+    Implemented _ => pure (Just ADictionary)
     Unkeyed => pure Nothing
     Runtime Runs => pure Nothing
     Runtime Reduces => pure (if !(needsShape owner (\x => subst x sc)) then Just AShape else Nothing)
@@ -266,74 +268,20 @@ staticsOver owner (S k) ty vals = do
   pure (kind :: kinds, res)
 
 ||| A callee's parameters, classified over its arguments (`classifyCall`),
-||| and the type after them; or nothing, when an implementation the call
-||| takes is a dictionary field no construction site has given yet.
+||| and the type after them.
 public export
 Classified : Type
-Classified = Maybe (List PKind, ClosedTerm)
-
-||| The implementation a projection of a dictionary field reads from a
-||| runtime value (`eqOf d`, with `d : HasEq Int`): the one the field holds
-||| in the whole program (`Dictionaries`), as a match on the record binds
-||| it; `Just Nothing` when no construction site has given it yet, which a
-||| match takes as never built too, the instance being translated waiting
-||| on the field; `Nothing` when the term is no such read.
-dictionaryRead : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 FC -> String -> ClosedTerm -> Front (Maybe (Maybe ClosedTerm))
-dictionaryRead fc owner tm = do
-  -- A record's field function (`eqOf`) reaches its projection (`.eqOf`)
-  -- once unfolded: the projection applied to the runtime record is where
-  -- the reduction is stuck.
-  stuck <- whnf tm
-  case stuck of
-    Stuck (OnValue t) => projected t
-    Stuck (OnRuntime t) => projected t
-    _ => pure Nothing
-  where
-    -- The type of parameter `i` of a function type, the parameters before
-    -- it given the arguments.
-    parameterType : ClosedTerm -> List ClosedTerm -> Nat -> Front (Maybe ClosedTerm)
-    parameterType ty _ Z = do
-      Bind _ _ (Pi _ _ _ a) _ <- showingBinder ty
-        | _ => pure Nothing
-      pure (Just a)
-    parameterType ty (x :: xs) (S j) = do
-      Bind _ _ (Pi {}) sc <- showingBinder ty
-        | _ => pure Nothing
-      parameterType !(normaliseClosed (subst x sc)) xs j
-    parameterType ty [] (S _) = pure Nothing
-
-    projected : ClosedTerm -> Front (Maybe (Maybe ClosedTerm))
-    projected t = case getFnArgs t of
-      (Ref _ Func p, args) => do
-        Just pr <- projection p
-          | Nothing => pure Nothing
-        def <- lookupDef fc owner p
-        Just held <- parameterType (type def) args pr.matched
-          | Nothing => pure Nothing
-        Just (inst, _) <- dataOf fc owner !(normaliseClosed held)
-          | Nothing => pure Nothing
-        Just cid <- conIdOf inst !(lookupDef fc owner pr.con)
-          | Nothing => pure Nothing
-        let Just info = lookup cid (!(getState)).cons
-          | Nothing => pure Nothing
-        case getAt pr.field info.args of
-          Just (DictArg key _) => Just <$> dictionaryOf key
-          _ => pure Nothing
-      _ => pure Nothing
+Classified = (List PKind, ClosedTerm)
 
 ||| Walks a callee's type over its arguments: which are type parameters or
 ||| implementations, which are erased, which are index parameters, which
 ||| are runtime (and their types). Each index parameter stands in the rest
 ||| of the type as its own level (`marker`), the next one `level`, so the
-||| types read in the callee's scope. Nothing when an implementation the
-||| call takes is a dictionary field no construction site has given yet: no
-||| value holds the field, so the call never runs, and the instance being
-||| translated waits on the field.
+||| types read in the callee's scope.
 classifyAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              FC -> String -> (level : Nat) -> Nat -> ClosedTerm -> ArgValues ->
              Front Classified
-classifyAt fc owner level Z ty _ = pure (Just ([], ty))
+classifyAt fc owner level Z ty _ = pure ([], ty)
 classifyAt fc owner level (S k) ty vals = do
   Bind bfc _ (Pi _ rig _ a) sc <- showingBinder ty
     | _ => internal fc "more arguments than the type has binders"
@@ -353,7 +301,7 @@ classifyAt fc owner level (S k) ty vals = do
           let Just v = given
             | Nothing => reject fc owner StaticArgument "a shape that is not known statically"
           form <- formOf <$> spineOf fc owner !(v.normalised)
-          map (mapFst (FormParam form ::)) <$> classifyAt fc owner level k !(normaliseClosed (subst form sc)) vals'
+          mapFst (FormParam form ::) <$> classifyAt fc owner level k !(normaliseClosed (subst form sc)) vals'
         -- An erased binder an index of a runtime parameter's type or of
         -- the result reads, and nothing a value is made of, is an index
         -- parameter, its level standing for it in the rest of the type;
@@ -363,21 +311,16 @@ classifyAt fc owner level (S k) ty vals = do
           case !(occurrenceOf owner level rest) of
             IndexOnly => do
               sort <- sortOfType a'
-              map (mapFst (IndexParam sort ::)) <$> classifyAt fc owner (S level) k rest vals'
-            _ => map (mapFst (ErasedParam ::)) <$> classifyAt fc owner level k (subst (Erased bfc Placeholder) sc) vals'
-        Implemented => do
+              mapFst (IndexParam sort ::) <$> classifyAt fc owner (S level) k rest vals'
+            _ => mapFst (ErasedParam ::) <$> classifyAt fc owner level k (subst (Erased bfc Placeholder) sc) vals'
+        Implemented q => do
           let Just v = given
             | Nothing => reject fc owner StaticArgument "an implementation that is not known statically"
-          written <- v.written
-          -- A dictionary field read from a runtime record is the one
-          -- implementation the field holds, as a match binds it; one no
-          -- construction site has given yet is never read.
-          read <- if !(runtimeDependent written) then dictionaryRead fc owner written else pure Nothing
-          case read of
-            Just Nothing => pure Nothing
-            Just (Just held) =>
-              map (mapFst (DictParam held Nothing ::)) <$> classifyAt fc owner level k !(normaliseClosed (subst held sc)) vals'
-            Nothing => implemented v written vals'
+          case v.offer of
+            AChoice => chosen q a' vals'
+            _ => do
+              written <- v.written
+              implemented q a' v written vals'
         Runtime dependence => do
           when !(erasedOutsideIndices owner a') $ do
             reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
@@ -408,7 +351,7 @@ classifyAt fc owner level (S k) ty vals = do
               neededShape owner (\x => subst x sc) found
             _ => pure Nothing
           let value = fromMaybe (Erased bfc Placeholder) shape
-          map (mapFst (ValueParam b shape a' ::)) <$> classifyAt fc owner level k !(normaliseClosed (subst value sc)) vals'
+          mapFst (ValueParam b shape a' ::) <$> classifyAt fc owner level k !(normaliseClosed (subst value sc)) vals'
       where
         -- A type, normalised, keys the instance.
         typed : Maybe ArgValue -> ArgValues -> Front Classified
@@ -416,19 +359,19 @@ classifyAt fc owner level (S k) ty vals = do
           let Just v = given
             | Nothing => reject fc owner StaticArgument "a type argument that is not known statically"
           val <- v.normalised
-          map (mapFst (TypeParam val ::)) <$> classifyAt fc owner level k !(normaliseClosed (subst val sc)) after
+          mapFst (TypeParam val ::) <$> classifyAt fc owner level k !(normaliseClosed (subst val sc)) after
 
         -- An implementation given as written, at a parameter of an
         -- interface's type.
-        implemented : ArgValue -> ClosedTerm -> ArgValues -> Front Classified
-        implemented v written vals' = do
+        implemented : Uses -> ClosedTerm -> ArgValue -> ClosedTerm -> ArgValues -> Front Classified
+        implemented q a' v written vals' = do
           -- An implementation can be a function of a runtime value
           -- (`{y : a} -> Show (p y)`, applied to the first component of a
           -- dependent pair), which Idris resolved at every value: constant
           -- in it, or using it only where it is erased (`Show (Tag y)`).
           -- What the function returns is then a compile-time value, seen
           -- once the projections and applications that lead to it are
-          -- reduced; one that still needs the value is chosen at runtime.
+          -- reduced.
           val <- if !(runtimeDependent written) then implementationOf written else pure written
           -- One that a definition gives without matching on a runtime value
           -- it closes over (`{vars : _} -> Show (Term vars)`) is chosen now
@@ -446,17 +389,37 @@ classifyAt fc owner level (S k) ty vals = do
                          else if hasRuntimePart written
                                 then maybe (pure True) runtimeDependent !(expandClosed written)
                                 else pure False
-          (key, holes) <- the (Front (ClosedTerm, Maybe Holes)) $
-            if not dependent then pure (val, Nothing) else do
-              -- The message is made in its own `do`: a `!` lifts to its
-              -- statement, and would make it whether or not it is needed.
-              Just (shape, tys) <- v.holed
-                | Nothing => do
-                    reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
-              key <- implementationOf shape
-              held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
-              pure (key, Just (MkHoles tys (MkBinder Many held)))
-          map (mapFst (DictParam key holes ::)) <$> classifyAt fc owner level k !(normaliseClosed (subst key sc)) vals'
+          if not dependent then staticOrChosen q a' val vals' else do
+            -- One that still needs a runtime value to say which it is is
+            -- chosen at run time, among those the program fixes.
+            Just (shape, tys) <- v.holed
+              | Nothing => chosen q a' vals'
+            key <- implementationOf shape
+            held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
+            static key (Just (MkHoles tys (MkBinder Many held))) vals'
+
+        -- An implementation that needs no runtime value keys the
+        -- instance, unless a definition Idris does not prove ends computes
+        -- it: no compile-time reduction runs that, so it is computed at run
+        -- time, a choice like any other.
+        staticOrChosen : Uses -> ClosedTerm -> ClosedTerm -> ArgValues -> Front Classified
+        staticOrChosen q a' val vals' = do
+          Stuck (OnPartial _) <- whnf val
+            | _ => static val Nothing vals'
+          chosen q a' vals'
+
+        -- An implementation known now keys the instance.
+        static : ClosedTerm -> Maybe Holes -> ArgValues -> Front Classified
+        static key holes vals' =
+          mapFst (DictParam key holes ::) <$> classifyAt fc owner level k !(normaliseClosed (subst key sc)) vals'
+
+        -- A choice of an implementation of the parameter's type, a value at
+        -- run time. Which implementation it is no type after it can read.
+        chosen : Uses -> ClosedTerm -> ArgValues -> Front Classified
+        chosen q a' vals' = do
+          choice <- choiceFamily fc owner a'
+          mapFst (ChoiceParam (MkBinder q (DataT choice.family [])) a' ::)
+            <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
 
 ||| What a call gives each index parameter of its callee, in order: the
 ||| argument at its position, normalised in the caller's scope with the
@@ -476,6 +439,19 @@ indexForms (_ :: ks) vals = indexForms ks (snd (nextStatic vals))
 export
 callIndices : {auto c : Ref Ctxt Defs} -> List PKind -> ArgValues -> Front (List ITerm)
 callIndices kinds vals = traverse (maybe (pure IOpaque) indexTerm) !(indexForms kinds vals)
+
+||| The terms a construction site gives its constructor's erased binders,
+||| in the site's scope: each the term of the argument at the binder's
+||| position (a number, a level of the site's own plus a count), outside the
+||| language where the site gives no argument there or no term reads it.
+export
+binderTerms : {auto c : Ref Ctxt Defs} -> List ConBinder -> ArgValues -> Front (List ITerm)
+binderTerms bs vals = traverse term bs
+  where
+    term : ConBinder -> Front ITerm
+    term b = case join (getAt b.argument vals) of
+      Just v => indexTerm !(v.scoped)
+      Nothing => pure IOpaque
 
 ||| A callee's classified signature read in the scope of a call: each of
 ||| its levels given the argument the call passes it, erased where it
@@ -505,22 +481,7 @@ export
 classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> Nat -> ClosedTerm -> ArgValues ->
                Front Classified
-classifyCall fc owner arity ty vals = do
-  Just found <- classifyAt fc owner 0 arity ty vals
-    | Nothing => pure Nothing
-  Just <$> inCaller fc owner vals found
-
-||| `classifyCall` where no argument can be a dictionary field's read: a
-||| callee classified on its type alone, or on the static arguments it is
-||| given.
-export
-classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           FC -> String -> Nat -> ClosedTerm -> ArgValues ->
-           Front (List PKind, ClosedTerm)
-classify fc owner arity ty vals = do
-  Just found <- classifyCall fc owner arity ty vals
-    | Nothing => internal fc "a dictionary field read where no argument is given"
-  pure found
+classifyCall fc owner arity ty vals = inCaller fc owner vals !(classifyAt fc owner 0 arity ty vals)
 
 ||| An instance's own signature, classified on the static arguments it was
 ||| requested with: its index parameters its own levels, which its body's
@@ -528,8 +489,5 @@ classify fc owner arity ty vals = do
 export
 classifyInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    FC -> String -> Nat -> ClosedTerm -> ArgValues ->
-                   Front (List PKind, ClosedTerm)
-classifyInstance fc owner arity ty vals = do
-  Just found <- classifyAt fc owner 0 arity ty vals
-    | Nothing => internal fc "a dictionary field read where no argument is given"
-  pure found
+                   Front Classified
+classifyInstance fc owner arity ty vals = classifyAt fc owner 0 arity ty vals

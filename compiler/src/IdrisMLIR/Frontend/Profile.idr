@@ -152,23 +152,26 @@ checkSpelled ident path = do
              "the source could not be lexed"
     Right (_, toks) => traverse_ (\tok => core (noted (check tok))) toks
   where
-    at : Located Token -> FC
+    at : Located RawToken -> FC
     at tok = let b = tok.bounds in
              MkFC (PhysicalIdrSrc ident) (b.startLine, b.startCol) (b.endLine, b.endCol)
     ||| An escape hatch or a hole found here is this module's: what reaches
     ||| it in TT is not reported again (`checkReachable`). It is kept as the
     ||| name Idris gives the identifier spelt, which is the name of the
-    ||| definition a reach of it meets, its namespace aside.
+    ||| definition a reach of it meets, its namespace aside: the source's
+    ||| text interned where it enters, as Idris's parser interns it.
     found : String -> Front ()
-    found n = updateState { spelled $= insert (ident, UN (Basic n)) }
+    found n = do
+      i <- core (intern n)
+      updateState { spelled $= insert (ident, UN (Basic i)) }
     ||| An escape hatch in the source: a spelling the registry forbids.
-    spelled : Located Token -> String -> Front ()
+    spelled : Located RawToken -> String -> Front ()
     spelled tok n = case (hooks (Spelling n)).forbidden of
       Just (_, rule) => do
         found n
         refuse (at tok) (show ident) rule ("the escape hatch " ++ n)
       Nothing => pure ()
-    check : Located Token -> Front ()
+    check : Located RawToken -> Front ()
     check tok = case tok.val of
       HoleIdent h => do
         found h
@@ -226,11 +229,11 @@ proofOnly n = do
 
 refsOf : Hooks -> GlobalDef -> List Name
 refsOf hs def =
-  let fromType = keys (Core.TT.getRefs (UN (Basic "")) (type def)) in
+  let fromType = keys (Core.TT.getRefs (UN Underscore) (type def)) in
   case definition def of
     PMDef _ _ tree _ _ =>
       if answersForBody hs then fromType
-      else fromType ++ keys (Core.Case.CaseTree.getRefs (UN (Basic "")) tree) ++ keys (Core.Case.CaseTree.getMetas tree)
+      else fromType ++ keys (Core.Case.CaseTree.getRefs (UN Underscore) tree) ++ keys (Core.Case.CaseTree.getMetas tree)
     TCon _ _ _ _ _ cons _ => fromType ++ fromMaybe [] cons
     _ => fromType
 

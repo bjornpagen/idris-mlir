@@ -54,8 +54,12 @@ str = Idr StrType
 big : MlirType
 big = Idr BigType
 
+||| A natural no index term is known of, and the natural three.
 nat : MlirType
-nat = Idr NatType
+nat = IdrHand (NatOf [OpaqueNode])
+
+nat3 : MlirType
+nat3 = IdrHand (NatOf [NatNode 3])
 
 i64 : MlirType
 i64 = IntegerType 64
@@ -63,35 +67,35 @@ i64 = IntegerType 64
 ||| A family of naturals' lists, recursive through itself: its cons names
 ||| the group's one member by `self`, at its binder's level.
 natLists : MlirAttr
-natLists = Idr (FamiliesAttr
-  [ MkFamilyMember "List[Nat]" Promise.None (LocAttr (At noLoc)) [NatSort]
+natLists = IdrHand (FamilyOf
+  [ MkDataMember "List[Nat]" Promise.None (LocAttr (At noLoc)) [SortNat]
       [ MkCtorDecl "Nil" [] [NatNode 0] []
-      , MkCtorDecl "Cons" [NatSort] [SuccNode 1, VarNode 0]
-          [nat, Idr (SelfType 0 [VarNode 0])] ] ])
+      , MkCtorDecl "Cons" [SortNat] [SuccNode 1, LevelNode 0]
+          [nat, IdrHand (SelfOf 0 [LevelNode 0])] ] ])
 
 ||| A vector of naturals of three, and of any length.
 vec3 : MlirType
-vec3 = Idr (DataType natLists 0 [NatNode 3] Nothing)
+vec3 = IdrHand (DataOf natLists 0 [NatNode 3] Nothing)
 
 vecAny : MlirType
-vecAny = Idr (DataType natLists 0 [OpaqueNode] Nothing)
+vecAny = IdrHand (DataOf natLists 0 [OpaqueNode] Nothing)
 
 ||| A vector known to be a cons.
 consCell : MlirType
-consCell = Idr (DataType natLists 0 [OpaqueNode] (Just [1]))
+consCell = IdrHand (DataOf natLists 0 [OpaqueNode] (Just (DenseI32ArrayAttr [1])))
 
 types : List MlirType
 types =
-  [ str, big, nat, vec3, vecAny, consCell
-  , Idr (FnType (MkSignature [] []))
-  , Idr (FnType (MkSignature [i64] [i64]))
+  [ str, big, nat, nat3, vec3, vecAny, consCell
+  , Idr (FnType [] [])
+  , Idr (FnType [i64] [i64])
   , Idr (LazyType nat)
-  , Idr (GradedType Once Nothing i64)
-  , Idr (GradedType Once (Just (Hold.Counted Unique.None)) str)
-  , Idr (GradedType Many (Just Hold.Static) str)
+  , IdrHand (GradedOf Once Nothing i64)
+  , IdrHand (GradedOf Once (Just (Hold.Counted Unique.None)) str)
+  , IdrHand (GradedOf Many (Just Hold.Static) str)
   , RankedTensorType [Dynamic, Static 3] F64Type
   , RankedTensorType [] i64
-  , MemRefType [Dynamic] (IntegerType 8) (Just (Idr MutableSpaceAttr))
+  , MemRefType [Dynamic] (IntegerType 8) (Just (Idr MutableAttr))
   , IndexType
   ]
 
@@ -103,12 +107,11 @@ attrs =
   [ natLists
   , Idr (BigAttr (-12345678901234567890))
   , Idr (SiteAttr "Main.idr" 3 7 "Main.main")
-  , Idr (InstanceAttr "Maybe" ["Nat"])
-  , Idr MutableSpaceAttr
-  , Idr (TerminatesAttr (ProvedIn 2))
-  , Idr (TerminatesAttr MadeAcyclic)
-  , Idr (IndexBindersAttr [NatSort, TypeSort, OpaqueSort])
-  , Idr (IndexArgsAttr [NatNode 3, VarNode 0, OpaqueNode])
+  , Idr MutableAttr
+  , IdrHand (TerminatesOf (ProvedIn 2))
+  , IdrHand (TerminatesOf MadeAcyclic)
+  , IdrHand (BindersOf [SortNat, SortType, SortOpaque])
+  , IdrHand (ArgsOf [NatNode 3, LevelNode 0, SuccNode 2, LevelNode 0, OpaqueNode])
   , arith (FastMathFlagsAttr [])
   , arith (FastMathFlagsAttr [Nnan, Ninf])
   , arith (IntegerOverflowFlagsAttr [Nsw, Nuw])
@@ -188,35 +191,35 @@ sample =
       n = MkValue "%n" nat
       x = MkValue "%x" i64
       s = MkValue "%s" str
-      fn = Idr (FnType (MkSignature [i64] [i64]))
+      fn = Idr (FnType [i64] [i64])
       lazy = Idr (LazyType i64)
       vec = RankedTensorType [Dynamic] i64
       scalar = RankedTensorType [] i64
       i = MkValue "%i" IndexType
       c4 = MkValue "%c4" IndexType
       cons = MkValue "%cons" consCell
-  in stmt (Idr.funcOp {binders = Just (Idr (IndexBindersAttr [NatSort]))} "sample"
+  in stmt (Idr.funcOp {binders = Just (IdrHand (BindersOf [SortNat]))} "sample"
             (FunctionType (MkSignature [vecAny, nat, i64, str] [i64]))
             (block [v, n, x, s]
                [ -- A constructor, its value refined to it, then reindexed.
-                 binding "%nil" (Idr.dataConOp [] (Idr (DataType natLists 0 [NatNode 0] (Just [0]))))
-               , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (Idr (DataType natLists 0 [NatNode 0] (Just [0])))) vecAny)
-               , binding "%lin" (Idr.linCastOp x (Idr (GradedType Once Nothing i64)))
-               , binding "%used" (Idr.linCastOp (MkValue "%lin" (Idr (GradedType Once Nothing i64))) i64)
+                 binding "%nil" (Idr.dataConOp [] (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0])))))
+               , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0]))))) vecAny)
+               , binding "%lin" (Idr.linCastOp x (IdrHand (GradedOf Once Nothing i64)))
+               , binding "%used" (Idr.linCastOp (MkValue "%lin" (IdrHand (GradedOf Once Nothing i64))) i64)
                , binding "%checked" (Idr.checkNonzeroOp (IntegerAttr (natToInteger (position causeClosed DivisionByZero)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x i64)
                  -- A closure and a suspension of functions, with the
                  -- scope's levels.
-               , binding "%f" (Idr.fnClosureOp {indexArgs = Just (Idr (IndexArgsAttr [VarNode 0]))} "callee" [] fn)
-               , binding "%lazy" (Idr.lazySuspendOp {indexArgs = Just (Idr (IndexArgsAttr [VarNode 0]))} "thunk" [x] lazy)
+               , binding "%f" (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf [LevelNode 0]))} "callee" [] fn)
+               , binding "%lazy" (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf [LevelNode 0]))} "thunk" [x] lazy)
                , binding "%applied" (Idr.fnApplyOp (MkValue "%f" fn) [x] [i64])
                  -- A match whose case binds its scrutinee refined to the
                  -- constructor and its binder, its fields reads of it.
                , binding "%m" (Idr.dataMatchOp v
-                                 [ (0, [], block [MkValue "%none" (Idr (DataType natLists 0 [OpaqueNode] (Just [0])))]
+                                 [ (0, [], block [MkValue "%none" (IdrHand (DataOf natLists 0 [OpaqueNode] (Just (DenseI32ArrayAttr [0]))))]
                                              [stmt (Idr.yieldOp [MkValue "%checked" i64])])
-                                 , (1, [NatSort], block [cons]
+                                 , (1, [SortNat], block [cons]
                                      [ binding "%hd" (Idr.dataFieldOp cons 0 nat)
-                                     , binding "%tl" (Idr.dataFieldOp cons 1 (Idr (DataType natLists 0 [VarNode 1] Nothing)))
+                                     , binding "%tl" (Idr.dataFieldOp cons 1 (IdrHand (DataOf natLists 0 [LevelNode 1] Nothing)))
                                      , stmt (Idr.yieldOp [x]) ]) ]
                                  NoBlocks [i64])
                , binding "%c4" (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)
@@ -226,7 +229,7 @@ sample =
                                             , stmt (Idr.arrayYieldOp [MkValue "%iv" i64]) ]) [vec])
                , binding "%z" (Tensor.fromElementsOp [x] scalar)
                , binding "%sum" (Idr.arrayFoldLastOp [MkValue "%z" scalar] c4 (accumulate "fold") [scalar])
-               , binding "%r" (Idr.callOp {indexArgs = Just (Idr (IndexArgsAttr [OpaqueNode]))} "callee" NonTail [x] [i64])
+               , binding "%r" (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf [OpaqueNode]))} "callee" NonTail [x] [i64])
                , stmt (Idr.returnOp [MkValue "%r" i64])
                ]))
   where
@@ -246,7 +249,7 @@ sample =
 callee : Statement
 callee =
   let a = MkValue "%a" i64
-  in stmt (Idr.funcOp {terminates = Just (Idr (TerminatesAttr (ProvedIn 0)))} "callee"
+  in stmt (Idr.funcOp {terminates = Just (IdrHand (TerminatesOf (ProvedIn 0)))} "callee"
             (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function `@sample` suspends.
@@ -263,7 +266,7 @@ crashing =
 
 ||| The program's root.
 root : Statement
-root = stmt (Idr.funcOp {terminates = Just (Idr (TerminatesAttr MadeAcyclic))} "root"
+root = stmt (Idr.funcOp {terminates = Just (IdrHand (TerminatesOf MadeAcyclic))} "root"
                (FunctionType (MkSignature [] [])) (block [] [stmt (Idr.returnOp [])]))
 
 ||| The module, with the type and attribute samples as its discardable

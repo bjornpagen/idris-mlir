@@ -35,10 +35,11 @@ import Data.String
 -- Names and modules
 ------------------------------------------------------------------------------
 
-||| A full name as the registry writes it.
+||| A full name as the registry writes it: its identifiers' text, which the
+||| registry compares.
 export
 qname : Name -> QName
-qname (NS ns n) = MkQName (reverse (unsafeUnfoldNamespace ns)) (show n)
+qname (NS ns n) = MkQName (map (.text) (reverse (unsafeUnfoldNamespace ns))) (show n)
 qname n = MkQName [] (show n)
 
 ||| Whether two names are one definition's: their full names are equal.
@@ -46,17 +47,21 @@ export
 sameName : {auto c : Ref Ctxt Defs} -> Name -> Name -> Core Bool
 sameName n m = (==) <$> toFullNames n <*> toFullNames m
 
-||| A registry name as Idris's, to look it up.
+||| A registry name as Idris's, to look it up: its text interned in the
+||| session's table, where it enters the compiler, so the name compares
+||| with the context's by identity.
 export
-toName : QName -> Name
-toName q = case q.space of
-  [] => UN (Basic q.name)
-  ns => NS (unsafeFoldNamespace (reverse ns)) (UN (Basic q.name))
+toName : {auto c : Ref Ctxt Defs} -> QName -> Core Name
+toName q = do
+  n <- UN <$> internUserName q.name
+  case q.space of
+    [] => pure n
+    ns => (\parts => NS (nsOf parts) n) <$> traverse intern ns
 
 ||| A module's path, outermost first, as the registry takes it.
 export
 modulePath : ModuleIdent -> List String
-modulePath ident = reverse (unsafeUnfoldModuleIdent ident)
+modulePath ident = map (.text) (reverse (unsafeUnfoldModuleIdent ident))
 
 ||| Where Idris found a checked module it loaded, as the search recorded it
 ||| when it found the TTC: in the project's build directory, in a package
@@ -198,13 +203,6 @@ multiplicity Erased = M0
 multiplicity (Used Once) = M1
 multiplicity (Used Many) = Mw
 
-||| The product of two quantities, as Idris uses a field through the
-||| binder that holds its value: one is the unit, and many absorbs.
-export
-quantityTimes : Uses -> Uses -> Uses
-quantityTimes Once q = q
-quantityTimes Many _ = Many
-
 ||| A primitive type as the registry has it.
 export
 primTy : PrimType -> PrimTy
@@ -265,7 +263,7 @@ validate fallback = check entries
       Just (q, expected) => do
         defs <- get Ctxt
         let loaded = map (\l => modulePath l.ident) defs.allImported
-        Just def <- lookupCtxtExact (toName q) (gamma defs)
+        Just def <- lookupCtxtExact !(toName q) (gamma defs)
           | Nothing => if inModules loaded q then pure (Just (wrong EmptyFC q (mismatch e Missing)))
                        else check es
         let declared = case (e.entry.key, definition def) of

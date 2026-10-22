@@ -29,6 +29,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Syntax.Linalg
         , IdrisMLIR.Syntax.Bufferization
         , IdrisMLIR.Encoding.Idr
+        , IdrisMLIR.Encoding.Hand
         , IdrisMLIR.Encoding.Builtin
         , IdrisMLIR.MLIR
         , IdrisMLIR.MLIR.Bytecode
@@ -67,10 +68,10 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Finite
         , IdrisMLIR.Frontend.Translate.Shapes
         , IdrisMLIR.Frontend.Translate.Keys
-        , IdrisMLIR.Frontend.Translate.Dictionaries
         , IdrisMLIR.Frontend.Translate.Types
         , IdrisMLIR.Frontend.Translate.Recursion
         , IdrisMLIR.Frontend.Translate.Instances
+        , IdrisMLIR.Frontend.Translate.Choices
         , IdrisMLIR.Frontend.Translate.Primitives
         , IdrisMLIR.Frontend.Translate.Terms
         , IdrisMLIR.Frontend.Translate.Cases

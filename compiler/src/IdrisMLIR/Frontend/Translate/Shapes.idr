@@ -147,11 +147,13 @@ isFormProbe t = case probeOfTerm t of
 ------------------------------------------------------------------------------
 
 ||| What a parameter binds at run time, if it is a parameter at run time:
-||| a value, or the values an implementation closes over, held as one.
+||| a value, the values an implementation closes over, held as one, or a
+||| choice of an implementation.
 public export
 boundAtRuntime : PKind -> Maybe Binder
 boundAtRuntime (ValueParam b _ _) = Just b
 boundAtRuntime (DictParam _ (Just h)) = Just h.binder
+boundAtRuntime (ChoiceParam b _) = Just b
 boundAtRuntime _ = Nothing
 
 ||| One more for what exists at run time.
@@ -398,4 +400,4 @@ resultTies tel res rt = case valueDims rt of
 export
 witnessTerm : Loc -> Vect r (Fin n) -> Witness r -> Stated (Term n)
 witnessTerm loc vs (NatAt i) = Natural (Var loc (Data.Vect.index i vs))
-witnessTerm loc vs (AxisAt i k) = SameAs (Tensor loc NatT (Extent k (Var loc (Data.Vect.index i vs))))
+witnessTerm loc vs (AxisAt i k) = SameAs (Tensor loc (NatT IOpaque) (Extent k (Var loc (Data.Vect.index i vs))))

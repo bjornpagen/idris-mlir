@@ -5,9 +5,12 @@
 ||| `idr.fold_last`, a scan `idr.scan_last`, each a region from indices (and
 ||| an accumulator) to an element; a transpose of words is upstream's
 ||| `linalg.transpose`, of counted elements a tabulation reading at the
-||| swapped coordinates; a read is `tensor.extract`, a write
-||| `tensor.insert`, and a slice, a join and a reshape the `tensor` ops of
-||| each. Nothing here decides that an iteration's order is
+||| swapped coordinates; a join of words is two slices inserted into a
+||| fresh destination, of counted elements a tabulation reading the one
+||| array or the other; a read is `tensor.extract`, a write
+||| `tensor.insert`, and a slice and a reshape the `tensor` ops of each.
+||| An array of counted elements is written whole by the op that makes it,
+||| which reads none of it. Nothing here decides that an iteration's order is
 ||| free: the MLIR side does, once it knows what a region does. A coordinate
 ||| is an `index` at its access, unguarded, since its type bounds it by an
 ||| extent; an extent enters `index` at an allocation, guarded. An array of
@@ -63,8 +66,8 @@ coordinate ix l n = do
 natural : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Value -> E Val
 natural ix l i = do
   w <- mlirValue l (IntegerType 64) (Arith.indexCastuiOp i)
-  r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many Held.Counted NatT) (Idr.bigSmallOp w)
-  pure (val r.name NatT Many Held.Counted)
+  r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many Held.Counted (NatT IOpaque)) (Idr.bigSmallOp w)
+  pure (val r.name (NatT IOpaque) Many Held.Counted)
 
 ||| A natural as the extent of an array to be made: past every allocation
 ||| either target can make, it is the allocation's failure.
@@ -158,9 +161,10 @@ resultSize Dynamic otherwise = otherwise
 
 ||| How a value fits a slot: as it is; cast to the slot's type, a tensor
 ||| whose type differs from the slot's only in which dimensions are static;
-||| reindexed to it (`idr.reindex`), a value of the slot's family at index
-||| terms the scope's refinements make equal to the slot's, or one known to
-||| be a constructor the slot's type does not name; or not at all, the
+||| reindexed to it (`idr.data.reindex`), a value of the slot's family at
+||| index terms the scope's refinements make equal to the slot's, one known
+||| to be a constructor the slot's type does not name, or a natural linked
+||| to another term than the slot's; or not at all, the
 ||| frontend's error. Any other value is of the slot's type, but for the
 ||| extents of the tensors in it, which a closure's type holds dynamic. A
 ||| value of one family where its slot takes another is one type translated
@@ -179,6 +183,7 @@ fitting (Just slot@(DataT f ts)) (DataT g us) r =
   else case r of
     AnyConstructor => if ts == us then AsIs else Reindex slot
     OneOf _ => Reindex slot
+fitting (Just slot@(NatT t)) (NatT u) _ = if t == u then AsIs else Reindex slot
 fitting (Just slot) t _ = if dynamicDims t == dynamicDims slot then AsIs else Mismatch "a value" slot
 fitting Nothing _ _ = AsIs
 
@@ -359,19 +364,56 @@ tensorOp ix l binder rt (Concat a x y) = do
     Left <$> mlirValue l IndexType (Arith.addiOp {overflowFlags = noWrap} m n)
   post <- traverse (\(xd, rd) => resultSize rd (sizeAt l xv xd)) after
   let sizes = pre ++ mid :: post
-      joined = TensorT (dimsOfSizes sizes) (elementOf rt)
-  empty <- value ix l joined (Tensor.emptyOp (fst (mixed sizes)))
-  let ev = operand ix empty
-  xsizes <- traverse (sizeAt l xv) (withAxes xds)
-  ysizes <- traverse (sizeAt l yv) (withAxes yds)
-  shift <- sizeAt l xv xown
-  let (xo, xso) = mixed (map (const (Right 0)) rds)
-      (xs, xss) = mixed xsizes
-      (yo, yso) = mixed (map (const (Right 0)) before ++ shift :: map (const (Right 0)) after)
-      (ys, yss) = mixed ysizes
-      (_, strides) = mixed (map (const (Right 1)) rds)
-  first <- mlirValue l ev.type (Tensor.insertSliceOp xv ev xo xs [] xso xss strides)
-  fitted {binder} ix l (Just rt) joined (Tensor.insertSliceOp yv first yo ys [] yso yss strides)
+      el = elementOf rt
+      joined = TensorT (dimsOfSizes sizes) el
+  case reaches ix el of
+    -- Words are joined slice by slice into a fresh destination.
+    WordsOnly => do
+      empty <- value ix l joined (Tensor.emptyOp (fst (mixed sizes)))
+      let ev = operand ix empty
+      xsizes <- traverse (sizeAt l xv) (withAxes xds)
+      ysizes <- traverse (sizeAt l yv) (withAxes yds)
+      shift <- sizeAt l xv xown
+      let (xo, xso) = mixed (map (const (Right 0)) rds)
+          (xs, xss) = mixed xsizes
+          (yo, yso) = mixed (map (const (Right 0)) before ++ shift :: map (const (Right 0)) after)
+          (ys, yss) = mixed ysizes
+          (_, strides) = mixed (map (const (Right 1)) rds)
+      first <- mlirValue l ev.type (Tensor.insertSliceOp xv ev xo xs [] xso xss strides)
+      fitted {binder} ix l (Just rt) joined (Tensor.insertSliceOp yv first yo ys [] yso yss strides)
+    -- Elements that hold references are written whole by the one op that
+    -- makes the array, which reads neither: a tabulation whose element at
+    -- a coordinate below the first array's extent along the axis is the
+    -- first's there, and any other the second's, the coordinate less that
+    -- extent.
+    HoldsReferences => do
+      m <- sizeValue l !(sizeAt l xv xown)
+      ivs <- indices (length rds)
+      reg <- region l (toList ivs) $ do
+        let cs = toList ivs
+        let Just iv = getAt a cs
+          | Nothing => internal ("a join along axis " ++ show a ++ " of an array of rank " ++ show (length cs))
+        below <- mlirValue l (IntegerType 1) (Arith.cmpiOp CmpIPredicate.Ult iv m)
+        flag <- mlirValue l (IntegerType 64) (Arith.extuiOp below)
+        -- Each arm reads in its own region, and only there.
+        (fromX, xops) <- collect $ do
+          e <- readAt ix l Nothing el x cs
+          given ix l el e
+        (fromY, yops) <- collect $ do
+          j <- mlirValue l IndexType (Arith.subiOp {overflowFlags = noWrap} iv m)
+          e <- readAt ix l Nothing el y (replaceAt a j cs)
+          given ix l el e
+        r <- mlirValue l (mlirType ix el) (\t => Idr.litMatchOp flag [IntegerAttr 0 (IntegerType 64)]
+               (MkRegion [] (xops ++ [MkStatement Nothing (Idr.yieldOp [fromX]) (At l)]))
+               [MkRegion [] (yops ++ [MkStatement Nothing (Idr.yieldOp [fromY]) (At l)])] [t])
+        pure (Just [r])
+      dest <- mlirValue l (mlirType ix joined) (Tensor.emptyOp (fst (mixed sizes)))
+      fitted {binder} ix l (Just rt) joined (\t => Idr.arrayTabulateOp dest reg [t])
+  where
+    replaceAt : Nat -> Value -> List Value -> List Value
+    replaceAt Z v (_ :: cs) = v :: cs
+    replaceAt (S k) v (c :: cs) = c :: replaceAt k v cs
+    replaceAt _ _ [] = []
 -- A transpose of words is upstream's `linalg.transpose` into a fresh
 -- destination, its permutation given once; of elements that hold
 -- references it is a tabulation reading at the swapped coordinates, since
@@ -507,7 +549,15 @@ reduce ix l binder r acc elem rt z x body = do
     TensorT _ _ => case r of
       FoldLast => given ix l rt z
       ScanLast => plainOperand ix l z
-    t => mlirValue l (RankedTensorType [] (mlirType ix t)) (Tensor.fromElementsOp [!(plainOperand ix l z)])
+    -- An accumulator held in an array of none: of words, the array of its
+    -- one element; of one that holds references, a tabulation of no axis
+    -- giving it, so that the array is written whole by the op that makes it.
+    t => case reaches ix t of
+      WordsOnly => mlirValue l (RankedTensorType [] (mlirType ix t)) (Tensor.fromElementsOp [!(plainOperand ix l z)])
+      HoldsReferences => do
+        reg <- region l [] (Just . (:: []) <$> given ix l t z)
+        dest <- mlirValue l (RankedTensorType [] (mlirType ix t)) (Tensor.emptyOp [])
+        mlirValue l (RankedTensorType [] (mlirType ix t)) (\r => Idr.arrayTabulateOp dest reg [r])
   ivs <- indices (S frame)
   (a, av) <- freshVal ix acc Many
   reg <- region l (toList ivs ++ [av]) $ do

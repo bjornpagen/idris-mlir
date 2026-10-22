@@ -270,7 +270,7 @@ record At where
 ||| A closed term as a message shows it: each marker of the writer's by the
 ||| name the writer's type gives that parameter.
 named : List Name -> ClosedTerm -> ClosedTerm
-named names t = replacing (mapMaybe nameFor (keys (getRefs (UN (Basic "")) t))) t
+named names t = replacing (mapMaybe nameFor (keys (getRefs (UN Underscore) t))) t
   where
     nameFor : Name -> Maybe (Name, ClosedTerm)
     nameFor n = do
@@ -283,11 +283,14 @@ named names t = replacing (mapMaybe nameFor (keys (getRefs (UN (Basic "")) t))) 
 ||| metavariable as its solution. A name stands as the text it prints as,
 ||| which is no machine name, so that the solving's quotation keeps it.
 display : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (names : List Name) -> Pats -> Env vs -> TT vs -> Front String
-display names ps env t =
-  showTT (named names (withMarkers ps !(solved (closeWritten EmptyFC (map shownAs (standings env)) t))))
+display names ps env t = do
+  shown <- traverse shownAs (standings env)
+  showTT (named names (withMarkers ps !(solved (closeWritten EmptyFC shown t))))
   where
-    shownAs : Standing -> VarInfo ()
-    shownAs (_, x, _) = TypeValue (Ref EmptyFC Bound (UN (Basic (show x))))
+    -- The text a name prints as becomes an identifier here, where the
+    -- message is made.
+    shownAs : Standing -> Front (VarInfo ())
+    shownAs (_, x, _) = (\i => TypeValue (Ref EmptyFC Bound (UN (Basic i)))) <$> core (intern (show x))
 
 ||| A site of the writer's, at its own location when it has none.
 siteAt : At -> FC -> Reach -> List Argument -> Site
@@ -740,13 +743,13 @@ hookCalls at ps env fc hs args = case hs.natOperation of
   where
     library : QName -> Front (List Site)
     library q = do
-      Just (a, _) <- definitionOf (toName q)
+      Just (a, _) <- definitionOf !(core (toName q))
         | Nothing => pure []
       pure [siteAt at fc (Calls a) []]
 
     aliased : QName -> Front (List Site)
     aliased q = do
-      Just (a, def) <- definitionOf (toName q)
+      Just (a, def) <- definitionOf !(core (toName q))
         | Nothing => pure []
       (gs, _) <- taken at ps env (type def) !(argumentsOf def) (take (arityOf def) args)
       callSite at ps env fc (Calls a) gs
