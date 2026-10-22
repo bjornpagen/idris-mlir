@@ -168,13 +168,15 @@ kindOf a d = case definition d.def of
 -- dispatch reaches the method functions of the implementations its
 -- dictionary can be, which the walk enters where each implementation is
 -- written, since its body applies them; an application at a use, and a
--- choice, are no definition.
+-- choice, are no definition; and a dictionary rebuilt is the writer's own,
+-- entered already.
 callee : Reach -> Maybe Address
 callee (Calls b) = Just b
 callee (Builds b) = Just b
 callee (Dispatches _ _ _) = Nothing
 callee Applies = Nothing
 callee (Makes _) = Nothing
+callee (Repacks _ _) = Nothing
 
 -- A definition entered: its sites by its address, its families, its
 -- represented arguments as positions of its node with no heads, and its
@@ -393,12 +395,14 @@ mutual
     Just edges =>
       under names b out x path nd inU acc (mapMaybe (\(_, e) => calleeNode e.callee) edges) ({ done $= (:< (x, edges)) } found)
     where
-      -- The application at a use is no node, nor is a choice, and the walk
-      -- enters nothing there: what each holds, the sites into it bound.
+      -- The application at a use is no node, nor is a choice, nor a
+      -- rebuilt constructor's fields, and the walk enters nothing there:
+      -- what each holds, the sites into it bound.
       calleeNode : Callee -> Maybe Node
       calleeNode (Entering c) = Just c
       calleeNode Applying = Nothing
       calleeNode (Making _) = Nothing
+      calleeNode (Filling _) = Nothing
 
   under : (0 names : Listed Address) -> (b : Nat) -> (out : Node -> Maybe (List (Sites.Site, Reached))) ->
           (x : Node) -> (path : List Node) ->
@@ -444,13 +448,14 @@ nodesFromMain b out root = let 0 names = addresses in nodesFrom names b out root
 -- list of every index, joined first by `concatMap`, which folds `++` from
 -- the left, would be copied again at each join.
 headBound : SortedMap Address Fields -> List (List Sites.Site) -> Nat
-headBound fs ss = S (foldl (foldl placedIn) (foldl (foldl written) 0 ss) (values fs))
+headBound fs ss = S (foldl (\m, f => foldl placedIn m f.inOrder) (foldl (foldl written) 0 ss) (values fs))
   where
     written : Nat -> Sites.Site -> Nat
     written m s = foldl (\m', x => max m' x.position) m s.arguments
 
     placedIn : Nat -> Implementations.Field -> Nat
     placedIn m (Method _ _ own leading) = foldl max (foldl (\m', (_, q) => max m' q) m leading) own
+    placedIn m (Dictionary _ _ _) = m
     placedIn m (Plain _ _) = m
 
 ------------------------------------------------------------------------------
@@ -703,7 +708,7 @@ fieldWritings fl families nodes ls fs =
   SortedMap.toList fs >>= \(j, fields) =>
     [ MkWriting jn OwnOnly (withClosedFamilies (closedAt ls jn OwnOnly) t) (roots fl (familiesOf families jn) jn OwnOnly)
                 (OfField j k) (InField j k t)
-    | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields) ]
+    | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
   where
     numbered : Nat -> List Template -> List (Nat, Template)
     numbered k [] = []

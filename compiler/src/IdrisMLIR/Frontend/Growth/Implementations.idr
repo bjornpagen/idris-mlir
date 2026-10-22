@@ -43,26 +43,36 @@ data Field : Type where
   -- own: for each of the method's own arguments (the field's lambdas, in order), its parameter index in m;
   -- leading: for each implementation parameter p, its index in m. Its root is m, by construction.
   Method : (m : Address) -> Template -> (own : List Nat) -> (leading : List (Nat, Nat)) -> Field
-  -- any other field: a hand-built dictionary's lambda, a superclass dictionary, with its dictionaryRoot
+  -- a dictionary held as a field (a superclass, a constructor's dictionary argument), with its dictionaryRoot and the
+  -- head of the choice its type is: a match takes it apart, and finds a member of that choice where the running
+  -- program chose it.
+  Dictionary : Template -> Root -> ChoiceHead -> Field
+  -- any other field: a type, a hand-built dictionary's lambda, with its dictionaryRoot
   Plain : Template -> Root -> Field
 
-||| The fields of a definition that gives a dictionary, over its own
-||| parameters, in the interface constructor's order.
+||| What a definition that gives a dictionary holds, over its own
+||| parameters: the constructor the dictionary is built with, its own for a
+||| constructor and the one an implementation's body reduces to, which is
+||| what a reduction of the dictionary to its head reaches; and its fields,
+||| in that constructor's order.
 public export
-Fields : Type
-Fields = List Field
+record Fields where
+  constructor MkFields
+  builtBy : Address
+  inOrder : List Field
 
 ||| Field k of the dictionary the definition at an address gives: nothing
 ||| when it gives none, or fewer fields.
 export
 fieldAt : SortedMap Address Fields -> Address -> Nat -> Maybe Field
-fieldAt fs j k = lookup j fs >>= head' . drop k
+fieldAt fs j k = lookup j fs >>= head' . drop k . (.inOrder)
 
 ||| What every field gives the flow, method or not: its template and its
 ||| root. A method field's root is its function.
 export
 fieldRead : Field -> (Template, Root)
 fieldRead (Method m t _ _) = (t, Rooted m)
+fieldRead (Dictionary t r _) = (t, r)
 fieldRead (Plain t r) = (t, r)
 
 ||| What a constructor's argument is to the dictionary it builds, by its
@@ -189,7 +199,7 @@ fieldOf owner (Reads ADictionary) ty a = do
   t <- templateOf [] ADictionary a
   r <- dictionaryRoot a
   head <- choiceHeadOf ty
-  pure (Plain (asGiven (Just head) (t, r)) r)
+  pure (Dictionary (asGiven (Just head) (t, r)) r head)
 fieldOf owner (Reads k) ty a = do
   t <- templateOf [] k a
   r <- dictionaryRoot a
@@ -220,7 +230,7 @@ implementationFields d args body = do
   Just cd <- defined con
     | Nothing => pure Nothing
   fs <- fieldsAlong owner !(normaliseClosed cd.type) cargs
-  pure (Just fs)
+  pure (Just (MkFields (addressOf cd.placement) fs))
 
 ||| The fields of a definition, over its parameters. An
 ||| implementation, a definition with one right-hand side whose type is an
@@ -234,8 +244,9 @@ implementationFields d args body = do
 export
 fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Front (Maybe Fields)
 fieldsOf d = case (definition d.def, d.matched) of
-    (DCon _ arity _, _) =>
-      pure (Just (map (\j => Plain (Var j 0) (Parameter j 0)) (iterateN arity S 0)))
+    (DCon _ arity _, _) => do
+      ty <- normaliseClosed d.type
+      Just . MkFields (addressOf d.placement) <$> arguments arity 0 ty
     (PMDef {}, Just m) => do
       True <- implementationType d.type
         | False => pure Nothing
@@ -244,3 +255,15 @@ fieldsOf d = case (definition d.def, d.matched) of
         | Nothing => pure Nothing
       implementationFields d m.args rhs
     _ => pure Nothing
+  where
+    -- A constructor's arguments, each its parameter: a dictionary, by the
+    -- head of the choice its binder's type is, and anything else as it is,
+    -- as is each past the binders a type shows even normalised.
+    arguments : Nat -> (j : Nat) -> TT vs -> Front (List Field)
+    arguments Z j _ = pure []
+    arguments (S n) j (Bind _ _ (Pi _ rig _ a) sc) = do
+      here <- case !(bindingOf rig a) of
+        Reads ADictionary => Dictionary (Var j 0) (Parameter j 0) <$> choiceHeadOf a
+        _ => pure (Plain (Var j 0) (Parameter j 0))
+      (here ::) <$> arguments n (S j) sc
+    arguments (S n) j _ = pure (map (\q => Plain (Var q 0) (Parameter q 0)) (iterateN (S n) S j))

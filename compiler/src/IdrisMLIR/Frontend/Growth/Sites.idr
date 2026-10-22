@@ -54,16 +54,6 @@ import Data.String
 
 %default total
 
-||| What a site reaches: a definition it calls (a function, an
-||| implementation, a projection, a constructor holding dictionaries), a type
-||| constructor it builds, method `k` of a dictionary, which the template
-||| is, with that dictionary's root, the application of a compile-time
-||| form at a use, which no definition is (`Translate.State.AtUse`), at the
-||| form's type (0), the form (1) and the use's static arguments (2 on), or
-||| the choice of a head, a member of which it makes, its one argument.
-public export
-data Reach = Calls Address | Builds Address | Dispatches Template Root Nat | Applies | Makes ChoiceHead
-
 ||| Where a site's writer reads its parameters: all its own; or, in the
 ||| walk of a member's application at a use, its own below `from` and from
 ||| there on the positions of the application the use gives, parameter
@@ -108,6 +98,25 @@ record Argument where
   stands : List StandIn
   memberOf : Maybe ChoiceHead
   shown : ArgumentText
+
+||| What a site reaches: a definition it calls (a function, an
+||| implementation, a projection, a constructor holding dictionaries), a type
+||| constructor it builds, method `k` of a dictionary, which the template
+||| is, with that dictionary's root, the application of a compile-time
+||| form at a use, which no definition is (`Translate.State.AtUse`), at the
+||| form's type (0), the form (1) and the use's static arguments (2 on), or
+||| the choice of a head, a member of which it makes, its one argument. Or
+||| the writer itself again, where its tree takes apart a field of its
+||| dictionary parameter at a path of fields, which the running program may
+||| have chosen (`Translate.Cases.heldHere`): the dictionary rebuilt with
+||| that field a value it holds, and each member the field's choice has
+||| there in turn (`Translate.Choices.heldDispatch`). The parameter's own
+||| argument is held apart, since the node it is read at rebuilds it
+||| (`Heads.reaches`); the site's arguments are the writer's other static
+||| ones, each as it is.
+public export
+data Reach = Calls Address | Builds Address | Dispatches Template Root Nat | Applies | Makes ChoiceHead
+           | Repacks Argument (List1 Nat)
 
 ||| One site: who wrote it (whose parameters the templates' `Var`s are, as
 ||| `params` reads them), the definition whose text holds it, what it
@@ -321,16 +330,19 @@ knownAt env t = do
 data Giving = MemberLeaves ClosedTerm | ValueLeaves
 
 ||| What the walk knows of the writer: its address, how many parameters it
-||| takes, and how its sites read them; the definition whose text holds
-||| what it reads (for a field type, the field's constructor); its name for
-||| the normalisers' messages, its location, which a site with no location
-||| of its own takes, its definition, whose type names its parameters, by
-||| which a message shows their markers, and what its leaves give.
+||| takes, and how its sites read them; the kind of each of its parameters
+||| at the node, a static one's or none, which its own requests of itself
+||| pass on; the definition whose text holds what it reads (for a field
+||| type, the field's constructor); its name for the normalisers'
+||| messages, its location, which a site with no location of its own
+||| takes, its definition, whose type names its parameters, by which a
+||| message shows their markers, and what its leaves give.
 record At where
   constructor MkAt
   writer : Address
   arity : Nat
   params : Parameters
+  statics : List (Maybe Static)
   within : Address
   owner : String
   loc : FC
@@ -1801,6 +1813,28 @@ conName : CaseAlt vs -> Maybe Name
 conName (ConCase cn _ _ _) = Just cn
 conName _ = Nothing
 
+||| Where a tree takes apart a field of the writer's own dictionary
+||| parameter, one field deep or more, the running program may have chosen
+||| that field (`Translate.Cases.heldHere`): the writer is requested again,
+||| at each of its static parameters as it is, the dictionary rebuilt at
+||| the node it is read at (`Heads.reaches`), which knows what the field
+||| can be. A match on the dictionary itself is never stuck, since the
+||| program fixes it, and one on anything else is no field of it.
+repacked : {auto c : Ref Ctxt Defs} -> At -> Stand -> Front (List Site)
+repacked at (Holds (Own i _ (k :: ks))) = do
+  dictionary <- own (i, ADictionary)
+  others <- traverse own (mapMaybe static (zip [0 .. length at.statics] at.statics))
+  pure [siteAt at at.loc (Repacks dictionary (k ::: ks)) others]
+  where
+    -- Each static parameter but the dictionary's.
+    static : (Nat, Maybe Static) -> Maybe (Nat, Static)
+    static (j, Just kind) = if j == i then Nothing else Just (j, kind)
+    static (_, Nothing) = Nothing
+
+    own : (Nat, Static) -> Front Argument
+    own (j, kind) = readArgument [] j kind Nothing (markerAt j 0) (ParameterText at.writerDef j)
+repacked at _ = pure []
+
 mutual
   ||| A case tree: each leaf's term as code, from a path of its own, with
   ||| what the matches above it made of the scope.
@@ -1817,7 +1851,8 @@ mutual
       (_, _, Just ty) => typeArgs <$> normaliseClosed ty
       (_, _, Nothing) => pure []
     every <- coversAll alts
-    alternatives at ps env v r every alts alts
+    here <- repacked at (fst v)
+    (here ++) <$> alternatives at ps env v r every alts alts
     where
       -- The arguments of the type constructor a type is.
       typeArgs : ClosedTerm -> List ClosedTerm
@@ -1926,11 +1961,11 @@ parameterNames def = do
         binderOf (Local _ _ i _) = getAt i bound
         binderOf _ = Nothing
 
-||| The writer a definition is, at its address, within another, with what
-||| its leaves give.
-atDefinition : (writer, within : Address) -> Defined -> Giving -> At
-atDefinition writer within d giving =
-  MkAt writer (arityOf d) OwnOnly within (show (fullname d.def)) (location d.def) d.def giving
+||| The writer a definition is, at its address, within another, with its
+||| parameters' kinds and what its leaves give.
+atDefinition : (writer, within : Address) -> Defined -> List (Maybe Static) -> Giving -> At
+atDefinition writer within d kinds giving =
+  MkAt writer (arityOf d) OwnOnly kinds within (show (fullname d.def)) (location d.def) d.def giving
 
 ||| An argument as a message shows it.
 export
@@ -1940,12 +1975,13 @@ showArgument (TermText t) = showTT t
 showArgument (WrittenText def ps env t) = display !(parameterNames def) ps env t
 showArgument (ParameterText def i) = (\names => parameterName names i) <$> parameterNames def
 
-||| The writer of a type, by address: what a type writes has no leaves.
+||| The writer of a type, by address: what a type writes has no leaves, and
+||| no case tree that requests the type again.
 writerAt : (writer, within : Address) -> Front (Maybe At)
 writerAt writer within = do
   Just d <- definitionRead writer
     | Nothing => pure Nothing
-  pure (Just (atDefinition writer within d ValueLeaves))
+  pure (Just (atDefinition writer within d [] ValueLeaves))
 
 ||| What a parameter of the definition stands for, by its kind and its value
 ||| at the node: a type, a family or a form is that value, its marker
@@ -2084,7 +2120,7 @@ nodeSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 nodeSites writer within d (values, made) = do
   (kinds', result) <- staticsOver (show (fullname d.def)) (arityOf d) d.type (map (\v => Just (v, AValue)) values)
   let kinds = toList kinds'
-  at <- atDefinition writer within d <$> givingOf (givesAfter (arityOf d) (memberPlaces d)) result
+  at <- atDefinition writer within d kinds <$> givingOf (givesAfter (arityOf d) (memberPlaces d)) result
   (sig, ps, params) <- signature at (zip kinds values) 0 d.type made
   body <- the (Front (List Site)) $ case d.matched of
     Just m => do

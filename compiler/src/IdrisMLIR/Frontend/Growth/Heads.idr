@@ -104,25 +104,36 @@ Slot = (Fin 4, Address, Address)
 -- a definition reaches every instance a dispatch on it requests, the one
 -- at no head included. What a dispatch through a dictionary with no head
 -- reaches is what its definition's leaves give, which reach the slot
--- beside it.
-data Heading = HeadedBy Address | Headless
+-- beside it. A dictionary the running program chooses keys nothing of its
+-- own, since each use dispatches on it and its members reach beside it;
+-- but a constructor that holds it holds it as it is, and a match that
+-- takes that constructor apart there is stuck (`Translate.Cases.heldHere`),
+-- so it reaches a slot as what it is (`Unsettled`), which splits no
+-- callee.
+data Heading = HeadedBy Address | Headless | Unsettled
 
 Eq Heading where
   HeadedBy a == HeadedBy b = a == b
   Headless == Headless = True
+  Unsettled == Unsettled = True
   _ == _ = False
 
 Ord Heading where
   compare Headless Headless = EQ
-  compare Headless (HeadedBy _) = LT
+  compare Headless _ = LT
   compare (HeadedBy _) Headless = GT
   compare (HeadedBy a) (HeadedBy b) = compare a b
+  compare (HeadedBy _) Unsettled = LT
+  compare Unsettled Unsettled = EQ
+  compare Unsettled _ = GT
 
--- Every heading is listed: no head, and each address's.
+-- Every heading is listed: no head, the running program's, and each
+-- address's.
 Finite Heading where
-  values = Headless :: map HeadedBy (values {a = Address})
+  values = Headless :: Unsettled :: map HeadedBy (values {a = Address})
   complete Headless = Here
-  complete (HeadedBy addr) = There (elemMap HeadedBy (complete {a = Address} addr))
+  complete Unsettled = There Here
+  complete (HeadedBy addr) = There (There (elemMap HeadedBy (complete {a = Address} addr)))
 
 -- One fact of the solution: this heading reaches this slot.
 Entry : Type
@@ -163,11 +174,16 @@ sameKind = decEq
 
 sameHeading : (x, y : Heading) -> Dec (x = y)
 sameHeading Headless Headless = Yes Refl
+sameHeading Unsettled Unsettled = Yes Refl
 sameHeading (HeadedBy a) (HeadedBy b) = case sameBytes a b of
   Yes Refl => Yes Refl
   No ne => No (\Refl => ne Refl)
 sameHeading Headless (HeadedBy _) = No (\case Refl impossible)
 sameHeading (HeadedBy _) Headless = No (\case Refl impossible)
+sameHeading Headless Unsettled = No (\case Refl impossible)
+sameHeading Unsettled Headless = No (\case Refl impossible)
+sameHeading Unsettled (HeadedBy _) = No (\case Refl impossible)
+sameHeading (HeadedBy _) Unsettled = No (\case Refl impossible)
 
 -- Any order decides. The definition comes first: the self compile's flow
 -- holds 1,723 entries over 661 slots (measured on the prototype), so two
@@ -208,14 +224,20 @@ viewOf : List Entry -> View
 viewOf = foldl (\v, (s, a) => insert s (insert a (at v s)) v) empty
 
 -- The implementations among some headings, ascending: what a dispatch
--- through the dictionaries reaches, a heading of no head reaching nothing
--- of its own.
+-- through the dictionaries reaches, a heading of no head, and one the
+-- running program chooses, reaching nothing of its own.
 headsIn : SortedSet Heading -> List Address
 headsIn hs = mapMaybe headed (Prelude.toList hs)
   where
     headed : Heading -> Maybe Address
     headed (HeadedBy a) = Just a
     headed Headless = Nothing
+    headed Unsettled = Nothing
+
+-- Whether a dictionary the running program chooses, held as it is, can
+-- reach a slot: what makes a match there stuck.
+unsettledAt : View -> Slot -> Bool
+unsettledAt v s = contains Unsettled (at v s)
 
 -- Every choice's members: what reaches the slots of kind 2.
 everyMember : View -> SortedSet Heading
@@ -328,9 +350,9 @@ fixedReach s = fixedKey s
 byRoot : View -> Own -> Root -> Template -> SortedSet Heading
 byRoot v own (Rooted j) _ = singleton (HeadedBy j)
 -- What the running program chooses, its template says: its choice, which
--- the reader put in (`asGiven`); and what an instance that fixes it after
--- all makes of it.
-byRoot v own (Chosen s) t = union (byTemplate v own OfChosen t) (fixedReach s)
+-- the reader put in (`asGiven`); what an instance that fixes it after all
+-- makes of it; and, at every other instance, itself, held as it is.
+byRoot v own (Chosen s) t = insert Unsettled (union (byTemplate v own OfChosen t) (fixedReach s))
 byRoot v own (Gives js) _ = insert Headless (fromList (map HeadedBy (forget js)))
 byRoot v own (Parameter i Z) _ = own.ofMarker i
 byRoot v own (Parameter _ (S _)) t = byTemplate v own OfRootless t
@@ -380,15 +402,161 @@ keyedBy v own how x = case (how, x.root) of
 splitters : Site -> List (Splitting, Argument)
 splitters s = mapMaybe (\x => (, x) <$> splitting x.kind) s.arguments
 
+-- What the program's dictionaries hold, read once: each definition that
+-- gives one, with what it holds, and each method function by the
+-- implementation field it is.
+record Dictionaries where
+  constructor MkDictionaries
+  holding : SortedMap Address Fields
+  methods : SortedMap Address (Address, Nat)
+
+dictionariesOf : SortedMap Address Fields -> Dictionaries
+dictionariesOf fs = MkDictionaries fs (foldl (\m, (j, f) => numbered j 0 f.inOrder m) empty (Data.SortedMap.toList fs))
+  where
+    numbered : Address -> Nat -> List Field -> SortedMap Address (Address, Nat) -> SortedMap Address (Address, Nat)
+    numbered j k [] m = m
+    numbered j k (Method fn _ _ _ :: rest) m = numbered j (S k) rest (insert fn (j, k) m)
+    numbered j k (Dictionary _ _ _ :: rest) m = numbered j (S k) rest m
+    numbered j k (Plain _ _ :: rest) m = numbered j (S k) rest m
+
 -- The method function an implementation's field k is, with where the
 -- method's own arguments and the implementation's parameters land among
--- its parameters. A plain field (a superclass dictionary, or one of an
--- interface constructor's own variables) has none, so a dispatch through
--- it reaches nothing.
-methodAt : SortedMap Address Fields -> Address -> Nat -> Maybe (Address, List Nat, List (Nat, Nat))
-methodAt fs j k = case fieldAt fs j k of
+-- its parameters. Any other field (a superclass dictionary, or one of an
+-- interface constructor's own variables) has none.
+methodAt : Dictionaries -> Address -> Nat -> Maybe (Address, List Nat, List (Nat, Nat))
+methodAt ds j k = case fieldAt ds.holding j k of
   Just (Method m _ own leading) => Just (m, own, leading)
   _ => Nothing
+
+-- The method fields a dispatch through field k of j runs: that field when
+-- it is a method's; and through any other field, each method function its
+-- slot holds as a value, as the implementation field it is, which is what
+-- a constructor rebuilt from an implementation holds there
+-- (`Sites.Repacks`). A dictionary a field holds, and a function that is no
+-- implementation's field, run no method of their own: a dispatch on the
+-- dictionary is a dispatch of its own, and the function's body is code
+-- where it is written.
+runs : Dictionaries -> View -> Address -> Nat -> List (Address, Nat)
+runs ds v j k = case fieldAt ds.holding j k of
+  Just (Method _ _ _ _) => [(j, k)]
+  _ => mapMaybe (\m => lookup m ds.methods) (headsIn (at v (fieldSlot j k)))
+
+------------------------------------------------------------------------------
+-- Rebuilt dictionaries
+------------------------------------------------------------------------------
+
+-- One level of a path of fields taken down a dictionary: what the part
+-- there is rooted at, what that holds, the field the path takes, and the
+-- head of the choice that field's type is, a dictionary's.
+record Level where
+  constructor MkLevel
+  rootedAt : Address
+  holds : Fields
+  taken : Nat
+  choiceOf : ChoiceHead
+
+-- The head of the choice field k is, where it is a dictionary, the one
+-- kind of field a match takes apart.
+heldDictionary : Fields -> Nat -> Maybe ChoiceHead
+heldDictionary f k = case head' (drop k f.inOrder) of
+  Just (Dictionary _ _ h) => Just h
+  _ => Nothing
+
+-- One way a path of fields can be taken down a dictionary, from its root,
+-- to a field the running program may have chosen, so that a match there
+-- is stuck (`unsettledAt`): a level for each field of the path, the
+-- dictionary's first. Each level's root is one of those its part can be,
+-- given the roots the dictionary can be at the first.
+Chain : Type
+Chain = List1 Level
+
+chains : Dictionaries -> View -> (roots : List Address) -> (k : Nat) -> (rest : List Nat) -> List Chain
+chains ds v [] k rest = []
+chains ds v (j :: js) k rest = here ++ chains ds v js k rest
+  where
+    down : Level -> List Nat -> List Chain
+    down l [] = if unsettledAt v (fieldSlot j k) then [l ::: []] else []
+    down l (k' :: ks) = map (\c => l ::: forget c) (chains ds v (headsIn (at v (fieldSlot j k))) k' ks)
+
+    -- A root that holds no dictionary at the field is no way down: a
+    -- match there takes apart nothing the program fixes.
+    here : List Chain
+    here = case lookup j ds.holding of
+      Nothing => []
+      Just f => maybe [] (\h => down (MkLevel j f k h) rest) (heldDictionary f k)
+
+-- A dictionary rebuilt down a chain, as an arm of the dispatch
+-- `Translate.Cases.heldHere` requests holds it
+-- (`Translate.Choices.heldMember`): each level the constructor its root is
+-- built with, applied to that level's fields, each read off the part
+-- there (`Field`), but the one the path takes, which is the next level
+-- rebuilt, and at the last level a member of the field's choice
+-- (`Member`), which the place that made the member wrote at the choice's
+-- positions. With what each rebuilt constructor's fields then hold, by
+-- constructor and field.
+record Rebuilt where
+  constructor MkRebuilt
+  template : Template
+  fillings : List (Address, Nat, Template)
+
+-- A level's fields read off its part, the one the path takes the next
+-- level rebuilt, or at the last a member of its choice.
+cellsFrom : (part : Template) -> Level -> Maybe Rebuilt -> (c : Nat) -> List Field -> List Template
+cellsFrom part l inner c [] = []
+cellsFrom part l inner c (_ :: fs) = (if c == l.taken then onward inner else Template.Field c part) :: cellsFrom part l inner (S c) fs
+  where
+    onward : Maybe Rebuilt -> Template
+    onward (Just r) = r.template
+    onward Nothing = Template.Member l.choiceOf
+
+-- A constructor's fields as rebuilt, by number.
+filled : Address -> (c : Nat) -> List Template -> List (Address, Nat, Template)
+filled con c [] = []
+filled con c (t :: ts) = (con, c, t) :: filled con (S c) ts
+
+mutual
+  rebuilt : (part : Template) -> Level -> List Level -> Rebuilt
+  rebuilt part l ls =
+    let inner = deeper part l ls
+        cells = cellsFrom part l inner 0 l.holds.inOrder in
+    MkRebuilt (Template.Head (Just l.holds.builtBy) cells) (filled l.holds.builtBy 0 cells ++ further inner)
+
+  further : Maybe Rebuilt -> List (Address, Nat, Template)
+  further (Just r) = r.fillings
+  further Nothing = []
+
+  deeper : Template -> Level -> List Level -> Maybe Rebuilt
+  deeper part l [] = Nothing
+  deeper part l (n :: ns) = Just (rebuilt (Template.Field l.taken part) n ns)
+
+-- What each rebuilt constructor's fields hold in the flow: what the
+-- level's root holds there, and where the path goes on, the constructor
+-- the next level is rebuilt with. The field the last level takes holds a
+-- member of its choice in each arm (`membersAt`), never the stuck value
+-- the root may hold there.
+mutual
+  rebuiltEntries : View -> Level -> List Level -> List Entry
+  rebuiltEntries v l [] = copied v l Nothing 0 l.holds.inOrder
+  rebuiltEntries v l (n :: ns) = copied v l (Just n.holds.builtBy) 0 l.holds.inOrder ++ rebuiltEntries v n ns
+
+  copied : View -> Level -> (next : Maybe Address) -> (c : Nat) -> List Field -> List Entry
+  copied v l next c [] = []
+  copied v l next c (_ :: fs) = map (fieldSlot l.holds.builtBy c,) (Prelude.toList (there next)) ++ copied v l next (S c) fs
+    where
+      own : SortedSet Heading
+      own = at v (fieldSlot l.rootedAt c)
+
+      there : Maybe Address -> SortedSet Heading
+      there (Just con) = if c == l.taken then singleton (HeadedBy con) else own
+      there Nothing = if c == l.taken then membersAt v l.choiceOf else own
+
+-- Heads with the one at parameter i, ascending as a node holds them.
+headedAt : Nat -> Address -> List (Nat, Address) -> List (Nat, Address)
+headedAt i con [] = [(i, con)]
+headedAt i con ((j, a) :: hs) = case compare i j of
+  LT => (i, con) :: (j, a) :: hs
+  EQ => (i, con) :: hs
+  GT => (j, a) :: headedAt i con hs
 
 ||| An argument of a site and the callee parameter it lands at.
 public export
@@ -425,10 +593,14 @@ placedBy own xs = xs >>= \x => map (MkPlaced x) (placedAt own x)
 -- each member, keyed by the member's heading, and, at a member no
 -- implementation roots, what that member's leaves give. `Through` says
 -- the function of method k of this dictionary holds what these arguments
--- give, at the parameters the method's field places them at.
+-- give, at the parameters the method's field places them at. `Rebuilds`
+-- says the constructors the writer's dictionary parameter is rebuilt
+-- with, down a path of fields a match finds stuck, hold what the parts
+-- there held (`rebuiltEntries`).
 data Equation = Into Slot Address Parameters Root Template
               | Passes Slot Address Parameters Splitting Argument
               | Through Address Parameters Root Template Nat (List (Splitting, Argument))
+              | Rebuilds Address Parameters Nat (List1 Nat)
 
 -- Writing `J u` reaches J's parameters through the call of J, and J's
 -- method functions' leading parameters through J's own calls of them,
@@ -452,6 +624,7 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       -- A polymorphic function is given as it is, keying nothing, and a
       -- use of it applies each member at the use's own types.
       Makes ArrowHead => []
+      Repacks x path => [Rebuilds s.writer s.params x.position path]
 
     numbered : Address -> Nat -> List Field -> List Equation
     numbered j k [] = []
@@ -459,14 +632,18 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       let (t, r) = fieldRead field in Into (fieldSlot j k) j OwnOnly r t :: numbered j (S k) rest
 
     fromFields : (Address, Fields) -> List Equation
-    fromFields (j, fields) = numbered j 0 fields
+    fromFields (j, fields) = numbered j 0 fields.inOrder
+
+-- The entries a dictionary rebuilt down a chain gives (`rebuiltEntries`).
+chainEntries : View -> Chain -> List Entry
+chainEntries v (l ::: ls) = rebuiltEntries v l ls
 
 -- Every entry the equations give under the solution so far. A set, since
 -- the sites give each entry many times, and each is searched for in the
 -- seen list once. Lists are joined by bind, which is linear: base's
 -- `concatMap` on a list folds `++` from the left, quadratic in the length.
-candidates : SortedMap Address Fields -> View -> List Equation -> SortedSet Entry
-candidates fs v eqs = fromList (eqs >>= yield)
+candidates : Dictionaries -> View -> List Equation -> SortedSet Entry
+candidates ds v eqs = fromList (eqs >>= yield)
   where
     own : Address -> Parameters -> Own
     own w ps = markersOnly (\i => at v (ownSlot w ps i))
@@ -481,12 +658,15 @@ candidates fs v eqs = fromList (eqs >>= yield)
     -- give, which reach beside it.
     yield (Through w ps r t k xs) = do
       j <- headsIn (byRoot v (own w ps) r t)
-      case methodAt fs j k of
+      (j', k') <- runs ds v j k
+      case methodAt ds j' k' of
         Nothing => []
         Just (m, own', _) => do
           (how, x) <- xs
           p <- placedAt own' x
           into (parameterSlot m p) (byArgument v (own w ps) how x)
+    yield (Rebuilds w ps i (k ::: ks)) =
+      chains ds v (headsIn (at v (ownSlot w ps i))) k ks >>= chainEntries v
 
 -- Whether a round grew the seen list: if it did, the room left in the
 -- listing is below the round's start, and otherwise it is the start.
@@ -525,19 +705,19 @@ drain complete seen nd (x :: xs) = case isNew x seen of
 -- room in the finite listing, so the rounds end by the pigeonhole; nothing
 -- counts them.
 round : {0 u : List Entry} -> (0 complete : (x : Entry) -> Elem x u) ->
-        SortedMap Address Fields -> List Equation ->
+        Dictionaries -> List Equation ->
         (seen : List Entry) -> (0 nd : NoDup seen) ->
         (0 acc : Accessible LT (minus (length u) (length seen))) -> List Entry
-round complete fs eqs seen nd (Access rec) =
-  case drain complete seen nd (Prelude.toList (candidates fs (viewOf seen) eqs)) of
-    MkDrained seen' nd' (Grew below) => round complete fs eqs seen' nd' (rec _ below)
+round complete ds eqs seen nd (Access rec) =
+  case drain complete seen nd (Prelude.toList (candidates ds (viewOf seen) eqs)) of
+    MkDrained seen' nd' (Grew below) => round complete ds eqs seen' nd' (rec _ below)
     MkDrained seen' _ (Kept _) => seen'
 
 -- The listing is a variable here: written out, the checker would reduce
 -- it, and it holds 4 * 256^24 entries.
 solve : {0 u : List Entry} -> (0 complete : (x : Entry) -> Elem x u) ->
-        SortedMap Address Fields -> List Equation -> List Entry
-solve complete fs eqs = round complete fs eqs [] [] (wellFounded _)
+        Dictionaries -> List Equation -> List Entry
+solve complete ds eqs = round complete ds eqs [] [] (wellFounded _)
 
 ||| The implementations each dictionary parameter and field of the program
 ||| can hold, over the unsplit definitions: the least sets closed under the
@@ -546,12 +726,12 @@ solve complete fs eqs = round complete fs eqs [] [] (wellFounded _)
 export
 record Flow where
   constructor MkFlow
-  implementations : SortedMap Address Fields
+  dictionaries : Dictionaries
   solution : View
 
 export
 flow : SortedMap Address Fields -> List Site -> Flow
-flow fs ss = MkFlow fs (viewOf (solve {u = values} complete fs (equations fs ss)))
+flow fs ss = let ds = dictionariesOf fs in MkFlow ds (viewOf (solve {u = values} complete ds (equations fs ss)))
 
 ||| What the flow found can reach a definition's parameter: the
 ||| implementations a dictionary there can be, the type constructors that
@@ -602,32 +782,46 @@ roots fl families w ps t = headsIn (byTemplate fl.solution (MkOwn (dictionaryAt 
     dictionaryApplied i = if elem i families then empty else dictionaryAt fl w ps i
 
 -- A callee's dictionary and family parameters, by index, so ascending,
--- each with the headings it can be keyed by.
+-- each with the heads it can be keyed by there: an implementation, or
+-- none.
 Choices : Type
-Choices = SortedMap Nat (SortedSet Heading)
+Choices = SortedMap Nat (List (Maybe Address))
 
--- A parameter with its headings. One that nothing reaches is keyed at no
+-- What some headings key a callee by: each implementation, and no head. A
+-- dictionary the running program chooses keys nothing of its own, since
+-- its members, which reach beside it, key the callee.
+keyings : SortedSet Heading -> List (Maybe Address)
+keyings hs = mapMaybe keying (Prelude.toList hs)
+  where
+    keying : Heading -> Maybe (Maybe Address)
+    keying (HeadedBy a) = Just (Just a)
+    keying Headless = Just Nothing
+    keying Unsettled = Nothing
+
+-- A parameter with its headings. One that nothing keys is keyed at no
 -- head alone, as one only `Headless` reaches is: the request that reaches
 -- the callee holds no head there. The case is the program's (a function
 -- that gives an implementation at each use keys nothing, and a projection
 -- of a value no constructor builds is rooted by no implementation), not
 -- the representation's.
 choice : Nat -> SortedSet Heading -> Choices -> Choices
-choice i hs cs = if null hs then cs else insert i hs cs
+choice i hs cs = case keyings hs of
+  [] => cs
+  ks => insert i ks cs
 
--- One list of heads for each way of choosing a heading at each
--- parameter, ascending by index: a parameter at no head has none in it.
+-- One list of heads for each way of choosing a head at each parameter,
+-- ascending by index: a parameter at no head has none in it.
 combinations : Choices -> List (List (Nat, Address))
 combinations cs = go (Data.SortedMap.toList cs)
   where
-    headed : Nat -> Heading -> List (Nat, Address) -> List (Nat, Address)
-    headed i (HeadedBy j) hs = (i, j) :: hs
-    headed i Headless hs = hs
+    headed : Nat -> Maybe Address -> List (Nat, Address) -> List (Nat, Address)
+    headed i (Just j) hs = (i, j) :: hs
+    headed i Nothing hs = hs
 
-    go : List (Nat, SortedSet Heading) -> List (List (Nat, Address))
+    go : List (Nat, List (Maybe Address)) -> List (List (Nat, Address))
     go [] = [[]]
     go ((i, js) :: rest) = let tails = go rest in
-                           [headed i h hs | h <- Prelude.toList js, hs <- tails]
+                           [headed i h hs | h <- js, hs <- tails]
 
 ||| What a position of the graph is a parameter of: a node, or the
 ||| application of a compile-time form at a use (`Translate.State.AtUse`),
@@ -691,18 +885,22 @@ data Via : Type where
   Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
 ||| What a site reaches from a node: a callee node, which the walk enters;
-||| the application at a use; or a choice it makes a member of.
+||| the application at a use; a choice it makes a member of; or the fields
+||| of a constructor a dictionary is rebuilt with, which no definition's
+||| node holds, each a field's position.
 public export
-data Callee = Entering Node | Applying | Making ChoiceHead
+data Callee = Entering Node | Applying | Making ChoiceHead | Filling Address
 
 ||| Where an argument placed at a callee's parameter i lands: that
 ||| parameter of the node or of the application; at a choice, its one
-||| position, where every member lands whatever it is placed at.
+||| position, where every member lands whatever it is placed at; at a
+||| rebuilt constructor, its field i.
 export
 landsAt : Callee -> Nat -> Spot
 landsAt (Entering n) i = OfParameter (OfNode n) i
 landsAt Applying i = OfParameter OfApplication i
 landsAt (Making k) _ = OfChoice k
+landsAt (Filling con) i = OfField con i
 
 ||| What a site reaches from a node, with each of the site's arguments
 ||| placed at the parameter it lands at, and how it got there.
@@ -737,13 +935,35 @@ reaches fl w s = from s.reach
     -- write of J gave them, through J's own call of the function: only the
     -- dispatched dictionary's root is Core's, not the arguments J was
     -- written at.
-    through : Nat -> Address -> List Reached
-    through k j = case methodAt fl.implementations j k of
+    method : Nat -> Address -> List Reached
+    method k j = case methodAt fl.dictionaries j k of
       Nothing => []
       Just (m, own, leading) =>
         let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) acc) (the Choices empty) leading
             placed = placedBy own s.arguments in
         map (\hs => MkReached (Entering (MkNode m hs)) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
+
+    -- A dispatch through field k of j: each method field it runs (`runs`).
+    through : Nat -> Address -> List Reached
+    through k j = runs fl.dictionaries fl.solution j k >>= \(j', k') => method k' j'
+
+    -- A field of a rebuilt constructor, as what the dictionary's argument
+    -- writes there.
+    filling : Argument -> (Address, Nat, Template) -> Reached
+    filling x (con, c, t) =
+      MkReached (Filling con) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing } x) c] Called
+
+    -- The writer again, its dictionary parameter, whose argument is `x`,
+    -- rebuilt down a chain: at its node with the dictionary's head the
+    -- constructor the chain's root is built with, which is the rebuilt
+    -- dictionary's root, and every other static parameter as it is; and
+    -- the rebuilt constructors' fields, which no other site writes.
+    rebuiltAt : Argument -> Chain -> List Reached
+    rebuiltAt x (l ::: ls) =
+      let r = rebuilt (Template.Var x.position 0) l ls
+          dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing } x) x.position
+          target = MkNode w.definition (headedAt x.position l.holds.builtBy w.heads) in
+      MkReached (Entering target) (atOwnPositions s.arguments ++ [dictionary]) Called :: map (filling x) r.fillings
 
     from : Reach -> List Reached
     from (Calls t) = let placed = atOwnPositions s.arguments in
@@ -756,3 +976,9 @@ reaches fl w s = from s.reach
     -- bounded at its positions alone.
     from Applies = [MkReached Applying (atOwnPositions s.arguments) Called]
     from (Makes k) = [MkReached (Making k) (atOwnPositions s.arguments) Called]
+    -- Where a match finds a field of the dictionary stuck: one request for
+    -- each chain to a field the running program may have chosen, none
+    -- where every root holds that field fixed, as no translation then
+    -- rebuilds it.
+    from (Repacks x (k ::: ks)) =
+      chains fl.dictionaries fl.solution (headsIn (dictionaryAt fl w s.params x.position)) k ks >>= rebuiltAt x
