@@ -10,7 +10,7 @@ tensor: built by IdrisMLIR.Dialect.Tensor
 ub: built by IdrisMLIR.Dialect.UB
 names of the dialects in Emit: none spelled by hand
 types and attributes: none spelled outside the syntax modules
-generated sums: each held by MLIR.idr
+generated sums: each held, an attribute sum by its dialect's smart constructor
 generated sums: each sampled through its mnemonics
 witness: each planted file is found
 near miss: nothing found

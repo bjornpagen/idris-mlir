@@ -22,6 +22,7 @@ import Data.List
 import Data.List1
 import Data.Maybe
 import Data.String
+import Data.Vect
 import Decidable.Equality
 
 import IdrisMLIR.Spec.Core.Admitted
@@ -416,14 +417,15 @@ conditions =
   , (inBoundsOp.mnemonic, InBounds), (finiteOp.mnemonic, Finite) ]
 
 ||| A guard of a builtin, read off its op once: what it lets through, the
-||| builtin's arguments it is given (the one it guards first; a guarded
-||| builtin takes its arguments in its op's order), and the cause its crash
-||| names.
+||| builtin's arguments it is given, one per operand of the guard op (the
+||| one it guards first; a guarded builtin takes its arguments in its op's
+||| order), and the cause its crash names, as the specification holds them.
 public export
 record Guarding where
   constructor MkGuarding
+  {0 others : Nat}
   condition : Condition
-  given : List1 Nat
+  given : Vect (S others) Nat
   cause : Cause
 
 ||| The guards an op states, each argument by its position.
@@ -432,18 +434,22 @@ guardsOf (OurOp (SomeOp op)) = map (\g => MkGuard g.check (map finToNat g.given)
 guardsOf (AdmittedOp a) = a.guards
 guardsOf Retyped = []
 
-||| An op's guards, read into what the oracle knows of each; a guard of an
-||| op the oracle has no reading of, or of a cause the endings lack, is why
-||| not, which the table's checks report.
+||| An op's guards, read into what the oracle knows of each: the guard op's
+||| condition, by the op the specification holds; its arguments and its
+||| cause as the guard holds them. A guard op the oracle has no reading of
+||| is why not, which the table's checks report.
 export
 guardings : DialectOp -> Either String (List Guarding)
 guardings op = traverse reading (guardsOf op)
   where
     reading : Guard Nat -> Either String Guarding
-    reading g = case (lookup g.check conditions, causeOf g.cause) of
-      (Just c, Just why) => Right (MkGuarding c g.given why)
-      (Nothing, _) => Left ("its guard " ++ mnemonicText g.check ++ " has no reading in the oracle")
-      (Just _, Nothing) => Left ("its guard " ++ mnemonicText g.check ++ " names a cause the endings lack")
+    reading g = case lookup g.check.mnemonic conditions of
+      Just c => Right (MkGuarding c g.given g.cause)
+      Nothing => Left ("its guard " ++ mnemonicText g.check.mnemonic ++ " has no reading in the oracle")
+
+||| A guard's arguments as one list, the one it checks first.
+guardArguments : Vect (S n) a -> List1 a
+guardArguments (x :: xs) = x ::: toList xs
 
 ||| What a guard says of the arguments it is given: it lets them through,
 ||| it fails (the program crashes there), or it cannot be read, for an
@@ -870,7 +876,7 @@ guarded op as = case guardings op of
   Right gs => foldr (\g, o => together (verdict g) o) Runs gs
   where
     verdict : Guarding -> Outcome
-    verdict g = case judge g.condition (map (\k => argAt k as) g.given) of
+    verdict g = case judge g.condition (guardArguments (map (\k => argAt k as) g.given)) of
       Holds => Runs
       Fails => Crashes (g.cause ::: [])
       Unreadable => Undecided
@@ -963,7 +969,7 @@ checks =
     typed : Builtin -> Bool
     typed b = case guardings b.op of
       Left _ => False
-      Right gs => all (\g => reads g.condition (map (\k => getAt k b.takes) (forget g.given))) gs
+      Right gs => all (\g => reads g.condition (map (\k => getAt k b.takes) (toList g.given))) gs
     unique : List String -> Bool
     unique [] = True
     unique (x :: xs) = not (elem x xs) && unique xs

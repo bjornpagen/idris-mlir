@@ -19,9 +19,12 @@
 # generated from the dialect's ODS (IdrisMLIR.Syntax.*), so
 #   - no string literal outside the syntax and dialect modules spells one,
 #     `!<dialect>.` or `#<dialect>.`;
-#   - MLIR.idr holds each generated sum in its types or attributes, and
-#     SyntaxSamples.idr, whose module the round trip reads back, samples
-#     each through the sum's list of mnemonics.
+#   - each generated attribute sum is held by the smart constructor
+#     printed with its dialect (IdrisMLIR.Dialect.*), `<name> : <sum>
+#     MlirType MlirAttr -> MlirAttr`, which spells an attribute under that
+#     dialect, and a type sum by MLIR.idr's types; and SyntaxSamples.idr,
+#     whose module the round trip reads back, samples each through the
+#     sum's list of mnemonics.
 # The literal rules are `literals ROOT`, run on the repository and on the
 # planted trees (lib/planted.sh): witness/ spells an op, a dialect's
 # prefix, a type and an attribute by hand, each where it may not; near-miss/
@@ -118,19 +121,25 @@ for file in "$src"/Syntax/*.idr; do
 done
 [ -s "$work/sums" ] || say "syntax modules: no generated sum found"
 idris_lex code "$src/MLIR.idr" > "$work/mlir"
+for file in "$src"/Dialect/*.idr; do idris_lex code "$file"; done > "$work/dialects"
 idris_lex code "$src/SyntaxSamples.idr" > "$work/samples"
 : > "$work/unheld"
 : > "$work/unsampled"
 while read -r sum list; do
-  grep -Eq "(^|[^A-Za-z0-9_.])$sum([^A-Za-z0-9_']|\$)" "$work/mlir" || printf '%s\n' "$sum" >> "$work/unheld"
+  case $sum in
+    *Attr) grep -Eq "(^|[0-9]:)[a-z][A-Za-z0-9_]* : $sum MlirType MlirAttr -> MlirAttr" "$work/dialects" ||
+             printf '%s: no smart constructor in IdrisMLIR.Dialect.*\n' "$sum" >> "$work/unheld" ;;
+    *) grep -Eq "(^|[^A-Za-z0-9_.])$sum([^A-Za-z0-9_']|\$)" "$work/mlir" ||
+         printf '%s: not among MLIR.idr'"'"'s types\n' "$sum" >> "$work/unheld" ;;
+  esac
   grep -Eq "(^|[^A-Za-z0-9_.])$list([^A-Za-z0-9_']|\$)" "$work/samples" ||
     printf '%s (%s)\n' "$sum" "$list" >> "$work/unsampled"
 done < "$work/sums"
 if [ -s "$work/unheld" ]; then
-  say "generated sums MLIR.idr does not hold:"
+  say "generated sums nothing holds:"
   show "$work/unheld"
 else
-  say "generated sums: each held by MLIR.idr"
+  say "generated sums: each held, an attribute sum by its dialect's smart constructor"
 fi
 if [ -s "$work/unsampled" ]; then
   say "generated sums SyntaxSamples.idr does not sample:"

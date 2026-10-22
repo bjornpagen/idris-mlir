@@ -89,13 +89,6 @@ export
 causePhraseOf : Cause -> String
 causePhraseOf c = lineText (causeClosed.describe c).doc
 
-||| The cause a guard of the specification names, read once where the
-||| harness reads the guard: a guard holds its cause as the enum's case, by
-||| the name the C++ gives it.
-export
-causeOf : CaseRef -> Maybe Cause
-causeOf ref = find (\c => (causeClosed.describe c).name == ref.name) (forget causeClosed.every)
-
 ||| The signal POSIX names for an ending's signal, as the shell's `kill -l`
 ||| names the signal of a status above 128: the one fact of the platform
 ||| the harness states, the same on every target.

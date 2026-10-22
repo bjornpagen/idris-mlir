@@ -321,7 +321,7 @@ mutual
           -> Gen (Expr t)
   argument _ _ _ (Guarded g) drawn t src = do
     s <- side
-    let others = map (\k => join (getAt k drawn)) (tail g.given)
+    let others = toList (map (\k => join (getAt k drawn)) (tail g.given))
     case guardedLiteral g.condition s t others of
       Just pool => Lit <$> pool
       Nothing => pooled t src
