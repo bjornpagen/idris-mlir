@@ -4078,6 +4078,12 @@ C137.
   non-canonical classes writable. Reason: AGENTS.md (no greedy driver,
   no pointer-keyed per-node state, typed choices) and the evidence agree;
   upstream first does not reach research code that is not upstream.
+  *Amended* by D123 (L14x, 2026-10-22): rules run in rounds, a rebuild
+  restoring congruence after each, in place of rules at insertion with no
+  rebuild; each class records the outermost region a member is
+  computable in, so no union puts a block argument where a use cannot
+  see it, and extraction writes back only a member computable at each
+  use.
 - **C154** (2026-10-21; `machine.md`, measured on the stock host). A
   library body run by the stock host decides with evidence at quantity 0
   (a decision type whose proof is erased), never a proof built at run
