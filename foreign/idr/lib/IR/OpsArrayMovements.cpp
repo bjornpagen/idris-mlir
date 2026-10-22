@@ -57,7 +57,7 @@ LogicalResult ArrayPutBackOp::verify() { return verifyMoved(*this); }
 // A take moves what the slots hold out, which leaves their place to be put
 // back into; a copy reads it with references of its own; a place moves a
 // value into slots that hold nothing, and a put-back into the place a take
-// left.
+// left, which holds nothing either: each fills what it writes.
 void ArrayTakeOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowSource::partOf(getBuffer(), elementsOf(getBuffer())), atIndex(getValue()));
   edges.overwrite(getBuffer(), elementsOf(getBuffer()));
@@ -68,9 +68,11 @@ void ArrayCopyOp::getFlowEdges(FlowEdges &edges) {
 }
 void ArrayPlaceOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(atIndex(getValueMutable()), FlowPlace::partOf(getBuffer(), elementsOf(getBuffer())));
+  edges.fill(getBuffer(), elementsOf(getBuffer()));
 }
 void ArrayPutBackOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(atIndex(getValueMutable()), FlowPlace::partOf(getBuffer(), elementsOf(getBuffer())));
+  edges.fill(getBuffer(), elementsOf(getBuffer()));
 }
 
 namespace idr::arrays {
@@ -121,4 +123,5 @@ LogicalResult ArrayPlaceCopyOp::verify() {
 void ArrayPlaceCopyOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowSource::partOf(getSource(), elementsOf(getSource())),
              FlowPlace::partOf(getTarget(), elementsOf(getTarget())));
+  edges.fill(getTarget(), elementsOf(getTarget()));
 }
