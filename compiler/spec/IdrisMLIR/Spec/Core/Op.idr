@@ -237,11 +237,18 @@ data Meaning : (i, o : Nat) -> Type where
 
 ||| A constant of an op's member of a C++ class template the generator
 ||| specializes per op (its family's constants, its word op): a case of an
-||| enum of the dialect's, an integer, an admitted upstream op's class, or
-||| no class, where the member names none (a big op whose word is the
-||| value itself).
+||| enum of the specification's, in the namespace its header declares it
+||| in; an integer; an admitted upstream op's class; no class, where the
+||| member names none (a big op whose word is the value itself); or a
+||| runtime function the lowering calls, by the helper's row of the
+||| runtime's ABI (a show's writer).
 public export
-data Constant = EnumConstant CaseRef | IntConstant Integer | UpstreamClass Admitted | NoClass
+data Constant
+  = EnumConstant CaseRef
+  | IntConstant Integer
+  | UpstreamClass Admitted
+  | NoClass
+  | HelperConstant RuntimeHelper
 
 ||| A class template of hand C++ in `::idr`, specialized for each op that
 ||| is a member, its members the op's constants: the one carrier of a
@@ -252,12 +259,33 @@ record Specialized where
   template : Ident
   constants : List (Ident, Constant)
 
+||| A constant a law names: an integer, or a string (the empty string is
+||| `str.append`'s identity). Written as a literal of either kind.
+public export
+data LawConstant = IntegerConstant Integer | StringConstant String
+
+namespace LawConstant
+  public export
+  fromInteger : Integer -> LawConstant
+  fromInteger = IntegerConstant
+
+  public export
+  fromString : String -> LawConstant
+  fromString = StringConstant
+
+  ||| A negative integer literal's constant, its magnitude an integer.
+  public export
+  negate : Integer -> LawConstant
+  negate i = IntegerConstant (negate i)
+
 ||| A law of an op, from which the e-graph's rules are generated, each
 ||| one-way and narrowly triggered (a law whose only rule would connect
 ||| equal forms both ways gives none), and the accumulator's operations;
-||| the traits upstream has for them are printed from them too.
+||| the traits upstream has for them are printed from them too. A rule's
+||| literal is a value of the op's integers, so an identity that is a
+||| string gives the accumulator its start and no rule.
 public export
-data Law = Associative | Commutative | Idempotent | Involution | Identity Integer | Annihilator Integer
+data Law = Associative | Commutative | Idempotent | Involution | Identity LawConstant | Annihilator Integer
 
 ||| Whether ODS writes an op's default builders, besides its declared ones.
 public export

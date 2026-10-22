@@ -12,6 +12,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
+import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Pipeline.Pass
 import IdrisMLIR.Spec.Pipeline.Pipeline
 
@@ -308,13 +309,34 @@ opIndexHeader keys =
 -- Specializations: families' constants, word ops
 ------------------------------------------------------------------------------
 
+||| The namespace an enum of the specification is declared in: the block of
+||| the header that declares it, or the dialect's, where ODS declares the
+||| dialect's enums.
 export
-constantMember : (Ident, Constant) -> String
-constantMember (n, EnumConstant c) =
-  "static constexpr ::idr::" ++ identText c.enum.name ++ " " ++ identText n ++ " = ::idr::" ++ identText c.enum.name ++ "::" ++ identText c.name ++ ";"
-constantMember (n, IntConstant i) = "static constexpr std::int64_t " ++ identText n ++ " = " ++ integer i ++ ";"
-constantMember (n, UpstreamClass a) = "using " ++ identText n ++ " = " ++ admittedAlias a ++ ";"
-constantMember (n, NoClass) = "using " ++ identText n ++ " = void;"
+enumHome : List Header -> EnumDef -> String
+enumHome hs e = case find declares (concatMap (.blocks) hs) of
+  Just (ns, _) => namespaceText ns
+  Nothing => "idr"
+  where
+    declares : (CppName, List CppDecl) -> Bool
+    declares (ns, ds) = any (\x => x.name == e.name) (blockEnums ns ds)
+
+export
+constantMember : List Header -> (Ident, Constant) -> String
+constantMember hs (n, EnumConstant c) =
+  let enum = "::" ++ enumHome hs c.enum ++ "::" ++ identText c.enum.name
+  in "static constexpr " ++ enum ++ " " ++ identText n ++ " = " ++ enum ++ "::" ++ identText c.name ++ ";"
+constantMember _ (n, IntConstant i) = "static constexpr std::int64_t " ++ identText n ++ " = " ++ integer i ++ ";"
+constantMember _ (n, UpstreamClass a) = "using " ++ identText n ++ " = " ++ admittedAlias a ++ ";"
+constantMember _ (n, NoClass) = "using " ++ identText n ++ " = void;"
+constantMember _ (n, HelperConstant h) =
+  "static constexpr const ::idr::runtime::Function &" ++ identText n ++ " = ::idr::runtime::helper::" ++ identText h.name ++ ";"
+
+||| Whether a constant names a runtime function, whose row the template's
+||| header then includes.
+namesHelper : Constant -> Bool
+namesHelper (HelperConstant _) = True
+namesHelper _ = False
 
 ||| The members of one template: each op that specializes it, with its
 ||| constants.
@@ -334,19 +356,20 @@ templatesOf ops = nub (concatMap (\(SomeOp op) => map (.template) op.specializat
 ||| separated by commas, for a pack over all of them; else the
 ||| specializations.
 export
-specializationHeader : Ident -> List AnyOp -> Lines
-specializationHeader t ops =
+specializationHeader : List Header -> Ident -> List AnyOp -> Lines
+specializationHeader hs t ops =
   let members = membersOf t ops
       macro = "GET_" ++ pack (map up (unpack (snakeOf (identText t)))) ++ "_LIST"
+      abi = if any (any (namesHelper . snd) . snd) members then ["\"idr/IR/Generated/RuntimeAbi.h.inc\""] else []
   in banner slashComment
      ++ ["#ifdef " ++ macro, "#undef " ++ macro, ""]
      ++ zipWith (++) (map fst members) (replicate (pred (length members)) "," ++ [""])
      ++ ["", "#else"]
-     ++ header (identText t) ["\"idr/IR/Generated/AdmittedClasses.h.inc\"", "<cstdint>"]
+     ++ header (identText t) (["\"idr/IR/Generated/AdmittedClasses.h.inc\""] ++ abi ++ ["<cstdint>"])
           (inNamespace "idr"
              ( ["template <class OpT>", "struct " ++ identText t ++ ";", ""]
                ++ concatMap (\(cls, cs) => ["template <>", "struct " ++ identText t ++ "<" ++ cls ++ "> {"]
-                                          ++ indent 2 (map constantMember cs) ++ ["};", ""]) members ))
+                                          ++ indent 2 (map (constantMember hs) cs) ++ ["};", ""]) members ))
      ++ ["#endif"]
   where
     up : Char -> Char
@@ -845,7 +868,8 @@ lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
     two = FNode c 0 2
     rulesOf : Nat -> Law -> List FlatRule
     rulesOf 2 Associative = associativeRules c
-    rulesOf 2 (Identity k) = [identityRule c k]
+    rulesOf 2 (Identity (IntegerConstant k)) = [identityRule c k]
+    rulesOf 2 (Identity (StringConstant _)) = []
     rulesOf 2 (Annihilator k) = [MkFlatRule c 1 [two, FVar 0, FLit k] [FLit k] []]
     rulesOf 2 Idempotent = [MkFlatRule c 1 [two, FVar 0, FVar 0] [FVar 0] []]
     rulesOf 1 Involution = [MkFlatRule c 1 [FNode c 0 1, FNode c 0 1, FVar 0] [FVar 0] []]
@@ -963,10 +987,17 @@ rangeEntry NoRange = "std::nullopt"
 
 ||| The e-graph's rules as the engine reads them: the patterns in preorder,
 ||| the conditions, the rules grouped by root kind with each kind's offset,
-||| the kinds and each one's range function, the skeleton rules, and the
-||| budget, all compile-time constants, so nothing is built per function.
+||| the kinds and each one's range function, the admitted ops never folded,
+||| the skeleton rules, and the budget, all compile-time constants, so
+||| nothing is built per function.
 ||| The rules are the specification's, its ops' laws' and its admitted ops'
 ||| laws'.
+||| Whether upstream's fold of an admitted op is never run at compile time.
+neverFolded : Admitted -> Bool
+neverFolded a = case a.folding of
+  NeverFolded => True
+  UpstreamFold => False
+
 export
 rewritesHeader : List AnyRewrite -> List AnyOp -> List Admitted -> List SkeletonRule -> Lines
 rewritesHeader rws ops admitted skeleton =
@@ -977,6 +1008,8 @@ rewritesHeader rws ops admitted skeleton =
   in header "Rewrites" ["\"idr/Transforms/EGraph.h\"", "\"idr/IR/Generated/AdmittedClasses.h.inc\"", "\"idr/IR/Generated/SkeletonRules.h.inc\"", "\"idr/IR/Numeric/Trait.h\"", "\"mlir/Interfaces/Utils/InferIntRangeCommon.h\"", "<cstdint>", "<optional>"]
        (inNamespace "idr::egraph::generated"
          ( ["using Kinds = table::OpList<" ++ joinWith ", " (map (.cls) kinds) ++ ">;", ""]
+           ++ slashComment [ "The admitted ops whose fold would compute on the compiling machine, which the graph never folds." ]
+           ++ ["using NeverFolded = table::OpList<" ++ joinWith ", " (map admittedAlias (filter neverFolded admitted)) ++ ">;", ""]
            ++ slashComment [ "Each kind's interval from its operands', by the kind's number, for a node a rule built, where no op"
                            , "stands to be asked: upstream's range function for an admitted op, an inline meaning over intervals for"
                            , "one of ours, none for any other kind." ]
@@ -999,10 +1032,10 @@ rewritesHeader rws ops admitted skeleton =
 ||| an accumulator combines on the way down what the call combined on the
 ||| way back, which needs both.
 export
-unitsOf : List AnyOp -> List Admitted -> List (String, Integer)
+unitsOf : List AnyOp -> List Admitted -> List (String, LawConstant)
 unitsOf ops admitted = concatMap ours ops ++ concatMap upstream admitted
   where
-    identityIn : List Law -> Maybe Integer
+    identityIn : List Law -> Maybe LawConstant
     identityIn [] = Nothing
     identityIn (Identity k :: _) = Just k
     identityIn (_ :: ls) = identityIn ls
@@ -1011,7 +1044,7 @@ unitsOf ops admitted = concatMap ours ops ++ concatMap upstream admitted
     isAssociative _ = False
     associative : List Law -> Bool
     associative = any isAssociative
-    ours : AnyOp -> List (String, Integer)
+    ours : AnyOp -> List (String, LawConstant)
     ours (SomeOp op) = case (associative op.laws, identityIn op.laws) of
       (True, Just k) => [(opQualifiedClass op, k)]
       _ => []
@@ -1024,18 +1057,24 @@ unitsOf ops admitted = concatMap ours ops ++ concatMap upstream admitted
     isUpAssociative _ = False
     upAssociative : List UpLaw -> Bool
     upAssociative = any isUpAssociative
-    upstream : Admitted -> List (String, Integer)
+    upstream : Admitted -> List (String, LawConstant)
     upstream a = case (upAssociative a.laws, upIdentity a.laws) of
-      (True, Just k) => [(admittedAlias a, k)]
+      (True, Just k) => [(admittedAlias a, IntegerConstant k)]
       _ => []
+
+||| An operation's unit as the C++ names it: an integer identity's, or a
+||| string identity's, the string a template argument.
+unitText : (String, LawConstant) -> String
+unitText (c, IntegerConstant k) = "Unit<" ++ c ++ ", " ++ integer k ++ ">"
+unitText (c, StringConstant t) = "StringUnit<" ++ c ++ ", " ++ quoted t ++ ">"
 
 ||| The operations an accumulator may combine on the way down, as a list of
 ||| types the hand `laws::identityOf` folds over: each a class and its
-||| identity, compile-time constants.
+||| identity, compile-time constants, an integer or a string.
 export
 lawsHeader : List AnyOp -> List Admitted -> Lines
 lawsHeader ops admitted =
-  header "Laws" ["\"idr/IR/Generated/AdmittedClasses.h.inc\"", "<cstdint>", "<tuple>"]
+  header "Laws" ["\"idr/IR/Generated/AdmittedClasses.h.inc\"", "<algorithm>", "<cstddef>", "<cstdint>", "<string_view>", "<tuple>"]
     (inNamespace "idr::laws"
       ( slashComment ["An operation the specification calls exactly associative, and its identity."]
         ++ [ "template <class OpT, std::int64_t Identity>"
@@ -1043,8 +1082,21 @@ lawsHeader ops admitted =
            , "  using Op = OpT;"
            , "  static constexpr std::int64_t identity = Identity;"
            , "};", "" ]
+        ++ slashComment ["A string a unit names, as a template argument."]
+        ++ [ "template <std::size_t N>"
+           , "struct Text {"
+           , "  char chars[N];"
+           , "  constexpr Text(const char (&text)[N]) { std::copy_n(text, N, chars); }"
+           , "  constexpr std::string_view view() const { return {chars, N - 1}; }"
+           , "};", "" ]
+        ++ slashComment ["An operation the specification calls exactly associative, and its identity, a string."]
+        ++ [ "template <class OpT, Text Identity>"
+           , "struct StringUnit {"
+           , "  using Op = OpT;"
+           , "  static constexpr std::string_view identity = Identity.view();"
+           , "};", "" ]
         ++ slashComment ["Every such operation, ours first, then the admitted upstream ones."]
-        ++ ["using Units = std::tuple<" ++ joinWith ", " (map (\(c, k) => "Unit<" ++ c ++ ", " ++ integer k ++ ">") (unitsOf ops admitted)) ++ ">;"] ))
+        ++ ["using Units = std::tuple<" ++ joinWith ", " (map unitText (unitsOf ops admitted)) ++ ">;"] ))
 
 ------------------------------------------------------------------------------
 -- Hooks
@@ -1096,14 +1148,15 @@ predicateDecl p =
   in slashComment [lineText p.doc.summary] ++ ["bool " ++ identText p.name ++ "(" ++ subject ++ " value);", ""]
 
 ||| A hand codec a type or an attribute names: of one value of a hand class
-||| (its spelling), or of an array of a hand class's elements (the
-||| element's spelling), each with its directive.
+||| (its spelling), of an array of a hand class's elements (the element's
+||| spelling), or of a wired value's text alone, each with its directive.
 public export
-data Codec = ValueCodec Code Directive | ArrayCodec Code Directive
+data Codec = ValueCodec Code Directive | ArrayCodec Code Directive | TextCodec Wired Directive
 
 codecDirective : Codec -> Directive
 codecDirective (ValueCodec _ d) = d
 codecDirective (ArrayCodec _ d) = d
+codecDirective (TextCodec _ d) = d
 
 ||| Every hand codec the types and attributes name, a list's elements' too,
 ||| once per directive, in first use's order.
@@ -1114,6 +1167,7 @@ codecsOf ts as = once [] (concatMap fromType ts ++ concatMap fromAttr as)
     hand : ParamKind -> List Codec
     hand (HandValue c d) = [ValueCodec c d]
     hand (HandArray c d) = [ArrayCodec c d]
+    hand (WiredValue w d) = [TextCodec w d]
     hand (ListOf k) = hand k
     hand _ = []
     fromType : AnyTypeDef -> List Codec
@@ -1126,19 +1180,32 @@ codecsOf ts as = once [] (concatMap fromType ts ++ concatMap fromAttr as)
       let n = (codecDirective c).name
       in if elem n seen then once seen cs else c :: once (n :: seen) cs
 
-||| A codec's declarations: a parser and a printer of the value, and its
-||| reader and writer in bytecode. An array is parsed and read into the
-||| vector that owns its elements, and printed and written from its view.
+||| A hand codec's parser and printer of its value's text.
+textDecls : (owned, held : String) -> Directive -> Lines
+textDecls owned held d =
+  [ "::mlir::FailureOr<" ++ owned ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
+  , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ held ++ " value);" ]
+
+||| A hand codec's reader and writer of its value in bytecode.
+bytecodeDecls : (owned, held : String) -> Directive -> Lines
+bytecodeDecls owned held d =
+  [ "::mlir::LogicalResult read" ++ identText d.name ++ "(::mlir::DialectBytecodeReader &reader, " ++ owned ++ " &value);"
+  , "void write" ++ identText d.name ++ "(::mlir::DialectBytecodeWriter &writer, " ++ held ++ " value);" ]
+
+||| A codec's declarations: a parser and a printer of the value, and, for a
+||| hand value, its reader and writer in bytecode. An array is parsed and
+||| read into the vector that owns its elements, and printed and written
+||| from its view.
 export
 codecDecls : Codec -> Lines
-codecDecls codec =
-  let (held, owned, d) = case codec of
-        ValueCodec c d => (codeText c, codeText c, d)
-        ArrayCodec c d => ("::llvm::ArrayRef<" ++ codeText c ++ ">", "::llvm::SmallVector<" ++ codeText c ++ ">", d)
-  in [ "::mlir::FailureOr<" ++ owned ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
-     , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ held ++ " value);"
-     , "::mlir::LogicalResult read" ++ identText d.name ++ "(::mlir::DialectBytecodeReader &reader, " ++ owned ++ " &value);"
-     , "void write" ++ identText d.name ++ "(::mlir::DialectBytecodeWriter &writer, " ++ held ++ " value);", "" ]
+codecDecls (ValueCodec c d) = textDecls (codeText c) (codeText c) d ++ bytecodeDecls (codeText c) (codeText c) d ++ [""]
+codecDecls (ArrayCodec c d) =
+  let held = "::llvm::ArrayRef<" ++ codeText c ++ ">"
+      owned = "::llvm::SmallVector<" ++ codeText c ++ ">"
+  in textDecls owned held d ++ bytecodeDecls owned held d ++ [""]
+-- A wired value's bytecode is its wire's, printed beside the readers that
+-- call it (Generated/Wire.cpp.inc); only its text is hand C++.
+codecDecls (TextCodec w d) = textDecls (wiredParsed w) (wiredHeld w) d ++ [""]
 
 ||| Every hand property the ops hold, once per directive: its class and its
 ||| directive.

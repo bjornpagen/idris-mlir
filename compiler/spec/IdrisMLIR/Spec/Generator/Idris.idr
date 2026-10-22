@@ -4,9 +4,13 @@
 ||| printed: a builder per op it writes, each a plain function typed by its
 ||| op's groups (a builder generic over the specification's op value would
 ||| take a type computed from a run-time value of varying representation,
-||| which the subset refuses), and an encoder per type and attribute, its
-||| layout derived from the parameters as the C++ reader's is. Every binder
-||| printed is primed, so no keyword or helper name can collide with one.
+||| which the subset refuses); an encoder per type and attribute, its
+||| layout derived from the parameters as the C++ reader's is; and, for a
+||| value a wire lays out, its type, its parts and its traversal, from the
+||| wire the C++ codec is printed from, with a traversal of the sums by
+||| which the writer gives every type and attribute a value holds its entry.
+||| Every binder printed is primed, so no keyword or helper name can collide
+||| with one.
 module IdrisMLIR.Spec.Generator.Idris
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -253,6 +257,212 @@ export
 enumPosition : ImportedEnum -> String -> String
 enumPosition e v = "position " ++ moduleName e.source.setHome ++ "." ++ identText e.source.setName ++ " " ++ v
 
+------------------------------------------------------------------------------
+-- Wires
+------------------------------------------------------------------------------
+
+||| A leaf's Idris type, over what the types `ty` and attributes `at` it
+||| holds are.
+export
+leafIdris : Leaf -> (ty, at : String) -> String
+leafIdris LeafCount _ _ = "Nat"
+leafIdris LeafWord32 _ _ = "Nat"
+leafIdris (LeafCase e) _ _ = enumType e
+leafIdris LeafLabel _ _ = "String"
+leafIdris (LeafType _) ty _ = ty
+leafIdris (LeafAttr _) _ at = at
+leafIdris (LeafMaybeAttr _) _ at = "Maybe " ++ at
+
+||| A wire's Idris type: a composite's is the type printed for it.
+export
+wireIdris : Wire -> (ty, at : String) -> String
+wireIdris (WireLeaf l) ty at = leafIdris l ty at
+wireIdris (WireArray w) ty at = "List (" ++ wireIdris w ty at ++ ")"
+wireIdris (WireOf c) ty at = identText (compositeName c) ++ " " ++ ty ++ " " ++ at
+
+export
+wiredIdris : Wired -> (ty, at : String) -> String
+wiredIdris (WiredArray w) ty at = "List (" ++ wireIdris w ty at ++ ")"
+wiredIdris (WiredOne l) ty at = leafIdris l ty at
+
+||| A leaf's parts, as an expression over its binder: as the C++ reader
+||| reads it.
+export
+leafParts : Leaf -> String -> String
+leafParts LeafCount v = "[VarInt " ++ v ++ "]"
+leafParts LeafWord32 v = "[VarInt " ++ v ++ "]"
+leafParts (LeafCase e) v = "[VarInt (" ++ enumPosition e v ++ ")]"
+leafParts LeafLabel v = "[Str " ++ v ++ "]"
+leafParts (LeafType _) v = "[TypeAt " ++ v ++ "]"
+leafParts (LeafAttr _) v = "[AttrAt " ++ v ++ "]"
+leafParts (LeafMaybeAttr _) v = "[OptionalAttrAt " ++ v ++ "]"
+
+||| A wire's parts: an array's count, then each element's.
+export
+wireParts : Wire -> String -> String
+wireParts (WireLeaf l) v = leafParts l v
+wireParts (WireArray w) v = "(VarInt (length " ++ v ++ ") :: concatMap (\\x' => " ++ wireParts w "x'" ++ ") " ++ v ++ ")"
+wireParts (WireOf c) v = "parts" ++ identText (compositeName c) ++ " " ++ v
+
+export
+wiredParts : Wired -> String -> String
+wiredParts (WiredArray w) v = wireParts (WireArray w) v
+wiredParts (WiredOne l) v = leafParts l v
+
+||| A leaf with what it holds numbered, as an expression over its binder in
+||| the traversal's applicative: a type by `t`, an attribute by `a`.
+export
+leafTraversal : Leaf -> String -> String
+leafTraversal (LeafType _) v = "t " ++ v
+leafTraversal (LeafAttr _) v = "a " ++ v
+leafTraversal (LeafMaybeAttr _) v = "traverse a " ++ v
+leafTraversal _ v = "pure " ++ v
+
+export
+wireTraversal : Wire -> String -> String
+wireTraversal (WireLeaf l) v = leafTraversal l v
+wireTraversal (WireArray w) v = "traverse (\\x' => " ++ wireTraversal w "x'" ++ ") " ++ v
+wireTraversal (WireOf c) v = "traverse" ++ identText (compositeName c) ++ " t a " ++ v
+
+export
+wiredTraversal : Wired -> String -> String
+wiredTraversal (WiredArray w) v = wireTraversal (WireArray w) v
+wiredTraversal (WiredOne l) v = leafTraversal l v
+
+||| A constructor's pattern over its binders, primed: its name alone, or in
+||| parentheses with them.
+patternOf : String -> List String -> String
+patternOf con [] = con
+patternOf con bs = "(" ++ con ++ spaced (map (++ "'") bs) ++ ")"
+
+||| An applicative's application of a constructor to its fields'
+||| expressions, each in the applicative.
+applied : String -> List String -> String
+applied con es = joinWith " <*> " (("pure " ++ con) :: es)
+
+||| Parts joined, none an empty list.
+partsJoined : List String -> String
+partsJoined [] = "[]"
+partsJoined ps = joinWith " ++ " ps
+
+||| One case of a composite as the frontend holds it: its constructor, the
+||| fields it holds (each binder and wire), the case's position in the
+||| closed set where the composite has one, and what it is.
+record Shape where
+  constructor MkShape
+  con : String
+  holds : List (String, Wire)
+  place : Maybe Nat
+  about : Line
+
+||| A field as a shape holds it: its member's name, which its binder takes
+||| primed, and its wire.
+fieldOf : WireField -> (String, Wire)
+fieldOf f = (identText (fieldName f), fieldWire f)
+
+||| The cases of a composite's body as the frontend holds them: a struct
+||| one constructor, `Mk<Name>`; a flat struct and a variant one
+||| constructor per case, `<Name><Case>`, the variant's holding its
+||| alternative, by the alternative's name in lower camel case.
+shapesOf : String -> Doc -> CompositeBody -> List Shape
+shapesOf name doc (Fields fs) = [MkShape ("Mk" ++ name) (map fieldOf fs) Nothing doc.summary]
+shapesOf name _ (Flat e _ cases) =
+  map (\(n, (c, fs)) => MkShape (name ++ identText c.name) (map fieldOf fs) (Just n) c.doc)
+      (numbered (zip (forget e.cases) cases))
+shapesOf name _ (Variant e alternatives) =
+  map (\(n, (c, alternative)) =>
+        MkShape (name ++ identText c.name)
+                [(lowerCamel (identText (compositeName alternative)), WireOf alternative)] (Just n) c.doc)
+      (numbered (zip (forget e.cases) alternatives))
+
+||| A composite as the frontend holds it: a type over the types `ty` and
+||| attributes `at` it holds, one constructor per case.
+compositeData : Composite -> Lines
+compositeData (MkComposite n _ body doc) =
+  let name = identText n
+  in barComment [lineText doc.summary]
+     ++ ["public export", "data " ++ name ++ " : (ty : Type) -> (at : Type) -> Type where"]
+     ++ concatMap (shapeLine name) (shapesOf name doc body)
+     ++ [""]
+  where
+    shapeLine : String -> Shape -> Lines
+    shapeLine name sh =
+      map ("  " ++) (barComment [lineText sh.about])
+      ++ ["  " ++ sh.con ++ " : "
+          ++ joinWith " -> " (map (\(b, w) => "(" ++ b ++ "' : " ++ wireIdris w "ty" "at" ++ ")") sh.holds
+                             ++ [name ++ " ty at"])]
+
+||| A composite's parts, its types and attributes by their entries: the
+||| case's position where it has one, then each field's, as the C++ reader
+||| reads them.
+compositeParts : Composite -> Lines
+compositeParts (MkComposite n _ body doc) =
+  let name = identText n
+  in barComment ["The parts of a `" ++ name ++ "`, its types and attributes by their entries."]
+     ++ ["export", "parts" ++ name ++ " : " ++ name ++ " TypeRef AttrRef -> List Part"]
+     ++ map (clause name) (shapesOf name doc body)
+     ++ [""]
+  where
+    clause : String -> Shape -> String
+    clause name sh =
+      "parts" ++ name ++ " " ++ patternOf sh.con (map fst sh.holds) ++ " = "
+      ++ partsJoined (maybe [] (\k => ["[VarInt " ++ decimal k ++ "]"]) sh.place
+                      ++ map (\(b, w) => wireParts w (b ++ "'")) sh.holds)
+
+||| A composite with what it holds numbered, by which the writer gives each
+||| type and attribute its entry: each type by `t`, each attribute by `a`.
+compositeTraversal : Composite -> Lines
+compositeTraversal (MkComposite n _ body doc) =
+  let name = identText n
+  in barComment ["A `" ++ name ++ "` with each type it holds given by `t` and each attribute by `a`."]
+     ++ [ "export"
+        , "traverse" ++ name ++ " : Applicative f => (ty -> f ty') -> (at -> f at') -> " ++ name ++ " ty at -> f (" ++ name ++ " ty' at')" ]
+     ++ map (clause name) (shapesOf name doc body)
+     ++ [""]
+  where
+    clause : String -> Shape -> String
+    clause name sh =
+      "traverse" ++ name ++ " t a " ++ patternOf sh.con (map fst sh.holds) ++ " = "
+      ++ applied sh.con (map (\(b, w) => wireTraversal w (b ++ "'")) sh.holds)
+
+||| The modules the closed sets of a wire's leaves live in, as the
+||| frontend's types of them name them and their positions are computed.
+mutual
+  wireHomes : Wire -> List String
+  wireHomes (WireLeaf l) = leafHomes l
+  wireHomes (WireArray w) = wireHomes w
+  wireHomes (WireOf _) = []
+
+  leafHomes : Leaf -> List String
+  leafHomes (LeafCase e) = [moduleName e.source.typeHome, moduleName e.source.setHome]
+  leafHomes _ = []
+
+||| The modules a composite's own fields name, each once.
+compositeHomes : List Composite -> List String
+compositeHomes cs = nub (concatMap homes cs)
+  where
+    fieldsHomes : List (String, Wire) -> List String
+    fieldsHomes = concatMap (\(_, w) => wireHomes w)
+    homes : Composite -> List String
+    homes (MkComposite n _ b d) = concatMap (\sh => fieldsHomes sh.holds) (shapesOf (identText n) d b)
+
+||| The frontend's side of every composite the dialect's parameters reach:
+||| its type, its parts and its traversal, each composite after every one
+||| it holds.
+export
+wireModule : List Composite -> Lines
+wireModule cs =
+  banner (map (\l => "-- " ++ l))
+  ++ barComment [ "The values the idr dialect's types and attributes hold that a wire of"
+                , "the specification lays out: each one's type, over what the types `ty`"
+                , "and attributes `at` it holds are; its parts, as the dialect's C++"
+                , "reader reads them; and its traversal, by which the writer gives what"
+                , "it holds their entries. Printed from the dialect's specification." ]
+  ++ [ "module IdrisMLIR.Encoding.Wire", "", "import IdrisMLIR.MLIR.Parts", "import IdrisMLIR.Spec.Core.Enums" ]
+  ++ map ("import " ++) (compositeHomes cs)
+  ++ [ "", "%default total", "" ]
+  ++ concatMap (\c => compositeData c ++ compositeParts c ++ compositeTraversal c) cs
+
 export
 paramIdrisType : ParamKind -> String
 paramIdrisType TypeValue = "TypeRef"
@@ -265,6 +475,7 @@ paramIdrisType CountValue = "Nat"
 paramIdrisType (ListOf k) = "List (" ++ paramIdrisType k ++ ")"
 paramIdrisType (HandValue _ _) = "List Part"
 paramIdrisType (HandArray _ _) = "List Part"
+paramIdrisType (WiredValue w _) = wiredIdris w "TypeRef" "AttrRef"
 
 ||| The parts of a value of a parameter's kind, as an expression over its
 ||| binder.
@@ -280,6 +491,7 @@ partsOf CountValue v = "[VarInt " ++ v ++ "]"
 partsOf (ListOf k) v = "(VarInt (length " ++ v ++ ") :: concatMap (\\x' => " ++ partsOf k "x'" ++ ") " ++ v ++ ")"
 partsOf (HandValue _ _) v = v
 partsOf (HandArray _ _) v = v
+partsOf (WiredValue w _) v = wiredParts w v
 
 export
 encoder : String -> Nat -> String -> List Parameter -> Lines
@@ -312,6 +524,17 @@ fieldType CountValue = "Nat"
 fieldType (ListOf k) = "List (" ++ fieldType k ++ ")"
 fieldType (HandValue _ _) = "List Part"
 fieldType (HandArray _ _) = "List Part"
+fieldType (WiredValue w _) = wiredIdris w "ty" "at"
+
+||| A parameter's field with what it holds numbered, as an expression over
+||| its binder in the traversal's applicative: a type by `t`, an attribute
+||| by `a`.
+fieldTraversal : ParamKind -> String -> String
+fieldTraversal TypeValue v = "t " ++ v
+fieldTraversal AttrValue v = "a " ++ v
+fieldTraversal (ListOf k) v = "traverse (\\x' => " ++ fieldTraversal k "x'" ++ ") " ++ v
+fieldTraversal (WiredValue w _) v = wiredTraversal w v
+fieldTraversal _ v = "pure " ++ v
 
 ||| One constructor of a value sum, named for its C++ class.
 constructorOf : String -> String -> List Parameter -> String
@@ -341,6 +564,22 @@ encodeSum sum defs =
     clause (cls, ps) =
       "encode" ++ sum ++ " (" ++ cls ++ spaced (map (\x => primed x.name) ps) ++ ") = encode" ++ cls ++ spaced (map (\x => primed x.name) ps)
 
+||| A value of a sum with what it holds numbered, by which the writer gives
+||| each type and attribute its entry before it encodes the value: each
+||| type by `t`, each attribute by `a`.
+traverseSum : String -> List (String, List Parameter) -> Lines
+traverseSum sum defs =
+  barComment ["A value of `" ++ sum ++ "` with each type it holds given by `t` and each attribute by `a`."]
+  ++ [ "export"
+     , "traverse" ++ sum ++ " : Applicative f => (ty -> f ty') -> (at -> f at') -> " ++ sum ++ " ty at -> f (" ++ sum ++ " ty' at')" ]
+  ++ map clause defs
+  ++ [""]
+  where
+    clause : (String, List Parameter) -> String
+    clause (cls, ps) =
+      "traverse" ++ sum ++ " t a " ++ patternOf cls (map (\x => identText x.name) ps) ++ " = "
+      ++ applied cls (map (\x => fieldTraversal x.kind (primed x.name)) ps)
+
 ||| The modules the closed sets of the parameters live in, each once: what
 ||| the encoders import to name their types and compute their positions.
 export
@@ -351,6 +590,8 @@ enumModules ps = go [] (concatMap (\x => homes x.kind) ps)
     homes (EnumValue e) = [moduleName e.source.typeHome, moduleName e.source.setHome]
     homes (OptionalCase e _) = [moduleName e.source.typeHome, moduleName e.source.setHome]
     homes (ListOf k) = homes k
+    homes (WiredValue (WiredOne l) _) = leafHomes l
+    homes (WiredValue (WiredArray w) _) = wireHomes w
     homes _ = []
     go : List String -> List String -> List String
     go _ [] = []
@@ -370,6 +611,7 @@ encodersModule ts as =
                    , "a closed set's value written as its position; printed from the"
                    , "dialect's specification."]
      ++ [ "module IdrisMLIR.Encoding.Idr", "", "import IdrisMLIR.MLIR.Parts"
+        , "import IdrisMLIR.Encoding.Wire"
         , "import IdrisMLIR.Spec.Core.Enums" ]
      ++ map ("import " ++) modules
      ++ [ "", "%default total", "" ]
@@ -379,3 +621,5 @@ encodersModule ts as =
      ++ concatMap (\(n, (cls, ps)) => encoder "attributes" n cls ps) (numberedFrom 0 attrs)
      ++ encodeSum "IdrType" types
      ++ encodeSum "IdrAttr" attrs
+     ++ traverseSum "IdrType" types
+     ++ traverseSum "IdrAttr" attrs

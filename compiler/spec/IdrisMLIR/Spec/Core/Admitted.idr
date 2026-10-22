@@ -30,6 +30,15 @@ data Writer = FrontendWrites | PassesOnly
 public export
 data UpLaw = UpAssociative | UpIdentity Integer
 
+||| Whether the e-graph and every other reader of folds may fold an
+||| admitted op by upstream's fold: where upstream's fold computes on the
+||| compiling machine's C library (libm's transcendental functions, whose
+||| results IEEE does not pin), a folded constant could differ from what the
+||| target computes, so the op is never folded and runs on the target as
+||| written.
+public export
+data UpFold = UpstreamFold | NeverFolded
+
 ||| A function of upstream's common integer range inference
 ||| (`mlir::intrange`), by its name there: `inferAnd`, `inferSub`,
 ||| `extSIRange`. It is what an admitted op's node computes its interval
@@ -51,7 +60,8 @@ record RangeFunction where
 ||| leaves undefined and Idris crashes on (`arith.divui`'s zero divisor), as
 ||| an op of ours states its own: each position is among upstream's operand
 ||| groups. Its range is absent where upstream has no range function for it
-||| (`arith.cmpi` reads its predicate, `arith.select` is arith's own).
+||| (`arith.cmpi` reads its predicate, `arith.select` is arith's own). Its
+||| folding says whether upstream's fold may run at compile time.
 public export
 record Admitted where
   constructor MkAdmitted
@@ -63,6 +73,7 @@ record Admitted where
   guards : List (Guard Nat)
   laws : List UpLaw
   range : Maybe RangeFunction
+  folding : UpFold
 
 ||| The admitted op's name in the C++ table the backend prints:
 ||| `::idr::admitted::SCF_YieldOp`, an alias of upstream's class.

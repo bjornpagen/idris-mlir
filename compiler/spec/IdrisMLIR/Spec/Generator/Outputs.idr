@@ -15,6 +15,7 @@ import IdrisMLIR.Spec.Generator.Ods
 import IdrisMLIR.Spec.Generator.Cpp
 import IdrisMLIR.Spec.Generator.Bytecode
 import IdrisMLIR.Spec.Generator.Idris
+import IdrisMLIR.Spec.Generator.Wire
 
 import Data.List
 import Data.List1
@@ -269,13 +270,15 @@ generate =
      , (generated "Resources.h.inc", render (resourcesHeader declarations.resources))
      , (generated "Effects.h.inc", render (effectsHeader ourOps))
      , (generated "Effects.cpp.inc", render (effectsDefinitions ourOps))
+     , (generated "Wire.cpp.inc", render (wireDefinitions declarations.types declarations.attributes))
      , (generated "SkeletonRules.h.inc", render (skeletonRulesHeader declarations.skeleton))
      , (generated "Rewrites.h.inc", render (rewritesHeader declarations.rewrites ourOps declarations.admitted declarations.skeleton))
      , (generated "Laws.h.inc", render (lawsHeader ourOps declarations.admitted))
      , (generated "Hooks.h.inc", render (hooksHeader declarations.directives declarations.predicates declarations.interfaces declarations.types declarations.attributes ourOps))
      , (generated "Pipeline.h.inc", render (pipelineHeader (fst (stepsOf Higher [] pipeline))))
      , (generated "Actions.h.inc", render (actionsHeader everyAction)) ]
-  ++ map (\t => (generated (identText t ++ ".h.inc"), render (specializationHeader t ourOps))) (templatesOf ourOps)
+  ++ map (\t => (generated (identText t ++ ".h.inc"), render (specializationHeader declarations.headers t ourOps))) (templatesOf ourOps)
   ++ map areaHeader declarations.headers
   ++ [ ("compiler" ::: ["src", "IdrisMLIR", "Dialect", "Idr.idr"], render (buildersModule ourOps))
+     , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Wire.idr"], render (wireModule (compositesOf declarations.types declarations.attributes)))
      , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Idr.idr"], render (encodersModule declarations.types declarations.attributes)) ]

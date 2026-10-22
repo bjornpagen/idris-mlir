@@ -9,6 +9,7 @@
 module IdrisMLIR.Spec
 
 import IdrisMLIR.Spec.Core.Vocabulary
+import IdrisMLIR.Spec.Core.Verdict
 import IdrisMLIR.Spec.Pipeline.Pass
 import IdrisMLIR.Spec.Effects.Declaration
 
@@ -27,11 +28,14 @@ import IdrisMLIR.Spec.Tail.Declarations as Tail
 
 -- The modules each area's declarations are written from, named here too so
 -- the root names every module of the specification.
+import IdrisMLIR.Spec.Closures.Memo
 import IdrisMLIR.Spec.Counting.Types
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Layout
+import IdrisMLIR.Spec.Families.Ops
 import IdrisMLIR.Spec.Families.Terms
+import IdrisMLIR.Spec.Families.Types
 import IdrisMLIR.Spec.Functions.Copy
 import IdrisMLIR.Spec.Functions.GivenBack
 import IdrisMLIR.Spec.Functions.LivesIn
@@ -175,7 +179,7 @@ wordsHeader = MkHeader (ident "Words")
 ||| which stands at every stage: upstream's record holds its meaning.
 public export
 builtinModule : Admitted
-builtinModule = MkAdmitted Builtin "ModuleOp" "Builtin_ModuleOp" Always FrontendWrites [] [] Nothing
+builtinModule = MkAdmitted Builtin "ModuleOp" "Builtin_ModuleOp" Always FrontendWrites [] [] Nothing UpstreamFold
 
 ||| What the specification's core declares of the dialect: the stages a
 ||| program passes through, the refusal rules and their facts, the value
@@ -195,8 +199,9 @@ core = { ops := [ SomeOp vectorizeLanes ]
                     , MkHeader "StageFacts"
                         [(ident "idr" ::: [], [ EnumOf (enumDef closuresClosed), EnumOf (enumDef holdsClosed)
                                               , EnumOf (enumDef countingClosed), EnumOf (enumDef functionsClosed)
-                                              , TableOf stageFacts ])]
-                        (brief "what each stage of a program implies of its functions") ]
+                                              , EnumOf (enumDef tailsClosed), TableOf stageFacts ])]
+                        (brief "what each stage of a program implies of its functions")
+                    , verdictHeader ]
        } nothing
 
 ||| Every area's declarations, in the order they are printed.

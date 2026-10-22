@@ -10,6 +10,7 @@ module IdrisMLIR.Spec.Generator.Ods
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Generator.Render
+import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Pipeline.Pass
 
 import Data.Fin
@@ -585,6 +586,7 @@ paramCppType CountValue = "uint64_t"
 paramCppType (ListOf k) = "::llvm::ArrayRef<" ++ paramCppType k ++ ">"
 paramCppType (HandValue c _) = codeText c
 paramCppType (HandArray c _) = "::llvm::ArrayRef<" ++ codeText c ++ ">"
+paramCppType (WiredValue w _) = wiredHeld w
 
 export
 paramKindOds : ParamKind -> String
@@ -600,6 +602,10 @@ paramKindOds (HandValue c d) =
   "Idr_HandParameter<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
 paramKindOds (HandArray c d) =
   "Idr_HandArrayParameter<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
+paramKindOds (WiredValue (WiredArray w) d) =
+  "Idr_HandArrayParameter<" ++ quoted (wireCpp w) ++ ", " ++ quoted (identText d.name) ++ ">"
+paramKindOds (WiredValue (WiredOne l) d) =
+  "Idr_HandParameter<" ++ quoted (leafCpp l) ++ ", " ++ quoted (identText d.name) ++ ">"
 
 export
 parameterOds : Parameter -> String

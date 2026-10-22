@@ -3,14 +3,14 @@
 // The idr dialect: what mlir-tblgen generates from the specification's
 // printed ODS (idr/IR/Generated/*.td), with what the generated code needs
 // declared before it, in the order it needs it: the grades and the
-// lifetimes, the quantity handles builders take, the traits the ops are
-// built on, the effect tree's resources the ops' effects name, a family's
-// declaration, and what functions and calls hold; then the generated enums,
-// attributes, dialect and types, the families' queries over them, the hand
-// hooks the printed ODS names (custom directives, predicates, codecs,
-// property hooks), the interfaces and the ops; then each partial op's
-// guards and each op's declared effects. Nothing here restates a fact of
-// the specification: every list over ops, types or cases is generated.
+// lifetimes, the traits the ops are built on, the effect tree's resources
+// the ops' effects name, a family's declaration, and what functions and
+// calls hold; then the generated enums, attributes, dialect and types, the
+// families' queries over them, the hand hooks the printed ODS names
+// (custom directives, predicates, codecs, property hooks), the interfaces
+// and the ops; then each partial op's guards and each op's declared
+// effects. Nothing here restates a fact of the specification: every list
+// over ops, types or cases is generated.
 #ifndef IDR_IR_IDRDIALECT_H
 #define IDR_IR_IDRDIALECT_H
 
@@ -45,8 +45,6 @@
 // constraints name.
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
-// The quantity handles, which builders of counting's ops take.
-#include "idr/IR/Quantities.h"
 // The traits the generated ops are built on.
 #include "idr/IR/Traits.h"
 // The effect system's words and sets, the tree's states among them, which
@@ -95,11 +93,14 @@ class TagSet;
 #include "idr/IR/Generated/Hooks.h.inc"
 
 // How a value moves and the join family's carrier, which the ops name,
-// after the types its anchors hold; then the op interfaces, the flow
-// interface among them. The control flow's skeleton rules, which name the
-// ops, are their own header's (Control/Control.h).
+// after the types its anchors hold; the template a big made of an integer
+// reads its signedness from, which that interface's default calls; then
+// the op interfaces, the flow interface among them. The control flow's
+// skeleton rules, which name the ops, are their own header's
+// (Control/Control.h).
 #include "idr/IR/FlowEdges.h"
 #include "idr/IR/Control/Family.h"
+#include "idr/IR/Ops/BigOfInteger.h"
 #include "idr/IR/IdrInterfaces.h.inc"
 
 // The traits the ops' meanings give them: the one runtime fold, inline
@@ -141,6 +142,13 @@ mlir::InFlightDiagnostic refuse(mlir::Operation *op, Rule rule);
 // diagnostic: a diagnostic that is no refusal is the one case the metadata
 // lacks a rule, which the problem has.
 std::optional<Rule> refusalRule(mlir::Diagnostic &diagnostic);
+
+// The integer `value` at `type`, as its constants hold it: of 64 bits at a
+// big, and at a natural where it is not negative; of the type's width at an
+// integer or an index where it fits. Nothing where `value` is no value of
+// the type. The one rule from an integer to a constant's value, which the
+// dialect's identities and the rewrite graph's literals both read.
+std::optional<llvm::APInt> integerAt(mlir::Type type, std::int64_t value);
 
 namespace laws {
 // The identity of `op`'s operation, as the constant the dialect

@@ -10,6 +10,7 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Arrays.Generating
         , IdrisMLIR.Spec.Arrays.Memory
         , IdrisMLIR.Spec.Closures.Declarations
+        , IdrisMLIR.Spec.Closures.Memo
         , IdrisMLIR.Spec.Control.Declarations
         , IdrisMLIR.Spec.Control.Flow
         , IdrisMLIR.Spec.Control.Joins
@@ -32,6 +33,7 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Core.Text
         , IdrisMLIR.Spec.Core.Types
         , IdrisMLIR.Spec.Core.Upstream
+        , IdrisMLIR.Spec.Core.Verdict
         , IdrisMLIR.Spec.Core.Vocabulary
         , IdrisMLIR.Spec.Counting.Declarations
         , IdrisMLIR.Spec.Counting.Types
@@ -44,7 +46,9 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Families.Dialect
         , IdrisMLIR.Spec.Families.Group
         , IdrisMLIR.Spec.Families.Layout
+        , IdrisMLIR.Spec.Families.Ops
         , IdrisMLIR.Spec.Families.Terms
+        , IdrisMLIR.Spec.Families.Types
         , IdrisMLIR.Spec.Functions.Copy
         , IdrisMLIR.Spec.Functions.Declarations
         , IdrisMLIR.Spec.Functions.GivenBack
@@ -85,6 +89,7 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Generator.Ods
         , IdrisMLIR.Spec.Generator.Outputs
         , IdrisMLIR.Spec.Generator.Render
+        , IdrisMLIR.Spec.Generator.Wire
 
 main = IdrisMLIR.Spec.Generator.Main
 executable = specgen

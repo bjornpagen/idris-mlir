@@ -16,8 +16,9 @@ import Data.Nat.Views
 
 %default total
 
-||| A file's text, line by line.
-export
+||| A file's text, line by line: every printer joins and indents lines as
+||| lists, so the synonym unfolds wherever it is named.
+public export
 Lines : Type
 Lines = List String
 

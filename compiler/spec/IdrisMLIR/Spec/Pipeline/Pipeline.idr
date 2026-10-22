@@ -287,7 +287,9 @@ nodesPerOp = 64
 public export
 structureLoops : Pass
 structureLoops = MkPass ("structure" ::: ["loops"]) OnFunction (At First) Apply Keeps
-  [ stat "numParallel" "parallel" "Word ops made parallel linalg ops" ]
+  [ stat "numParallel" "parallel" "Word ops made parallel linalg ops"
+  , stat "numReductions" "reductions" "Folds made linalg reductions"
+  , stat "numOrdered" "ordered" "Word ops left for their ordered loops" ]
   [] [] NoOptions [LoadsLinalg, LoadsTensor, LoadsArith] Registered
   (MkDoc "Turn the pure word ops over arrays into linalg ops" "")
 
@@ -313,9 +315,9 @@ bufferize = MkPass ("bufferize" ::: []) OnProgram (At First) Restructure Edits
 public export
 accumulate : Pass
 accumulate = MkPass ("accumulate" ::: []) OnProgram (At First) Restructure Edits
-  [ stat "numFunctions" "functions" "Functions given an accumulator clone"
+  [ stat "numFunctions" "functions" "Functions given an accumulator clone, or their short circuits turned in place"
   , stat "numTails" "tails" "Self calls combined by an associative operation made tail calls" ]
-  [MkAction ("accumulate" ::: []) "a function given its accumulator clone"] []
+  [MkAction ("accumulate" ::: []) "a function given its accumulator clone, or its short circuits turned in place"] []
   NoOptions [] Registered
   (MkDoc "Make a recursion combined in a tail by an exactly associative operation a tail call with an accumulator" "")
 

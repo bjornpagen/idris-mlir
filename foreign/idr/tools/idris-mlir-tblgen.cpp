@@ -29,6 +29,8 @@
 // below, since upstream's format parser lives in the mlir-tblgen executable,
 // not a library.
 
+#include "idr/Support/Match.h"
+
 #include "mlir/TableGen/AttrOrTypeDef.h"
 #include "mlir/TableGen/Attribute.h"
 #include "mlir/TableGen/Dialect.h"
@@ -55,6 +57,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -847,6 +850,14 @@ struct Omitted {
 template <class T>
 using Written = std::variant<T, Omitted>;
 
+// The next step of a reading that may leave its part out: `step` on what
+// was written so far, or the reason it was left out, passed on unread.
+template <class T, class Step>
+std::invoke_result_t<Step, T> andThen(Written<T> read, Step step) {
+  using Next = std::invoke_result_t<Step, T>;
+  return idr::match(std::move(read), step, [](Omitted omitted) -> Next { return omitted; });
+}
+
 // When a parameter is written: always, or, for an optional one, when the
 // Idris value has it (a Just, a list that is not empty). A parameter with a
 // default other than nothing is always written: the parser reads the
@@ -955,19 +966,18 @@ Field fieldWith(const AttrOrTypeParameter &param, size_t index, const Kind &kind
 
 // The field of a parameter, or why it is left out.
 Written<Field> fieldOf(Enums &enums, const AttrOrTypeParameter &param, size_t index) {
-  return std::visit(
-      llvm::makeVisitor(
-          [&](const Kind &kind) -> Written<Field> { return fieldWith(param, index, kind); },
-          [&](NotEnum) -> Written<Field> {
-            std::optional<Kind> kind = valueKind(param.getCppType());
-            if (!kind)
-              return Omitted{llvm::formatv("its parameter `{0}` is the C++ `{1}`",
-                                           param.getName(), param.getCppType())
-                                 .str()};
-            return fieldWith(param, index, *kind);
-          },
-          [](const Omitted &omitted) -> Written<Field> { return omitted; }),
-      enumKind(enums, param));
+  return idr::match(
+      enumKind(enums, param),
+      [&](const Kind &kind) -> Written<Field> { return fieldWith(param, index, kind); },
+      [&](NotEnum) -> Written<Field> {
+        std::optional<Kind> kind = valueKind(param.getCppType());
+        if (!kind)
+          return Omitted{llvm::formatv("its parameter `{0}` is the C++ `{1}`", param.getName(),
+                                       param.getCppType())
+                             .str()};
+        return fieldWith(param, index, *kind);
+      },
+      [](const Omitted &omitted) -> Written<Field> { return omitted; });
 }
 
 // One element of a declarative syntax of a type or an attribute.
@@ -1197,53 +1207,69 @@ struct Def {
   std::string text;        // the clause of the printer, after its printers
 };
 
-// The constructor of a type or an attribute and its text; or, when it is not
-// generated, why.
-Written<Def> defOf(Enums &enums, const AttrOrTypeDef &def, bool isType, StringRef sum) {
-  std::optional<StringRef> mnemonic = def.getMnemonic();
-  if (!mnemonic)
-    return Omitted{"it has no mnemonic"};
-  if (def.hasCustomAssemblyFormat())
-    return Omitted{"its syntax is C++"};
-  std::vector<Field> fields;
+// The fields of a type's or an attribute's parameters, in their order and
+// by the parameter's name.
+struct Fields {
+  std::vector<Field> inOrder;
   std::map<std::string, Field> byName;
+};
+
+// The fields of a def's parameters; or why one is left out, and with it the
+// def.
+Written<Fields> fieldsOf(Enums &enums, const AttrOrTypeDef &def, bool isType) {
+  Written<Fields> read = Fields{};
   for (const AttrOrTypeParameter &param : def.getParameters()) {
     // The type of an attribute's value is the op's that holds it.
     if (llvm::isa<mlir::tblgen::AttributeSelfTypeParameter>(param))
       continue;
-    Written<Field> read = fieldOf(enums, param, fields.size());
-    const Field *field = std::get_if<Field>(&read);
-    if (!field)
-      return std::get<Omitted>(read);
-    // A type holds types: the sum of types has no attribute to give.
-    if (isType && mentions(field->type, "at"))
-      return Omitted{llvm::formatv("its parameter `{0}` is an attribute, which no type holds",
-                                   param.getName())
-                         .str()};
-    fields.push_back(*field);
-    byName[param.getName().str()] = *field;
+    read = andThen(std::move(read), [&](Fields fields) {
+      return andThen(fieldOf(enums, param, fields.inOrder.size()),
+                     [&](Field field) -> Written<Fields> {
+                       // A type holds types: the sum of types has no attribute to give.
+                       if (isType && mentions(field.type, "at"))
+                         return Omitted{llvm::formatv(
+                                            "its parameter `{0}` is an attribute, which no type holds",
+                                            param.getName())
+                                            .str()};
+                       fields.byName[param.getName().str()] = field;
+                       fields.inOrder.push_back(std::move(field));
+                       return std::move(fields);
+                     });
+    });
   }
-  std::vector<Element> syntax;
-  if (std::optional<StringRef> format = def.getAssemblyFormat()) {
-    Written<std::vector<Element>> parsed = elements(*format);
-    if (const auto *omitted = std::get_if<Omitted>(&parsed))
-      return Omitted{llvm::formatv("its syntax `{0}` has {1}", *format, omitted->why).str()};
-    syntax = std::get<std::vector<Element>>(std::move(parsed));
-  } else if (!fields.empty()) {
-    return Omitted{"it has parameters and no syntax"};
+  return read;
+}
+
+// The elements of a def's declarative syntax, none for a def with neither
+// parameters nor syntax; or why it is left out.
+Written<std::vector<Element>> syntaxOf(const AttrOrTypeDef &def, const Fields &fields) {
+  std::optional<StringRef> format = def.getAssemblyFormat();
+  if (!format) {
+    if (!fields.inOrder.empty())
+      return Omitted{"it has parameters and no syntax"};
+    return std::vector<Element>{};
   }
-  std::string spelling = ((isType ? "!" : "#") + def.getDialect().getName() + "." + *mnemonic).str();
-  Written<Pieces> read = piecesOf(syntax, byName);
-  const Pieces *text = std::get_if<Pieces>(&read);
-  if (!text)
-    return std::get<Omitted>(read);
+  return idr::match(
+      elements(*format),
+      [](std::vector<Element> syntax) -> Written<std::vector<Element>> { return syntax; },
+      [&](const Omitted &omitted) -> Written<std::vector<Element>> {
+        return Omitted{llvm::formatv("its syntax `{0}` has {1}", *format, omitted.why).str()};
+      });
+}
+
+// The constructor of a type or an attribute and its text, from its fields
+// and the pieces that write its syntax; or, when its syntax leaves out a
+// parameter, why it is not generated.
+Written<Def> defWith(const AttrOrTypeDef &def, bool isType, StringRef sum, StringRef mnemonic,
+                     const std::vector<Field> &fields, const std::map<std::string, Field> &byName,
+                     const Pieces &text) {
+  std::string spelling = ((isType ? "!" : "#") + def.getDialect().getName() + "." + mnemonic).str();
   std::vector<Piece> pieces{{true, spelling}};
-  for (const Piece &piece : text->pieces)
+  for (const Piece &piece : text.pieces)
     append(pieces, piece);
   for (const auto &[name, field] : byName)
-    if (!llvm::is_contained(text->written, name))
+    if (!llvm::is_contained(text.written, name))
       return Omitted{llvm::formatv("its syntax leaves out `{0}`", name).str()};
-
   std::string constructor = constructorName(def.getCppClassName().str(),
                                             "the " + llvm::Twine(isType ? "type " : "attribute ") +
                                                 def.getCppClassName());
@@ -1263,10 +1289,27 @@ Written<Def> defOf(Enums &enums, const AttrOrTypeDef &def, bool isType, StringRe
     pattern = "(" + pattern + ")";
     wildcard = "(" + wildcard + ")";
   }
-  out.mnemonic = llvm::formatv("{0} = {1}", wildcard, literal(*mnemonic)).str();
+  out.mnemonic = llvm::formatv("{0} = {1}", wildcard, literal(mnemonic)).str();
   out.text = llvm::formatv("{0} = {1}", pattern, expression(pieces)).str();
-  out.mnemonicName = mnemonic->str();
+  out.mnemonicName = mnemonic.str();
   return out;
+}
+
+// The constructor of a type or an attribute and its text; or, when it is not
+// generated, why.
+Written<Def> defOf(Enums &enums, const AttrOrTypeDef &def, bool isType, StringRef sum) {
+  std::optional<StringRef> mnemonic = def.getMnemonic();
+  if (!mnemonic)
+    return Omitted{"it has no mnemonic"};
+  if (def.hasCustomAssemblyFormat())
+    return Omitted{"its syntax is C++"};
+  return andThen(fieldsOf(enums, def, isType), [&](Fields read) {
+    return andThen(syntaxOf(def, read), [&](std::vector<Element> syntax) {
+      return andThen(piecesOf(syntax, read.byName), [&](Pieces text) -> Written<Def> {
+        return defWith(def, isType, sum, *mnemonic, read.inOrder, read.byName, text);
+      });
+    });
+  });
 }
 
 // The last name of a dotted module name.
@@ -1319,10 +1362,10 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
         continue;
       bool isType = kind == "TypeDef";
       std::string what = (isType ? "type " : "attribute ") + def.getCppClassName().str();
-      std::visit(llvm::makeVisitor(
-                     [&](Def written) { (isType ? v.types : v.attrs).push_back(std::move(written)); },
-                     [&](const Omitted &omitted) { v.omitted.push_back(what + ": " + omitted.why); }),
-                 defOf(v.enums, def, isType, (module + (isType ? "Type" : "Attr")).str()));
+      idr::match(
+          defOf(v.enums, def, isType, (module + (isType ? "Type" : "Attr")).str()),
+          [&](Def written) { (isType ? v.types : v.attrs).push_back(std::move(written)); },
+          [&](const Omitted &omitted) { v.omitted.push_back(what + ": " + omitted.why); });
     }
   llvm::raw_string_ostream opsOs(v.ops);
   for (const llvm::Record *admitted : admittedOps(records)) {
@@ -1731,14 +1774,16 @@ using Members = std::vector<Member>;
 
 Written<Members> membersOf(const llvm::Record *def) {
   const llvm::DagInit *dag = def->getValueAsDag("members");
-  Members read;
-  for (unsigned i = 0, e = dag->getNumArgs(); i < e; ++i) {
-    Written<Member> member =
-        memberOf(llvm::cast<llvm::DefInit>(dag->getArg(i))->getDef(), dag->getArgNameStr(i));
-    if (const auto *omitted = std::get_if<Omitted>(&member))
-      return *omitted;
-    read.push_back(std::get<Member>(std::move(member)));
-  }
+  Written<Members> read = Members{};
+  for (unsigned i = 0, e = dag->getNumArgs(); i < e; ++i)
+    read = andThen(std::move(read), [&](Members members) {
+      return andThen(
+          memberOf(llvm::cast<llvm::DefInit>(dag->getArg(i))->getDef(), dag->getArgNameStr(i)),
+          [&](Member member) -> Written<Members> {
+            members.push_back(std::move(member));
+            return std::move(members);
+          });
+    });
   return read;
 }
 
@@ -1776,14 +1821,14 @@ void emitRecord(const llvm::Record *def, size_t code, StringRef what, llvm::raw_
                 std::vector<std::string> &omitted) {
   emitCode(def, code, ("the dialect's " + what + "s").str(), os);
   std::string codeName = camel(def->getName(), false) + "Code";
-  std::visit(llvm::makeVisitor(
-                 [&](const Members &read) {
-                   emitEncoder(def, read, {{true, "VarInt " + codeName}}, {"its code"}, os);
-                 },
-                 [&](const Omitted &o) {
-                   omitted.push_back(llvm::formatv("{0} {1}: {2}", what, def->getName(), o.why).str());
-                 }),
-             membersOf(def));
+  idr::match(
+      membersOf(def),
+      [&](const Members &read) {
+        emitEncoder(def, read, {{true, "VarInt " + codeName}}, {"its code"}, os);
+      },
+      [&](const Omitted &o) {
+        omitted.push_back(llvm::formatv("{0} {1}: {2}", what, def->getName(), o.why).str());
+      });
 }
 
 // The records of the dialect's types or attributes, in `elems` order: the

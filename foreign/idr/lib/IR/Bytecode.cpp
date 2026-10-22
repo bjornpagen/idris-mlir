@@ -4,18 +4,27 @@
 // from the printed records (Generated/IdrBytecode.td), every type and
 // attribute of the dialect native, its layout derived from its parameters,
 // behind the dialect's bytecode interface as builtin's are, with the codecs
-// those records name for an enum, a case held in a class or none, and an
-// integer of any size. No `idr` text crosses the handoff.
+// those records name for an enum, a case held in a class or none, an
+// integer of any size, and a value a wire of the specification lays out
+// (Generated/Wire.cpp.inc, printed from the wire, as the frontend's encoder
+// of it is). No `idr` text crosses the handoff.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Enum.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Bytecode/BytecodeImplementation.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Allocator.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/TypeName.h"
 
 #include <concepts>
+#include <cstdint>
+#include <memory>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 using namespace mlir;
@@ -100,6 +109,69 @@ static void writeInteger(DialectBytecodeWriter &writer, const APInt &value) {
 
 namespace {
 
+// An array a wired parameter's reader read, with the arena that keeps every
+// array its values view: the reader declares one where the builder it gives
+// the array to can see it, so what the values view lives until the storage
+// that builder makes has copied it.
+template <class T>
+struct Kept {
+  llvm::BumpPtrAllocator arena;
+  llvm::SmallVector<T> items;
+
+  operator llvm::ArrayRef<T>() const { return items; }
+};
+
+// `values` copied into `arena`, which outlives the vector they were read
+// into. Every value a wire lays out is plain data (handles, numbers, views),
+// so nothing is destroyed with the arena.
+template <class T>
+llvm::ArrayRef<T> keep(llvm::BumpPtrAllocator &arena, llvm::ArrayRef<T> values) {
+  static_assert(std::is_trivially_destructible_v<T>, "the arena destroys nothing it keeps");
+  T *out = arena.Allocate<T>(values.size());
+  std::uninitialized_copy(values.begin(), values.end(), out);
+  return {out, values.size()};
+}
+
+// A case of a closed set of ours, written as its position; a number that is
+// no case is refused here, so no value holds one.
+template <Enumerated E>
+LogicalResult readCase(DialectBytecodeReader &reader, E &result) {
+  uint64_t value;
+  if (failed(reader.readVarInt(value)))
+    return failure();
+  if (value >= EnumTraits<E>::count)
+    return reader.emitError() << "expects a case of " << llvm::getTypeName<E>() << ", got "
+                              << value;
+  result = static_cast<E>(value);
+  return success();
+}
+
+template <Enumerated E>
+void writeCase(DialectBytecodeWriter &writer, E value) {
+  writer.writeVarInt(static_cast<uint64_t>(std::to_underlying(value)));
+}
+
+// A number a wire holds in 32 bits; a wider one is refused here.
+LogicalResult readWord32(DialectBytecodeReader &reader, uint32_t &result) {
+  uint64_t value;
+  if (failed(reader.readVarInt(value)))
+    return failure();
+  if (!llvm::isUInt<32>(value))
+    return reader.emitError() << "expects a number of 32 bits, got " << value;
+  result = static_cast<uint32_t>(value);
+  return success();
+}
+
+// A label, written as its string and held uniqued.
+LogicalResult readLabel(DialectBytecodeReader &reader, StringAttr &result) {
+  StringRef text;
+  if (failed(reader.readString(text)))
+    return failure();
+  result = StringAttr::get(reader.getContext(), text);
+  return success();
+}
+
+#include "idr/IR/Generated/Wire.cpp.inc"
 #include "idr/IR/IdrBytecode.cpp.inc"
 
 // The dialect's bytecode interface, as builtin's: the generated readers and

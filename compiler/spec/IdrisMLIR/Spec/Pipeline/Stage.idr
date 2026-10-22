@@ -92,6 +92,12 @@ data StageCounting = ReferencesUncounted | ReferencesCounted
 public export
 data StageFunctions = OurFunctions | LoweredFunctions
 
+||| Whether a call's tail fact is a promise, which the frontend makes and a
+||| call keeps, or the one decider's answer on every call, which the pass
+||| that makes the program first order writes and every pass after keeps.
+public export
+data StageTails = TailsPromised | TailsDecided
+
 public export
 closuresClosed : Closed StageClosures
 closuresClosed = MkClosed
@@ -141,6 +147,18 @@ functionsClosed = MkClosed
   , doc = brief (line "whose functions the program holds") }
 
 public export
+tailsClosed : Closed StageTails
+tailsClosed = MkClosed
+  { name = ident "StageTails", shape = OneOf, every = TailsPromised ::: [TailsDecided]
+  , complete = \case
+      TailsPromised => Here
+      TailsDecided => There Here
+  , describe = \case
+      TailsPromised => MkCase (ident "Promised") (word "promised" ::: []) (line "a tail or modulo_context call is a promise, and a nontail one makes none")
+      TailsDecided => MkCase (ident "Decided") (word "decided" ::: []) (line "every call's tail fact is the decider's answer")
+  , doc = brief (line "whether every call's tail fact is decided") }
+
+public export
 closuresAt : Stage -> StageClosures
 closuresAt Higher = ClosuresRemain
 closuresAt _ = FirstOrder
@@ -162,6 +180,11 @@ functionsAt : Stage -> StageFunctions
 functionsAt Lowered = LoweredFunctions
 functionsAt _ = OurFunctions
 
+public export
+tailsAt : Stage -> StageTails
+tailsAt Higher = TailsPromised
+tailsAt _ = TailsDecided
+
 ||| What each stage implies, one row per stage: only the five stages have a
 ||| row, so no combination of facts a stage cannot have is written.
 public export
@@ -171,4 +194,5 @@ stageFacts = table stageClosed
   , MkColumn (ident "holdsAt") (EnumColumn (enumDef holdsClosed)) (\s => CaseCell (caseRef holdsClosed (holdsAt s))) (line "whether every hold is decided")
   , MkColumn (ident "countingAt") (EnumColumn (enumDef countingClosed)) (\s => CaseCell (caseRef countingClosed (countingAt s))) (line "whether references are counted")
   , MkColumn (ident "functionsAt") (EnumColumn (enumDef functionsClosed)) (\s => CaseCell (caseRef functionsClosed (functionsAt s))) (line "whose functions the program holds")
+  , MkColumn (ident "tailsAt") (EnumColumn (enumDef tailsClosed)) (\s => CaseCell (caseRef tailsClosed (tailsAt s))) (line "whether every call's tail fact is decided")
   ]

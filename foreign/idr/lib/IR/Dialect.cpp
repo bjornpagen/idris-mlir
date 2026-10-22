@@ -22,6 +22,8 @@
 #include "llvm/Support/MathExtras.h"
 
 #include <cstdint>
+#include <optional>
+#include <string_view>
 #include <tuple>
 
 #include "idr/IR/Generated/Laws.h.inc"
@@ -47,31 +49,47 @@ Operation *IdrDialect::materializeConstant(OpBuilder &builder, Attribute value, 
   return nullptr;
 }
 
-namespace {
-
-// The integer `value` as a constant of `type`: a big's literal, a natural's
-// where it is not negative, or an integer's of the type's width where it
-// fits. None at any other type, which no identity of the specification's is
-// a value of.
-std::optional<Attribute> literalAt(Type type, std::int64_t value) {
+std::optional<APInt> idr::integerAt(Type type, std::int64_t value) {
   Type plain = unrestricted(type);
   if (isa<BigType>(plain) || (isa<NatType>(plain) && value >= 0))
-    return BigAttr::get(type.getContext(),
-                        APInt(64, static_cast<std::uint64_t>(value), /*isSigned=*/true));
+    return APInt(64, static_cast<std::uint64_t>(value), /*isSigned=*/true);
   if (!plain.isIntOrIndex())
     return std::nullopt;
   unsigned width =
       plain.isIndex() ? IndexType::kInternalStorageBitWidth : plain.getIntOrFloatBitWidth();
   if (!llvm::isIntN(width, value))
     return std::nullopt;
-  return IntegerAttr::get(plain, value);
+  return APInt(width, static_cast<std::uint64_t>(value), /*isSigned=*/true);
+}
+
+namespace {
+
+// The integer `value` as a constant of `type`, made from its integer there:
+// a big's literal at a big or a natural, an integer attribute of the plain
+// type at a word. None where it is no value of the type.
+std::optional<Attribute> literalAt(Type type, std::int64_t value) {
+  std::optional<APInt> integer = integerAt(type, value);
+  if (!integer)
+    return std::nullopt;
+  Type plain = unrestricted(type);
+  if (isa<BigType>(plain) || isa<NatType>(plain))
+    return BigAttr::get(type.getContext(), *integer);
+  return IntegerAttr::get(plain, *integer);
+}
+
+// The string `value` as a constant of `type`: a string's literal at a
+// string. None at any other type.
+std::optional<Attribute> literalAt(Type type, std::string_view value) {
+  if (!isa<StrType>(unrestricted(type)))
+    return std::nullopt;
+  return StringAttr::get(type.getContext(), llvm::StringRef(value.data(), value.size()));
 }
 
 } // namespace
 
 // One dispatch on the op's registered class, which only the open op set
 // leaves to run time: a fold over the generated units, each a class and its
-// identity.
+// identity, an integer or a string, made the constant of its kind.
 std::optional<Attribute> laws::identityOf(Operation *op) {
   if (op->getNumResults() != 1)
     return std::nullopt;

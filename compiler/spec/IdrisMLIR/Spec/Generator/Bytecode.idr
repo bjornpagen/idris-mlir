@@ -4,12 +4,15 @@
 ||| derived from its parameters: one member per parameter, in order, by its
 ||| kind. Printed once to upstream's bytecode DSL, from which mlir-tblgen
 ||| writes the C++ reader and writer, and once to the frontend's encoders, so
-||| no layout is restated and no `idr` text crosses the handoff.
+||| no layout is restated and no `idr` text crosses the handoff. A value a
+||| wire lays out is read and written by the codecs printed from its wire
+||| (`Spec.Generator.Wire`), which its record names.
 module IdrisMLIR.Spec.Generator.Bytecode
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
+import IdrisMLIR.Spec.Generator.Wire
 
 import Data.List
 import Data.Vect
@@ -29,6 +32,7 @@ memberOf CountValue = "VarInt"
 memberOf (ListOf k) = "Array<" ++ memberOf k ++ ">"
 memberOf (HandValue c d) = "Idr_HandMember<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
 memberOf (HandArray c d) = "Idr_HandArrayMember<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
+memberOf (WiredValue w d) = "Idr_Wired<" ++ quoted (wiredRead w) ++ ", " ++ quoted (identText d.name) ++ ">"
 
 export
 builderOf : Bytecode -> List String
@@ -97,6 +101,15 @@ bytecodeOds ts as =
         , "  WithBuilder<\"$_args\","
         , "  WithPrinter<\"::idr::write\" # directive # \"($_writer, $_getter)\","
         , "  WithType   <\"::llvm::SmallVector<\" # element # \">\">>>>;"
+        , "// A value its wire lays out, read and written by the codecs printed from"
+        , "// the wire beside these readers (Generated/Wire.cpp.inc), named for its"
+        , "// directive: an array's values are read with the arena that keeps what"
+        , "// they view, which outlives the builder they are given to."
+        , "class Idr_Wired<string cppType, string directive> :"
+        , "  WithParser <\"succeeded(read\" # directive # \"($_reader, $_var))\","
+        , "  WithBuilder<\"$_args\","
+        , "  WithPrinter<\"write\" # directive # \"($_writer, $_getter)\","
+        , "  WithType   <cppType>>>>;"
         , "" ]
      ++ concatMap snd types
      ++ ["", "def IdrDialectTypes : DialectTypes<\"Idr\"> {", "  let elems = [" ++ joinWith ", " (map fst types) ++ "];", "}"]
