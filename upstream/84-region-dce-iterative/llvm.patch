@@ -1,0 +1,262 @@
+Subject: [PATCH] [mlir] Run region DCE from explicit stacks
+
+`runRegionDCE` propagates liveness by recursion, `propagateLiveness` of an
+op calling itself on each of the op's regions and that of a region on each
+of its ops, and deletes by recursion, `deleteDeadness` calling itself on
+the regions of every live op. Each recursion takes native frames per level
+of region nesting, so the greedy pattern driver, which runs region DCE
+after every round unless region simplification is disabled, overflows the
+stack of a thread with a small one on deeply nested IR.
+
+Both now keep their position on an explicit stack. Liveness changes no IR,
+so a region's steps (its blocks in post-order, each block's ops in reverse
+and then its arguments) are listed when its visit begins, and an op is
+processed once its regions have been visited, as before. The deletion
+visits the same regions, blocks and ops in the same order, takes the next
+op before erasing the current one, and erases successor operands, ops and
+block arguments in the order the recursion did, so a listener sees the
+same notifications.
+---
+diff --git a/mlir/lib/Transforms/Utils/RegionUtils.cpp b/mlir/lib/Transforms/Utils/RegionUtils.cpp
+index 9cc20b5..55d8e77 100644
+--- a/mlir/lib/Transforms/Utils/RegionUtils.cpp
++++ b/mlir/lib/Transforms/Utils/RegionUtils.cpp
+@@ -21,6 +21,7 @@
+ #include "mlir/Support/LogicalResult.h"
+ #include "llvm/ADT/DenseSet.h"
+ #include "llvm/ADT/DepthFirstIterator.h"
++#include "llvm/ADT/PointerUnion.h"
+ #include "llvm/ADT/PostOrderIterator.h"
+ #include "llvm/ADT/STLExtras.h"
+ #include "llvm/ADT/SmallVectorExtras.h"
+@@ -342,8 +343,6 @@ static void processValue(Value value, LiveMap &liveMap) {
+     liveMap.setProvedLive(value);
+ }
+ 
+-static void propagateLiveness(Region &region, LiveMap &liveMap);
+-
+ static void propagateTerminatorLiveness(Operation *op, LiveMap &liveMap) {
+   // Terminators are always live.
+   liveMap.setProvedLive(op);
+@@ -368,11 +367,8 @@ static void propagateTerminatorLiveness(Operation *op, LiveMap &liveMap) {
+   }
+ }
+ 
++/// Propagate liveness to `op` itself; the regions it has were visited first.
+ static void propagateLiveness(Operation *op, LiveMap &liveMap) {
+-  // Recurse on any regions the op has.
+-  for (Region &region : op->getRegions())
+-    propagateLiveness(region, liveMap);
+-
+   // Process terminator operations.
+   if (op->hasTrait<OpTrait::IsTerminator>())
+     return propagateTerminatorLiveness(op, liveMap);
+@@ -390,27 +386,73 @@ static void propagateLiveness(Operation *op, LiveMap &liveMap) {
+     processValue(value, liveMap);
+ }
+ 
+-static void propagateLiveness(Region &region, LiveMap &liveMap) {
+-  if (region.empty())
+-    return;
++/// Propagate liveness through `topRegion`: in each region, the blocks in
++/// post-order, the ops of each block in reverse and then its arguments; an
++/// op's regions before the op itself.
++///
++/// Regions nest without bound, so the ops nested in `topRegion` are visited
++/// from an explicit stack rather than by recursion: the depth of the native
++/// stack does not grow with the depth of the nesting. Liveness changes no IR,
++/// so a region's steps are listed when its visit begins.
++static void propagateLiveness(Region &topRegion, LiveMap &liveMap) {
++  // A step of a region's visit: an op to visit, or a block whose arguments
++  // are processed once its ops have been.
++  using Step = llvm::PointerUnion<Operation *, Block *>;
++  auto stepsOf = [](Region &region) {
++    SmallVector<Step> steps;
++    if (region.empty())
++      return steps;
++    for (Block *block : llvm::post_order(&region.front())) {
++      // We process block arguments after the ops in the block, to promote
++      // faster convergence to a fixed point (we try to visit uses before
++      // defs).
++      for (Operation &op : llvm::reverse(block->getOperations()))
++        steps.push_back(&op);
++
++      // We currently do not remove entry block arguments, so there is no need
++      // to track their liveness.
++      // TODO: We could track these and enable removing dead operands/arguments
++      // from region control flow operations.
++      if (!block->isEntryBlock())
++        steps.push_back(block);
++    }
++    return steps;
++  };
+ 
+-  for (Block *block : llvm::post_order(&region.front())) {
+-    // We process block arguments after the ops in the block, to promote
+-    // faster convergence to a fixed point (we try to visit uses before defs).
+-    for (Operation &op : llvm::reverse(block->getOperations()))
+-      propagateLiveness(&op, liveMap);
+-
+-    // We currently do not remove entry block arguments, so there is no need to
+-    // track their liveness.
+-    // TODO: We could track these and enable removing dead operands/arguments
+-    // from region control flow operations.
+-    if (block->isEntryBlock())
++  // One frame per op whose regions are being visited, innermost last: the
++  // next of its regions, and the steps of the one being visited. The
++  // outermost frame stands for `topRegion` and has no op.
++  struct Frame {
++    Operation *op;
++    unsigned nextRegion;
++    SmallVector<Step> steps;
++    size_t nextStep;
++  };
++  SmallVector<Frame> stack;
++  stack.push_back({nullptr, 0, stepsOf(topRegion), 0});
++  while (!stack.empty()) {
++    Frame &frame = stack.back();
++    if (frame.nextStep != frame.steps.size()) {
++      Step step = frame.steps[frame.nextStep++];
++      if (auto *block = dyn_cast<Block *>(step)) {
++        for (Value value : block->getArguments()) {
++          if (!liveMap.wasProvenLive(value))
++            processValue(value, liveMap);
++        }
++        continue;
++      }
++      stack.push_back({cast<Operation *>(step), 0, {}, 0});
+       continue;
+-
+-    for (Value value : block->getArguments()) {
+-      if (!liveMap.wasProvenLive(value))
+-        processValue(value, liveMap);
+     }
++    if (frame.op && frame.nextRegion != frame.op->getNumRegions()) {
++      frame.steps = stepsOf(frame.op->getRegion(frame.nextRegion++));
++      frame.nextStep = 0;
++      continue;
++    }
++    Operation *op = frame.op;
++    stack.pop_back();
++    if (op)
++      propagateLiveness(op, liveMap);
+   }
+ }
+ 
+@@ -440,45 +482,89 @@ static void eraseTerminatorSuccessorOperands(Operation *terminator,
+   }
+ }
+ 
++/// Delete what was not proved live in `topRegions` and in the regions of every
++/// live op nested in them, a live op's regions as its turn comes in the
++/// reverse walk of its block.
++///
++/// Regions nest without bound, so they are visited from an explicit stack
++/// rather than by recursion: the depth of the native stack does not grow with
++/// the depth of the nesting. The ops and blocks are visited, and erased, in
++/// the same order as by recursion.
+ static LogicalResult deleteDeadness(RewriterBase &rewriter,
+-                                    MutableArrayRef<Region> regions,
++                                    MutableArrayRef<Region> topRegions,
+                                     LiveMap &liveMap) {
+   bool erasedAnything = false;
+-  for (Region &region : regions) {
+-    if (region.empty())
+-      continue;
+-    bool hasSingleBlock = region.hasOneBlock();
++
++  // One frame per list of regions being visited, innermost last: the regions
++  // of a live op (the outermost frame's are `topRegions`), the next of them,
++  // and where the visit of the current one is: its blocks in post-order, the
++  // next of them, and the next op of the current block in its reverse walk.
++  struct Frame {
++    explicit Frame(MutableArrayRef<Region> regions) : regions(regions) {}
++    MutableArrayRef<Region> regions;
++    unsigned nextRegion = 0;
++    Region *region = nullptr;
++    bool hasSingleBlock = false;
++    SmallVector<Block *> blocks;
++    unsigned nextBlock = 0;
++    Block::reverse_iterator nextOp, endOps;
++  };
++  SmallVector<Frame> stack;
++  stack.emplace_back(topRegions);
++  while (!stack.empty()) {
++    Frame &frame = stack.back();
+ 
+     // Delete every operation that is not live. Graph regions may have cycles
+     // in the use-def graph, so we must explicitly dropAllUses() from each
+     // operation as we erase it. Visiting the operations in post-order
+     // guarantees that in SSA CFG regions value uses are removed before defs,
+-    // which makes dropAllUses() a no-op.
+-    for (Block *block : llvm::post_order(&region.front())) {
+-      if (!hasSingleBlock)
++    // which makes dropAllUses() a no-op. The next op is taken before this one
++    // is erased.
++    if (frame.nextOp != frame.endOps) {
++      Operation &childOp = *frame.nextOp++;
++      if (!liveMap.wasProvenLive(&childOp)) {
++        erasedAnything = true;
++        childOp.dropAllUses();
++        rewriter.eraseOp(&childOp);
++      } else if (childOp.getNumRegions() != 0) {
++        stack.emplace_back(childOp.getRegions());
++      }
++      continue;
++    }
++    if (frame.nextBlock != frame.blocks.size()) {
++      Block *block = frame.blocks[frame.nextBlock++];
++      if (!frame.hasSingleBlock)
+         eraseTerminatorSuccessorOperands(block->getTerminator(), liveMap);
+-      for (Operation &childOp :
+-           llvm::make_early_inc_range(llvm::reverse(block->getOperations()))) {
+-        if (!liveMap.wasProvenLive(&childOp)) {
+-          erasedAnything = true;
+-          childOp.dropAllUses();
+-          rewriter.eraseOp(&childOp);
+-        } else {
+-          erasedAnything |= succeeded(
+-              deleteDeadness(rewriter, childOp.getRegions(), liveMap));
+-        }
++      frame.nextOp = block->getOperations().rbegin();
++      frame.endOps = block->getOperations().rend();
++      continue;
++    }
++    if (frame.region) {
++      // Delete block arguments.
++      // The entry block has an unknown contract with their enclosing block,
++      // so skip it.
++      for (Block &block : llvm::drop_begin(frame.region->getBlocks(), 1)) {
++        block.eraseArguments([&](BlockArgument arg) {
++          bool isDead = !liveMap.wasProvenLive(arg);
++          erasedAnything |= isDead;
++          return isDead;
++        });
+       }
++      frame.region = nullptr;
+     }
+-    // Delete block arguments.
+-    // The entry block has an unknown contract with their enclosing block, so
+-    // skip it.
+-    for (Block &block : llvm::drop_begin(region.getBlocks(), 1)) {
+-      block.eraseArguments([&](BlockArgument arg) {
+-        bool isDead = !liveMap.wasProvenLive(arg);
+-        erasedAnything |= isDead;
+-        return isDead;
+-      });
++    if (frame.nextRegion == frame.regions.size()) {
++      stack.pop_back();
++      continue;
+     }
++    Region &region = frame.regions[frame.nextRegion++];
++    if (region.empty())
++      continue;
++    frame.region = &region;
++    frame.hasSingleBlock = region.hasOneBlock();
++    frame.blocks.clear();
++    for (Block *block : llvm::post_order(&region.front()))
++      frame.blocks.push_back(block);
++    frame.nextBlock = 0;
+   }
+   return success(erasedAnything);
+ }

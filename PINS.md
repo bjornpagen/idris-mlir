@@ -96,7 +96,11 @@ whose reports stay as submissions with their pull requests as
 `pull-request.diff`. Retired with the deduplicator's port (C10):
 `eliminate-duplicate-functions`, its port replaced by partition
 refinement over upstream's `OperationEquivalence`
-(operation-equivalence-symbol-hook). Never carried: dead-argument
+(operation-equivalence-symbol-hook). Retired when the lowering came to
+build every program function as an `llvm.func` itself (C165):
+`func-to-llvm-expanded-arg-attrs` (`upstream/78`), since no function of
+ours passes through FuncToLLVM; its report stays as a submission, its
+pull request as `pull-request.diff`. Never carried: dead-argument
 elimination's always-true `tailcc` test (proposals/0000 C141), fixed on
 main by 3d88cd257637 (#233919) before the pin.
 Retired with the one recipe (2026-10-09): `stage2-thinlto`. Stage 2 is
@@ -479,32 +483,56 @@ which the top-level CMake configure gate reads.
   plan in its README: an issue and a pull request, #206083 named as a
   separate case
 
+## ub-unreachable-effects
+
+- symptom: on llvm main at 416f328b (and on main on 2026-10-21),
+  `ub.unreachable` declares no memory effects, so every reader of effects
+  takes it for all of them: a region that ends in it keeps its parent
+  alive, and a summed effect row counts a write to every resource where
+  control never goes on
+- sites: every body that never returns, which ends in `ub.unreachable`;
+  the derived effect row and every effect query over it
+  (foreign/idr/lib/IR/FlowOps.cpp's external model `NeverRuns`, which
+  goes with this patch, L09)
+- workaround: `upstream/87-ub-unreachable-effects/llvm.patch`:
+  `NoMemoryEffect` on the op, unspeculatable still; checked by
+  tests/upstream-ub-unreachable-effects, which runs the report's
+  `unreachable-effects.mlir` under `-canonicalize` and finds the region
+  op gone
+- retire: when the pin's `ub.unreachable` declares no memory effects
+- upstream: upstream/87-ub-unreachable-effects; one pull request
+- status (2026-10-21): carried; not filed
+
 ## mlir-recursion
 
-- symptom: MLIR's textual parser and printer, and many walks, recurse once
-  per level of attribute nesting, so a constant nested a few thousand deep
-  overflows an 8 MiB stack with a bare SIGSEGV (6,000 levels of builtin
-  array in `mlir-opt`)
-- sites: foreign/idr/include/idr/Support/Stack.h (the tools' stack, its
-  guard and `runTool`); foreign/idr/lib/Driver/Main.cpp,
-  foreign/idr/tools/idris-mlir-opt.cpp, foreign/idr/tools/idris-mlir-reduce.cpp
-  (each through `runTool`); runtime/Start/Runner.cpp (`idris_rt_run_on_stack`)
-- workaround: idris-mlir runs the whole compilation, and idris-mlir-opt and
-  idris-mlir-reduce their runs, on the runtime's reserved-stack runner: 2^36
-  bytes (64 GiB) of address space, committed as touched, above a guard
-  (`runtime/Start/Runner.cpp`). Running out of it is a named error. The
-  families of MLIR's recursion on input size are patched upstream one by
-  one (C99): dead-code initialization (92) and call graph construction
-  (93) are carried; the attribute parser (10) and the rest are listed in
-  their reports for the stage-1 stack painting to decide
-- retire: the reservation shrinks to D33's measured bound in the change that
-  lands the last upstream recursion patch (C43), not before; the families
-  left are the parser, the printer, attributes' walks, the walker and
-  replacer, the bytecode writer, clone, destruction, region DCE and slices
-- upstream: upstream/10-recursive-attribute-parser (not yet filed;
-  reproduced on main at 7208ba24, arm64 macOS; the parser is unchanged at
-  416f328b); plan in its README: an RFC on Discourse first for the family
-  set, then one pull request per family
+- symptom: MLIR recurses on the depth of its input in many places, each
+  needing a native stack that grows with the IR it reads: a constant
+  nested a few thousand deep overflowed an 8 MiB stack with a bare SIGSEGV
+  (6,000 levels of builtin array in `mlir-opt`)
+- sites: foreign/idr/include/idr/Driver/Tool.h (`runTool`: the tools run
+  on the runtime's runner, runtime/Start/Runner.cpp, on a small stack the
+  target entry measures, `IDRIS_MLIR_TOOL_STACK_BYTES`, behind a one-page
+  guard that stack-clash probes make enough; darwin-stack-clash)
+- workaround: one carried patch per family of MLIR's recursion on input
+  size (C99), each with its PINS entry and tests/upstream-<bug> check: the
+  textual parse, print and alias collection of nested builtin arrays and
+  dictionaries (10), the walks (80), the attribute walker and replacer
+  (81), clone (82), destruction (83), region DCE (84), slices (85),
+  dead-code initialization (92) and call graph construction (93)
+- left, for the stage-1 stack painting to measure (D33, S1), each
+  recursing through code no explicit stack inside MLIR's own reaches: the
+  op parser and printer, which reach a nested region through the op's own
+  parse and print hooks (the alias collection's dummy printer with them);
+  a dialect attribute's parameters, through its parser and printer; and
+  the rewriter's `eraseOp`, which recurses through a `std::function` when
+  a listener is attached (`PatternMatch.cpp`), with
+  `Operation::dropAllDefinedValueUses`. The bytecode writer recurses on
+  nesting too, and nothing in the tree reaches it: the compiler reads the
+  frontend's bytecode and writes none
+- retire: when the pin has every family's fix, or the painting shows the
+  ones left within the measured stack
+- upstream: one RFC on Discourse for the family set, then one pull
+  request per family (upstream/10-recursive-attribute-parser's plan)
 
 ## bytecode-deferred-quadratic
 
@@ -891,40 +919,122 @@ which the top-level CMake configure gate reads.
 - status (2026-10-21): carried; not filed; the qualification records its
   bytes per anchor on all four targets
 
-## func-to-llvm-expanded-arg-attrs
-
-- symptom: on llvm main at 416f328b, FuncToLLVM drops every attribute of an
-  argument that expands into several, a memref's descriptor among them,
-  under its own TODO: a quantity-1 buffer's `llvm.noalias` never reaches
-  LLVM
-- sites: the lowering of a function that owns a quantity-1 buffer (L21);
-  D61's argument-memory fact
-- workaround: `upstream/78-func-to-llvm-expanded-arg-attrs/llvm.patch`:
-  pointer attributes on the allocated and aligned pointers, alignment and
-  dereferenceable bytes on the aligned one; checked by
-  tests/upstream-func-to-llvm-expanded-arg-attrs, which shows `noalias`
-  surviving. Both pointers address one buffer, so the lowering frees a
-  `noalias` buffer through the aligned pointer, or writes `noalias` only
-  where the function does not free it (its README)
-- retire: when the pin keeps pointer attributes on an expanded memref
-- upstream: upstream/78-func-to-llvm-expanded-arg-attrs; one pull request
-- status (2026-10-21): carried; not filed
-
 ## operation-equivalence-symbol-hook
 
 - symptom: on llvm main at 416f328b, `OperationEquivalence` compares and
-  hashes symbol references by identity, so two functions that differ only
-  in which of two equal callees they call are never equivalent
+  hashes symbol references by identity, in attributes and properties and
+  in the types of operands, results and block arguments, so two functions
+  that differ only in which of two equal callees they name are never
+  equivalent
 - sites: the deduplication of functions by partition refinement over
   upstream's `OperationEquivalence` (L18), which retires the port of
   Modular's `EliminateDuplicateFunctions` (C10)
 - workaround: `upstream/79-operation-equivalence-symbol-hook/llvm.patch`:
   an optional `MapSymbolRefFn` through which symbol references are
-  compared and hashed; checked by
-  tests/upstream-operation-equivalence-symbol-hook
+  compared and hashed, in attributes, properties and those types; checked
+  by tests/upstream-operation-equivalence-symbol-hook, which should cover
+  a type naming a symbol as well as an attribute
 - retire: when the pin's `OperationEquivalence` takes such a hook
 - upstream: upstream/79-operation-equivalence-symbol-hook; one pull
   request
+- status (2026-10-21): carried; not filed
+
+## walk-iterative
+
+- symptom: on llvm main at 416f328b, every walk in `Visitors.h` and the
+  two stage-aware walks in `Visitors.cpp` recurse once per level of
+  operation nesting (the pin's own TODO says they should not)
+- sites: every pass, under the tools' one small stack (D33, C43, C99)
+- workaround: `upstream/80-walk-iterative/llvm.patch`: the eight walks on
+  one explicit-stack engine, with the same order and the same erasure,
+  skip and interrupt behaviour for every iterator kind; checked by
+  tests/upstream-walk-iterative
+- retire: when the pin walks without recursion on nesting depth
+- upstream: upstream/80-walk-iterative; one pull request after the RFC
+  for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## attr-type-walker-iterative
+
+- symptom: on llvm main at 416f328b, `AttrTypeWalker`, `AttrTypeReplacer`
+  and `CyclicAttrTypeReplacer` recurse once per level of attribute or type
+  nesting
+- sites: the substitution of family index terms
+  (foreign/idr/lib/IR/Families/Substitute.cpp), the type graph
+  (foreign/idr/lib/IR/TypeGraph.cpp), operation-equivalence-symbol-hook's
+  mapping, and upstream's symbol-use walks and renames, under the tools'
+  one small stack (D33, C43, C99)
+- workaround: `upstream/81-attr-type-walker-iterative/llvm.patch`: an
+  explicit stack with the same order, caches and cycle handling; checked
+  by tests/upstream-attr-type-walker-iterative
+- retire: when the pin walks and replaces without recursion on depth
+- upstream: upstream/81-attr-type-walker-iterative; one pull request
+  after the RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## clone-iterative
+
+- symptom: on llvm main at 416f328b, `Region::cloneInto` recurses once per
+  level of region nesting
+- sites: upstream's inliner and every clone of an operation with regions
+  (the e-graph's elaboration, idr-narrow's copies, bufferization), under
+  the tools' one small stack (D33, C43, C99)
+- workaround: `upstream/82-clone-iterative/llvm.patch`: the same two
+  steps, the second from an explicit stack, in the same order; checked by
+  tests/upstream-clone-iterative
+- retire: when the pin clones without recursion on nesting depth
+- upstream: upstream/82-clone-iterative; one pull request after the RFC
+  for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## destruction-iterative
+
+- symptom: on llvm main at 416f328b, destroying an operation and dropping
+  its references recurse once per level of nesting, and destruction
+  visits a chain nested N deep about N²/2 times
+- sites: every erase and every module freed, under the tools' one small
+  stack (D33, C43, C99)
+- workaround: `upstream/83-destruction-iterative/llvm.patch`, applying
+  after 82: teardown from an explicit stack, every reference dropped
+  before anything is freed, references dropped through parent links;
+  checked by tests/upstream-destruction-iterative
+- retire: when the pin destroys without recursion on nesting depth
+- upstream: upstream/83-destruction-iterative; one pull request after the
+  RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## region-dce-iterative
+
+- symptom: on llvm main at 416f328b, `runRegionDCE`'s liveness
+  propagation and deletion recurse once per level of region nesting
+- sites: every greedy rewrite the upstream passes run on lowered functions
+  end each round in `simplifyRegions` (expand-strided-metadata,
+  convert-vector-to-scf, convert-linalg-to-loops, the schedule's
+  `transform.apply_patterns`), under the tools' one small stack (D33,
+  C43, C99)
+- workaround: `upstream/84-region-dce-iterative/llvm.patch`: explicit
+  stacks with the same order and the same erasures; checked by
+  tests/upstream-region-dce-iterative
+- retire: when the pin's region DCE runs without recursion on depth
+- upstream: upstream/84-region-dce-iterative; one pull request after the
+  RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## slice-iterative
+
+- symptom: on llvm main at 416f328b, the backward and forward slices
+  recurse once per operation of a use-def chain
+- sites: the vectorizer's reduction matching
+  (foreign/idr/lib/Target/Schedules.cpp, through
+  `vectorizeLinalgOpPrecondition`) and bufferization's empty-tensor
+  elimination (`moveValueDefinitions`), under the tools' one small stack
+  (D33, C43, C99)
+- workaround: `upstream/85-slice-iterative/llvm.patch`: explicit stacks
+  with the same slices in the same order; checked by
+  tests/upstream-slice-iterative
+- retire: when the pin slices without recursion on chain length
+- upstream: upstream/85-slice-iterative; one pull request after the RFC
+  for MLIR's recursions on input size
 - status (2026-10-21): carried; not filed
 
 ## dead-code-iterative-initialization
@@ -1175,19 +1285,23 @@ which the top-level CMake configure gate reads.
 
 ## darwin-stack-clash
 
-- symptom: the pinned clang's driver renders `-fstack-clash-protection`
-  for Linux, FreeBSD and Fuchsia alone (`RenderSCPOptions`), so on arm64
-  macOS the flag is an unused argument, an error in a configure check
-  that adds `-Werror`
-- sites: tools/bootstrap.sh, the target section's `stack_clash`, read by
-  GMP's and stage 2's flags (C5, C59)
-- workaround: the Darwin target passes no flag; GMP and the LLVM in our
-  tools are built without stack clash protection on arm64 macOS, where
-  the other three targets have it
-- retire: when the pinned clang protects Darwin's stack (a driver patch to
-  write, with the backend's inline probing checked on Mach-O)
-- upstream: none filed
-- status (2026-10-21): a gap against C59's "every target"
+- symptom: on llvm main at 416f328b, clang's driver passes
+  `-fstack-clash-protection` to the compiler for Linux, FreeBSD and Fuchsia
+  alone (`RenderSCPOptions`), so on arm64 macOS the flag is an unused
+  argument, an error in a configure check that adds `-Werror`, and no frame
+  is probed; the backends' inline probing has no Darwin restriction
+- sites: tools/bootstrap.sh (stage 2's and GMP's flags, the same on every
+  target; stage 1 built from the patched tree, since it compiles stage 2's
+  LLVM); CMakeLists.txt's target entries and the runtime's probe flags,
+  which give our tools and the runtime the flag (C5, C59)
+- workaround: `upstream/86-darwin-stack-clash/llvm.patch`: Darwin joins the
+  systems the driver passes the flag for; checked by
+  tests/upstream-darwin-stack-clash, which compiles the report's
+  `large-frame.c` for arm64-apple-macosx14.0 with the flag and `-Werror`
+  and finds the probe loop
+- retire: when the pin's driver passes the flag for Darwin
+- upstream: upstream/86-darwin-stack-clash; one pull request
+- status (2026-10-21): carried; not filed
 
 ## mirrored-sources
 
@@ -1437,16 +1551,16 @@ which the top-level CMake configure gate reads.
 - symptom: at the pinned Idris, the automatic search stops at
   `%auto_implicit_depth` (default 50) and a goal it cannot solve within
   it fails the program: acceptance is a count. The fork inherited it
-- sites: compiler/idris/src/Core/AutoSearch.idr (the embedding check,
-  `SearchGrows`), Core/Core.idr (`Growth`), the depth fields of `ISearch`,
-  `PSearch` and `BySearch`, the pragma's parser, Core/Normalise/Quote.idr
+- sites: compiler/idris/src/Core/AutoSearch.idr (the embedding check),
+  Core/Core.idr (`Growth`), the depth fields of `ISearch`, `PSearch` and
+  `BySearch`, the pragma's parser, Core/Normalise/Quote.idr
   (`quoteWithin`, `TooDeep`)
 - workaround: none; the fork carries the change of
-  `upstream/fork-search-depth/pull-request.diff` (a386fe4d): a goal that
-  embeds an earlier goal of its path waits, and at the last chance
-  refuses the program, never caught as a failed branch; the pragma is
-  refused; the depths that remain decide a stored term's form, never
-  acceptance (D53, C66, C127)
+  `upstream/fork-search-depth/pull-request.diff` (a386fe4d), and the
+  growth sum (search-growth, e5b39cb2): a goal that embeds an earlier goal
+  of its path waits, and at the last chance refuses the program; the
+  pragma is refused; the depths that remain decide a stored term's form,
+  never acceptance (D53, C66, C127)
 - retire: when a re-sync brings upstream's own removal of the count
 - upstream: nothing is sent (**Idris**)
 
@@ -1572,4 +1686,122 @@ which the top-level CMake configure gate reads.
   `upstream/fork-dead-options/pull-request.diff` (a386fe4d): they go, and
   the parser refuses a removed pragma where it is written (C128)
 - retire: never as a whole
+- upstream: nothing is sent (**Idris**)
+
+## search-growth
+
+- symptom: the fork's first form of the search's growth (a386fe4d) was an
+  error, which every combinator that catches a failed branch had to
+  recognize and rethrow, or a sibling answered in its place
+- sites: compiler/idris/src/Core/AutoSearch.idr (`Searched`: `Found` or
+  `Grows`), Core/Unify.idr, Core/Core.idr and Idris/Error.idr
+  (`GrowingSearch`), TTImp/Elab/Check.idr, TTImp/Elab/Delayed.idr
+- workaround: none; the fork's own code (e5b39cb2): a growth is a case of
+  the search's result beside its failures, so no combinator can catch it;
+  one through unknowns waits for a later round, and at the last chance
+  refuses the program (`GrowingSearch`) (C127)
+- retire: never; the fork's representation
+- upstream: nothing is sent (**Idris**)
+
+## tuple-node
+
+- symptom: at the pinned Idris, `(l, r)`, `()` and `(x ** p)` desugar to
+  an alternative of two candidates, the type and the value, each
+  elaborated in full and nested at each level of a tuple, so elaborating a
+  tuple costs more than its size. The fork inherited it
+- sites: compiler/idris/src/TTImp/TTImp.idr (`ITypeOrValue`, its functor,
+  traversals and TTC), Idris/Desugar.idr, Idris/Resugar.idr,
+  TTImp/Elab/Ambiguity.idr, TTImp/Elab/Term.idr, TTImp/Elab/App.idr,
+  TTImp/Elab/Case.idr, TTImp/Elab/Quote.idr, TTImp/BindImplicits.idr,
+  TTImp/Impossible.idr, TTImp/Reflect.idr, TTImp/Utils.idr,
+  TTImp/WithClause.idr
+- workaround: none; the fork's own code (e5b39cb2): one node holding its
+  parts once, read by the expected type's sort (`Universe`, `Known`,
+  `Unknown`); under an unknown sort the site waits, and at the last chance
+  takes upstream's rule; the three alternatives go, so a tuple elaborates
+  in time linear in its size (C126). Where the two readings are different
+  terms (a dependent pair whose name is bound implicitly, an idiom
+  bracket), it is still the alternative of the two
+- retire: when a re-sync brings upstream's own single node
+- upstream: nothing is sent (**Idris**)
+
+## reducts
+
+- symptom: the frontend reads the evaluator's normal forms with no
+  statement of what they are, so every reading it proves sound rests on a
+  check, when it runs, that the evaluator agreed with it
+- sites: compiler/idris/src/Idris/Host.idr (`Reduces`, `Reduct`,
+  `Defines`, `definition`, `definedOnce`; the four normalisers return a
+  `Reduct`, its steps at quantity 0)
+- workaround: none; the fork's own code (e5b39cb2): the one stated trust
+  of the frontend in the evaluator, that a closed term's normal form is a
+  reduct of it under `Reduces`, a relation that declares every step the
+  evaluator takes, private to the trusted library (D68)
+- retire: never; the fork's statement of its own evaluator
+- upstream: nothing is sent (**Idris**)
+
+## union-find
+
+- symptom: at the pinned Idris, the solver retries every guess and every
+  delayed search after each round until none progresses, and an unknown
+  solved as another's application is a solution the store follows one at
+  a time. The fork inherited it
+- sites: compiler/idris/src/Libraries/Data/UnionFind.idr (persistent,
+  every member naming its root, the smaller class renamed on a merge),
+  Core/UnifyState.idr and Core/Unify.idr (`mergeUnknowns`, `wake`)
+- workaround: none; the fork's own code (e5b39cb2): meta-to-meta
+  unification merges two unknowns' classes, and each class holds the
+  searches waiting on it; a failed search that changed nothing waits until
+  an unknown its goal reaches is solved or made invertible; the first
+  round retries every guess as upstream's did, each later round only the
+  searches woken (D69, D107)
+- retire: never; the fork's representation
+- upstream: nothing is sent (**Idris**)
+
+## ttc-delays
+
+- symptom: at the pinned Idris, a `Delay` the elaborator inserts for a
+  `Lazy` or `Inf` expected type and one the program writes are the same
+  term in the TTC, though an inserted one stands for the whole expression
+  the type delays, the `let`s placed around it included, which a reader
+  with eager evaluation must tell apart. The fork inherited it
+- sites: compiler/idris/src/Core/TT/Term.idr (`Delaying` on `TDelay`,
+  `NDelay` and `PDelay`), Core/TTC.idr, Core/Value.idr, Core/Hash.idr,
+  Core/Unify.idr and Core/Normalise/Convert.idr (laziness alone compared),
+  TTImp/Elab/Lazy.idr, Core/Case/CaseTree.idr, Core/Coverage.idr
+- workaround: none; the fork's own code (e5b39cb2): the origin is kept in
+  the TTC beside the facts of ttc-facts (C124); conversion and
+  unification compare a delay's laziness only
+- retire: when a re-sync brings a TTC that keeps it
+- upstream: nothing is sent (**Idris**)
+
+## ttc-imports-pragmas
+
+- symptom: at the pinned Idris, the TTC keeps no module's imports with
+  their locations and no pragma the module writes, so a reader scanned the
+  source for them; the parser took a pragma's kind as text
+- sites: compiler/idris/src/Core/Context.idr (`Import`, moved from
+  `Idris.Syntax`), Idris/Syntax/Pragmas.idr (`KwPragma`, one constructor
+  per spelling the parser accepts; `PragmaUse`), Idris/Parser.idr,
+  Parser/Rule/Source.idr (each use recorded in the parse's state, which a
+  failing branch drops), Core/TTC.idr, Core/Binary.idr (`ModuleFile`),
+  Idris/ProcessIdr.idr, Idris/Host.idr (`readDefinitions`)
+- workaround: none; the fork's own code (e5b39cb2): imports and pragma
+  uses, each with its location, kept in the TTC and given by
+  `readDefinitions` with the definitions (U9)
+- retire: when a re-sync brings a TTC that keeps them
+- upstream: nothing is sent (**Idris**)
+
+## typed-packages
+
+- symptom: at the pinned Idris, the package directories a build adds are
+  text, and a reader took a TTC's path apart to learn its package
+- sites: compiler/idris/src/Core/Options.idr and Core/Context.idr
+  (`PackageDir`), Idris/Package.idr and Idris/SetOptions.idr
+  (`addPkgDir`), Core/Directory.idr (`Found`: the build directory, a
+  package, an import directory), Core/Binary.idr (`Loaded`)
+- workaround: none; the fork's own code (e5b39cb2): a package is recorded
+  with its name and version as its directory names them, and each TTC the
+  session reads with where the search found it
+- retire: never; the fork's representation
 - upstream: nothing is sent (**Idris**)

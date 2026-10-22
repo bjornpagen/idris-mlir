@@ -41,8 +41,8 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   **Rules for sending**).
 - `pull-request.diff`: for LLVM, the pull request for a change this
   repository does not carry as a patch (08, 17, since the pipeline
-  cutover 02, 16 and 22, 25 and 58, and since the P0 cutover 06, 23, 28
-  and 63, which nothing in the tree reaches, **When nothing reaches the
+  cutover 02, 16 and 22, 25 and 58, and since the P0 cutover 06, 23, 28,
+  63 and 78, which nothing in the tree reaches, **When nothing reaches the
   bug** below), which the bootstrap therefore never applies; apply it
   with `git apply`, and take the commit message from `submission.md`,
   never from the file's header. For simdutf (48), the pull request to
@@ -91,11 +91,11 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 03 | bytecode-deferred-quadratic | issue + PR: deferred entries resolved along a path; cycle is an error | ready; overlaps open #229910 |
 | 04 | vectorize-precondition-body | issue + PR: precondition checks every body op | ready |
 | 05 | forward-dataflow-callee-lookup | PR: solver owns one SymbolTableCollection per run | ready |
-| 06 | remove-dead-values-unreachable | issue + PR + comment on #208881: poison for every erased value | rebase first: #208881 merged; llvm.patch's function-argument hunk no longer applies to main; still applies to the pin |
+| 06 | remove-dead-values-unreachable | issue + PR + comment on #208881: poison for every erased value | not carried since 2026-10-21 (C35); rebase first: #208881 merged; pull-request.diff's function-argument hunk no longer applies to main; still applies to the pin |
 | 07 | inline-unreachable-terminator | issue + PR: the hook is asked of the terminator's dialect | ready |
 | 08 | execution-engine-process-symbols | PR: process symbols optional, one JITDylib | ready; the compiler no longer runs a JIT, so nothing here needs it |
 | 09 | int-range-narrowing-exactness | issue + PR: remsi and the unsigned ops keep their width when narrowing changes them | carried, the remainders only (the pin has 44a4dbf32, the shift); both still broken on main at 7208ba24; no submission.md text yet |
-| 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch; still reproduces at 7208ba24 (arm64 macOS) |
+| 10 | recursive-attribute-parser | an RFC on Discourse first, then a PR: nested builtin arrays and dictionaries parsed, printed and visited for aliases from a stack | carried (2026-10-21); not filed; not ready (RFC first) |
 | 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | ready to file; applies to main at b43c0361; submission.md; test checked at the pin only; check-mlir not run |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
 | 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
@@ -103,15 +103,15 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | ready to file; diff rebuilt on main after #208881; submission.md; test never run; check-mlir not run |
-| 23 | cse-statistic-assignment | PR: CSE accumulates its pass statistics over nested runs (cse-statistics.mlir) | ready, not sent; carried; applies to main at 7a83be39 |
+| 23 | cse-statistic-assignment | PR: CSE accumulates its pass statistics over nested runs (cse-statistics.mlir) | not carried since 2026-10-21 (no upstream cse, D98, D100); ready, not sent; pull-request.diff applies to main at 7a83be39 |
 | 24 | one-shot-module-function-interface | four PRs: One-Shot Module Bufferize on `FunctionOpInterface` with the models as public templates and a function that never returns (a reland of #110322, reverted by #113124); cycles of calls analyzed to a fixpoint over the call graph's strongly connected components; a value that definitely aliases an operand writable on its own, with a call result writable only if its callee returns a writable buffer; the nearest symbol table, not ModuleOp, in empty tensor elimination and getGlobalFor | carried; not filed; check-mlir passes on a private build (2026-10-19), after two fixes (README) |
 | 25 | bytecode-unregistered-properties | issue + PR: the reader tests the presence of the `wasRegistered` flag, not its value, so an op written unregistered has its properties attribute read as a properties index; the PR passes the writer's flag into `PropertiesSectionReader::read` and deletes the dead branch (`OpPropertiesTest.BytecodeWrittenUnregistered`) | ready to file; applies to main at b43c0361; submission.md; unit test never run; check-mlir not run |
-| 27 | one-shot-tensor-like-copy | issue + PR: an out-of-place operand of a custom tensor-like type gets no copy and its allocation reaches `llvm_unreachable`; `BufferizationOptions::tensorAllocationFn`, whose default fails naming the type | not carried (nothing in the tree reaches it); not filed; pull-request.diff |
-| 28 | liveness-non-forwarded-terminator | issue + PR: liveness subscribes a terminator to its parent's results, so one whose operands are all non-forwarded is revisited and remove-dead-values keeps them | carried; not filed; the upstream test (test dialect) not written; check-mlir not run |
+| 27 | one-shot-tensor-like-copy | issue + PR: an out-of-place operand of a custom tensor-like type gets no copy and its allocation reaches `llvm_unreachable`; `BufferizationOptions::tensorAllocationFn`, whose default fails naming the type | carried since 2026-10-21 (C108, D43); not filed |
+| 28 | liveness-non-forwarded-terminator | issue + PR: liveness subscribes a terminator to its parent's results, so one whose operands are all non-forwarded is revisited and remove-dead-values keeps them | not carried since 2026-10-21 (C35); not filed; the upstream test (test dialect) not written; pull-request.diff |
 | 29 | dead-code-nested-symbol-use | issue + PR: dead-code analysis resolves a non-call symbol use in the nested table it names, so a function reached only through func.constant in a nested module keeps its callers unknown and remove-dead-values keeps what it returns | carried; not filed; check-mlir not run |
 | 30 | aarch64-sibcall-callee-pop | issue + PR: AArch64 makes no sibling call from a function that pops its own stack arguments (tailcc), which returned with them still on the stack, in SelectionDAG and GlobalISel (tailcc-sibcall-callee-pop.ll) | carried; not filed; no submission.md yet; check-llvm not run |
 | 48 | simdutf-avx512vpopcntdq-bit | issue + PR to simdutf/simdutf: AVX512VPOPCNTDQ gets an instruction_set bit of its own (0x20000), not AVX512CD's | not carried (the runtime never runs simdutf's detection); not filed; simdutf's AI policy wants a human author who answers for it; pull-request.diff applies to the pin; distinct-bits.cpp fails at the pin and holds with the diff |
-| 49 | snmalloc-arm-yield-intrinsic | PR to microsoft/snmalloc: the Arm AAL's pause uses __builtin_arm_yield where the compiler has it, as prefetch uses __builtin_prefetch | not carried (snmalloc is no patch project; PINS.md snmalloc-arm-yield-asm); not filed; Microsoft CLA; pull-request.diff applies to the pin |
+| 49 | snmalloc-arm-yield-intrinsic | PR to microsoft/snmalloc: the Arm AAL's pause uses __builtin_arm_yield where the compiler has it, as prefetch uses __builtin_prefetch | carried since 2026-10-21 (snmalloc a patch project, C61); not filed; Microsoft CLA |
 | 50 | erased-coverage-nested-match | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 51 | totality-unimported-callee | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 52 | relevant-implicit-split | nothing (**Idris**) | carried as fork code (compiler/idris); series 50 → 52 → 53, the diff applied after 50's |
@@ -139,8 +139,16 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 75 | thread-pool-stack-size | PR: ThreadPoolStrategy::StackSizeInBytes | carried; not filed |
 | 76 | pass-base-derived-class | NFC PR: a pass's CRTP baseClass documented | carried; not filed |
 | 77 | dataflow-state-storage | PR: the solver's per-state maps and sets inline when small | carried; not filed; measured in the qualification |
-| 78 | func-to-llvm-expanded-arg-attrs | PR: pointer attributes of a memref argument kept on its descriptor's pointers | carried; not filed |
+| 78 | func-to-llvm-expanded-arg-attrs | PR: pointer attributes of a memref argument kept on its descriptor's aligned pointer (C163) | not carried since 2026-10-21 (C165: no program function passes through FuncToLLVM); not filed; pull-request.diff |
 | 79 | operation-equivalence-symbol-hook | PR: OperationEquivalence compares symbol references through a hook | carried; not filed |
+| 80 | walk-iterative | PR after the recursion RFC: every walk from one explicit stack | carried; not filed |
+| 81 | attr-type-walker-iterative | PR after the recursion RFC: the attribute and type walker and replacers from an explicit stack | carried; not filed |
+| 82 | clone-iterative | PR after the recursion RFC: Region::cloneInto from an explicit stack | carried; not filed |
+| 83 | destruction-iterative | PR after the recursion RFC: destruction and dropAllReferences without recursion, and linear | carried; not filed |
+| 84 | region-dce-iterative | PR after the recursion RFC: region DCE's liveness and deletion from explicit stacks | carried; not filed |
+| 85 | slice-iterative | PR after the recursion RFC: backward and forward slices from explicit stacks | carried; not filed |
+| 86 | darwin-stack-clash | PR: the driver passes -fstack-clash-protection for Darwin | carried; not filed |
+| 87 | ub-unreachable-effects | PR: ub.unreachable declares NoMemoryEffect | carried; not filed |
 | 92 | dead-code-iterative-initialization | PR after the recursion RFC: dead-code analysis initialized from a worklist | carried; not filed |
 | 93 | call-graph-iterative-construction | PR after the recursion RFC: the call graph built from a worklist | carried; not filed |
 | 94 | snmalloc-pagemap-sanity-checks | PR to microsoft/snmalloc: a bounded pagemap's fast-path range tests under sanity_checks | carried; not filed; Microsoft CLA |
@@ -305,12 +313,14 @@ is its pull request (PINS.md); every dependency moves to its latest about
 weekly. One recipe builds the toolchain on all four targets:
 `tools/bootstrap.sh llvm` (stage 1, the target's C library, the runtimes
 and stage 2, into `.toolchain/llvm`, without assertions) applies every
-`upstream/*/llvm.patch` in name order, and stage 2's stamp records each
-by SHA-256; `tools/bootstrap.sh snmalloc` does the same for
+`upstream/*/llvm.patch` in name order to the one tree stage 1, the
+runtimes and stage 2 build from, and their stamps record each by
+SHA-256; `tools/bootstrap.sh snmalloc` does the same for
 `upstream/*/snmalloc.patch` on an export of third_party/snmalloc. Carried
-for LLVM: 03, 04, 05, 07, 09, 19, 24, 27, 29, 30, 56, 57, 61, 62, 64 to
-79, 92 and 93, every one applying at 416f328b in that order (`git apply
---check` on the pin's tree, 2026-10-21); for snmalloc: 49, 94 and 95;
+for LLVM: 03, 04, 05, 07, 09, 10, 19, 24, 27, 29, 30, 56, 57, 61, 62,
+64 to 77, 79 to 87, 92 and 93, every one applying at 416f328b in that
+order (`git apply`, the series in order, on the pinned files they touch,
+2026-10-21); for snmalloc: 49, 94 and 95;
 for Idris and Chez: none. No toolchain is built yet with them, on any
 target, and `make build` refuses until one is. That is this repository's
 build, not a precondition for sending anything upstream.

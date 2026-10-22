@@ -2,7 +2,8 @@
 //
 // At the pin the lowered function's seven arguments carry no attribute:
 // llvm.noalias is dropped with the memref's expansion into its descriptor.
-// With the patch, the allocated and the aligned pointer carry it.
+// With the patch, the aligned pointer (the second argument) carries it, and
+// the allocated pointer, which a deallocation frees, does not.
 func.func @update(%buffer: memref<?xf32> {llvm.noalias}, %i: index, %v: f32) {
   memref.store %v, %buffer[%i] : memref<?xf32>
   return

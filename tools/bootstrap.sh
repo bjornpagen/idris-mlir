@@ -51,14 +51,16 @@
 #
 # A bug in a pinned upstream is fixed by a patch to its source, kept with
 # the bug's report as upstream/<bug>/<project>.patch (tools/patches.sh). The
-# steps that build LLVM's runtimes and tools (runtimes, stage2), Chez
-# Scheme and Idris 2, and the step that exports snmalloc for the runtime,
-# build a copy of the pinned source with their project's patches applied
-# in name order, and fail naming the patch that does not apply. The patches are inputs of those steps and their stamps
+# steps that build LLVM's compilers, runtimes and tools (stage1, runtimes,
+# stage2), Chez Scheme and Idris 2, and the step that exports snmalloc for
+# the runtime, build a copy of the pinned source with their project's
+# patches applied in name order, and fail naming the patch that does not
+# apply. The patches are inputs of those steps and their stamps
 # record them, so a changed or added patch rebuilds the step and everything
 # built with it, and tools/verify-pins.sh refuses a tool built without it.
-# Stage 1 builds the pristine pin: it only compiles and links the next
-# stages.
+# Stage 1 builds the patched tree too: it compiles stage 2's LLVM, and what
+# that code is compiled with is the patched driver's (stack clash
+# protection on Darwin among it).
 #
 # Environment:
 #   IDRIS_MLIR_TOOLCHAIN   the directory instead of .toolchain
@@ -148,9 +150,6 @@ llvm_targets='AArch64;X86'
 #                   dispatch, an x86 feature
 #   stage2_disk     GiB a stage-2 build and install takes (measured on
 #                   x86_64 Linux and arm64 Darwin)
-#   stack_clash     the flag that probes every frame larger than a page, so
-#                   none steps over a stack's guard: GMP's and LLVM's code
-#                   in our tools are frames the compiler does not size
 host_kind=
 case $(uname -s):$(uname -m) in
   Linux:x86_64 | Linux:aarch64) host_kind=linux ;;
@@ -193,7 +192,6 @@ case $host_kind in
       aarch64-*) gmp_host=aarch64-unknown-linux-gnu gmp_fat= ;;
     esac
     stage2_disk=13
-    stack_clash=-fstack-clash-protection
     ;;
   darwin)
     triple=arm64-apple-macosx14.0
@@ -213,11 +211,6 @@ $sdk
     gmp_host=aarch64-apple-darwin
     gmp_fat=
     stage2_disk=40
-    # The pinned clang's driver renders stack clash protection for Linux,
-    # FreeBSD and Fuchsia alone (RenderSCPOptions), so on Darwin the flag is
-    # an unused argument, an error in a configure check that adds -Werror.
-    # PIN(darwin-stack-clash) — see PINS.md
-    stack_clash=
     ;;
 esac
 # native_cmake_flags: what a CMake build for this machine names beside its
@@ -727,12 +720,12 @@ apply_patches() {
   if [ $# -gt 0 ]; then say "    $apply_patches_project: $# patches applied"; fi
 }
 
-# llvm_tree: the llvm-project the runtimes and stage 2 build from, as
-# $llvm_tree: the pinned checkout itself while no patch is carried;
+# llvm_tree: the llvm-project stage 1, the runtimes and stage 2 build from,
+# as $llvm_tree: the pinned checkout itself while no patch is carried;
 # otherwise a copy of it with the patches applied, in .toolchain/build. The
 # copy is kept, and reused, while the revision and the patches are the
-# same, so that the runtimes and stage 2 share it and a resumed build reads
-# the files it was configured with, with the same timestamps.
+# same, so that the three steps share it and a resumed build reads the
+# files it was configured with, with the same timestamps.
 llvm_tree() {
   clone_pinned llvm "$llvm_source"
   llvm_tree_patches=$(patch_inputs llvm) || exit 1
@@ -952,6 +945,7 @@ args_stage1() {
 
 recipe_stage1() {
   printf '%s\n' "llvm $llvm_revision" "host compiler $("$host_cxx" --version 2>&1 | head -n 1)"
+  patch_inputs llvm
   args_stage1
   config_file
 }
@@ -1038,9 +1032,9 @@ stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;l
 # behaviour is chosen by the build. Statistics are forced on, so that
 # llvm-config.h says they count to every includer, which an LLVM without
 # assertions does not: a pass statistic's layout follows it. Its code takes
-# the target's stack clash protection (stack_clash), since it is the frames
-# of our tools that our compiler does not size. On every target a PIE
-# linked against the system's C library.
+# stack clash protection, so that no frame larger than a page steps over a
+# stack's guard: it is the frames of our tools that our compiler does not
+# size. On every target a PIE linked against the system's C library.
 args_stage2() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
   stage1_tools
@@ -1051,7 +1045,7 @@ args_stage2() {
     -DLLVM_ENABLE_LIBCXX=ON -DLLVM_INSTALL_UTILS=ON \
     -DLLVM_ENABLE_LTO=OFF -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DLLVM_ENABLE_PLUGINS=OFF \
     -DCLANG_PLUGIN_SUPPORT=OFF "-DLLVM_DISTRIBUTION_COMPONENTS=$stage2_components"
-  [ -z "$stack_clash" ] || printf '%s\n' "-DCMAKE_C_FLAGS=$stack_clash" "-DCMAKE_CXX_FLAGS=$stack_clash"
+  printf '%s\n' -DCMAKE_C_FLAGS=-fstack-clash-protection -DCMAKE_CXX_FLAGS=-fstack-clash-protection
   native_cmake_flags
   case $object_format in
     elf)
@@ -1082,12 +1076,12 @@ recipe_stage2() {
 # build, where there is no run-time dispatch to ask for. Its temporaries
 # come from the allocator, never `alloca`, so no operand's size is a
 # frame's (malloc-reentrant); its frames, which the compiler does not size,
-# take the target's stack clash protection.
+# take stack clash protection.
 args_gmp() {
   printf '%s\n' --prefix=/usr "--build=$gmp_host" "--host=$gmp_host"
   [ -z "$gmp_fat" ] || printf '%s\n' "$gmp_fat"
   printf '%s\n' --with-pic --disable-shared --enable-static --enable-alloca=malloc-reentrant \
-    "CC=$llvm_prefix/bin/clang --target=$triple" "CFLAGS=-O2 -pipe -ffp-contract=off${stack_clash:+ $stack_clash}" \
+    "CC=$llvm_prefix/bin/clang --target=$triple" "CFLAGS=-O2 -pipe -ffp-contract=off -fstack-clash-protection" \
     "AR=$llvm_prefix/bin/llvm-ar" "NM=$llvm_prefix/bin/llvm-nm" "RANLIB=$llvm_prefix/bin/llvm-ranlib"
 }
 
@@ -1249,17 +1243,18 @@ step_ninja() {
   finish
 }
 
-# Stage 1, the host compiler's clang and lld; nothing else.
+# Stage 1, the host compiler's clang and lld from the patched tree; nothing
+# else.
 step_stage1() {
   begin stage1 "clang and lld $llvm_name, with the host's C++ compiler" || return 0
   require cmake ninja
   need git python3 "$host_cc" "$host_cxx"
-  clone_pinned llvm "$llvm_source"
+  llvm_tree
   build_dir resume
   if [ "$resumed" = no ]; then need_disk 8 "the stage-1 build"; fi
-  eval "set -- $({ args_stage1; ccache_flags; } | quote_lines)"
+  eval "set -- $({ args_stage1; llvm_revision_flags; ccache_flags; } | quote_lines)"
   sample_memory
-  run configure "$cmake" -S "$llvm_source/llvm" -B "$build" "$@" \
+  run configure "$cmake" -S "$llvm_tree/llvm" -B "$build" "$@" \
     "-DPython3_EXECUTABLE=$(command -v python3)" \
     "-DLLVM_PARALLEL_COMPILE_JOBS=$jobs" -DLLVM_PARALLEL_LINK_JOBS=1
   run "build (hours; progress in the log)" "$ninja" -C "$build" -j "$jobs" distribution
@@ -1275,7 +1270,7 @@ step_stage1() {
   [ "$("$stage1/bin/clang" "--target=$triple" -print-resource-dir)" = "$stage1/lib/clang/$llvm_major" ] ||
     die "stage 1's resource directory is not $stage1/lib/clang/$llvm_major"
   write_stamp "$(stamp_of stage1)" step stage1 revision "$llvm_revision" "$llvm_name_key" "$llvm_name" \
-    version "$llvm_version" targets "$llvm_targets" inputs "$step_inputs" \
+    version "$llvm_version" targets "$llvm_targets" inputs "$step_inputs" patches "$(patch_stamp llvm)" \
     host_compiler "$("$host_cxx" --version 2>&1 | head -n 1)" jobs "$jobs" compiler_cache "$ccache_state" \
     seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
     baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \

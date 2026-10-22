@@ -27,6 +27,12 @@ remove-dead-values before idr-structure-loops, and a program summing a
 tabulated array in a loop printed 0 (tests/structure-tabulate's
 differential).
 
+The file is in the idr dialect as it stood when the compiler met the
+bug (`idr.tabulate`, the data-type table `#idr.types`), before the
+cutover renamed and retyped it, and is kept as that record: it runs
+under no idris-mlir-opt after the cutover, and what goes upstream is the
+test dialect's case below.
+
 Upstream's own dialects do not show it: each of their region terminators
 with a non-forwarded operand (`scf.condition`) forwards another operand
 too, whose meet subscribes it. The test dialect can: a region branch op

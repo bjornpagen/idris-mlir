@@ -1,7 +1,7 @@
 Subject: [PATCH] [mlir] OperationEquivalence: compare symbol references through a hook
 
-`OperationEquivalence` compares two operations' attributes and
-properties by identity, so two functions whose bodies differ only in
+`OperationEquivalence` compares two operations' attributes, properties
+and types by identity, so two functions whose bodies differ only in
 which callee they name are never equivalent, even when the callees are.
 Deduplicating functions by partition refinement (the classes refined
 until each is stable, as for a finite automaton) needs exactly that
@@ -9,33 +9,37 @@ comparison: two calls are equal when their callees are in one class.
 
 `computeHash`, `isEquivalentTo` and `isRegionEquivalentTo` take an
 optional `MapSymbolRefFn`, which gives the attribute standing for each
-symbol reference (the representative of its class): every symbol
-reference in the operations' attributes and properties is replaced by
-it before they are hashed or compared, and the comparison by identity
-is tried first, so a caller that passes none pays nothing. Unit test in
-OperationSupportTest.cpp.
+symbol reference (the representative of its class). Every symbol
+reference in the operations' attributes and properties, and in the types
+of their operands, results and block arguments, is replaced by it before
+they are hashed or compared; what stands for a reference is not mapped
+again. The comparison by identity is tried first, and the replacer is
+made only when one is needed, so a caller that passes none pays nothing.
+Unit tests in OperationSupportTest.cpp.
 ---
 diff --git a/mlir/include/mlir/IR/OperationSupport.h b/mlir/include/mlir/IR/OperationSupport.h
-index 3b43a1cf..a020aee8 100644
+index 3b43a1c..84dc274 100644
 --- a/mlir/include/mlir/IR/OperationSupport.h
 +++ b/mlir/include/mlir/IR/OperationSupport.h
-@@ -1416,16 +1416,25 @@ struct OperationEquivalence {
+@@ -1416,16 +1416,27 @@ struct OperationEquivalence {
      LLVM_MARK_AS_BITMASK_ENUM(/* LargestValue = */ IgnoreCommutativity)
    };
  
 +  /// A callback that gives the attribute standing for a symbol reference when
 +  /// operations are compared or hashed: for example the representative of
 +  /// the class of symbols a caller found equivalent. Every symbol reference
-+  /// in an operation's attributes and properties is replaced by it first, so
-+  /// two operations that differ only in which member of a class they name
-+  /// are equivalent and hash alike.
++  /// in an operation's attributes and properties, and in the types of its
++  /// operands, results and block arguments, is replaced by it first, so two
++  /// operations that differ only in which member of a class they name are
++  /// equivalent and hash alike.
 +  using MapSymbolRefFn = function_ref<Attribute(SymbolRefAttr)>;
 +
    /// Compute a hash for the given operation.
    /// The `hashOperands` and `hashResults` callbacks are expected to return a
 -  /// unique hash_code for a given Value.
 +  /// unique hash_code for a given Value. When `mapSymbolRef` is given, the
-+  /// attributes and properties are hashed with their symbol references mapped.
++  /// attributes, properties and result types are hashed with their symbol
++  /// references mapped.
    static llvm::hash_code computeHash(
        Operation *op,
        function_ref<llvm::hash_code(Value)> hashOperands =
@@ -47,7 +51,7 @@ index 3b43a1cf..a020aee8 100644
  
    /// Helper that can be used with `computeHash` above to ignore operation
    /// operands/result mapping.
-@@ -1447,6 +1456,9 @@ struct OperationEquivalence {
+@@ -1447,6 +1458,9 @@ struct OperationEquivalence {
    ///   in, then equivalence is checked pairwise. This callback is needed to be
    ///   able to query the optional equivalence classes.
    ///
@@ -57,7 +61,7 @@ index 3b43a1cf..a020aee8 100644
    /// Note: Additional information regarding value equivalence can be injected
    /// into the analysis via `checkEquivalent`. Typically, callers may want
    /// values that were determined to be equivalent as per `markEquivalent` to be
-@@ -1458,7 +1470,8 @@ struct OperationEquivalence {
+@@ -1458,7 +1472,8 @@ struct OperationEquivalence {
                   function_ref<void(Value, Value)> markEquivalent = nullptr,
                   Flags flags = Flags::None,
                   function_ref<LogicalResult(ValueRange, ValueRange)>
@@ -67,7 +71,7 @@ index 3b43a1cf..a020aee8 100644
  
    /// Compare two operations and return if they are equivalent.
    static bool isEquivalentTo(Operation *lhs, Operation *rhs, Flags flags);
-@@ -1471,7 +1484,8 @@ struct OperationEquivalence {
+@@ -1471,7 +1486,8 @@ struct OperationEquivalence {
        function_ref<void(Value, Value)> markEquivalent,
        OperationEquivalence::Flags flags,
        function_ref<LogicalResult(ValueRange, ValueRange)>
@@ -78,7 +82,7 @@ index 3b43a1cf..a020aee8 100644
    /// Compare two regions and return if they are equivalent.
    static bool isRegionEquivalentTo(Region *lhs, Region *rhs,
 diff --git a/mlir/lib/IR/OperationSupport.cpp b/mlir/lib/IR/OperationSupport.cpp
-index 545791df..da6f44ed 100644
+index 545791d..2505cf0 100644
 --- a/mlir/lib/IR/OperationSupport.cpp
 +++ b/mlir/lib/IR/OperationSupport.cpp
 @@ -12,6 +12,7 @@
@@ -89,24 +93,53 @@ index 545791df..da6f44ed 100644
  #include "mlir/IR/BuiltinAttributes.h"
  #include "mlir/IR/BuiltinTypes.h"
  #include "mlir/IR/OpDefinition.h"
-@@ -728,20 +729,44 @@ Value ValueRange::dereference_iterator(const OwnerT &owner, ptrdiff_t index) {
+@@ -728,20 +729,81 @@ Value ValueRange::dereference_iterator(const OwnerT &owner, ptrdiff_t index) {
  // Operation Equivalency
  //===----------------------------------------------------------------------===//
  
-+/// `attr` with every symbol reference in it replaced by what `mapSymbolRef`
-+/// gives for it.
-+static Attribute
-+mapSymbolRefs(Attribute attr,
-+              OperationEquivalence::MapSymbolRefFn mapSymbolRef) {
-+  if (!attr)
-+    return attr;
-+  AttrTypeReplacer replacer;
-+  replacer.addReplacement(
-+      [&](SymbolRefAttr ref) -> std::optional<Attribute> {
-+        return mapSymbolRef(ref);
-+      });
-+  return replacer.replace(attr);
-+}
++namespace {
++/// Attributes and types with every symbol reference in them replaced by what
++/// a `MapSymbolRefFn` gives for it, made only when a comparison needs one, and
++/// remembering what it replaced for the rest of the comparison.
++class SymbolRefMapper {
++public:
++  explicit SymbolRefMapper(OperationEquivalence::MapSymbolRefFn mapSymbolRef)
++      : mapSymbolRef(mapSymbolRef) {}
++
++  /// Whether a mapping was given at all.
++  explicit operator bool() const { return static_cast<bool>(mapSymbolRef); }
++
++  Attribute map(Attribute attr) {
++    return attr ? getReplacer().replace(attr) : attr;
++  }
++  Type map(Type type) { return type ? getReplacer().replace(type) : type; }
++
++  /// Whether `lhs` and `rhs` are equal, or equal once their symbol references
++  /// are mapped.
++  template <typename T>
++  bool same(T lhs, T rhs) {
++    return lhs == rhs || (mapSymbolRef && map(lhs) == map(rhs));
++  }
++
++private:
++  AttrTypeReplacer &getReplacer() {
++    if (!replacer) {
++      replacer.emplace();
++      // What stands for a reference is final: nothing nested in it is mapped
++      // again.
++      replacer->addReplacement(
++          [mapSymbolRef = mapSymbolRef](SymbolRefAttr ref)
++              -> std::optional<std::pair<Attribute, WalkResult>> {
++            return std::make_pair(mapSymbolRef(ref), WalkResult::skip());
++          });
++    }
++    return *replacer;
++  }
++
++  OperationEquivalence::MapSymbolRefFn mapSymbolRef;
++  std::optional<AttrTypeReplacer> replacer;
++};
++} // namespace
 +
  llvm::hash_code OperationEquivalence::computeHash(
      Operation *op, function_ref<llvm::hash_code(Value)> hashOperands,
@@ -119,27 +152,37 @@ index 545791df..da6f44ed 100644
    //   - Result Types
 -  DictionaryAttr dictAttrs;
 -  if (!(flags & Flags::IgnoreDiscardableAttrs))
++  // each with its symbol references mapped when `mapSymbolRef` is given.
++  SymbolRefMapper mapper(mapSymbolRef);
 +  Attribute dictAttrs;
 +  if (!(flags & Flags::IgnoreDiscardableAttrs)) {
      dictAttrs = op->getRawDictionaryAttrs();
-+    if (mapSymbolRef)
-+      dictAttrs = mapSymbolRefs(dictAttrs, mapSymbolRef);
-+  }
-   llvm::hash_code hash =
-       llvm::hash_combine(op->getName(), dictAttrs, op->getResultTypes());
+-  llvm::hash_code hash =
+-      llvm::hash_combine(op->getName(), dictAttrs, op->getResultTypes());
 -  if (!(flags & Flags::IgnoreProperties))
 -    hash = llvm::hash_combine(hash, op->hashProperties());
++    if (mapper)
++      dictAttrs = mapper.map(dictAttrs);
++  }
++  llvm::hash_code hash;
++  if (mapper) {
++    hash = llvm::hash_combine(op->getName(), dictAttrs);
++    for (Type type : op->getResultTypes())
++      hash = llvm::hash_combine(hash, mapper.map(type));
++  } else {
++    hash = llvm::hash_combine(op->getName(), dictAttrs, op->getResultTypes());
++  }
 +  if (!(flags & Flags::IgnoreProperties)) {
-+    if (mapSymbolRef)
-+      hash = llvm::hash_combine(
-+          hash, mapSymbolRefs(op->getPropertiesAsAttribute(), mapSymbolRef));
++    if (mapper)
++      hash = llvm::hash_combine(hash,
++                                mapper.map(op->getPropertiesAsAttribute()));
 +    else
 +      hash = llvm::hash_combine(hash, op->hashProperties());
 +  }
  
    //   - Location if required
    if (!(flags & Flags::IgnoreLocations))
-@@ -772,7 +797,8 @@ llvm::hash_code OperationEquivalence::computeHash(
+@@ -772,8 +834,10 @@ llvm::hash_code OperationEquivalence::computeHash(
      function_ref<void(Value, Value)> markEquivalent,
      OperationEquivalence::Flags flags,
      function_ref<LogicalResult(ValueRange, ValueRange)>
@@ -147,9 +190,20 @@ index 545791df..da6f44ed 100644
 +        checkCommutativeEquivalent,
 +    MapSymbolRefFn mapSymbolRef) {
    DenseMap<Block *, Block *> blocksMap;
++  SymbolRefMapper mapper(mapSymbolRef);
    auto blocksEquivalent = [&](Block &lBlock, Block &rBlock) {
      // Check block arguments.
-@@ -800,9 +826,9 @@ llvm::hash_code OperationEquivalence::computeHash(
+     if (lBlock.getNumArguments() != rBlock.getNumArguments())
+@@ -788,7 +852,7 @@ llvm::hash_code OperationEquivalence::computeHash(
+          llvm::zip(lBlock.getArguments(), rBlock.getArguments())) {
+       Value curArg = std::get<0>(argPair);
+       Value otherArg = std::get<1>(argPair);
+-      if (curArg.getType() != otherArg.getType())
++      if (!mapper.same(curArg.getType(), otherArg.getType()))
+         return false;
+       if (!(flags & OperationEquivalence::IgnoreLocations) &&
+           curArg.getLoc() != otherArg.getLoc())
+@@ -800,9 +864,9 @@ llvm::hash_code OperationEquivalence::computeHash(
  
      auto opsEquivalent = [&](Operation &lOp, Operation &rOp) {
        // Check for op equality (recursively).
@@ -162,7 +216,7 @@ index 545791df..da6f44ed 100644
          return false;
        // Check successor mapping.
        for (auto successorsPair :
-@@ -892,13 +918,17 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+@@ -892,13 +956,19 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
      function_ref<LogicalResult(Value, Value)> checkEquivalent,
      function_ref<void(Value, Value)> markEquivalent, Flags flags,
      function_ref<LogicalResult(ValueRange, ValueRange)>
@@ -172,29 +226,48 @@ index 545791df..da6f44ed 100644
    if (lhs == rhs)
      return true;
  
++  // Each attribute and type below is compared as it is and, when they differ
++  // and `mapSymbolRef` is given, once more with its symbol references mapped.
++  SymbolRefMapper mapper(mapSymbolRef);
++
    // 1. Compare the operation properties.
    if (!(flags & IgnoreDiscardableAttrs) &&
 -      lhs->getRawDictionaryAttrs() != rhs->getRawDictionaryAttrs())
-+      lhs->getRawDictionaryAttrs() != rhs->getRawDictionaryAttrs() &&
-+      (!mapSymbolRef ||
-+       mapSymbolRefs(lhs->getRawDictionaryAttrs(), mapSymbolRef) !=
-+           mapSymbolRefs(rhs->getRawDictionaryAttrs(), mapSymbolRef)))
++      !mapper.same<Attribute>(lhs->getRawDictionaryAttrs(),
++                              rhs->getRawDictionaryAttrs()))
      return false;
  
    if (lhs->getName() != rhs->getName() ||
-@@ -909,7 +939,10 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+@@ -909,7 +979,9 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
      return false;
    if (!(flags & IgnoreProperties) &&
        !(lhs->getName().compareOpProperties(lhs->getPropertiesStorage(),
 -                                           rhs->getPropertiesStorage())))
 +                                           rhs->getPropertiesStorage())) &&
-+      (!mapSymbolRef ||
-+       mapSymbolRefs(lhs->getPropertiesAsAttribute(), mapSymbolRef) !=
-+           mapSymbolRefs(rhs->getPropertiesAsAttribute(), mapSymbolRef)))
++      (!mapper || mapper.map(lhs->getPropertiesAsAttribute()) !=
++                      mapper.map(rhs->getPropertiesAsAttribute())))
      return false;
    if (!(flags & IgnoreLocations) && lhs->getLoc() != rhs->getLoc())
      return false;
-@@ -947,9 +980,10 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+@@ -928,7 +1000,7 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+       Value otherArg = std::get<1>(operandPair);
+       if (curArg == otherArg)
+         continue;
+-      if (curArg.getType() != otherArg.getType())
++      if (!mapper.same(curArg.getType(), otherArg.getType()))
+         return false;
+       if (failed(checkEquivalent(curArg, otherArg)))
+         return false;
+@@ -939,7 +1011,7 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+   for (auto resultPair : llvm::zip(lhs->getResults(), rhs->getResults())) {
+     Value curArg = std::get<0>(resultPair);
+     Value otherArg = std::get<1>(resultPair);
+-    if (curArg.getType() != otherArg.getType())
++    if (!mapper.same(curArg.getType(), otherArg.getType()))
+       return false;
+     if (markEquivalent)
+       markEquivalent(curArg, otherArg);
+@@ -947,9 +1019,10 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
  
    // 4. Compare regions.
    for (auto regionPair : llvm::zip(lhs->getRegions(), rhs->getRegions()))
@@ -209,10 +282,10 @@ index 545791df..da6f44ed 100644
  
    return true;
 diff --git a/mlir/unittests/IR/OperationSupportTest.cpp b/mlir/unittests/IR/OperationSupportTest.cpp
-index 33f69a6e..69c99104 100644
+index 33f69a6..436fd0e 100644
 --- a/mlir/unittests/IR/OperationSupportTest.cpp
 +++ b/mlir/unittests/IR/OperationSupportTest.cpp
-@@ -443,4 +443,46 @@ TEST(RepeatedRangeTest, TypeRangeFromRepeatedValueViaValueRange) {
+@@ -443,4 +443,100 @@ TEST(RepeatedRangeTest, TypeRangeFromRepeatedValueViaValueRange) {
    useOp->destroy();
  }
  
@@ -256,6 +329,60 @@ index 33f69a6e..69c99104 100644
 +  callA->destroy();
 +  callB->destroy();
 +  callC->destroy();
++}
++
++TEST(OperationEquivalenceTest, MapSymbolRefInTypes) {
++  MLIRContext context;
++  context.allowUnregisteredDialects();
++  Builder builder(&context);
++  // A ranked tensor's encoding may be any attribute, a symbol reference
++  // among them.
++  auto tensorOf = [&](StringRef symbol) -> Type {
++    return RankedTensorType::get({4}, builder.getF32Type(),
++                                 FlatSymbolRefAttr::get(&context, symbol));
++  };
++  auto classOf = [&](SymbolRefAttr ref) -> Attribute {
++    if (ref.getRootReference() == "b")
++      return FlatSymbolRefAttr::get(&context, "a");
++    return ref;
++  };
++  auto anyValue = OperationEquivalence::ignoreValueEquivalence;
++
++  // Result types.
++  Operation *makeA = createOp(&context, /*operands=*/{}, tensorOf("a"));
++  Operation *makeB = createOp(&context, /*operands=*/{}, tensorOf("b"));
++  Operation *makeC = createOp(&context, /*operands=*/{}, tensorOf("c"));
++  EXPECT_FALSE(OperationEquivalence::isEquivalentTo(
++      makeA, makeB, anyValue, nullptr, OperationEquivalence::IgnoreLocations));
++  EXPECT_TRUE(OperationEquivalence::isEquivalentTo(
++      makeA, makeB, anyValue, nullptr, OperationEquivalence::IgnoreLocations,
++      nullptr, classOf));
++  EXPECT_FALSE(OperationEquivalence::isEquivalentTo(
++      makeA, makeC, anyValue, nullptr, OperationEquivalence::IgnoreLocations,
++      nullptr, classOf));
++  auto hash = [&](Operation *op) {
++    return OperationEquivalence::computeHash(
++        op, OperationEquivalence::ignoreHashValue,
++        OperationEquivalence::ignoreHashValue,
++        OperationEquivalence::IgnoreLocations, classOf);
++  };
++  EXPECT_EQ(hash(makeA), hash(makeB));
++
++  // Operand types: two uses of different values whose types differ only in
++  // the symbol they name.
++  Operation *useA = createOp(&context, makeA->getResult(0));
++  Operation *useB = createOp(&context, makeB->getResult(0));
++  EXPECT_FALSE(OperationEquivalence::isEquivalentTo(
++      useA, useB, anyValue, nullptr, OperationEquivalence::IgnoreLocations));
++  EXPECT_TRUE(OperationEquivalence::isEquivalentTo(
++      useA, useB, anyValue, nullptr, OperationEquivalence::IgnoreLocations,
++      nullptr, classOf));
++
++  useA->destroy();
++  useB->destroy();
++  makeA->destroy();
++  makeB->destroy();
++  makeC->destroy();
 +}
 +
  } // namespace

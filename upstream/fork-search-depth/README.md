@@ -18,8 +18,12 @@ an integer by its magnitude, a string as a subsequence, any other
 constant by equality). A goal convertible with an earlier one fails that
 step, as upstream's cycle check did; one that embeds an earlier goal
 through unknowns waits for a later round, and at the last chance, as one
-that embeds it with everything known, refuses the program
-(`SearchGrows`, typed by `Growth`), never caught as a failed branch.
+that embeds it with everything known, refuses the program, never caught
+as a failed branch. Since e5b39cb2 (lane L17's second half) a growth is a
+case of the search's result (`Searched`: `Found` or `Grows`, typed by
+`Growth`) and its refusal `GrowingSearch` (PINS.md search-growth); this
+diff is a386fe4d's, the first form, which a re-sync reads with that
+commit.
 Kruskal's tree theorem makes every endless path meet such a pair.
 `%auto_implicit_depth` and every depth of the search go (`ISearch`,
 `PSearch`, `BySearch` lose theirs), and the parser refuses the pragma.

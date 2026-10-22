@@ -1,0 +1,301 @@
+Subject: [PATCH] [mlir] Compute slices from explicit stacks
+
+`getBackwardSliceImpl` calls itself for the defining op of every operand
+(and of every value used in the op's regions and defined above them,
+unless omitted) and for the parent of a block argument, and
+`getForwardSliceImpl` for every op nested in the op's regions and every
+user of its results. Each takes a native frame per op on the current
+use-def path, so a slice of a long chain of straight-line code overflows
+the stack of a thread with a small one; `matchReduction`, which linalg's
+vectorizer asks of every reduction, takes such a slice.
+
+Both now keep their path on an explicit stack. Searching changes no IR,
+so the values or ops an op leads to are listed when its visit begins and
+each is tested against the slice and the path when its turn comes, as
+before: the slices hold the same ops in the same order, the filter is
+called on the same ops, `visited` is restored as the recursion restored
+it, and a value that fails still ends the walk of the region it is used
+in.
+---
+diff --git a/mlir/lib/Analysis/SliceAnalysis.cpp b/mlir/lib/Analysis/SliceAnalysis.cpp
+index d7a083c..b5bf057 100644
+--- a/mlir/lib/Analysis/SliceAnalysis.cpp
++++ b/mlir/lib/Analysis/SliceAnalysis.cpp
+@@ -25,35 +25,81 @@
+ 
+ using namespace mlir;
+ 
++/// Insert into `forwardSlice` the ops that `root` reaches, through the ops
++/// nested in its regions and the users of its results and theirs, each after
++/// every op it reaches (the slice's reverse topological order), and `root`
++/// last. `visited` holds the ops on the current path of the search; the
++/// caller adds `root` to it.
++///
++/// Use-def chains and nesting are unbounded, so the search keeps its path on
++/// an explicit stack rather than recursing: the depth of the native stack
++/// does not grow with the length of a chain. Searching changes no IR, so an
++/// op's successors are listed when its visit begins, and each is tested when
++/// its turn comes, as by recursion.
+ static void
+-getForwardSliceImpl(Operation *op, DenseSet<Operation *> &visited,
++getForwardSliceImpl(Operation *root, DenseSet<Operation *> &visited,
+                     SetVector<Operation *> *forwardSlice,
+                     const SliceOptions::TransitiveFilter &filter = nullptr) {
+-  if (!op)
+-    return;
++  // An op the search may go to from an op it visits: one nested in its
++  // regions, or a user of its results.
++  enum class Edge { Nested, Use };
++  // One frame per op on the current path, innermost last: the ops it may go
++  // to, and the next of them.
++  struct Frame {
++    Operation *op;
++    SmallVector<std::pair<Operation *, Edge>> next;
++    size_t nextIndex;
++  };
++  SmallVector<Frame> stack;
++
++  // Begin the visit of `op`, unless it is null or the filter stops at it.
++  auto visit = [&](Operation *op) {
++    if (!op)
++      return false;
++
++    // Evaluate whether we should keep this use.
++    // This is useful in particular to implement scoping; i.e. return the
++    // transitive forwardSlice in the current scope.
++    if (filter && !filter(op))
++      return false;
++
++    SmallVector<std::pair<Operation *, Edge>> next;
++    for (Region &region : op->getRegions())
++      for (Block &block : region)
++        for (Operation &blockOp : block)
++          next.emplace_back(&blockOp, Edge::Nested);
++    for (Value result : op->getResults())
++      for (Operation *userOp : result.getUsers())
++        next.emplace_back(userOp, Edge::Use);
++    stack.push_back({op, std::move(next), 0});
++    return true;
++  };
+ 
+-  // Evaluate whether we should keep this use.
+-  // This is useful in particular to implement scoping; i.e. return the
+-  // transitive forwardSlice in the current scope.
+-  if (filter && !filter(op))
++  if (!visit(root))
+     return;
+-
+-  for (Region &region : op->getRegions())
+-    for (Block &block : region)
+-      for (Operation &blockOp : block)
+-        if (forwardSlice->count(&blockOp) == 0) {
+-          // We don't have to check if the 'blockOp' is already visited because
+-          // there cannot be a traversal path from this nested op to the parent
+-          // and thus a cycle cannot be closed here. We still have to mark it
+-          // as visited to stop before visiting this operation again if it is
+-          // part of a cycle.
+-          visited.insert(&blockOp);
+-          getForwardSliceImpl(&blockOp, visited, forwardSlice, filter);
+-          visited.erase(&blockOp);
+-        }
+-
+-  for (Value result : op->getResults())
+-    for (Operation *userOp : result.getUsers()) {
++  while (!stack.empty()) {
++    Frame &frame = stack.back();
++    if (frame.nextIndex == frame.next.size()) {
++      Operation *op = frame.op;
++      stack.pop_back();
++      forwardSlice->insert(op);
++      // The op that went to this one added it to the path; `root` is the
++      // caller's.
++      if (!stack.empty())
++        visited.erase(op);
++      continue;
++    }
++    auto [op, edge] = frame.next[frame.nextIndex++];
++    if (forwardSlice->count(op) != 0)
++      continue;
++    if (edge == Edge::Nested) {
++      // We don't have to check if the nested op is already visited because
++      // there cannot be a traversal path from this nested op to the parent
++      // and thus a cycle cannot be closed here. We still have to mark it as
++      // visited to stop before visiting this operation again if it is part of
++      // a cycle.
++      visited.insert(op);
++    } else if (!visited.insert(op).second) {
+       // A cycle can only occur within a basic block (not across regions or
+       // basic blocks) because the parent region must be a graph region, graph
+       // regions are restricted to always have 0 or 1 blocks, and there cannot
+@@ -62,13 +108,11 @@ getForwardSliceImpl(Operation *op, DenseSet<Operation *> &visited,
+       // 'visited' set across regions/blocks as long as we remove operations
+       // from the set again when the DFS traverses back from the leaf to the
+       // root.
+-      if (forwardSlice->count(userOp) == 0 && visited.insert(userOp).second) {
+-        getForwardSliceImpl(userOp, visited, forwardSlice, filter);
+-        visited.erase(userOp);
+-      }
++      continue;
+     }
+-
+-  forwardSlice->insert(op);
++    if (!visit(op))
++      visited.erase(op);
++  }
+ }
+ 
+ void mlir::getForwardSlice(Operation *op, SetVector<Operation *> *forwardSlice,
+@@ -107,31 +151,94 @@ void mlir::getForwardSlice(Value root, SetVector<Operation *> *forwardSlice,
+   forwardSlice->insert(v.rbegin(), v.rend());
+ }
+ 
+-static LogicalResult getBackwardSliceImpl(Operation *op,
++/// Insert into `backwardSlice` the ops that `root` depends on, through the
++/// definitions of its operands (and, unless omitted, of the values used in its
++/// regions and defined above them) and the parent of a block argument, each
++/// after every op it depends on (the slice's topological order), and `root`
++/// last. `visited` holds the ops on the current path of the search; the
++/// caller adds `root` to it.
++///
++/// Use-def chains are unbounded, so the search keeps its path on an explicit
++/// stack rather than recursing: the depth of the native stack does not grow
++/// with the length of a chain. Searching changes no IR, so the values an op
++/// depends on are listed when its visit begins, and each is tested when its
++/// turn comes, as by recursion.
++static LogicalResult getBackwardSliceImpl(Operation *root,
+                                           DenseSet<Operation *> &visited,
+                                           SetVector<Operation *> *backwardSlice,
+                                           const BackwardSliceOptions &options) {
+-  if (!op)
+-    return success();
++  // One frame per op on the current path, innermost last: the values it
++  // depends on, each with where the search goes on if processing it fails,
++  // the next of them, and whether the op was added to `visited` when the
++  // search went to it.
++  struct Frame {
++    Operation *op;
++    SmallVector<std::pair<Value, size_t>> values;
++    size_t nextIndex;
++    bool onPath;
++  };
++  SmallVector<Frame> stack;
++
++  // Begin the visit of `op`, unless it is null or the filter stops at it.
++  auto visit = [&](Operation *op, bool onPath) {
++    if (!op)
++      return false;
++
++    // Evaluate whether we should keep this def.
++    // This is useful in particular to implement scoping; i.e. return the
++    // transitive backwardSlice in the current scope.
++    if (options.filter && !options.filter(op))
++      return false;
++
++    SmallVector<std::pair<Value, size_t>> values;
++    if (!options.omitUsesFromAbove &&
++        !op->hasTrait<OpTrait::IsIsolatedFromAbove>()) {
++      for (Region &region : op->getRegions()) {
++        // Walk this region recursively to collect the regions that descend
++        // from this op's nested regions (inclusive).
++        SmallPtrSet<Region *, 4> descendents;
++        region.walk(
++            [&](Region *childRegion) { descendents.insert(childRegion); });
++        size_t begin = values.size();
++        region.walk([&](Operation *nestedOp) {
++          for (OpOperand &operand : nestedOp->getOpOperands())
++            if (!descendents.contains(operand.get().getParentRegion()))
++              values.emplace_back(operand.get(), 0);
++        });
++        // A value of this region that fails ends the walk of the region.
++        for (size_t i = begin, e = values.size(); i != e; ++i)
++          values[i].second = e;
++      }
++    }
++    for (Value operand : op->getOperands())
++      values.emplace_back(operand, values.size() + 1);
++    stack.push_back({op, std::move(values), 0, onPath});
++    return true;
++  };
+ 
+-  // Evaluate whether we should keep this def.
+-  // This is useful in particular to implement scoping; i.e. return the
+-  // transitive backwardSlice in the current scope.
+-  if (options.filter && !options.filter(op))
++  if (!visit(root, /*onPath=*/false))
+     return success();
+-
+-  auto processValue = [&](Value value) {
++  while (!stack.empty()) {
++    Frame &frame = stack.back();
++    if (frame.nextIndex == frame.values.size()) {
++      Operation *op = frame.op;
++      bool onPath = frame.onPath;
++      stack.pop_back();
++      backwardSlice->insert(op);
++      if (onPath)
++        visited.erase(op);
++      continue;
++    }
++    auto [value, onFailure] = frame.values[frame.nextIndex++];
+     if (auto *definingOp = value.getDefiningOp()) {
+       if (backwardSlice->count(definingOp) == 0 &&
+           visited.insert(definingOp).second) {
+-        LogicalResult result =
+-            getBackwardSliceImpl(definingOp, visited, backwardSlice, options);
+-        visited.erase(definingOp);
+-        return result;
++        if (!visit(definingOp, /*onPath=*/true))
++          visited.erase(definingOp);
+       }
+     } else if (auto blockArg = dyn_cast<BlockArgument>(value)) {
+       if (options.omitBlockArguments)
+-        return success();
++        continue;
+ 
+       Block *block = blockArg.getOwner();
+       Operation *parentOp = block->getParentOp();
+@@ -142,41 +249,14 @@ static LogicalResult getBackwardSliceImpl(Operation *op,
+         if (!parentOp->hasTrait<OpTrait::IsIsolatedFromAbove>() &&
+             parentOp->getNumRegions() == 1 &&
+             parentOp->getRegion(0).hasOneBlock()) {
+-          return getBackwardSliceImpl(parentOp, visited, backwardSlice,
+-                                      options);
++          visit(parentOp, /*onPath=*/false);
+         }
+       }
+     } else {
+-      return failure();
++      frame.nextIndex = onFailure;
+     }
+-    return success();
+-  };
+-
+-  bool succeeded = true;
+-
+-  if (!options.omitUsesFromAbove &&
+-      !op->hasTrait<OpTrait::IsIsolatedFromAbove>()) {
+-    llvm::for_each(op->getRegions(), [&](Region &region) {
+-      // Walk this region recursively to collect the regions that descend from
+-      // this op's nested regions (inclusive).
+-      SmallPtrSet<Region *, 4> descendents;
+-      region.walk(
+-          [&](Region *childRegion) { descendents.insert(childRegion); });
+-      region.walk([&](Operation *op) {
+-        for (OpOperand &operand : op->getOpOperands()) {
+-          if (!descendents.contains(operand.get().getParentRegion()))
+-            if (!processValue(operand.get()).succeeded()) {
+-              return WalkResult::interrupt();
+-            }
+-        }
+-        return WalkResult::advance();
+-      });
+-    });
+   }
+-  llvm::for_each(op->getOperands(), processValue);
+-
+-  backwardSlice->insert(op);
+-  return success(succeeded);
++  return success();
+ }
+ 
+ LogicalResult mlir::getBackwardSlice(Operation *op,

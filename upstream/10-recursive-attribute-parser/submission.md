@@ -2,6 +2,8 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 not ready
 
-Do not send. There is no patch. This needs an RFC on LLVM Discourse for iterative parse, print and walk. Do not send code.
+Do not send yet. The patch is carried (`llvm.patch`, never built), but
+an RFC on LLVM Discourse for MLIR's recursions on input size comes
+first; this pull request follows once upstream agrees on the design.
 
 Author: Bjorn, individual, outside any employer. Not Bugzilla.

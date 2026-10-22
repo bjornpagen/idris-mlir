@@ -1,0 +1,710 @@
+Subject: [PATCH] [mlir] Walk nested regions from an explicit stack
+
+Every walk of `Visitors.h` and `Visitors.cpp` (over regions, blocks and
+operations, void and interruptible, and the two stage-aware walks) calls
+itself once per level of operation nesting, as the "This walk should be
+iterative over the operations" TODO says. The native stack a pass needs
+therefore grows with the depth of the IR it walks, and a deeply nested
+function overflows the stack of a thread with a small one.
+
+The walks now share one engine that keeps its position in an explicit
+stack, one entry per operation whose walk has begun. Each walk is a
+visitor that says where its callback is made, how its result skips or
+interrupts the walk, and whether the next block or operation is taken
+before the current one is walked, which is what lets a callback erase the
+one it is given. Every range is made, every callback made and every
+iterator advanced at the point where the recursive walk did it, for every
+iterator kind. An entry never moves while it is on the stack, since a
+post-order traversal of a region's blocks keeps its state outside its
+iterators; the first entries live in the stack itself, so a shallow walk
+allocates nothing.
+
+A unit test walks a chain of operations nested 10,000 deep, with every
+kind of walk, on a thread whose stack a frame per level would overflow.
+---
+diff --git a/mlir/include/mlir/IR/Visitors.h b/mlir/include/mlir/IR/Visitors.h
+index 907f470..23cd24b 100644
+--- a/mlir/include/mlir/IR/Visitors.h
++++ b/mlir/include/mlir/IR/Visitors.h
+@@ -16,6 +16,10 @@
+ #include "mlir/Support/LLVM.h"
+ #include "mlir/Support/WalkResult.h"
+ #include "llvm/ADT/STLExtras.h"
++#include "llvm/ADT/SmallVector.h"
++#include <memory>
++#include <new>
++#include <optional>
+ 
+ namespace mlir {
+ class Diagnostic;
+@@ -89,6 +93,313 @@ decltype(first_argument_type(&F::operator())) first_argument_type(F);
+ template <typename T>
+ using first_argument = decltype(first_argument_type(std::declval<T>()));
+ 
++/// The stack of an iterative walk: one entry per operation whose walk has
++/// begun and not ended, the innermost last. An entry never moves while it is
++/// on the stack, since a range it iterates may keep its traversal state
++/// outside its iterators (a post-order traversal of a region's blocks does).
++/// The first entries live in the stack itself, so a shallow walk allocates
++/// nothing; deeper ones live in chunks allocated when the walk first descends
++/// that far, which are kept until the walk ends.
++template <typename EntryT>
++class WalkStack {
++public:
++  WalkStack() = default;
++  WalkStack(const WalkStack &) = delete;
++  WalkStack &operator=(const WalkStack &) = delete;
++  ~WalkStack() {
++    while (!empty())
++      pop();
++  }
++
++  bool empty() const { return depth == 0; }
++
++  EntryT &top() { return *entry(depth - 1); }
++
++  template <typename... Args>
++  void push(Args &&...args) {
++    if (depth >= NumInlineEntries &&
++        (depth - NumInlineEntries) / NumChunkEntries == chunks.size())
++      chunks.push_back(std::make_unique<Slot[]>(NumChunkEntries));
++    ::new (static_cast<void *>(entry(depth)))
++        EntryT(std::forward<Args>(args)...);
++    ++depth;
++  }
++
++  void pop() {
++    --depth;
++    entry(depth)->~EntryT();
++  }
++
++private:
++  static constexpr unsigned NumInlineEntries = 4;
++  static constexpr unsigned NumChunkEntries = 32;
++
++  struct alignas(EntryT) Slot {
++    char bytes[sizeof(EntryT)];
++  };
++
++  EntryT *entry(unsigned index) {
++    Slot &slot = index < NumInlineEntries
++                     ? inlineSlots[index]
++                     : chunks[(index - NumInlineEntries) / NumChunkEntries]
++                             [(index - NumInlineEntries) % NumChunkEntries];
++    return reinterpret_cast<EntryT *>(slot.bytes);
++  }
++
++  Slot inlineSlots[NumInlineEntries];
++  SmallVector<std::unique_ptr<Slot[]>, 0> chunks;
++  unsigned depth = 0;
++};
++
++/// One level of an iterative walk: the range 'Iterator' makes of an IR object
++/// (the regions of an operation, the blocks of a region or the operations of
++/// a block) and the walk's position in it. A level is built in place and never
++/// moved, so its range may hold the state its iterators read.
++template <typename Iterator, typename ParentT>
++struct WalkLevel {
++  using RangeT = decltype(Iterator::makeIterable(std::declval<ParentT &>()));
++  using IteratorT = decltype(std::declval<RangeT &>().begin());
++
++  explicit WalkLevel(ParentT &parent)
++      : range(Iterator::makeIterable(parent)), current(range.begin()),
++        end(range.end()) {}
++  WalkLevel(const WalkLevel &) = delete;
++  WalkLevel &operator=(const WalkLevel &) = delete;
++
++  RangeT range;
++  IteratorT current;
++  IteratorT end;
++};
++
++/// An operation whose walk has begun and not ended: the levels of it the walk
++/// is inside, the outermost first. A level is present only while the walk is
++/// inside it.
++template <typename Iterator, typename Visitor>
++struct WalkFrame {
++  WalkFrame(Operation *op, Visitor &visitor)
++      : op(op), state(visitor.makeState(op)) {}
++
++  Operation *op;
++  typename Visitor::State state;
++  std::optional<WalkLevel<Iterator, Operation>> regions;
++  std::optional<WalkLevel<Iterator, Region>> blocks;
++  std::optional<WalkLevel<Iterator, Block>> ops;
++  /// The region whose blocks, and the block whose operations, are walked.
++  Region *region = nullptr;
++  Block *block = nullptr;
++};
++
++/// Walk 'root' and the regions, blocks and operations nested in it, from an
++/// explicit stack rather than by recursion, so that the nesting depth of the
++/// IR is not the depth of the native stack. 'Visitor' makes the callbacks and
++/// says, with each one's result, where the walk skips or stops; it also says
++/// whether the walk takes the next block or operation before it walks the
++/// current one, so that a callback may erase the current one. Each range is
++/// made, and each callback made, at the point where a walk that recursed
++/// would make it. The result is the root operation's.
++template <typename Iterator, typename Visitor>
++WalkResult walkIteratively(Operation *root, Visitor &visitor) {
++  using Frame = WalkFrame<Iterator, Visitor>;
++  WalkStack<Frame> stack;
++  stack.push(root, visitor);
++  while (true) {
++    Frame &frame = stack.top();
++    Operation *nested = nullptr;
++    WalkResult result = WalkResult::advance();
++    // Advance the innermost operation's walk until it reaches a nested
++    // operation, which is walked next, or ends.
++    while (true) {
++      if (frame.ops) {
++        WalkLevel<Iterator, Block> &ops = *frame.ops;
++        if (ops.current != ops.end) {
++          nested = &*ops.current;
++          if constexpr (Visitor::earlyIncrementOps)
++            ++ops.current;
++          break;
++        }
++        frame.ops.reset();
++        if (visitor.postBlock(frame.block).wasInterrupted())
++          return WalkResult::interrupt();
++        if constexpr (!Visitor::earlyIncrementBlocks)
++          ++frame.blocks->current;
++        continue;
++      }
++      if (frame.blocks) {
++        WalkLevel<Iterator, Region> &blocks = *frame.blocks;
++        if (blocks.current != blocks.end) {
++          Block *block = &*blocks.current;
++          if constexpr (Visitor::earlyIncrementBlocks)
++            ++blocks.current;
++          WalkResult blockResult = visitor.preBlock(block);
++          if (blockResult.wasInterrupted())
++            return WalkResult::interrupt();
++          if (blockResult.wasSkipped()) {
++            if constexpr (!Visitor::earlyIncrementBlocks)
++              ++blocks.current;
++            continue;
++          }
++          frame.block = block;
++          frame.ops.emplace(*block);
++          continue;
++        }
++        frame.blocks.reset();
++        if (visitor.postRegion(frame.region).wasInterrupted())
++          return WalkResult::interrupt();
++        // A callback never erases a region, so the walk moves past one only
++        // after walking it.
++        ++frame.regions->current;
++        continue;
++      }
++      if (frame.regions) {
++        WalkLevel<Iterator, Operation> &regions = *frame.regions;
++        if (regions.current == regions.end) {
++          frame.regions.reset();
++          result = visitor.postOp(frame.op, frame.state);
++          break;
++        }
++        WalkResult stageResult = visitor.beforeRegion(frame.op, frame.state);
++        if (stageResult.wasInterrupted())
++          return WalkResult::interrupt();
++        // A skip before a region ends the operation's walk.
++        if (stageResult.wasSkipped())
++          break;
++        Region *region = &*regions.current;
++        WalkResult regionResult = visitor.preRegion(region);
++        if (regionResult.wasInterrupted())
++          return WalkResult::interrupt();
++        if (regionResult.wasSkipped()) {
++          ++regions.current;
++          continue;
++        }
++        frame.region = region;
++        frame.blocks.emplace(*region);
++        continue;
++      }
++      WalkResult opResult = visitor.preOp(frame.op);
++      if (opResult.wasInterrupted())
++        return WalkResult::interrupt();
++      // A skipped operation's walk ends, and its parent's goes on.
++      if (opResult.wasSkipped())
++        break;
++      frame.regions.emplace(*frame.op);
++    }
++    if (nested) {
++      stack.push(nested, visitor);
++      continue;
++    }
++    stack.pop();
++    if (stack.empty())
++      return result;
++    if (result.wasInterrupted())
++      return WalkResult::interrupt();
++    if constexpr (!Visitor::earlyIncrementOps)
++      ++stack.top().ops->current;
++  }
++}
++
++/// What an iterative walk does where its visitor makes no callback: it goes
++/// on. Each visitor below declares only the callbacks it makes.
++struct WalkVisitorBase {
++  struct State {};
++  static constexpr bool earlyIncrementBlocks = false;
++  static constexpr bool earlyIncrementOps = false;
++
++  State makeState(Operation *) { return {}; }
++  WalkResult preOp(Operation *) { return WalkResult::advance(); }
++  WalkResult beforeRegion(Operation *, State &) {
++    return WalkResult::advance();
++  }
++  WalkResult preRegion(Region *) { return WalkResult::advance(); }
++  WalkResult preBlock(Block *) { return WalkResult::advance(); }
++  WalkResult postBlock(Block *) { return WalkResult::advance(); }
++  WalkResult postRegion(Region *) { return WalkResult::advance(); }
++  WalkResult postOp(Operation *, State &) { return WalkResult::advance(); }
++};
++
++/// The result of a walk callback: its own, or 'advance' for one that returns
++/// nothing.
++template <typename ArgT>
++WalkResult invokeWalkCallback(function_ref<void(ArgT)> callback, ArgT arg) {
++  callback(arg);
++  return WalkResult::advance();
++}
++template <typename ArgT>
++WalkResult invokeWalkCallback(function_ref<WalkResult(ArgT)> callback,
++                              ArgT arg) {
++  return callback(arg);
++}
++
++/// A walk whose callback is on each region.
++template <typename CallbackT>
++struct RegionWalkVisitor : WalkVisitorBase {
++  RegionWalkVisitor(CallbackT callback, WalkOrder order)
++      : callback(callback), order(order) {}
++
++  WalkResult preRegion(Region *region) {
++    if (order == WalkOrder::PreOrder)
++      return invokeWalkCallback(callback, region);
++    return WalkResult::advance();
++  }
++  // A skip after a region's walk is not checked: the walk goes on with the
++  // next region anyway.
++  WalkResult postRegion(Region *region) {
++    if (order == WalkOrder::PostOrder)
++      return invokeWalkCallback(callback, region);
++    return WalkResult::advance();
++  }
++
++  CallbackT callback;
++  WalkOrder order;
++};
++
++/// A walk whose callback is on each block. A callback may erase its block, so
++/// the walk takes the next block first.
++template <typename CallbackT>
++struct BlockWalkVisitor : WalkVisitorBase {
++  static constexpr bool earlyIncrementBlocks = true;
++
++  BlockWalkVisitor(CallbackT callback, WalkOrder order)
++      : callback(callback), order(order) {}
++
++  WalkResult preBlock(Block *block) {
++    if (order == WalkOrder::PreOrder)
++      return invokeWalkCallback(callback, block);
++    return WalkResult::advance();
++  }
++  WalkResult postBlock(Block *block) {
++    if (order == WalkOrder::PostOrder)
++      return invokeWalkCallback(callback, block);
++    return WalkResult::advance();
++  }
++
++  CallbackT callback;
++  WalkOrder order;
++};
++
++/// A walk whose callback is on each operation. A callback may erase its
++/// operation, so the walk takes the next operation first.
++template <typename CallbackT>
++struct OperationWalkVisitor : WalkVisitorBase {
++  static constexpr bool earlyIncrementOps = true;
++
++  OperationWalkVisitor(CallbackT callback, WalkOrder order)
++      : callback(callback), order(order) {}
++
++  WalkResult preOp(Operation *op) {
++    if (order == WalkOrder::PreOrder)
++      return invokeWalkCallback(callback, op);
++    return WalkResult::advance();
++  }
++  WalkResult postOp(Operation *op, State &) {
++    if (order == WalkOrder::PostOrder)
++      return invokeWalkCallback(callback, op);
++    return WalkResult::advance();
++  }
++
++  CallbackT callback;
++  WalkOrder order;
++};
++
+ /// Walk all of the regions, blocks, or operations nested under (and including)
+ /// the given operation. The order in which regions, blocks and operations at
+ /// the same nesting level are visited (e.g., lexicographical or reverse
+@@ -101,56 +412,23 @@ using first_argument = decltype(first_argument_type(std::declval<T>()));
+ template <typename Iterator>
+ void walk(Operation *op, function_ref<void(Region *)> callback,
+           WalkOrder order) {
+-  // We don't use early increment for regions because they can't be erased from
+-  // a callback.
+-  for (auto &region : Iterator::makeIterable(*op)) {
+-    if (order == WalkOrder::PreOrder)
+-      callback(&region);
+-    for (auto &block : Iterator::makeIterable(region)) {
+-      for (auto &nestedOp : Iterator::makeIterable(block))
+-        walk<Iterator>(&nestedOp, callback, order);
+-    }
+-    if (order == WalkOrder::PostOrder)
+-      callback(&region);
+-  }
++  RegionWalkVisitor<function_ref<void(Region *)>> visitor(callback, order);
++  walkIteratively<Iterator>(op, visitor);
+ }
+ 
+ template <typename Iterator>
+ void walk(Operation *op, function_ref<void(Block *)> callback,
+           WalkOrder order) {
+-  for (auto &region : Iterator::makeIterable(*op)) {
+-    // Early increment here in the case where the block is erased.
+-    // PostOrderTraversal keeps state outside of iterators, so store it here.
+-    auto &&It = Iterator::makeIterable(region);
+-    for (auto &block : llvm::make_early_inc_range(It)) {
+-      if (order == WalkOrder::PreOrder)
+-        callback(&block);
+-      for (auto &nestedOp : Iterator::makeIterable(block))
+-        walk<Iterator>(&nestedOp, callback, order);
+-      if (order == WalkOrder::PostOrder)
+-        callback(&block);
+-    }
+-  }
++  BlockWalkVisitor<function_ref<void(Block *)>> visitor(callback, order);
++  walkIteratively<Iterator>(op, visitor);
+ }
+ 
+ template <typename Iterator>
+ void walk(Operation *op, function_ref<void(Operation *)> callback,
+           WalkOrder order) {
+-  if (order == WalkOrder::PreOrder)
+-    callback(op);
+-
+-  // TODO: This walk should be iterative over the operations.
+-  for (auto &region : Iterator::makeIterable(*op)) {
+-    for (auto &block : Iterator::makeIterable(region)) {
+-      // Early increment here in the case where the operation is erased.
+-      for (auto &nestedOp :
+-           llvm::make_early_inc_range(Iterator::makeIterable(block)))
+-        walk<Iterator>(&nestedOp, callback, order);
+-    }
+-  }
+-
+-  if (order == WalkOrder::PostOrder)
+-    callback(op);
++  OperationWalkVisitor<function_ref<void(Operation *)>> visitor(callback,
++                                                                 order);
++  walkIteratively<Iterator>(op, visitor);
+ }
+ 
+ /// Walk all of the regions, blocks, or operations nested under (and including)
+@@ -166,87 +444,25 @@ void walk(Operation *op, function_ref<void(Operation *)> callback,
+ template <typename Iterator>
+ WalkResult walk(Operation *op, function_ref<WalkResult(Region *)> callback,
+                 WalkOrder order) {
+-  // We don't use early increment for regions because they can't be erased from
+-  // a callback.
+-  for (auto &region : Iterator::makeIterable(*op)) {
+-    if (order == WalkOrder::PreOrder) {
+-      WalkResult result = callback(&region);
+-      if (result.wasSkipped())
+-        continue;
+-      if (result.wasInterrupted())
+-        return WalkResult::interrupt();
+-    }
+-    for (auto &block : Iterator::makeIterable(region)) {
+-      for (auto &nestedOp : Iterator::makeIterable(block))
+-        if (walk<Iterator>(&nestedOp, callback, order).wasInterrupted())
+-          return WalkResult::interrupt();
+-    }
+-    if (order == WalkOrder::PostOrder) {
+-      if (callback(&region).wasInterrupted())
+-        return WalkResult::interrupt();
+-      // We don't check if this region was skipped because its walk already
+-      // finished and the walk will continue with the next region.
+-    }
+-  }
+-  return WalkResult::advance();
++  RegionWalkVisitor<function_ref<WalkResult(Region *)>> visitor(callback,
++                                                                order);
++  return walkIteratively<Iterator>(op, visitor);
+ }
+ 
+ template <typename Iterator>
+ WalkResult walk(Operation *op, function_ref<WalkResult(Block *)> callback,
+                 WalkOrder order) {
+-  for (auto &region : Iterator::makeIterable(*op)) {
+-    // Early increment here in the case where the block is erased.
+-    // PostOrderTraversal keeps state outside of iterators, so store it here.
+-    auto &&It = Iterator::makeIterable(region);
+-    for (auto &block : llvm::make_early_inc_range(It)) {
+-      if (order == WalkOrder::PreOrder) {
+-        WalkResult result = callback(&block);
+-        if (result.wasSkipped())
+-          continue;
+-        if (result.wasInterrupted())
+-          return WalkResult::interrupt();
+-      }
+-      for (auto &nestedOp : Iterator::makeIterable(block))
+-        if (walk<Iterator>(&nestedOp, callback, order).wasInterrupted())
+-          return WalkResult::interrupt();
+-      if (order == WalkOrder::PostOrder) {
+-        if (callback(&block).wasInterrupted())
+-          return WalkResult::interrupt();
+-        // We don't check if this block was skipped because its walk already
+-        // finished and the walk will continue with the next block.
+-      }
+-    }
+-  }
+-  return WalkResult::advance();
++  BlockWalkVisitor<function_ref<WalkResult(Block *)>> visitor(callback,
++                                                              order);
++  return walkIteratively<Iterator>(op, visitor);
+ }
+ 
+ template <typename Iterator>
+ WalkResult walk(Operation *op, function_ref<WalkResult(Operation *)> callback,
+                 WalkOrder order) {
+-  if (order == WalkOrder::PreOrder) {
+-    WalkResult result = callback(op);
+-    // If skipped, caller will continue the walk on the next operation.
+-    if (result.wasSkipped())
+-      return WalkResult::advance();
+-    if (result.wasInterrupted())
+-      return WalkResult::interrupt();
+-  }
+-
+-  // TODO: This walk should be iterative over the operations.
+-  for (auto &region : Iterator::makeIterable(*op)) {
+-    for (auto &block : Iterator::makeIterable(region)) {
+-      // Early increment here in the case where the operation is erased.
+-      for (auto &nestedOp :
+-           llvm::make_early_inc_range(Iterator::makeIterable(block))) {
+-        if (walk<Iterator>(&nestedOp, callback, order).wasInterrupted())
+-          return WalkResult::interrupt();
+-      }
+-    }
+-  }
+-
+-  if (order == WalkOrder::PostOrder)
+-    return callback(op);
+-  return WalkResult::advance();
++  OperationWalkVisitor<function_ref<WalkResult(Operation *)>> visitor(callback,
++                                                                       order);
++  return walkIteratively<Iterator>(op, visitor);
+ }
+ 
+ // Below are a set of functions to walk nested operations. Users should favor
+diff --git a/mlir/lib/IR/Visitors.cpp b/mlir/lib/IR/Visitors.cpp
+index 73235f0..46d63d5 100644
+--- a/mlir/lib/IR/Visitors.cpp
++++ b/mlir/lib/IR/Visitors.cpp
+@@ -18,47 +18,57 @@ MutableArrayRef<Region> ForwardIterator::makeIterable(Operation &range) {
+   return range.getRegions();
+ }
+ 
+-void detail::walk(Operation *op,
+-                  function_ref<void(Operation *, const WalkStage &)> callback) {
+-  WalkStage stage(op);
++namespace {
++/// A walk whose callback is on each operation before each of its regions and
++/// once after all of them, told which regions it has walked. The walk that
++/// returns a result takes the next operation first, so that its callback may
++/// erase the operation it is given when it then skips it; the void walk does
++/// not.
++template <typename CallbackT, bool EarlyIncrementOps>
++struct StageWalkVisitor : detail::WalkVisitorBase {
++  using State = WalkStage;
++  static constexpr bool earlyIncrementOps = EarlyIncrementOps;
++
++  explicit StageWalkVisitor(CallbackT callback) : callback(callback) {}
+ 
+-  for (Region &region : op->getRegions()) {
+-    // Invoke callback on the parent op before visiting each child region.
+-    callback(op, stage);
++  WalkStage makeState(Operation *op) { return WalkStage(op); }
++  WalkResult beforeRegion(Operation *op, WalkStage &stage) {
++    WalkResult result = invoke(op, stage);
++    if (result.wasSkipped() || result.wasInterrupted())
++      return result;
+     stage.advance();
++    return WalkResult::advance();
++  }
++  WalkResult postOp(Operation *op, WalkStage &stage) {
++    return invoke(op, stage);
++  }
+ 
+-    for (Block &block : region) {
+-      for (Operation &nestedOp : block)
+-        walk(&nestedOp, callback);
++  WalkResult invoke(Operation *op, const WalkStage &stage) {
++    if constexpr (std::is_same_v<decltype(callback(op, stage)), void>) {
++      callback(op, stage);
++      return WalkResult::advance();
++    } else {
++      return callback(op, stage);
+     }
+   }
+ 
+-  // Invoke callback after all regions have been visited.
+-  callback(op, stage);
++  CallbackT callback;
++};
++} // namespace
++
++void detail::walk(Operation *op,
++                  function_ref<void(Operation *, const WalkStage &)> callback) {
++  StageWalkVisitor<function_ref<void(Operation *, const WalkStage &)>,
++                   /*EarlyIncrementOps=*/false>
++      visitor(callback);
++  walkIteratively<ForwardIterator>(op, visitor);
+ }
+ 
+ WalkResult detail::walk(
+     Operation *op,
+     function_ref<WalkResult(Operation *, const WalkStage &)> callback) {
+-  WalkStage stage(op);
+-
+-  for (Region &region : op->getRegions()) {
+-    // Invoke callback on the parent op before visiting each child region.
+-    WalkResult result = callback(op, stage);
+-
+-    if (result.wasSkipped())
+-      return WalkResult::advance();
+-    if (result.wasInterrupted())
+-      return WalkResult::interrupt();
+-
+-    stage.advance();
+-
+-    for (Block &block : region) {
+-      // Early increment here in the case where the operation is erased.
+-      for (Operation &nestedOp : llvm::make_early_inc_range(block))
+-        if (walk(&nestedOp, callback).wasInterrupted())
+-          return WalkResult::interrupt();
+-    }
+-  }
+-  return callback(op, stage);
++  StageWalkVisitor<function_ref<WalkResult(Operation *, const WalkStage &)>,
++                   /*EarlyIncrementOps=*/true>
++      visitor(callback);
++  return walkIteratively<ForwardIterator>(op, visitor);
+ }
+diff --git a/mlir/unittests/IR/CMakeLists.txt b/mlir/unittests/IR/CMakeLists.txt
+index ce9b230..247e4eb 100644
+--- a/mlir/unittests/IR/CMakeLists.txt
++++ b/mlir/unittests/IR/CMakeLists.txt
+@@ -25,6 +25,7 @@ add_mlir_unittest(MLIRIRTests
+   OpPropertiesTest.cpp
+   ValueTest.cpp
+   VerifierTest.cpp
++  WalkTest.cpp
+   BlobManagerTest.cpp
+ 
+   DEPENDS
+diff --git a/mlir/unittests/IR/WalkTest.cpp b/mlir/unittests/IR/WalkTest.cpp
+new file mode 100644
+index 0000000..f61bf92
+--- /dev/null
++++ b/mlir/unittests/IR/WalkTest.cpp
+@@ -0,0 +1,84 @@
++//===- WalkTest.cpp - Walks of deeply nested IR ---------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/IR/Iterators.h"
++#include "mlir/IR/Location.h"
++#include "mlir/IR/MLIRContext.h"
++#include "mlir/IR/Operation.h"
++#include "llvm/Support/thread.h"
++#include "gtest/gtest.h"
++
++using namespace mlir;
++
++static Operation *createOp(MLIRContext *context, unsigned numRegions,
++                           ArrayRef<Value> operands = {},
++                           ArrayRef<Type> resultTypes = {}) {
++  context->allowUnregisteredDialects();
++  return Operation::create(
++      UnknownLoc::get(context), OperationName("test.nest", context),
++      resultTypes, operands, NamedAttrList(), PropertyRef(), {}, numRegions);
++}
++
++namespace {
++TEST(WalkTest, DeepNestingOnASmallStack) {
++  MLIRContext context;
++  // A chain of operations, each but the last holding the next in the one
++  // block of its one region.
++  constexpr unsigned depth = 10000;
++  SmallVector<Operation *> chain{createOp(&context, 1)};
++  for (unsigned i = 1; i < depth; ++i) {
++    Block *block = new Block();
++    chain.back()->getRegion(0).push_back(block);
++    chain.push_back(createOp(&context, i + 1 < depth ? 1 : 0));
++    block->push_back(chain.back());
++  }
++  Operation *root = chain.front();
++
++  // A walk that took a native frame per level of nesting would overflow this
++  // thread's stack.
++  unsigned preOrder = 0, postOrder = 0, regions = 0, blocks = 0, stages = 0;
++  Operation *firstPreOrder = nullptr, *firstPostOrder = nullptr;
++  WalkResult interrupted = WalkResult::advance();
++  llvm::thread walker(/*StackSizeInBytes=*/256 * 1024, [&] {
++    root->walk<WalkOrder::PreOrder>([&](Operation *op) {
++      firstPreOrder = firstPreOrder ? firstPreOrder : op;
++      ++preOrder;
++    });
++    root->walk([&](Operation *op) {
++      firstPostOrder = firstPostOrder ? firstPostOrder : op;
++      ++postOrder;
++    });
++    root->walk([&](Region *) { ++regions; });
++    root->walk<WalkOrder::PreOrder, ReverseIterator>([&](Block *) {
++      ++blocks;
++    });
++    root->walk([&](Operation *, const WalkStage &) { ++stages; });
++    interrupted = root->walk([&](Operation *op) {
++      return op == chain.back() ? WalkResult::interrupt()
++                                : WalkResult::advance();
++    });
++  });
++  walker.join();
++
++  EXPECT_EQ(preOrder, depth);
++  EXPECT_EQ(postOrder, depth);
++  EXPECT_EQ(firstPreOrder, root);
++  EXPECT_EQ(firstPostOrder, chain.back());
++  EXPECT_EQ(regions, depth - 1);
++  EXPECT_EQ(blocks, depth - 1);
++  // Before and after the one region of each operation that has one, and once
++  // for the last.
++  EXPECT_EQ(stages, 2 * (depth - 1) + 1);
++  EXPECT_TRUE(interrupted.wasInterrupted());
++
++  // Innermost first, so that no destruction recurses on the depth either.
++  for (Operation *op : llvm::reverse(llvm::drop_begin(chain)))
++    op->erase();
++  root->destroy();
++}
++} // namespace

@@ -1,0 +1,700 @@
+Subject: [PATCH] [mlir] Walk and replace sub-elements from an explicit stack
+
+`AttrTypeWalker` and the attribute and type replacers recurse once per
+level of nesting: the walker through `walkSubElements` and the walk
+function's callback, the replacers through `replaceSubElements` and
+`replace` on every sub-element. The native stack they need grows with how
+deeply an attribute or type nests, so walking the symbol uses of an
+operation whose attribute is an array nested a few thousand deep
+overflows a thread with a small stack.
+
+Both now keep their place in an explicit stack, one frame per element
+whose sub-elements are being visited, and visit the same elements in the
+same order: an element enters the walker's visited set before its
+sub-elements, its walk functions run before or after them as the order
+says, a skip passes over them and an interrupt ends the walk of every
+element it is under, recorded as each one's result in a post-order walk
+as before. The replacers look each element up in their cache first, run
+the replacement functions, replace the sub-elements of the replacement in
+order until one fails, and record the result in the cache after theirs;
+the cyclic replacer's entries are resolved in the reverse order of their
+lookups, as its cache requires, and each is kept where it is made, since
+an unresolved entry may not be copied. `replaceBase` and the replacers'
+`cachedReplaceImpl` give way to `replaceWithCache` and a cache lookup and
+resolution on each replacer; the public interface is unchanged.
+
+A unit test walks and replaces an array attribute nested 10,000 deep on a
+thread whose stack a frame per level would overflow.
+---
+diff --git a/mlir/include/mlir/IR/AttrTypeSubElements.h b/mlir/include/mlir/IR/AttrTypeSubElements.h
+index 234767d..b6c2c93 100644
+--- a/mlir/include/mlir/IR/AttrTypeSubElements.h
++++ b/mlir/include/mlir/IR/AttrTypeSubElements.h
+@@ -19,6 +19,7 @@
+ #include "mlir/Support/CyclicReplacerCache.h"
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/DenseMap.h"
++#include <memory>
+ #include <optional>
+ 
+ namespace mlir {
+@@ -97,13 +98,11 @@ private:
+   WalkResult walkImpl(Attribute attr, WalkOrder order);
+   WalkResult walkImpl(Type type, WalkOrder order);
+ 
+-  /// Internal implementation of the `walk` methods above.
+-  template <typename T, typename WalkFns>
+-  WalkResult walkImpl(T element, WalkFns &walkFns, WalkOrder order);
+-
+-  /// Walk the sub elements of the given interface.
++  /// Internal implementation of the `walk` methods above: walks `root` and
++  /// its sub elements from an explicit stack, so that their nesting depth is
++  /// not the depth of the native stack.
+   template <typename T>
+-  WalkResult walkSubElements(T interface, WalkOrder order);
++  WalkResult walkFrom(T root, WalkOrder order);
+ 
+   /// The set of walk functions that map sub elements.
+   std::vector<WalkFn<Attribute>> attrWalkFns;
+@@ -214,12 +213,17 @@ public:
+   }
+ 
+ protected:
+-  /// Invokes the registered replacement functions from most recently registered
+-  /// to least recently registered until a successful replacement is returned.
+-  /// Unless skipping is requested, invokes `replace` on sub-elements of the
+-  /// current attr/type.
+-  Attribute replaceBase(Attribute attr);
+-  Type replaceBase(Type type);
++  /// Replaces `root` and its sub elements, each as follows. The element is
++  /// first looked up in the concrete replacer's cache. If it is not found,
++  /// the registered replacement functions are invoked from most recently
++  /// registered to least recently registered until a successful replacement
++  /// is returned; unless skipping is requested, the sub-elements of that
++  /// replacement are replaced in turn, and the result is recorded in the
++  /// cache. The elements are replaced from an explicit stack rather than by
++  /// recursion through `replace`, so that their nesting depth is not the
++  /// depth of the native stack.
++  template <typename T>
++  T replaceWithCache(T root);
+ 
+ private:
+   /// The set of replacement functions that map sub elements.
+@@ -238,10 +242,21 @@ public:
+   Type replace(Type type);
+ 
+ private:
+-  /// Shared concrete implementation of the public `replace` functions. Invokes
+-  /// `replaceBase` with caching.
++  friend class detail::AttrTypeReplacerBase<AttrTypeReplacer>;
++
++  /// An element whose replacement is in progress: its key in the cache.
++  using PendingEntry = const void *;
++
++  /// Looks up `element` in the cache. Returns its replacement if it has one,
++  /// which is the element itself while its replacement is in progress.
++  /// Otherwise marks it in progress, sets `pending`, and returns
++  /// std::nullopt.
+   template <typename T>
+-  T cachedReplaceImpl(T element);
++  std::optional<T> lookupOrBegin(T element, PendingEntry &pending);
++
++  /// Records `result`, the opaque pointer of an attribute or type, as the
++  /// replacement of the element of `pending`.
++  void resolve(PendingEntry pending, const void *result);
+ 
+   // Stores the opaque pointer of an attribute or type.
+   DenseMap<const void *, const void *> cache;
+@@ -299,14 +314,29 @@ public:
+   }
+ 
+ private:
++  friend class detail::AttrTypeReplacerBase<CyclicAttrTypeReplacer>;
++
+   /// Invokes the registered cycle-breaker functions from most recently
+   /// registered to least recently registered until a successful result is
+   /// returned.
+   std::optional<const void *> breakCycleImpl(void *element);
+ 
+-  /// Shared concrete implementation of the public `replace` functions.
++  /// An element whose replacement is in progress: its unresolved cache entry,
++  /// which must be resolved before it is destroyed, and so is kept where it
++  /// is made and never copied.
++  using PendingEntry =
++      std::unique_ptr<CyclicReplacerCache<void *, const void *>::CacheEntry>;
++
++  /// Looks up `element` in the cache. Returns its replacement if it has one.
++  /// Otherwise sets `pending` to its unresolved entry and returns
++  /// std::nullopt; unresolved entries are resolved in the reverse order of
++  /// their lookups.
+   template <typename T>
+-  T cachedReplaceImpl(T element);
++  std::optional<T> lookupOrBegin(T element, PendingEntry &pending);
++
++  /// Resolves `pending` with `result`, the opaque pointer of an attribute or
++  /// type.
++  void resolve(PendingEntry pending, const void *result);
+ 
+   /// The set of registered cycle-breaker functions.
+   std::vector<CycleBreakerFn<Attribute>> attrCycleBreakerFns;
+diff --git a/mlir/lib/IR/AttrTypeSubElements.cpp b/mlir/lib/IR/AttrTypeSubElements.cpp
+index f61264a..e19ea23 100644
+--- a/mlir/lib/IR/AttrTypeSubElements.cpp
++++ b/mlir/lib/IR/AttrTypeSubElements.cpp
+@@ -11,59 +11,146 @@
+ 
+ using namespace mlir;
+ 
++namespace {
++/// An attribute or a type, as a walk or a replacement meets it. A sub element
++/// may be null where `walkImmediateSubElements` gives a null one.
++struct SubElement {
++  enum class Kind { Attribute, Type };
++
++  static SubElement of(Attribute attr) {
++    return {Kind::Attribute, attr.getAsOpaquePointer()};
++  }
++  static SubElement of(Type type) {
++    return {Kind::Type, type.getAsOpaquePointer()};
++  }
++
++  /// Invokes `fn` with the attribute or the type.
++  template <typename FnT>
++  decltype(auto) visit(FnT &&fn) const {
++    if (kind == Kind::Attribute)
++      return fn(Attribute::getFromOpaquePointer(opaque));
++    return fn(Type::getFromOpaquePointer(opaque));
++  }
++
++  Kind kind;
++  const void *opaque;
++};
++} // namespace
++
++/// The immediate sub elements of `element`, in the order
++/// `walkImmediateSubElements` gives them, null ones included. That only
++/// enumerates them: nothing is walked or replaced while they are gathered.
++static SmallVector<SubElement, 4> getSubElements(SubElement element) {
++  SmallVector<SubElement, 4> subElements;
++  element.visit([&](auto value) {
++    value.walkImmediateSubElements(
++        [&](Attribute attr) { subElements.push_back(SubElement::of(attr)); },
++        [&](Type type) { subElements.push_back(SubElement::of(type)); });
++  });
++  return subElements;
++}
++
+ //===----------------------------------------------------------------------===//
+ // AttrTypeWalker
+ //===----------------------------------------------------------------------===//
+ 
+ WalkResult AttrTypeWalker::walkImpl(Attribute attr, WalkOrder order) {
+-  return walkImpl(attr, attrWalkFns, order);
++  return walkFrom(attr, order);
+ }
+ WalkResult AttrTypeWalker::walkImpl(Type type, WalkOrder order) {
+-  return walkImpl(type, typeWalkFns, order);
++  return walkFrom(type, order);
+ }
+ 
+-template <typename T, typename WalkFns>
+-WalkResult AttrTypeWalker::walkImpl(T element, WalkFns &walkFns,
+-                                    WalkOrder order) {
+-  // Check if we've already walk this element before.
+-  auto key = std::make_pair(element.getAsOpaquePointer(), (int)order);
+-  auto [it, inserted] =
+-      visitedAttrTypes.try_emplace(key, WalkResult::advance());
+-  if (!inserted)
+-    return it->second;
++template <typename T>
++WalkResult AttrTypeWalker::walkFrom(T root, WalkOrder order) {
++  // Attributes and types nest without bound, so the walk keeps its place in
++  // an explicit stack: one frame per element whose sub elements are being
++  // walked, with its key in the visited set, its sub elements and the next
++  // one to walk. Each element is walked as a recursion would walk it: it is
++  // entered in the visited set first, its walk functions run before or
++  // after its sub elements as `order` says, and an interrupt ends the walk
++  // of every element it is under.
++  struct Frame {
++    SubElement element;
++    std::pair<const void *, int> key;
++    SmallVector<SubElement, 4> subElements;
++    unsigned next = 0;
++  };
++  SmallVector<Frame, 0> stack;
++
++  // Invokes the walk functions of `element`'s kind on it, most recently added
++  // first, until one interrupts or skips.
++  auto runWalkFns = [&](SubElement element) -> WalkResult {
++    return element.visit([&](auto value) -> WalkResult {
++      auto &walkFns = [&]() -> auto & {
++        if constexpr (std::is_same_v<decltype(value), Attribute>)
++          return attrWalkFns;
++        else
++          return typeWalkFns;
++      }();
++      for (auto &walkFn : llvm::reverse(walkFns)) {
++        WalkResult walkResult = walkFn(value);
++        if (walkResult.wasInterrupted() || walkResult.wasSkipped())
++          return walkResult;
++      }
++      return WalkResult::advance();
++    });
++  };
+ 
+-  // If we are walking in post order, walk the sub elements first.
+-  if (order == WalkOrder::PostOrder) {
+-    if (walkSubElements(element, order).wasInterrupted())
+-      return visitedAttrTypes[key] = WalkResult::interrupt();
+-  }
++  // Begins the walk of `element`. Returns its result if that is decided now:
++  // it was walked before, or its pre-order walk functions interrupt or skip.
++  // Otherwise pushes its frame and returns std::nullopt.
++  auto enter = [&](SubElement element) -> std::optional<WalkResult> {
++    auto key = std::make_pair(element.opaque, (int)order);
++    auto [it, inserted] =
++        visitedAttrTypes.try_emplace(key, WalkResult::advance());
++    if (!inserted)
++      return it->second;
++    if (order == WalkOrder::PreOrder) {
++      WalkResult walkResult = runWalkFns(element);
++      if (walkResult.wasInterrupted())
++        return visitedAttrTypes[key] = WalkResult::interrupt();
++      if (walkResult.wasSkipped())
++        return WalkResult::advance();
++    }
++    stack.push_back(Frame{element, key, getSubElements(element)});
++    return std::nullopt;
++  };
+ 
+-  // Walk this element, bailing if skipped or interrupted.
+-  for (auto &walkFn : llvm::reverse(walkFns)) {
+-    WalkResult walkResult = walkFn(element);
+-    if (walkResult.wasInterrupted())
+-      return visitedAttrTypes[key] = WalkResult::interrupt();
+-    if (walkResult.wasSkipped())
+-      return WalkResult::advance();
+-  }
++  // The result of the element whose walk has just ended, if one has.
++  std::optional<WalkResult> result = enter(SubElement::of(root));
++  while (true) {
++    if (result) {
++      if (stack.empty())
++        return *result;
++      // An interrupt ends the walk of the sub elements of the element it is
++      // under, which a post-order walk records as that element's result.
++      if (result->wasInterrupted()) {
++        if (order == WalkOrder::PostOrder)
++          visitedAttrTypes[stack.back().key] = WalkResult::interrupt();
++        stack.pop_back();
++        continue;
++      }
++      result.reset();
++    }
+ 
+-  // If we are walking in pre-order, walk the sub elements last.
+-  if (order == WalkOrder::PreOrder) {
+-    if (walkSubElements(element, order).wasInterrupted())
+-      return WalkResult::interrupt();
+-  }
+-  return WalkResult::advance();
+-}
++    Frame &frame = stack.back();
++    if (frame.next != frame.subElements.size()) {
++      SubElement subElement = frame.subElements[frame.next++];
++      if (subElement.opaque)
++        result = enter(subElement);
++      continue;
++    }
+ 
+-template <typename T>
+-WalkResult AttrTypeWalker::walkSubElements(T interface, WalkOrder order) {
+-  WalkResult result = WalkResult::advance();
+-  auto walkFn = [&](auto element) {
+-    if (element && !result.wasInterrupted())
+-      result = walkImpl(element, order);
+-  };
+-  interface.walkImmediateSubElements(walkFn, walkFn);
+-  return result.wasInterrupted() ? result : WalkResult::advance();
++    // Every sub element is walked.
++    SubElement element = frame.element;
++    std::pair<const void *, int> key = frame.key;
++    stack.pop_back();
++    result = WalkResult::advance();
++    if (order == WalkOrder::PostOrder &&
++        runWalkFns(element).wasInterrupted())
++      result = visitedAttrTypes[key] = WalkResult::interrupt();
++  }
+ }
+ 
+ //===----------------------------------------------------------------------===//
+@@ -148,92 +235,132 @@ void detail::AttrTypeReplacerBase<Concrete>::recursivelyReplaceElementsIn(
+   });
+ }
+ 
+-template <typename T, typename Replacer>
+-static void updateSubElementImpl(T element, Replacer &replacer,
+-                                 SmallVectorImpl<T> &newElements,
+-                                 FailureOr<bool> &changed) {
+-  // Bail early if we failed at any point.
+-  if (failed(changed))
+-    return;
+-
+-  // Guard against potentially null inputs. We always map null to null.
+-  if (!element) {
+-    newElements.push_back(nullptr);
+-    return;
+-  }
+-
+-  // Replace the element.
+-  if (T result = replacer.replace(element)) {
+-    newElements.push_back(result);
+-    if (result != element)
+-      changed = true;
+-  } else {
+-    changed = failure();
+-  }
+-}
++template <typename Concrete>
++template <typename T>
++T detail::AttrTypeReplacerBase<Concrete>::replaceWithCache(T root) {
++  Concrete &concrete = *static_cast<Concrete *>(this);
++  using PendingEntry = typename Concrete::PendingEntry;
++
++  // Attributes and types nest without bound, so the replacement keeps its
++  // place in an explicit stack: one frame per element whose sub elements are
++  // being replaced, with its pending cache entry, the replacement the
++  // replacement functions made of it, that replacement's sub elements and
++  // the next one to replace, their replacements so far, and whether any
++  // differs from the sub element it replaces. Each element is replaced as a
++  // recursion through `replace` would replace it: looked up in the cache
++  // first, then replaced, its sub elements replaced in order until one
++  // fails, and its result resolved in the cache after theirs.
++  struct Frame {
++    PendingEntry pending;
++    SubElement replacement;
++    SmallVector<SubElement, 4> subElements;
++    unsigned next = 0;
++    SmallVector<Attribute, 4> newAttrs;
++    SmallVector<Type, 4> newTypes;
++    bool changed = false;
++  };
++  SmallVector<Frame, 0> stack;
++
++  // Begins the replacement of `element`. Returns its replacement if that is
++  // decided now: it is cached, the replacement functions fail on it, or they
++  // skip its sub elements. Otherwise pushes its frame and returns
++  // std::nullopt.
++  auto enter = [&](SubElement element) -> std::optional<SubElement> {
++    return element.visit([&](auto value) -> std::optional<SubElement> {
++      using ElementT = decltype(value);
++      PendingEntry pending{};
++      if (std::optional<ElementT> cached =
++              concrete.lookupOrBegin(value, pending))
++        return SubElement::of(*cached);
++
++      // Invoke the replacement functions of the element's kind, most recently
++      // registered first, until one handles it.
++      auto &replaceFns = [&]() -> auto & {
++        if constexpr (std::is_same_v<ElementT, Attribute>)
++          return attrReplacementFns;
++        else
++          return typeReplacementFns;
++      }();
++      ElementT result = value;
++      WalkResult walkResult = WalkResult::advance();
++      for (auto &replaceFn : llvm::reverse(replaceFns)) {
++        if (std::optional<std::pair<ElementT, WalkResult>> newRes =
++                replaceFn(value)) {
++          std::tie(result, walkResult) = *newRes;
++          break;
++        }
++      }
+ 
+-template <typename T, typename Replacer>
+-static T replaceSubElements(T interface, Replacer &replacer) {
+-  // Walk the current sub-elements, replacing them as necessary.
+-  SmallVector<Attribute, 16> newAttrs;
+-  SmallVector<Type, 16> newTypes;
+-  FailureOr<bool> changed = false;
+-  interface.walkImmediateSubElements(
+-      [&](Attribute element) {
+-        updateSubElementImpl(element, replacer, newAttrs, changed);
+-      },
+-      [&](Type element) {
+-        updateSubElementImpl(element, replacer, newTypes, changed);
+-      });
+-  if (failed(changed))
+-    return nullptr;
+-
+-  // If any sub-elements changed, use the new elements during the replacement.
+-  T result = interface;
+-  if (*changed)
+-    result = interface.replaceImmediateSubElements(newAttrs, newTypes);
+-  return result;
+-}
++      // If an error occurred, the replacement is null, to indicate failure.
++      if (walkResult.wasInterrupted() || !result) {
++        concrete.resolve(std::move(pending), nullptr);
++        return SubElement::of(ElementT());
++      }
++      if (walkResult.wasSkipped()) {
++        concrete.resolve(std::move(pending), result.getAsOpaquePointer());
++        return SubElement::of(result);
++      }
++      SubElement replacement = SubElement::of(result);
++      stack.push_back(
++          Frame{std::move(pending), replacement, getSubElements(replacement)});
++      return std::nullopt;
++    });
++  };
+ 
+-/// Shared implementation of replacing a given attribute or type element.
+-template <typename T, typename ReplaceFns, typename Replacer>
+-static T replaceElementImpl(T element, ReplaceFns &replaceFns,
+-                            Replacer &replacer) {
+-  T result = element;
+-  WalkResult walkResult = WalkResult::advance();
+-  for (auto &replaceFn : llvm::reverse(replaceFns)) {
+-    if (std::optional<std::pair<T, WalkResult>> newRes = replaceFn(element)) {
+-      std::tie(result, walkResult) = *newRes;
+-      break;
++  // The replacement of the element whose replacement has just ended, if one
++  // has; a null one is a failure.
++  std::optional<SubElement> done = enter(SubElement::of(root));
++  while (true) {
++    if (done) {
++      if (stack.empty())
++        return T::getFromOpaquePointer(done->opaque);
++      Frame &frame = stack.back();
++      // A sub element that fails to be replaced fails its container, whose
++      // remaining sub elements are not replaced.
++      if (!done->opaque) {
++        SubElement::Kind kind = frame.replacement.kind;
++        concrete.resolve(std::move(frame.pending), nullptr);
++        stack.pop_back();
++        done = SubElement{kind, nullptr};
++        continue;
++      }
++      if (done->kind == SubElement::Kind::Attribute)
++        frame.newAttrs.push_back(Attribute::getFromOpaquePointer(done->opaque));
++      else
++        frame.newTypes.push_back(Type::getFromOpaquePointer(done->opaque));
++      if (done->opaque != frame.subElements[frame.next - 1].opaque)
++        frame.changed = true;
++      done.reset();
+     }
+-  }
+ 
+-  // If an error occurred, return nullptr to indicate failure.
+-  if (walkResult.wasInterrupted() || !result) {
+-    return nullptr;
+-  }
++    Frame &frame = stack.back();
++    if (frame.next != frame.subElements.size()) {
++      SubElement subElement = frame.subElements[frame.next++];
++      // A null sub element is always replaced by null.
++      if (!subElement.opaque) {
++        if (subElement.kind == SubElement::Kind::Attribute)
++          frame.newAttrs.push_back(nullptr);
++        else
++          frame.newTypes.push_back(nullptr);
++        continue;
++      }
++      done = enter(subElement);
++      continue;
++    }
+ 
+-  // Handle replacing sub-elements if this element is also a container.
+-  if (!walkResult.wasSkipped()) {
+-    // Replace the sub elements of this element, bailing if we fail.
+-    if (!(result = replaceSubElements(result, replacer))) {
+-      return nullptr;
++    // Every sub element is replaced. If any changed, the replacement is
++    // rebuilt with the new ones.
++    SubElement result = frame.replacement;
++    if (frame.changed) {
++      result = frame.replacement.visit([&](auto value) {
++        return SubElement::of(
++            value.replaceImmediateSubElements(frame.newAttrs, frame.newTypes));
++      });
+     }
++    concrete.resolve(std::move(frame.pending), result.opaque);
++    stack.pop_back();
++    done = result;
+   }
+-
+-  return result;
+-}
+-
+-template <typename Concrete>
+-Attribute detail::AttrTypeReplacerBase<Concrete>::replaceBase(Attribute attr) {
+-  return replaceElementImpl(attr, attrReplacementFns,
+-                            *static_cast<Concrete *>(this));
+-}
+-
+-template <typename Concrete>
+-Type detail::AttrTypeReplacerBase<Concrete>::replaceBase(Type type) {
+-  return replaceElementImpl(type, typeReplacementFns,
+-                            *static_cast<Concrete *>(this));
+ }
+ 
+ //===----------------------------------------------------------------------===//
+@@ -243,23 +370,25 @@ Type detail::AttrTypeReplacerBase<Concrete>::replaceBase(Type type) {
+ template class detail::AttrTypeReplacerBase<AttrTypeReplacer>;
+ 
+ template <typename T>
+-T AttrTypeReplacer::cachedReplaceImpl(T element) {
++std::optional<T> AttrTypeReplacer::lookupOrBegin(T element,
++                                                 PendingEntry &pending) {
+   const void *opaqueElement = element.getAsOpaquePointer();
+   auto [it, inserted] = cache.try_emplace(opaqueElement, opaqueElement);
+   if (!inserted)
+     return T::getFromOpaquePointer(it->second);
++  pending = opaqueElement;
++  return std::nullopt;
++}
+ 
+-  T result = replaceBase(element);
+-
+-  cache[opaqueElement] = result.getAsOpaquePointer();
+-  return result;
++void AttrTypeReplacer::resolve(PendingEntry pending, const void *result) {
++  cache[pending] = result;
+ }
+ 
+ Attribute AttrTypeReplacer::replace(Attribute attr) {
+-  return cachedReplaceImpl(attr);
++  return replaceWithCache(attr);
+ }
+ 
+-Type AttrTypeReplacer::replace(Type type) { return cachedReplaceImpl(type); }
++Type AttrTypeReplacer::replace(Type type) { return replaceWithCache(type); }
+ 
+ //===----------------------------------------------------------------------===//
+ /// CyclicAttrTypeReplacer
+@@ -279,25 +408,31 @@ void CyclicAttrTypeReplacer::addCycleBreaker(CycleBreakerFn<Type> fn) {
+ }
+ 
+ template <typename T>
+-T CyclicAttrTypeReplacer::cachedReplaceImpl(T element) {
++std::optional<T> CyclicAttrTypeReplacer::lookupOrBegin(T element,
++                                                       PendingEntry &pending) {
++  using CacheEntry = CyclicReplacerCache<void *, const void *>::CacheEntry;
+   void *opaqueTaggedElement = AttrOrType(element).getOpaqueValue();
+-  CyclicReplacerCache<void *, const void *>::CacheEntry cacheEntry =
+-      cache.lookupOrInit(opaqueTaggedElement);
+-  if (auto resultOpt = cacheEntry.get())
++  // The entry is made where it is kept: an unresolved entry may not be
++  // copied, since only the copy would then be resolved.
++  PendingEntry cacheEntry(
++      new CacheEntry(cache.lookupOrInit(opaqueTaggedElement)));
++  if (const std::optional<const void *> &resultOpt = cacheEntry->get())
+     return T::getFromOpaquePointer(*resultOpt);
++  pending = std::move(cacheEntry);
++  return std::nullopt;
++}
+ 
+-  T result = replaceBase(element);
+-
+-  cacheEntry.resolve(result.getAsOpaquePointer());
+-  return result;
++void CyclicAttrTypeReplacer::resolve(PendingEntry pending,
++                                     const void *result) {
++  pending->resolve(result);
+ }
+ 
+ Attribute CyclicAttrTypeReplacer::replace(Attribute attr) {
+-  return cachedReplaceImpl(attr);
++  return replaceWithCache(attr);
+ }
+ 
+ Type CyclicAttrTypeReplacer::replace(Type type) {
+-  return cachedReplaceImpl(type);
++  return replaceWithCache(type);
+ }
+ 
+ std::optional<const void *>
+diff --git a/mlir/unittests/IR/AttrTypeReplacerTest.cpp b/mlir/unittests/IR/AttrTypeReplacerTest.cpp
+index f17c712..f6ed899 100644
+--- a/mlir/unittests/IR/AttrTypeReplacerTest.cpp
++++ b/mlir/unittests/IR/AttrTypeReplacerTest.cpp
+@@ -10,10 +10,78 @@
+ #include "mlir/IR/Builders.h"
+ #include "mlir/IR/BuiltinAttributes.h"
+ #include "mlir/IR/BuiltinTypes.h"
++#include "llvm/Support/thread.h"
+ #include "gtest/gtest.h"
+ 
+ using namespace mlir;
+ 
++//===----------------------------------------------------------------------===//
++// AttrTypeWalker and AttrTypeReplacer: deep nesting
++//===----------------------------------------------------------------------===//
++
++/// An array attribute nested `depth` deep around `leaf`.
++static Attribute getNestedArray(Builder &b, Attribute leaf, unsigned depth) {
++  Attribute nested = leaf;
++  for (unsigned i = 0; i < depth; ++i)
++    nested = b.getArrayAttr(nested);
++  return nested;
++}
++
++TEST(AttrTypeSubElementsTest, testDeepNestingOnASmallStack) {
++  MLIRContext ctx;
++  Builder b(&ctx);
++  constexpr unsigned depth = 10000;
++  Attribute nested = getNestedArray(b, b.getI64IntegerAttr(0), depth);
++  Attribute innermost = getNestedArray(b, b.getI64IntegerAttr(0), 1);
++  Attribute expected = getNestedArray(b, b.getI64IntegerAttr(1), depth);
++
++  // A walk or a replacement that took a native frame per level of nesting
++  // would overflow this thread's stack.
++  unsigned preOrderArrays = 0, postOrderArrays = 0;
++  Attribute firstPreOrder, firstPostOrder, replaced, cyclicReplaced;
++  WalkResult interrupted = WalkResult::advance();
++  llvm::thread worker(/*StackSizeInBytes=*/256 * 1024, [&] {
++    AttrTypeWalker preOrder;
++    preOrder.addWalk([&](ArrayAttr array) {
++      if (!firstPreOrder)
++        firstPreOrder = array;
++      ++preOrderArrays;
++    });
++    preOrder.walk<WalkOrder::PreOrder>(nested);
++
++    AttrTypeWalker postOrder;
++    postOrder.addWalk([&](ArrayAttr array) {
++      if (!firstPostOrder)
++        firstPostOrder = array;
++      ++postOrderArrays;
++    });
++    postOrder.walk(nested);
++
++    AttrTypeWalker interrupting;
++    interrupting.addWalk([](IntegerAttr) { return WalkResult::interrupt(); });
++    interrupted = interrupting.walk(nested);
++
++    auto increment = [&](IntegerAttr attr) {
++      return b.getI64IntegerAttr(attr.getInt() + 1);
++    };
++    AttrTypeReplacer replacer;
++    replacer.addReplacement(increment);
++    replaced = replacer.replace(nested);
++    CyclicAttrTypeReplacer cyclicReplacer;
++    cyclicReplacer.addReplacement(increment);
++    cyclicReplaced = cyclicReplacer.replace(nested);
++  });
++  worker.join();
++
++  EXPECT_EQ(preOrderArrays, depth);
++  EXPECT_EQ(postOrderArrays, depth);
++  EXPECT_TRUE(firstPreOrder == nested);
++  EXPECT_TRUE(firstPostOrder == innermost);
++  EXPECT_TRUE(interrupted.wasInterrupted());
++  EXPECT_TRUE(replaced == expected);
++  EXPECT_TRUE(cyclicReplaced == expected);
++}
++
+ //===----------------------------------------------------------------------===//
+ // CyclicAttrTypeReplacer
+ //===----------------------------------------------------------------------===//

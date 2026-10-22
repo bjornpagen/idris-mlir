@@ -21,6 +21,11 @@ the commit (the pin with the earlier fork entries), which is what a re-sync
  of the fork reads. Hunks the commit shares between entries sit in
 one of them, as each entry's text says.
 
+Since e5b39cb2 (lane L17's second half), the syntax that writes a type
+and its value alike (`(l, r)`, `()`, `(x ** p)`) is one node read by its
+expected type's sort, not an alternative of two readings nested at each
+level of a tuple (PINS.md tuple-node); that commit is its record.
+
 ## Why there is no patch
 
 The fork is ours: a fix to its upstream code is fork code, recorded in

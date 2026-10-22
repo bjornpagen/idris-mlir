@@ -1,0 +1,266 @@
+Subject: [PATCH] [mlir] Destroy nested operations and drop their references without recursion
+
+`Operation::destroy` runs the destructor, which destroys each region,
+whose blocks destroy their operations, each through `destroy` again; and
+`Block::dropAllReferences` calls `Operation::dropAllReferences`, which
+calls it back for every block of every region. Both take native stack in
+proportion to the depth of the IR, so erasing or freeing deeply nested IR
+overflows the stack of a thread with a small one; and since every
+region's destructor drops the references of everything below it again,
+destroying a chain nested N deep took time quadratic in N.
+
+`Block::dropAllReferences` now visits the nested operations in the same
+order through the IR's parent links, with no stack at all. `destroy`
+tears down the operations nested in the one it destroys from an explicit
+stack, in the order the destructors took them: for each region in turn,
+its references dropped once, its blocks unlinked and deleted front to
+back, each block's operations destroyed back to front, each after
+everything nested in it; the destructor then finds its regions empty. A
+unit test drops the references of, destroys, and deletes the block of a
+chain of operations nested 10,000 deep, on a thread with a 256 KiB stack.
+---
+diff --git a/mlir/lib/IR/Block.cpp b/mlir/lib/IR/Block.cpp
+index 1a06c57..be4d67b 100644
+--- a/mlir/lib/IR/Block.cpp
++++ b/mlir/lib/IR/Block.cpp
+@@ -83,12 +83,67 @@ Operation *Block::findAncestorOpInBlock(Operation &op) {
+   return currOp;
+ }
+ 
++/// The first operation of the first non-empty block of `regions`, or null if
++/// they hold none.
++static Operation *firstNestedOperation(MutableArrayRef<Region> regions) {
++  for (Region &region : regions)
++    for (Block &block : region)
++      if (!block.empty())
++        return &block.front();
++  return nullptr;
++}
++
++/// The first operation after `block` in the operation that holds it, in a
++/// later block of its region or in a later region, or null if there is none.
++static Operation *firstOperationAfter(Block *block) {
++  for (Block *next = block->getNextNode(); next; next = next->getNextNode())
++    if (!next->empty())
++      return &next->front();
++  Region *region = block->getParent();
++  return firstNestedOperation(region->getParentOp()->getRegions().drop_front(
++      region->getRegionNumber() + 1));
++}
++
+ /// This drops all operand uses from operations within this block, which is
+ /// an essential step in breaking cyclic dependences between references when
+ /// they are to be deleted.
+ void Block::dropAllReferences() {
+-  for (Operation &i : *this)
+-    i.dropAllReferences();
++  // Every operation nested in this block's operations is visited too, in the
++  // order recursion through Operation::dropAllReferences would visit it: an
++  // operation's operands are dropped, then the references of everything in
++  // its regions, then its successors. Regions nest without bound, so the
++  // visit moves through the IR's parent links rather than recursing, and the
++  // depth of the native stack does not grow with the depth of the nesting.
++  if (empty())
++    return;
++  Operation *op = &front();
++  while (true) {
++    for (OpOperand &operand : op->getOpOperands())
++      operand.drop();
++    if (Operation *nested = firstNestedOperation(op->getRegions())) {
++      op = nested;
++      continue;
++    }
++    // Nothing nested in `op` is left: drop its successors, and those of each
++    // enclosing operation whose nested operations are now all visited, up to
++    // the first that has a next operation to visit.
++    while (true) {
++      for (BlockOperand &successor : op->getBlockOperands())
++        successor.drop();
++      if (Operation *next = op->getNextNode()) {
++        op = next;
++        break;
++      }
++      Block *block = op->getBlock();
++      if (block == this)
++        return;
++      if (Operation *next = firstOperationAfter(block)) {
++        op = next;
++        break;
++      }
++      op = block->getParentOp();
++    }
++  }
+ }
+ 
+ void Block::dropAllDefinedValueUses() {
+diff --git a/mlir/lib/IR/Operation.cpp b/mlir/lib/IR/Operation.cpp
+index d262e84..8381d26 100644
+--- a/mlir/lib/IR/Operation.cpp
++++ b/mlir/lib/IR/Operation.cpp
+@@ -202,12 +202,72 @@ Operation::~Operation() {
+ 
+ /// Destroy this operation or one of its subclasses.
+ void Operation::destroy() {
+-  // Operations may have additional prefixed allocation, which needs to be
+-  // accounted for here when computing the address to free.
+-  char *rawMem = reinterpret_cast<char *>(this) -
+-                 llvm::alignTo(prefixAllocSize(), alignof(Operation));
+-  this->~Operation();
+-  free(rawMem);
++  // Run the destructor of an operation whose regions are empty, and free it.
++  auto release = [](Operation *op) {
++    // Operations may have additional prefixed allocation, which needs to be
++    // accounted for here when computing the address to free.
++    char *rawMem = reinterpret_cast<char *>(op) -
++                   llvm::alignTo(op->prefixAllocSize(), alignof(Operation));
++    op->~Operation();
++    free(rawMem);
++  };
++  if (getNumRegions() == 0)
++    return release(this);
++
++  // The operations nested in this one are destroyed first, from an explicit
++  // stack, so that the destructor of each finds its regions empty and never
++  // recurses: the depth of the native stack does not grow with the depth of
++  // the nesting. They go in the order the destructors would take them: for
++  // each region of this operation in turn, its references are dropped, then
++  // its blocks are unlinked and deleted front to back, each block's
++  // operations destroyed back to front, each of them after everything nested
++  // in it. Dropping the references of this operation's regions drops those of
++  // everything nested in them, so the regions of a nested operation have
++  // none left to drop.
++  struct InDestruction {
++    Operation *op;
++    // The region of `op` whose blocks are being deleted.
++    unsigned region;
++    // The block of that region whose operations are being destroyed, already
++    // unlinked from it, or null.
++    Block *block;
++  };
++  SmallVector<InDestruction, 4> stack;
++  getRegion(0).dropAllReferences();
++  stack.push_back({this, 0, nullptr});
++  while (!stack.empty()) {
++    InDestruction &top = stack.back();
++    if (Block *block = top.block) {
++      if (block->empty()) {
++        delete block;
++        top.block = nullptr;
++        continue;
++      }
++      Operation *last = &block->back();
++      block->getOperations().remove(last);
++      if (last->getNumRegions() == 0)
++        release(last);
++      else
++        stack.push_back({last, 0, nullptr});
++      continue;
++    }
++    Region &region = top.op->getRegion(top.region);
++    if (!region.empty()) {
++      Block *block = &region.front();
++      region.getBlocks().remove(block);
++      assert(!block->verifyOpOrder() && "Expected valid operation ordering.");
++      top.block = block;
++      continue;
++    }
++    if (++top.region != top.op->getNumRegions()) {
++      if (stack.size() == 1)
++        top.op->getRegion(top.region).dropAllReferences();
++      continue;
++    }
++    Operation *done = top.op;
++    stack.pop_back();
++    release(done);
++  }
+ }
+ 
+ /// Return true if this operation is a proper ancestor of the `other`
+diff --git a/mlir/unittests/IR/CMakeLists.txt b/mlir/unittests/IR/CMakeLists.txt
+index 819f3e9..98e900d 100644
+--- a/mlir/unittests/IR/CMakeLists.txt
++++ b/mlir/unittests/IR/CMakeLists.txt
+@@ -6,6 +6,7 @@ add_mlir_unittest(MLIRIRTests
+   AttrTypeReplacerTest.cpp
+   BuiltinDialectVersionTest.cpp
+   CloneTest.cpp
++  DestructionTest.cpp
+   Diagnostic.cpp
+   DialectTest.cpp
+   DistinctAttributeAllocatorTest.cpp
+diff --git a/mlir/unittests/IR/DestructionTest.cpp b/mlir/unittests/IR/DestructionTest.cpp
+new file mode 100644
+index 0000000..d9397c4
+--- /dev/null
++++ b/mlir/unittests/IR/DestructionTest.cpp
+@@ -0,0 +1,70 @@
++//===- DestructionTest.cpp - Destroying deeply nested IR ------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/IR/BuiltinTypes.h"
++#include "mlir/IR/Location.h"
++#include "mlir/IR/MLIRContext.h"
++#include "mlir/IR/Operation.h"
++#include "llvm/Support/thread.h"
++#include "gtest/gtest.h"
++
++using namespace mlir;
++
++namespace {
++/// A chain of operations nested `depth` deep, outermost first: each but the
++/// last holds the next in the one block of its one region, and the next takes
++/// that block's argument as its operand.
++SmallVector<Operation *> createChain(MLIRContext &context, unsigned depth) {
++  context.allowUnregisteredDialects();
++  Location loc = UnknownLoc::get(&context);
++  Type i32 = IntegerType::get(&context, 32);
++  SmallVector<Operation *> chain{Operation::create(
++      loc, OperationName("test.nest", &context), {}, {}, NamedAttrList(),
++      PropertyRef(), {}, /*numRegions=*/1)};
++  for (unsigned i = 1; i < depth; ++i) {
++    Block *block = new Block();
++    chain.back()->getRegion(0).push_back(block);
++    Value argument = block->addArgument(i32, loc);
++    chain.push_back(Operation::create(
++        loc, OperationName("test.nest", &context), {}, {argument},
++        NamedAttrList(), PropertyRef(), {}, i + 1 < depth ? 1 : 0));
++    block->push_back(chain.back());
++  }
++  return chain;
++}
++
++/// Run `fn` on a thread whose stack a native frame per level of nesting would
++/// overflow.
++template <typename Fn>
++void onSmallStack(Fn fn) {
++  llvm::thread thread(/*StackSizeInBytes=*/256 * 1024, fn);
++  thread.join();
++}
++
++constexpr unsigned depth = 10000;
++
++TEST(DestructionTest, DropAllReferences) {
++  MLIRContext context;
++  SmallVector<Operation *> chain = createChain(context, depth);
++  onSmallStack([&] { chain.front()->dropAllReferences(); });
++  for (Operation *op : llvm::drop_begin(chain))
++    EXPECT_TRUE(op->getBlock()->getArgument(0).use_empty());
++  onSmallStack([&] { chain.front()->destroy(); });
++}
++
++TEST(DestructionTest, DestroyAndDeleteBlock) {
++  MLIRContext context;
++  SmallVector<Operation *> chain = createChain(context, depth);
++  onSmallStack([&] { chain.front()->destroy(); });
++
++  // Deleting a block destroys the operations in it, and all nested in them.
++  Block *holder = new Block();
++  holder->push_back(createChain(context, depth).front());
++  onSmallStack([&] { delete holder; });
++}
++} // namespace

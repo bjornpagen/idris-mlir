@@ -23,6 +23,11 @@ the commit (the pin with the earlier fork entries), which is what a re-sync
  of the fork reads. Hunks the commit shares between entries sit in
 one of them, as each entry's text says.
 
+Since e5b39cb2 (lane L17's second half), the TTC also keeps whether a
+`Delay` was written or inserted by the elaborator (PINS.md ttc-delays),
+and a module's imports and pragma uses with their locations (PINS.md
+ttc-imports-pragmas); that commit is their record.
+
 ## Why there is no patch
 
 The fork is ours: a fix to its upstream code is fork code, recorded in

@@ -1,0 +1,69 @@
+Subject: [PATCH] [clang][Driver] Allow -fstack-clash-protection for Darwin targets
+
+`RenderSCPOptions` passes `-fstack-clash-protection` to cc1 only on Linux,
+FreeBSD and Fuchsia, so on Darwin the flag is reported unused and nothing
+is probed. Nothing in the implementation is Darwin-specific: the X86 and
+AArch64 backends probe inline on every target that is not Windows
+(`hasInlineStackProbe`), with no run-time support, and Darwin's stacks,
+the main thread's and every pthread's, end in a guard page as Linux's do.
+Darwin now takes the flag like the others.
+
+The driver test checks it for macOS on arm64 and x86_64 and for iOS, and
+that it stays off by default; a codegen test checks the AArch64 probe
+loop for a Mach-O target.
+---
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index ffb225b..c2114a4 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -3870,7 +3870,7 @@ static void RenderSCPOptions(const ToolChain &TC, const ArgList &Args,
+   const llvm::Triple &EffectiveTriple = TC.getEffectiveTriple();
+ 
+   if (!EffectiveTriple.isOSFreeBSD() && !EffectiveTriple.isOSLinux() &&
+-      !EffectiveTriple.isOSFuchsia())
++      !EffectiveTriple.isOSFuchsia() && !EffectiveTriple.isOSDarwin())
+     return;
+ 
+   if (!EffectiveTriple.isX86() && !EffectiveTriple.isSystemZ() &&
+diff --git a/clang/test/Driver/stack-clash-protection.c b/clang/test/Driver/stack-clash-protection.c
+index 9188db9..597fb01 100644
+--- a/clang/test/Driver/stack-clash-protection.c
++++ b/clang/test/Driver/stack-clash-protection.c
+@@ -35,6 +35,11 @@
+ // RUN: %clang --target=aarch64-unknown-fuchsia -fstack-clash-protection -### %s 2>&1 | FileCheck %s --check-prefix=ENABLED
+ // RUN: %clang --target=riscv64-unknown-fuchsia -fstack-clash-protection -### %s 2>&1 | FileCheck %s --check-prefix=ENABLED
+ 
++// RUN: %clang --target=arm64-apple-macosx14.0 -fstack-clash-protection -### %s 2>&1 | FileCheck %s --check-prefix=ENABLED
++// RUN: %clang --target=x86_64-apple-macosx14.0 -fstack-clash-protection -### %s 2>&1 | FileCheck %s --check-prefix=ENABLED
++// RUN: %clang --target=arm64-apple-ios17.0 -fstack-clash-protection -### %s 2>&1 | FileCheck %s --check-prefix=ENABLED
++// RUN: %clang --target=arm64-apple-macosx14.0 -### %s 2>&1 | FileCheck %s --check-prefix=DISABLED --implicit-check-not='"-fstack-clash-protection"'
++
+ int foo(int c) {
+   int r;
+   __asm__("sub %0, %%rsp"
+diff --git a/llvm/test/CodeGen/AArch64/stack-probing-darwin.ll b/llvm/test/CodeGen/AArch64/stack-probing-darwin.ll
+new file mode 100644
+index 0000000..75e616c
+--- /dev/null
++++ b/llvm/test/CodeGen/AArch64/stack-probing-darwin.ll
+@@ -0,0 +1,20 @@
++; RUN: llc -mtriple=arm64-apple-macosx14.0 < %s -verify-machineinstrs | FileCheck %s
++
++; Inline stack probing on Darwin: a frame of five 4KiB blocks is probed with
++; the same loop as on any other target that is not Windows.
++
++define void @static_20480(ptr %out) #0 {
++; CHECK-LABEL: _static_20480:
++; CHECK:         sub x9, sp, #5, lsl #12
++; CHECK:       [[LOOP:LBB[0-9]+_[0-9]+]]:
++; CHECK:         sub sp, sp, #1, lsl #12
++; CHECK-NEXT:    ldr xzr, [sp]
++; CHECK-NEXT:    cmp sp, x9
++; CHECK-NEXT:    b.ne [[LOOP]]
++entry:
++  %v = alloca i8, i64 20480, align 1
++  store ptr %v, ptr %out, align 8
++  ret void
++}
++
++attributes #0 = { uwtable "probe-stack"="inline-asm" "frame-pointer"="non-leaf" }

@@ -1,0 +1,581 @@
+Subject: [PATCH] [mlir] Parse, print and alias nested arrays and dictionaries from a stack
+
+The textual parser, the printer and the alias collection all handle a
+builtin array or dictionary nested in another by recursion: each level
+of `[[[...]]]` costs several native frames, so an attribute nested a few
+thousand deep overflows an 8 MiB stack with a bare segmentation fault.
+The bytecode reader has no such limit.
+
+Arrays and dictionaries nested in one another are now handled from an
+explicit stack in all three:
+- `Parser::parseArrayOrDictionaryAttr` parses an array or dictionary and
+  every array and dictionary nested in it, with the same tokens,
+  attributes and diagnostics as before; any other element still goes
+  through `parseAttribute`. The entry-name half of `parseAttributeDict`
+  becomes `parseAttributeEntryName`, which both use.
+- `AsmPrinter::Impl::printArrayOrDictionaryAttr` prints them, opening a
+  nested one in place unless it has an alias; the text is unchanged.
+- `AliasInitializer::visitArrayOrDictionary` visits them for aliases with
+  the same order, child indices and depths as the recursive visit, and
+  `markAliasNonDeferrable` walks the child aliases from a worklist; the
+  dummy printer's array and dictionary cases, which nothing reaches now,
+  go.
+
+A dialect attribute's own parameters still recurse through the dialect's
+parse and print hooks, as an operation's regions do through its own.
+---
+diff --git a/mlir/lib/AsmParser/AttributeParser.cpp b/mlir/lib/AsmParser/AttributeParser.cpp
+index 264a807..caafcdc 100644
+--- a/mlir/lib/AsmParser/AttributeParser.cpp
++++ b/mlir/lib/AsmParser/AttributeParser.cpp
+@@ -21,6 +21,7 @@
+ #include "mlir/IR/DialectResourceBlobManager.h"
+ #include "mlir/IR/IntegerSet.h"
+ #include <optional>
++#include <variant>
+ 
+ using namespace mlir;
+ using namespace mlir::detail;
+@@ -70,19 +71,10 @@ Attribute Parser::parseAttribute(Type type) {
+     return IntegerSetAttr::get(set);
+   }
+ 
+-  // Parse an array attribute.
+-  case Token::l_square: {
+-    consumeToken(Token::l_square);
+-    SmallVector<Attribute, 4> elements;
+-    auto parseElt = [&]() -> ParseResult {
+-      elements.push_back(parseAttribute());
+-      return elements.back() ? success() : failure();
+-    };
+-
+-    if (parseCommaSeparatedListUntil(Token::r_square, parseElt))
+-      return nullptr;
+-    return builder.getArrayAttr(elements);
+-  }
++  // Parse an array or a dictionary attribute.
++  case Token::l_square:
++  case Token::l_brace:
++    return parseArrayOrDictionaryAttr();
+ 
+   // Parse a boolean attribute.
+   case Token::kw_false:
+@@ -104,14 +96,6 @@ Attribute Parser::parseAttribute(Type type) {
+   case Token::kw_array:
+     return parseDenseArrayAttr(type);
+ 
+-  // Parse a dictionary attribute.
+-  case Token::l_brace: {
+-    NamedAttrList elements;
+-    if (parseAttributeDict(elements))
+-      return nullptr;
+-    return elements.getDictionary(getContext());
+-  }
+-
+   // Parse an extended attribute, i.e. alias or dialect attribute.
+   case Token::hash_identifier:
+     return parseExtendedAttr(type);
+@@ -296,40 +280,16 @@ OptionalParseResult Parser::parseOptionalAttribute(SymbolRefAttr &result,
+ ParseResult Parser::parseAttributeDict(NamedAttrList &attributes) {
+   llvm::SmallDenseSet<StringAttr> seenKeys;
+   auto parseElt = [&]() -> ParseResult {
+-    // The name of an attribute can either be a bare identifier, or a string.
+-    std::optional<StringAttr> nameId;
+-    if (getToken().is(Token::string))
+-      nameId = builder.getStringAttr(getToken().getStringValue());
+-    else if (getToken().isAny(Token::bare_identifier, Token::inttype) ||
+-             getToken().isKeyword())
+-      nameId = builder.getStringAttr(getTokenSpelling());
+-    else
+-      return emitWrongTokenError("expected attribute name");
+-
+-    if (nameId->empty())
+-      return emitError("expected valid attribute name");
+-
+-    if (!seenKeys.insert(*nameId).second)
+-      return emitError("duplicate key '")
+-             << nameId->getValue() << "' in dictionary attribute";
+-    consumeToken();
+-
+-    // Lazy load a dialect in the context if there is a possible namespace.
+-    auto splitName = nameId->strref().split('.');
+-    if (!splitName.second.empty())
+-      getContext()->getOrLoadDialect(splitName.first);
+-
+-    // Try to parse the '=' for the attribute value.
+-    if (!consumeIf(Token::equal)) {
+-      // If there is no '=', we treat this as a unit attribute.
+-      attributes.push_back({*nameId, builder.getUnitAttr()});
++    std::optional<StringAttr> valueName;
++    if (parseAttributeEntryName(seenKeys, attributes, valueName))
++      return failure();
++    if (!valueName)
+       return success();
+-    }
+ 
+     auto attr = parseAttribute();
+     if (!attr)
+       return failure();
+-    attributes.push_back({*nameId, attr});
++    attributes.push_back({*valueName, attr});
+     return success();
+   };
+ 
+@@ -337,6 +297,146 @@ ParseResult Parser::parseAttributeDict(NamedAttrList &attributes) {
+                                  " in attribute dictionary");
+ }
+ 
++/// Parse the name of an attribute dictionary's entry and the `=` after it.
++/// An entry with no `=` is a unit attribute, added to `attributes` here;
++/// otherwise `valueName` is set, and the caller parses the value.
++ParseResult
++Parser::parseAttributeEntryName(llvm::SmallDenseSet<StringAttr> &seenKeys,
++                                NamedAttrList &attributes,
++                                std::optional<StringAttr> &valueName) {
++  // The name of an attribute can either be a bare identifier, or a string.
++  std::optional<StringAttr> nameId;
++  if (getToken().is(Token::string))
++    nameId = builder.getStringAttr(getToken().getStringValue());
++  else if (getToken().isAny(Token::bare_identifier, Token::inttype) ||
++           getToken().isKeyword())
++    nameId = builder.getStringAttr(getTokenSpelling());
++  else
++    return emitWrongTokenError("expected attribute name");
++
++  if (nameId->empty())
++    return emitError("expected valid attribute name");
++
++  if (!seenKeys.insert(*nameId).second)
++    return emitError("duplicate key '")
++           << nameId->getValue() << "' in dictionary attribute";
++  consumeToken();
++
++  // Lazy load a dialect in the context if there is a possible namespace.
++  auto splitName = nameId->strref().split('.');
++  if (!splitName.second.empty())
++    getContext()->getOrLoadDialect(splitName.first);
++
++  // Try to parse the '=' for the attribute value.
++  if (!consumeIf(Token::equal)) {
++    // If there is no '=', we treat this as a unit attribute.
++    attributes.push_back({*nameId, builder.getUnitAttr()});
++    return success();
++  }
++  valueName = nameId;
++  return success();
++}
++
++/// Parse a builtin array or dictionary attribute, beginning at its `[` or
++/// `{`.
++///
++/// Arrays and dictionaries nest in one another without bound, so the ones
++/// nested in this one are parsed from an explicit stack rather than by
++/// recursion: the depth of the native stack does not grow with the depth of
++/// the nesting. Every other element or value is parsed by `parseAttribute`,
++/// and the attributes built, the diagnostics and the tokens consumed are
++/// those of parsing each array as a comma-separated list until `]` and each
++/// dictionary with `parseAttributeDict`.
++Attribute Parser::parseArrayOrDictionaryAttr() {
++  // An array whose elements are being parsed, and its elements so far.
++  struct OpenArray {
++    SmallVector<Attribute, 4> elements;
++  };
++  // A dictionary whose entries are being parsed: its entries so far, the keys
++  // it has seen, and the name of the entry whose value is being parsed.
++  struct OpenDictionary {
++    NamedAttrList entries;
++    llvm::SmallDenseSet<StringAttr> seenKeys;
++    std::optional<StringAttr> valueName;
++  };
++  SmallVector<std::variant<OpenArray, OpenDictionary>, 0> stack;
++
++  // Parse the next entry's name in `dictionary`. Returns failure on a parse
++  // error, and otherwise whether the entry has a value to parse.
++  auto parseEntryName = [&](OpenDictionary &dictionary) -> FailureOr<bool> {
++    dictionary.valueName.reset();
++    if (parseAttributeEntryName(dictionary.seenKeys, dictionary.entries,
++                                dictionary.valueName))
++      return failure();
++    return dictionary.valueName.has_value();
++  };
++
++  // Each iteration opens an array or dictionary at the current token, or
++  // parses one element or entry value of the innermost one. A value it
++  // completes is added to the container it belongs to, and each container
++  // that then ends is closed and added to its own in turn.
++  while (true) {
++    Attribute done;
++    if (consumeIf(Token::l_square)) {
++      if (consumeIf(Token::r_square)) {
++        done = builder.getArrayAttr({});
++      } else {
++        stack.emplace_back(OpenArray());
++        continue;
++      }
++    } else if (consumeIf(Token::l_brace)) {
++      if (consumeIf(Token::r_brace)) {
++        done = NamedAttrList().getDictionary(getContext());
++      } else {
++        stack.emplace_back(OpenDictionary());
++        FailureOr<bool> hasValue =
++            parseEntryName(std::get<OpenDictionary>(stack.back()));
++        if (failed(hasValue))
++          return nullptr;
++        if (*hasValue)
++          continue;
++      }
++    } else {
++      done = parseAttribute();
++      if (!done)
++        return nullptr;
++    }
++
++    while (true) {
++      if (done) {
++        if (stack.empty())
++          return done;
++        if (auto *dictionary = std::get_if<OpenDictionary>(&stack.back()))
++          dictionary->entries.push_back({*dictionary->valueName, done});
++        else
++          std::get<OpenArray>(stack.back()).elements.push_back(done);
++        done = Attribute();
++      }
++      auto *dictionary = std::get_if<OpenDictionary>(&stack.back());
++      if (consumeIf(Token::comma)) {
++        if (!dictionary)
++          break;
++        FailureOr<bool> hasValue = parseEntryName(*dictionary);
++        if (failed(hasValue))
++          return nullptr;
++        if (*hasValue)
++          break;
++        continue;
++      }
++      if (dictionary) {
++        if (parseToken(Token::r_brace, "expected '}' in attribute dictionary"))
++          return nullptr;
++        done = dictionary->entries.getDictionary(getContext());
++      } else {
++        if (parseToken(Token::r_square, "expected ',' or ']'"))
++          return nullptr;
++        done = builder.getArrayAttr(std::get<OpenArray>(stack.back()).elements);
++      }
++      stack.pop_back();
++    }
++  }
++}
++
+ /// Parse a float attribute.
+ Attribute Parser::parseFloatAttr(Type type, bool isNegative) {
+   // Defer parsing the literal until the type, and with it the float semantics,
+diff --git a/mlir/lib/AsmParser/Parser.h b/mlir/lib/AsmParser/Parser.h
+index 7e8a0fc..aad94f3 100644
+--- a/mlir/lib/AsmParser/Parser.h
++++ b/mlir/lib/AsmParser/Parser.h
+@@ -12,6 +12,7 @@
+ #include "ParserState.h"
+ #include "mlir/IR/Builders.h"
+ #include "mlir/IR/OpImplementation.h"
++#include "llvm/ADT/DenseSet.h"
+ #include <optional>
+ 
+ namespace mlir {
+@@ -273,6 +274,16 @@ public:
+   /// Parse an attribute dictionary.
+   ParseResult parseAttributeDict(NamedAttrList &attributes);
+ 
++  /// Parse the name of an attribute dictionary's entry and the `=` after it.
++  ParseResult
++  parseAttributeEntryName(llvm::SmallDenseSet<StringAttr> &seenKeys,
++                          NamedAttrList &attributes,
++                          std::optional<StringAttr> &valueName);
++
++  /// Parse a builtin array or dictionary attribute, and every builtin array
++  /// and dictionary nested in it, from an explicit stack.
++  Attribute parseArrayOrDictionaryAttr();
++
+   /// Parse a distinct attribute.
+   Attribute parseDistinctAttr(Type type);
+ 
+diff --git a/mlir/lib/IR/AsmPrinter.cpp b/mlir/lib/IR/AsmPrinter.cpp
+index 93fdf69..211fe33 100644
+--- a/mlir/lib/IR/AsmPrinter.cpp
++++ b/mlir/lib/IR/AsmPrinter.cpp
+@@ -481,6 +481,11 @@ public:
+                           AttrTypeElision typeElision = AttrTypeElision::Never);
+   void printNamedAttribute(NamedAttribute attr);
+ 
++  /// Print a builtin array or dictionary attribute without considering an
++  /// alias, and every builtin array and dictionary nested in it, from an
++  /// explicit stack.
++  void printArrayOrDictionaryAttr(Attribute attr);
++
+   /// Print the alias for the given attribute, return failure if no alias could
+   /// be printed.
+   LogicalResult printAlias(Attribute attr);
+@@ -703,6 +708,13 @@ private:
+             llvm::MapVector<const void *, InProgressAliasInfo> &aliases,
+             bool canBeDeferred, PrintArgs &&...printArgs);
+ 
++  /// Visit the children of a builtin array or dictionary that `visitImpl`
++  /// has just added at `aliasIndex`, and the builtin arrays and dictionaries
++  /// nested in it, from an explicit stack. Returns what `visitImpl` returns.
++  std::pair<size_t, size_t> visitArrayOrDictionary(size_t aliasIndex,
++                                                   Attribute attr,
++                                                   bool canBeDeferred);
++
+   /// Mark the given alias as non-deferrable.
+   void markAliasNonDeferrable(size_t aliasIndex);
+ 
+@@ -966,14 +978,8 @@ private:
+       return;
+     } else if (auto distinctAttr = dyn_cast<DistinctAttr>(attr)) {
+       printAttribute(distinctAttr.getReferencedAttr());
+-    } else if (auto dictAttr = dyn_cast<DictionaryAttr>(attr)) {
+-      for (const NamedAttribute &nestedAttr : dictAttr.getValue()) {
+-        printAttribute(nestedAttr.getName());
+-        printAttribute(nestedAttr.getValue());
+-      }
+-    } else if (auto arrayAttr = dyn_cast<ArrayAttr>(attr)) {
+-      for (Attribute nestedAttr : arrayAttr.getValue())
+-        printAttribute(nestedAttr);
++      // A dictionary or an array never reaches here: `visitImpl` visits it
++      // with `visitArrayOrDictionary`.
+     } else if (auto typeAttr = dyn_cast<TypeAttr>(attr)) {
+       printType(typeAttr.getValue());
+     } else if (auto locAttr = dyn_cast<OpaqueLoc>(attr)) {
+@@ -1233,6 +1239,14 @@ std::pair<size_t, size_t> AliasInitializer::visitImpl(
+   it->second.isType = std::is_base_of_v<Type, T>;
+   it->second.canBeDeferred = canBeDeferred;
+ 
++  // A builtin array or dictionary is visited with those nested in it from an
++  // explicit stack: their nesting has no bound, and the native stack's depth
++  // must not grow with it. Neither has a type to elide.
++  if constexpr (std::is_base_of_v<Attribute, T>) {
++    if (isa<ArrayAttr, DictionaryAttr>(value))
++      return visitArrayOrDictionary(aliasIndex, value, canBeDeferred);
++  }
++
+   // Print the value, capturing any nested elements that require aliases.
+   SmallVector<size_t> childAliases;
+   DummyAliasDialectAsmPrinter printer(*this, canBeDeferred, childAliases);
+@@ -1251,19 +1265,92 @@ std::pair<size_t, size_t> AliasInitializer::visitImpl(
+   return {(size_t)it->second.aliasDepth, aliasIndex};
+ }
+ 
+-void AliasInitializer::markAliasNonDeferrable(size_t aliasIndex) {
+-  auto *it = std::next(aliases.begin(), aliasIndex);
++std::pair<size_t, size_t>
++AliasInitializer::visitArrayOrDictionary(size_t aliasIndex, Attribute attr,
++                                         bool canBeDeferred) {
++  // An array or dictionary whose children are being visited, in the order
++  // printing visits them (an array's elements; a dictionary's name and value
++  // of each entry), with the next child and what the visits of the children
++  // so far have recorded: what a `DummyAliasDialectAsmPrinter` would.
++  struct Open {
++    size_t aliasIndex;
++    Attribute container;
++    size_t next = 0;
++    SmallVector<size_t> childIndices;
++    size_t maxAliasDepth = 0;
++  };
++  auto numChildren = [](Attribute container) -> size_t {
++    if (auto array = dyn_cast<ArrayAttr>(container))
++      return array.size();
++    return 2 * cast<DictionaryAttr>(container).size();
++  };
++  auto child = [](Attribute container, size_t index) -> Attribute {
++    if (auto array = dyn_cast<ArrayAttr>(container))
++      return array[index];
++    NamedAttribute entry =
++        cast<DictionaryAttr>(container).getValue()[index / 2];
++    return index % 2 == 0 ? Attribute(entry.getName()) : entry.getValue();
++  };
++  auto record = [](Open &parent, std::pair<size_t, size_t> depthAndIndex) {
++    parent.childIndices.push_back(depthAndIndex.second);
++    if (depthAndIndex.first > parent.maxAliasDepth)
++      parent.maxAliasDepth = depthAndIndex.first;
++  };
+ 
+-  // If already marked non-deferrable stop the recursion.
+-  // All children should already be marked non-deferrable as well.
+-  if (!it->second.canBeDeferred)
+-    return;
++  SmallVector<Open> stack;
++  stack.push_back({aliasIndex, attr});
++  while (true) {
++    Open &top = stack.back();
++    if (top.next == numChildren(top.container)) {
++      // Every child is visited: finish the value as `visitImpl` does.
++      auto *it = std::next(aliases.begin(), top.aliasIndex);
++      it->second.childIndices = std::move(top.childIndices);
++      if (top.maxAliasDepth)
++        it->second.aliasDepth = top.maxAliasDepth + 1;
++      std::pair<size_t, size_t> result = {
++          static_cast<size_t>(it->second.aliasDepth), top.aliasIndex};
++      stack.pop_back();
++      if (stack.empty())
++        return result;
++      record(stack.back(), result);
++      continue;
++    }
++
++    Attribute nested = child(top.container, top.next++);
++    if (!isa<ArrayAttr, DictionaryAttr>(nested)) {
++      record(top, visit(nested, canBeDeferred));
++      continue;
++    }
+ 
+-  it->second.canBeDeferred = false;
++    // The start of `visitImpl` for a nested array or dictionary.
++    auto [it, inserted] = aliases.try_emplace(nested.getAsOpaquePointer());
++    size_t nestedIndex = std::distance(aliases.begin(), it);
++    if (!inserted) {
++      if (!canBeDeferred)
++        markAliasNonDeferrable(nestedIndex);
++      record(top, {static_cast<size_t>(it->second.aliasDepth), nestedIndex});
++      continue;
++    }
++    generateAlias(nested, it->second, canBeDeferred);
++    it->second.isType = false;
++    it->second.canBeDeferred = canBeDeferred;
++    stack.push_back({nestedIndex, nested});
++  }
++}
+ 
+-  // Propagate the non-deferrable flag to any child aliases.
+-  for (size_t childIndex : it->second.childIndices)
+-    markAliasNonDeferrable(childIndex);
++void AliasInitializer::markAliasNonDeferrable(size_t aliasIndex) {
++  // The aliases reachable from `aliasIndex` through deferrable ones are
++  // marked from a worklist: the children of an alias nest as deeply as the
++  // attributes and types do. An alias already marked non-deferrable has
++  // every child marked as well, so the walk stops there.
++  SmallVector<size_t> worklist = {aliasIndex};
++  while (!worklist.empty()) {
++    auto *it = std::next(aliases.begin(), worklist.pop_back_val());
++    if (!it->second.canBeDeferred)
++      continue;
++    it->second.canBeDeferred = false;
++    llvm::append_range(worklist, it->second.childIndices);
++  }
+ }
+ 
+ template <typename T>
+@@ -2475,11 +2562,8 @@ void AsmPrinter::Impl::printAttributeImpl(Attribute attr,
+     }
+     os << '>';
+     return;
+-  } else if (auto dictAttr = llvm::dyn_cast<DictionaryAttr>(attr)) {
+-    os << '{';
+-    interleaveComma(dictAttr.getValue(),
+-                    [&](NamedAttribute attr) { printNamedAttribute(attr); });
+-    os << '}';
++  } else if (llvm::isa<ArrayAttr, DictionaryAttr>(attr)) {
++    printArrayOrDictionaryAttr(attr);
+ 
+   } else if (auto intAttr = llvm::dyn_cast<IntegerAttr>(attr)) {
+     Type intType = intAttr.getType();
+@@ -2513,13 +2597,6 @@ void AsmPrinter::Impl::printAttributeImpl(Attribute attr,
+   } else if (auto strAttr = llvm::dyn_cast<StringAttr>(attr)) {
+     printEscapedString(strAttr.getValue());
+ 
+-  } else if (auto arrayAttr = llvm::dyn_cast<ArrayAttr>(attr)) {
+-    os << '[';
+-    interleaveComma(arrayAttr.getValue(), [&](Attribute attr) {
+-      printAttribute(attr, AttrTypeElision::May);
+-    });
+-    os << ']';
+-
+   } else if (auto affineMapAttr = llvm::dyn_cast<AffineMapAttr>(attr)) {
+     os << "affine_map<";
+     affineMapAttr.getValue().print(os);
+@@ -3001,6 +3078,73 @@ void AsmPrinter::Impl::printNamedAttribute(NamedAttribute attr) {
+   printAttribute(attr.getValue());
+ }
+ 
++/// Arrays and dictionaries nest in one another without bound, so the ones
++/// nested in `attr` are printed from an explicit stack rather than by
++/// recursion: the depth of the native stack does not grow with the depth of
++/// the nesting. The text is that of printing an array's elements with
++/// `printAttribute(element, AttrTypeElision::May)` and a dictionary's entries
++/// with `printNamedAttribute`: a nested array or dictionary with an alias
++/// prints its alias, and one without is opened in place.
++void AsmPrinter::Impl::printArrayOrDictionaryAttr(Attribute attr) {
++  // An array or dictionary being printed, and the next element or entry.
++  struct Open {
++    Attribute container;
++    size_t next;
++  };
++  SmallVector<Open> stack;
++  auto open = [&](Attribute container) {
++    os << (isa<ArrayAttr>(container) ? '[' : '{');
++    stack.push_back({container, 0});
++  };
++
++  open(attr);
++  while (!stack.empty()) {
++    Open &top = stack.back();
++    auto array = dyn_cast<ArrayAttr>(top.container);
++    size_t size = array ? array.size()
++                        : cast<DictionaryAttr>(top.container).size();
++    if (top.next == size) {
++      os << (array ? ']' : '}');
++      stack.pop_back();
++      continue;
++    }
++    size_t index = top.next++;
++    if (index != 0)
++      os << ", ";
++
++    Attribute value;
++    AttrTypeElision typeElision;
++    if (array) {
++      value = array[index];
++      typeElision = AttrTypeElision::May;
++    } else {
++      NamedAttribute entry =
++          cast<DictionaryAttr>(top.container).getValue()[index];
++      ::printKeywordOrString(entry.getName().strref(), os);
++      // Pretty printing elides the attribute value for unit attributes.
++      if (isa<UnitAttr>(entry.getValue()))
++        continue;
++      os << " = ";
++      value = entry.getValue();
++      typeElision = AttrTypeElision::Never;
++    }
++
++    // What `printAttribute` does, but with a nested array or dictionary that
++    // has no alias opened here instead of printed by recursion.
++    if (!value) {
++      os << "<<NULL ATTRIBUTE>>";
++      continue;
++    }
++    if (succeeded(printAlias(value)))
++      continue;
++    if (isa<ArrayAttr, DictionaryAttr>(value)) {
++      open(value);
++      continue;
++    }
++    printAttributeImpl(value, typeElision);
++  }
++}
++
+ void AsmPrinter::Impl::printDialectAttribute(Attribute attr) {
+   auto &dialect = attr.getDialect();
+ 
+diff --git a/mlir/test/IR/attribute-nesting.mlir b/mlir/test/IR/attribute-nesting.mlir
+new file mode 100644
+index 0000000..e0215f9
+--- /dev/null
++++ b/mlir/test/IR/attribute-nesting.mlir
+@@ -0,0 +1,9 @@
++// RUN: mlir-opt -allow-unregistered-dialect %s | mlir-opt -allow-unregistered-dialect | FileCheck %s
++
++// Builtin arrays and dictionaries nested in one another are parsed, printed and
++// visited for aliases from an explicit stack. The text round-trips, a nested
++// value with an alias prints as its alias, and a unit entry prints its name.
++
++// CHECK: #[[MAP:.*]] = affine_map<(d0) -> (d0)>
++// CHECK: "test.op"() {test.nested = [{}, {a = [1, {b, c = [#[[MAP]]]}], d = {e = ["s"]}}, []]} : () -> ()
++"test.op"() {test.nested = [{}, {a = [1, {b, c = [affine_map<(d0) -> (d0)>]}], d = {e = ["s"]}}, []]} : () -> ()

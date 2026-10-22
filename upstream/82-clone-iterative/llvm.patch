@@ -1,0 +1,295 @@
+Subject: [PATCH] [mlir] Clone nested regions from a worklist
+
+`Region::cloneInto` clones each region of each operation it copies by
+calling itself, so cloning IR nested N deep takes N levels of native
+stack: `Operation::clone`, the inliner and every pattern that copies an
+operation with regions overflow the stack of a thread with a small one on
+deeply nested IR.
+
+A region is still cloned in two steps, its blocks and operations created
+and mapped first and their operands set and regions cloned after, and a
+nested region still in full when the operation holding it is reached in
+the second step; that step now keeps its place in each region it is
+inside on an explicit stack. Blocks, operations and mappings are created
+in the order the recursion created them. A unit test clones a chain of
+operations nested 10,000 deep on a thread with a 256 KiB stack.
+---
+diff --git a/mlir/lib/IR/Region.cpp b/mlir/lib/IR/Region.cpp
+index 775485a..dcb2635 100644
+--- a/mlir/lib/IR/Region.cpp
++++ b/mlir/lib/IR/Region.cpp
+@@ -72,29 +72,17 @@ void Region::cloneInto(Region *dest, IRMapping &mapper) {
+   cloneInto(dest, dest->end(), mapper);
+ }
+ 
+-/// Clone this region into 'dest' before the given position in 'dest'.
+-void Region::cloneInto(Region *dest, Region::iterator destPos,
+-                       IRMapping &mapper) {
+-  assert(dest && "expected valid region to clone into");
+-  assert(this != dest && "cannot clone region into itself");
+-
+-  // If the list is empty there is nothing to clone.
+-  if (empty())
+-    return;
+-
+-  // The below clone implementation takes special care to be read only for the
+-  // sake of multi threading. That essentially means not adding any uses to any
+-  // of the blocks or operation results contained within this region as that
+-  // would lead to a write in their use-def list. This is unavoidable for
+-  // 'Value's from outside the region however, in which case it is not read
+-  // only. Using the IRMapper it is possible to remap such 'Value's
+-  // to ones owned by the calling thread however, making it read only once
+-  // again.
+-
++/// Create in `dest`, before `destPos`, a block for each block of `source`,
++/// with its arguments, and an operation for each of its operations, with no
++/// operand set and no region cloned, mapping each in `mapper`. Returns the
++/// first block created; `source` must not be empty.
++static Region::iterator cloneBlocksAndOperations(Region &source, Region *dest,
++                                                 Region::iterator destPos,
++                                                 IRMapping &mapper) {
+   // First clone all the blocks and block arguments and map them, but don't yet
+   // clone the operations, as they may otherwise add a use to a block that has
+   // not yet been mapped
+-  for (Block &block : *this) {
++  for (Block &block : source) {
+     Block *newBlock = new Block();
+     mapper.map(&block, newBlock);
+ 
+@@ -108,8 +96,8 @@ void Region::cloneInto(Region *dest, Region::iterator destPos,
+     dest->getBlocks().insert(destPos, newBlock);
+   }
+ 
+-  auto newBlocksRange =
+-      llvm::make_range(Region::iterator(mapper.lookup(&front())), destPos);
++  Region::iterator firstNewBlock(mapper.lookup(&source.front()));
++  auto newBlocksRange = llvm::make_range(firstNewBlock, destPos);
+ 
+   // Now follow up with creating the operations, but don't yet clone their
+   // regions, nor set their operands. Setting the successors is safe as all have
+@@ -119,32 +107,105 @@ void Region::cloneInto(Region *dest, Region::iterator destPos,
+   // not yet mapped.
+   auto cloneOptions =
+       Operation::CloneOptions::all().cloneRegions(false).cloneOperands(false);
+-  for (auto zippedBlocks : llvm::zip(*this, newBlocksRange)) {
++  for (auto zippedBlocks : llvm::zip(source, newBlocksRange)) {
+     Block &sourceBlock = std::get<0>(zippedBlocks);
+     Block &clonedBlock = std::get<1>(zippedBlocks);
+     // Clone and remap the operations within this block.
+     for (Operation &op : sourceBlock)
+       clonedBlock.push_back(op.clone(mapper, cloneOptions));
+   }
++  return firstNewBlock;
++}
+ 
+-  // Finally now that all operation results have been mapped, set the operands
+-  // and clone the regions.
++/// Clone this region into 'dest' before the given position in 'dest'.
++void Region::cloneInto(Region *dest, Region::iterator destPos,
++                       IRMapping &mapper) {
++  assert(dest && "expected valid region to clone into");
++  assert(this != dest && "cannot clone region into itself");
++
++  // If the list is empty there is nothing to clone.
++  if (empty())
++    return;
++
++  // The below clone implementation takes special care to be read only for the
++  // sake of multi threading. That essentially means not adding any uses to any
++  // of the blocks or operation results contained within this region as that
++  // would lead to a write in their use-def list. This is unavoidable for
++  // 'Value's from outside the region however, in which case it is not read
++  // only. Using the IRMapper it is possible to remap such 'Value's
++  // to ones owned by the calling thread however, making it read only once
++  // again.
++
++  // Each region is cloned in two steps: its blocks and operations are created
++  // and mapped first, and only then are the operations' operands set and
++  // their regions cloned, so that every value an operand names is mapped by
++  // the time it is set. A nested region is cloned in full, both steps, when
++  // the operation holding it is reached in the second step of its parent.
++  // Regions nest without bound, so the second step keeps its place in each
++  // region it is inside on an explicit stack rather than by recursion: the
++  // depth of the native stack does not grow with the depth of the nesting.
++  // The blocks, operations and mappings are created in the order a recursive
++  // clone would create them.
++  struct RegionInProgress {
++    Region::iterator sourceBlock, sourceEnd, clonedBlock;
++    Block::iterator sourceOp, clonedOp;
++    // The next region of the operation at `sourceOp` to clone.
++    unsigned nextRegion = 0;
++  };
++  SmallVector<RegionInProgress> stack;
+   SmallVector<Value> operands;
+-  for (auto zippedBlocks : llvm::zip(*this, newBlocksRange)) {
+-    for (auto ops :
+-         llvm::zip(std::get<0>(zippedBlocks), std::get<1>(zippedBlocks))) {
+-      Operation &source = std::get<0>(ops);
+-      Operation &clone = std::get<1>(ops);
+-
+-      operands.resize(source.getNumOperands());
+-      llvm::transform(
+-          source.getOperands(), operands.begin(),
+-          [&](Value operand) { return mapper.lookupOrDefault(operand); });
+-      clone.setOperands(operands);
+-
+-      for (auto regions : llvm::zip(source.getRegions(), clone.getRegions()))
+-        std::get<0>(regions).cloneInto(&std::get<1>(regions), mapper);
++
++  // Move `region` to its first operation at or after its position, across
++  // empty blocks, and set that operation's operands. Returns false when no
++  // operation is left in the region.
++  auto reachOperation = [&](RegionInProgress &region) {
++    while (region.sourceOp == region.sourceBlock->end()) {
++      ++region.sourceBlock;
++      ++region.clonedBlock;
++      if (region.sourceBlock == region.sourceEnd)
++        return false;
++      region.sourceOp = region.sourceBlock->begin();
++      region.clonedOp = region.clonedBlock->begin();
++    }
++    Operation &source = *region.sourceOp;
++    operands.resize(source.getNumOperands());
++    llvm::transform(
++        source.getOperands(), operands.begin(),
++        [&](Value operand) { return mapper.lookupOrDefault(operand); });
++    region.clonedOp->setOperands(operands);
++    region.nextRegion = 0;
++    return true;
++  };
++
++  // Create `source`'s blocks and operations in `clone` before `clonePos`, and
++  // begin setting their operands and cloning their regions.
++  auto enterRegion = [&](Region &source, Region *clone,
++                         Region::iterator clonePos) {
++    Region::iterator firstClonedBlock =
++        cloneBlocksAndOperations(source, clone, clonePos, mapper);
++    RegionInProgress region{source.begin(), source.end(), firstClonedBlock,
++                            source.front().begin(), firstClonedBlock->begin()};
++    if (reachOperation(region))
++      stack.push_back(region);
++  };
++
++  enterRegion(*this, dest, destPos);
++  while (!stack.empty()) {
++    RegionInProgress &region = stack.back();
++    Operation &source = *region.sourceOp;
++    if (region.nextRegion == source.getNumRegions()) {
++      ++region.sourceOp;
++      ++region.clonedOp;
++      if (!reachOperation(region))
++        stack.pop_back();
++      continue;
+     }
++    unsigned index = region.nextRegion++;
++    Region &nested = source.getRegion(index);
++    if (nested.empty())
++      continue;
++    Region &clonedNested = region.clonedOp->getRegion(index);
++    enterRegion(nested, &clonedNested, clonedNested.end());
+   }
+ }
+ 
+diff --git a/mlir/unittests/IR/CMakeLists.txt b/mlir/unittests/IR/CMakeLists.txt
+index 247e4eb..819f3e9 100644
+--- a/mlir/unittests/IR/CMakeLists.txt
++++ b/mlir/unittests/IR/CMakeLists.txt
+@@ -5,6 +5,7 @@ add_mlir_unittest(MLIRIRTests
+   AttributeTest.cpp
+   AttrTypeReplacerTest.cpp
+   BuiltinDialectVersionTest.cpp
++  CloneTest.cpp
+   Diagnostic.cpp
+   DialectTest.cpp
+   DistinctAttributeAllocatorTest.cpp
+diff --git a/mlir/unittests/IR/CloneTest.cpp b/mlir/unittests/IR/CloneTest.cpp
+new file mode 100644
+index 0000000..a7b285c
+--- /dev/null
++++ b/mlir/unittests/IR/CloneTest.cpp
+@@ -0,0 +1,85 @@
++//===- CloneTest.cpp - Cloning deeply nested IR ---------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/IR/BuiltinTypes.h"
++#include "mlir/IR/IRMapping.h"
++#include "mlir/IR/Location.h"
++#include "mlir/IR/MLIRContext.h"
++#include "mlir/IR/Operation.h"
++#include "llvm/Support/thread.h"
++#include "gtest/gtest.h"
++
++using namespace mlir;
++
++namespace {
++/// A chain of operations nested `depth` deep, outermost first: each but the
++/// last holds the next in the one block of its one region, and the next takes
++/// that block's argument as its operand.
++SmallVector<Operation *> createChain(MLIRContext &context, unsigned depth) {
++  context.allowUnregisteredDialects();
++  Location loc = UnknownLoc::get(&context);
++  Type i32 = IntegerType::get(&context, 32);
++  SmallVector<Operation *> chain{Operation::create(
++      loc, OperationName("test.nest", &context), {}, {}, NamedAttrList(),
++      PropertyRef(), {}, /*numRegions=*/1)};
++  for (unsigned i = 1; i < depth; ++i) {
++    Block *block = new Block();
++    chain.back()->getRegion(0).push_back(block);
++    Value argument = block->addArgument(i32, loc);
++    chain.push_back(Operation::create(
++        loc, OperationName("test.nest", &context), {}, {argument},
++        NamedAttrList(), PropertyRef(), {}, i + 1 < depth ? 1 : 0));
++    block->push_back(chain.back());
++  }
++  return chain;
++}
++
++/// The operations of a chain made by `createChain`, outermost first, found by
++/// following the one region of each.
++SmallVector<Operation *> followChain(Operation *root) {
++  SmallVector<Operation *> chain{root};
++  while (chain.back()->getNumRegions() != 0)
++    chain.push_back(&chain.back()->getRegion(0).front().front());
++  return chain;
++}
++
++/// Destroy a chain innermost first, so that no destruction recurses on its
++/// depth.
++void destroyChain(ArrayRef<Operation *> chain) {
++  for (Operation *op : llvm::reverse(llvm::drop_begin(chain)))
++    op->erase();
++  chain.front()->destroy();
++}
++
++TEST(CloneTest, DeepNestingOnASmallStack) {
++  MLIRContext context;
++  constexpr unsigned depth = 10000;
++  SmallVector<Operation *> chain = createChain(context, depth);
++
++  // A clone that took a native frame per level of nesting would overflow this
++  // thread's stack.
++  Operation *clone = nullptr;
++  IRMapping mapper;
++  llvm::thread cloner(/*StackSizeInBytes=*/256 * 1024,
++                      [&] { clone = chain.front()->clone(mapper); });
++  cloner.join();
++
++  SmallVector<Operation *> cloned = followChain(clone);
++  ASSERT_EQ(cloned.size(), depth);
++  for (unsigned i = 0; i < depth; ++i) {
++    EXPECT_EQ(mapper.lookup(chain[i]), cloned[i]);
++    // Each operand is the argument of the cloned block that holds it.
++    if (i != 0)
++      EXPECT_EQ(cloned[i]->getOperand(0),
++                cloned[i]->getBlock()->getArgument(0));
++  }
++
++  destroyChain(cloned);
++  destroyChain(chain);
++}
++} // namespace

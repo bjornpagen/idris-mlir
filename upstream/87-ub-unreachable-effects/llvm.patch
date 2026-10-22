@@ -1,0 +1,50 @@
+Subject: [PATCH] [mlir][UB] ub.unreachable has no memory effects
+
+`ub.unreachable` declares no memory effects at all, so every reader of
+effects takes it as having all of them: a region that ends in it keeps
+its parent alive in dead code elimination, and an analysis that sums a
+block's effects sees a write to every resource where control never goes
+on. The op is undefined behavior when executed, so no effect of it can
+be observed: it now declares `NoMemoryEffect`. It stays unspeculatable.
+---
+diff --git a/mlir/include/mlir/Dialect/UB/IR/UBOps.td b/mlir/include/mlir/Dialect/UB/IR/UBOps.td
+index 1bff39a..f2f3a14 100644
+--- a/mlir/include/mlir/Dialect/UB/IR/UBOps.td
++++ b/mlir/include/mlir/Dialect/UB/IR/UBOps.td
+@@ -70,11 +70,13 @@ def PoisonOp : UB_Op<"poison", [ConstantLike, Pure]> {
+ // UnreachableOp
+ //===----------------------------------------------------------------------===//
+ 
+-def UnreachableOp : UB_Op<"unreachable", [Terminator]> {
++def UnreachableOp : UB_Op<"unreachable", [NoMemoryEffect, Terminator]> {
+   let summary = "Unreachable operation.";
+   let description = [{
+     The `unreachable` operation triggers immediate undefined behavior if
+-    executed.
++    executed. It reads and writes no memory: a program that reaches it has
++    no defined behavior from that point, so no effect of it can be
++    observed. It is not speculatable.
+ 
+     Example:
+ 
+diff --git a/mlir/test/Dialect/UB/canonicalize.mlir b/mlir/test/Dialect/UB/canonicalize.mlir
+index c3f286e..037cbb0 100644
+--- a/mlir/test/Dialect/UB/canonicalize.mlir
++++ b/mlir/test/Dialect/UB/canonicalize.mlir
+@@ -9,3 +9,16 @@ func.func @merge_poison() -> (i32, i32) {
+   %1 = ub.poison : i32
+   return %0, %1 : i32, i32
+ }
++
++// -----
++
++// ub.unreachable has no memory effects, so a region that does nothing but
++// reach it leaves its parent trivially dead.
++// CHECK-LABEL: func @dead_region_ending_in_unreachable()
++//  CHECK-NEXT:   return
++func.func @dead_region_ending_in_unreachable() {
++  scf.execute_region no_inline {
++    ub.unreachable
++  }
++  return
++}

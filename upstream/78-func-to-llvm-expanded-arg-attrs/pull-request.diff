@@ -1,0 +1,102 @@
+Subject: [PATCH] [mlir][FuncToLLVM] Keep pointer attributes of a memref argument
+
+`propagateFunctionArgResAttrs` attaches an argument's attributes only
+where the argument converts to one LLVM argument, and drops every
+attribute of one that expands into several, leaving a TODO ("Implement
+custom handling for types that expand to multiple function arguments").
+A ranked memref expands into its descriptor, so `{llvm.noalias}` on a
+memref argument never reaches LLVM unless the bare-pointer convention is
+used.
+
+For a ranked memref, the attributes of the pointer the memref stands for
+(`llvm.noalias`, `llvm.nocapture`, `llvm.nofree`, `llvm.nonnull`,
+`llvm.noundef`, `llvm.readonly`, `llvm.writeonly`, `llvm.readnone`,
+`llvm.align`, `llvm.dereferenceable` and `llvm.dereferenceable_or_null`)
+now go to the descriptor's aligned pointer, through which every access
+goes. The allocated pointer is the one a deallocation frees and gets
+none, and neither do the offset, sizes and strides; an attribute that is
+no pointer's is still dropped. The TODO goes. convert-argattrs.mlir's
+check that the attributes are dropped becomes a check of where they go.
+---
+diff --git a/mlir/lib/Conversion/FuncToLLVM/FuncToLLVM.cpp b/mlir/lib/Conversion/FuncToLLVM/FuncToLLVM.cpp
+index f5e21d6..ff7a63e 100644
+--- a/mlir/lib/Conversion/FuncToLLVM/FuncToLLVM.cpp
++++ b/mlir/lib/Conversion/FuncToLLVM/FuncToLLVM.cpp
+@@ -383,6 +383,23 @@ convertArgumentAttributes(DictionaryAttr attrsDict,
+   return convertedAttrs;
+ }
+ 
++/// Whether `name` is an attribute of the pointer a memref argument stands
++/// for, which its descriptor's aligned pointer carries.
++static bool isMemRefPointerAttribute(StringAttr name) {
++  StringRef value = name.getValue();
++  return value == LLVM::LLVMDialect::getNoAliasAttrName() ||
++         value == LLVM::LLVMDialect::getNoCaptureAttrName() ||
++         value == LLVM::LLVMDialect::getNoFreeAttrName() ||
++         value == LLVM::LLVMDialect::getNonNullAttrName() ||
++         value == LLVM::LLVMDialect::getNoUndefAttrName() ||
++         value == LLVM::LLVMDialect::getReadonlyAttrName() ||
++         value == LLVM::LLVMDialect::getWriteOnlyAttrName() ||
++         value == LLVM::LLVMDialect::getReadnoneAttrName() ||
++         value == LLVM::LLVMDialect::getAlignAttrName() ||
++         value == LLVM::LLVMDialect::getDereferenceableAttrName() ||
++         value == LLVM::LLVMDialect::getDereferenceableOrNullAttrName();
++}
++
+ static void propagateFunctionArgResAttrs(
+     FunctionOpInterface funcOp, ConversionPatternRewriter &rewriter,
+     const LLVMTypeConverter &converter, TypeConverter::SignatureConversion &sig,
+@@ -413,11 +430,23 @@ static void propagateFunctionArgResAttrs(
+             DictionaryAttr::get(rewriter.getContext(), convertedAttrs);
+         continue;
+       }
+-      // TODO: Implement custom handling for types that expand to multiple
+-      // function arguments.
+       for (size_t j = 0; j < mapping->size; ++j)
+         newArgAttrs[mapping->inputNo + j] =
+             DictionaryAttr::get(rewriter.getContext(), {});
++      // A ranked memref expands into its descriptor: the allocated and the
++      // aligned pointer, then the offset, sizes and strides. Every access
++      // goes through the aligned pointer, so the attributes of the pointer
++      // the memref stands for go to it alone. The allocated pointer is the
++      // one a deallocation frees, and they say nothing of it. Every other
++      // attribute names no one argument of the descriptor.
++      if (isa<MemRefType>(funcOp.getArgumentTypes()[i])) {
++        SmallVector<NamedAttribute, 4> pointerAttrs;
++        for (const NamedAttribute &attr : convertedAttrs)
++          if (isMemRefPointerAttribute(attr.getName()))
++            pointerAttrs.push_back(attr);
++        newArgAttrs[mapping->inputNo + 1] =
++            DictionaryAttr::get(rewriter.getContext(), pointerAttrs);
++      }
+     }
+     if (!newArgAttrs.empty())
+       newFuncOp.setAllArgAttrs(rewriter.getArrayAttr(newArgAttrs));
+diff --git a/mlir/test/Conversion/FuncToLLVM/convert-argattrs.mlir b/mlir/test/Conversion/FuncToLLVM/convert-argattrs.mlir
+index 85c7cbd..6d9f573 100644
+--- a/mlir/test/Conversion/FuncToLLVM/convert-argattrs.mlir
++++ b/mlir/test/Conversion/FuncToLLVM/convert-argattrs.mlir
+@@ -7,12 +7,21 @@ func.func @check_attributes(%int: i64 {dialect.a = true, dialect.b = 4 : i64 })
+ }
+ 
+ // CHECK-LABEL: func @check_memref
+-// When expanding the memref to multiple arguments, argument attributes should be dropped entirely.
+-// CHECK-NOT: {llvm.noalias}
++// When expanding a ranked memref into its descriptor, a pointer attribute goes
++// to the aligned pointer alone: none to the allocated pointer, the offset, the
++// sizes or the strides.
++// CHECK-SAME: (%{{[^:]*}}: !llvm.ptr, %{{[^:]*}}: !llvm.ptr {llvm.noalias}, %{{[^:]*}}: i64, %{{[^:]*}}: i64, %{{[^:]*}}: i64, %{{[^:]*}}: i64, %{{[^:]*}}: i64)
+ func.func @check_memref(%static: memref<10x20xf32> {llvm.noalias}) {
+   return
+ }
+ 
++// CHECK-LABEL: func @check_memref_pointer_attributes
++// An attribute that is no pointer's is dropped.
++// CHECK-SAME: (%{{[^:]*}}: !llvm.ptr, %{{[^:]*}}: !llvm.ptr {llvm.align = 16 : i64, llvm.dereferenceable = 32 : i64, llvm.nonnull, llvm.readonly}, %{{[^:]*}}: i64, %{{[^:]*}}: i64, %{{[^:]*}}: i64)
++func.func @check_memref_pointer_attributes(%m: memref<8xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 32 : i64, llvm.nonnull, llvm.readonly, dialect.a = true}) {
++  return
++}
++
+ // CHECK-LABEL: func @check_multiple
+ // CHECK-SAME: %{{.*}}: f32 {first.arg = true}, %{{.*}}: i64 {second.arg = 42 : i32}
+ func.func @check_multiple(%first: f32 {first.arg = true}, %second: i64 {second.arg = 42 : i32}) {
