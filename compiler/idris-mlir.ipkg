@@ -67,6 +67,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Proof.Generations
         , IdrisMLIR.Proof.Forms
         , IdrisMLIR.Proof.Requests
+        , IdrisMLIR.Proof.Reading
         , IdrisMLIR.Frontend.Growth.Potential
         , IdrisMLIR.Frontend.Growth.Check
         , IdrisMLIR.Frontend.Growth.Template

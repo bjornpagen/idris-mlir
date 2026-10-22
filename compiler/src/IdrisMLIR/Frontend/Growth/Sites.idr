@@ -1292,10 +1292,10 @@ staticRef at ps env fc n args = do
 -- Settled terms
 ------------------------------------------------------------------------------
 
-||| Does a term mention a runtime value of the walk's scope: a value, or a
-||| shape matched or not, which no compile-time reduction sees through?
-runtimeIn : {vs : Scope} -> Env vs -> TT vs -> Bool
-runtimeIn env t = mentions runtime (closeWritten EmptyFC (map marking (standings env)) t)
+||| Whether a term mentions a runtime value of the walk's scope: a value,
+||| or a shape matched or not, which no compile-time reduction sees through.
+runtimeIn : {vs : Scope} -> Env vs -> TT vs -> Mention
+runtimeIn env t = mentioning runtime (closeWritten EmptyFC (map marking (standings env)) t)
   where
     marking : Standing -> VarInfo ()
     marking (Runtime, _, _) = TypeValue (probeTerm ProbeRuntime)
@@ -1303,9 +1303,9 @@ runtimeIn env t = mentions runtime (closeWritten EmptyFC (map marking (standings
     marking (Shape _, _, _) = TypeValue (probeTerm ProbeRuntime)
     marking (s, _, _) = TypeValue (termOf s)
 
-    runtime : {0 ws : Scope} -> TT ws -> Bool
-    runtime (Ref _ _ n) = n == probeName ProbeRuntime
-    runtime _ = False
+    runtime : {0 ws : Scope} -> TT ws -> Mention
+    runtime (Ref _ _ n) = asMention (n == probeName ProbeRuntime)
+    runtime _ = Unmentioned
 
 ||| What an argument of a dictionary or a polymorphic function is to the
 ||| term its settling makes, as the translation settles it
@@ -1323,7 +1323,9 @@ settledArgument env t@(Local _ _ idx p) = case entryAt env idx p of
   e@(Shape _, _, _) => StandsAs e
   -- A type, a form, a dictionary or an erased value is a compile-time one.
   _ => GivenInPlace (close env t)
-settledArgument env t = if runtimeIn env t then ComputedHere else GivenInPlace (close env t)
+settledArgument env t = case runtimeIn env t of
+  Mentioned => ComputedHere
+  Unmentioned => GivenInPlace (close env t)
 
 ||| The arguments a settling gives the evaluator, a runtime value the
 ||| marker of its place among the settled term's markers, the first `from`;

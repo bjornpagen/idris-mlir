@@ -21,6 +21,7 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
@@ -129,7 +130,7 @@ etaWrapper th k body = case getFnArgs body of
   _ => Nothing
   where
     passedAs : TT ks -> Maybe Passed
-    passedAs t = case contracted t of
+    passedAs t = case (contracted t).etaForm of
       Local _ _ i _ => Just (Own i)
       _ => Fixed <$> shrink t th
 

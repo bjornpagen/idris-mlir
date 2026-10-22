@@ -64,6 +64,7 @@ import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
+import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
@@ -870,8 +871,8 @@ mutual
     pure (Just (Choice (Var j e) (leaves ++ [raise c (Var j e)])))
     where
       normalisedArm : Arm -> Front Arm
-      normalisedArm (Step t) = Step . contracted <$> normaliseClosed (applyTo t extras)
-      normalisedArm (Base t) = Base . contracted <$> normaliseClosed (applyTo t extras)
+      normalisedArm (Step t) = Step . (.readForm) <$> readNormal (applyTo t extras)
+      normalisedArm (Base t) = Base . (.readForm) <$> readNormal (applyTo t extras)
   structural _ _ _ _ _ _ _ _ = pure Nothing
 
   ||| A case tree walked over what its variables stand for, the leaves it
@@ -887,7 +888,7 @@ mutual
   walk : {auto c : Ref Ctxt Defs} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
          Address -> Front Template -> Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm -> Front (Maybe Template)
   walk m w acc self folded env (STerm _ rhs) extras =
-    Just <$> read (unfolding m) w acc [] (contracted !(normaliseClosed (applyTo (close env rhs) extras)))
+    Just <$> read (unfolding m) w acc [] (!(readNormal (applyTo (close env rhs) extras))).readForm
   -- A partial definition stops where it does not match, at every instance.
   walk m w acc self folded env (Unmatched _) extras = Just <$> folded
   walk m w acc self folded env Impossible extras = pure Nothing
@@ -970,13 +971,7 @@ mutual
 readFromStart : {auto c : Ref Ctxt Defs} -> Mode -> ClosedTerm -> Front Template
 readFromStart m t = read m start (sizeAccessible start) [] t
 
-||| A type, a family or a form as its template and its root read it: its
-||| normal form, as classify normalises it, a lambda that only applies a
-||| family to its variable contracted to that family.
-typeForm : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
-typeForm t = contracted <$> normaliseClosed t
-
-||| The template of a normal form (`typeForm`) of a term of a site's,
+||| The template of a normal form (`readNormal`) of a term of a site's,
 ||| whose stand-ins are `stands`, stuck definitions unfolded.
 formTemplate : {auto c : Ref Ctxt Defs} -> List StandIn -> ClosedTerm -> Front Template
 formTemplate stands form = readFromStart (MkMode AsType Unfolded stands) form
@@ -1017,18 +1012,18 @@ mutual
 ||| else of its normal form (`Instances.argumentShape`).
 export
 templateOf : {auto c : Ref Ctxt Defs} -> List StandIn -> State.Static -> ClosedTerm -> Front Template
-templateOf stands AType t = formTemplate stands !(typeForm t)
-templateOf stands AFamily t = formTemplate stands !(typeForm t)
-templateOf stands AForm t = formedTemplate !(formTemplate stands !(typeForm t))
+templateOf stands AType t = formTemplate stands (!(readNormal t)).readForm
+templateOf stands AFamily t = formTemplate stands (!(readNormal t)).readForm
+templateOf stands AForm t = formedTemplate !(formTemplate stands (!(readNormal t)).readForm)
 templateOf stands ADictionary t = do
   written <- solved t
   form <- if !(runtimeDependent written) then implementationOf written else pure written
-  readFromStart (MkMode AsType Kept stands) (contracted form)
+  readFromStart (MkMode AsType Kept stands) (contracted form).etaForm
 templateOf stands AShape t = do
   written <- solved t
   case getFnArgs written of
-    (Ref _ (DataCon _ _) _, _) => readFromStart (MkMode AsShape Kept stands) (contracted written)
-    _ => readFromStart (MkMode AsShape Unfolded stands) (contracted !(normaliseClosed t))
+    (Ref _ (DataCon _ _) _, _) => readFromStart (MkMode AsShape Kept stands) (contracted written).etaForm
+    _ => readFromStart (MkMode AsShape Unfolded stands) (!(readNormal t)).readForm
 
 ------------------------------------------------------------------------------
 -- The measures
@@ -1230,22 +1225,22 @@ addresses (Gives ms) = forget ms
 addresses (Parameter _ _) = []
 addresses Unrooted = []
 
-||| Does a term mention one of the walk's markers, each of which an
+||| Whether a term mentions one of the walk's markers, each of which an
 ||| instance puts a value in for: the writer's parameter, a part of one a
 ||| site matched, a field of its dictionary, an argument of a family's
-||| value? Any other probe stands for a runtime value, which no instance
+||| value. Any other probe stands for a runtime value, which no instance
 ||| puts in.
-mentionsMarker : TT vs -> Bool
-mentionsMarker = mentions marker
+markersIn : TT vs -> Mention
+markersIn = mentioning marker
   where
-    marker : {0 ws : Scope} -> TT ws -> Bool
+    marker : {0 ws : Scope} -> TT ws -> Mention
     marker (Ref _ Bound n) = case probeOf n of
-      Just (ProbeVar _ _) => True
-      Just (ProbePattern _) => True
-      Just (ProbeFieldPath _ _ _) => True
-      Just (ProbeFormal _ _) => True
-      _ => False
-    marker _ = False
+      Just (ProbeVar _ _) => Mentioned
+      Just (ProbePattern _) => Mentioned
+      Just (ProbeFieldPath _ _ _) => Mentioned
+      Just (ProbeFormal _ _) => Mentioned
+      _ => Unmentioned
+    marker _ = Unmentioned
 
 ||| The type of a definition applied to arguments, normalised as a type is
 ||| read: each argument put in for the binder that takes it, and past the
@@ -1441,10 +1436,14 @@ mutual
       -- markers is one an instance puts values in for, and one stuck on
       -- anything else, a definition Idris does not prove ends above all,
       -- stays stuck at every instance.
+      settledBy : Mention -> GlobalDef -> Front Settling
+      settledBy Mentioned def = FixedAt <$> fixedAs def
+      settledBy Unmentioned def = pure AtRunTimeAlways
+
       settling : StuckOn -> GlobalDef -> Front Settling
       settling (OnPartial _) def = pure AtRunTimeAlways
-      settling (OnRuntime t) def = if mentionsMarker t then FixedAt <$> fixedAs def else pure AtRunTimeAlways
-      settling (OnValue t) def = if mentionsMarker t then FixedAt <$> fixedAs def else pure AtRunTimeAlways
+      settling (OnRuntime t) def = settledBy (markersIn t) def
+      settling (OnValue t) def = settledBy (markersIn t) def
 
   ||| The implementations a definition applied gives at the leaves of its
   ||| case tree: every alternative's, since what it matches on is known
@@ -1499,7 +1498,7 @@ dictionaryRoot t = do
             _ => pure written
   rootOf start (sizeAccessible start) form []
 
-||| What a type is at its root, as its normal form (`typeForm`) shows it:
+||| What a type is at its root, as its normal form (`readNormal`) shows it:
 ||| the type constructor at its head when it takes more arguments than it
 ||| is applied to, which is a family's value (`Term`, `Either e`), and only
 ||| a family's, since a type of kind `Type` is a type constructor applied
@@ -1517,7 +1516,7 @@ formRoot ctx form = case getFnArgs form of
 typeReading : {auto c : Ref Ctxt Defs} -> List StandIn -> ClosedTerm -> Front (Template, Root)
 typeReading stands t = do
   ctx <- frozenContext
-  form <- typeForm t
+  form <- (.readForm) <$> readNormal t
   pure (!(formTemplate stands form), formRoot (gamma (defsOf ctx)) form)
 
 ||| A static argument read once at its kind: its template (`templateOf`),

@@ -20,6 +20,7 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
@@ -99,32 +100,61 @@ under : {k : Nat} -> List (VarInfo (Fin (Under k n))) -> List (VarInfo (Fin n)) 
         List (VarInfo (Fin (Under k n)))
 under bound env = bound ++ map (map (Free {k})) env
 
-||| Does a subterm satisfy the test: the term, its binders' types and
-||| values, an application's parts, a pattern's value, what a delay holds,
-||| a metavariable's arguments?
+||| Whether a term holds a part a test picks: one somewhere in it, or none.
+||| The view a caller that chooses by it matches on.
+public export
+data Mention = Mentioned | Unmentioned
+
+||| Mentioned where either is, the second looked at only where the first is
+||| not.
+export
+orMention : Mention -> Lazy Mention -> Mention
+orMention Mentioned _ = Mentioned
+orMention Unmentioned m = m
+
+||| The machine's test at one part, read as the view.
+export
+asMention : Bool -> Mention
+asMention True = Mentioned
+asMention False = Unmentioned
+
+||| Whether a subterm the test picks is in a term: the term, its binders'
+||| types and values, an application's parts, a pattern's value, what a
+||| delay holds, a metavariable's arguments.
+export
+mentioning : ({0 vs : Scope} -> TT vs -> Mention) -> TT vars -> Mention
+mentioning p tm = orMention (p tm) (parts tm)
+  where
+    anyOf : List (TT vs) -> Mention
+    anyOf [] = Unmentioned
+    anyOf (t :: ts) = orMention (mentioning p t) (anyOf ts)
+
+    binder : TTBinder (TT vs) -> Mention
+    binder (Lam _ _ _ ty) = mentioning p ty
+    binder (Let _ _ v ty) = orMention (mentioning p ty) (mentioning p v)
+    binder (Pi _ _ _ ty) = mentioning p ty
+    binder (PVar _ _ _ ty) = mentioning p ty
+    binder (PLet _ _ v ty) = orMention (mentioning p ty) (mentioning p v)
+    binder (PVTy _ _ ty) = mentioning p ty
+
+    parts : TT vs -> Mention
+    parts (Bind _ _ b sc) = orMention (binder b) (mentioning p sc)
+    parts (App _ f a) = orMention (mentioning p f) (mentioning p a)
+    parts (As _ _ _ pat) = mentioning p pat
+    parts (TDelayed _ _ t) = mentioning p t
+    parts (TDelay _ _ t a) = orMention (mentioning p t) (mentioning p a)
+    parts (TForce _ _ t) = mentioning p t
+    parts (Meta _ _ _ args) = anyOf args
+    parts _ = Unmentioned
+
+||| Does a subterm satisfy the test (`mentioning`)?
 export
 mentions : ({0 vs : Scope} -> TT vs -> Bool) -> TT vars -> Bool
-mentions p tm = p tm || case tm of
-  Bind _ _ b sc => binder b || mentions p sc
-  App _ f a => mentions p f || mentions p a
-  As _ _ _ pat => mentions p pat
-  TDelayed _ _ t => mentions p t
-  TDelay _ _ t a => mentions p t || mentions p a
-  TForce _ _ t => mentions p t
-  Meta _ _ _ args => anyOf args
-  _ => False
+mentions p tm = mentioned (mentioning (\t => asMention (p t)) tm)
   where
-    anyOf : List (TT vs) -> Bool
-    anyOf [] = False
-    anyOf (t :: ts) = mentions p t || anyOf ts
-
-    binder : TTBinder (TT vs) -> Bool
-    binder (Lam _ _ _ ty) = mentions p ty
-    binder (Let _ _ v ty) = mentions p ty || mentions p v
-    binder (Pi _ _ _ ty) = mentions p ty
-    binder (PVar _ _ _ ty) = mentions p ty
-    binder (PLet _ _ v ty) = mentions p ty || mentions p v
-    binder (PVTy _ _ ty) = mentions p ty
+    mentioned : Mention -> Bool
+    mentioned Mentioned = True
+    mentioned Unmentioned = False
 
 ||| Does the term mention `Erased` (a placeholder for an unknown value)?
 export
@@ -1185,41 +1215,98 @@ export
 computesType : Defined -> Front Bool
 computesType d = isTypeLike <$> normaliseClosed d.type
 
+||| A lambda over its type and body, each contracted: where the body
+||| applies a term that does not mention the lambda's variable to that
+||| variable, that term, read without the variable (`dropVariable`, which
+||| gives the evidence `shrink` would not); otherwise the lambda over them.
+lambdaContracted : (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) -> (info : PiInfo (TT vs)) ->
+                   {0 ty : TT vs} -> Contraction EtaContracts ty ->
+                   {0 sc : TT (x :: vs)} -> (body : TT (x :: vs)) -> (0 _ : EtaContracts sc body) ->
+                   Contraction EtaContracts (Bind fc x (Lam lfc rig info ty) sc)
+lambdaContracted fc x lfc rig info ty' app@(App _ f (Local _ _ Z _)) steps = case dropVariable Z DropsHere f of
+  Strengthens g dropped => MkContraction g (EtaRedex steps dropped)
+  MentionsDropped => MkContraction (Bind fc x (Lam lfc rig info ty'.etaForm) app) (EtaBind (EtaLam ty'.etaSteps) steps)
+lambdaContracted fc x lfc rig info ty' body steps =
+  MkContraction (Bind fc x (Lam lfc rig info ty'.etaForm) body) (EtaBind (EtaLam ty'.etaSteps) steps)
+
 mutual
   ||| A term with every eta-redex in it contracted, the innermost first:
   ||| `\y => f y`, where `f` does not mention `y`, is `f`, and so `\x, y =>
-  ||| g x y` is `g`. A normal form keeps them: Idris passes a method's
-  ||| argument of a type that binds implicits so (`fork`'s thread, `\{e'},
-  ||| {c} => thread e' c`), and a family as a lambda that applies it (`\x
-  ||| => g x`: an implementation's superclass over `f . g`, a recursion
-  ||| over `Cells p`, the predicate of `(c ** as ** Positive g c as)`).
-  ||| A type argument is compared contracted (`canonicalTypeArg`), and every
-  ||| reading of the growth check takes a term contracted, a site's and a
-  ||| request's alike, so that a family is read as itself whatever stands
-  ||| for it: a marker, or the type constructor at its head.
+  ||| g x y` is `g`; with the contraction that gives it
+  ||| (`Proof.Reading.EtaContracts`), at quantity 0. A normal form keeps
+  ||| them: Idris passes a method's argument of a type that binds implicits
+  ||| so (`fork`'s thread, `\{e'}, {c} => thread e' c`), and a family as a
+  ||| lambda that applies it (`\x => g x`: an implementation's superclass
+  ||| over `f . g`, a recursion over `Cells p`, the predicate of `(c ** as
+  ||| ** Positive g c as)`). A type argument is compared contracted
+  ||| (`canonicalTypeArg`), and every reading of the growth check takes a
+  ||| term contracted, a site's and a request's alike, so that a family is
+  ||| read as itself whatever stands for it: a marker, or the type
+  ||| constructor at its head.
   export
-  contracted : TT vs -> TT vs
-  contracted (Bind fc x (Lam lfc rig info ty) sc) = case contracted sc of
-    app@(App _ f (Local _ _ Z _)) => fromMaybe (Bind fc x (Lam lfc rig info (contracted ty)) app) (shrink f (Drop Refl))
-    sc' => Bind fc x (Lam lfc rig info (contracted ty)) sc'
-  contracted (Bind fc x b sc) = Bind fc x (binderContracted b) (contracted sc)
-  contracted (App fc f a) = App fc (contracted f) (contracted a)
-  contracted (As fc side a p) = As fc side (contracted a) (contracted p)
-  contracted (TDelayed fc r t) = TDelayed fc r (contracted t)
-  contracted (TDelay fc r t a) = TDelay fc r (contracted t) (contracted a)
-  contracted (TForce fc r t) = TForce fc r (contracted t)
-  contracted (Erased fc (Dotted t)) = Erased fc (Dotted (contracted t))
-  contracted t = t
+  contracted : (t : TT vs) -> Contraction EtaContracts t
+  contracted (Bind fc x (Lam lfc rig info ty) sc) =
+    let body = contracted sc in
+    lambdaContracted fc x lfc rig info (contracted ty) body.etaForm body.etaSteps
+  contracted (Bind fc x b sc) =
+    let b' = binderContracted b
+        sc' = contracted sc in
+    MkContraction (Bind fc x b'.etaForm sc'.etaForm) (EtaBind b'.etaSteps sc'.etaSteps)
+  contracted (App fc f a) =
+    let f' = contracted f
+        a' = contracted a in
+    MkContraction (App fc f'.etaForm a'.etaForm) (EtaApp f'.etaSteps a'.etaSteps)
+  contracted (As fc side a p) =
+    let a' = contracted a
+        p' = contracted p in
+    MkContraction (As fc side a'.etaForm p'.etaForm) (EtaAs a'.etaSteps p'.etaSteps)
+  contracted (TDelayed fc r t) =
+    let t' = contracted t in
+    MkContraction (TDelayed fc r t'.etaForm) (EtaDelayed t'.etaSteps)
+  contracted (TDelay fc r t a) =
+    let t' = contracted t
+        a' = contracted a in
+    MkContraction (TDelay fc r t'.etaForm a'.etaForm) (EtaDelay t'.etaSteps a'.etaSteps)
+  contracted (TForce fc r t) =
+    let t' = contracted t in
+    MkContraction (TForce fc r t'.etaForm) (EtaForce t'.etaSteps)
+  contracted (Erased fc (Dotted t)) =
+    let t' = contracted t in
+    MkContraction (Erased fc (Dotted t'.etaForm)) (EtaDotted t'.etaSteps)
+  contracted t = MkContraction t EtaSame
 
   -- A binder's type, and a `let`'s value. What a binder's implicitness
   -- holds is no part any reading takes.
-  binderContracted : TTBinder (TT vs) -> TTBinder (TT vs)
-  binderContracted (Lam fc rig info ty) = Lam fc rig info (contracted ty)
-  binderContracted (Let fc rig v ty) = Let fc rig (contracted v) (contracted ty)
-  binderContracted (Pi fc rig info ty) = Pi fc rig info (contracted ty)
-  binderContracted (PVar fc rig info ty) = PVar fc rig info (contracted ty)
-  binderContracted (PLet fc rig v ty) = PLet fc rig (contracted v) (contracted ty)
-  binderContracted (PVTy fc rig ty) = PVTy fc rig (contracted ty)
+  binderContracted : (b : TTBinder (TT vs)) -> Contraction BinderContracts b
+  binderContracted (Lam fc rig info ty) =
+    let ty' = contracted ty in MkContraction (Lam fc rig info ty'.etaForm) (EtaLam ty'.etaSteps)
+  binderContracted (Let fc rig v ty) =
+    let v' = contracted v
+        ty' = contracted ty in
+    MkContraction (Let fc rig v'.etaForm ty'.etaForm) (EtaLet v'.etaSteps ty'.etaSteps)
+  binderContracted (Pi fc rig info ty) =
+    let ty' = contracted ty in MkContraction (Pi fc rig info ty'.etaForm) (EtaPi ty'.etaSteps)
+  binderContracted (PVar fc rig info ty) =
+    let ty' = contracted ty in MkContraction (PVar fc rig info ty'.etaForm) (EtaPVar ty'.etaSteps)
+  binderContracted (PLet fc rig v ty) =
+    let v' = contracted v
+        ty' = contracted ty in
+    MkContraction (PLet fc rig v'.etaForm ty'.etaForm) (EtaPLet v'.etaSteps ty'.etaSteps)
+  binderContracted (PVTy fc rig ty) =
+    let ty' = contracted ty in MkContraction (PVTy fc rig ty'.etaForm) (EtaPVTy ty'.etaSteps)
+
+||| A closed term as every reading of the growth check takes it: the host's
+||| normal form of it (`normaliseClosed`'s), eta-contracted, so that a
+||| family is read as itself whatever stands for it; with the context, the
+||| host's steps and the contraction it was read by, at quantity 0
+||| (`Proof.Reading.NormalReading`), which is what the growth proof covers.
+export
+readNormal : (t : ClosedTerm) -> Front (NormalReading OfNormaliseTypes t)
+readNormal t = do
+  ctx <- frozenContext
+  r <- core (host.normaliseTypes ctx t)
+  let c = contracted r.value
+  pure (MkNormalReading c.etaForm ctx r c.etaSteps)
 
 ||| A type argument as data instances compare them: up to eta, and with
 ||| a type-level function and the lambda of its one clause as one
@@ -1241,7 +1328,7 @@ mutual
 ||| already made those one type.
 export
 canonicalTypeArg : ClosedTerm -> Front ClosedTerm
-canonicalTypeArg tm = contracted <$> walk False (contracted tm)
+canonicalTypeArg tm = (\t => (contracted t).etaForm) <$> walk False (contracted tm).etaForm
   where
     -- Reduced to a name, rather than staying a lambda over its clause.
     etaContracted : TT vars -> Bool
