@@ -8,8 +8,7 @@
 // opens it, one lowering each: a view's nothing, a block in the opener's
 // frame, the chain a cursor bumps, the stack of its base cursor, a home of
 // the thread. What puts into a lifetime, opens one on it or packs it reads
-// its value; the lifetime an op states of a value it makes is read by none,
-// nor the view a carrier is lent under, the carrier being its value's words.
+// its value; the lifetime an op states of a value it makes is read by none.
 //
 // Inside a function a cursor lives in a slot of the frame, since every put
 // moves it: its value is the slot's address, which a put reads and writes,
@@ -301,29 +300,14 @@ struct LowerLend : IdrPattern<LendOp> {
   }
 };
 
-// A tensor or a buffer lent to upstream's ops: the lent value's own words,
-// which upstream's ops read as the bare carrier, as an op of no run-time
-// form gives its operand's. A grade is no value at run time and the view
-// lifetime it is lent under none either, so nothing is copied and no count
-// changes: the holder keeps its words and its count, and what the loan
-// promised of its aliases was held before the lowering.
-struct LowerCarrier : IdrPattern<CarrierOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(CarrierOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
-    return success();
-  }
-};
-
 } // namespace
 
 void populateLifetimePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerCellArena, LowerCellStack, LowerReserve, LowerToView<ActivationOp>,
                LowerToView<LifetimeForgetOp>, LowerViewOpener, LowerBlockOpener, LowerChainOpener,
-               LowerStackOpener, LowerHomeOpener, LowerLend, LowerCarrier>(
-      converter, patterns.getContext(), layouts, runtime);
+               LowerStackOpener, LowerHomeOpener, LowerLend>(converter, patterns.getContext(),
+                                                             layouts, runtime);
 }
 
 } // namespace idr::conversion

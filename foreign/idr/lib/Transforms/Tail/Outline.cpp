@@ -17,7 +17,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
-#include "idr/IR/Lifetimes/Loans.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
@@ -71,62 +70,19 @@ llvm::SmallVector<Value> withoutLifetimes(llvm::ArrayRef<Value> values) {
       values, [](Value value) { return !isa<LifetimeType>(value.getType()); }));
 }
 
-namespace {
-
-// Fails, having reported it, where one of `reads`, made outside the code
-// that moves, reads an alias of a loan that no view makes (a region chose
-// it, or an op of upstream's gives it as its operand's alias) and the
-// loan's lifetime ends before that code runs. Such an alias is the run's
-// choice, not a function of the holder, so it cannot be lent again and is
-// handed over as it is: sound where the loan's lifetime outlives the call
-// the code continues, as each of `owner`'s lifetimes does, every function
-// on the stack taking them, or where the loan is of static data, which
-// outlives every lifetime; only the other loans' aliases are followed. The
-// lifetime pass keeps a holder out of a lifetime that ends before a use of
-// its loan, so meeting one is its invariant broken.
-LogicalResult handedOver(FuncOp owner, llvm::ArrayRef<OpOperand *> reads) {
-  WalkResult walked = owner.walk([&](CarrierOp loan) {
-    if (freedBy(loan.getValue().getType(), Release::Static) || placeOf(loan.getLifetime(), owner))
-      return WalkResult::advance();
-    llvm::SmallVector<OpOperand *, 4> starts = llvm::map_to_vector(
-        loan.getResult().getUses(), [](OpOperand &use) { return &use; });
-    OpOperand *met = nullptr;
-    lifetimes::forEachLoanUse(
-        starts,
-        [&](Value alias) {
-          for (OpOperand *read : reads)
-            if (!met && read->get() == alias)
-              met = read;
-        },
-        [](OpOperand &, lifetimes::LoanUse) {});
-    if (!met)
-      return WalkResult::advance();
-    InFlightDiagnostic error = met->getOwner()->emitOpError(
-        "internal error: an invariant of idr-lifetimes is broken (idr-frames): code that runs "
-        "after a call on frames reads a loan's alias only under a lifetime that outlives the "
-        "call, but this op reads one no view makes, lent under a lifetime that ends before "
-        "that code runs");
-    error.attachNote(loan.getLoc()) << "lent here";
-    return WalkResult::interrupt();
-  });
-  return failure(walked.wasInterrupted());
-}
-
-} // namespace
-
 // A loan costs nothing at run time and a view of one is a function of its
 // operands, so the code reads the holder and lends it again, where an
-// alias handed to the function would be plain data no rule follows. Made
-// again before the code, a loan stands under a lifetime the function takes:
-// a view of one of the component's lifetimes, which every function on the
-// stack takes; the per-level lifetime around a call, which the call's rest
-// reopens; or, for static data, which outlives every lifetime, the owner's
-// activation, whose place the function's own takes (adoptLifetimes). Its
-// holder lives in that lifetime, at its place among the function's or in
-// the package, or is static, which the function made of the code holds it
-// to. Each loan and view is made again once however many ops read it, in
-// the order the originals were made.
-FailureOr<Operation *> lendAgain(Operation *first) {
+// alias handed to the function would be plain data no rule follows. Only
+// static data's loan is read from outside code that frames move: the
+// lifetime pass stands every other loan on a span no call on frames is in,
+// so such code holds every use of that loan's aliases or none. Static data
+// outlives every lifetime, so its loan, made again before the code, stands
+// under the owner's activation, a view, whose place the function's own
+// takes (adoptLifetimes), and an alias of it no view makes (a region chose
+// it, or an op of upstream's gives it as its operand's alias), which cannot
+// be made again, is handed over as it is. Each loan and view is made again
+// once however many ops read it, in the order the originals were made.
+Operation *lendAgain(Operation *first) {
   Block *block = first->getBlock();
   // Whether `value` is made by the code: by one of its ops, or bound by a
   // region of one.
@@ -137,22 +93,18 @@ FailureOr<Operation *> lendAgain(Operation *first) {
     Operation *top = block->findAncestorOpInBlock(*maker);
     return top && !top->isBeforeInBlock(first);
   };
-  // Every read, made outside the code, of a tensor or a buffer at no grade,
-  // the only type a loan's alias has: of a loan or a view of one, which is
-  // lent again; or of another such value, which a loan's alias no view
-  // makes may be.
-  llvm::SmallVector<OpOperand *, 8> reads, others;
+  // Every read, made outside the code, of a loan or a view of one: a tensor
+  // or a buffer at no grade, the only type a loan's alias has.
+  llvm::SmallVector<OpOperand *, 8> reads;
   for (Operation *op = first; op; op = op->getNextNode())
     op->walk([&](Operation *nested) {
       for (OpOperand &use : nested->getOpOperands()) {
         Value value = use.get();
-        if (!isa<TensorType, BaseMemRefType>(value.getType()) || moves(value))
-          continue;
-        (lifetimes::loanOf(value) ? reads : others).push_back(&use);
+        if (isa<TensorType, BaseMemRefType>(value.getType()) && !moves(value) &&
+            lifetimes::loanOf(value))
+          reads.push_back(&use);
       }
     });
-  if (!others.empty() && failed(handedOver(first->getParentOfType<FuncOp>(), others)))
-    return failure();
   if (reads.empty())
     return first;
 
@@ -165,13 +117,10 @@ FailureOr<Operation *> lendAgain(Operation *first) {
     if (again.contains(alias))
       continue;
     CarrierOp loan = lifetimes::loanOf(alias);
-    // A counted holder is lent only in a region the lifetime pass opens,
-    // around every use of the loan's aliases and over no call on frames, so
-    // no code that moves around such a call reads its loan from outside.
-    assert(!freedBy(loan.getValue().getType(), Release::Counted) &&
-           "no code frames move reads a counted value's loan from outside it");
-    // What the alias stands on, from itself up to the loan and the view
-    // the loan is lent under, where that is taken of another lifetime.
+    assert(freedBy(loan.getValue().getType(), Release::Static) &&
+           "the lifetime pass stands every loan but static data's on a span no call on frames "
+           "is in, so no other is read from outside code that frames move");
+    // What the alias stands on, from itself up to the loan.
     llvm::SmallVector<Operation *, 4> standsOn;
     for (Value at = alias; at != loan.getResult();) {
       auto view = at.getDefiningOp<ViewLikeOpInterface>();
@@ -179,13 +128,11 @@ FailureOr<Operation *> lendAgain(Operation *first) {
       at = view.getViewSource();
     }
     standsOn.push_back(loan.getOperation());
-    if (auto forget = loan.getLifetime().getDefiningOp<LifetimeForgetOp>())
-      standsOn.push_back(forget.getOperation());
     for (Operation *op : llvm::reverse(standsOn)) {
       if (again.contains(op->getResult(0)))
         continue;
-      assert(isPure(op) && "a loan, the view it is lent under and a view of a loan are pure, so "
-                           "made again they mean what they meant");
+      assert(isPure(op) &&
+             "a loan and a view of one are pure, so made again they mean what they meant");
       Operation *made = b.clone(*op, again);
       if (start == first)
         start = made;
@@ -293,10 +240,7 @@ FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
 FailureOr<CallOp> Component::outline(FuncOp owner, unsigned row, Operation *first,
                                      ValueRange params, llvm::StringRef kind) {
   MLIRContext *ctx = owner.getContext();
-  FailureOr<Operation *> lent = lendAgain(first);
-  if (failed(lent))
-    return failure();
-  first = *lent;
+  first = lendAgain(first);
   Block *block = first->getBlock();
   Operation *terminator = block->getTerminator();
   llvm::SmallVector<Value> read(params);

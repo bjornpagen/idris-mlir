@@ -216,8 +216,8 @@ void populateFunctionPatterns(mlir::RewritePatternSet &patterns,
                               Runtime &runtime);
 
 // The patterns of the lifetimes' ops: the openers, this activation's
-// lifetime, the loan for a region, the carrier lent to upstream's ops, the
-// derived lifetimes and the cells put into one.
+// lifetime, the loan for a region, the derived lifetimes and the cells put
+// into one.
 void populateLifetimePatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
                               Runtime &runtime);
