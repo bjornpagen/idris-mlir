@@ -4002,6 +4002,15 @@ C137.
   op that runs exactly one of them and an N-arm rejoin, since a match has
   N regions and its result tokens exist only once it is rebuilt with
   their merged types.
+- **C196** (2026-10-22; the decisions audit; amends C24 and records
+  C1's reach). File times follow base's own API: `io.file_time` takes a
+  file handle and gives a file-time handle, and one op,
+  `handle.file_time <field>`, reads each of base's six fields, where C24
+  had one op with seven results that no base function matches (L13,
+  989f2be5). And C189 supersedes C1 where they meet: borrow inference
+  lends nothing around a call on its caller's own cycle, so frames can
+  split every region it is handed; C1's derived borrows stand
+  elsewhere.
 
 ## 4. Open: the owner's decisions, in order
 
