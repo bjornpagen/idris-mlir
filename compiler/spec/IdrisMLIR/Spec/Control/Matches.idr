@@ -65,7 +65,8 @@ matchedLiteral = MkPredicate "isMatchedLiteral" OnType
 ||| The lifetimes a control op states, one per scoped value it makes: its
 ||| scoped results, in result order, then the scoped values its regions
 ||| bind, in the order its kind says.
-export
+-- Public, as other modules' ops check its name at compile time.
+public export
 outers : Operand
 outers = variadic "outers" (OurType (SomeType lifetimeType))
 
