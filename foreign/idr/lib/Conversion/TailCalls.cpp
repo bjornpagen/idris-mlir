@@ -1,66 +1,37 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-tail-calls: every call the program makes in tail position on a cycle
-// of calls is a guaranteed tail call, so that a recursion through such calls
-// runs in constant stack. Idris has no loop but recursion: an IO loop or a
-// mutual recursion in tail position must not grow the stack; idr-tail-loops
-// makes only a function's calls of itself loops.
+// idr-tail-calls: the tail fact each call carries, made what LLVM obeys. A
+// call in tail position never grows the stack: the idr call holds the fact
+// (`tail`), its verifier held every pass to it, and idr-lower made it a
+// `musttail` call under `tailcc`, the convention every function of the
+// program takes. Nothing here decides which call is one, or keeps a call
+// it could not make: a `musttail` call LLVM cannot make fails to compile,
+// never silently a call.
 //
-// The pass runs last, on the LLVM dialect, where the control flow is final.
-//
-//   - Which calls. A call in tail position matters where its callee is on
-//     its caller's cycle of calls: a recursion keeps a frame per round
-//     unless each of its calls is a tail call. A call from one cycle to
-//     another adds its caller's frame once at most, since the callee never
-//     calls back, so it is left an ordinary call, which costs nothing. The
-//     cycles are those of direct calls: no call through a pointer is a tail
-//     call, so a cycle through one keeps that call's frame anyway.
-//   - The calling convention. The caller and the callee of such a call take
-//     LLVM's `tailcc`, and so do all their calls: fastcc's registers, with
-//     the guarantee that a call in tail position is a tail call, whose stack
-//     arguments the callee pops. The popping costs every call of such a
-//     function (on x86-64 a slot that keeps the stack aligned, which the
-//     callee pops even when there is no stack argument and the caller takes
-//     back), so the other functions keep C's convention, which LLVM makes
-//     fastcc. Only a function that only the module's own calls reach
-//     (private, its address never taken) takes `tailcc`: @main and the
-//     entry body, which the runtime's entry calls through a pointer, keep
-//     C's. Calls of the runtime's C functions stay calls of C: the runtime
-//     never calls back, so no recursion runs through one.
-//   - Tail position. A call of a `tailcc` function from one is in tail
-//     position when the path from it decides, by what it sees alone, to
-//     return the call's result unchanged: through extractvalue and
-//     insertvalue that take the result apart and put it back together,
-//     through branches whose block arguments carry it, past conditions the
-//     path decides (the exit flag a loop's tail passes as a constant) and
-//     past ops that only compute. The call becomes `musttail`, with the
-//     return moved right after it: LLVM then emits a tail call or fails to
-//     compile, never silently a call.
+//   - The return. The lowering gives a call's results back through the
+//     components it took apart and the branches the matches became, and
+//     the idr verifier proved they reach the return unchanged; LLVM wants
+//     the return right after the call. Each `musttail` call's block ends
+//     there with the return of the call's result, and what followed it no
+//     longer runs.
 //   - Results the target returns in memory. A result that does not fit the
 //     return registers would come back through a hidden pointer into the
 //     caller's frame, and LLVM makes no tail call of such a call. What fits
-//     is the target's own answer: LLVM's lowering of `tailcc` is asked, for
-//     the module's #llvm.target. Each function on a tail call whose result
-//     does not fit takes a pointer to write its result to instead, first,
-//     and returns nothing: a tail call passes on the pointer its caller got,
-//     any other call a slot of its own frame, which it reads back.
-//   - A frame's cells. A call that may reach its caller's frame through what
-//     it takes (a cell idr-rc-stack put there, or memory that holds one) stays
-//     a call, since the frame has to outlive the callee. idr-rc-stack puts on
-//     the stack no cell that a call in tail position on its caller's cycle
-//     takes, so such a call is never a recursion's: its callee, off the
-//     cycle, never calls back round, and adds its frame once.
+//     is the target's own answer, for the module's #llvm.target, and a fact
+//     of the result's type alone: every function of the program whose
+//     result does not fit takes a pointer to write it to instead, first,
+//     and returns nothing. A tail call passes on the pointer its caller
+//     got (its result is its caller's, so of the same type), any other call
+//     a slot of its own frame, which it reads back. The hidden pointer
+//     LLVM would make costs the same; this one a tail call can pass on.
 //
-// What the pass decides needs the whole module: which functions only the
-// module's calls reach, the cycles, and which results go through memory,
-// which make each function's convention, a fact its callers read. That is
-// the plan (TailCallPlan), computed once; the rewrite is per function, and
-// runs on every function at once, each reading only the plan.
+// LLVM's verifier is the last check: a `musttail` call whose result is not
+// its function's, or whose callee takes another convention, is refused
+// there, as the internal error it is.
 
-#include "idr/Analysis/CallCycles.h"
 #include "idr/Conversion/PassThroughMemory.h"
 #include "idr/Conversion/Passes.h"
-#include "idr/Conversion/TailCallPlan.h"
+#include "idr/Conversion/ReturnRegisters.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -68,6 +39,8 @@
 #include "mlir/IR/Threading.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/RegionUtils.h"
+
+#include <cstdint>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRTAILCALLS
@@ -83,21 +56,20 @@ namespace {
 using LLVM::cconv::CConv;
 using LLVM::tailcallkind::TailCallKind;
 
-// What the plan says of `fn`, done to it, in the order the rewrite needs:
-// its own convention; the return right after each of its planned tail
-// calls, and the blocks the entry no longer reaches gone, so that no call is
-// left that would keep its callee's old signature; then each call left takes
-// its callee's convention, read from the plan, before any call is made
-// again, since a call made again keeps the convention of the one it
-// replaces; its result through memory, and its other calls of functions
-// whose result goes there through slots of its frame; then each planned
-// call made `musttail`.
-void place(LLVM::LLVMFuncOp fn, const TailCallPlan &plan) {
+// Where a result of the program's convention comes back: in the return
+// registers, or written through a pointer its caller passes.
+enum class Returned : std::uint8_t { InRegisters, ThroughMemory };
+
+// `fn`'s `musttail` calls, each its block's last op but the return of its
+// result: the rest of the block moves to a block of its own, which, like
+// every block the entry no longer reaches, goes.
+SmallVector<LLVM::CallOp> endAtTailCalls(LLVM::LLVMFuncOp fn) {
   IRRewriter rewriter(fn.getContext());
-  Convention own = plan.conventionOf(fn.getSymNameAttr());
-  if (own != Convention::C)
-    fn.setCConv(CConv::Tail);
-  SmallVector<LLVM::CallOp> tailCalls(plan.tailCallsOf(fn));
+  SmallVector<LLVM::CallOp> tailCalls;
+  fn.walk([&](LLVM::CallOp call) {
+    if (call.getTailCallKind() == TailCallKind::MustTail)
+      tailCalls.push_back(call);
+  });
   for (LLVM::CallOp call : tailCalls) {
     Block *block = call->getBlock();
     rewriter.splitBlock(block, std::next(call->getIterator()));
@@ -105,51 +77,55 @@ void place(LLVM::LLVMFuncOp fn, const TailCallPlan &plan) {
     LLVM::ReturnOp::create(rewriter, call.getLoc(), call.getResults());
   }
   (void)eraseUnreachableBlocks(rewriter, fn.getBody());
+  return tailCalls;
+}
+
+// `fn`, its `musttail` calls `tailCalls`, with each result of the
+// program's convention that does not fit the registers going through
+// memory: its own, if it takes the convention, and each of its calls'. The
+// entry, of C's convention, calls the program's root so too.
+void throughMemory(LLVM::LLVMFuncOp fn, SmallVectorImpl<LLVM::CallOp> &tailCalls,
+                   ReturnRegisters &registers) {
+  IRRewriter rewriter(fn.getContext());
+  auto returned = [&](Type type) {
+    return registers.fit(type) ? Returned::InRegisters : Returned::ThroughMemory;
+  };
   SmallVector<LLVM::CallOp> slots;
   fn.walk([&](LLVM::CallOp call) {
-    // A call through a pointer names no callee, and every function the plan
-    // gives another convention is called only directly: it stays C's.
-    FlatSymbolRefAttr callee = call.getCalleeAttr();
-    if (!callee)
+    if (call.getCConv() != CConv::Tail || call.getTailCallKind() == TailCallKind::MustTail ||
+        call.getNumResults() != 1)
       return;
-    Convention convention = plan.conventionOf(callee.getAttr());
-    if (convention == Convention::C)
-      return;
-    call.setCConv(CConv::Tail);
-    if (convention == Convention::TailThroughMemory && !llvm::is_contained(tailCalls, call))
+    if (returned(call.getResult().getType()) == Returned::ThroughMemory)
       slots.push_back(call);
   });
-  if (own == Convention::TailThroughMemory) {
+  if (fn.getCConv() == CConv::Tail &&
+      returned(fn.getFunctionType().getReturnType()) == Returned::ThroughMemory) {
     Value out = takeResultPointer(fn, rewriter);
     passOnPointer(tailCalls, out, rewriter);
     storeResults(fn, out, rewriter);
   }
   callThroughSlots(fn, slots, rewriter);
-  for (LLVM::CallOp call : tailCalls)
-    call.setTailCallKind(TailCallKind::MustTail);
 }
 
 struct TailCalls : idr::impl::IdrTailCallsBase<TailCalls> {
   using IdrTailCallsBase::IdrTailCallsBase;
 
-  // The plan is the module's; the rewrite then runs on every function at
-  // once, each reading only the plan and its own body.
+  // Each function on its own: its returns in parallel; then its results,
+  // serially, since the target's answers are asked once per type and kept.
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    FailureOr<TailCallPlan> plan = TailCallPlan::make(module, getAnalysis<CallCycles>());
-    if (failed(plan))
+    FailureOr<ReturnRegisters> registers = ReturnRegisters::of(module);
+    if (failed(registers))
       return signalPassFailure();
-    numFrameBound += plan->frameBound();
-    numInMemory += plan->inMemory();
     SmallVector<LLVM::LLVMFuncOp> functions;
     for (auto fn : module.getOps<LLVM::LLVMFuncOp>())
       if (!fn.isExternal())
         functions.push_back(fn);
-    parallelForEach(&getContext(), functions, [&](LLVM::LLVMFuncOp fn) { place(fn, *plan); });
-    module.walk([&](LLVM::CallOp call) {
-      if (call.getTailCallKind() == TailCallKind::MustTail)
-        ++numTailCalls;
-    });
+    SmallVector<SmallVector<LLVM::CallOp>> tailCalls(functions.size());
+    parallelFor(&getContext(), 0, functions.size(),
+                [&](size_t at) { tailCalls[at] = endAtTailCalls(functions[at]); });
+    for (auto [fn, calls] : llvm::zip_equal(functions, tailCalls))
+      throughMemory(fn, calls, *registers);
   }
 };
 

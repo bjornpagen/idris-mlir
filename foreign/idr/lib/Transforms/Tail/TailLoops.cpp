@@ -2,48 +2,35 @@
 // Copyright (c) 2026 Bjorn Pagen
 //===- TailLoops.cpp - idr-tail-loops -------------------------------------===//
 //
-// Self tail calls become loops, one function at a time.
+// A function's self tail calls become one loop: a recursive join point
+// whose region is the old body, each self tail call a jump back to it
+// (idr::joins::loopSelf, the one construction of join points). A call
+// whose fact is `tail` is in tail position by the verifier's word, so the
+// jump that replaces it is a tail transfer, and nothing after it runs.
 //
-// A self tail call is an idr.call of the enclosing function whose results
-// are returned unchanged: it is the last op before the function's
-// idr.return, or before the idr.yield of a match region whose match is
-// itself in tail position, and that terminator passes on exactly its
-// results.
+// The loop is an optimization over the guarantee, not the guarantee: a
+// self tail call left a call is `musttail` at the lowering and grows no
+// stack either. So the loop is an action a debug counter may skip.
 //
-// Most such functions decide once per call whether to go round again: their
-// body ends in a match whose results it returns, one region of which ends in
-// the self tail call and the other reaches none. That function becomes the
-// loop MLIR expects, in while-do form (whileDo). Any other function with a
-// self tail call becomes one scf.while over its arguments with a payload at
-// every tail position (generalLoop).
+// Code Idris did not prove to terminate keeps its loop's divergence (the
+// loop is made of code that may diverge), so that an unused loop that may
+// run forever stays, as eager evaluation keeps it.
 //
-// A function that is not total may not terminate, so its loop gets
-// idr.may_loop: a loop without effects whose results are unused would
-// otherwise be trivially dead upstream. Nothing here adds a progress
-// guarantee.
-//
-// The pass reads its own function and nothing else: a scrutinee's type
-// carries its constructors. It builds the loop inside the body without
-// changing the function's type.
+// The pass reads its own function and nothing else, and changes nothing
+// outside it.
 //
 //===----------------------------------------------------------------------===//
 
 #include "idr/Transforms/Tail.h"
 
-#include "idr/IR/Tail.h"
-#include "idr/IR/Grades.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Match.h"
+#include "idr/Transforms/Joins.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/SCF/Transforms/Transforms.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRTAILLOOPS
@@ -53,40 +40,6 @@ namespace idr {
 using namespace mlir;
 
 namespace idr::tail {
-
-void forTails(Block &block, function_ref<void(Block &)> f) {
-  if (Operation *match = tailMatch(block.getTerminator())) {
-    for (Region &region : match->getRegions())
-      if (!region.empty())
-        forTails(region.front(), f);
-    return;
-  }
-  f(block);
-}
-
-bool reachesTailCall(Block &block, FuncOp fn) {
-  Operation *terminator = block.getTerminator();
-  if (!passesOnPrevious(terminator))
-    return false;
-  Operation *prev = terminator->getPrevNode();
-  if (isSelfCall(prev, fn))
-    return true;
-  if (!isTailMatch(prev))
-    return false;
-  return llvm::any_of(prev->getRegions(), [&](Region &region) {
-    return !region.empty() && reachesTailCall(region.front(), fn);
-  });
-}
-
-FailureOr<StringAttr> copyName(FuncOp fn, StringRef kind, SymbolTable &symbols) {
-  auto name = StringAttr::get(fn.getContext(), contentName(fn.getSymName(), kind, ""));
-  if (!symbols.lookup(name))
-    return name;
-  fn.emitError() << "internal error: the name " << name.getValue() << " of the " << kind << " copy of @"
-                 << fn.getSymName() << " is taken";
-  return failure();
-}
-
 namespace {
 
 // idr-tail-loops makes one function's self tail calls a loop; the unit is
@@ -96,95 +49,29 @@ struct TailLoopAction : support::TaggedAction<TailLoopAction> {
   static constexpr llvm::StringLiteral tag = "idr-tail-loops-loop";
 };
 
-// idr-tail-loops moves the invariant code of one while-do loop before it;
-// the unit is the loop. One action for the whole loop: skipping one op of
-// it would let the hoisting move that op's users above it.
-struct TailHoistAction : support::TaggedAction<TailHoistAction> {
-  using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-tail-loops-hoist";
-};
-
-// idr-tail-loops makes one while-do loop an scf.for; the unit is the loop.
-struct TailUpliftAction : support::TaggedAction<TailUpliftAction> {
-  using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-tail-loops-uplift";
-};
-
-// The decision that `fn`'s body is, or none: a match of two regions that
-// run, one that ends in the self tail call and one that reaches none. (An
-// exhaustive match's default region is empty and never runs.)
-std::optional<Decision> decisionOf(FuncOp fn) {
-  Operation *ret = fn.getBody().front().getTerminator();
-  auto match = dyn_cast_or_null<MatchOpInterface>(tailMatch(ret));
-  if (!match)
-    return std::nullopt;
-  SmallVector<Region *, 2> regions;
-  for (Region &region : match->getRegions())
-    if (!region.empty())
-      regions.push_back(&region);
-  if (regions.size() != 2)
-    return std::nullopt;
-  auto loops = [&](Region *region) {
-    Operation *end = region->front().getTerminator();
-    return isa<YieldOp>(end) && passesOnPrevious(end) && isSelfCall(end->getPrevNode(), fn);
-  };
-  auto exits = [&](Region *region) {
-    return !loops(region) && !reachesTailCall(region->front(), fn);
-  };
-  auto looping = llvm::find_if(regions, loops);
-  auto exiting = llvm::find_if(regions, exits);
-  if (looping == regions.end() || exiting == regions.end())
-    return std::nullopt;
-  // The loop tests an integer against the one key of its case (a literal
-  // match that runs two regions has one case besides its default), or the
-  // constructor of a value.
-  if (isa<MatchLitOp>(match) && !isa<IntegerType>(match.getScrutinee().getType()))
-    return std::nullopt;
-  return Decision{match, **looping, **exiting};
-}
-
-// Whether `op`, in a loop, may run once before it instead: it has no
-// effect, cannot fail, and holds no reference, so no count changes
-// whichever iteration's copy it is.
-bool invariantCode(Operation *op) {
-  return isMemoryEffectFree(op) && isSpeculatable(op) &&
-         llvm::none_of(op->getResults(), [](Value result) { return isOwned(result.getType()); });
-}
-
 struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
-  void runOnOperation() override {
+  // The staged base finds the program and checks its stage; the pass reads
+  // only its own function.
+  void runOnProgram(ProgramOp) {
     FuncOp fn = getOperation();
-    if (!reachesTailCall(fn.getBody().front(), fn))
+    llvm::SmallVector<joins::Site> calls;
+    fn.walk([&](CallOp call) {
+      if (call.getTailKind() == TailKind::tail &&
+          call.getCalleeAttr().getAttr() == fn.getSymNameAttr())
+        calls.push_back(joins::Site{call, 0, call.getArgs(), call.getIndexArgsAttr()});
+    });
+    if (calls.empty())
       return markAllAnalysesPreserved();
+    joins::Origin origin = idr::match(
+        fn.getTermination(), [](Unproved) { return joins::Origin::MayDiverge; },
+        [](InComponent) { return joins::Origin::Terminates; },
+        [](Acyclic) { return joins::Origin::Terminates; });
     IRRewriter rewriter(fn.getContext());
-    // The while-do loop when the body is a decision; failure once the
-    // general loop is made instead.
-    FailureOr<scf::WhileOp> loop = failure();
     if (!support::perform<TailLoopAction>(fn, [&] {
-          std::optional<Decision> decision = decisionOf(fn);
-          if (decision)
-            loop = whileDo(fn, *decision, rewriter);
-          if (failed(loop))
-            generalLoop(fn, rewriter);
+          joins::loopSelf(rewriter, fn, calls, origin);
+          ++numLoops;
         }))
       return markAllAnalysesPreserved();
-    ++numLoops;
-    if (failed(loop))
-      return;
-    // Code that the loop does not change moves out of it, and a loop that
-    // counts to a bound becomes an scf.for; one that does not stays a while.
-    (void)support::perform<TailHoistAction>(*loop, [&] {
-      moveLoopInvariantCode(
-          loop->getLoopRegions(),
-          [&](Value value, Region *) { return loop->isDefinedOutsideOfLoop(value); },
-          [&](Operation *op, Region *) { return invariantCode(op); },
-          [&](Operation *op, Region *) { loop->moveOutOfLoop(op); });
-    });
-    rewriter.setInsertionPoint(*loop);
-    (void)support::perform<TailUpliftAction>(*loop, [&] {
-      if (succeeded(scf::upliftWhileToForLoop(rewriter, *loop)))
-        ++numCounted;
-    });
   }
 };
 

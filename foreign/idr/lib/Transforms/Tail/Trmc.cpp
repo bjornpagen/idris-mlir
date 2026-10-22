@@ -2,54 +2,54 @@
 // Copyright (c) 2026 Bjorn Pagen
 //===- Trmc.cpp - idr-trmc ------------------------------------------------===//
 //
-// A self call whose result the value a tail position returns holds, in a
-// context that nothing else reaches, becomes a tail call that writes it.
+// Every self call modulo a context becomes a tail call that writes its
+// result. The call's fact says it is one (`modulo_context`, which the
+// frontend wrote and every pass kept, the verifier holding each to the
+// rule), so nothing here searches: each call's context is read once, off
+// the call, and executed.
 //
-// `copy (Cons x xs) = Cons x (copy xs)` returns through every level of
-// the list. The constructor can be built before the call, with the field a
-// hole, and the call given the hole's destination (`!idr.dest`), which the
-// constructor gives, to write once it has its value; then the call is the
-// last thing the tail does. So can every cell the returned value holds the
-// first one in (`dup (x :: xs) = x :: x :: dup xs`, `traverse_`'s action
-// of the rest inside the actions that run it), and across a join, where
-// each region builds its own holed cell and gives its destination as one
-// more result of the match (contextAt). The function keeps its signature
-// and does that for its first level only: each such tail builds its value,
-// calls a clone with the destination and returns the value. The clone
-// takes a destination and returns nothing: a tail of its own that builds a
-// context around a self call writes the value to the destination it was
-// given and calls itself with the new one, a plain self tail call passes
-// the destination on, and any other tail writes its value. idr-tail-loops
-// then makes the clone a loop, and the structure is written top down in
-// constant stack. A self call in any other position (one whose result is
-// inspected, as a rebalancing insert inspects its subtree) stays a call of
-// the function, and the stack grows with it, as it must.
+// `copy (Cons x xs) = Cons x (copy xs)` returns through every level of the
+// list. The cell can be built before the call, with the field a hole, and
+// the call given the hole's destination (`!idr.dest`) to write once it has
+// its value; then the call is the last thing the tail does. So can every
+// cell the returned value holds the first one in (`x :: x :: dup xs`, the
+// action of the rest inside the actions that run it), and across a
+// rejoin: where the context's cell is built after a match whose regions
+// give its field, the cell is built before the match and each region
+// writes its value into the hole, its own self call by passing the hole on.
+// The function keeps its signature and does that for its first level; its
+// self calls modulo a context go to a clone that takes a destination and
+// returns nothing, whose own such tails write the value they build to the
+// destination they got and recurse on the new one, whose self tail calls
+// pass the destination on, and whose other tails write their value.
+// idr-tail-loops makes the clone a loop: the structure is written top down
+// in constant stack.
 //
-// The pass stays at the program: each clone is a new symbol in the
-// program's block, which no pass on one function may add. It goes right
-// after its function, under a name made from the function's and the kind
-// `trmc`, so no order reaches the name.
+// It runs after counting, which honours each context: the cells on it are
+// fresh heap cells, the scrutinee's token recycled into them, and nothing
+// is placed between the call and its context's constructors. A promise, so
+// no step of it is an action a debug counter may skip; a context it cannot
+// execute is an internal error.
+//
+// The pass stays at the program: each clone is a new symbol of the program.
 //
 //===----------------------------------------------------------------------===//
 
 #include "idr/Transforms/Tail.h"
 
-#include "idr/Transforms/Expect.h"
-
-#include "idr/IR/Tail.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Layout.h"
-#include "idr/IR/TypeGraph.h"
-#include "idr/Support/Actions.h"
+#include "idr/IR/Tail.h"
+#include "idr/IR/Traits.h"
+#include "idr/Support/Match.h"
 #include "idr/Support/Remake.h"
-#include "idr/Transforms/Pipeline.h"
+#include "idr/Transforms/Effects.h"
 
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Sequence.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRTRMC
@@ -61,209 +61,390 @@ using namespace mlir;
 namespace idr::tail {
 namespace {
 
-// idr-trmc gives one function its destination-passing clone; the unit is
-// the function.
-struct TrmcCloneAction : support::TaggedAction<TrmcCloneAction> {
-  using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-trmc-clone";
+// What a context's step made a value: the hole's cell, a cell or a part
+// further out, or a part read back out of a value laid out inline.
+struct Hole {
+  Into into;
+};
+struct Outer {
+  Into into;
+};
+struct Part {
+  ReadBack read;
+};
+using Making = std::variant<std::monostate, Hole, Outer, Part>;
+
+// The value a change of grade carries, through every such change.
+Value throughRegrades(Value value) {
+  while (Operation *def = value.getDefiningOp()) {
+    if (!def->hasTrait<ResultCarriesOperand>())
+      break;
+    value = def->getOperand(0);
+  }
+  return value;
+}
+
+// A context mapped into a copy of its function.
+Context mapped(const Context &context, const IRMapping &mapping) {
+  auto op = [&](Operation *from) { return mapping.lookup(from); };
+  auto value = [&](Value from) { return mapping.lookup(from); };
+  auto into = [&](const Into &from) {
+    return Into{op(from.op), from.operand, from.field, value(from.built)};
+  };
+  Context to{cast<CallOp>(op(context.call)), {}, into(context.hole), {}};
+  for (const Approach &step : context.approach)
+    to.approach.push_back(idr::match(
+        step, [&](const Regrade &r) -> Approach { return Regrade{op(r.op)}; },
+        [&](const Forward &f) -> Approach { return Forward{op(f.terminator), f.position}; }));
+  for (const Step &step : context.rest)
+    to.rest.push_back(idr::match(
+        step, [&](const Regrade &r) -> Step { return Regrade{op(r.op)}; },
+        [&](const Into &i) -> Step { return into(i); },
+        [&](const ReadBack &r) -> Step { return ReadBack{op(r.op), value(r.part)}; },
+        [&](const Forward &f) -> Step { return Forward{op(f.terminator), f.position}; }));
+  return to;
+}
+
+// Where a value given at a tail goes: on, as the function's first level
+// returns it, or into a destination.
+struct Given {};
+struct Written {
+  Value dest;
+};
+using Target = std::variant<Given, Written>;
+
+class Rewrite {
+public:
+  Rewrite(RewriterBase &rewriter, FuncOp fn, FuncOp clone, llvm::ArrayRef<Context> contexts)
+      : rewriter(rewriter), fn(fn), clone(clone), contexts(contexts) {}
+
+  // `value`, given at operand `position` of `terminator` at a tail, goes
+  // to `target`. Fails, reported, on a context it cannot build.
+  LogicalResult give(Value value, Operation *terminator, unsigned position, Target target);
+
+private:
+  Making makerOf(Value value) const;
+  // Rebuilds the hole's cell with its field a hole: its destination.
+  Value makeHole(const Into &hole);
+  // The ops after `producer` in its block, its terminator aside, moved
+  // before it, in order: the context's cells and what their other fields
+  // need, which the rule proved may run there. The changes of grade of the
+  // producer's own results go, which the hole no longer reads.
+  void buildBefore(Operation *producer);
+  // `call` made a call of the clone that fills `dest`. Its kind is decided
+  // once the function is whole (decide), where its place is final.
+  void fillByCall(CallOp call, Value dest);
+  // The region op `rejoin`'s result `position` filled in each region, and
+  // the op made again without that result.
+  LogicalResult fillByRegions(Operation *rejoin, unsigned position, Value dest);
+  // `terminator` forwards nothing at `position`; the changes of grade only
+  // that operand read go. The op whose region it ends drops that result
+  // once every region has (fillByRegions), and the clone its own at last.
+  void dropForwarded(Operation *terminator, unsigned position);
+
+  RewriterBase &rewriter;
+  FuncOp fn;
+  FuncOp clone;
+  llvm::ArrayRef<Context> contexts;
 };
 
-// A call of `clone` with `operands`, in place of `old`: the clone is the
-// same recursion with the same facts, so the call does what the old one
-// did.
-void callClone(RewriterBase &rewriter, CallOp old, FuncOp clone, ValueRange operands) {
-  auto call = CallOp::create(rewriter, old.getLoc(), clone, operands);
-  call->setDiscardableAttrs(old->getDiscardableAttrDictionary());
-}
-
-// The terminator of `block`, an idr.return or a match's idr.yield, with no
-// operands.
-void endWithNothing(RewriterBase &rewriter, Block &block) {
-  Operation *terminator = block.getTerminator();
-  rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperands(ValueRange()); });
-}
-
-// The box `built` writes into its cell, again, with its field `index` a
-// hole: the same cell, the fields it was given but that one, and the
-// hole's destination. The box keeps the grade counting gave it.
-CellInitOp withHole(RewriterBase &rewriter, CellInitOp built, unsigned index) {
-  rewriter.setInsertionPoint(built);
-  SmallVector<Value> fields;
-  for (auto [at, given] : llvm::enumerate(built.getFields()))
-    if (at != index)
-      fields.push_back(given);
-  return CellInitOp::create(rewriter, built.getLoc(), built.getResult().getType(), built.getCell(),
-                            fields, {static_cast<int32_t>(index)});
-}
-
-// The destination-passing form of one tail: each holed cell built with the
-// field a hole, each join giving its region's destination as one more
-// result, and at the end of the tail, once the value it returns is built,
-// that value written to `hole`, the clone's own, when there is one (the
-// function's first level has none: it returns the value), and the one
-// destination that arrives passed to the clone in the call's place. Each
-// cell gives its destination as it is built, and its reference then moves
-// on: into the hole it fills, or out of the function.
-void passDestination(RewriterBase &rewriter, const Context &tail, FuncOp clone,
-                     std::optional<Value> hole) {
-  CallOp call = tail.call;
-  Location loc = call.getLoc();
-  llvm::DenseMap<Block *, Value> dests;
-  Type destType;
-  for (Hole each : tail.holes) {
-    CellInitOp holed = withHole(rewriter, each.init, each.index);
-    rewriter.replaceAllUsesWith(each.init.getResult(), holed.getResult());
-    rewriter.eraseOp(each.init);
-    Value dest = holed.getDest(each.index);
-    destType = dest.getType();
-    dests[holed->getBlock()] = dest;
-  }
-  for (Operation *grade : llvm::reverse(tail.grades))
-    rewriter.eraseOp(grade);
-  for (Operation *join : tail.joins) {
-    for (Region &region : join->getRegions()) {
-      if (region.empty())
-        continue;
-      Operation *yield = region.front().getTerminator();
-      Value dest = dests.at(&region.front());
-      rewriter.modifyOpInPlace(yield,
-                               [&] { yield->insertOperands(yield->getNumOperands(), dest); });
+Making Rewrite::makerOf(Value value) const {
+  for (const Context &context : contexts) {
+    if (context.hole.built == value)
+      return Hole{context.hole};
+    for (const Step &step : context.rest) {
+      Making found = idr::match(
+          step, [](const Regrade &) -> Making { return std::monostate{}; },
+          [&](const Into &into) -> Making {
+            return into.built == value ? Making(Outer{into}) : Making(std::monostate{});
+          },
+          [&](const ReadBack &read) -> Making {
+            return read.part == value ? Making(Part{read}) : Making(std::monostate{});
+          },
+          [](const Forward &) -> Making { return std::monostate{}; });
+      if (found.index() != 0)
+        return found;
     }
-    SmallVector<Type> results(join->getResultTypes());
-    results.push_back(destType);
-    Operation *made = remakeOp(rewriter, join, join->getOperands(), results);
-    rewriter.replaceOp(join, made->getResults().drop_back());
-    dests[made->getBlock()] = made->getResults().back();
   }
-  Block &block = *call->getBlock();
-  Operation *terminator = block.getTerminator();
-  rewriter.setInsertionPoint(terminator);
-  if (hole)
-    DestWriteOp::create(rewriter, loc, *hole, terminator->getOperand(0));
-  SmallVector<Value> operands(call.getArgs());
-  operands.push_back(dests.at(&block));
-  callClone(rewriter, call, clone, operands);
+  return std::monostate{};
+}
+
+Value Rewrite::makeHole(const Into &hole) {
+  auto init = cast<CellInitOp>(hole.op);
+  rewriter.setInsertionPoint(init);
+  llvm::SmallVector<Value> fields;
+  for (auto [at, given] : llvm::enumerate(init.getFields()))
+    if (at != hole.field)
+      fields.push_back(given);
+  auto holed = CellInitOp::create(rewriter, init.getLoc(), init.getResult().getType(),
+                                  init.getCell(), fields, {static_cast<int32_t>(hole.field)});
+  rewriter.replaceAllUsesWith(init.getResult(), holed.getResult());
+  rewriter.eraseOp(init);
+  return holed.getDest(hole.field);
+}
+
+void Rewrite::buildBefore(Operation *producer) {
+  llvm::SmallVector<Operation *> after;
+  for (Operation *op = producer->getNextNode(); !op->hasTrait<OpTrait::IsTerminator>();
+       op = op->getNextNode())
+    after.push_back(op);
+  for (Operation *op : after) {
+    if (op->hasTrait<ResultCarriesOperand>() &&
+        throughRegrades(op->getOperand(0)).getDefiningOp() == producer && op->use_empty())
+      rewriter.eraseOp(op);
+    else
+      rewriter.moveOpBefore(op, producer);
+  }
+}
+
+void Rewrite::fillByCall(CallOp call, Value dest) {
+  rewriter.setInsertionPoint(call);
+  llvm::SmallVector<Value> args(call.getArgs());
+  args.push_back(dest);
+  CallOp::create(rewriter, call.getLoc(), clone, call.getIndexArgsAttr(), TypeRange(), args,
+                 TailKind::nontail);
+  // Its results' changes of grade read nothing now.
+  for (Operation *user : llvm::make_early_inc_range(call->getUsers()))
+    if (user->hasTrait<ResultCarriesOperand>() && user->use_empty())
+      rewriter.eraseOp(user);
   rewriter.eraseOp(call);
 }
 
-// Rewrites the tails of `block` in the clone, which returns nothing:
-// each writes what it would have returned to `hole`, or passes it on. A
-// match in tail position then yields nothing, and so has no results.
-void rewriteClone(RewriterBase &rewriter, Block &block, FuncOp fn, FuncOp clone, Value hole) {
-  // A context the block's own (one whose holes are in the regions of the
-  // match in tail position, which is then its join) comes before the
-  // contexts of those regions.
-  if (std::optional<Context> tail = contextAt(block, fn)) {
-    passDestination(rewriter, *tail, clone, hole);
-    endWithNothing(rewriter, block);
-    return;
+void Rewrite::dropForwarded(Operation *terminator, unsigned position) {
+  Value dropped = terminator->getOperand(position);
+  rewriter.modifyOpInPlace(terminator, [&] { terminator->eraseOperand(position); });
+  for (Operation *def = dropped.getDefiningOp();
+       def && def->hasTrait<ResultCarriesOperand>() && def->use_empty();) {
+    Value carried = def->getOperand(0);
+    rewriter.eraseOp(def);
+    def = carried.getDefiningOp();
   }
-  Operation *terminator = block.getTerminator();
-  if (Operation *tailOp = tailMatch(terminator)) {
-    // The match keeps every region and yields nothing.
-    auto match = cast<MatchOpInterface>(tailOp);
-    rewriter.setInsertionPoint(tailOp);
-    Operation *rebuilt = match.rebuild(rewriter, TypeRange(),
-                                       llvm::to_vector(llvm::seq(match.getNumCases())),
-                                       &match.getDefaultRegion());
-    // An exhaustive match's default region is empty: it holds no tail.
-    for (Region &region : rebuilt->getRegions())
-      if (!region.empty())
-        rewriteClone(rewriter, region.front(), fn, clone, hole);
-    endWithNothing(rewriter, block);
-    rewriter.eraseOp(tailOp);
-    return;
-  }
-  if (!isa<ReturnOp, YieldOp>(terminator))
-    return;
-  if (Operation *prev = terminator->getPrevNode(); passesOnPrevious(terminator) && isSelfCall(prev, fn)) {
-    auto call = cast<CallOp>(prev);
-    SmallVector<Value> operands(call.getArgs());
-    operands.push_back(hole);
-    rewriter.setInsertionPoint(call);
-    callClone(rewriter, call, clone, operands);
-    endWithNothing(rewriter, block);
-    rewriter.eraseOp(call);
-    return;
-  }
-  rewriter.setInsertionPoint(terminator);
-  DestWriteOp::create(rewriter, terminator->getLoc(), hole, terminator->getOperand(0));
-  endWithNothing(rewriter, block);
 }
 
-// The tails modulo a context of `block`, which ends in a tail position: its
-// own, when it has one, else those of the regions of the match in tail
-// position it ends with, as rewriteClone finds them.
-void contextsOf(Block &block, FuncOp fn, SmallVectorImpl<Context> &tails) {
-  if (std::optional<Context> tail = contextAt(block, fn)) {
-    tails.push_back(*tail);
-    return;
+LogicalResult Rewrite::fillByRegions(Operation *rejoin, unsigned position, Value dest) {
+  llvm::SmallVector<Operation *> ends;
+  for (Region &region : rejoin->getRegions()) {
+    if (region.empty())
+      continue;
+    Operation *end = region.front().getTerminator();
+    // A region that never ends, or that jumps on, gives nothing here.
+    if (isa<RegionBranchTerminatorOpInterface>(end) && end->getNumOperands() > position &&
+        end->getNumOperands() == rejoin->getNumResults())
+      ends.push_back(end);
   }
-  if (Operation *match = tailMatch(block.getTerminator()))
-    for (Region &region : match->getRegions())
-      if (!region.empty())
-        contextsOf(region.front(), fn, tails);
+  for (Operation *end : ends)
+    if (failed(give(end->getOperand(position), end, position, Written{dest})))
+      return failure();
+  llvm::SmallVector<Type> results(rejoin->getResultTypes());
+  results.erase(results.begin() + position);
+  Operation *made = remakeOp(rewriter, rejoin, rejoin->getOperands(), results);
+  llvm::SmallVector<Value> kept;
+  for (auto [at, result] : llvm::enumerate(rejoin->getResults()))
+    if (at != position)
+      kept.push_back(result);
+  rewriter.replaceAllUsesWith(kept, made->getResults());
+  rewriter.eraseOp(rejoin);
+  return success();
 }
 
-// A function whose result a tail builds around a self call: those tails,
-// and the name of the clone that writes them top down.
+// The destination a target writes, if it writes one.
+Value destOf(const Target &target) {
+  return idr::match(
+      target, [](Given) { return Value(); }, [](Written written) { return written.dest; });
+}
+
+LogicalResult Rewrite::give(Value value, Operation *terminator, unsigned position,
+                            Target target) {
+  Value source = throughRegrades(value);
+  Operation *def = source.getDefiningOp();
+  Value dest = destOf(target);
+
+  // A self call whose result is given unchanged: a tail call, or the call a
+  // rejoin's region gives into a hole. The clone's passes the destination on.
+  if (auto call = dyn_cast_or_null<CallOp>(def);
+      call && call.getTailKind() != TailKind::nontail &&
+      call.getCalleeAttr().getAttr() == fn.getSymNameAttr()) {
+    if (!dest)
+      return success();
+    dropForwarded(terminator, position);
+    fillByCall(call, dest);
+    return success();
+  }
+
+  // A rejoin: each region gives its own.
+  if (def && def->hasTrait<OpTrait::PropagateControlFlowBreak>() &&
+      def->getBlock() == terminator->getBlock()) {
+    unsigned at = cast<OpResult>(source).getResultNumber();
+    if (!dest) {
+      for (Region &region : def->getRegions()) {
+        if (region.empty())
+          continue;
+        Operation *end = region.front().getTerminator();
+        if (isa<RegionBranchTerminatorOpInterface>(end) && end->getNumOperands() > at &&
+            end->getNumOperands() == def->getNumResults())
+          if (failed(give(end->getOperand(at), end, at, Given{})))
+            return failure();
+      }
+      return success();
+    }
+    dropForwarded(terminator, position);
+    return fillByRegions(def, at, dest);
+  }
+
+  // A value a context builds: built before what fills its hole. Down the
+  // context to the hole: an outer cell or a part read back holds the inner
+  // value, built with it; the first cell whose field a call or a rejoin
+  // gives is the hole.
+  if (makerOf(source).index() != 0) {
+    Value inner = source;
+    std::optional<Into> hole;
+    while (!hole) {
+      bool stuck = idr::match(
+          makerOf(inner), [](std::monostate) { return true; },
+          [&](const Hole &h) {
+            hole = h.into;
+            return false;
+          },
+          [&](const Outer &o) {
+            Value next = throughRegrades(o.into.op->getOperand(o.into.operand));
+            Operation *maker = next.getDefiningOp();
+            if (maker && maker->hasTrait<OpTrait::PropagateControlFlowBreak>())
+              hole = o.into;
+            else
+              inner = next;
+            return false;
+          },
+          [&](const Part &p) {
+            inner = throughRegrades(p.read.op->getOperand(0));
+            return false;
+          });
+      if (stuck)
+        return terminator->emitOpError(
+            "internal error: idr-trmc: a context whose cells end in no hole");
+    }
+    Value filler = throughRegrades(hole->op->getOperand(hole->operand));
+    Operation *producer = filler.getDefiningOp();
+    Value holeDest = makeHole(*hole);
+    buildBefore(producer);
+    if (dest) {
+      rewriter.setInsertionPoint(producer);
+      DestWriteOp::create(rewriter, terminator->getLoc(), dest, value);
+      dropForwarded(terminator, position);
+    }
+    if (auto call = dyn_cast<CallOp>(producer)) {
+      fillByCall(call, holeDest);
+      return success();
+    }
+    return fillByRegions(producer, cast<OpResult>(filler).getResultNumber(), holeDest);
+  }
+
+  // Any other value: the clone writes it.
+  if (dest) {
+    rewriter.setInsertionPoint(terminator);
+    DestWriteOp::create(rewriter, terminator->getLoc(), dest, value);
+    dropForwarded(terminator, position);
+  }
+  return success();
+}
+
+// A function with self calls modulo a context: their contexts, each read
+// once off its call.
 struct Plan {
   FuncOp fn;
-  SmallVector<Context> tails;
-  StringAttr name;
+  llvm::SmallVector<Context> contexts;
 };
 
-// The plan of `fn`; none when no tail of it builds a box around a self
-// call, failure when its clone's name is taken.
-FailureOr<std::optional<Plan>> planOf(FuncOp fn, SymbolTable &symbols) {
-  if (fn.getNumResults() != 1 || !isa<BoxType>(unrestricted(fn.getResultTypes()[0])))
-    return std::optional<Plan>();
-  SmallVector<Context> tails;
-  contextsOf(fn.getBody().front(), fn, tails);
-  if (tails.empty())
-    return std::optional<Plan>();
-  FailureOr<StringAttr> name = copyName(fn, "trmc", symbols);
-  if (failed(name))
-    return failure();
-  return std::optional<Plan>(Plan{fn, std::move(tails), *name});
-}
-
 struct Trmc : impl::IdrTrmcBase<Trmc> {
-  void runOnProgram(ProgramOp program) override {
+  void runOnProgram(ProgramOp program) {
     MLIRContext *ctx = program.getContext();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
-    // Every function is planned on the program as it stands, before any
-    // changes: a plan reads its own function alone.
-    SmallVector<Plan> plans;
+    solver::ProgramGraph &graph = getAnalysis<solver::ProgramGraph>();
+    llvm::SmallVector<Plan> plans;
+    LogicalResult read = success();
     for (FuncOp fn : program.getOps<FuncOp>()) {
-      FailureOr<std::optional<Plan>> plan = planOf(fn, symbols);
-      if (failed(plan))
-        return signalPassFailure();
-      if (*plan)
-        plans.push_back(std::move(**plan));
-    }
-    IRRewriter rewriter(ctx);
-    unsigned performed = 0;
-    for (const Plan &plan : plans) {
-      FuncOp fn = plan.fn;
-      performed += support::perform<TrmcCloneAction>(fn, [&] {
-        ++numFunctions;
-        numTails += plan.tails.size();
-        FuncOp clone = fn.clone();
-        clone.setSymNameAttr(plan.name);
-        symbols.insert(clone, std::next(fn->getIterator()));
-        auto dest = DestType::get(ctx, cast<BoxType>(unrestricted(fn.getResultTypes()[0])));
-        unsigned arity = clone.getNumArguments();
-        (void)clone.insertArgument(arity, dest, DictionaryAttr(), passBinder(fn.getLoc(), "destination"));
-        (void)clone.eraseResult(0);
-        rewriteClone(rewriter, clone.getBody().front(), fn, clone, clone.getArgument(arity));
-        for (const Context &tail : plan.tails)
-          passDestination(rewriter, tail, clone, std::nullopt);
+      Plan plan{fn, {}};
+      fn.walk([&](CallOp call) {
+        if (call.getTailKind() != TailKind::modulo_context)
+          return;
+        std::optional<Context> context = contextOf(call);
+        if (!context) {
+          read = call.emitOpError("internal error: idr-trmc: a call modulo a context whose "
+                                  "context no longer holds");
+          return;
+        }
+        plan.contexts.push_back(std::move(*context));
       });
+      if (!plan.contexts.empty())
+        plans.push_back(std::move(plan));
     }
-    if (performed == 0)
+    if (failed(read))
+      return signalPassFailure();
+    if (plans.empty())
       return markAllAnalysesPreserved();
-    markAnalysesPreserved<SymbolTable, TypeGraph, Layouts>();
+
+    IRRewriter rewriter(ctx);
+    llvm::SmallVector<std::pair<FuncOp, FuncOp>> made;
+    for (Plan &plan : plans) {
+      FuncOp fn = plan.fn;
+      ++numFunctions;
+      numTails += plan.contexts.size();
+      // The clone: the function, taking a destination for its result and
+      // returning nothing.
+      IRMapping mapping;
+      auto clone = cast<FuncOp>(fn->clone(mapping));
+      clone.setSymNameAttr(StringAttr::get(ctx, fn.getSymName() + ".trmc"));
+      symbols.insert(clone, std::next(fn->getIterator()));
+      Type dest = DestType::get(ctx, unrestricted(fn.getResultTypes()[0]));
+      unsigned arity = clone.getNumArguments();
+      (void)clone.insertArgument(arity, dest, DictionaryAttr(), fn.getLoc());
+      llvm::SmallVector<Context> inClone;
+      for (const Context &context : plan.contexts)
+        inClone.push_back(mapped(context, mapping));
+
+      Rewrite first(rewriter, fn, clone, plan.contexts);
+      Rewrite again(rewriter, fn, clone, inClone);
+      Operation *returned = fn.getBody().front().getTerminator();
+      Operation *cloneReturned = clone.getBody().front().getTerminator();
+      if (failed(again.give(cloneReturned->getOperand(0), cloneReturned, 0,
+                            Written{clone.getArgument(arity)})) ||
+          failed(first.give(returned->getOperand(0), returned, 0, Given{})))
+        return signalPassFailure();
+      (void)clone.eraseResult(0);
+      // Each call the rewrite made or moved takes the kind its final place
+      // gives it: the clone's calls in its tails are tail calls, the
+      // function's first level calls the clone and then returns the value
+      // it built. No call modulo a context is left.
+      LogicalResult kinds = success();
+      auto settle = [&](CallOp call) {
+        if (call.getTailKind() == TailKind::modulo_context)
+          kinds = call.emitOpError("internal error: idr-trmc left a call modulo a context");
+        else if (call.getCalleeAttr().getAttr() == clone.getSymNameAttr())
+          call.setTailKind(decide(call));
+      };
+      fn.walk(settle);
+      clone.walk(settle);
+      if (failed(kinds))
+        return signalPassFailure();
+      made.push_back({fn, clone});
+    }
+
+    // The program graph learns the clones and the calls that now go to
+    // them; then every row, the clones' with the writes of their holes,
+    // is made equal to its derivation.
+    {
+      solver::Editor editor = graph.thaw();
+      for (const std::pair<FuncOp, FuncOp> &pair : made)
+        (void)editor.insert(pair.second);
+      for (auto [fn, clone] : made) {
+        editor.setCallees(editor.id(FlatSymbolRefAttr::get(fn.getSymNameAttr())),
+                          callRow(fn, editor));
+        editor.setCallees(editor.id(FlatSymbolRefAttr::get(clone.getSymNameAttr())),
+                          callRow(clone, editor));
+      }
+      std::move(editor).freeze();
+    }
+    rows::write(program, graph);
+    markAnalysesPreserved<SymbolTable, solver::ProgramGraph>();
   }
 };
 

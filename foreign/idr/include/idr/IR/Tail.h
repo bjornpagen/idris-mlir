@@ -1,89 +1,132 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Where what an op computes is what its function returns: the last op
-// before the function's idr.return, or before the idr.yield of a match
-// region whose match is in tail position itself, when the terminator
-// passes on exactly the op's results. A self call there becomes the next
-// iteration of a loop in the same frame (idr-tail-loops), and borrow
-// inference, the rules of the frame (Lifetimes.h) and the stack's
-// recursion rule read the same position, so it is defined once, here, for
-// all of them.
+// Tail position, the one fact `idr.call` holds as its TailKind: defined
+// once, here, for the frontend's rule and for every pass that makes or
+// moves a call, and verified after every pass.
+//
+// A call in tail position never grows the stack: it becomes a loop, a
+// jump to a join point, or LLVM's `musttail` under `tailcc`. So the fact
+// is a promise the call keeps, not a reading of its surroundings: `tail`
+// demands the shape below, and a pass that puts anything after such a call
+// breaks the program, which the verifier reports as an internal error. A
+// shape that happens to allow a tail call on a `nontail` call breaks no
+// promise: only an optimization made that place, and decide() lets the
+// pass that made it say so.
+//
+// A self call modulo a context (`modulo_context`) is the second promise:
+// its one result goes only into cells built for it whose value a tail
+// returns, so idr-trmc builds those cells first, the field a hole, and the
+// call fills the hole as its last act.
 #ifndef IDR_IR_TAIL_H
 #define IDR_IR_TAIL_H
 
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/IR/Block.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
+#include <variant>
 
 namespace idr::tail {
 
-// Whether `block` ends a tail position: its terminator is the function's
-// idr.return, or the idr.yield of a match in tail position. The one test
-// of where a tail ends.
-bool endsTail(mlir::Block &block);
-
-// Whether the results of `op` pass unchanged to its function's return.
+// Whether what `op` gives is what its function gives: the ops after it in
+// its block only change the grade of its results (ResultCarriesOperand,
+// no run-time form), the block's terminator forwards exactly those values,
+// and that terminator is the function's return, or ends a region of an op
+// a control-flow break may cross (PropagateControlFlowBreak: the matches,
+// the join points) and forwards them to that op's results, which give what
+// the function gives in turn. An op that does something when its region
+// ends (a lifetime's opener frees its memory there) lets no break cross
+// it, so nothing inside it is in tail position. The one definition of
+// tail position. It reads up the regions above `op`; a verifier asks
+// verify(FuncOp) instead, which reads each region once.
 bool inTailPosition(mlir::Operation *op);
 
-// Whether `terminator` is a return or a match's yield and passes on
-// exactly the results of the op before it.
-bool passesOnPrevious(mlir::Operation *terminator);
+// The blocks of `fn` where a tail ends: the body's, and down through each
+// region op a break crosses whose results such a block gives on, every
+// region whose end gives them to that op; each block whose terminator
+// gives on something else. One walk down, each region read once.
+llvm::SmallVector<mlir::Block *> tailEnds(FuncOp fn);
 
-// Whether `op` is a match whose regions may hold tail positions.
-bool isTailMatch(mlir::Operation *op);
+// The op whose results `block`'s terminator gives on unchanged, if one op
+// gives them all.
+mlir::Operation *tailSource(mlir::Block &block);
 
-// The match in tail position right before `terminator`, or null.
-mlir::Operation *tailMatch(mlir::Operation *terminator);
-
-// Whether `op` is a call of `fn` itself, by name.
-bool isSelfCall(mlir::Operation *op, FuncOp fn);
-
-// A tail modulo a context: a self call whose result the value the tail
-// returns holds, somewhere inside it, and nothing else reaches. The result
-// goes, through grades, into a field of a fresh cell, the holed cell; the
-// holed cell's box is then moved into parts of values (fields of cells,
-// fields of constructors without a cell), read back out as the part it is
-// (idr.unpack, idr.field of such a constructor), regraded, and carried
-// through a match's yield to its result, until the tail returns the value
-// that holds it. It is never read whole: no match, no field read, no call,
-// no copy and no drop of it. idr-trmc builds the holed cell with the field
-// a hole and calls a clone with its destination once the returned value is
-// built, so the call is the last thing the tail does; it runs after idr-rc,
-// when every box a constructor with fields builds is a cell written by
-// idr.cell.init. One constructor around the call is the context whose holed
-// cell is the returned one.
+// The steps of the path from a self call's result to the value its
+// function returns. Each names the op that takes the path's value and the
+// value it gives on.
 //
-// The result is used once on each path: once in the block, or once in each
-// region of the matches it is carried across, one of which runs. So there
-// is a holed cell per such region (`holes`), and each match whose regions
-// hold one (`joins`, innermost first) gives that region's destination as
-// one more result: exactly one destination arrives where the tail ends.
-struct Hole {
-  CellInitOp init;
-  unsigned index;
+// A change of grade, with no run-time form.
+struct Regrade {
+  mlir::Operation *op;
 };
+// Into field `field` of a value `op` builds for it, fresh: a cell, a
+// constructor laid out inline, a closure's capture.
+struct Into {
+  mlir::Operation *op;
+  unsigned operand;
+  unsigned field;
+  mlir::Value built;
+};
+// The part that holds the hole read back out of a value laid out inline.
+struct ReadBack {
+  mlir::Operation *op;
+  mlir::Value part;
+};
+// From the end of a region to result `position` of its op, a match or a
+// join point: the rejoin.
+struct Forward {
+  mlir::Operation *terminator;
+  unsigned position;
+};
+using Step = std::variant<Regrade, Into, ReadBack, Forward>;
+// Before the hole, only a change of grade or a rejoin can take the
+// call's result: a value laid out inline holds no hole.
+using Approach = std::variant<Regrade, Forward>;
+
+// A self call modulo a context, as its rule reads it: the steps from its
+// result to the cell field it fills (the hole, a cell laid out in memory,
+// never one of a lexical lifetime), then from that cell to the value its
+// function returns. Every value on the way is used by the next step alone,
+// but where a value laid out inline has its other parts read; and every op
+// the transformation builds before the call may run there (an IO action,
+// a crash or a loop of the call's crosses no other). Read off the program
+// as the frontend wrote it, before counting, and after it, where counting
+// has kept it.
 struct Context {
   CallOp call;
-  llvm::SmallVector<Hole, 1> holes;
-  // The grades between the call's result and its holes, in the order the
-  // walk met them: a grade has no runtime form, and goes with the call.
-  llvm::SmallVector<mlir::Operation *, 2> grades;
-  llvm::SmallVector<mlir::Operation *, 1> joins;
+  llvm::SmallVector<Approach, 2> approach;
+  Into hole;
+  llvm::SmallVector<Step, 4> rest;
 };
 
-// The tail modulo a context of `block` in `fn`: a self call in the block
-// whose result the block's terminator passes on inside a context, and that
-// may run right before that terminator (mayRunAt).
-std::optional<Context> contextAt(mlir::Block &block, FuncOp fn);
+// `call`'s context, or none when the rule does not admit it.
+std::optional<Context> contextOf(CallOp call);
 
-// Whether `call` is the self call of a tail modulo a context in a block in
-// tail position: idr-trmc writes its result into the value the block
-// returns, which it builds before the call.
-bool inTailPositionModuloContext(CallOp call);
+// What `call`'s place in its function makes it: `tail` in tail position;
+// `modulo_context` for a self call contextOf admits; `nontail` otherwise.
+// The frontend writes the same, and a pass that makes a call, or moves one
+// (contification, inlining, specialization), writes what this gives at
+// the call's new place.
+TailKind decide(CallOp call);
+
+// The parts of `call`'s fact the call alone can show: a `tail` call's
+// results go unchanged to its block's terminator, which forwards them to
+// its function's return or to the results of a region op a break crosses;
+// no operand of a `tail` or `modulo_context` call lives in a lifetime that
+// ends with the call (this call's activation, or one opened around it);
+// a `modulo_context` call is a self call contextOf admits. Called by
+// idr.call's verifier.
+mlir::LogicalResult verify(CallOp call);
+
+// The part of every call's fact only its function can show: each `tail`
+// call's block ends a tail of the function. One walk down the regions in
+// tail position, each region read once, called by idr.func's region
+// verifier.
+mlir::LogicalResult verify(FuncOp fn);
 
 } // namespace idr::tail
 
