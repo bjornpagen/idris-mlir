@@ -1,6 +1,6 @@
 # Lane L21 (lowering): the lowering to LLVM, and the target
 
-**Exclusive write:** `foreign/idr/lib/Conversion/Lower/` (new, for new code), `foreign/idr/lib/Conversion/{Cells,Entry,Facts,Fields,FuncToFunc,Lower,Mangle,MemoCells,PassThroughMemory,ReturnRegisters,Runtime,RuntimeCalls,RuntimeCells,StaticBytes,StaticData,StaticNames}.cpp`,
+**Exclusive write:** `foreign/idr/lib/Conversion/Lower/` (new, for new code), `foreign/idr/lib/Conversion/{Counting,Cells,Entry,Facts,Fields,FuncToFunc,Lower,Mangle,MemoCells,PassThroughMemory,ReturnRegisters,Runtime,RuntimeCalls,RuntimeCells,StaticBytes,StaticData,StaticNames}.cpp`,
 `foreign/idr/include/idr/Conversion/{Facts,Fields,FuncToFunc,IdrPattern,Mangle,Passes,PassThroughMemory,Patterns,ReturnRegisters,Runtime,StaticData}.h`,
 `foreign/idr/lib/Target/{Extract,Optimize,Partition,Schedules,Target}.cpp`,
 `foreign/idr/include/idr/Target/Target.h`.

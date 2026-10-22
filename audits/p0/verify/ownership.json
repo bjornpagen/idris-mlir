@@ -152,7 +152,6 @@
   "foreign/idr/include/idr/Transforms/Counting.h",
   "foreign/idr/lib/Transforms/Demand/",
   "foreign/idr/include/idr/Transforms/Demand.h",
-  "foreign/idr/lib/Conversion/Counting.cpp",
   "compiler/spec/IdrisMLIR/Spec/Counting/",
   "foreign/idr/lib/IR/Counting/",
   "foreign/idr/include/idr/IR/Counting/"
@@ -382,6 +381,7 @@
   "foreign/idr/lib/Target/Schedules.cpp",
   "foreign/idr/lib/Target/Target.cpp",
   "foreign/idr/include/idr/Target/Target.h",
-  "foreign/idr/lib/Conversion/Lower/"
+  "foreign/idr/lib/Conversion/Lower/",
+  "foreign/idr/lib/Conversion/Counting.cpp"
  ]
 }

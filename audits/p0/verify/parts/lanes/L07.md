@@ -4,8 +4,7 @@
 `foreign/idr/lib/Transforms/Ownership/{Buffers,Cells,Classes,Grades,Placement,Reshape,Reuse,Share,Signatures,Specialize,Take}.cpp`,
 `foreign/idr/lib/Transforms/Counting/`,
 `foreign/idr/include/idr/Transforms/{Ownership,Counting,Demand}.h`,
-`foreign/idr/lib/Transforms/Demand/`,
-`foreign/idr/lib/Conversion/Counting.cpp`.
+`foreign/idr/lib/Transforms/Demand/`.
 
 **Read deeply:** P0 §5.5 (Perceus as MLIR passes, uniqueness a two-region
 match, four marking clients) whole; in §2 D24, D26, D34, D70, D78, D79,
