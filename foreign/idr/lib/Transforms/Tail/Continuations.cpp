@@ -5,10 +5,11 @@
 // around it whose results something after it reads gives its continuation
 // to a function of its own (a lifted continuation), which each region of
 // the op tail-calls; an op of the generating set or an array update
-// around it becomes its loops of join points (joinCycles), and a join
-// point around it becomes functions too (Dissolve.cpp); a lifetime's
-// region around it splits (Split.cpp); and the rest of the call's block
-// becomes a function its call runs into,
+// around it becomes its loops of join points (joinCycles), a memo cell's
+// exchange around it its steps (MemoRunOp::split), and a join point
+// around it becomes functions too (Dissolve.cpp); a lifetime's region
+// around it splits (Split.cpp); and the rest of the call's block becomes
+// a function its call runs into,
 // tail-calling it with what the rest reads (Outline.cpp). Each step moves
 // code, never copies it, and makes a function of the component, read in
 // turn, so it ends: the code it moves only shrinks.
@@ -167,6 +168,28 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
   // where they then stand.
   if (failed(structure::joinCycles(rewriter, fn, [&](CallOp call) { return frames(call); })))
     return failure();
+  // A memo cell's exchange whose region calls into the cycle does
+  // something as its region ends, the value moving into the cell, so no
+  // break crosses it and frames cannot split it: it becomes its steps, the
+  // captures taken out, the region's code in place, the value stored after
+  // it, which a continuation can begin with. An exchange inside another is
+  // made its steps first. Its calls are decided again where they then
+  // stand.
+  llvm::SmallVector<MemoRunOp> exchanges;
+  fn.walk<WalkOrder::PostOrder>([&](MemoRunOp run) {
+    if (run->walk([&](CallOp call) {
+             return frames(call) ? WalkResult::interrupt() : WalkResult::advance();
+           })
+            .wasInterrupted())
+      exchanges.push_back(run);
+  });
+  for (MemoRunOp run : exchanges) {
+    llvm::SmallVector<CallOp> moved;
+    run.getRegion().walk([&](CallOp call) { moved.push_back(call); });
+    run.split(rewriter);
+    for (CallOp call : moved)
+      call.setTailKind(decide(call));
+  }
   for (;;) {
     // A join point op around a call to frame, outermost first, and the
     // first such call in it.
