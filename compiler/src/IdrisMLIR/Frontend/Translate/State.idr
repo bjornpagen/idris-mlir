@@ -21,7 +21,6 @@ import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
-import Data.DPair
 import Data.Fin
 import Data.List
 import Data.List1
@@ -126,33 +125,17 @@ export
 Ord Static where
   compare x y = compare (kindOrder x) (kindOrder y)
 
-||| The kinds a request's static argument is read at: every kind but a
-||| family's. A family keys its instance as any type does (`TypeParam`),
-||| and its value reads as a type, whose root is the type constructor it
-||| applies when it has one, so a request is never read as a family.
+||| A request's static argument as the kind of parameter it keys, its term
+||| left out: what the instance puts in there once the term is the form
+||| its reading reads (`Template.staticReading`). A type, read as a type:
+||| a family keys its instance as any type does (`TypeParam`), and its
+||| value reads as a type, whose root is the type constructor it applies
+||| when it has one, so no request is read as a family. An implementation,
+||| with the values it closes over, which its form leaves as markers. A
+||| form. A runtime value's shape, with the quantity of the parameter it
+||| is the value of.
 public export
-data Requested : Static -> Type where
-  ReadAsType : Requested AType
-  ReadAsDictionary : Requested ADictionary
-  ReadAsForm : Requested AForm
-  ReadAsShape : Requested AShape
-
-||| The compile-time value that keys an instance at a parameter, with the
-||| kind the growth check reads it at: a type, an implementation, a form,
-||| a value's shape; nothing for a parameter that keys nothing. The one
-||| reading of a request's parameter as a static argument.
-export
-staticKindOf : PKind -> Maybe (Subset Static Requested, ClosedTerm)
-staticKindOf (TypeParam t) = Just (Element AType ReadAsType, t)
-staticKindOf (DictParam t _) = Just (Element ADictionary ReadAsDictionary, t)
--- A choice keys nothing: which implementation runs is the value's, and the
--- interface type it is a choice of follows from the static arguments
--- before it, which key the dispatch.
-staticKindOf (ChoiceParam _ _) = Nothing
-staticKindOf ErasedParam = Nothing
-staticKindOf (IndexParam _) = Nothing
-staticKindOf (FormParam f) = Just (Element AForm ReadAsForm, f)
-staticKindOf (ValueParam _ shape _) = (Element AShape ReadAsShape,) <$> shape
+data KeyedAs = AsType | AsDictionary (Maybe Holes) | AsForm | AsShape Uses
 
 ||| An instance's telescope: the sorts of its index parameters, in order,
 ||| the levels `0 .. p-1` of its body's scope.
@@ -473,10 +456,53 @@ appliedArity : Instantiates -> Nat
 appliedArity (OfDefinition _ m) = length m.args
 appliedArity (AtUse uses) = 2 + uses
 
+||| What an instance's parameter is put in at, as its request keys it
+||| there: where a static argument keys it, that argument's reading's
+||| form, at the kind it was read as (`KeyedAs`), the implementation with
+||| the values it closes over and the shape at the quantity it was read
+||| with; where nothing keys it, whatever the parameter's binder decides.
+||| So the value an instance holds for a parameter its key names is the
+||| form the key writes there.
+public export
+data AtKey : Maybe (KeyedAs, StaticReading) -> PKind -> Type where
+  TypeAtKey : {0 r : StaticReading} -> AtKey (Just (AsType, r)) (TypeParam r.form)
+  DictionaryAtKey : {0 r : StaticReading} -> {0 holes : Maybe Holes} ->
+                    AtKey (Just (AsDictionary holes, r)) (DictParam r.form holes)
+  FormAtKey : {0 r : StaticReading} -> AtKey (Just (AsForm, r)) (FormParam r.form)
+  ShapeAtKey : {0 r : StaticReading} -> {0 q : Uses} -> {0 t : Ty} -> {0 idrisType : ClosedTerm} ->
+               AtKey (Just (AsShape q, r)) (ValueParam (MkBinder q t) (Just r.form) idrisType)
+  NoKey : {0 k : PKind} -> AtKey Nothing k
+
+||| What a request keys its instance's next parameter by, and what it keys
+||| those after it by: past the arguments the request gives, nothing.
+public export
+nextKey : List (Maybe (KeyedAs, StaticReading)) -> (Maybe (KeyedAs, StaticReading), List (Maybe (KeyedAs, StaticReading)))
+nextKey (k :: ks) = (k, ks)
+nextKey [] = (Nothing, [])
+
+||| Each of an instance's parameters put in as its request keys it
+||| (`AtKey`), position by position.
+public export
+data AllAtKey : List (Maybe (KeyedAs, StaticReading)) -> List PKind -> Type where
+  Nil : {0 keys : List (Maybe (KeyedAs, StaticReading))} -> AllAtKey keys []
+  (::) : {0 keys : List (Maybe (KeyedAs, StaticReading))} -> {0 k : PKind} -> {0 ks : List PKind} ->
+         AtKey (fst (nextKey keys)) k -> AllAtKey (snd (nextKey keys)) ks -> AllAtKey keys (k :: ks)
+
+||| An instance's signature as its request reads it, at what the request
+||| keys it by: one kind per parameter the instance applies, each put in as
+||| the request keys it (`AllAtKey`).
+public export
+record SignedAt (what : Instantiates) (keys : List (Maybe (KeyedAs, StaticReading))) (sig : InstanceSig) where
+  constructor MkSignedAt
+  0 classifiesAll : length sig.kinds = appliedArity what
+  0 atKey : AllAtKey keys sig.kinds
+
 ||| A function instance requested: what it is an instance of, its
 ||| signature, read once where it was first requested (`InstanceSig`), so
-||| that it is translated at what every call of it holds, its key, the call
-||| that requested it,
+||| that it is translated at what every call of it holds, with what the
+||| request keyed each parameter by and that each is put in at it, at
+||| quantity 0, so that the value an instance holds for a static argument is
+||| the form its key writes there; its key, the call that requested it,
 ||| where and in whose definition, for a message to print, its link, which
 ||| is its identity, and the height of each static argument at the position
 ||| of the growth check's graph it is bounded at, which the worklist checks
@@ -494,6 +520,8 @@ record Request where
   instantiates : Instantiates
   signature : InstanceSig
   0 classifiesAll : length signature.kinds = appliedArity instantiates
+  0 keys : List (Maybe (KeyedAs, StaticReading))
+  0 atKey : AllAtKey keys signature.kinds
   key : InstanceKey
   site : FC
   owner : Shown

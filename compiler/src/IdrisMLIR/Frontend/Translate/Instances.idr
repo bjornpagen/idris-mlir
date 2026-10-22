@@ -30,7 +30,6 @@ import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
-import Data.DPair
 import Data.List
 import Data.List1
 import Data.SortedMap
@@ -38,29 +37,6 @@ import Data.SortedSet
 import Data.Vect
 
 %default total
-
--- Each static argument of a request read once, as an instance's reading
--- reads it (`Template.staticReading`), by parameter index: the form its
--- link writes, which is the form a site's reading of the same kind reads,
--- so that one family is one key whatever stands for it; its height; and
--- the head that splits the request's node: the implementation at the root
--- of each static implementation the call gives, and the type constructor
--- at the head of each family it gives. A type argument has a type
--- constructor at its root only when it is applied to fewer arguments than
--- it takes, which only a family's value is, so the type arguments that
--- split the node are the families, those the graph splits a callee by
--- (`Sites`). An implementation that is a function (`() -> Eq a`) and a
--- family that is a lambda have no root and split nothing: cases the
--- problem has.
-readArguments : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                List (Maybe (Subset Static Requested, ClosedTerm)) -> Front (List (Maybe StaticReading))
-readArguments = traverse (traverse (\(Element kind _, t) => staticReading kind t))
-
--- The heights and heads of the arguments a link holds, by parameter index.
-heightsOf : Nat -> List (Maybe (StaticReading, Written Form)) -> List (Nat, StaticReading)
-heightsOf i [] = []
-heightsOf i (Nothing :: as) = heightsOf (S i) as
-heightsOf i (Just (r, _) :: as) = (i, r) :: heightsOf (S i) as
 
 ||| The type a member at a use is applied as by (`AtUse`): `{0 t : Type} ->
 ||| (f : t) -> t`, the form's type, then the form, giving a value of the
@@ -79,15 +55,6 @@ appliedType : {auto s : Ref TState TS} ->
               FC -> String -> Instantiates -> Front ClosedTerm
 appliedType fc owner (OfDefinition n _) = (.type) <$> lookupDef fc owner n
 appliedType fc owner (AtUse uses) = applicationType
-
-||| The instance of what is instantiated at the static arguments a call's
-||| kinds give it (`Keys`), each written as its reading's form.
-export
-instanceFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> Instantiates -> List PKind -> Front (Instance StaticReading)
-instanceFor fc owner (OfDefinition n _) kinds =
-  snd <$> instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
-instanceFor fc owner (AtUse uses) kinds = applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))
 
 ||| What a call knows of an argument it gives: an implementation known at
 ||| compile time, whatever binds it (Idris passes an enclosing function's
@@ -126,20 +93,113 @@ public export
 ArgValues : Type
 ArgValues = List (Maybe ArgValue)
 
-||| The arguments an instance is classified at where it is first requested,
-||| from the kinds its call gave its parameters.
-givenArgs : List PKind -> ArgValues
-givenArgs = map given
+||| What a parameter is supplied with where a callee's type is classified:
+||| what a call knows of the argument it gives there, whose binder decides
+||| how it is read (`FromCall`, nothing for an argument the call leaves
+||| out); or a requested instance's static argument, read once where it was
+||| requested (`Template.staticReading`), which keys the instance and is put
+||| in at its reading's form as it is, so nothing of it is read again
+||| (`FromKey`).
+public export
+data Supply = FromCall (Maybe ArgValue) | FromKey KeyedAs StaticReading
+
+||| What a supplied argument keys its instance by: a requested static
+||| argument's reading, at the kind it was read as; nothing for an argument
+||| a call offers.
+public export
+keyOf : Supply -> Maybe (KeyedAs, StaticReading)
+keyOf (FromCall _) = Nothing
+keyOf (FromKey as r) = Just (as, r)
+
+||| What each argument supplied keys its instance by, position by position.
+public export
+keysOf : List Supply -> List (Maybe (KeyedAs, StaticReading))
+keysOf [] = []
+keysOf (a :: as) = keyOf a :: keysOf as
+
+||| What the next parameter is supplied with, and what those after it are:
+||| past the arguments supplied, nothing a call offers.
+public export
+nextSupplied : List Supply -> (Supply, List Supply)
+nextSupplied (a :: as) = (a, as)
+nextSupplied [] = (FromCall Nothing, [])
+
+||| A request's parameter as its instance is supplied with it, by the kind
+||| the call classified it as: each static argument read once, as an
+||| instance's reading reads it (`Template.staticReading`), into the form
+||| its link writes, which is the form a site's reading of the same kind
+||| reads, so that one family is one key whatever stands for it; its height;
+||| and the head that splits the request's node: the implementation at the
+||| root of each static implementation the call gives, and the type
+||| constructor at the head of each family it gives. A type argument has a
+||| type constructor at its root only when it is applied to fewer arguments
+||| than it takes, which only a family's value is, so the type arguments
+||| that split the node are the families, those the graph splits a callee
+||| by (`Sites`). An implementation that is a function (`() -> Eq a`) and a
+||| family that is a lambda have no root and split nothing: cases the
+||| problem has. A kind that keys nothing is offered as what the call knows
+||| of it, and the instance's binder decides it.
+supplying : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> PKind -> Front Supply
+supplying (TypeParam t) = FromKey AsType <$> staticReading AType t
+supplying (DictParam t holes) = FromKey (AsDictionary holes) <$> staticReading ADictionary t
+supplying (FormParam f) = FromKey AsForm <$> staticReading AForm f
+supplying (ValueParam b (Just shape) _) = FromKey (AsShape b.quantity) <$> staticReading AShape shape
+supplying (ValueParam _ Nothing _) = pure (FromCall Nothing)
+-- A choice keys nothing: which implementation runs is the value's, and the
+-- interface type it is a choice of follows from the static arguments
+-- before it, which key the dispatch.
+supplying (ChoiceParam _ t) = pure (FromCall (Just (known t.type AChoice)))
+supplying ErasedParam = pure (FromCall Nothing)
+supplying (IndexParam _) = pure (FromCall Nothing)
+
+||| A request read: what it supplies each of the instance's parameters with
+||| (`supplying`), each static argument read once, and the instance those
+||| static arguments key, each written as its reading's form: its link,
+||| which is its identity, its key and its symbol (`Keys.instanceKey`). The
+||| key and the instance's classification read the one list, so an
+||| instance is classified and translated at the forms that name it.
+public export
+record Requesting where
+  constructor MkRequesting
+  supplied : List Supply
+  link : Link Form
+  key : InstanceKey
+  symbol : String
+
+||| The instance of what is instantiated at the static arguments a call's
+||| kinds give it (`Keys`), each written as its reading's form, with what
+||| it supplies each parameter with.
+export
+instanceFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              FC -> String -> Instantiates -> List PKind -> Front Requesting
+instanceFor fc owner what kinds = do
+  supplied <- traverse supplying kinds
+  found <- keyed what (map (map snd . keyOf) supplied)
+  pure (MkRequesting supplied found.link found.key found.symbol)
   where
-    given : PKind -> Maybe ArgValue
-    given (TypeParam t) = Just (known t AValue)
-    given (DictParam t Nothing) = Just (known t AnImplementation)
-    given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t AnImplementation))
-    given (ChoiceParam _ t) = Just (known t.type AChoice)
-    given ErasedParam = Nothing
-    given (IndexParam _) = Nothing
-    given (FormParam f) = Just (known f AValue)
-    given (ValueParam _ shape _) = (\t => known t AValue) <$> shape
+    keyed : Instantiates -> List (Maybe StaticReading) -> Front (Instance StaticReading)
+    keyed (OfDefinition n _) readings = snd <$> instanceKey fc owner n (.form) readings
+    keyed (AtUse uses) readings = applicationKey fc uses (.form) readings
+
+-- The heights and heads of the static arguments a request read, by
+-- parameter index.
+heightsOf : Nat -> List Supply -> List (Nat, StaticReading)
+heightsOf i [] = []
+heightsOf i (FromKey _ r :: rest) = (i, r) :: heightsOf (S i) rest
+heightsOf i (FromCall _ :: rest) = heightsOf (S i) rest
+
+||| Where the growth check bounds a new instance's static arguments, by
+||| what its link heads: a definition's at its node, the definition split
+||| by the heads of the implementations and families it is given, at each
+||| parameter a static argument keys, with that argument's height; a
+||| member at a use is no node of the graph, and the growth check bounds
+||| its link alone.
+boundedAt : Head -> List Supply -> List (Position, Nat)
+boundedAt AnApplication _ = []
+boundedAt (ADefinition address) supplied =
+  let read = heightsOf 0 supplied
+      node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read) in
+  map (\(i, r) => ((node, i), r.height)) read
 
 ||| The argument at the next parameter, and those after it: past the
 ||| arguments given, none.
@@ -285,6 +345,45 @@ public export
 Classified : Nat -> Type
 Classified arity = (Vect arity PKind, ClosedTerm)
 
+||| The kinds in order, as many as the vector holds.
+public export
+vectList : Vect n a -> List a
+vectList [] = []
+vectList (k :: ks) = k :: vectList ks
+
+0 vectListLength : (v : Vect n a) -> length (vectList v) = n
+vectListLength [] = Refl
+vectListLength (_ :: ks) = cong S (vectListLength ks)
+
+-- A callee's parameters classified over what each is supplied with
+-- (`Classified`), each put in as what it is supplied with keys it
+-- (`AllAtKey`): a static argument its request read, at its reading's
+-- form, so that an instance holds for each parameter its key names the
+-- form its key writes there.
+record ClassifiedFrom (arity : Nat) (supplied : List Supply) where
+  constructor MkClassifiedFrom
+  kinds : Vect arity PKind
+  rest : ClosedTerm
+  0 atKey : AllAtKey (keysOf supplied) (vectList kinds)
+
+-- One parameter classified over what it is supplied with: its kind, the
+-- level of the next index parameter, and the type after what stands for
+-- the parameter, the kind put in as what it is supplied with keys it.
+record Stepped (supplied : Supply) where
+  constructor MkStepped
+  kind : PKind
+  nextLevel : Nat
+  restType : ClosedTerm
+  0 atKey : AtKey (keyOf supplied) kind
+
+-- A parameter put in as what it is supplied with keys it, and each after
+-- it as what it is supplied with keys it: every parameter from it on put
+-- in as the arguments supplied key them, past their end at no key.
+0 followed : (as : List Supply) -> AtKey (keyOf (fst (nextSupplied as))) k ->
+             AllAtKey (keysOf (snd (nextSupplied as))) ks -> AllAtKey (keysOf as) (k :: ks)
+followed [] here rest = here :: rest
+followed (_ :: _) here rest = here :: rest
+
 ||| A callee's type as an instance admits it, `arity` parameters ahead: the
 ||| binder of its next parameter, which the type shows with every argument
 ||| before it put in, or, past them all, the type after them. Each step of
@@ -321,39 +420,54 @@ admitted fc owner request (S k) ty = do
                                       !(showTT ty))
   pure (Admits bfc rig a sc)
 
-||| Walks a callee's type, as the instance admits it, over its arguments:
-||| which are type parameters or implementations, which are erased, which
-||| are index parameters, which are runtime (and their types). Each index
-||| parameter stands in the rest of the type as its own level (`marker`),
-||| the next one `level`, so the types read in the callee's scope.
+||| Walks a callee's type, as the instance admits it, over what each
+||| parameter is supplied with: which are type parameters or
+||| implementations, which are erased, which are index parameters, which
+||| are runtime (and their types). A static argument a request read is put
+||| in at its reading's form as the request classified it, and read no
+||| further; only what a call offers is read here. Each index parameter
+||| stands in the rest of the type as its own level (`marker`), the next
+||| one `level`, so the types read in the callee's scope.
 classifyAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> (request : String) -> (level : Nat) -> (arity : Nat) -> Admitted arity -> ArgValues ->
-             Front (Classified arity)
-classifyAt fc owner request level Z (AllAdmitted ty) _ = pure ([], ty)
-classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
+             FC -> String -> (request : String) -> (level : Nat) -> (arity : Nat) -> Admitted arity ->
+             (supplied : List Supply) -> Front (ClassifiedFrom arity supplied)
+classifyAt fc owner request level Z (AllAdmitted ty) _ = pure (MkClassifiedFrom [] ty [])
+classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
+  step <- parameter (fst (nextSupplied supplied))
+  admittedRest <- admitted fc owner request k step.restType
+  more <- classifyAt fc owner request step.nextLevel k admittedRest (snd (nextSupplied supplied))
+  pure (MkClassifiedFrom (step.kind :: more.kinds) more.rest (followed supplied step.atKey more.atKey))
   where
-    -- The rest of the type, after what stands for the parameter, admitted
-    -- and classified, the next index parameter's level `next`.
-    classifiedAfter : (next : Nat) -> ClosedTerm -> ArgValues -> Front (Classified k)
-    classifiedAfter next ty vals' = do
-      rest <- admitted fc owner request k ty
-      classifyAt fc owner request next k rest vals'
+    -- A runtime parameter's Core type, read off its binder's normalised
+    -- type, which may not depend on another argument.
+    runtimeType : ClosedTerm -> Front Ty
+    runtimeType a' = do
+      when !(erasedOutsideIndices owner a') $ do
+        reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
+      coreType fc owner ValueType a'
 
-    -- The parameter the binder binds, and the rest of the type after it.
-    parameter : Front (Classified (S k))
-    parameter = do
+    -- A static argument put in at its value, as a request read it: the
+    -- rest of the type has the value for the parameter, normalised, and
+    -- the next index parameter the same level.
+    keyedAt : {0 given : Supply} -> (kind : PKind) -> (0 _ : AtKey (keyOf given) kind) -> ClosedTerm ->
+              Front (Stepped given)
+    keyedAt kind atKey value = (\restType => MkStepped kind level restType atKey) <$> normaliseClosed (subst value sc)
+
+    -- What a call offers is read by the parameter's binder, which decides
+    -- how it keys the instance; nothing a request read keys it.
+    offered : (given : Maybe ArgValue) -> Front (Stepped (FromCall given))
+    offered given = do
       a' <- normaliseClosed a
-      let (given, vals') = nextStatic vals
       case !(keyingOf rig a' sc (maybe AValue (.offer) given)) of
-        Typed => typed given vals'
+        Typed => typed
         -- A family keys its instance as any type does; only the growth
         -- check reads what heads its value.
-        Family => typed given vals'
+        Family => typed
         Formed => do
           let Just v = given
             | Nothing => leftOut "shape"
           form <- formOf <$> spineOf fc owner !(v.normalised)
-          mapFst (FormParam form ::) <$> classifiedAfter level !(normaliseClosed (subst form sc)) vals'
+          unkeyedAt (FormParam form) level !(normaliseClosed (subst form sc))
         -- An erased binder an index of a runtime parameter's type or of
         -- the result reads, and nothing a value is made of, is an index
         -- parameter, its level standing for it in the rest of the type;
@@ -363,22 +477,20 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
           case !(occurrenceOf owner level rest) of
             IndexOnly => do
               sort <- sortOfType a'
-              mapFst (IndexParam sort ::) <$> classifiedAfter (S level) rest vals'
-            _ => mapFst (ErasedParam ::) <$> classifiedAfter level (subst (Erased bfc Placeholder) sc) vals'
+              unkeyedAt (IndexParam sort) (S level) rest
+            _ => unkeyedAt ErasedParam level (subst (Erased bfc Placeholder) sc)
         -- An implementation the call leaves out is given when the call's
         -- value, a closure, is applied: a run-time choice.
         Implemented q => do
           let Just v = given
-            | Nothing => chosen q a' vals'
+            | Nothing => chosen q a'
           case v.offer of
-            AChoice => chosen q a' vals'
+            AChoice => chosen q a'
             _ => do
               written <- v.written
-              implemented q a' v written vals'
+              implemented q a' v written
         Runtime q dependence => do
-          when !(erasedOutsideIndices owner a') $ do
-            reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
-          b <- coreBinder fc owner ValueType q a'
+          t <- runtimeType a'
           -- The rest of the type may have to reduce on the parameter's value
           -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
           -- in Data.SortedMap, where `delType` reduces on the constructors of
@@ -405,21 +517,26 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
               neededShape owner (\x => subst x sc) found
             _ => pure Nothing
           let value = fromMaybe (Erased bfc Placeholder) shape
-          mapFst (ValueParam b shape a' ::) <$> classifiedAfter level !(normaliseClosed (subst value sc)) vals'
+          unkeyedAt (ValueParam (MkBinder q t) shape a') level !(normaliseClosed (subst value sc))
       where
+        -- A kind the binder decides at what the call offers, which no
+        -- static argument a request read keys.
+        unkeyedAt : PKind -> (next : Nat) -> ClosedTerm -> Front (Stepped (FromCall given))
+        unkeyedAt kind next restType = pure (MkStepped kind next restType NoKey)
+
         -- A type, normalised, keys the instance.
-        typed : Maybe ArgValue -> ArgValues -> Front (Classified (S k))
-        typed given after = do
+        typed : Front (Stepped (FromCall given))
+        typed = do
           let Just v = given
             | Nothing => leftOut "type"
           val <- v.normalised
-          mapFst (TypeParam val ::) <$> classifiedAfter level !(normaliseClosed (subst val sc)) after
+          unkeyedAt (TypeParam val) level !(normaliseClosed (subst val sc))
 
         -- An implementation given as written, at a parameter of an
         -- interface's type, or a polymorphic function, at a parameter of
         -- its type.
-        implemented : Uses -> ClosedTerm -> ArgValue -> ClosedTerm -> ArgValues -> Front (Classified (S k))
-        implemented q a' v written vals' = do
+        implemented : Uses -> ClosedTerm -> ArgValue -> ClosedTerm -> Front (Stepped (FromCall given))
+        implemented q a' v written = do
           -- An implementation can be a function of a runtime value
           -- (`{y : a} -> Show (p y)`, applied to the first component of a
           -- dependent pair), which Idris resolved at every value: constant
@@ -452,25 +569,24 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
           if not dependent
             then do
               FixedNow <- fixing a' val
-                | ChosenAtRunTime _ => chosen q a' vals'
-              static val Nothing vals'
+                | ChosenAtRunTime _ => chosen q a'
+              static val Nothing
             else do
               -- One that still needs a runtime value to say which it is is
               -- chosen at run time, among those the program fixes, unless
               -- its form says which it is whatever the values (`fixing`):
               -- then only the values are passed.
               Just (shape, tys) <- v.holed
-                | Nothing => chosen q a' vals'
+                | Nothing => chosen q a'
               key <- implementationOf shape
               FixedNow <- fixing a' key
-                | ChosenAtRunTime _ => chosen q a' vals'
+                | ChosenAtRunTime _ => chosen q a'
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
-              static key (Just (MkHoles tys (MkBinder Many held))) vals'
+              static key (Just (MkHoles tys (MkBinder Many held)))
 
         -- An implementation known now keys the instance.
-        static : ClosedTerm -> Maybe Holes -> ArgValues -> Front (Classified (S k))
-        static key holes vals' =
-          mapFst (DictParam key holes ::) <$> classifiedAfter level !(normaliseClosed (subst key sc)) vals'
+        static : ClosedTerm -> Maybe Holes -> Front (Stepped (FromCall given))
+        static key holes = unkeyedAt (DictParam key holes) level !(normaliseClosed (subst key sc))
 
         -- A choice of an implementation or a polymorphic function of the
         -- parameter's type (`choiceType`), a value at run time, which the
@@ -479,16 +595,15 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
         -- chooses, whose result is an implementation, is a value of a
         -- function type that takes no type: a closure, a runtime value
         -- like any other, whose uses apply it, each result a choice.
-        chosen : Uses -> ClosedTerm -> ArgValues -> Front (Classified (S k))
-        chosen q a' vals' = do
+        chosen : Uses -> ClosedTerm -> Front (Stepped (FromCall given))
+        chosen q a' = do
           Just ct <- choiceType a'
             | Nothing => do
                 b <- coreBinder fc owner ValueType q a'
-                mapFst (ValueParam b Nothing a' ::)
-                  <$> classifiedAfter level !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
+                unkeyedAt (ValueParam b Nothing a') level !(normaliseClosed (subst (Erased bfc Placeholder) sc))
           choice <- choiceFamily fc owner ct
-          mapFst (ChoiceParam (MkBinder q (DataT choice.family [])) ct ::)
-            <$> classifiedAfter level !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
+          unkeyedAt (ChoiceParam (MkBinder q (DataT choice.family [])) ct) level
+                    !(normaliseClosed (subst (Erased bfc Placeholder) sc))
 
         -- A type or a form the call leaves out: the call's value is a
         -- function that takes a type, held at run time. Where the program
@@ -498,10 +613,27 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
         -- no call of it is classified there; what reaches here is one no
         -- compile-time reduction fixes, which would be a closure whose type
         -- the next binder chooses where it is applied.
-        leftOut : String -> Front (Classified (S k))
+        leftOut : String -> Front (Stepped (FromCall given))
         leftOut what =
           reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time, at a parameter of type " ++
                                      !(showTT a))
+
+    -- The parameter the binder binds, what stands for it in the rest of the
+    -- type, and the rest of the type after it. A static argument a request
+    -- read is put in at its reading's form, the form that keys the
+    -- instance, as the request classified it: a type, a form, an
+    -- implementation with the values it closes over, a runtime value's
+    -- shape at the quantity it was read with, whose binder only the
+    -- instance's own type gives. Nothing of the argument is read again.
+    parameter : (given : Supply) -> Front (Stepped given)
+    parameter (FromKey AsType r) = keyedAt (TypeParam r.form) TypeAtKey r.form
+    parameter (FromKey (AsDictionary holes) r) = keyedAt (DictParam r.form holes) DictionaryAtKey r.form
+    parameter (FromKey AsForm r) = keyedAt (FormParam r.form) FormAtKey r.form
+    parameter (FromKey (AsShape q) r) = do
+      a' <- normaliseClosed a
+      t <- runtimeType a'
+      keyedAt (ValueParam (MkBinder q t) (Just r.form) a') ShapeAtKey r.form
+    parameter (FromCall given) = offered given
 
 ||| What a call gives each index parameter of its callee, in order: the
 ||| argument at its position, normalised in the caller's scope with the
@@ -593,13 +725,13 @@ classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues ->
                Front (Classified arity)
 classifyCall fc owner request arity ty vals = do
-  (found, res) <- classifyAt fc owner request 0 arity !(admitted fc owner request arity ty) vals
-  case telescopeOf (toList found) of
-    [] => pure (found, res)
+  classified <- classifyAt fc owner request 0 arity !(admitted fc owner request arity ty) (map FromCall vals)
+  case telescopeOf (vectList classified.kinds) of
+    [] => pure (classified.kinds, classified.rest)
     _ => do
-      forms <- indexForms (toList found) vals
-      kinds <- traverse (inScope forms) found
-      res' <- normaliseClosed (atLevels forms res)
+      forms <- indexForms (vectList classified.kinds) vals
+      kinds <- traverse (inScope forms) classified.kinds
+      res' <- normaliseClosed (atLevels forms classified.rest)
       pure (kinds, res')
   where
     inScope : List (Maybe ClosedTerm) -> PKind -> Front PKind
@@ -618,7 +750,8 @@ classifyKeys : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues -> Front (List PKind)
 classifyKeys fc owner request arity ty vals = do
   admittedType <- admitted fc owner request arity ty
-  (toList . fst) <$> classifyAt fc owner request 0 arity admittedType vals
+  classified <- classifyAt fc owner request 0 arity admittedType (map FromCall vals)
+  pure (vectList classified.kinds)
 
 ||| A requested instance's signature as a call reads it, in the call's
 ||| scope (`inCaller`).
@@ -629,67 +762,55 @@ atCall fc owner vals sig = inCaller fc owner vals sig.kinds sig.result
 
 ||| An instance's signature (`InstanceSig`), read where it is first
 ||| requested, or where a dispatch is made (`Choices.dispatchOn`): what it
-||| applies classified over the static arguments the request gives, its
-||| index parameters its own levels, which its body's scope binds first;
-||| its result normalised and its Core type read; and what a call holds of
-||| it, its identity and symbol as given.
+||| applies classified over what its request supplies (`Requesting`), each
+||| static argument at the form its key writes, put in as it is, so that
+||| the instance holds for each parameter its key names the form that names
+||| it (`SignedAt`), and is translated at those forms; its index parameters
+||| its own levels, which its body's scope binds first; its result
+||| normalised and its Core type read; and what a call holds of it, its
+||| identity, which its link is, and its symbol.
 export
 instanceSig : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              FC -> String -> (what : Instantiates) -> List PKind -> FnId -> String ->
-              Front (sig : InstanceSig ** length sig.kinds = appliedArity what)
-instanceSig fc owner what kinds inst symbol = do
+              FC -> String -> (what : Instantiates) -> (requesting : Requesting) ->
+              Front (sig : InstanceSig ** SignedAt what (keysOf requesting.supplied) sig)
+instanceSig fc owner what requesting = do
   ty <- appliedType fc owner what
   let request = requestName what
-  (found, resTy) <- classifyAt fc owner request 0 (appliedArity what) !(admitted fc owner request (appliedArity what) ty)
-                               (givenArgs kinds)
-  resTy' <- normaliseClosed resTy
+  classified <- classifyAt fc owner request 0 (appliedArity what) !(admitted fc owner request (appliedArity what) ty)
+                           requesting.supplied
+  resTy' <- normaliseClosed classified.rest
   result <- coreType fc owner ValueType resTy'
-  let (own ** counted) = listed found
-  pure (MkInstanceSig own resTy' (MkCallee inst symbol (runtimeBinders own) result) ** counted)
-  where
-    -- The kinds in order, as many as the vector holds.
-    listed : Vect n PKind -> (ks : List PKind ** length ks = n)
-    listed [] = ([] ** Refl)
-    listed (k :: ks) = let (ks' ** same) = listed ks in (k :: ks' ** cong S same)
+  pure (MkInstanceSig (vectList classified.kinds) resTy'
+                      (MkCallee (InstanceOf requesting.link) requesting.symbol (runtimeBinders (vectList classified.kinds)) result)
+        ** MkSignedAt (vectListLength classified.kinds) classified.atKey)
 
 ||| Requests a function instance, for parameters classified as the call
 ||| gives them, and returns its signature (`InstanceSig`), which holds its
 ||| identity. A new instance's signature is read here, once: what it
-||| applies classified over the static arguments the call gives
-||| (`givenArgs`), its result's Core type read, so that a result type the
-||| frontend refuses is refused at the request that first meets it, which
-||| the refusal names; its own step and every call of it read that one
-||| value. A new instance is recorded with it, what it is an instance of,
-||| the site that requested it, the definition whose translation did, and
-||| the positions at which the worklist checks its static arguments against
-||| the growth check's bounds (`Finite`): a definition's node, split by the
-||| heads of the implementations and families it is given, so that a
-||| method's projection is checked at the implementation that runs, and a
-||| definition over a family at the type constructor it is. A member at a
-||| use is no node of the graph, and the growth check bounds its link
-||| alone. The link stays its identity.
+||| applies classified over what the request supplies (`instanceFor`), each
+||| static argument at its reading's form, the form its key writes, its
+||| result's Core type read, so that a result type the frontend refuses is
+||| refused at the request that first meets it, which the refusal names;
+||| its own step and every call of it read that one value. A new instance
+||| is recorded with it, with what its request keyed each parameter by and
+||| that each is put in at it, what it is an instance of, the site that
+||| requested it, the definition whose translation did, and the positions
+||| at which the worklist checks its static arguments against the growth
+||| check's bounds (`boundedAt`), so that a method's projection is
+||| checked at the implementation that runs, and a definition over a family
+||| at the type constructor it is. The link stays its identity.
 export
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> (owner : String) -> Instantiates -> List PKind -> Front InstanceSig
 request fc owner what kinds = do
-  (found, positionsOf) <- keyed what
-  let inst = InstanceOf found.link
+  requesting <- instanceFor fc owner what kinds
+  let inst = InstanceOf requesting.link
   Nothing <- pure (requestedBefore inst !(getState))
     | Just sig => pure sig
-  (sig ** counted) <- instanceSig fc owner what kinds inst found.symbol
+  (sig ** signed) <- instanceSig fc owner what requesting
   updateState (derive { instances $= insert inst sig })
-  positions <- positionsOf
   updateState (derive { fnOrder $= (:< inst) })
-  updateState { derived->requested $= (:< MkRequest what sig counted found.key fc (shown owner) found.link positions) }
+  updateState { derived->requested $= (:< MkRequest what sig signed.classifiesAll (keysOf requesting.supplied) signed.atKey
+                                                   requesting.key fc (shown owner) requesting.link
+                                                   (boundedAt requesting.link.head requesting.supplied)) }
   pure sig
-  where
-    -- The instance, and, for a new one, where the growth check bounds its
-    -- static arguments: a definition's at its node; a member at a use's at
-    -- its link alone.
-    keyed : Instantiates -> Front (Instance StaticReading, Front (List (Position, Nat)))
-    keyed (OfDefinition n _) = do
-      (address, found) <- instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
-      let read = heightsOf 0 found.arguments
-      let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
-      pure (found, pure (map (\(i, r) => ((node, i), r.height)) read))
-    keyed (AtUse uses) = (, pure []) <$> applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))
