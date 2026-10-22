@@ -4043,6 +4043,13 @@ C137.
   module from it. The output is committed with its fingerprint in
   `generated.manifest`, and `make check` regenerates it, as for the
   dialect's TableGen.
+- **C200** (2026-10-22; L09's C52 sweep; sharpens C52). No case of a
+  `match` takes every type. A generic case beside named ones is a
+  default, and a sum that gains an alternative then goes to it silently,
+  which is the coverage C52 exists to keep. A case for several
+  alternatives names them, by a list or by the concept they share. The
+  fold refuses an unconstrained case when the compiler is built, by
+  probing the cases with a type no sum holds.
 
 ## 4. Open: the owner's decisions, in order
 
