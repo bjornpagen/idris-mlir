@@ -54,7 +54,7 @@ static mlir::FailureOr<int> frontend(llvm::StringRef frontendPath, const FromIdr
     args.insert(args.end(), {"--package-path", directory});
   for (const std::string &package : options.packages)
     args.insert(args.end(), {"-p", package});
-  if (options.noPrelude)
+  if (options.prelude == Prelude::NotImported)
     args.emplace_back("--no-prelude");
   args.insert(args.end(), {"-o", idris.modulePath, idris.source});
   std::vector<llvm::StringRef> argv(args.begin(), args.end());

@@ -270,7 +270,8 @@ llvm::Expected<Invocation> compileInvocation() {
   if (inputPath.empty() || outputPath.empty())
     return llvm::createStringError("give an input file and -o (see --help)");
   Product product = objectOnly ? Product(Archive{outputPath}) : Product(Executable{outputPath});
-  FrontendArgs frontend{idrisPrefix, packagePath, packages, noPrelude};
+  FrontendArgs frontend{idrisPrefix, packagePath, packages,
+                        noPrelude ? Prelude::NotImported : Prelude::Implicit};
   std::optional<Plan> plan = Plan::of(inputPath, std::move(product), givenPath(reportPath),
                                       givenPath(emittedPath), std::move(frontend));
   if (!plan)

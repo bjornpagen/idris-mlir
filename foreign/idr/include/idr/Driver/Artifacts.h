@@ -51,12 +51,14 @@ namespace idr::driver {
 //
 // The frontend's options: the Idris prefix it reads its packages from, the
 // directories it looks for packages in besides, the packages it loads, and
-// whether the Prelude is imported implicitly. The frontend reads no
-// environment, so these are the whole of its search path.
+// whether the Prelude is imported implicitly or not at all (--no-prelude).
+// The frontend reads no environment, so these are the whole of its search
+// path.
+enum class Prelude : std::uint8_t { Implicit, NotImported };
 struct FrontendArgs {
   std::string prefix;
   std::vector<std::string> packagePath, packages;
-  bool noPrelude;
+  Prelude prelude;
 };
 enum class ModuleKept : std::uint8_t { WithProduct, Always };
 struct FromIdris {
