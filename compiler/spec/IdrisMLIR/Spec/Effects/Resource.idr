@@ -25,6 +25,7 @@ import Data.List
 import Data.List.Elem
 import Data.List1
 import Data.Nat
+import Decidable.Equality
 
 %default total
 
