@@ -15,8 +15,8 @@
 // the upstream ops that move a value into or out of the elements of a
 // tensor or a buffer, or make one from nothing, hold it as an external
 // model, attached by registerFlowInterfaceExternalModels. What an op does
-// besides moving values is the effect system's one query API to say
-// (idr/IR/Effects/Query.h), never this header's.
+// besides moving values is the effect system's query API to say
+// (idr/IR/Effects/Whole.h), never this header's.
 #ifndef IDR_IR_FLOW_H
 #define IDR_IR_FLOW_H
 
@@ -25,9 +25,37 @@
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <concepts>
 
 namespace idr {
+
+namespace detail {
+
+// What `branch` forwards from `point`, the op itself or a terminator of one
+// of its regions, to each of its successors. A jump through `branch` to an
+// enclosing join point has a successor `branch` does not own, whose inputs
+// are its owner's to say. The uses are taken from the range's base, as
+// upstream's own readers of these interfaces take them: an empty range has
+// no first operand to index from.
+template <std::invocable<mlir::OpOperand &, mlir::Value> Each>
+void forwardFrom(mlir::RegionBranchOpInterface branch, mlir::RegionBranchPoint point,
+                 Each &each) {
+  llvm::SmallVector<mlir::RegionSuccessor> successors;
+  branch.getSuccessorRegions(point, successors);
+  for (mlir::RegionSuccessor successor : successors) {
+    mlir::OperandRange operands = branch.getSuccessorOperands(point, successor);
+    llvm::MutableArrayRef<mlir::OpOperand> uses(operands.getBase(), operands.size());
+    for (auto [use, input] : llvm::zip_equal(
+             uses, mlir::getRegionBranchSuccessorOwner(successor).getSuccessorInputs(successor)))
+      each(use, input);
+  }
+}
+
+} // namespace detail
 
 // Each operand `op` forwards unchanged, with each value it becomes there,
 // in successor order: a region branch's entry operands, and the operands of
@@ -36,8 +64,14 @@ namespace idr {
 // operand may become one value per successor, and a jump's successor is the
 // join region its token designates, whose op owns the inputs. A forwarded
 // operand moves on with what it holds: its reference too.
-void forwardedValues(mlir::Operation *op,
-                     llvm::function_ref<void(mlir::OpOperand &operand, mlir::Value input)> each);
+template <std::invocable<mlir::OpOperand &, mlir::Value> Each>
+void forwardedValues(mlir::Operation *op, Each &&each) {
+  if (auto branch = mlir::dyn_cast<mlir::RegionBranchOpInterface>(op))
+    detail::forwardFrom(branch, mlir::RegionBranchPoint::parent(), each);
+  if (auto terminator = mlir::dyn_cast<mlir::RegionBranchTerminatorOpInterface>(op))
+    if (auto branch = mlir::dyn_cast_or_null<mlir::RegionBranchOpInterface>(op->getParentOp()))
+      detail::forwardFrom(branch, mlir::RegionBranchPoint(terminator), each);
+}
 
 // The edges of a value built of fields: each field given (`fields`, the
 // fields of constructor `tag` of `data` that are not `holes`, in order)

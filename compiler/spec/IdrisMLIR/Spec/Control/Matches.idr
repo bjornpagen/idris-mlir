@@ -173,7 +173,7 @@ matchOp = MkOp
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = [attr "cases" (UpstreamAttr DenseI32ArrayAttrC)]
   , regions = [MkRegion "default_region" OneRegion (AtMost 1), sizedRegions "case_regions" 1]
-  , traits = [SingleBlock, PropagateControlFlowBreak, AttrSizedOperandSegments]
+  , traits = [SingleBlock, PropagateControlFlowBreak]
   , interfaces =
       [ Declares RegionBranch
           (branchMethods ++ ["getEntrySuccessorOperands", "areTypesCompatible"])

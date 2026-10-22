@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The reading of the flow vocabulary (FlowEdges.h, whose behaviour is
-// lib/IR/FlowEdges.cpp): forwardedValues reads what upstream's region
-// branch interface forwards, flowEdgesOf joins that to what each op
-// declares (lib/IR/FlowOps.cpp), so a region branch's edges are said once,
-// by upstream. The flow interface's verifier holds each op's own edges to
+// lib/IR/FlowEdges.cpp): flowEdgesOf joins what upstream's region branch
+// interface forwards (forwardedValues, Flow.h) to what each op declares
+// (lib/IR/FlowOps.cpp), so a region branch's edges are said once, by
+// upstream. The flow interface's verifier holds each op's own edges to
 // their rule, and the function verifier's one walk refuses, at each op, a
 // closure or a suspension that no declaration moves.
 
@@ -27,39 +27,6 @@ using namespace idr;
 //===----------------------------------------------------------------------===//
 // The reading
 //===----------------------------------------------------------------------===//
-
-namespace {
-
-// The uses of `operands`, as upstream's own readers of these interfaces
-// take them: an empty range has no first operand to index from.
-MutableArrayRef<OpOperand> usesOf(OperandRange operands) {
-  return MutableArrayRef<OpOperand>(operands.getBase(), operands.size());
-}
-
-// What `branch` forwards from `point`, the op itself or a terminator of one
-// of its regions, to each of its successors. A jump through `branch` to an
-// enclosing join point has a successor `branch` does not own, whose inputs
-// are its owner's to say.
-void forwardFrom(RegionBranchOpInterface branch, RegionBranchPoint point,
-                 function_ref<void(OpOperand &, Value)> each) {
-  SmallVector<RegionSuccessor> successors;
-  branch.getSuccessorRegions(point, successors);
-  for (RegionSuccessor successor : successors)
-    for (auto [use, input] :
-         llvm::zip_equal(usesOf(branch.getSuccessorOperands(point, successor)),
-                         getRegionBranchSuccessorOwner(successor).getSuccessorInputs(successor)))
-      each(use, input);
-}
-
-} // namespace
-
-void idr::forwardedValues(Operation *op, function_ref<void(OpOperand &, Value)> each) {
-  if (auto branch = dyn_cast<RegionBranchOpInterface>(op))
-    forwardFrom(branch, RegionBranchPoint::parent(), each);
-  if (auto terminator = dyn_cast<RegionBranchTerminatorOpInterface>(op))
-    if (auto branch = dyn_cast_or_null<RegionBranchOpInterface>(op->getParentOp()))
-      forwardFrom(branch, RegionBranchPoint(terminator), each);
-}
 
 bool idr::declaresFlow(Operation *op) {
   if (isa<FlowOpInterface, RegionBranchOpInterface, SelectLikeOpInterface>(op))
