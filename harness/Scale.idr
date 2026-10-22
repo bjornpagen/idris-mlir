@@ -34,9 +34,11 @@ import Data.String
 import Data.Vect
 import System
 
+import IdrisMLIR.Spec.Core.Verdict
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Closures.Declarations
-import IdrisMLIR.Spec.Families.Dialect
+import IdrisMLIR.Spec.Families.Ops
+import IdrisMLIR.Spec.Families.Types
 import IdrisMLIR.Spec.Functions.Declarations
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Ops.Checks
@@ -44,6 +46,7 @@ import IdrisMLIR.Spec.Ops.IO
 import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Runtime.Endings
 
+import Facts
 import Files
 import Trace
 
@@ -603,20 +606,21 @@ printOf _ = Nothing
 ------------------------------------------------------------------------------
 
 ||| What a compilation's report says, as far as a relation reads it: its
-||| verdict, and each statistic, `<pass>.<counter>`, with its sum.
+||| verdict, none where the report spells none, and each statistic,
+||| `<pass>.<counter>`, with its sum.
 record Report where
   constructor MkReport
-  verdict : String
+  verdict : Maybe CompilerVerdict
   statistics : SortedMap String Integer
 
 ||| The report idris-mlir writes under --report: a `verdict:` line, and a
 ||| `statistic: <key>=<sum>` line per statistic, the key holding no `=`.
 reportOf : String -> Report
-reportOf text = foldl line (MkReport "" empty) (lines text)
+reportOf text = foldl line (MkReport Nothing empty) (lines text)
   where
     line : Report -> String -> Report
     line r l = case words l of
-      ["verdict:", v] => { verdict := v } r
+      ["verdict:", v] => { verdict := readVerdict v } r
       ["statistic:", kv] =>
         case break (== '=') (unpack kv) of
           (k, '=' :: v) => maybe r (\n => { statistics $= insert (pack k) n } r) (parseInteger (pack v))
@@ -651,6 +655,15 @@ measures kind once twice =
 declares : String -> Report -> Bool
 declares suffix r = any (isSuffixOf suffix) (keys r.statistics)
 
+||| Whether a report's verdict is that the program compiled.
+accepted : Maybe CompilerVerdict -> Bool
+accepted (Just VerdictAccepted) = True
+accepted _ = False
+
+||| A report's verdict as the report spells it.
+verdictText : Maybe CompilerVerdict -> String
+verdictText = maybe "none" verdictWords
+
 ||| `--scale-check <report> <trace> <report> <trace>`: the compilation at
 ||| the size and at twice it, both accepted, and every count of the second
 ||| within the relation of the first's; one line per broken count, naming
@@ -662,9 +675,9 @@ scaleCheck [reportOnce, traceOnce, reportTwice, traceTwice] = do
   twice <- reportOf <$> readOrDie reportTwice
   zonesOnce <- zoneCounts traceOnce
   zonesTwice <- zoneCounts traceTwice
-  let verdicts = once.verdict == "accepted" && twice.verdict == "accepted"
+  let verdicts = accepted once.verdict && accepted twice.verdict
   putStrLn (if verdicts then "verdict: accepted at both sizes"
-            else "verdict: " ++ once.verdict ++ " at the size, " ++ twice.verdict ++ " at twice it")
+            else "verdict: " ++ verdictText once.verdict ++ " at the size, " ++ verdictText twice.verdict ++ " at twice it")
   let counted = measures "statistic" once.statistics twice.statistics
                 ++ measures "zone" zonesOnce zonesTwice
       broken = filter (not . withinRelation) counted

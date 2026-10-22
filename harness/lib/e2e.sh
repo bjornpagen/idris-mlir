@@ -66,7 +66,7 @@ e2e_io() {
   [ -f "$io_fixture/heap-free" ] && say "heap: nothing is allocated on the heap"
   [ -f "$io_fixture/mlir.expect" ] && say "mlir.expect: holds"
   [ -f "$io_fixture/covers" ] &&
-    covers_prelude "$(first_word "$io_fixture/covers")" "$(artifact_file "$work/ours" prog core)" "$io_fixture"
+    covers_prelude "$(first_word "$io_fixture/covers")" "$(artifact_file "$work/ours" prog module)" "$io_fixture"
   return 0
 }
 
@@ -219,29 +219,30 @@ fixture_files_known() {
 # sem_case NAME: the generated semantics test NAME, one run of
 # tests/semantics, which the runner runs once per test of
 # harness/Sem.idr's table, NAME its parameter: two e2e fixtures built in
-# the work directory, one table checked by two programs, whose Prog.idr,
-# input and the expected-stdout of their one case are the runner's, which
-# computes every case's value from what the primitive means and states
-# once what a program prints when all agree. In the first, every operand
-# is written in the program, so the compiler computes each case while it
-# compiles; its cases are comparisons of fixed-width integers, which never
-# need a heap cell (heap-free). In the second, every operand is read from
-# the case's stdin, so only the compiled program's arithmetic answers; it
-# reads lines into lists, which live on the heap. Its account is the
-# first's form, each line prefixed `stdin: `. Main is partial: Prog.result
-# may divide, and Idris does not hold a primitive division covering, since
-# its divisor may be 0.
+# the work directory, one table checked by two programs, whose Prog.idr
+# and cases are the runner's, which computes every case's value from what
+# the builtin means, and states once what a program prints when all
+# agree. In the first, every operand is written in the program, so the
+# compiler computes each case while it compiles; its cases are
+# comparisons of fixed-width integers, which never need a heap cell
+# (heap-free). In the second, every operand is read from the case's
+# stdin, so only the compiled program's arithmetic answers; it reads lines
+# into lists, which live on the heap. Its cases are the runner's
+# (--sem-cases): the one of every pair inside its builtin's guard, and one
+# for each pair the guard stops, which must end by the guard's crash. Its
+# account is the first's form, each line prefixed `stdin: `. Main is
+# partial: Prog.result may divide, and Idris does not hold a primitive
+# division covering, since its divisor may be 0.
 sem_case() {
-  mkdir -p "$work/sem/cases/no-input" "$work/sem-stdin/cases/operands"
+  mkdir -p "$work/sem/cases/no-input" "$work/sem-stdin/cases"
   if ! "$runtests" --sem-program written "$1" > "$work/sem/Prog.idr" 2> "$work/sem.err" ||
      ! "$runtests" --sem-expected "$1" > "$work/sem/cases/no-input/expected-stdout" 2>> "$work/sem.err" ||
      ! "$runtests" --sem-program stdin "$1" > "$work/sem-stdin/Prog.idr" 2>> "$work/sem.err" ||
-     ! "$runtests" --sem-stdin "$1" > "$work/sem-stdin/cases/operands/stdin" 2>> "$work/sem.err"; then
+     ! "$runtests" --sem-cases "$1" "$work/sem-stdin/cases" 2>> "$work/sem.err"; then
     say "no semantics program $1"
     show "$work/sem.err"
     return
   fi
-  cp "$work/sem/cases/no-input/expected-stdout" "$work/sem-stdin/cases/operands/expected-stdout"
   cat > "$work/sem/Main.idr" <<'MAIN'
 module Main
 

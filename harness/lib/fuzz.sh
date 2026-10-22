@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The fuzzer (harness/Fuzz.idr): generated closed expressions over every
-# primitive, each written four ways in one build, held to each other, to
-# the folders, and over the integers to what the primitives mean. Every
-# check is a relation the program's own output and modules must satisfy,
-# so none depends on what a seed draws or in what order.
+# builtin, each written four ways in one build, held to each other, to
+# the folders, over the integers to what the builtins mean, and, where a
+# case reaches a guard that fails, to the crash its guard's cause names.
+# Every check is a relation the program's own run and modules must
+# satisfy, so none depends on what a seed draws or in what order.
 
 # The cases of a program: the size the seeds' recorded outputs had, kept.
 # That thirty compile within the test's limits at every thread count a seed
@@ -14,19 +15,23 @@ fuzz_cases=30
 # fuzz SEED: for each part, `runtime` then `static`, the program of SEED,
 # compiled at the seed's thread count with the checked runtime and run on
 # its stdin, and four checks, a line each:
-#   - the build compiles, runs, exits 0 and writes nothing on stderr, and
-#     no case ran out of its tape;
-#   - each case's lines (d, j, r, s) print one value, each of them once;
+#   - the build compiles and runs, no case ran out of its tape, and the run
+#     ends as the oracle says: returned with nothing on stderr, or crashed
+#     at the first case whose evaluation reaches a guard that fails, by one
+#     of the causes it may meet first;
+#   - each case's lines (d, j, r, s) that run print one value, each of
+#     them once;
 #   - once the program is graded no op of main computes on constants
 #     alone (folded=@Main.main), so the folders computed every d line;
 #   - each case the model covers prints the value its integers mean.
-# The runner reads the output against the cases it generates
-# (runtests --fuzz-check). The first case that disagrees or misses its
-# model is shrunk (fuzz_shrink) under its check's line. A check whose input
-# was never made, because the program was not generated, compiled or run,
-# reports `not run` and the step that stopped it, which fails the test: an
-# empty list of problems is no evidence for a check that never looked. So
-# does the model's check when no case of the program has a model.
+# The runner reads the run against the cases it generates
+# (runtests --fuzz-check). The first case that ends otherwise, disagrees
+# or misses its model is shrunk (fuzz_shrink) under its check's line. A
+# check whose input was never made, because the program was not generated
+# or compiled, reports `not run` and the step that stopped it, which fails
+# the test: an empty list of problems is no evidence for a check that
+# never looked. So does the model's check when no case the run prints has
+# a model.
 fuzz() {
   fuzz_seed=$1
   if ! fuzz_threads=$("$runtests" --fuzz-program threads "$fuzz_seed"); then
@@ -41,7 +46,8 @@ fuzz() {
     fuzz_stopped=
     fuzz_unmodelled=
     fuzz_check "$fuzz_part"
-    fuzz_report "$fuzz_part: every build compiles, runs, exits 0 and writes nothing on stderr" compiled
+    fuzz_report "$fuzz_part: every build compiles, runs and ends as its cases say" compiled
+    case $fuzz_failing in *' ending') fuzz_shrink "$fuzz_part" $fuzz_failing ;; esac
     fuzz_report "$fuzz_part: each case prints one value, whoever computes it" agree
     case $fuzz_failing in *' agree') fuzz_shrink "$fuzz_part" $fuzz_failing ;; esac
     fuzz_report "$fuzz_part: every d line is folded" folded
@@ -51,9 +57,9 @@ fuzz() {
   done
 }
 
-# fuzz_checked FILE HOW REQUEST... [STDOUT]: what runtests --fuzz-check HOW
-# says of REQUEST's cases, appended to FILE, or a line saying it could
-# not check.
+# fuzz_checked FILE HOW REQUEST... [RUN...]: what runtests --fuzz-check HOW
+# says of REQUEST's cases and their run, appended to FILE, or a line
+# saying it could not check.
 fuzz_checked() {
   fuzz_checked_file=$1
   shift
@@ -61,6 +67,17 @@ fuzz_checked() {
     say "$fuzz_seed: no $1 check"
     show "$work/fuzz-check.err"
   } >> "$fuzz_checked_file"
+}
+
+# fuzz_ran: how the last run ended (run_program's $ran), as the runner
+# reads a status: `code <n>`, or `signal <name>` for a process a signal
+# ended.
+fuzz_ran() {
+  if [ "$ran" -gt 128 ]; then
+    say "signal $(kill -l "$((ran - 128))")"
+  else
+    say "code $ran"
+  fi
 }
 
 # fuzz_check PART: the program of $fuzz_seed for PART and its stdin
@@ -87,12 +104,6 @@ fuzz_check() {
     return
   fi
   run_program prog "$fuzz_dir/prog/build/exec/prog" "$fuzz_dir/stdin"
-  if [ "$ran" -ne 0 ] || [ -s "$work/prog.err" ]; then
-    say "$fuzz_seed: prog exited $ran" >> "$work/fuzz.compiled"
-    head -n 5 "$work/prog.err" | sed 's/^/  | /' >> "$work/fuzz.compiled"
-    fuzz_stopped="the program exited $ran or wrote on stderr"
-    return
-  fi
   # A closed expression is folded by the time the program is graded: the
   # emitted module through the pipeline's slice up to that stage, the
   # property checked there.
@@ -102,26 +113,33 @@ fuzz_check() {
     say "$fuzz_seed: main computes on constants once graded" >> "$work/fuzz.folded"
     show "$work/expect.log" >> "$work/fuzz.folded"
   fi
-  fuzz_checked "$work/fuzz.agree" agree program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
-  # The model's check holds of no case when no case has a model, so it is
-  # not run then, and says so.
-  fuzz_modelled=$("$runtests" --fuzz-check modelled program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out")
+  fuzz_checked "$work/fuzz.compiled" ending program "$fuzz_seed" "$fuzz_cases" "$1" \
+    "$work/prog.out" "$(fuzz_ran)" "$work/prog.err"
+  fuzz_checked "$work/fuzz.agree" agree program "$fuzz_seed" "$fuzz_cases" "$1" \
+    "$work/prog.out" "$(fuzz_ran)" "$work/prog.err"
+  # The model's check holds of no case when no case the run prints has a
+  # model, so it is not run then, and says so.
+  fuzz_modelled=$("$runtests" --fuzz-check modelled program "$fuzz_seed" "$fuzz_cases" "$1" \
+    "$work/prog.out" "$(fuzz_ran)" "$work/prog.err")
   if [ "${fuzz_modelled:-0}" -eq 0 ]; then
-    fuzz_unmodelled="no case of the program has a model"
+    fuzz_unmodelled="no case the run prints has a model"
   else
-    fuzz_checked "$work/fuzz.model" model program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
+    fuzz_checked "$work/fuzz.model" model program "$fuzz_seed" "$fuzz_cases" "$1" \
+      "$work/prog.out" "$(fuzz_ran)" "$work/prog.err"
   fi
-  fuzz_failing=$("$runtests" --fuzz-check first program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out")
+  fuzz_failing=$("$runtests" --fuzz-check first program "$fuzz_seed" "$fuzz_cases" "$1" \
+    "$work/prog.out" "$(fuzz_ran)" "$work/prog.err")
 }
 
 # fuzz_shrink PART CASE HOW: case CASE of the seed's PART program fails
-# (HOW: `agree`, its lines disagree; `model`, it misses its model), and its
-# tape (runtests --fuzz-program tape) is shrunk: each candidate of the
-# current tape (--fuzz-program shrink) is built as a one-case program and
-# run, and the first whose case fails the same way becomes the current
-# tape, a line saying so, and the candidates start again. Every candidate
-# is before its tape in shortlex order, so the loop ends; no count of
-# attempts stops it. Then the smallest failing case's function and lines.
+# (HOW: `ending`, its run ends otherwise than the oracle says; `agree`,
+# its lines disagree; `model`, it misses its model), and its tape
+# (runtests --fuzz-program tape) is shrunk: each candidate of the current
+# tape (--fuzz-program shrink) is built as a one-case program and run, and
+# the first whose case fails the same way becomes the current tape, a line
+# saying so, and the candidates start again. Every candidate is before its
+# tape in shortlex order, so the loop ends; no count of attempts stops it.
+# Then the smallest failing case's function and lines.
 fuzz_shrink() {
   if ! fuzz_tape=$("$runtests" --fuzz-program tape "$fuzz_seed" "$2" "$1"); then
     say "  | no tape for case $2"
@@ -153,9 +171,9 @@ fuzz_shrink() {
 }
 
 # fuzz_fails_as PART TAPE HOW: the one-case program of TAPE (--fuzz-program
-# replay) compiles, runs to an exit of 0, and its case fails as HOW says
-# (--fuzz-check first); its source is $work/fuzz-try/Main.idr and its
-# output $work/try.out.
+# replay) compiles and runs, and its case fails as HOW says (--fuzz-check
+# first); its source is $work/fuzz-try/Main.idr and its output
+# $work/try.out.
 fuzz_fails_as() {
   rm -rf "$work/fuzz-try"
   mkdir -p "$work/fuzz-try"
@@ -166,8 +184,7 @@ fuzz_fails_as() {
   compile_checked "--num-threads=$fuzz_threads" "$work/fuzz-try/Main.idr" prog < /dev/null
   [ "$compiled" -eq 0 ] || return 1
   run_program try "$work/fuzz-try/build/exec/prog" "$work/fuzz-try/stdin"
-  [ "$ran" -eq 0 ] || return 1
-  [ "$("$runtests" --fuzz-check first replay "$2" "$1" "$work/try.out")" = "1 $3" ]
+  [ "$("$runtests" --fuzz-check first replay "$2" "$1" "$work/try.out" "$(fuzz_ran)" "$work/try.err")" = "1 $3" ]
 }
 
 # fuzz_report TEXT CHECK: TEXT, then `ok`, or `failed` and the problems

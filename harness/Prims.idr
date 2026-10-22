@@ -1,22 +1,41 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| The primitives of Idris, as the tests know them: one table of each
-||| primitive's name as a program writes it, its operation (whose family and
-||| host dependence follow from it), its parameters with the values each may
-||| take, and its result; the integer types' widths, and what the integer
-||| primitives mean, as the runtime documents them (runtime/idris_rt.h); and
-||| the closed expressions over the table, as a program writes them. The
-||| meanings are the oracle's own, written from the documentation, never
-||| read from the compiler. Fuzz, Sem and TwoLevels are written on it.
+||| The builtins of Idris, as the tests know them: one table, each builtin
+||| with what is the test's own, its spelling as a program writes it and its
+||| meaning, the oracle's, written from upstream's language and the
+||| runtime's documentation (runtime/idris_rt.h, runtime/Big, runtime/End),
+||| never read from the compiler; and the op of the dialect's specification
+||| it names, from which everything it is in the dialect is read: its
+||| family, whether the compiler computes it of constants, and the guard
+||| where it crashes, with the cause its crash names. The specification
+||| keeps base's names out, and the harness imports neither the fork nor
+||| the frontend, so the spelling is held here and nowhere else. Then the
+||| closed expressions over the table, as a program writes them, and what
+||| the oracle predicts of one: its value, or the crash its evaluation
+||| reaches. Fuzz and Sem are written on it.
 module Prims
 
 import Prelude
 import Data.Bits
+import Data.Fin
 import Data.List
-import Data.List.Elem
+import Data.List1
 import Data.Maybe
 import Data.String
 import Decidable.Equality
+
+import IdrisMLIR.Spec.Core.Admitted
+import IdrisMLIR.Spec.Core.Op
+import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Ops.Bigs
+import IdrisMLIR.Spec.Ops.Checks
+import IdrisMLIR.Spec.Ops.Numeric
+import IdrisMLIR.Spec.Ops.Scalars
+import IdrisMLIR.Spec.Ops.Shapes
+import IdrisMLIR.Spec.Ops.Strings
+import IdrisMLIR.Spec.Runtime.Endings
+
+import Facts
 
 %default total
 
@@ -30,19 +49,19 @@ data FixedTy = FInt | FInt8 | FInt16 | FInt32 | FInt64 | FBits8 | FBits16 | FBit
 
 ||| The integer types: one of a fixed width, or Integer, which has none.
 public export
-data IntTy = Fixed FixedTy | Big
+data IntTy = Sized FixedTy | Big
 
 ||| The types of primitive values.
 public export
 data Ty = TIntegral IntTy | TDouble | TChar | TString
 
 public export
-int : Ty
-int = TIntegral (Fixed FInt)
+tInt : Ty
+tInt = TIntegral (Sized FInt)
 
 public export
-integer : Ty
-integer = TIntegral Big
+tInteger : Ty
+tInteger = TIntegral Big
 
 fixedName : FixedTy -> String
 fixedName FInt = "Int"
@@ -55,10 +74,10 @@ fixedName FBits16 = "Bits16"
 fixedName FBits32 = "Bits32"
 fixedName FBits64 = "Bits64"
 
-||| A type as a program writes it, and as primitives' names carry it.
+||| A type as a program writes it, and as builtins' names carry it.
 public export
 tyName : Ty -> String
-tyName (TIntegral (Fixed f)) = fixedName f
+tyName (TIntegral (Sized f)) = fixedName f
 tyName (TIntegral Big) = "Integer"
 tyName TDouble = "Double"
 tyName TChar = "Char"
@@ -80,7 +99,7 @@ fixedIndex FBits64 = 8
 ||| An integer type's identity: a fixed width's, then Integer's.
 public export
 intIndex : IntTy -> Nat
-intIndex (Fixed f) = fixedIndex f
+intIndex (Sized f) = fixedIndex f
 intIndex Big = 9
 
 ||| A type's identity: an integer type's, then the others'.
@@ -119,8 +138,8 @@ sameIndex FBits64 FBits64 _ = Refl
 ||| Whether two types are one, with the proof when they are.
 public export
 sameTy : (a, b : Ty) -> Maybe (a = b)
-sameTy (TIntegral (Fixed a)) (TIntegral (Fixed b)) = case decEq (fixedIndex a) (fixedIndex b) of
-  Yes same => Just (cong (TIntegral . Fixed) (sameIndex a b same))
+sameTy (TIntegral (Sized a)) (TIntegral (Sized b)) = case decEq (fixedIndex a) (fixedIndex b) of
+  Yes same => Just (cong (TIntegral . Sized) (sameIndex a b same))
   No _ => Nothing
 sameTy (TIntegral Big) (TIntegral Big) = Just Refl
 sameTy TDouble TDouble = Just Refl
@@ -153,7 +172,7 @@ width FBits32 = MkWidth 32 False
 width FBits64 = MkWidth 64 False
 
 ------------------------------------------------------------------------------
--- What the integer primitives mean
+-- What the integer builtins mean
 ------------------------------------------------------------------------------
 
 public export
@@ -216,13 +235,15 @@ public export
 floorDiv : Integer -> Integer -> Integer
 floorDiv n m = if n >= 0 then n `div` m else negate ((negate n + m - 1) `div` m)
 
-||| An Integer shift, as Scheme's ash moves a value: `a` moved `s` places,
-||| left or right, the other way when `s` is negative; a right shift
-||| rounds down, so it fills with the sign.
+||| An Integer shift, as Scheme's ash moves a value: `a` moved `s` places
+||| the shift's way, the other way when `s` is negative; a move to the low
+||| bits rounds down, so it fills with the sign.
 public export
-bigShifted : (left : Bool) -> Integer -> Integer -> Integer
-bigShifted left a s =
-  let places = if left then s else negate s
+bigShifted : ShiftDirection -> Integer -> Integer -> Integer
+bigShifted dir a s =
+  let places = case dir of
+        Leftward => s
+        Rightward => negate s
   in if places >= 0 then a * pow2 (cast places)
                     else floorDiv a (pow2 (cast (negate places)))
 
@@ -231,10 +252,10 @@ bigShifted left a s =
 ||| no bit left that a longer move would take, so the amount is cut there
 ||| and a huge one builds no huge Integer.
 public export
-shifted : Width -> (left : Bool) -> Integer -> Integer -> Integer
-shifted t left a s =
+shifted : Width -> ShiftDirection -> Integer -> Integer -> Integer
+shifted t dir a s =
   let most = natToInteger t.bits
-  in wrap t (bigShifted left a (max (negate most) (min most s)))
+  in wrap t (bigShifted dir a (max (negate most) (min most s)))
 
 ||| The number of binary digits of `n`'s magnitude. The magnitude bounds
 ||| the halvings, each of which takes at least 1 from it, so it is their
@@ -257,428 +278,522 @@ public export
 bigBitwise : (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
 bigBitwise op a b = bitwise (MkWidth (2 + max (bitLength a) (bitLength b)) True) op a b
 
-------------------------------------------------------------------------------
--- The primitives
-------------------------------------------------------------------------------
-
-||| What a parameter offers the parameters after it: a string drawn
-||| non-empty, whose scalars an index may point into, or nothing.
+||| A value as a value of an integer type: wrapped to a fixed width, any
+||| for Integer.
 public export
-data Earlier = IndexableString | Opaque
+inRange : IntTy -> Integer -> Integer
+inRange (Sized f) v = wrap (width f) v
+inRange Big v = v
 
-||| The values a parameter may take, given what the parameters before it
-||| offer (the latest first): the primitive's documented precondition,
-||| whose breach ends the program, and nothing else.
-public export
-data Domain : List Earlier -> Type where
-  Anything : Domain before
-  NonZero : Domain before
-  Finite : Domain before
-  NonEmpty : Domain before
-  SmallShift : Domain before
-  ||| An index into the scalars of the string that `Elem` points at.
-  IndexInto : Elem IndexableString before -> Domain before
+divide : IntTy -> Integer -> Integer -> Integer
+divide (Sized f) a b = quotient (width f) a b
+divide Big a b = fst (euclid a b)
 
-||| What a parameter of a type and a domain offers the parameters after it:
-||| a NonEmpty string its scalars, anything else nothing. The domain is
-||| matched first, so that every domain but NonEmpty offers nothing
-||| whatever the type.
-public export
-offers : Ty -> Domain before -> Earlier
-offers t NonEmpty = stringOffers t
-  where
-    stringOffers : Ty -> Earlier
-    stringOffers TString = IndexableString
-    stringOffers _ = Opaque
-offers _ _ = Opaque
+modulus : IntTy -> Integer -> Integer -> Integer
+modulus (Sized f) a b = remainder (width f) a b
+modulus Big a b = snd (euclid a b)
 
-||| A primitive's parameters, each with its type and its domain, the domain
-||| knowing what the parameters before it offer.
-public export
-data Params : List Earlier -> Type where
-  Done : Params before
-  Param : (t : Ty) -> (d : Domain before) -> Params (offers t d :: before) -> Params before
+bitwiseIn : IntTy -> (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
+bitwiseIn (Sized f) = bitwise (width f)
+bitwiseIn Big = bigBitwise
 
-||| The parameters' types, left to right.
-public export
-paramTys : Params before -> List Ty
-paramTys Done = []
-paramTys (Param t _ rest) = t :: paramTys rest
-
-||| How many parameters there are.
-public export
-arity : Params before -> Nat
-arity Done = 0
-arity (Param _ _ rest) = S (arity rest)
-
-public export
-data Family = Arith | Negate | DivMod | Bitwise | Shift | Compare | Cast | Text | DoubleFn
-
-||| What a primitive does: Idris's own operations (its PrimFn), the types
-||| aside, which are a primitive's arguments and result. `Convert` is
-||| Idris's Cast.
-public export
-data Op = Add | Sub | Mul | Neg | Div | Mod | Shl | Shr | And | Or | Xor
-        | Lt | Lte | Eq | Gte | Gt
-        | StrLength | StrHead | StrTail | StrIndex | StrCons | StrAppend | StrReverse | StrSubstr
-        | DoubleExp | DoubleLog | DoublePow | DoubleSin | DoubleCos | DoubleTan
-        | DoubleASin | DoubleACos | DoubleATan | DoubleSqrt | DoubleFloor | DoubleCeiling
-        | Convert
-
-||| An operation's position in `Op`: its identity.
-public export
-opIndex : Op -> Nat
-opIndex Add = 0
-opIndex Sub = 1
-opIndex Mul = 2
-opIndex Neg = 3
-opIndex Div = 4
-opIndex Mod = 5
-opIndex Shl = 6
-opIndex Shr = 7
-opIndex And = 8
-opIndex Or = 9
-opIndex Xor = 10
-opIndex Lt = 11
-opIndex Lte = 12
-opIndex Eq = 13
-opIndex Gte = 14
-opIndex Gt = 15
-opIndex StrLength = 16
-opIndex StrHead = 17
-opIndex StrTail = 18
-opIndex StrIndex = 19
-opIndex StrCons = 20
-opIndex StrAppend = 21
-opIndex StrReverse = 22
-opIndex StrSubstr = 23
-opIndex DoubleExp = 24
-opIndex DoubleLog = 25
-opIndex DoublePow = 26
-opIndex DoubleSin = 27
-opIndex DoubleCos = 28
-opIndex DoubleTan = 29
-opIndex DoubleASin = 30
-opIndex DoubleACos = 31
-opIndex DoubleATan = 32
-opIndex DoubleSqrt = 33
-opIndex DoubleFloor = 34
-opIndex DoubleCeiling = 35
-opIndex Convert = 36
-
-public export
-Eq Op where
-  a == b = opIndex a == opIndex b
-
-public export
-Ord Op where
-  compare a b = compare (opIndex a) (opIndex b)
-
-||| The family of an operation.
-public export
-family : Op -> Family
-family Add = Arith
-family Sub = Arith
-family Mul = Arith
-family Neg = Negate
-family Div = DivMod
-family Mod = DivMod
-family Shl = Shift
-family Shr = Shift
-family And = Bitwise
-family Or = Bitwise
-family Xor = Bitwise
-family Lt = Compare
-family Lte = Compare
-family Eq = Compare
-family Gte = Compare
-family Gt = Compare
-family StrLength = Text
-family StrHead = Text
-family StrTail = Text
-family StrIndex = Text
-family StrCons = Text
-family StrAppend = Text
-family StrReverse = Text
-family StrSubstr = Text
-family DoubleExp = DoubleFn
-family DoubleLog = DoubleFn
-family DoublePow = DoubleFn
-family DoubleSin = DoubleFn
-family DoubleCos = DoubleFn
-family DoubleTan = DoubleFn
-family DoubleASin = DoubleFn
-family DoubleACos = DoubleFn
-family DoubleATan = DoubleFn
-family DoubleSqrt = DoubleFn
-family DoubleFloor = DoubleFn
-family DoubleCeiling = DoubleFn
-family Convert = Cast
-
-||| Why an operation's value depends on the host, when it does: Exp, Log,
-||| Pow and the trigonometric functions are libm's, which is not correctly
-||| rounded, so the last places of their values are the platform's.
-public export
-hostOf : Op -> Maybe String
-hostOf DoubleExp = Just "libm"
-hostOf DoubleLog = Just "libm"
-hostOf DoublePow = Just "libm"
-hostOf DoubleSin = Just "libm"
-hostOf DoubleCos = Just "libm"
-hostOf DoubleTan = Just "libm"
-hostOf DoubleASin = Just "libm"
-hostOf DoubleACos = Just "libm"
-hostOf DoubleATan = Just "libm"
-hostOf _ = Nothing
-
-||| The word Idris spells an operation's primitives with.
-export
-spelling : Op -> String
-spelling Add = "add"
-spelling Sub = "sub"
-spelling Mul = "mul"
-spelling Neg = "negate"
-spelling Div = "div"
-spelling Mod = "mod"
-spelling Shl = "shl"
-spelling Shr = "shr"
-spelling And = "and"
-spelling Or = "or"
-spelling Xor = "xor"
-spelling Lt = "lt"
-spelling Lte = "lte"
-spelling Eq = "eq"
-spelling Gte = "gte"
-spelling Gt = "gt"
-spelling StrLength = "strLength"
-spelling StrHead = "strHead"
-spelling StrTail = "strTail"
-spelling StrIndex = "strIndex"
-spelling StrCons = "strCons"
-spelling StrAppend = "strAppend"
-spelling StrReverse = "strReverse"
-spelling StrSubstr = "strSubstr"
-spelling DoubleExp = "doubleExp"
-spelling DoubleLog = "doubleLog"
-spelling DoublePow = "doublePow"
-spelling DoubleSin = "doubleSin"
-spelling DoubleCos = "doubleCos"
-spelling DoubleTan = "doubleTan"
-spelling DoubleASin = "doubleASin"
-spelling DoubleACos = "doubleACos"
-spelling DoubleATan = "doubleATan"
-spelling DoubleSqrt = "doubleSqrt"
-spelling DoubleFloor = "doubleFloor"
-spelling DoubleCeiling = "doubleCeiling"
-spelling Convert = "cast"
-
-||| The name of an operation's primitive on one type, as a program writes
-||| it: `prim__<word>_<type>`.
-public export
-named : Op -> Ty -> String
-named op t = "prim__" ++ spelling op ++ "_" ++ tyName t
-
-||| The name of a cast, as a program writes it: `prim__cast_<from><to>`.
-public export
-castNamed : Ty -> Ty -> String
-castNamed from to = "prim__" ++ spelling Convert ++ "_" ++ tyName from ++ tyName to
-
-||| What the integer operations mean on the integers, by operation.
-public export
-arithmetic : List (Op, Integer -> Integer -> Integer)
-arithmetic = [(Add, (+)), (Sub, (-)), (Mul, (*))]
-
-public export
-logical : List (Op, Integer -> Integer -> Integer)
-logical = [(And, (.&.)), (Or, (.|.)), (Xor, xor)]
-
-public export
-comparisons : List (Op, Integer -> Integer -> Bool)
-comparisons = [(Lt, (<)), (Lte, (<=)), (Eq, (==)), (Gte, (>=)), (Gt, (>))]
-
-||| The shifts: whether each moves left.
-public export
-shifts : List (Op, Bool)
-shifts = [(Shl, True), (Shr, False)]
-
-public export
-record Prim where
-  constructor MkPrim
-  ||| As a program writes it: "prim__add_Int", "prim__strLength", "prim__doubleExp".
-  name : String
-  op : Op
-  args : Params []
-  result : Ty
-
--- Idris's lists of types, in its order.
-integralTypes : List IntTy
-integralTypes = [Fixed FInt, Fixed FInt8, Fixed FInt16, Fixed FInt32, Fixed FInt64, Big, Fixed FBits8, Fixed FBits16, Fixed FBits32, Fixed FBits64]
-
-numTypes : List Ty
-numTypes = map TIntegral integralTypes ++ [TDouble]
-
-primTypes : List Ty
-primTypes = numTypes ++ [TString, TChar]
-
-||| Two values of a type to one, the second in its domain.
-public export
-binary : Op -> (t : Ty) -> Domain [Opaque] -> Prim
-binary op t second = MkPrim (named op t) op (Param t Anything (Param t second Done)) t
-
-compareOn : Op -> Ty -> Prim
-compareOn op t = MkPrim (named op t) op (Param t Anything (Param t Anything Done)) int
-
-||| A primitive of no one type: `prim__<word>`.
-whole : Op -> Params [] -> Ty -> Prim
-whole op = MkPrim ("prim__" ++ spelling op) op
-
-||| Idris's divisions by 0 of an integer type crash, at the division's
-||| site; a Double's give an infinity or NaN.
-public export
-divisor : Ty -> Domain before
-divisor (TIntegral _) = NonZero
-divisor _ = Anything
-
-||| A left shift past what any integer can hold ends the process (the
-||| runtime's ash), and a right shift by a negative amount is one: Integer,
-||| which has no width to wrap to, shifts by small amounts. A fixed width's
-||| shift is defined for every amount.
-amount : IntTy -> Domain before
-amount (Fixed _) = Anything
-amount Big = SmallShift
-
-||| A Double cast to an integer type crashes on NaN and the infinities
-||| (a crash at the cast's site). Every other cast is total: from String
-||| it reads 0 from text that is no literal, and to Char it gives 0 for a
-||| value that is not a scalar.
-operand : Ty -> Ty -> Domain before
-operand TDouble (TIntegral _) = Finite
-operand _ _ = Anything
-
-||| A type's negation, `prim__negate_<t>`.
-public export
-negateOn : Ty -> Prim
-negateOn t = MkPrim (named Neg t) Neg (Param t Anything Done) t
-
-||| A type's division, `prim__div_<t>`.
-public export
-divOn : Ty -> Prim
-divOn t = binary Div t (divisor t)
-
-||| `n` Doubles, each any.
-doubles : Nat -> Params before
-doubles Z = Done
-doubles (S n) = Param TDouble Anything (doubles n)
-
-doubleFn : Op -> Nat -> Prim
-doubleFn op n = whole op (doubles n) TDouble
-
-||| Every primitive but `believe_me` and `crash`, in Idris's order.
-public export
-prims : List Prim
-prims =
-     [ binary Add t Anything | t <- numTypes ]
-  ++ [ binary Sub t Anything | t <- numTypes ]
-  ++ [ binary Mul t Anything | t <- numTypes ]
-  ++ [ negateOn t | t <- numTypes ]
-  ++ [ divOn t | t <- numTypes ]
-  ++ [ binary Mod (TIntegral i) NonZero | i <- integralTypes ]
-  ++ [ binary op (TIntegral i) (amount i) | (op, _) <- shifts, i <- integralTypes ]
-  ++ [ binary op (TIntegral i) Anything | (op, _) <- logical, i <- integralTypes ]
-  ++ [ compareOn op t | (op, _) <- comparisons, t <- primTypes ]
-  ++ [ whole StrLength (Param TString Anything Done) int
-     -- A string's first scalar, its rest and one at an index need a scalar
-     -- there (an empty string, and an index outside it, crash at the
-     -- primitive's site).
-     , whole StrHead (Param TString NonEmpty Done) TChar
-     , whole StrTail (Param TString NonEmpty Done) TString
-     , whole StrIndex (Param TString NonEmpty (Param int (IndexInto Here) Done)) TChar
-     , whole StrCons (Param TChar Anything (Param TString Anything Done)) TString
-     , whole StrAppend (Param TString Anything (Param TString Anything Done)) TString
-     , whole StrReverse (Param TString Anything Done) TString
-     -- Any start and length: the runtime counts a negative one as 0.
-     , whole StrSubstr (Param int Anything (Param int Anything (Param TString Anything Done))) TString
-     ]
-  ++ [ doubleFn op 1 | op <- [DoubleExp, DoubleLog] ]
-  ++ [ doubleFn DoublePow 2 ]
-  ++ [ doubleFn op 1 | op <- [DoubleSin, DoubleCos, DoubleTan, DoubleASin, DoubleACos, DoubleATan, DoubleSqrt, DoubleFloor, DoubleCeiling] ]
-  -- Every cast but String to Char, Double to Char and Char to Double,
-  -- which Idris does not have.
-  ++ [ MkPrim (castNamed from to) Convert (Param from (operand from to) Done) to
-     | from <- primTypes, to <- primTypes
-     , from /= to && not (from == TString && to == TChar)
-         && not (from == TDouble && to == TChar) && not (from == TChar && to == TDouble) ]
+shiftIn : IntTy -> ShiftDirection -> Integer -> Integer -> Integer
+shiftIn (Sized f) = shifted (width f)
+shiftIn Big = bigShifted
 
 ------------------------------------------------------------------------------
--- Expressions
+-- Literals
 ------------------------------------------------------------------------------
 
 ||| A Double literal's sign: a negative one is written in parentheses.
 public export
 data Sign = NonNegative | Negative
 
-mutual
-  ||| A primitive's arguments: an expression of each parameter's type.
-  public export
-  data Args : Params before -> Type where
-    Nil : Args Done
-    (::) : {0 t : Ty} -> {0 d : Domain before} -> {0 rest : Params (offers t d :: before)} ->
-           Expr t -> Args rest -> Args (Param t d rest)
+||| A Double literal's magnitude: a finite value as written ("0.1",
+||| "1.0e300"), or one past the largest finite Double, which a program
+||| reads as infinity.
+public export
+data Magnitude = Written String | PastLargest
 
-  ||| A closed expression, well typed by construction: a literal, held as
-  ||| its value, a primitive applied, or the fuzzer's sum type's helper.
-  public export
-  data Expr : Ty -> Type where
-    ||| Inside its type's bounds (Integer's: any).
-    IntLit : (i : IntTy) -> Integer -> Expr (TIntegral i)
-    ||| A Double as written, its magnitude a literal: "0.1", "1.0e300".
-    DoubleLit : Sign -> (magnitude : String) -> Expr TDouble
-    CharLit : Char -> Expr TChar
-    StringLit : String -> Expr TString
-    App : (p : Prim) -> Args p.args -> Expr p.result
-    ||| The sum type's helper; `k` is a literal from 0 to 2, its constructor.
-    SData : (k : Expr Prims.int) -> Expr Prims.int -> Expr TDouble -> Expr Prims.int
+||| A literal of a type, held as its value.
+public export
+data Literal : Ty -> Type where
+  ||| Inside its type's bounds (Integer's: any).
+  IntLit : (i : IntTy) -> Integer -> Literal (TIntegral i)
+  DoubleLit : Sign -> Magnitude -> Literal TDouble
+  CharLit : Char -> Literal TChar
+  StringLit : String -> Literal TString
+
+||| A literal of some type, as a guard reads it: by its value alone.
+public export
+data AnyLit : Type where
+  MkAnyLit : {0 t : Ty} -> Literal t -> AnyLit
 
 ||| A literal of an integer as written: in parentheses when negative.
 public export
 integerText : Integer -> String
 integerText n = if n < 0 then "(" ++ show n ++ ")" else show n
 
-||| A function applied, as a program writes it.
+magnitudeText : Magnitude -> String
+magnitudeText (Written m) = m
+magnitudeText PastLargest = "1.0e309"
+
+||| A literal as a program writes it: an integer in parentheses when
+||| negative, a Double likewise, a Char or a String as `show` writes it (a
+||| scalar past ASCII as its decimal escape on both hosts).
 public export
-applied : String -> List String -> String
-applied f as = "(" ++ f ++ foldr (\a, rest => " " ++ a ++ rest) ")" as
+literalSource : Literal t -> String
+literalSource (IntLit _ v) = integerText v
+literalSource (DoubleLit NonNegative m) = magnitudeText m
+literalSource (DoubleLit Negative m) = "(-" ++ magnitudeText m ++ ")"
+literalSource (CharLit c) = show c
+literalSource (StringLit s) = show s
+
+||| A literal as a line of stdin holds it: the value as text, a negative
+||| Double with its sign, a Char or a String as itself.
+public export
+literalInput : Literal t -> String
+literalInput (IntLit _ v) = show v
+literalInput (DoubleLit NonNegative m) = magnitudeText m
+literalInput (DoubleLit Negative m) = "-" ++ magnitudeText m
+literalInput (CharLit c) = pack [c]
+literalInput (StringLit s) = s
+
+------------------------------------------------------------------------------
+-- What a builtin is in the dialect
+------------------------------------------------------------------------------
+
+||| The op of the specification a builtin is: an op of the dialect's, an
+||| upstream op the dialect admits, or its operand retyped, which the
+||| dialect's signless integers make of a cast between two types of one
+||| width, with no op at all.
+public export
+data DialectOp = OurOp AnyOp | AdmittedOp Admitted | Retyped
+
+||| Where a builtin of constants is computed: while the program compiles,
+||| by a fold, or where it runs.
+public export
+data Computed = WhileCompiling | WhereItRuns
+
+||| Where an op of constants is computed, as the specification states it:
+||| an op of ours by its meaning, so one that calls the runtime for its
+||| effects or has no fold runs where the program runs; an admitted op by
+||| its fold, so a C library's function, whose last digits IEEE leaves to
+||| each library, runs on the target; a retyped value is no computation.
+public export
+computedOf : DialectOp -> Computed
+computedOf (OurOp (SomeOp op)) = case op.meaning of
+  CallsRuntime _ => WhereItRuns
+  CallsRuntimeByCase _ _ => WhereItRuns
+  NoFold => WhereItRuns
+  _ => WhileCompiling
+computedOf (AdmittedOp a) = case a.folding of
+  NeverFolded => WhereItRuns
+  UpstreamFold => WhileCompiling
+computedOf Retyped = WhileCompiling
+
+||| Of two parts of one computation, where the whole is computed.
+both : Computed -> Computed -> Computed
+both WhileCompiling c = c
+both WhereItRuns _ = WhereItRuns
+
+------------------------------------------------------------------------------
+-- The guards
+------------------------------------------------------------------------------
+
+||| What a guard op of the specification lets through, as the oracle reads
+||| it, for each guard op a builtin's op can name: a value that is not 0, a
+||| string that is not empty, an index within a string, a Double that is
+||| neither infinite nor NaN.
+public export
+data Condition = Nonzero | Nonempty | InBounds | Finite
+
+||| The guard ops the oracle reads, each by the op it is in the
+||| specification.
+conditions : List (Mnemonic, Condition)
+conditions =
+  [ (nonzeroOp.mnemonic, Nonzero), (nonemptyOp.mnemonic, Nonempty)
+  , (inBoundsOp.mnemonic, InBounds), (finiteOp.mnemonic, Finite) ]
+
+||| A guard of a builtin, read off its op once: what it lets through, the
+||| builtin's arguments it is given (the one it guards first; a guarded
+||| builtin takes its arguments in its op's order), and the cause its crash
+||| names.
+public export
+record Guarding where
+  constructor MkGuarding
+  condition : Condition
+  given : List1 Nat
+  cause : Cause
+
+||| The guards an op states, each argument by its position.
+guardsOf : DialectOp -> List (Guard Nat)
+guardsOf (OurOp (SomeOp op)) = map (\g => MkGuard g.check (map finToNat g.given) g.cause) op.guards
+guardsOf (AdmittedOp a) = a.guards
+guardsOf Retyped = []
+
+||| An op's guards, read into what the oracle knows of each; a guard of an
+||| op the oracle has no reading of, or of a cause the endings lack, is why
+||| not, which the table's checks report.
+export
+guardings : DialectOp -> Either String (List Guarding)
+guardings op = traverse reading (guardsOf op)
+  where
+    reading : Guard Nat -> Either String Guarding
+    reading g = case (lookup g.check conditions, causeOf g.cause) of
+      (Just c, Just why) => Right (MkGuarding c g.given why)
+      (Nothing, _) => Left ("its guard " ++ mnemonicText g.check ++ " has no reading in the oracle")
+      (Just _, Nothing) => Left ("its guard " ++ mnemonicText g.check ++ " names a cause the endings lack")
+
+||| What a guard says of the arguments it is given: it lets them through,
+||| it fails (the program crashes there), or it cannot be read, for an
+||| argument that is no literal of the type its condition reads.
+data Verdict = Holds | Fails | Unreadable
+
+||| A condition, the oracle's own, on the literals a guard is given.
+judge : Condition -> List1 (Maybe AnyLit) -> Verdict
+judge Nonzero (Just (MkAnyLit (IntLit _ v)) ::: _) = if v == 0 then Fails else Holds
+judge Nonempty (Just (MkAnyLit (StringLit s)) ::: _) = if s == "" then Fails else Holds
+judge InBounds (Just (MkAnyLit (IntLit _ k)) ::: [Just (MkAnyLit (StringLit s))]) =
+  if 0 <= k && k < natToInteger (length (unpack s)) then Holds else Fails
+judge Finite (Just (MkAnyLit (DoubleLit _ (Written _))) ::: _) = Holds
+judge Finite (Just (MkAnyLit (DoubleLit _ PastLargest)) ::: _) = Fails
+judge _ _ = Unreadable
+
+------------------------------------------------------------------------------
+-- The builtins
+------------------------------------------------------------------------------
+
+||| A builtin's name as a program writes it: `prim__`, Idris's word for it,
+||| its stem, then, after `_`, the types the name carries, if any
+||| (`prim__add_Int`, `prim__cast_IntInt8`, `prim__strHead`).
+public export
+record Spelling where
+  constructor MkSpelling
+  stem : String
+  named : List Ty
+
+public export
+spellingText : Spelling -> String
+spellingText (MkSpelling w []) = "prim__" ++ w
+spellingText (MkSpelling w ts) = "prim__" ++ w ++ "_" ++ concatMap tyName ts
+
+||| The name of a cast, as a program writes it: `prim__cast_<from><to>`.
+public export
+castNamed : Ty -> Ty -> String
+castNamed from to = spellingText (MkSpelling "cast" [from, to])
+
+||| Where the generator takes an argument from when no guard reads it: any
+||| expression of its type; or a literal of a pool, where the meaning reads
+||| few values of the type meaningfully (a code point, a number's text) or
+||| the machine holds only a few (an Integer's shift, whose result grows
+||| with its amount and whose amount past memory is the machine's end, not
+||| the language's).
+public export
+data Source : Ty -> Type where
+  AnyOf : Source t
+  Pooled : (first : Literal t) -> (rest : List (Literal t)) -> Source t
+
+public export
+data Sources : List Ty -> Type where
+  Nil : Sources []
+  (::) : Source t -> Sources ts -> Sources (t :: ts)
+
+||| What the oracle computes of a builtin: of integers to an integer (a
+||| comparison's truth as 0 or 1); or nothing, for a value of a Double, a
+||| Char or a String, which the renderings of a case are held to among
+||| themselves. A meaning is of arguments inside the builtin's guards,
+||| which the oracle reads first.
+public export
+data Model : List Ty -> Ty -> Type where
+  Unary : (Integer -> Integer) -> Model [TIntegral i] (TIntegral r)
+  Binary : (Integer -> Integer -> Integer) -> Model [TIntegral i, TIntegral j] (TIntegral r)
+  Unmodelled : Model ts r
+
+||| A builtin: its spelling, the types it takes and gives, where the
+||| generator takes each argument from, its meaning, and the op of the
+||| specification it is.
+public export
+record Builtin where
+  constructor MkBuiltin
+  spelling : Spelling
+  takes : List Ty
+  gives : Ty
+  sources : Sources takes
+  meaning : Model takes gives
+  op : DialectOp
+
+||| `prim__<word>_<i>` of two values of the integer type `i` to one, `f`
+||| what it means.
+ints : String -> (Integer -> Integer -> Integer) -> (i : IntTy) -> DialectOp -> Builtin
+ints w f i = MkBuiltin (MkSpelling w [TIntegral i]) [TIntegral i, TIntegral i] (TIntegral i) [AnyOf, AnyOf] (Binary f)
+
+||| An operation that wraps its integer result to the type.
+wrapped : IntTy -> (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
+wrapped i f a b = inRange i (f a b)
+
+||| The amounts an Integer's shift takes: within and past the fixed widths,
+||| both ways, so that a value of the pools still fits in a few words.
+amounts : Source Prims.tInteger
+amounts =
+  Pooled (IntLit Big 1)
+    (map (IntLit Big) [3, 31, 32, 63, 64, 65, 100, -1, -3, -64, -100])
+
+||| An Integer's shift `prim__<word>_Integer`, of an amount of the pool.
+bigShift : String -> ShiftDirection -> DialectOp -> Builtin
+bigShift w dir =
+  MkBuiltin (MkSpelling w [Prims.tInteger]) [Prims.tInteger, Prims.tInteger] Prims.tInteger [AnyOf, amounts] (Binary (bigShifted dir))
+
+||| `prim__<word>_Double` of two Doubles to one.
+doubles : String -> DialectOp -> Builtin
+doubles w = MkBuiltin (MkSpelling w [TDouble]) [TDouble, TDouble] TDouble [AnyOf, AnyOf] Unmodelled
+
+||| `prim__<word>`, a Double's function of one Double.
+doubleFn : String -> DialectOp -> Builtin
+doubleFn w = MkBuiltin (MkSpelling w []) [TDouble] TDouble [AnyOf] Unmodelled
+
+||| A comparison of two values of a type, its truth an Int: 1 or 0.
+compareOn : String -> (Integer -> Integer -> Bool) -> (t : Ty) -> DialectOp -> Builtin
+compareOn w f t = MkBuiltin (MkSpelling w [t]) [t, t] Prims.tInt [AnyOf, AnyOf] (truth t)
+  where
+    truth : (u : Ty) -> Model [u, u] Prims.tInt
+    truth (TIntegral _) = Binary (\a, b => if f a b then 1 else 0)
+    truth _ = Unmodelled
+
+||| A type's negation, `prim__negate_<t>`.
+negateOn : (t : Ty) -> DialectOp -> Builtin
+negateOn t = MkBuiltin (MkSpelling "negate" [t]) [t] t [AnyOf] (negation t)
+  where
+    negation : (u : Ty) -> Model [u] u
+    negation (TIntegral i) = Unary (\a => inRange i (negate a))
+    negation _ = Unmodelled
+
+||| The code points a value of an integer type holds: scalar values
+||| across UTF-8's lengths and at the edges of the surrogates and of
+||| Unicode, and values that are no scalar (a negative one, a surrogate,
+||| one past U+10FFFF), which cast to 0. Every integer type holds 65 and 0.
+codePoints : (i : IntTy) -> Source (TIntegral i)
+codePoints i =
+  Pooled (IntLit i 65)
+    (map (IntLit i) (filter holds [233, 955, 8364, 128512, 0, 55295, 57344, 1114111, -1, 55296, 57343, 1114112]))
+  where
+    holds : Integer -> Bool
+    holds v = case i of
+      Sized f => let (lo, hi) = bounds f in lo <= v && v <= hi
+      Big => True
+
+||| Where a cast's operand comes from: for a cast to Char, a code point
+||| (almost every other integer is no scalar and casts to 0); for a cast
+||| from String, a number's text (almost every other string reads as 0).
+castSource : (from, to : Ty) -> Source from
+castSource (TIntegral i) TChar = codePoints i
+castSource TString (TIntegral _) =
+  Pooled (StringLit "0") (map StringLit ["42", "-17", "9223372036854775807", "123456"])
+castSource TString TDouble = Pooled (StringLit "0.5") (map StringLit ["-2.25", "1e10", "3.0", "0.1"])
+castSource _ _ = AnyOf
+
+||| A cast, `prim__cast_<from><to>`: an integer's value wrapped to an
+||| integer type.
+castFrom : (from, to : Ty) -> DialectOp -> Builtin
+castFrom from to = MkBuiltin (MkSpelling "cast" [from, to]) [from] to [castSource from to] (conversion from to)
+  where
+    conversion : (a, b : Ty) -> Model [a] b
+    conversion (TIntegral _) (TIntegral r) = Unary (inRange r)
+    conversion _ _ = Unmodelled
+
+||| A builtin of no one type, `prim__<word>`, of what it takes to what it
+||| gives, any argument of its type.
+whole : String -> (ts : List Ty) -> (r : Ty) -> DialectOp -> Builtin
+whole w ts r = MkBuiltin (MkSpelling w []) ts r (anyOf ts) Unmodelled
+  where
+    anyOf : (us : List Ty) -> Sources us
+    anyOf [] = []
+    anyOf (_ :: us) = AnyOf :: anyOf us
+
+||| A family's builtins, each made the op it is: so a builtin never names
+||| another op than its family's.
+family : DialectOp -> List (DialectOp -> Builtin) -> List Builtin
+family op = map (\b => b op)
+
+fixedInts : List IntTy
+fixedInts = map Sized fixedTys
+
+signedInts : List IntTy
+signedInts = map Sized (filter (\f => (width f).signed) fixedTys)
+
+unsignedInts : List IntTy
+unsignedInts = map Sized (filter (\f => not (width f).signed) fixedTys)
+
+fixed : FixedTy -> Ty
+fixed f = TIntegral (Sized f)
+
+bitsOf : FixedTy -> Nat
+bitsOf f = (width f).bits
+
+signedTys : List FixedTy
+signedTys = filter (\f => (width f).signed) fixedTys
+
+unsignedTys : List FixedTy
+unsignedTys = filter (\f => not (width f).signed) fixedTys
+
+||| Idris's comparisons, each by its word and what it decides.
+comparisons : List (String, Integer -> Integer -> Bool)
+comparisons = [("lt", (<)), ("lte", (<=)), ("eq", (==)), ("gte", (>=)), ("gt", (>))]
+
+||| A Char's width, which a cast to or from a fixed width meets as a word's.
+charBits : Nat
+charBits = 32
+
+||| The casts, every one Idris has (none from String or Double to Char, nor
+||| from Char to Double), each in the family of the op it is.
+casts : List (List Builtin)
+casts =
+  [ family Retyped
+      ([ castFrom (fixed a) (fixed b) | a <- fixedTys, b <- fixedTys, a /= b, bitsOf a == bitsOf b ]
+       ++ [ castFrom TChar (fixed b) | b <- fixedTys, bitsOf b == charBits ])
+  , family (AdmittedOp truncI)
+      ([ castFrom (fixed a) (fixed b) | a <- fixedTys, b <- fixedTys, bitsOf a > bitsOf b ]
+       ++ [ castFrom TChar (fixed b) | b <- fixedTys, bitsOf b < charBits ])
+  , family (AdmittedOp extSI) [ castFrom (fixed a) (fixed b) | a <- signedTys, b <- fixedTys, bitsOf a < bitsOf b ]
+  , family (AdmittedOp extUI)
+      ([ castFrom (fixed a) (fixed b) | a <- unsignedTys, b <- fixedTys, bitsOf a < bitsOf b ]
+       ++ [ castFrom TChar (fixed b) | b <- fixedTys, bitsOf b > charBits ])
+  -- An Integer is a Char as a signed word is: the scalar it is, or 0.
+  , family (OurOp (SomeOp toCharS)) ([ castFrom (fixed a) TChar | a <- signedTys ] ++ [castFrom Prims.tInteger TChar])
+  , family (OurOp (SomeOp toCharU)) [ castFrom (fixed a) TChar | a <- unsignedTys ]
+  , family (AdmittedOp siToFP) [ castFrom (fixed a) TDouble | a <- signedTys ]
+  , family (AdmittedOp uiToFP) [ castFrom (fixed a) TDouble | a <- unsignedTys ]
+  , family (OurOp (SomeOp f64ToInt)) [ castFrom TDouble (fixed b) | b <- fixedTys ]
+  , family (OurOp (SomeOp Strings.strShowSint)) [ castFrom (fixed a) TString | a <- signedTys ]
+  , family (OurOp (SomeOp Strings.strShowUint)) [ castFrom (fixed a) TString | a <- unsignedTys ]
+  , family (OurOp (SomeOp Strings.strToInt)) [ castFrom TString (fixed b) | b <- fixedTys ]
+  , family (OurOp (SomeOp Strings.strFromChar)) [castFrom TChar TString]
+  , family (OurOp (SomeOp Strings.strShowDouble)) [castFrom TDouble TString]
+  , family (OurOp (SomeOp Strings.strToDouble)) [castFrom TString TDouble]
+  , family (OurOp (SomeOp bigShow)) [castFrom Prims.tInteger TString]
+  , family (OurOp (SomeOp bigFromStr)) [castFrom TString Prims.tInteger]
+  , family (OurOp (SomeOp bigToInt)) [ castFrom Prims.tInteger (fixed b) | b <- fixedTys ]
+  , family (OurOp (SomeOp (bigFromInt Signed))) [ castFrom (fixed a) Prims.tInteger | a <- signedTys ]
+  , family (OurOp (SomeOp (bigFromInt Unsigned)))
+      ([ castFrom (fixed a) Prims.tInteger | a <- unsignedTys ] ++ [castFrom TChar Prims.tInteger])
+  , family (OurOp (SomeOp bigFromDouble)) [castFrom TDouble Prims.tInteger]
+  , family (OurOp (SomeOp bigToDouble)) [castFrom Prims.tInteger TDouble]
+  ]
+
+||| Every builtin but `believe_me` and `crash`, by the op of the dialect
+||| each is: a family is the builtins of one op, the unit the fuzzer's
+||| swarm keeps or drops. A fixed width's negation is its subtraction from
+||| 0, so it is in subtraction's family.
+public export
+families : List1 (List Builtin)
+families =
+  family (AdmittedOp addI) [ ints "add" (wrapped i (+)) i | i <- fixedInts ]
+  ::: ([ family (AdmittedOp subI)
+           ([ ints "sub" (wrapped i (-)) i | i <- fixedInts ] ++ [ negateOn (TIntegral i) | i <- fixedInts ])
+       , family (AdmittedOp mulI) [ ints "mul" (wrapped i (*)) i | i <- fixedInts ]
+       , family (OurOp (SomeOp divs)) [ ints "div" (divide i) i | i <- signedInts ]
+       , family (OurOp (SomeOp mods)) [ ints "mod" (modulus i) i | i <- signedInts ]
+       , family (AdmittedOp divUI) [ ints "div" (divide i) i | i <- unsignedInts ]
+       , family (AdmittedOp remUI) [ ints "mod" (modulus i) i | i <- unsignedInts ]
+       , family (AdmittedOp andI) [ ints "and" (bitwiseIn i (.&.)) i | i <- fixedInts ]
+       , family (AdmittedOp orI) [ ints "or" (bitwiseIn i (.|.)) i | i <- fixedInts ]
+       , family (AdmittedOp xorI) [ ints "xor" (bitwiseIn i xor) i | i <- fixedInts ]
+       , family (OurOp (SomeOp shls)) [ ints "shl" (shiftIn i Leftward) i | i <- signedInts ]
+       , family (OurOp (SomeOp shlu)) [ ints "shl" (shiftIn i Leftward) i | i <- unsignedInts ]
+       , family (OurOp (SomeOp shrs)) [ ints "shr" (shiftIn i Rightward) i | i <- signedInts ]
+       , family (OurOp (SomeOp shru)) [ ints "shr" (shiftIn i Rightward) i | i <- unsignedInts ]
+       , family (AdmittedOp cmpI)
+           [ compareOn w f t | (w, f) <- comparisons, t <- map TIntegral fixedInts ++ [TChar] ]
+       , family (OurOp (SomeOp bigAdd)) [ints "add" (+) Big]
+       , family (OurOp (SomeOp bigSub)) [ints "sub" (-) Big]
+       , family (OurOp (SomeOp bigMul)) [ints "mul" (*) Big]
+       , family (OurOp (SomeOp bigNeg)) [negateOn Prims.tInteger]
+       , family (OurOp (SomeOp bigDiv)) [ints "div" (divide Big) Big]
+       , family (OurOp (SomeOp bigMod)) [ints "mod" (modulus Big) Big]
+       , family (OurOp (SomeOp bigAnd)) [ints "and" (bigBitwise (.&.)) Big]
+       , family (OurOp (SomeOp bigOr)) [ints "or" (bigBitwise (.|.)) Big]
+       , family (OurOp (SomeOp bigXor)) [ints "xor" (bigBitwise xor) Big]
+       , family (OurOp (SomeOp bigShl)) [bigShift "shl" Leftward]
+       , family (OurOp (SomeOp bigShr)) [bigShift "shr" Rightward]
+       , family (OurOp (SomeOp bigCmp)) [ compareOn w f Prims.tInteger | (w, f) <- comparisons ]
+       , family (AdmittedOp addF) [doubles "add"]
+       , family (AdmittedOp subF) [doubles "sub"]
+       , family (AdmittedOp mulF) [doubles "mul"]
+       , family (AdmittedOp divF) [doubles "div"]
+       , family (AdmittedOp negF) [negateOn TDouble]
+       , family (AdmittedOp cmpF) [ compareOn w f TDouble | (w, f) <- comparisons ]
+       , family (AdmittedOp expF) [doubleFn "doubleExp"]
+       , family (AdmittedOp logF) [doubleFn "doubleLog"]
+       , family (AdmittedOp powF) [whole "doublePow" [TDouble, TDouble] TDouble]
+       , family (AdmittedOp sinF) [doubleFn "doubleSin"]
+       , family (AdmittedOp cosF) [doubleFn "doubleCos"]
+       , family (AdmittedOp tanF) [doubleFn "doubleTan"]
+       , family (AdmittedOp asinF) [doubleFn "doubleASin"]
+       , family (AdmittedOp acosF) [doubleFn "doubleACos"]
+       , family (AdmittedOp atanF) [doubleFn "doubleATan"]
+       , family (AdmittedOp sqrtF) [doubleFn "doubleSqrt"]
+       , family (AdmittedOp floorF) [doubleFn "doubleFloor"]
+       , family (AdmittedOp ceilF) [doubleFn "doubleCeiling"]
+       , family (OurOp (SomeOp Strings.strCmp)) [ compareOn w f TString | (w, f) <- comparisons ]
+       , family (OurOp (SomeOp Strings.strLength)) [whole "strLength" [TString] Prims.tInt]
+       , family (OurOp (SomeOp Strings.strHead)) [whole "strHead" [TString] TChar]
+       , family (OurOp (SomeOp Strings.strTail)) [whole "strTail" [TString] TString]
+       , family (OurOp (SomeOp Strings.strIndex)) [whole "strIndex" [TString, Prims.tInt] TChar]
+       , family (OurOp (SomeOp Strings.strCons)) [whole "strCons" [TChar, TString] TString]
+       , family (OurOp (SomeOp Strings.strAppend)) [whole "strAppend" [TString, TString] TString]
+       , family (OurOp (SomeOp Strings.strReverse)) [whole "strReverse" [TString] TString]
+       , family (OurOp (SomeOp Strings.strSubstr)) [whole "strSubstr" [Prims.tInt, Prims.tInt, TString] TString]
+       ] ++ casts)
+
+||| Every builtin, family by family.
+public export
+builtins : List Builtin
+builtins = concat (forget families)
+
+------------------------------------------------------------------------------
+-- Expressions
+------------------------------------------------------------------------------
 
 mutual
-  ||| An expression as a program writes it: an integer in parentheses when
-  ||| negative, a Double likewise, a Char or a String as `show` writes it
-  ||| (a scalar past ASCII as its decimal escape on both hosts), and an
+  ||| A builtin's arguments: an expression of each type it takes.
+  public export
+  data Args : List Ty -> Type where
+    Nil : Args []
+    (::) : Expr t -> Args ts -> Args (t :: ts)
+
+  ||| A closed expression, well typed by construction: a literal, a builtin
+  ||| applied, or the fuzzer's sum type's helper.
+  public export
+  data Expr : Ty -> Type where
+    Lit : Literal t -> Expr t
+    App : (b : Builtin) -> Args b.takes -> Expr b.gives
+    ||| The sum type's helper; `k` is a literal from 0 to 2, its constructor.
+    SData : (k : Expr Prims.tInt) -> Expr Prims.tInt -> Expr TDouble -> Expr Prims.tInt
+
+||| A function applied, as a program writes it.
+public export
+appliedText : String -> List String -> String
+appliedText f as = "(" ++ f ++ foldr (\a, rest => " " ++ a ++ rest) ")" as
+
+mutual
+  ||| An expression as a program writes it: a literal as written, an
   ||| application in parentheses.
   public export
   source : Expr t -> String
-  source (IntLit _ v) = integerText v
-  source (DoubleLit NonNegative m) = m
-  source (DoubleLit Negative m) = "(-" ++ m ++ ")"
-  source (CharLit c) = show c
-  source (StringLit s) = show s
-  source (App p as) = applied p.name (sources as)
-  source (SData k i x) = applied "sdata" [source k, source i, source x]
+  source (Lit l) = literalSource l
+  source (App b as) = appliedText (spellingText b.spelling) (argTexts as)
+  source (SData k i x) = appliedText "sdata" [source k, source i, source x]
 
-  sources : Args ps -> List String
-  sources [] = []
-  sources (e :: es) = source e :: sources es
+  argTexts : Args ps -> List String
+  argTexts [] = []
+  argTexts (e :: es) = source e :: argTexts es
 
 mutual
-  ||| What stdin holds for an expression read from it: a literal's line, the
-  ||| value as text (a negative Double with its sign, a Char or a String
-  ||| as itself); an expression's lines, its literals' in order.
+  ||| What stdin holds for an expression read from it: a literal's line;
+  ||| an expression's lines, its literals' in order.
   public export
   input : Expr t -> String
-  input (IntLit _ v) = show v
-  input (DoubleLit NonNegative m) = m
-  input (DoubleLit Negative m) = "-" ++ m
-  input (CharLit c) = singleton c
-  input (StringLit s) = s
+  input (Lit l) = literalInput l
   input (App _ as) = joinBy "\n" (inputs as)
   input (SData k i x) = joinBy "\n" [input k, input i, input x]
 
@@ -687,38 +802,31 @@ mutual
   inputs (e :: es) = input e :: inputs es
 
 mutual
-  ||| Why an expression's value depends on the host, when it does: the
-  ||| first primitive of it whose operation's value is the host's, by name.
+  ||| Where an expression of constants is computed: while compiling when
+  ||| every builtin of it is folded, else where the program runs.
   public export
-  hostReason : Expr t -> Maybe String
-  hostReason (App p as) = map (\why => p.name ++ ": " ++ why) (hostOf p.op) <|> hostReasonArgs as
-  hostReason (SData k i x) = hostReason k <|> hostReason i <|> hostReason x
-  hostReason (IntLit _ _) = Nothing
-  hostReason (DoubleLit _ _) = Nothing
-  hostReason (CharLit _) = Nothing
-  hostReason (StringLit _) = Nothing
+  whereComputed : Expr t -> Computed
+  whereComputed (Lit _) = WhileCompiling
+  whereComputed (App b as) = both (computedOf b.op) (whereComputedArgs as)
+  whereComputed (SData k i x) = both (whereComputed k) (both (whereComputed i) (whereComputed x))
 
-  hostReasonArgs : Args ps -> Maybe String
-  hostReasonArgs [] = Nothing
-  hostReasonArgs (e :: es) = hostReason e <|> hostReasonArgs es
-
-||| Whether an expression's value is the host's: some primitive of it is.
-public export
-onHost : Expr t -> Bool
-onHost e = isJust (hostReason e)
+  whereComputedArgs : Args ps -> Computed
+  whereComputedArgs [] = WhileCompiling
+  whereComputedArgs (e :: es) = both (whereComputed e) (whereComputedArgs es)
 
 ||| How a value of a type is printed: as a string, written by output fusion.
 public export
 printer : Ty -> String -> String
 printer TString e = e
-printer TChar e = "(" ++ castNamed int TString ++ " (" ++ castNamed TChar int ++ " " ++ e ++ "))"
+printer TChar e = "(" ++ castNamed Prims.tInt TString ++ " (" ++ castNamed TChar Prims.tInt ++ " " ++ e ++ "))"
 printer t e = "(" ++ castNamed t TString ++ " " ++ e ++ ")"
 
 ||| The statement a generated program prints a value with: its label, a
 ||| space and the value, a line of its own.
 public export
 printLine : (label : String) -> Ty -> String -> String
-printLine label t e = "putStrLn (prim__strAppend \"" ++ label ++ " \" " ++ printer t e ++ ")"
+printLine label t e =
+  "putStrLn (" ++ spellingText (MkSpelling "strAppend" []) ++ " \"" ++ label ++ " \" " ++ printer t e ++ ")"
 
 ||| A line `printLine` printed, read back: its label and its value.
 public export
@@ -726,3 +834,136 @@ labelled : String -> (String, String)
 labelled l =
   let (label, rest) = break (== ' ') l in
   (label, maybe "" snd (strUncons rest))
+
+------------------------------------------------------------------------------
+-- The oracle
+------------------------------------------------------------------------------
+
+||| What an expression's evaluation does, as the oracle predicts it: it
+||| runs to its value; it reaches a guard that fails, the crash naming one
+||| of the causes (the language leaves the order of a call's arguments
+||| open, so of two that fail, either may be met first); or the oracle
+||| cannot say, where a guard is given an argument it cannot read.
+public export
+data Outcome = Runs | Crashes (List1 Cause) | Undecided
+
+||| Two parts of one evaluation, each evaluated whole unless the other's
+||| crash came first.
+together : Outcome -> Outcome -> Outcome
+together Undecided _ = Undecided
+together _ Undecided = Undecided
+together (Crashes a) (Crashes b) = Crashes (a ++ b)
+together (Crashes a) Runs = Crashes a
+together Runs o = o
+
+||| The literal argument at a position, if it is one.
+argAt : Nat -> Args ts -> Maybe AnyLit
+argAt Z (Lit l :: _) = Just (MkAnyLit l)
+argAt Z (_ :: _) = Nothing
+argAt (S k) (_ :: rest) = argAt k rest
+argAt _ [] = Nothing
+
+||| What a builtin's own guards do on its arguments, once these ran.
+guarded : DialectOp -> Args ts -> Outcome
+guarded op as = case guardings op of
+  Left _ => Undecided
+  Right gs => foldr (\g, o => together (verdict g) o) Runs gs
+  where
+    verdict : Guarding -> Outcome
+    verdict g = case judge g.condition (map (\k => argAt k as) g.given) of
+      Holds => Runs
+      Fails => Crashes (g.cause ::: [])
+      Unreadable => Undecided
+
+mutual
+  ||| What an expression does: its arguments are evaluated before the
+  ||| builtin, every one of them, so the builtin's guards are reached only
+  ||| when they all run.
+  public export
+  outcome : Expr t -> Outcome
+  outcome (Lit _) = Runs
+  outcome (App b as) = case outcomeArgs as of
+    Runs => guarded b.op as
+    other => other
+  outcome (SData k i x) = together (outcome k) (together (outcome i) (outcome x))
+
+  outcomeArgs : Args ts -> Outcome
+  outcomeArgs [] = Runs
+  outcomeArgs (e :: es) = together (outcome e) (outcomeArgs es)
+
+mutual
+  ||| The value of an expression over the integers alone, where it runs.
+  public export
+  modelled : Expr t -> Maybe Integer
+  modelled (Lit (IntLit _ v)) = Just v
+  modelled (Lit _) = Nothing
+  modelled (App b as) = case guarded b.op as of
+    Runs => computed b.meaning as
+    _ => Nothing
+  modelled (SData _ _ _) = Nothing
+
+  computed : Model ts r -> Args ts -> Maybe Integer
+  computed (Unary f) [a] = f <$> modelled a
+  computed (Binary f) [a, c] = [| f (modelled a) (modelled c) |]
+  computed Unmodelled _ = Nothing
+
+||| What a builtin applied to integer literals gives: its value, or the
+||| crash its guard meets.
+public export
+data Answer = Gives Integer | CrashesBy (List1 Cause)
+
+||| Integers as the literals of the integer types a builtin takes.
+integerArgs : (ts : List Ty) -> List Integer -> Maybe (Args ts)
+integerArgs [] [] = Just []
+integerArgs (TIntegral i :: ts) (v :: rest) = (Lit (IntLit i v) ::) <$> integerArgs ts rest
+integerArgs _ _ = Nothing
+
+||| A builtin applied to integer literals, where it takes integers alone.
+public export
+appliedTo : (b : Builtin) -> List Integer -> Maybe (Expr b.gives)
+appliedTo b vs = App b <$> integerArgs b.takes vs
+
+||| A builtin on integers, as Sem tabulates it; nothing for a builtin that
+||| takes no integers, or one the oracle does not compute.
+public export
+answer : Builtin -> List Integer -> Maybe Answer
+answer b vs = do
+  e <- appliedTo b vs
+  case outcome e of
+    Runs => Gives <$> modelled e
+    Crashes why => Just (CrashesBy why)
+    Undecided => Nothing
+
+------------------------------------------------------------------------------
+-- The table's own checks
+------------------------------------------------------------------------------
+
+||| Whether a guard's condition reads the types of the arguments it is
+||| given: an integer for a divisor, a string, an index and the string it
+||| indexes, a Double.
+reads : Condition -> List (Maybe Ty) -> Bool
+reads Nonzero [Just (TIntegral _)] = True
+reads Nonempty [Just TString] = True
+reads InBounds [Just (TIntegral _), Just TString] = True
+reads Finite [Just TDouble] = True
+reads _ _ = False
+
+||| The table held to the specification: every builtin's guards are read
+||| by the oracle, each on arguments of the types its condition reads, at
+||| positions the builtin has; and no two builtins are spelled alike.
+export
+checks : List (String, Bool)
+checks =
+  [ ("every builtin's guards are read by the oracle", all resolved builtins)
+  , ("every guard is given arguments of the types its condition reads", all typed builtins)
+  , ("no two builtins are spelled alike", unique (map (spellingText . (.spelling)) builtins)) ]
+  where
+    resolved : Builtin -> Bool
+    resolved b = either (const False) (const True) (guardings b.op)
+    typed : Builtin -> Bool
+    typed b = case guardings b.op of
+      Left _ => False
+      Right gs => all (\g => reads g.condition (map (\k => getAt k b.takes) (forget g.given))) gs
+    unique : List String -> Bool
+    unique [] = True
+    unique (x :: xs) = not (elem x xs) && unique xs

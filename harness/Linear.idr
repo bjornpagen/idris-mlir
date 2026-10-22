@@ -54,6 +54,8 @@ import Facts
 import Files
 import Reject
 
+import IdrisMLIR.Spec.Core.Verdict
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -446,7 +448,9 @@ disagreements (Refused ls) status report =
   let wanted = forget ls
       reported = nub (sort (mapMaybe (\r => map (.line) r.place) report.errors))
   in (if status == 0 then ["predicted " ++ verdictText (Refused ls) ++ ", but the compilation exited 0"] else [])
-     ++ (if report.verdict == "internal" then ["predicted a refusal, but the compiler ended in an internal error"] else [])
+     ++ (case report.verdict of
+           Just VerdictInternal => ["predicted a refusal, but the compiler ended in an internal error"]
+           _ => [])
      ++ (if all byUniqueness report.errors && not (null report.errors) then []
          else ["predicted refusals by uniqueness alone, but the report's errors are by other rules or none"])
      ++ (if reported == wanted then []

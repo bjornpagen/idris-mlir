@@ -171,6 +171,10 @@ properties =
   , property "contified" NoArgument Stated
       [ "No function is called once, from a function it calls back, and"
       , "used nowhere else: each continuation is part of what it continues." ]
+  , property "reached" NoArgument Stated
+      [ "Every function of the program is reached from its roots, the"
+      , "functions its symbol table makes public, by the symbols the bodies"
+      , "of the functions reached before it name." ]
   , property "calls" OfPair Stated
       [ "Some call in @f calls @g or a copy of it; after lowering @g may be"
       , "a function of the runtime, named by its symbol." ]

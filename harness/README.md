@@ -119,7 +119,9 @@ A fixture is in `test-idr` and every other test in `test`, unless a
 on that host in place of `expected`. `tests/semantics` runs once per
 entry of Sem.idr's table, as `semantics@<name>`, each entry twice: its
 operands written in the program, where they fold, and read from stdin,
-where they reach the code the program is compiled to.
+where they reach the code the program is compiled to; each pair its
+builtin's guard stops is a case of its own of the second, which must
+crash by the guard's cause.
 
 A test's expected files are its specification, reviewed when they
 change; no other implementation is asked. Tests check behaviour, never
@@ -144,8 +146,7 @@ clone numbers, function order or SSA names.
 - `prop/`: the headers and the build of the runtime's property programs,
   and the program a runtime C test runs as, through the runtime's start.
 - `Fuzz.idr`, `Gen.idr`, `Lazy.idr`, `Linear.idr`, `Prims.idr`, `Sem.idr`,
-  `Scale.idr`, `Properties.idr`, `RuntimeEffects.idr`, `TwoLevels.idr`,
-  `Lock.idr`: what the runner computes for tests that ask it; `Linear.idr`
+  `Scale.idr`, `Properties.idr`, `RuntimeEffects.idr`, `Lock.idr`: what the runner computes for tests that ask it; `Linear.idr`
   generates linear programs, each with its de-linearized twin and the
   verdict the in-place rule predicts for it; `Scale.idr` the scale
   fixtures, the dialect's text spelled from the specification;

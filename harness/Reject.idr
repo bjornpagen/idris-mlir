@@ -27,6 +27,8 @@ import System
 import Facts
 import Files
 
+import IdrisMLIR.Spec.Core.Verdict
+
 %default covering
 
 ------------------------------------------------------------------------------
@@ -97,11 +99,13 @@ record Refusal where
 
 ||| The report idris-mlir writes under --report: `verdict: <name>`, a
 ||| `diagnostic: <severity> <rule> <file:line>` line per diagnostic (a field
-||| it lacks written `-`), and statistics, which this reads no part of.
+||| it lacks written `-`), and statistics, which this reads no part of. A
+||| report with no verdict, or one no verdict of the specification's
+||| spells, has none.
 public export
 record Report where
   constructor MkReport
-  verdict : String
+  verdict : Maybe CompilerVerdict
   errors : List Refusal
 
 ||| A location `<file>:<line>`, split at its last colon; a field the
@@ -123,7 +127,7 @@ export
 reportOf : String -> Report
 reportOf text =
   let ls = lines text in
-  MkReport (fromMaybe "" (head' (mapMaybe (map trim . stripVerdict) ls))) (mapMaybe refusalOf ls)
+  MkReport (head' (mapMaybe stripVerdict ls) >>= readVerdict) (mapMaybe refusalOf ls)
   where
     stripVerdict : String -> Maybe String
     stripVerdict l = if isPrefixOf "verdict:" l then Just (pack (drop 8 (unpack l))) else Nothing
@@ -151,12 +155,11 @@ compareWith h report output =
       unexpected = "unsupported (" ++ phrase ++ "): expected once, among "
                    ++ show (length (filter ours report.errors)) ++ " unsupported errors"
       ruleLine : (String, Bool)
-      ruleLine =
-        if report.verdict == "internal" then (phrase ++ ": an internal error, not a rejection", False)
-        else case report.errors of
-          [only] => if byRule h.rule only then ("unsupported (" ++ phrase ++ "): the only error", True)
-                    else (unexpected, False)
-          _ => (unexpected, False)
+      ruleLine = case (report.verdict, report.errors) of
+        (Just VerdictInternal, _) => (phrase ++ ": an internal error, not a rejection", False)
+        (_, [only]) => if byRule h.rule only then ("unsupported (" ++ phrase ++ "): the only error", True)
+                       else (unexpected, False)
+        _ => (unexpected, False)
       reportedLine : Maybe Nat
       reportedLine = map (.line) (head' report.errors >>= (.place))
       lineLine : (String, Bool)
@@ -205,6 +208,8 @@ refusedBy reportPath phrase area = do
   let Just rule = ruleNamed phrase
     | Nothing => die (phrase ++ " is no rule's phrase")
   report <- reportOf <$> fromMaybe "" <$> readIfThere reportPath
-  if report.verdict == "refused" && not (null report.errors)
-       && all (\r => byRule rule r && within area r) report.errors
-     then exitSuccess else exitFailure
+  case report.verdict of
+    Just VerdictRefused =>
+      if not (null report.errors) && all (\r => byRule rule r && within area r) report.errors
+         then exitSuccess else exitFailure
+    _ => exitFailure

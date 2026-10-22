@@ -25,6 +25,5 @@ modules = Case
         , Scale
         , Sem
         , Trace
-        , TwoLevels
 main = Main
 executable = runtests

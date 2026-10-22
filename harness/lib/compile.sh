@@ -103,17 +103,17 @@ mlir_check() {
 
 # The artifacts a build leaves in build/exec, by kind, held here once:
 # every check of what a compilation leaves, keeps or compares reads them
-# through artifact_patterns. A build named NAME leaves its Core, the module
-# the frontend hands the driver (bytecode, which every tool reads by its
-# magic), the objects code generation writes, one per bin, each <bin>.o in
-# the directory NAME.objects, and the executable.
-artifact_kinds='core module objects executable'
+# through artifact_patterns. A build named NAME leaves the module the
+# frontend hands the driver (bytecode, which every tool reads by its
+# magic), the one output a reader of the frontend's work reads; the
+# objects code generation writes, one per bin, each <bin>.o in the
+# directory NAME.objects; and the executable.
+artifact_kinds='module objects executable'
 
 # artifact_patterns KIND NAME: the paths of KIND for the build NAME, as
 # find's -path patterns, one per line.
 artifact_patterns() {
   case $1 in
-    core) say "*/$2.core" ;;
     module) say "*/$2.mlirbc" ;;
     objects) say "*/$2.objects/*.o" ;;
     executable) say "*/$2" ;;
@@ -153,9 +153,9 @@ artifacts() {
   [ -z "$artifacts_missing" ] || say "missing or empty:$artifacts_missing"
 }
 
-# no_artifacts DIR: no Core, module or object of any build under DIR/build.
+# no_artifacts DIR: no module or object of any build under DIR/build.
 no_artifacts() {
-  no_artifacts_left=$(for no_artifacts_kind in core module objects; do
+  no_artifacts_left=$(for no_artifacts_kind in module objects; do
       artifact_files "$1" '*' "$no_artifacts_kind"
     done | sed "s|^$1/||" | LC_ALL=C sort -u)
   if [ -z "$no_artifacts_left" ]; then

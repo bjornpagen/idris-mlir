@@ -49,8 +49,10 @@
 |||     runtests --sem-program written|stdin <name>
 |||                                     the program of a semantics test, its
 |||                                     operands written in it or read
-|||     runtests --sem-stdin <name>     the stdin its reading program reads
-|||     runtests --sem-expected <name>  the stdout either program must print
+|||     runtests --sem-cases <name> <dir>
+|||                                     the cases of its reading program,
+|||                                     those its guards stop among them
+|||     runtests --sem-expected <name>  the stdout its written program must print
 |||     runtests --linear-program <seed> <case> linear|twin|stdin|verdict | checks
 |||                                     a generated linear program, its
 |||                                     de-linearized twin, its input, the
@@ -59,8 +61,9 @@
 |||                                     a compilation held to that verdict
 |||     runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...
 |||                                     a program or a case of the fuzzer (Fuzz.idr)
-|||     runtests --fuzz-check overran|agree|model|first|modelled <request> [<stdout-file>]
-|||                                     what a fuzzer program printed, checked (Fuzz.idr)
+|||     runtests --fuzz-check overran <request>
+|||     runtests --fuzz-check ending|agree|model|first|modelled <request> <stdout-file> <status> <stderr-file>
+|||                                     how a fuzzer program ran, checked (Fuzz.idr)
 |||     runtests --lazy-program <seed> <cases> main|stdin | checks
 |||                                     a program of the lazy fuzzer (Lazy.idr),
 |||                                     or its checker's own checks
@@ -326,13 +329,14 @@ usage = unlines
   , "       runtests --case-status <case>"
   , "       runtests --reject <test> <report> <output> | --refused-by <report> <rule> [<file>] | --rules"
   , "       runtests --trace-totals <trace> | --trace-units <trace>..."
-  , "       runtests --sem-program written|stdin <name> | --sem-stdin <name> | --sem-expected <name> | --lock"
+  , "       runtests --sem-program written|stdin <name> | --sem-cases <name> <dir> | --sem-expected <name> | --lock"
   , "       runtests --linear-program <seed> <case> linear|twin|stdin|verdict | --linear-program checks"
   , "       runtests --linear-check <seed> <case> <status> <report>"
   , "       runtests --expect-table | --scale-print <fixture> 1|2 | --scale-check <report> <trace> <report> <trace>"
   , "       runtests --runtime-effects"
   , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
-  , "       runtests --fuzz-check overran|agree|model|first|modelled program <seed> <cases> <part> | replay <tape> <part> [<stdout-file>]"
+  , "       runtests --fuzz-check overran <request> | ending|agree|model|first|modelled <request> <stdout-file> <status> <stderr-file>"
+  , "                (a request: program <seed> <cases> <part> | replay <tape> <part>)"
   , "       runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks | --lazy-check <seed> <cases> <stdout-file>"
   ]
 
@@ -359,14 +363,16 @@ plan results args = do
      else writePlan results opts.threads notHere selected
 
 ||| `--fuzz-check overran <request>`, or `--fuzz-check <how> <request>
-||| <stdout-file>`, the file read here, byte for byte.
+||| <stdout-file> <status> <stderr-file>`, the run's output and standard
+||| error read here, byte for byte.
 fuzzCheck : List String -> IO ()
 fuzzCheck ("overran" :: request) = maybe (die usage) putStr (Fuzz.overranOf request)
 fuzzCheck (how :: rest) = case [<] <>< rest of
-  request :< file => do
-    output <- bytesOrDie file
-    maybe (die usage) putStr (Fuzz.checkOf how (request <>> []) output)
-  [<] => die usage
+  request :< out :< status :< err => do
+    output <- bytesOrDie out
+    errors <- bytesOrDie err
+    maybe (die usage) putStr (Fuzz.checkOf how (request <>> []) (observed output status errors))
+  _ => die usage
 fuzzCheck [] = die usage
 
 main : IO ()
@@ -383,8 +389,10 @@ main = do
     ("--trace-units" :: traces@(_ :: _)) => traceUnits traces
     ["--sem-program", given, name] =>
       maybe (die ("no semantics test " ++ name)) putStr (givenOf given >>= \g => Sem.programOf g name)
-    ["--sem-stdin", name] =>
-      maybe (die ("no semantics test " ++ name)) putStr (Sem.stdinOf name)
+    ["--sem-cases", name, dir] => do
+      Right () <- Sem.writeCases name dir
+        | Left why => die why
+      pure ()
     ["--sem-expected", name] =>
       maybe (die ("no semantics test " ++ name)) putStr (expectedOf name)
     ("--fuzz-program" :: fuzz) => maybe (die usage) putStr (Fuzz.programOf fuzz)

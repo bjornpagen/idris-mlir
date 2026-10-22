@@ -1,9 +1,10 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| The fuzzer: programs of closed expressions over every primitive, each
+||| The fuzzer: programs of closed expressions over every builtin, each
 ||| written four ways, whose values must agree with each other and, over
-||| the integers, with what the primitives mean (`fuzz` in
-||| harness/lib/fuzz.sh).
+||| the integers, with what the builtins mean, and whose run must end as the
+||| oracle says: returned, or crashed at the first case that reaches a
+||| guard that fails, by its cause (`fuzz` in harness/lib/fuzz.sh).
 |||
 |||     runtests --fuzz-program program <seed> <cases> runtime|static main|stdin
 |||     runtests --fuzz-program threads <seed>
@@ -12,18 +13,22 @@
 |||     runtests --fuzz-program shrink <tape>
 |||     runtests --fuzz-program two-hosts
 |||     runtests --fuzz-check overran <request>
-|||     runtests --fuzz-check agree|model|first <request> <stdout-file>
+|||     runtests --fuzz-check ending|agree|model|first|modelled <request> <stdout-file> <status> <stderr-file>
 |||
 ||| where a check's request is `program <seed> <cases> runtime|static` or
-||| `replay <tape> runtime|static`.
+||| `replay <tape> runtime|static`, and the status is how the run ended as
+||| the shell saw it, `code <n>` or `signal <name>`.
 |||
 ||| A case is one expression, well typed by construction, which Gen draws on
 ||| the case's own seed (output n of splitmix64 from the program's seed), so
-||| a case is reproducible alone, from its seed or from its tape. A case's
-||| expression is written four ways:
+||| a case is reproducible alone, from its seed or from its tape. An
+||| argument a builtin's guard reads is a literal, drawn inside the guard
+||| far more often than outside it, as the specification states the guard,
+||| so most programs run to their end and some crash. A case that runs is
+||| written four ways:
 |||
 ||| - `d<n>`, in `main`, directly: its leaves are literals, which the
-|||   primitives are applied to as written, so the folders compute it (Idris
+|||   builtins are applied to as written, so the folders compute it (Idris
 |||   leaves the calls in the checked term:
 |||   upstream/18-elaboration-primitive-folding);
 ||| - `j<n>`, in a function of its leaves, total and self recursive over a
@@ -35,26 +40,26 @@
 ||| - `s<n>`, with its leaves read from stdin, which nothing before the run
 |||   knows.
 |||
-||| A case's lines must print one value, and a case over the integers alone
-||| the value their documented meaning gives. A case through libm's
-||| functions (Exp, Log, Pow and the trigonometric ones), which are not
-||| correctly rounded, so that the last places of their values are the
-||| platform's, has no `d` line and no model. The check regenerates a
+||| Its lines must print one value, and a case over the integers alone the
+||| value their documented meaning gives. A case with a builtin the
+||| compiler never folds (a C library's function, whose last digits are the
+||| platform's) has no `d` line. A case that crashes is written its lead
+||| way alone, drawn on its tape, since the crash ends the program there:
+||| so the crash is met by the folder, a call at run time, a value hidden
+||| from the compiler or one read from stdin. The check regenerates a
 ||| request's cases and reads the program's output by their labels, so
 ||| what the generator knows of a case is never written into the program
 ||| for a reader to parse back.
 |||
-||| The `runtime` part holds what may exist at run time: the fixed-width
-||| integers, Double, Char, a small sum type, and strings only as output
-||| fusion writes them, so a string anything takes apart is a literal. The
-||| `static` part holds Integer and every string builder too.
+||| The `runtime` part holds what may exist at run time: no Integer. The
+||| `static` part holds Integer too.
 module Fuzz
 
 import Prelude
 import Data.DPair
 import Data.Fin
 import Data.List
-import Data.List.Elem
+import Data.List1
 import Data.Maybe
 import Data.Nat
 import Data.SnocList
@@ -63,10 +68,12 @@ import Data.SortedSet
 import Data.String
 import Data.Vect
 import Decidable.Equality
+import Facts
 import Gen
 import Prims
 import Sem
-import TwoLevels
+
+import IdrisMLIR.Spec.Runtime.Endings
 
 %default total
 
@@ -78,139 +85,120 @@ import TwoLevels
 ||| compile time too.
 data Part = Runtime | Static
 
-||| What an expression of a type is, past a leaf: a primitive applied, or
-||| the sum type's helper.
-data Production = Apply Prim | SDataOf
+||| How many families the table has, the swarm's options.
+FamilyCount : Nat
+FamilyCount = S (length families.tail)
+
+||| What an expression of a type is, past a leaf: a builtin applied, of the
+||| family the swarm weighs it by, with its guards as the oracle reads
+||| them; or the sum type's helper.
+data Production = Apply (Fin FamilyCount) Builtin (List Guarding) | SDataOf
 
 resultOf : Production -> Ty
-resultOf (Apply p) = p.result
-resultOf SDataOf = int
+resultOf (Apply _ b _) = b.gives
+resultOf SDataOf = Prims.tInt
 
-||| What output fusion writes without building it: an append, a cons, and
-||| a value's text.
-writes : Prim -> Bool
-writes p = case p.op of
-  StrAppend => True
-  StrCons => True
-  Convert => p.result == TString
-  _ => False
-
-||| Whether a part holds a production. At run time no Integer exists, and a
-||| string only as output fusion writes it.
+||| Whether a part holds a production. At run time no Integer exists.
 has : Part -> Production -> Bool
 has Static _ = True
 has Runtime SDataOf = True
-has Runtime (Apply p) =
-  all (/= integer) (paramTys p.args) && p.result /= integer && (p.result /= TString || writes p)
+has Runtime (Apply _ b _) = all (/= Prims.tInteger) b.takes && b.gives /= Prims.tInteger
+
+||| Each element of a list with its place in it.
+indexed : (xs : List a) -> List (Fin (length xs), a)
+indexed [] = []
+indexed (x :: xs) = (FZ, x) :: map (\(i, y) => (FS i, y)) (indexed xs)
+
+||| Every builtin whose guards the oracle reads, as a production of its
+||| family: a builtin whose guard it cannot read is left out, and the
+||| table's checks name it.
+applications : List Production
+applications =
+  [ Apply i b gs | (i, family) <- (FZ, families.head) :: map (\(i, f) => (FS i, f)) (indexed families.tail)
+                 , b <- family, gs <- either (const []) pure (guardings b.op) ]
 
 ||| The productions of a type in a part, each with the proof of its type.
 productions : Part -> (t : Ty) -> List (pr : Production ** resultOf pr = t)
 productions part t =
   mapMaybe (\pr => (\same => (pr ** same)) <$> sameTy (resultOf pr) t)
-           (filter (has part) (SDataOf :: map Apply prims))
-
-||| A family's place among a case's weights of the families.
-familyIndex : Family -> Fin 9
-familyIndex Arith = 0
-familyIndex Negate = 1
-familyIndex DivMod = 2
-familyIndex Bitwise = 3
-familyIndex Shift = 4
-familyIndex Compare = 5
-familyIndex Cast = 6
-familyIndex Text = 7
-familyIndex DoubleFn = 8
+           (filter (has part) (SDataOf :: applications))
 
 ||| The families, each as likely. A case's swarm zeroes each with
-||| probability one half, so a case is built of a few families, and the
-||| interactions within them, rather than a thin mix of all.
-families : Weights 9
-families = MkWeights [1, 1, 1, 1, 1, 1, 1, 1, 1]
+||| probability one half, so a case is built of a few ops of the dialect,
+||| and the interactions among them, rather than a thin mix of all.
+familyWeights : Weights FamilyCount
+familyWeights = MkWeights (1 :: replicate (length families.tail) 1)
 
 ||| A production's weight in a case: its family's after the swarm, so every
-||| primitive of a kept family is as likely as each other, and the helper
-||| as likely as one of them.
-weightIn : Vect 9 Nat -> Production -> Nat
-weightIn kept (Apply p) = index (familyIndex (family p.op)) kept
+||| builtin of a kept family is as likely as each other, and the helper as
+||| likely as one of them.
+weightIn : Vect FamilyCount Nat -> Production -> Nat
+weightIn kept (Apply i _ _) = index i kept
 weightIn _ SDataOf = 1
 
 ------------------------------------------------------------------------------
 -- Literals
 ------------------------------------------------------------------------------
 
-||| Any value from `lo` to `hi`, each as likely; without 0 when the domain
-||| says so, the range then being `lo` to -1 followed by 1 to `hi` (every
-||| fixed width's range holds 0).
-anyIn : (lo, hi : Integer) -> Domain before -> Gen Integer
-anyIn lo hi NonZero =
+||| Whether a draw of an integer may give 0.
+data Zero = WithZero | WithoutZero
+
+||| Any value from `lo` to `hi`, each as likely; without 0 when asked, the
+||| range then being `lo` to -1 followed by 1 to `hi` (every fixed width's
+||| range holds 0).
+anyIn : (lo, hi : Integer) -> Zero -> Gen Integer
+anyIn lo hi WithoutZero =
   (\i => let v = lo + natToInteger (finToNat i) in if v >= 0 then v + 1 else v)
     <$> draw (S (integerToNat (hi - lo - 1)))
-anyIn lo hi _ = (\i => lo + natToInteger (finToNat i)) <$> draw (S (integerToNat (hi - lo)))
+anyIn lo hi WithZero = (\i => lo + natToInteger (finToNat i)) <$> draw (S (integerToNat (hi - lo)))
 
-||| A literal of a fixed width: any of its values, twice as likely as each
-||| of its edges and small values; not 0 when the domain says so. An
-||| unsigned width's least value is 0, which the set holds once.
-fixedLiteral : (lo, hi : Integer) -> Domain before -> Gen Integer
-fixedLiteral lo hi d =
+||| A value of a fixed width: any of its values, twice as likely as each of
+||| its edges and small values; not 0 when asked. An unsigned width's
+||| least value is 0, which the set holds once.
+fixedLiteral : (lo, hi : Integer) -> Zero -> Gen Integer
+fixedLiteral lo hi z =
   let signed = lo < 0
       small = nub [lo, hi, 0, 1, if signed then -1 else 2, 7, if signed then -100 else 100]
-      vs = Vect.fromList (case d of NonZero => filter (/= 0) small; _ => small)
+      vs = Vect.fromList (case z of WithoutZero => filter (/= 0) small; WithZero => small)
   in do i <- weighted (MkWeights (2 :: map (const 1) vs))
         case i.fst of
-          FZ => anyIn lo hi d
+          FZ => anyIn lo hi z
           FS j => pure (index j vs)
 
-||| Integer's literals: small ones, the edges of the fixed widths and past
-||| them, and values past any word; with 0 unless the domain says not.
-bigLiteral : Domain before -> Gen Integer
-bigLiteral d =
+||| Integer's values: small ones, the edges of the fixed widths and past
+||| them, and values past any word; with 0 unless asked not.
+bigLiteral : Zero -> Gen Integer
+bigLiteral z =
   let nonzero = [ -1, 12345678901234567890, -98765432109876543210, 9223372036854775807
                 , 9223372036854775808, 18446744073709551616, 340282366920938463463374607431768211456
                 , -9223372036854775809, 42 ]
-  in case d of
-       NonZero => oneOf 1 nonzero
-       _ => oneOf 0 (1 :: nonzero)
+  in case z of
+       WithoutZero => oneOf 1 nonzero
+       WithZero => oneOf 0 (1 :: nonzero)
 
-||| How far an Integer shifts: within and past the fixed widths, both ways,
-||| so that a value of the pool above still fits in a few words.
-shiftAmounts : Gen Integer
-shiftAmounts = oneOf 0 [1, 3, 31, 32, 63, 64, 65, 100, -1, -3, -64, -100]
+||| A value of an integer type.
+integerLiteral : IntTy -> Zero -> Gen Integer
+integerLiteral (Sized f) z = let (lo, hi) = bounds f in fixedLiteral lo hi z
+integerLiteral Big z = bigLiteral z
 
-||| What the arguments drawn so far offer the next, the latest first: the
-||| room of each string an index may point into, `S k` scalars written as
-||| its `k`, so that such a string offers at least one; and nothing for
-||| any other argument.
-data Drawn : List Earlier -> Type where
-  None : Drawn []
-  Room : (k : Nat) -> Drawn before -> Drawn (IndexableString :: before)
-  Past : Drawn before -> Drawn (Opaque :: before)
+||| Finite Doubles, edges among them.
+doubleLiteral : Gen (Sign, Magnitude)
+doubleLiteral =
+  oneOf (NonNegative, Written "0.0")
+    [ (NonNegative, Written "1.0"), (NonNegative, Written "0.1"), (NonNegative, Written "0.5")
+    , (NonNegative, Written "2.5"), (NonNegative, Written "3.0"), (NonNegative, Written "100.0")
+    , (NonNegative, Written "1.0e10"), (NonNegative, Written "1.0e-10"), (NonNegative, Written "123456.789")
+    , (NonNegative, Written "1.7976931348623157e308"), (NonNegative, Written "2.2250738585072014e-308")
+    , (NonNegative, Written "4.9e-324"), (NonNegative, Written "1.0e-320"), (Negative, Written "0.1")
+    , (Negative, Written "2.5"), (Negative, Written "1.0e300"), (NonNegative, Written "6.02214076e23")
+    , (NonNegative, Written "0.3"), (Negative, Written "7.0") ]
 
-||| The room, less one, of the string `el` points at.
-reach : Elem IndexableString before -> Drawn before -> Nat
-reach Here (Room k _) = k
-reach (There el) (Room _ drawn) = reach el drawn
-reach (There el) (Past drawn) = reach el drawn
-
-integerLiteral : Drawn before -> IntTy -> Domain before -> Gen Integer
-integerLiteral drawn _ (IndexInto el) = (\i => natToInteger (finToNat i)) <$> draw (S (reach el drawn))
-integerLiteral _ _ SmallShift = shiftAmounts
-integerLiteral _ (Fixed f) d = let (lo, hi) = bounds f in fixedLiteral lo hi d
-integerLiteral _ Big d = bigLiteral d
-
-doubleLiteral : Domain before -> Gen (Sign, String)
--- Finite, and small: a cast to an integer type takes it.
-doubleLiteral Finite =
-  oneOf (NonNegative, "0.0")
-    [ (NonNegative, "1.5"), (Negative, "2.75"), (NonNegative, "1000.25"), (Negative, "1.0e6")
-    , (NonNegative, "0.999"), (NonNegative, "12345.5") ]
-doubleLiteral _ =
-  oneOf (NonNegative, "0.0")
-    [ (NonNegative, "1.0"), (NonNegative, "0.1"), (NonNegative, "0.5"), (NonNegative, "2.5")
-    , (NonNegative, "3.0"), (NonNegative, "100.0"), (NonNegative, "1.0e10"), (NonNegative, "1.0e-10")
-    , (NonNegative, "123456.789"), (NonNegative, "1.7976931348623157e308")
-    , (NonNegative, "2.2250738585072014e-308"), (NonNegative, "4.9e-324"), (NonNegative, "1.0e-320")
-    , (Negative, "0.1"), (Negative, "2.5"), (Negative, "1.0e300"), (NonNegative, "6.02214076e23")
-    , (NonNegative, "0.3"), (Negative, "7.0") ]
+||| Finite Doubles a cast to an integer type takes as a small value.
+smallDouble : Gen (Sign, Magnitude)
+smallDouble =
+  oneOf (NonNegative, Written "0.0")
+    [ (NonNegative, Written "1.5"), (Negative, Written "2.75"), (NonNegative, Written "1000.25")
+    , (Negative, Written "1.0e6"), (NonNegative, Written "0.999"), (NonNegative, Written "12345.5") ]
 
 charLiteral : Gen Char
 charLiteral = oneOf 'a' ['Z', '0', ' ', '\233', '\955', '\8364', '\128512', '~']
@@ -222,82 +210,49 @@ nonEmptyStrings =
   [ ('h', "ello"), ('h', "\233llo"), ('\955', "x.x"), ('\8364', " 5"), ('\128512', "!")
   , ('a', "bc def"), ('Z', "") ]
 
-||| A string of the NonEmpty pool, as its first character and the rest.
-nonEmptyString : Gen (Char, String)
-nonEmptyString = oneOf ('a', "") nonEmptyStrings
+nonEmptyString : Gen String
+nonEmptyString = (\(c, rest) => strCons c rest) <$> oneOf ('a', "") nonEmptyStrings
 
-stringLiteral : Domain before -> Gen String
-stringLiteral NonEmpty = (\(c, rest) => strCons c rest) <$> nonEmptyString
-stringLiteral _ = oneOf "" (map (\(c, rest) => strCons c rest) (('a', "") :: nonEmptyStrings))
+stringLiteral : Gen String
+stringLiteral = oneOf "" (map (\(c, rest) => strCons c rest) (('a', "") :: nonEmptyStrings))
 
-||| A literal of a type in a domain, from the type's pool for that domain;
-||| `drawn` holds what the arguments before offer to index into.
-literal : Drawn before -> (t : Ty) -> Domain before -> Gen (Expr t)
-literal drawn (TIntegral i) d = IntLit i <$> integerLiteral drawn i d
-literal _ TDouble d = uncurry DoubleLit <$> doubleLiteral d
-literal _ TChar _ = CharLit <$> charLiteral
-literal _ TString d = StringLit <$> stringLiteral d
+||| A literal of a type's own pool.
+literalOf : (t : Ty) -> Gen (Literal t)
+literalOf (TIntegral i) = IntLit i <$> integerLiteral i WithZero
+literalOf TDouble = uncurry DoubleLit <$> doubleLiteral
+literalOf TChar = CharLit <$> charLiteral
+literalOf TString = StringLit <$> stringLiteral
 
-||| A code point a value of an integer type holds: scalar values across
-||| UTF-8's lengths and at the edges of the surrogates and of Unicode, and
-||| values that are no scalar (a negative one, a surrogate, one past
-||| U+10FFFF), which cast to 0. Every integer type holds 65 and 0.
-codePoint : (i : IntTy) -> Gen (Expr (TIntegral i))
-codePoint i =
-  IntLit i <$> oneOf 65 (filter holds [233, 955, 8364, 128512, 0, 55295, 57344, 1114111, -1, 55296, 57343, 1114112])
-  where
-    holds : Integer -> Bool
-    holds v = case i of
-      Fixed f => let (lo, hi) = bounds f in lo <= v && v <= hi
-      Big => True
+||| Which side of its guard a guarded argument is drawn on: inside, so the
+||| program runs on, thirty-one times as often as outside, where it
+||| crashes. A program reaches a few dozen guards, so most run to their
+||| end and some crash.
+data Side = Inside | Outside
 
-||| The pool of a cast's operand, for the casts that read few values
-||| meaningfully: to Char, a code point (almost every other integer is no
-||| scalar and casts to 0); from String, a number's text (almost every
-||| other string reads as 0).
-castPool : Op -> (from : Ty) -> (to : Ty) -> Maybe (Gen (Expr from))
-castPool Convert (TIntegral i) TChar = Just (codePoint i)
-castPool Convert TString (TIntegral _) =
-  Just (StringLit <$> oneOf "0" ["42", "-17", "9223372036854775807", "123456"])
-castPool Convert TString TDouble = Just (StringLit <$> oneOf "0.5" ["-2.25", "1e10", "3.0", "0.1"])
-castPool _ _ _ = Nothing
+side : Gen Side
+side = (\i => case i.fst of FZ => Inside; FS _ => Outside) <$> weighted (MkWeights [31, 1])
 
-||| Where an argument comes from.
-data Origin : Ty -> Type where
-  Pool : Gen (Expr t) -> Origin t
-  Expression : Origin t
+||| An index on a side of the bounds of a string of `room` scalars: inside
+||| one of its scalars; outside one before it, at its end or past it. An
+||| empty string has no inside.
+indexOn : Side -> (room : Nat) -> Gen Integer
+indexOn Inside (S k) = (\i => natToInteger (finToNat i)) <$> draw (S k)
+indexOn _ room = oneOf (-1) [natToInteger room, natToInteger room + 7, -100]
 
-||| Where an argument of type `t` of `p` comes from: a literal of its
-||| domain, when that says more than the type; a literal of the cast's pool,
-||| for a cast that has one; at run time, a literal for a string that `p`
-||| takes apart, since there a string is only what output fusion writes;
-||| otherwise any expression of its type.
-origin : Part -> Prim -> Drawn before -> (t : Ty) -> Domain before -> Origin t
-origin part p drawn t Anything =
-  case castPool p.op t p.result of
-    Just pool => Pool pool
-    Nothing => case part of
-      Runtime => if t == TString && not (writes p) then Pool (literal drawn t Anything) else Expression
-      Static => Expression
-origin _ _ drawn t d = Pool (literal drawn t d)
-
-||| A parameter as `arguments` draws it: the NonEmpty string, whose
-||| scalars the parameters after it may index, or any other, which offers
-||| them nothing.
-data Drawing : (t : Ty) -> Domain before -> Type where
-  Indexable : Drawing TString NonEmpty
-  Plain : (0 _ : offers t d = Opaque) -> Drawing t d
-
-drawing : (t : Ty) -> (d : Domain before) -> Drawing t d
-drawing TString NonEmpty = Indexable
-drawing (TIntegral _) NonEmpty = Plain Refl
-drawing TDouble NonEmpty = Plain Refl
-drawing TChar NonEmpty = Plain Refl
-drawing _ Anything = Plain Refl
-drawing _ NonZero = Plain Refl
-drawing _ Finite = Plain Refl
-drawing _ SmallShift = Plain Refl
-drawing _ (IndexInto _) = Plain Refl
+||| A literal for the argument a guard guards, on a side of it: what its
+||| condition lets through, or what it stops, given the literals drawn for
+||| the guard's other arguments; nothing where the condition reads no value
+||| of the argument's type, which the table's checks name.
+guardedLiteral : Condition -> Side -> (t : Ty) -> List (Maybe AnyLit) -> Maybe (Gen (Literal t))
+guardedLiteral Nonzero Inside (TIntegral i) _ = Just (IntLit i <$> integerLiteral i WithoutZero)
+guardedLiteral Nonzero Outside (TIntegral i) _ = Just (pure (IntLit i 0))
+guardedLiteral Nonempty Inside TString _ = Just (StringLit <$> nonEmptyString)
+guardedLiteral Nonempty Outside TString _ = Just (pure (StringLit ""))
+guardedLiteral InBounds s (TIntegral i) [Just (MkAnyLit (StringLit str))] =
+  Just (IntLit i <$> indexOn s (length (unpack str)))
+guardedLiteral Finite Inside TDouble _ = Just (uncurry DoubleLit <$> smallDouble)
+guardedLiteral Finite Outside TDouble _ = Just ((\sg => DoubleLit sg PastLargest) <$> oneOf NonNegative [Negative])
+guardedLiteral _ _ _ _ = Nothing
 
 ------------------------------------------------------------------------------
 -- Cases
@@ -305,12 +260,26 @@ drawing _ (IndexInto _) = Plain Refl
 
 ||| A leaf: a literal of the type's own pool.
 leaf : (t : Ty) -> Gen (Expr t)
-leaf t = literal None t Anything
+leaf t = Lit <$> literalOf t
+
+||| What a guard does with the argument at a position: guards it, is given
+||| it besides, or does neither.
+data Role = Guarded Guarding | GivenTo | Free
+
+roleAt : Nat -> List Guarding -> Role
+roleAt k gs = case find (\g => head g.given == k) gs of
+  Just g => Guarded g
+  Nothing => if any (\g => elem k (tail g.given)) gs then GivenTo else Free
+
+||| The literal an argument is, if it is one.
+asLiteral : Expr t -> Maybe AnyLit
+asLiteral (Lit l) = Just (MkAnyLit l)
+asLiteral _ = Nothing
 
 mutual
   ||| An expression of type `t` at most `depth` deep: above the bottom, a
   ||| leaf one node in five, else a production of `t`.
-  expr : Part -> Vect 9 Nat -> (t : Ty) -> (depth : Nat) -> Gen (Expr t)
+  expr : Part -> Vect FamilyCount Nat -> (t : Ty) -> (depth : Nat) -> Gen (Expr t)
   expr _ _ t Z = leaf t
   expr part kept t (S d) = do
     i <- weighted (MkWeights [1, 4])
@@ -320,7 +289,7 @@ mutual
 
   ||| A production of `t`, each as likely as its weight in the case; a leaf
   ||| when the case has none of weight.
-  node : Part -> Vect 9 Nat -> (t : Ty) -> Nat -> Gen (Expr t)
+  node : Part -> Vect FamilyCount Nat -> (t : Ty) -> Nat -> Gen (Expr t)
   node part kept t d =
     let options = Vect.fromList (productions part t) in
     case weightsOf (map (\(pr ** _) => weightIn kept pr) options) of
@@ -330,33 +299,62 @@ mutual
         let (pr ** same) = index i.fst options
         build part kept pr same d
 
-  build : Part -> Vect 9 Nat -> (pr : Production) -> (0 _ : resultOf pr = t) -> Nat -> Gen (Expr t)
-  build part kept (Apply p) Refl d = App p <$> arguments part kept p d None p.args
+  build : Part -> Vect FamilyCount Nat -> (pr : Production) -> (0 _ : resultOf pr = t) -> Nat -> Gen (Expr t)
+  build part kept (Apply _ b gs) Refl d = App b <$> arguments part kept gs d 0 [<] b.takes b.sources
   build part kept SDataOf Refl d =
-    [| SData ((\i => IntLit (Fixed FInt) (natToInteger (finToNat i))) <$> draw 3)
-             (expr part kept int d) (expr part kept TDouble d) |]
+    [| SData ((\i => Lit (IntLit (Sized FInt) (natToInteger (finToNat i)))) <$> draw 3)
+             (expr part kept Prims.tInt d) (expr part kept TDouble d) |]
 
-  ||| A primitive's arguments, left to right; `drawn` holds what the
-  ||| arguments before offer to index into.
-  arguments : Part -> Vect 9 Nat -> Prim -> Nat -> Drawn before -> (ps : Params before) -> Gen (Args ps)
-  arguments _ _ _ _ _ Done = pure []
-  arguments part kept p d drawn (Param t dom rest) with (drawing t dom)
-    arguments part kept p d drawn (Param TString NonEmpty rest) | Indexable = do
-      (c, more) <- nonEmptyString
-      args <- arguments part kept p d (Room (length more) drawn) rest
-      pure (StringLit (strCons c more) :: args)
-    arguments part kept p d drawn (Param t dom rest) | Plain opaque = do
-      e <- case origin part p drawn t dom of
-             Pool pool => pool
-             Expression => expr part kept t d
-      args <- arguments part kept p d (rewrite opaque in Past drawn) rest
-      pure (e :: args)
+  ||| A builtin's arguments, left to right, from the position `at` on, the
+  ||| literals drawn before in `drawn`: an argument a guard guards is a
+  ||| literal on a side of it, one a guard is given besides a literal of
+  ||| its pool, and any other comes from its source.
+  arguments : Part -> Vect FamilyCount Nat -> List Guarding -> Nat -> (at : Nat)
+           -> SnocList (Maybe AnyLit) -> (ts : List Ty) -> Sources ts -> Gen (Args ts)
+  arguments _ _ _ _ _ _ [] [] = pure []
+  arguments part kept gs d at drawn (t :: ts) (src :: srcs) = do
+    e <- argument part kept d (roleAt at gs) (drawn <>> []) t src
+    rest <- arguments part kept gs d (S at) (drawn :< asLiteral e) ts srcs
+    pure (e :: rest)
 
-||| A case: an expression and its type.
+  argument : Part -> Vect FamilyCount Nat -> Nat -> Role -> List (Maybe AnyLit) -> (t : Ty) -> Source t
+          -> Gen (Expr t)
+  argument _ _ _ (Guarded g) drawn t src = do
+    s <- side
+    let others = map (\k => join (getAt k drawn)) (tail g.given)
+    case guardedLiteral g.condition s t others of
+      Just pool => Lit <$> pool
+      Nothing => pooled t src
+  argument _ _ _ GivenTo _ t src = pooled t src
+  argument _ _ _ Free _ _ (Pooled x xs) = Lit <$> oneOf x xs
+  argument part kept d Free _ t AnyOf = expr part kept t d
+
+  ||| A literal of an argument's pool, or of its type's.
+  pooled : (t : Ty) -> Source t -> Gen (Expr t)
+  pooled _ (Pooled x xs) = Lit <$> oneOf x xs
+  pooled t AnyOf = leaf t
+
+||| How a case's leaves are written: as the literals (`d`), behind
+||| `hide<T> 1` (`r`), as the parameters of the case's function (`j`), or
+||| read from stdin (`s`).
+data Mode = Direct | Hidden | Parameter | Read
+
+||| A case: an expression and its type, and the way it is written alone if
+||| it crashes.
 record Case where
   constructor MkCase
   ty : Ty
   body : Expr ty
+  lead : Mode
+
+||| The ways a case's expression may be written in a part: directly where
+||| the folders compute it, hidden where values exist at run time.
+ways : Part -> Expr t -> List1 Mode
+ways part e =
+  let late = (case part of Runtime => [Hidden]; Static => []) ++ [Read] in
+  case whereComputed e of
+    WhileCompiling => Direct ::: Parameter :: late
+    WhereItRuns => Parameter ::: late
 
 ||| A case's depth is from 1 to this, each as likely. With a leaf one node
 ||| in five above the bottom, these are the proportions the fuzzer's
@@ -366,30 +364,33 @@ depthBound = 4
 
 ||| A case's type, each of its part's as likely: no type is favoured.
 caseTy : Part -> Gen Ty
-caseTy Runtime = oneOf TDouble (map (TIntegral . Fixed) fixedTys ++ [TChar, TString])
-caseTy Static = oneOf integer [TString, int, TDouble]
+caseTy Runtime = oneOf TDouble (map (TIntegral . Sized) fixedTys ++ [TChar, TString])
+caseTy Static = oneOf Prims.tInteger [TString, Prims.tInt, TDouble]
 
-||| A case of a part: the families it keeps, its type, its depth, then its
-||| expression.
+||| A case of a part: the families it keeps, its type, its depth, its
+||| expression, then its lead.
 genCase : Part -> Gen Case
 genCase part = do
-  MkWeights kept <- swarm families
+  MkWeights kept <- swarm familyWeights
   t <- caseTy part
   depth <- draw depthBound
-  MkCase t <$> expr part kept t (S (finToNat depth))
+  body <- expr part kept t (S (finToNat depth))
+  let ms = ways part body
+  lead <- oneOf ms.head ms.tail
+  pure (MkCase t body lead)
 
 ||| The cells a case's tape needs: the swarm's draws (one weighted, a coin
 ||| per family), the type's and the depth's; then at most three a node
 ||| (whether it is a leaf, then its production or its literal, a literal
-||| being at most an entry of its pool and a value), over as many nodes as a
-||| tree of the deepest depth and the largest arity holds. A derivation
+||| being at most an entry of its pool and a value; a literal a guard reads
+||| a side, an entry and a value), over as many nodes as a tree of the
+||| deepest depth and the largest arity holds; and the lead's. A derivation
 ||| that falls short shows as an overran case, which fails the check.
 caseCapacity : Nat
 caseCapacity =
-  let MkWeights coins = families
-      widest = foldr (\p, a => max (arity p.args) a) 3 prims  -- 3: the helper's
+  let widest = foldr (\b, a => max (length b.takes) a) 3 builtins  -- 3: the helper's
       nodes = sum [ power widest level | level <- [0 .. depthBound] ]
-  in 1 + length coins + 1 + 1 + 3 * nodes
+  in 1 + FamilyCount + 1 + 1 + 3 * nodes + 1
 
 ------------------------------------------------------------------------------
 -- Writing a case
@@ -399,22 +400,24 @@ caseCapacity =
 record Leaf where
   constructor MkLeaf
   ty : Ty
-  lit : Expr ty
+  lit : Literal ty
+
+||| A literal as a leaf, its type read off its value.
+leafOf : Literal t -> Leaf
+leafOf l@(IntLit i _) = MkLeaf (TIntegral i) l
+leafOf l@(DoubleLit _ _) = MkLeaf TDouble l
+leafOf l@(CharLit _) = MkLeaf TChar l
+leafOf l@(StringLit _) = MkLeaf TString l
 
 ||| How a line of stdin, `x`, is read as a value of a type.
 reader : Ty -> String -> String
-reader TChar x = "(prim__strHead " ++ x ++ ")"
+reader TChar x = appliedText (spellingText (MkSpelling "strHead" [])) [x]
 reader TString x = x
-reader t x = "(" ++ castNamed TString t ++ " " ++ x ++ ")"
-
-||| How a case's leaves are written: as the literals (`d`), behind
-||| `hide<T> 1` (`r`), as the parameters of the case's function (`j`), or
-||| read from stdin (`s`).
-data Mode = Direct | Hidden | Parameter | Read
+reader t x = appliedText (castNamed TString t) [x]
 
 written : Mode -> Leaf -> Nat -> String
-written Direct l _ = source l.lit
-written Hidden l _ = "(hide" ++ tyName l.ty ++ " 1 " ++ source l.lit ++ ")"
+written Direct l _ = literalSource l.lit
+written Hidden l _ = "(hide" ++ tyName l.ty ++ " 1 " ++ literalSource l.lit ++ ")"
 written Parameter _ k = "x" ++ show k
 written Read l k = reader l.ty ("x" ++ show k)
 
@@ -422,16 +425,13 @@ mutual
   ||| An expression's text, its leaves numbered on from those already met,
   ||| which it adds to: one walk numbers the leaves of every rendering.
   render : Mode -> Expr t -> SnocList Leaf -> (String, SnocList Leaf)
-  render m e@(IntLit i _) ls = leafIn m (MkLeaf (TIntegral i) e) ls
-  render m e@(DoubleLit _ _) ls = leafIn m (MkLeaf TDouble e) ls
-  render m e@(CharLit _) ls = leafIn m (MkLeaf TChar e) ls
-  render m e@(StringLit _) ls = leafIn m (MkLeaf TString e) ls
-  render m (App p as) ls = let (texts, ls') = renderArgs m as ls in (applied p.name texts, ls')
+  render m (Lit l) ls = let f = leafOf l in (written m f (length ls), ls :< f)
+  render m (App b as) ls = let (texts, ls') = renderArgs m as ls in (appliedText (spellingText b.spelling) texts, ls')
   render m (SData k i x) ls =
     let (a, l1) = render m k ls
         (b, l2) = render m i l1
         (c, l3) = render m x l2
-    in (applied "sdata" [a, b, c], l3)
+    in (appliedText "sdata" [a, b, c], l3)
 
   renderArgs : Mode -> Args ps -> SnocList Leaf -> (List String, SnocList Leaf)
   renderArgs _ [] ls = ([], ls)
@@ -439,9 +439,6 @@ mutual
     let (a, l1) = render m e ls
         (as, l2) = renderArgs m es l1
     in (a :: as, l2)
-
-  leafIn : Mode -> Leaf -> SnocList Leaf -> (String, SnocList Leaf)
-  leafIn m l ls = (written m l (length ls), ls :< l)
 
 text : Mode -> Expr t -> String
 text m e = fst (render m e [<])
@@ -451,68 +448,6 @@ leaves e = toList (snd (render Direct e [<]))
 
 line : String -> Ty -> String -> String
 line label t e = "  " ++ printLine label t e
-
-------------------------------------------------------------------------------
--- The integers' documented meaning
-------------------------------------------------------------------------------
-
-inRange : IntTy -> Integer -> Integer
-inRange (Fixed f) v = wrap (width f) v
-inRange Big v = v
-
-divide : IntTy -> Integer -> Integer -> Integer
-divide (Fixed f) a b = quotient (width f) a b
-divide Big a b = fst (euclid a b)
-
-modulus : IntTy -> Integer -> Integer -> Integer
-modulus (Fixed f) a b = remainder (width f) a b
-modulus Big a b = snd (euclid a b)
-
-bitwiseIn : IntTy -> (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
-bitwiseIn (Fixed f) = bitwise (width f)
-bitwiseIn Big = bigBitwise
-
-shiftIn : IntTy -> (left : Bool) -> Integer -> Integer -> Integer
-shiftIn (Fixed f) = shifted (width f)
-shiftIn Big = bigShifted
-
-||| What the other operations of two integers mean at an integer type, by
-||| operation: the arithmetic and bitwise ones, the shifts, the
-||| comparisons.
-twoIntegers : SortedMap Op (IntTy -> Integer -> Integer -> Integer)
-twoIntegers = fromList $
-  map (\(op, f) => (op, \r, a, b => inRange r (f a b))) arithmetic
-  ++ map (\(op, f) => (op, \r => bitwiseIn r f)) logical
-  ++ map (\(op, left) => (op, \r => shiftIn r left)) shifts
-  ++ map (\(op, f) => (op, \_, a, b => if f a b then 1 else 0)) comparisons
-
-||| What a primitive gives on integer values, as the runtime documents it;
-||| Nothing for a primitive the model leaves out, every one whose result
-||| or operands are not integers.
-meaning : Prim -> List Integer -> Maybe Integer
-meaning p vs = case p.result of
-  TIntegral r => case (p.op, vs) of
-    (Neg, [a]) => Just (inRange r (negate a))
-    (Div, [a, b]) => Just (divide r a b)
-    (Mod, [a, b]) => Just (modulus r a b)
-    (Convert, [a]) => Just (inRange r a)
-    (op, [a, b]) => (\f => f r a b) <$> lookup op twoIntegers
-    _ => Nothing
-  _ => Nothing
-
-mutual
-  ||| The value of an expression over the integers alone.
-  modelled : Expr t -> Maybe Integer
-  modelled (IntLit _ v) = Just v
-  modelled (App p as) = modelledArgs as >>= meaning p
-  modelled (DoubleLit _ _) = Nothing
-  modelled (CharLit _) = Nothing
-  modelled (StringLit _) = Nothing
-  modelled (SData _ _ _) = Nothing
-
-  modelledArgs : Args ps -> Maybe (List Integer)
-  modelledArgs [] = Just []
-  modelledArgs (e :: es) = [| modelled e :: modelledArgs es |]
 
 ------------------------------------------------------------------------------
 -- Programs
@@ -526,29 +461,39 @@ label Hidden n = "r" ++ show n
 label Parameter n = "j" ++ show n
 label Read n = "s" ++ show n
 
-||| Where a program prints a case's renderings: the direct one in `main`,
-||| unless the case's value is the host's, which the folders would compute
-||| where the program is compiled; the function's, and at run time the
-||| hidden one, before the case's stdin is read; stdin's after.
+||| Where a program writes a case's renderings: in `main`, before any case
+||| runs; in its own run, before its stdin is read; or after.
 record Shown where
   constructor MkShown
   inMain : List Mode
   beforeInput : List Mode
   afterInput : List Mode
 
+||| A case's renderings, by the oracle: a case that runs is written every
+||| way its part has (directly where the folders compute it), and one that
+||| crashes its lead way alone, which ends the program there.
 shown : Part -> Case -> Shown
-shown part (MkCase _ e) =
-  MkShown (if onHost e then [] else [Direct])
-          (Parameter :: case part of Runtime => [Hidden]; Static => [])
-          [Read]
+shown part c = case outcome c.body of
+  Crashes _ => alone c.lead
+  _ => MkShown (case whereComputed c.body of WhileCompiling => [Direct]; WhereItRuns => [])
+               (Parameter :: case part of Runtime => [Hidden]; Static => [])
+               [Read]
+  where
+    alone : Mode -> Shown
+    alone Direct = MkShown [Direct] [] []
+    alone Read = MkShown [] [] [Read]
+    alone m = MkShown [] [m] []
 
-||| The renderings a program prints of a case.
-renderings : Part -> Case -> List Mode
-renderings part c = let s = shown part c in s.inMain ++ s.beforeInput ++ s.afterInput
+||| A program's statements that print, case by case, in the order it runs
+||| them: `main`'s first, then each case's run.
+statements : Part -> List (Nat, Case) -> List (Nat, Mode)
+statements part numbered =
+  (numbered >>= \(n, c) => map (\m => (n, m)) (shown part c).inMain)
+  ++ (numbered >>= \(n, c) => let s = shown part c in map (\m => (n, m)) (s.beforeInput ++ s.afterInput))
 
 ||| A case written into the places of a program.
-record Written where
-  constructor MkWritten
+record Placed where
+  constructor MkPlaced
   function : List String
   direct : List String
   runner : List String
@@ -556,8 +501,8 @@ record Written where
   hides : List Ty
 
 ||| Case `n` of a part, written.
-write : Part -> Nat -> Case -> Written
-write part n c@(MkCase t e) =
+write : Part -> Nat -> Case -> Placed
+write part n c@(MkCase t e _) =
   let ls = leaves e
       numbered = zip [0 .. length ls] ls
       name = "c" ++ show n
@@ -566,7 +511,7 @@ write part n c@(MkCase t e) =
            , name ++ " []" ++ xs ++ " = " ++ text Parameter e
            , name ++ " (_ :: k)" ++ xs ++ " = " ++ name ++ " k" ++ xs
            , "" ]
-      call = "(" ++ name ++ " [()]" ++ foldr (\l, rest => " " ++ source l.lit ++ rest) ")" ls
+      call = "(" ++ name ++ " [()]" ++ foldr (\l, rest => " " ++ literalSource l.lit ++ rest) ")" ls
       statement : Mode -> String
       statement Parameter = line (label Parameter n) t call
       statement m = line (label m n) t (text m e)
@@ -581,12 +526,12 @@ write part n c@(MkCase t e) =
                ++ map statement places.beforeInput
                ++ map (\(k, _) => "  x" ++ show k ++ " <- getLine") numbered
                ++ map statement places.afterInput ++ [""]
-  in MkWritten fn (map statement places.inMain) runner (map (\l => input l.lit) ls) hides
+  in MkPlaced fn (map statement places.inMain) runner (map (\l => literalInput l.lit) ls) hides
 
 ||| The helpers every program has: hide<T> for every type, and the small sum
 ||| type.
 helpers : List String
-helpers = ((map (TIntegral . Fixed) fixedTys ++ [TDouble, TChar, TString, integer]) >>= helper) ++
+helpers = ((map (TIntegral . Sized) fixedTys ++ [TDouble, TChar, TString, Prims.tInteger]) >>= helper) ++
   [ "data S = SA Int | SB Double Int | SC", ""
   , "mkS : Int -> Int -> Double -> S"
   , "mkS 0 i x = SA i"
@@ -611,11 +556,11 @@ helpers = ((map (TIntegral . Fixed) fixedTys ++ [TDouble, TChar, TString, intege
 barrier : Ty -> List String
 barrier t =
   let (a, b) = twoOf t in
-  [line "b" t (text Hidden a), line "b" t (text Hidden b)]
+  [line "b" t (text Hidden (Lit a)), line "b" t (text Hidden (Lit b))]
   where
-    twoOf : (u : Ty) -> (Expr u, Expr u)
+    twoOf : (u : Ty) -> (Literal u, Literal u)
     twoOf (TIntegral i) = (IntLit i 0, IntLit i 1)
-    twoOf TDouble = (DoubleLit NonNegative "0.0", DoubleLit NonNegative "1.0")
+    twoOf TDouble = (DoubleLit NonNegative (Written "0.0"), DoubleLit NonNegative (Written "1.0"))
     twoOf TChar = (CharLit 'a', CharLit 'Z')
     twoOf TString = (StringLit "", StringLit "a")
 
@@ -684,6 +629,36 @@ parseCases s = case parsePositive {a = Nat} s of
   _ => Nothing
 
 ------------------------------------------------------------------------------
+-- How a run must go
+------------------------------------------------------------------------------
+
+||| How a program's run must end, as the oracle predicts its statements:
+||| it returns; it crashes at the first statement whose case crashes, by
+||| one of that case's causes; or the oracle cannot say, at the first
+||| statement whose case it cannot decide.
+data Expected = Returns | CrashesAt Nat (List1 Cause) | Unpredicted Nat
+
+||| A run as the oracle predicts it: the statements that print, in order,
+||| and how it ends.
+record Run where
+  constructor MkRun
+  printed : List (Nat, Mode)
+  ending : Expected
+
+||| The run of a program's cases.
+expectedRun : Part -> List (Nat, Case) -> Run
+expectedRun part numbered = go [<] (statements part numbered)
+  where
+    outcomes : SortedMap Nat Outcome
+    outcomes = SortedMap.fromList (map (\(n, c) => (n, outcome c.body)) numbered)
+    go : SnocList (Nat, Mode) -> List (Nat, Mode) -> Run
+    go acc [] = MkRun (acc <>> []) Returns
+    go acc ((n, m) :: rest) = case fromMaybe Runs (lookup n outcomes) of
+      Runs => go (acc :< (n, m)) rest
+      Crashes why => MkRun (acc <>> []) (CrashesAt n why)
+      Undecided => MkRun (acc <>> []) (Unpredicted n)
+
+------------------------------------------------------------------------------
 -- The check
 ------------------------------------------------------------------------------
 
@@ -704,17 +679,37 @@ casesOf ["replay", tape, part] = do
   pure (tape, p, [(d.value, d.overran)])
 casesOf _ = Nothing
 
-||| What a program's output says of its cases.
-record Verdict where
-  constructor MkVerdict
+||| How a program's run went, as the shell saw it: its output, how it
+||| ended (`code <n>` or `signal <name>`), and its standard error.
+export
+record Observed where
+  constructor MkObserved
+  output : String
+  status : String
+  errors : String
+
+||| How a case fails a check.
+data Failure = Ends | Disagrees | MissesModel
+
+failureWord : Failure -> String
+failureWord Ends = "ending"
+failureWord Disagrees = "agree"
+failureWord MissesModel = "model"
+
+||| What a program's run says of its cases.
+record Report where
+  constructor MkReport
+  ||| How the run ended, where that is not how the oracle says.
+  ending : List String
   ||| Each case whose lines print two values, at its first line that
   ||| differs from its first.
   agree : List String
   ||| Each case the model covers that prints another value, at its first
   ||| such line, then each that prints nothing.
   model : List String
-  ||| The first case that fails, and how: a disagreement first.
-  first : Maybe String
+  ||| The first case that fails, and how: its ending first, then a
+  ||| disagreement.
+  first : Maybe (Nat, Failure)
 
 ||| What a scan of the output has met: each case's first line, how many
 ||| times each label was printed, the cases found to disagree and to miss
@@ -728,29 +723,55 @@ record Scan where
   agreeing : SnocList String
   modelling : SnocList String
 
-||| The verdict on the output of a request's cases: its lines read back by
-||| their labels, each held to its case's first line and to its case's
-||| model, and each of a case's renderings printed exactly once, so that an
-||| output missing a line, or saying one twice, cannot agree by saying
-||| less.
-checked : (name : String) -> Part -> List Case -> (output : String) -> Verdict
-checked name part cs output =
+||| Whether the run ended as the oracle says: a return with nothing on
+||| standard error; or a crash, the status a crash gives, and one line of
+||| the runtime's on standard error, its phrase one of the causes the
+||| case may meet first. The site before the phrase is the program's, so
+||| the check does not read it.
+endedAs : Expected -> Observed -> Maybe String
+endedAs Returns run =
+  if run.status == statusLine Returned && run.errors == "" then Nothing
+  else Just ("ended by " ++ run.status ++ (if run.errors == "" then "" else ", with stderr " ++ show run.errors)
+             ++ ", not returned")
+endedAs (CrashesAt _ why) run =
+  let crash = Crashed (Failed (head why))
+      phrases = map (\c => ": " ++ causePhraseOf c ++ "\n") (forget why)
+      oneLine = length (lines run.errors) == 1
+  in if run.status == statusLine crash && oneLine && any (\p => isSuffixOf p run.errors) phrases
+        then Nothing
+        else Just ("ended by " ++ run.status ++ " with stderr " ++ show run.errors ++ ", not "
+                   ++ joinBy " or " (map crashedText (forget why)))
+endedAs (Unpredicted n) _ = Just ("the oracle cannot decide case " ++ show n)
+
+||| The verdict on a run of a request's cases: its ending held to the
+||| oracle's; its lines read back by their labels, each held to its case's
+||| first line and to its case's model, and each statement the oracle says
+||| prints printed exactly once, so that an output missing a line, or
+||| saying one twice, cannot agree by saying less.
+checked : (name : String) -> Part -> List Case -> Observed -> Report
+checked name part cs run =
   let numbered = zip [the Nat 1 .. length cs] cs
-      expected = numbered >>= \(n, c) => map (\m => (label m n, n)) (renderings part c)
-      byLabel = SortedMap.fromList expected
-      models = SortedMap.fromList (mapMaybe (\(n, c) => (\v => (n, show v)) <$> modelled c.body) numbered)
-      scanned = foldl (step byLabel models) (MkScan empty empty empty empty [<] [<]) (lines output)
+      expected = expectedRun part numbered
+      expectedLabels = map (\(n, m) => (label m n, n)) expected.printed
+      byLabel = SortedMap.fromList expectedLabels
+      shownCases = SortedSet.fromList (map fst expected.printed)
+      models = SortedMap.fromList (mapMaybe (\(n, c) =>
+                 if contains n shownCases then (\v => (n, show v)) <$> modelled c.body else Nothing) numbered)
+      scanned = foldl (step byLabel models) (MkScan empty empty empty empty [<] [<]) (lines run.output)
       miscounted = mapMaybe (\(l, n) => case fromMaybe 0 (lookup l scanned.printed) of
                                           1 => Nothing
-                                          k => Just (n, l, k)) expected
+                                          k => Just (n, l, k)) expectedLabels
       disagreed = foldr (\(n, _, _) => insert n) scanned.disagreed miscounted
       miscounts = map (\(n, l, k) => name ++ ": case " ++ show n ++ ": " ++ l ++ " printed " ++ show k ++ " times, not once") miscounted
       silent = mapMaybe (unprintedModel models scanned.firsts) numbered
       missed = foldr (\(n, _) => insert n) scanned.missed silent
       unprinted = map (\(n, m) => name ++ ": case " ++ show n ++ ": m" ++ show n ++ " " ++ m ++ ", but no line") silent
+      ended = endedAs expected.ending run
+      endingAt = ended >>= \_ => caseOfEnding expected scanned.printed
       failed = mapMaybe (howFails disagreed missed) numbered
-  in MkVerdict ((scanned.agreeing <>> []) ++ miscounts) ((scanned.modelling <>> []) ++ unprinted)
-               (map (\(n, how) => show n ++ " " ++ how) (head' failed))
+  in MkReport (map (\why => name ++ ": " ++ why) (toList ended))
+              ((scanned.agreeing <>> []) ++ miscounts) ((scanned.modelling <>> []) ++ unprinted)
+               (map (\n => (n, Ends)) endingAt <|> head' failed)
   where
     said : Nat -> String -> String -> String
     said n what l = name ++ ": case " ++ show n ++ ": " ++ what ++ ", but " ++ l
@@ -777,18 +798,28 @@ checked name part cs output =
     unprintedModel models firsts (n, _) = case (lookup n models, lookup n firsts) of
       (Just m, Nothing) => Just (n, m)
       _ => Nothing
-    howFails : SortedSet Nat -> SortedSet Nat -> (Nat, Case) -> Maybe (Nat, String)
+    -- The case a wrong ending is of: the one the oracle says crashes, or,
+    -- for a run that should have returned, the one whose statement the
+    -- output stopped before.
+    caseOfEnding : Run -> SortedMap String Nat -> Maybe Nat
+    caseOfEnding (MkRun _ (CrashesAt n _)) _ = Just n
+    caseOfEnding (MkRun _ (Unpredicted n)) _ = Just n
+    caseOfEnding (MkRun shownAll Returns) printed =
+      fst <$> find (\(n, m) => isNothing (lookup (label m n) printed)) shownAll
+    howFails : SortedSet Nat -> SortedSet Nat -> (Nat, Case) -> Maybe (Nat, Failure)
     howFails disagreed missed (n, _) =
-      if contains n disagreed then Just (n, "agree")
-      else if contains n missed then Just (n, "model") else Nothing
+      if contains n disagreed then Just (n, Disagrees)
+      else if contains n missed then Just (n, MissesModel) else Nothing
 
-data Check = Agree | Model | First | Modelled
+||| What `--fuzz-check` reports of a run.
+data Check = OfEnding | OfAgreement | OfModel | OfFirst | OfModelled
 
 parseCheck : String -> Maybe Check
-parseCheck "agree" = Just Agree
-parseCheck "model" = Just Model
-parseCheck "first" = Just First
-parseCheck "modelled" = Just Modelled
+parseCheck "ending" = Just OfEnding
+parseCheck "agree" = Just OfAgreement
+parseCheck "model" = Just OfModel
+parseCheck "first" = Just OfFirst
+parseCheck "modelled" = Just OfModelled
 parseCheck _ = Nothing
 
 ||| `runtests --fuzz-check overran <request>`: the first case of the
@@ -802,47 +833,92 @@ overranOf request = do
     Just (n, _) => name ++ ": overran: case " ++ show n ++ "\n"
     Nothing => ""
 
-||| `runtests --fuzz-check agree|model|first|modelled <request>
-||| <stdout-file>`, of the file's text: the cases whose lines disagree, the
-||| cases that miss their model, or the first case that fails and how
-||| (`<n> agree` or `<n> model`), a line each; or how many of the cases
-||| have a model, which the model's check needs one of to check anything.
+||| `runtests --fuzz-check ending|agree|model|first|modelled <request>
+||| <stdout-file> <status> <stderr-file>`, of the run's output, status and
+||| stderr: how the run's ending differs from the oracle's, the cases whose
+||| lines disagree, the cases that miss their model, a line each, or the
+||| first case that fails and how (`<n> ending`, `<n> agree` or `<n>
+||| model`); or how many of the cases the run prints have a model, which
+||| the model's check needs one of to check anything.
 export covering
-checkOf : (how : String) -> List String -> (output : String) -> Maybe String
-checkOf how request output = do
+checkOf : (how : String) -> List String -> Observed -> Maybe String
+checkOf how request run = do
   check <- parseCheck how
   (name, part, cs) <- casesOf request
-  let verdict = checked name part (map fst cs) output
+  let report = checked name part (map fst cs) run
   pure $ case check of
-    Agree => unlines verdict.agree
-    Model => unlines verdict.model
-    First => maybe "" (++ "\n") verdict.first
-    Modelled => show (length (mapMaybe (\(c, _) => modelled c.body) cs)) ++ "\n"
+    OfEnding => unlines report.ending
+    OfAgreement => unlines report.agree
+    OfModel => unlines report.model
+    OfFirst => maybe "" (\(n, f) => show n ++ " " ++ failureWord f ++ "\n") report.first
+    OfModelled =>
+      let numbered = zip [the Nat 1 .. length cs] (map fst cs)
+          shownCases = map fst (expectedRun part numbered).printed
+      in show (length (mapMaybe (\(n, c) => if elem n shownCases then modelled c.body else Nothing) numbered)) ++ "\n"
 
-||| The check's own checks, on the cases of seed 1's program of three cases
-||| at run time, each of whose lines prints the case's model, or one value
-||| of its own: such an output names no case, and with one more line of
-||| case 2 that prints another value, it names case 2 as the first failing.
+||| An observed run, as the check reads it.
+export
+observed : (output : String) -> (status : String) -> (errors : String) -> Observed
+observed = MkObserved
+
+||| The check's own checks. On the cases of seed 1's program of three cases
+||| at run time: the run the oracle predicts, each line printing the case's
+||| model or one value of its own, names no case; with one more line of the
+||| first printed case that prints another value, it names that case; with
+||| that line missing, it names that case; an empty output names every case
+||| that should print, the first of them first. On one case of
+||| `prim__div_Int 1 0`: a run that crashes by division by zero names no
+||| case, and one that returns names it by its ending. Then the table's own
+||| checks.
 export covering
 checkerChecks : List (String, Bool)
 checkerChecks =
   let cs = map fst (cases 1 3 Runtime)
       numbered = zip [the Nat 1 .. length cs] cs
-      agreeing = unlines (numbered >>= \(n, c) =>
-                   map (\m => label m n ++ " " ++ maybe ("v" ++ show n) show (modelled c.body)) (renderings Runtime c))
-      ok = checked "1" Runtime cs agreeing
-      bad = checked "1" Runtime cs (agreeing ++ label Read 2 ++ " x\n")
-      before3 = sum (map (\c => length (renderings Runtime c)) (take 2 cs))
+      run = expectedRun Runtime numbered
+      models = SortedMap.fromList (mapMaybe (\(n, c) => (\v => (n, show v)) <$> modelled c.body) numbered)
+      agreeing = unlines (map (\(n, m) => label m n ++ " " ++ fromMaybe ("v" ++ show n) (lookup n models)) run.printed)
+      ending = observedEnding run.ending
+      ok = checked "1" Runtime cs (MkObserved agreeing (fst ending) (snd ending))
+      firstShown = head' run.printed
+      bad = checked "1" Runtime cs
+              (MkObserved (agreeing ++ maybe "" (\(n, m) => label m n ++ " x\n") firstShown) (fst ending) (snd ending))
       dropped = lines agreeing
-      short = checked "1" Runtime cs (unlines (take before3 dropped ++ drop (S before3) dropped))
-      silent = checked "1" Runtime cs "" in
-  [ ("an agreeing output names no case", null ok.agree && null ok.model && isNothing ok.first)
+      short = checked "1" Runtime cs (MkObserved (unlines (drop 1 dropped)) (fst ending) (snd ending))
+      silent = checked "1" Runtime cs (MkObserved "" (fst ending) (snd ending))
+      crash = map (\e => MkCase Prims.tInt e Direct) dividedByZero
+      crashed = checked "c" Runtime crash
+                  (MkObserved "" (statusLine (Crashed (Failed DivisionByZero)))
+                     ("prog: fatal: Main.idr:1:1: " ++ causePhraseOf DivisionByZero ++ "\n"))
+      returned = checked "c" Runtime crash (MkObserved "" (statusLine Returned) "") in
+  [ ("an agreeing output names no case",
+     null ok.ending && null ok.agree && null ok.model && isNothing ok.first)
   , ("an output with one disagreeing line names that case",
-     not (null bad.agree) && all (isPrefixOf "1: case 2: ") bad.agree && bad.first == Just "2 agree")
+     map fst bad.first == map fst firstShown && map (failureWord . snd) bad.first == Just "agree")
   , ("an output missing one line of a case names that case",
-     map (\l => isPrefixOf "1: case 3: " l && isInfixOf " printed 0 times" l) short.agree == [True]
-       && short.first == Just "3 agree")
-  , ("an empty output names every case", length silent.agree >= 3 && silent.first == Just "1 agree") ]
+     map fst short.first == map fst firstShown && map (failureWord . snd) short.first == Just "agree")
+  , ("an empty output names every case",
+     length silent.agree == length run.printed && map fst silent.first == head' (sort (map fst run.printed)))
+  , ("seed 1's run prints a line", not (null run.printed))
+  , ("a crash the oracle predicts, met by its cause, names no case",
+     not (null crash) && null crashed.ending && isNothing crashed.first)
+  , ("a run that returns where the oracle predicts a crash names the case by its ending",
+     map (\(n, f) => show n ++ " " ++ failureWord f) returned.first == Just "1 ending") ]
+  ++ Prims.checks
+  where
+    -- The status and stderr of a run that ends as the oracle says.
+    observedEnding : Expected -> (String, String)
+    observedEnding Returns = (statusLine Returned, "")
+    observedEnding (CrashesAt _ why) =
+      (statusLine (Crashed (Failed (head why))), "prog: fatal: Main.idr:1:1: " ++ causePhraseOf (head why) ++ "\n")
+    observedEnding (Unpredicted _) = (statusLine Returned, "")
+    -- Int's division of 1 by 0, the one case of a program that crashes.
+    dividedByZero : List (Expr Prims.tInt)
+    dividedByZero =
+      mapMaybe (\b => do same <- sameTy b.gives Prims.tInt
+                         e <- appliedTo b [1, 0]
+                         pure (replace {p = Expr} same e))
+               (filter (\b => spellingText b.spelling == "prim__div_Int") builtins)
 
 ------------------------------------------------------------------------------
 -- The text both hosts print
@@ -862,9 +938,7 @@ export covering
 twoHosts : String
 twoHosts =
   let tape = tapeOf 1 2 Runtime in
-  unlines (checkLines "gen" Gen.checks
-           ++ checkLines "two-levels" TwoLevels.checks ++ checkLines "fuzz-check" Fuzz.checkerChecks
-           ++ checkLines "two-levels-check" TwoLevels.checkerChecks)
+  unlines (checkLines "gen" Gen.checks ++ checkLines "fuzz-check" Fuzz.checkerChecks)
   ++ (the (List (String, String))
        [ ("program 1 3 runtime main", programText "program 1 3 runtime main" Runtime MainFile (map fst (cases 1 3 Runtime)))
        , ("program 1 3 runtime stdin", programText "program 1 3 runtime stdin" Runtime StdinFile (map fst (cases 1 3 Runtime)))
@@ -872,9 +946,7 @@ twoHosts =
        , ("threads 1", show (threads 1) ++ "\n")
        , ("tape 1 2 runtime", tapeText tape ++ "\n")
        , ("shrink " ++ tapeText tape, unlines (map (tapeText . fst) (candidates tape)))
-       , ("sem prim-int-add", fromMaybe "no program\n" (Sem.programOf Written "prim-int-add"))
-       , ("two-levels primitives terms", fromMaybe "no program\n" (TwoLevels.programOf ["primitives", "terms"]))
-       , ("two-levels prelude main", fromMaybe "no program\n" (TwoLevels.programOf ["prelude", "main"]))
+       , ("sem prim-int-add", fromMaybe "no program\n" (Sem.programOf InProgram "prim-int-add"))
        ] `joinedBy` \(title, body) => "== " ++ title ++ "\n" ++ body)
 
 ||| `runtests --fuzz-program ...`: the forms the module's header lists.

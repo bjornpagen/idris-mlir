@@ -23,7 +23,7 @@
 #     heap-free       no op of the module that is lowered allocates a heap
 #                     cell (expect.sh, stage_options)
 #     covers          the program uses every run-time export of the prelude
-#                     module the file names, as its Core shows (prelude.sh)
+#                     module the file names, as its module shows (prelude.sh)
 #     mlir.expect     the properties the program's stages hold (expect.sh)
 #
 # The helpers are in harness/lib, one file per concern, sourced below after

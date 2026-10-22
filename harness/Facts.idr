@@ -1,11 +1,11 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| What the harness reads of the dialect's specification, the one source
-||| of the closed sets the runtime, the compiler and the tests share: how a
-||| run ends (the runtime's endings and the status a parent reads of each)
-||| and the rules a refusal names. This is the one module of the harness
-||| that names the specification's declarations; the rest of the harness
-||| asks it, and copies none of them.
+||| What the harness reads of the dialect's specification's closed sets,
+||| the one source the runtime, the compiler and the tests share: how a run
+||| ends (the runtime's endings, the status a parent reads of each, and a
+||| crash's cause and phrase), what a compilation comes to, and the rules a
+||| refusal names. The rest of the harness asks it for these, and copies
+||| none of them.
 module Facts
 
 import Data.Fin
@@ -16,6 +16,7 @@ import Data.String
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Core.Verdict
 import IdrisMLIR.Spec.Runtime.Endings
 
 %default total
@@ -76,6 +77,25 @@ endingOf (Just text) =
   let line = trim text in
   maybe (Left ("expected-ending: not an ending: " ++ line)) Right (readEnding line)
 
+||| A crash of a cause, as a case's `expected-ending` writes it: what
+||| `readEnding` reads back as the same crash.
+export
+crashedText : Cause -> String
+crashedText c = caseWords fixedClosed CrashedStatus ++ " " ++ caseWords causeClosed c
+
+||| What the runtime's message says of a cause after its site: its phrase,
+||| from the table the runtime is printed.
+export
+causePhraseOf : Cause -> String
+causePhraseOf c = lineText (causeClosed.describe c).doc
+
+||| The cause a guard of the specification names, read once where the
+||| harness reads the guard: a guard holds its cause as the enum's case, by
+||| the name the C++ gives it.
+export
+causeOf : CaseRef -> Maybe Cause
+causeOf ref = find (\c => (causeClosed.describe c).name == ref.name) (forget causeClosed.every)
+
 ||| The signal POSIX names for an ending's signal, as the shell's `kill -l`
 ||| names the signal of a status above 128: the one fact of the platform
 ||| the harness states, the same on every target.
@@ -90,6 +110,21 @@ statusLine : Ending -> String
 statusLine e = case status e of
   Code n => "code " ++ show (finToNat n)
   Raised s => "signal " ++ posixName s
+
+------------------------------------------------------------------------------
+-- Verdicts
+------------------------------------------------------------------------------
+
+||| A compilation's verdict as its report writes it, read by the
+||| specification's spelling of each.
+export
+readVerdict : String -> Maybe CompilerVerdict
+readVerdict text = caseOf verdictClosed (trim text)
+
+||| A verdict as a report writes it.
+export
+verdictWords : CompilerVerdict -> String
+verdictWords = caseWords verdictClosed
 
 ------------------------------------------------------------------------------
 -- Rules

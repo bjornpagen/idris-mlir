@@ -4,17 +4,18 @@
 # that uses every definition MODULE of the stock prelude exports at run
 # time. Which definitions those are is the pinned Idris's: :browse lists
 # them from its checked context, so the list follows the pin and is never
-# written down here. Which the program uses is this compiler's: its Core
-# (prog.core) names every definition once the frontend has resolved it,
-# by its full name, namespaces and all, as Prelude.Types.List.length[Int](,
-# a saturated method with its instance suffixed, as
-# Prelude.Num.fromInteger_Num_Int(, a constructor after its type, as
-# Prelude.Types.(<=>)[...]::MkEquivalence(,
-# and a definition the compiler's registry lowers another way in braces
-# after what its call became, as add_Nat{Prelude.Types.plus}(. And the
-# program's output is held to its cases' expected-stdout as every e2e program's
-# is, so what it uses is also what it computes right. A module's exports
-# are the definitions it makes itself: one it re-exports is covered in the
+# written down here. Which the program uses is this compiler's: the module
+# its frontend hands the driver, the one output it writes, names every
+# definition it resolved (module_names): a function by its symbol, its key
+# printed (Prelude.Types.List.length[Int]), and by its location, which
+# names the definition it is; a saturated method by its instance, suffixed
+# (Prelude.Num.fromInteger_Num_Int); a definition the registry lowers to an
+# op by that op's location, as a function's names it; and a constructor by
+# a type refined to it, after its family, whose label is its type's key
+# printed (Prelude.Basics.List[Int] refined to ::). And the program's
+# output is held to its cases' expected-stdout as every e2e program's is,
+# so what it uses is also what it computes right. A module's exports are
+# the definitions it makes itself: one it re-exports is covered in the
 # module that defines it.
 #
 # A type, and a definition whose result is a type or an equality (a
@@ -24,14 +25,14 @@
 # every implementation at compile time, specialising each method call to
 # the implementation it is given, so the record is never built (an
 # implementation chosen at run time is refused), and the methods' uses are
-# what the program's Core shows. Two more kinds are named apart when Core
-# does not name them. An escape hatch, which user code may not write, is
+# what the program's module shows. Two more kinds are named apart when the
+# module does not name them. An escape hatch, which user code may not write, is
 # asked of the compiler. A decided exclusion is outside the language
 # (threads, collector finalizers). A pointer is a handle of the runtime's,
 # so the prelude's pointer operations are not among them: a program uses
 # them as it uses any other export. Three of them the registry translates
 # to a value, a pointer cast to the handle it is given and the null pointer
-# to the null handle, which leaves no call for Core to name: each is used
+# to the null handle, which leaves no call for the module to name: each is used
 # when the program's own code calls it. So is an implementation, a hint
 # whose body is %search among them, which the pinned Idris's :di names by
 # its compile-time tree. The decided exclusions and those three are the
@@ -252,7 +253,7 @@ escape_hatch() {
 # decided_exclusion FULL: whether FULL is outside the language, by the
 # decision on threads and collector finalizers. The only names written
 # down in this check. A name that is not one of these is asked of the
-# program and, if Core does not name it, of the compiler.
+# program and, if its module does not name it, of the compiler.
 decided_exclusion() {
   case $1 in
     Prelude.IO.fork | Prelude.IO.prim__fork | Prelude.IO.threadWait | Prelude.IO.prim__threadWait | \
@@ -268,7 +269,7 @@ decided_exclusion() {
 # record, built by its constructor (MkSemigroup (...)) or named where it
 # was defined (Num implementation at ...), a hint whose body is %search
 # among them. This compiler resolves every implementation at compile
-# time and never builds the record, so Core names only the saturated
+# time and never builds the record, so the module names only the saturated
 # calls it typed, each by its own instance: an implementation is used
 # when the program's own code names it, as a registry value is.
 implementations() {
@@ -281,14 +282,15 @@ implementations() {
 }
 
 # registry_value FULL: whether the registry translates a call of FULL to a
-# value, which leaves no call for Core to name: a pointer cast is the
+# value, which leaves no call for the module to name: a pointer cast is the
 # identity on the handle it is given (prim__castPtr, prim__forgetPtr), and
 # so are replace and rewrite__impl on the value they transport, applied to
 # it or not; the null pointer is the null handle, a literal
 # (prim__getNullAnyPtr). The
 # registry's hooks are the compiler's Idris source, which this check
 # cannot ask, so these names are written down, as the decided exclusions
-# are; an export the registry gives another hook is still asked of Core.
+# are; an export the registry gives another hook is still asked of the
+# module.
 registry_value() {
   case $1 in
     PrimIO.prim__castPtr | PrimIO.prim__forgetPtr | PrimIO.prim__getNullAnyPtr | \
@@ -327,12 +329,18 @@ source_calls() {
   return 1
 }
 
-# covers_prelude MODULE CORE FIXTURE: every run-time export of MODULE is
-# used by the program whose Core is CORE and whose source is FIXTURE's.
+# covers_prelude MODULE PROGRAM FIXTURE: every run-time export of MODULE
+# is used by the program whose module, as its frontend wrote it, is the
+# bytecode PROGRAM, and whose source is FIXTURE's.
 covers_prelude() {
   cp_module=$1
-  cp_core=$2
+  cp_program=$2
   cp_fixture=$3
+  if [ -z "$cp_program" ] || ! module_names "$cp_program" > "$work/module-names"; then
+    say "prelude $cp_module: the program's module cannot be read"
+    show "$work/module-names.err"
+    return
+  fi
   prelude_exports "$cp_module" > "$work/exports"
   awk -F '\t' '{ print $1 }' "$work/exports" | sort -u > "$work/export-names"
   prelude_definitions "$work/export-names" > "$work/definitions"
@@ -378,13 +386,13 @@ covers_prelude() {
     cp_total=$((cp_total + 1))
     if compile_time_only "$cp_type" || grep -qxF -- "$cp_full" "$work/interface-constructors"; then
       printf '%s\n' "$cp_full" >> "$work/compile-time"
-    elif core_uses "$cp_full" "$cp_core"; then
+    elif module_uses "$cp_full" "$work/module-names"; then
       cp_used=$((cp_used + 1))
     else
       printf '%s\t%s\n' "$cp_full" "$cp_implicit" >> "$work/unused"
     fi
   done < "$work/own"
-  # What Core does not name may be a decided exclusion, a registry value
+  # What the module does not name may be a decided exclusion, a registry value
   # the program's code calls, or an escape hatch; anything else is missing.
   # The exclusion is recognized by name, so a probe is not asked to compile
   # a program that reaches it.
@@ -432,24 +440,136 @@ names_in() {
   awk -v prefix="$1." 'index($0, prefix) == 1 { $0 = substr($0, length(prefix) + 1) } { printf "%s%s", sep, $0; sep = " " }' "$2"
 }
 
-# core_uses NAME CORE: whether CORE names the definition of full name NAME:
-# as NAME followed by what ends a name in Core, the brace that closes the
-# definition a lowered primitive stands for among them (anything after an
-# operator's or a projection's closing parenthesis); as a saturated method
-# call, NAME with its instance suffixed after an underscore
-# (Prelude.Num.fromInteger_Num_Int(, an operator's inside its parentheses,
-# Prelude.Num.(-_Neg_Int)(); or as a constructor,
-# NS.Type::name( with the type's arguments in brackets after its name, NS
-# the constructor's namespace, the type one name or an operator in
-# parentheses, and an operator without its parentheses
-# (Prelude.Basics.List[Int]::::( is (::)).
-core_uses() {
+# module_names PROGRAM: every name the bytecode module PROGRAM holds, one
+# per line, read off its text as idris-mlir-opt prints it with its
+# locations: each symbol (@Main.main, @"Prelude.Types.List.length[Int]"),
+# each location's name ("Prelude.Types.List.length"(...)), and each
+# constructor a type is refined to, after its family's label, as
+# `<label>::<constructor>`. A family is printed by the alias its
+# definition names (#List = #idr.family<"Prelude.Basics.List[Int]" ...>)
+# or inline; the refinement follows it, after its index terms if it has
+# any (!idr.data<#List @Nil>, !idr.data<#Vect[n] @"::">). The module is
+# read as the printer writes it, so no name of it is guessed: a string, a
+# family's angle brackets and an arrow are told apart as tokens.
+module_names() {
+  bounded "$idris_mlir_opt" --mlir-print-debuginfo "$1" -o "$work/module-names.mlir" \
+    2> "$work/module-names.err" || return 1
+  awk '
+    function emit(s) { if (!(s in seen)) { seen[s] = 1; print s } }
+    function unescape(s,    out, k, c) {
+      out = ""
+      for (k = 1; k <= length(s); k++) {
+        c = substr(s, k, 1)
+        if (c == "\\" && k < length(s)) { k++; c = substr(s, k, 1) }
+        out = out c
+      }
+      return out
+    }
+    # A name read as a symbol: the refinement it is when a family waits
+    # for one.
+    function symbol(s) {
+      emit(s)
+      if (waiting == 1) emit(label "::" s)
+      waiting = 0
+    }
+    {
+      line = $0
+      n = length(line)
+      defining = ""
+      if (match(line, /^#[A-Za-z0-9_$.-]+ = #idr\.family</))
+        defining = substr(line, 2, index(line, " ") - 2)
+      i = 1
+      while (i <= n) {
+        c = substr(line, i, 1)
+        if (instring) {
+          if (c == "\\") { text = text c substr(line, i + 1, 1); i += 2; continue }
+          if (c != "\"") { text = text c; i++; continue }
+          instring = 0
+          s = unescape(text)
+          after = substr(line, i + 1, 1)
+          if (kind == "symbol") symbol(s)
+          else if (kind == "label") {
+            labels[depth] = s
+            if (defining != "") { aliases[defining] = s; defining = "" }
+          } else {
+            if (kind == "location" || after == "(") emit(s)
+            waiting = 0
+          }
+          i++
+          continue
+        }
+        if (waiting == 2) {
+          if (c == "[") brackets++
+          else if (c == "]" && --brackets == 0) waiting = 1
+          i++
+          continue
+        }
+        if (c == "\"") {
+          instring = 1
+          text = ""
+          if (i > 1 && substr(line, i - 1, 1) == "@") kind = "symbol"
+          else if (expecting) { kind = "label"; expecting = 0 }
+          else if (i > 4 && substr(line, i - 4, 4) == "loc(") kind = "location"
+          else kind = "string"
+          i++
+          continue
+        }
+        if (c == "@") {
+          if (match(substr(line, i + 1), /^[A-Za-z_][A-Za-z0-9_$.]*/)) {
+            symbol(substr(line, i + 1, RLENGTH))
+            i += 1 + RLENGTH
+          } else i++
+          continue
+        }
+        if (substr(line, i, 12) == "#idr.family<") {
+          depth++
+          families[depth] = 1
+          expecting = 1
+          waiting = 0
+          i += 12
+          continue
+        }
+        if (c == "#") {
+          waiting = 0
+          if (match(substr(line, i + 1), /^[A-Za-z0-9_$.-]+/)) {
+            name = substr(line, i + 1, RLENGTH)
+            i += 1 + RLENGTH
+            if ((name in aliases) && substr(line, i, 2) != " =") { label = aliases[name]; waiting = 1 }
+          } else i++
+          continue
+        }
+        if (c == "-" && substr(line, i + 1, 1) == ">") { waiting = 0; i += 2; continue }
+        if (c == "<") { depth++; families[depth] = 0; waiting = 0; i++; continue }
+        if (c == ">") {
+          if (depth > 0 && families[depth]) { label = labels[depth]; waiting = 1 }
+          else waiting = 0
+          if (depth > 0) depth--
+          i++
+          continue
+        }
+        if (c == "[" && waiting == 1) { waiting = 2; brackets = 1; i++; continue }
+        if (c != " " && c != "\t") waiting = 0
+        i++
+      }
+    }' "$work/module-names.mlir"
+}
+
+# module_uses NAME NAMES: whether NAMES (module_names) names the definition
+# of full name NAME: as NAME whole, or with its key arguments after it in
+# brackets, or `;` and the hash a key printed in part ends with; as a
+# saturated method's instance, NAME with its instance suffixed after an
+# underscore (Prelude.Num.fromInteger_Num_Int), an operator's inside its
+# parentheses (Prelude.Num.(-_Neg_Int)); or as a constructor,
+# NS.Type::name, the type one name or an operator in parentheses with its
+# arguments in brackets after it, NS the constructor's namespace, and an
+# operator without its parentheses (Prelude.Basics.List[Int]:::: is (::)).
+module_uses() {
   awk -v full="$1" '
     # Whether `s` ends in NS.Type, after one balanced [...] if it has one,
     # and the hash an instance whose print drops part of its identity
     # carries after it (`;` and hexadecimal digits).
     function type_of_space(s,    depth, k, c) {
-      sub(/\];[0-9a-f]+$/, "]", s)
+      sub(/;[0-9a-f]+$/, "", s)
       if (substr(s, length(s), 1) == "]") {
         depth = 0
         for (k = length(s); k > 0; k--) {
@@ -460,7 +580,7 @@ core_uses() {
         if (k == 0) return 0
         s = substr(s, 1, k - 1)
       }
-      return s ~ type_before
+      return s ~ type_whole
     }
     BEGIN {
       if (substr(full, length(full), 1) == ")") {
@@ -473,34 +593,20 @@ core_uses() {
         bare = substr(full, k + 1)
       }
       space = substr(full, 1, k - 1)
-      ends = "[{}( )],:"
-      constructor = "::" bare "("
+      constructor = "::" bare
       qualified = space
       gsub(/[][\\.^$*+?(){}|]/, "\\\\&", qualified)
-      type_before = "(^|[^A-Za-z0-9_.])" qualified "\\.([A-Za-z0-9_'\'']+|\\([^()]*\\))$"
+      type_whole = "^" qualified "\\.([A-Za-z0-9_'\'']+|\\([^()]*\\))$"
       escaped = full
       gsub(/[][\\.^$*+?(){}|]/, "\\\\&", escaped)
       escaped_bare = bare
       gsub(/[][\\.^$*+?(){}|]/, "\\\\&", escaped_bare)
-      suffixed = "(^|[^A-Za-z0-9_.])" qualified "\\.\\(" escaped_bare "_[A-Za-z0-9_.$]+\\)?\\("
-      if (!closed)
-        suffixed = "(^|[^A-Za-z0-9_.])(" escaped "_[A-Za-z0-9_.$]+\\(|" qualified "\\.\\(" escaped_bare "_[A-Za-z0-9_.$]+\\)?\\()"
+      whole = "^" escaped "([[;].*)?$"
+      suffixed = "^" qualified "\\.\\(" escaped_bare "_[A-Za-z0-9_.$]+\\)([[;].*)?$"
+      if (!closed) suffixed = "^" escaped "_[A-Za-z0-9_.$]+([[;].*)?$"
     }
-    {
-      line = $0
-      if (line ~ suffixed) { found = 1; exit }
-      at = 0
-      while ((i = index(substr(line, at + 1), full)) > 0) {
-        at += i
-        before = at > 1 ? substr(line, at - 1, 1) : ""
-        next_char = substr(line, at + length(full), 1)
-        if (before !~ /[A-Za-z0-9_.]/ && (closed || next_char == "" || index(ends, next_char) > 0)) { found = 1; exit }
-      }
-      at = 0
-      while ((i = index(substr(line, at + 1), constructor)) > 0) {
-        at += i
-        if (type_of_space(substr(line, 1, at - 1))) { found = 1; exit }
-      }
-    }
+    $0 ~ whole || $0 ~ suffixed { found = 1; exit }
+    length($0) > length(constructor) && substr($0, length($0) - length(constructor) + 1) == constructor &&
+      type_of_space(substr($0, 1, length($0) - length(constructor))) { found = 1; exit }
     END { exit !found }' "$2"
 }
