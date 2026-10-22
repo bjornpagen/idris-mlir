@@ -163,3 +163,19 @@ the idr-rc pipeline. Every stage change is a program or module pass
   value.
 - Builders print `MkOp (MkOpName Dialect.X "name")` and a partial op's
   builder returns Emit's `Guarded`.
+
+## Changes from L03's eighth pass (e4b66fea)
+
+- An op declares `typing`: `StatedTypes` (the default) or
+  `InferredTypes [rule...]`, one `TypeRule` per result: `OperandType i`,
+  `ElementTypeOf i` (an operand array's element), or a fixed type. The
+  rules print as upstream's `TypesMatchWith`, so ODS generates
+  `inferReturnTypes`, and the Idris builder computes its result types
+  and takes none. specgen refuses a rule over a group of other than one
+  value, a fixed type outside the result's constraint, and rules beside a
+  hand `inferReturnTypes`.
+- `idr.refusal` is declared at the spec's root: its `rule` a property
+  from the closed set of rules, its `message` a string, directly in the
+  module, at the frontend's stage only (C58).
+- `HandValue`, the hand value codec and `Idr_HandMember` are gone; every
+  parameter's bytecode is printed from its wire.
