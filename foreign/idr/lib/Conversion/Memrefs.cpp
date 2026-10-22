@@ -9,6 +9,11 @@
 // and writes of words, with the linalg ops over words, stay for upstream's
 // vectorizer. An access tests nothing itself: its index is within the
 // buffer, by its type or by the guard before it.
+//
+// A store and a copy write over slots that hold elements, and release what
+// they overwrite: a buffer's first write, which fills slots that hold
+// nothing, is a placement of its own (idr.array.place_copy, a generating
+// op's place), made before any store or copy reaches the buffer.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"

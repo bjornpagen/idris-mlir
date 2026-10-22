@@ -3,7 +3,8 @@
 ||| The arrays that are memory, and the values that cross into it: mutable
 ||| memory (base's IOArray, Buffer and IORef) with its reads, writes and
 ||| updates in place; the read of a value array that gives the array back;
-||| the extent of an array to be made; and the tie of an array's dynamic
+||| the copy that is the first write of a buffer allocated for it; the
+||| extent of an array to be made; and the tie of an array's dynamic
 ||| dimensions to the sizes Idris proved them equal to.
 |||
 ||| Mutable memory is a builtin memref in the memory space `#idr.mutable`,
@@ -284,6 +285,52 @@ arrayReadOp = MkOp
   }
 
 ------------------------------------------------------------------------------
+-- A fresh buffer's first write
+------------------------------------------------------------------------------
+
+||| `idr.array.place_copy`: a copy of an array placed in a buffer allocated
+||| for it, whose slots hold nothing: each element gains a reference of its
+||| own and nothing is released. It is the copy bufferization makes before
+||| a write it cannot make in place, made where bufferization makes it, the
+||| one place that knows nothing has written the buffer; a copy over a
+||| buffer that holds elements is `memref.copy`, which releases each element
+||| it overwrites. Its destination, the target, is the allocation itself,
+||| which the copy writes whole, so from the copy on every slot holds an
+||| element, and no write and no release at the buffer's death reads a slot
+||| nothing wrote: no allocation is filled for them.
+export
+arrayPlaceCopyOp : Op 2 0 0 0
+arrayPlaceCopyOp = MkOp
+  { home = InIdr
+  , mnemonic = "array.place_copy"
+  , ins = [single "source" (SatisfiesType valueBuffer), single "target" (SatisfiesType valueBuffer)]
+  , outs = []
+  , attrs = []
+  , regions = []
+  , traits = []
+  , interfaces =
+      [ Declares DestinationStyle []
+      , Implements flowInterface ["getFlowEdges"] ]
+  , effects = Executes [ OnValues Read Contents (Operands 0), OnValues Write Count (Operands 0)
+                       , OnValues Write Contents (Operands 1) ]
+                [] Covered Untouched
+  , speculation = NotSpeculatable
+  , stages = between First Owned
+  , meaning = NoFold
+  , verify = VerifiesOp
+  , format = Declared
+      [ ValueOf (OperandRef 0), Lit ",", ValueOf (OperandRef 1), AttrDict, Lit ":"
+      , TypeOf (OfGroup (OperandRef 0)), Lit "to", TypeOf (OfGroup (OperandRef 1)) ]
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = [MkMember OnObject "::mlir::MutableOperandRange" "getDpsInitsMutable" []]
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = brief "a copy of an array placed in a buffer allocated for it, releasing nothing"
+  }
+
+------------------------------------------------------------------------------
 -- Extents and ties
 ------------------------------------------------------------------------------
 
@@ -368,12 +415,12 @@ tieShapeOp = MkOp
 ||| back (an IORef's modify, a state record's update) then holds the one
 ||| reference to its cell while it is rebuilt, and counting rebuilds it in
 ||| that cell. The read and the write are ordered by their effects, so the
-||| rule is a skeleton rule, hand C++ (`::idr::egraph::MoveOut`,
-||| `idr/IR/Arrays.h`) rooted at the write.
+||| rule is a skeleton rule, hand C++ (`::idr::egraph::MoveOut`) declared
+||| in the arrays' header, rooted at the write.
 export
 memorySkeleton : List SkeletonRule
 memorySkeleton =
-  [ MkSkeletonRule "MoveOut" "array.set"
+  [ MkSkeletonRule "MoveOut" ("idr" ::: ["IR", "Arrays.h"]) "array.set"
       "a write of the element a read gave, with nothing between touching the array, is its update" ]
 
 ------------------------------------------------------------------------------
@@ -384,4 +431,5 @@ export
 memoryOps : List AnyOp
 memoryOps =
   [ SomeOp arrayNewOp, SomeOp arrayGetOp, SomeOp arraySetOp, SomeOp arrayUpdateOp
-  , SomeOp arrayUpdateYieldOp, SomeOp arrayReadOp, SomeOp natToExtentOp, SomeOp tieShapeOp ]
+  , SomeOp arrayUpdateYieldOp, SomeOp arrayReadOp, SomeOp arrayPlaceCopyOp, SomeOp natToExtentOp
+  , SomeOp tieShapeOp ]

@@ -30,10 +30,22 @@
 // counts nothing twice.
 //
 // A buffer is a cell of the runtime: an allocation is memref.alloc, which
-// idr-lower makes the runtime's cell, and a copy is memref.copy, the
-// runtime's copy, which counts the references of the elements it copies.
-// No ownership deallocation runs: counting frees cells, one ownership
-// system and not two.
+// idr-lower makes the runtime's cell, its elements unwritten. A copy into
+// a buffer just allocated for it is its first write, a placement
+// (idr.array.place_copy), which releases nothing; a copy over a buffer that
+// holds elements is memref.copy, the runtime's copy, which releases each
+// element it overwrites. Both count the references of the elements they
+// copy. No ownership deallocation runs: counting frees cells, one
+// ownership system and not two.
+//
+// Every buffer allocated for elements that hold references is written
+// whole by its first writer, a placed copy or the generating op whose
+// destination it is, both placements: so no store, no copy and no release
+// at the buffer's death ever reads a slot nothing wrote, and no allocation
+// is filled first. A fresh array of such elements is a generating op's
+// destination alone, as the frontend writes it, and an insert over a whole
+// array is made that array before the analysis; the buffers are held to it
+// after the rewrite.
 #include "idr/Transforms/Bufferize.h"
 
 #include "idr/Transforms/BufferizeModels.h"
@@ -56,6 +68,7 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -114,11 +127,6 @@ void idr::bufferize::registerModels(DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, ub::UBDialect *) { attachPoisonModel(ctx); });
 }
 
-bool idr::bufferize::copies(Operation *op) {
-  auto copy = dyn_cast<memref::CopyOp>(op);
-  return copy && copy.getTarget().getDefiningOp<memref::AllocOp>();
-}
-
 namespace {
 
 // An error One-Shot reported, kept until the pass knows what to say: an
@@ -170,6 +178,56 @@ LogicalResult underOneShot(idr::ProgramOp program, Step &&step) {
       out.attachNote(loc) << text;
   }
   return failure();
+}
+
+// A copy of `from` into `to`. A copy into a buffer allocated for it, which
+// nothing has used yet, is its first write: its slots hold nothing, so it
+// places, releasing none. Every other copy writes over slots that hold
+// elements. One-Shot makes both through this one hook, so the hook is
+// where the two are told apart, from the allocation it has just made.
+LogicalResult copyInto(OpBuilder &b, Location loc, Value from, Value to) {
+  if (to.use_empty() && to.getDefiningOp<memref::AllocOp>())
+    idr::ArrayPlaceCopyOp::create(b, loc, from, to);
+  else
+    memref::CopyOp::create(b, loc, from, to);
+  return success();
+}
+
+// The first use of every buffer allocated for elements that hold
+// references is the destination-style op whose destination it is and which
+// does not read it: a placed copy, a tabulation or a scan, which places
+// every slot before anything reads or releases one. A fold reads its
+// destination, its first accumulators. A buffer used first any other way
+// (a store, a view a copy writes through, a fold) would read or release
+// slots nothing wrote: the compiler's broken invariant, the frontend's or
+// this pass's, named where every allocation is made.
+LogicalResult placedFirst(idr::ProgramOp program) {
+  WalkResult walked = program.walk([](memref::AllocOp alloc) {
+    if (!idr::holdsReferences(alloc.getType().getElementType()))
+      return WalkResult::advance();
+    Value buffer = alloc.getResult();
+    Block *block = alloc->getBlock();
+    // The op of the allocation's block that holds the first use: a use
+    // dominated by the allocation is in its block or nested in an op of it.
+    Operation *first = nullptr;
+    for (Operation *user : buffer.getUsers()) {
+      Operation *at = block->findAncestorOpInBlock(*user);
+      if (!first || at->isBeforeInBlock(first))
+        first = at;
+    }
+    auto writer = dyn_cast_or_null<DestinationStyleOpInterface>(first);
+    auto fold = dyn_cast_or_null<idr::LastAxisFoldOpInterface>(first);
+    if (writer && llvm::is_contained(writer.getDpsInits(), buffer) &&
+        !(fold && llvm::is_contained(fold.getInits(), buffer)))
+      return WalkResult::advance();
+    InFlightDiagnostic error = alloc.emitError(
+        "internal error: idr-bufferize: a buffer of elements that hold references is not "
+        "placed whole by its first writer, so a release would read a slot nothing wrote");
+    if (first)
+      error.attachNote(first->getLoc()) << "first used by " << first->getName();
+    return WalkResult::interrupt();
+  });
+  return failure(walked.wasInterrupted());
 }
 
 // Each write into a value array's buffer whose read stands before it
@@ -224,6 +282,7 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
       auto made = AllocTensorOp::create(b, loc, tensor, sizes, copy ? plain : Value());
       return idr::heldAs(b, loc, made.getResult(), value.getType());
     };
+    options.memCpyFn = copyInto;
     // The cell's header places the elements, so an allocation asks for no
     // alignment of its own.
     options.bufferAlignment = 0;
@@ -254,7 +313,8 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
         failed(underOneShot(program, [&] {
           return success(succeeded(insertTensorCopies(program, analysis, rewrite)) &&
                          succeeded(bufferizeModuleOp(program, options, rewrite, &statistics)));
-        })))
+        })) ||
+        failed(placedFirst(program)))
       return signalPassFailure();
     moveElementsOut(program);
 

@@ -20,6 +20,13 @@
 // of the program's tensor values made once. When one value may run after
 // another is by position, through loops and branches, as One-Shot's own
 // conflict check reads it.
+//
+// A buffer allocated for elements that hold references has nothing in its
+// slots, so the program is also made such that its first writer places
+// every slot: a fresh array of such elements is a generating op's
+// destination, an allocation of its own, and an insert of such elements
+// over the whole of its destination is its source, which a copy places
+// where a buffer must be made for it.
 #include "idr/Transforms/BufferizeModels.h"
 
 #include "idr/IR/Arrays.h"
@@ -27,11 +34,13 @@
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 
@@ -61,6 +70,26 @@ void writeOwn(RewriterBase &rewriter, OpOperand &use) {
   Value own = tensor::EmptyOp::create(rewriter, writer->getLoc(), sizes, type.getElementType(),
                                       type.getEncoding());
   rewriter.modifyOpInPlace(writer, [&] { use.set(own); });
+}
+
+// The dimensions of a whole insert's destination each dimension of its
+// source expands to: a dimension the insert drops, of extent 1, joins the
+// kept one after it, or the last kept one where none follows; a source of
+// no dimension expands to unit dimensions alone, in no group.
+SmallVector<ReassociationIndices> expansionOf(tensor::InsertSliceOp insert) {
+  llvm::SmallBitVector dropped = insert.getDroppedDims();
+  SmallVector<ReassociationIndices> groups;
+  ReassociationIndices pending;
+  for (int64_t d = 0, e = insert.getType().getRank(); d < e; ++d) {
+    pending.push_back(d);
+    if (dropped.test(static_cast<unsigned>(d)))
+      continue;
+    groups.push_back(std::move(pending));
+    pending.clear();
+  }
+  if (!groups.empty())
+    llvm::append_range(groups.back(), pending);
+  return groups;
 }
 
 } // namespace
@@ -144,6 +173,32 @@ bool idr::bufferize::isRelease(OpOperand &operand, const AnalysisState &state) {
 void idr::bufferize::prepare(Operation *program, const BufferizationOptions &options) {
   IRRewriter rewriter(program->getContext());
 
+  // An insert of elements that hold references over the whole of its
+  // destination, which it does not read, is its source in the
+  // destination's shape. Kept, it would be written, where the destination
+  // is read after it, into a buffer allocated with nothing in it, through a
+  // copy that releases what each slot held. Upstream's model says which
+  // inserts read their destination.
+  {
+    AnalysisState state(options);
+    SmallVector<tensor::InsertSliceOp> whole;
+    program->walk([&](tensor::InsertSliceOp insert) {
+      if (idr::holdsReferences(insert.getType().getElementType()) &&
+          !state.bufferizesToMemoryRead(insert.getDestMutable()))
+        whole.push_back(insert);
+    });
+    for (tensor::InsertSliceOp insert : whole) {
+      rewriter.setInsertionPoint(insert);
+      Value value = insert.getSource();
+      // A source of the destination's rank is of its type; one the insert
+      // drops unit dimensions of gains them back.
+      if (value.getType() != insert.getType())
+        value = tensor::ExpandShapeOp::create(rewriter, insert.getLoc(), insert.getType(), value,
+                                              expansionOf(insert));
+      rewriter.replaceOp(insert, value);
+    }
+  }
+
   program->walk([&](tensor::EmptyOp empty) {
     // The first use keeps the op; one nothing uses has no first.
     SmallVector<OpOperand *> uses = usesOf(empty.getResult());
@@ -155,24 +210,6 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
       rewriter.modifyOpInPlace(use->getOwner(), [&] { use->set(own->getResult(0)); });
     }
   });
-
-  // A generating op's fresh destination of elements that hold references is
-  // placed slot by slot, no slot released: it is an allocation of its own,
-  // which empty-tensor elimination never makes a slice of an array whose
-  // slots still hold elements.
-  SmallVector<tensor::EmptyOp> fresh;
-  program->walk([&](Operation *op) {
-    if (!idr::arrays::isGenerating(op))
-      return;
-    for (Value out : cast<DestinationStyleOpInterface>(op).getDpsInits())
-      if (auto empty = out.getDefiningOp<tensor::EmptyOp>();
-          empty && idr::holdsReferences(empty.getType().getElementType()))
-        fresh.push_back(empty);
-  });
-  for (tensor::EmptyOp empty : fresh) {
-    rewriter.setInsertionPoint(empty);
-    rewriter.replaceOpWithNewOp<AllocTensorOp>(empty, empty.getType(), empty.getDynamicSizes());
-  }
 
   AnalysisState state(options);
   AliasClasses aliases(program, options);
@@ -195,5 +232,23 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
             mayRunAfter(use->getOwner(), releaser, sharer, options))
           writeOwn(rewriter, *use);
     }
+  }
+
+  // A generating op's fresh destination of elements that hold references,
+  // a write-only use's own among them, is placed slot by slot, no slot
+  // released: it is an allocation of its own, which empty-tensor
+  // elimination never makes a slice of an array whose slots hold elements.
+  SmallVector<tensor::EmptyOp> fresh;
+  program->walk([&](Operation *op) {
+    if (!idr::arrays::isGenerating(op))
+      return;
+    for (Value out : cast<DestinationStyleOpInterface>(op).getDpsInits())
+      if (auto empty = out.getDefiningOp<tensor::EmptyOp>();
+          empty && idr::holdsReferences(empty.getType().getElementType()))
+        fresh.push_back(empty);
+  });
+  for (tensor::EmptyOp empty : fresh) {
+    rewriter.setInsertionPoint(empty);
+    rewriter.replaceOpWithNewOp<AllocTensorOp>(empty, empty.getType(), empty.getDynamicSizes());
   }
 }

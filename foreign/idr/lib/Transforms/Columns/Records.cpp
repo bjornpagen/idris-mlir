@@ -119,9 +119,7 @@ SmallVector<Value> Records::takeApart(OpBuilder &b, Location loc, Value value,
   SmallVector<Value> leaves;
   for (auto [index, field] : llvm::enumerate(record.fields())) {
     auto at = static_cast<unsigned>(index);
-    Type read = fieldType(value.getType(), unrestricted(field), usesOf(field), Recursion::Other);
-    Value given =
-        con ? con.getFields()[at] : DataFieldOp::create(b, loc, read, value, at).getResult();
+    Value given = con ? con.getFields()[at] : DataFieldOp::create(b, loc, value, at).getResult();
     if (std::optional<Record> inner = recordOf(field))
       llvm::append_range(leaves, takeApart(b, loc, given, *inner));
     else

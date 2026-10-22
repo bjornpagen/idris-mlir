@@ -135,9 +135,11 @@ foldMembers =
 ||| destination; the domain is the destinations' leading dimensions, which
 ||| they share, and a value is an element, or the cell of the dimensions
 ||| after them. The region runs once per index, never on an empty domain. A
-||| destination of elements that hold references is fresh, a `tensor.empty`
-||| or an `alloc_tensor` (the op's verifier), so placing its slots releases
-||| nothing.
+||| destination of elements that hold references is fresh (the op's
+||| verifier): a `tensor.empty` or an `alloc_tensor` of no copy, and on
+||| buffers the allocation bufferization made of one. Its slots hold
+||| nothing, so placing them releases nothing, and the op, its first
+||| writer, places every one before anything reads or releases it.
 |||
 |||   %t = idr.array.tabulate outs(%e : tensor<?xi64>) {
 |||   ^bb0(%i: index):
@@ -222,7 +224,9 @@ foldLastOp = MkOp
 ||| `idr.array.scan_last`: the fold of `idr.array.fold_last` with every
 ||| accumulator kept. It reads its first accumulators from its inputs and
 ||| writes each step's into its destination at that step: a destination's
-||| dimensions are the frame's, then `length`, then the input's cell's.
+||| dimensions are the frame's, then `length`, then the input's cell's. A
+||| destination of elements that hold references is fresh, as a
+||| tabulation's is, which every step's placement fills.
 export
 scanLastOp : Op 3 1 0 1
 scanLastOp = MkOp

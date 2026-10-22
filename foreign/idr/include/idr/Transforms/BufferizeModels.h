@@ -63,12 +63,15 @@ bool mayRunAfter(mlir::Operation *later, mlir::Operation *earlier, mlir::Value v
 // it and no result of the op is it, or the op is a call.
 bool isRelease(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state);
 
-// The program made ready for any analysis: every tensor.empty has one use;
-// a use that writes, without reading, a buffer a release gave away, and may
-// run after the release, writes a tensor.empty of its own; and a fresh
-// destination a generating op places elements that hold references into
-// is an allocation empty-tensor elimination never makes a slice of another
-// array, whose slots hold elements a placement would not release.
+// The program made ready for any analysis: an insert of elements that hold
+// references over the whole of its destination is its source; every
+// tensor.empty has one use; a use that writes, without reading, a buffer a
+// release gave away, and may run after the release, writes a tensor.empty
+// of its own; and a fresh destination a generating op places elements that
+// hold references into is an allocation empty-tensor elimination never
+// makes a slice of another array, whose slots hold elements a placement
+// would not release. So a buffer allocated for such elements is written
+// first by an op that places all of it.
 void prepare(mlir::Operation *program, const mlir::bufferization::BufferizationOptions &options);
 
 // Attach the models, each family from its unit.

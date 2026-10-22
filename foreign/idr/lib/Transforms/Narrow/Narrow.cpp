@@ -20,6 +20,7 @@
 #include "idr/Transforms/Narrow.h"
 
 #include "idr/Analysis/Ranges.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/Support/Actions.h"
@@ -61,8 +62,9 @@ struct NarrowFoldAction : support::TaggedAction<NarrowFoldAction> {
 
 // The word rewrite of one function, solved under the summaries idr-narrow
 // decided for the program and holds in its analysis manager while it runs
-// this pass. It keeps no statistics: what it counts only says whether it
-// changed anything.
+// this pass. Its work is its own solve's; the summaries' decide step is
+// idr-narrow's, which ran it. What it counts of its rewrites only says
+// whether it changed anything.
 struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
   void runOnProgram(ProgramOp program) {
     FuncOp fn = getOperation();
@@ -74,11 +76,13 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
       fn.emitError("internal error: idr-narrow-words: no Ranges of the program");
       return signalPassFailure();
     }
-    FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges->get().solve(fn);
+    solver::Work work;
+    FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges->get().solve(fn, work);
     if (failed(solved)) {
       fn.emitError("internal error: idr-narrow-words: the range analysis failed");
       return signalPassFailure();
     }
+    numWork += work.steps();
     Facts facts(**solved);
     uint64_t carried = 0, narrowed = 0;
     // The joints first, while every value is still the one analysed; then
@@ -154,12 +158,16 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
 
   void runOnProgram(ProgramOp program) {
     uint64_t versioned = 0;
+    // The pass's work: each decide step of the summaries it ran, and each
+    // function's solve under them.
+    solver::Work work;
     {
       // Each function's loops are versioned under its own solve, which the
       // program's summaries start.
       const Ranges &ranges = getAnalysis<Ranges>();
+      work.add(ranges.work());
       for (FuncOp fn : program.getOps<FuncOp>()) {
-        FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges.solve(fn);
+        FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges.solve(fn, work);
         if (failed(solved)) {
           fn.emitError("internal error: idr-narrow: the range analysis failed");
           return signalPassFailure();
@@ -178,7 +186,7 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
       AnalysisManager::PreservedAnalyses kept;
       kept.preserve<Layouts, SymbolTable>();
       getAnalysisManager().invalidate(kept);
-      (void)getAnalysis<Ranges>();
+      work.add(getAnalysis<Ranges>().work());
     }
 
     // The functions read the program's summaries from this pass's analysis
@@ -188,6 +196,7 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
     if (failed(runPipeline(nested, program)))
       return signalPassFailure();
     numVersioned += versioned;
+    numWork += work.steps();
     // No declaration changes, and no symbol is added or removed.
     markAnalysesPreserved<Layouts, SymbolTable>();
   }

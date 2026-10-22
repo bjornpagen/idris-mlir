@@ -3,7 +3,8 @@
 // The ops on mutable memory (new, get, set, update), with their rules,
 // shapes and how an element moves; the read of a value array that gives the
 // array back; the three movements a step of a generating op on buffers
-// makes (take, copy, place); the extent of an array to be made; the tie of
+// makes (take, copy, place); the copy that first writes a buffer allocated
+// for it; the extent of an array to be made; the tie of
 // an array's dimensions to sizes, with what value bounds and the folding
 // of a dimension read from it; and the skeleton rule that makes a read and
 // a write of one element its update.
@@ -23,6 +24,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 // What each stage of a program implies: whether its holds are decided.
@@ -276,6 +278,35 @@ void ArrayCopyOp::getFlowEdges(FlowEdges &edges) {
 }
 void ArrayPlaceOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(atIndex(getValueMutable()), elementsOf(getBuffer()));
+}
+
+//===----------------------------------------------------------------------===//
+// A fresh buffer's first write
+//===----------------------------------------------------------------------===//
+
+// The target is the copy's destination, which it writes whole.
+MutableOperandRange ArrayPlaceCopyOp::getDpsInitsMutable() { return getTargetMutable(); }
+
+// The target is a buffer allocated for the copy, which nothing wrote: the
+// copy places its slots, releasing none, so a target that held elements
+// would keep their references for ever. The source is any view of an array
+// of the target's shape and element.
+LogicalResult ArrayPlaceCopyOp::verify() {
+  if (!getTarget().getDefiningOp<memref::AllocOp>())
+    return emitOpError("places a copy in ") << getTarget().getType()
+                                            << ", which is no buffer allocated for it";
+  auto from = cast<MemRefType>(unrestricted(getSource().getType()));
+  auto to = cast<MemRefType>(unrestricted(getTarget().getType()));
+  if (from.getElementType() != to.getElementType() ||
+      failed(verifyCompatibleShape(from.getShape(), to.getShape())))
+    return emitOpError("copies ") << from << " into " << to << ", of another shape or element";
+  return success();
+}
+
+// Each element the source holds is placed in the target, with a reference
+// of its own; the source keeps its own, and the target held nothing.
+void ArrayPlaceCopyOp::getFlowEdges(FlowEdges &edges) {
+  edges.flow(elementsOf(getSource()), elementsOf(getTarget()));
 }
 
 //===----------------------------------------------------------------------===//

@@ -21,6 +21,7 @@
 #include "idr/IR/Grades.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
@@ -85,6 +86,22 @@ LogicalResult verifyIndices(Operation *op, unsigned rank) {
   for (BlockArgument index : body.getArguments().take_front(rank))
     if (!index.getType().isIndex())
       return op->emitOpError("binds ") << index.getType() << " where its region binds an index";
+  return success();
+}
+
+LogicalResult verifyFresh(DestinationStyleOpInterface op) {
+  for (Value out : op.getDpsInits()) {
+    auto type = cast<ShapedType>(out.getType());
+    if (!holdsReferences(type.getElementType()))
+      continue;
+    auto alloc = out.getDefiningOp<bufferization::AllocTensorOp>();
+    bool fresh = isa<RankedTensorType>(type)
+                     ? out.getDefiningOp<tensor::EmptyOp>() || (alloc && !alloc.getCopy())
+                     : static_cast<bool>(out.getDefiningOp<memref::AllocOp>());
+    if (!fresh)
+      return op->emitOpError("places elements that hold references into ")
+             << type << ", which is no fresh array";
+  }
   return success();
 }
 
@@ -332,7 +349,7 @@ LogicalResult ArrayScanLastOp::verify() {
     if (length && !to.isDynamicDim(frame) && to.getDimSize(frame) != *length)
       return emitOpError("writes ") << to << " for a scan " << *length << " long";
   }
-  return success();
+  return verifyFresh(*this);
 }
 
 LogicalResult ArrayScanLastOp::verifyRegions() {

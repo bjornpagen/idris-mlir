@@ -77,7 +77,7 @@ Taken takeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &l
   // keeps its value, which gains a reference of its own, and loses the
   // place's, and the value put back goes into a box of its own.
   auto alone = scf::IfOp::create(b, loc, ptrType(b.getContext()),
-                                 runtime.exclusive(b, loc, cell), /*withElseRegion=*/true);
+                                 runtime.isUnique(b, loc, cell), /*withElseRegion=*/true);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(alone.thenBlock());
   scf::YieldOp::create(b, loc, cell);

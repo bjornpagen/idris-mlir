@@ -8,7 +8,6 @@
 #define IDR_TRANSFORMS_BUFFERIZE_H
 
 #include "mlir/IR/DialectRegistry.h"
-#include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
 
 namespace idr {
@@ -22,13 +21,6 @@ namespace bufferize {
 // upstream's own for idr.func, idr.call and idr.return, and of ub.poison,
 // which upstream gives none.
 void registerModels(mlir::DialectRegistry &registry);
-
-// Whether `op` copies an array because a write could not be in place: a
-// memref.copy into a cell allocated for it (One-Shot's copy before a
-// conflicting write, or a reallocation to a cell's layout). A memref.copy
-// into a view of a live buffer is the meaning of the op it came from
-// (tensor.insert_slice), not such a copy.
-bool copies(mlir::Operation *op);
 
 } // namespace bufferize
 } // namespace idr

@@ -12,7 +12,13 @@
 // to take, placed before the lowering. A write releases what it replaces
 // and a new array's fill is taken once per element, the runtime meaning of
 // mutable memory. A step's place puts a value where its slots hold nothing,
-// so it releases nothing; a cell of a step is moved slot by slot.
+// so it releases nothing; a cell of a step is moved slot by slot. A copy
+// placed in a buffer allocated for it releases nothing either.
+//
+// No cell is filled before its first write: each maker writes every element
+// whole before anything reads, releases or frees the cell (a new array its
+// fill, a step its moves, and a buffer bufferization allocates its first
+// writer, a placed copy or the generating op whose destination it is).
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -42,13 +48,14 @@ namespace idr::conversion {
 namespace {
 
 // A new cell of `count` elements of `element`, from the runtime: fresh
-// memory, which no other pointer reaches. Said at the call (the runtime's
-// definition replaces the declaration's attributes when it is linked in),
-// so that a loop over two arrays keeps what it accumulates in a register
-// across the reads of the other.
+// memory, which no other pointer reaches, its elements unwritten, which its
+// maker writes before anything reads, releases or frees them. Fresh is said
+// at the call (the runtime's definition replaces the declaration's
+// attributes when it is linked in), so that a loop over two arrays keeps
+// what it accumulates in a register across the reads of the other.
 Value newCell(OpBuilder &b, Location loc, Runtime &runtime, Value count,
               const layout::Element &element) {
-  LLVM::CallOp cell = runtime.call(b, loc, idr::runtime::helper::arrayNew,
+  LLVM::CallOp cell = runtime.call(b, loc, idr::runtime::helper::arrayNewUnwritten,
                                    ValueRange{count, i32Constant(b, loc, element.info.word())});
   cell.setResAttrsAttr(b.getArrayAttr(b.getDictionaryAttr(
       b.getNamedAttr(LLVM::LLVMDialect::getNoAliasAttrName(), b.getUnitAttr()))));
@@ -59,7 +66,9 @@ Value newCell(OpBuilder &b, Location loc, Runtime &runtime, Value count,
 // product past 64 bits being UINT64_MAX, which the runtime finds too large
 // for any cell. The buffer is the cell and each dynamic size. That the
 // allocation is a cell's, in the identity layout and aligned no further
-// than a word, is the program's verifier's rule.
+// than a word, is the program's verifier's rule; that its first writer
+// writes it whole, before anything reads or releases a slot, is
+// idr-bufferize's, which made it.
 struct LowerAlloc : IdrPattern<memref::AllocOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(memref::AllocOp op, OneToNOpAdaptor adaptor,
@@ -421,19 +430,48 @@ struct LowerArrayPlace : IdrPattern<ArrayPlaceOp> {
   }
 };
 
+// A copy placed in a buffer allocated for it: each element of the source
+// moved into the target's slot at its index, which holds nothing, with a
+// reference of its own; the source keeps its own, and nothing is released.
+// A copy of words is upstream's copy: a slot of words holds nothing to
+// release, so placing it and writing over it are one write.
+struct LowerArrayPlaceCopy : IdrPattern<ArrayPlaceCopyOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ArrayPlaceCopyOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto from = cast<MemRefType>(op.getSource().getType());
+    auto to = cast<MemRefType>(op.getTarget().getType());
+    Type elementType = from.getElementType();
+    layout::Element element = layouts.element(elementType);
+    if (llvm::none_of(element.slots, [](const layout::Slot &slot) { return slot.counted(); })) {
+      rewriter.replaceOpWithNewOp<memref::CopyOp>(op, op.getSource(), op.getTarget());
+      return success();
+    }
+    CellOf cell = cellOf(rewriter, loc, to, adaptor.getTarget(), 0);
+    forEachElement(rewriter, loc, cell.sizes, [&](OpBuilder &b, ValueRange ivs) {
+      Value at = elementAddress(b, loc, runtime, from, adaptor.getSource(), element, ivs);
+      Value into = elementAddress(b, loc, runtime, to, adaptor.getTarget(), element, ivs);
+      moveElement(b, loc, runtime, layouts, Movement::Copy, at, into, element, elementType);
+    });
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 } // namespace
 
 // The patterns of the cells memrefs live in, constant or allocated, of
-// mutable memory, of the elements of a buffer rebuilt in place, and of a
-// step's movements.
+// mutable memory, of the elements of a buffer rebuilt in place, of a
+// step's movements, and of a fresh buffer's placed copy.
 void populateArrayPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                            const Layouts &layouts, Runtime &runtime,
                            const DenseMap<StringAttr, ConstantArray> &arrays) {
   MLIRContext *ctx = patterns.getContext();
   patterns.add<LowerAlloc, LowerArrayNew, LowerArrayGet, LowerArraySet, LowerUpdate,
                LowerUpdateYield, LowerMoveOut<ArrayTakeOp, Movement::Take>,
-               LowerMoveOut<ArrayCopyOp, Movement::Copy>, LowerArrayPlace>(converter, ctx, layouts,
-                                                                           runtime);
+               LowerMoveOut<ArrayCopyOp, Movement::Copy>, LowerArrayPlace, LowerArrayPlaceCopy>(
+      converter, ctx, layouts, runtime);
   patterns.add<LowerGetGlobal>(converter, ctx, layouts, runtime, arrays);
 }
 

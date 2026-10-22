@@ -2,11 +2,12 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| What the arrays declare: the generating set and its yield, a step's
 ||| movements on buffers, mutable memory and its accesses, the read that
-||| gives a value array back, the extent of an array to be made and the tie
-||| of its dimensions; the memory space of mutable memory; the two
-||| interfaces the generating set and the update share; the two hand
-||| predicates their operands are checked by; and the skeleton rule that
-||| makes a read and a write of one element its update.
+||| gives a value array back, the copy that first writes a buffer allocated
+||| for it, the extent of an array to be made and the tie of its dimensions;
+||| the memory space of mutable memory; the two interfaces the generating
+||| set and the update share; the two hand predicates their operands are
+||| checked by; and the skeleton rule that makes a read and a write of one
+||| element its update.
 module IdrisMLIR.Spec.Arrays.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary

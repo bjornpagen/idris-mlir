@@ -10,9 +10,7 @@
 // once ordered, are an order of the region the iterator types state.
 
 #include "idr/IR/Arrays.h"
-#include "idr/IR/Grades.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -32,10 +30,9 @@ SmallVector<Type> ArrayTabulateOp::getCellTypes() {
 }
 
 // The destinations, of which ODS has checked there is one, share the
-// domain's dimensions, and are all tensors or all buffers. A destination of
-// elements that hold references is fresh: a tensor.empty or an
-// alloc_tensor, whose every slot the tabulation places once, so that no
-// store releases a slot and no slot needs a value before it.
+// domain's dimensions, and are all tensors or all buffers; a destination of
+// elements that hold references is fresh, whose every slot the tabulation
+// places once.
 LogicalResult ArrayTabulateOp::verify() {
   if (!hasPureTensorSemantics() && !hasPureBufferSemantics())
     return emitOpError("writes tensors and buffers in one op");
@@ -47,13 +44,8 @@ LogicalResult ArrayTabulateOp::verify() {
     if (!sameLead(first, type, getRank()))
       return emitOpError("writes ") << type << ", whose leading " << getRank()
                                     << " dimensions are not those of " << first;
-    bool fresh = out.getDefiningOp<tensor::EmptyOp>() ||
-                 out.getDefiningOp<bufferization::AllocTensorOp>();
-    if (isa<RankedTensorType>(type) && holdsReferences(type.getElementType()) && !fresh)
-      return emitOpError("writes elements that hold references into ")
-             << type << ", which is no fresh tensor";
   }
-  return success();
+  return verifyFresh(*this);
 }
 
 LogicalResult ArrayTabulateOp::verifyRegions() { return verifyEnd(*this, getCellTypes()); }

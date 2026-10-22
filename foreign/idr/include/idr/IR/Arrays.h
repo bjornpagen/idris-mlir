@@ -69,6 +69,14 @@ mlir::LogicalResult verifyEnd(mlir::Operation *op, mlir::TypeRange types);
 // The indices a region binds first: `rank` of them, each an index.
 mlir::LogicalResult verifyIndices(mlir::Operation *op, unsigned rank);
 
+// The rule of a generating op that writes its destinations and never reads
+// them: each destination of elements that hold references is fresh, a
+// tensor.empty or an alloc_tensor of no copy, and on buffers the
+// allocation bufferization made of one. Its slots hold nothing, so placing
+// them releases nothing, and the op, its first writer, places every one
+// before anything reads or releases it.
+mlir::LogicalResult verifyFresh(mlir::DestinationStyleOpInterface op);
+
 // An index of the domain is at least 0 and below its dimension's size.
 // `Extent` gives the size of a dimension as a term of `cstr`.
 template <typename Extent>
