@@ -9,7 +9,8 @@ This directory holds what runs them.
 Run from the repository root: `make check` (the repository's rules, no
 build), `make test` (the compiler on programs, and what it builds), `make
 test-idr` (the `idr` dialect), `make test-mlir-tools` (the upstream bugs
-still reproduce), `make test-unit` (the googletest boxes of
+still reproduce, and the upstream dialects' committed Idris modules are
+what the built generator writes), `make test-unit` (the googletest boxes of
 `foreign/idr/unittests`, once `make build` has built them). `only=NAME`
 runs the tests whose name contains NAME, `except=NAME` leaves them out;
 NCPU of them run at once (the CPU budget), each compilation on one

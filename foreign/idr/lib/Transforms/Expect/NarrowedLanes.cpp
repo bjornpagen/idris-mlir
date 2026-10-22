@@ -21,17 +21,13 @@ namespace {
 
 // The widest integer lane the loop `loop` computes, in bits, outside the
 // accumulations idr-narrow-lanes leaves wide, by its own rules: what an op
-// computes on is the pass's one answer (laneWidth), an op on no lanes
+// computes on is the pass's one answer (integerWidth), an op on no lanes
 // counting none; 0 when none.
 unsigned widestLane(Operation *loop) {
-  narrow::Accumulations carried(loop);
   unsigned bits = 0;
-  loop->walk([&](Operation *op) {
-    if (carried.contains(op))
-      return;
-    narrow::LaneWidth width = narrow::laneWidth(op);
-    bits = std::max(bits, width.lanes ? width.bits : 0u);
-  });
+  for (Operation *op : narrow::outsideAccumulations(loop))
+    if (auto w = narrow::integerWidth(op); w && w->spread == narrow::Spread::Lanes)
+      bits = std::max(bits, w->bits);
   return bits;
 }
 

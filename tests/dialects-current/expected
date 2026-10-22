@@ -1,0 +1,4 @@
+the committed modules: exit 0, naming none
+a module edited by hand: exit 1, naming that module, not what the generator writes
+a module deleted: exit 1, naming that module, missing
+a module of no dialect beside them: exit 1, naming that module, of no dialect the specification lists

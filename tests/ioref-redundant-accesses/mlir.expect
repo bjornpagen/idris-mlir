@@ -1,0 +1,4 @@
+# A read right after a write of the same IORef is the value written, and a
+# write right after another goes, before references are counted, so
+# neither is left once the program's holds are strengthened.
+graded: writes-forwarded overwrites-dropped

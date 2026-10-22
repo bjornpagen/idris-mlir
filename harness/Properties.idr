@@ -195,6 +195,17 @@ properties =
   , property "moves-out" OfScope Stated
       [ "Some element of an array is rebuilt in its place, in @f or"
       , "anywhere, moved out with the reference the array held." ]
+  , property "writes-forwarded" OfScope Stated
+      [ "In a program whose references are not yet counted, no read of"
+      , "mutable memory, in @f or anywhere, reads the element the write"
+      , "right before it wrote, only computation between: the read is the"
+      , "value written, unless Idris proved it used once or it cannot stand"
+      , "for the read's." ]
+  , property "overwrites-dropped" OfScope Stated
+      [ "In a program whose references are not yet counted, no write of"
+      , "mutable memory, in @f or anywhere, is followed by a write of its"
+      , "element, only computation between: what nothing read goes, unless"
+      , "Idris proved its value used once." ]
   , property "structured-loops" OfScope Stated
       [ "No op of the arrays' generating set is left, in @f or anywhere,"
       , "and some structured op is there." ]

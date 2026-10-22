@@ -1,0 +1,95 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The upstream dialects' Idris modules (tools/dialects.sh) are generated
+# files like the specification's: committed, carrying no stamp, and each
+# what idris-mlir-tblgen, which this build made, writes from the record
+# files the specification wrote. `tools/dialects.sh check` writes each
+# again and compares it with the committed file; on the repository it
+# names no module. On copies of what it reads it names what breaks that:
+#   - a module edited by hand: that module, as not what the generator
+#     writes;
+#   - a module deleted: that module, as missing;
+#   - a module beside them of no dialect the specification lists: that
+#     module.
+# Which modules there are is the specification's (its list of written
+# dialects), so the transcript names none; the planted faults go on the
+# first module the repository's check finds current.
+# Debt: the limits are not measured; a check writes every module again
+# with the dev build's generator.
+step_limit=120
+test_limit=600
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# dialects_check ROOT: `tools/dialects.sh check` of the tree at ROOT, all it
+# said in $work/dialects.out, its exit status in $dialects_status, and each
+# line that is not a module found current in $work/dialects-named.
+dialects_check() {
+  bounded sh "$1/tools/dialects.sh" check > "$work/dialects.out" 2>&1
+  dialects_status=$?
+  grep -v ': current$' "$work/dialects.out" > "$work/dialects-named"
+}
+
+# dialects_named WHAT MODULE FAULT: one line: WHAT, the check's status, and
+# whether it named MODULE alone, as FAULT; what it said otherwise.
+dialects_named() {
+  if [ "$dialects_status" -ne 0 ] && [ "$(wc -l < "$work/dialects-named" | tr -d ' ')" -eq 1 ] &&
+     grep -q "^$2: .*$3" "$work/dialects-named"; then
+    say "$1: exit $dialects_status, naming that module, $3"
+  else
+    say "$1: exit $dialects_status, naming otherwise"
+    show "$work/dialects.out"
+  fi
+}
+
+dialects_check "$root"
+if [ "$dialects_status" -eq 0 ] && [ ! -s "$work/dialects-named" ]; then
+  say "the committed modules: exit 0, naming none"
+else
+  say "the committed modules: exit $dialects_status, naming some"
+  show "$work/dialects.out"
+  exit 0
+fi
+planted=$(sed -n 's/^\(IdrisMLIR\.[A-Za-z0-9.]*\): current$/\1/p' "$work/dialects.out" | head -n 1)
+if [ -z "$planted" ]; then
+  say "the planted faults: no module found current to plant them on"
+  exit 0
+fi
+planted_path=compiler/src/$(say "$planted" | tr . /).idr
+
+# dialects_tree NAME: a copy at $work/NAME, which $tree names, of what
+# tools/dialects.sh reads: the script and those it sources, the frontend's
+# modules and the manifest, with the record files read where they are and
+# the generator this build made linked where the copy's toolchain names it.
+dialects_tree() {
+  tree=$work/$1
+  dt_tblgen=$tree/${idris_mlir_tblgen#"$root"/}
+  mkdir -p "$tree/tools" "$tree/foreign/idr" "$tree/compiler/src" "${dt_tblgen%/*}" &&
+    cp -p "$root/tools/dialects.sh" "$root/tools/toolchain.sh" "$root/tools/host.sh" "$tree/tools/" &&
+    cp -R "$root/compiler/src/IdrisMLIR" "$tree/compiler/src/IdrisMLIR" &&
+    ln -s "$root/foreign/idr/include" "$tree/foreign/idr/include" &&
+    ln -s "$idris_mlir_tblgen" "$dt_tblgen" || { say "$1: not copied"; exit 0; }
+  if [ -f "$root/foreign/idr/generated.manifest" ]; then
+    cp -p "$root/foreign/idr/generated.manifest" "$tree/foreign/idr/" || { say "$1: not copied"; exit 0; }
+  fi
+}
+
+# The copies' toolchain is this checkout's, whatever their root.
+IDRIS_MLIR_TOOLCHAIN=$toolchain
+export IDRIS_MLIR_TOOLCHAIN
+
+dialects_tree hand-edit
+say '-- a line no generator wrote' >> "$tree/$planted_path"
+dialects_check "$tree"
+dialects_named "a module edited by hand" "$planted" "not what the generator writes"
+
+dialects_tree deleted
+rm -f "$tree/$planted_path"
+dialects_check "$tree"
+dialects_named "a module deleted" "$planted" "missing"
+
+dialects_tree orphan
+orphan=${planted%.*}.Planted
+say "module $orphan" > "$tree/compiler/src/$(say "$orphan" | tr . /).idr"
+dialects_check "$tree"
+dialects_named "a module of no dialect beside them" "$orphan" "of no dialect the specification lists"

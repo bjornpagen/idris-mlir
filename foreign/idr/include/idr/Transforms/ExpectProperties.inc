@@ -86,6 +86,19 @@ IDR_EXPECT_PROPERTY("in-place", Roots, inPlace)
 // anywhere, moved out with the reference the array held.
 IDR_EXPECT_PROPERTY("moves-out", Roots, movesOut)
 
+// In a program whose references are not yet counted, no read of
+// mutable memory, in @f or anywhere, reads the element the write
+// right before it wrote, only computation between: the read is the
+// value written, unless Idris proved it used once or it cannot stand
+// for the read's.
+IDR_EXPECT_PROPERTY("writes-forwarded", Roots, writesForwarded)
+
+// In a program whose references are not yet counted, no write of
+// mutable memory, in @f or anywhere, is followed by a write of its
+// element, only computation between: what nothing read goes, unless
+// Idris proved its value used once.
+IDR_EXPECT_PROPERTY("overwrites-dropped", Roots, overwritesDropped)
+
 // No op of the arrays' generating set is left, in @f or anywhere,
 // and some structured op is there.
 IDR_EXPECT_PROPERTY("structured-loops", Roots, structuredLoops)

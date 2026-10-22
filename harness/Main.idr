@@ -216,7 +216,7 @@ suites =
   [ ("check", "the repository: pins, commands, toolchain, source rules")
   , ("test", "the compiler on programs, and what it builds")
   , ("test-idr", "the idr dialect and its passes")
-  , ("test-mlir-tools", "each bug of upstream/ on its reproducer, with the pinned (patched) tools")
+  , ("test-mlir-tools", "each bug of upstream/ on its reproducer, with the pinned (patched) tools; the upstream dialects' Idris modules, written again by the built generator")
   ]
 
 ||| The test in DIR, or why it is none.
