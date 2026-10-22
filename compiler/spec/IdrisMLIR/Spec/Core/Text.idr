@@ -9,7 +9,9 @@ module IdrisMLIR.Spec.Core.Text
 
 import Data.List
 import Data.List1
-import Data.So
+-- Every literal of these types is checked by an automatic `So` search in
+-- the module that writes it, which finds `Oh` only where `So` is visible.
+import public Data.So
 import Data.String
 
 %default total
