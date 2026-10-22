@@ -102,6 +102,7 @@ admitted, rewrites, skeleton, headers.
 | idr-tail-loops | FuncOp |
 | idr-narrow | |
 | idr-narrow-words | FuncOp, nested by idr-narrow |
+| idr-ordered-loops | FuncOp, L12 (C107): the generating ops still in the IR become `scf.for` loops; after idr-narrow, before idr-lower-runtime |
 | idr-lower-runtime, idr-lower-statics | program; C42's two passes |
 | idr-lower | anchored on the program, Owned to Lowered; a pass cannot replace its anchor `idr.func`, so C42's per-function lowering runs inside it |
 | idr-entry | module |
