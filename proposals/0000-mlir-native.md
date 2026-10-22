@@ -4208,7 +4208,12 @@ C137.
   member, its binders standing for the use's positions, so the requests a
   member's body makes are met. And the places where members are made are
   one table, read once at the boundary by the translation and the growth
-  check alike, so neither mirrors the other.
+  check alike, so neither mirrors the other. *Sharpened* (L16's evidence:
+  three of the four places are decided by the instance's types): the
+  table holds, per definition, what each binder its normalised type
+  shows takes and what it gives after each count of arguments, each a
+  `Holding`, `AMember | NoMember | ByInstance`; both readers test a type
+  only at `ByInstance`, the case the instance alone decides.
 - **C220** (2026-10-22; L16's C175 pass). Two consequences of reading
   the program once at the boundary. A case block is named from what
   `main` reaches: the search that fell back to every name in the context
