@@ -25,10 +25,10 @@
 #include "idr/Analysis/Ownership/Meets.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/TypeGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/TypeGraph.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Pipeline.h"
 

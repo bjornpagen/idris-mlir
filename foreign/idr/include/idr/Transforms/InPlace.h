@@ -39,7 +39,7 @@
 // same rule after it grades (Transforms/InPlace/Unique.h).
 //
 // idr-knots refuses a reference knot counting could never free
-// (verify::knots); idr-rc-exclusive commits the exclusivity marking, which
+// (Transforms/Ownership/Knots.cpp); idr-rc-exclusive commits the exclusivity marking, which
 // covers what the local rule does not prove (Analysis/Ownership.h).
 #ifndef IDR_TRANSFORMS_INPLACE_H
 #define IDR_TRANSFORMS_INPLACE_H
