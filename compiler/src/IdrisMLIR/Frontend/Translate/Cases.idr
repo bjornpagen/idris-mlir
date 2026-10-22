@@ -364,6 +364,8 @@ mutual
   tree ctx env cls (Case {name} idx p scTy alts) = do
     loc <- toLoc ctx.fc
     case getAt idx env of
+      -- The world has one value, which Idris's tree matches as that
+      -- constant alone, in the module the compiler reads when it runs.
       Just (Runtime i (Just WorldT) _) => case alts of
         [ConstCase WorldVal rhs] => tree ctx env cls rhs
         _ => internal ctx.fc "an unexpected match on the world"
@@ -375,7 +377,13 @@ mutual
       Just (Static t hole) => staticCase ctx env cls scrutinee t hole alts
       Just v@(Runtime i _ _) => runtime loc v i
       Just v@(Shaped i _ _ _) => runtime loc v i
-      _ => internal ctx.fc "a match on a compile-time value"
+      -- A type, a form or an index level: Idris's tree matches no value
+      -- the instance holds at compile time but one its type forces, by
+      -- Idris's erasure check, which the binder does not carry.
+      Just (TypeValue _) => internal ctx.fc "a match on a compile-time value"
+      -- The environment is a list beside the tree's scope, not indexed by
+      -- it, so a variable the scope holds can still miss it.
+      Nothing => internal ctx.fc "a match on a variable out of scope"
     where
       scrutinee : Var vars
       scrutinee = MkVar p
@@ -413,16 +421,23 @@ mutual
           (Just d, _) => pure d
           (Nothing, Just ity) => do
             ity' <- normaliseClosed ity
+            -- A constructor's type that names no family is one the
+            -- registry gives a representation of its own: a value array,
+            -- abstract, which only the functions the registry knows open,
+            -- their bodies not translated; an ordered array or a machine
+            -- word likewise.
             Just (inst, _) <- dataOf ctx.fc ctx.owner ity'
               | Nothing => do
-                  -- A value array is abstract: only the functions the
-                  -- registry knows open it, and their bodies are not
-                  -- translated.
                   Just _ <- arrayView ity'
-                    | Nothing => internal ctx.fc ("a match on " ++ show cn ++ " at a type that is not data")
+                    | Nothing => reject ctx.fc ctx.owner HookShape
+                                   ("the type of " ++ show cn ++ " has the representation the registry gives it: " ++
+                                    "its constructor is matched")
                   reject ctx.fc ctx.owner HookShape
                          ("the array type of " ++ show cn ++ " is opaque: its constructor is matched")
             pure inst
+          -- A value bound with neither its Core type nor its Idris type:
+          -- the environment's runtime variable holds each as a `Maybe`,
+          -- which no case of it ties to the other.
           (Nothing, Nothing) =>
             internal ctx.fc ("a match on " ++ show cn ++ " of a value whose type is not known")
 
@@ -563,9 +578,11 @@ mutual
         pure (z, s, d)
       Just Succ => do
         -- The constructor's type shows a binder for each argument its
-        -- alternative binds, which Idris's tree takes from it.
+        -- alternative binds, which Idris's tree takes from it, in the
+        -- module the compiler reads when it runs.
         let Yes _ = decEq (length taken) (length args)
-          | No _ => internal ctx.fc ("the successor " ++ show cn ++ " binds another number of arguments than it takes")
+          | No _ => reject ctx.fc ctx.owner CompiledModule
+                           ("the successor " ++ show cn ++ " binds another number of arguments than it takes")
         let predInfo : VarInfo (Fin (Under 1 nv))
             predInfo = case (predecessor (shapeArgs shape) taken, ity) of
                          (Just p, Just t) => shaped FZ NatT t p
@@ -578,6 +595,8 @@ mutual
                 else (\b => Present (pred, b)) <$> tree ctx (under {k = 1} infos env) cls' rhs
         (z, _, d) <- natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest
         pure (z, body, d)
+      -- Idris's tree matches one type's constructors at a place, in the
+      -- module the compiler reads when it runs.
       Nothing => internal ctx.fc ("a constructor of another type in a match on a Nat-like value")
     where
       -- Does a constructor take a value at the argument?
@@ -592,6 +611,9 @@ mutual
       predecessor _ _ = Nothing
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DefaultCase rhs :: _) =
     pure (Absent, Absent, !(if deadDefault then pure Dead else Present <$> tree ctx env cls rhs))
+  -- A suspension or a constant among a natural's constructors: Idris's tree
+  -- matches one kind of alternative at a place, in the module the compiler
+  -- reads when it runs.
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (_ :: _) =
     internal ctx.fc "an unexpected alternative"
 
@@ -631,10 +653,13 @@ mutual
         full <- fullName con
         if full /= cn then pick cn infos rest else do
           when (length args /= length infos) $
-            internal ctx.fc ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
+            reject ctx.fc ctx.owner CompiledModule ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
           tree ctx (infos ++ env) (afterCon args scrutinee cls) rhs
       pick cn infos (DefaultCase rhs :: _) = tree ctx env cls rhs
       pick cn infos (_ :: rest) = pick cn infos rest
+      -- An implementation's type has the one constructor its record
+      -- builds, which Idris's tree names or defaults, in the module the
+      -- compiler reads when it runs.
       pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn)
 
       -- The type of argument `j` of a constructor applied to `args`.
@@ -643,6 +668,9 @@ mutual
         where
           go : ClosedTerm -> List ClosedTerm -> Front ClosedTerm
           go ty as = do
+            -- The match binds as many arguments as the constructor's type
+            -- shows binders, as Idris's tree reads them off it, in the
+            -- module the compiler reads when it runs.
             Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
               | _ => internal ctx.fc ("an argument of " ++ show cn ++ " past the binders its type shows")
             case as of
@@ -665,6 +693,10 @@ mutual
       -- of matches from the parameter to it) a value it holds, marker
       -- `m`: the implementation built, step by step, with that part
       -- replaced; and the part's type.
+      -- A parameter's implementation is fixed now, its head a constructor
+      -- (`Closed.fixing`), and so is each part the tree took apart on the
+      -- way to the field: the kind holds the form, not that it reduces,
+      -- and a step holds an argument's position, not that it is one.
       holding : (m : Nat) -> ClosedTerm -> List Step -> Front (ClosedTerm, ClosedTerm)
       holding m form [] = internal ctx.fc "a parameter's whole implementation, fixed, that no reduction takes apart"
       holding m form (Argument j _ :: rest) = do
@@ -678,6 +710,8 @@ mutual
               | Nothing => internal ctx.fc ("a field past the arguments of " ++ show cn)
             (part', ty) <- holding m part rest
             (, ty) <$> rebuilt cn j part' args
+      -- An implementation is a constructor's value, never a suspension's,
+      -- which Idris's tree takes apart only at a lazy type.
       holding m form (_ :: _) = internal ctx.fc "an implementation's field inside a suspension"
 
       -- Where the matched variable stands in the clauses.
@@ -709,6 +743,8 @@ mutual
           go i (k :: ks) = case boundAtRuntime k of
             Nothing => go (S i) ks
             Just _ => do
+              -- Every parameter's root place is in the tree's scope; the
+              -- environment beside it is a list the scope does not index.
               here <- if i == p then pure given else case parameterValue i of
                         Just x => pure (Var loc (ren x))
                         Nothing => internal ctx.fc ("the value of parameter " ++ show i ++ " out of the tree's scope")
@@ -727,6 +763,9 @@ mutual
       heldHere on = do
         let place = placeOf scrutinee
         let r = ctx.request
+        -- What binds an implementation at the root is a parameter given
+        -- one, and every part taken apart is at that parameter's place;
+        -- the environment's entry does not carry the kind it came from.
         let Just (DictParam form held) = getAt place.parameter r.kinds
           | _ => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
         let count = maybe 0 (length . forget . (.types)) held
@@ -745,6 +784,8 @@ mutual
         body <- case held of
           Nothing => Call loc inst Nothing levels <$> passedOn loc FS place.parameter (Var loc FZ) r.kinds
           Just hs => do
+            -- As `passedOn`: a parameter's root place is in the tree's
+            -- scope, beside an environment the scope does not index.
             let Just x = parameterValue place.parameter
               | Nothing => internal ctx.fc "an implementation's values out of the tree's scope"
             let (h ::: hts) = hs.types
@@ -780,8 +821,14 @@ mutual
   conAlternatives ctx env cls scrutinee shape every built inst (ConCase cn _ args rhs :: rest) = do
     found <- lookupDef ctx.fc ctx.owner cn
     let def = found.def
+    -- Its tag is its place among its type's constructors, which the family
+    -- was registered with: Idris's numbering, in the module the compiler
+    -- reads when it runs.
     Just cid <- conIdOf inst found
       | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
+    -- The family's registration wrote a layout for each of its
+    -- constructors, in a table its identities key, whose type does not say
+    -- every identity it mints has one.
     let Just info = lookupFact (.cons) cid !(getState)
       | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
     when (length info.args /= length args) $
@@ -789,7 +836,8 @@ mutual
              ("constructor " ++ show (fullname def) ++ " binds an unexpected number of arguments")
     let named = mapMaybe fieldNamed (zip args info.args)
     -- The alternative binds the constructor's fields, as many as its tree
-    -- names.
+    -- names: the layout's fields, counted from its arguments by its
+    -- registration, which the layout's type does not tie to its count.
     let (k ** con) = info.con
     let Yes counted = decEq (length named) k
       | No _ => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " of " ++ show k ++
@@ -818,6 +866,8 @@ mutual
     if every then pure (empty, [], Absent)
       else if built then pure (empty, [], Dead)
       else (\d => (empty, [], Present d)) <$> tree ctx env cls rhs
+  -- Idris's tree matches one kind of alternative at a place, in the module
+  -- the compiler reads when it runs.
   conAlternatives ctx env cls scrutinee shape every built inst (DelayCase {} :: _) =
     internal ctx.fc "a suspension's alternative in a constructor match"
   conAlternatives ctx env cls scrutinee shape every built inst (ConstCase {} :: _) =
@@ -839,4 +889,5 @@ mutual
     pure ((lit, body) :: alts, def)
   litAlternatives ctx env cls scrutinee (DefaultCase rhs :: _) =
     pure ([], Just !(tree ctx env cls rhs))
+  -- As a constructor match: one kind of alternative at a place.
   litAlternatives ctx env cls scrutinee _ = internal ctx.fc "an unexpected alternative"

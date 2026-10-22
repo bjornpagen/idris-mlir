@@ -121,8 +121,9 @@ checkModule ident checked = do
       Just m => unless (acceptable m.origin m.source) $
                   reject i.loc (show ident) ProgramShape
                     ("imports " ++ show i.path ++ ", which is neither a user module nor a trusted module")
-      -- A broken invariant: a module is checked only once the modules it
-      -- imports are, and the session loads each one it checks.
+      -- Idris's session checks a module only once the modules it imports
+      -- are, and loads each one it checks: a fact of the session the
+      -- compiler runs, which the table of what it loaded does not carry.
       Nothing => internal i.loc ("an import of " ++ show i.path ++ ", which the session did not load")
 
 ------------------------------------------------------------------------------

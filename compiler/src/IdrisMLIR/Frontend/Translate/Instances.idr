@@ -69,19 +69,16 @@ heightsOf i (Just (r, _) :: as) = (i, r) :: heightsOf (S i) as
 ||| is made once, with what the translation reads (`Read.application`).
 export
 applicationType : Front ClosedTerm
-applicationType = (.application) <$> reading
+applicationType = (\r => r.application.type) <$> reading
 
 ||| What an instance applies, as its parameters are classified over: a
-||| definition's arity and type; a member at a use's, as `applicationType`
-||| applies it to the use's arguments.
+||| definition's arity, as the call that met it as a function read it, and
+||| its type; a member at a use's, as `applicationType` applies it to the
+||| use's arguments.
 export
 signatureOf : {auto s : Ref TState TS} ->
               FC -> String -> Instantiates -> Front (Nat, ClosedTerm)
-signatureOf fc owner (OfDefinition n) = do
-  d <- lookupDef fc owner n
-  let PMDef _ params _ = definition d.def
-    | _ => internal fc ("an instance of " ++ show (fullname d.def) ++ ", which is no function")
-  pure (length params, d.type)
+signatureOf fc owner (OfDefinition n arity) = (\d => (arity, d.type)) <$> lookupDef fc owner n
 signatureOf fc owner (AtUse uses) = (2 + uses,) <$> applicationType
 
 ||| The instance of what is instantiated at the static arguments a call's
@@ -89,7 +86,7 @@ signatureOf fc owner (AtUse uses) = (2 + uses,) <$> applicationType
 export
 instanceFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              FC -> String -> Instantiates -> List PKind -> Front (Instance StaticReading)
-instanceFor fc owner (OfDefinition n) kinds =
+instanceFor fc owner (OfDefinition n _) kinds =
   snd <$> instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
 instanceFor fc owner (AtUse uses) kinds = applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))
 
@@ -120,7 +117,7 @@ request fc owner what kinds = do
     -- static arguments: a definition's at its node; a member at a use's at
     -- its link alone.
     keyed : Instantiates -> Front (Instance StaticReading, Front (List (Position, Nat)))
-    keyed (OfDefinition n) = do
+    keyed (OfDefinition n _) = do
       (address, found) <- instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
       let read = heightsOf 0 found.arguments
       let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
@@ -244,10 +241,10 @@ data Dependence = Runs | Reduces
 ||| of its argument (`Offer`): a type, a type family (a type parameter whose
 ||| kind is a function into a universe), a form, an implementation or a
 ||| polymorphic function (`compileTimeBinder`), at the quantity its binder
-||| has, an erased value that keys nothing, or a runtime value, by how the
-||| rest of the type depends on it. The one place `classify` and
-||| `staticsOver` decide it.
-data Keying = Typed | Family | Formed | Implemented Uses | Unkeyed | Runtime Dependence
+||| has, an erased value that keys nothing, or a runtime value, at the
+||| quantity its binder has, by how the rest of the type depends on it. The
+||| one place `classify` and `staticsOver` decide it.
+data Keying = Typed | Family | Formed | Implemented Uses | Unkeyed | Runtime Uses Dependence
 
 keyingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            RigCount -> ClosedTerm -> TT [x] -> Offer -> Front Keying
@@ -267,7 +264,7 @@ keyingOf rig a' sc offer = case use rig of
     AValue =>
       if !(compileTimeBinder rig a')
          then pure (Implemented q)
-         else pure (Runtime (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
+         else pure (Runtime q (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
 
 ||| `classify`'s decisions over arguments given as closed terms (over the
 ||| growth check's markers, `Growth.Sites`), each with what the call knows
@@ -281,6 +278,10 @@ staticsOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               List (Maybe (ClosedTerm, Offer)) -> Front (Vect arity (Maybe Static), ClosedTerm)
 staticsOver owner Z ty _ = pure ([], ty)
 staticsOver owner (S k) ty vals = do
+  -- Over markers, which stand for every value, a type whose binders come
+  -- from an argument's value shows none past it. This reading refuses
+  -- nothing, since the classification over a call's own values may still
+  -- see the binder, and it has no kind to give a binder it cannot see.
   Bind _ _ (Pi _ rig _ a) sc <- showingBinder ty
     | _ => internal EmptyFC "more arguments than the type has binders"
   a' <- normaliseClosed a
@@ -291,16 +292,16 @@ staticsOver owner (S k) ty vals = do
     Formed => pure (Just AForm)
     Implemented _ => pure (Just ADictionary)
     Unkeyed => pure Nothing
-    Runtime Runs => pure Nothing
-    Runtime Reduces => pure (if !(needsShape owner (\x => subst x sc)) then Just AShape else Nothing)
+    Runtime _ Runs => pure Nothing
+    Runtime _ Reduces => pure (if !(needsShape owner (\x => subst x sc)) then Just AShape else Nothing)
   (kinds, res) <- staticsOver owner k !(normaliseClosed (subst (maybe (Erased EmptyFC Placeholder) fst given) sc)) vals'
   pure (kind :: kinds, res)
 
-||| A callee's parameters, classified over its arguments (`classifyCall`),
-||| and the type after them.
+||| A callee's parameters, one kind per argument it is classified at
+||| (`classifyCall`), and the type after them.
 public export
-Classified : Type
-Classified = (List PKind, ClosedTerm)
+Classified : Nat -> Type
+Classified arity = (Vect arity PKind, ClosedTerm)
 
 ||| Walks a callee's type over its arguments: which are type parameters or
 ||| implementations, which are erased, which are index parameters, which
@@ -308,16 +309,22 @@ Classified = (List PKind, ClosedTerm)
 ||| of the type as its own level (`marker`), the next one `level`, so the
 ||| types read in the callee's scope.
 classifyAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> (level : Nat) -> Nat -> ClosedTerm -> ArgValues ->
-             Front Classified
+             FC -> String -> (level : Nat) -> (arity : Nat) -> ClosedTerm -> ArgValues ->
+             Front (Classified arity)
 classifyAt fc owner level Z ty _ = pure ([], ty)
 classifyAt fc owner level (S k) ty vals = do
+  -- Idris checked the definition's clauses at its arity, over the
+  -- arguments' values; the type here is over what the call fixes of them,
+  -- and a type whose binders come from a value the call leaves to run
+  -- time (`(b : Bool) -> if b then .. else ..` at a runtime `b`) is stuck
+  -- before the binder: a function whose arity no compile-time reduction
+  -- fixes, which the program has.
   Bind bfc _ (Pi _ rig _ a) sc <- showingBinder ty
-    | _ => internal fc "more arguments than the type has binders"
+    | _ => reject fc owner ValueType ("a type whose binders depend on a value the call does not fix: " ++ !(showTT ty))
   parameter bfc rig a sc
   where
     -- The parameter a binder binds, and the rest of the type after it.
-    parameter : FC -> RigCount -> ClosedTerm -> TT [x] -> Front Classified
+    parameter : FC -> RigCount -> ClosedTerm -> TT [x] -> Front (Classified (S k))
     parameter bfc rig a sc = do
       a' <- normaliseClosed a
       let (given, vals') = nextStatic vals
@@ -352,10 +359,10 @@ classifyAt fc owner level (S k) ty vals = do
             _ => do
               written <- v.written
               implemented q a' v written vals'
-        Runtime dependence => do
+        Runtime q dependence => do
           when !(erasedOutsideIndices owner a') $ do
             reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
-          b <- coreBinder fc owner ValueType rig a'
+          b <- coreBinder fc owner ValueType q a'
           -- The rest of the type may have to reduce on the parameter's value
           -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
           -- in Data.SortedMap, where `delType` reduces on the constructors of
@@ -385,7 +392,7 @@ classifyAt fc owner level (S k) ty vals = do
           mapFst (ValueParam b shape a' ::) <$> classifyAt fc owner level k !(normaliseClosed (subst value sc)) vals'
       where
         -- A type, normalised, keys the instance.
-        typed : Maybe ArgValue -> ArgValues -> Front Classified
+        typed : Maybe ArgValue -> ArgValues -> Front (Classified (S k))
         typed given after = do
           let Just v = given
             | Nothing => leftOut "type"
@@ -395,7 +402,7 @@ classifyAt fc owner level (S k) ty vals = do
         -- An implementation given as written, at a parameter of an
         -- interface's type, or a polymorphic function, at a parameter of
         -- its type.
-        implemented : Uses -> ClosedTerm -> ArgValue -> ClosedTerm -> ArgValues -> Front Classified
+        implemented : Uses -> ClosedTerm -> ArgValue -> ClosedTerm -> ArgValues -> Front (Classified (S k))
         implemented q a' v written vals' = do
           -- An implementation can be a function of a runtime value
           -- (`{y : a} -> Show (p y)`, applied to the first component of a
@@ -445,7 +452,7 @@ classifyAt fc owner level (S k) ty vals = do
               static key (Just (MkHoles tys (MkBinder Many held))) vals'
 
         -- An implementation known now keys the instance.
-        static : ClosedTerm -> Maybe Holes -> ArgValues -> Front Classified
+        static : ClosedTerm -> Maybe Holes -> ArgValues -> Front (Classified (S k))
         static key holes vals' =
           mapFst (DictParam key holes ::) <$> classifyAt fc owner level k !(normaliseClosed (subst key sc)) vals'
 
@@ -456,11 +463,11 @@ classifyAt fc owner level (S k) ty vals = do
         -- chooses, whose result is an implementation, is a value of a
         -- function type that takes no type: a closure, a runtime value
         -- like any other, whose uses apply it, each result a choice.
-        chosen : Uses -> ClosedTerm -> ArgValues -> Front Classified
+        chosen : Uses -> ClosedTerm -> ArgValues -> Front (Classified (S k))
         chosen q a' vals' = do
           True <- choiceType a'
             | False => do
-                b <- coreBinder fc owner ValueType rig a'
+                b <- coreBinder fc owner ValueType q a'
                 mapFst (ValueParam b Nothing a' ::)
                   <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
           choice <- choiceFamily fc owner a'
@@ -475,7 +482,7 @@ classifyAt fc owner level (S k) ty vals = do
         -- no call of it is classified there; what reaches here is one no
         -- compile-time reduction fixes, which would be a closure whose type
         -- the next binder chooses where it is applied.
-        leftOut : String -> Front Classified
+        leftOut : String -> Front (Classified (S k))
         leftOut what =
           reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time: " ++ !(showTT ty))
 
@@ -516,11 +523,11 @@ binderTerms bs vals = traverse term bs
 ||| passes none, in its runtime parameters' types and its result, so that
 ||| no level of the callee's reads as one of the caller's.
 inCaller : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           FC -> String -> ArgValues -> (List PKind, ClosedTerm) -> Front (List PKind, ClosedTerm)
-inCaller fc owner vals (kinds, res) = case telescopeOf kinds of
+           FC -> String -> ArgValues -> Classified arity -> Front (Classified arity)
+inCaller fc owner vals (kinds, res) = case telescopeOf (toList kinds) of
   [] => pure (kinds, res)
   _ => do
-    forms <- indexForms kinds vals
+    forms <- indexForms (toList kinds) vals
     kinds' <- traverse (kindAt forms) kinds
     res' <- normaliseClosed (atLevels forms res)
     pure (kinds', res')
@@ -537,8 +544,8 @@ inCaller fc owner vals (kinds, res) = case telescopeOf kinds of
 ||| use of a primitive's or a library function's signature reads.
 export
 classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               FC -> String -> Nat -> ClosedTerm -> ArgValues ->
-               Front Classified
+               FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues ->
+               Front (Classified arity)
 classifyCall fc owner arity ty vals = inCaller fc owner vals !(classifyAt fc owner 0 arity ty vals)
 
 ||| An instance's own signature, classified on the static arguments it was
@@ -546,6 +553,6 @@ classifyCall fc owner arity ty vals = inCaller fc owner vals !(classifyAt fc own
 ||| scope binds first.
 export
 classifyInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                   FC -> String -> Nat -> ClosedTerm -> ArgValues ->
-                   Front Classified
+                   FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues ->
+                   Front (Classified arity)
 classifyInstance fc owner arity ty vals = classifyAt fc owner 0 arity ty vals

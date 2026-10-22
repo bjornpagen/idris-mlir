@@ -82,8 +82,9 @@ parameterNames : TT vs -> List Name
 parameterNames (Bind _ x (Pi {}) sc) = x :: parameterNames sc
 parameterNames _ = []
 
-||| Every variable of a scope, the first first, as a term of it.
-variablesOf : (vs : Scope) -> List (TT vs)
+||| Every variable of a scope, the first first, as a term of it: one per
+||| name the scope has.
+variablesOf : (vs : Scope) -> Vect (length vs) (TT vs)
 variablesOf [] = []
 variablesOf (v :: vs) = Local EmptyFC Nothing 0 First :: map weaken (variablesOf vs)
 
@@ -103,7 +104,7 @@ translateDefinition p n = do
   False <- pure (contains address before.refused)
     | True => pure ()
   Nothing <- heldChoice p.kinds
-    | Just (at, j, ty) => heldDispatch p at j ty
+    | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
   let fc = location def
   Just m <- pure d.matched
     | Nothing => reject fc owner DefinitionShape "not a pattern-matching definition"
@@ -112,7 +113,8 @@ translateDefinition p n = do
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
-  (kinds, resTy) <- classifyInstance fc owner (length m.args) ty (givenArgs p.kinds)
+  (found, resTy) <- classifyInstance fc owner (length m.args) ty (givenArgs p.kinds)
+  let kinds = toList found
   resTy' <- normaliseClosed resTy
   result <- coreType fc owner ValueType resTy'
   (params, env) <- pure (runtimeParams 0 (parameterNames ty) kinds)
@@ -122,11 +124,12 @@ translateDefinition p n = do
   -- equal to the parameter or the runtime size that fixes it first; an
   -- instance with no array parameter has none to state.
   ties <- if any (isJust . valueDims . (.type)) (runtimeBinders kinds)
-            then (entryTies . fst) <$> sizedTelescope (length m.args) ty kinds
+            then (entryTies . fst) <$> sizedTelescope ty kinds
             else pure []
   let body = tied loc (allFins (Runtimes kinds)) ties tree'
   -- What Idris proved of its loops, read with the program for every
-  -- definition read (`Recursion`).
+  -- definition read (`Recursion`), in a table its addresses key, whose
+  -- type does not say every definition read has an entry.
   let Just termination = lookup address (!reading).loops
     | Nothing => internal fc (owner ++ " has no component of Idris's call graph read")
   updateState (derive { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
@@ -143,25 +146,30 @@ translateDefinition p n = do
       Let loc (shown "tied") (OfValue Many) (Tie loc (Var loc p) (map (\(k, w) => (k, witnessTerm loc vs w)) axes))
           (rename (\y => if y == p then FZ else FS y) (tied loc vs rest body))
 
+||| The scope a member at a use's body is in: its parameters' names, the
+||| form's type's and the form's, as the type it is applied as by binds
+||| them (`Application`), then `x` for each of the use's arguments.
+appliedScope : Application -> Nat -> Scope
+appliedScope app uses = app.formType :: app.form :: replicate uses (UN (Basic (known Kx)))
+
 ||| Translates a member at a use's types (`AtUse uses`): its body is its
 ||| form, its second parameter, applied to the use's arguments, its
 ||| parameters after it, as the form is applied wherever a scope binds it
 ||| (`Terms.implementationAt`), on a path of its own, at the type the use
 ||| gives. Its parameters are classified over `Instances.applicationType`,
-||| the form's type keying it first. It has no loop of its own: what its
-||| form calls is the callee's.
+||| the form's type keying it first, in the scope `appliedScope` names. It
+||| has no loop of its own: what its form calls is the callee's.
 translateApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Nat -> Front ()
 translateApplication p uses = do
   let owner = show p.owner
   let fc = p.site
-  ty <- applicationType
-  (kinds, resTy) <- classifyInstance fc owner (2 + uses) ty (givenArgs p.kinds)
+  app <- (.application) <$> reading
+  (found, resTy) <- classifyInstance fc owner (2 + uses) app.type (givenArgs p.kinds)
+  let kinds = toList found
   resTy' <- normaliseClosed resTy
   result <- coreType fc owner ValueType resTy'
-  let names = parameterNames ty ++ replicate uses (UN (Basic (known Kx)))
-  (params, env) <- pure (runtimeParams 0 names kinds)
-  let (_ :: form :: arguments) = variablesOf names
-    | _ => internal fc "a member at a use with no form to apply"
+  (params, env) <- pure (runtimeParams 0 (appliedScope app uses) kinds)
+  let (_ :: form :: arguments) = variablesOf (appliedScope app uses)
   -- No definition is translated, so what its result is the instance
   -- decides.
   body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True resTy' ByInstance p) env resTy'
@@ -177,10 +185,10 @@ translateApplication p uses = do
 ||| fixed, so no tree takes apart a field the program does not fix.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Front ()
 translateInstance p = case p.instantiates of
-  OfDefinition n => translateDefinition p n
+  OfDefinition n _ => translateDefinition p n
   AtUse uses => do
     Nothing <- heldChoice p.kinds
-      | Just (at, j, ty) => heldDispatch p at j ty
+      | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
     translateApplication p uses
 
 ||| One step of the translation's worklist: the instance of a request, the
@@ -205,7 +213,10 @@ export
 mainRequest : {auto c : Ref Ctxt Defs} -> FC -> Name -> (found : TS) -> Front (FnId, Derived)
 mainRequest fc main found = do
   s <- core (newRef TState ({ derived := startingFrom found.table } found))
-  inst <- request fc (show main) (OfDefinition main) []
+  d <- lookupDef fc (show main) main
+  let PMDef _ params _ = definition d.def
+    | _ => reject (location d.def) (show (fullname d.def)) DefinitionShape "not a pattern-matching definition"
+  inst <- request fc (show main) (OfDefinition main (length params)) []
   pure (inst, (!getState).derived)
 
 ||| Every dispatch written as the function it is (`dispatchers`), as a step
@@ -295,6 +306,9 @@ translateIOProgram fc main = do
   st <- getState
   let owner = show main
   let notIO = reject fc owner ProgramShape "main must have type IO ()"
+  -- The worklist translates every instance requested, main's first, and
+  -- writes each one's function in the table this reads, by an identity
+  -- the table's type does not tie to a function.
   let Just mainFn = lookup inst st.table.fns
     | Nothing => internal fc "main was not translated"
   let FunT (MkBinder _ WorldT) res@(DataT _ _) = mainFn.result

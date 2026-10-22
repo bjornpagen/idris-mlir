@@ -187,6 +187,21 @@ runtimeBinders (k :: ks) = before (boundAtRuntime k) (runtimeBinders ks)
     before (Just b) bs = b :: bs
     before Nothing bs = bs
 
+||| The parameters at run time of a call's first `m` kinds and of the rest
+||| are all of its parameters at run time: what a call gives and what its
+||| closures take are as many as its callee has.
+export
+runtimesSplit : (m : Nat) -> (ks : List PKind) -> Runtimes (take m ks) + Runtimes (drop m ks) = Runtimes ks
+runtimesSplit Z [] = Refl
+runtimesSplit Z (k :: ks) = Refl
+runtimesSplit (S m) [] = Refl
+runtimesSplit (S m) (k :: ks) =
+  step {a = Runtimes (take m ks)} {c = Runtimes (drop m ks)} {d = Runtimes ks} (boundAtRuntime k) (runtimesSplit m ks)
+  where
+    step : {0 a, c, d : Nat} -> (b : Maybe Binder) -> a + c = d -> counted b a + c = counted b d
+    step (Just _) prf = cong S prf
+    step Nothing prf = prf
+
 ------------------------------------------------------------------------------
 -- Size variables and ties
 ------------------------------------------------------------------------------
@@ -276,10 +291,12 @@ Telescope r = List (SizedParam r)
 ||| standing for themselves, a runtime value its shape where the instance
 ||| is keyed by it, and any other parameter itself, which only an extent, a
 ||| natural, can show. A binder that is not yet a pi may become one once
-||| normalised: the type is read through definitions that compute it.
+||| normalised: the type is read through definitions that compute it. The
+||| kinds are one per parameter the type is read at, so they alone say how
+||| many binders are read.
 export
-sizedTelescope : Nat -> ClosedTerm -> (kinds : List PKind) -> Front (Telescope (Runtimes kinds), ClosedTerm)
-sizedTelescope arity ty kinds = go 0 arity ty kinds
+sizedTelescope : ClosedTerm -> (kinds : List PKind) -> Front (Telescope (Runtimes kinds), ClosedTerm)
+sizedTelescope ty kinds = go 0 ty kinds
   where
     value : Nat -> PKind -> ClosedTerm
     value i (TypeParam t) = t
@@ -298,21 +315,24 @@ sizedTelescope arity ty kinds = go 0 arity ty kinds
     here (Just b) = Just (FZ, b)
     here Nothing = Nothing
 
-    go : Nat -> Nat -> ClosedTerm -> (ks : List PKind) -> Front (Telescope (Runtimes ks), ClosedTerm)
-    go i Z t [] = pure ([], !(normaliseClosed t))
-    go i (S j) t (k :: ks) = do
+    go : Nat -> ClosedTerm -> (ks : List PKind) -> Front (Telescope (Runtimes ks), ClosedTerm)
+    go i t [] = pure ([], !(normaliseClosed t))
+    go i t (k :: ks) = do
       t' <- case t of
               Bind _ _ (Pi {}) _ => pure t
               _ => normaliseClosed t
+      -- The classification read a binder here, over the arguments'
+      -- values, where this reads each size variable as itself: two walks
+      -- of one type, so a type that reduces on what they substitute can
+      -- show a binder to one and not the other.
       let Bind _ _ (Pi _ _ _ a) sc = t'
         | _ => internal EmptyFC ("a parameter past the binders of " ++ show t')
       a' <- normaliseClosed a
       dims <- case (.type) <$> boundAtRuntime k of
                 Just (TensorT ds _) => pairDims ds <$> dimensionSources a'
                 _ => pure []
-      (rest, res) <- go (S i) j (subst (value i k) sc) ks
+      (rest, res) <- go (S i) (subst (value i k) sc) ks
       pure (MkSizedParam k a' (here (boundAtRuntime k)) dims :: map (later (boundAtRuntime k)) rest, res)
-    go i _ t _ = internal EmptyFC ("parameter kinds other than the arity of " ++ show t)
 
 ||| How a dimension's value is had from the runtime parameters: the
 ||| natural at runtime parameter `i`, or axis `k` of the array there.

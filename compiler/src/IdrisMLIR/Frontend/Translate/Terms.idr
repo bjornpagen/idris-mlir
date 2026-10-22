@@ -432,12 +432,12 @@ applyAtUse : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Sco
 applyAtUse ctx env fc loc t form value args = do
   ty <- applicationType
   let vals = Just (known t AValue) :: Just form :: map (argValueIn env fc) args
-  (kinds, _) <- classifyCall fc ctx.owner (2 + length args) ty vals
-  let (_ :: formKind :: useKinds) = kinds
-    | _ => internal fc "a member at a use classified without its form"
+  (found, _) <- classifyCall fc ctx.owner (2 + length args) ty vals
+  let (_ :: formKind :: useKinds) = found
+  let kinds = toList found
   inst <- calleeAt (choicesIn kinds) fc ctx.owner (AtUse (length args)) kinds
   formGiven <- formValue (boundAtRuntime formKind)
-  given <- uses useKinds args
+  given <- uses (toList useKinds) args
   is <- callIndices kinds vals
   pure (Call loc inst Nothing is (formGiven ++ given))
   where
@@ -460,6 +460,8 @@ applyAtUse ctx env fc loc t form value args = do
     uses (ValueParam {} :: ks) (x :: xs) = (::) <$> x.translated <*> uses ks xs
     uses (ChoiceParam {} :: ks) (x :: xs) = (::) <$> x.translated <*> uses ks xs
     uses (DictParam _ (Just _) :: ks) (x :: xs) = do
+      -- The classification read these values to give the argument this
+      -- kind, which keeps their types, not them: read again here.
       Just (_, held) <- x.held
         | Nothing => internal fc "the values an implementation closes over are gone"
       v <- pack fc ctx.owner loc !(valuesOf held)
@@ -553,10 +555,10 @@ mutual
   term ph w acc ctx env (Bind fc x (Lam lfc rig _ ty) sc) =
     case use rig of
       Erased => term ph w acc ctx (TypeValue (Erased fc Placeholder) :: env) sc
-      Used _ => do
+      Used q => do
         loc <- toLoc (bestFC ctx fc)
         known <- closeNormalise fc env ty
-        b <- closureBinder <$> coreBinder (bestFC ctx fc) ctx.owner ValueType rig known
+        b <- closureBinder <$> coreBinder (bestFC ctx fc) ctx.owner ValueType q known
         body <- term ph w acc ctx (under {k = 1} [Runtime FZ (Just b.type) (Just known)] env) sc
         pure (Lam loc (binderName x) b body)
   term ph w acc ctx env (TDelay fc _ _ arg) = suspend ph w acc ctx env fc arg
@@ -566,7 +568,10 @@ mutual
   term ph w acc ctx env (As fc _ _ pat) = term ph w acc ctx env pat
   term ph w acc ctx env (App fc f a) = spine ph w acc ctx env fc f [argOf ph w acc ctx env fc a]
   term ph w acc ctx env (Ref fc nt n) = applyRef {vars} ph w acc ctx env fc fc nt n []
-  term ph w acc ctx env (Bind fc _ _ _) = internal (bestFC ctx fc) "a binder in a runtime position"
+  -- A pattern binder: TT admits one in any term, and only Idris's
+  -- elaborator, whose output the compiler reads when it runs, keeps them
+  -- to left-hand sides, which no term translated here is.
+  term ph w acc ctx env (Bind fc _ _ _) = internal (bestFC ctx fc) "a pattern binder in a right-hand side"
 
   ||| A chain of `let`s and `Delay`s, read as `delayedLets` moves the `let`s:
   ||| the location of each `Delay` met, outermost first, and the `let`s
@@ -602,27 +607,28 @@ mutual
         loc <- toLoc (bestFC ctx fc)
         known <- closeNormalise fc env ty
         True <- polymorphicType known
-          | False => runtimeLet loc known
+          | False => runtimeLet q loc known
         impl <- solved (closeWritten fc env val)
         if not !(runtimeDependent impl)
           then do
             FixedNow <- fixing known impl
-              | ChosenAtRunTime _ => runtimeLet loc known
+              | ChosenAtRunTime _ => runtimeLet q loc known
             body (Static impl Nothing :: env)
           else do
             Just (shape, values) <- holed ph w acc ctx env fc val
-              | Nothing => runtimeLet loc known
+              | Nothing => runtimeLet q loc known
             FixedNow <- fixing known shape
-              | ChosenAtRunTime _ => runtimeLet loc known
+              | ChosenAtRunTime _ => runtimeLet q loc known
             held <- coreType fc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack fc ctx.owner loc !(valuesOf values)
             (r', inner) <- body (under {k = 1} [Static shape (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
             pure (r', Let loc (binderName x) (Checked (MkBinder Many held)) v inner)
     where
-      -- The value computed and bound by a `let`, a runtime value.
-      runtimeLet : Loc -> ClosedTerm -> Front (r, Term nv)
-      runtimeLet loc known = do
-        b <- coreBinder (bestFC ctx fc) ctx.owner ValueType rig known
+      -- The value computed and bound by a `let`, a runtime value used as
+      -- the `let`'s quantity says.
+      runtimeLet : Uses -> Loc -> ClosedTerm -> Front (r, Term nv)
+      runtimeLet q loc known = do
+        b <- coreBinder (bestFC ctx fc) ctx.owner ValueType q known
         v <- term ph w acc ctx env val
         (r', inner) <- body (under {k = 1} [Runtime FZ (Just b.type) (Just known)] env)
         pure (r', Let loc (binderName x) (Checked b) v inner)
@@ -700,14 +706,14 @@ mutual
         _ => do
           fixedHere <- compileTimeBinder rig ty
           loc <- toLoc (bestFC ctx bfc)
-          if fixedHere then dictionary loc else asValue loc
+          if fixedHere then dictionary q loc else asValue q loc
     where
-      -- The argument as a runtime value, bound by a `let`: a choice of an
-      -- implementation among others (`Choices`).
-      asValue : Loc -> Front (Term nv)
-      asValue loc = do
+      -- The argument as a runtime value, bound by a `let` at the binder's
+      -- quantity: a choice of an implementation among others (`Choices`).
+      asValue : Uses -> Loc -> Front (Term nv)
+      asValue q loc = do
         known <- closeNormalise bfc env ty
-        b <- coreBinder (bestFC ctx bfc) ctx.owner ValueType rig known
+        b <- coreBinder (bestFC ctx bfc) ctx.owner ValueType q known
         v <- a.translated
         body <- spine ph w acc ctx (under {k = 1} [Runtime FZ (Just b.type) (Just known)] env) afc sc (map underLet rest)
         pure (Let loc (binderName x) (Checked b) v body)
@@ -720,20 +726,20 @@ mutual
       -- program chooses, or a definition Idris does not prove ends
       -- computes, is computed when the program runs: a choice, bound as a
       -- value.
-      dictionary : Loc -> Front (Term nv)
-      dictionary loc = do
+      dictionary : Uses -> Loc -> Front (Term nv)
+      dictionary q loc = do
         known <- closeNormalise bfc env ty
         impl <- solved (closeWritten bfc env a.written)
         if not !(runtimeDependent impl)
           then do
             FixedNow <- fixing known impl
-              | ChosenAtRunTime _ => asValue loc
+              | ChosenAtRunTime _ => asValue q loc
             spine ph w acc ctx (Static impl Nothing :: env) afc sc (map overBinder rest)
           else do
             Just (shape, values) <- a.held
-              | Nothing => asValue loc
+              | Nothing => asValue q loc
             FixedNow <- fixing known shape
-              | ChosenAtRunTime _ => asValue loc
+              | ChosenAtRunTime _ => asValue q loc
             held <- coreType bfc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack bfc ctx.owner loc !(valuesOf values)
             body <- spine ph w acc ctx
@@ -760,9 +766,13 @@ mutual
     -- Idris's quantity check of a clause keeps a binder of quantity 0 out
     -- of every position that exists at runtime, a leaf reads each binder
     -- where its clause holds it at runtime (`Cases.heldAt`), and the
-    -- translation leaves out every erased position.
+    -- translation leaves out every erased position. The check is Idris's,
+    -- of the program the compiler reads when it runs, and the variable's
+    -- binder does not carry it.
     Just (TypeValue _) => internal (bestFC ctx fc) "a compile-time variable in a runtime position"
     Just (Static t held) => implementationAt ph w acc ctx env fc t held args
+    -- The environment is a list beside the term's scope, not indexed by
+    -- it, so a variable the scope holds can still miss it.
     Nothing => internal (bestFC ctx fc) "a variable out of scope"
     where
       applied : Fin nv -> Front (Term nv)
@@ -830,8 +840,13 @@ mutual
             Ctx -> List (VarInfo (Fin nv)) -> (afc : FC) -> (fc : FC) -> Name -> Int -> List (TT vars) ->
             List (Arg vars nv) -> Front (Term nv)
   entered ph w acc@(Access rec) ctx env afc fc n i margs args = do
+    -- The metavariable's entry is Idris's bare `Int`, which a resolved
+    -- name of the context the compiler reads when it runs never makes
+    -- negative.
     let Just place = placementOf i
       | Nothing => internal (bestFC ctx fc) "a metavariable at a negative place"
+    -- Idris's occurs check keeps a solution from holding its own
+    -- metavariable, in the context the compiler reads when it runs.
     let Just (Element w' less) = enter place w
       | Nothing => internal (bestFC ctx fc) "a metavariable met again on its own path"
     Just tm <- solution (bestFC ctx fc) n margs
@@ -928,19 +943,15 @@ mutual
   ||| A value an implementation closes over, computed inside a settled term
   ||| (`holed`): translated in the settled phase, its markers the variables
   ||| they stand for, on a path that enters the definition that gives the
-  ||| implementation. A value of it computed inside another of its own
-  ||| values would translate without end, and is the one case refused.
+  ||| implementation, whose place `holed` found it under (`gives`). A value
+  ||| of it computed inside another of its own values would translate
+  ||| without end, and is the one case refused.
   settledPiece : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Ctx -> List (VarInfo (Fin nv)) -> FC -> (impl : ClosedTerm) ->
+                 Ctx -> List (VarInfo (Fin nv)) -> FC -> (giver : Placement) -> (impl : ClosedTerm) ->
                  (stands : List (VarInfo (Fin nv))) -> TT vars -> Front (Term nv)
-  settledPiece ph w acc@(Access rec) ctx env afc impl stands p = do
-    -- `holed` takes a value apart only under a definition that gives an
-    -- implementation (`gives`), which is the head of `impl`.
-    Just place <- formHead impl
-      | Nothing => internal (bestFC ctx afc) ("a value closed over by an implementation no definition gives: " ++
-                                              !(showTT impl))
-    let Just (Element w' less) = enter place w
+  settledPiece ph w acc@(Access rec) ctx env afc giver impl stands p = do
+    let Just (Element w' less) = enter giver w
       | Nothing => reject (bestFC ctx afc) ctx.owner RuntimeClosure
                           ("a value an implementation closes over, computed inside another of its own: " ++
                            !(showTT impl))
@@ -1039,11 +1050,12 @@ mutual
       -- A value of the implementation: a runtime variable as itself, any
       -- other computed from the variables in the next phase, or, in a
       -- settled term, in the settled phase on a path that enters the
-      -- definition that gives the implementation (`settledPiece`).
-      piece : Phase -> ClosedTerm -> ClosedTerm -> Front (Front (Term nv))
-      piece ph'@Settled impl p =
-        pure (settledPiece ph' w acc ctx env afc (restore impl) stands (embedClosed {vars} p))
-      piece (Written next) _ p = do
+      -- definition that gives the implementation (`settledPiece`), at the
+      -- place it was found under.
+      piece : Phase -> Placement -> ClosedTerm -> ClosedTerm -> Front (Front (Term nv))
+      piece ph'@Settled giver impl p =
+        pure (settledPiece ph' w acc ctx env afc giver (restore impl) stands (embedClosed {vars} p))
+      piece (Written next) _ _ p = do
         loc <- toLoc (bestFC ctx afc)
         pure (bindStands next start (sizeAccessible start) ctx env loc 0 id (map AsVariable stands) (embedClosed {vars} p))
 
@@ -1055,12 +1067,12 @@ mutual
         _ => Nothing
       variableOf _ = Nothing
 
-      value : ClosedTerm -> ClosedTerm -> ClosedTerm -> Front (Maybe (ClosedTerm, Found nv))
-      value impl aty p = case variableOf p of
+      value : Placement -> ClosedTerm -> ClosedTerm -> ClosedTerm -> Front (Maybe (ClosedTerm, Found nv))
+      value giver impl aty p = case variableOf p of
         Just v => do
           loc <- toLoc (bestFC ctx afc)
           pure (Just (foundMarker 0, [(Just v, aty, pure (Var loc v))]))
-        Nothing => (\t => Just (foundMarker 0, [(Nothing, aty, t)])) <$> piece ph impl p
+        Nothing => (\t => Just (foundMarker 0, [(Nothing, aty, t)])) <$> piece ph giver impl p
 
       -- Does a definition give an implementation without matching on
       -- its arguments: one with one right-hand side, or a constructor
@@ -1101,23 +1113,24 @@ mutual
       -- an implementation the running program chooses computes one: a
       -- value like any other, the implementation holding the choice its
       -- constraint made.
-      part : ClosedTerm -> ClosedTerm -> ClosedTerm -> Lazy (Front (Maybe (ClosedTerm, Found nv))) ->
+      part : Placement -> ClosedTerm -> ClosedTerm -> ClosedTerm -> Lazy (Front (Maybe (ClosedTerm, Found nv))) ->
              Front (Maybe (ClosedTerm, Found nv))
-      part impl aty a walked = do
+      part giver impl aty a walked = do
         aty' <- normaliseClosed aty
-        if not !(implementationType aty') || isJust (variableOf a) then value impl aty' a else do
+        if not !(implementationType aty') || isJust (variableOf a) then value giver impl aty' a else do
           Just (form, found) <- walked
-            | Nothing => value impl aty' a
+            | Nothing => value giver impl aty' a
           FixedNow <- fixing aty' form
-            | ChosenAtRunTime _ => value impl aty' a
+            | ChosenAtRunTime _ => value giver impl aty' a
           pure (Just (form, found))
 
-      -- The arguments of a definition that gives `impl`, over its type,
-      -- each found value numbered from 0 among the arguments' together.
-      parts : ClosedTerm -> ClosedTerm -> List (ClosedTerm, Lazy (Front (Maybe (ClosedTerm, Found nv)))) ->
+      -- The arguments of a definition that gives `impl`, at the place
+      -- `giver`, over its type, each found value numbered from 0 among the
+      -- arguments' together.
+      parts : Placement -> ClosedTerm -> ClosedTerm -> List (ClosedTerm, Lazy (Front (Maybe (ClosedTerm, Found nv)))) ->
               Front (Maybe (List ClosedTerm, Found nv))
-      parts impl _ [] = pure (Just ([], []))
-      parts impl ty ((a, walked) :: as) = do
+      parts giver impl _ [] = pure (Just ([], []))
+      parts giver impl ty ((a, walked) :: as) = do
         let written = restore a
         dependent <- runtimeDependent written
         ty' <- normaliseClosed ty
@@ -1125,11 +1138,11 @@ mutual
         here <- case (at, dependent) of
                   (Just (Erased, _), _) => pure (Just (written, the (Found nv) []))
                   (_, False) => pure (Just (written, the (Found nv) []))
-                  (Just (Used _, aty), True) => part impl aty a walked
+                  (Just (Used _, aty), True) => part giver impl aty a walked
                   (Nothing, True) => pure Nothing
         let Just (v, found) = here
           | Nothing => pure Nothing
-        Just (vs, after) <- parts impl (rest v) as
+        Just (vs, after) <- parts giver impl (rest v) as
           | Nothing => pure Nothing
         pure (Just (v :: map (shifted foundName (length found) (length after)) vs, found ++ after))
 
@@ -1186,7 +1199,7 @@ mutual
         d <- lookupDef rfc ctx.owner n
         True <- gives d
           | False => closedOver impl
-        Just (vs, found) <- parts impl d.type args
+        Just (vs, found) <- parts d.placement impl d.type args
           | Nothing => pure Nothing
         pure (Just (foldl (App rfc) (Ref rfc nt n) vs, found))
       headed impl lam@(Bind _ _ (Lam {}) _) [] = captured lam
@@ -1319,6 +1332,10 @@ mutual
         ExternDef arity => hooked fc loc full lowered arity d ty hs
                              (reject fc ctx.owner EscapeHatch ("extern function " ++ show full))
         Hole {} => reject fc ctx.owner EscapeHatch ("the hole " ++ show full)
+        -- A definition Idris left unfinished (no body, a guess, a pending
+        -- search or default): its checker finishes every definition a
+        -- checked program reaches, in the context the compiler reads when
+        -- it runs, and the context's type of a definition does not say so.
         _ => internal fc ("a reference to " ++ show full)
     where
       -- The member of its type's choice an implementation or a
@@ -1353,24 +1370,36 @@ mutual
           _ => pure Nothing
 
       -- The runtime arguments of a call of a callee whose member places
-      -- are `places`, one term per parameter that exists at runtime:
+      -- are `places`, one term per parameter that exists at runtime among
+      -- those the arguments given reach, as many as its type says:
       -- nothing for a type, an implementation or an argument of quantity
       -- 0. An implementation that closes over runtime values passes them,
       -- as one value (`packedType`); a choice of one is its value.
-      arguments : Loc -> MemberPlaces -> List PKind -> List (Arg vars nv) -> Front (List (Term nv))
+      arguments : Loc -> MemberPlaces -> (ks : List PKind) -> (ys : List (Arg vars nv)) ->
+                  Front (Vect (Runtimes (take (length ys) ks)) (Term nv))
       arguments loc places = from 0
         where
           -- From the parameter at position `j`.
-          from : Nat -> List PKind -> List (Arg vars nv) -> Front (List (Term nv))
+          from : Nat -> (ks : List PKind) -> (ys : List (Arg vars nv)) ->
+                 Front (Vect (Runtimes (take (length ys) ks)) (Term nv))
+          from j [] [] = pure []
+          from j [] (_ :: _) = pure []
+          from j (_ :: _) [] = pure []
           from j (ValueParam _ _ t :: ks) (x :: xs) = (::) <$> valueAt loc places j t x <*> from (S j) ks xs
           from j (ChoiceParam {} :: ks) (x :: xs) = (::) <$> x.translated <*> from (S j) ks xs
           from j (DictParam _ (Just _) :: ks) (x :: xs) = do
+            -- The classification read this argument's held values to give
+            -- it this kind, and the kind keeps their types, not them: this
+            -- reads them again, the same computation over the same state.
             Just (_, held) <- x.held
               | Nothing => internal afc "the values an implementation closes over are gone"
             v <- pack afc ctx.owner loc !(valuesOf held)
             (v ::) <$> from (S j) ks xs
-          from j (_ :: ks) (_ :: xs) = from (S j) ks xs
-          from j _ _ = pure []
+          from j (DictParam _ Nothing :: ks) (_ :: xs) = from (S j) ks xs
+          from j (TypeParam _ :: ks) (_ :: xs) = from (S j) ks xs
+          from j (ErasedParam :: ks) (_ :: xs) = from (S j) ks xs
+          from j (IndexParam _ :: ks) (_ :: xs) = from (S j) ks xs
+          from j (FormParam _ :: ks) (_ :: xs) = from (S j) ks xs
 
       -- A runtime argument, at position `j` of a callee whose member places
       -- are `places`. A lambda given where a polymorphic function is held
@@ -1404,17 +1433,16 @@ mutual
       -- every parameter, applied to the arguments past them over the
       -- callee's result type (`resTy`); with fewer, one closure per missing
       -- runtime parameter, as the curried type of the result requires. The
-      -- arguments given (`arguments`) and the closures' parameters are as
-      -- many as the call has runtime parameters, which is what `mk` takes.
-      finish : Loc -> (kinds : List PKind) -> Nat -> List (Term nv) ->
-               Maker (Runtimes kinds) -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
-      finish loc kinds arity given mk resTy xs = do
+      -- arguments given (`arguments`, over the first `arity` of `xs`) and
+      -- the closures' parameters are as many as the call has runtime
+      -- parameters, which is what `mk` takes (`runtimesSplit`).
+      finish : Loc -> (kinds : List PKind) -> (arity : Nat) -> (xs : List (Arg vars nv)) ->
+               Vect (Runtimes (take (length (take arity xs)) kinds)) (Term nv) ->
+               Maker (Runtimes kinds) -> ClosedTerm -> Front (Term nv)
+      finish loc kinds arity xs given mk resTy = do
         let missing = drop (length (take arity xs)) kinds
-        let Yes counted = decEq (length given + Runtimes missing) (Runtimes kinds)
-          | No _ => internal afc ("a call of " ++ show name ++ " given " ++ show (length given) ++
-                                  " runtime arguments, missing " ++ show (Runtimes missing) ++ ", of its " ++
-                                  show (Runtimes kinds))
-        let made = etaExpand loc (runtimeBinders missing) (recount counted mk) (fromList given)
+        let made = etaExpand loc (runtimeBinders (drop (length (take arity xs)) kinds))
+                             (recount (runtimesSplit (length (take arity xs)) kinds) mk) given
         -- A type or a form the call leaves out was refused where the
         -- call's arguments were classified, and an implementation it
         -- leaves out is a choice, so the missing ones are runtime
@@ -1453,6 +1481,8 @@ mutual
           Just (DictParam _ (Just _)) => do
             let Just x = getAt idx xs
               | Nothing => pure Nothing
+            -- Read again, as the classification read them to give this
+            -- kind, which keeps their types, not them.
             Just (shape, held) <- x.held
               | Nothing => internal fc "the values an implementation closes over are gone"
             Just field <- projected n (replaceAt idx shape statics)
@@ -1470,12 +1500,12 @@ mutual
       -- fixes (a natural, or a dimension of an array argument) stated equal
       -- to it, the arguments bound once. `is` are the terms the call gives
       -- its callee's index parameters.
-      tiedCall : FC -> Loc -> FnId -> Maybe Shown -> List ITerm -> Nat -> ClosedTerm -> (kinds : List PKind) ->
+      tiedCall : FC -> Loc -> FnId -> Maybe Shown -> List ITerm -> ClosedTerm -> (kinds : List PKind) ->
                  ClosedTerm -> Front (Maker (Runtimes kinds))
-      tiedCall fc loc inst lowered is arity ty kinds resTy = do
+      tiedCall fc loc inst lowered is ty kinds resTy = do
         Just _ <- arrayView resTy
           | Nothing => pure (listed (Call loc inst lowered is))
-        (tel, res) <- sizedTelescope arity ty kinds
+        (tel, res) <- sizedTelescope ty kinds
         rt <- coreType fc ctx.owner ValueType resTy
         [] <- resultTies tel res rt
           | ties => pure (MkMaker (\ys => bindEach loc (runtimeBinders kinds) ys (\ren, vs =>
@@ -1491,20 +1521,31 @@ mutual
         let n = fullname callee.def
         let ty = callee.type
         let vals = argValues (take arity xs)
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty vals
+        (found, resTy) <- classifyCall fc ctx.owner arity ty vals
+        let kinds = toList found
         Nothing <- resolveMethod ph fc n kinds xs
           | Just resolved => pure resolved
-        inst <- calleeAt (choicesIn kinds) fc ctx.owner (OfDefinition n) kinds
+        inst <- calleeAt (choicesIn kinds) fc ctx.owner (OfDefinition n arity) kinds
         given <- arguments loc (memberPlaces callee) kinds (take arity xs)
         is <- callIndices kinds vals
-        mk <- tiedCall fc loc inst lowered is arity ty kinds resTy
-        finish loc kinds arity given mk resTy xs
+        mk <- tiedCall fc loc inst lowered is ty kinds resTy
+        finish loc kinds arity xs given mk resTy
+
+      -- A hook whose registry row and definition disagree on what the
+      -- definition takes or gives. The row is the registry's; the
+      -- definition is whatever the loaded module defines at its name, read
+      -- when the compiler runs, and a module may define a name the
+      -- registry keys at another shape. The validation refuses the shapes
+      -- it compares; what only the call reads is refused here, as it does.
+      unshaped : {0 result : Type} -> FC -> String -> Front result
+      unshaped fc what = reject fc (show name) HookShape what
 
       -- The identity on the last runtime argument, wherever it stands among
       -- the proofs and types (a cell's form or a frame's extents before it
       -- are not read); below its arity a closure over its missing
       -- parameters, whose body is the saturated identity, as every hook is
-      -- below its arity.
+      -- below its arity. A definition the row names an identity takes a
+      -- runtime argument, or the row and it disagree (`unshaped`).
       identity : FC -> Loc -> Defined -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       identity fc loc d ty xs = do
         let arity = binders ty
@@ -1512,19 +1553,20 @@ mutual
            then do
              let (now, rest) = splitAt arity xs
              let Just value = lastValue d.taken now
-               | Nothing => internal fc ("the identity " ++ show name ++ " without a runtime argument")
+               | Nothing => unshaped fc "the registry names an identity on its last runtime argument, and it takes none"
              v <- value.translated
              applyOver ctx env fc loc (pure (show name)) v !(typeAfter ty now) rest
            else do
-             (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues xs)
-             given <- arguments loc (memberPlaces d) kinds xs
+             (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues xs)
+             let kinds = toList found
+             given <- arguments loc (memberPlaces d) kinds (take arity xs)
              mk <- lastOf (runtimeBinders kinds)
-             finish loc kinds arity given mk resTy xs
+             finish loc kinds arity xs given mk resTy
         where
           -- Below its arity, the identity's value is its last runtime
           -- argument, which the closures take.
           lastOf : Vect r Binder -> Front (Maker r)
-          lastOf [] = internal fc ("the identity " ++ show name ++ " without a runtime parameter")
+          lastOf [] = unshaped fc "the registry names an identity on its last runtime parameter, and it has none"
           lastOf (_ :: _) = pure (MkMaker (\ys => Data.Vect.last ys))
 
       -- Is the definition being translated one whose calls end the program
@@ -1535,7 +1577,7 @@ mutual
       exiting : Front Bool
       exiting = do
         -- A member at a use is no definition, and so no exit's.
-        let OfDefinition n = ctx.request.instantiates
+        let OfDefinition n _ = ctx.request.instantiates
           | AtUse _ => pure False
         owner <- lookupDef afc ctx.owner n
         pure (namedHooks owner.registered).exits
@@ -1565,15 +1607,16 @@ mutual
       -- world, after which nothing runs.
       exitAction : FC -> Loc -> Nat -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       exitAction fc loc arity ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         mk <- exits (runtimeBinders kinds)
-        finish loc kinds arity given mk resTy xs
+        finish loc kinds arity xs given mk resTy
         where
           -- The action, the last runtime argument, applied to the world;
           -- nothing runs after it.
           exits : Vect r Binder -> Front (Maker r)
-          exits [] = internal fc ("the exit " ++ show name ++ " without its action")
+          exits [] = unshaped fc "the registry names an exit whose action the definition does not take"
           exits (_ :: _) = pure (MkMaker (\ns => Lam noLoc (shown "world") (MkBinder Once WorldT)
                                                   (Let loc (shown "exited") (OfValue Many)
                                                        (App loc (weakenUnder 1 (Data.Vect.last ns)) (Var loc FZ))
@@ -1589,10 +1632,11 @@ mutual
         let PMDef _ params _ = definition def
           | _ => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
         let arity = length params
-        (kinds, _) <- classifyCall fc ctx.owner arity target.type (replicate arity Nothing)
+        (found, _) <- classifyCall fc ctx.owner arity target.type (replicate arity Nothing)
+        let kinds = toList found
         let True = all valueOnly kinds
           | False => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
-        inst <- request fc ctx.owner (OfDefinition (fullname def)) kinds
+        inst <- request fc ctx.owner (OfDefinition (fullname def) arity) kinds
         -- Its runtime arguments are all a call gives it, so no index
         -- parameter of it is given a term it is linked to.
         is <- callIndices kinds (replicate arity Nothing)
@@ -1611,36 +1655,40 @@ mutual
       natOperation : FC -> Loc -> Maybe Shown -> NatMeaning LibraryFunction -> Nat -> ClosedTerm -> List (Arg vars nv) ->
                      Front (Term nv)
       natOperation fc loc lowered m arity ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         case m of
           Primitive {k} p => do
             counted <- operands k kinds
-            finish loc kinds arity given (recount counted (MkMaker (\ns => PrimApp loc p lowered ns))) resTy xs
+            finish loc kinds arity xs given (recount counted (MkMaker (\ns => PrimApp loc p lowered ns))) resTy
           Clamped {k} p => do
             counted <- operands k kinds
-            finish loc kinds arity given
+            finish loc kinds arity xs given
                    (recount counted (MkMaker (\ns => PrimApp loc (Op natFromBig (NatT IOpaque) made) lowered
                                                        [PrimApp loc p lowered (map (\n => PrimApp loc (Op natToBig BigT made) lowered [n]) ns)])))
-                   resTy xs
+                   resTy
           Tested c lib => do
             toBool <- libraryCall fc loc lib
             counted <- operands 2 kinds
-            finish loc kinds arity given (recount counted (MkMaker (\ns => toBool [PrimApp loc (NatCompare c) lowered ns]))) resTy xs
+            finish loc kinds arity xs given (recount counted (MkMaker (\ns => toBool [PrimApp loc (NatCompare c) lowered ns]))) resTy
           OnIntegers lib => do
             f <- libraryCall fc loc lib
-            finish loc kinds arity given (listed (\ns => f (map (\n => PrimApp loc (Op natToBig BigT made) lowered [n]) ns))) resTy xs
+            finish loc kinds arity xs given (listed (\ns => f (map (\n => PrimApp loc (Op natToBig BigT made) lowered [n]) ns))) resTy
         where
           -- The primitive takes the call's runtime arguments, as many as
           -- its operands.
           operands : (k : Nat) -> (kinds : List PKind) -> Front (Runtimes kinds = k)
           operands k kinds = case decEq (Runtimes kinds) k of
             Yes counted => pure counted
-            No _ => internal fc ("the natural operation " ++ show name ++ " of " ++ show k ++ " operands, given " ++
+            No _ => unshaped fc ("the registry's natural operation of " ++ show k ++ " operands, given " ++
                                  show (Runtimes kinds) ++ " runtime arguments")
 
       -- The value of a head that takes one runtime argument, made from it;
       -- a head of another number of them is not the one `wrong` names.
+      -- Idris flags a constructor a successor only where it takes one
+      -- runtime argument, in the context the compiler reads when it runs,
+      -- and the flag does not carry the count.
       single : FC -> String -> ({0 m : Nat} -> Term m -> Term m) -> Vect r Binder -> Front (Maker r)
       single fc wrong f [_] = pure (MkMaker (\[y] => f y))
       single fc wrong f _ = internal fc wrong
@@ -1650,13 +1698,13 @@ mutual
       -- erased indices, as `FS`'s). A successor of a literal is one
       -- literal, so a closed chain of them, a numeral Idris wrote, is one
       -- constant however large, never a chain of additions.
-      natConstructor : FC -> Loc -> NatRole -> List PKind -> Nat -> List (Term nv) ->
-                       ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
-      natConstructor fc loc Zero kinds arity given resTy xs =
-        finish loc kinds arity given (MkMaker (\_ => Literal loc (LNat 0))) resTy xs
-      natConstructor fc loc Succ kinds arity given resTy xs = do
+      natConstructor : FC -> Loc -> NatRole -> (kinds : List PKind) -> (arity : Nat) -> (xs : List (Arg vars nv)) ->
+                       Vect (Runtimes (take (length (take arity xs)) kinds)) (Term nv) -> ClosedTerm -> Front (Term nv)
+      natConstructor fc loc Zero kinds arity xs given resTy =
+        finish loc kinds arity xs given (MkMaker (\_ => Literal loc (LNat 0))) resTy
+      natConstructor fc loc Succ kinds arity xs given resTy = do
         mk <- single fc "a successor without one runtime argument" successor (runtimeBinders kinds)
-        finish loc kinds arity given mk resTy xs
+        finish loc kinds arity xs given mk resTy
         where
           successor : {0 m : Nat} -> Term m -> Term m
           successor (Literal _ (LNat k)) = Literal loc (LNat (k + 1))
@@ -1667,24 +1715,36 @@ mutual
       constructor : FC -> Loc -> Defined -> ClosedTerm -> Nat -> List (Arg vars nv) -> Front (Term nv)
       constructor fc loc d ty arity xs = do
         let def = d.def
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         -- A constructor of Idris's `Nat` is a natural; one of any family,
         -- a numeral family (`Fin`) among them, is the family's.
         family <- dataOf fc ctx.owner !(normaliseClosed resTy)
         case (natRole def, family) of
           (Just role, Nothing) => do
             given <- arguments loc (memberPlaces d) kinds (take arity xs)
-            natConstructor fc loc role kinds arity given resTy xs
+            natConstructor fc loc role kinds arity xs given resTy
+          -- A constructor's type ends in its type constructor, and one that
+          -- names no family and no natural is a type the registry gives a
+          -- representation of its own: a value array, abstract, which only
+          -- the functions the registry knows open, their bodies not
+          -- translated; an ordered array or a machine word likewise.
           (_, Nothing) => do
-            -- A value array is abstract: only the functions the registry
-            -- knows open it, and their bodies are not translated.
             Just _ <- arrayView !(normaliseClosed resTy)
-              | Nothing => internal fc "a constructor of a type that is not data"
+              | Nothing => reject fc (show (fullname def)) HookShape
+                             ("the type of " ++ show (fullname def) ++ " has the representation the registry " ++
+                              "gives it: its constructor is applied")
             reject fc (show (fullname def)) HookShape
                    ("the array type of " ++ show (fullname def) ++ " is opaque: its constructor is applied")
           (_, Just (inst, _)) => do
+            -- Its tag is its place among its type's constructors, which
+            -- the family was registered with: Idris's numbering, in the
+            -- context the compiler reads when it runs.
             Just cid <- conIdOf inst d
               | Nothing => internal fc ("the constructor " ++ show (fullname def) ++ " is not registered")
+            -- The family's registration wrote a layout for each of its
+            -- constructors, in a table its identities key, whose type does
+            -- not say every identity it mints has one.
             let Just info = lookupFact (.cons) cid !(getState)
               | Nothing => internal fc ("the constructor " ++ show (fullname def) ++ " is not registered")
             -- Its fields are the call's runtime arguments: an implementation
@@ -1693,11 +1753,14 @@ mutual
             let fields = asFields info.args kinds
             given <- arguments loc (memberPlaces d) fields (take arity xs)
             let (k ** con) = info.con
+            -- The layout's fields and the call's runtime arguments are two
+            -- readings of the constructor's type, the registration's and
+            -- the classification's, which nothing ties to one count.
             let Yes counted = decEq (Runtimes fields) k
               | No _ => internal fc ("the constructor " ++ show (fullname def) ++ " of " ++ show k ++
                                      " fields, given " ++ show (Runtimes fields) ++ " runtime arguments")
             links <- binderTerms con.binders (argValues (take arity xs))
-            finish loc fields arity given (recount counted (MkMaker (\ys => ConApp loc con links ys))) resTy xs
+            finish loc fields arity xs given (recount counted (MkMaker (\ys => ConApp loc con links ys))) resTy
 
       -- A constructor's kinds with each implementation it holds a field:
       -- the field's binder, its value the argument translated, a member of
@@ -1731,29 +1794,34 @@ mutual
           -- of its translation.
           supported : Front (Term nv)
           supported = do
-            (kinds, resTy) <- classifyCall fc ctx.owner arity ty []
+            (found, resTy) <- classifyCall fc ctx.owner arity ty []
+            let kinds = toList found
             result <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
             let Just mk = primTerm loc result op
               | Nothing => reject fc ctx.owner Primitive ("primitive " ++ show n)
+            -- A builtin's arity and its type are both Idris's own, in the
+            -- context the compiler reads when it runs, and the arity its
+            -- definition carries is not tied to its type's binders.
             let Yes counted = decEq (Runtimes kinds) arity
               | No _ => internal fc ("the primitive " ++ show n ++ " given " ++ show (Runtimes kinds) ++
                                      " runtime arguments, of its " ++ show arity)
             given <- arguments loc (memberPlaces d) kinds (take arity xs)
-            finish loc kinds arity given (recount counted (MkMaker mk)) resTy xs
+            finish loc kinds arity xs given (recount counted (MkMaker mk)) resTy
 
       -- A string built once from a list: the primitive of the one
       -- parameter, a list, which it takes at the list's own instance.
       builderCall : FC -> Loc -> Maybe Shown -> Nat -> PureOp -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       builderCall fc loc lowered arity p ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty []
+        (found, resTy) <- classifyCall fc ctx.owner arity ty []
+        let kinds = toList found
         case kinds of
           [ValueParam (MkBinder _ (DataT _ _)) _ _] => pure ()
-          _ => internal fc "a string built from something other than a list"
+          _ => unshaped fc "the registry's string builder, given something other than a list"
         let Yes counted = decEq (Runtimes kinds) p.arity
-          | No _ => internal fc ("the string builder " ++ show name ++ " of another number of operands")
+          | No _ => unshaped fc "the registry's string builder, of another number of operands"
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         result <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
-        finish loc kinds arity given (recount counted (MkMaker (\ys => PrimApp loc (Op p.op result made) lowered ys))) resTy xs
+        finish loc kinds arity xs given (recount counted (MkMaker (\ys => PrimApp loc (Op p.op result made) lowered ys))) resTy
 
       -- A call of the library function a foreign definition stands for, as
       -- it was read with the definition (`LibraryFunction`).
@@ -1761,7 +1829,7 @@ mutual
       aliasCall fc loc lowered lib xs = do
         target <- lookupDef fc ctx.owner lib.name
         let PMDef _ params _ = definition target.def
-          | _ => internal fc (show lib.named ++ " is not a function to stand for")
+          | _ => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
         call fc loc target lowered (length params) xs
 
       -- What an IO primitive gives besides the next world, as many values
@@ -1780,17 +1848,18 @@ mutual
       pureCall : FC -> Loc -> Maybe Shown -> Nat -> PureOp -> List Lit -> ClosedTerm -> List (Arg vars nv) ->
                  Front (Term nv)
       pureCall fc loc lowered arity p lits ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         let Yes counted = decEq (Runtimes kinds + length lits) p.arity
-          | No _ => internal fc ("the primitive of " ++ show name ++ " given " ++ show (Runtimes kinds) ++
+          | No _ => unshaped fc ("the registry's primitive given " ++ show (Runtimes kinds) ++
                                  " runtime arguments and " ++ show (length lits) ++ " literals, of its " ++
                                  show p.arity ++ " operands")
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         result <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
-        finish loc kinds arity given
+        finish loc kinds arity xs given
                (MkMaker (\ys => PrimApp loc (replace {p = Prim} (sym counted) (Op p.op result made)) lowered
                                   (ys ++ map (Literal loc) (fromList lits))))
-               resTy xs
+               resTy
 
       -- An action's operands and its world, from a call's runtime
       -- arguments, the world last, and the literals the call does not
@@ -1809,15 +1878,16 @@ mutual
       -- world, giving the `IORes` of the call's result type.
       ioCall : FC -> Loc -> Nat -> SomeAction -> List Lit -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       ioCall fc loc arity (MkSomeAction {operands} a) lits ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         res <- onlyCon fc 2 !(coreType fc ctx.owner ValueType !(normaliseClosed resTy))
         what <- gives fc a res
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         let Just split = effectOperands loc (Runtimes kinds) operands lits
-          | Nothing => internal fc ("the IO primitive of " ++ show name ++ " given " ++ show (Runtimes kinds) ++
+          | Nothing => unshaped fc ("the registry's IO primitive given " ++ show (Runtimes kinds) ++
                                     " runtime arguments and " ++ show (length lits) ++ " literals, of its " ++
                                     show operands ++ " operands and the world")
-        finish loc kinds arity given (MkMaker (\ys => (\(os, w) => Effect loc a what os w res) (split ys))) resTy xs
+        finish loc kinds arity xs given (MkMaker (\ys => (\(os, w) => Effect loc a what os w res) (split ys))) resTy
 
       -- The type arguments of a call, in order.
       typeParams : List PKind -> List ClosedTerm
@@ -1835,18 +1905,19 @@ mutual
       -- takes, one size or index per dimension.
       arrayCall : FC -> Loc -> Nat -> ArrayAccess -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       arrayCall fc loc arity access ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         res <- onlyCon fc 2 !(coreType fc ctx.owner ValueType !(normaliseClosed resTy))
         let Just rank = accessRank access (pred (Runtimes kinds))
-          | Nothing => internal fc ("the array access " ++ show name ++ " given " ++ show (Runtimes kinds) ++
+          | Nothing => unshaped fc ("the registry's array access given " ++ show (Runtimes kinds) ++
                                     " runtime arguments, which no rank of an array takes")
         what <- gives fc (Accesses access rank) res
         let Just split = effectOperands loc (Runtimes kinds) (accessOperands access rank) []
-          | Nothing => internal fc ("the array access " ++ show name ++ " given " ++ show (Runtimes kinds) ++
+          | Nothing => unshaped fc ("the registry's array access given " ++ show (Runtimes kinds) ++
                                     " runtime arguments, of its operands and the world")
-        finish loc kinds arity given
-               (MkMaker (\ys => (\(os, w) => Effect loc (Accesses access rank) what os w res) (split ys))) resTy xs
+        finish loc kinds arity xs given
+               (MkMaker (\ys => (\(os, w) => Effect loc (Accesses access rank) what os w res) (split ys))) resTy
 
       -- A primitive the registry lists for a foreign definition, on the
       -- call's arguments and then the literals the call does not supply:
@@ -1854,16 +1925,17 @@ mutual
       primCall : FC -> Loc -> Maybe Shown -> Nat -> ((k ** Prim k), List Lit) -> ClosedTerm -> List (Arg vars nv) ->
                  Front (Term nv)
       primCall fc loc lowered arity ((k ** p), lits) ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         let Yes counted = decEq (Runtimes kinds + length lits) k
-          | No _ => internal fc ("the primitive of " ++ show name ++ " given " ++ show (Runtimes kinds) ++
+          | No _ => unshaped fc ("the registry's primitive given " ++ show (Runtimes kinds) ++
                                  " runtime arguments and " ++ show (length lits) ++ " literals, of its " ++
                                  show k ++ " operands")
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
-        finish loc kinds arity given
+        finish loc kinds arity xs given
                (MkMaker (\ys => PrimApp loc (replace {p = Prim} (sym counted) p) lowered
                                   (ys ++ map (Literal loc) (fromList lits))))
-               resTy xs
+               resTy
 
       -- The constructors of a snoc list of naturals (`Extents`, `Index`),
       -- in tag order, the order the library declares them in: the empty
@@ -1871,12 +1943,15 @@ mutual
       snocCons : FC -> Ty -> Front Snocs
       snocCons fc (DataT inst _) = do
         st <- getState
+        -- A family's identity is minted by its registration, which writes
+        -- it in the table this reads, whose type does not say so.
         let Just decl = familyOf inst st
           | Nothing => internal fc ("extents or coordinates of an undeclared type " ++ show inst)
         let [(0 ** lin), (2 ** snoc)] = decl.cons
-          | _ => internal fc ("extents or coordinates of " ++ show inst ++ ", which is not a snoc list of naturals")
+          | _ => unshaped fc ("the array language's extents or coordinates of " ++ show inst ++
+                              ", which is not a snoc list of naturals")
         pure (MkSnocs lin snoc)
-      snocCons fc t = internal fc ("extents or coordinates of type " ++ show t)
+      snocCons fc t = unshaped fc ("the array language's extents or coordinates of type " ++ show t)
 
       -- Does a new array of this type hold a dynamic dimension past its
       -- first `r` axes, in its cells? A tabulation is given the extents of
@@ -2026,7 +2101,7 @@ mutual
                          (Concat axis (Var loc x) (copies arrTy axis (Var loc x) (Var loc (ren' k)) (Var loc (ren' v))))])))
         (ATabulateIO, [eTy, FunT (MkBinder _ idxTy) (FunT (MkBinder _ WorldT) step@(DataT _ _))]) => do
           FunT _ done@(DataT _ _) <- pure rt
-            | _ => internal fc "a world-ordered tabulation whose result is no action"
+            | _ => unshaped fc "the array language's world-ordered tabulation, whose result is no action"
           stepCon <- onlyCon fc 2 step
           doneCon <- onlyCon fc 2 done
           let arrTy = (Data.Vect.index 0 doneCon.fields).type
@@ -2044,7 +2119,7 @@ mutual
                                                           (map (Var loc . Bound . weaken) (toList (Data.Vect.allFins (length ds))))))
                                               (Var loc (Bound (last {n = length ds}))))
                                      stepCon doneCon))))
-        _ => internal fc ("the array language's " ++ show name ++ " at operand types it does not have")
+        _ => unshaped fc "the array language's function, at operand types it does not have"
         where
           -- The constructor of a linear array's cell, and the dimensions
           -- and element of the array it holds.
@@ -2053,7 +2128,7 @@ mutual
             c <- onlyCon fc 1 t
             case (Data.Vect.head c.fields).type of
               TensorT ds e => pure (c, ds, e)
-              held => internal fc ("a linear array whose cell holds a value of type " ++ show held)
+              held => unshaped fc ("the array language's linear array, whose cell holds a value of type " ++ show held)
 
           -- The type of the cells after the first `r` axes of an array of
           -- `ds` of `e`: its element when they are all its axes.
@@ -2090,7 +2165,7 @@ mutual
           theElement : Front Ty
           theElement = case typeArgs of
             [a] => pure a
-            _ => internal fc ("the array language's " ++ show name ++ " without its one type argument")
+            _ => unshaped fc "the array language's function, without its one type argument"
 
           -- How many axes the cells of an array of arrays take, read from
           -- the Idris type of the array, the last runtime argument: a
@@ -2099,11 +2174,11 @@ mutual
           cellRank : Front Nat
           cellRank = do
             Just outer <- pure (last' idrisTypes)
-              | Nothing => internal fc ("the array language's " ++ show name ++ " without its array")
+              | Nothing => unshaped fc "the array language's function, without its array"
             Just (_, cellTy) <- arrayView outer
-              | Nothing => internal fc ("the array language's " ++ show name ++ " given no array of arrays")
+              | Nothing => unshaped fc "the array language's function, given no array of arrays"
             Just (c, _) <- arrayView cellTy
-              | Nothing => internal fc ("the array language's " ++ show name ++ " given no array of arrays")
+              | Nothing => unshaped fc "the array language's function, given no array of arrays"
             sp <- spineOf fc ctx.owner c
             pure (length sp.axes)
 
@@ -2153,12 +2228,13 @@ mutual
       -- order of the implicits.
       generating : FC -> Loc -> ArrayPrim -> Nat -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       generating fc loc g arity ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        let kinds = toList found
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         rt <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
         typeArgs <- traverse (\t => coreType fc ctx.owner ValueType !(normaliseClosed t)) (typeParams kinds)
         mk <- arrayTerm fc loc g rt (runtimeBinders kinds) typeArgs (mapMaybe runtimeType kinds)
-        finish loc kinds arity given mk resTy xs
+        finish loc kinds arity xs given mk resTy
 
       -- A call of a definition the registry's hooks lower, whatever
       -- declares it, or `otherwise` when no hook does. A hook for the

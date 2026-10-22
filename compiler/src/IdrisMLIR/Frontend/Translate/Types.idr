@@ -155,6 +155,8 @@ export
 tyConFacts : Defined -> Front TyConFacts
 tyConFacts tc = do
   r <- reading
+  -- The facts are a table the type constructors' addresses key, read for
+  -- every type constructor read, which the table's type does not say.
   let Just facts = lookup (addressOf tc.placement) r.tyCons
     | Nothing => internal (location tc.def) ("the facts of " ++ show (fullname tc.def) ++ ", which is no type constructor")
   pure facts
@@ -412,6 +414,8 @@ choiceFamily fc owner ty@(Bind {}) = do
   (written, key) <- functionKey canonical
   registeredChoice (OfFunction written) key canonical !(toLoc fc)
 choiceFamily fc owner ty = do
+  -- Every type given here is one `choiceType` answered a member's, whose
+  -- head is an interface's type constructor, and the answer is a `Bool`.
   let (Ref _ _ n, args) = getFnArgs ty
     | _ => internal fc ("a choice of no implementation type: " ++ !(showTT ty))
   iface <- lookupDef fc owner n
@@ -429,18 +433,43 @@ valueArrayOf ds e = TensorT ds e
 
 ||| The registrations in progress: the bounds the growth check gave
 ||| (`TS.sizes`, which nothing changes while the translation runs), and the
-||| links of the data instances being registered, the innermost first.
+||| links of the data instances being registered, each with the identity
+||| minted for it before its constructors were read, the innermost first.
 record Registering where
   constructor MkRegistering
   sizes : Bounds
-  links : List (Link Form)
+  links : List (Link Form, FamilyId)
+
+-- The links of a chain, without the identities minted for them.
+linksOf : List (Link Form, FamilyId) -> List (Link Form)
+linksOf [] = []
+linksOf ((l, _) :: ls) = l :: linksOf ls
 
 ||| Why registering ends: each data instance registered extends the chain
 ||| by its link, new to it and within the bounds, and the universe of links
 ||| within the bounds is finite (`Requests.Universe`), so each extension
 ||| leaves less room in it (`Finite.extensionsEnd`). A link is its own key.
 0 Descending : Registering -> Type
-Descending reg = Accessible (Extends (Universe forms addresses reg.sizes) id) reg.links
+Descending reg = Accessible (Extends (Universe forms addresses reg.sizes) id) (linksOf reg.links)
+
+-- No link is on the empty chain.
+0 offEmpty : Not (Elem l (linksOf []))
+offEmpty Here impossible
+offEmpty (There _) impossible
+
+-- Whether a link is on the chain: the identity minted for it there, or
+-- that it is not on it.
+data OnChain : Link Form -> List (Link Form, FamilyId) -> Type where
+  Minted : FamilyId -> OnChain l ls
+  Fresh : (0 _ : Not (Elem l (linksOf ls))) -> OnChain l ls
+
+onChain : (l : Link Form) -> (ls : List (Link Form, FamilyId)) -> OnChain l ls
+onChain l [] = Fresh offEmpty
+onChain l ((k, fam) :: ks) = case elemLink l [k] of
+  Yes _ => Minted fam
+  No notK => case onChain l ks of
+    Minted f => Minted f
+    Fresh ne => Fresh (neitherHereNorThere (\eq => notK (replace {p = \x => Elem l [x]} eq Here)) ne)
 
 -- A chain of links keyed by themselves is itself.
 0 keyedBySelf : (ls : List (Link Form)) -> map Prelude.Basics.id ls = ls
@@ -664,7 +693,7 @@ mutual
                case e of
                  TensorT _ _ => reject fc owner rule ("an array a world orders holding an array value: " ++ !(showTT (close g tm)))
                  _ => pure (MemRefT o e)
-             _ => internal fc "the array type without its one element type"
+             _ => reject fc owner HookShape ("the registry's ordered array type " ++ show (fullname tc.def) ++ ", without its one element type")
            Nothing =>
              if hs.valueArray
                then case tm of
@@ -674,7 +703,7 @@ mutual
                    case e of
                      MemRefT _ _ => reject fc owner rule ("an array value holding an array a world orders: " ++ !(showTT (close g tm)))
                      _ => pure (valueArrayOf ds e)
-                 _ => internal fc "a value array without its shape and element"
+                 _ => reject fc owner HookShape ("the registry's value array type " ++ show (fullname tc.def) ++ ", without its shape and element")
                else snd <$> familyIn chain acc fc owner n !(traverse (normaliseClosed . close g) args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
@@ -719,11 +748,11 @@ mutual
     st <- getState
     case lookupFact (.familyIds) found.link st of
       Just fam => pure (fam, DataT fam indices)
-      Nothing => case elemLink found.link chain.links of
-        -- A link on the chain is in the table already: its identity was
-        -- minted before its constructors were read.
-        Yes _ => internal fc (tname ++ ", registered, is not in the table of families")
-        No fresh => do
+      Nothing => case onChain found.link chain.links of
+        -- A link on the chain had its identity minted before its
+        -- constructors were read, which the chain keeps with it.
+        Minted fam => pure (fam, DataT fam indices)
+        Fresh fresh => do
           let fam = MkFamilyId st.derived.facts.nextFamily
           updateState (derive { familyIds $= insert found.link fam, nextFamily $= S })
           let what = keyText found.key ++ ", registered,"
@@ -735,9 +764,9 @@ mutual
             | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
           loc <- toLoc (location def)
           sorts <- indexSorts tc (filter (\i => not (inKey (roleAt i roles))) (take arity [0 .. arity]))
-          conList <- traverse (constructor (MkRegistering chain.sizes (found.link :: chain.links))
-                                           (rec (found.link :: chain.links)
-                                                (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf chain.links) e))
+          conList <- traverse (constructor (MkRegistering chain.sizes ((found.link, fam) :: chain.links))
+                                           (rec (found.link :: linksOf chain.links)
+                                                (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf (linksOf chain.links)) e))
                                                         inside.member))
                                            fc owner fam found.link args params roles)
                               datacons
@@ -798,10 +827,12 @@ mutual
     ty <- normaliseClosed dc.type
     let layout = paramLayout def ps roles ty
     -- Every match binds `arity` arguments: a layout of another length
-    -- would misplace every field after the first difference.
+    -- would misplace every field after the first difference. Idris gives
+    -- a constructor the arity its type binds, in the module the compiler
+    -- reads when it runs.
     when (length layout /= arity) $
-      internal (location def) (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
-                               show (length layout))
+      reject (location def) owner CompiledModule (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
+                                                   show (length layout))
     walked <- walk chain acc def cname (location def) targs 0 0 0 layout none ty
     -- The result's index terms, at the family's index positions.
     let resultArgs = snd (getFnArgs walked.returns)
@@ -903,13 +934,10 @@ dataOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          FC -> String -> ClosedTerm -> Front (Maybe (FamilyId, Ty))
 dataOf fc owner = outermost (\chain, acc, g => dataOfIn chain acc g fc owner)
 
-||| The binder of a position of a closed type at a rig (`coreBinderIn`). A
-||| binder of quantity 0 binds no runtime value, so it has no binder: every
-||| caller leaves such a position out first, and one that does not is the
-||| compiler's error, never a binder at some quantity.
+||| The binder of a position of a closed type at the quantity its value is
+||| used at (`coreBinderIn`). A position of quantity 0 binds no runtime
+||| value, and has no use to give.
 export
 coreBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             {cat : Category} -> FC -> String -> Rule cat -> RigCount -> ClosedTerm -> Front Binder
-coreBinder fc owner rule rig tm = case use rig of
-  Erased => internal fc (owner ++ ": a binder of quantity 0 given a runtime representation")
-  Used q => outermost (\chain, acc, g => coreBinderIn chain acc g fc owner rule q) tm
+             {cat : Category} -> FC -> String -> Rule cat -> Uses -> ClosedTerm -> Front Binder
+coreBinder fc owner rule q tm = outermost (\chain, acc, g => coreBinderIn chain acc g fc owner rule q) tm

@@ -618,17 +618,14 @@ readFrom w acc@(Access rec) found (n :: ns) = do
       d <- readDefinition i p def
       readFrom w' (rec w' less) (insert i d found) (referred d ++ ns)
 
-||| The type a member at a use is applied as by (`AtUse`): `{0 t : Type} ->
-||| (f : t) -> t`, the form's type, then the form, giving a value of the
-||| form's type, its binders' names interned once.
-applicationOf : {auto c : Ref Ctxt Defs} -> Core ClosedTerm
+||| The type a member at a use is applied as by (`AtUse`, `Application`),
+||| its binders' names interned once.
+applicationOf : {auto c : Ref Ctxt Defs} -> Core Application
 applicationOf = do
   t <- intern "t"
   f <- intern "f"
   u <- intern "u"
-  pure (Bind EmptyFC (UN (Basic t)) (Pi EmptyFC erased Implicit (TType EmptyFC (UN (Basic u))))
-          (Bind EmptyFC (UN (Basic f)) (Pi EmptyFC top Explicit (Local EmptyFC Nothing 0 First))
-                (Local EmptyFC Nothing 1 (Later First))))
+  pure (applicationOver (UN (Basic t)) (UN (Basic f)) (UN (Basic u)))
 
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every

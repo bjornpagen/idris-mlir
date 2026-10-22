@@ -232,7 +232,9 @@ record StaticReading where
   head : Maybe Address
 
 ||| What a function instance is an instance of: a definition of the
-||| program; or a member of a choice at a use's types (`AtUse uses`), which
+||| program, a function of the arity its call read it at, the length of
+||| its case tree's parameters, read where the call met it as one; or a
+||| member of a choice at a use's types (`AtUse uses`), which
 ||| no definition of the program is. A member at a use is a compile-time
 ||| form (a polymorphic function, an implementation) applied to the `uses`
 ||| arguments a use gives it, where no definition applies it: a value of a
@@ -244,7 +246,7 @@ record StaticReading where
 ||| and the type, as Idris checked the use, takes, so no instance takes
 ||| more than its type does.
 public export
-data Instantiates = OfDefinition Name | AtUse Nat
+data Instantiates = OfDefinition Name Nat | AtUse Nat
 
 ||| A function instance requested: what it is an instance of, its
 ||| parameters as the call that requested it classified them, so that it is
@@ -354,25 +356,32 @@ record Choice where
   type : ClosedTerm
   members : SnocList ChoiceMember
 
-||| Where a dispatch finds its choice in the parameter at its position: the
-||| parameter takes the choice (`Given`), and the kinds hold `rest` more
-||| choices after it, each arm a call of the callee with one fewer
-||| (`Choices.calleeAt`); or the parameter takes an implementation the
-||| program fixes and holds the values it closes over, the one at place
-||| `j` among them a choice the running program made (`Held j`): a field
-||| of the implementation, whose every member is an instance of the
-||| callee with that field fixed (`Choices.heldDispatch`).
+||| The parameter a dispatch finds its choice in, as its kind holds it: the
+||| parameter takes the choice, of this binder and type (`Given`), and the
+||| kinds hold `rest` more choices after it, each arm a call of the callee
+||| with one fewer (`Choices.calleeAt`); or the parameter takes an
+||| implementation the program fixes, of this form, and holds the values
+||| it closes over, the one at place `j` among them a choice the running
+||| program made (`Held j`): a field of the implementation, whose every
+||| member is an instance of the callee with that field fixed
+||| (`Choices.heldDispatch`).
 public export
-data Chosen = Given (rest : Nat) | Held (j : Nat)
+data Chosen = Given (rest : Nat) Binder ClosedTerm | Held (j : Nat) ClosedTerm Holes
+
+||| The kind of the parameter a dispatch finds its choice in.
+export
+chosenKind : Chosen -> PKind
+chosenKind (Given _ b t) = ChoiceParam b t
+chosenKind (Held _ form hs) = DictParam form (Just hs)
 
 ||| A call given a choice (`ChoiceParam`), or an instance given an
 ||| implementation that holds one, as one function: its identity, symbol
 ||| and key, the callee (a definition, or a member at a use, whose choice
-||| the use dispatches on) and its kinds as the call classified them, the
-||| choice's family, the position of the parameter it is found at and
-||| where in it (`Chosen`), where and in whose definition it was made, and
-||| for each member the instance of the callee at that member that its arm
-||| calls, by the member's position.
+||| the use dispatches on), its kinds as the call classified them, split
+||| at the parameter its choice is found in (`Chosen`), so that the
+||| parameter and its kind are one, the choice's family, where and in
+||| whose definition it was made, and for each member the instance of the
+||| callee at that member that its arm calls, by the member's position.
 public export
 record Dispatch where
   constructor MkDispatch
@@ -380,13 +389,24 @@ record Dispatch where
   symbol : String
   key : InstanceKey
   callee : Instantiates
-  kinds : List PKind
-  family : FamilyId
-  at : Nat
+  kindsBefore : List PKind
   chosen : Chosen
+  kindsAfter : List PKind
+  family : FamilyId
   site : FC
   owner : String
   arms : SortedMap Nat FnId
+
+||| A dispatch's kinds, as its call classified them.
+export
+(.kinds) : Dispatch -> List PKind
+(.kinds) d = d.kindsBefore ++ chosenKind d.chosen :: d.kindsAfter
+
+||| A dispatch's kinds with the parameter its choice is found in given
+||| another kind: what an arm's callee is given.
+export
+givenInstead : PKind -> Dispatch -> List PKind
+givenInstead k d = d.kindsBefore ++ k :: d.kindsAfter
 
 export
 data TState : Type where
@@ -587,13 +607,35 @@ export
 memberPlaces : Defined -> MemberPlaces
 memberPlaces d = d.places
 
+||| The type a member at a use is applied as by, `{0 t : Type} -> (f : t)
+||| -> t` (the form's type, then the form, giving a value of the form's
+||| type), with the names of its two binders, which an instance of a
+||| member at a use names its first two parameters by. Made once
+||| (`applicationOver`), so the names are the type's binders' and no others.
+public export
+record Application where
+  constructor MkApplication
+  formType : Name
+  form : Name
+  type : ClosedTerm
+
+||| The type a member at a use is applied as by, its binders the names
+||| given and its universe `u`'s.
+export
+applicationOver : (formType, form, u : Name) -> Application
+applicationOver t f u =
+  MkApplication t f
+    (Bind EmptyFC t (Pi EmptyFC erased Implicit (TType EmptyFC u))
+          (Bind EmptyFC f (Pi EmptyFC top Explicit (Local EmptyFC Nothing 0 First))
+                (Local EmptyFC Nothing 1 (Later First))))
+
 ||| What the translation reads of the program: the context frozen once the
 ||| program and everything it imports are loaded and every termination
 ||| verdict it reaches is in it, which every normaliser reads; every
 ||| definition the translation can meet from the program's entry, each read
 ||| once and kept by its entry in the context (`Boundary.readProgram`); the
-||| type a member at a use is applied as by (`Instances.applicationType`),
-||| whose binders' names are interned once; the type constructors of the
+||| type a member at a use is applied as by, with its binders' names,
+||| interned once (`Application`); the type constructors of the
 ||| interfaces the program loaded, by full name, Idris's own table of them,
 ||| since nothing the translation does declares one (an implementation is
 ||| a value of one of these types, or of a pair of or a function to such
@@ -610,7 +652,7 @@ record Read where
   constructor MkRead
   frozen : Frozen
   definitions : SortedMap Int Defined
-  application : ClosedTerm
+  application : Application
   interfaces : SortedSet Name
   tyCons : SortedMap Address TyConFacts
   loops : SortedMap Address Termination
