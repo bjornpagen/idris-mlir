@@ -16,7 +16,6 @@ import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
-import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -71,8 +70,8 @@ functionOp sym telescope type body termination =
   Idr.funcOp {binders = Just (IdrHand (BindersOf telescope)), terminates = proof termination} sym type body
   where
     proof : Term.Termination -> Maybe MlirAttr
-    proof (Terminates c) = Just (IdrHand (TerminatesOf (ProvedIn c.index)))
-    proof Acyclic = Just (IdrHand (TerminatesOf MadeAcyclic))
+    proof (Terminates c) = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof c.index))))
+    proof Acyclic = Just (Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof)))
     proof (MayDiverge _) = Nothing
 
 ||| What a lifted function's body was in its owner, which its symbol says.

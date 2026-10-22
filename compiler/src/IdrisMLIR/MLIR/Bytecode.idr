@@ -44,7 +44,6 @@ import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Terms
-import IdrisMLIR.Spec.Functions.Termination
 
 import Control.Monad.Error.Either
 import Data.Buffer
@@ -533,13 +532,6 @@ doubleBits d =
 arrayParts : (a -> List Part) -> List a -> List Part
 arrayParts parts xs = VarInt (length xs) :: concatMap parts xs
 
-||| A termination proof, as the dialect's hand codec reads it: zero for a
-||| made function's acyclicity, else one more than the component Idris
-||| proved it in.
-proofParts : Proof -> List Part
-proofParts MadeAcyclic = [VarInt 0]
-proofParts (ProvedIn c) = [VarInt (S c)]
-
 -- The writer numbers what a type or an attribute holds through the
 -- traversals printed with them (IdrisMLIR.Encoding.Idr, .Wire), each
 -- given the numbering as a function, through which no host can see the
@@ -647,7 +639,6 @@ mutual
   handAttr w (EquationOf lhs rhs) =
     (\l, r => encodeEquationAttr (arrayParts partsTermNode l) (arrayParts partsTermNode r))
       <$> nodes w lhs <*> nodes w rhs
-  handAttr w (TerminatesOf p) = pure (encodeTerminatesAttr (proofParts p))
 
 ------------------------------------------------------------------------------
 -- The writer

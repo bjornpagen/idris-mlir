@@ -38,7 +38,6 @@ import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Functions.Tail
-import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Runtime.Endings
@@ -136,8 +135,8 @@ attrs =
   , Idr (BigAttr (-12345678901234567890))
   , Idr (SiteAttr "Main.idr" 3 7 "Main.main")
   , Idr MutableAttr
-  , IdrHand (TerminatesOf (ProvedIn 2))
-  , IdrHand (TerminatesOf MadeAcyclic)
+  , Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof 2)))
+  , Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof))
   , IdrHand (BindersOf [SortOfNatSort, SortOfTypeSort, SortOfOpaqueSort])
   , IdrHand (ArgsOf [[TermNodeNatural 3], [TermNodeLevel 0], [TermNodeSuccessor 2, TermNodeLevel 0], [TermNodeOpaque]])
   , UnitAttr
@@ -285,7 +284,7 @@ sample =
 callee : Statement
 callee =
   let a = MkValue "%a" i64
-  in stmt (Idr.funcOp {terminates = Just (IdrHand (TerminatesOf (ProvedIn 0)))} "callee"
+  in stmt (Idr.funcOp {terminates = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof 0))))} "callee"
             (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function `@sample` suspends.
@@ -302,7 +301,7 @@ crashing =
 
 ||| The program's root.
 root : Statement
-root = stmt (Idr.funcOp {terminates = Just (IdrHand (TerminatesOf MadeAcyclic))} "root"
+root = stmt (Idr.funcOp {terminates = Just (Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof)))} "root"
                (FunctionType (MkSignature [] [])) (block [] [stmt (Idr.returnOp [])]))
 
 ||| The module, with the type and attribute samples as its discardable

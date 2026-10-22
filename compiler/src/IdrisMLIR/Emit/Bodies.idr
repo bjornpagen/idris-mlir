@@ -745,7 +745,7 @@ alg ix (ReadBackF l e x cs body) sc w = do
     | Nothing => pure Nothing
   ixs <- traverse (coordinate ix l) coords
   Just n <- placed (At l) (Idr.arrayReadOp (operand ix xv) ixs
-                             [gradedType ix Many Held.Counted e, (operand ix xv).type])
+                             (gradedType ix Many Held.Counted e) (operand ix xv).type)
     | Nothing => internal "a linear array's read gives nothing"
   body.result (bind [Whole (val (resultAt n 2 0) e Many Held.Counted), Whole ({ name := resultAt n 2 1 } xv)] sc) w
 -- Each extent of the array a linear array's cell holds gives the array
@@ -760,7 +760,8 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
     readExtents : (j : Nat) -> Nat -> Val -> E (Vect j InScope, Val)
     readExtents Z a arr = pure ([], arr)
     readExtents (S j) a arr = do
-      Just n <- placed (At l) (Idr.arrayExtentOp (operand ix arr) a [gradedType ix Many Held.Counted (NatT IOpaque), (operand ix arr).type])
+      Just n <- placed (At l) (Idr.arrayExtentOp (IntegerAttr (natToInteger a) (IntegerType 64)) (operand ix arr)
+                                 (gradedType ix Many Held.Counted (NatT IOpaque)) (operand ix arr).type)
         | Nothing => internal "a linear array's extent gives nothing"
       (rest, final) <- readExtents j (S a) ({ name := resultAt n 2 1 } arr)
       pure (Whole (val (resultAt n 2 0) (NatT IOpaque) Many Held.Counted) :: rest, final)

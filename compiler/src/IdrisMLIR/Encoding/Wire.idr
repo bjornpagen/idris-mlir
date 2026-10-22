@@ -53,6 +53,54 @@ traverseTermNode t a (TermNodeLiteral payload') = pure TermNodeLiteral <*> a pay
 traverseTermNode t a (TermNodeConstructor payload' member' value' arity') = pure TermNodeConstructor <*> traverse a payload' <*> pure member' <*> pure value' <*> pure arity'
 traverseTermNode t a TermNodeOpaque = pure TermNodeOpaque
 
+||| a put parameter's position among them and its bound in bytes
+public export
+data PutBound : (ty : Type) -> (at : Type) -> Type where
+  ||| a put parameter's position among them and its bound in bytes
+  MkPutBound : (parameter' : Nat) -> (bytes' : Nat) -> PutBound ty at
+
+||| The parts of a `PutBound`, its types and attributes by their entries.
+export
+partsPutBound : PutBound TypeRef AttrRef -> List Part
+partsPutBound (MkPutBound parameter' bytes') = [VarInt parameter'] ++ [VarInt bytes']
+
+||| A `PutBound` with each type it holds given by `t` and each attribute by `a`.
+export
+traversePutBound : Applicative f => (ty -> f ty') -> (at -> f at') -> PutBound ty at -> f (PutBound ty' at')
+traversePutBound t a (MkPutBound parameter' bytes') = pure MkPutBound <*> pure parameter' <*> pure bytes'
+
+||| a scoped parameter or result and the lifetime parameter it lives in
+public export
+data LivesIn : (ty : Type) -> (at : Type) -> Type where
+  ||| a scoped parameter or result and the lifetime parameter it lives in
+  MkLivesIn : (value' : Nat) -> (lifetime' : Nat) -> LivesIn ty at
+
+||| The parts of a `LivesIn`, its types and attributes by their entries.
+export
+partsLivesIn : LivesIn TypeRef AttrRef -> List Part
+partsLivesIn (MkLivesIn value' lifetime') = [VarInt value'] ++ [VarInt lifetime']
+
+||| A `LivesIn` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseLivesIn : Applicative f => (ty -> f ty') -> (at -> f at') -> LivesIn ty at -> f (LivesIn ty' at')
+traverseLivesIn t a (MkLivesIn value' lifetime') = pure MkLivesIn <*> pure value' <*> pure lifetime'
+
+||| a lifetime parameter that lives at least as long as another
+public export
+data Outlives : (ty : Type) -> (at : Type) -> Type where
+  ||| a lifetime parameter that lives at least as long as another
+  MkOutlives : (longer' : Nat) -> (shorter' : Nat) -> Outlives ty at
+
+||| The parts of a `Outlives`, its types and attributes by their entries.
+export
+partsOutlives : Outlives TypeRef AttrRef -> List Part
+partsOutlives (MkOutlives longer' shorter') = [VarInt longer'] ++ [VarInt shorter']
+
+||| A `Outlives` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseOutlives : Applicative f => (ty -> f ty') -> (at -> f at') -> Outlives ty at -> f (Outlives ty' at')
+traverseOutlives t a (MkOutlives longer' shorter') = pure MkOutlives <*> pure longer' <*> pure shorter'
+
 ||| the sort of an index position or a binder
 public export
 data SortOf : (ty : Type) -> (at : Type) -> Type where

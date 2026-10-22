@@ -24,7 +24,6 @@ import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Encoding.Idr
 import public IdrisMLIR.Encoding.Wire
 import IdrisMLIR.Spec.Core.Dialect
-import IdrisMLIR.Spec.Functions.Termination
 
 import Data.List
 import Data.Maybe
@@ -71,16 +70,14 @@ data HandType : (ty, at : Type) -> Type where
 ||| the only members the frontend declares; `#idr.index_binders`, the sorts
 ||| of a function's index parameters or a region's binders;
 ||| `#idr.index_args`, the terms a call or a lifted function's maker gives
-||| them, each its nodes, so their count is the list's; `#idr.equation`, an
-||| erased equality's two terms; and `#idr.terminates`, what Idris proved
-||| of a function's loops.
+||| them, each its nodes, so their count is the list's; and
+||| `#idr.equation`, an erased equality's two terms.
 public export
 data HandAttr : (ty, at : Type) -> Type where
   FamilyOf : List (DataMember ty at) -> HandAttr ty at
   BindersOf : List (SortOf ty at) -> HandAttr ty at
   ArgsOf : List (List (TermNode ty at)) -> HandAttr ty at
   EquationOf : (lhs, rhs : List (TermNode ty at)) -> HandAttr ty at
-  TerminatesOf : Proof -> HandAttr ty at
 
 ||| The text a dialect's syntax gives one of its attributes, for the
 ||| dialects whose attributes cross as text. It is made with the value it
