@@ -92,8 +92,7 @@ public:
   constexpr decltype(auto) fold(OnView &&onView, OnRoom &&onRoom, OnCursor &&onCursor,
                                 OnHome &&onHome) const {
     return match(
-        static_cast<const variant &>(*this),
-        [&](LifetimeKindView) -> decltype(auto) { return onView(); },
+        *this, [&](LifetimeKindView) -> decltype(auto) { return onView(); },
         [&](LifetimeKindRoom) -> decltype(auto) { return onRoom(); },
         [&](LifetimeKindCursor) -> decltype(auto) { return onCursor(); },
         [&](LifetimeKindHome at) -> decltype(auto) { return onHome(at.site); });
