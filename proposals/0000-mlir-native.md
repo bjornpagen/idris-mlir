@@ -3994,6 +3994,14 @@ C137.
   `array.update`) whose body holds such a call is lowered to a join-point
   loop (`idr.loop`) before frames, which splits join regions already.
   No valid program then reaches frames' internal error.
+- **C195** (2026-10-22; L07's finding; amends C119). C119's `Exclusive`
+  handle goes: a value's exclusivity is its grade, in its type, which the
+  lowering reads for a free with no count and the dup verifier reads to
+  refuse a claimed value; a handle beside the type would hold the same
+  claim twice. `Token` stays, and gains a branch into each region of an
+  op that runs exactly one of them and an N-arm rejoin, since a match has
+  N regions and its result tokens exist only once it is rebuilt with
+  their merged types.
 
 ## 4. Open: the owner's decisions, in order
 
