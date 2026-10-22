@@ -99,7 +99,7 @@ MutableOperandRange ArrayPlaceCopyOp::getDpsInitsMutable() { return getTargetMut
 // would keep their references for ever. The source is any view of an array
 // of the target's shape and element.
 LogicalResult ArrayPlaceCopyOp::verify() {
-  if (!getTarget().getDefiningOp<memref::AllocOp>())
+  if (!arrays::allocationOf(getTarget()))
     return emitOpError("places a copy in ") << getTarget().getType()
                                             << ", which is no buffer allocated for it";
   auto from = cast<MemRefType>(unrestricted(getSource().getType()));

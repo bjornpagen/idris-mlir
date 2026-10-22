@@ -194,6 +194,31 @@ bool idr::bufferize::isRelease(OpOperand &operand, const AnalysisState &state) {
 void idr::bufferize::prepare(Operation *program, const BufferizationOptions &options) {
   IRRewriter rewriter(program->getContext());
 
+  // A buffer read out of a cell whose grade claims its own family's cells
+  // unshared, as a deep claim does too, is the cell's alone, so the tensor
+  // upstream's to_tensor makes of it, the only one of that buffer
+  // (`restrict`), is writable: One-Shot copies it only where the program
+  // reads it again. The tensor takes the buffer at its own grade, which
+  // claims nothing, so a share may stand between them; it forgets the claim
+  // of a value something else may also read, so it is looked through only
+  // where it is the field's one reader and its result the tensor's alone.
+  auto alone = [](Value value) {
+    return llvm::all_of(idr::linearPositions(value), [](Value at) { return at.hasOneUse(); });
+  };
+  program->walk([&](ToTensorOp tensor) {
+    if (!tensor.getRestrict() || tensor.getWritable() || !alone(tensor.getBuffer()))
+      return;
+    Value read = idr::throughLinear(tensor.getBuffer());
+    if (auto share = read.getDefiningOp<idr::CountShareOp>()) {
+      if (!alone(share.getValue()))
+        return;
+      read = idr::throughLinear(share.getValue());
+    }
+    auto field = read.getDefiningOp<idr::DataFieldOp>();
+    if (field && idr::claims(field.getValue().getType(), idr::Unique::Self))
+      rewriter.modifyOpInPlace(tensor, [&] { tensor.setWritable(true); });
+  });
+
   // An insert of elements that hold references over the whole of its
   // destination, which it does not read, is its source in the
   // destination's shape. Kept, it would be written, where the destination

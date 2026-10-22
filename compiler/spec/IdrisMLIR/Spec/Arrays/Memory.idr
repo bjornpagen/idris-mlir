@@ -66,7 +66,7 @@ updatable = AnyOfTypes (SatisfiesType mutableArray ::: [SatisfiesType valueBuffe
 ||| An access reads its index within the array: an idr.check.in_bounds of
 ||| each index against the array guards it, the primitive's own meaning of
 ||| an index outside the array.
-inBounds : {i : Nat} -> (indices, arr : Fin i) -> Guard i
+inBounds : {0 i : Nat} -> (indices, arr : Fin i) -> Guard (Fin i)
 inBounds indices arr = MkGuard "check.in_bounds" (indices ::: [arr]) (caseRef causeClosed IndexOutOfBounds)
 
 ||| `idr.array.new`: a new array of the given sizes, one per dimension,

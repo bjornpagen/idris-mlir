@@ -87,6 +87,12 @@ LogicalResult verifyIndices(Operation *op, unsigned rank) {
   return success();
 }
 
+memref::AllocOp allocationOf(Value buffer) {
+  if (auto adopted = buffer.getDefiningOp<OwnAdoptOp>())
+    buffer = adopted.getValue();
+  return buffer.getDefiningOp<memref::AllocOp>();
+}
+
 LogicalResult verifyFresh(DestinationStyleOpInterface op) {
   for (Value out : op.getDpsInits()) {
     auto type = cast<ShapedType>(out.getType());
@@ -95,7 +101,7 @@ LogicalResult verifyFresh(DestinationStyleOpInterface op) {
     auto alloc = out.getDefiningOp<bufferization::AllocTensorOp>();
     bool fresh = isa<RankedTensorType>(type)
                      ? out.getDefiningOp<tensor::EmptyOp>() || (alloc && !alloc.getCopy())
-                     : static_cast<bool>(out.getDefiningOp<memref::AllocOp>());
+                     : static_cast<bool>(allocationOf(out));
     if (!fresh)
       return op->emitOpError("places elements that hold references into ")
              << type << ", which is no fresh array";

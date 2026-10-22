@@ -10,10 +10,14 @@
 #include "idr/Transforms/Columns.h"
 
 #include "idr/IR/Generated/Actions.h.inc"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
+#include "mlir/IR/SymbolTable.h"
+
+#include "llvm/ADT/STLExtras.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRCOLUMNS
@@ -54,12 +58,27 @@ struct Columns : idr::impl::IdrColumnsBase<Columns> {
     RewritePatternSet patterns(ctx);
     ConversionTarget target(*ctx);
     populateColumnPatterns(converter, patterns, target);
+    // A function whose signature carries an array of records is remade
+    // with its columns, its facts moved by position; each call holds
+    // copies of its callee's, which it takes again once every signature
+    // is final, and stands where its columns now flow, its tail fact
+    // decided again there.
+    bool remade = llvm::any_of(program.getOps<FuncOp>(), [&](FuncOp fn) {
+      return !converter.isSignatureLegal(fn.getFunctionType());
+    });
     (void)idr::support::perform<ColumnsConvertAction>(program, [&] {
-      if (succeeded(applyPartialConversion(program, target, std::move(patterns))))
+      if (failed(applyPartialConversion(program, target, std::move(patterns)))) {
+        program.emitError("internal error: idr-columns: an array of records was left "
+                          "neither held as its columns nor gathered");
+        return signalPassFailure();
+      }
+      if (!remade)
         return;
-      program.emitError("internal error: idr-columns: an array of records was left "
-                        "neither held as its columns nor gathered");
-      signalPassFailure();
+      SymbolTable functions(program);
+      program.walk([&](CallOp call) {
+        call.copyCallee(functions.lookup<FuncOp>(call.getCalleeAttr().getAttr()));
+        call.setTailKind(tail::decide(call));
+      });
     });
   }
 };

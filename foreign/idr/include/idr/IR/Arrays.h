@@ -89,6 +89,11 @@ mlir::LogicalResult verifyIndices(mlir::Operation *op, unsigned rank);
 // before anything reads or releases it.
 mlir::LogicalResult verifyFresh(mlir::DestinationStyleOpInterface op);
 
+// The allocation `buffer` is, where it is one: a memref.alloc, or the one
+// counting took over (idr.own.adopt) where bufferization made it, as it
+// does every buffer of elements that hold references, there and only there.
+mlir::memref::AllocOp allocationOf(mlir::Value buffer);
+
 // An index of the domain is at least 0 and below its dimension's size.
 // `Extent` gives the size of a dimension as a term of `cstr`.
 template <typename Extent>

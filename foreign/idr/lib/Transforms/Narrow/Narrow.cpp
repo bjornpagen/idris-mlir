@@ -24,9 +24,11 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Tail.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Support/Footprint.h"
+#include "idr/Support/Match.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -37,6 +39,8 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Rewrite/PatternApplicator.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
@@ -66,9 +70,17 @@ struct NarrowFoldAction : support::TaggedAction<NarrowFoldAction> {
 // The word rewrite of one function, solved under the summaries idr-narrow
 // decided for the program and holds in its analysis manager while it runs
 // this pass. Its work is its own solve's; the summaries' decide step is
-// idr-narrow's, which ran it. What it counts of its rewrites only says
-// whether it changed anything.
+// idr-narrow's, which ran it. Its word patterns are built once, before any
+// function, and shared by every run, which reads its own facts through the
+// rewriter it applies them with.
 struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
+  LogicalResult initialize(MLIRContext *ctx) override {
+    RewritePatternSet patterns(ctx);
+    populateWordPatterns(patterns);
+    words = FrozenRewritePatternSet(std::move(patterns));
+    return success();
+  }
+
   void runOnProgram(ProgramOp program) {
     FuncOp fn = getOperation();
     // Only idr-narrow decides the program's summaries and holds them for
@@ -86,32 +98,48 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
       return signalPassFailure();
     }
     numWork += work.steps();
-    Facts facts(**solved);
-    uint64_t carried = 0, narrowed = 0;
-    // The joints first, while every value is still the one analysed; then
-    // the ops, whose operands may by then be the bigs of words.
-    {
-      RewritePatternSet joints(&getContext());
-      populateJointPatterns(joints, facts, carried);
-      walkAndApplyPatterns(fn, std::move(joints));
-    }
-    {
-      RewritePatternSet words(&getContext());
-      populateWordPatterns(words, facts, narrowed);
-      walkAndApplyPatterns(fn, std::move(words));
-    }
+    Facts facts(fn, **solved);
+    Decisions decided(facts.count());
+    Changed changed = decideJoints(facts, decided);
+
+    // One pass over the steps, in the walk's order: a joint's arguments
+    // become words as it is entered, so what runs inside reads them; its
+    // results and what it passes as it is left, after everything inside;
+    // every other op that takes or gives a big when it is reached, after
+    // every op that gave it its operands.
+    WordRewriter rewriter(&getContext(), facts, decided);
+    PatternApplicator applicator(words);
+    applicator.applyDefaultCostModel();
+    for (const Step &step : facts.steps())
+      match(
+          step, [&](const Enter &in) { enter(rewriter, facts, decided, in); },
+          [&](const Leave &out) { leave(rewriter, facts, decided, out); },
+          [&](const Word &reached) {
+            rewriter.step = &reached;
+            if (succeeded(applicator.matchAndRewrite(reached.op, rewriter)))
+              changed = Changed::Yes;
+          });
 
     // A word made a big and back is the word, and a conversion of a
     // constant is its constant: each conversion is folded by its own
     // folder, then what no one reads is erased (the conversions made, a
     // versioned loop's start once its copy took the word, and a big made of
     // a word that every reader now takes as the word, with each cast of
-    // such a big into or out of a linear position, and a big constant whose
-    // readers now read its word), these ops and no other.
+    // such a big into or out of a linear position, a big constant whose
+    // readers now read its word, and the program's poison whose word was
+    // taken), these ops and no other.
     footprint::Vector<Operation *> conversions;
     auto conversion = [&](Operation *op) {
-      return op && (facts.made(op) || isa<BigSmallOp, BigFromSIntOp, BigFromUIntOp>(op) ||
-                    (isa<ConstantOp>(op) && isBig(op->getResult(0).getType())));
+      if (!op)
+        return false;
+      Value result = op->getResult(0);
+      if (isa<BigSmallOp, BigFromSIntOp, BigFromUIntOp>(op))
+        return true;
+      if (isa<BigToIntOp>(op))
+        return facts.made(result, decided.computed);
+      if (isa<ub::PoisonOp>(op))
+        return isBig(result.getType()) && decided.asked.test(facts.at(result));
+      return isa<ConstantOp>(op) && isBig(result.getType());
     };
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (op->getNumResults() == 1 &&
@@ -120,26 +148,24 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     });
     // A conversion every reader of which now reads its word is made only to
     // be dropped: without its drops it is made for nothing, and erased.
-    bool dropped = false;
     for (Operation *op : conversions)
       if (!op->use_empty() && llvm::all_of(op->getUsers(), llvm::IsaPred<CountDropOp>)) {
         for (Operation *drop : llvm::make_early_inc_range(op->getUsers()))
           drop->erase();
-        dropped = true;
+        changed = Changed::Yes;
       }
     // One walk forward folds each conversion, in the order the function
     // holds them, a producer before its readers, so that a reader's fold
     // sees its operand folded already; one walk back erases each that no
     // one reads, after its readers, so that a conversion whose every reader
     // went goes too. A fold that replaces its op erases it, and only it.
-    bool changed = false;
     (void)support::perform<NarrowFoldAction>(fn, [&] {
       OperationFolder folder(&getContext());
       footprint::Vector<Operation *> kept;
       for (Operation *op : conversions) {
         bool inPlace = false;
         if (succeeded(folder.tryToFold(op, &inPlace))) {
-          changed = true;
+          changed = Changed::Yes;
           if (!inPlace)
             continue;
         }
@@ -148,12 +174,19 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
       for (Operation *op : llvm::reverse(kept))
         if (op->use_empty() && effects::whole(op).onlyComputes()) {
           op->erase();
-          changed = true;
+          changed = Changed::Yes;
         }
     });
-    if (carried == 0 && narrowed == 0 && !dropped && !changed)
-      markAllAnalysesPreserved();
+    if (changed == Changed::No)
+      return markAllAnalysesPreserved();
+    // What follows a call may have changed: a count op or a conversion
+    // after it gone. No web holding what a tail call gives was carried, so
+    // what a call in tail position gives still goes straight to its tail;
+    // each call's fact is decided again where it now stands.
+    fn.walk([](CallOp call) { call.setTailKind(tail::decide(call)); });
   }
+
+  FrozenRewritePatternSet words;
 };
 
 struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
@@ -175,9 +208,8 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
           fn.emitError("internal error: idr-narrow: the range analysis failed");
           return signalPassFailure();
         }
-        Facts facts(**solved);
         RewritePatternSet patterns(&getContext());
-        populateVersionPatterns(patterns, facts, versioned);
+        populateVersionPatterns(patterns, **solved, versioned);
         walkAndApplyPatterns(fn, std::move(patterns));
       }
     }

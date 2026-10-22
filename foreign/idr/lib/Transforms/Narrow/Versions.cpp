@@ -99,16 +99,16 @@ bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
 
 // The first natural argument of `loop` that only descends and that the
 // analysis does not already prove small, or none.
-std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts) {
+std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Ranges::Solved &analysis) {
   // A slot that carries a borrowed value passes it out of the loop
   // borrowed, which a branch between two copies of the loop would have to
   // take owned: such a loop stays one loop.
-  if (llvm::any_of(loop.getInits(), [&](Value init) { return facts.borrowed(init); }))
+  if (llvm::any_of(loop.getInits(), borrowed))
     return std::nullopt;
   Block &before = loop.getBefore().front();
   auto yield = cast<scf::YieldOp>(loop.getAfter().front().getTerminator());
   for (BlockArgument arg : before.getArguments())
-    if (isa<NatType>(unrestricted(arg.getType())) && !facts.fits(arg) &&
+    if (isa<NatType>(unrestricted(arg.getType())) && !boundsOf(analysis, arg).fits() &&
         descends(yield.getOperand(arg.getArgNumber()), arg, loop))
       return arg.getArgNumber();
   return std::nullopt;
@@ -119,7 +119,7 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts
 // the analysis the bound that a descending argument keeps. Both versions
 // are copies, which the walk that versions does not visit, so a loop is
 // versioned once.
-void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned index) {
+void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   Location loc = loop.getLoc();
   MLIRContext *ctx = loop.getContext();
   Value init = loop.getInits()[index];
@@ -160,7 +160,7 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
   Value start = BigSmallOp::create(rewriter, loc, nat, masked);
   // The copy starts from the word, so the natural it was read from drops
   // the reference the loop would have taken.
-  if (facts.owned(init))
+  if (owned(init))
     CountDropOp::create(rewriter, loc, init);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
@@ -175,28 +175,29 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
 }
 
 struct VersionDescending : OpRewritePattern<scf::WhileOp> {
-  VersionDescending(MLIRContext *ctx, Facts &facts, uint64_t &versioned)
-      : OpRewritePattern(ctx), facts(facts), versioned(versioned) {}
+  VersionDescending(MLIRContext *ctx, const Ranges::Solved &analysis, uint64_t &versioned)
+      : OpRewritePattern(ctx), analysis(analysis), versioned(versioned) {}
 
   LogicalResult matchAndRewrite(scf::WhileOp loop, PatternRewriter &rewriter) const override {
-    std::optional<unsigned> index = descendingArgument(loop, facts);
+    std::optional<unsigned> index = descendingArgument(loop, analysis);
     if (!index)
       return failure();
-    if (!support::perform<NarrowVersionAction>(
-            loop, [&] { version(rewriter, facts, loop, *index); }))
+    if (!support::perform<NarrowVersionAction>(loop,
+                                               [&] { version(rewriter, loop, *index); }))
       return failure();
     ++versioned;
     return success();
   }
 
-  Facts &facts;
+  const Ranges::Solved &analysis;
   uint64_t &versioned;
 };
 
 } // namespace
 
-void populateVersionPatterns(RewritePatternSet &patterns, Facts &facts, uint64_t &versioned) {
-  patterns.add<VersionDescending>(patterns.getContext(), facts, versioned);
+void populateVersionPatterns(RewritePatternSet &patterns, const Ranges::Solved &analysis,
+                             uint64_t &versioned) {
+  patterns.add<VersionDescending>(patterns.getContext(), analysis, versioned);
 }
 
 } // namespace idr::narrow

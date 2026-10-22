@@ -30,7 +30,10 @@
 // counts nothing twice.
 //
 // A buffer is a cell of the runtime: an allocation is memref.alloc, which
-// idr-lower makes the runtime's cell, its elements unwritten. A copy into
+// idr-lower makes the runtime's cell, its elements unwritten. One of
+// elements that hold references is taken over by counting where it is
+// allocated (idr.own.adopt), the one place a buffer is known to be an
+// allocation. A copy into
 // a buffer just allocated for it is its first write, a placement
 // (idr.array.place_copy), which releases nothing; a copy over a buffer that
 // holds elements is memref.copy, the runtime's copy, which releases each
@@ -53,6 +56,7 @@
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -181,13 +185,29 @@ LogicalResult underOneShot(idr::ProgramOp program, Step &&step) {
   return failure();
 }
 
+// A buffer, made where One-Shot asks for one. One of elements that hold
+// references enters counting where it is made, and only there
+// (idr.own.adopt): no other buffer (a slice, a parameter's, one read out of
+// a cell) is an allocation, so taking one over anywhere else would count
+// its memory twice. Every use reads the adopted buffer, at the bare carrier
+// upstream's ops take.
+FailureOr<Value> allocate(OpBuilder &b, Location loc, MemRefType type, ValueRange sizes,
+                          unsigned alignment) {
+  auto made = alignment == 0
+                  ? memref::AllocOp::create(b, loc, type, sizes)
+                  : memref::AllocOp::create(b, loc, type, sizes, b.getI64IntegerAttr(alignment));
+  if (!idr::holdsReferences(type.getElementType()))
+    return made.getResult();
+  return idr::OwnAdoptOp::create(b, loc, type, made.getResult()).getResult();
+}
+
 // A copy of `from` into `to`. A copy into a buffer allocated for it, which
 // nothing has used yet, is its first write: its slots hold nothing, so it
 // places, releasing none. Every other copy writes over slots that hold
 // elements. One-Shot makes both through this one hook, so the hook is
 // where the two are told apart, from the allocation it has just made.
 LogicalResult copyInto(OpBuilder &b, Location loc, Value from, Value to) {
-  if (to.use_empty() && to.getDefiningOp<memref::AllocOp>())
+  if (to.use_empty() && idr::arrays::allocationOf(to))
     idr::ArrayPlaceCopyOp::create(b, loc, from, to);
   else
     memref::CopyOp::create(b, loc, from, to);
@@ -206,7 +226,12 @@ LogicalResult placedFirst(idr::ProgramOp program) {
   WalkResult walked = program.walk([](memref::AllocOp alloc) {
     if (!idr::holdsReferences(alloc.getType().getElementType()))
       return WalkResult::advance();
+    // The buffer the program uses: the one counting took over at its
+    // allocation, whose one use the adoption is.
     Value buffer = alloc.getResult();
+    if (buffer.hasOneUse())
+      if (auto adopted = dyn_cast<idr::OwnAdoptOp>(*buffer.getUsers().begin()))
+        buffer = adopted.getResult();
     Block *block = alloc->getBlock();
     // The op of the allocation's block that holds the first use: a use
     // dominated by the allocation is in its block or nested in an op of it.
@@ -284,6 +309,7 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
       auto made = AllocTensorOp::create(b, loc, tensor, sizes, copy ? plain : Value());
       return idr::heldAs(b, loc, made.getResult(), value.getType());
     };
+    options.allocationFn = allocate;
     options.memCpyFn = copyInto;
     // The cell's header places the elements, so an allocation asks for no
     // alignment of its own.
@@ -319,6 +345,10 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
         failed(placedFirst(program)))
       return signalPassFailure();
     moveElementsOut(program);
+    // One-Shot makes each call again on buffers, and may put a cast or a
+    // copy after one or fold away what followed it: each call's fact is
+    // decided again where it now stands.
+    program.walk([](idr::CallOp call) { call.setTailKind(idr::tail::decide(call)); });
 
     numAllocs += static_cast<uint64_t>(statistics.numBufferAlloc);
     numInPlace += static_cast<uint64_t>(statistics.numTensorInPlace);
