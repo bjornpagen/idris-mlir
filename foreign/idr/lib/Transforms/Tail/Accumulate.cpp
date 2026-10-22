@@ -204,7 +204,8 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
           rewriter.replaceOp(inClone, callClone(rewriter, inClone, clone, carried));
         },
         [&](const Combined &combined) {
-          auto call = cast<CallOp>(mapping.lookup(combined.call.getOperation()));
+          CallOp original = combined.call;
+          auto call = cast<CallOp>(mapping.lookup(original.getOperation()));
           Operation *at = mapping.lookup(combined.combine);
           Value other = otherOf(rewriter, combined, at);
           rewriter.setInsertionPoint(at);

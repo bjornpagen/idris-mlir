@@ -9,6 +9,7 @@
 #include "idr/Transforms/Tail/Frames.h"
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 
@@ -62,7 +63,9 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
   });
   unsigned count = join->getNumRegions() - 1;
   llvm::SmallVector<Value> above;
-  llvm::SmallVector<llvm::BitVector> readers;
+  // Each value numbered adds its bit to every region's set, so each set is
+  // as wide as `above` by construction.
+  llvm::SmallVector<llvm::BitVector> reads(count);
   // A join point's own token is upstream's, which no region passes; a
   // reuse token in scope is a value like any other, which one must.
   forEachInScope(join, [&](Value value) {
@@ -75,12 +78,9 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
     if (by.none())
       return;
     above.push_back(value);
-    readers.push_back(std::move(by));
+    for (unsigned region = 0; region < count; ++region)
+      reads[region].push_back(by.test(region));
   });
-  llvm::SmallVector<llvm::BitVector> reads(count, llvm::BitVector(above.size()));
-  for (auto [at, by] : llvm::enumerate(readers))
-    for (unsigned region : by.set_bits())
-      reads[region].set(static_cast<unsigned>(at));
   for (bool grew = true; grew;) {
     grew = false;
     for (JumpOp jump : jumps) {
@@ -124,9 +124,9 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
         makeFunction(owner, "join", takes, join->getResultTypes(), resultsIn, binders);
     if (failed(moved))
       return failure();
-    llvm::SmallVector<Value> lifetimes = llvm::to_vector(llvm::make_filter_range(
+    llvm::SmallVector<Value> lifetimesRead = llvm::to_vector(llvm::make_filter_range(
         readHere, [](Value value) { return isa<LifetimeType>(value.getType()); }));
-    lifted.push_back({&region, moved->fn, std::move(read), std::move(lifetimes)});
+    lifted.push_back({&region, moved->fn, std::move(read), std::move(lifetimesRead)});
     functions.push_back({moved->fn, row});
   }
 
@@ -146,8 +146,9 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
     rewriter.eraseOp(jump);
   }
 
-  // Each join region's code into its function; the body in the op's place.
-  for (const Lifted &to : lifted) {
+  // Each join region's code into its function, which changes through its
+  // handle; the body in the op's place.
+  for (Lifted &to : lifted) {
     Block &block = to.region->front();
     Block *entry = &to.fn.getBody().front();
     Operation *end = block.getTerminator();

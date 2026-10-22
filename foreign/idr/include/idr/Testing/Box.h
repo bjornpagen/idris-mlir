@@ -20,6 +20,7 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include "gtest/gtest.h"
 
@@ -49,9 +50,11 @@ private:
 };
 
 // A natural of no index term a box knows: the opaque term, which a range
-// rule and a hook read as any natural.
+// rule and a hook read as any natural, written as every term is.
 inline idr::NatType natural(mlir::MLIRContext &context) {
-  return idr::NatType::get(&context, idr::families::TermNode{idr::families::TermKind::Opaque});
+  llvm::SmallVector<idr::families::TermNode, 1> opaque;
+  idr::families::TermWriter(opaque).opaque();
+  return idr::NatType::get(&context, opaque);
 }
 
 // The fixture of each test of a box, googletest's hook around it: its

@@ -14,6 +14,7 @@
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Joins/Rules.h"
 
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 
@@ -87,7 +88,7 @@ Region *takenByInteger(LitMatchOp op, const APInt &value) {
 Region *literalTaken(LitMatchOp op, const OperandFacts &facts) {
   Value scrutinee = op.getScrutinee();
   if (std::optional<ConstantIntRanges> range = facts.range(scrutinee);
-      range && range->getBitWidth() != 0)
+      range && range->umin().getBitWidth() != 0)
     if (std::optional<APInt> value = range->getConstantValue())
       return takenByInteger(op, *value);
   Attribute held = facts.constant(scrutinee);

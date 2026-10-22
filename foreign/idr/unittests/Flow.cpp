@@ -253,9 +253,12 @@ void crossingsKept(Facts &facts) {
     return llvm::isa<idr::JumpOp>(edge.from) &&
            crosses(edge.from, edge.to);
   });
+  // A value's queries are not const, so the predicate asks a copy of the
+  // handle.
   std::erase_if(facts.moves, [](const Move &move) {
     mlir::Operation *owner = move.use->getOwner();
-    return llvm::isa<idr::JumpOp>(owner) && crosses(owner, Place(move.input.getParentRegion()));
+    mlir::Value input = move.input;
+    return llvm::isa<idr::JumpOp>(owner) && crosses(owner, Place(input.getParentRegion()));
   });
   std::erase_if(facts.arrivals, [](const Arrival &arrival) {
     return llvm::isa<idr::JumpOp>(arrival.from) &&

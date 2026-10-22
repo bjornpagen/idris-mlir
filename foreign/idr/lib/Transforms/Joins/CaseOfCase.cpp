@@ -9,6 +9,7 @@
 
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/Control/Stated.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Joins.h"

@@ -34,12 +34,12 @@ LogicalResult JumpOp::verify() {
   for (Operation *op = (*this)->getParentOp(); op != owner; op = op->getParentOp())
     if (!op->hasTrait<OpTrait::PropagateControlFlowBreak>())
       return emitOpError("crosses ") << op->getName() << ", which lets no jump through";
-  Block::BlockArgListType parameters = points.getParameters(*target);
+  ValueRange parameters = points.getParameters(*target);
   if (getArgs().size() != parameters.size())
     return emitOpError("passes ") << getArgs().size() << " arguments to a join region of "
                                   << parameters.size() << " parameters";
   if (cast<ErasedBinderOpInterface>(owner).getBoundSorts(*target).empty() &&
-      TypeRange(getArgs()) != TypeRange(parameters.getTypes()))
+      TypeRange(getArgs()) != TypeRange(parameters))
     return emitOpError("passes arguments of types ")
            << getArgs().getTypes() << " to parameters of types " << parameters.getTypes();
   return success();

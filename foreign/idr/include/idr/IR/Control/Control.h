@@ -3,7 +3,7 @@
 // The skeleton rules of the matches and the join points, which the
 // specification names (IdrisMLIR.Spec.Control.Rules) and the e-graph's
 // engine runs; it names the ops by declaration alone. The join family's
-// carrier, which the generated ops need first, is Control/Family.h.
+// carrier is Control/Family.h.
 #ifndef IDR_IR_CONTROL_CONTROL_H
 #define IDR_IR_CONTROL_CONTROL_H
 
@@ -29,8 +29,8 @@ class JoinPointsOpInterface;
 // each rooted at one op or one interface of ours; `decide` reads what the
 // e-graph knows of the function's values once it is extracted and asks for
 // an edit or nothing, a Rewrite carrying what it chose; `rewrite` carries
-// that out between the engine's two rounds, on the root as it then is, and
-// may restructure the root's regions, which the second round simplifies.
+// that out between the engine's two turns, on the root as it then is, and
+// may restructure the root's regions, which the second turn simplifies.
 namespace idr::egraph {
 
 // A match whose region a known scrutinee takes keeps that region alone, or

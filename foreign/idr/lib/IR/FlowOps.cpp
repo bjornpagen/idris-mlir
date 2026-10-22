@@ -88,7 +88,7 @@ void handOn(OpOperand &use, Value result, FlowEdges &edges) {
 // operand only read: a natural it builds, or a word. Essential: the two are
 // the ways a numeral can be held.
 void numeralEdges(OpOperand &use, Value result, Type numeral, FlowEdges &edges) {
-  if (dataTypeOf(numeral).layout() == families::Layout::Natural)
+  if (dataTypeOf(numeral).layout() == Layout::Natural)
     handOn(use, result, edges);
   else
     edges.fresh(result);

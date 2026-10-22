@@ -8,6 +8,7 @@
 #include "idr/Transforms/Tail/Frames.h"
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"

@@ -51,11 +51,16 @@ struct idr::EnumTraits<Kind> {
 namespace {
 
 using idr::EnumArray;
+using idr::OneOf;
 using idr::box::Draws;
 
 using Elements = idr::footprint::Vector<std::uint32_t>;
 using Map = idr::footprint::DenseMap<std::uint32_t, std::uint32_t>;
 using Set = idr::footprint::DenseSet<std::uint32_t>;
+// A case that reads an arena names it by the list, `OneOf<Arena> auto`:
+// LLVM's arena converts implicitly from any type, its constructor template
+// building its slab allocator from whatever it is given, so a case taking
+// `const Arena &` would take every type, which a match refuses.
 using Arena = idr::footprint::BumpPtrAllocator;
 using Thing = std::variant<Elements, Map, Set, Arena>;
 
@@ -76,7 +81,8 @@ constexpr EnumArray<Kind, Growth> growthOf{
 Kind kindOf(const Thing &thing) {
   return idr::match(
       thing, [](const Elements &) { return Kind::Vector; }, [](const Map &) { return Kind::Map; },
-      [](const Set &) { return Kind::Set; }, [](const Arena &) { return Kind::Arena; });
+      [](const Set &) { return Kind::Set; },
+      [](const OneOf<Arena> auto &) { return Kind::Arena; });
 }
 
 // The bytes a thing holds, by its own account.
@@ -85,7 +91,7 @@ std::int64_t bytesOf(const Thing &thing) {
       thing, [](const Elements &v) { return v.capacity() * sizeof(std::uint32_t); },
       [](const Map &m) { return m.getMemorySize(); },
       [](const Set &s) { return s.getMemorySize(); },
-      [](const Arena &a) { return a.getTotalMemory(); });
+      [](const OneOf<Arena> auto &a) { return a.getTotalMemory(); });
   return static_cast<std::int64_t>(bytes);
 }
 
@@ -250,7 +256,8 @@ unsigned judge(unsigned limit, Report report) {
             held[draws.below(held.size())],
             [&](const Elements &v) { keep(Thing(std::in_place_type<Elements>, v)); },
             [&](const Map &m) { keep(Thing(std::in_place_type<Map>, m)); },
-            [&](const Set &s) { keep(Thing(std::in_place_type<Set>, s)); }, [](const Arena &) {});
+            [&](const Set &s) { keep(Thing(std::in_place_type<Set>, s)); },
+            [](const OneOf<Arena> auto &) {});
         break;
       }
       case Step::Drop: {

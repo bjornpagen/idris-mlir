@@ -7,6 +7,7 @@
 
 #include "idr/Transforms/Joins.h"
 
+#include "idr/IR/Families/Substitute.h"
 #include "idr/Support/Footprint.h"
 
 #include "mlir/IR/BuiltinTypes.h"

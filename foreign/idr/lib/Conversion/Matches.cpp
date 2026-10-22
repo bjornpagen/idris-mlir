@@ -192,11 +192,11 @@ void lowerMatchLit(RewriterBase &rewriter, LitMatchOp op) {
   if (isa<StrType>(carrier))
     return lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
       Value literal = ConstantOp::create(rewriter, at, scrutinee.getType(), key);
-      return StrCmpOp::create(rewriter, at, CmpPredicate::eq, scrutinee, literal);
+      return StrCmpOp::create(rewriter, at, scrutinee, literal, CmpPredicate::eq);
     });
   lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
     Value literal = ConstantOp::create(rewriter, at, scrutinee.getType(), key);
-    return BigCmpOp::create(rewriter, at, CmpPredicate::eq, scrutinee, literal);
+    return BigCmpOp::create(rewriter, at, scrutinee, literal, CmpPredicate::eq);
   });
 }
 

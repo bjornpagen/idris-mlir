@@ -195,7 +195,9 @@ struct Frames : impl::IdrFramesBase<Frames> {
       // function the rest was made of states among them.
       footprint::Vector<FrameKind> kinds;
       footprint::Vector<Rest> rests;
-      for (const Framed &f : component.framed) {
+      // Each by value: a Framed is two op handles, whose accessors are not
+      // const.
+      for (Framed f : component.framed) {
         auto owner = f.call->getParentOfType<FuncOp>();
         unsigned continues = 0;
         for (const Component::Function &g : component.functions)
@@ -216,8 +218,8 @@ struct Frames : impl::IdrFramesBase<Frames> {
       }
       numFrames += kinds.size();
       FuncOp first = component.functions.front().fn;
-      FramesFamily family = declareFrames(
-          ctx, StringAttr::get(ctx, first.getSymName() + ".frames"), first.getLoc(), rows, kinds);
+      FramesFamily family =
+          declareFrames(ctx, StringAttr::get(ctx, first.getSymName() + ".frames"), rows, kinds);
 
       // 2. Calls become jumps. Each function of the program's body moves
       // into its run, and the function, keeping its name, its signature and
@@ -241,7 +243,7 @@ struct Frames : impl::IdrFramesBase<Frames> {
       footprint::Vector<FuncOp> resumes;
       for (unsigned row = 0; row < family.rows; ++row) {
         const Row &given = rows[row];
-        llvm::SmallVector<Type> inputs(given.types);
+        llvm::SmallVector<Type> inputs(given.types.begin(), given.types.end());
         llvm::append_range(inputs, component.lifetimes);
         inputs.push_back(family.stacks[row]);
         auto lifetimesAt = static_cast<std::uint32_t>(given.types.size());

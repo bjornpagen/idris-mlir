@@ -21,6 +21,7 @@
 #include "idr/Transforms/Tail/Frames.h"
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -90,7 +91,7 @@ void Jumps::passStack(CallOp call, Value stack) {
   rewriter.setInsertionPoint(call);
   auto made = CallOp::create(rewriter, call.getLoc(), target(call), call.getIndexArgsAttr(), args,
                              TailKind::tail);
-  if (auto *at = llvm::find(component.made, call); at != component.made.end())
+  if (auto at = llvm::find(component.made, call); at != component.made.end())
     *at = made;
   for (Framed &f : component.framed)
     if (f.rest == call)

@@ -5,7 +5,7 @@
 // since a match or a join point is an op of the skeleton, never a pure
 // value. Each `decide` reads the extracted e-graph and the root, and what it
 // chose (a region, the cases kept, the arms a dispatch goes into) rides in
-// its Rewrite; `rewrite` carries that out between the engine's two rounds,
+// its Rewrite; `rewrite` carries that out between the engine's two turns,
 // on the root as it then is, checking that the shape it rewrites still
 // stands and leaving the root as it is where it does not. This unit holds
 // what the rule families share (idr/Transforms/Joins/Rules.h).
@@ -52,11 +52,12 @@ unsigned scopedResultCount(Operation *op) {
 Operation *keepResults(RewriterBase &rewriter, Operation *op, const llvm::BitVector &keep) {
   for (Region &region : op->getRegions())
     if (yields(region)) {
+      // A yield's operands are its op's results, each at its number.
       auto yield = cast<YieldOp>(region.front().getTerminator());
       SmallVector<Value> kept;
-      for (auto [index, value] : llvm::enumerate(yield.getResults()))
-        if (keep.test(index))
-          kept.push_back(value);
+      for (OpOperand &given : yield->getOpOperands())
+        if (keep.test(given.getOperandNumber()))
+          kept.push_back(given.get());
       rewriter.setInsertionPoint(yield);
       rewriter.replaceOpWithNewOp<YieldOp>(yield, kept);
     }
@@ -122,10 +123,11 @@ std::optional<egraph::Edit> choose(llvm::SmallVector<unsigned, 4> found) {
 }
 
 DataConOp constructorOf(Value value, const egraph::OperandFacts &facts) {
-  Operation *origin = facts.origin(value);
-  if (auto cast = dyn_cast_or_null<DataReindexOp>(origin))
-    origin = facts.origin(cast.getValue());
-  return dyn_cast_or_null<DataConOp>(origin);
+  if (auto made = facts.builtBy<DataConOp>(value))
+    return made;
+  if (auto reindex = facts.builtBy<DataReindexOp>(value))
+    return facts.builtBy<DataConOp>(reindex.getValue());
+  return {};
 }
 
 bool knownConstructor(Value value, const egraph::OperandFacts &facts) {

@@ -172,7 +172,7 @@ struct FramesFamily {
   Tag kind(unsigned index) const { return Tag{rows + index}; }
 };
 
-FramesFamily declareFrames(mlir::MLIRContext *ctx, mlir::StringAttr label, mlir::Location loc,
+FramesFamily declareFrames(mlir::MLIRContext *ctx, mlir::StringAttr label,
                            llvm::ArrayRef<Row> rows, llvm::ArrayRef<FrameKind> kinds);
 
 } // namespace idr::tail

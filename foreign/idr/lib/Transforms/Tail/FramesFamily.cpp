@@ -16,8 +16,8 @@ using namespace mlir;
 
 namespace idr::tail {
 
-FramesFamily declareFrames(MLIRContext *ctx, StringAttr label, Location loc,
-                           llvm::ArrayRef<Row> rows, llvm::ArrayRef<FrameKind> kinds) {
+FramesFamily declareFrames(MLIRContext *ctx, StringAttr label, llvm::ArrayRef<Row> rows,
+                           llvm::ArrayRef<FrameKind> kinds) {
   using families::CtorDecl;
   using families::TermNode;
   using families::TermWriter;

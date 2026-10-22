@@ -56,10 +56,11 @@ unsigned scopedResultCount(mlir::Operation *op);
 // out on the root as it then is; nothing where it found none.
 std::optional<egraph::Edit> choose(llvm::SmallVector<unsigned, 4> found);
 
-// The idr.data.con that made the chosen form of `value`, seen through a
-// cast that only changes its type (a yield gives a match's results at
-// their own types, so a constructor an arm built leaves it cast); a cast
-// of a cast is one, so one step suffices. Null where none did.
+// An idr.data.con among the members of `value`'s class, one computable
+// wherever the class is used, seen through a reindex that only changes its
+// type (a yield gives a match's results at their own types, so a
+// constructor an arm built leaves it cast); a cast of a cast is one, so one
+// step suffices. Null where no member is one.
 DataConOp constructorOf(mlir::Value value, const egraph::OperandFacts &facts);
 
 // Whether `value` has a known constructor in what the e-graph chose for

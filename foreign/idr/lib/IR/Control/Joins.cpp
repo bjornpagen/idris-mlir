@@ -97,7 +97,7 @@ mlir::LogicalResult verifyGroup(Group op) {
     return op.emitOpError("expects the erased binders of each of its ") << targets
                                                                          << " join regions";
   for (mlir::Region &region : op->getRegions()) {
-    mlir::Block::BlockArgListType tokens = tokensOf(op, region);
+    mlir::ValueRange tokens = tokensOf(op, region);
     bool leads = &region == &op.getBody() || tokensAt<Group> == TokenScope::InEveryRegion;
     if (leads && tokens.size() != targets)
       return op.emitOpError("region #") << region.getRegionNumber() << " must begin with "
@@ -105,7 +105,8 @@ mlir::LogicalResult verifyGroup(Group op) {
     if (!llvm::all_of(tokens.getTypes(), llvm::IsaPred<mlir::TokenType>))
       return op.emitOpError("region #")
              << region.getRegionNumber() << " must begin with one token per join region";
-    if (llvm::any_of(parametersOf(op, region).getTypes(), llvm::IsaPred<mlir::TokenType>))
+    if (llvm::any_of(mlir::ValueRange(parametersOf(op, region)).getTypes(),
+                     llvm::IsaPred<mlir::TokenType>))
       return op.emitOpError("region #") << region.getRegionNumber()
                                         << " takes a token as a parameter, which no jump passes";
   }

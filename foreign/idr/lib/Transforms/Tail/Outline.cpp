@@ -11,6 +11,7 @@
 #include "idr/Transforms/Tail/Frames.h"
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -88,7 +89,7 @@ FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
     return place ? std::optional<std::uint32_t>(first + *place) : std::nullopt;
   };
   llvm::SmallVector<LivesIn> parameters, scopedResults;
-  llvm::SmallVector<Outlives> bounds;
+  llvm::SmallVector<Outlives> outlives;
   for (auto [index, value] : llvm::enumerate(takes)) {
     if (!freedBy(value.getType(), Release::Scoped))
       continue;
@@ -115,8 +116,8 @@ FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
   Block &ownEntry = owner.getBody().front();
   if (LivesInAttr lives = owner.getLivesInAttr())
     for (const Outlives &bound : lives.getBounds())
-      bounds.push_back({*parameterFor(ownEntry.getArgument(bound.longer)),
-                        *parameterFor(ownEntry.getArgument(bound.shorter))});
+      outlives.push_back({*parameterFor(ownEntry.getArgument(bound.longer)),
+                          *parameterFor(ownEntry.getArgument(bound.shorter))});
 
   llvm::SmallVector<Type> inputs =
       llvm::map_to_vector(takes, [](Value value) { return value.getType(); });
@@ -129,9 +130,9 @@ FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
   fn.setResAttrsAttr(nullptr);
   fn.setUntouchedAttr(nullptr);
   fn.setBoundedAttr(nullptr);
-  fn.setLivesInAttr(parameters.empty() && scopedResults.empty() && bounds.empty()
+  fn.setLivesInAttr(parameters.empty() && scopedResults.empty() && outlives.empty()
                         ? LivesInAttr()
-                        : LivesInAttr::get(ctx, parameters, scopedResults, bounds));
+                        : LivesInAttr::get(ctx, parameters, scopedResults, outlives));
   fn.setGivenBackAttr(nullptr);
   fn.setBindersAttr(binders.empty() ? IndexBindersAttr() : IndexBindersAttr::get(ctx, binders));
   Block *entry = new Block();

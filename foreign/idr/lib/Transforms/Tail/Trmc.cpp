@@ -89,7 +89,7 @@ LogicalResult holeOf(Plan &plan) {
     if (failed(dest))
       return failure();
     if (plan.hole && *dest != plan.hole)
-      return context.call.emitOpError("internal error: idr-trmc: a recursion whose holes take ")
+      return context.call->emitOpError("internal error: idr-trmc: a recursion whose holes take ")
              << plan.hole << " and " << *dest << ", which no one clone takes";
     plan.hole = *dest;
   }
