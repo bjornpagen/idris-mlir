@@ -10,11 +10,77 @@ module IdrisMLIR.Spec.Families.Types
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Families.Dialect
+import IdrisMLIR.Spec.Families.Group
 
 import Data.List1
 import Data.Vect
 
 %default total
+
+------------------------------------------------------------------------------
+-- How bytecode lays out a family's members
+------------------------------------------------------------------------------
+
+||| Where the frontend finds the closed sets a member holds a case of.
+promiseCase : ImportedEnum
+promiseCase = imported promiseClosed
+  (MkSource ("IdrisMLIR" ::: ["Spec", "Families", "Group"]) "Promise"
+            ("IdrisMLIR" ::: ["Spec", "Families", "Dialect"]) "promiseClosed")
+
+modeCase : ImportedEnum
+modeCase = imported modeClosed
+  (MkSource ("IdrisMLIR" ::: ["Spec", "Families", "Group"]) "Mode"
+            ("IdrisMLIR" ::: ["Spec", "Families", "Dialect"]) "modeClosed")
+
+labelField : WireField
+labelField = MkWireField "label" (WireLeaf LeafLabel)
+
+indicesField : WireField
+indicesField = MkWireField "indices" (WireArray sortWire)
+
+||| What a constructor and a label share: the sorts of the index variables
+||| it binds, its equation's terms and its field types.
+bodyFields : List WireField
+bodyFields =
+  [ MkWireField "binders" (WireArray sortWire), MkWireField "equation" (WireArray termWire)
+  , MkWireField "fields" (WireArray (WireLeaf (LeafType "::mlir::Type"))) ]
+
+ctorDecl : Composite
+ctorDecl = MkComposite "CtorDecl" "::idr::families::CtorDecl" (Fields (labelField :: bodyFields))
+  (brief "a constructor of a data member or a frame stack")
+
+labelDecl : Composite
+labelDecl = MkComposite "LabelDecl" "::idr::families::LabelDecl"
+  (Fields (labelField :: MkWireField "fn" (WireLeaf (LeafAttr "::mlir::FlatSymbolRefAttr")) :: bodyFields))
+  (brief "a label of a closure or memo sum, its fields its function's captures")
+
+memoLabelDecl : Composite
+memoLabelDecl = MkComposite "MemoLabelDecl" "::idr::families::MemoLabelDecl"
+  (Fields [MkWireField "mode" (WireLeaf (LeafCase modeCase)), MkWireField "label" (WireOf labelDecl)])
+  (brief "a label of a memo sum, and how a force runs it")
+
+||| Each kind of member, the alternative it is in its sum.
+memberBody : MemberKind -> Composite
+memberBody Data = MkComposite "DataMember" "::idr::families::DataMember"
+  (Fields [ labelField, MkWireField "promise" (WireLeaf (LeafCase promiseCase))
+          , MkWireField "loc" (WireLeaf (LeafAttr "::mlir::LocationAttr")), indicesField
+          , MkWireField "ctors" (WireArray (WireOf ctorDecl)) ])
+  (brief "Idris's data, its declaration's constructors")
+memberBody Closures = MkComposite "ClosuresMember" "::idr::families::ClosuresMember"
+  (Fields [labelField, indicesField, MkWireField "labels" (WireArray (WireOf labelDecl))])
+  (brief "a closure sum, a label per function")
+memberBody Memo = MkComposite "MemoMember" "::idr::families::MemoMember"
+  (Fields [ labelField, indicesField, MkWireField "labels" (WireArray (WireOf memoLabelDecl))
+          , MkWireField "forced" (WireLeaf (LeafType "::mlir::Type")) ])
+  (brief "a memo sum, its labels then running and forced")
+memberBody Frames = MkComposite "FramesMember" "::idr::families::FramesMember"
+  (Fields [labelField, MkWireField "ctors" (WireArray (WireOf ctorDecl))])
+  (brief "a frame stack, the frames a recursion pushes")
+
+||| A member on the wire: its kind, then that kind's member.
+memberWire : Wire
+memberWire = WireOf (MkComposite "MemberOf" "::idr::families::Member"
+  (variant memberKindClosed memberBody) (brief "a member of a family, its alternative its kind"))
 
 ------------------------------------------------------------------------------
 -- The types and attributes
@@ -33,7 +99,7 @@ export
 familyAttr : AttrDef 1
 familyAttr = MkAttrDef
   { mnemonic = "family"
-  , params = [MkParameter "members" (HandValue "::llvm::ArrayRef<::idr::families::Member>" membersParam) AlwaysWritten "the group's members, in order"]
+  , params = [MkParameter "members" (WiredValue (WiredArray memberWire) membersParam) AlwaysWritten "the group's members, in order"]
   , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []
@@ -76,9 +142,9 @@ familyAttr = MkAttrDef
 
 ||| `!idr.data<#F[ts]>`, C++ `DataType`: a member applied to index terms,
 ||| perhaps refined to fewer constructors. Its storage is hand C++: its
-||| possible constructors, class, layout and references, and a numeral's
-||| largest value where its layout is a fixed width, are computed when it is
-||| made and kept beside its key. What a value of it holds depends on that
+||| possible constructors, class, layout, references and words, and a
+||| numeral's largest value where its layout is a fixed width, are computed
+||| when it is made and kept beside its key. What a value of it holds depends on that
 ||| layout, so it answers the value facts through its own members, read from
 ||| what was computed, and declares no constant answers.
 export
@@ -86,11 +152,11 @@ dataType : TypeDef 5
 dataType = MkTypeDef
   { mnemonic = "data"
   , params =
-      [ MkParameter "group" (HandValue "::idr::FamilyAttr" familyParam) AlwaysWritten "the family"
+      [ MkParameter "group" (WiredValue (WiredOne (LeafAttr "::idr::FamilyAttr")) familyParam) AlwaysWritten "the family"
       , MkParameter "member" CountValue AlwaysWritten "the member of the family"
-      , MkParameter "indices" (termArray termsParam) AlwaysWritten "one term per index"
-      , MkParameter "refinement" (HandValue "::mlir::DenseI32ArrayAttr" refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
-      , MkParameter "binders" (termArray termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
+      , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index"
+      , MkParameter "refinement" (WiredValue (WiredOne (LeafMaybeAttr "::mlir::DenseI32ArrayAttr")) refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
+      , MkParameter "binders" (WiredValue (WiredArray termWire) termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
   , syntax = HandSyntax
   , interfaces = [Declares MemRefElementType [], Implements valueFactsInterface []]
   , verifier = VerifiesParameters
@@ -118,6 +184,7 @@ dataType = MkTypeDef
       , MkMember OnObjectConst "::idr::Layout" "layout" []
       , MkMember OnObjectConst "::idr::Class" "cls" []
       , MkMember OnObjectConst "uint32_t" "components" []
+      , MkMember OnObjectConst "const ::idr::families::Slots &" "slots" []
       , MkMember OnObjectConst "::std::optional<uint64_t>" "numeralBound" []
       , MkMember OnObjectConst "::idr::LayoutMatch" "layoutMatch" [param "::idr::DataType" "other"]
       , MkMember OnObjectConst "bool" "boundsReach" []
@@ -150,7 +217,7 @@ selfType = MkTypeDef
   { mnemonic = "self"
   , params =
       [ MkParameter "member" CountValue AlwaysWritten "the member of the group being declared"
-      , MkParameter "indices" (termArray termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
+      , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
   , syntax = HandSyntax
   , interfaces = []
   , verifier = AnyParameters
@@ -168,8 +235,8 @@ equationAttr : AttrDef 2
 equationAttr = MkAttrDef
   { mnemonic = "equation"
   , params =
-      [ MkParameter "lhs" (termArray termsParam) AlwaysWritten "the left term"
-      , MkParameter "rhs" (termArray termsParam) AlwaysWritten "the right term" ]
+      [ MkParameter "lhs" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the left term"
+      , MkParameter "rhs" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the right term" ]
   , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []
@@ -192,7 +259,7 @@ conAttr : AttrDef 3
 conAttr = MkAttrDef
   { mnemonic = "con"
   , params =
-      [ MkParameter "data" (HandValue "::idr::DataType" dataParam) AlwaysWritten "the data type, refined to the constructor"
+      [ MkParameter "data" (WiredValue (WiredOne (LeafType "::idr::DataType")) dataParam) AlwaysWritten "the data type, refined to the constructor"
       , MkParameter "cells" (ListOf AttrValue) AlwaysWritten "the cells, each an array of its fields, every one but the last without the spine"
       , MkParameter "spine" CountValue (DefaultsTo "0") "the field a run runs along" ]
   , syntax = HandSyntax

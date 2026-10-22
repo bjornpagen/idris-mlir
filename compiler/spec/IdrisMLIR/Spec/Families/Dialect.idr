@@ -123,108 +123,6 @@ memberKindClosed = MkClosed
   , doc = brief "the kinds of member of a family"
   }
 
-export
-layoutClosed : Closed Layout
-layoutClosed = MkClosed
-  { name = "Layout"
-  , shape = OneOf
-  , every = Word8 ::: [Word16, Word32, Word64, Natural, InPlace, Cell, FrameStack]
-  , complete = \case
-      Word8 => Here
-      Word16 => There Here
-      Word32 => There (There Here)
-      Word64 => There (There (There Here))
-      Natural => There (There (There (There Here)))
-      InPlace => There (There (There (There (There Here))))
-      Cell => There (There (There (There (There (There Here)))))
-      FrameStack => There (There (There (There (There (There (There Here))))))
-  , describe = \case
-      Word8 => MkCase "Word8" ("word8" ::: []) "a number below 2^8"
-      Word16 => MkCase "Word16" ("word16" ::: []) "a number below 2^16"
-      Word32 => MkCase "Word32" ("word32" ::: []) "a number below 2^32"
-      Word64 => MkCase "Word64" ("word64" ::: []) "a number below 2^64"
-      Natural => MkCase "Natural" ("natural" ::: []) "a natural, a big's word"
-      InPlace => MkCase "InPlace" ("in_place" ::: []) "its constructors' fields in place, a tag where two are possible"
-      Cell => MkCase "Cell" ("cell" ::: []) "one pointer to a cell"
-      FrameStack => MkCase "FrameStack" ("frame_stack" ::: []) "the top of a frame stack, linear and uncounted"
-  , doc = brief "what a value of a data type is at run time"
-  }
-
-export
-classClosed : Closed Class
-classClosed = MkClosed
-  { name = "Class"
-  , shape = OneOf
-  , every = Closed ::: [Unknown]
-  , complete = \case
-      Closed => Here
-      Unknown => There Here
-  , describe = \case
-      Closed => MkCase "Closed" ("closed" ::: []) "every index closed and its unfolding within the shape budget"
-      Unknown => MkCase "Unknown" ("unknown" ::: []) "an index names a level, holds an opaque term, or unfolds past the budget"
-  , doc = brief "whether an application's indices fix its shape"
-  }
-
-export
-reachClosed : Closed Reach
-reachClosed = MkClosed
-  { name = "Reach"
-  , shape = OneOf
-  , every = Bounded ::: [Unbounded]
-  , complete = \case
-      Bounded => Here
-      Unbounded => There Here
-  , describe = \case
-      Bounded => MkCase "Bounded" ("bounded" ::: []) "everything a value reaches is bounded by its type"
-      Unbounded => MkCase "Unbounded" ("unbounded" ::: []) "a value may reach a self-holding member or a cell sized at run time"
-  , doc = brief "whether a value's type bounds everything it reaches"
-  }
-
-export
-buffersClosed : Closed Buffers
-buffersClosed = MkClosed
-  { name = "Buffers"
-  , shape = OneOf
-  , every = NoBuffer ::: [HoldsBuffer]
-  , complete = \case
-      NoBuffer => Here
-      HoldsBuffer => There Here
-  , describe = \case
-      NoBuffer => MkCase "NoBuffer" ("no_buffer" ::: []) "no cell the claim on its own cells covers holds a buffer"
-      HoldsBuffer => MkCase "HoldsBuffer" ("holds_buffer" ::: []) "a cell the claim on its own cells covers holds a buffer"
-  , doc = brief "whether a member's own cells hold a buffer"
-  }
-
-export
-closureReachClosed : Closed ClosureReach
-closureReachClosed = MkClosed
-  { name = "ClosureReach"
-  , shape = OneOf
-  , every = NoClosure ::: [ReachesClosure]
-  , complete = \case
-      NoClosure => Here
-      ReachesClosure => There Here
-  , describe = \case
-      NoClosure => MkCase "NoClosure" ("no_closure" ::: []) "no value of the family reaches a closure or a suspension"
-      ReachesClosure => MkCase "ReachesClosure" ("reaches_closure" ::: []) "a value of the family can reach a closure or a suspension"
-  , doc = brief "whether a family's values can reach a closure or a suspension"
-  }
-
-export
-layoutMatchClosed : Closed LayoutMatch
-layoutMatchClosed = MkClosed
-  { name = "LayoutMatch"
-  , shape = OneOf
-  , every = SameLayout ::: [OtherLayout]
-  , complete = \case
-      SameLayout => Here
-      OtherLayout => There Here
-  , describe = \case
-      SameLayout => MkCase "SameLayout" ("same_layout" ::: []) "the two are the same words at run time"
-      OtherLayout => MkCase "OtherLayout" ("other_layout" ::: []) "a value of one is re-packed to be a value of the other"
-  , doc = brief "whether two data types are the same words at run time"
-  }
-
 ||| The header the families' hand C++ includes: the closed sets above and
 ||| the shape budget.
 export
@@ -275,16 +173,57 @@ export
 dataParam : Directive
 dataParam = MkDirective "DataRef" [] (brief "a data type, by its entry")
 
-||| Index terms as a parameter holds them: an array of nodes, read into the
-||| vector that owns them, which the storage copies.
-export
-termArray : Directive -> ParamKind
-termArray = HandArray "::idr::families::TermNode"
-
 ||| Index terms as a C++ member takes them.
 export
 termsCode : Code
 termsCode = "::llvm::ArrayRef<::idr::families::TermNode>"
+
+------------------------------------------------------------------------------
+-- How bytecode lays out a term and a sort
+------------------------------------------------------------------------------
+
+||| One node of an index term, in preorder: its kind, then what the kind
+||| holds. A term is its nodes, so a parameter of terms is an array of them,
+||| read with the arena that keeps it until the storage copies it.
+termNode : Composite
+termNode = MkComposite "TermNode" "::idr::families::TermNode"
+  (flat termKindClosed "kind" (\case
+     Natural => [MkWireField "value" (WireLeaf LeafCount)]
+     Level => [MkWireField "value" (WireLeaf LeafCount)]
+     Successor => [MkWireField "value" (WireLeaf LeafCount)]
+     Literal => [MkWireField "payload" (WireLeaf (LeafAttr "::mlir::Attribute"))]
+     Constructor =>
+       [ MkWireField "payload" (WireLeaf (LeafMaybeAttr "::idr::FamilyAttr"))
+       , MkWireField "member" (WireLeaf LeafWord32)
+       , MkWireField "value" (WireLeaf LeafCount)
+       , MkWireField "arity" (WireLeaf LeafWord32) ]
+     Opaque => []))
+  (brief "one node of an index term, in preorder")
+
+||| The sort of an index position or a binder: its kind, then what the kind
+||| holds.
+sortOf : Composite
+sortOf = MkComposite "SortOf" "::idr::families::Sort"
+  (flat sortKindClosed "kind" (\case
+     NatSort => []
+     TypeSort => []
+     OpaqueSort => []
+     ScalarSort => [MkWireField "payload" (WireLeaf (LeafAttr "::mlir::TypeAttr"))]
+     FamilySort =>
+       [ MkWireField "payload" (WireLeaf (LeafMaybeAttr "::idr::FamilyAttr"))
+       , MkWireField "member" (WireLeaf LeafWord32) ]))
+  (brief "the sort of an index position or a binder")
+
+||| A node of an index term on the wire: what a parameter of terms holds an
+||| array of, its codec printed for both readers.
+export
+termWire : Wire
+termWire = WireOf termNode
+
+||| A sort on the wire, as a parameter of sorts holds an array of them.
+export
+sortWire : Wire
+sortWire = WireOf sortOf
 
 ------------------------------------------------------------------------------
 -- The binders and terms of a scope
@@ -297,7 +236,7 @@ export
 indexBindersAttr : AttrDef 1
 indexBindersAttr = MkAttrDef
   { mnemonic = "index_binders"
-  , params = [MkParameter "sorts" (HandArray "::idr::families::Sort" sortsParam) AlwaysWritten "the binders' sorts, in level order"]
+  , params = [MkParameter "sorts" (WiredValue (WiredArray sortWire) sortsParam) AlwaysWritten "the binders' sorts, in level order"]
   , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []
@@ -315,7 +254,7 @@ indexArgsAttr : AttrDef 2
 indexArgsAttr = MkAttrDef
   { mnemonic = "index_args"
   , params =
-      [ MkParameter "terms" (termArray termsParam) AlwaysWritten "the terms, one after the other"
+      [ MkParameter "terms" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the terms, one after the other"
       , MkParameter "count" CountValue AlwaysWritten "how many terms" ]
   , syntax = HandSyntax
   , typed = Untyped

@@ -75,12 +75,15 @@ SmallVector<Type> Layouts::fieldsAt(DataType type, Tag tag) {
   return families::instantiateFields(type.getGroup(), type.ctor(tag).fields, {});
 }
 
-// The components of each field of constructor `tag` at this application.
-SmallVector<SmallVector<layout::Component>> Layouts::fieldsOf(DataType type, Tag tag) const {
-  SmallVector<SmallVector<layout::Component>> out;
-  for (Type field : fieldsAt(type, tag))
-    out.push_back(components(field));
+Layouts::FieldTypes Layouts::fieldTypesOf(DataType type) {
+  FieldTypes out(type.declaredCount());
+  for (Tag tag : tagsLaidOut(type))
+    out[static_cast<uint32_t>(tag)] = fieldsAt(type, tag);
   return out;
+}
+
+SmallVector<SmallVector<layout::Component>> Layouts::componentsOf(ArrayRef<Type> fields) const {
+  return llvm::map_to_vector(fields, [&](Type field) { return components(field); });
 }
 
 Layouts::Layouts(Operation *op) : root(op) {
@@ -115,51 +118,30 @@ Layouts::Layouts(Operation *op) : root(op) {
         for (Type type : block.getArgumentTypes())
           walker.walk(type);
   });
-  // Each type after the values in place its fields hold, whose slots its
-  // own layout reads: the class rule keeps holding in place acyclic, so the
-  // walk ends. A cell needs nothing of the cells its fields point to.
-  auto heldBy = [](DataType type) {
-    SmallVector<DataType> held;
-    for (Tag tag : tagsLaidOut(type))
-      for (Type field : fieldsAt(type, tag))
-        if (DataType data = heldData(field))
-          held.push_back(data.unrefined());
-    return held;
-  };
-  // A number has neither slots nor cells: its value is its word. A frame
-  // stack's frames are laid out as cells.
-  auto computed = [&](DataType type) {
-    return numbered.contains(type) ||
-           (type.layout() != Layout::InPlace && type.layout() != Layout::Cell &&
-            type.layout() != Layout::FrameStack);
-  };
+  // Each type's slots or cells, and those of every data type its fields
+  // hold. Each is laid out from its own words, which its type computed when
+  // it was made, reading no other entry, so the walk's order is any order;
+  // and every type a field names is a closed unfolding the shape budget
+  // bounds or its member at an unknown index, so the walk ends. A number
+  // has neither slots nor cells: its value is its word. A frame stack's
+  // frames are laid out as cells.
   for (size_t at = 0; at < found.size(); ++at) {
-    SmallVector<std::pair<DataType, bool>> stack{{found[at].unrefined(), false}};
-    while (!stack.empty()) {
-      auto [type, expanded] = stack.pop_back_val();
-      if (computed(type))
-        continue;
-      SmallVector<DataType> held = heldBy(type);
-      if (!expanded) {
-        stack.push_back({type, true});
-        for (DataType data : held)
-          if (data.layout() == Layout::InPlace && !computed(data))
-            stack.push_back({data, false});
-        continue;
-      }
-      for (DataType data : held)
-        found.insert(data);
-      // Its slots or cells are computed before it takes its number: a read
-      // of another entry while they are copies what it reads, and nothing
-      // moves once the layouts are made.
-      std::variant<layout::SumLayout, layout::CellLayout> shape =
-          type.layout() == Layout::InPlace
-              ? std::variant<layout::SumLayout, layout::CellLayout>(sumOf(type))
-              : std::variant<layout::SumLayout, layout::CellLayout>(cellsOf(type));
-      layout::OwnCells own = ownCellsOf(type);
-      numbered.try_emplace(type, static_cast<uint32_t>(laidOut.size()));
-      laidOut.push_back(LaidOut{type, std::move(shape), std::move(own), std::nullopt});
-    }
+    DataType type = found[at].unrefined();
+    if (numbered.contains(type) || families::isNumber(type.layout()))
+      continue;
+    FieldTypes fields = fieldTypesOf(type);
+    for (const SmallVector<Type> &perCtor : fields)
+      for (Type field : perCtor)
+        if (DataType data = heldData(field))
+          found.insert(data.unrefined());
+    std::variant<layout::SumLayout, layout::CellLayout> shape =
+        type.layout() == Layout::InPlace
+            ? std::variant<layout::SumLayout, layout::CellLayout>(sumOf(type))
+            : std::variant<layout::SumLayout, layout::CellLayout>(cellsOf(type, fields));
+    layout::OwnCells own = ownCellsOf(type, fields);
+    numbered.try_emplace(type, static_cast<uint32_t>(laidOut.size()));
+    laidOut.push_back(
+        LaidOut{type, std::move(fields), std::move(shape), std::move(own), std::nullopt});
   }
   for (const LaidOut &entry : laidOut)
     match(
@@ -217,6 +199,10 @@ const layout::OwnCells &Layouts::ownCells(DataType type) const {
   return entryOf(type, "own cells").owned;
 }
 
+ArrayRef<Type> Layouts::fieldTypes(DataType type, Tag tag) const {
+  return entryOf(type, "field types").fields[static_cast<uint32_t>(tag)];
+}
+
 unsigned Layouts::sizeOf(Type component) const {
   if (auto it = measures.find(component); it != measures.end())
     return it->second.first;
@@ -233,12 +219,12 @@ unsigned Layouts::alignmentOf(Type component) const {
 // group in every cell. A memo cell is allocated in one state and written
 // into another, the value a force stores over the captures it took, so
 // every state's cell is as large as the largest.
-layout::CellLayout Layouts::cellsOf(DataType type) const {
+layout::CellLayout Layouts::cellsOf(DataType type, const FieldTypes &fields) const {
   bool grouped = type.declaredCount() > IDRIS_RT_TAG_LIMIT;
   layout::CellLayout out;
   unsigned size = 0;
   for (uint32_t t = 0, n = type.declaredCount(); t < n; ++t) {
-    out.cells.push_back(cellOf(fieldsOf(type, Tag{t}), Tag{t}, grouped, type.kind()));
+    out.cells.push_back(cellOf(componentsOf(fields[t]), Tag{t}, grouped, type.kind()));
     size = std::max(size, out.cells.back().size);
   }
   if (type.kind() == MemberKind::Memo)
@@ -252,14 +238,17 @@ layout::CellLayout Layouts::cellsOf(DataType type) const {
 // Each field a `unique self` claim reaches (fieldReach of its declared
 // type), where its type at this application has cells or slots of its
 // family, is walked as that type; a number's word, a frame stack and every
-// field the claim does not reach are dropped by their counts.
-layout::OwnCells Layouts::ownCellsOf(DataType type) const {
+// field the claim does not reach are dropped by their counts. A
+// constructor the type is not laid out over has no value to drop.
+layout::OwnCells Layouts::ownCellsOf(DataType type, const FieldTypes &fields) const {
   layout::OwnCells out;
-  for (uint32_t t = 0, n = type.declaredCount(); t < n; ++t) {
-    SmallVector<layout::SelfDrop> &fields = out.fields.emplace_back();
-    for (auto [declared, field] : llvm::zip_equal(type.ctor(Tag{t}).fields, fieldsAt(type, Tag{t}))) {
+  out.fields.resize(type.declaredCount());
+  for (Tag tag : tagsLaidOut(type)) {
+    auto t = static_cast<uint32_t>(tag);
+    SmallVector<layout::SelfDrop> &drops = out.fields[t];
+    for (auto [declared, field] : llvm::zip_equal(type.ctor(tag).fields, fields[t])) {
       if (fieldReach(declared) == FieldReach::Other) {
-        fields.push_back(layout::ByCount{});
+        drops.push_back(layout::ByCount{});
         continue;
       }
       // A field the claim reaches is of the value's own group, which its
@@ -267,9 +256,9 @@ layout::OwnCells Layouts::ownCellsOf(DataType type) const {
       // family: a data type either way.
       auto data = cast<DataType>(unrestricted(field));
       if (data.layout() == Layout::Cell || data.layout() == Layout::InPlace)
-        fields.push_back(layout::OwnCell{data});
+        drops.push_back(layout::OwnCell{data});
       else
-        fields.push_back(layout::ByCount{});
+        drops.push_back(layout::ByCount{});
     }
   }
   return out;

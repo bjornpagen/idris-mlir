@@ -28,15 +28,22 @@ namespace idr::detail {
 // constructors it is refined to, the tags ascending, uniqued as an array
 // attribute (null: unrefined; empty: refined to no constructor, so no
 // value has it), and the terms of the binders of its one constructor that
-// its indices leave undetermined (none otherwise).
+// its indices leave undetermined (none otherwise). A refined key carries
+// its unrefined application too, made before the type is: a function of
+// the rest, so no part of the identity, kept so a reader asks it of the
+// storage and never of the type table.
 struct DataKey {
   FamilyAttr group;
   uint32_t member;
   ArrayRef<TermNode> indices;
   DenseI32ArrayAttr refinement;
   ArrayRef<TermNode> binders;
+  DataType base;
 
-  bool operator==(const DataKey &) const = default;
+  bool operator==(const DataKey &other) const {
+    return group == other.group && member == other.member && indices == other.indices &&
+           refinement == other.refinement && binders == other.binders;
+  }
 };
 
 // The parameters are the key; the rest is derived when the type is made.
@@ -45,7 +52,20 @@ struct DataTypeStorage : TypeStorage {
 
   DataTypeStorage(const KeyTy &key, TagSet possible, LayoutFacts facts, uint32_t freeLevels)
       : group(key.group), member(key.member), indices(key.indices), refinement(key.refinement),
-        binders(key.binders), possible(possible), facts(facts), freeLevels(freeLevels) {}
+        binders(key.binders), base(key.base), possible(possible), facts(facts),
+        freeLevels(freeLevels) {}
+
+  // The key of the parameters as the builders give them: a refined one's
+  // unrefined application is made here, before the type, never while it
+  // is being made.
+  static KeyTy getKey(FamilyAttr group, uint64_t member, ArrayRef<TermNode> indices,
+                      DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
+    auto own = static_cast<uint32_t>(member);
+    DataType base = refinement || !binders.empty()
+                        ? DataType::get(group.getContext(), group, own, indices)
+                        : DataType();
+    return DataKey{group, own, indices, refinement, binders, base};
+  }
 
   bool operator==(const KeyTy &other) const {
     return other == KeyTy{group, member, indices, refinement, binders};
@@ -68,6 +88,8 @@ struct DataTypeStorage : TypeStorage {
   ArrayRef<TermNode> indices;
   DenseI32ArrayAttr refinement;
   ArrayRef<TermNode> binders;
+  // The unrefined application, null where this is it.
+  DataType base;
   TagSet possible;
   LayoutFacts facts;
   uint32_t freeLevels;
@@ -98,24 +120,31 @@ struct SelfTypeStorage : TypeStorage {
 
 idr::detail::DataTypeStorage *
 idr::detail::DataTypeStorage::construct(TypeStorageAllocator &allocator, const KeyTy &key) {
-  DataKey own{key.group, key.member, allocator.copyInto(key.indices), key.refinement,
-              allocator.copyInto(key.binders)};
-  SmallVector<Tag> atIndices = possibleAt(own.group, own.member, own.indices);
-  uint32_t declared = own.group.tagCount(own.member);
+  DataKey own{key.group,      key.member,
+              allocator.copyInto(key.indices), key.refinement,
+              allocator.copyInto(key.binders), key.base};
+  uint32_t levels = std::max(freeLevelsOf(own.indices), freeLevelsOf(own.binders));
   // The layout is the unrefined application's: refining a value to fewer
   // constructors never changes how it is held, so a case's refined value
-  // is the scrutinee itself.
-  TagSet unrefined = atIndices.size() == declared
-                         ? TagSet::every(declared)
-                         : TagSet::listed(allocator.copyInto(ArrayRef<Tag>(atIndices)));
-  LayoutFacts facts = classify(own.group, own.member, own.indices);
-  TagSet possible = unrefined;
-  if (own.refinement) {
-    SmallVector<Tag> tags = llvm::to_vector(llvm::map_range(
-        own.refinement.asArrayRef(), [](int32_t tag) { return Tag{static_cast<uint32_t>(tag)}; }));
-    possible = TagSet::listed(allocator.copyInto(ArrayRef<Tag>(tags)));
+  // is the scrutinee itself, and its facts are read from that
+  // application's storage rather than computed again.
+  if (own.base) {
+    const auto *base = static_cast<const DataTypeStorage *>(Type(own.base).getImpl());
+    TagSet possible = base->possible;
+    if (own.refinement) {
+      SmallVector<Tag> tags = llvm::to_vector(llvm::map_range(
+          own.refinement.asArrayRef(), [](int32_t tag) { return Tag{static_cast<uint32_t>(tag)}; }));
+      possible = TagSet::listed(allocator.copyInto(ArrayRef<Tag>(tags)));
+    }
+    return new (allocator.allocate<DataTypeStorage>())
+        DataTypeStorage(own, possible, base->facts, levels);
   }
-  uint32_t levels = std::max(freeLevelsOf(own.indices), freeLevelsOf(own.binders));
+  SmallVector<Tag> atIndices = possibleAt(own.group, own.member, own.indices);
+  uint32_t declared = own.group.tagCount(own.member);
+  TagSet possible = atIndices.size() == declared
+                        ? TagSet::every(declared)
+                        : TagSet::listed(allocator.copyInto(ArrayRef<Tag>(atIndices)));
+  LayoutFacts facts = classify(own.group, own.member, own.indices, allocator);
   return new (allocator.allocate<DataTypeStorage>())
       DataTypeStorage(own, possible, facts, levels);
 }
@@ -160,7 +189,8 @@ DataType DataType::get(MLIRContext *context, FamilyAttr group, uint32_t member,
 }
 
 DataType DataType::unrefined() const {
-  return get(getContext(), getGroup(), getImpl()->member, getIndices());
+  DataType base = getImpl()->base;
+  return base ? base : *this;
 }
 
 const TagSet &DataType::possibleTags() const { return getImpl()->possible; }
@@ -205,15 +235,17 @@ std::optional<Mode> DataType::labelMode(Tag tag) const {
 
 Layout DataType::layout() const { return getImpl()->facts.layout; }
 Class DataType::cls() const { return getImpl()->facts.cls; }
-uint32_t DataType::components() const { return getImpl()->facts.components; }
+uint32_t DataType::components() const { return getImpl()->facts.slots.count(); }
+const Slots &DataType::slots() const { return getImpl()->facts.slots; }
 std::optional<uint64_t> DataType::numeralBound() const { return getImpl()->facts.bound; }
 
 // The same words where the two are one application, refinements aside; or
 // numbers of one layout, each its layout's word; or two values of one
 // member the layouts lay out as the member at an unknown index, which every
-// cell, frame stack and value in place at an unknown class of it is. A
-// closed application held in place is its own unfolding, so only that
-// application has its words.
+// cell, frame stack and value in place at an unknown class of it is, at its
+// constructors' own fields, an array field's elements included, so the
+// two share every word they reach. A closed application held in place is
+// its own unfolding, so only that application has its words.
 LayoutMatch DataType::layoutMatch(DataType other) const {
   DataType self = unrefined();
   DataType that = other.unrefined();
@@ -227,6 +259,20 @@ LayoutMatch DataType::layoutMatch(DataType other) const {
   };
   return unfolded(self) || unfolded(that) ? LayoutMatch::OtherLayout : LayoutMatch::SameLayout;
 }
+
+// One type at two grades is the same words; two data types are as their
+// layout facts say; any other two, a type holding data types below its
+// grade (an array of them), relate only element by element, by a re-pack.
+LayoutMatch idr::families::layoutMatch(Type from, Type to) {
+  Type fromValue = unrestricted(from);
+  Type toValue = unrestricted(to);
+  if (fromValue == toValue)
+    return LayoutMatch::SameLayout;
+  auto fromData = dyn_cast<DataType>(fromValue);
+  auto toData = dyn_cast<DataType>(toValue);
+  return fromData && toData ? fromData.layoutMatch(toData) : LayoutMatch::OtherLayout;
+}
+
 bool DataType::boundsReach() const { return getImpl()->facts.reach == Reach::Bounded; }
 ArrayRef<MemberRef> DataType::selfCells() const {
   return getGroup().selfCells(getImpl()->member);

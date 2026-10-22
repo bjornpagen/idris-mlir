@@ -2,14 +2,15 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime components of a value type, each with the kind of word it
 // is; the plan of a memref's descriptor; and the slots of a data type held
-// in place, over the constructors it is laid out over.
+// in place, as its type laid them out when it was made.
 //
 // What each type is at run time is said once, in one fold over the
 // dialect's types, as the list its specification generates: a type the
 // specification adds has no case there until one is written, and the fold
-// does not compile. The fold makes no type, since a data type asks how many
-// components its fields take while it is being made; the components name
-// the word types it described.
+// does not compile. The fold makes no type, since a data type asks for the
+// words its fields take while it is being made; a data type's own words
+// are the ones it computed then, and the components name the word types
+// the words describe, so every count of them is one count.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -17,9 +18,10 @@
 #include "idr/IR/Lifetimes.h"
 #include "idr/Support/Match.h"
 
+#include "SlotPlan.h"
+
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -56,7 +58,7 @@ unsigned carriedIn(ArrayRef<DescriptorField> fields) {
 struct Pointer {
   Word word;
 };
-// One integer `bits` wide: a big's word, or a number of a fixed width.
+// One integer `bits` wide: a big's word.
 struct Integer {
   unsigned bits;
   Word word;
@@ -77,12 +79,12 @@ struct Addresses {
 struct Descriptor {
   ShapedType array;
 };
-// A data type held in place: its slots.
-struct Spread {
+// A data type: the words it computed when it was made.
+struct Held {
   DataType data;
 };
 
-using Words = std::variant<Pointer, Integer, Itself, NoWord, Addresses, Descriptor, Spread>;
+using Words = std::variant<Pointer, Integer, Itself, NoWord, Addresses, Descriptor, Held>;
 
 // Every type of the dialect, as its specification generates them.
 template <class... Ts>
@@ -111,7 +113,7 @@ Words foldDialect(Type type, TypeList<Ts...>, C &&cases) {
 // and a suspension are a cell's address; a big and a natural are a big's
 // word, a small integer or a cell's address; a destination is an address
 // per component of what it takes; a lifetime is what its kind lowers to;
-// a data type is as its layout says. An upstream array is its cell and
+// a data type is the words it computed. An upstream array is its cell and
 // its descriptor, another upstream type that holds a reference a cell's
 // address, and any other a scalar.
 Words wordsOf(Type type, std::optional<Hold> hold = std::nullopt) {
@@ -138,24 +140,7 @@ Words wordsOf(Type type, std::optional<Hold> hold = std::nullopt) {
             [](NatType) -> Words { return Integer{64, Word::Big}; },
             [](FnType) -> Words { return Pointer{Word::Cell}; },
             [](LazyType) -> Words { return Pointer{Word::Cell}; },
-            [](DataType data) -> Words {
-              switch (data.layout()) {
-              case Layout::FrameStack:
-                return Pointer{Word::Uncounted};
-              case Layout::Cell:
-                return Pointer{Word::Cell};
-              case Layout::Natural:
-                return Integer{64, Word::Big};
-              case Layout::InPlace:
-                return Spread{data};
-              case Layout::Word8:
-              case Layout::Word16:
-              case Layout::Word32:
-              case Layout::Word64:
-                return Integer{families::numberBits(data.layout()), Word::Uncounted};
-              }
-              llvm_unreachable("a data type's layout");
-            },
+            [](DataType data) -> Words { return Held{data}; },
             // Essential: the dialect's types include one no value has. A
             // member of a group by position is read with its declaration,
             // whose readers take it as its member's data type, and the
@@ -207,7 +192,36 @@ uint32_t componentCount(Type type) {
       [](Descriptor descriptor) -> uint32_t {
         return 1 + DescriptorFields::of(descriptor.array).carried();
       },
-      [](Spread spread) -> uint32_t { return spread.data.components(); });
+      [](Held held) -> uint32_t { return held.data.components(); });
+}
+
+SmallVector<families::SlotWord> slotWordsOf(Type type) {
+  using families::IntegerWord;
+  using families::PointerWord;
+  using families::ScalarWord;
+  using families::SlotWord;
+  using Out = SmallVector<SlotWord>;
+  return match(
+      wordsOf(type), [](Pointer one) -> Out { return {SlotWord{PointerWord{}, one.word}}; },
+      [](Integer one) -> Out { return {SlotWord{IntegerWord{one.bits}, one.word}}; },
+      // An integer the value is itself is the word any integer of its width
+      // is, so the two share a slot.
+      [](Itself one) -> Out {
+        if (auto integer = dyn_cast<IntegerType>(one.type); integer && integer.isSignless())
+          return {SlotWord{IntegerWord{integer.getWidth()}, Word::Uncounted}};
+        return {SlotWord{ScalarWord{one.type}, Word::Uncounted}};
+      },
+      [](NoWord) -> Out { return {}; },
+      [](Addresses places) -> Out {
+        return Out(componentCount(places.of), SlotWord{PointerWord{}, Word::Uncounted});
+      },
+      [](Descriptor descriptor) -> Out {
+        Out out{SlotWord{PointerWord{}, Word::Cell}};
+        out.append(DescriptorFields::of(descriptor.array).carried(),
+                   SlotWord{IntegerWord{64}, Word::Uncounted});
+        return out;
+      },
+      [](Held held) -> Out { return families::flatWords(held.data.slots()); });
 }
 
 Reach reachOf(Type type) {
@@ -221,86 +235,44 @@ Reach reachOf(Type type) {
 
 namespace idr {
 
-// The words the fold described, with their types made: a pointer is the
-// target's, a big's word and a descriptor's carried field a 64-bit word.
-SmallVector<layout::Component> Layouts::components(Type type) const {
-  using layout::Component;
-  using layout::Word;
-  MLIRContext *ctx = type.getContext();
-  Type pointer = LLVM::LLVMPointerType::get(ctx);
-  Type word = IntegerType::get(ctx, 64);
-  return match(
-      layout::wordsOf(type),
-      [&](layout::Pointer one) { return SmallVector<Component>{{pointer, one.word}}; },
-      [&](layout::Integer one) {
-        return SmallVector<Component>{{IntegerType::get(ctx, one.bits), one.word}};
-      },
-      [](layout::Itself one) { return SmallVector<Component>{{one.type, Word::Uncounted}}; },
-      [](layout::NoWord) { return SmallVector<Component>{}; },
-      [&](layout::Addresses places) {
-        return SmallVector<Component>(layout::componentCount(places.of),
-                                      Component{pointer, Word::Uncounted});
-      },
-      [&](layout::Descriptor descriptor) {
-        SmallVector<Component> out{{pointer, Word::Cell}};
-        out.append(layout::DescriptorFields::of(descriptor.array).carried(),
-                   Component{word, Word::Uncounted});
-        return out;
-      },
-      [&](layout::Spread spread) { return sum(spread.data).words; });
+namespace {
+
+// A word as a component, its type made: a pointer is the target's, an
+// integer its width's, a scalar itself.
+layout::Component componentOf(MLIRContext *ctx, const families::SlotWord &word) {
+  Type type = match(
+      word.shape, [&](families::PointerWord) -> Type { return LLVM::LLVMPointerType::get(ctx); },
+      [&](families::IntegerWord integer) -> Type { return IntegerType::get(ctx, integer.bits); },
+      [](families::ScalarWord scalar) { return scalar.type; });
+  return layout::Component{type, word.kind};
 }
 
-// The tag, where two constructors or more are laid out, then each one's
-// fields, taking the words before them that no field of the same
-// constructor took, of the same type and kind, so two constructors share
-// their words. A pointer slot some constructor leaves empty is null there:
-// it may be null.
+} // namespace
+
+// The words the fold describes, with their types made, so a value's
+// components are as many as layout::componentCount says.
+SmallVector<layout::Component> Layouts::components(Type type) const {
+  MLIRContext *ctx = type.getContext();
+  return llvm::map_to_vector(layout::slotWordsOf(type), [&](const families::SlotWord &word) {
+    return componentOf(ctx, word);
+  });
+}
+
+// The slots its type laid out when it was made, with their types made.
 layout::SumLayout Layouts::sumOf(DataType type) const {
-  using layout::Component;
-  using layout::Word;
+  MLIRContext *ctx = type.getContext();
+  const families::Slots &slots = type.unrefined().slots();
   layout::SumLayout out;
-  families::TagSet tags = tagsLaidOut(type);
-  uint32_t declared = type.declaredCount();
-  if (tags.size() >= 2) {
-    unsigned width = declared <= 256 ? 8u : declared <= 65536 ? 16u : 32u;
-    out.tag = IntegerType::get(type.getContext(), width);
-    out.words.push_back(Component{*out.tag, Word::Uncounted});
+  if (slots.tag)
+    out.tag = IntegerType::get(ctx, slots.tag->bits);
+  out.words = llvm::map_to_vector(families::flatWords(slots), [&](const families::SlotWord &word) {
+    return componentOf(ctx, word);
+  });
+  for (ArrayRef<ArrayRef<uint32_t>> perField : slots.fields) {
+    SmallVector<SmallVector<unsigned>> &fields = out.fields.emplace_back();
+    for (ArrayRef<uint32_t> positions : perField)
+      fields.emplace_back(positions.begin(), positions.end());
   }
-  auto firstField = static_cast<unsigned>(out.words.size());
-  out.fields.resize(declared);
-  SmallVector<unsigned> users;
-  for (Tag tag : tags) {
-    // The free words of each component, in word order: built once per
-    // constructor, since searching the words again for every field is
-    // quadratic in a wide sum.
-    llvm::DenseMap<std::pair<Type, unsigned>, SmallVector<unsigned>> free;
-    llvm::DenseMap<std::pair<Type, unsigned>, unsigned> cursor;
-    for (unsigned i = firstField, n = static_cast<unsigned>(out.words.size()); i < n; ++i)
-      free[{out.words[i].type, static_cast<unsigned>(out.words[i].word)}].push_back(i);
-    auto &perField = out.fields[static_cast<uint32_t>(tag)];
-    for (const SmallVector<Component> &field : fieldsOf(type, tag)) {
-      SmallVector<unsigned> taken;
-      for (const Component &component : field) {
-        std::pair<Type, unsigned> key{component.type, static_cast<unsigned>(component.word)};
-        SmallVector<unsigned> &bucket = free[key];
-        unsigned &at = cursor[key];
-        unsigned chosen;
-        if (at < bucket.size()) {
-          chosen = bucket[at++];
-        } else {
-          chosen = static_cast<unsigned>(out.words.size());
-          out.words.push_back(component);
-          users.push_back(0);
-        }
-        ++users[chosen - firstField];
-        taken.push_back(chosen);
-      }
-      perField.push_back(std::move(taken));
-    }
-  }
-  for (unsigned i = firstField, n = static_cast<unsigned>(out.words.size()); i < n; ++i)
-    if (out.words[i].word == Word::Cell && users[i - firstField] < tags.size())
-      out.words[i].word = Word::MaybeCell;
   return out;
 }
 

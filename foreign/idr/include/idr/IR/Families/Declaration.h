@@ -118,6 +118,11 @@ struct FramesMember {
   bool operator==(const FramesMember &) const = default;
 };
 
+// The run-time words of a value of a data type where it is held, which its
+// type computes when it is made (Families.h): named here, before the
+// generated classes, whose data type gives them.
+struct Slots;
+
 // A member of a family as a claim names it: its group, null for the group
 // that names it, and its position there.
 struct MemberRef {

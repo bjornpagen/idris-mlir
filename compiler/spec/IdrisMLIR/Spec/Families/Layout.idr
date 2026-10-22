@@ -17,6 +17,11 @@
 ||| cell lives, never whether a value is one.
 module IdrisMLIR.Spec.Families.Layout
 
+import IdrisMLIR.Spec.Core.Vocabulary
+
+import Data.List.Elem
+import Data.List1
+
 %default total
 
 ||| Whether an application's indices fix its shape.
@@ -78,3 +83,109 @@ data LayoutMatch = SameLayout | OtherLayout
 public export
 shapeBudget : Nat
 shapeBudget = 16
+
+------------------------------------------------------------------------------
+-- The closed sets the C++ storage reads
+------------------------------------------------------------------------------
+
+export
+layoutClosed : Closed Layout
+layoutClosed = MkClosed
+  { name = "Layout"
+  , shape = OneOf
+  , every = Word8 ::: [Word16, Word32, Word64, Natural, InPlace, Cell, FrameStack]
+  , complete = \case
+      Word8 => Here
+      Word16 => There Here
+      Word32 => There (There Here)
+      Word64 => There (There (There Here))
+      Natural => There (There (There (There Here)))
+      InPlace => There (There (There (There (There Here))))
+      Cell => There (There (There (There (There (There Here)))))
+      FrameStack => There (There (There (There (There (There (There Here))))))
+  , describe = \case
+      Word8 => MkCase "Word8" ("word8" ::: []) "a number below 2^8"
+      Word16 => MkCase "Word16" ("word16" ::: []) "a number below 2^16"
+      Word32 => MkCase "Word32" ("word32" ::: []) "a number below 2^32"
+      Word64 => MkCase "Word64" ("word64" ::: []) "a number below 2^64"
+      Natural => MkCase "Natural" ("natural" ::: []) "a natural, a big's word"
+      InPlace => MkCase "InPlace" ("in_place" ::: []) "its constructors' fields in place, a tag where two are possible"
+      Cell => MkCase "Cell" ("cell" ::: []) "one pointer to a cell"
+      FrameStack => MkCase "FrameStack" ("frame_stack" ::: []) "the top of a frame stack, linear and uncounted"
+  , doc = brief "what a value of a data type is at run time"
+  }
+
+export
+classClosed : Closed Class
+classClosed = MkClosed
+  { name = "Class"
+  , shape = OneOf
+  , every = Closed ::: [Unknown]
+  , complete = \case
+      Closed => Here
+      Unknown => There Here
+  , describe = \case
+      Closed => MkCase "Closed" ("closed" ::: []) "every index closed and its unfolding within the shape budget"
+      Unknown => MkCase "Unknown" ("unknown" ::: []) "an index names a level, holds an opaque term, or unfolds past the budget"
+  , doc = brief "whether an application's indices fix its shape"
+  }
+
+export
+reachClosed : Closed Reach
+reachClosed = MkClosed
+  { name = "Reach"
+  , shape = OneOf
+  , every = Bounded ::: [Unbounded]
+  , complete = \case
+      Bounded => Here
+      Unbounded => There Here
+  , describe = \case
+      Bounded => MkCase "Bounded" ("bounded" ::: []) "everything a value reaches is bounded by its type"
+      Unbounded => MkCase "Unbounded" ("unbounded" ::: []) "a value may reach a self-holding member or a cell sized at run time"
+  , doc = brief "whether a value's type bounds everything it reaches"
+  }
+
+export
+buffersClosed : Closed Buffers
+buffersClosed = MkClosed
+  { name = "Buffers"
+  , shape = OneOf
+  , every = NoBuffer ::: [HoldsBuffer]
+  , complete = \case
+      NoBuffer => Here
+      HoldsBuffer => There Here
+  , describe = \case
+      NoBuffer => MkCase "NoBuffer" ("no_buffer" ::: []) "no cell the claim on its own cells covers holds a buffer"
+      HoldsBuffer => MkCase "HoldsBuffer" ("holds_buffer" ::: []) "a cell the claim on its own cells covers holds a buffer"
+  , doc = brief "whether a member's own cells hold a buffer"
+  }
+
+export
+closureReachClosed : Closed ClosureReach
+closureReachClosed = MkClosed
+  { name = "ClosureReach"
+  , shape = OneOf
+  , every = NoClosure ::: [ReachesClosure]
+  , complete = \case
+      NoClosure => Here
+      ReachesClosure => There Here
+  , describe = \case
+      NoClosure => MkCase "NoClosure" ("no_closure" ::: []) "no value of the family reaches a closure or a suspension"
+      ReachesClosure => MkCase "ReachesClosure" ("reaches_closure" ::: []) "a value of the family can reach a closure or a suspension"
+  , doc = brief "whether a family's values can reach a closure or a suspension"
+  }
+
+export
+layoutMatchClosed : Closed LayoutMatch
+layoutMatchClosed = MkClosed
+  { name = "LayoutMatch"
+  , shape = OneOf
+  , every = SameLayout ::: [OtherLayout]
+  , complete = \case
+      SameLayout => Here
+      OtherLayout => There Here
+  , describe = \case
+      SameLayout => MkCase "SameLayout" ("same_layout" ::: []) "the two are the same words at run time"
+      OtherLayout => MkCase "OtherLayout" ("other_layout" ::: []) "a value of one is re-packed to be a value of the other"
+  , doc = brief "whether two data types are the same words at run time"
+  }

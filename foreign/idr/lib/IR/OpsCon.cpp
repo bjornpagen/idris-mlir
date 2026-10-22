@@ -11,6 +11,7 @@
 #include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Fold.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 
@@ -121,5 +122,9 @@ OpFoldResult DataConOp::fold(FoldAdaptor adaptor) {
   for (auto [field, operand] : llvm::zip_equal(adaptor.getFields(), getFields()))
     if (!field || !ConstantOp::isBuildableWith(field, operand.getType()))
       return {};
-  return ConAttr::get(getContext(), data, ArrayAttr::get(getContext(), adaptor.getFields()));
+  // Only a constant idr.constant holds at the result's type, so every
+  // folding driver can place what this gives.
+  ConAttr constant =
+      ConAttr::get(getContext(), data, ArrayAttr::get(getContext(), adaptor.getFields()));
+  return fold::held(constant, getResult().getType());
 }

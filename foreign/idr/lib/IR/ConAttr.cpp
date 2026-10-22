@@ -271,12 +271,6 @@ ConAttr idr::readCon(DialectBytecodeReader &reader, MLIRContext *context, DataTy
   return ConAttr::getNormalized([&] { return reader.emitError(); }, context, data, cells, spine);
 }
 
-LogicalResult idr::readDataRef(DialectBytecodeReader &reader, DataType &value) {
-  return reader.readType(value);
-}
-
-void idr::writeDataRef(DialectBytecodeWriter &writer, DataType value) { writer.writeType(value); }
-
 // `<!T, [fields]>`, or `<!T, [a], [b, t] along 1>`: the refined data type,
 // the cells, and the field they run along, `along 0` left out.
 Attribute ConAttr::parse(AsmParser &parser, Type) {

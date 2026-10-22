@@ -37,10 +37,10 @@ import IdrisMLIR.Spec.Grades.Grade
 ||| Whether a data member's values are rebuilt in place with no run-time
 ||| test (the registry's `in_place` types): a fact counting reads, not a
 ||| change of structure, so it is a field of a data member and no kind of
-||| its own.
-namespace Promise
-  public export
-  data Promise = None | InPlace
+||| its own. At the module's top level, where the frontend's encoder of a
+||| member names it.
+public export
+data Promise = None | InPlace
 
 ||| How a force runs a memo label: once, its cell then holding the forced
 ||| value; or at every force, the cell never written, where the function

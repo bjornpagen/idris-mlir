@@ -227,14 +227,20 @@ struct DescriptorFields {
   static DescriptorFields of(mlir::ShapedType type);
 };
 
-// How many runtime components a value of `type` takes: a data type's, as its
-// layout says (none for a value in place no constructor of which holds
-// any); an array's cell and the fields of its descriptor its type does not
-// fix; a destination's, one per component of what it takes; a lifetime's,
-// one where its kind is a value at run time and none where it is erased;
-// one for every other value. Made of no type, so a data type asks it of its
-// fields while it is being made.
+// How many runtime components a value of `type` takes: a data type's, the
+// count of the words it computed when it was made (none for a value in
+// place no constructor of which holds any); an array's cell and the fields
+// of its descriptor its type does not fix; a destination's, one per
+// component of what it takes; a lifetime's, one where its kind is a value
+// at run time and none where it is erased; one for every other value.
+// Made of no type.
 uint32_t componentCount(mlir::Type type);
+
+// The words a value of `type` takes, as many as componentCount says, each
+// with its kind, made of no type, so a data type asks them of its fields
+// while it is being made; a data type's are the ones it computed then.
+// Layouts::components makes their types.
+llvm::SmallVector<families::SlotWord> slotWordsOf(mlir::Type type);
 
 // Whether everything a value of `type` reaches is bounded by its type: a
 // data type's answer, computed when it was made; any other value bounds it
@@ -283,6 +289,11 @@ public:
   // `unique self` frees its fields: its field types are made here, since
   // no lowering worker makes a type.
   const layout::OwnCells &ownCells(DataType type) const;
+  // The types of the fields of constructor `tag` of `type`, held in a cell
+  // or in place, as its layout lays them out (tagsLaidOut, fieldsAt):
+  // made here, since no lowering worker makes a type; none for a
+  // constructor the type is not laid out over.
+  llvm::ArrayRef<mlir::Type> fieldTypes(DataType type, Tag tag) const;
   // The most bytes of memory everything a value of `type` reaches takes,
   // its own cell included where it is held in one, where its type bounds
   // what it reaches (layout::reachOf): the largest over the constructors
@@ -301,12 +312,17 @@ public:
   layout::Element element(mlir::Type element) const;
 
 private:
+  // By declared tag, the types of each constructor's fields as the layout
+  // lays them out; none for a constructor it is not laid out over.
+  using FieldTypes = llvm::SmallVector<llvm::SmallVector<mlir::Type>>;
+
   // A data type held in place or in a cell, as the layouts hold it: its
-  // slots or its cells, how a `unique self` drop frees its fields, and the
-  // bytes everything a value of it reaches takes, none where its type does
-  // not bound it.
+  // field types, its slots or its cells, how a `unique self` drop frees its
+  // fields, and the bytes everything a value of it reaches takes, none
+  // where its type does not bound it.
   struct LaidOut {
     DataType type;
+    FieldTypes fields;
     std::variant<layout::SumLayout, layout::CellLayout> shape;
     layout::OwnCells owned;
     std::optional<uint64_t> reached;
@@ -326,18 +342,17 @@ private:
   // fields, so all such applications of the member are the same words.
   static families::TagSet tagsLaidOut(DataType type);
   static llvm::SmallVector<mlir::Type> fieldsAt(DataType type, Tag tag);
+  static FieldTypes fieldTypesOf(DataType type);
   void record(mlir::Type component);
   // The cell of a constructor of `fieldTypes`, object slots first.
   layout::Cell cellOf(llvm::ArrayRef<llvm::SmallVector<layout::Component>> fields, Tag tag,
                       bool grouped, MemberKind kind) const;
-  // The components of each field of constructor `tag` of `type`, at its
-  // application where its indices determine its binders, at the
-  // constructor's own binders otherwise, a member of the group named by
-  // position its data type.
-  llvm::SmallVector<llvm::SmallVector<layout::Component>> fieldsOf(DataType type, Tag tag) const;
+  // The components of each of `fields`.
+  llvm::SmallVector<llvm::SmallVector<layout::Component>>
+  componentsOf(llvm::ArrayRef<mlir::Type> fields) const;
   layout::SumLayout sumOf(DataType type) const;
-  layout::CellLayout cellsOf(DataType type) const;
-  layout::OwnCells ownCellsOf(DataType type) const;
+  layout::CellLayout cellsOf(DataType type, const FieldTypes &fields) const;
+  layout::OwnCells ownCellsOf(DataType type, const FieldTypes &fields) const;
 
   mlir::Operation *root;
   // Each laid-out type, unrefined, numbered once in the order its layout

@@ -32,13 +32,18 @@
 // which a type's facts below hold.
 #include "idr/IR/Grades.h"
 
+// The kinds of word a runtime component is, which a type's words hold.
+#include "idr/IR/Generated/Words.h.inc"
+
 #include "mlir/Bytecode/BytecodeImplementation.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/Support/StorageUniquer.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 
 #include <concepts>
+#include <variant>
 
 namespace idr {
 
@@ -74,24 +79,59 @@ private:
   llvm::ArrayRef<Tag> listed_;
 };
 
+// One run-time word of a value, made of no MLIR type, so a data type lays
+// out its words while it is being made: a pointer of the target, an
+// integer of a width, or a builtin scalar the value is itself; and the
+// kind of word it is, which decides how a count is kept of it.
+struct PointerWord {
+  bool operator==(const PointerWord &) const = default;
+};
+struct IntegerWord {
+  unsigned bits;
+  bool operator==(const IntegerWord &) const = default;
+};
+struct ScalarWord {
+  mlir::Type type;
+  bool operator==(const ScalarWord &) const = default;
+};
+struct SlotWord {
+  std::variant<PointerWord, IntegerWord, ScalarWord> shape;
+  layout::Word kind;
+  bool operator==(const SlotWord &) const = default;
+};
+
+// The words a value of a data type takes where it is held, computed once
+// when the type is made: a cell's pointer, a frame stack's top or a
+// number's word; or, held in place, the tag where it is laid out over two
+// constructors or more, then the words its constructors' fields take, two
+// constructors sharing a word of one shape and kind. For each declared
+// constructor a value in place is laid out over, by tag, each field's
+// words, as positions among all of them, the tag's included; nothing for
+// any other constructor, and nothing at all for a value held as one word,
+// whose fields are in its cell. Its count is every reader's: how many
+// runtime components the value takes.
+struct Slots {
+  std::optional<IntegerWord> tag;
+  llvm::ArrayRef<SlotWord> words;
+  llvm::ArrayRef<llvm::ArrayRef<llvm::ArrayRef<uint32_t>>> fields;
+
+  uint32_t count() const { return (tag ? 1u : 0u) + static_cast<uint32_t>(words.size()); }
+};
+
 // What a data type is at run time and what a value of it holds, computed
 // once, when the type is made, from its declaration and indices
-// (lib/IR/Layout/Classes.cpp): its class, its layout, and whether a value
-// holds a reference a count accounts for.
+// (lib/IR/Layout/Classes.cpp): its class, its layout, whether a value holds
+// a reference a count accounts for, and its words.
 struct LayoutFacts {
   Class cls;
   Layout layout;
   Refs refs;
   Reach reach;
-  // The runtime components a value takes where it is held: a cell's
-  // pointer and a number are one; a value in place, its tag (where two
-  // constructors or more are possible) and its fields'; none where no
-  // constructor is possible.
-  uint32_t components;
   // A numeral's largest value, the bound its closed indices fix, which
   // chose its width: written with a fixed-width layout, by the one rule
   // that picks the width from it, and with no other.
-  std::optional<uint64_t> bound = std::nullopt;
+  std::optional<uint64_t> bound;
+  Slots slots;
 };
 
 // Whether a layout is a number: one of the fixed widths or a natural. A
@@ -107,10 +147,12 @@ constexpr unsigned numberBits(Layout layout) {
   return layout == Layout::Word8 ? 8u : layout == Layout::Word16 ? 16u : layout == Layout::Word32 ? 32u : 64u;
 }
 
-// The class, layout and references of member `member` of `group` at the
-// index terms `indices`: the class rule over plain arrays, so it runs inside
-// the storage's construction, where no attribute or type may be made.
-LayoutFacts classify(FamilyAttr group, uint32_t member, llvm::ArrayRef<TermNode> indices);
+// The class, layout, references and words of member `member` of `group`
+// at the index terms `indices`, its words' arrays kept in `allocator`: the
+// class rule over plain arrays, so it runs inside the storage's
+// construction, where no attribute or type may be made.
+LayoutFacts classify(FamilyAttr group, uint32_t member, llvm::ArrayRef<TermNode> indices,
+                     mlir::StorageUniquer::StorageAllocator &allocator);
 
 // The constructors of member `member` of `group` its index terms leave
 // possible: each whose equation does not clash with them (unify, with the
@@ -127,6 +169,11 @@ mlir::ParseResult resolveLabel(mlir::AsmParser &parser, TermNode &node, FamilyAt
 // value: where a region binds a refined scrutinee or a cast forgets a
 // refinement, yes; where a jump passes a parameter, no.
 enum class Narrowing : uint8_t { Allowed, Exact };
+
+// Whether a value of `from` and one of `to` are the same words at run time
+// (DataType::layoutMatch): what decides whether a reindex between them is
+// free or re-packs, and so the re-pack's effects.
+LayoutMatch layoutMatch(mlir::Type from, mlir::Type to);
 
 // Whether a value of `type` can reach a closure or a suspension: one the
 // type names itself, or one a data type it names reaches, which that type's

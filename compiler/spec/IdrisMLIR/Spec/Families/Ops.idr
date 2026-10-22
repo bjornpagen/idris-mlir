@@ -202,9 +202,13 @@ tagOp = MkOp
 ||| asked. Whether it does work is a fact of its two types (`isFree`): none
 ||| where they are the same words at run time, a bounded re-pack where an
 ||| index known inside a function changes the layout, which builds the cells
-||| a result held in a cell needs. Checked by the function's scope walk,
-||| which holds the refinements. A scoped value stays scoped, and `outers`
-||| states its lifetime: the operand's, or one that lifetime encloses.
+||| a result held in a cell needs. A free reindex is its operand and keeps
+||| the operand's hold; a re-pack that builds a cell gives a fresh cell,
+||| counted and claimed unique whatever the operand's hold. Either way it
+||| takes its operand over, and its effects follow from its two types.
+||| Checked by the function's scope walk, which holds the refinements. A
+||| scoped value stays scoped, and `outers` states its lifetime: the
+||| operand's, or one that lifetime encloses.
 export
 dataReindexOp : Op 2 1 0 0
 dataReindexOp = MkOp
@@ -218,7 +222,7 @@ dataReindexOp = MkOp
   , interfaces =
       [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
       , Implements statesOuters [] ]
-  , effects = noEffects
+  , effects = Executes [] [Repacks 0 0] Covered Untouched
   , speculation = Conditionally
   , stages = Always
   , meaning = HandFolder
@@ -272,7 +276,9 @@ assumeOp = MkOp
 ||| natural's layout, a widening at a fixed width. At a width whose numbers
 ||| may pass a natural's small range, the natural is a big the runtime
 ||| builds, big.from_uint's function, so the op builds a value as that op
-||| does: new memory once counting makes the result own its count. Which
+||| does: new memory once counting makes the result own its count, its
+||| limbs written straight into the result's cell, so the runtime holds no
+||| memory besides. Which
 ||| width a numeral has is its type's layout, one op for every width. Its
 ||| result is at most the largest value its operand's type allows, so the
 ||| bound Idris proved of an index reaches the range a check is decided by.
@@ -287,7 +293,7 @@ numeralToNatOp = MkOp
   , regions = []
   , traits = []
   , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements flowInterface ["getFlowEdges"]]
-  , effects = Executes [] [Acquires 0] Covered Touched
+  , effects = Executes [] [Acquires 0] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
   , meaning = HandFolder

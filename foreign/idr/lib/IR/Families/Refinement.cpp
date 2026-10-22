@@ -36,13 +36,26 @@ void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result
 }
 
 // One type is the other at some instance of its levels, or a refinement of
-// it: a cast of anything else could be no refinement's.
+// it: a cast of anything else could be no refinement's. A free reindex is
+// its operand, so it keeps the operand's hold. A re-pack that builds a cell
+// gives a fresh cell, counted and claimed unique whatever the operand's
+// hold, which counting frees as any fresh cell.
 LogicalResult DataReindexOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
   if (!refines(from, to) && !refines(to, from))
     return emitOpError("casts ") << from << " to " << to
                                  << ", which no refinement of index terms relates";
+  if (isFree()) {
+    if (holdOf(from) != holdOf(to))
+      return emitOpError("is free, its result its operand, so it keeps the operand's hold; ")
+             << from << " is given as " << to;
+  } else if (auto data = dyn_cast<DataType>(unrestricted(to));
+             data && data.layout() == Layout::Cell &&
+             !(freedBy(to, Release::Counted) && claims(to, Unique::Self))) {
+    return emitOpError("re-packs into a cell, a fresh one, so its result is counted and claimed ")
+           << "unique; it gives " << to;
+  }
   return lifetimes::verifyOuters(*this, 0);
 }
 
@@ -65,19 +78,10 @@ OpFoldResult DataReindexOp::fold(FoldAdaptor) {
   return {};
 }
 
-// Free where its two types are the same words at run time: one type at
-// two grades, or two data types whose layout facts, computed when each was
-// made, make them one. Essential: a type that holds data types below its
-// grade, an array of them, relates to another only element by element, by
-// a re-pack.
+// Free where its two types are the same words at run time, as their layout
+// facts, computed when each was made, say.
 bool DataReindexOp::isFree() {
-  Type from = unrestricted(getValue().getType());
-  Type to = unrestricted(getType());
-  if (from == to)
-    return true;
-  auto fromData = dyn_cast<DataType>(from);
-  auto toData = dyn_cast<DataType>(to);
-  return fromData && toData && fromData.layoutMatch(toData) == LayoutMatch::SameLayout;
+  return families::layoutMatch(getValue().getType(), getType()) == LayoutMatch::SameLayout;
 }
 
 // A re-pack builds the cells its result needs where an index known inside

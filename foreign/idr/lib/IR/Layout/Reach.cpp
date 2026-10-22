@@ -70,7 +70,7 @@ void Layouts::computeReach() {
       if (visits[at] == Visit::Open) {
         visits[at] = Visit::Expanded;
         for (Tag tag : type.possibleTags())
-          for (Type field : fieldsAt(type, tag))
+          for (Type field : laidOut[at].fields[static_cast<uint32_t>(tag)])
             if (std::optional<uint32_t> next = entryAt(field); next && visits[*next] == Visit::Open)
               stack.push_back(*next);
         continue;
@@ -80,7 +80,7 @@ void Layouts::computeReach() {
       std::optional<uint64_t> most = uint64_t{0};
       for (Tag tag : type.possibleTags()) {
         std::optional<uint64_t> bytes = ownBytes(laidOut[at].shape, tag);
-        for (Type field : fieldsAt(type, tag)) {
+        for (Type field : laidOut[at].fields[static_cast<uint32_t>(tag)]) {
           std::optional<uint32_t> held = entryAt(field);
           std::optional<uint64_t> part = held ? laidOut[*held].reached : reachedBytes(field);
           bytes = bytes && part ? std::optional<uint64_t>(*bytes + *part) : std::nullopt;

@@ -14,7 +14,8 @@
 // place, `#Vect[v0]` a cell, `List` a cell, and `T 0` of a family whose
 // successor climbs its index stops at the budget. The budget bounds the
 // classes and never refuses a program: a spent budget leaves a value in its
-// cells.
+// cells. The rule gives the type its words too, the one count of its
+// runtime components every reader takes (SlotPlan.h).
 //
 // Everything here reads the declarations and the storage of types that
 // exist already, and writes plain arrays: it runs inside a type's
@@ -24,6 +25,8 @@
 #include "idr/IR/Families/Unify.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
+
+#include "SlotPlan.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -54,40 +57,47 @@ struct Application {
   SmallVector<TermNode> indices;
 };
 
-// What an application's unfolding gave: its components, references and
-// reach, or that it met itself or passed the budget, so its member's layout
-// at an unknown index stands.
-struct Unfolded {
-  uint32_t components;
+// What a value of an application gives the value in place that holds it:
+// its words, whether they hold a reference, and what they reach.
+struct Part {
+  SmallVector<SlotWord> words;
   Refs refs;
   Reach reach;
-
-  void add(const Unfolded &part) {
-    components += part.components;
-    if (part.refs == Refs::References)
-      refs = Refs::References;
-    reach = layout::join(reach, part.reach);
-  }
 };
 
-Unfolded unfoldedOf(const LayoutFacts &facts) {
-  return Unfolded{facts.components, facts.refs, facts.reach};
-}
+// A type's facts while it is being made, its words owned.
+struct Laid {
+  Class cls;
+  Layout layout;
+  Refs refs;
+  Reach reach;
+  std::optional<uint64_t> bound;
+  SlotPlan slots;
+
+  Part part() const { return Part{slots.flat(), refs, reach}; }
+};
+
+// A cell's pointer: one counted word, the cell's address.
+SlotWord cellWord() { return SlotWord{PointerWord{}, layout::Word::Cell}; }
 
 // The layout of `member` at an unknown index: a cell where its group holds
-// itself, else in place over every declared constructor, its fields each
-// the layout their own types computed (no field names the group).
-LayoutFacts atUnknown(FamilyAttr group, uint32_t member) {
+// itself, else in place over every declared constructor, each field the
+// words its own type computed (no field names the group).
+Laid atUnknown(FamilyAttr group, uint32_t member) {
   if (group.containment() == Containment::HoldsItself)
-    return {Class::Unknown, Layout::Cell, Refs::References, Reach::Unbounded, 1};
-  uint32_t components = group.tagCount(member) >= 2 ? 1 : 0;
-  for (uint32_t t = 0, n = group.tagCount(member); t < n; ++t) {
-    CtorView ctor = group.ctor(member, Tag{t});
-    for (Type field : ctor.fields)
-      components += layout::componentCount(unrestricted(field));
+    return {Class::Unknown, Layout::Cell, Refs::References, Reach::Unbounded, std::nullopt,
+            oneWord(cellWord())};
+  uint32_t declared = group.tagCount(member);
+  SmallVector<Tag> every;
+  SmallVector<SmallVector<SmallVector<SlotWord>>> fields;
+  for (uint32_t t = 0; t < declared; ++t) {
+    every.push_back(Tag{t});
+    SmallVector<SmallVector<SlotWord>> &perField = fields.emplace_back();
+    for (Type field : group.ctor(member, Tag{t}).fields)
+      perField.push_back(layout::slotWordsOf(field));
   }
   return {Class::Unknown, Layout::InPlace, group.refsAtUnknown(member),
-          group.reachAtUnknown(member), components};
+          group.reachAtUnknown(member), std::nullopt, inPlace(declared, every, fields)};
 }
 
 // The width of a closed numeral whose largest value is `height`.
@@ -123,16 +133,19 @@ uint64_t heightOf(FamilyAttr group, uint32_t member, const Descent &descent,
 }
 
 // The layout a member's kind or shape fixes whatever its constructors hold:
-// a frame stack; a memo sum's cell; a number. None for a member laid out by
-// its constructors. A frame stack grows with the recursion and a memo
-// cell's force writes it, so neither bounds what it reaches.
-std::optional<LayoutFacts> fixedLayout(FamilyAttr group, uint32_t member,
-                                       ArrayRef<TermNode> indices, Class cls) {
+// a frame stack, its top an uncounted word; a memo sum's cell; a number,
+// its word. None for a member laid out by its constructors. A frame stack
+// grows with the recursion and a memo cell's force writes it, so neither
+// bounds what it reaches.
+std::optional<Laid> fixedLayout(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
+                                Class cls) {
   switch (group.memberKind(member)) {
   case MemberKind::Frames:
-    return LayoutFacts{cls, Layout::FrameStack, Refs::Words, Reach::Unbounded, 1};
+    return Laid{cls, Layout::FrameStack, Refs::Words, Reach::Unbounded, std::nullopt,
+                oneWord(SlotWord{PointerWord{}, layout::Word::Uncounted})};
   case MemberKind::Memo:
-    return LayoutFacts{cls, Layout::Cell, Refs::References, Reach::Unbounded, 1};
+    return Laid{cls, Layout::Cell, Refs::References, Reach::Unbounded, std::nullopt,
+                oneWord(cellWord())};
   case MemberKind::Data:
   case MemberKind::Closures:
     break;
@@ -141,69 +154,82 @@ std::optional<LayoutFacts> fixedLayout(FamilyAttr group, uint32_t member,
     return std::nullopt;
   std::optional<Descent> descent = group.descent(member);
   if (cls == Class::Unknown || !descent)
-    return LayoutFacts{cls, Layout::Natural, Refs::References, Reach::Unbounded, 1};
+    return Laid{cls, Layout::Natural, Refs::References, Reach::Unbounded, std::nullopt,
+                oneWord(SlotWord{IntegerWord{64}, layout::Word::Big})};
   // The width and the bound are one fact: the type keeps the bound, which
   // a range check reads, beside the width it chose.
   uint64_t height = heightOf(group, member, *descent, indices);
-  return LayoutFacts{cls, widthOf(height), Refs::Words, Reach::Bounded, 1, height};
+  Layout width = widthOf(height);
+  return Laid{cls, width, Refs::Words, Reach::Bounded, height,
+              oneWord(SlotWord{IntegerWord{numberBits(width)}, layout::Word::Uncounted})};
 }
 
 class Unfolder {
 public:
-  // The unfolding of `app`, or none when it met an application on its
-  // path or passed the budget.
-  std::optional<Unfolded> unfold(const Application &app);
+  // The unfolding of `app`, in place over the constructors its indices
+  // leave possible, or none when it met an application on its path or
+  // passed the budget.
+  std::optional<Laid> unfold(const Application &app);
 
 private:
-  // The components of `field`, declared in `app`'s member with the binders
-  // `subst` solved; none where the unfolding stops.
-  std::optional<Unfolded> field(const Application &app, const Subst &subst, Type field);
+  // What `field`, declared in `app`'s member with the binders `subst`
+  // solved, gives; none where the unfolding stops.
+  std::optional<Part> field(const Application &app, const Subst &subst, Type field);
 
   SmallVector<const Application *> path;
   uint32_t spent = 0;
 };
 
-std::optional<Unfolded> Unfolder::unfold(const Application &app) {
+std::optional<Laid> Unfolder::unfold(const Application &app) {
   for (const Application *on : path)
     if (on->group == app.group && on->member == app.member &&
         ArrayRef<TermNode>(on->indices) == ArrayRef<TermNode>(app.indices))
       return std::nullopt;
   path.push_back(&app);
   SmallVector<Tag> possible = possibleAt(app.group, app.member, app.indices);
-  Unfolded out{possible.size() >= 2 ? 1u : 0u, Refs::Words, Reach::Bounded};
-  // The application itself spends one, so a chain of applications that
-  // keep nothing in place (a family whose one constructor climbs its index
-  // with no other field) passes the budget as any other does.
-  spent += 1 + out.components;
+  // The application itself spends one, and its tag one where it has one,
+  // so a chain of applications that keep nothing in place (a family whose
+  // one constructor climbs its index with no other field) passes the
+  // budget as any other does.
+  spent += 1 + (possible.size() >= 2 ? 1u : 0u);
   if (spent > static_cast<uint32_t>(shapeBudget)) {
     path.pop_back();
     return std::nullopt;
   }
+  Refs refs = Refs::Words;
+  Reach reach = Reach::Bounded;
+  SmallVector<SmallVector<SmallVector<SlotWord>>> fields;
   size_t count = app.group.indices(app.member).size();
   for (Tag tag : possible) {
     CtorView ctor = app.group.ctor(app.member, tag);
     Subst subst(0, static_cast<uint32_t>(ctor.binders.size()), Freedom::Rigid, Freedom::Unknown,
                 Opacity::MeetsAnything, app.group);
     (void)unifyAll(subst, app.indices, ctor.equation, count);
+    SmallVector<SmallVector<SlotWord>> &perField = fields.emplace_back();
     for (Type f : ctor.fields) {
-      std::optional<Unfolded> part = field(app, subst, f);
+      std::optional<Part> part = field(app, subst, f);
       if (!part || spent > static_cast<uint32_t>(shapeBudget)) {
         path.pop_back();
         return std::nullopt;
       }
-      out.add(*part);
+      if (part->refs == Refs::References)
+        refs = Refs::References;
+      reach = layout::join(reach, part->reach);
+      perField.push_back(std::move(part->words));
     }
   }
   path.pop_back();
-  return out;
+  return Laid{Class::Closed, Layout::InPlace, refs, reach, std::nullopt,
+              inPlace(app.group.tagCount(app.member), possible, fields)};
 }
 
-std::optional<Unfolded> Unfolder::field(const Application &app, const Subst &subst, Type type) {
+std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, Type type) {
   Type value = unrestricted(type);
   // A member of the field's group, at the field's index terms instantiated
-  // by the binders the equation solved.
+  // by the binders the equation solved; `declared` what the field's own
+  // type gives where those terms are not closed.
   auto member = [&](FamilyAttr group, uint32_t index, ArrayRef<TermNode> terms,
-                    LayoutFacts declared) -> std::optional<Unfolded> {
+                    Part declared) -> std::optional<Part> {
     Application next{group, index, {}};
     TermWriter write(next.indices);
     Instance instance = Instance::Determined;
@@ -214,46 +240,53 @@ std::optional<Unfolded> Unfolder::field(const Application &app, const Subst &sub
                   llvm::all_of(termsOf(next.indices, group.indices(index).size()),
                                [](Term term) { return term.isClosed(); });
     if (!closed) {
-      spent += declared.components;
-      return unfoldedOf(declared);
+      spent += static_cast<uint32_t>(declared.words.size());
+      return declared;
     }
-    if (std::optional<LayoutFacts> fixed =
-            fixedLayout(group, index, next.indices, Class::Closed)) {
-      spent += fixed->components;
-      return unfoldedOf(*fixed);
+    if (std::optional<Laid> fixed = fixedLayout(group, index, next.indices, Class::Closed)) {
+      Part part = fixed->part();
+      spent += static_cast<uint32_t>(part.words.size());
+      return part;
     }
-    return unfold(next);
+    std::optional<Laid> unfolded = unfold(next);
+    if (!unfolded)
+      return std::nullopt;
+    return unfolded->part();
   };
   if (auto self = dyn_cast<SelfType>(value))
     return member(app.group, self.getMember(), self.getIndices(),
-                  atUnknown(app.group, self.getMember()));
+                  atUnknown(app.group, self.getMember()).part());
   if (auto data = dyn_cast<DataType>(value))
     return member(data.getGroup(), data.getMember(), data.getIndices(),
-                  LayoutFacts{data.cls(), data.layout(),
-                              data.holdsReferences() ? Refs::References : Refs::Words,
-                              layout::reachOf(data), layout::componentCount(data)});
-  uint32_t components = layout::componentCount(value);
-  spent += components;
-  return Unfolded{components, holdsReferences(value) ? Refs::References : Refs::Words,
-                  layout::reachOf(value)};
+                  Part{flatWords(data.slots()),
+                       data.holdsReferences() ? Refs::References : Refs::Words,
+                       layout::reachOf(data)});
+  SmallVector<SlotWord> words = layout::slotWordsOf(type);
+  spent += static_cast<uint32_t>(words.size());
+  return Part{std::move(words), holdsReferences(value) ? Refs::References : Refs::Words,
+              layout::reachOf(value)};
 }
 
 } // namespace
 
-LayoutFacts classify(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices) {
+LayoutFacts classify(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
+                     StorageUniquer::StorageAllocator &allocator) {
+  auto keep = [&](const Laid &laid) {
+    return LayoutFacts{laid.cls,   laid.layout, laid.refs,
+                       laid.reach, laid.bound,  laid.slots.keep(allocator)};
+  };
   size_t count = group.indices(member).size();
   bool closed = llvm::all_of(termsOf(indices, count), [](Term term) { return term.isClosed(); });
   Class cls = closed ? Class::Closed : Class::Unknown;
-  if (std::optional<LayoutFacts> fixed = fixedLayout(group, member, indices, cls))
-    return *fixed;
+  if (std::optional<Laid> fixed = fixedLayout(group, member, indices, cls))
+    return keep(*fixed);
   if (!closed)
-    return atUnknown(group, member);
+    return keep(atUnknown(group, member));
   Application app{group, member, SmallVector<TermNode>(indices)};
   Unfolder unfolder;
-  if (std::optional<Unfolded> unfolded = unfolder.unfold(app))
-    return {Class::Closed, Layout::InPlace, unfolded->refs, unfolded->reach,
-            unfolded->components};
-  return atUnknown(group, member);
+  if (std::optional<Laid> unfolded = unfolder.unfold(app))
+    return keep(*unfolded);
+  return keep(atUnknown(group, member));
 }
 
 } // namespace idr::families

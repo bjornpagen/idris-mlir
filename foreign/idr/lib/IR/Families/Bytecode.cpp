@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The families' terms and sorts in bytecode (idr/IR/Families/Bytecode.h
-// gives their layout), the codecs of the parameters made of them, and the
-// builders the dialect's reader calls once it has read a type's or an
-// attribute's parameters. An array is read into the vector that owns it,
-// and the storage of what the builder makes copies it, so no reader makes
-// an attribute to have somewhere to keep what it read.
+// The builders the dialect's bytecode reader calls once the codecs printed
+// from the families' wires have read a type's or an attribute's parameters
+// (Generated/Wire.cpp.inc): each checks what was read, as the text parser
+// does, and makes it in normal form, so no value bytecode gives is one the
+// text could not. The arrays read are kept in the reader's arena until the
+// storage of what a builder makes copies them.
 
-#include "idr/IR/Families/Bytecode.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
 
@@ -17,179 +16,12 @@ using namespace mlir;
 using namespace idr;
 using namespace idr::families;
 
-//===----------------------------------------------------------------------===//
-// The parts
-//===----------------------------------------------------------------------===//
-
-LogicalResult bytecode::readWord32(DialectBytecodeReader &reader, uint32_t &out) {
-  uint64_t value;
-  if (failed(reader.readVarInt(value)))
-    return failure();
-  if (value > UINT32_MAX)
-    return reader.emitError() << "expects a count of 32 bits, got " << value;
-  out = static_cast<uint32_t>(value);
-  return success();
+// A family is checked as it is made: its declaration's rules, which the
+// members as read may break.
+FamilyAttr idr::readFamily(DialectBytecodeReader &reader, MLIRContext *context,
+                           ArrayRef<Member> members) {
+  return FamilyAttr::getChecked([&] { return reader.emitError(); }, context, members);
 }
-
-LogicalResult bytecode::readLabel(DialectBytecodeReader &reader, StringAttr &out) {
-  StringRef text;
-  if (failed(reader.readString(text)))
-    return failure();
-  out = StringAttr::get(reader.getContext(), text);
-  return success();
-}
-
-LogicalResult bytecode::readNodes(DialectBytecodeReader &reader,
-                                  SmallVectorImpl<TermNode> &nodes) {
-  uint64_t count;
-  if (failed(reader.readVarInt(count)))
-    return failure();
-  size_t first = nodes.size();
-  for (uint64_t i = 0; i < count; ++i) {
-    TermNode node{TermKind::Opaque, 0, 0, 0, Attribute()};
-    if (failed(readCase(reader, node.kind)))
-      return failure();
-    switch (node.kind) {
-    case TermKind::Natural:
-    case TermKind::Level:
-    case TermKind::Successor:
-      if (failed(reader.readVarInt(node.value)))
-        return failure();
-      break;
-    case TermKind::Literal:
-      if (failed(reader.readAttribute(node.payload)))
-        return failure();
-      break;
-    case TermKind::Constructor: {
-      FamilyAttr group;
-      if (failed(reader.readOptionalAttribute(group)) || failed(readWord32(reader, node.member)) ||
-          failed(reader.readVarInt(node.value)) || failed(readWord32(reader, node.arity)))
-        return failure();
-      node.payload = group;
-      break;
-    }
-    case TermKind::Opaque:
-      break;
-    }
-    nodes.push_back(node);
-  }
-  if (!countTerms(ArrayRef<TermNode>(nodes).drop_front(first)))
-    return reader.emitError() << "expects whole index terms";
-  return success();
-}
-
-void bytecode::writeNodes(DialectBytecodeWriter &writer, ArrayRef<TermNode> nodes) {
-  writer.writeVarInt(nodes.size());
-  for (const TermNode &node : nodes) {
-    writeCase(writer, node.kind);
-    switch (node.kind) {
-    case TermKind::Natural:
-    case TermKind::Level:
-    case TermKind::Successor:
-      writer.writeVarInt(node.value);
-      break;
-    case TermKind::Literal:
-      writer.writeAttribute(node.payload);
-      break;
-    case TermKind::Constructor:
-      writer.writeOptionalAttribute(node.payload);
-      writer.writeVarInt(node.member);
-      writer.writeVarInt(node.value);
-      writer.writeVarInt(node.arity);
-      break;
-    case TermKind::Opaque:
-      break;
-    }
-  }
-}
-
-LogicalResult bytecode::readSortList(DialectBytecodeReader &reader, SmallVectorImpl<Sort> &sorts) {
-  return reader.readList(sorts, [&](Sort &sort) -> LogicalResult {
-    sort = Sort{SortKind::OpaqueSort, 0, Attribute()};
-    if (failed(readCase(reader, sort.kind)))
-      return failure();
-    switch (sort.kind) {
-    case SortKind::NatSort:
-    case SortKind::TypeSort:
-    case SortKind::OpaqueSort:
-      return success();
-    case SortKind::ScalarSort: {
-      Type scalar;
-      if (failed(reader.readType(scalar)))
-        return failure();
-      sort.payload = TypeAttr::get(scalar);
-      return success();
-    }
-    case SortKind::FamilySort: {
-      FamilyAttr group;
-      if (failed(reader.readOptionalAttribute(group)) || failed(readWord32(reader, sort.member)))
-        return failure();
-      sort.payload = group;
-      return success();
-    }
-    }
-    return failure();
-  });
-}
-
-void bytecode::writeSortList(DialectBytecodeWriter &writer, ArrayRef<Sort> sorts) {
-  writer.writeList(sorts, [&](const Sort &sort) {
-    writeCase(writer, sort.kind);
-    switch (sort.kind) {
-    case SortKind::NatSort:
-    case SortKind::TypeSort:
-    case SortKind::OpaqueSort:
-      return;
-    case SortKind::ScalarSort:
-      writer.writeType(cast<TypeAttr>(sort.payload).getValue());
-      return;
-    case SortKind::FamilySort:
-      writer.writeOptionalAttribute(sort.payload);
-      writer.writeVarInt(sort.member);
-      return;
-    }
-  });
-}
-
-//===----------------------------------------------------------------------===//
-// The parameters' codecs
-//===----------------------------------------------------------------------===//
-
-LogicalResult idr::readIndexTerms(DialectBytecodeReader &reader, SmallVector<TermNode> &value) {
-  return bytecode::readNodes(reader, value);
-}
-
-void idr::writeIndexTerms(DialectBytecodeWriter &writer, ArrayRef<TermNode> value) {
-  bytecode::writeNodes(writer, value);
-}
-
-LogicalResult idr::readSorts(DialectBytecodeReader &reader, SmallVector<Sort> &value) {
-  return bytecode::readSortList(reader, value);
-}
-
-void idr::writeSorts(DialectBytecodeWriter &writer, ArrayRef<Sort> value) {
-  bytecode::writeSortList(writer, value);
-}
-
-LogicalResult idr::readRefinement(DialectBytecodeReader &reader, DenseI32ArrayAttr &value) {
-  return reader.readOptionalAttribute(value);
-}
-
-void idr::writeRefinement(DialectBytecodeWriter &writer, DenseI32ArrayAttr value) {
-  writer.writeOptionalAttribute(value);
-}
-
-LogicalResult idr::readFamilyRef(DialectBytecodeReader &reader, FamilyAttr &value) {
-  return reader.readAttribute(value);
-}
-
-void idr::writeFamilyRef(DialectBytecodeWriter &writer, FamilyAttr value) {
-  writer.writeAttribute(value);
-}
-
-//===----------------------------------------------------------------------===//
-// The checked builders
-//===----------------------------------------------------------------------===//
 
 DataType idr::readDataType(DialectBytecodeReader &reader, MLIRContext *, FamilyAttr group,
                            uint64_t member, ArrayRef<TermNode> indices,
